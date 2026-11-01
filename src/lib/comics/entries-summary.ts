@@ -13,6 +13,8 @@ export interface EntriesSummary {
   /** Plain /comics visits: the printed address or anyone typing it. */
   direct: number;
   poster: number;
+  /** Devices unlocked by the link printed inside the book. */
+  vip: number;
   byBuilding: { building: number; count: number }[];
   byEpisode: { ep: number; count: number }[];
   /** Newest first. */
@@ -29,12 +31,14 @@ export function summariseEntries(rows: readonly EntryCountRow[]): EntriesSummary
   const days = new Map<string, number>();
   let direct = 0;
   let poster = 0;
+  let vip = 0;
   for (const row of rows) {
     // bigint comes back from the API as a number or a string, depending on size.
     const count = Number(row.count);
     if (!Number.isFinite(count)) continue;
     add(days, row.day, count);
     if (row.entry === "direct") direct += count;
+    if (row.entry === "vip") vip += count;
     if (row.entry === "poster") {
       poster += count;
       if (row.building > 0) add(buildings, row.building, count);
@@ -42,9 +46,10 @@ export function summariseEntries(rows: readonly EntryCountRow[]): EntriesSummary
     }
   }
   return {
-    total: direct + poster,
+    total: direct + poster + vip,
     direct,
     poster,
+    vip,
     byBuilding: Array.from(buildings, ([building, count]) => ({ building, count })).sort(
       (a, b) => b.count - a.count || a.building - b.building
     ),

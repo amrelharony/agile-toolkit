@@ -1,6 +1,7 @@
 import { useHistoryStore } from "@/lib/history/history-store";
 import { useLlmStore } from "@/lib/stores/llm-store";
 import { resetCloudPersistedRegistry } from "@/lib/sync/use-cloud-persisted";
+import { clearVipHint } from "@/lib/vip/hint";
 
 /**
  * "Clear data on this browser".
@@ -149,6 +150,9 @@ export function clearLocalWorkspaceData(
   attempt(() => useHistoryStore.getState().clearAll());
   attempt(() => useLlmStore.getState().clearAll());
   attempt(() => resetCloudPersistedRegistry());
+  // The menus forget the VIP tools. The access cookie is httpOnly, so it stays:
+  // opening /vip on this device puts the hint back.
+  attempt(() => clearVipHint());
 
   if (opts.scope === "tab") removeKeys(() => window.localStorage, RESET_STORE_KEYS);
   else clearStorage(() => window.localStorage);

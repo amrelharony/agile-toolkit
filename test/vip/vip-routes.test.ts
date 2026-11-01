@@ -14,6 +14,9 @@ const KEY = "testkey12345";
 
 const h = vi.hoisted(() => ({ cookie: undefined as string | undefined }));
 
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/squads/server", () => ({ getSquadAdminClient: () => null }));
+vi.mock("@/lib/comics/store", () => ({ listEarlyWeekly: async () => [] }));
 vi.mock("@/lib/vip/book-access", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/vip/book-access")>();
   const hashes = [createHash("sha256").update("testkey12345").digest("hex")];
@@ -72,6 +75,14 @@ describe("printed VIP link", () => {
     expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
   });
 
+  it("sets a readable, non-secret hint beside the httpOnly key", async () => {
+    const { res } = await open(KEY);
+    const hint = res.cookies.get("agile-toolkit:vip-hint");
+    expect(hint?.value).toBe("1");
+    expect(hint?.httpOnly).toBeFalsy();
+    expect(hint).toMatchObject({ sameSite: "lax", path: "/" });
+  });
+
   it("stores the key normalised when it was typed in capitals", async () => {
     const { res } = await open(KEY.toUpperCase());
     expect(res.cookies.get("agile-toolkit:vip")?.value).toBe(KEY);
@@ -82,6 +93,7 @@ describe("printed VIP link", () => {
     expect(location.pathname).toBe("/vip");
     expect(location.searchParams.get("link")).toBe("invalid");
     expect(res.cookies.get("agile-toolkit:vip")).toBeUndefined();
+    expect(res.cookies.get("agile-toolkit:vip-hint")).toBeUndefined();
   });
 
   it("marks secure cookies in production", async () => {

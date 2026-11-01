@@ -95,7 +95,7 @@ export function EntriesView({ enabled }: { enabled: boolean }) {
         <>
           <p className="text-sm text-text">
             {summary.total} entries: {summary.poster} from posters, {summary.direct} from the
-            printed address or direct.
+            printed address or direct, {summary.vip} VIP activations from the link in the book.
           </p>
           <Rows
             title="By building"
