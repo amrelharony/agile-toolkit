@@ -95,9 +95,9 @@ describe("Outcomes, quality & library tool descriptions", () => {
     expect(review).toContain("no author ranking");
   });
 
-  it("Agile at Work promises no transcripts before the content exists", () => {
-    // Decision U1: the transcript and contents files ship empty.
-    expect(description("agile-at-work")).not.toMatch(/transcript|contents|chapter/i);
+  it("Agile at Work no longer promises a PDF to download", () => {
+    // The comics are protected web-sized images; there is no download.
+    expect(description("comics")).not.toMatch(/download|pdf/i);
   });
 
   it("keeps a smart default only where a page still offers it", () => {

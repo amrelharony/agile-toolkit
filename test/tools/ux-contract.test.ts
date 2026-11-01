@@ -96,8 +96,7 @@ const UPGRADED_TOOLS = [
   "weighted-decision",
   "cynefin",
   // Phase 8: Outcomes, quality & library. Risk Register and Tech Debt moved
-  // into the workspace (one store each); Agile at Work is a scoped upgrade
-  // (below).
+  // into the workspace (one store each).
   "okrs",
   "nps-csat",
   "hypothesis-tracker",
@@ -118,8 +117,6 @@ const UPGRADED_TOOLS = [
  */
 const SCOPED_UPGRADES: Record<string, string> = {
   canvas: "Phase 4: Sprint board and Story map templates bound to live data only",
-  "agile-at-work":
-    "Phase 8: a transcript per page, a table of contents and per-chapter tool links only",
 };
 
 /**

@@ -10,20 +10,15 @@ import {
 import { tools } from "@/lib/constants/tools";
 
 describe("tool catalog visibility", () => {
-  it("hides the comic and its empty Library category until the PDF ships", () => {
-    expect(getVisibleTools(false).some((t) => t.id === "agile-at-work")).toBe(false);
-    expect(getVisibleToolsByCategory("Library", false)).toEqual([]);
-    expect(getVisibleCategories(false)).not.toContain("Library");
-  });
-
-  it("shows the comic once it is available", () => {
-    expect(getVisibleTools(true).some((t) => t.id === "agile-at-work")).toBe(true);
-    expect(getVisibleCategories(true)).toContain("Library");
+  it("always shows the comics and their Library category", () => {
+    expect(getVisibleTools().some((t) => t.id === "comics")).toBe(true);
+    expect(getVisibleToolsByCategory("Library").map((t) => t.id)).toEqual(["comics"]);
+    expect(getVisibleCategories()).toContain("Library");
   });
 
   it("never lists an empty category", () => {
-    for (const c of getVisibleCategories(false)) {
-      expect(getVisibleToolsByCategory(c, false).length).toBeGreaterThan(0);
+    for (const c of getVisibleCategories()) {
+      expect(getVisibleToolsByCategory(c).length).toBeGreaterThan(0);
     }
   });
 });
@@ -68,15 +63,15 @@ describe("the More tools shelf", () => {
   });
 
   it("is hidden by default and listed once Show all tools is on", () => {
-    expect(getVisibleTools(true).some(isShelved)).toBe(false);
-    expect(getVisibleTools(true, true).filter(isShelved)).toHaveLength(32);
-    expect(getVisibleCategories(true)).not.toContain("AI / LLM Product Management");
-    expect(getVisibleCategories(true, true)).toContain("AI / LLM Product Management");
-    expect(getVisibleToolsByCategory("Security & Compliance", true)).toEqual([]);
+    expect(getVisibleTools().some(isShelved)).toBe(false);
+    expect(getVisibleTools(true).filter(isShelved)).toHaveLength(32);
+    expect(getVisibleCategories()).not.toContain("AI / LLM Product Management");
+    expect(getVisibleCategories(true)).toContain("AI / LLM Product Management");
+    expect(getVisibleToolsByCategory("Security & Compliance")).toEqual([]);
   });
 
   it("removes nothing from the registry (routes, sitemap and MCP keep every tool)", () => {
-    expect(getVisibleTools(true, true)).toHaveLength(tools.length);
+    expect(getVisibleTools(true)).toHaveLength(tools.length);
   });
 
   it("groups the shelf by registry category without empty groups", () => {

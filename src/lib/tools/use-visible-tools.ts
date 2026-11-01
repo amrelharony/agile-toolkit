@@ -34,15 +34,15 @@ export function useToolVisibility(): ToolVisibility {
   const { showAllTools, setShowAllTools } = useToolPrefs();
   const showAll = Boolean(showAllTools);
   return useMemo(() => {
-    const tools = getVisibleTools(undefined, showAll);
+    const tools = getVisibleTools(showAll);
     const byId = new Map(tools.map((t) => [t.id, t]));
     return {
       showAll,
       setShowAll: setShowAllTools,
       tools,
       byId,
-      categories: getVisibleCategories(undefined, showAll),
-      toolsIn: (category) => getVisibleToolsByCategory(category, undefined, showAll),
+      categories: getVisibleCategories(showAll),
+      toolsIn: (category) => getVisibleToolsByCategory(category, showAll),
       isVisible: (toolId) => byId.has(toolId),
       shelfCount: getShelfTools().length,
     };

@@ -24,9 +24,7 @@ export function RelatedTools({ toolId }: { toolId: string }) {
 
   const current = getToolById(toolId);
   const pool =
-    current && isShelved(current)
-      ? new Map(getVisibleTools(undefined, true).map((t) => [t.id, t]))
-      : visible;
+    current && isShelved(current) ? new Map(getVisibleTools(true).map((t) => [t.id, t])) : visible;
   const at = section.toolIds.indexOf(toolId);
   const order = [...section.toolIds.slice(at + 1), ...section.toolIds.slice(0, at)];
   const related = order.flatMap((id) => pool.get(id) ?? []).slice(0, MAX_RELATED);

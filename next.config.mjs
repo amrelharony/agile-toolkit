@@ -1,5 +1,3 @@
-import { readComicAsset } from "./scripts/comic-asset.mjs";
-
 /** @type {import('next').NextConfig} */
 
 /**
@@ -14,7 +12,7 @@ import { readComicAsset } from "./scripts/comic-asset.mjs";
  *     directly when ANTHROPIC_API_KEY is unset server-side
  *   - Google fonts (Inter, JetBrains Mono, Source Serif)
  *   - Open-Meteo forecast API for the header weather widget (lib/weather/api.ts)
- *   - data: + blob: for images/exports
+ *   - data: + blob: for images/exports, and Supabase Storage for the comics' art
  *
  * The `connect-src` whitelist uses a wildcard for *.supabase.co so any
  * project URL works without rebuild. Tighten to the specific project
@@ -49,7 +47,7 @@ const cspDirectives = [
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https://*.googleusercontent.com https://avatars.githubusercontent.com",
+  "img-src 'self' data: blob: https://*.supabase.co https://*.googleusercontent.com https://avatars.githubusercontent.com",
   // `blob:` is required by connect-src (not just img-src): three's GLTFLoader
   // decodes the mascot's embedded texture via ImageBitmapLoader, which does
   // `fetch(blob:…)` — governed by connect-src. Without it the texture fails to
@@ -84,15 +82,14 @@ const securityHeaders = [
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
 ];
 
-// Comic PDF size + content hash, read once per `next dev` / `next build` (see
-// scripts/comic-asset.mjs). Both are "" while public/comics/agile-at-work.pdf
-// is absent; restart `next dev` after adding or replacing the file.
-const comicAsset = await readComicAsset();
-
 const nextConfig = {
-  env: {
-    NEXT_PUBLIC_COMIC_PDF_SIZE: comicAsset.size,
-    NEXT_PUBLIC_COMIC_PDF_VERSION: comicAsset.version,
+  async redirects() {
+    return [
+      // The old comic reader. Its pages were a PDF's, so they map to nothing
+      // more specific than the comics section.
+      { source: "/agile-at-work", destination: "/comics", permanent: true },
+      { source: "/agile-at-work/:path*", destination: "/comics", permanent: true },
+    ];
   },
   async headers() {
     return [
@@ -113,20 +110,6 @@ const nextConfig = {
       {
         source: "/sw.js",
         headers: [{ key: "Cache-Control", value: "no-cache" }],
-      },
-      // Comic PDFs: matching rules stack, so the security headers above still
-      // apply. Not `immutable` — the filename is stable and the owner may
-      // replace the file; the reader's `?v=<hash>` URL handles cache busting.
-      // PDF files only: /comics itself is a page, and a day-long public cache
-      // would keep serving an old one.
-      {
-        source: "/comics/:file([^/]+\\.pdf)",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, max-age=86400, stale-while-revalidate=604800",
-          },
-        ],
       },
     ];
   },

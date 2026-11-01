@@ -25,7 +25,6 @@ vi.mock("@/app/(tools)/sprint/cockpit", () => ({
   ),
 }));
 vi.mock("@/components/shared/insights-engine", () => ({ InsightsEngine: () => null }));
-vi.mock("@/components/comic/featured-comic-banner", () => ({ FeaturedComicBanner: () => null }));
 vi.mock("@/components/home/home-search", () => ({ HomeSearch: () => <div>search</div> }));
 vi.mock("@/components/home/job-launcher", () => ({ JobLauncher: () => <div>jobs</div> }));
 vi.mock("@/components/home/continue-section", () => ({ ContinueSection: () => null }));

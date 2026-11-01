@@ -3,14 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { tools } from "@/lib/constants/tools";
 
 /**
- * /sitemap.xml lists the landing page and every public tool route, and only
- * advertises the comic reader once its PDF exists (build-time env written by
- * next.config.mjs). The module is re-imported per case so a future
- * module-level read of the env can't make these tests pass by accident.
+ * /sitemap.xml lists the landing page and every public tool route, and stays
+ * sync: the stories have their own /comics/sitemap.xml. The module is
+ * re-imported per case so a future module-level read of the env can't make
+ * these tests pass by accident.
  */
 
 const BASE = "https://agile.amrelharony.com";
-const COMIC_URL = `${BASE}/agile-at-work`;
 
 async function loadSitemapUrls(): Promise<string[]> {
   vi.resetModules();
@@ -23,26 +22,13 @@ afterEach(() => {
 });
 
 describe("sitemap", () => {
-  it("lists the landing page and every tool path except the comic while its PDF is missing", async () => {
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_SIZE", "");
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_VERSION", "");
+  it("lists the landing page and every tool path, the comics included", async () => {
     const urls = await loadSitemapUrls();
 
     expect(urls).toContain(`${BASE}/`);
-    for (const tool of tools) {
-      if (tool.path === "/agile-at-work") continue;
-      expect(urls).toContain(`${BASE}${tool.path}`);
-    }
-    expect(urls).not.toContain(COMIC_URL);
+    for (const tool of tools) expect(urls).toContain(`${BASE}${tool.path}`);
+    expect(urls).toContain(`${BASE}/comics`);
     expect(new Set(urls).size).toBe(urls.length);
-  });
-
-  it("includes the comic reader once the PDF is available", async () => {
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_SIZE", "12897485");
-    vi.stubEnv("NEXT_PUBLIC_COMIC_PDF_VERSION", "a163ac728a97");
-    const urls = await loadSitemapUrls();
-
-    expect(urls).toContain(COMIC_URL);
     expect(urls).toHaveLength(tools.length + 1);
   });
 

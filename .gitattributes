@@ -1,8 +1,7 @@
 # Line endings: LF in the repository and in every checkout, so a Windows
-# worktree (core.autocrlf=true) sees the same bytes CI and Vercel do. Two
-# tests compare committed files byte for byte (test/pdf/worker-version) or
-# load a script with a shebang (test/comic/comic-asset-script); both failed on
-# CRLF checkouts before this file.
+# worktree (core.autocrlf=true) sees the same bytes CI and Vercel do. A test
+# compares committed files byte for byte (test/pdf/worker-version), which failed
+# on CRLF checkouts before this file.
 *            text=auto eol=lf
 *.ts         text eol=lf
 *.tsx        text eol=lf

@@ -25,12 +25,10 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import dynamic from "next/dynamic";
-import { usePathname } from "next/navigation";
 import { X, Plus, History, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
-import { isComicRoute } from "@/lib/comic/agile-at-work";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { createClickInteraction } from "./engine/interactions/clicks";
@@ -246,14 +244,9 @@ export function MascotAssistant() {
   // `settled` keeps the owner from seeing the visitor notice flash while
   // auth is still loading; no chat component mounts until it's settled.
   const { isOwner, settled } = useOwnerState();
-  // The comic reader fills the viewport, so its toolbar (Prev/Next, the
-  // scrubber, Download PDF) always ends up under the fixed figure's 130×220
-  // hit box — on phones and desktops alike. The figure steps aside on that
-  // route; the header button and Cmd/Ctrl+J still open the chat.
-  const pathname = usePathname();
   const isPhone = useIsPhone();
   const typingOnPhone = useTypingOnPhone(isPhone);
-  const hideFigure = isComicRoute(pathname) || typingOnPhone;
+  const hideFigure = typingOnPhone;
   const box = isPhone ? MASCOT_BOX_PHONE : MASCOT_BOX;
 
   // The 3D figure loads after the page is idle; until it's ready (or if

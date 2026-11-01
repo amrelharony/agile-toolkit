@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
 /**
- * The toast stack moves off the bottom on the comic reader, whose page
- * controls live along the bottom of the viewport.
+ * The toast stack moves off the bottom under /comics, where it would sit over
+ * panels and story controls and swallow taps.
  */
 
 const h = vi.hoisted(() => ({ pathname: "/" }));
@@ -28,7 +28,9 @@ function stackPosition(): { y: string | null; x: string | null } {
 
 describe("AppToaster", () => {
   it.each([
-    ["/agile-at-work", { y: "top", x: "center" }],
+    ["/comics", { y: "top", x: "center" }],
+    // A rewritten story page is prerendered at its internal path.
+    ["/comics/ep/27", { y: "top", x: "center" }],
     ["/kudos", { y: "bottom", x: "right" }],
   ])("on %s stacks toasts at %j", async (pathname, expected) => {
     h.pathname = pathname;

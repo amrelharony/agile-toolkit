@@ -34,7 +34,7 @@ describe("home: tools by job", () => {
     // A section appears when at least one of its tools is off the "More
     // tools" shelf; the all-shelved AI section stays out of the way.
     const visible = new Set(getVisibleTools().map((t) => t.id));
-    for (const s of SECTIONS.filter((x) => x.id !== "library")) {
+    for (const s of SECTIONS) {
       const shown = s.toolIds.some((id) => visible.has(id));
       expect(
         summaries.some((t) => t?.includes(s.label)),
