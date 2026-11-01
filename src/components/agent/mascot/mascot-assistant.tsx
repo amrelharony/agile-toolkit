@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * Floating 3D mascot + chat panel — replaces the agent sheet (Phase 3).
+ * Floating Amr + chat panel — replaces the agent sheet (Phase 3).
  *
- * The mascot is always present (bottom-right). Clicking it — or the header
+ * Amr is always present (bottom-right). Clicking him — or the header
  * button, or Cmd/Ctrl+J — toggles a chat panel that binds to the SAME
  * useAgentStore + sendUserMessage + ConfirmAction as before, so the agent's
  * tool-calling brain, confirm cards, and persistence are unchanged; only the
- * shell is new. The mascot "talks" (Talking clip) while the agent streams.
+ * shell is new. Amr "talks" (the review pose) while the agent streams.
  *
  * The agent itself is owner-only. Visitors keep the mascot (clicks, Konami,
  * Cmd/Ctrl+J) but the panel shows <VisitorGuide/> — a tool finder — instead
@@ -17,7 +17,6 @@
  */
 
 import {
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -36,6 +35,7 @@ import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
+import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "./engine/sprite-poses";
 import { VisitorGuide } from "./visitor-guide";
 import styles from "./mascot-assistant.module.css";
 
@@ -49,45 +49,31 @@ type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
 /** Inset of the float button from its corner. */
 const BUTTON_INSET = 4;
-/** Size of the Mascot3D canvas inside that button (see <Mascot3D height>). */
-const MASCOT_BOX = { w: 130, h: 220 };
+/** Size of Amr's box inside that button: one sheet cell at an exact 12:13. */
+const MASCOT_BOX = { w: 132, h: 143 };
 /** Phones get a smaller figure so it covers less of the page. */
-const MASCOT_BOX_PHONE = { w: 96, h: 162 };
-/** The round launcher shown until the 3D figure is ready (or if it can't run). */
+const MASCOT_BOX_PHONE = { w: 96, h: 104 };
+/** The round launcher shown until the figure is ready (or if the sheet can't load). */
 const LAUNCHER_SIZE = 48;
-/** Remount attempts after the GPU drops the WebGL context. */
-const MAX_CONTEXT_RECOVERIES = 2;
 /**
- * Where the figure actually lands inside that 220px canvas. The 3D framing
- * (fov 62, camera at z 2.5 — mascot-3d.tsx) renders the model across rows
- * 50…154, so the visible mascot is only ~105px tall: 50px of transparent
- * headroom above its head and 65px below its feet. Anchoring the chat panel to
- * the canvas edge instead of the figure left it floating ~54px off the mascot's
- * head, which read as a detached, unrelated panel.
+ * How much of the empty box (in sheet px) may sit past the screen edge: all the
+ * space below his feet when parked at the bottom, most of the headroom when
+ * parked at the top. A margin is left there because he jumps into it.
  */
-const MODEL_TOP = 50;
-const MODEL_BOTTOM = 155;
+const FEET_TRIM = SHEET.cellH - FIGURE_BOTTOM;
+const HEAD_TRIM = 16;
 /**
- * How much of that empty canvas may sit past the screen edge: most of the
- * space below the feet when parked at the bottom, most of the headroom when
- * parked at the top. The figure keeps its size; it just stands closer to the
- * edge, so it covers less of the page. A margin is left for the float
- * animation and reactions.
+ * The part of the box that takes clicks: the figure, not the transparent space
+ * around it. Fractions of the box width are left clear on each side.
  */
-const FEET_TRIM = 45;
-const HEAD_TRIM = 35;
-/**
- * The part of the canvas that takes clicks: the figure, not the transparent
- * space around it. Fractions of the box width are left clear on each side.
- */
-const HIT_SIDE = 0.18;
+const HIT_SIDE = 0.28;
 /** Breathing room between the mascot's silhouette and the panel. */
 const PANEL_GAP = 6;
 
 /** Distance of the button's edge from its corner (negative: past the edge). */
 function edgeInset(c: Corner, figure: boolean, boxH: number): number {
   if (!figure) return BUTTON_INSET;
-  const scale = boxH / MASCOT_BOX.h;
+  const scale = boxH / SHEET.cellH;
   return BUTTON_INSET - (c.startsWith("top") ? HEAD_TRIM : FEET_TRIM) * scale;
 }
 
@@ -101,31 +87,31 @@ function buttonPos(c: Corner, figure: boolean, boxH: number): CSSProperties {
   };
 }
 
-/** Where clicks land inside the figure's canvas (see HIT_SIDE). */
+/** Where clicks land inside the figure's box (see HIT_SIDE). */
 function hitBox(box: { w: number; h: number }): CSSProperties {
-  const scale = box.h / MASCOT_BOX.h;
+  const scale = box.h / SHEET.cellH;
   return {
-    top: MODEL_TOP * scale,
-    bottom: box.h - MODEL_BOTTOM * scale,
+    top: FIGURE_TOP * scale,
+    bottom: box.h - FIGURE_BOTTOM * scale,
     left: box.w * HIT_SIDE,
     right: box.w * HIT_SIDE,
   };
 }
 
 /**
- * Chat-panel style for a corner — hugs the mascot's silhouette, not its canvas.
- * `boxH` is the rendered canvas height (the model rows scale with it); with
- * the launcher showing, the panel clears the launcher instead.
+ * Chat-panel style for a corner — hugs Amr's silhouette, not his box. `boxH` is
+ * the rendered box height (the figure's rows scale with it); with the launcher
+ * showing, the panel clears the launcher instead.
  */
 function panelPos(c: Corner, figure: boolean, boxH: number): CSSProperties {
-  const scale = boxH / MASCOT_BOX.h;
-  const top = figure ? MODEL_TOP * scale : 0;
-  const bottom = figure ? MODEL_BOTTOM * scale : LAUNCHER_SIZE;
+  const scale = boxH / SHEET.cellH;
+  const top = figure ? FIGURE_TOP * scale : 0;
+  const bottom = figure ? FIGURE_BOTTOM * scale : LAUNCHER_SIZE;
   const height = figure ? boxH : LAUNCHER_SIZE;
   const inset = edgeInset(c, figure, boxH);
   return {
     ...(c.startsWith("top")
-      ? // Parked up top: clear the model's feet.
+      ? // Parked up top: clear his feet.
         { top: inset + bottom + PANEL_GAP }
       : // Parked at the bottom: clear its head.
         { bottom: inset + (height - top) + PANEL_GAP }),
@@ -147,18 +133,17 @@ function useIsPhone(): boolean {
   return isPhone;
 }
 
-/** Start the 3D figure this long after load if nobody has interacted yet. */
-const MASCOT_3D_DELAY_MS = 5000;
+/** Start the figure this long after load if nobody has interacted yet. */
+const MASCOT_DELAY_MS = 2000;
 
 /**
- * Defer the 3D figure (three.js, the model and its animation engine) until
- * the visitor first interacts (pointer, key, scroll) or a few seconds after
- * the page has loaded, whichever comes first, then wait for an idle moment.
- * Its setup is ~0.7 s of main-thread work on a mid-range phone, and the page
- * should be usable before that. The launcher shows until then. Skipped
- * entirely when the visitor asked to save data.
+ * Defer the figure (its chunk and the sprite sheet) until the visitor first
+ * interacts (pointer, key, scroll) or a moment after the page has loaded,
+ * whichever comes first, then wait for an idle moment, so it never competes with
+ * the page's own content. The launcher shows until then. Skipped entirely when
+ * the visitor asked to save data.
  */
-function useDeferred3d(): boolean {
+function useDeferredFigure(): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
@@ -182,7 +167,7 @@ function useDeferred3d(): boolean {
     };
     events.forEach((e) => window.addEventListener(e, start, { passive: true, once: true }));
     const arm = () => {
-      timer = window.setTimeout(start, MASCOT_3D_DELAY_MS);
+      timer = window.setTimeout(start, MASCOT_DELAY_MS);
     };
     if (document.readyState === "complete") arm();
     else window.addEventListener("load", arm, { once: true });
@@ -232,7 +217,7 @@ function useTypingOnPhone(isPhone: boolean): boolean {
   return typing;
 }
 
-const Mascot3D = dynamic(() => import("./mascot-3d"), { ssr: false });
+const MascotSprite = dynamic(() => import("./mascot-sprite"), { ssr: false });
 const OwnerAgentPanel = dynamic(() => import("./owner-agent-panel"), {
   ssr: false,
   loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
@@ -247,8 +232,8 @@ export function MascotAssistant() {
   // auth is still loading; no chat component mounts until it's settled.
   const { isOwner, settled } = useOwnerState();
   // The comic reader fills the viewport, so its toolbar (Prev/Next, the
-  // scrubber, Download PDF) always ends up under the fixed figure's 130×220
-  // hit box — on phones and desktops alike. The figure steps aside on that
+  // scrubber, Download PDF) always ends up under the fixed figure's hit box —
+  // on phones and desktops alike. The figure steps aside on that
   // route; the header button and Cmd/Ctrl+J still open the chat.
   const pathname = usePathname();
   const isPhone = useIsPhone();
@@ -256,28 +241,14 @@ export function MascotAssistant() {
   const hideFigure = isComicRoute(pathname) || typingOnPhone;
   const box = isPhone ? MASCOT_BOX_PHONE : MASCOT_BOX;
 
-  // The 3D figure loads after the page is idle; until it's ready (or if
-  // WebGL can't run) a small launcher keeps the assistant one click away
-  // without an invisible 130×220 hit box over the page.
-  const load3d = useDeferred3d();
+  // The figure loads after the page is idle; until it's ready (or if the sheet
+  // can't load) a small launcher keeps the assistant one click away without an
+  // invisible hit box over the page.
+  const loadFigure = useDeferredFigure();
   const figureReady = useMascotStore((s) => s.ready);
   const [figureFailed, setFigureFailed] = useState(false);
-  const [contextLosses, setContextLosses] = useState(0);
-  const [figureKey, setFigureKey] = useState(0);
-  const onContextLost = useCallback(() => setContextLosses((n) => n + 1), []);
-  const onFigureError = useCallback(() => setFigureFailed(true), []);
-  useEffect(() => {
-    if (contextLosses === 0) return;
-    if (contextLosses > MAX_CONTEXT_RECOVERIES) {
-      setFigureFailed(true);
-      return;
-    }
-    // Give the GPU a moment, then rebuild the scene from scratch.
-    const t = window.setTimeout(() => setFigureKey((k) => k + 1), 1000);
-    return () => window.clearTimeout(t);
-  }, [contextLosses]);
-  const mount3d = load3d && !figureFailed;
-  const showFigure = mount3d && figureReady;
+  const mountFigure = loadFigure && !figureFailed;
+  const showFigure = mountFigure && figureReady;
 
   // Owner signed out mid-session: drop the conversation from memory. (The
   // chat panel unmounts at the same moment, which aborts any in-flight turn.)
@@ -336,6 +307,8 @@ export function MascotAssistant() {
     const h = el.offsetHeight;
     let moved = false;
     let last = { left: rect.left, top: rect.top };
+    let pointerX = e.clientX;
+    let heading: "left" | "right" | null = null;
     const onMove = (ev: PointerEvent) => {
       if (!moved && Math.abs(ev.clientX - start.x) + Math.abs(ev.clientY - start.y) > 8) {
         moved = true;
@@ -346,10 +319,19 @@ export function MascotAssistant() {
           top: Math.max(0, Math.min(window.innerHeight - h, ev.clientY + offset.y)),
         };
         setDragPos(last);
+        // Amr runs the way he's being dragged (a straight-up drag keeps the last way).
+        const dx = ev.clientX - pointerX;
+        const next = dx < 0 ? "left" : dx > 0 ? "right" : (heading ?? "right");
+        pointerX = ev.clientX;
+        if (next !== heading) {
+          heading = next;
+          useMascotStore.getState().setDragDirection(next);
+        }
       }
     };
     const onUp = () => {
       dragCleanupRef.current?.(); // removes all three listeners + nulls the ref
+      useMascotStore.getState().setDragDirection(null);
       if (moved) {
         // Snap from the last DRAGGED position (React batches setDragPos, so the
         // DOM rect may still read the start position here).
@@ -383,7 +365,7 @@ export function MascotAssistant() {
     };
   };
 
-  // Konami easter egg (spin + rainbow + XP) + restore persisted appearance.
+  // Konami easter egg (spin + rainbow + XP) + restore the persisted aura.
   useEffect(() => {
     useMascotStore.getState().hydrateAppearance();
     return installKonami(() => addXp(10));
@@ -439,14 +421,14 @@ export function MascotAssistant() {
         <div
           data-agent-sheet-root
           role="dialog"
-          aria-label="ElharonyClaw assistant"
+          aria-label="Amr assistant"
           aria-modal={false}
           style={panelPos(corner, showFigure, box.h)}
           className="fixed z-50 flex h-[min(68vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border border-border bg-surface-deep/95 shadow-2xl backdrop-blur"
         >
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <div>
-              <p className="text-sm font-semibold text-text">✦ ElharonyClaw</p>
+              <p className="text-sm font-semibold text-text">✦ Amr</p>
               <p className="text-xs text-sub">
                 {isOwner ? "Drive every tool · " : "Find the right tool · "}Cmd/Ctrl+J
               </p>
@@ -510,7 +492,7 @@ export function MascotAssistant() {
           onClick={onMascotClick}
           onPointerDown={onPointerDown}
           aria-label={open ? "Close assistant" : "Open assistant"}
-          title="Ask ElharonyClaw · drag to reposition"
+          title="Ask Amr · drag to reposition"
           style={
             dragPos
               ? { position: "fixed", left: dragPos.left, top: dragPos.top }
@@ -519,7 +501,7 @@ export function MascotAssistant() {
           className={cn(
             "z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
             !dragPos && styles.float,
-            // The figure's canvas is mostly transparent: let clicks there
+            // The figure's box is mostly transparent: let clicks there
             // reach the page, and take them only on the figure (below).
             showFigure && "pointer-events-none",
             !showFigure &&
@@ -535,19 +517,17 @@ export function MascotAssistant() {
               style={hitBox(box)}
             />
           )}
-          {mount3d && (
+          {mountFigure && (
             <div
               aria-hidden="true"
               className={
                 showFigure ? undefined : "pointer-events-none absolute bottom-0 right-0 opacity-0"
               }
             >
-              <Mascot3D
-                key={`${figureKey}-${box.w}`}
+              <MascotSprite
                 width={box.w}
                 height={box.h}
-                onContextLost={onContextLost}
-                onLoadError={onFigureError}
+                onLoadError={() => setFigureFailed(true)}
               />
             </div>
           )}

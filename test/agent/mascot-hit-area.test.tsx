@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
 /**
- * The mascot's 3D canvas is 130×220 but the figure fills only part of it.
- * The transparent rest used to swallow clicks meant for the page under it
- * (a column's "Add a card", a side panel's controls). Only the figure takes
- * clicks now, and the empty canvas below its feet sits past the screen edge.
+ * Amr's box is 132×143 but his figure fills only part of it. The transparent
+ * rest would swallow clicks meant for the page under it (a column's "Add a
+ * card", a side panel's controls). Only the figure takes clicks, and the empty
+ * row below his feet sits past the screen edge.
  */
 
 vi.mock("@/lib/auth/auth-provider", () => ({
@@ -14,8 +14,8 @@ vi.mock("@/lib/auth/auth-provider", () => ({
 vi.mock("next/navigation", () => ({ usePathname: () => "/retro" }));
 vi.mock("@/lib/agent/client", () => ({ abortInFlight: vi.fn() }));
 vi.mock("@/lib/actions/register-all", () => ({}));
-vi.mock("@/components/agent/mascot/mascot-3d", () => ({
-  default: () => <div data-testid="mascot-3d" />,
+vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
+  default: () => <div data-testid="mascot-sprite" />,
 }));
 
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
@@ -46,7 +46,7 @@ afterEach(() => {
 describe("mascot hit area", () => {
   it("takes clicks only on the figure and stands closer to the edge", async () => {
     render(<MascotAssistant />);
-    // Before the 3D figure loads: the round launcher takes clicks as before.
+    // Before the figure loads: the round launcher takes clicks as before.
     const launcher = screen.getByRole("button", { name: "Open assistant" });
     expect(launcher).not.toHaveClass("pointer-events-none");
 
@@ -54,18 +54,18 @@ describe("mascot hit area", () => {
     act(() => {
       window.dispatchEvent(new Event("pointerdown"));
     });
-    expect(await screen.findByTestId("mascot-3d", {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 })).toBeInTheDocument();
 
     const button = screen.getByRole("button", { name: "Open assistant" });
     expect(button).toHaveClass("pointer-events-none");
     const hit = button.querySelector<HTMLElement>("[data-mascot-hit]");
     expect(hit).not.toBeNull();
     expect(hit).toHaveClass("pointer-events-auto");
-    // The hit area is the figure's rows, inset from the canvas edges.
+    // The hit area is the figure's rows, inset from the box edges.
     expect(parseFloat(hit!.style.top)).toBeGreaterThan(0);
     expect(parseFloat(hit!.style.bottom)).toBeGreaterThan(0);
     expect(parseFloat(hit!.style.left)).toBeGreaterThan(0);
-    // Part of the empty canvas below the feet is past the bottom edge.
+    // The empty row below his feet is past the bottom edge.
     expect(parseFloat(button.style.bottom)).toBeLessThan(0);
 
     // Clicking the figure still opens the assistant.

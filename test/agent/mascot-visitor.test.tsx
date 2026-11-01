@@ -20,8 +20,8 @@ vi.mock("@/lib/agent/client", () => ({
 }));
 // The owner panel populates the action registry; the test doesn't need it.
 vi.mock("@/lib/actions/register-all", () => ({}));
-vi.mock("@/components/agent/mascot/mascot-3d", () => ({
-  default: () => <div data-testid="mascot-3d" />,
+vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
+  default: () => <div data-testid="mascot-sprite" />,
 }));
 vi.mock("@/components/agent/agent-conversation", () => ({
   AgentConversation: () => <div data-testid="agent-conversation" />,
@@ -187,10 +187,10 @@ describe("MascotAssistant — comic reader", () => {
     h.pathname = pathname;
     render(<MascotAssistant />);
     expect(screen.getByRole("button", { name: "Open assistant" })).toBeInTheDocument();
-    // The 3D figure waits for the first interaction (or a few seconds after
+    // The figure waits for the first interaction (or a few seconds after
     // load), so it never competes with the page becoming usable.
-    expect(screen.queryByTestId("mascot-3d")).toBeNull();
+    expect(screen.queryByTestId("mascot-sprite")).toBeNull();
     fireEvent.pointerDown(window);
-    await waitFor(() => expect(screen.getByTestId("mascot-3d")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("mascot-sprite")).toBeInTheDocument());
   });
 });

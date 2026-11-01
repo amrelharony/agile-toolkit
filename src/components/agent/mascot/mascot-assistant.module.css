@@ -1,5 +1,5 @@
-/* Floating mascot button — ported from the source .mascot-float: a cyan
-   drop-shadow glow, a gentle 4s float, and a hover lift. Honors reduced-motion. */
+/* Floating mascot button — a soft ground shadow, a slight float and a hover lift.
+   Honors reduced-motion. */
 
 @keyframes mascotFloat {
   0%,
@@ -7,23 +7,145 @@
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-10px);
+    transform: translateY(-3px);
   }
 }
 
 .float {
-  filter: drop-shadow(0 8px 24px rgba(0, 225, 255, 0.18))
-    drop-shadow(0 20px 40px rgba(0, 0, 0, 0.25));
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.25));
   animation: mascotFloat 4s ease-in-out infinite;
 }
 
 .float:hover {
   animation-play-state: paused;
   transform: scale(1.08);
+  transform-origin: 50% 100%;
+}
+
+/* Amr's sprite. One loop steps along the row the inline style has selected;
+   each cell is --cell-w × --cell-h and the shot sets --frames and --loop.
+   Two identical keyframes, so switching between loops restarts at the first
+   frame without remounting the element (no repaint flash). */
+
+.body {
+  transform-origin: 50% 100%;
+}
+
+.sheet {
+  background-repeat: no-repeat;
+}
+
+@keyframes amrFramesA {
+  to {
+    background-position-x: calc(var(--frames) * var(--cell-w) * -1);
+  }
+}
+
+@keyframes amrFramesB {
+  to {
+    background-position-x: calc(var(--frames) * var(--cell-w) * -1);
+  }
+}
+
+.framesA {
+  animation: amrFramesA var(--loop) steps(var(--frames)) infinite;
+}
+
+.framesB {
+  animation: amrFramesB var(--loop) steps(var(--frames)) infinite;
+}
+
+/* Idle: long breaths, then the row's one blink frame for a moment. */
+@keyframes amrIdle {
+  0% {
+    background-position-x: 0;
+  }
+  35% {
+    background-position-x: calc(var(--cell-w) * -1);
+  }
+  60% {
+    background-position-x: calc(var(--cell-w) * -2);
+  }
+  85% {
+    background-position-x: calc(var(--cell-w) * -3);
+  }
+  88% {
+    background-position-x: calc(var(--cell-w) * -4);
+  }
+  94%,
+  100% {
+    background-position-x: calc(var(--cell-w) * -5);
+  }
+}
+
+.idleLoop {
+  animation: amrIdle var(--loop) step-end infinite;
+}
+
+/* Spin: a full turn through the 16 look poses on rows 9 and 10. */
+@keyframes amrSpin {
+  0% {
+    background-position: 0 calc(var(--cell-h) * -9);
+    animation-timing-function: steps(8);
+  }
+  50% {
+    background-position: calc(var(--cell-w) * -8) calc(var(--cell-h) * -9);
+    animation-timing-function: step-end;
+  }
+  50.001% {
+    background-position: 0 calc(var(--cell-h) * -10);
+    animation-timing-function: steps(8);
+  }
+  100% {
+    background-position: calc(var(--cell-w) * -8) calc(var(--cell-h) * -10);
+  }
+}
+
+.spinTurn {
+  animation: amrSpin var(--loop) linear infinite;
+}
+
+@keyframes amrWiggle {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-2px);
+  }
+  75% {
+    transform: translateX(2px);
+  }
+}
+
+.wiggleShake {
+  animation: amrWiggle 0.16s linear infinite;
+}
+
+@keyframes amrEnter {
+  from {
+    transform: scale(0.01);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.enter {
+  transform-origin: 50% 100%;
+  animation: amrEnter 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .float {
+  .float,
+  .framesA,
+  .framesB,
+  .idleLoop,
+  .spinTurn,
+  .wiggleShake,
+  .enter {
     animation: none;
   }
 }
