@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { comicHref } from "@/lib/comics/entry";
 import { themeLabel } from "@/lib/comics/themes";
 import type { StorySummary } from "@/lib/comics/types";
@@ -30,6 +31,19 @@ const ALL = "all";
 
 function sortedUnique(values: readonly string[]): string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
+}
+
+/** Only the verified owner ever sees a way to the portal. */
+function OwnerPortalLink() {
+  const isOwner = useIsOwner();
+  if (!isOwner) return null;
+  return (
+    <p>
+      <Link className="text-sm text-accent underline" href="/settings/comics" prefetch={false}>
+        Comics portal
+      </Link>
+    </p>
+  );
 }
 
 function ThisWeek({ story }: { story: StorySummary }) {
@@ -133,6 +147,7 @@ export function ComicsGallery({ stories }: { stories: readonly StorySummary[] })
     <ToolPageWrapper title="Agile at Work" description="Workplace comics by Amr Elharony">
       <EntryBeacon entry="direct" />
       <div className="space-y-6">
+        <OwnerPortalLink />
         {latest ? (
           <ThisWeek story={latest} />
         ) : (
