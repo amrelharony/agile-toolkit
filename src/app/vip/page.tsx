@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { VIP_COOKIE, VIP_TITLE, isVipKey } from "@/lib/vip/book-access";
+import { VIP_COOKIE, isVipKey } from "@/lib/vip/book-access";
+import { VIP_TITLE } from "@/lib/vip/constants";
 import { VipClient, type VipAccess } from "./vip-client";
 
 // Reads the access cookie, so it can never be prerendered or cached.

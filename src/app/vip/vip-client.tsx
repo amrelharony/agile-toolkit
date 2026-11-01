@@ -5,7 +5,7 @@ import { ArrowLeft, Crown, KeyRound } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
-import { VIP_TITLE } from "@/lib/vip/book-access";
+import { VIP_TITLE } from "@/lib/vip/constants";
 
 export type VipAccess = "unlocked" | "locked" | "invalid-link";
 

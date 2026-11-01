@@ -12,10 +12,6 @@
  * guessing. Uses Web Crypto: safe on the Node and edge runtimes alike.
  */
 
-/** The VIP landing page; the printed link redirects here. */
-export const VIP_ROUTE = "/vip";
-export const VIP_TITLE = "VIP access";
-
 export const VIP_COOKIE = "agile-toolkit:vip";
 /**
  * The whole site: VIP features can live on any tool page, not just /vip.

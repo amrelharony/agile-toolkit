@@ -3,10 +3,10 @@ import {
   VIP_COOKIE,
   VIP_COOKIE_MAX_AGE,
   VIP_COOKIE_PATH,
-  VIP_ROUTE,
   isVipKey,
   normalizeVipKey,
 } from "@/lib/vip/book-access";
+import { VIP_ROUTE } from "@/lib/vip/constants";
 
 export const dynamic = "force-dynamic";
 
