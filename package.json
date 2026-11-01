@@ -20,7 +20,6 @@
     "pretest:run": "node scripts/generate-action-registry.mjs",
     "test:run": "vitest run",
     "scaffold:action": "node scripts/scaffold-action.mjs",
-    "optimize:mascot": "node scripts/optimize-mascot-glb.mjs",
     "pdf:worker": "node scripts/copy-pdf-worker.mjs",
     "mcp:smoke": "node scripts/mcp-smoke.mjs",
     "verify:migrations": "node scripts/verify-mcp-migrations.mjs",
@@ -70,7 +69,6 @@
     "@tsparticles/updater-twinkle": "^3.9.1",
     "@tsparticles/updater-wobble": "^3.9.1",
     "@types/dompurify": "^3.0.5",
-    "@types/three": "^0.170.0",
     "@use-gesture/react": "^10.3.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -94,7 +92,6 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss-animate": "^1.0.7",
-    "three": "^0.170.0",
     "use-sound": "^5.0.0",
     "zod": "^4.3.6",
     "zustand": "^5.0.12"
