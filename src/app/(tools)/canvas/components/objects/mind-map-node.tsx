@@ -47,8 +47,10 @@ export function MindMapNode({
 }) {
   const isRoot = !object.parentNodeId;
   const accent = object.color ?? "#00f0ff";
-  const border = selected ? "#00f0ff" : isRoot ? accent : "rgba(148, 163, 184, 0.6)";
-  const bg = isRoot ? "rgba(0, 240, 255, 0.12)" : "rgba(15, 23, 42, 0.95)";
+  const border = selected ? "var(--accent)" : isRoot ? accent : "rgba(148, 163, 184, 0.6)";
+  const bg = isRoot
+    ? "color-mix(in srgb, var(--accent) 12%, transparent)"
+    : "rgba(15, 23, 42, 0.95)";
 
   return (
     // Pointer surface only: keyboard users select objects with Tab and
@@ -73,7 +75,7 @@ export function MindMapNode({
         border: `${selected ? 2 : isRoot ? 2 : 1}px solid ${border}`,
         borderRadius: 10,
         boxShadow: selected
-          ? "0 0 12px rgba(0,240,255,0.4)"
+          ? "0 0 12px color-mix(in srgb, var(--accent) 40%, transparent)"
           : isRoot
             ? "0 2px 8px rgba(0,0,0,0.4)"
             : "0 1px 3px rgba(0,0,0,0.3)",
@@ -125,8 +127,8 @@ export function MindMapNode({
             height: 22,
             borderRadius: "50%",
             background: "rgba(11,15,23,0.95)",
-            border: "1px solid #00f0ff",
-            color: "#00f0ff",
+            border: "1px solid var(--accent)",
+            color: "var(--accent)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -258,7 +260,7 @@ function NodeEditor({
         fontWeight: "inherit",
         textAlign: "inherit",
         border: "none",
-        outline: "2px solid #00f0ff",
+        outline: "2px solid var(--accent)",
         outlineOffset: -1,
         borderRadius: 6,
         padding: 4,

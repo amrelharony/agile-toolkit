@@ -381,7 +381,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
         type="button"
         disabled
         title="Voice input is not supported in this browser (try Chrome, Edge, or Safari)."
-        className="min-touch-coarse inline-flex items-center justify-center w-8 h-8 rounded text-sub/40 cursor-not-allowed"
+        className="min-touch-coarse inline-flex items-center justify-center w-8 h-8 rounded text-sub cursor-not-allowed"
         aria-label="Voice input (not supported)"
         data-canvas-export-ignore="true"
       >
@@ -396,7 +396,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
         type="button"
         disabled
         title="View-only — voice input disabled."
-        className="min-touch-coarse inline-flex items-center justify-center w-8 h-8 rounded text-sub/40 cursor-not-allowed"
+        className="min-touch-coarse inline-flex items-center justify-center w-8 h-8 rounded text-sub cursor-not-allowed"
         aria-label="Voice input (view-only)"
         data-canvas-export-ignore="true"
       >

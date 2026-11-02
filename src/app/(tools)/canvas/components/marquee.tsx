@@ -67,8 +67,12 @@ export function Marquee({ marquee, camera }: { marquee: MarqueeState; camera: Ca
         >
           <path
             d={d}
-            fill={atCap ? "rgba(245, 158, 11, 0.10)" : "rgba(0, 240, 255, 0.08)"}
-            stroke={atCap ? "#f59e0b" : "#00f0ff"}
+            fill={
+              atCap
+                ? "rgba(245, 158, 11, 0.10)"
+                : "color-mix(in srgb, var(--accent) 8%, transparent)"
+            }
+            stroke={atCap ? "#f59e0b" : "var(--accent)"}
             strokeWidth={1}
             strokeDasharray="4 3"
           />
@@ -119,8 +123,8 @@ export function Marquee({ marquee, camera }: { marquee: MarqueeState; camera: Ca
         top: y,
         width: w,
         height: h,
-        border: "1px solid #00f0ff",
-        background: "rgba(0, 240, 255, 0.08)",
+        border: "1px solid var(--accent)",
+        background: "color-mix(in srgb, var(--accent) 8%, transparent)",
         pointerEvents: "none",
         zIndex: 9999,
       }}

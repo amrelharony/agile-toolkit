@@ -145,7 +145,7 @@ export function AIInsightsPanel({
             Board hygiene
           </h4>
           {insights.length === 0 ? (
-            <p className="text-xs text-success/80">No anti-patterns detected. Board is healthy.</p>
+            <p className="text-xs text-success">No anti-patterns detected. Board is healthy.</p>
           ) : (
             <ul className="space-y-2">
               {insights.map((i) => (
@@ -157,10 +157,10 @@ export function AIInsightsPanel({
                       // rationale. Was text-*-300 on bg-*-500/20.
                       className={`text-xs uppercase font-bold px-1 py-0.5 rounded ${
                         i.severity === "critical"
-                          ? "bg-red-700/50 text-red-100"
+                          ? "bg-danger/10 text-danger"
                           : i.severity === "warn"
-                            ? "bg-amber-700/50 text-amber-100"
-                            : "bg-cyan-700/50 text-cyan-100"
+                            ? "bg-warning/10 text-warning"
+                            : "bg-accent/10 text-accent"
                       }`}
                     >
                       {i.severity}

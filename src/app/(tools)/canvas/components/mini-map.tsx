@@ -125,7 +125,7 @@ function MiniMapImpl({ objects, camera, viewportSize, onPan }: MiniMapProps) {
               ? o.color
               : o.type === "frame"
                 ? "rgba(148,163,184,0.25)"
-                : "rgba(0,240,255,0.4)";
+                : "color-mix(in srgb, var(--accent) 40%, transparent)";
           return (
             <rect
               key={o.id}
@@ -143,8 +143,8 @@ function MiniMapImpl({ objects, camera, viewportSize, onPan }: MiniMapProps) {
           y={vpRect.y}
           width={vpRect.w}
           height={vpRect.h}
-          fill="rgba(0, 240, 255, 0.06)"
-          stroke="#00f0ff"
+          fill="color-mix(in srgb, var(--accent) 6%, transparent)"
+          stroke="var(--accent)"
           strokeWidth={1.5}
         />
       </svg>

@@ -867,7 +867,7 @@ function TagsEditor({
                     type="button"
                     aria-label={`Remove tag ${t}`}
                     onClick={() => removeTag(t)}
-                    className="min-touch-coarse -m-1 p-1 text-accent/70 hover:text-accent"
+                    className="min-touch-coarse -m-1 p-1 text-accent hover:text-accent"
                   >
                     <X className="w-2.5 h-2.5" aria-hidden="true" />
                   </button>

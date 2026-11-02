@@ -74,7 +74,7 @@ function CardObjectImpl({
         borderBottom: "1px solid #475569",
         borderRadius: 6,
         boxShadow: selected
-          ? "0 0 0 2px #00f0ff, 0 0 12px rgba(0,240,255,0.4)"
+          ? "0 0 0 2px var(--accent), 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent)"
           : "0 1px 3px rgba(0,0,0,0.3)",
         cursor: editing ? "text" : o.locked ? "default" : "move",
         zIndex: o.z,
@@ -111,7 +111,7 @@ function CardObjectImpl({
             padding: 8,
             background: "transparent",
             border: "none",
-            outline: "2px solid #00f0ff",
+            outline: "2px solid var(--accent)",
             color: "#e5e7eb",
             fontSize: 13,
             fontWeight: 600,
@@ -169,7 +169,7 @@ function CardObjectImpl({
                   gap: 3,
                   padding: "2px 6px",
                   borderRadius: 10,
-                  background: "rgba(0,240,255,0.1)",
+                  background: "color-mix(in srgb, var(--accent) 10%, transparent)",
                 }}
               >
                 <User style={{ width: 9, height: 9 }} />

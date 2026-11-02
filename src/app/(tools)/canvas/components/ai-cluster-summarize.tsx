@@ -78,7 +78,7 @@ export function AiClusterSummarize({
         size="sm"
         onClick={onClick}
         disabled={memberObjects.length === 0}
-        className="w-full gap-1.5 bg-accent/20 hover:bg-accent/30 text-accent border border-accent/40 font-mono text-xs uppercase tracking-wider"
+        className="w-full gap-1.5 bg-accent/15 hover:bg-accent/20 text-accent border border-accent/40 font-mono text-xs uppercase tracking-wider"
       >
         <Sparkles className="w-3 h-3" />
         Summarize cluster

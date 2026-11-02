@@ -35,10 +35,10 @@ export const GridBackground = memo(function GridBackgroundImpl({
         inset: 0,
         pointerEvents: "none",
         backgroundImage: `
-          linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px),
-          linear-gradient(rgba(148, 163, 184, 0.12) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px)
+          linear-gradient(color-mix(in srgb, var(--sub) 10%, transparent) 1px, transparent 1px),
+          linear-gradient(90deg, color-mix(in srgb, var(--sub) 10%, transparent) 1px, transparent 1px),
+          linear-gradient(color-mix(in srgb, var(--sub) 20%, transparent) 1px, transparent 1px),
+          linear-gradient(90deg, color-mix(in srgb, var(--sub) 20%, transparent) 1px, transparent 1px)
         `,
         backgroundSize: `${minor}px ${minor}px, ${minor}px ${minor}px, ${major}px ${major}px, ${major}px ${major}px`,
         backgroundPosition: `${offsetX}px ${offsetY}px, ${offsetX}px ${offsetY}px, ${offsetX}px ${offsetY}px, ${offsetX}px ${offsetY}px`,

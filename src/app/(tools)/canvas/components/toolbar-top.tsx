@@ -229,7 +229,7 @@ export function ToolbarTop() {
       <button
         type="button"
         onClick={createBoard}
-        className="text-xs text-accent hover:text-accent/80 transition-colors inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-accent/5 shrink-0"
+        className="text-xs text-accent hover:text-accent transition-colors inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-accent/5 shrink-0"
       >
         <Plus className="w-3.5 h-3.5" />
         New

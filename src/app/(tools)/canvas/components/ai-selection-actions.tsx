@@ -178,7 +178,7 @@ export function AiSelectionActions({
           size="sm"
           onClick={onTranslate}
           disabled={!isReady || selectedObjects.length === 0}
-          className="text-xs font-mono uppercase bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 disabled:opacity-40"
+          className="text-xs font-mono uppercase bg-accent/15 hover:bg-accent/20 text-accent border border-accent/40 disabled:opacity-40"
         >
           Translate
         </Button>
@@ -204,7 +204,7 @@ export function AiSelectionActions({
           size="sm"
           onClick={onRewrite}
           disabled={!isReady || selectedObjects.length === 0}
-          className="text-xs font-mono uppercase bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 disabled:opacity-40"
+          className="text-xs font-mono uppercase bg-accent/15 hover:bg-accent/20 text-accent border border-accent/40 disabled:opacity-40"
         >
           Rewrite
         </Button>
@@ -215,7 +215,7 @@ export function AiSelectionActions({
         size="sm"
         onClick={onExtract}
         disabled={!isReady}
-        className="w-full gap-1.5 text-xs font-mono uppercase bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 disabled:opacity-40"
+        className="w-full gap-1.5 text-xs font-mono uppercase bg-accent/15 hover:bg-accent/20 text-accent border border-accent/40 disabled:opacity-40"
       >
         <ListTodo className="w-3 h-3" />
         Extract action items {selection.length === 0 ? "(whole board)" : ""}
