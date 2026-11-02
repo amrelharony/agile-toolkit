@@ -215,8 +215,9 @@ export function ComicsGallery({ stories }: { stories: readonly StorySummary[] })
           </section>
         ) : null}
 
-        <div className="flex items-start gap-4">
-          {/* The note gives way, so the button keeps its words on one line. */}
+        <div className="flex items-baseline gap-4">
+          {/* The note gives way, so the button keeps its words on one line, and
+              they sit on the note's first line, even in a 44px phone target. */}
           <div className="min-w-0 flex-1">
             <CountDisclosure />
           </div>
