@@ -400,7 +400,7 @@ export function TeamClient() {
 
   return (
     <div className="container-meta">
-      <div className="mb-4 flex items-start gap-3 sm:mb-6">
+      <div className="panel mb-4 flex items-start gap-3 px-4 py-4 sm:mb-6 sm:px-6 sm:py-5">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-accent/30 bg-accent/10">
           <Users className="h-5 w-5 text-accent" aria-hidden="true" />
         </div>

@@ -117,7 +117,7 @@ function SectionHeading({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="flex flex-col gap-0.5">
       <h3 className="text-sm font-semibold text-text">{title}</h3>
-      {hint && <p className="text-xs text-sub/70">{hint}</p>}
+      {hint && <p className="text-xs text-sub">{hint}</p>}
     </div>
   );
 }
@@ -133,7 +133,7 @@ function ToggleRow({ label, hint, checked, onChange }: ToggleRowProps) {
     <label className="flex items-start justify-between gap-3 rounded-md border border-border bg-surface-deep/40 px-3 py-2.5 cursor-pointer">
       <span className="flex flex-col gap-0.5">
         <span className="text-sm text-text">{label}</span>
-        {hint && <span className="text-xs text-sub/70">{hint}</span>}
+        {hint && <span className="text-xs text-sub">{hint}</span>}
       </span>
       <Switch checked={checked} onCheckedChange={onChange} />
     </label>
@@ -226,7 +226,7 @@ function CustomThemesSection() {
       />
       <ul className="flex flex-col gap-2" aria-label="Custom themes">
         {customThemes.length === 0 && (
-          <li className="text-xs text-sub/60 italic">No custom themes yet.</li>
+          <li className="text-xs text-sub italic">No custom themes yet.</li>
         )}
         {customThemes.map((t) => (
           <li
@@ -243,7 +243,7 @@ function CustomThemesSection() {
               </span>
               <div className="flex flex-col min-w-0">
                 <span className="text-sm text-text truncate">{t.title}</span>
-                <span className="text-xs text-sub/60 font-mono">{t.id}</span>
+                <span className="text-xs text-sub font-mono">{t.id}</span>
               </div>
             </div>
             <Button

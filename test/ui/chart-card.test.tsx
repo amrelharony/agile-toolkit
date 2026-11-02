@@ -262,11 +262,11 @@ function LegacyChartCard({
             <span className="min-w-0 truncate">{title}</span>
             {badge &&
               (typeof badge === "string" ? (
-                <Badge variant="outline" className="ml-2 text-xs">
+                <Badge variant="outline" className="ml-2 font-sans text-xs">
                   {badge}
                 </Badge>
               ) : (
-                <span className="ml-2">{badge}</span>
+                <span className="ml-2 font-sans">{badge}</span>
               ))}
           </CardTitle>
           {headerExtras && (

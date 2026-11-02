@@ -12,6 +12,7 @@
  */
 
 import { toPng, toJpeg } from "html-to-image";
+import { THEME_COLORS } from "@/lib/theme/boot-script";
 import { objectText } from "./search";
 import type {
   Whiteboard,
@@ -51,17 +52,13 @@ function escapeHtml(s: string): string {
 
 /**
  * Choose the canvas background colour for raster exports so the PNG/JPG
- * matches the user's active theme. Without this every export bakes in the
- * default dark palette, which is wrong on HC (pure black) and looks dirty
- * on light. SSR contexts (no `document`) fall back to the dark canvas
- * surface so the helper stays safe to call anywhere.
+ * matches the board on screen: pure black in high contrast, otherwise the dark
+ * ground a board keeps in both comic themes (`.board-stage` in globals.css), so
+ * the near-white text boards default to stays readable. Safe without `document`.
  */
 function bgColor(): string {
-  if (typeof document === "undefined") return "#0b0f17";
-  const root = document.documentElement;
-  if (root.classList.contains("hc")) return "#000000";
-  if (root.classList.contains("light")) return "#f4f6fb";
-  return "#0b0f17";
+  if (typeof document === "undefined") return THEME_COLORS.dark;
+  return document.documentElement.classList.contains("hc") ? THEME_COLORS.hc : THEME_COLORS.dark;
 }
 
 /**

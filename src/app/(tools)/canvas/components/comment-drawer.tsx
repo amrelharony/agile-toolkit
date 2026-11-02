@@ -443,7 +443,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
             type="button"
             onClick={sendReply}
             disabled={!draft.trim()}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-1 px-2 py-1 rounded bg-accent/15 text-accent border border-accent/30 hover:bg-accent/20 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Send className="w-3 h-3" />
             Reply
@@ -516,7 +516,7 @@ function MentionAutocomplete({
               active ? "bg-surface-deep ring-1 ring-accent/40" : ""
             }`}
           >
-            <span className="w-5 h-5 rounded-full bg-accent/30 text-accent flex items-center justify-center text-xs font-bold">
+            <span className="w-5 h-5 rounded-full bg-accent/20 text-accent flex items-center justify-center text-xs font-bold">
               {(m.name || "?").charAt(0).toUpperCase()}
             </span>
             <span className="flex-1 truncate">{m.name}</span>

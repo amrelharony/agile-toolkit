@@ -15,6 +15,7 @@ import type { Polarity, PolarityPole, Workspace } from "@/lib/stores/workspace-t
 import { generatePolarityPrompts } from "@/lib/ai-prompts/polarity-map";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { POLARITY_ACTIONS } from "@/lib/history/event-actions";
+import { themed } from "@/lib/utils/theme-color";
 
 /**
  * Per-pole textarea that holds a local draft of newline-separated bullet
@@ -280,7 +281,7 @@ export function PolarityMapClient() {
                   >
                     <div
                       className="font-bold text-sm mb-2"
-                      style={{ color: p.side === "left" ? "#00f0ff" : "#ff00aa" }}
+                      style={{ color: themed(p.side === "left" ? "#00f0ff" : "#ff00aa") }}
                     >
                       {p.label}
                     </div>

@@ -75,10 +75,12 @@ export function PresenceChips(props: {
                 justifyContent: "center",
                 fontSize: 11,
                 fontWeight: 700,
-                border: isFollowing ? "2px solid #00f0ff" : "2px solid #0b0f17",
+                border: isFollowing ? "2px solid var(--accent)" : "2px solid #0b0f17",
                 marginLeft: -6,
                 cursor: "pointer",
-                boxShadow: isFollowing ? "0 0 8px rgba(0,240,255,0.6)" : undefined,
+                boxShadow: isFollowing
+                  ? "0 0 8px color-mix(in srgb, var(--accent) 60%, transparent)"
+                  : undefined,
               }}
             >
               {m.name.charAt(0).toUpperCase()}
@@ -184,8 +186,8 @@ export function SpotlightCutout(props: {
           top: sy - 2,
           width: sw + 4,
           height: sh + 4,
-          border: "2px solid #00f0ff",
-          boxShadow: "0 0 24px rgba(0,240,255,0.7)",
+          border: "2px solid var(--accent)",
+          boxShadow: "0 0 24px color-mix(in srgb, var(--accent) 70%, transparent)",
           borderRadius: 6,
         }}
       />
@@ -207,7 +209,7 @@ export function ConnectorBanner(props: {
   if (tool !== "connector") return null;
   return (
     <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-      <div className="bg-cyan-500/20 border border-cyan-400/40 text-cyan-200 text-xs px-3 py-1.5 rounded-full font-mono backdrop-blur-sm">
+      <div className="bg-card border border-accent text-accent text-xs px-3 py-1.5 rounded-full font-mono backdrop-blur-sm">
         {pendingConnectorFromId
           ? "Now click the target object · Esc to cancel"
           : "Click the source object, then click the target"}
@@ -227,7 +229,7 @@ export function EmptyCanvasHint(props: { objectCount: number }) {
   if (props.objectCount !== 0) return null;
   return (
     <div
-      className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none text-xs text-sub/70 font-mono text-center"
+      className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none text-xs text-sub font-mono text-center"
       data-canvas-export-ignore="true"
     >
       Hold <kbd className="px-1 bg-surface/70 border border-border rounded text-xs">Space</kbd> +

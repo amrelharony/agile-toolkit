@@ -32,7 +32,7 @@ export default function Home() {
     <div className="mx-auto max-w-[1200px] space-y-10 px-4 py-6 sm:space-y-12 sm:px-6 sm:py-8 md:p-8">
       {/* Hero */}
       <div className="animate-slide-up pt-6 sm:pt-10">
-        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-[rgba(0,225,255,0.05)] px-3 py-1 sm:mb-6 sm:px-4 sm:py-1.5">
+        <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1 sm:mb-6 sm:px-4 sm:py-1.5">
           <ShieldCheck className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
           <span className="text-xs font-medium text-accent">
             Free · No sign-up · Your data stays in your browser
@@ -41,7 +41,6 @@ export default function Home() {
         <PageHeader
           title="Agile Toolkit"
           subtitle={`${toolCount} interactive tools for Scrum masters and agile teams. Plan the sprint, run the daily and the retro, estimate together, track delivery and keep the team healthy.`}
-          gradient
         />
         <div className="mt-4 flex flex-col gap-3 sm:mt-2 sm:flex-row sm:items-start">
           <HomeSearch />

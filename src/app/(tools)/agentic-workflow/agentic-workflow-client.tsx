@@ -25,6 +25,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { AGENTIC_WORKFLOW_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
+import { themed, tint } from "@/lib/utils/theme-color";
 
 // Lazy-load — adapter chunks stay async for users who only sketch
 // workflows without running them.
@@ -272,8 +273,8 @@ export function AgenticWorkflowClient() {
                       <span
                         className="text-xs uppercase font-bold px-1.5 py-0.5 rounded"
                         style={{
-                          backgroundColor: KIND_COLORS[n.kind] + "20",
-                          color: KIND_COLORS[n.kind],
+                          backgroundColor: tint(KIND_COLORS[n.kind], 13),
+                          color: themed(KIND_COLORS[n.kind]),
                         }}
                       >
                         {n.kind}

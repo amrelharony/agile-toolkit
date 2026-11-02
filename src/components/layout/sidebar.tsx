@@ -60,21 +60,10 @@ function SidebarToolLink({
       className={cn(
         "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px]",
         !expanded && "md:justify-center md:px-0 md:gap-0",
-        isActive
-          ? "bg-accent/10 text-accent shadow-[0_0_10px_var(--glow)_inset]"
-          : "text-sub hover:text-text hover:bg-accent/5"
+        isActive ? "bg-accent/10 text-accent" : "text-sub hover:text-text hover:bg-accent/5"
       )}
       aria-current={isActive ? "page" : undefined}
     >
-      {!isActive && (
-        <div
-          className="
-            absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100
-            bg-gradient-to-r from-transparent via-glow-color to-transparent
-            -translate-x-full group-hover:animate-shimmer
-          "
-        />
-      )}
       <Icon
         className={cn(
           "w-4 h-4 flex-shrink-0 relative z-[1] transition-transform duration-default ease-spring",
@@ -105,7 +94,7 @@ function SidebarToolLink({
       {!expanded && <span className="sr-only">{tool.name}</span>}
       {isActive && (
         <div
-          className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent shadow-[0_0_8px_var(--glow)]"
+          className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-accent"
           aria-hidden="true"
         />
       )}
@@ -336,7 +325,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
       <div
         role="presentation"
         className={cn(
-          "md:hidden fixed inset-0 z-[90] bg-bg/70 backdrop-blur-sm transition-opacity duration-medium",
+          "md:hidden fixed inset-0 z-[101] bg-bg/70 transition-opacity duration-medium",
           mobileOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         )}
         onClick={onClose}
@@ -358,18 +347,13 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         }}
         onPointerLeave={() => setHoverExpanded(false)}
         className={cn(
-          // Shared layout. `glass-elevated` sets `background: var(--card)`
-          // which is rgba(12,16,24,0.65) — 65 % opaque. That's fine on
-          // desktop where the sidebar is inline (nothing visible behind),
-          // but on mobile it's a drawer that slides OVER the page, and any
-          // bold page content (like a tool's H1) bleeds through. The
-          // `max-md:!bg-bg2` override forces a solid background below the
-          // md breakpoint, leaving the desktop glass effect intact.
-          "flex flex-col glass-elevated max-md:!bg-bg2 border-r border-border transition-all duration-slow ease-spring overflow-hidden overscroll-contain-strict",
+          // Shared layout: solid paper, one ink line down the edge.
+          "flex flex-col bg-bg2 border-r border-border transition-all duration-slow ease-spring overflow-hidden overscroll-contain-strict",
           // Mobile portrait: off-canvas fixed drawer; 80 vw with a 18 rem
           // (288 px) cap so the user can still see the underlying page
           // edge and tap to dismiss.
-          "fixed top-0 left-0 bottom-0 z-[91] w-[80vw] max-w-[18rem] pl-safe",
+          // Above the sticky header (z-100), which would show through the open drawer.
+          "fixed top-0 left-0 bottom-0 z-[102] w-[80vw] max-w-[18rem] pl-safe",
           // Mobile landscape: shrink to 60 vw / 14 rem so a 568 × 320 px
           // device still leaves usable content area when the drawer is
           // open. Without this, the user could only see ~64 px of content.
@@ -444,7 +428,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   className={cn(
                     "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px]",
                     isActive
-                      ? "bg-accent/10 text-accent shadow-[0_0_10px_var(--glow)_inset]"
+                      ? "bg-accent/10 text-accent"
                       : "text-sub hover:text-text hover:bg-accent/5",
                     !expanded && "md:justify-center"
                   )}
@@ -465,7 +449,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   )}
                   {isActive && (
                     <div
-                      className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent shadow-[0_0_8px_var(--glow)]"
+                      className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-accent"
                       aria-hidden="true"
                     />
                   )}
@@ -490,7 +474,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   {expanded && (
                     <CollapsibleTrigger
                       data-no-sound="true"
-                      className="flex items-center w-full px-3 py-2 text-xs font-semibold uppercase tracking-wider text-sub hover:text-text transition-colors rounded-lg gap-2"
+                      className="flex items-center w-full px-3 py-2 text-xs font-semibold text-sub hover:text-text transition-colors rounded-lg gap-2"
                     >
                       <Star className="w-3 h-3 text-accent-amber" aria-hidden="true" />
                       <span className="truncate">Favorites</span>
@@ -525,7 +509,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   {expanded && (
                     <CollapsibleTrigger
                       data-no-sound="true"
-                      className="flex items-center w-full px-3 py-2 text-xs font-semibold uppercase tracking-wider text-sub hover:text-text transition-colors rounded-lg gap-2"
+                      className="flex items-center w-full px-3 py-2 text-xs font-semibold text-sub hover:text-text transition-colors rounded-lg gap-2"
                     >
                       <Clock className="w-3 h-3 text-accent" aria-hidden="true" />
                       <span className="truncate">Recent</span>
@@ -613,7 +597,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   // / category-close tones instead.
                   data-no-sound="true"
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors",
+                    "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors",
                     isActiveSection ? "text-accent" : "text-sub hover:text-text"
                   )}
                 >

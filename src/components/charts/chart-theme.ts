@@ -1,41 +1,42 @@
 export const chartTheme = {
-  // Theme variables (globals.css) with the dark values as fallbacks, so
-  // series stay readable on the light theme and PNG exports — which render
-  // the SVG outside the page's CSS — still get a colour.
+  // Theme variables (globals.css) with the comic's values as fallbacks, so
+  // PNG exports — which render the SVG outside the page's CSS — still get a
+  // colour. The names are the old palette's; each token keeps a distinct hue.
   colors: {
-    cyan: "var(--chart-1, #00e1ff)",
-    magenta: "var(--chart-2, #ff00aa)",
-    green: "var(--chart-3, #00ff88)",
-    amber: "var(--chart-4, #ffaa00)",
-    purple: "var(--chart-5, #8b5cf6)",
-    red: "var(--danger, #ef4444)",
-    blue: "var(--info, #3b82f6)",
+    cyan: "var(--chart-1, #1958b3)",
+    magenta: "var(--chart-2, #b0306f)",
+    green: "var(--chart-3, #2e7a3a)",
+    amber: "var(--chart-4, #96600f)",
+    purple: "var(--chart-5, #5d4a9c)",
+    red: "var(--danger, #9c1c2e)",
+    blue: "var(--info, #174f9c)",
   },
-  background: "var(--bg, #06080f)",
-  cardBackground: "var(--surface, #1a1f36)",
-  gridColor: "var(--border, rgba(255,255,255,0.05))",
-  axisColor: "var(--sub, #8a95a8)",
+  background: "var(--bg, #f7f1e6)",
+  cardBackground: "var(--surface, #fdf9f0)",
+  // The quieter line: grids in full ink would fight the series.
+  gridColor: "var(--rule, #d8cfbf)",
+  axisColor: "var(--sub, #574e44)",
   tooltipStyle: {
-    backgroundColor: "var(--surface, rgba(12, 16, 24, 0.9))",
-    border: "1px solid var(--border, rgba(255,255,255,0.08))",
-    borderRadius: "12px",
-    color: "var(--text, #f0f2f5)",
+    backgroundColor: "var(--surface, #fdf9f0)",
+    border: "1.5px solid var(--border, #2b2622)",
+    borderRadius: "6px",
+    color: "var(--text, #1d1a18)",
     fontFamily: "var(--font-mono, monospace)",
     fontSize: "12px",
   },
   legendStyle: {
-    color: "var(--sub, #8a95a8)",
+    color: "var(--sub, #574e44)",
     fontSize: "12px",
     fontFamily: "var(--font-inter, sans-serif)",
   },
 };
 
 export const CHART_COLORS = [
-  "var(--chart-1, #00e1ff)",
-  "var(--chart-2, #ff00aa)",
-  "var(--chart-3, #00ff88)",
-  "var(--chart-4, #ffaa00)",
-  "var(--chart-5, #8b5cf6)",
-  "var(--danger, #ef4444)",
-  "var(--info, #3b82f6)",
+  "var(--chart-1, #1958b3)",
+  "var(--chart-2, #b0306f)",
+  "var(--chart-3, #2e7a3a)",
+  "var(--chart-4, #96600f)",
+  "var(--chart-5, #5d4a9c)",
+  "var(--danger, #9c1c2e)",
+  "var(--info, #174f9c)",
 ];

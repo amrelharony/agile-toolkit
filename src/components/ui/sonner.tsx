@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 // R10: previously imported `useTheme` from `next-themes`, but no
 // `ThemeProvider` from next-themes is mounted in `layout.tsx` —
@@ -8,23 +8,23 @@
 // on `document.documentElement` class list (`.dark` / `.light` / `.hc`,
 // set by the inline boot script in layout.tsx). Read it directly.
 
-import { useEffect, useState } from "react"
-import { Toaster as Sonner } from "sonner"
+import { useEffect, useState } from "react";
+import { Toaster as Sonner } from "sonner";
 
-type ToasterProps = React.ComponentProps<typeof Sonner>
+type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 function detectTheme(): "dark" | "light" {
-  if (typeof document === "undefined") return "dark";
+  if (typeof document === "undefined") return "light";
   const el = document.documentElement;
   // R10: Sonner only understands "light"|"dark"|"system". Map our
   // app's `.hc` (high-contrast) → dark since HC is dark-on-yellow.
   if (el.classList.contains("hc")) return "dark";
-  if (el.classList.contains("light")) return "light";
-  return "dark";
+  if (el.classList.contains("dark")) return "dark";
+  return "light";
 }
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<"dark" | "light">("light");
 
   useEffect(() => {
     setTheme(detectTheme());
@@ -45,15 +45,13 @@ const Toaster = ({ ...props }: ToasterProps) => {
           toast:
             "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
           description: "group-[.toast]:text-muted-foreground",
-          actionButton:
-            "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
-          cancelButton:
-            "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+          actionButton: "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
+          cancelButton: "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
         },
       }}
       {...props}
     />
-  )
-}
+  );
+};
 
-export { Toaster }
+export { Toaster };

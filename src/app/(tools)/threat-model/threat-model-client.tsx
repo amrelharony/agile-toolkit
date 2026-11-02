@@ -640,7 +640,7 @@ export function ThreatModelClient() {
                         return (
                           <td key={o.value} className="text-center px-2 py-1.5">
                             <span
-                              className={count === 0 ? "text-sub/40" : "text-accent font-semibold"}
+                              className={count === 0 ? "text-sub" : "text-accent font-semibold"}
                             >
                               {count === 0 ? (
                                 <>

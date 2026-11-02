@@ -108,7 +108,7 @@ function MemberRow({
                 className={cn(
                   "min-touch-coarse min-w-[60px] flex-1 rounded-md border py-1.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60",
                   on
-                    ? cn("border-transparent", f.bg, f.text)
+                    ? cn("border-border", f.bg, f.text)
                     : "border-border text-sub hover:border-accent/40"
                 )}
               >

@@ -11,6 +11,7 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
+import { chartTheme } from "@/components/charts/chart-theme";
 
 export interface HitlTrendPoint {
   date: string;
@@ -23,17 +24,11 @@ export function HitlMeanRatingChart({ data }: { data: HitlTrendPoint[] }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-        <XAxis dataKey="date" stroke="#888" fontSize={11} />
-        <YAxis domain={[1, 5]} stroke="#888" fontSize={11} />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: "#0f1117",
-            border: "1px solid #2a2f3a",
-            fontSize: 12,
-          }}
-        />
-        <Line dataKey="mean" stroke="#00f0ff" strokeWidth={2} dot={{ r: 3 }} />
+        <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
+        <XAxis dataKey="date" stroke={chartTheme.axisColor} fontSize={11} />
+        <YAxis domain={[1, 5]} stroke={chartTheme.axisColor} fontSize={11} />
+        <Tooltip contentStyle={chartTheme.tooltipStyle} />
+        <Line dataKey="mean" stroke={chartTheme.colors.cyan} strokeWidth={2} dot={{ r: 3 }} />
       </LineChart>
     </ResponsiveContainer>
   );

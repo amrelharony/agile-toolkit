@@ -2,6 +2,7 @@
 
 import { Users, Wifi, WifiOff } from "lucide-react";
 import type { PresenceMember } from "@/lib/realtime/use-room";
+import { IDENTITY_INK } from "@/lib/squads/colors";
 import { cn } from "@/lib/utils";
 
 interface MultiplayerChipProps {
@@ -61,8 +62,8 @@ export function MultiplayerChip({ members, isConnected, isLocalOnly }: Multiplay
             <div
               key={m.id}
               title={m.name}
-              className="w-5 h-5 rounded-full border-2 border-bg flex items-center justify-center text-xs font-bold text-bg"
-              style={{ background: m.color }}
+              className="w-5 h-5 rounded-full border-2 border-bg flex items-center justify-center text-xs font-bold"
+              style={{ background: m.color, color: IDENTITY_INK }}
             >
               {/* Defensive slice — an empty name (defended against in
                   use-presence's sanitize but worth a belt-and-braces

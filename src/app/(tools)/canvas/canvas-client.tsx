@@ -943,7 +943,7 @@ export function CanvasClient() {
         //   - min-h falls from 520px (desktop) to 440px (small) so the
         //     board stays usable on a 667px-tall portrait phone where
         //     220px of chrome leaves only 447px for the canvas.
-        className="relative h-[calc(100dvh-220px)] min-h-[440px] sm:min-h-[520px] w-full rounded-lg border border-border overflow-hidden bg-bg"
+        className="relative h-[calc(100dvh-220px)] min-h-[440px] sm:min-h-[520px] w-full rounded-lg border border-border overflow-hidden bg-bg board-stage"
       >
         {activeBoardId ? (
           <WhiteboardCanvas
@@ -976,9 +976,7 @@ export function CanvasClient() {
           <div
             data-canvas-export-ignore="true"
             className={`absolute top-3 left-3 z-20 text-xs uppercase font-bold tracking-wider px-2 py-1 rounded ${
-              mode === "commenter"
-                ? "bg-cyan-700/40 text-cyan-100"
-                : "bg-amber-700/40 text-amber-100"
+              mode === "commenter" ? "bg-accent/10 text-accent" : "bg-warning/10 text-warning"
             }`}
           >
             {mode === "commenter" ? "Commenter view — drop comments only" : "Read-only view"}
@@ -1060,10 +1058,10 @@ export function CanvasClient() {
                 // canvas's dark surface.
                 className={`uppercase font-bold text-xs px-1.5 py-0.5 rounded ${
                   i.severity === "critical"
-                    ? "bg-red-700/50 text-red-100"
+                    ? "bg-danger/10 text-danger"
                     : i.severity === "warn"
-                      ? "bg-amber-700/50 text-amber-100"
-                      : "bg-cyan-700/50 text-cyan-100"
+                      ? "bg-warning/10 text-warning"
+                      : "bg-accent/10 text-accent"
                 }`}
               >
                 {i.severity}

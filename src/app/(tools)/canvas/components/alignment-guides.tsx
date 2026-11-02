@@ -36,16 +36,32 @@ function AlignmentGuidesImpl({ guides, camera }: AlignmentGuidesProps) {
           const y1 = (g.rangeMin - camera.y) * camera.zoom;
           const y2 = (g.rangeMax - camera.y) * camera.zoom;
           return (
-            <line key={i} x1={x} y1={y1} x2={x} y2={y2}
-              stroke="#00f0ff" strokeWidth={1} strokeDasharray="3 3" />
+            <line
+              key={i}
+              x1={x}
+              y1={y1}
+              x2={x}
+              y2={y2}
+              stroke="var(--accent)"
+              strokeWidth={1}
+              strokeDasharray="3 3"
+            />
           );
         }
         const y = (g.position - camera.y) * camera.zoom;
         const x1 = (g.rangeMin - camera.x) * camera.zoom;
         const x2 = (g.rangeMax - camera.x) * camera.zoom;
         return (
-          <line key={i} x1={x1} y1={y} x2={x2} y2={y}
-            stroke="#00f0ff" strokeWidth={1} strokeDasharray="3 3" />
+          <line
+            key={i}
+            x1={x1}
+            y1={y}
+            x2={x2}
+            y2={y}
+            stroke="var(--accent)"
+            strokeWidth={1}
+            strokeDasharray="3 3"
+          />
         );
       })}
     </svg>

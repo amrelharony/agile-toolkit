@@ -62,7 +62,7 @@ export function AIInsightsPanel({
   for (const o of objects) objectsById.set(o.id, o);
   return (
     <div
-      className="fixed right-3 top-20 bottom-3 w-[min(20rem,calc(100vw-1.5rem))] z-30 bg-surface border border-border rounded-lg shadow-xl flex flex-col pr-safe pb-safe"
+      className="fixed right-3 top-[calc(5rem+var(--amr-band-top,0px))] bottom-[calc(0.75rem+var(--amr-band-bottom,0px))] w-[min(20rem,calc(100vw-1.5rem))] z-30 bg-surface border border-border rounded-lg shadow-xl flex flex-col pr-safe pb-safe"
       data-canvas-export-ignore="true"
     >
       <div className="flex items-center justify-between p-3 border-b border-border">
@@ -145,7 +145,7 @@ export function AIInsightsPanel({
             Board hygiene
           </h4>
           {insights.length === 0 ? (
-            <p className="text-xs text-success/80">No anti-patterns detected. Board is healthy.</p>
+            <p className="text-xs text-success">No anti-patterns detected. Board is healthy.</p>
           ) : (
             <ul className="space-y-2">
               {insights.map((i) => (
@@ -157,10 +157,10 @@ export function AIInsightsPanel({
                       // rationale. Was text-*-300 on bg-*-500/20.
                       className={`text-xs uppercase font-bold px-1 py-0.5 rounded ${
                         i.severity === "critical"
-                          ? "bg-red-700/50 text-red-100"
+                          ? "bg-danger/10 text-danger"
                           : i.severity === "warn"
-                            ? "bg-amber-700/50 text-amber-100"
-                            : "bg-cyan-700/50 text-cyan-100"
+                            ? "bg-warning/10 text-warning"
+                            : "bg-accent/10 text-accent"
                       }`}
                     >
                       {i.severity}

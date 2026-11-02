@@ -423,7 +423,7 @@ function ShareTab({
                       ? "text-warning"
                       : t.role === "commenter"
                         ? "text-success"
-                        : "text-cyan-300"
+                        : "text-accent"
                   }`}
                 >
                   {t.role}

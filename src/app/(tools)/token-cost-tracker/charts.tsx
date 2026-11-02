@@ -12,6 +12,8 @@ import {
   Tooltip,
   ReferenceLine,
 } from "recharts";
+import { chartTheme } from "@/components/charts/chart-theme";
+import { tint } from "@/lib/utils/theme-color";
 
 interface DailySpendChartProps {
   data: { date: string; cost: number; tokens: number }[];
@@ -23,28 +25,26 @@ export function DailySpendChart({ data, dailyBudgetUsd }: DailySpendChartProps) 
   return (
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-        <XAxis dataKey="date" stroke="#888" fontSize={11} />
-        <YAxis stroke="#888" fontSize={11} />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: "#0f1117",
-            border: "1px solid #2a2f3a",
-            fontSize: 12,
-          }}
-        />
+        <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
+        <XAxis dataKey="date" stroke={chartTheme.axisColor} fontSize={11} />
+        <YAxis stroke={chartTheme.axisColor} fontSize={11} />
+        <Tooltip contentStyle={chartTheme.tooltipStyle} />
         <ReferenceLine
           y={dailyBudgetUsd}
-          stroke="#ff6b6b"
+          stroke={chartTheme.colors.red}
           strokeDasharray="4 4"
           label={{
             value: "daily budget",
             position: "right",
-            fill: "#ff6b6b",
+            fill: chartTheme.colors.red,
             fontSize: 10,
           }}
         />
-        <Area dataKey="cost" stroke="#00f0ff" fill="#00f0ff20" />
+        <Area
+          dataKey="cost"
+          stroke={chartTheme.colors.cyan}
+          fill={tint(chartTheme.colors.cyan, 13)}
+        />
       </AreaChart>
     </ResponsiveContainer>
   );

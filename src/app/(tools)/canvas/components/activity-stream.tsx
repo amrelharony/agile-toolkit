@@ -132,7 +132,7 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
                     <span className="text-xs text-sub font-mono">{relativeTime(e.at)}</span>
                   </div>
                   <div className="text-sub flex items-center gap-1.5">
-                    <span className="text-xs uppercase font-bold text-accent/80 bg-accent/10 px-1.5 py-0.5 rounded">
+                    <span className="text-xs uppercase font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded">
                       {e.kind}
                     </span>
                     <span className="text-text">{e.summary}</span>
@@ -145,7 +145,7 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
                 <button
                   type="button"
                   onClick={() => setRenderLimit((n) => n + ACTIVITY_RENDER_CHUNK)}
-                  className="text-xs text-accent hover:text-accent/80 underline-offset-2 hover:underline"
+                  className="text-xs text-accent hover:text-accent underline-offset-2 hover:underline"
                 >
                   Load {Math.min(ACTIVITY_RENDER_CHUNK, events.length - renderLimit)} more
                 </button>

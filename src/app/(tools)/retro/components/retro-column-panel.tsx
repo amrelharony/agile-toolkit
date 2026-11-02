@@ -36,7 +36,7 @@ import { toast } from "@/lib/utils/toast";
 import { type BoardPhase, type RetroCard, MAX_VOTES } from "../types";
 import { sortedByVotes } from "../helpers";
 import { RetroCardItem } from "./retro-card-item";
-import { themed, tint } from "@/lib/utils/theme-color";
+import { themed } from "@/lib/utils/theme-color";
 
 interface CardDraft {
   text: string;
@@ -188,10 +188,7 @@ export function RetroColumnPanel({
           <span className="text-base" aria-hidden="true">
             {column.icon}
           </span>
-          <span
-            className="text-sm font-bold"
-            style={{ color: themed(column.color), textShadow: `0 0 8px ${tint(column.color, 33)}` }}
-          >
+          <span className="text-sm font-bold" style={{ color: themed(column.color) }}>
             {column.label}
           </span>
         </div>

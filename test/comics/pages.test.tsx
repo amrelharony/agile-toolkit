@@ -104,6 +104,9 @@ afterEach(() => {
   document.querySelectorAll("[inert]").forEach((el) => el.removeAttribute("inert"));
 });
 
+/** Any image but Amr beside an empty state's balloon. */
+const comicArt = () => document.querySelector('img:not([alt="Amr, waiting"])');
+
 describe("before anything is imported", () => {
   it("a book episode still shows what its poster promises", async () => {
     render(await ComicStoryPage(params(12)));
@@ -114,7 +117,7 @@ describe("before anything is imported", () => {
     expect(screen.getByText("Book page 73")).toBeTruthy();
     expect(screen.getByText("Borrow the book from your Scrum Master.")).toBeTruthy();
     expect(screen.getByText("The comic will appear here soon")).toBeTruthy();
-    expect(document.querySelector("img")).toBeNull();
+    expect(comicArt()).toBeNull();
     expect(document.querySelector('script[type="application/ld+json"]')).toBeNull();
   });
 
@@ -141,7 +144,7 @@ describe("a number that isn't released", () => {
     h.story = null;
     render(await ComicStoryPage(params(31)));
     expect(screen.getByText("This comic is coming soon")).toBeTruthy();
-    expect(document.querySelector("img")).toBeNull();
+    expect(comicArt()).toBeNull();
     expect(document.querySelector('script[type="application/ld+json"]')).toBeNull();
     expect(screen.queryByText("The lesson")).toBeNull();
     expect(screen.queryByText("Ask your team:")).toBeNull();

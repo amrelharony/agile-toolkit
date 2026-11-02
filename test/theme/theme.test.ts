@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyTheme,
@@ -5,6 +7,7 @@ import {
   resolveTheme,
   setThemePreference,
   THEME_BOOT_SCRIPT,
+  THEME_COLORS,
 } from "@/lib/theme/theme";
 
 afterEach(() => {
@@ -56,10 +59,45 @@ describe("theme", () => {
     vi.unstubAllGlobals();
   });
 
-  it("stays dark when nothing is stored", () => {
+  it("comes up as the comic when nothing is stored", () => {
+    // eslint-disable-next-line no-new-func
+    new Function(THEME_BOOT_SCRIPT)();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(getThemePreference()).toBe("light");
+  });
+
+  it("keeps a stored choice for visitors who already made one", () => {
+    localStorage.setItem("ae-theme", "dark");
     // eslint-disable-next-line no-new-func
     new Function(THEME_BOOT_SCRIPT)();
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(getThemePreference()).toBe("dark");
+  });
+
+  it("boot script follows a dark OS only when 'system' is chosen", () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({
+      matches: q.includes("dark"),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    // eslint-disable-next-line no-new-func
+    new Function(THEME_BOOT_SCRIPT)();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    localStorage.setItem("ae-theme", "system");
+    // eslint-disable-next-line no-new-func
+    new Function(THEME_BOOT_SCRIPT)();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    vi.unstubAllGlobals();
+  });
+
+  it("gives the browser chrome the same colour as each theme's paper", () => {
+    const css = readFileSync(path.resolve(__dirname, "../../src/app/globals.css"), "utf8");
+    const paper = (selector: string) => {
+      const start = css.indexOf(selector);
+      return css.slice(start).match(/--bg:\s*(#[0-9a-f]{6});/i)?.[1];
+    };
+    expect(THEME_COLORS.dark).toBe(paper(":root {"));
+    expect(THEME_COLORS.light).toBe(paper('[data-theme="light"] {'));
+    expect(THEME_COLORS.hc).toBe(paper('[data-theme="hc"] {'));
   });
 });

@@ -27,6 +27,7 @@ import { emitSignal } from "@/lib/signals/signal-bus";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
 import { toast } from "@/lib/utils/toast";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
+import { themed, tint } from "@/lib/utils/theme-color";
 
 // Lazy-load — keeps the adapter chunks async for users who only paste
 // in hallucinations they spotted in production.
@@ -433,8 +434,8 @@ export function HallucinationLogClient() {
                           // CSS value, which the browser silently discards
                           // but linters and screen-readers see as broken.
                           style={{
-                            backgroundColor: (SEVERITY_COLORS[x.severity] ?? "#ffaa00") + "20",
-                            color: SEVERITY_COLORS[x.severity] ?? "#ffaa00",
+                            backgroundColor: tint(SEVERITY_COLORS[x.severity] ?? "#ffaa00", 13),
+                            color: themed(SEVERITY_COLORS[x.severity] ?? "#ffaa00"),
                           }}
                         >
                           {x.severity}

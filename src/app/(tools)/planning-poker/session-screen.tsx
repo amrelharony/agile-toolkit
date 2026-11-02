@@ -600,7 +600,7 @@ export function SessionScreen({
   // disappears from presence and the host strips them within one
   // member-sync tick.
 
-  const toneClasses = connectionTone === "warn" ? "text-warning/80" : "text-accent-green/80";
+  const toneClasses = connectionTone === "warn" ? "text-warning" : "text-accent-green";
 
   return (
     <div className="flex flex-col gap-6">
@@ -1029,7 +1029,7 @@ export function SessionScreen({
             )}
 
             {session.stories.length === 0 ? (
-              <p className="text-xs text-sub/60 text-center py-2">
+              <p className="text-xs text-sub text-center py-2">
                 {isHost ? "No stories yet. Add one above." : "Host hasn't added any stories yet."}
               </p>
             ) : (
@@ -1092,7 +1092,7 @@ export function SessionScreen({
             iconClassName="text-sub"
             titleSize="sm"
             actions={
-              <span className="font-data text-xs text-sub/60">
+              <span className="font-data text-xs text-sub">
                 {votedCount}/{session.participants.length} voted
               </span>
             }
@@ -1105,10 +1105,10 @@ export function SessionScreen({
                 <span className="flex-1 text-sm text-text truncate">
                   {p.name}
                   {p.id === session.hostId && (
-                    <span className="ml-1.5 text-xs text-sub/50">(host)</span>
+                    <span className="ml-1.5 text-xs text-sub">(host)</span>
                   )}
                   {p.id === localParticipantId && p.id !== session.hostId && (
-                    <span className="ml-1.5 text-xs text-sub/50">(you)</span>
+                    <span className="ml-1.5 text-xs text-sub">(you)</span>
                   )}
                 </span>
                 {p.vote !== null ? (

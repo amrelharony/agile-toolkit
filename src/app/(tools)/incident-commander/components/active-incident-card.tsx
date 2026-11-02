@@ -273,7 +273,7 @@ export function ActiveIncidentCard({
             <Button
               size="sm"
               onClick={() => onMarkStatus(incident.id, "resolved")}
-              className="gap-2 bg-success/15 text-success hover:bg-success/25 border border-success/40"
+              className="gap-2 bg-success/15 text-success hover:bg-success/20 border border-success/40"
             >
               <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
               Mark resolved

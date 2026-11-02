@@ -249,8 +249,8 @@ export function KudosForm({
       value: { id: t.id, title: t.title, emoji: t.emoji, hex: t.hex } as KudosTheme,
       title: t.title,
       emoji: t.emoji,
-      // Custom themes ship a hex, not Tailwind classes — the selected
-      // ring is applied inline below.
+      // Custom themes ship a hex, not Tailwind classes — the selected border is
+      // applied inline below. The label stays in page text: the hex can be anything.
       accent: "border-border text-text",
       hex: t.hex,
       custom: true,
@@ -398,7 +398,7 @@ export function KudosForm({
                   type="button"
                   onClick={() => setTheme(t.value)}
                   aria-pressed={isSelected}
-                  style={t.custom && isSelected ? { borderColor: t.hex, color: t.hex } : undefined}
+                  style={t.custom && isSelected ? { borderColor: t.hex } : undefined}
                   className={[
                     "min-touch-coarse rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
                     "flex items-center gap-1.5 justify-center",
@@ -521,7 +521,7 @@ export function KudosForm({
                 />
               </>
             )}
-            {!fromOk && <p className="text-xs text-sub/60">Long names render small on the card.</p>}
+            {!fromOk && <p className="text-xs text-sub">Long names render small on the card.</p>}
           </div>
           <Field label="Team (optional)" error={errors.team}>
             {(props) => (
@@ -579,7 +579,7 @@ export function KudosForm({
               <span>
                 This reads as sarcastic — send anyway?
                 {sentiment.tone.length > 0 && (
-                  <span className="text-warning/70"> (tone: {sentiment.tone.join(", ")})</span>
+                  <span className="text-warning"> (tone: {sentiment.tone.join(", ")})</span>
                 )}
               </span>
             </div>

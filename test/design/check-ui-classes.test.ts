@@ -30,4 +30,32 @@ describe("check-ui-classes guard", () => {
     ].join("\n");
     expect(findViolations(src)).toEqual([]);
   });
+
+  it("flags the comic's palette as hex too", () => {
+    expect(findViolations('<p className="text-[#873a16] bg-[#1c5f3d]/10">x</p>')).toEqual([
+      expect.objectContaining({ rule: "brand-hex-class", match: "text-[#873a16]" }),
+      expect.objectContaining({ rule: "brand-hex-class", match: "bg-[#1c5f3d]/10" }),
+    ]);
+  });
+
+  it("caps own-colour text on its own tint at /20", () => {
+    const flagged = [
+      '<b className="bg-accent/15 hover:bg-accent/25 text-accent">x</b>',
+      '<b className="bg-success/30 text-success">x</b>',
+      '<b className="bg-accent-green/40 text-accent-green">x</b>',
+    ].join("\n");
+    expect(findViolations(flagged)).toEqual([
+      expect.objectContaining({ line: 1, rule: "strong-own-tint", match: "hover:bg-accent/25" }),
+      expect.objectContaining({ line: 2, rule: "strong-own-tint", match: "bg-success/30" }),
+      expect.objectContaining({ line: 3, rule: "strong-own-tint", match: "bg-accent-green/40" }),
+    ]);
+
+    const ok = [
+      '<b className="bg-accent/10 hover:bg-accent/20 text-accent">x</b>',
+      '<b className="bg-accent/30 text-text">x</b>',
+      '<b className="bg-accent/30 text-accent-green">x</b>',
+      '<b className="bg-accent/90 text-white">x</b>',
+    ].join("\n");
+    expect(findViolations(ok)).toEqual([]);
+  });
 });

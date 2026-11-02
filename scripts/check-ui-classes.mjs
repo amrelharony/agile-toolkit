@@ -6,13 +6,18 @@
  * - Text smaller than 12 px (text-[8|9|10|11px]): unreadable, and paired with
  *   muted colour it failed contrast. Use text-xs or larger.
  * - Brand/status hex in class names (text-[#00ff88], bg-[#ef4444]/10, …):
- *   fixed hex ignores the theme and was unreadable in light mode. Use the
- *   tokens (accent, accent-green, success, warning, danger, info).
+ *   fixed hex ignores the theme and was unreadable on paper. Use the tokens
+ *   (accent, accent-green, success, warning, danger, info). Covers the old neon
+ *   hexes and the comic's own palette, which would break night and high contrast.
  * - Solid accent hover fills (hover:bg-accent without an opacity): the
  *   accent is the bright brand colour, so the label vanished on hover. Tint
  *   with hover:bg-accent/10.
  * - Opacity modifiers on border-border (border-border/40): --border is
  *   already translucent and the base layer paints every border with it.
+ * - Own-colour text on a tint of itself stronger than 20% (bg-accent/25 with
+ *   text-accent on the same line, hover and other variants included): the
+ *   three themes' tokens keep 4.5:1 only up to /20
+ *   (test/design/theme-contrast.test.ts). Use /20 or less, or text-text.
  *
  * Exits 0 when clean. Prints file:line and the offending class otherwise.
  */
@@ -28,7 +33,7 @@ const RULES = [
   },
   {
     id: "brand-hex-class",
-    re: /(?<![\w-])(?:[a-z0-9-]+:)*(?:text|bg|border|ring|from|to|via|fill|stroke|outline|decoration)-\[#(?:00ff88|00f0ff|00e1ff|ffaa00|ff00aa|22c55e|ef4444|eab308)\](?:\/\d+)?(?![\w-])/gi,
+    re: /(?<![\w-])(?:[a-z0-9-]+:)*(?:text|bg|border|ring|from|to|via|fill|stroke|outline|decoration)-\[#(?:00ff88|00f0ff|00e1ff|ffaa00|ff00aa|22c55e|ef4444|eab308|873a16|1c4f94|6a3560|1c5f3d|6f510c|9c1c2e|174f9c|4c5b20|784a10|8a2a54|eda86a)\](?:\/\d+)?(?![\w-])/gi,
     hint: "use theme tokens (accent, accent-green, success, warning, danger, info)",
   },
   {
@@ -55,6 +60,27 @@ function walk(dir, out = []) {
 // Solid status dots (bg-[#22c55e] with no opacity) read fine in every theme.
 const ALLOWED = /^(?:[a-z0-9-]+:)*bg-\[#(?:22c55e|ef4444|eab308)\]$/i;
 
+// Colours used as text on tints of themselves. Up to 60% counts as a tint;
+// above that the fill is near-solid and own-colour text is a different bug.
+const TINT_TOKENS =
+  "accent|accent-cyan|accent-3|accent-green|accent-amber|accent-magenta|primary|success|warning|danger|error|info|destructive|status-green|status-yellow|status-red";
+const TINT_RE = new RegExp(
+  `(?<![\\w-])(?:[a-z0-9-]+:)*bg-(${TINT_TOKENS})\\/(\\d+)(?![\\w-])`,
+  "g"
+);
+const MAX_OWN_TINT = 20;
+
+function strongOwnTints(line) {
+  const found = [];
+  for (const m of line.matchAll(TINT_RE)) {
+    const pct = Number(m[2]);
+    if (pct <= MAX_OWN_TINT || pct > 60) continue;
+    const ownText = new RegExp(`(?<![\\w-])(?:[a-z0-9-]+:)*text-${m[1]}(?![\\w/-])`);
+    if (ownText.test(line)) found.push(m[0]);
+  }
+  return found;
+}
+
 export function findViolations(source) {
   const found = [];
   const lines = source.split("\n");
@@ -66,6 +92,14 @@ export function findViolations(source) {
         if (ALLOWED.test(m[0])) continue;
         found.push({ line: i + 1, rule: rule.id, match: m[0], hint: rule.hint });
       }
+    }
+    for (const match of strongOwnTints(line)) {
+      found.push({
+        line: i + 1,
+        rule: "strong-own-tint",
+        match,
+        hint: `tint at most /${MAX_OWN_TINT} under its own text colour, or use text-text`,
+      });
     }
   });
   return found;

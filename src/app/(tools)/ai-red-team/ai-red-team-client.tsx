@@ -23,6 +23,8 @@ import type { RedTeamFinding, Workspace } from "@/lib/stores/workspace-types";
 import { generateAIRedTeamPrompts } from "@/lib/ai-prompts/ai-red-team";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { AI_RED_TEAM_ACTIONS } from "@/lib/history/event-actions";
+import { SEVERITY_SCALE } from "@/lib/utils/severity-color";
+import { tint } from "@/lib/utils/theme-color";
 import { emitSignal } from "@/lib/signals/signal-bus";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
 
@@ -36,12 +38,7 @@ const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
 });
 
 const SEVERITIES: RedTeamFinding["severity"][] = ["low", "medium", "high", "critical"];
-const COLORS: Record<RedTeamFinding["severity"], string> = {
-  low: "#00ff88",
-  medium: "#ffaa00",
-  high: "#ff6b6b",
-  critical: "#ff00aa",
-};
+const COLORS: Record<RedTeamFinding["severity"], string> = SEVERITY_SCALE;
 
 export function AIRedTeamClient() {
   const list = useWorkspaceStore((s) => s.redTeamFindings ?? []);
@@ -300,7 +297,7 @@ export function AIRedTeamClient() {
                         <span
                           className="text-xs uppercase font-bold px-1.5 py-0.5 rounded"
                           style={{
-                            backgroundColor: COLORS[x.severity] + "20",
+                            backgroundColor: tint(COLORS[x.severity], 13),
                             color: COLORS[x.severity],
                           }}
                         >

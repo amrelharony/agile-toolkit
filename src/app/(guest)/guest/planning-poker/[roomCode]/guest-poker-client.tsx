@@ -106,7 +106,7 @@ function GuestPokerInner({ roomCode, role, profile }: Props) {
                   ? "text-warning"
                   : role === "commenter"
                     ? "text-success"
-                    : "text-cyan-300"
+                    : "text-accent"
               }`}
             >
               {role}

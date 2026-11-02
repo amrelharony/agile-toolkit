@@ -35,7 +35,7 @@ function CardFace({
   ) : (
     <span
       className={[
-        "font-display font-bold tabular-nums leading-none z-10",
+        "font-data font-bold tabular-nums leading-none z-10",
         small ? "text-sm" : "text-2xl",
         selected ? "text-accent" : "text-text",
       ].join(" ")}

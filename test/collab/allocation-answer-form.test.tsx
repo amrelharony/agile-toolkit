@@ -94,7 +94,7 @@ describe("AllocationAnswerForm", () => {
   it("keeps what's left in sight: a bar stuck to the bottom with Send", () => {
     setup();
     const bar = screen.getByTestId("allocation-left-bar");
-    expect(bar).toHaveClass("sticky", "bottom-0");
+    expect(bar).toHaveClass("sticky", "bottom-[var(--amr-band-bottom,0px)]");
     expect(bar).toContainElement(screen.getByText("Left to give: $100."));
     expect(bar).toContainElement(screen.getByRole("button", { name: "Send my split" }));
   });

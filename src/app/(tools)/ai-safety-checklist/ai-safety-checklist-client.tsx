@@ -162,7 +162,7 @@ export function AISafetyChecklistClient() {
             aria-valuemin={0}
             aria-valuemax={100}
           >
-            <div className="h-2 bg-emerald-400" style={{ width: `${pct}%` }} />
+            <div className="h-2 bg-success" style={{ width: `${pct}%` }} />
           </div>
         </SectionCard>
 

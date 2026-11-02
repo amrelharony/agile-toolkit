@@ -147,7 +147,7 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
                   ? "text-warning"
                   : role === "commenter"
                     ? "text-success"
-                    : "text-cyan-300"
+                    : "text-accent"
               }`}
             >
               {role}
@@ -169,7 +169,7 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
         <div className="absolute right-2 top-2 z-overlay">
           <ZoomControls />
         </div>
-        <div className="absolute inset-0">
+        <div className="board-stage absolute inset-0 bg-bg">
           <WhiteboardCanvas
             boardId={boardId}
             readOnly={readOnly}

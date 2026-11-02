@@ -1,507 +1,124 @@
-# Design DNA Specification — amrelharony.com Ecosystem
+# Design DNA: the Agile at Work comic
 
-> Extracted from the main portfolio site. This document codifies the visual identity, interaction patterns, and atmosphere that make visitors feel they're in the same ecosystem across all apps.
-
----
-
-## 1. Design Philosophy
-
-**Style:** Glassmorphic Dark
-**Mood:** Premium, immersive, interactive — like a high-end SaaS dashboard meets a creative portfolio
-**Accent Triad:** Cyan (#00e1ff) + Indigo (#6366f1) + Purple (#a855f7)
-
-The site creates depth through layered transparency:
-1. Deep dark background (#06080f) as the void
-2. Slowly drifting mesh gradient blobs as ambient light
-3. SVG noise texture for organic grain
-4. Glassmorphic cards floating above with backdrop-blur
-5. Cyan glow accents as focal points
-
-Every interactive element rewards engagement with satisfying micro-interactions — shimmer effects, lift animations, glow transitions.
+> The look of the Agile Toolkit. It comes from the comic's bible: "mature soft hand-inked" art with "confident fine dark outlines", "restrained warm watercolour washes", a "lightly textured off-white" setting and sentence-case hand lettering. The source of truth for values is `src/app/globals.css` and `tailwind.config.ts`; this document explains the rules.
 
 ---
 
-## 2. Color System
+## 1. Philosophy
 
-### 2.1 Dark Mode (Default)
+**Style:** a warm, grown-up workplace comic.
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--bg` | `#06080f` | Page background |
-| `--bg2` | `#0c1018` | Secondary/elevated background |
-| `--text` | `#f0f2f5` | Primary text |
-| `--sub` | `#8a95a8` | Secondary/muted text |
-| `--accent` | `#00e1ff` | Primary accent (cyan) — CTAs, active states, links |
-| `--accent2` | `#6366f1` | Secondary accent (indigo) — gradient endpoints, charts |
-| `--accent3` | `#a855f7` | Tertiary accent (purple) — decorative, gradient endpoints |
-| `--card` | `rgba(12, 16, 24, 0.65)` | Card/panel background |
-| `--cardH` | `rgba(255, 255, 255, 0.07)` | Card hover background |
-| `--border` | `rgba(255, 255, 255, 0.08)` | Borders, dividers |
-| `--glow` | `rgba(0, 225, 255, 0.15)` | Glow effects (standard) |
-| `--glowS` | `rgba(0, 225, 255, 0.4)` | Glow effects (strong/hover) |
+**Not:** loud superhero. No halftone burst backgrounds, no ALL-CAPS display type, no starbursts. Also not the old look: no glass, no glow, no gradient blobs, no neon, no noise overlay, no particle field.
 
-### 2.2 Light Mode
-
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--bg` | `#f4f6fb` | Page background |
-| `--bg2` | `#ffffff` | Card/elevated background |
-| `--text` | `#0a0f1a` | Primary text |
-| `--sub` | `#5a6578` | Secondary text |
-| `--accent` | `#0066ff` | Primary accent (blue) |
-| `--accent2` | `#4f46e5` | Secondary accent (indigo) |
-| `--accent3` | `#9333ea` | Tertiary accent (purple) |
-| `--card` | `rgba(255, 255, 255, 0.7)` | Card background |
-| `--border` | `rgba(0, 0, 0, 0.06)` | Borders |
-| `--glow` | `rgba(0, 102, 255, 0.08)` | Glow effects |
-| `--glowS` | `rgba(0, 102, 255, 0.2)` | Strong glow |
-
-### 2.3 Sepia Reading Mode (Book App)
-
-| Token | Value |
-|-------|-------|
-| `--bg` | `#f5f0e8` |
-| `--bg2` | `#ebe5d9` |
-| `--text` | `#3d3929` |
-| `--sub` | `#7a7260` |
-| `--accent` | `#8b6914` |
-| `--border` | `rgba(0, 0, 0, 0.08)` |
-
-### 2.4 Semantic Colors
-
-| Token | Value | Usage |
-|-------|-------|-------|
-| success | `#22c55e` | Positive states, online indicators |
-| error | `#ef4444` | Errors, destructive actions |
-| warning | `#fbbf24` | Warnings, achievements |
-| info | `#3b82f6` | Informational elements |
-
-### 2.5 Gradients
-
-| Name | Value | Usage |
-|------|-------|-------|
-| Accent | `linear-gradient(90deg, #00e1ff, #6366f1)` | Progress bars, underlines, CTAs |
-| Spectrum | `linear-gradient(90deg, #00e1ff, #6366f1, #a855f7)` | Hero text, special headings |
-| Diagonal | `linear-gradient(135deg, #00e1ff, #6366f1)` | Badges, decorative elements |
-| Shimmer | `linear-gradient(105deg, transparent 40%, var(--glow) 50%, transparent 60%)` | Card hover sweep |
+The page is paper, the lines are ink, and colour is a wash used sparingly. A panel is drawn with a pen, so its corners are slightly uneven and its shadow is a hard offset, not light falling. Tools are data-heavy, so everything that holds data stays plain and legible at small sizes.
 
 ---
 
-## 3. Typography System
+## 2. Modes
 
-### 3.1 Font Stack
+| Mode | Class | Name in the UI | Paper | Ink |
+| --- | --- | --- | --- | --- |
+| Default | `.light` | Comic | `#f7f1e6` warm off-white | `#1d1a18` |
+| Dark | `.dark` (and `:root`) | Night | `#13161e` deep ink-blue | `#f5efe4` chalk |
+| Accessibility | `.hc` | High contrast | `#000000` | `#ffffff` |
 
-| Font | Weights | Role |
-|------|---------|------|
-| Inter | 300, 400, 600, 800 | Primary sans-serif — body, UI, headings |
-| JetBrains Mono | 400, 700 | Monospace — code, labels, timestamps, tags |
-| Source Serif 4 | 400, 600, 700, 400i | Serif — long-form article/book content |
-| Noto Sans Arabic | 400, 600, 800 | Arabic text support |
-
-**Google Fonts Import:**
-```
-https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap
-```
-
-### 3.2 Type Scale
-
-| Level | Size | Weight | Font | Letter-Spacing | Usage |
-|-------|------|--------|------|----------------|-------|
-| Display | 72px | 800 | Inter | -0.5px | Hero heading |
-| H1 | 56px | 800 | Inter | — | Large section heads |
-| H2 | 40px | 700 | Inter | — | Section heads |
-| H3 | 32px | 700 | Inter | — | Subsection heads |
-| H4 | 28px | 700 | Inter | -0.5px | Article titles |
-| H5 | 20px | 600 | Inter | — | Subheadings |
-| Body | 14-16px | 400 | Inter | — | Default content |
-| Label | 8-11px | 700 | JetBrains Mono | 1.5-2px | Tags, labels (UPPERCASE) |
-| Caption | 12px | 400 | Inter | — | Secondary info |
-| Code | 13px | 400 | JetBrains Mono | — | Code blocks, tech content |
-
-### 3.3 Text Effects
-
-**Gradient Text:**
-```css
-.gradient-text {
-  background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-```
-
-**Animated Gradient Text:**
-```css
-.gradient-text-animated {
-  background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: gradient-shift 6s ease-in-out infinite;
-}
-```
-
-**Text Glow:**
-```css
-.text-glow { text-shadow: 0 0 8px rgba(0, 225, 255, 0.3); }
-.text-glow-strong { text-shadow: 0 0 24px rgba(0, 225, 255, 0.35); }
-```
+- With nothing stored, a visitor gets Comic. A stored `ae-theme` is kept. "System" picks Comic or Night from the OS.
+- The header button cycles Comic, Night, High contrast. Settings → Appearance also offers System.
+- High contrast stays maximally legible: no offset shadows, plain Inter for headings, plain corners, underlined links, heavy focus rings.
+- `THEME_COLORS` in `lib/theme/boot-script.ts` must equal each mode's `--bg` (`test/theme/theme.test.ts` checks it).
 
 ---
 
-## 4. Glassmorphism System
+## 3. Colour
 
-The signature visual treatment. Every card, panel, and overlay uses this stack:
+Sampled with Pillow from twelve panels of Batch 1 Volume 2, then darkened (Comic) or lifted (Night) until each one clears the contrast rule in section 7.
 
-### 4.1 Standard Card
+| Token | Comic | Night | Sampled from |
+| --- | --- | --- | --- |
+| `--bg` | `#f7f1e6` | `#13161e` | Paper; the suits' navy |
+| `--card`, `--bg2` | `#fffcf5` | `#1b1f2a` | Balloon white |
+| `--surface` | `#fdf9f0` | `#1e2330` | |
+| `--surface-deep` | `#f1eadd` | `#0e1117` | Sticky-note cream, form fills |
+| `--text` | `#1d1a18` | `#f5efe4` | Ink |
+| `--sub` | `#574e44` | `#bdb4a6` | Muted text |
+| `--border` | `#2b2622` | `#a39b8e` | The outline |
+| `--rule` | `#d8cfbf` | `#3a4050` | The quieter line: table rows, chart grids, `divide-border` |
+| `--input` | `#574e44` | `#a39b8e` | Field edges |
+| `--accent` | `#873a16` | `#eda86a` | Fox rust |
+| `--accent2` | `#1c4f94` | `#94b8e6` | Lanyard blue |
+| `--accent3` | `#6a3560` | `#d3a6cd` | Plum |
+| `--success` | `#1c5f3d` | `#86cf74` | Office plants |
+| `--warning` | `#6f510c` | `#e3c16e` | Ochre |
+| `--danger`, `--destructive` | `#9c1c2e` | `#f2939b` | The tie's red, cooled so it stays apart from rust |
+| `--info` | `#174f9c` | `#8fb9ee` | Lanyard blue |
+| `--neon-green` | `#4c5b20` | `#b4c96a` | Moss. Name kept for `accent-green` |
+| `--neon-amber` | `#784a10` | `#ecb45f` | Wood. Name kept for `accent-amber` |
+| `--neon-magenta` | `#8a2a54` | `#ec94b8` | Dark plum. Name kept for `accent-magenta` |
+| `--chart-1` … `--chart-5` | blue, plum-pink, green, amber, violet | same hues, lifted | Each keeps the hue `lib/roadmap/palette.ts` promises |
 
-```css
-.glass-card {
-  background: var(--card);                          /* rgba(12, 16, 24, 0.65) */
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  border: 1px solid var(--border);                  /* rgba(255, 255, 255, 0.08) */
-  border-radius: 16px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-```
+Rules:
 
-### 4.2 Card Hover State
+- Use tokens in classes (`text-accent`, `bg-warning/10`), never hex. `check:ui` flags brand hexes in class names, old and new.
+- Colours kept as hex in data (retro columns, tool status maps) go through `themed()` and `tint()` from `lib/utils/theme-color.ts`.
+- Own-colour text sits on a tint of at most `/20`. `check:ui` flags anything stronger.
 
-```css
-.glass-card:hover {
-  background: var(--cardH);                         /* rgba(255, 255, 255, 0.07) */
-  border-color: rgba(0, 225, 255, 0.15);
-  transform: translateY(-3px);
-  box-shadow: 0 8px 32px rgba(0, 225, 255, 0.1),
-              inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-```
-
-### 4.3 Elevated Panel (Modals, Overlays)
-
-```css
-.glass-elevated {
-  background: rgba(8, 12, 30, 0.78);
-  backdrop-filter: blur(40px) saturate(1.6);
-  -webkit-backdrop-filter: blur(40px) saturate(1.6);
-  border: 1px solid rgba(0, 225, 255, 0.1);
-  border-radius: 20px;
-  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.45),
-              inset 0 1px 0 rgba(255, 255, 255, 0.03),
-              0 0 80px rgba(0, 225, 255, 0.04);
-}
-```
-
-### 4.4 Backdrop Overlay (behind modals)
-
-```css
-.glass-backdrop {
-  background: rgba(6, 8, 15, 0.6);
-  backdrop-filter: blur(32px);
-  -webkit-backdrop-filter: blur(32px);
-}
-```
+**Deliberate exceptions.** A saved Canvas board holds its own colours, and new text and pen default to near-white, which can't be read on paper. So `.board-stage` keeps Night's tokens in Comic too: a dark ground like a blackboard in the room, with its toolbars and selection colour following those tokens. Holiday art keeps its own colours. Kudos cards keep their themes and `headerInk` contrast logic.
 
 ---
 
-## 5. Animation System
+## 4. Line and shadow
 
-### 5.1 Primary Easing Functions
-
-| Name | Value | Usage |
-|------|-------|-------|
-| Spring | `cubic-bezier(0.16, 1, 0.3, 1)` | Primary interactive easing — hovers, entrances, toggles |
-| Elastic | `cubic-bezier(0.175, 0.885, 0.32, 1.275)` | Flip cards, pop-ins, playful elements |
-| Material | `cubic-bezier(0.4, 0, 0.2, 1)` | Standard motion |
-
-### 5.2 Duration Scale
-
-| Speed | Duration | Usage |
-|-------|----------|-------|
-| Fast | 0.2s | Icon toggles, small state changes |
-| Default | 0.3s | Standard micro-interactions |
-| Medium | 0.4s | Card hovers, reveals |
-| Slow | 0.55s | Modal/overlay entrances |
-| Elastic | 0.8s | Flip animations, special reveals |
-
-### 5.3 Entrance Animation Sequences
-
-**Page load stagger pattern (GSAP → Framer Motion translation):**
-1. Hero elements: `opacity 0→1, y 0, duration 0.9, delay 0.8 + i*0.08` (power3.out)
-2. Role tags: `scale 0.7→1, opacity 0→1, y 10→0, duration 0.5, delay 1.1 + i*0.1` (back.out(2))
-3. Link cards: `opacity 0→1, y 50→0, scale 0.92→1, blur 6px→0, duration 0.8, delay 1.4 + i*0.12` (power3.out)
-4. Nav items: `opacity 0→1, x -20→0, duration 0.6, delay 2 + i*0.1` (power2.out)
-
-### 5.4 Card Hover Shimmer
-
-The signature card interaction:
-1. Shimmer overlay positioned absolute, inset 0
-2. Default: `translateX(-100%)` (hidden left)
-3. On hover: `animation: shimmer 0.8s ease forwards` (sweeps right)
-4. Gradient: `linear-gradient(105deg, transparent 40%, var(--glow) 50%, transparent 60%)`
-
-### 5.5 3D Card Tilt
-
-Profile card uses perspective-based tilt on mousemove:
-```
-perspective(800px) rotateX(Xdeg) rotateY(Ydeg) scale3d(1.01, 1.01, 1.01)
-```
-- Lerp factor: 0.12 (smooth follow)
-- Reset on mouseleave with spring easing
+- **Line width is a token** because a colour can't set it. Tailwind's plain `border` reads `--line-w` (1.5px, so one device pixel on a 1× screen and three on a 2× phone). Panels read `--panel-w` (2px). `border-2` and friends are as ever.
+- **`--border` is solid.** Dividers inside dense data use `border-rule` or `divide-border` (both `--rule`) so a table doesn't turn into bars.
+- **Shadows are hard offsets:** `--shadow-1` to `--shadow-6`, wired to Tailwind's `shadow-sm`, `shadow`, `shadow-md`, `shadow-lg`, `shadow-xl`, `shadow-2xl`, and to the old `shadow-glow*`, `shadow-card` and `shadow-modal` keys. `shadow-neon-*` are 2px offsets in the colour the name promises. Form fields, switches and slider thumbs carry no shadow.
+- **Radii are small:** 2–12px. `rounded-full` stays for avatars, dots and bars. Nothing else is pill-shaped.
+- `backdrop-blur-*` emits nothing (`corePlugins.backdropBlur: false`).
 
 ---
 
-## 6. Component Patterns
+## 5. Lettering
 
-### 6.1 Navigation (Top Buttons)
+| Alias | Face | Used for |
+| --- | --- | --- |
+| `font-display` | Shantell Sans (`--font-hand`, through `--font-display-face`) | Page `h1`s (a base rule catches every one), card, dialog and section titles, speech balloons |
+| `font-sans` | Inter | Body text and controls |
+| `font-data`, `font-mono` | JetBrains Mono | Tables, numbers, code. Never hand-lettered |
+| `font-serif` | Source Serif 4 | A couple of decorative spots, not preloaded |
 
-```
-Position: fixed, top 16px, right 16px, z-index 100
-Size: 32x32px per button
-Style: glassmorphic card, border-radius 20px
-Hover: background rgba(0, 225, 255, 0.08), color → accent
-Transition: 0.2s ease
-Mobile: collapses behind toggle button
-```
-
-### 6.2 Link Cards (Primary CTA Pattern)
-
-```html
-<a class="glass-card flex items-center p-3.5 px-4 rounded-2xl gap-3.5 group">
-  <div class="icon-box w-11 h-11 rounded-xl glass flex-shrink-0 flex items-center justify-center">
-    <img src="..." class="w-5 h-5" />
-  </div>
-  <div class="flex-1 min-w-0">
-    <div class="text-sm font-semibold text-[var(--text)]">Title</div>
-    <div class="text-xs text-[var(--sub)]">Subtitle</div>
-  </div>
-  <div class="text-[var(--sub)] opacity-40 group-hover:opacity-100 group-hover:text-[var(--accent)] group-hover:translate-x-0.5 transition-default">
-    →
-  </div>
-  <!-- Shimmer overlay (absolute, hidden until hover) -->
-</a>
-```
-
-### 6.3 Role Tags
-
-```
-Font: JetBrains Mono, 9px, uppercase, letter-spacing 1.5px
-Padding: 4px 10px
-Border-radius: 4px
-Background: var(--card), backdrop-filter: blur(10px)
-Border: 1px solid var(--border)
-Hover: border-color → accent, color → accent
-Transition: 0.3s all
-```
-
-### 6.4 Section Headers
-
-```
-Label: JetBrains Mono, 11px, uppercase, letter-spacing 2px, color accent
-Title: Inter, 20px, weight 700, color text
-Decoration: 2px accent underline or gradient bar below
-```
-
-### 6.5 Impact Metrics
-
-```
-Number: JetBrains Mono, 20px, weight 700, color accent, text-shadow glow
-Label: JetBrains Mono, 8px, uppercase, color sub
-Layout: flex row, gap 24px, center-aligned
-```
-
-### 6.6 Conference Badges (Glassmorphic)
-
-```
-Background: rgba(255, 255, 255, 0.04), backdrop-filter blur(20px) saturate(1.4)
-Border: 1px solid rgba(255, 255, 255, 0.08)
-Hover: rotating conic-gradient border (confSpin 8s), translateY(-3px), glow shadow
-```
-
-### 6.7 Modals
-
-```
-Entrance: scale(0.85) translateY(20px) → scale(1) translateY(0)
-Duration: 0.55s cubic-bezier(0.16, 1, 0.3, 1)
-Backdrop: rgba(6, 8, 15, 0.6) + backdrop-filter blur(32px)
-Card: border-radius 20px, glassmorphic elevated treatment
-Close: ESC key, click outside, close button
-```
+Shantell Sans is drawn from a marker hand in real upper and lower case, close to the comic's balloon lettering and steady enough to read at heading sizes. It's variable (300–800), so `font-semibold` and `font-bold` are real weights. Keep headings in sentence case. `Eyebrow`, `.label-mono` and `.tag-mono` are sentence case too. All fonts are self-hosted by `next/font` with `display: swap`.
 
 ---
 
-## 7. Atmosphere Recipe
+## 6. Components
 
-### 7.1 Mesh Background Layer
-
-Three large radial gradient blobs positioned absolutely behind all content:
-
-```css
-.mesh-blob {
-  position: fixed;
-  border-radius: 50%;
-  filter: blur(100px);
-  opacity: 0.06;
-  pointer-events: none;
-  will-change: transform;
-}
-
-.mesh-blob-1 {
-  width: 40vw; height: 40vw;
-  background: radial-gradient(circle, #00e1ff 0%, transparent 70%);
-  top: -10%; left: -5%;
-  animation: mf1 20s ease-in-out infinite;
-}
-
-.mesh-blob-2 {
-  width: 35vw; height: 35vw;
-  background: radial-gradient(circle, #6366f1 0%, transparent 70%);
-  top: 50%; right: -10%;
-  animation: mf2 25s ease-in-out infinite;
-}
-
-.mesh-blob-3 {
-  width: 30vw; height: 30vw;
-  background: radial-gradient(circle, #a855f7 0%, transparent 70%);
-  top: 40%; left: 50%;
-  animation: mf3 18s ease-in-out infinite;
-}
-```
-
-### 7.2 Noise Overlay
-
-SVG turbulence filter creating organic grain:
-```css
-.noise-overlay::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  opacity: 0.03;
-  pointer-events: none;
-  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  z-index: -1;
-}
-```
-
-### 7.3 Per-App Atmosphere Intensity
-
-| Layer | Main Site | Agile Toolkit | Book App |
-|-------|-----------|---------------|----------|
-| Mesh blobs | 3 at 0.06 | 2 at 0.04 | 1 at 0.03 |
-| Mesh blur | 100px | 120px | 140px |
-| Noise overlay | Yes (0.03) | Yes (0.02) | No |
-| Cursor glow | Yes | No | No |
-| Particles | Yes | No | No |
-
-**Why:** Data-heavy UIs (Agile Toolkit) need visual clarity for charts and tables. Reading apps (Book App) need minimal distraction for sustained focus. The mesh blobs provide enough "family resemblance" without competing with content.
+- **`.panel`** (globals.css): paper fill, ink outline, uneven pen corners, hard shadow. `Card`, `ToolCard`, job cards, dialogs and page headers use it. It's in the components layer, so a call site's `border-*`, `bg-*`, `rounded-*` or `shadow-*` wins.
+- **Page headers** (`PageHeader`, `ToolPageWrapper`, the History, Insights and Team pages) are panels with a hand-lettered title.
+- **Buttons:** variants live in `ui/button.tsx`. Inked variants have an outline and a small shadow that grows on hover and presses flat on click. Ghost and link variants stay plain. Hovers tint (`hover:bg-accent/10`), they never fill with accent.
+- **Links** are underlined at rest in every mode: accent and muted text are almost the same lightness, so colour can't mark them. Links in `p`, `dd` and `figcaption`, and anything with `hover:underline`, get it from the base layer. A pill or a nav item opts out with `no-underline`.
+- **Field focus** is a 2px `--ring` outline outside the edge, from the base layer, on every input, textarea, select and combobox. A Canvas board keeps its own editors.
+- **Severity labels and series** use `SEVERITY_SCALE` (`lib/utils/severity-color.ts`): four tokens that stay apart in all three modes. Don't map severities through `themed()`, which folds high and medium into one colour.
+- **Identity colours** (`lib/squads/colors.ts`) are bright in every mode. Words on them use `IDENTITY_INK`. A person's name stays in page text, with a coloured dot beside it.
+- **Speech balloons** (`.balloon`, `EmptyState`): Amr's still `waiting` frame (`AmrStill`, a crop of the existing sheet, lazy loaded, alt text, no animation) beside a balloon holding the tool's own message. Don't write new lines for Amr.
+- **Amr in the corner** stays visible on every page and stays draggable. On phones he stands in a strip of his own (`data-amr-band`), opaque, at the bottom or just under the header if he's dragged up, so the page passes behind the strip rather than behind him. The strip publishes `--amr-band-bottom` and `--amr-band-top`; anything pinned to the bottom of the screen adds `--amr-band-bottom`.
+- **Sound** stays off by default.
 
 ---
 
-## 8. Responsive Strategy
+## 7. Contrast
 
-### 8.1 Breakpoints
+`test/design/theme-contrast.test.ts` parses all three modes from `globals.css` and checks:
 
-| Name | Value | Target |
-|------|-------|--------|
-| xs | 380px | Extra small phones |
-| sm | 600px | Primary mobile breakpoint |
-| md | 768px | Tablets |
-| lg | 1024px | Desktop |
-| xl | 1280px | Wide desktop |
+- Text, accent and status colours on their own 0–20% tints over `--card`, `--bg`, `--surface` and `--surface-deep`: 4.5:1.
+- `--sub` on every surface: 4.5:1. Words on solid primary and destructive fills: 4.5:1.
+- `--border` and `--input` on every surface, and each chart series on the paper: 3:1, with all five series distinct.
 
-### 8.2 Container
-
-```
-Max-width: 480px (main site — single column portfolio)
-Max-width: 1200px (toolkit/book app — multi-column layouts)
-Padding: 48px 24px 120px (generous top/bottom scroll room)
-```
-
-### 8.3 Mobile Adaptations
-
-- Font sizes scale down proportionally (hero 72px → 40px)
-- Card padding reduces (14px → 10px)
-- Grid columns collapse (2→1 for skills, 3→2→1 for certs)
-- Mesh blobs reduce by 1 (fewer renders on mobile)
-- Cursor glow and hover effects disabled on touch devices
-- Backdrop-filter blur reduced for performance
+Lighthouse accessibility must stay at 0.95 or above.
 
 ---
 
-## 9. Accessibility
+## 8. Motion and performance
 
-### 9.1 Reduced Motion
-
-```css
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-```
-
-### 9.2 Focus Styles
-
-```css
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-```
-
-### 9.3 ARIA Patterns
-
-- All buttons: `aria-label`
-- Modals: `role="dialog"`, `aria-modal="true"`, `aria-label`
-- Tabs: `role="tablist"`, `role="tab"`, `aria-controls`, `aria-selected`
-- Theme toggle: `aria-pressed`
-
----
-
-## 10. Performance Guidelines
-
-### 10.1 Font Loading
-
-```html
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-```
-
-All fonts loaded with `display=swap` for immediate text rendering.
-
-### 10.2 Animation Performance
-
-- Use `will-change: transform` on animated elements (mesh blobs, cursor glow)
-- Prefer `transform` and `opacity` for animations (compositor-only properties)
-- Suspend animations when tab is hidden (`document.hidden` check)
-- Disable particle canvas and cursor glow on mobile/touch devices
-
-### 10.3 Glassmorphism Performance
-
-- `backdrop-filter` is GPU-intensive — limit to visible viewport elements
-- Reduce blur values on mobile (20px → 12px)
-- Avoid stacking multiple glassmorphic layers
-
----
-
-## 11. Cross-App Navigation
-
-A persistent 32px bar connecting all ecosystem sites:
-
-```
-┌─────────────────────────────────────────────────┐
-│  ◆ AE   amrelharony.com  │  agile.  │  books.  │
-└─────────────────────────────────────────────────┘
-```
-
-- Glassmorphic background, fixed top, z-index 100
-- "AE" monogram in gradient text
-- Current site: accent color + underline
-- Other sites: muted, hover → accent with glow
-- Mobile: collapses to "AE" icon with dropdown
-
-See `shared/EcosystemNav.tsx` for implementation.
+- Motion is small and physical: a panel lifts 1px, a button presses flat. Entrances stay translate-only so content is readable before JavaScript.
+- Reduced motion turns animation off globally. Amr shows a still frame.
+- No full-screen layers: the mesh blobs, noise overlay and particle canvas (and its worker) are gone, along with their main-thread and GPU cost.
+- The offline page in `public/sw.js` carries the same paper, ink and panel, inline.

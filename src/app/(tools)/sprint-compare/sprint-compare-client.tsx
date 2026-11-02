@@ -288,13 +288,15 @@ function ScoreCell({ score, color }: { score: DimensionScore; color: string }) {
       </td>
     );
   }
+  // The tint is the signal. The number stays in page text: a chart token is only
+  // held to 3:1, so on a tint of itself it falls below AA.
   const pct = Math.round((score.value / MAX_RATING) * 25);
   return (
     <td
       className="border-b border-border px-4 py-2 text-center font-data text-sm font-semibold"
       style={{
         background: `color-mix(in srgb, ${color} ${pct}%, transparent)`,
-        color: score.value >= 7 ? color : "var(--sub)",
+        color: score.value >= 7 ? "var(--text)" : "var(--sub)",
       }}
     >
       {score.value}

@@ -7,14 +7,14 @@ interface PageHeaderProps {
   title: string;
   subtitle?: string;
   actions?: ReactNode;
-  gradient?: boolean;
 }
 
-export function PageHeader({ label, title, subtitle, actions, gradient = false }: PageHeaderProps) {
+/** The page's title, framed as a comic panel and lettered by hand. */
+export function PageHeader({ label, title, subtitle, actions }: PageHeaderProps) {
   return (
     <header
       className="
-        mb-6 sm:mb-8
+        panel mb-6 sm:mb-8 px-4 py-4 sm:px-6 sm:py-5
         flex flex-col gap-3
         sm:flex-row sm:items-start sm:justify-between sm:gap-4
       "
@@ -23,17 +23,10 @@ export function PageHeader({ label, title, subtitle, actions, gradient = false }
         {label && (
           <div className="label-mono mb-2" aria-hidden="true">
             {label}
-            <div className="mt-1.5 w-8 h-0.5 rounded-full bg-gradient-to-r from-accent to-accent-2" />
+            <div className="mt-1.5 w-8 h-0.5 bg-accent" />
           </div>
         )}
-        <h1
-          className={`
-            font-bold tracking-tight text-fluid-h3 md:text-fluid-h2
-            ${gradient ? "gradient-text-animated" : "text-text"}
-          `}
-        >
-          {title}
-        </h1>
+        <h1 className="font-display font-bold text-text text-fluid-h3 md:text-fluid-h2">{title}</h1>
         {subtitle && <p className="text-fluid-body text-sub mt-1 max-w-prose">{subtitle}</p>}
       </div>
       {actions && (

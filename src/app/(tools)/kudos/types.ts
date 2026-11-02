@@ -42,7 +42,9 @@ export const KUDOS_THEMES: ReadonlyArray<KudosThemeDef> = [
     title: "Awesome",
     emoji: "💪",
     accent: "text-accent border-accent/40",
-    headerBg: "bg-accent",
+    // No class: bg-accent follows the page's theme, but the card keeps its own
+    // cyan strip (and headerInk picks its words from this hex).
+    headerBg: "",
     hex: "#00f0ff",
   },
   {
@@ -57,7 +59,7 @@ export const KUDOS_THEMES: ReadonlyArray<KudosThemeDef> = [
     id: "great-job",
     title: "Great Job",
     emoji: "👏",
-    accent: "text-violet-400 border-violet-400/40",
+    accent: "text-accent-3 border-accent-3/40",
     headerBg: "bg-violet-500",
     hex: "#8b5cf6",
   },
@@ -73,7 +75,7 @@ export const KUDOS_THEMES: ReadonlyArray<KudosThemeDef> = [
     id: "very-happy",
     title: "Very Happy",
     emoji: "😄",
-    accent: "text-orange-400 border-orange-400/40",
+    accent: "text-accent-amber border-accent-amber/40",
     headerBg: "bg-orange-500",
     hex: "#fb923c",
   },
@@ -89,7 +91,7 @@ export const KUDOS_THEMES: ReadonlyArray<KudosThemeDef> = [
     id: "well-done",
     title: "Well Done",
     emoji: "👍",
-    accent: "text-indigo-400 border-indigo-400/40",
+    accent: "text-accent-2 border-accent-2/40",
     headerBg: "bg-indigo-500",
     hex: "#6366f1",
   },

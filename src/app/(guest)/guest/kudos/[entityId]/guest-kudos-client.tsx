@@ -193,22 +193,22 @@ export function GuestKudosClient({ role, profile, roomKey }: Props) {
                     ? "text-warning"
                     : role === "commenter"
                       ? "text-success"
-                      : "text-cyan-300"
+                      : "text-accent"
                 }`}
               >
                 {role}
               </span>
             </div>
             {room.isLocalOnly ? (
-              <span className="inline-flex items-center gap-1 text-warning/80">
+              <span className="inline-flex items-center gap-1 text-warning">
                 <WifiOff className="h-3 w-3" aria-hidden="true" /> Local-only
               </span>
             ) : room.isConnected ? (
-              <span className="inline-flex items-center gap-1 text-success/80">
+              <span className="inline-flex items-center gap-1 text-success">
                 <Wifi className="h-3 w-3" aria-hidden="true" /> Live
               </span>
             ) : (
-              <span className="text-sub/60">Connecting…</span>
+              <span className="text-sub">Connecting…</span>
             )}
           </div>
         </header>

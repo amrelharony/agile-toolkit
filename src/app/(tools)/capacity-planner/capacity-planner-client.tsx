@@ -882,7 +882,7 @@ function PlanEditor({
                           aria-valuemax={100}
                         >
                           <div
-                            className="h-full rounded-full bg-gradient-to-r from-accent/60 to-accent transition-all duration-300"
+                            className="h-full rounded-full bg-accent transition-all duration-300"
                             style={{ width: `${Math.min(pct, 100)}%` }}
                           />
                         </div>
