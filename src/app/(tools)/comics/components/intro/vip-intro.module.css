@@ -1,0 +1,594 @@
+/* The VIP intro's choreography (vip-intro.tsx), 9 s in all:
+
+   0    – 0.9  an ink band covers the screen and pulls away to the right
+   0    – 9    three layers drift left at three speeds: the parallax
+   0.8  – 2.55 "Welcome, reader of the book", word by word, then its rule
+   1.15 – 1.95 Amr jumps into the front layer; at 2.5 he stops to ask
+   2.6  – 3.1  his balloon
+   2.95 – 4.3  the tools are dealt in from below, 0.3 s apart
+   5.3  – 6.95 with early comics only: the tools step back, the covers fan out
+   7.7  – 9    the page turns away round its left edge
+
+   Each element holds its first frame until its delay and its last after it
+   (fill both), so the timeline is the same with or without early comics: the
+   comics' rules just have nothing to run on. */
+
+/* The exit is the overlay's only animation: its end ends the intro. Hidden from
+   behind, so the page vanishes edge-on instead of showing its mirror image. */
+.overlay {
+  transform-origin: 0% 50%;
+  backface-visibility: hidden;
+  animation: vipPageTurn 1.3s ease-in 7.7s both;
+}
+
+/* ── Back layer: a page of empty panels, faint and drifting ─────────────────── */
+
+/* Larger than the screen on every side, so the drift never shows an edge. */
+.back {
+  position: absolute;
+  inset: -12vmin;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-auto-rows: clamp(5rem, 15vmax, 13rem);
+  gap: clamp(0.75rem, 2.4vmin, 1.5rem);
+  opacity: 0.16;
+  animation: vipDriftBack 9s cubic-bezier(0.37, 0, 0.63, 1) 0s both;
+}
+
+.ghost {
+  border: var(--panel-w) solid var(--border);
+  border-radius: var(--panel-radius);
+}
+
+/* ── Middle and front layers ───────────────────────────────────────────────── */
+
+/* Phones first: the welcome, the tools, then Amr at the foot of the page. The
+   top padding keeps everything below Skip. --amr-s scales Amr to the screen in
+   steps, because IntroAmr is sized in pixels. */
+.stage {
+  --amr-s: 0.52;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "welcome"
+    "slot"
+    "front";
+  align-content: center;
+  align-content: safe center;
+  row-gap: clamp(0.75rem, 4.2vh, 3rem);
+  row-gap: clamp(0.75rem, 4.2dvh, 3rem);
+  width: min(100%, 34rem);
+  margin-inline: auto;
+  padding: max(4.5rem, calc(env(safe-area-inset-top) + 3.75rem))
+    max(1.5rem, calc(env(safe-area-inset-right) + 0.75rem))
+    max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem))
+    max(1.5rem, calc(env(safe-area-inset-left) + 0.75rem));
+}
+
+.welcome,
+.slot {
+  animation: vipDriftMid 9s cubic-bezier(0.37, 0, 0.63, 1) 0s both;
+}
+
+.welcome {
+  grid-area: welcome;
+}
+
+/* On a phone held upright this is big enough to stack in three short lines
+   ("Welcome," / "reader of" / "the book"), which uses the tall screen. */
+.welcomeLine {
+  margin: 0;
+  font-size: clamp(1.6rem, min(10.5vw, 6.4vh), 3.25rem);
+  font-size: clamp(1.6rem, min(10.5vw, 6.4dvh), 3.25rem);
+  line-height: 1.04;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+/* Inline blocks, so each word can pop on its own and the line still wraps. */
+.word {
+  display: inline-block;
+  transform-origin: 50% 85%;
+}
+.word0 {
+  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 0.8s both;
+}
+.word1 {
+  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.06s both;
+}
+.word2 {
+  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.32s both;
+}
+.word3 {
+  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.54s both;
+}
+.word4 {
+  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.76s both;
+}
+
+/* One pen stroke under the lettering: pressed down at the start, lifted off. */
+.rule {
+  display: block;
+  width: min(9rem, 40%);
+  height: clamp(0.22rem, 0.8vmin, 0.42rem);
+  margin-top: clamp(0.45rem, 1.8vmin, 1rem);
+  border-radius: 2px 999px 999px 2px;
+  background-color: var(--text);
+  animation: vipRule 0.45s cubic-bezier(0.65, 0, 0.35, 1) 2.1s both;
+}
+
+/* The tools and the early comics take turns in the same place. */
+.slot {
+  grid-area: slot;
+  display: grid;
+  align-items: center;
+}
+
+.tools,
+.comics {
+  grid-area: 1 / 1;
+}
+
+.tools {
+  display: grid;
+  gap: clamp(0.5rem, 1.8vmin, 1rem);
+  width: min(100%, 26rem);
+}
+
+/* Sized by the narrower of the width and the height, so the cards grow on a
+   tall phone but stay small on one lying on its side. */
+.tool {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.6rem, 2vmin, 1rem);
+  padding: clamp(0.6rem, min(3.2vw, 1.7vh), 1.1rem) clamp(0.85rem, min(4.2vw, 2.4vh), 1.5rem);
+  padding: clamp(0.6rem, min(3.2vw, 1.7dvh), 1.1rem) clamp(0.85rem, min(4.2vw, 2.4dvh), 1.5rem);
+  transform-origin: 50% 100%;
+}
+
+.toolIcon {
+  flex: none;
+  width: clamp(1.25rem, min(6vw, 3.4vh), 1.9rem);
+  width: clamp(1.25rem, min(6vw, 3.4dvh), 1.9rem);
+  height: clamp(1.25rem, min(6vw, 3.4vh), 1.9rem);
+  height: clamp(1.25rem, min(6vw, 3.4dvh), 1.9rem);
+}
+
+.toolName {
+  font-size: clamp(1rem, min(4.6vw, 2.6vh), 1.4rem);
+  font-size: clamp(1rem, min(4.6vw, 2.6dvh), 1.4rem);
+  line-height: 1.2;
+}
+
+/* Dealt like cards, from below the page, tilting alternately. */
+.deal0 {
+  animation: vipDealLeft 0.75s cubic-bezier(0.18, 0.8, 0.3, 1) 2.95s both;
+}
+.deal1 {
+  animation: vipDealRight 0.75s cubic-bezier(0.18, 0.8, 0.3, 1) 3.25s both;
+}
+.deal2 {
+  animation: vipDealLeft 0.75s cubic-bezier(0.18, 0.8, 0.3, 1) 3.55s both;
+}
+
+/* Only when there are covers to show: the tools step back into the page. */
+.withComics .tools {
+  animation: vipRecede 0.5s cubic-bezier(0.5, 0, 0.75, 0) 5.3s both;
+}
+
+.comics {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(0.6rem, 2.2vmin, 1.25rem);
+}
+
+.comicsHeading {
+  margin: 0;
+  font-size: clamp(1.05rem, 3.6vmin, 1.6rem);
+  line-height: 1.2;
+  text-align: center;
+  text-wrap: balance;
+  animation: vipRise 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) 5.55s both;
+}
+
+/* The covers rise as one stack, then fan out from their bottom edges to the
+   places vip-intro.tsx gives each (--fan-x, --fan-y, --fan-tilt). The bottom
+   margin leaves room for the outer covers' lower corners. */
+.fan {
+  position: relative;
+  width: min(48%, 17rem);
+  aspect-ratio: 4 / 3;
+  margin-bottom: 5%;
+}
+
+.cover {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+  animation: vipFan 1.2s cubic-bezier(0.22, 0.9, 0.3, 1) 5.75s both;
+}
+
+/* Amr's layer is nearest, so it drifts furthest and the tools pass behind it. */
+.front {
+  grid-area: front;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  animation: vipDriftFront 9s cubic-bezier(0.37, 0, 0.63, 1) 0s both;
+}
+
+/* The box takes Amr's scaled size in the layout; inside it he is drawn at the
+   sheet's own cell size and scaled down from the top left. */
+.amrBox {
+  flex: none;
+  display: block;
+  width: calc(var(--amr-w) * var(--amr-s));
+  height: calc(var(--amr-h) * var(--amr-s));
+}
+
+.amrSpring {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 100%;
+  animation: vipAmrSpring 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) 1.15s both;
+}
+
+.amrScale {
+  display: grid;
+  width: var(--amr-w);
+  height: var(--amr-h);
+  transform: scale(var(--amr-s));
+  transform-origin: 0 0;
+}
+
+/* He lands from his second jump at 2.5 s, the end of a loop of its frames, and
+   the next frame is him asking: a cut, as between two panels. */
+.amrJump,
+.amrAsk {
+  grid-area: 1 / 1;
+}
+.amrJump {
+  animation: vipCutOut 0.08s linear 2.5s both;
+}
+.amrAsk {
+  animation: vipCutIn 0.08s linear 2.5s both;
+}
+
+/* To his right, with the tail (1.4rem up the balloon's left side) at his mouth,
+   70% of the way up his cell. The cell has empty space on his right, so the
+   balloon tucks into it. It grows from its tail. */
+.question {
+  flex: 0 1 auto;
+  max-width: 22rem;
+  margin-left: calc(var(--amr-w) * var(--amr-s) * -0.2 + 0.9rem);
+  margin-bottom: calc(var(--amr-h) * var(--amr-s) * 0.7 - 1.4rem);
+  padding: clamp(0.6rem, 2vmin, 1rem) clamp(0.85rem, 2.6vmin, 1.35rem);
+  font-size: clamp(0.95rem, 3.2vmin, 1.3rem);
+  line-height: 1.3;
+  transform-origin: 0% 85%;
+  animation: vipBalloon 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) 2.6s both;
+}
+
+/* ── On top: the opening ink and the turning page's shadow ─────────────────── */
+
+/* Under Skip (z 10), so Skip is there from the first frame. */
+.ink {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background-color: var(--text);
+  animation: vipInkWipe 0.9s cubic-bezier(0.7, 0, 0.3, 1) 0s both;
+}
+
+/* The page darkens a little as it turns away from the light. */
+.shade {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background-color: var(--text);
+  pointer-events: none;
+  animation: vipShade 1.3s ease-in 7.7s both;
+}
+
+/* ── Sizes by screen ───────────────────────────────────────────────────────── */
+
+@media (min-width: 360px) and (min-height: 600px) {
+  .stage {
+    --amr-s: 0.62;
+  }
+}
+@media (min-width: 360px) and (min-height: 720px) {
+  .stage {
+    --amr-s: 0.74;
+  }
+}
+@media (min-width: 700px) and (min-height: 700px) {
+  .stage {
+    --amr-s: 0.84;
+  }
+}
+@media (min-width: 1200px) and (min-height: 860px) {
+  .stage {
+    --amr-s: 1;
+  }
+}
+
+/* Wide screens and phones on their side: the welcome over Amr on the left, the
+   tools or the comics on the right. */
+@media (min-aspect-ratio: 5/4) {
+  .stage {
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    grid-template-areas:
+      "welcome slot"
+      "front slot";
+    column-gap: clamp(1.25rem, 5vw, 4.5rem);
+    row-gap: clamp(0.75rem, 4vh, 2.25rem);
+    row-gap: clamp(0.75rem, 4dvh, 2.25rem);
+    width: min(100%, 72rem);
+    padding: max(4rem, calc(env(safe-area-inset-top) + 3.5rem))
+      max(2rem, calc(env(safe-area-inset-right) + 1rem))
+      max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem))
+      max(2rem, calc(env(safe-area-inset-left) + 1rem));
+  }
+  .welcome {
+    align-self: end;
+  }
+  .front {
+    align-self: start;
+  }
+  .welcomeLine {
+    font-size: clamp(1.6rem, min(4.6vw, 8vh), 3.75rem);
+    font-size: clamp(1.6rem, min(4.6vw, 8dvh), 3.75rem);
+  }
+  .tools {
+    justify-self: center;
+  }
+  .fan {
+    width: min(44%, 16rem);
+  }
+}
+
+@media (min-aspect-ratio: 5/4) and (min-width: 1600px) and (min-height: 1000px) {
+  .stage {
+    width: min(100%, 80rem);
+  }
+  .welcomeLine {
+    font-size: clamp(1.6rem, min(4.6vw, 8vh), 4.25rem);
+    font-size: clamp(1.6rem, min(4.6vw, 8dvh), 4.25rem);
+  }
+}
+
+/* ── Keyframes ─────────────────────────────────────────────────────────────── */
+
+/* The slanted edge leads at the top, like ink lifted off with a palette knife. */
+@keyframes vipInkWipe {
+  0%,
+  12% {
+    clip-path: polygon(0% 0%, 130% 0%, 130% 100%, -30% 100%);
+  }
+  100% {
+    clip-path: polygon(130% 0%, 130% 0%, 130% 100%, 100% 100%);
+  }
+}
+
+/* The camera pans right, so every layer slides left: the nearer, the further. */
+@keyframes vipDriftBack {
+  from {
+    transform: translate3d(1.2vmin, 1.6vmin, 0) scale(1.03);
+  }
+  to {
+    transform: translate3d(-1.2vmin, -1.6vmin, 0) scale(1);
+  }
+}
+
+@keyframes vipDriftMid {
+  from {
+    transform: translate3d(2vmin, 0, 0);
+  }
+  to {
+    transform: translate3d(-2vmin, 0, 0);
+  }
+}
+
+@keyframes vipDriftFront {
+  from {
+    transform: translate3d(3.2vmin, 0, 0);
+  }
+  to {
+    transform: translate3d(-3.2vmin, 0, 0);
+  }
+}
+
+@keyframes vipWord {
+  0% {
+    transform: translate3d(0, 0.4em, 0) scale(0.55) rotate(-5deg);
+    opacity: 0;
+  }
+  55% {
+    transform: translate3d(0, -0.06em, 0) scale(1.07) rotate(1.5deg);
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes vipRule {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* Up from below the page and from nearer the reader, over the top, and down. */
+@keyframes vipAmrSpring {
+  0% {
+    transform: translate3d(-2vmin, 38vmin, 0) scale(1.18);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  58% {
+    transform: translate3d(0, -3.5vmin, 0) scale(1.02);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.5);
+  }
+  82% {
+    transform: translate3d(0, 0.6vmin, 0) scale(0.995);
+    animation-timing-function: ease-out;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes vipCutOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes vipCutIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vipBalloon {
+  0% {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes vipDealLeft {
+  0% {
+    transform: translate3d(-3vmin, 75vh, 0) rotate(-9deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  70% {
+    transform: translate3d(0, -0.9vmin, 0) rotate(1.4deg);
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes vipDealRight {
+  0% {
+    transform: translate3d(3vmin, 75vh, 0) rotate(8deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  70% {
+    transform: translate3d(0, -0.9vmin, 0) rotate(-1.2deg);
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes vipRecede {
+  from {
+    transform: none;
+    opacity: 1;
+    visibility: visible;
+  }
+  to {
+    transform: translate3d(0, -3vmin, 0) scale(0.9);
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@keyframes vipRise {
+  from {
+    transform: translate3d(0, 1.6vmin, 0);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes vipFan {
+  0% {
+    transform: translate3d(0, 45vh, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  42% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1);
+  }
+  100% {
+    transform: translate3d(var(--fan-x), var(--fan-y), 0) rotate(var(--fan-tilt));
+    opacity: 1;
+  }
+}
+
+@keyframes vipShade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.14;
+  }
+}
+
+/* Lifted at the corner first, then over and away. The perspective grows with
+   the screen, so a wide page doesn't swing into the viewer. */
+@keyframes vipPageTurn {
+  0% {
+    transform: perspective(max(1600px, 220vw)) rotateY(0deg);
+    opacity: 1;
+    visibility: visible;
+    animation-timing-function: cubic-bezier(0.3, 0, 0.5, 1);
+  }
+  16% {
+    transform: perspective(max(1600px, 220vw)) rotateY(-6deg);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.7, 0.45);
+  }
+  62% {
+    opacity: 1;
+  }
+  100% {
+    transform: perspective(max(1600px, 220vw)) rotateY(-100deg);
+    opacity: 0;
+    visibility: hidden;
+  }
+}
