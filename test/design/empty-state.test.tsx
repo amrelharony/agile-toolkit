@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -28,5 +30,15 @@ describe("EmptyState", () => {
     expect(
       screen.getByRole("button", { name: "Load an example" }).closest(".balloon")
     ).not.toBeNull();
+  });
+
+  // Rendering here can't see this: jsdom has no server/client boundary, and a
+  // page breaks only when a live request reaches it.
+  it("can take an icon from a server page", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/components/shared/empty-state.tsx"),
+      "utf8"
+    );
+    expect(source).not.toMatch(/^\s*["']use client["']/m);
   });
 });

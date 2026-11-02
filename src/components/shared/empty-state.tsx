@@ -1,5 +1,3 @@
-"use client";
-
 import type { LucideIcon } from "lucide-react";
 import { AmrStill } from "@/components/shared/amr-still";
 import { cn } from "@/lib/utils";
@@ -41,6 +39,10 @@ const PADDING: Record<NonNullable<EmptyStateProps["padding"]>, string> = {
  * "Nothing here yet", said by Amr: his still frame beside a speech balloon that
  * holds the tool's own message. Used by nearly 100 screens, so the words stay
  * the call site's. On a narrow column the balloon wraps under him.
+ *
+ * Not a client component, on purpose: server pages pass it an icon, and a
+ * function can't cross into a client component. A page that does that only fails
+ * on a live request, because the build never renders a dynamic page.
  */
 export function EmptyState({
   icon: Icon,
