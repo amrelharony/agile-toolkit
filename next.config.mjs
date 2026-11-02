@@ -112,6 +112,13 @@ const nextConfig = {
         source: "/media/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
+      // A link preview can be drawn inside another site's page, which the
+      // site-wide same-origin CORP would block. Only the share images: the
+      // cover itself stays same-origin, like the rest of the site.
+      {
+        source: "/media/share-:file",
+        headers: [{ key: "Cross-Origin-Resource-Policy", value: "cross-origin" }],
+      },
       // Service worker: always revalidate so a new deploy's worker is picked
       // up on the next visit instead of whenever the HTTP cache expires.
       {

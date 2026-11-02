@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import nextConfig from "../../next.config.mjs";
 import {
   BOOK_SHARE_URL,
   COVER_INTRO_SIZE,
@@ -72,5 +73,21 @@ describe("the book's art", () => {
   it("is everything in public/media: no back cover, proof or story art", () => {
     const dir = path.join(process.cwd(), "public", "media");
     expect(readdirSync(dir).sort()).toEqual(FILES.map((url) => path.basename(url)).sort());
+  });
+
+  it("is cached for a year, and only the share images may be shown by other sites", async () => {
+    const rules = await nextConfig.headers!();
+    const media = rules.find((r) => r.source === "/media/:path*");
+    expect(media?.headers).toEqual([
+      { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+    ]);
+    const share = rules.find((r) => r.source === "/media/share-:file");
+    expect(share?.headers).toEqual([
+      { key: "Cross-Origin-Resource-Policy", value: "cross-origin" },
+    ]);
+    // It comes after the site-wide same-origin rule, so it's the one that holds.
+    expect(rules.indexOf(share!)).toBeGreaterThan(rules.findIndex((r) => r.source === "/(.*)"));
+    // The source names files under /media only, never the /book page.
+    expect(rules.some((r) => r.source.startsWith("/book"))).toBe(false);
   });
 });

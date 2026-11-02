@@ -20,7 +20,7 @@ export const COVER_URL = "/media/cover-1080.5f45323b.webp";
 /** For the book intro: about the book's width on a 3x phone. */
 export const COVER_INTRO_SIZE = 720;
 export const COVER_INTRO_URL = "/media/cover-720.bde70d54.webp";
-/** Half the size, for the home page's card and /book on a phone. */
+/** Half the size, for the home page's card; /book takes it only on a 1x screen. */
 export const COVER_SMALL_SIZE = 540;
 export const COVER_SMALL_URL = "/media/cover-540.79ec4d70.webp";
 
