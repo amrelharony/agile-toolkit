@@ -101,18 +101,22 @@ export function IntroAmr({
 
 /**
  * A window onto one real panel, at the 768 px size every page uses, so the
- * intro and the page share one download. Lazy, so a hidden overlay on a later
- * visit loads nothing. Decorative: the page underneath carries the panel's
- * description, and the dialog hides the page only while the intro plays.
+ * intro and the page share one download. Lazy by default, so a hidden overlay
+ * on a later visit loads nothing; `eager` is for a scene whose windows open
+ * within the first second and whose page shows the same panels anyway.
+ * Decorative: the page underneath carries the panel's description, and the
+ * dialog hides the page only while the intro plays.
  */
 export function IntroPanel({
   panel,
   className,
   style,
+  loading = "lazy",
 }: {
   panel: StoryCover;
   className?: string;
   style?: CSSProperties;
+  loading?: "lazy" | "eager";
 }) {
   return (
     <span className={cn("intro-window panel", className)} style={style}>
@@ -122,7 +126,7 @@ export function IntroPanel({
         width={panel.width}
         height={panel.height}
         alt=""
-        loading="lazy"
+        loading={loading}
         decoding="async"
       />
     </span>

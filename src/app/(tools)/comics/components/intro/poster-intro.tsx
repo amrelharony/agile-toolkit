@@ -52,6 +52,9 @@ export function PosterIntro({
                     <IntroPanel
                       key={panel.pathSmall}
                       panel={panel}
+                      // Open by 0.5 s, too soon for lazy loading to start. The poster
+                      // page shows these same files, so a later visit fetches nothing extra.
+                      loading="eager"
                       className={cn(
                         styles.window,
                         WINDOW_CLASSES[i],

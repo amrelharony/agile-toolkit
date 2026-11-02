@@ -176,6 +176,8 @@ describe("the poster intro", () => {
       expect(img).toHaveAttribute("alt", "");
       // The windows are decoration: the page underneath describes the panels.
       expect(img.closest('[aria-hidden="true"]')).not.toBeNull();
+      // They open by 0.5 s: lazy loading would start too late.
+      expect(img).toHaveAttribute("loading", "eager");
     }
     const sheets = backgrounds(dialog());
     expect(sheets).toHaveLength(1);

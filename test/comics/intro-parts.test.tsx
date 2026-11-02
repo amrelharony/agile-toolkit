@@ -125,6 +125,16 @@ describe("IntroPanel", () => {
     expect(img).toHaveAttribute("loading", "lazy");
     expect(img).toHaveAttribute("width", "768");
   });
+
+  it("loads at once when a scene asks, for windows that open in the first second", () => {
+    const { container } = render(
+      <IntroPanel
+        panel={{ pathSmall: "ep-12/1-768.webp", width: 768, height: 512 }}
+        loading="eager"
+      />
+    );
+    expect(container.querySelector("img")).toHaveAttribute("loading", "eager");
+  });
 });
 
 describe("ReplayIntro", () => {
