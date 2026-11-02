@@ -3,17 +3,18 @@
  * Kept free of "use client" so app/layout.tsx can inline the boot script.
  */
 
+/** "light" is the comic look, "dark" is night comic, "hc" is high contrast. */
 export type ThemePreference = "system" | "dark" | "light" | "hc";
 export type AppliedTheme = "dark" | "light" | "hc";
 
 export const THEME_STORAGE_KEY = "ae-theme";
-/** Theme for visitors who haven't chosen one. */
-export const DEFAULT_PREFERENCE: ThemePreference = "dark";
+/** Theme for visitors who haven't chosen one: the comic look. */
+export const DEFAULT_PREFERENCE: ThemePreference = "light";
 
 /** Browser chrome colour per applied theme (matches --bg). */
 export const THEME_COLORS: Record<AppliedTheme, string> = {
-  dark: "#06080f",
-  light: "#f4f6fb",
+  dark: "#13161e",
+  light: "#f7f1e6",
   hc: "#000000",
 };
 
