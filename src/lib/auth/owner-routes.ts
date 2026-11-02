@@ -11,7 +11,11 @@
  */
 
 /** Pages that exist only to manage owner-only APIs. Matched with their subpaths. */
-export const OWNER_ONLY_PAGES: readonly string[] = ["/settings/access-tokens", "/settings/squads"];
+export const OWNER_ONLY_PAGES: readonly string[] = [
+  "/settings/access-tokens",
+  "/settings/squads",
+  "/settings/comics",
+];
 
 export type RouteKind = "api" | "owner-page" | "public-page";
 

@@ -7,7 +7,8 @@ export function PanelTranscript({ panel }: { panel: Panel }) {
       <p>{panel.alt}</p>
       {panel.dialogue.map((d, i) => (
         <p key={i}>
-          <span className="font-semibold text-text">{d.speaker}:</span> {d.line}
+          {d.speaker ? <span className="font-semibold text-text">{d.speaker}: </span> : null}
+          {d.line}
         </p>
       ))}
       {panel.signs.map((sign, i) => (

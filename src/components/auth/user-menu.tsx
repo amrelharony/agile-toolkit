@@ -37,6 +37,7 @@ import { toast } from "@/lib/utils/toast";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
 import { SCRUM_ROLE_LABEL, type SignOutResult } from "@/lib/auth/types";
 import {
+  BookImage,
   LogOut,
   History,
   UserCircle,
@@ -364,6 +365,12 @@ function OwnerMenu() {
           >
             <Sparkles className="w-4 h-4" aria-hidden="true" />
             <span>AI settings (BYOK)</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/settings/comics" className="cursor-pointer">
+              <BookImage className="w-4 h-4" aria-hidden="true" />
+              <span>Comics portal</span>
+            </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link href="/settings/access-tokens" className="cursor-pointer">
