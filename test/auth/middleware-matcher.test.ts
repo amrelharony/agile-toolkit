@@ -36,6 +36,8 @@ const EXEMPT = [
   "/comics/sitemap.xml",
   "/.well-known/security.txt",
   "/mascot/amr.7d281181.webp",
+  "/media/cover-1080.5f45323b.webp",
+  "/media/share-site.2525b046.jpg",
   "/AT.svg",
   "/pdf.worker.legacy.min.mjs",
   "/pdf.worker.min.mjs",
@@ -77,6 +79,12 @@ const CHECKED = [
   "/mascot/mascot.png",
   "/mascot/mascot.glb",
   "/mascot/sub/m.webp",
+  "/book",
+  "/media",
+  "/media/",
+  "/media/cover.png",
+  "/media/sub/cover.webp",
+  "/x/media/cover.webp",
 ];
 
 describe("middleware matcher", () => {

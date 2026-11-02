@@ -105,6 +105,13 @@ const nextConfig = {
         source: "/mascot/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
+      // The book's cover and the share images (lib/book/art.ts): content-hashed
+      // names too. Their own folder, never /book/:path*, which would also match
+      // the /book page.
+      {
+        source: "/media/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
       // Service worker: always revalidate so a new deploy's worker is picked
       // up on the next visit instead of whenever the HTTP cache expires.
       {
