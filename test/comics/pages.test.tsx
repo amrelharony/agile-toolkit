@@ -36,6 +36,7 @@ import ComicPosterPage, {
   generateStaticParams as posterParams,
 } from "@/app/(tools)/comics/poster/[n]/page";
 import ComicLicensePage, { metadata as licenseMetadata } from "@/app/(tools)/comics/license/page";
+import { BOOK_SHARE_URL } from "@/lib/book/art";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
 
 const STORY: Story = {
@@ -154,7 +155,8 @@ describe("a number that isn't released", () => {
     const meta = await storyMetadata(params(31));
     expect(meta.title).toBe("Coming soon — Agile at Work");
     expect(meta.robots).toEqual({ index: false, follow: true });
-    expect(meta.openGraph?.images).toBeUndefined();
+    // The book's share image, which says nothing about next Monday's story.
+    expect(meta.openGraph?.images).toEqual([`https://agile.amrelharony.com${BOOK_SHARE_URL}`]);
     expect(meta.alternates?.canonical).toBeUndefined();
   });
 });
