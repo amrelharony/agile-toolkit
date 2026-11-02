@@ -53,6 +53,14 @@ export function getVisibleTools(showAll = false, vip = false): ToolDefinition[] 
   return tools.filter((t) => isVisible(t, showAll, vip));
 }
 
+/**
+ * The interactive tools a visitor sees before turning "Show all tools" on: the
+ * number the home page promises, and the one the manifest and sign-in page say.
+ */
+export function defaultToolCount(): number {
+  return getVisibleTools().filter((t) => t.kind !== "reading").length;
+}
+
 /** Visible tools in one category. */
 export function getVisibleToolsByCategory(
   category: ToolCategory,
