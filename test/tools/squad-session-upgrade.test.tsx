@@ -181,7 +181,10 @@ describe("the page", () => {
     expect(screen.getByText(BOOK_EPISODES[0].lesson)).toBeInTheDocument();
     expect(screen.getByText(BOOK_EPISODES[0].question)).toBeInTheDocument();
     expect(screen.getByText("The comic will appear here soon")).toBeInTheDocument();
-    expect(screen.queryByRole("img")).toBeNull();
+    // Amr beside the empty state is the only picture: no comic art.
+    expect(screen.getAllByRole("img").map((img) => img.getAttribute("alt"))).toEqual([
+      "Amr, waiting",
+    ]);
     expect(screen.getByText(/private property of this website/)).toBeInTheDocument();
   });
 

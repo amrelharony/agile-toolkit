@@ -304,7 +304,10 @@ describe("/comics/early", () => {
     h.cookie = undefined;
     for (const ep of [undefined, "31", "27", "35"]) {
       const { container } = render(await open(ep));
-      expect(container.innerHTML).not.toMatch(/Story \d|Lesson \d|s\/\d+-|<img/);
+      expect(container.innerHTML).not.toMatch(/Story \d|Lesson \d|s\/\d+-/);
+      // Amr beside the lock message is the only picture: no comic art.
+      const images = Array.from(container.querySelectorAll("img"));
+      expect(images.filter((img) => !img.src.includes("/mascot/"))).toEqual([]);
       expect(screen.getByText("VIP access comes with the printed book")).toBeInTheDocument();
       cleanup();
     }
