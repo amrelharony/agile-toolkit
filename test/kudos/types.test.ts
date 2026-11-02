@@ -8,6 +8,17 @@ import {
   isValidKudos,
 } from "@/app/(tools)/kudos/types";
 
+describe("theme chip colours", () => {
+  // `accent` is page UI on the paper, not the printed card: tokens only, so the
+  // chip clears AA in every mode. A card keeps its own hex and headerBg.
+  it("never uses a palette shade", () => {
+    for (const t of KUDOS_THEMES) {
+      expect(t.accent, t.id).toMatch(/^text-[a-z0-9-]+ border-[a-z0-9-]+\/40$/);
+      expect(t.accent, t.id).not.toMatch(/-[0-9]{3}\b/);
+    }
+  });
+});
+
 describe("headerInk", () => {
   const lum = (hex: string) => {
     const [r, g, b] = [1, 3, 5].map((i) => {

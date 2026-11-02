@@ -111,7 +111,7 @@ export function MoodHeatmap({
                       data-mood={face?.score ?? (e ? "note-only" : "none")}
                       className={cn(
                         "h-6 rounded border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                        face ? cn(face.bg, "border-transparent") : "border-border",
+                        face ? cn(face.bg, "border-border") : "border-border",
                         e?.isPlaceholder && "border-dashed"
                       )}
                     />
