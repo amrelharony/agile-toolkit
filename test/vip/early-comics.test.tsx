@@ -50,7 +50,12 @@ vi.mock("next/navigation", () => ({
 
 import EarlyComicsPage, { metadata } from "@/app/(tools)/comics/early/page";
 import robots from "@/app/robots";
-import { getEarlyStory, listEarlyWeekly, listReleasedWeekly } from "@/lib/comics/store";
+import {
+  EARLY_RELEASE_GRACE_SECONDS,
+  getEarlyStory,
+  listEarlyWeekly,
+  listReleasedWeekly,
+} from "@/lib/comics/store";
 
 type Row = Record<string, unknown>;
 
@@ -191,6 +196,61 @@ describe("getEarlyStory", () => {
     ["a number with no story", 99],
   ])("finds nothing for %s", async (_what, ep) => {
     expect(await getEarlyStory(ep)).toEqual({ status: "none" });
+  });
+});
+
+describe("the moment a story comes out", () => {
+  const GRACE_MS = EARLY_RELEASE_GRACE_SECONDS * 1000;
+  const withRows = (...rows: Row[]) => {
+    h.client = fakeClient([...ROWS, ...rows]);
+  };
+  const ago = (ms: number) => new Date(NOW - ms).toISOString();
+
+  it("waits as long as the public pages can stay cached", () => {
+    const src = (file: string) => readFileSync(path.join(process.cwd(), "src", file), "utf8");
+    for (const file of ["app/(tools)/comics/ep/[n]/page.tsx", "app/(tools)/comics/page.tsx"]) {
+      expect(src(file), file).toContain(
+        `export const revalidate = ${EARLY_RELEASE_GRACE_SECONDS};`
+      );
+    }
+  });
+
+  it("keeps the story here until the public page has had time to refresh", async () => {
+    withRows(row(40, "weekly", ago(0)), row(41, "weekly", ago(GRACE_MS - 1000)));
+    for (const ep of [40, 41]) {
+      const found = await getEarlyStory(ep);
+      expect(found.status, String(ep)).toBe("early");
+    }
+  });
+
+  it("calls it released once that time is up", async () => {
+    withRows(row(42, "weekly", ago(GRACE_MS)), row(43, "weekly", ago(GRACE_MS + 60_000)));
+    expect(await getEarlyStory(42)).toEqual({ status: "released" });
+    expect(await getEarlyStory(43)).toEqual({ status: "released" });
+  });
+
+  it("gives a book episode no such wait: its page has the book's words anyway", async () => {
+    withRows(row(3, "book", ago(60_000)));
+    expect(await getEarlyStory(3)).toEqual({ status: "released" });
+  });
+
+  it("keeps it on the list for the same time, and then not", async () => {
+    withRows(row(44, "weekly", ago(GRACE_MS - 1000)), row(45, "weekly", ago(GRACE_MS)));
+    expect((await listEarlyWeekly()).map((s) => s.ep)).toEqual([44, 30, 31, 32]);
+  });
+
+  it("reads it on the early page, with no redirect, then redirects", async () => {
+    withRows(row(46, "weekly", ago(60_000)), row(47, "weekly", ago(GRACE_MS)));
+    render((await EarlyComicsPage({ searchParams: { ep: "46" } })) as ReactElement);
+    expect(h.redirected).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Story 46" })).toBeInTheDocument();
+    await expect(EarlyComicsPage({ searchParams: { ep: "47" } })).rejects.toThrow("NEXT_REDIRECT");
+    expect(h.redirected).toBe("/comics?ep=47");
+  });
+
+  it("never lets the public reads wait: they see it as soon as it's out", async () => {
+    withRows(row(48, "weekly", ago(60_000)));
+    expect((await listReleasedWeekly()).map((s) => s.ep)).toContain(48);
   });
 });
 

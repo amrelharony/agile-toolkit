@@ -31,6 +31,9 @@ import { releaseDayLabel } from "./release-day";
  * exactly /comics, so nothing touches this address. It checks access before any
  * read, so a locked visitor costs no query and learns nothing, not even whether a
  * number exists. Stories here have no share image, structured data or share link.
+ *
+ * A story stays readable here for a short while after it comes out, because the
+ * public page can still be the cached "coming soon": see EARLY_RELEASE_GRACE_SECONDS.
  */
 export const dynamic = "force-dynamic";
 

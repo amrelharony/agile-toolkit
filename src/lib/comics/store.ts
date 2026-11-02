@@ -211,14 +211,27 @@ export async function listReleasedEps(collection: ComicCollection): Promise<numb
 export const EARLY_WINDOW_DAYS = 28;
 const DAY_MS = 86_400_000;
 
+/**
+ * How long a book reader keeps a weekly story here after it comes out. No refresh
+ * runs at release_at, so for up to this long the public page can still be the
+ * cached "coming soon", and sending a reader there would lose the story. It's the
+ * `revalidate` of the public comic pages, which Next needs written there as a plain
+ * number: test/vip/early-comics.test.tsx keeps the two equal.
+ */
+export const EARLY_RELEASE_GRACE_SECONDS = 600;
+
 function earlyUntil(now: string): string {
   return new Date(Date.parse(now) + EARLY_WINDOW_DAYS * DAY_MS).toISOString();
 }
 
+function earlySince(now: string): string {
+  return new Date(Date.parse(now) - EARLY_RELEASE_GRACE_SECONDS * 1000).toISOString();
+}
+
 /**
- * For VIP pages only: weekly stories scheduled within the window, soonest first.
- * A draft has no release_at, so neither bound can match it, and a story further
- * ahead stays out of reach.
+ * For VIP pages only: weekly stories scheduled within the window, soonest first,
+ * along with any that only just came out. A draft has no release_at, so neither
+ * bound can match it, and a story further ahead stays out of reach.
  */
 export async function listEarlyWeekly(): Promise<StorySummary[]> {
   const rows = await read<SummaryRow[]>([], (client, now, signal) =>
@@ -226,7 +239,7 @@ export async function listEarlyWeekly(): Promise<StorySummary[]> {
       .from("comic_stories")
       .select(SUMMARY_COLUMNS)
       .eq("collection", "weekly")
-      .gt("release_at", now)
+      .gt("release_at", earlySince(now))
       .lte("release_at", earlyUntil(now))
       .order("release_at", { ascending: true })
       .order("ep", { ascending: true })
@@ -238,7 +251,7 @@ export async function listEarlyWeekly(): Promise<StorySummary[]> {
 
 export type EarlyLookup =
   | { status: "early"; story: Story }
-  /** It's out, so its home is the public page. */
+  /** It's out, and the public page has had time to say so: that's its home now. */
   | { status: "released" }
   /** A draft, too far ahead, or no such number: all the same to the reader. */
   | { status: "none" };
@@ -255,8 +268,14 @@ export async function getEarlyStory(ep: number): Promise<EarlyLookup> {
       .maybeSingle<StoryRow>()
   );
   if (!row) return { status: "none" };
-  if (Date.parse(row.release_at) <= Date.parse(releasedBefore())) return { status: "released" };
-  return row.collection === "weekly"
-    ? { status: "early", story: toStory(row) }
-    : { status: "none" };
+  const now = releasedBefore();
+  const releaseAt = Date.parse(row.release_at);
+  // A book episode's page has the book's words whether or not its art is out yet,
+  // so only a weekly story needs the grace period.
+  if (row.collection !== "weekly") {
+    return releaseAt <= Date.parse(now) ? { status: "released" } : { status: "none" };
+  }
+  return releaseAt <= Date.parse(earlySince(now))
+    ? { status: "released" }
+    : { status: "early", story: toStory(row) };
 }
