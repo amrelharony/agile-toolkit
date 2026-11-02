@@ -293,6 +293,16 @@ describe("the book intro's timing", () => {
     }
   });
 
+  it("lets a short landscape page's wider window outrank the base one", () => {
+    // Same specificity, so the later rule wins: the override has to follow.
+    const base = css.search(/\n\.window \{[^}]*aspect-ratio: 3 \/ 2;/);
+    const landscape = css.search(
+      /@media \(orientation: landscape\) and \(max-height: 540px\) \{\s*\.window \{\s*aspect-ratio: 2 \/ 1;/
+    );
+    expect(base).toBeGreaterThan(-1);
+    expect(landscape).toBeGreaterThan(base);
+  });
+
   it("draws nothing of its own: no images or gradients in the CSS", () => {
     expect(css).not.toMatch(/url\(|gradient\(/);
   });

@@ -69,12 +69,6 @@
       --book-w: min(52dvh, max(50vw - 140px, 40dvh));
     }
   }
-
-  /* A square page this small is short: at the lettering's smallest sizes, a
-     wider window is what leaves the title its two lines. */
-  .window {
-    aspect-ratio: 2 / 1;
-  }
 }
 
 /* Three wrappers, one move each, so no two animations fight over a transform.
@@ -140,6 +134,15 @@
   aspect-ratio: 3 / 2;
 }
 
+/* On a phone on its side the square page is short: at the lettering's smallest
+   sizes, a wider window is what leaves the title its two lines. After the rule
+   above, which it has to outrank: a media query adds no specificity. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .window {
+    aspect-ratio: 2 / 1;
+  }
+}
+
 /* Under the panel, two lines at most: on the smallest phone the page ends a
    few pixels below them. */
 .caption {
@@ -195,7 +198,8 @@
     calc(var(--book-w) * 0.15);
 }
 
-/* The cover's art, over its lettering, filling the board inside its border. */
+/* The cover's art, filling the board inside its border, over the lettering
+   and the hinge: those are only the cover until the art arrives. */
 .art {
   position: absolute;
   inset: 0;
