@@ -28,7 +28,7 @@ export function ComicCover({ cover }: { cover: StoryCover }) {
 export function ComicCard({ story }: { story: StorySummary }) {
   return (
     <li>
-      <Card className="h-full overflow-hidden transition-colors hover:border-accent/40">
+      <Card className="h-full overflow-hidden transition-[transform,box-shadow] hover:-translate-x-px hover:-translate-y-px hover:shadow-xl">
         <Link
           href={comicHref(story.ep)}
           prefetch={false}
@@ -36,7 +36,7 @@ export function ComicCard({ story }: { story: StorySummary }) {
         >
           {story.cover ? <ComicCover cover={story.cover} /> : null}
           <div className="p-4">
-            <h3 className="font-semibold text-text">{story.title}</h3>
+            <h3 className="font-display font-semibold text-text">{story.title}</h3>
             <p className="mt-1 line-clamp-3 text-sm text-sub">{story.lesson}</p>
           </div>
         </Link>

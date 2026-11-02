@@ -65,11 +65,11 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
       aria-label={`Level ${info.level}, ${pct}% to next level. ${unlockedCount} achievements. Open trophy case.`}
       title="Open trophy case"
       className={cn(
-        "min-touch-coarse flex items-center gap-2 h-8 rounded-full",
-        "border border-border bg-surface/60 backdrop-blur-sm",
+        "min-touch-coarse flex items-center gap-2 h-8 rounded-md",
+        "border border-border bg-surface",
         "px-2.5 sm:px-3",
-        "text-xs font-mono uppercase tracking-wider",
-        "text-sub hover:text-text hover:border-accent/40 hover:bg-surface",
+        "text-xs font-mono",
+        "text-sub hover:text-text hover:border-accent",
         "transition-all duration-fast",
         "shrink-0"
       )}
@@ -92,7 +92,7 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
         aria-hidden="true"
       >
         <div
-          className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-accent to-accent-2 transition-[width]"
+          className="absolute left-0 top-0 bottom-0 bg-accent transition-[width]"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -100,7 +100,7 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
         {info.atMax ? `${xp.toLocaleString()}` : `${info.xpIntoLevel}/${info.xpNeededForLevel}`}
       </span>
       <span className="hidden md:flex items-center gap-1 text-sub shrink-0">
-        <span className="text-sub/50">·</span>
+        <span className="text-sub">·</span>
         <span className="font-data text-accent">{unlockedCount}</span>
         <span className="text-xs">ach</span>
       </span>

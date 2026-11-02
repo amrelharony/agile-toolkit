@@ -21,7 +21,7 @@ export function JobLauncher() {
           return (
             <li
               key={job.id}
-              className="group relative flex flex-col gap-2 rounded-xl border border-border bg-card p-4 transition-colors hover:border-accent/40"
+              className="panel group relative flex flex-col gap-2 p-4 transition-[transform,box-shadow] hover:-translate-x-px hover:-translate-y-px hover:shadow-xl"
             >
               <div className="flex items-center gap-2">
                 <Icon className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />

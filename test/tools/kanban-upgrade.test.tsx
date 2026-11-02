@@ -1545,7 +1545,7 @@ describe("flow board", () => {
 
     seed({ sprints: [], cards: [1, 2, 3, 4, 10].map(done) });
     renderBoard();
-    const tile = (label: string) => within(screen.getByText(label).closest(".rounded-xl")!);
+    const tile = (label: string) => within(screen.getByText(label).closest(".panel")!);
     // 2, 3, 4, 5 and 11 days with both ends counted.
     expect(tile("Cycle avg").getByText("5d")).toBeInTheDocument();
     expect(tile("Cycle avg").getByText("±3.2 days")).toBeInTheDocument();
@@ -1630,7 +1630,7 @@ describe("flow board", () => {
     seed({ sprints: [], cards: [] });
     renderBoard();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
-    const tile = (label: string) => within(screen.getByText(label).closest(".rounded-xl")!);
+    const tile = (label: string) => within(screen.getByText(label).closest(".panel")!);
     expect(tile("Cycle avg").getByText("5d")).toBeInTheDocument();
     expect(tile("85% within").getByText("7d")).toBeInTheDocument();
     expect(

@@ -18,7 +18,7 @@ const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.Respo
 });
 
 // The <Card> look on a <figure> (Card itself only renders a <div>).
-const CARD_CLASS = "rounded-xl border bg-card text-card-foreground shadow";
+const CARD_CLASS = "panel text-card-foreground";
 
 /* -------------------------------------------------------------------------- */
 /*  Text alternative: summary + "View as table"                                */

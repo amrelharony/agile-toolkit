@@ -49,7 +49,7 @@ const Slider = React.forwardRef<
         {...thumbProps}
         className={cn(
           "relative block h-4 w-4 [@media(pointer:coarse)]:h-6 [@media(pointer:coarse)]:w-6",
-          "rounded-full border border-primary/50 bg-background shadow transition-colors",
+          "rounded-full border border-primary bg-background transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
           "disabled:pointer-events-none disabled:opacity-50",
           // Invisible expand-hitbox layer for thick fingers.

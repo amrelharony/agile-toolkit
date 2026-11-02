@@ -24,11 +24,10 @@ interface ToolCardProps {
  * card, so the card stays clickable while the favourite star sits beside
  * the link instead of inside it (a <button> inside an <a> is invalid and
  * screen readers announce it as part of the link). Layers, bottom to top:
- * shimmer (z-0) → title/description with the stretched link (z-1) → tags
+ * title/description with the stretched link (z-1) → tags
  * (z-1, click-through) → top row with the star (z-2, click-through except
  * the star). Flex items honour `z-index` without `position`, so the title
- * block paints above the shimmer without becoming the link's containing
- * block.
+ * block stays above the panel without becoming the link's containing block.
  */
 export function ToolCard({
   href,
@@ -53,50 +52,25 @@ export function ToolCard({
     <div
       data-sonify-hover="card"
       className="
-        group relative flex flex-col gap-3
-        p-4 sm:p-5 rounded-2xl
-        bg-[var(--card)] border border-border
-        backdrop-blur-[20px] saturate-[1.4]
+        panel group relative flex flex-col gap-3
+        p-4 sm:p-5
         overflow-hidden
-        transition-all duration-medium ease-spring
+        transition-[transform,box-shadow,background-color] duration-fast
         hover:bg-[var(--cardH)]
-        hover:border-accent/20
-        hover:shadow-glow
-        hover:-translate-y-[3px]
-        will-change-transform
+        hover:shadow-xl
+        hover:-translate-x-px hover:-translate-y-px
       "
       style={accentColor ? ({ "--tool-accent": accentColor } as React.CSSProperties) : undefined}
     >
-      {/* Inset top light */}
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[rgba(255,255,255,0.06)] to-transparent" />
-
-      {/* Shimmer sweep overlay */}
-      <div
-        className="
-          absolute inset-0 pointer-events-none z-0
-          opacity-0 group-hover:opacity-100
-        "
-      >
-        <div
-          className="
-            absolute inset-0
-            bg-[linear-gradient(105deg,transparent_40%,var(--glow)_50%,transparent_60%)]
-            -translate-x-full group-hover:animate-shimmer
-          "
-        />
-      </div>
-
       {/* Content — above the stretched link so the star stays clickable;
           everything else in the row lets clicks fall through to the link. */}
       <div className="pointer-events-none relative z-[2] flex items-start justify-between">
         <div
           aria-hidden="true"
           className="
-            w-11 h-11 rounded-xl
-            bg-[var(--card)] border border-border
+            w-11 h-11 rounded-lg
+            bg-accent/10 border border-border
             flex items-center justify-center
-            transition-border-color duration-default
-            group-hover:border-accent/20
             text-accent text-lg
           "
         >
@@ -117,9 +91,7 @@ export function ToolCard({
                 // devices without enlarging the visual glyph on desktop where
                 // the 32 × 32 chip pairs with the adjacent ArrowRight.
                 "pointer-events-auto min-touch-coarse w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-default",
-                favorited
-                  ? "text-accent-amber"
-                  : "text-sub opacity-40 hover:opacity-100 hover:text-accent-amber"
+                favorited ? "text-accent-amber" : "text-sub hover:text-accent-amber"
               )}
             >
               <Star
@@ -132,8 +104,8 @@ export function ToolCard({
           <ArrowRight
             aria-hidden="true"
             className="
-              w-4 h-4 text-sub opacity-40
-              group-hover:opacity-100 group-hover:text-accent
+              w-4 h-4 text-sub
+              group-hover:text-accent
               group-hover:translate-x-0.5
               transition-all duration-default ease-spring
             "
@@ -142,10 +114,10 @@ export function ToolCard({
       </div>
 
       <div className="z-[1]">
-        <h3 className="text-sm font-semibold text-text">
+        <h3 className="font-display text-sm font-semibold text-text">
           <Link
             href={href}
-            className="focus-visible:outline-none after:absolute after:inset-0 after:rounded-2xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-accent"
+            className="focus-visible:outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-accent"
           >
             {title}
           </Link>
@@ -159,12 +131,9 @@ export function ToolCard({
             <span
               key={tag}
               className="
-                font-mono text-xs tracking-wider uppercase
+                font-mono text-xs
                 px-2 py-0.5 rounded-xs
-                bg-[var(--card)] border border-border text-sub
-                transition-all duration-default
-                group-hover:border-accent/15
-                group-hover:text-accent
+                border border-rule text-sub
               "
             >
               {tag}

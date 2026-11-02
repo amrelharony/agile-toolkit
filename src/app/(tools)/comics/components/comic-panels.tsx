@@ -38,7 +38,7 @@ export function ComicPanels({ panels, title }: { panels: readonly Panel[]; title
                 type="button"
                 onClick={() => setOpen(i)}
                 aria-label={`Open panel ${i + 1} of ${panels.length} full screen`}
-                className="block w-full overflow-hidden rounded-lg border border-border bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="panel block w-full overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {/* Plain <img>: the optimiser would add another copy of every
                     panel to the download bill, and the real size stops the

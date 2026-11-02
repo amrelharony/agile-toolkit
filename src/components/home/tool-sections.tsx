@@ -53,7 +53,7 @@ function SectionGroup({
   const Icon = section.icon;
   return (
     <details
-      className="group overflow-hidden rounded-lg border border-border bg-surface/40"
+      className="group overflow-hidden rounded-lg border border-border bg-surface"
       onToggle={(e) => {
         if (e.currentTarget.open) setOpened(true);
       }}

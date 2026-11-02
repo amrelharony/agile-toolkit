@@ -75,7 +75,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
         <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 pt-2">
           <div className="space-y-3 rounded-xl border border-border bg-surface p-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-accent to-accent-2 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-lg border border-border bg-accent flex items-center justify-center">
                 <Trophy className="w-6 h-6 text-bg" />
               </div>
               <div className="flex-1 min-w-0">
@@ -349,7 +349,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 })}
               </div>
             </div>
-            <div className="text-xs text-sub/70">
+            <div className="text-xs text-sub">
               Pool: {DAILY_POOL.length} daily · {WEEKLY_POOL.length} weekly · rotates at local
               midnight / Monday.
             </div>

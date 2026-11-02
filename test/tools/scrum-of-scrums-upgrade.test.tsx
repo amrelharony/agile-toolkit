@@ -85,7 +85,7 @@ const renderSos = () =>
   );
 const lastToast = () => toastSpy.mock.calls[toastSpy.mock.calls.length - 1];
 const undoLast = () => act(() => lastToast()[1].action.onClick());
-const agenda = () => screen.getByText(/^Agenda — /).closest(".rounded-xl") as HTMLElement;
+const agenda = () => screen.getByText(/^Agenda — /).closest(".panel") as HTMLElement;
 
 beforeEach(() => {
   n = 0;

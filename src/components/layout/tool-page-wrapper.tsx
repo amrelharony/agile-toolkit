@@ -55,9 +55,9 @@ export function ToolPageWrapper({
   return (
     <div className="container-tool motion-safe:animate-rise">
       {/* Header row — title + toolbar */}
-      <header className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:gap-4 gap-3">
+      <header className="panel mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:gap-4 gap-3 px-4 py-4 sm:px-6 sm:py-5">
         <div className="flex-1 min-w-0">
-          <h1 className="font-display font-bold text-text leading-tight text-glow text-fluid-h2 mb-1 sm:mb-2">
+          <h1 className="font-display font-bold text-text leading-tight text-fluid-h2 mb-1 sm:mb-2">
             {title}
           </h1>
           <p className="text-fluid-body text-sub max-w-prose">{description}</p>

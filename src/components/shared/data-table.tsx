@@ -200,7 +200,7 @@ export function DataTable<Row>({
                 <tr
                   key={rowKey(row, i)}
                   className={cn(
-                    "border-b border-border last:border-0",
+                    "border-b border-rule last:border-0",
                     onRowClick && "cursor-pointer hover:bg-surface-hover active-press"
                   )}
                   onClick={onRowClick ? () => onRowClick(row, i) : undefined}
