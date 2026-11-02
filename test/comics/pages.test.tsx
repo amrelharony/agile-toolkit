@@ -480,7 +480,12 @@ describe("the gallery", () => {
 
   it("loads card images lazily and small", async () => {
     render(await ComicsPage());
-    for (const img of Array.from(document.querySelectorAll("img"))) {
+    // The book intro's cover is its own test's business (intro-book).
+    const cards = Array.from(document.querySelectorAll("img")).filter(
+      (img) => !img.closest("[data-intro-overlay]")
+    );
+    expect(cards.length).toBeGreaterThan(0);
+    for (const img of cards) {
       expect(img.getAttribute("loading")).toBe("lazy");
       expect(img.getAttribute("src")).toContain("-768.webp");
     }

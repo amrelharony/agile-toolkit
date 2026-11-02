@@ -5,6 +5,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   BOOK_SHARE_URL,
+  COVER_INTRO_SIZE,
+  COVER_INTRO_URL,
   COVER_SIZE,
   COVER_SMALL_SIZE,
   COVER_SMALL_URL,
@@ -36,7 +38,7 @@ function jpegSize(bytes: Buffer) {
   throw new Error("no frame header");
 }
 
-const FILES = [COVER_URL, COVER_SMALL_URL, BOOK_SHARE_URL, SITE_SHARE_URL];
+const FILES = [COVER_URL, COVER_INTRO_URL, COVER_SMALL_URL, BOOK_SHARE_URL, SITE_SHARE_URL];
 
 describe("the book's art", () => {
   it.each(FILES)("%s is named after its content, so immutable caching is safe", (url) => {
@@ -44,8 +46,12 @@ describe("the book's art", () => {
     expect(url).toMatch(new RegExp(`^/media/[a-z0-9-]+\\.${prefix}\\.(?:webp|jpg)$`));
   });
 
-  it("has the square cover at both sizes", () => {
+  it("has the square cover at each size", () => {
     expect(webpSize(read(COVER_URL))).toEqual({ width: COVER_SIZE, height: COVER_SIZE });
+    expect(webpSize(read(COVER_INTRO_URL))).toEqual({
+      width: COVER_INTRO_SIZE,
+      height: COVER_INTRO_SIZE,
+    });
     expect(webpSize(read(COVER_SMALL_URL))).toEqual({
       width: COVER_SMALL_SIZE,
       height: COVER_SMALL_SIZE,
@@ -59,6 +65,7 @@ describe("the book's art", () => {
 
   it("stays small enough for a phone on a slow connection", () => {
     expect(read(COVER_SMALL_URL).length).toBeLessThan(120 * 1024);
+    expect(read(COVER_INTRO_URL).length).toBeLessThan(160 * 1024);
     for (const url of FILES) expect(read(url).length).toBeLessThan(300 * 1024);
   });
 

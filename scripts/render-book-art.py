@@ -24,7 +24,7 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "public", "media")
 # spine, with 9 pt of bleed all round. This is the front cover's trim, less a
 # hair on each side so the spine's ink doesn't leave a line down the left edge.
 FRONT = pymupdf.Rect(648.5, 9.25, 1259.75, 620.5)
-COVER_SIZES = (1080, 540)
+COVER_SIZES = (1080, 720, 540)
 
 # The comic theme's paper, ink and accent (globals.css, the light block).
 PAPER = "#f7f1e6"
