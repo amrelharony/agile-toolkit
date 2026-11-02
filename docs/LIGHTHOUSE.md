@@ -20,6 +20,11 @@ It covers eight public routes:
 | `/meet-the-cast`     | A VIP tool's lock page. The build never renders a dynamic page, so this is the first time CI loads one.                    |
 | `/comics/early`      | The early comics' lock page, for the same reason.                                                                          |
 
+Lighthouse starts each run with a fresh profile, so `/comics` and the poster
+link open with their intros: the book intro (5 s) and the poster intro (3 s)
+are on screen while it measures. That's what a first-time visitor sees, so
+their accessibility counts too.
+
 **Accessibility is a hard gate.** Every tool passed a jsx-a11y sweep, and the
 interaction and labelling rules are lint errors. Everything else warns until
 the mobile baseline below is known-good.
