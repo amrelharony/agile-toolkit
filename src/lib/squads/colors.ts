@@ -21,6 +21,12 @@ export const SQUAD_COLORS = [
 
 export type SquadColor = (typeof SQUAD_COLORS)[number];
 
+/**
+ * Words on an identity colour. These fills are bright in every mode, so the ink
+ * is fixed rather than a page token: `text-bg` turns to paper in the comic.
+ */
+export const IDENTITY_INK = "#111111";
+
 const COLOR_SET = new Set<string>(SQUAD_COLORS);
 
 export function isValidColor(input: unknown): input is SquadColor {

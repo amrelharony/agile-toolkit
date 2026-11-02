@@ -72,7 +72,12 @@ export function GuestToolPlaceholder({ toolId, entityId, role, profile }: Props)
           </p>
           <p className="text-xs text-sub">
             You&apos;re here as{" "}
-            <span className="font-semibold" style={{ color: profile.color }}>
+            <span className="inline-flex items-center gap-1.5 font-semibold text-text">
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: profile.color }}
+                aria-hidden="true"
+              />
               {profile.displayName}
             </span>
             .

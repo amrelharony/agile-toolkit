@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { IDENTITY_INK } from "@/lib/squads/colors";
 import { LogOut, Sparkles, ArrowRight } from "lucide-react";
 
 interface Session {
@@ -80,8 +81,8 @@ export function GuestHomeClient({ profile }: Props) {
         <header className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <div
-              className="w-10 h-10 rounded-full flex items-center justify-center text-bg font-semibold shrink-0"
-              style={{ backgroundColor: profile.color }}
+              className="w-10 h-10 rounded-full flex items-center justify-center font-semibold shrink-0"
+              style={{ backgroundColor: profile.color, color: IDENTITY_INK }}
               aria-hidden="true"
             >
               {profile.displayName.slice(0, 1).toUpperCase()}
