@@ -39,6 +39,8 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { A11Y_ACTIONS } from "@/lib/history/event-actions";
+import { SEVERITY_SCALE } from "@/lib/utils/severity-color";
+import { tint } from "@/lib/utils/theme-color";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
 // Recharts loads with the chart, not the page. ChartCard reserves the
@@ -82,10 +84,10 @@ const SEVERITY_OPTIONS: { value: Severity; label: string }[] = [
 ];
 
 const SEVERITY_COLOR: Record<Severity, string> = {
-  critical: "#ef4444",
-  serious: "#f59e0b",
-  moderate: "#facc15",
-  minor: "#34d399",
+  critical: SEVERITY_SCALE.critical,
+  serious: SEVERITY_SCALE.high,
+  moderate: SEVERITY_SCALE.medium,
+  minor: SEVERITY_SCALE.low,
 };
 
 const SEVERITY_RANK: Record<Severity, number> = {
@@ -564,7 +566,7 @@ export function A11yTrackerClient() {
                     className="font-data text-xs capitalize"
                     style={{
                       color: SEVERITY_COLOR[c.worst],
-                      borderColor: `${SEVERITY_COLOR[c.worst]}66`,
+                      borderColor: tint(SEVERITY_COLOR[c.worst], 40),
                     }}
                   >
                     worst: {c.worst}
@@ -595,7 +597,7 @@ export function A11yTrackerClient() {
                     className="font-data uppercase tracking-wider text-xs"
                     style={{
                       color: SEVERITY_COLOR[i.severity],
-                      borderColor: `${SEVERITY_COLOR[i.severity]}66`,
+                      borderColor: tint(SEVERITY_COLOR[i.severity], 40),
                     }}
                   >
                     {i.severity}

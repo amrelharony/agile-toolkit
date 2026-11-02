@@ -40,6 +40,8 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VULN_ACTIONS } from "@/lib/history/event-actions";
+import { SEVERITY_SCALE } from "@/lib/utils/severity-color";
+import { tint } from "@/lib/utils/theme-color";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
 // Recharts loads with the chart, not the page; ChartCard's fixed-height box
@@ -82,12 +84,7 @@ const SEVERITY_OPTIONS: { value: Severity; label: string }[] = [
   { value: "low", label: "Low" },
 ];
 
-const SEVERITY_COLOR: Record<Severity, string> = {
-  critical: "#ef4444",
-  high: "#f59e0b",
-  medium: "#facc15",
-  low: "#34d399",
-};
+const SEVERITY_COLOR: Record<Severity, string> = SEVERITY_SCALE;
 
 const SEVERITY_DEFAULT_SLA: Record<Severity, number> = {
   critical: 7,
@@ -666,7 +663,7 @@ export function VulnBurndownClient() {
                       className="font-data uppercase tracking-wider text-xs"
                       style={{
                         color: SEVERITY_COLOR[v.severity],
-                        borderColor: `${SEVERITY_COLOR[v.severity]}66`,
+                        borderColor: tint(SEVERITY_COLOR[v.severity], 40),
                       }}
                     >
                       {v.severity}
