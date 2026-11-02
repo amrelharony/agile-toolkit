@@ -6,6 +6,8 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AmrPortrait } from "@/components/vip/amr-portrait";
 import { VipLockedMessage } from "@/components/vip/vip-lock-panel";
 import { ComicCard } from "@/app/(tools)/comics/components/comic-card";
+import { ReplayIntro } from "@/app/(tools)/comics/components/intro/replay-intro";
+import { VipIntro } from "@/app/(tools)/comics/components/intro/vip-intro";
 import { releaseDayLabel } from "@/app/(tools)/comics/early/release-day";
 import { EARLY_COMICS_ROUTE, earlyComicHref } from "@/lib/comics/entry";
 import type { StorySummary } from "@/lib/comics/types";
@@ -18,6 +20,10 @@ export type VipAccess = "unlocked" | "locked" | "invalid-link";
 /**
  * The VIP hub. The server page decided access from the cookie and only sends
  * early comics to an unlocked device; this renders the outcome.
+ *
+ * The intro goes to an unlocked device only, so a forged hint cookie plays
+ * nothing: the head script finds no overlay to show. It sits beside the
+ * wrapper, not in it, since the wrapper's entrance would trap a fixed overlay.
  */
 export function VipClient({
   access,
@@ -29,20 +35,23 @@ export function VipClient({
   const unlocked = access === "unlocked";
 
   return (
-    <ToolPageWrapper
-      title={VIP_TITLE}
-      description={
-        unlocked
-          ? "Welcome, reader of the book. This device has VIP access."
-          : "For readers of the printed book."
-      }
-    >
-      {unlocked ? (
-        <VipHub earlyComics={earlyComics} />
-      ) : (
-        <VipLockedMessage invalidLink={access === "invalid-link"} />
-      )}
-    </ToolPageWrapper>
+    <>
+      {unlocked ? <VipIntro tools={getVipTools()} earlyComics={earlyComics} /> : null}
+      <ToolPageWrapper
+        title={VIP_TITLE}
+        description={
+          unlocked
+            ? "Welcome, reader of the book. This device has VIP access."
+            : "For readers of the printed book."
+        }
+      >
+        {unlocked ? (
+          <VipHub earlyComics={earlyComics} />
+        ) : (
+          <VipLockedMessage invalidLink={access === "invalid-link"} />
+        )}
+      </ToolPageWrapper>
+    </>
   );
 }
 
@@ -117,6 +126,8 @@ function VipHub({ earlyComics }: { earlyComics: readonly StorySummary[] }) {
           </ul>
         )}
       </section>
+
+      <ReplayIntro kind="vip" />
     </div>
   );
 }

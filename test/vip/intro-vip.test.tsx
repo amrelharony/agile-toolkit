@@ -1,19 +1,51 @@
 /**
- * The VIP intro: what it shows with and without early comics, and the timeline
- * its CSS module keeps.
+ * The VIP intro: what it shows with and without early comics, the timeline its
+ * CSS module keeps, and that only a device the book's link unlocked is sent it.
  */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
+import type { ReactNode } from "react";
 import { BookOpen, IdCard, Smile, Users } from "lucide-react";
 import type { StoryCover, StorySummary } from "@/lib/comics/types";
 import { endsAt, sceneAnimations } from "../comics/intro-css";
+
+const h = vi.hoisted(() => ({
+  unlocked: false,
+  early: [] as StorySummary[],
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/vip/access", () => ({ hasVipAccess: async () => h.unlocked }));
+vi.mock("@/lib/comics/store", () => ({ listEarlyWeekly: async () => h.early }));
+vi.mock("@/components/layout/tool-page-wrapper", () => ({
+  ToolPageWrapper: ({
+    title,
+    description,
+    children,
+  }: {
+    title: string;
+    description: string;
+    children: ReactNode;
+  }) => (
+    <div data-testid="tool-page-wrapper">
+      <h1>{title}</h1>
+      <p>{description}</p>
+      {children}
+    </div>
+  ),
+}));
+
+import VipPage from "@/app/vip/page";
+import { VipClient } from "@/app/vip/vip-client";
 import { VipIntro, type VipIntroTool } from "@/app/(tools)/comics/components/intro/vip-intro";
 import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
 import { panelImageUrl } from "@/lib/comics/images";
 import { INTRO_SECONDS, OVERLAY_ATTR, SKIP_ATTR } from "@/lib/comics/intro";
+import { getVipTools } from "@/lib/tools/catalog";
 
 const CSS = "src/app/(tools)/comics/components/intro/vip-intro.module.css";
 
@@ -69,11 +101,14 @@ function backgrounds(el: HTMLElement): string[] {
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://ref.supabase.co");
+  h.unlocked = false;
+  h.early = [];
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllEnvs();
+  document.cookie = "agile-toolkit:vip-hint=; path=/; max-age=0";
 });
 
 describe("VipIntro", () => {
@@ -265,5 +300,41 @@ describe("the timeline in vip-intro.module.css", () => {
       for (const prop of Array.from(body.matchAll(/(?:^|[{;])\s*([a-z-]+)\s*:/g)))
         expect(allowed.has(prop[1]), `${name}: ${prop[1]}`).toBe(true);
     });
+  });
+});
+
+describe("on /vip", () => {
+  it("renders the intro beside the page's wrapper, not inside it", () => {
+    render(<VipClient access="unlocked" earlyComics={[early(30)]} />);
+    const el = overlay()!;
+    expect(el).not.toBeNull();
+    expect(screen.getByTestId("tool-page-wrapper")).not.toContainElement(el);
+    for (const tool of getVipTools().slice(0, 3)) expect(el).toHaveTextContent(tool.name);
+  });
+
+  it("offers to play it again", () => {
+    render(<VipClient access="unlocked" />);
+    expect(screen.getByRole("button", { name: "Replay intro" })).toBeInTheDocument();
+  });
+
+  it.each(["locked", "invalid-link"] as const)("%s: no intro and no replay", (access) => {
+    const { container } = render(<VipClient access={access} />);
+    expect(overlay()).toBeNull();
+    expect(container.innerHTML).not.toContain(OVERLAY_ATTR);
+    expect(screen.queryByRole("button", { name: "Replay intro" })).toBeNull();
+  });
+
+  it("the server sends the overlay only to a device the book's link unlocked", async () => {
+    h.early = [early(30)];
+    const html = async (searchParams: { link?: string }) =>
+      renderToString(await VipPage({ searchParams }));
+
+    expect(await html({})).not.toContain(OVERLAY_ATTR);
+    expect(await html({ link: "invalid" })).not.toContain(OVERLAY_ATTR);
+
+    h.unlocked = true;
+    const unlocked = await html({});
+    expect(unlocked).toContain(`${OVERLAY_ATTR}="vip"`);
+    expect(unlocked).toContain(panelImageUrl("stories/30/one-768.webp"));
   });
 });
