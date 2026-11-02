@@ -17,10 +17,11 @@
  */
 
 /* The overlay's one animation: its end is the intro's end. Eased in, with the
-   push, so the lettering stays solid until the last moment instead of lingering
-   half-faded, where it would read poorly (and fail a contrast check). */
+   push: it reads as a fade from about 4.6 s, but the lettering only drops below
+   60% in the last fifth of a second, so it never lingers half-faded, where it
+   would read poorly (and fail a contrast check). */
 .overlay {
-  animation: book-exit 0.65s cubic-bezier(0.5, 0, 0.75, 0) 4.35s both;
+  animation: book-exit 0.65s cubic-bezier(0.45, 0, 0.9, 0.6) 4.35s both;
 }
 
 /* The camera. Its centre is the screen's, so the book is seen from in front
@@ -46,10 +47,12 @@
 }
 
 /* A phone on its side: the book takes more of the height, and stays narrow
-   enough that the open spread ends short of Skip. */
+   enough that the open spread ends short of Skip. Never under 40dvh, though:
+   a book that small starts below Skip's band (its top is at 23dvh, 74px on the
+   shortest screen), so it needn't give way to it, and its lettering still fits. */
 @media (orientation: landscape) and (max-height: 540px) {
   .scene {
-    --book-w: min(52dvh, 50vw - 140px);
+    --book-w: min(52dvh, max(50vw - 140px, 40dvh));
   }
 }
 
@@ -108,7 +111,8 @@
   border-radius: var(--panel-radius);
 }
 
-/* The panel's own shape, so the art shows whole. */
+/* A fixed 3:2 window, so the caption's place never moves: a panel of another
+   shape is cropped to fit, as in every intro window. */
 .window {
   flex: none;
   width: 100%;
@@ -173,11 +177,12 @@
   transform: rotateY(180deg);
 }
 
-/* Where the cover's cloth turns in over the board. */
+/* Where the cover's cloth turns in over the board. In the quieter ink, drawn
+   plainly enough that the turned cover reads as a cover, not a blank board. */
 .endpaper {
   position: absolute;
   inset: calc(var(--book-w) * 0.05);
-  border: var(--line-w) solid var(--rule);
+  border: var(--line-w) solid var(--sub);
   border-radius: var(--panel-radius);
 }
 
@@ -199,14 +204,14 @@
   display: block;
 }
 
-/* One stroke of the brush under the title. */
+/* One stroke of the brush under the title, in ink like every other mark. */
 .titleRule {
   display: block;
   width: calc(var(--book-w) * 0.2);
   height: max(3px, calc(var(--book-w) * 0.014));
   margin-top: calc(var(--book-w) * 0.06);
   border-radius: 9999px;
-  background-color: var(--accent);
+  background-color: var(--border);
   transform: rotate(-1.5deg);
 }
 
@@ -216,30 +221,48 @@
   line-height: 1.25;
 }
 
-/* Amr in his sheet's own cell (SHEET.cellW × cellH), scaled about his feet
-   (FIGURE_BOTTOM, mid-cell) from the book's width: tan(atan2()) turns that
-   ratio of lengths into a number. In front of the turned cover, so its edge
-   never cuts across him. */
+/* Amr in his sheet's own cell, scaled about his feet from the book's width.
+   The cell, his feet and his figure's height come from sprite-poses.ts by way
+   of the --amr-* properties the TSX sets, so a new sheet moves him too. In
+   front of the turned cover, so its edge never cuts across him. */
 .amr {
   position: absolute;
-  width: 192px;
-  height: 208px;
-  transform-origin: 96px 202px;
+  width: var(--amr-cell-w);
+  height: var(--amr-cell-h);
+  transform-origin: calc(var(--amr-cell-w) / 2) var(--amr-feet);
 }
 
 /* At the foot of the fold, standing a little in front of the book, a touch
-   to the cover's side so a three-line title never meets his shoulder. */
+   to the cover's side so a three-line title never meets his shoulder. About
+   0.46 of the book's width tall. */
 .amrAtFold {
-  left: calc(var(--book-w) * -0.02 - 96px);
-  bottom: calc(var(--book-w) * -0.1 - 6px);
-  transform: translateZ(calc(var(--book-w) * 0.1)) scale(min(1.4, tan(atan2(var(--book-w), 385px))));
+  left: calc(var(--book-w) * -0.02 - var(--amr-cell-w) / 2);
+  bottom: calc(var(--book-w) * -0.1 - (var(--amr-cell-h) - var(--amr-feet)));
+  transform: translateZ(calc(var(--book-w) * 0.1)) scale(0.7);
 }
 
-/* Nothing released yet: the page is his, so he stands in the middle, bigger. */
+/* Nothing released yet: the page is his, so he stands in the middle, bigger,
+   about 0.72 of the book's width tall. */
 .amrAlone {
-  left: calc(50% - 96px);
-  bottom: calc(var(--book-w) * 0.3 - 6px);
-  transform: translateZ(calc(var(--book-w) * 0.1)) scale(min(1.4, tan(atan2(var(--book-w), 246px))));
+  left: calc(50% - var(--amr-cell-w) / 2);
+  bottom: calc(var(--book-w) * 0.3 - (var(--amr-cell-h) - var(--amr-feet)));
+  transform: translateZ(calc(var(--book-w) * 0.1)) scale(1.1);
+}
+
+/* His exact size: tan(atan2()) turns the ratio of two lengths into a number.
+   Behind @supports, not after a fallback declaration: a value with var() in it
+   that the browser can't compute unsets the whole transform, depth and all,
+   instead of falling back. Without it he keeps a phone's size, at the same depth. */
+@supports (transform: scale(min(1.4, tan(atan2(1px, 2px))))) {
+  .amrAtFold {
+    transform: translateZ(calc(var(--book-w) * 0.1))
+      scale(min(1.4, tan(atan2(var(--book-w), calc(var(--amr-figure-h) / 0.46)))));
+  }
+
+  .amrAlone {
+    transform: translateZ(calc(var(--book-w) * 0.1))
+      scale(min(1.4, tan(atan2(var(--book-w), calc(var(--amr-figure-h) / 0.72)))));
+  }
 }
 
 .amrPop {

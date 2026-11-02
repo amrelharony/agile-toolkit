@@ -1,4 +1,5 @@
-import { SHEET } from "@/components/agent/mascot/engine/sprite-poses";
+import type { CSSProperties } from "react";
+import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "@/components/agent/mascot/engine/sprite-poses";
 import type { StoryCover } from "@/lib/comics/types";
 import { cn } from "@/lib/utils";
 import { IntroAmr, IntroOverlay, IntroPanel } from "./intro-parts";
@@ -98,13 +99,28 @@ function BookCover() {
 }
 
 /**
+ * His sheet's cell and where his figure stands in it, which the CSS places and
+ * sizes him by: from here, so it can't drift from the sheet.
+ */
+const AMR_CELL = {
+  "--amr-cell-w": `${SHEET.cellW}px`,
+  "--amr-cell-h": `${SHEET.cellH}px`,
+  "--amr-feet": `${FIGURE_BOTTOM}px`,
+  "--amr-figure-h": `${FIGURE_BOTTOM - FIGURE_TOP}px`,
+} as CSSProperties;
+
+/**
  * Amr at his sheet's own cell size, so the CSS scales him once, from the
  * book's width. The outer span places him, the inner one pops him in: his own
  * element's animation is his frames.
  */
 function WavingAmr({ alone }: { alone: boolean }) {
   return (
-    <span aria-hidden="true" className={cn(styles.amr, alone ? styles.amrAlone : styles.amrAtFold)}>
+    <span
+      aria-hidden="true"
+      className={cn(styles.amr, alone ? styles.amrAlone : styles.amrAtFold)}
+      style={AMR_CELL}
+    >
       <span className={styles.amrPop}>
         <IntroAmr pose="waving" width={SHEET.cellW} />
       </span>

@@ -131,6 +131,7 @@ describe("the book intro", () => {
     render(<BookIntro latest={{ title: TITLE, cover: null }} />);
     const dialog = overlay();
     expect(dialog.querySelector("img")).toBeNull();
+    expect(dialog.querySelector("svg")).toBeNull();
     expect(within(dialog).getByText("This week's story")).toBeTruthy();
     expect(within(dialog).getByText(TITLE)).toBeTruthy();
     expect(backgrounds(dialog)).toEqual([MASCOT_SPRITE_URL]);
@@ -218,12 +219,37 @@ describe("the book intro's timing", () => {
     }
   });
 
+  /** Every animation in the module, one shorthand each, as written. */
+  const shorthands = Array.from(css.matchAll(/(?:^|[;{])\s*animation\s*:\s*([^;]+);/g)).flatMap(
+    (decl) => decl[1].split(/,(?![^(]*\))/).map((one) => one.trim())
+  );
+
   it("fills every animation both ways, so each holds its first and last frames", () => {
-    const shorthands = Array.from(css.matchAll(/(?:^|[;{])\s*animation\s*:\s*([^;]+);/g)).flatMap(
-      (decl) => decl[1].split(/,(?![^(]*\))/).map((one) => one.trim())
-    );
     expect(shorthands).toHaveLength(animations.length);
     for (const one of shorthands) expect(one).toMatch(/\bboth$/);
+  });
+
+  it("writes every time as a literal, which is what the timing checks can read", () => {
+    // sceneAnimations skips a function token, so var(--d) or calc() as a delay
+    // would read as no delay at all. Only a timing curve may take parentheses.
+    for (const one of shorthands) {
+      expect(one.replace(/(?:cubic-bezier|steps)\([^)]*\)/g, ""), one).not.toMatch(/\(/);
+    }
+  });
+
+  it("styles plain classes only, so no rule can reach into Amr's own element", () => {
+    const rules = css.replace(/@keyframes\s+[\w-]+\s*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
+    const selectors = Array.from(rules.matchAll(/([^{}]+)\{[^{}]*\}/g)).map((rule) =>
+      rule[1].trim()
+    );
+    expect(selectors.length).toBeGreaterThan(1);
+    for (const selector of selectors) expect(selector).toMatch(/^\.[A-Za-z][\w-]*$/);
+  });
+
+  it("colours with the theme's tokens only", () => {
+    expect(css).not.toMatch(
+      /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(/i
+    );
   });
 
   it("animates only transform, opacity, clip-path and visibility", () => {
