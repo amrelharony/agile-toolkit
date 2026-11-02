@@ -28,8 +28,10 @@
    wherever it moves, and the depth is a multiple of the book, so the swing
    looks the same on a phone and a desktop. */
 .scene {
-  /* Portrait 3:4: as wide as a phone allows, short enough for a laptop. */
-  --book-w: min(72vw, 44dvh);
+  /* Portrait 3:4: as wide as a phone allows, short enough for a laptop. In vh
+     first: a custom property has no fallback, so a browser without dvh would
+     lose every size built on it and draw no book at all. */
+  --book-w: min(72vw, 44vh);
   /* How far right the book moves as it opens: enough to centre the spread, but
      never so far that the inside page passes the right-hand gutter. */
   --shift: min(
@@ -45,14 +47,24 @@
   perspective: calc(var(--book-w) * 4.5);
   animation: book-fade 0.35s ease-out 0s both;
 }
+@supports (height: 1dvh) {
+  .scene {
+    --book-w: min(72vw, 44dvh);
+  }
+}
 
 /* A phone on its side: the book takes more of the height, and stays narrow
-   enough that the open spread ends short of Skip. Never under 40dvh, though:
+   enough that the open spread ends short of Skip. Never under 40vh, though:
    a book that small starts below Skip's band (its top is at 23dvh, 74px on the
    shortest screen), so it needn't give way to it, and its lettering still fits. */
 @media (orientation: landscape) and (max-height: 540px) {
   .scene {
-    --book-w: min(52dvh, max(50vw - 140px, 40dvh));
+    --book-w: min(52vh, max(50vw - 140px, 40vh));
+  }
+  @supports (height: 1dvh) {
+    .scene {
+      --book-w: min(52dvh, max(50vw - 140px, 40dvh));
+    }
   }
 }
 
@@ -283,10 +295,10 @@
 /* From lying back on a desk to facing the reader, a touch past and back. */
 @keyframes book-rise {
   from {
-    transform: translate3d(0, 12dvh, calc(var(--book-w) * -1.5)) rotateX(40deg) rotateZ(-5deg);
+    transform: translate3d(0, 12vh, calc(var(--book-w) * -1.5)) rotateX(40deg) rotateZ(-5deg);
   }
   72% {
-    transform: translate3d(0, -0.6dvh, calc(var(--book-w) * 0.04)) rotateX(-3deg) rotateZ(0.5deg);
+    transform: translate3d(0, -0.6vh, calc(var(--book-w) * 0.04)) rotateX(-3deg) rotateZ(0.5deg);
     animation-timing-function: cubic-bezier(0.4, 0, 0.3, 1);
   }
   to {
