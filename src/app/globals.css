@@ -636,6 +636,89 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   COMIC INTROS — lib/comics/intro.ts decides, these rules show and frame them.
+   Each scene's choreography lives in its own CSS module.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Hidden unless <html> names this overlay's kind. Important both ways, so a
+   utility class on an overlay can't show it by accident. */
+[data-intro-overlay] {
+  display: none !important;
+}
+html[data-intro="poster"] [data-intro-overlay="poster"],
+html[data-intro="book"] [data-intro-overlay="book"],
+html[data-intro="vip"] [data-intro-overlay="vip"] {
+  display: flex !important;
+}
+
+/* The page stays still under an intro. The gutter stays too, so nothing moves
+   when the scroll bar goes and comes back. Only while the overlay exists, so a
+   stray attribute can't lock a page. */
+html[data-intro="poster"]:has([data-intro-overlay="poster"]),
+html[data-intro="book"]:has([data-intro-overlay="book"]),
+html[data-intro="vip"]:has([data-intro-overlay="vip"]) {
+  overflow: hidden;
+  scrollbar-gutter: stable;
+}
+
+.intro-overlay {
+  position: fixed;
+  inset: 0;
+  /* Above the sidebar drawer (101) and the skip link (100). */
+  z-index: 120;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: var(--bg);
+  color: var(--text);
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+
+.intro-skip {
+  position: absolute;
+  z-index: 10;
+  top: max(1rem, env(safe-area-inset-top));
+  right: max(1rem, env(safe-area-inset-right));
+}
+
+/* A window onto a real panel: the panel's frame, the art cropped to fit. */
+.intro-window {
+  display: block;
+  overflow: hidden;
+}
+.intro-window > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Amr's frames, as on the corner figure: one row, --frames cells of --cell-w. */
+.intro-amr {
+  display: block;
+  background-repeat: no-repeat;
+  animation: intro-amr-frames var(--loop) steps(var(--frames)) infinite;
+}
+@keyframes intro-amr-frames {
+  to {
+    background-position-x: calc(var(--frames) * var(--cell-w) * -1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-intro-overlay] {
+    display: none !important;
+  }
+}
+@media print {
+  [data-intro-overlay] {
+    display: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    HOVER INTERACTION PATTERNS
    ═══════════════════════════════════════════════════════════════════════════════ */
 
