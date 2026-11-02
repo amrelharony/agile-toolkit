@@ -7,7 +7,7 @@ best-practices / SEO baselines for the app's **public routes**.
 
 `lighthouserc.json` runs Lighthouse's default **mobile** profile (a mid-range
 phone on slow 4G): most visitors arrive on phones, and it's the harder target.
-It covers six public routes:
+It covers eight public routes:
 
 | URL                  | Why                                                                                                                        |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
@@ -17,6 +17,8 @@ It covers six public routes:
 | `/burndown`          | A chart tool: shows whether Recharts stays out of the first load (charts load lazily).                                     |
 | `/comics`            | The comics gallery. Until stories are imported it renders the "coming soon" state.                                         |
 | `/comics?ep=01&b=01` | A printed poster link, rewritten by the middleware to a static page. Text only until stories are imported.                 |
+| `/meet-the-cast`     | A VIP tool's lock page. The build never renders a dynamic page, so this is the first time CI loads one.                    |
+| `/comics/early`      | The early comics' lock page, for the same reason.                                                                          |
 
 **Accessibility is a hard gate.** Every tool passed a jsx-a11y sweep, and the
 interaction and labelling rules are lint errors. Everything else warns until
