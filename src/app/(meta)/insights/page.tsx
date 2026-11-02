@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { chartTheme } from "@/components/charts/chart-theme";
 import { ChartCard } from "@/components/shared/chart-card";
 import { SectionCard } from "@/components/shared/section-card";
 import { Activity, Sparkles, Trophy, Flame, Target, Calendar } from "lucide-react";
@@ -174,25 +175,20 @@ export default function InsightsPage() {
               <CartesianGrid stroke="var(--rule)" vertical={false} />
               <XAxis
                 dataKey="day"
-                tick={{ fill: "#7a8794", fontSize: 11 }}
+                tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
               />
               <YAxis
-                tick={{ fill: "#7a8794", fontSize: 11 }}
+                tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
                 width={28}
                 allowDecimals={false}
               />
               <Tooltip
-                cursor={{ fill: "#ffffff08" }}
-                contentStyle={{
-                  background: "#0a1118",
-                  border: "1px solid #ffffff15",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
+                cursor={{ fill: chartTheme.gridColor }}
+                contentStyle={chartTheme.tooltipStyle}
               />
               <Bar dataKey="events" fill={ACCENT} radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -209,7 +205,7 @@ export default function InsightsPage() {
                 <CartesianGrid stroke="var(--rule)" horizontal={false} />
                 <XAxis
                   type="number"
-                  tick={{ fill: "#7a8794", fontSize: 11 }}
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
                   allowDecimals={false}
@@ -218,19 +214,14 @@ export default function InsightsPage() {
                   type="category"
                   dataKey="name"
                   width={90}
-                  tick={{ fill: "#7a8794", fontSize: 11 }}
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
                   tickFormatter={(v: string) => (v.length > 14 ? `${v.slice(0, 13)}…` : v)}
                 />
                 <Tooltip
-                  cursor={{ fill: "#ffffff08" }}
-                  contentStyle={{
-                    background: "#0a1118",
-                    border: "1px solid #ffffff15",
-                    borderRadius: 8,
-                    fontSize: 12,
-                  }}
+                  cursor={{ fill: chartTheme.gridColor }}
+                  contentStyle={chartTheme.tooltipStyle}
                 />
                 <Bar dataKey="events" fill={ACCENT} radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -298,25 +289,20 @@ export default function InsightsPage() {
               <CartesianGrid stroke="var(--rule)" vertical={false} />
               <XAxis
                 dataKey="day"
-                tick={{ fill: "#7a8794", fontSize: 11 }}
+                tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
               />
               <YAxis
-                tick={{ fill: "#7a8794", fontSize: 11 }}
+                tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
                 width={28}
                 allowDecimals={false}
               />
               <Tooltip
-                cursor={{ stroke: "#ffffff20" }}
-                contentStyle={{
-                  background: "#0a1118",
-                  border: "1px solid #ffffff15",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
+                cursor={{ stroke: chartTheme.gridColor }}
+                contentStyle={chartTheme.tooltipStyle}
               />
               <Line
                 type="monotone"
