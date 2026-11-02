@@ -81,6 +81,12 @@ describe("gamification achievement unlocks (regression)", () => {
       expect(useVDnaStore.getState().unlocked).toContain("ten-stories");
     });
 
+    it("still gives Regular Reader at ten stories after a prestige reset cleared the counter", () => {
+      useVDnaStore.setState({ counters: {} });
+      read(10);
+      expect(useVDnaStore.getState().unlocked).toContain("ten-stories");
+    });
+
     it("unlocks Weekly Reader at four weeks in a row, not before", () => {
       read(1, 3);
       expect(useVDnaStore.getState().unlocked).not.toContain("weekly-reader");
