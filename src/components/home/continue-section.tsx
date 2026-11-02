@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { Clock, Star } from "lucide-react";
+import { isVipHidden } from "@/lib/tools/catalog";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
+import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { getToolById, type ToolDefinition } from "@/lib/constants/tools";
 
 function timeAgo(ms: number, now = Date.now()): string {
@@ -35,11 +37,15 @@ function ToolLink({ tool, meta }: { tool: ToolDefinition; meta?: string }) {
  */
 export function ContinueSection() {
   const { favorites, recent } = useToolPrefs();
+  const vip = useVipHint();
   const recentTools = recent.flatMap((r) => {
     const tool = getToolById(r.id);
-    return tool ? [{ tool, usedAt: r.usedAt }] : [];
+    return tool && !isVipHidden(tool, vip) ? [{ tool, usedAt: r.usedAt }] : [];
   });
-  const favoriteTools = favorites.flatMap((id) => getToolById(id) ?? []);
+  const favoriteTools = favorites.flatMap((id) => {
+    const tool = getToolById(id);
+    return tool && !isVipHidden(tool, vip) ? [tool] : [];
+  });
   if (recentTools.length === 0 && favoriteTools.length === 0) return null;
 
   return (

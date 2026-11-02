@@ -1,0 +1,55 @@
+import Link from "next/link";
+import { ArrowLeft, KeyRound } from "lucide-react";
+import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { EmptyState } from "@/components/shared/empty-state";
+import { Button } from "@/components/ui/button";
+import { VIP_TITLE } from "@/lib/vip/constants";
+
+/**
+ * What a VIP address shows without access. It takes no props on purpose, so it
+ * can't carry a title, a count, art or any tool's text: all a locked visitor
+ * learns is how to get in. Every VIP page renders this before reading anything.
+ */
+export function VipLockPanel() {
+  return (
+    <ToolPageWrapper title={VIP_TITLE} description="For readers of the printed book.">
+      <VipLockedMessage />
+    </ToolPageWrapper>
+  );
+}
+
+/** How to get in, shared with the /vip page itself. */
+export function VipLockedMessage({ invalidLink = false }: { invalidLink?: boolean }) {
+  return (
+    <EmptyState
+      icon={KeyRound}
+      padding="xl"
+      action={
+        <Button asChild variant="toolkit" className="min-h-11 md:h-11">
+          <Link href="/">
+            <ArrowLeft aria-hidden="true" />
+            Back to tools
+          </Link>
+        </Button>
+      }
+    >
+      {invalidLink ? (
+        <>
+          <p className="font-semibold text-text">That link didn&apos;t open VIP access</p>
+          <p className="mt-1">
+            Scan the QR code in your copy of the book again, or check that the whole link was
+            copied.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="font-semibold text-text">VIP access comes with the printed book</p>
+          <p className="mt-1">
+            Scan the QR code in your copy of the book, or type in the link printed next to it. This
+            device will remember it after that.
+          </p>
+        </>
+      )}
+    </EmptyState>
+  );
+}

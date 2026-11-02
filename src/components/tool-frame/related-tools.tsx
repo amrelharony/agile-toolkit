@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { getSectionForTool } from "@/lib/constants/sections";
 import { getToolById } from "@/lib/constants/tools";
-import { getVisibleTools, isShelved } from "@/lib/tools/catalog";
+import { getVisibleTools, isShelved, isVipOnly } from "@/lib/tools/catalog";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 
 const MAX_RELATED = 4;
@@ -15,7 +15,8 @@ const MAX_RELATED = 4;
  * grid. Starting after the current tool (and wrapping) gives neighbouring
  * pages different suggestions instead of the same first four. Tools on the
  * "More tools" shelf are skipped — unless the current tool is shelved too,
- * because then its neighbours are what the visitor came for.
+ * because then its neighbours are what the visitor came for. VIP tools are
+ * never suggested here and don't suggest anything themselves.
  */
 export function RelatedTools({ toolId }: { toolId: string }) {
   const { byId: visible } = useToolVisibility();
@@ -23,11 +24,15 @@ export function RelatedTools({ toolId }: { toolId: string }) {
   if (!section) return null;
 
   const current = getToolById(toolId);
+  if (current && isVipOnly(current)) return null;
   const pool =
     current && isShelved(current) ? new Map(getVisibleTools(true).map((t) => [t.id, t])) : visible;
   const at = section.toolIds.indexOf(toolId);
   const order = [...section.toolIds.slice(at + 1), ...section.toolIds.slice(0, at)];
-  const related = order.flatMap((id) => pool.get(id) ?? []).slice(0, MAX_RELATED);
+  const related = order
+    .flatMap((id) => pool.get(id) ?? [])
+    .filter((tool) => !isVipOnly(tool))
+    .slice(0, MAX_RELATED);
   if (related.length === 0) return null;
 
   return (

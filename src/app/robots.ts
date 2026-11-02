@@ -8,8 +8,9 @@ const SITE_URL = "https://agile.amrelharony.com";
  * kept out: the owner-only API and settings pages, the auth flow, the
  * squad-guest tree (invite-code pages), the visitor live-room join links
  * (/join/<tool>/<code>), the book readers' VIP link and page (/vip) and
- * the not-authorized page. These also carry `noindex` metadata where they
- * render HTML; robots.txt just saves crawlers the requests.
+ * the not-authorized page, and the early comics every story links to
+ * (/comics/early). These also carry `noindex` metadata where they render HTML;
+ * robots.txt just saves crawlers the requests.
  *
  * Known AI crawlers are also told to stay out of the comics. A crawler obeys
  * only the group that names it, so their group repeats the private paths too.
@@ -22,6 +23,7 @@ const PRIVATE_PATHS = [
   "/guest/",
   "/join/",
   "/vip",
+  "/comics/early",
   "/not-authorized",
 ];
 

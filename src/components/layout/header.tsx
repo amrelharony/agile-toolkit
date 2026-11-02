@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { getToolByPath } from "@/lib/constants/tools";
+import { isVipOnly } from "@/lib/tools/catalog";
+import { VIP_TITLE } from "@/lib/vip/constants";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -60,7 +62,12 @@ interface HeaderProps {
 
 export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: HeaderProps) {
   const pathname = usePathname();
-  const tool = getToolByPath(pathname);
+  const pathTool = getToolByPath(pathname);
+  // A VIP tool's address may be showing a lock panel, and this bar can't know: the
+  // hint can be forged and the real cookie is out of its reach. So it stays generic
+  // for everyone, and the page itself names the tool once it has checked access.
+  const onVipTool = Boolean(pathTool && isVipOnly(pathTool));
+  const tool = onVipTool ? undefined : pathTool;
   const openAgent = useAgentStore((s) => s.openSheet);
   // The agent and the Cairo weather are the owner's; visitors get the
   // mascot's help panel behind the same button instead.
@@ -181,7 +188,17 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
                 </BreadcrumbItem>
               </>
             )}
-            {!tool && (
+            {onVipTool && (
+              <>
+                <BreadcrumbSeparator className="text-sub hidden lg:block" />
+                <BreadcrumbItem className="min-w-0">
+                  <BreadcrumbPage className="text-text font-medium truncate">
+                    {VIP_TITLE}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </>
+            )}
+            {!tool && !onVipTool && (
               <BreadcrumbItem className="lg:hidden">
                 <BreadcrumbPage className="text-text font-medium">Home</BreadcrumbPage>
               </BreadcrumbItem>

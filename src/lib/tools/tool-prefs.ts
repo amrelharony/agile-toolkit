@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { usePathname } from "next/navigation";
 import { useCloudPersisted } from "@/lib/sync/use-cloud-persisted";
 import { getToolByPath } from "@/lib/constants/tools";
+import { readVipHint } from "@/lib/vip/hint";
 
 export interface RecentToolEntry {
   id: string;
@@ -114,7 +115,8 @@ export function useToolPrefs(): ToolPrefsAPI {
  * Headless tracker — mounts once at the app shell, listens for pathname
  * changes, and records the matching tool in the user's recent list.
  * Non-tool routes (/, /history, /insights, /auth, /not-authorized) are
- * skipped because getToolByPath returns undefined for them.
+ * skipped because getToolByPath returns undefined for them. So is a VIP tool's
+ * page without the hint: seeing its lock panel isn't using the tool.
  */
 export function RecentToolTracker(): null {
   const pathname = usePathname();
@@ -123,7 +125,7 @@ export function RecentToolTracker(): null {
   useEffect(() => {
     if (!pathname) return;
     const tool = getToolByPath(pathname);
-    if (tool) recordUse(tool.id);
+    if (tool && (tool.access !== "vip" || readVipHint())) recordUse(tool.id);
   }, [pathname, recordUse]);
 
   return null;

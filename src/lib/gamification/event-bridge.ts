@@ -197,7 +197,9 @@ function extractToolId(pathname: string): string | null {
   // visits: 5 XP each, plus inflated `tool-hop-5/20/42` ("Visit all 42
   // tools") progress from pages that aren't tools.
   const tool = getToolByPath(`/${match[1]}`);
-  return tool ? tool.id : null;
+  // A VIP tool's address may only show a lock panel, and locked-in-a-book tools
+  // shouldn't count towards "visit every tool" trophies anyone can earn.
+  return tool && tool.access !== "vip" ? tool.id : null;
 }
 
 /**

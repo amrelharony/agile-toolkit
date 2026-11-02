@@ -1,0 +1,48 @@
+{
+  "title": "Fixture canon, invented for this test",
+  "cast": [
+    {
+      "id": "AAW-91",
+      "name": "Fixture Fox",
+      "legacy_aliases": ["PRIVATE-legacy-alias"],
+      "source_visual_page": "PRIVATE-visual-page",
+      "human_want": "Public want of the fox.",
+      "strength": "Public strength of the fox.",
+      "overused_strength": "Public overuse of the fox.",
+      "voice": "PRIVATE-voice",
+      "safe_comic_engine": "PRIVATE-safe-comic-engine",
+      "growth_arc": "PRIVATE-growth-arc",
+      "relationship_hooks": [
+        {
+          "with": "Fixture Owl or Fixture Hen",
+          "collision": "Public collision.",
+          "advance": "Public advance.",
+          "research_note": "PRIVATE-hook-note"
+        }
+      ],
+      "expanded_story_uses": ["PRIVATE-story-use"],
+      "avoid": ["PRIVATE-avoid"],
+      "research_source_ids": ["PRIVATE-CA001"],
+      "canonical_visual_preserve": "PRIVATE-visual-preserve",
+      "asset_path": "PRIVATE-asset-path.png",
+      "asset_sha256": "PRIVATE-asset-sha",
+      "native_dimensions": [1, 2],
+      "visual_status": "PRIVATE-visual-status",
+      "palette": { "fur": "PRIVATE-palette" },
+      "prop": "PRIVATE-prop",
+      "lanyard": "PRIVATE-lanyard",
+      "a_field_added_later": "PRIVATE-future-field"
+    },
+    {
+      "id": "AAW-92",
+      "name": "Fixture Owl",
+      "human_want": "Public want of the owl.",
+      "strength": "Public strength of the owl.",
+      "overused_strength": "Public overuse of the owl.",
+      "research_source_ids": ["PRIVATE-CA002"],
+      "relationship_hooks": [{ "with": "Fixture Fox", "collision": "Public collision two." }]
+    }
+  ],
+  "editorial": { "note": "PRIVATE-editorial" },
+  "preserved_episode_index": ["PRIVATE-episode-index"]
+}

@@ -10,6 +10,7 @@ import { ArtComingSoon } from "../../components/art-coming-soon";
 import { ComicPanels } from "../../components/comic-panels";
 import { EpisodeNotes } from "../../components/episode-notes";
 import { CountDisclosure, EntryBeacon } from "../../components/entry-beacon";
+import { ReadAheadLink } from "../../components/read-ahead-link";
 import { RightsNotice } from "../../components/rights-notice";
 
 /**
@@ -70,6 +71,7 @@ export default async function ComicPosterPage({ params }: PosterPageProps) {
         {story ? null : <ArtComingSoon />}
         <LatestComics stories={latest} />
         <RightsNotice />
+        <ReadAheadLink />
         <CountDisclosure />
       </div>
     </ToolPageWrapper>

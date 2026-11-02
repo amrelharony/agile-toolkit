@@ -10,10 +10,10 @@ describe("tool guides", () => {
     for (const id of ids) expect(getToolById(id), id).toBeDefined();
   });
 
-  it("cover every tool except the comic library", async () => {
+  it("cover every tool except the comic library and the VIP tools", async () => {
     const guided = new Set((await getAllGuides()).map((g) => g.toolId));
     const missing = SECTIONS.flatMap((s) => s.toolIds).filter(
-      (id) => id !== "comics" && !guided.has(id)
+      (id) => id !== "comics" && getToolById(id)?.access !== "vip" && !guided.has(id)
     );
     expect(missing).toEqual([]);
   });

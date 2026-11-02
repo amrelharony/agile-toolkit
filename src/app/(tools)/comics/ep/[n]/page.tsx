@@ -12,6 +12,7 @@ import { ArtComingSoon } from "../../components/art-coming-soon";
 import { ComicPanels } from "../../components/comic-panels";
 import { ComingSoon } from "../../components/coming-soon";
 import { EpisodeNotes } from "../../components/episode-notes";
+import { ReadAheadLink } from "../../components/read-ahead-link";
 import { RightsNotice } from "../../components/rights-notice";
 import { StoryNav } from "../../components/story-nav";
 
@@ -118,6 +119,7 @@ export default async function ComicStoryPage({ params }: StoryPageProps) {
         {story ? null : <ArtComingSoon />}
         <StoryNav ep={ep} title={title} prevEp={prevEp} nextEp={nextEp} />
         <RightsNotice />
+        <ReadAheadLink />
       </div>
     </ToolPageWrapper>
   );

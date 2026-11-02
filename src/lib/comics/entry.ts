@@ -12,6 +12,8 @@
 export const BOOK_EPISODE_COUNT = 26;
 export const FIRST_WEEKLY_EP = BOOK_EPISODE_COUNT + 1;
 export const COMICS_ROUTE = "/comics";
+/** Next four weeks' stories, for book readers. Never rewritten: only exactly /comics is. */
+export const EARLY_COMICS_ROUTE = "/comics/early";
 
 /** 1-999, with one optional leading zero below 10: "7", "07" and "126", never "007". */
 const EP_PATTERN = /^(?:0?[1-9]|[1-9]\d{1,2})$/;
@@ -43,6 +45,11 @@ export function isBookEp(ep: number): boolean {
 /** The public address of a comic. Internal pages always link to this form. */
 export function comicHref(ep: number): string {
   return `${COMICS_ROUTE}?ep=${ep}`;
+}
+
+/** An unreleased story, for a book reader. Internal pages link here, never publicly. */
+export function earlyComicHref(ep: number): string {
+  return `${EARLY_COMICS_ROUTE}?ep=${ep}`;
 }
 
 /** The static page behind /comics?ep=NN, or null to leave the normal /comics. */

@@ -7,10 +7,13 @@ const SITE_URL = "https://agile.amrelharony.com";
 /**
  * /sitemap.xml — the landing page plus every public tool route, straight from
  * the tool registry so new tools are indexed without touching this file. The
- * stories have their own /comics/sitemap.xml, so this one stays sync.
+ * stories have their own /comics/sitemap.xml, so this one stays sync. VIP tools
+ * are left out: their pages say noindex and show a lock to a crawler anyway.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
   const paths = new Set<string>(["/"]);
-  for (const tool of tools) paths.add(tool.path);
+  for (const tool of tools) {
+    if (tool.access !== "vip") paths.add(tool.path);
+  }
   return Array.from(paths, (path) => ({ url: `${SITE_URL}${path}` }));
 }

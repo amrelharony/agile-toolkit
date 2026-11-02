@@ -25,12 +25,22 @@ export function ComicCover({ cover }: { cover: StoryCover }) {
   );
 }
 
-export function ComicCard({ story }: { story: StorySummary }) {
+export function ComicCard({
+  story,
+  href = comicHref(story.ep),
+  note,
+}: {
+  story: StorySummary;
+  /** Where the card goes: the public story unless a page says otherwise. */
+  href?: string;
+  /** A short line under the lesson, like when an early story comes out. */
+  note?: string;
+}) {
   return (
     <li>
       <Card className="h-full overflow-hidden transition-[transform,box-shadow] hover:-translate-x-px hover:-translate-y-px hover:shadow-xl">
         <Link
-          href={comicHref(story.ep)}
+          href={href}
           prefetch={false}
           className="block h-full rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
@@ -38,6 +48,7 @@ export function ComicCard({ story }: { story: StorySummary }) {
           <div className="p-4">
             <h3 className="font-display font-semibold text-text">{story.title}</h3>
             <p className="mt-1 line-clamp-3 text-sm text-sub">{story.lesson}</p>
+            {note ? <p className="mt-2 text-xs font-medium text-sub">{note}</p> : null}
           </div>
         </Link>
       </Card>
