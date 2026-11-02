@@ -206,6 +206,89 @@ describe("the page", () => {
   });
 });
 
+describe("a run on another episode", () => {
+  it("keeps the clock with its own episode and links back to it", () => {
+    startSession(5, "The fifth story");
+    open(7);
+    expect(screen.queryByRole("timer")).toBeNull();
+    expect(screen.queryByText(/Step timer:/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Start the session/ })).toBeNull();
+    expect(
+      screen.getByText("A session is running on episode 5: The fifth story.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to that session" })).toHaveAttribute(
+      "href",
+      "/squad-session?ep=5"
+    );
+    // This page is still episode 7's.
+    expect(screen.getByText(BOOK_EPISODES[6].question)).toBeInTheDocument();
+    expect(h.replace).not.toHaveBeenCalled();
+  });
+
+  it("shows the clock on the episode that's running", () => {
+    startSession(5, "The fifth story");
+    open(5);
+    expect(screen.getByRole("timer")).toBeInTheDocument();
+    expect(screen.getByText(/Step timer: The fifth story/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Back to that session" })).toBeNull();
+  });
+
+  it("leaves a finished run alone, so the next session can start", () => {
+    startSession(5, "The fifth story");
+    for (let i = 0; i < SESSION_STEPS.length; i++) advanceSession();
+    expect(useSquadRun.getState().run?.finished).toBe(true);
+    open(7);
+    expect(screen.queryByRole("link", { name: "Back to that session" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Start the session/ }));
+    expect(useSquadRun.getState().ep).toBe(7);
+    expect(screen.getByRole("timer")).toBeInTheDocument();
+  });
+});
+
+describe("when another page's timer has the dock", () => {
+  const other: DockedTimer = {
+    label: "Standup",
+    href: "/ceremony-timer",
+    totalSeconds: 60,
+    endsAt: null,
+    pausedRemaining: 60,
+  };
+  /** The message as anyone can see it, not the screen reader's copy. */
+  const visible = (text: string) =>
+    screen.queryAllByText(text).filter((el) => !el.closest(".sr-only"));
+
+  it("says so on the page when Start can't take the clock", () => {
+    useDockTimer.setState({ timer: other });
+    open(3);
+    fireEvent.click(screen.getByRole("button", { name: /Start the session/ }));
+    const message = "The Standup timer is running. Stop it before starting this one.";
+    expect(visible(message)).toHaveLength(1);
+    expect(useSquadRun.getState().run).toBeNull();
+    // Once that timer is gone, so is the message, and Start works.
+    act(() => useDockTimer.setState({ timer: null }));
+    expect(visible(message)).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /Start the session/ }));
+    expect(useSquadRun.getState().ep).toBe(3);
+  });
+
+  it("says so on the page when the next step can't take it back", () => {
+    startSession(3, "Episode");
+    open(3);
+    const nextButton = screen.getByRole("button", { name: /Next step/ });
+    // Taken at the moment of the press, before this page has heard about it.
+    act(() => {
+      useDockTimer.setState({ timer: other });
+      fireEvent.click(nextButton);
+    });
+    expect(visible("The Standup timer took the clock. Stop it to carry on.")).toHaveLength(1);
+  });
+
+  it("says nothing when the dock is free", () => {
+    open(3);
+    expect(screen.queryByText(/timer is running|took the clock/)).toBeNull();
+  });
+});
+
 describe("actions", () => {
   const addAction = (title: string, owner = "") => {
     fireEvent.change(screen.getByRole("textbox", { name: /What will the team do/ }), {

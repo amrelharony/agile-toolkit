@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BookOpenText, ListChecks, Play, Send, Trash2, Users } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
@@ -119,6 +120,24 @@ export function SquadSessionClient({
   const ownTimer = dock?.href === SQUAD_SESSION_PATH ? dock : null;
   const live = runIsLive(run, dock);
   const liveRun = live ? run : null;
+  // A run belongs to one episode. The page can show another (the picker, or a link
+  // back from Retro Actions), and that episode's story and actions stay its own: the
+  // clock stays with its episode, and this page says where it is, because the shell
+  // hides its pill here.
+  const runHere = liveRun && runEp === ep ? liveRun : null;
+  const runElsewhere = liveRun && !liveRun.finished && runEp !== ep ? liveRun : null;
+
+  // Another page's timer has the dock and stopped this one. The live region only
+  // reaches a screen reader, so the page says it too, for as long as that's true.
+  const [clockNotice, setClockNotice] = useState<string | null>(null);
+  const otherTimer = dock !== null && dock.href !== SQUAD_SESSION_PATH;
+  useEffect(() => {
+    if (!otherTimer) setClockNotice(null);
+  }, [otherTimer]);
+  const clockBusy = (message: string) => {
+    setClockNotice(message);
+    announce(message);
+  };
 
   const [runReady, setRunReady] = useState(false);
   useEffect(() => {
@@ -156,7 +175,7 @@ export function SquadSessionClient({
     if (!episode) return;
     const claim = startSession(episode.ep, episode.title);
     if (!claim.ok) {
-      announce(`The ${claim.holder.label} timer is running. Stop it before starting this one.`);
+      clockBusy(`The ${claim.holder.label} timer is running. Stop it before starting this one.`);
       return;
     }
     const step = currentStep(claim.run);
@@ -168,7 +187,7 @@ export function SquadSessionClient({
     const claim = advanceSession();
     if (!claim) return;
     if (!claim.ok) {
-      announce(`The ${claim.holder.label} timer took the clock. Stop it to carry on.`);
+      clockBusy(`The ${claim.holder.label} timer took the clock. Stop it to carry on.`);
       return;
     }
     const step = currentStep(claim.run);
@@ -280,9 +299,12 @@ export function SquadSessionClient({
           </EmptyState>
         ) : (
           <>
-            {liveRun ? (
+            {clockNotice ? (
+              <p className="rounded-lg border border-border p-3 text-sm text-text">{clockNotice}</p>
+            ) : null}
+            {runHere ? (
               <StepTimerPanel
-                run={liveRun}
+                run={runHere}
                 timer={ownTimer}
                 refFor={refFor}
                 onPause={() => useDockTimer.getState().pause()}
@@ -290,6 +312,17 @@ export function SquadSessionClient({
                 onNext={next}
                 onStop={stop}
               />
+            ) : runElsewhere ? (
+              <SectionCard title="The session" icon={Users}>
+                <p className="text-sm text-text">
+                  A session is running on episode {runEp}: {runElsewhere.title}.
+                </p>
+                <Button asChild variant="outline" className="mt-4">
+                  <Link href={`${SQUAD_SESSION_PATH}?ep=${runEp}`} prefetch={false}>
+                    Back to that session
+                  </Link>
+                </Button>
+              </SectionCard>
             ) : (
               <SectionCard title="The session" icon={Users}>
                 <ol className="list-none space-y-1 text-sm text-text">
