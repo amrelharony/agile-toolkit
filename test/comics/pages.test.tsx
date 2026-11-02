@@ -151,6 +151,13 @@ describe("a number that isn't released", () => {
     expect(screen.queryByText("Ask your team:")).toBeNull();
   });
 
+  it("names no address for a number that isn't one, never the internal page", async () => {
+    for (const meta of [await storyMetadata(params("abc")), await posterMetadata(params("abc"))]) {
+      expect(meta.alternates).toEqual({ canonical: null });
+      expect(meta.openGraph).not.toHaveProperty("url");
+    }
+  });
+
   it("gives search engines and link previews nothing either", async () => {
     const meta = await storyMetadata(params(31));
     expect(meta.title).toBe("Coming soon — Agile at Work");

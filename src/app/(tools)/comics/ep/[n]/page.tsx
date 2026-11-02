@@ -7,7 +7,7 @@ import { panelImageUrl } from "@/lib/comics/images";
 import { jsonLdScript, storyJsonLd } from "@/lib/comics/rights";
 import { getReleasedStory, listReleasedEps } from "@/lib/comics/store";
 import type { Story } from "@/lib/comics/types";
-import { comicMetadata } from "../../comic-metadata";
+import { NOT_FOUND_METADATA, comicMetadata } from "../../comic-metadata";
 import { ArtComingSoon } from "../../components/art-coming-soon";
 import { ComicPanels } from "../../components/comic-panels";
 import { ComingSoon } from "../../components/coming-soon";
@@ -43,7 +43,8 @@ export async function generateStaticParams(): Promise<{ n: string }[]> {
 
 export async function generateMetadata({ params }: StoryPageProps): Promise<Metadata> {
   const ep = parseEp(params.n);
-  if (ep === null) return {};
+  // A 404: no address of its own, never the internal one behind the rewrite.
+  if (ep === null) return NOT_FOUND_METADATA;
   const story = await getReleasedStory(ep);
   const book = bookEpisode(ep);
   const canonical = comicHref(ep);

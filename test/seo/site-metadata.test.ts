@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import type { Metadata } from "next";
 import { resolveAlternates } from "next/dist/lib/metadata/resolvers/resolve-basics";
 import { resolveOpenGraph } from "next/dist/lib/metadata/resolvers/resolve-opengraph";
+import { metadata as notFound } from "@/app/not-found";
 import { SITE_METADATA as metadata } from "@/lib/seo/site-metadata";
 import { SHARE_SIZE, SITE_SHARE_URL } from "@/lib/book/art";
 
@@ -48,5 +49,14 @@ describe("the site's metadata", () => {
   it("leaves the title and description to each page, so a preview names the page", () => {
     expect(metadata.openGraph).not.toHaveProperty("title");
     expect(metadata.openGraph).not.toHaveProperty("description");
+  });
+
+  it("gives the 404 page no address, since it answers for every unknown one", () => {
+    // Prerendered as /_not-found, which "./" would otherwise name.
+    const context404 = context("/_not-found");
+    expect(resolveAlternates(notFound.alternates!, base, context404)?.canonical).toBeNull();
+    const og = resolveOpenGraph(notFound.openGraph as Metadata["openGraph"], base, context404, "");
+    expect(og?.url).toBeNull();
+    expect(og?.images).toEqual([expect.objectContaining({ url: expect.any(URL) })]);
   });
 });

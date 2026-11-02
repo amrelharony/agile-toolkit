@@ -13,6 +13,12 @@ interface ComicMetadataOptions {
   image?: string | null;
 }
 
+/** For a number that isn't one: the 404, with no canonical or og:url of its own. */
+export const NOT_FOUND_METADATA: Metadata = {
+  alternates: { canonical: null },
+  openGraph: { type: "website", siteName: "Agile Toolkit" },
+};
+
 /**
  * Metadata for every comics page. `other` asks image and text scrapers to leave
  * the art alone, which only the ones that follow the rules will do. A page with
