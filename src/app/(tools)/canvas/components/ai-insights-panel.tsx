@@ -62,7 +62,7 @@ export function AIInsightsPanel({
   for (const o of objects) objectsById.set(o.id, o);
   return (
     <div
-      className="fixed right-3 top-20 bottom-3 w-[min(20rem,calc(100vw-1.5rem))] z-30 bg-surface border border-border rounded-lg shadow-xl flex flex-col pr-safe pb-safe"
+      className="fixed right-3 top-[calc(5rem+var(--amr-band-top,0px))] bottom-[calc(0.75rem+var(--amr-band-bottom,0px))] w-[min(20rem,calc(100vw-1.5rem))] z-30 bg-surface border border-border rounded-lg shadow-xl flex flex-col pr-safe pb-safe"
       data-canvas-export-ignore="true"
     >
       <div className="flex items-center justify-between p-3 border-b border-border">
