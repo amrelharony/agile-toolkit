@@ -1,17 +1,41 @@
 /**
  * The book's intro at /comics: what it shows with this week's story and
- * without, and the timing its CSS keeps.
+ * without, the timing its CSS keeps, and where the gallery page puts it.
  */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import type { StoryCover, StorySummary } from "@/lib/comics/types";
+
+const h = vi.hoisted(() => ({
+  summaries: [] as StorySummary[],
+  listCalls: 0,
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/comics/store", () => ({
+  listReleasedWeekly: async () => {
+    h.listCalls += 1;
+    return h.summaries;
+  },
+}));
+vi.mock("@/components/layout/tool-page-wrapper", () => ({
+  ToolPageWrapper: ({ title, children }: { title: string; children: ReactNode }) => (
+    <div data-testid="tool-page-wrapper">
+      <h1>{title}</h1>
+      {children}
+    </div>
+  ),
+}));
+
+import ComicsPage from "@/app/(tools)/comics/page";
 import { BookIntro } from "@/app/(tools)/comics/components/intro/book-intro";
 import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
 import { panelImageUrl } from "@/lib/comics/images";
-import { INTRO_SECONDS, OVERLAY_ATTR } from "@/lib/comics/intro";
-import type { StoryCover } from "@/lib/comics/types";
+import { INTRO_ATTR, INTRO_RUN_ATTR, INTRO_SECONDS, OVERLAY_ATTR } from "@/lib/comics/intro";
 import { endsAt, sceneAnimations } from "./intro-css";
 
 const SCENE = "src/app/(tools)/comics/components/intro/book-intro";
@@ -27,6 +51,17 @@ const ALLOWED = [
   "Workplace comics by Amr Elharony",
   "This week's story",
 ];
+
+const summary = (ep: number, title: string, cover: StoryCover | null = COVER): StorySummary => ({
+  ep,
+  title,
+  lesson: `Lesson of ${title}`,
+  castNames: ["Amr"],
+  themes: ["T01"],
+  cover,
+  releaseAt: "2026-10-26T07:00:00.000Z",
+  updatedAt: "2026-10-26T07:00:00.000Z",
+});
 
 function overlay(): HTMLElement {
   return screen.getByRole("dialog", { name: "Agile at Work intro" });
@@ -51,10 +86,15 @@ function backgrounds(el: HTMLElement): string[] {
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://ref.supabase.co");
+  h.summaries = [];
+  h.listCalls = 0;
+  window.history.replaceState(null, "", "/comics");
 });
 
 afterEach(() => {
   cleanup();
+  document.documentElement.removeAttribute(INTRO_ATTR);
+  document.documentElement.removeAttribute(INTRO_RUN_ATTR);
   vi.unstubAllEnvs();
 });
 
@@ -206,5 +246,45 @@ describe("the book intro's timing", () => {
 
   it("draws nothing of its own: no images or gradients in the CSS", () => {
     expect(css).not.toMatch(/url\(|gradient\(/);
+  });
+});
+
+describe("on the gallery page", () => {
+  it("plays outside ToolPageWrapper, opening onto the story the gallery leads with", async () => {
+    h.summaries = [
+      summary(30, "Newest story"),
+      summary(29, "Older story", { ...COVER, pathSmall: "stories/29/one-768.webp" }),
+    ];
+    render(await ComicsPage());
+    const dialog = overlay();
+    expect(screen.getByTestId("tool-page-wrapper").contains(dialog)).toBe(false);
+    expect(within(dialog).getByText("Newest story")).toBeTruthy();
+    expect(within(dialog).queryByText("Older story")).toBeNull();
+    expect(dialog.querySelector("img")?.getAttribute("src")).toBe(
+      panelImageUrl("stories/30/one-768.webp")
+    );
+  });
+
+  it("reads the list once, for the intro and the gallery both", async () => {
+    h.summaries = [summary(30, "Newest story")];
+    render(await ComicsPage());
+    expect(h.listCalls).toBe(1);
+  });
+
+  it("opens onto Amr alone before anything is released", async () => {
+    render(await ComicsPage());
+    const dialog = overlay();
+    expect(screen.getByTestId("tool-page-wrapper").contains(dialog)).toBe(false);
+    expect(within(dialog).queryByText("This week's story")).toBeNull();
+    expect(dialog.querySelector("[data-amr-pose]")).not.toBeNull();
+  });
+
+  it("offers Replay intro, which plays the book's intro again", async () => {
+    render(await ComicsPage());
+    fireEvent.click(await screen.findByRole("button", { name: "Replay intro" }));
+    expect(document.documentElement.getAttribute(INTRO_ATTR)).toBe("book");
+    expect(document.activeElement).toBe(
+      within(overlay()).getByRole("button", { name: "Skip intro" })
+    );
   });
 });
