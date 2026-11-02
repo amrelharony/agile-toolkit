@@ -285,12 +285,14 @@
 
 /* ── On top: the opening ink and the turning page's shadow ─────────────────── */
 
-/* Under Skip (z 10), so Skip is there from the first frame. */
+/* Under Skip (z 10), so Skip is there from the first frame. The frames' ink, as
+   on the poster: night comic's near-white text would open with a full-screen
+   flash on a device set to dark. Its muted chalk is the ink its frames use. */
 .ink {
   position: absolute;
   inset: 0;
   z-index: 5;
-  background-color: var(--text);
+  background-color: var(--border);
   animation: vipInkWipe 0.9s cubic-bezier(0.7, 0, 0.3, 1) 0s both;
 }
 
