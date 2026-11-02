@@ -24,7 +24,11 @@ export function ComicBanner({ latest }: { latest: StorySummary | null }) {
 
 function ThisWeeksStory({ story }: { story: StorySummary }) {
   return (
-    <Card className="grid overflow-hidden sm:grid-cols-[minmax(0,18rem)_1fr]">
+    <Card
+      className={
+        story.cover ? "grid overflow-hidden sm:grid-cols-[minmax(0,18rem)_1fr]" : "overflow-hidden"
+      }
+    >
       {story.cover ? <ComicCover cover={story.cover} /> : null}
       <div className="space-y-2 p-4 sm:p-6">
         <Eyebrow>Agile at Work, this week&apos;s story</Eyebrow>
