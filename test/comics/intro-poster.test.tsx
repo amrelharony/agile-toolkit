@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { Story, StoryCover } from "@/lib/comics/types";
 
@@ -38,7 +38,7 @@ import ComicPosterPage from "@/app/(tools)/comics/poster/[n]/page";
 import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
 import { bookEpisode } from "@/lib/comics/book-episodes";
 import { panelImageUrl } from "@/lib/comics/images";
-import { INTRO_SECONDS, OVERLAY_ATTR } from "@/lib/comics/intro";
+import { INTRO_ATTR, INTRO_RUN_ATTR, INTRO_SECONDS, OVERLAY_ATTR } from "@/lib/comics/intro";
 import { endsAt, sceneAnimations } from "./intro-css";
 
 const SCENE = "src/app/(tools)/comics/components/intro/poster-intro.tsx";
@@ -83,6 +83,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllEnvs();
+  document.documentElement.removeAttribute(INTRO_ATTR);
+  document.documentElement.removeAttribute(INTRO_RUN_ATTR);
 });
 
 const dialog = () => screen.getByRole("dialog", { name: "Episode 12 intro" });
@@ -166,6 +168,8 @@ describe("the poster intro", () => {
     expect(dialog()).toHaveAttribute(OVERLAY_ATTR, "poster");
     expect(dialog()).toHaveAttribute("aria-modal", "true");
     expect(within(dialog()).getByRole("button", { name: "Skip intro" })).toBeInTheDocument();
+    // The dialog carries the exit, whose end is what ends the intro.
+    expect(dialog()).toHaveClass(styles.overlay);
   });
 
   it("with art: the first four panels' own files and Amr's sheet, nothing else drawn", () => {
@@ -355,9 +359,14 @@ describe("the poster page", () => {
     expect(srcs).toEqual(STORY.panels.map((p) => panelImageUrl(p.pathSmall)));
   });
 
-  it("offers the intro again, on the page itself", async () => {
+  it("offers the intro again, on the page itself, and it plays the poster's", async () => {
     render(await ComicPosterPage(params));
     const replay = await screen.findByRole("button", { name: "Replay intro" });
     expect(screen.getByTestId("tool-page-wrapper")).toContainElement(replay);
+    fireEvent.click(replay);
+    expect(document.documentElement.getAttribute(INTRO_ATTR)).toBe("poster");
+    expect(document.activeElement).toBe(
+      within(dialog()).getByRole("button", { name: "Skip intro" })
+    );
   });
 });

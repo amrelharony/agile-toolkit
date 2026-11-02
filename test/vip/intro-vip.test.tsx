@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import type { ReactNode } from "react";
 import { BookOpen, IdCard, Smile, Users } from "lucide-react";
@@ -46,7 +46,13 @@ import styles from "@/app/(tools)/comics/components/intro/vip-intro.module.css";
 import { POSES } from "@/components/agent/mascot/engine/sprite-poses";
 import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
 import { panelImageUrl } from "@/lib/comics/images";
-import { INTRO_SECONDS, OVERLAY_ATTR, SKIP_ATTR } from "@/lib/comics/intro";
+import {
+  INTRO_ATTR,
+  INTRO_RUN_ATTR,
+  INTRO_SECONDS,
+  OVERLAY_ATTR,
+  SKIP_ATTR,
+} from "@/lib/comics/intro";
 import { getVipTools } from "@/lib/tools/catalog";
 
 const CSS = "src/app/(tools)/comics/components/intro/vip-intro.module.css";
@@ -123,6 +129,8 @@ afterEach(() => {
   cleanup();
   vi.unstubAllEnvs();
   document.cookie = "agile-toolkit:vip-hint=; path=/; max-age=0";
+  document.documentElement.removeAttribute(INTRO_ATTR);
+  document.documentElement.removeAttribute(INTRO_RUN_ATTR);
 });
 
 describe("VipIntro", () => {
@@ -131,6 +139,8 @@ describe("VipIntro", () => {
     const dialog = screen.getByRole("dialog", { name: "VIP intro" });
     expect(dialog).toHaveAttribute(OVERLAY_ATTR, "vip");
     expect(dialog.querySelector(`[${SKIP_ATTR}]`)).toHaveTextContent("Skip intro");
+    // The dialog carries the exit, whose end is what ends the intro.
+    expect(dialog).toHaveClass(styles.overlay);
   });
 
   it("deals in the first three tools, each with its icon and name", () => {
@@ -372,11 +382,18 @@ describe("on /vip", () => {
     expect(el).not.toBeNull();
     expect(screen.getByTestId("tool-page-wrapper")).not.toContainElement(el);
     for (const tool of getVipTools().slice(0, 3)) expect(el).toHaveTextContent(tool.name);
+    // The page's early comics reach the intro: the hub's own cards can't pass this.
+    expect(Array.from(el.querySelectorAll("img"), (img) => img.getAttribute("src"))).toEqual([
+      panelImageUrl("stories/30/one-768.webp"),
+    ]);
+    expect(el).toHaveTextContent(EARLY_HEADING);
   });
 
-  it("offers to play it again", () => {
+  it("offers to play it again, and it plays the VIP intro", () => {
     render(<VipClient access="unlocked" />);
-    expect(screen.getByRole("button", { name: "Replay intro" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Replay intro" }));
+    expect(document.documentElement.getAttribute(INTRO_ATTR)).toBe("vip");
+    expect(document.activeElement).toBe(overlay()!.querySelector(`[${SKIP_ATTR}]`));
   });
 
   it.each(["locked", "invalid-link"] as const)("%s: no intro and no replay", (access) => {
@@ -395,8 +412,6 @@ describe("on /vip", () => {
     expect(await html({ link: "invalid" })).not.toContain(OVERLAY_ATTR);
 
     h.unlocked = true;
-    const unlocked = await html({});
-    expect(unlocked).toContain(`${OVERLAY_ATTR}="vip"`);
-    expect(unlocked).toContain(panelImageUrl("stories/30/one-768.webp"));
+    expect(await html({})).toContain(`${OVERLAY_ATTR}="vip"`);
   });
 });

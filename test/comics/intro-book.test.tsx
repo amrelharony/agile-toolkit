@@ -33,6 +33,7 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 
 import ComicsPage from "@/app/(tools)/comics/page";
 import { BookIntro } from "@/app/(tools)/comics/components/intro/book-intro";
+import styles from "@/app/(tools)/comics/components/intro/book-intro.module.css";
 import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
 import { panelImageUrl } from "@/lib/comics/images";
 import { INTRO_ATTR, INTRO_RUN_ATTR, INTRO_SECONDS, OVERLAY_ATTR } from "@/lib/comics/intro";
@@ -105,6 +106,8 @@ describe("the book intro", () => {
     expect(dialog).toHaveAttribute(OVERLAY_ATTR, "book");
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(within(dialog).getByRole("button", { name: "Skip intro" })).toBeTruthy();
+    // The dialog carries the exit, whose end is what ends the intro.
+    expect(dialog).toHaveClass(styles.overlay);
   });
 
   it("letters the cover, and opens onto this week's story and its first panel", () => {
