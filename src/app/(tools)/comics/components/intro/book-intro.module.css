@@ -69,6 +69,12 @@
       --book-w: min(52dvh, max(50vw - 140px, 40dvh));
     }
   }
+
+  /* A square page this small is short: at the lettering's smallest sizes, a
+     wider window is what leaves the title its two lines. */
+  .window {
+    aspect-ratio: 2 / 1;
+  }
 }
 
 /* Three wrappers, one move each, so no two animations fight over a transform.
