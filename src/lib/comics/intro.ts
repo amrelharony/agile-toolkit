@@ -37,6 +37,8 @@ export const INTRO_RUN_ATTR = "data-intro-run";
 export const OVERLAY_ATTR = "data-intro-overlay";
 /** On the Skip button. */
 export const SKIP_ATTR = "data-intro-skip";
+/** On whatever started a replay, so focus goes back to it when the intro ends. */
+export const RETURN_ATTR = "data-intro-return";
 
 /**
  * Under the `agile-toolkit:` prefix, so "Clear data on this browser" removes it
@@ -85,15 +87,21 @@ return null}`;
 /**
  * Blocking script for <head>. Its listeners go on every page, because a replay
  * can follow a client navigation, and they do nothing unless an intro plays.
+ *
+ * Ending an intro gives focus back to what started a replay (RETURN_ATTR); an
+ * arrival has nothing to go back to, so focus is left on the page. A page that
+ * loads hidden (a background tab, a prerender) plays nothing and keeps its
+ * intro for a visit someone sees.
  */
 export const INTRO_BOOT_SCRIPT = `(function(){var d=document.documentElement,A="${INTRO_ATTR}",R="${INTRO_RUN_ATTR}";
 function on(){return d.getAttribute(A)}
 function skip(){var k=on();return k?document.querySelector('[${OVERLAY_ATTR}="'+k+'"] [${SKIP_ATTR}]'):null}
-function stop(){if(!on())return;var f=document.activeElement;if(f&&f.closest&&f.closest("[${OVERLAY_ATTR}]"))f.blur();d.removeAttribute(A)}
+function stop(){if(!on())return;var f=document.activeElement;if(f&&f.closest&&f.closest("[${OVERLAY_ATTR}]"))f.blur();d.removeAttribute(A);
+var r=document.querySelector("[${RETURN_ATTR}]");if(r){r.removeAttribute("${RETURN_ATTR}");r.focus({preventScroll:true})}}
 document.addEventListener("click",function(e){var t=e.target;if(t&&t.closest&&t.closest("[${SKIP_ATTR}]"))stop()});
 document.addEventListener("keydown",function(e){if(!on())return;if(e.key==="Escape")stop();else if(e.key==="Tab"){var s=skip();if(s){e.preventDefault();s.focus()}}});
 document.addEventListener("animationend",function(e){var t=e.target,k=on();if(k&&t&&t.getAttribute&&t.getAttribute("${OVERLAY_ATTR}")===k)stop()});
-try{var k=(${KIND_FOR_ADDRESS})();if(!k||${REDUCED_MOTION}||${SAVES_DATA})return;
+try{var k=(${KIND_FOR_ADDRESS})();if(!k||document.visibilityState==="hidden"||${REDUCED_MOTION}||${SAVES_DATA})return;
 var m="${INTRO_MARK_PREFIX}"+k;if(localStorage.getItem(m))return;localStorage.setItem(m,"1");
 d.setAttribute(R,"0");d.setAttribute(A,k);
 setTimeout(function(){if(d.getAttribute(R)==="0")stop()},${SAFETY_MS}[k]);

@@ -21,6 +21,7 @@ import {
   INTRO_BOOT_SCRIPT,
   INTRO_RUN_ATTR,
   OVERLAY_ATTR,
+  RETURN_ATTR,
   SKIP_ATTR,
   introSafetyMs,
 } from "@/lib/comics/intro";
@@ -212,6 +213,77 @@ describe("ReplayIntro", () => {
     render(<BookOverlay />);
     expect(playIntro("vip")).toBe(false);
     expect(root.hasAttribute(INTRO_ATTR)).toBe(false);
+  });
+
+  it("gives focus back to Replay when the replay is skipped", () => {
+    render(
+      <>
+        <BookOverlay />
+        <ReplayIntro kind="book" />
+      </>
+    );
+    const replay = screen.getByRole("button", { name: "Replay intro" });
+    replay.focus();
+    fireEvent.click(replay);
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(document.activeElement).toBe(replay);
+    expect(document.querySelector(`[${RETURN_ATTR}]`)).toBeNull();
+  });
+
+  it("gives focus back to Replay when the replay ends by itself", () => {
+    vi.useFakeTimers();
+    render(
+      <>
+        <BookOverlay />
+        <ReplayIntro kind="book" />
+      </>
+    );
+    const replay = screen.getByRole("button", { name: "Replay intro" });
+    replay.focus();
+    fireEvent.click(replay);
+    act(() => {
+      vi.advanceTimersByTime(introSafetyMs("book"));
+    });
+    expect(root.hasAttribute(INTRO_ATTR)).toBe(false);
+    expect(document.activeElement).toBe(replay);
+  });
+
+  it("plays nothing once motion has been turned down, even if Replay is still there", () => {
+    render(
+      <>
+        <BookOverlay />
+        <ReplayIntro kind="book" />
+      </>
+    );
+    setMotion(true);
+    fireEvent.click(screen.getByRole("button", { name: "Replay intro" }));
+    expect(root.hasAttribute(INTRO_ATTR)).toBe(false);
+  });
+
+  it("ends its replay when its page goes mid-play", () => {
+    const page = render(
+      <>
+        <BookOverlay />
+        <ReplayIntro kind="book" />
+      </>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Replay intro" }));
+    expect(root.getAttribute(INTRO_ATTR)).toBe("book");
+    page.unmount();
+    expect(root.hasAttribute(INTRO_ATTR)).toBe(false);
+  });
+
+  it("leaves the arrival's intro alone when its page goes", () => {
+    const page = render(
+      <>
+        <BookOverlay />
+        <ReplayIntro kind="book" />
+      </>
+    );
+    root.setAttribute(INTRO_RUN_ATTR, "0");
+    root.setAttribute(INTRO_ATTR, "book");
+    page.unmount();
+    expect(root.getAttribute(INTRO_ATTR)).toBe("book");
   });
 
   it("isn't offered with reduced motion", () => {

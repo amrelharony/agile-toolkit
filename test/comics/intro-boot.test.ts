@@ -12,6 +12,7 @@ import {
   INTRO_BOOT_SCRIPT,
   INTRO_KINDS,
   INTRO_RUN_ATTR,
+  RETURN_ATTR,
   introMarkKey,
   introSafetyMs,
   type IntroKind,
@@ -201,6 +202,12 @@ describe("who gets no intro", () => {
     setConnection({ saveData: false, effectiveType: "4g" });
     expect(boot("/comics")).toBe("book");
   });
+
+  it("keeps it for later when the page loads in a background tab", () => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    expect(boot("/comics")).toBeNull();
+    expect(localStorage.length).toBe(0);
+  });
 });
 
 describe("ending an intro", () => {
@@ -252,6 +259,24 @@ describe("ending an intro", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(document.activeElement).toBe(document.body);
   });
+
+  it.each(["Skip", "Escape", "the overlay's animation"])(
+    "gives focus back to what started a replay, on %s",
+    (how) => {
+      const { overlay, skip } = mountOverlay("book");
+      boot("/comics");
+      const opener = document.querySelector<HTMLElement>('[data-testid="page-button"]')!;
+      opener.setAttribute(RETURN_ATTR, "");
+      skip.focus();
+      if (how === "Skip") skip.click();
+      else if (how === "Escape") {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      } else overlay.dispatchEvent(new Event("animationend", { bubbles: true }));
+      expect(root.hasAttribute(INTRO_ATTR)).toBe(false);
+      expect(document.activeElement).toBe(opener);
+      expect(opener.hasAttribute(RETURN_ATTR)).toBe(false);
+    }
+  );
 
   it("ends by itself if the animation never reports its end", () => {
     vi.useFakeTimers();
