@@ -15,6 +15,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { FACES } from "@/app/(tools)/mood-tracker/faces";
+import { SEVERITY_SCALE } from "@/lib/utils/severity-color";
 
 const css = readFileSync(path.resolve(__dirname, "../../src/app/globals.css"), "utf8").replace(
   /\/\*[\s\S]*?\*\//g,
@@ -137,6 +139,65 @@ describe.each(THEMES)("%s theme", (_name, theme) => {
       }
     }
     expect(new Set(series.map((t) => theme[t])).size).toBe(series.length);
+  });
+
+  it("keeps the words on a mood face at AA, however the fill is mixed", () => {
+    const failures: string[] = [];
+    for (const face of FACES) {
+      const [, fill, pct] = face.bg.match(/^bg-([\w-]+?)(?:\/(\d+))?$/) ?? [];
+      const [, words] = face.text.match(/^text-([\w-]+)$/) ?? [];
+      const amount = pct ? Number(pct) / 100 : 1;
+      for (const surface of SURFACES) {
+        const ratio = contrast(
+          hex(theme, words),
+          tint(hex(theme, fill), hex(theme, surface), amount)
+        );
+        if (ratio < AA) failures.push(`${face.label} over --${surface}: ${ratio.toFixed(2)}:1`);
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("keeps Sprint Compare's scores and sprint names at AA", () => {
+    // ScoreCell: page text on a tint up to 25% (a 10), muted text up to 15% (a 6),
+    // over a card or a hovered row. Names and averages print in the series colour.
+    const failures: string[] = [];
+    for (const token of ["chart-1", "chart-2", "chart-3", "chart-4", "chart-5"]) {
+      const series = hex(theme, token);
+      for (const surface of ["card", "cardH"]) {
+        const ground = hex(theme, surface);
+        const pairs: [string, number][] = [
+          [`text on ${token}/25`, contrast(hex(theme, "text"), tint(series, ground, 0.25))],
+          [`sub on ${token}/15`, contrast(hex(theme, "sub"), tint(series, ground, 0.15))],
+          [`${token} as text`, contrast(series, ground)],
+        ];
+        for (const [what, ratio] of pairs) {
+          if (ratio < AA) failures.push(`${what} over --${surface}: ${ratio.toFixed(2)}:1`);
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("gives severities four colours that can't be mistaken for each other", () => {
+    const tokens = Object.values(SEVERITY_SCALE).map(
+      (v) => v.match(/^var\(--([\w-]+),/)?.[1] ?? ""
+    );
+    // Readable as labels on their own tints: the first test holds these.
+    for (const token of tokens) expect(TEXT_TOKENS).toContain(token);
+    const colours = tokens.map((t) => hex(theme, t));
+    for (let i = 0; i < colours.length; i++) {
+      for (let j = i + 1; j < colours.length; j++) {
+        const distance = Math.hypot(...colours[i].map((c, k) => c - colours[j][k]));
+        expect(distance, `${tokens[i]} vs ${tokens[j]}`).toBeGreaterThanOrEqual(50);
+      }
+    }
+  });
+
+  it("draws the focus ring at 3:1 or better on everything it lands on", () => {
+    for (const surface of [...SURFACES, "cardH"]) {
+      expect(contrast(hex(theme, "ring"), hex(theme, surface))).toBeGreaterThanOrEqual(NON_TEXT);
+    }
   });
 });
 
