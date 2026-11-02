@@ -14,7 +14,9 @@ import { ComingSoon } from "../../components/coming-soon";
 import { EpisodeNotes } from "../../components/episode-notes";
 import { ReadAheadLink } from "../../components/read-ahead-link";
 import { RightsNotice } from "../../components/rights-notice";
+import { ReadTracker } from "../../components/story-actions";
 import { StoryNav } from "../../components/story-nav";
+import { TakeItToYourTeam } from "../../components/take-it-to-your-team";
 
 /**
  * A story, behind /comics?ep=N (the middleware rewrites to here and sends direct
@@ -117,8 +119,15 @@ export default async function ComicStoryPage({ params }: StoryPageProps) {
           question={story?.squadQuestion ?? book!.question}
           bookPage={story?.bookPage ?? book?.bookPage}
         />
+        <TakeItToYourTeam
+          ep={ep}
+          question={story?.squadQuestion ?? book!.question}
+          themes={story?.themes ?? []}
+        />
         {story ? null : <ArtComingSoon />}
         <StoryNav ep={ep} title={title} prevEp={prevEp} nextEp={nextEp} />
+        {/* Only a story with its art can be read to the end. */}
+        {story && story.panels.length > 0 ? <ReadTracker ep={ep} /> : null}
         <RightsNotice />
         <ReadAheadLink />
       </div>
