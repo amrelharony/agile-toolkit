@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   READING_KEY,
   hasRead,
+  markAsked,
   markRead,
   sentLinks,
   setSentLinks,
@@ -47,9 +48,13 @@ describe("reading", () => {
   it("survives a damaged record", () => {
     localStorage.setItem(READING_KEY, "{not json");
     expect(markRead(30, MONDAY)).toEqual({ total: 1, weekStreak: 1 });
-    localStorage.setItem(READING_KEY, JSON.stringify({ read: { 31: 5 }, sent: { 31: "x" } }));
+    localStorage.setItem(
+      READING_KEY,
+      JSON.stringify({ read: { 31: 5 }, sent: { 31: "x", 32: [null, { route: "retro-topic" }] } })
+    );
     expect(hasRead(31)).toBe(false);
     expect(sentLinks(31)).toEqual([]);
+    expect(sentLinks(32)).toEqual([]);
   });
 });
 
@@ -79,6 +84,14 @@ describe("the week streak", () => {
     markRead(28, days(-14));
     markRead(29, days(-7));
     expect(markRead(30, days(1))).toEqual({ total: 4, weekStreak: 4 });
+  });
+});
+
+describe("a question sent to the retro", () => {
+  it("is counted once per story", () => {
+    expect(markAsked(30, MONDAY)).toBe(true);
+    expect(markAsked(30, days(1))).toBe(false);
+    expect(markAsked(31, days(1))).toBe(true);
   });
 });
 

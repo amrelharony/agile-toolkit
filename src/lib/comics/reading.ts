@@ -17,9 +17,19 @@ interface Reading {
   read: Record<string, string>;
   /** Story number → its question's hand-off links (the retro topic). */
   sent: Record<string, HandoffLink[]>;
+  /** Story number → when its question first went to a retro (ISO): the trophy's count. */
+  asked: Record<string, string>;
 }
 
-const empty = (): Reading => ({ read: {}, sent: {} });
+const empty = (): Reading => ({ read: {}, sent: {}, asked: {} });
+
+const isLink = (v: unknown): v is HandoffLink =>
+  isRecord(v) && typeof v.route === "string" && typeof v.targetId === "string";
+
+const dates = (v: Record<string, unknown>) =>
+  Object.fromEntries(
+    Object.entries(v).filter((e): e is [string, string] => typeof e[1] === "string")
+  );
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -32,15 +42,16 @@ function load(): Reading {
     if (!raw) return empty();
     const parsed: unknown = JSON.parse(raw);
     if (!isRecord(parsed)) return empty();
-    const read = isRecord(parsed.read) ? parsed.read : {};
     const sent = isRecord(parsed.sent) ? parsed.sent : {};
     return {
-      read: Object.fromEntries(
-        Object.entries(read).filter((e): e is [string, string] => typeof e[1] === "string")
-      ),
+      read: dates(isRecord(parsed.read) ? parsed.read : {}),
+      // A damaged or hand-restored entry is dropped, never handed to the hand-off code.
       sent: Object.fromEntries(
-        Object.entries(sent).filter((e): e is [string, HandoffLink[]] => Array.isArray(e[1]))
+        Object.entries(sent).flatMap(([ep, links]) =>
+          Array.isArray(links) ? [[ep, links.filter(isLink)]] : []
+        )
       ),
+      asked: dates(isRecord(parsed.asked) ? parsed.asked : {}),
     };
   } catch {
     return empty();
@@ -99,6 +110,18 @@ export function markRead(ep: number, now = new Date()): FirstRead | null {
   if (!save(reading)) return null;
   const dates = Object.values(reading.read);
   return { total: dates.length, weekStreak: weekStreak(dates, now) };
+}
+
+/**
+ * Note that story `ep`'s question has gone to a retro. True the first time only:
+ * a send, Undo and send again is still one question.
+ */
+export function markAsked(ep: number, now = new Date()): boolean {
+  const reading = load();
+  const key = String(ep);
+  if (Object.prototype.hasOwnProperty.call(reading.asked, key)) return false;
+  reading.asked[key] = now.toISOString();
+  return save(reading);
 }
 
 /** Where story `ep`'s question has been sent. */
