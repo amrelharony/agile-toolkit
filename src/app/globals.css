@@ -1,6 +1,7 @@
 /**
  * Agile Toolkit — globals.css
- * Design DNA from amrelharony.com, adapted for data-heavy tool UIs.
+ * The comic look: warm paper, fine ink outlines, restrained watercolour accents
+ * sampled from the Agile at Work art. See design-system/DNA-SPEC.md.
  */
 
 @tailwind base;
@@ -8,33 +9,62 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   CSS CUSTOM PROPERTIES — Dark Mode (Default)
+   CSS CUSTOM PROPERTIES — Night comic (.dark, and the base every theme overrides)
+   Ink-blue paper, chalk outlines, the same watercolours lifted so they read on
+   it. A visitor with nothing stored gets comic (.light, below); see lib/theme.
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 @layer base {
+  /* A Canvas board keeps these on the comic's paper too: saved boards hold their
+     own colours, and the near-white text and pen they default to can't be read on
+     paper. So `.board-stage` stays a dark ground, like a blackboard in the room,
+     and its toolbars and selection colour follow these tokens. */
+  .light .board-stage,
+  [data-theme="light"] .board-stage,
   :root {
+    /* Native controls (date pickers, scrollbars, select menus) match the paper. */
+    color-scheme: dark;
     /* Design system tokens */
-    --bg: #06080f;
-    --bg2: #0c1018;
-    --bg2-rgb: 12, 16, 24;
-    --text: #f0f2f5;
-    --sub: #8a95a8;
-    --accent: #00e1ff;
-    --accent2: #6366f1;
-    --accent3: #b066f8;
-    /* Solid (was rgba(12,16,24,0.65)): the particle field at z:-1 bled
-       through every Card/.glass surface. Glassmorphism utilities still
-       use backdrop-filter — harmless no-op on an opaque base. */
-    --card: #0c1018;
-    --cardH: rgba(255, 255, 255, 0.07);
-    --border: rgba(255, 255, 255, 0.08);
-    --glow: rgba(0, 225, 255, 0.15);
-    --glowS: rgba(0, 225, 255, 0.4);
-    --surface: #1a1f36;
-    --surface-deep: #0a0e1a;
-    --surface-hover: #1e2540;
+    --bg: #13161e;
+    --bg2: #1b1f2a;
+    --bg2-rgb: 27, 31, 42;
+    --text: #f5efe4;
+    --sub: #bdb4a6;
+    --accent: #eda86a;
+    --accent2: #94b8e6;
+    --accent3: #d3a6cd;
+    --card: #1b1f2a;
+    --cardH: #232835;
+    /* The outline: solid, like a pen line. `--rule` is the quieter line for
+       table rows and chart grids, which would turn to bars in full ink. */
+    --border: #a39b8e;
+    --rule: #3a4050;
+    /* Kept for the few things still reading them: a quiet wash, no longer a glow. */
+    --glow: rgba(237, 168, 106, 0.1);
+    --glowS: rgba(237, 168, 106, 0.2);
+    --surface: #1e2330;
+    --surface-deep: #0e1117;
+    --surface-hover: #272d3b;
     --sidebar-w: 260px;
     --header-h: 56px;
+
+    /* Line weights. Tailwind's plain `border` reads --line-w (colour tokens can't
+       set a width); panels, the framed things with a shadow, read --panel-w.
+       1.5px is 1 device pixel on a 1× screen and 3 on a 2× phone. */
+    --line-w: 1.5px;
+    --panel-w: 2px;
+    /* A pen-drawn box is never quite square: four slightly different corners. */
+    --panel-radius: 9px 7px 10px 6px / 7px 10px 6px 9px;
+    /* Hard offset shadows: ink laid down, not light falling. Tailwind's shadow-*
+       keys read these (tailwind.config.ts). */
+    --shadow-color: #05060a;
+    --shadow-1: 1px 1px 0 0 var(--shadow-color);
+    --shadow-2: 2px 2px 0 0 var(--shadow-color);
+    --shadow-3: 3px 3px 0 0 var(--shadow-color);
+    --shadow-4: 4px 4px 0 0 var(--shadow-color);
+    --shadow-6: 6px 6px 0 0 var(--shadow-color);
+    /* Hand lettering for headings; high contrast swaps it for the plain face. */
+    --font-display-face: var(--font-hand);
 
     /* shadcn/ui bridge — keeps all 24 shadcn components working */
     --background: var(--bg);
@@ -48,34 +78,35 @@
     --secondary-foreground: var(--text);
     --muted: var(--bg2);
     --muted-foreground: var(--sub);
-    --accent-bg: rgba(0, 225, 255, 0.08);
+    --accent-bg: rgba(237, 168, 106, 0.1);
     --accent-foreground: var(--text);
-    /* #dc2626 so white button text reaches 4.8:1 (#ef4444 + #f0f2f5 was 3.4:1). */
-    --destructive: #dc2626;
-    --destructive-foreground: #ffffff;
-    /* Field and outline-button edges: ≥ 3:1 on bg, card and surface (WCAG
-       1.4.11). The 8% --border is fine for dividers, too faint for controls. */
-    --input: #646e88;
+    /* Used both as a fill and as text on its own tint, so it's light enough for
+       the text and takes dark words as a fill. */
+    --destructive: #f2939b;
+    --destructive-foreground: #13161e;
+    /* Field and outline-button edges: ≥ 3:1 on bg, card and surface (WCAG 1.4.11). */
+    --input: #a39b8e;
     --ring: var(--accent);
-    --radius: 0.625rem;
-    --chart-1: #00e1ff;
-    --chart-2: #ff00aa;
-    --chart-3: #00ff88;
-    --chart-4: #ffaa00;
-    --chart-5: #8b5cf6;
+    --radius: 0.375rem;
+    /* Each keeps the hue its name promises (lib/roadmap/palette.ts). */
+    --chart-1: #8fb9ee;
+    --chart-2: #ec94d0;
+    --chart-3: #a9c96a;
+    --chart-4: #ecb45f;
+    --chart-5: #c4a0f0;
 
-    /* Semantic status colours — readable as text on --bg/--card in each
-       theme (light and HC override below). Use `text-success`,
-       `bg-warning/10`, `border-danger/30`… instead of palette shades like
-       amber-300, which drop to ~1.4:1 on the light theme. */
-    --success: #22c55e;
-    --warning: #fbbf24;
-    --danger: #f87171;
-    --info: #60a5fa;
-    /* The neon brand accents, tamed per theme (accent-green / -amber / -magenta). */
-    --neon-green: #00ff88;
-    --neon-amber: #ffaa00;
-    --neon-magenta: #ff00aa;
+    /* Semantic status colours — readable as text on --bg/--card in each theme,
+       and on tints of themselves up to /20 (test/design/theme-contrast.test.ts).
+       Use `text-success`, `bg-warning/10`, `border-danger/30`… instead of palette
+       shades like amber-300, which drop to ~1.4:1 on paper. */
+    --success: #86cf74;
+    --warning: #e3c16e;
+    --danger: #f2939b;
+    --info: #8fb9ee;
+    /* The old neon accents, now watercolours (accent-green / -amber / -magenta). */
+    --neon-green: #b4c96a;
+    --neon-amber: #ecb45f;
+    --neon-magenta: #ec94b8;
   }
 
   * {
@@ -85,65 +116,75 @@
   body {
     background-color: var(--background);
     color: var(--foreground);
+    /* Checkboxes, radios and range inputs take the theme's colour. */
+    accent-color: var(--accent);
+  }
+
+  /* Colour is inherited as a value, so the stage has to restate its own. */
+  .board-stage {
+    color: var(--text);
+    accent-color: var(--accent);
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   LIGHT MODE
+   COMIC — the default. Warm off-white paper, dark ink, restrained washes sampled
+   from the Agile at Work panels: fox rust, lanyard blue, plum tie, moss, ochre.
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 @layer base {
   .light,
   [data-theme="light"] {
-    --bg: #f4f6fb;
-    --bg2: #ffffff;
-    --bg2-rgb: 255, 255, 255;
-    --text: #0a0f1a;
-    --sub: #5a6578;
-    --accent: #0066ff;
-    --accent2: #4f46e5;
-    --accent3: #9333ea;
-    /* Solid (was rgba(255,255,255,0.7)) — see dark-mode comment. */
-    --card: #ffffff;
-    --cardH: rgba(255, 255, 255, 0.95);
-    --border: rgba(0, 0, 0, 0.06);
-    /* ≥ 3:1 on white, --bg and --surface-deep. */
-    --input: #7d8699;
-    --glow: rgba(0, 102, 255, 0.08);
-    --glowS: rgba(0, 102, 255, 0.2);
-    --surface: rgba(255, 255, 255, 0.8);
-    --surface-deep: #eef1f8;
-    --surface-hover: rgba(0, 0, 0, 0.04);
-    /* ≥ 4.5:1 on white and on --bg. */
-    --destructive: #b91c1c;
-    --destructive-foreground: #ffffff;
-    --primary-foreground: #ffffff;
-    --success: #15803d;
-    --warning: #b45309;
-    --danger: #b91c1c;
-    --info: #1d4ed8;
-    --neon-green: #047857;
-    --neon-amber: #b45309;
-    --neon-magenta: #be185d;
-    --accent-bg: rgba(0, 102, 255, 0.08);
-    --chart-1: #0066ff;
-    --chart-2: #be185d;
-    --chart-3: #047857;
-    --chart-4: #b45309;
-    --chart-5: #7c3aed;
+    color-scheme: light;
+    --bg: #f7f1e6;
+    --bg2: #fffcf5;
+    --bg2-rgb: 255, 252, 245;
+    --text: #1d1a18;
+    --sub: #574e44;
+    --accent: #873a16;
+    --accent2: #1c4f94;
+    --accent3: #6a3560;
+    --card: #fffcf5;
+    --cardH: #fbf5e9;
+    --border: #2b2622;
+    --rule: #d8cfbf;
+    --input: #574e44;
+    --glow: rgba(135, 58, 22, 0.08);
+    --glowS: rgba(135, 58, 22, 0.16);
+    --surface: #fdf9f0;
+    --surface-deep: #f1eadd;
+    --surface-hover: #f3ecdf;
+    --shadow-color: #1d1a18;
+    --destructive: #9c1c2e;
+    --destructive-foreground: #fffcf5;
+    --primary-foreground: #fffcf5;
+    --success: #1c5f3d;
+    --warning: #6f510c;
+    --danger: #9c1c2e;
+    --info: #174f9c;
+    --neon-green: #4c5b20;
+    --neon-amber: #784a10;
+    --neon-magenta: #8a2a54;
+    --accent-bg: rgba(135, 58, 22, 0.08);
+    --chart-1: #1958b3;
+    --chart-2: #b0306f;
+    --chart-3: #2e7a3a;
+    --chart-4: #96600f;
+    --chart-5: #5d4a9c;
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    HIGH-CONTRAST MODE — Accessibility (Phase 33)
    WCAG AAA: text/bg contrast ≥ 7:1, interactive ≥ 4.5:1. Pure-black bg +
-   pure-white text + heavy yellow accent. Borders go solid (not alpha) so
-   they pass the "not visible to colour-blind users" test.
+   pure-white text + heavy yellow accent. Solid borders, no offset shadows and
+   the plain typeface: legibility beats the comic here.
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 @layer base {
   .hc,
   [data-theme="hc"] {
+    color-scheme: dark;
     --bg: #000000;
     --bg2: #000000;
     --bg2-rgb: 0, 0, 0;
@@ -155,12 +196,24 @@
     --card: #0a0a0a;
     --cardH: #1a1a1a;
     --border: #ffffff;
+    --rule: #ffffff;
     --input: #ffffff;
     --glow: rgba(255, 212, 0, 0.4);
     --glowS: rgba(255, 212, 0, 0.7);
     --surface: #0a0a0a;
     --surface-deep: #000000;
     --surface-hover: #1a1a1a;
+    --panel-radius: 4px;
+    /* `0 0 0 0` rather than `none`: Tailwind joins these into a comma list with
+       the ring shadows, where `none` would void the whole declaration. */
+    --shadow-1: 0 0 0 0 transparent;
+    --shadow-2: 0 0 0 0 transparent;
+    --shadow-3: 0 0 0 0 transparent;
+    --shadow-4: 0 0 0 0 transparent;
+    --shadow-6: 0 0 0 0 transparent;
+    --font-display-face: var(--font-inter);
+    --destructive: #ff6b6b;
+    --destructive-foreground: #000000;
     --success: #00ffaa;
     --warning: #ffd400;
     --danger: #ff6b6b;
@@ -168,14 +221,11 @@
     --neon-green: #00ffaa;
     --neon-amber: #ffd400;
     --neon-magenta: #ff7eff;
-  }
-  /* In HC mode, kill the decorative mesh blobs + noise overlay
-   * — both reduce contrast against text and serve no a11y purpose. */
-  .hc .atmosphere,
-  [data-theme="hc"] .atmosphere,
-  .hc .noise-overlay::after,
-  [data-theme="hc"] .noise-overlay::after {
-    display: none !important;
+    --chart-1: #00e1ff;
+    --chart-2: #ff00aa;
+    --chart-3: #00ff88;
+    --chart-4: #ffaa00;
+    --chart-5: #a78bfa;
   }
   /* Force solid 2px outlines on every focusable element so keyboard
    * users (the people most likely to enable HC) get unambiguous focus
@@ -244,6 +294,11 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* Page titles are lettered by hand, whichever component draws them. */
+  h1 {
+    font-family: theme("fontFamily.display");
+  }
+
   body {
     background: var(--bg);
     color: var(--text);
@@ -269,28 +324,9 @@
    but next/font registers hashed names ("__JetBrains_Mono_…"), so those
    elements fell back to the system monospace / Georgia. */
 
-.gradient-text {
-  background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.gradient-text-animated {
-  background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: gradient-shift 6s ease-in-out infinite;
-}
-
-.text-glow {
-  text-shadow: 0 0 8px var(--glow);
-}
-
+.text-glow,
 .text-glow-strong {
-  text-shadow: 0 0 24px var(--glowS);
+  text-shadow: none;
 }
 
 /* Label pattern — used for section headers, badges, tags */
@@ -298,8 +334,6 @@
   font-family: var(--font-mono), monospace;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 2px;
-  text-transform: uppercase;
   color: var(--accent);
 }
 
@@ -307,101 +341,11 @@
   font-family: var(--font-mono), monospace;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════════
-   ATMOSPHERE — Mesh Background (reduced intensity for data UIs)
-   ═══════════════════════════════════════════════════════════════════════════════ */
-
-.atmosphere {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.mesh-blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(120px);
-  will-change: transform;
-}
-
-/* 2 blobs at 0.04 opacity — reduced from main site's 3 blobs at 0.06-0.08 */
-.mesh-blob-1 {
-  width: 40vw;
-  height: 40vw;
-  background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
-  opacity: 0.04;
-  top: -10%;
-  left: -5%;
-  animation: mf1 20s ease-in-out infinite;
-}
-
-.mesh-blob-2 {
-  width: 35vw;
-  height: 35vw;
-  background: radial-gradient(circle, var(--accent2) 0%, transparent 70%);
-  opacity: 0.04;
-  bottom: -10%;
-  right: -10%;
-  animation: mf2 25s ease-in-out infinite;
-}
-
-/* Noise overlay — subtle grain at 0.02 opacity */
-.noise-overlay::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  opacity: 0.02;
-  pointer-events: none;
-  z-index: 9998;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    KEYFRAMES
    ═══════════════════════════════════════════════════════════════════════════════ */
-
-@keyframes mf1 {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  33% {
-    transform: translate(5vw, 8vh) scale(1.1);
-  }
-  66% {
-    transform: translate(-3vw, -5vh) scale(0.95);
-  }
-}
-
-@keyframes mf2 {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  33% {
-    transform: translate(-8vw, -4vh) scale(1.15);
-  }
-  66% {
-    transform: translate(4vw, 6vh) scale(0.9);
-  }
-}
-
-@keyframes gradient-shift {
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
 
 @keyframes fade-in {
   from {
@@ -463,13 +407,14 @@
   }
 }
 
+/* The "look here" pulse: an ink shadow pressed down and let go, no glow. */
 @keyframes glow-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(0, 225, 255, 0);
+    box-shadow: 0 0 0 0 transparent;
   }
   50% {
-    box-shadow: 0 0 12px 2px rgba(0, 225, 255, 0.12);
+    box-shadow: 2px 2px 0 0 var(--accent);
   }
 }
 
@@ -477,11 +422,11 @@
   0%,
   100% {
     opacity: 1;
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 40%, transparent);
   }
   50% {
     opacity: 0.7;
-    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0);
+    box-shadow: 0 0 0 4px transparent;
   }
 }
 
@@ -603,30 +548,66 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   GLASSMORPHISM UTILITIES
+   PANELS — the comic's frame, plus the old glass names, now plain ink on paper
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-.glass {
-  background: var(--card);
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  border: 1px solid var(--border);
-}
-
+.glass,
 .glass-elevated {
   background: var(--card);
-  backdrop-filter: blur(32px) saturate(1.6);
-  -webkit-backdrop-filter: blur(32px) saturate(1.6);
-  border: 1px solid var(--border);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 var(--border);
 }
 
 .glass-backdrop {
-  background: rgba(var(--bg2-rgb), 0.6);
-  backdrop-filter: blur(32px);
-  -webkit-backdrop-filter: blur(32px);
+  background: rgba(var(--bg2-rgb), 0.85);
+}
+
+@layer components {
+  /**
+   * .panel
+   * One comic panel: paper fill, ink outline, hand-drawn corners and a hard
+   * offset shadow. Card, ToolCard and the page headers use it. In the components
+   * layer, so a call site's `border-*`, `bg-*`, `rounded-*` or `shadow-*` wins.
+   */
+  .panel {
+    background-color: var(--card);
+    border: var(--panel-w) solid var(--border);
+    border-radius: var(--panel-radius);
+    box-shadow: var(--shadow-3);
+  }
+
+  /**
+   * .balloon
+   * A speech balloon: rounder than a panel, no shadow, with a tail. The tail sits
+   * on the balloon's lower-left edge, towards the speaker standing beside it, and
+   * is two triangles so the outline carries round it.
+   */
+  .balloon {
+    position: relative;
+    background-color: var(--card);
+    color: var(--text);
+    border: var(--panel-w) solid var(--border);
+    border-radius: 1.25rem 1.5rem 1.35rem 1.1rem / 1.35rem 1.1rem 1.5rem 1.25rem;
+  }
+  .balloon::before,
+  .balloon::after {
+    content: "";
+    position: absolute;
+    bottom: 1rem;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-color: transparent;
+  }
+  .balloon::before {
+    left: -0.8rem;
+    border-width: 0.4rem 0.8rem 0.4rem 0;
+    border-right-color: var(--border);
+  }
+  .balloon::after {
+    left: -0.6rem;
+    border-width: 0.3rem 0.65rem 0.3rem 0;
+    margin-bottom: 0.1rem;
+    border-right-color: var(--card);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -634,12 +615,13 @@
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 .hover-lift {
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 .hover-lift:hover {
-  transform: translateY(-3px);
-  border-color: var(--border);
-  box-shadow: 0 8px 32px var(--glow);
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow-4);
 }
 
 .hover-scale {
@@ -667,7 +649,7 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--rule);
   border-radius: 3px;
 }
 
@@ -696,7 +678,7 @@
   top: 0;
   left: 0;
   height: 2px;
-  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  background: var(--accent);
   z-index: 1000;
   transition: width 0.1s linear;
 }
@@ -736,27 +718,26 @@
     text-wrap: balance;
   }
 
+  /* The old neon names, as hard offsets in the colour they promised. */
   .glow-cyan {
-    box-shadow: 0 0 20px rgba(0, 225, 255, 0.3);
+    box-shadow: 2px 2px 0 0 var(--accent);
   }
 
   .glow-magenta {
-    box-shadow: 0 0 20px rgba(255, 0, 170, 0.3);
+    box-shadow: 2px 2px 0 0 var(--neon-magenta);
   }
 
   .glow-green {
-    box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+    box-shadow: 2px 2px 0 0 var(--neon-green);
   }
 
   .text-glow-cyan {
-    text-shadow: 0 0 10px rgba(0, 225, 255, 0.5);
+    text-shadow: none;
   }
 
   .border-glow-cyan {
     border-color: var(--accent);
-    box-shadow:
-      0 0 10px rgba(0, 225, 255, 0.2),
-      inset 0 0 10px rgba(0, 225, 255, 0.05);
+    box-shadow: 2px 2px 0 0 var(--accent);
   }
 }
 
@@ -1002,15 +983,15 @@
       background-color 150ms ease;
   }
   .btn-danger-ghost:hover {
-    color: #f87171; /* matches Tailwind text-red-400 */
-    background-color: rgba(248, 113, 113, 0.1);
+    color: var(--danger);
+    background-color: color-mix(in srgb, var(--danger) 10%, transparent);
   }
 
   /**
    * .input-toolkit
    * Standard `<Input>` styling token used across most tools — adds
-   * the deep surface fill, subtle border, and the cyan focus ring
-   * that matches the rest of the design language.
+   * the deep surface fill, the field edge, and an accent border on
+   * focus that matches the rest of the design language.
    *
    * Replaces the recurring inline pattern:
    *   `bg-surface-deep border-border text-text focus:border-accent/50`
@@ -1021,12 +1002,12 @@
    */
   .input-toolkit {
     background-color: var(--surface-deep);
-    border-color: var(--border);
+    border-color: var(--input);
     color: var(--text);
   }
   .input-toolkit:focus,
   .input-toolkit:focus-visible {
-    border-color: rgb(0 240 255 / 0.5);
+    border-color: var(--accent);
   }
 
   /**
@@ -1046,7 +1027,7 @@
     scroll-snap-type: x mandatory;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
+    scrollbar-color: var(--rule) transparent;
     /* Bleed the scroll area to the screen edge on mobile but keep content
        inside the .container-tool padding via the snap children below. */
     margin-inline: -0.75rem;
@@ -1068,7 +1049,7 @@
     height: 4px;
   }
   .scroll-x-snap::-webkit-scrollbar-thumb {
-    background: var(--border);
+    background: var(--rule);
     border-radius: 2px;
   }
 
@@ -1106,18 +1087,6 @@
 
 @layer base {
   /**
-   * Hide a primitive scrollbar look on overflow-y containers nested inside
-   * `.glass-elevated` panels — keeps the design clean on mobile.
-   */
-  .glass-elevated::-webkit-scrollbar {
-    width: 6px;
-  }
-  .glass-elevated::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 3px;
-  }
-
-  /**
    * Honour user OS-level font-size preferences. By keying our rem-based
    * sizes off `html { font-size: 100%; }` (browser default = 16px), users
    * who bump their system font in OS settings see the entire app scale up.
@@ -1126,6 +1095,19 @@
    */
   html {
     font-size: 100%; /* explicit — 1rem === 16px (or user preference) */
+  }
+}
+
+/* Amr's strip on phones (components/agent/mascot/mascot-assistant): main already
+   has more bottom padding than the strip is tall, so only a strip under the header
+   needs room made at the top. Focus and anchor scrolling stop clear of either. */
+@media (max-width: 639px) {
+  html {
+    scroll-padding-bottom: var(--amr-band-bottom, 0px);
+    scroll-padding-top: var(--amr-band-top, 0px);
+  }
+  #main-content {
+    padding-top: var(--amr-band-top, 0px);
   }
 }
 
