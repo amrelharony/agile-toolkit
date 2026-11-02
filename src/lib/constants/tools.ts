@@ -309,7 +309,7 @@ export const tools: ToolDefinition[] = [
   {
     id: "book",
     code: "LB2",
-    name: "The Agile at Work book",
+    name: "The book",
     description:
       "The printed book: 26 workplace stories about working better together, and the page each one is on",
     category: "Library",
