@@ -409,6 +409,7 @@ describe("bypass paths", () => {
     "/api/guest/redeem",
     "/api/comics/hit",
     "/api/comics/licence",
+    "/api/comics/guestbook",
     "/guest",
     "/guest/join",
     "/auth/callback",

@@ -112,6 +112,11 @@ export const portalApi = {
   markHandled: (id: string, handled: boolean) =>
     call(`/api/comics/licence-requests/${id}`, { method: "PATCH", json: { handled } }),
   deleteRequest: (id: string) => call(`/api/comics/licence-requests/${id}`, { method: "DELETE" }),
+  guestbookNotes: () =>
+    call<{ notes: GuestbookNoteRow[]; waiting: number }>("/api/comics/guestbook-notes"),
+  approveNote: (id: string, approved: boolean) =>
+    call(`/api/comics/guestbook-notes/${id}`, { method: "PATCH", json: { approved } }),
+  deleteNote: (id: string) => call(`/api/comics/guestbook-notes/${id}`, { method: "DELETE" }),
   unusedArt: () => call<{ files: UnusedFile[] }>("/api/comics/unused-art"),
   deleteUnusedArt: (paths: string[]) =>
     call<{ removed: number }>("/api/comics/unused-art", { method: "POST", json: { paths } }),
@@ -127,6 +132,14 @@ export interface LicenceRequest {
   message: string;
   created_at: string;
   handled_at: string | null;
+}
+
+export interface GuestbookNoteRow {
+  id: string;
+  name: string;
+  message: string;
+  created_at: string;
+  approved_at: string | null;
 }
 
 export interface UnusedFile {

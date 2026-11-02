@@ -15,13 +15,14 @@ import {
 } from "@/lib/comics/draft-store";
 import type { OwnerStory } from "@/lib/comics/story-input";
 import { EntriesView } from "./entries-view";
+import { GuestbookView } from "./guestbook-view";
 import { LicenceView } from "./licence-view";
-import { errorMessage, portalApi, type LicenceRequest } from "./portal-api";
+import { errorMessage, portalApi, type GuestbookNoteRow, type LicenceRequest } from "./portal-api";
 import { ReviewView, reviewQueue } from "./review-view";
 import { StoriesView } from "./stories-view";
 import { LEAVE_WHILE_UPLOADING, StoryEditor } from "./story-editor";
 
-type View = "stories" | "editor" | "review" | "entries" | "licence";
+type View = "stories" | "editor" | "review" | "entries" | "licence" | "guestbook";
 
 export const PORTAL_SIGN_IN_HREF = `/auth/sign-in?next=${encodeURIComponent("/settings/comics")}`;
 
@@ -85,6 +86,8 @@ export function ComicsPortal() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [requests, setRequests] = useState<LicenceRequest[] | null>(null);
   const [requestsError, setRequestsError] = useState<string | null>(null);
+  const [notes, setNotes] = useState<GuestbookNoteRow[] | null>(null);
+  const [notesError, setNotesError] = useState<string | null>(null);
   const [unsaved, setUnsaved] = useState<DraftKey[]>([]);
   /** The open form has pictures in hand, which stop if it closes. */
   const uploading = useRef(false);
@@ -112,11 +115,21 @@ export function ComicsPortal() {
     }
   }, []);
 
+  const refreshNotes = useCallback(async () => {
+    setNotesError(null);
+    try {
+      setNotes((await portalApi.guestbookNotes()).notes);
+    } catch (err) {
+      setNotesError(errorMessage(err));
+    }
+  }, []);
+
   useEffect(() => {
     if (!isOwner) return;
     void refreshStories();
     void refreshRequests();
-  }, [isOwner, refreshRequests, refreshStories]);
+    void refreshNotes();
+  }, [isOwner, refreshNotes, refreshRequests, refreshStories]);
 
   // On a weak signal the first try can easily fail, and a form may be waiting on it.
   useEffect(() => {
@@ -186,6 +199,7 @@ export function ComicsPortal() {
   );
 
   const unhandled = requests?.filter((r) => !r.handled_at).length ?? 0;
+  const waitingNotes = notes?.filter((n) => !n.approved_at).length ?? 0;
   const toReview = useMemo(() => reviewQueue(stories ?? []).length, [stories]);
   const unsavedEps = useMemo(
     () => new Set(unsaved.filter((key): key is number => typeof key === "number")),
@@ -222,6 +236,17 @@ export function ComicsPortal() {
               className="rounded-full bg-accent/10 px-2 text-xs font-semibold text-accent"
             >
               {unhandled}
+            </span>
+          ) : null}
+        </ViewButton>
+        <ViewButton active={view === "guestbook"} onClick={() => setView("guestbook")}>
+          Guestbook
+          {waitingNotes > 0 ? (
+            <span
+              aria-label={`${waitingNotes} waiting`}
+              className="rounded-full bg-accent/10 px-2 text-xs font-semibold text-accent"
+            >
+              {waitingNotes}
             </span>
           ) : null}
         </ViewButton>
@@ -266,6 +291,9 @@ export function ComicsPortal() {
       {view === "entries" ? <EntriesView enabled={isOwner} /> : null}
       {view === "licence" ? (
         <LicenceView requests={requests} loadError={requestsError} onChanged={refreshRequests} />
+      ) : null}
+      {view === "guestbook" ? (
+        <GuestbookView notes={notes} loadError={notesError} onChanged={refreshNotes} />
       ) : null}
     </div>
   );

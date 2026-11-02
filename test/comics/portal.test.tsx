@@ -177,6 +177,54 @@ describe("the owner gate", () => {
   });
 });
 
+describe("the guestbook view", () => {
+  const notes = [
+    { id: "n1", name: "Sara", message: "Loved it", created_at: "2026-11-02", approved_at: null },
+    {
+      id: "n2",
+      name: "Omar",
+      message: "Me too",
+      created_at: "2026-11-01",
+      approved_at: "2026-11-02",
+    },
+  ];
+
+  it("counts the notes waiting, and shows one when asked", async () => {
+    h.auth = owner;
+    fetchSpy.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/comics/guestbook-notes") return respond({ notes, waiting: 1 });
+      if (url.startsWith("/api/comics/guestbook-notes/")) return respond({ note: {} });
+      if (url === "/api/comics/licence-requests") return respond({ requests: [] });
+      void init;
+      return respond({ stories: [] });
+    });
+    render(<ComicsPortal />);
+    expect(await screen.findByLabelText("1 waiting")).toHaveTextContent("1");
+    fireEvent.click(screen.getByRole("button", { name: /^Guestbook/ }));
+    expect(screen.getByText("Loved it")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show it" }));
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/comics/guestbook-notes/n1",
+        expect.objectContaining({ method: "PATCH", body: JSON.stringify({ approved: true }) })
+      )
+    );
+  });
+
+  it("says what to check when the guestbook can't load", async () => {
+    h.auth = owner;
+    fetchSpy.mockImplementation(async (url: string) => {
+      if (url === "/api/comics/guestbook-notes")
+        return respond({ error: "service_unavailable" }, 503);
+      if (url === "/api/comics/licence-requests") return respond({ requests: [] });
+      return respond({ stories: [] });
+    });
+    render(<ComicsPortal />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Guestbook/ }));
+    expect(await screen.findByText(/migration 0033/)).toBeInTheDocument();
+  });
+});
+
 describe("owner-only page metadata", () => {
   it("keeps both pages out of search indexes", async () => {
     const portal = await import("@/app/settings/comics/page");
@@ -522,7 +570,11 @@ describe("the service-role boundary", () => {
   it("leaves every owner route off the middleware's bypass list", () => {
     const source = readFileSync("src/middleware.ts", "utf8");
     const listed = Array.from(source.matchAll(/["'](\/api\/comics[^"']*)["']/g)).map((m) => m[1]);
-    expect(listed.sort()).toEqual(["/api/comics/hit", "/api/comics/licence"]);
+    expect(listed.sort()).toEqual([
+      "/api/comics/guestbook",
+      "/api/comics/hit",
+      "/api/comics/licence",
+    ]);
   });
 
   it("marks the owner route helper server-only", () => {
