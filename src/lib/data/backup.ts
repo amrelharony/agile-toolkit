@@ -35,6 +35,7 @@ const EXCLUDED_PREFIXES = [
   "agile-toolkit:kudos:pending-sync",
   "agile-toolkit:backup:", // this browser's own backup bookkeeping
   "agile-toolkit:comics:entry:", // this device's daily count marks: which posters it scanned
+  "agile-toolkit:comics:intro:", // which intros this device has seen: per device, by design
   "agile-toolkit:comics:draft", // the owner's unsaved stories, which can be unreleased ones
 ];
 

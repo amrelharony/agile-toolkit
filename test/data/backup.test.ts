@@ -7,6 +7,7 @@ import {
   restoreBackup,
   serializeBackup,
 } from "@/lib/data/backup";
+import { INTRO_KINDS, introMarkKey } from "@/lib/comics/intro";
 
 beforeEach(() => localStorage.clear());
 
@@ -25,6 +26,8 @@ describe("toolkit backup", () => {
     const mark = "agile-toolkit:comics:entry:poster:12:3";
     expect(isBackupKey(mark)).toBe(false);
     expect(isBackupKey("agile-toolkit:comics:entry:direct")).toBe(false);
+    // Which intros this device has seen: another device should still see them.
+    for (const kind of INTRO_KINDS) expect(isBackupKey(introMarkKey(kind))).toBe(false);
 
     localStorage.setItem(mark, "2026-11-01");
     localStorage.setItem("agile-toolkit:retro", "{}");
