@@ -15,6 +15,8 @@ describe("routeKind", () => {
     "/settings/squads",
     "/settings/squads/abc",
     "/Settings/Squads",
+    "/settings/comics",
+    "/settings/comics/import",
   ])("%s is an owner page", (path) => {
     expect(routeKind(path)).toBe("owner-page");
     expect(isOwnerOnlyPage(path)).toBe(true);
@@ -28,6 +30,7 @@ describe("routeKind", () => {
     "/settings/appearance",
     "/settings/access-tokens-old",
     "/settings/squadsx",
+    "/settings/comicsx",
     "/history",
     "/apix",
     "/x/api/kudos",
@@ -36,7 +39,11 @@ describe("routeKind", () => {
     expect(isOwnerOnlyPage(path)).toBe(false);
   });
 
-  it("lists exactly the two owner management pages", () => {
-    expect([...OWNER_ONLY_PAGES]).toEqual(["/settings/access-tokens", "/settings/squads"]);
+  it("lists exactly the owner management pages", () => {
+    expect([...OWNER_ONLY_PAGES]).toEqual([
+      "/settings/access-tokens",
+      "/settings/squads",
+      "/settings/comics",
+    ]);
   });
 });
