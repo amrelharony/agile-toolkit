@@ -3,10 +3,11 @@
    0    – 0.9  an ink band covers the screen and pulls away to the right
    0    – 9    three layers drift left at three speeds: the parallax
    0.8  – 2.55 "Welcome, reader of the book", word by word, then its rule
-   1.15 – 1.95 Amr jumps into the front layer; at 2.5 he stops to ask
+   1.15 – 1.95 Amr jumps into the front layer; at 2.4 he stops to ask
    2.6  – 3.1  his balloon
    2.95 – 4.3  the tools are dealt in from below, 0.3 s apart
-   5.3  – 6.95 with early comics only: the tools step back, the covers fan out
+   5.3  – 7.0  with early comics only: the tools step back, and once they're
+               gone (5.8) the heading and the covers come in, then fan out
    7.7  – 9    the page turns away round its left edge
 
    Each element holds its first frame until its delay and its last after it
@@ -132,10 +133,13 @@
   grid-area: 1 / 1;
 }
 
+/* Centred like the comics that may take their place, so the slot doesn't jump
+   sideways between the two where the column is wider than the stack. */
 .tools {
   display: grid;
   gap: clamp(0.5rem, 1.8vmin, 1rem);
   width: min(100%, 26rem);
+  justify-self: center;
 }
 
 /* Sized by the narrower of the width and the height, so the cards grow on a
@@ -186,13 +190,15 @@
   gap: clamp(0.6rem, 2.2vmin, 1.25rem);
 }
 
+/* The heading and the covers share the tools' place, so they wait until the
+   tools have gone (5.8 s): the heading never sits over a fading tool's name. */
 .comicsHeading {
   margin: 0;
   font-size: clamp(1.05rem, 3.6vmin, 1.6rem);
   line-height: 1.2;
   text-align: center;
   text-wrap: balance;
-  animation: vipRise 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) 5.55s both;
+  animation: vipRise 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) 5.8s both;
 }
 
 /* The covers rise as one stack, then fan out from their bottom edges to the
@@ -209,7 +215,7 @@
   position: absolute;
   inset: 0;
   transform-origin: 50% 100%;
-  animation: vipFan 1.2s cubic-bezier(0.22, 0.9, 0.3, 1) 5.75s both;
+  animation: vipFan 1.2s cubic-bezier(0.22, 0.9, 0.3, 1) 5.8s both;
 }
 
 /* Amr's layer is nearest, so it drifts furthest and the tools pass behind it. */
@@ -247,17 +253,19 @@
   transform-origin: 0 0;
 }
 
-/* He lands from his second jump at 2.5 s, the end of a loop of its frames, and
-   the next frame is him asking: a cut, as between two panels. */
+/* He swaps to asking at 2.4 s, inside the last frame of his second jump's loop
+   (2.375 – 2.5 s), where he has landed and stands as tall as in every frame of
+   waiting: standing to standing, a cut, as between two panels. At 2.5 s the loop
+   restarts on a crouch, which would show as a double image under the swap. */
 .amrJump,
 .amrAsk {
   grid-area: 1 / 1;
 }
 .amrJump {
-  animation: vipCutOut 0.08s linear 2.5s both;
+  animation: vipCutOut 0.08s linear 2.4s both;
 }
 .amrAsk {
-  animation: vipCutIn 0.08s linear 2.5s both;
+  animation: vipCutIn 0.08s linear 2.4s both;
 }
 
 /* To his right, with the tail (1.4rem up the balloon's left side) at his mouth,
@@ -286,12 +294,14 @@
   animation: vipInkWipe 0.9s cubic-bezier(0.7, 0, 0.3, 1) 0s both;
 }
 
-/* The page darkens a little as it turns away from the light. */
+/* The page darkens a little as it turns away from the light. The shadow's ink,
+   not the text's: it is near-black in every theme, where night's and high
+   contrast's text would lighten the page instead. */
 .shade {
   position: absolute;
   inset: 0;
   z-index: 6;
-  background-color: var(--text);
+  background-color: var(--shadow-color);
   pointer-events: none;
   animation: vipShade 1.3s ease-in 7.7s both;
 }
@@ -346,11 +356,22 @@
     font-size: clamp(1.6rem, min(4.6vw, 8vh), 3.75rem);
     font-size: clamp(1.6rem, min(4.6vw, 8dvh), 3.75rem);
   }
-  .tools {
-    justify-self: center;
-  }
   .fan {
     width: min(44%, 16rem);
+  }
+}
+
+/* The covers are the real art, so on a laptop or a desktop they get the wider
+   column: the fan is three covers across, the tools one card. The welcome has
+   the height there to take a third line. Not on a phone on its side, where the
+   narrower left column would stretch Amr's balloon past the foot of the page.
+   Three tilted covers span about 2.2 covers, so 45% keeps the fan in its column. */
+@media (min-aspect-ratio: 5/4) and (min-width: 1200px) and (min-height: 700px) {
+  .withComics {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  }
+  .withComics .fan {
+    width: min(45%, 20rem);
   }
 }
 
@@ -571,23 +592,24 @@
 }
 
 /* Lifted at the corner first, then over and away. The perspective grows with
-   the screen, so a wide page doesn't swing into the viewer. */
+   the screen, so a wide page doesn't swing into the viewer: at 3.2 page widths
+   away its near edge swells no more than about 1.45x as it goes edge-on. */
 @keyframes vipPageTurn {
   0% {
-    transform: perspective(max(1600px, 220vw)) rotateY(0deg);
+    transform: perspective(max(1600px, 320vw)) rotateY(0deg);
     opacity: 1;
     visibility: visible;
     animation-timing-function: cubic-bezier(0.3, 0, 0.5, 1);
   }
   16% {
-    transform: perspective(max(1600px, 220vw)) rotateY(-6deg);
+    transform: perspective(max(1600px, 320vw)) rotateY(-6deg);
     animation-timing-function: cubic-bezier(0.5, 0, 0.7, 0.45);
   }
   62% {
     opacity: 1;
   }
   100% {
-    transform: perspective(max(1600px, 220vw)) rotateY(-100deg);
+    transform: perspective(max(1600px, 320vw)) rotateY(-100deg);
     opacity: 0;
     visibility: hidden;
   }

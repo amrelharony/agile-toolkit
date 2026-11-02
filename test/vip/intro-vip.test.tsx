@@ -42,6 +42,8 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 import VipPage from "@/app/vip/page";
 import { VipClient } from "@/app/vip/vip-client";
 import { VipIntro, type VipIntroTool } from "@/app/(tools)/comics/components/intro/vip-intro";
+import styles from "@/app/(tools)/comics/components/intro/vip-intro.module.css";
+import { POSES } from "@/components/agent/mascot/engine/sprite-poses";
 import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
 import { panelImageUrl } from "@/lib/comics/images";
 import { INTRO_SECONDS, OVERLAY_ATTR, SKIP_ATTR } from "@/lib/comics/intro";
@@ -97,6 +99,18 @@ function backgrounds(el: HTMLElement): string[] {
   return [el, ...Array.from(el.querySelectorAll<HTMLElement>("*"))]
     .map((node) => node.style?.backgroundImage ?? "")
     .filter(Boolean);
+}
+
+/** Each cover's tilt in the fan, in order. */
+function tilts(): string[] {
+  return Array.from(overlay()!.querySelectorAll<HTMLElement>(".intro-window"), (w) =>
+    w.style.getPropertyValue("--fan-tilt")
+  );
+}
+
+/** Whether the tools step back for covers: only `.withComics .tools` recedes. */
+function stepsBack(): boolean {
+  return overlay()!.querySelector(`.${styles.withComics}`) !== null;
 }
 
 beforeEach(() => {
@@ -185,6 +199,15 @@ describe("VipIntro", () => {
       expect(el).not.toHaveTextContent(EARLY_HEADING);
     });
 
+    // Otherwise the tools would fade at 5.8 s and leave the slot empty until the page turns.
+    it.each([
+      ["no early comics", []],
+      ["early comics without covers", [early(31, false)]],
+    ])("keeps the tools on the page with %s", (_, comics) => {
+      render(<VipIntro tools={TOOLS} earlyComics={comics} />);
+      expect(stepsBack()).toBe(false);
+    });
+
     it("says nothing but the allowed words", () => {
       render(<VipIntro tools={TOOLS} earlyComics={[]} />);
       const allowed = ["Skip intro", WELCOME, QUESTION, ...TOOLS.slice(0, 3).map((t) => t.name)];
@@ -203,12 +226,31 @@ describe("VipIntro", () => {
       expect(el).toHaveTextContent(EARLY_HEADING);
     });
 
+    it("steps the tools back so the covers can take their place", () => {
+      render(<VipIntro tools={TOOLS} earlyComics={EARLY} />);
+      expect(stepsBack()).toBe(true);
+    });
+
     it("gives each cover its own place in the fan", () => {
       render(<VipIntro tools={TOOLS} earlyComics={EARLY} />);
-      const tilts = Array.from(overlay()!.querySelectorAll<HTMLElement>(".intro-window"), (w) =>
-        w.style.getPropertyValue("--fan-tilt")
+      expect(tilts()).toEqual(["-6deg", "0deg", "6deg"]);
+    });
+
+    it("fans two covers to either side", () => {
+      render(<VipIntro tools={TOOLS} earlyComics={[early(30), early(32)]} />);
+      const sources = Array.from(overlay()!.querySelectorAll("img"), (img) =>
+        img.getAttribute("src")
       );
-      expect(tilts).toEqual(["-6deg", "0deg", "6deg"]);
+      expect(sources).toEqual([30, 32].map((ep) => panelImageUrl(`stories/${ep}/one-768.webp`)));
+      expect(tilts()).toEqual(["-4deg", "4deg"]);
+      expect(stepsBack()).toBe(true);
+    });
+
+    it("stands a single cover upright", () => {
+      render(<VipIntro tools={TOOLS} earlyComics={[early(31, false), early(32)]} />);
+      expect(overlay()!.querySelectorAll("img")).toHaveLength(1);
+      expect(tilts()).toEqual(["0deg"]);
+      expect(stepsBack()).toBe(true);
     });
 
     it("says nothing but the allowed words", () => {
@@ -278,6 +320,26 @@ describe("the timeline in vip-intro.module.css", () => {
         else parts[parts.length - 1] += char;
       }
       for (const part of parts) expect(part.trim().split(/\s+/), part).toContain("both");
+    }
+  });
+
+  it("steps the tools back only for covers, and brings the comics in once they've gone", () => {
+    const recede = animations.filter((a) => a.name === "vipRecede");
+    expect(recede.map((a) => a.selector)).toEqual([".withComics .tools"]);
+    for (const selector of [".comicsHeading", ".cover"]) {
+      const comes = animations.find((a) => a.selector === selector)!;
+      expect(comes.delay, selector).toBeGreaterThanOrEqual(endsAt(recede[0]) - 1e-9);
+    }
+  });
+
+  it("cuts Amr to asking while he stands, in the last frame of a jump", () => {
+    const { frames, fps } = POSES.jumping;
+    const loop = frames / fps;
+    for (const selector of [".amrJump", ".amrAsk"]) {
+      const cut = animations.find((a) => a.selector === selector)!;
+      const loopStart = Math.floor(cut.delay / loop + 1e-9) * loop;
+      expect(cut.delay - loopStart, selector).toBeGreaterThanOrEqual(loop - 1 / fps - 1e-9);
+      expect(endsAt(cut), selector).toBeLessThanOrEqual(loopStart + loop + 1e-9);
     }
   });
 
