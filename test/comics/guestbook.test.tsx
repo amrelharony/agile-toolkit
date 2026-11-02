@@ -163,6 +163,17 @@ describe("a guestbook note", () => {
     expect(sql).toContain(`char_length(name) between 1 and ${GUESTBOOK_LIMITS.name}`);
     expect(sql).toContain(`char_length(message) between 1 and ${GUESTBOOK_LIMITS.message}`);
   });
+
+  it("lives in a table closed to everyone but the service role, with nothing about the browser", () => {
+    const sql = readFileSync("supabase/migrations/0033_comic_guestbook_quiz.sql", "utf8");
+    expect(sql).toMatch(/alter table public\.comic_guestbook enable row level security/);
+    expect(sql).toMatch(/revoke all on table public\.comic_guestbook from anon, authenticated/);
+    const table = sql.slice(
+      sql.indexOf("create table"),
+      sql.indexOf(");", sql.indexOf("create table"))
+    );
+    expect(table).not.toMatch(/ip|user_agent|email/i);
+  });
 });
 
 describe("POST /api/comics/guestbook", () => {

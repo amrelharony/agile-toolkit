@@ -42,6 +42,14 @@ export interface Story {
 export type StoryCover = Pick<Panel, "pathSmall" | "width" | "height">;
 
 /** One gallery card: enough to find a story, not enough to read it. */
+/** One story as a flashcard: its title, and the lesson and question to recall. */
+export interface StudyCard {
+  ep: number;
+  title: string;
+  lesson: string;
+  question: string;
+}
+
 export interface StorySummary {
   ep: number;
   title: string;

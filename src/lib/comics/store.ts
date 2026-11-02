@@ -26,6 +26,7 @@ import type {
   Story,
   StoryCover,
   StorySummary,
+  StudyCard,
 } from "./types";
 
 /** Well under Vercel's limit, and short enough to give up and keep the last copy. */
@@ -219,6 +220,27 @@ export async function listReleasedWeekly(limit?: number): Promise<StorySummary[]
     return (limit ? query.limit(limit) : query).abortSignal(signal).returns<SummaryRow[]>();
   });
   return rows.map(toSummary);
+}
+
+/** What a flashcard needs of a released weekly story, oldest first. */
+export async function listStudyCards(): Promise<StudyCard[]> {
+  const rows = await read<{ ep: number; title: string; lesson: string; squad_question: string }[]>(
+    [],
+    (client, now, signal) =>
+      client
+        .from("comic_stories")
+        .select("ep,title,lesson,squad_question")
+        .eq("collection", "weekly")
+        .lte("release_at", now)
+        .order("ep", { ascending: true })
+        .abortSignal(signal)
+  );
+  return rows.map((row) => ({
+    ep: row.ep,
+    title: row.title,
+    lesson: row.lesson,
+    question: row.squad_question,
+  }));
 }
 
 /** Released episode numbers in a collection, lowest first. */
