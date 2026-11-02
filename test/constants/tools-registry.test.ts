@@ -57,4 +57,14 @@ describe("tool registry", () => {
     });
     expect(categories[0]).toBe("Library");
   });
+
+  it("files the printed book beside it, as reading too", () => {
+    expect(tools.find((t) => t.id === "book")).toMatchObject({
+      category: "Library",
+      kind: "reading",
+      path: "/book",
+      isRealtime: false,
+      usesWorkspace: false,
+    });
+  });
 });

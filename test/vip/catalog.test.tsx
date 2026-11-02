@@ -106,7 +106,10 @@ describe("a visitor without the hint", () => {
   it("gets no VIP tool from any listing, Show all tools included", () => {
     for (const showAll of [false, true]) {
       expect(getVisibleTools(showAll).filter(isVipOnly)).toEqual([]);
-      expect(getVisibleToolsByCategory("Library", showAll).map((t) => t.id)).toEqual(["comics"]);
+      expect(getVisibleToolsByCategory("Library", showAll).map((t) => t.id)).toEqual([
+        "comics",
+        "book",
+      ]);
     }
     expect(getVisibleCategories()).toContain("Library");
   });
