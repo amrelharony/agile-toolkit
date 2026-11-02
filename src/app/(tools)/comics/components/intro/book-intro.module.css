@@ -1,0 +1,326 @@
+/*
+ * The book's intro, 5 s, at /comics (book-intro.tsx).
+ *
+ *   0    – 0.8 s   the closed book rises toward the reader out of a tilt
+ *   1.0  – 2.3 s   the cover swings open on its left edge, and settles
+ *   1.1  – 2.4 s   the book glides right, so the open spread sits centred
+ *   2.0  – 2.5 s   Amr pops up at the foot of the fold and waves
+ *   4.25 – 5.0 s   the page pushes toward the reader as the overlay fades
+ *
+ * Every time is a literal in one `animation:` shorthand, filled both ways, and
+ * everything is over by 5 s (test/comics/intro-book.test.tsx holds it to that).
+ * Only transform, opacity and visibility move.
+ *
+ * Sizes come from the book's width, which comes from the viewport, so nothing
+ * here can scroll or spill. The overlay clips the open cover where a phone is
+ * too narrow for the spread: a deliberate crop of plain paper.
+ */
+
+/* The overlay's one animation: its end is the intro's end. Eased in, with the
+   push, so the lettering stays solid until the last moment instead of lingering
+   half-faded, where it would read poorly (and fail a contrast check). */
+.overlay {
+  animation: book-exit 0.65s cubic-bezier(0.5, 0, 0.75, 0) 4.35s both;
+}
+
+/* The camera. Its centre is the screen's, so the book is seen from in front
+   wherever it moves, and the depth is a multiple of the book, so the swing
+   looks the same on a phone and a desktop. */
+.scene {
+  /* Portrait 3:4: as wide as a phone allows, short enough for a laptop. */
+  --book-w: min(72vw, 44dvh);
+  /* How far right the book moves as it opens: enough to centre the spread, but
+     never so far that the inside page passes the right-hand gutter. */
+  --shift: min(
+    calc(var(--book-w) / 2),
+    calc(50vw - var(--book-w) / 2 - max(1rem, env(safe-area-inset-right)))
+  );
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  perspective: calc(var(--book-w) * 4.5);
+  animation: book-fade 0.35s ease-out 0s both;
+}
+
+/* A phone on its side: the book takes more of the height, and stays narrow
+   enough that the open spread ends short of Skip. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .scene {
+    --book-w: min(52dvh, 50vw - 140px);
+  }
+}
+
+/* Three wrappers, one move each, so no two animations fight over a transform.
+   All keep the 3D space open down to the cover. */
+.lift {
+  transform-style: preserve-3d;
+  animation: book-rise 0.8s cubic-bezier(0.2, 0.7, 0.3, 1) 0s both;
+}
+
+.push {
+  transform-style: preserve-3d;
+  animation: book-push 0.75s cubic-bezier(0.55, 0, 0.75, 0.2) 4.25s both;
+}
+
+.glide {
+  transform-style: preserve-3d;
+  animation: book-glide 1.3s cubic-bezier(0.45, 0, 0.2, 1) 1.1s both;
+}
+
+.book {
+  position: relative;
+  width: var(--book-w);
+  aspect-ratio: 3 / 4;
+  transform-style: preserve-3d;
+}
+
+/* The pages under the cover: two leaves, offset like the hard shadow, a little
+   behind it in depth so the cover always draws in front. */
+.leaf {
+  position: absolute;
+  inset: 0;
+  background-color: var(--card);
+  border: var(--line-w) solid var(--border);
+  border-radius: var(--panel-radius);
+}
+
+.leafBack {
+  transform: translate3d(calc(var(--book-w) * 0.032), calc(var(--book-w) * 0.028), -4px);
+  box-shadow: var(--shadow-3);
+}
+
+.leafMid {
+  transform: translate3d(calc(var(--book-w) * 0.016), calc(var(--book-w) * 0.014), -2px);
+}
+
+/* The first page, what the cover opens onto. */
+.inside {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--book-w) * 0.075);
+  background-color: var(--card);
+  border: var(--panel-w) solid var(--border);
+  border-radius: var(--panel-radius);
+}
+
+/* The panel's own shape, so the art shows whole. */
+.window {
+  flex: none;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+}
+
+.caption {
+  margin-top: calc(var(--book-w) * 0.055);
+}
+
+/* No panel: the lettering is the page, larger and higher. */
+.captionAlone {
+  margin-top: calc(var(--book-w) * 0.1);
+}
+
+.eyebrow {
+  font-size: max(0.75rem, calc(var(--book-w) * 0.052));
+  line-height: 1.3;
+}
+
+.storyTitle {
+  margin-top: calc(var(--book-w) * 0.012);
+  font-size: max(0.875rem, calc(var(--book-w) * 0.08));
+  line-height: 1.2;
+}
+
+.storyTitleAlone {
+  margin-top: calc(var(--book-w) * 0.02);
+  font-size: max(1.125rem, calc(var(--book-w) * 0.115));
+  line-height: 1.2;
+}
+
+/* The cover turns on its left edge. A pixel in front of the page, so the two
+   never fight over the same depth while it's closed. */
+.cover {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  transform-style: preserve-3d;
+  animation: book-open 1.3s cubic-bezier(0.6, 0, 0.35, 1) 1s both;
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  background-color: var(--card);
+  border: var(--panel-w) solid var(--border);
+  border-radius: var(--panel-radius);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.front {
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--book-w) * 0.13) calc(var(--book-w) * 0.08) calc(var(--book-w) * 0.1)
+    calc(var(--book-w) * 0.15);
+}
+
+/* The inside of the cover, seen once it has turned past upright. */
+.back {
+  transform: rotateY(180deg);
+}
+
+/* Where the cover's cloth turns in over the board. */
+.endpaper {
+  position: absolute;
+  inset: calc(var(--book-w) * 0.05);
+  border: var(--line-w) solid var(--rule);
+  border-radius: var(--panel-radius);
+}
+
+/* The groove a hardcover bends at. */
+.hinge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--book-w) * 0.075);
+  border-left: var(--line-w) solid var(--border);
+}
+
+.title {
+  font-size: calc(var(--book-w) * 0.17);
+  line-height: 0.98;
+}
+
+.line {
+  display: block;
+}
+
+/* One stroke of the brush under the title. */
+.titleRule {
+  display: block;
+  width: calc(var(--book-w) * 0.2);
+  height: max(3px, calc(var(--book-w) * 0.014));
+  margin-top: calc(var(--book-w) * 0.06);
+  border-radius: 9999px;
+  background-color: var(--accent);
+  transform: rotate(-1.5deg);
+}
+
+.byline {
+  margin-top: auto;
+  font-size: max(0.75rem, calc(var(--book-w) * 0.056));
+  line-height: 1.25;
+}
+
+/* Amr in his sheet's own cell (SHEET.cellW × cellH), scaled about his feet
+   (FIGURE_BOTTOM, mid-cell) from the book's width: tan(atan2()) turns that
+   ratio of lengths into a number. In front of the turned cover, so its edge
+   never cuts across him. */
+.amr {
+  position: absolute;
+  width: 192px;
+  height: 208px;
+  transform-origin: 96px 202px;
+}
+
+/* At the foot of the fold, standing a little in front of the book, a touch
+   to the cover's side so a three-line title never meets his shoulder. */
+.amrAtFold {
+  left: calc(var(--book-w) * -0.02 - 96px);
+  bottom: calc(var(--book-w) * -0.1 - 6px);
+  transform: translateZ(calc(var(--book-w) * 0.1)) scale(min(1.4, tan(atan2(var(--book-w), 385px))));
+}
+
+/* Nothing released yet: the page is his, so he stands in the middle, bigger. */
+.amrAlone {
+  left: calc(50% - 96px);
+  bottom: calc(var(--book-w) * 0.3 - 6px);
+  transform: translateZ(calc(var(--book-w) * 0.1)) scale(min(1.4, tan(atan2(var(--book-w), 246px))));
+}
+
+.amrPop {
+  display: block;
+  transform-origin: 50% 100%;
+  animation: book-amr 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 2s both;
+}
+
+@keyframes book-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* From lying back on a desk to facing the reader, a touch past and back. */
+@keyframes book-rise {
+  from {
+    transform: translate3d(0, 12dvh, calc(var(--book-w) * -1.5)) rotateX(40deg) rotateZ(-5deg);
+  }
+  72% {
+    transform: translate3d(0, -0.6dvh, calc(var(--book-w) * 0.04)) rotateX(-3deg) rotateZ(0.5deg);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.3, 1);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* Falls open a few degrees past where it rests, then settles. */
+@keyframes book-open {
+  from {
+    transform: translateZ(1px) rotateY(0deg);
+  }
+  80% {
+    transform: translateZ(1px) rotateY(-163deg);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.5, 1);
+  }
+  to {
+    transform: translateZ(1px) rotateY(-160deg);
+  }
+}
+
+@keyframes book-glide {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateX(var(--shift));
+  }
+}
+
+@keyframes book-amr {
+  from {
+    opacity: 0;
+    transform: translateY(14%) scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes book-push {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateZ(calc(var(--book-w) * 0.55));
+  }
+}
+
+@keyframes book-exit {
+  from {
+    opacity: 1;
+    visibility: visible;
+  }
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
