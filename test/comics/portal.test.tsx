@@ -225,6 +225,78 @@ describe("the guestbook view", () => {
   });
 });
 
+describe("a story's quiz and tool", () => {
+  it("are written under a saved story and saved on their own", async () => {
+    h.auth = owner;
+    listed = [story({ ep: 41 })];
+    fetchSpy.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/comics/stories/41/extras" && init?.method === "PUT") {
+        return respond({ extras: JSON.parse(String(init.body)) });
+      }
+      if (url === "/api/comics/stories/41/extras") {
+        return respond({ extras: { quiz: null, tryTool: null } });
+      }
+      if (url === "/api/comics/stories") return respond({ stories: listed });
+      if (url === "/api/comics/licence-requests") return respond({ requests: [] });
+      return respond({}, 404);
+    });
+    render(<ComicsPortal />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Edit" }))[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Add a question" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Question" }), {
+      target: { value: "What comes first?" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Answer 1" }), {
+      target: { value: "All of it" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Answer 2" }), {
+      target: { value: "One job" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "Answer 2 is right" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save quiz and tool" }));
+    expect(await screen.findByText(/Saved\. The story's pages show it now/)).toBeInTheDocument();
+    const put = fetchSpy.mock.calls.find(
+      ([url, init]) => url === "/api/comics/stories/41/extras" && init?.method === "PUT"
+    );
+    expect(JSON.parse(String(put![1]!.body))).toEqual({
+      quiz: [{ question: "What comes first?", options: ["All of it", "One job"], answer: 1 }],
+      tryTool: null,
+    });
+  });
+
+  it("refuses a half-written question before sending it", async () => {
+    h.auth = owner;
+    listed = [story({ ep: 41 })];
+    fetchSpy.mockImplementation(async (url: string) => {
+      if (url === "/api/comics/stories/41/extras") {
+        return respond({ extras: { quiz: null, tryTool: null } });
+      }
+      if (url === "/api/comics/stories") return respond({ stories: listed });
+      return respond({ requests: [] });
+    });
+    render(<ComicsPortal />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Edit" }))[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Add a question" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save quiz and tool" }));
+    expect(await screen.findByText(/Each question needs its wording/)).toBeInTheDocument();
+  });
+
+  it("say they need migration 0033 until it has run", async () => {
+    h.auth = owner;
+    listed = [story({ ep: 41 })];
+    fetchSpy.mockImplementation(async (url: string) => {
+      if (url === "/api/comics/stories/41/extras") {
+        return respond({ error: "extras_unavailable" }, 503);
+      }
+      if (url === "/api/comics/stories") return respond({ stories: listed });
+      return respond({ requests: [] });
+    });
+    render(<ComicsPortal />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Edit" }))[0]);
+    expect(await screen.findByText(/need migration 0033/)).toBeInTheDocument();
+  });
+});
+
 describe("owner-only page metadata", () => {
   it("keeps both pages out of search indexes", async () => {
     const portal = await import("@/app/settings/comics/page");

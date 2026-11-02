@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { BOOK_EPISODES, bookEpisode } from "@/lib/comics/book-episodes";
 import { comicHref, parseEp } from "@/lib/comics/entry";
-import { getReleasedStory, listReleasedWeekly } from "@/lib/comics/store";
+import { NO_EXTRAS } from "@/lib/comics/extras";
+import { getReleasedStory, getStoryExtras, listReleasedWeekly } from "@/lib/comics/store";
 import { NOT_FOUND_METADATA, comicMetadata } from "../../comic-metadata";
 import { LatestComics } from "../../components/comic-card";
 import { ArtComingSoon } from "../../components/art-coming-soon";
@@ -15,6 +16,7 @@ import { ReplayIntro } from "../../components/intro/replay-intro";
 import { ReadAheadLink } from "../../components/read-ahead-link";
 import { RightsNotice } from "../../components/rights-notice";
 import { ReadTracker } from "../../components/story-actions";
+import { StoryQuiz } from "../../components/story-quiz";
 import { TakeItToYourTeam } from "../../components/take-it-to-your-team";
 
 /**
@@ -63,6 +65,7 @@ export default async function ComicPosterPage({ params }: PosterPageProps) {
     listReleasedWeekly(LATEST_COUNT),
   ]);
   const title = story?.title ?? book.title;
+  const extras = story ? await getStoryExtras(ep) : NO_EXTRAS;
 
   return (
     <>
@@ -82,7 +85,9 @@ export default async function ComicPosterPage({ params }: PosterPageProps) {
             ep={ep}
             question={story?.squadQuestion ?? book.question}
             themes={story?.themes ?? []}
+            tryTool={extras.tryTool}
           />
+          {extras.quiz ? <StoryQuiz ep={ep} quiz={extras.quiz} /> : null}
           {story && story.panels.length > 0 ? <ReadTracker ep={ep} /> : null}
           {story ? null : <ArtComingSoon />}
           <LatestComics stories={latest} />

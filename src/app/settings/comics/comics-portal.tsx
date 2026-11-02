@@ -15,6 +15,7 @@ import {
 } from "@/lib/comics/draft-store";
 import type { OwnerStory } from "@/lib/comics/story-input";
 import { EntriesView } from "./entries-view";
+import { ExtrasEditor } from "./extras-editor";
 import { GuestbookView } from "./guestbook-view";
 import { LicenceView } from "./licence-view";
 import { errorMessage, portalApi, type GuestbookNoteRow, type LicenceRequest } from "./portal-api";
@@ -278,6 +279,10 @@ export function ComicsPortal() {
             onDeleted={onDeleted}
             onClose={closeEditor}
           />
+          {/* Outside the story's form, and only once it has a number to save under. */}
+          {editing.ep !== null ? (
+            <ExtrasEditor key={editing.ep} ep={editing.ep} verified={isOwner} />
+          ) : null}
         </div>
       ) : null}
       {view === "review" ? (

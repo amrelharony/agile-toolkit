@@ -18,6 +18,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSquadAdminClient } from "@/lib/squads/server";
+import { NO_EXTRAS, pickableTool, readQuiz, type StoryExtras } from "./extras";
 import type {
   ComicCollection,
   DialogueLine,
@@ -175,6 +176,34 @@ function toSummary(row: SummaryRow): StorySummary {
     releaseAt: row.release_at,
     updatedAt: row.updated_at,
   };
+}
+
+/**
+ * A released story's quiz and own tool (migration 0033). Unlike the reads here,
+ * a failure is "none": they're extras, and until that migration runs the
+ * columns don't exist at all. The story read on the same page still throws in
+ * an outage, and that's what keeps the page's last good copy.
+ */
+export async function getStoryExtras(ep: number): Promise<StoryExtras> {
+  try {
+    const row = await read<{ quiz: unknown; try_tool: unknown } | null>(
+      null,
+      (client, now, signal) =>
+        client
+          .from("comic_stories")
+          .select("quiz,try_tool")
+          .eq("ep", ep)
+          .lte("release_at", now)
+          .abortSignal(signal)
+          .maybeSingle<{ quiz: unknown; try_tool: unknown }>()
+    );
+    if (!row) return NO_EXTRAS;
+    const tryTool =
+      typeof row.try_tool === "string" && pickableTool(row.try_tool) ? row.try_tool : null;
+    return { quiz: readQuiz(row.quiz), tryTool };
+  } catch {
+    return NO_EXTRAS;
+  }
 }
 
 /** Released weekly stories, newest first. The book stays out by design. */

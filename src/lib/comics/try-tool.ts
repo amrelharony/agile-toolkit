@@ -9,6 +9,7 @@
  */
 
 import { getToolById, type ToolDefinition } from "@/lib/constants/tools";
+import { pickableTool } from "./extras";
 
 export const THEME_TOOLS: Readonly<Record<string, string>> = {
   // Shared language and direct understanding
@@ -36,6 +37,14 @@ export const THEME_TOOLS: Readonly<Record<string, string>> = {
   // Purposeful controls, protected feedback and usable criteria
   T12: "dod-builder",
 };
+
+/** A story's own choice when it has one (set in the portal), else its theme's. */
+export function toolForStory(
+  tryTool: string | null,
+  themes: readonly string[]
+): ToolDefinition | null {
+  return (tryTool ? pickableTool(tryTool) : null) ?? toolForThemes(themes);
+}
 
 /** The tool for a story's themes, or null when none of them has one. */
 export function toolForThemes(themes: readonly string[]): ToolDefinition | null {

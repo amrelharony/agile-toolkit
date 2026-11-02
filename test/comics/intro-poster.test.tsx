@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({ story: null as Story | null }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/comics/store", () => ({
   getReleasedStory: async () => h.story,
+  getStoryExtras: async () => ({ quiz: null, tryTool: null }),
   listReleasedWeekly: async () => [],
 }));
 vi.mock("next/navigation", () => ({
