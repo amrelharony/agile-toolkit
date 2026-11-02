@@ -132,7 +132,9 @@
 }
 
 /* A window inks in: a band of ink runs across it, then clears the same way and
-   leaves the panel behind. The band rests cleared, in case nothing runs. */
+   leaves the panel behind. The band rests cleared, in case nothing runs. Its ink
+   is the frames' (--border), not the lettering's: in night comic --text is
+   near-white, and a band the size of the big window would flash in the dark. */
 .window {
   position: relative;
   min-width: 0;
@@ -142,7 +144,7 @@
   content: "";
   position: absolute;
   inset: 0;
-  background-color: var(--text);
+  background-color: var(--border);
   clip-path: inset(0 0 0 100%);
   pointer-events: none;
 }

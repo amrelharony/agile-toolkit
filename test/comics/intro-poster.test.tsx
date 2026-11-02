@@ -120,6 +120,39 @@ function keyframesOf(css: string): Map<string, KeyframeStep[]> {
   return found;
 }
 
+/** A shorthand's comma-separated animations: cubic-bezier(…) has commas of its own. */
+function splitAnimations(value: string): string[] {
+  let depth = 0;
+  const parts = [""];
+  for (const char of value) {
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (char === "," && depth === 0) parts.push("");
+    else parts[parts.length - 1] += char;
+  }
+  return parts.map((part) => part.trim());
+}
+
+/**
+ * The timing function of each `name` animation in the rules for exactly
+ * `selector`, in source order: what's left of it once its name, times and fill
+ * are taken out.
+ */
+function easingsOf(css: string, selector: string, name: string): string[] {
+  const found: string[] = [];
+  for (const block of Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/g))) {
+    if (block[1].trim() !== selector) continue;
+    for (const decl of Array.from(block[2].matchAll(/(?:^|;)\s*animation\s*:\s*([^;]+)/g))) {
+      for (const part of splitAnimations(decl[1])) {
+        const [first, ...rest] = part.split(/\s+/);
+        if (first !== name) continue;
+        found.push(rest.filter((t) => !/^-?\d*\.?\d+m?s$/.test(t) && t !== "both").join(" "));
+      }
+    }
+  }
+  return found;
+}
+
 /** Inline background images in the overlay: only Amr's sheet should have one. */
 function backgrounds(el: Element): string[] {
   return Array.from(el.querySelectorAll<HTMLElement>("*"))
@@ -141,6 +174,8 @@ describe("the poster intro", () => {
     expect(srcs).toEqual(FIVE_PANELS.slice(0, 4).map((p) => panelImageUrl(p.pathSmall)));
     for (const img of Array.from(dialog().querySelectorAll("img"))) {
       expect(img).toHaveAttribute("alt", "");
+      // The windows are decoration: the page underneath describes the panels.
+      expect(img.closest('[aria-hidden="true"]')).not.toBeNull();
     }
     const sheets = backgrounds(dialog());
     expect(sheets).toHaveLength(1);
@@ -199,7 +234,7 @@ describe("the poster intro", () => {
   });
 });
 
-describe("the poster intro's timing", () => {
+describe("the poster intro's CSS", () => {
   const animations = sceneAnimations(SCENE_CSS);
   const css = readFileSync(path.join(process.cwd(), SCENE_CSS), "utf8").replace(
     /\/\*[\s\S]*?\*\//g,
@@ -234,16 +269,38 @@ describe("the poster intro's timing", () => {
     const values = Array.from(css.matchAll(/(?:^|[;{])\s*animation\s*:\s*([^;]+)/g), (m) => m[1]);
     expect(values.length).toBeGreaterThan(5);
     for (const value of values) {
-      let depth = 0;
-      const parts = [""];
-      for (const char of value) {
-        if (char === "(") depth += 1;
-        if (char === ")") depth -= 1;
-        if (char === "," && depth === 0) parts.push("");
-        else parts[parts.length - 1] += char;
-      }
-      for (const part of parts) expect(part.trim(), part).toMatch(/\bboth$/);
+      for (const part of splitAnimations(value)) expect(part, part).toMatch(/\bboth$/);
     }
+  });
+
+  // A window's own edge follows its band's leading edge only while the two keep
+  // the same time: retime one alone and bare art shows ahead of the ink, or ink
+  // runs over nothing.
+  it.each([".w1", ".w2", ".w3", ".w4", ".bigWindow"])("inks %s in on its band's time", (window) => {
+    const reveals = animations.filter((a) => a.selector === window && a.name === "reveal");
+    const bands = animations.filter((a) => a.selector === `${window}::after` && a.name === "band");
+    expect(reveals.length).toBeGreaterThan(0);
+    expect(bands).toHaveLength(reveals.length);
+    reveals.forEach((reveal, i) => {
+      expect(bands[i].duration, `${window} duration`).toBeCloseTo(reveal.duration, 9);
+      expect(bands[i].delay, `${window} delay`).toBeCloseTo(reveal.delay, 9);
+    });
+    expect(easingsOf(css, `${window}::after`, "band")).toEqual(easingsOf(css, window, "reveal"));
+  });
+
+  it("animates its own plain classes only, so never Amr's frames", () => {
+    for (const animation of animations) {
+      expect(animation.selector).toMatch(/^\.[\w-]+(?:::after)?$/);
+    }
+  });
+
+  it("keeps everything under Skip, and draws no picture of its own", () => {
+    // Skip is z-index 10 in the same stacking context (globals.css), so anything
+    // here at 10 or more would cover it.
+    for (const [, value] of Array.from(css.matchAll(/z-index\s*:\s*([^;}]+)/g))) {
+      expect(Number(value.trim()), `z-index: ${value}`).toBeLessThan(10);
+    }
+    expect(css).not.toMatch(/background-image|url\(|gradient\(/);
   });
 
   it("animates only transform, opacity, clip-path and visibility", () => {
