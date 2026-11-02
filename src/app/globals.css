@@ -651,14 +651,24 @@ html[data-intro="vip"] [data-intro-overlay="vip"] {
   display: flex !important;
 }
 
-/* The page stays still under an intro. The gutter stays too, so nothing moves
-   when the scroll bar goes and comes back. Only while the overlay exists, so a
+/* The page stays still under an intro. Only while the overlay exists, so a
    stray attribute can't lock a page. */
 html[data-intro="poster"]:has([data-intro-overlay="poster"]),
 html[data-intro="book"]:has([data-intro-overlay="book"]),
 html[data-intro="vip"]:has([data-intro-overlay="vip"]) {
   overflow: hidden;
+}
+/* The scroll bar's gutter is kept on every page with an intro, before, during
+   and after one, so the page never moves sideways when the intro locks it or
+   lets it go, scrolling page or not. */
+html:has([data-intro-overlay]) {
   scrollbar-gutter: stable;
+}
+
+/* A toast (an achievement, say) waits until the intro is over: the toaster sits
+   above every layer, so it would cover Skip. */
+html[data-intro] [data-sonner-toaster] {
+  visibility: hidden;
 }
 
 .intro-overlay {
@@ -707,13 +717,10 @@ html[data-intro="vip"]:has([data-intro-overlay="vip"]) {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  [data-intro-overlay] {
-    display: none !important;
-  }
-}
-@media print {
-  [data-intro-overlay] {
+/* As specific as the rule that shows an overlay, and later, so it wins even
+   while an intro plays: motion turned down mid-visit, or printing mid-intro. */
+@media (prefers-reduced-motion: reduce), print {
+  html[data-intro] [data-intro-overlay] {
     display: none !important;
   }
 }

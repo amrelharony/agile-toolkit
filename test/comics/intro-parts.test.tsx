@@ -137,6 +137,28 @@ describe("IntroPanel", () => {
   });
 });
 
+describe("the intro rules in globals.css", () => {
+  const css = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+  const section = css.slice(css.indexOf("COMIC INTROS"), css.indexOf("HOVER INTERACTION PATTERNS"));
+
+  it("hides a playing overlay for reduced motion and print: as specific as showing it, and later", () => {
+    const show = section.indexOf('html[data-intro="poster"] [data-intro-overlay="poster"]');
+    const hide = section.search(
+      /@media \(prefers-reduced-motion: reduce\), print \{\s*html\[data-intro\] \[data-intro-overlay\] \{\s*display: none !important;/
+    );
+    expect(show).toBeGreaterThan(-1);
+    expect(hide).toBeGreaterThan(show);
+  });
+
+  it("keeps the scroll bar's gutter on intro pages whether or not one plays", () => {
+    expect(section).toMatch(/html:has\(\[data-intro-overlay\]\) \{\s*scrollbar-gutter: stable;/);
+  });
+
+  it("holds toasts back while an intro plays, since they'd cover Skip", () => {
+    expect(section).toMatch(/html\[data-intro\] \[data-sonner-toaster\] \{\s*visibility: hidden;/);
+  });
+});
+
 describe("ReplayIntro", () => {
   it("plays the intro again from the start, with focus on Skip", () => {
     render(
