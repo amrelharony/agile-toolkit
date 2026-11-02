@@ -45,8 +45,10 @@ export interface HandoffSource {
   /** An estimate a backlog story keeps (a Planning Poker result). */
   points?: number;
   /** Which kind of retro column a topic belongs in: a concern (the
-   *  default, e.g. a red health check) or an appreciation (a kudos). */
-  tone?: "concern" | "appreciation";
+   *  default, e.g. a red health check), an appreciation (a kudos), or a
+   *  question to talk over (a comic's question for the team), which is
+   *  neither and goes to the board's first column. */
+  tone?: "concern" | "appreciation" | "question";
   /** A dependency's other side: the team or deliverable it waits on. */
   dependsOn?: string;
   /**

@@ -106,6 +106,8 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   // For readers of the book: its actions go to Retro Actions. Someone without
   // access who follows the back-link gets the lock panel and nothing else.
   "squad-session": { name: "Squad Session Kit", href: "/squad-session" },
+  // A story's question for the team, sent from the story's page.
+  comics: { name: "Agile at Work", href: "/comics" },
 };
 
 /** The sending tool, or undefined for one not listed (never an inherited key like "constructor"). */
@@ -131,7 +133,7 @@ export function sourceHref(ref: HandoffRef | undefined): string | null {
   if (ref?.tool === "weighted-decision" && ref.doc) {
     return `${tool.href}?matrix=${encodeURIComponent(ref.doc)}`;
   }
-  if (ref?.tool === "squad-session" && ref.doc) {
+  if ((ref?.tool === "squad-session" || ref?.tool === "comics") && ref.doc) {
     return `${tool.href}?ep=${encodeURIComponent(ref.doc)}`;
   }
   return tool.href;

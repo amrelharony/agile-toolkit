@@ -25,10 +25,16 @@ export const RETRO_BOARD_ID = RETRO_CURRENT_ID;
 
 export { RETRO_CARD_MAX };
 
-/** Column keys for each tone, best first; a format without any uses its first column. */
+/**
+ * Column keys for each tone, best first; a format without any uses its first
+ * column. A question is neither good nor bad news, so it goes where a team talks
+ * things over (To Discuss, Learned, Island, Improve, Start), never into Stop,
+ * Mad or Drop; on Mad, Sad, Glad it takes Glad.
+ */
 const COLUMN_PREFERENCE: Record<NonNullable<HandoffSource["tone"]>, readonly string[]> = {
   concern: ["to-discuss", "lacked", "anchor", "sad", "improve", "less-of", "stop", "mad", "rocks"],
   appreciation: ["glad", "liked", "keep", "continue", "wind", "more-of", "to-discuss"],
+  question: ["to-discuss", "learned", "island", "improve", "start", "glad"],
 };
 
 /** The column a card of `tone` goes in on a board of `format`. */
