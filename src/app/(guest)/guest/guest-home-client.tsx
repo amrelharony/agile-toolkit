@@ -141,7 +141,7 @@ export function GuestHomeClient({ profile }: Props) {
                             ? "text-warning"
                             : s.role === "commenter"
                               ? "text-success"
-                              : "text-cyan-300"
+                              : "text-accent"
                         }`}
                       >
                         {s.role}

@@ -171,7 +171,7 @@ export function OkrStep({
                   aria-label={`Key-result note ${i + 1}`}
                   value={note}
                   onCommit={(v) => onEditNote(i, v)}
-                  className="flex-1 bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
+                  className="flex-1 bg-card border-border text-text placeholder:text-sub focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                 />
                 <IconButton
                   label={`Remove key-result note ${i + 1}`}

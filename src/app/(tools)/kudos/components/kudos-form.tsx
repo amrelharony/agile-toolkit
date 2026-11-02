@@ -521,7 +521,7 @@ export function KudosForm({
                 />
               </>
             )}
-            {!fromOk && <p className="text-xs text-sub/60">Long names render small on the card.</p>}
+            {!fromOk && <p className="text-xs text-sub">Long names render small on the card.</p>}
           </div>
           <Field label="Team (optional)" error={errors.team}>
             {(props) => (
@@ -579,7 +579,7 @@ export function KudosForm({
               <span>
                 This reads as sarcastic — send anyway?
                 {sentiment.tone.length > 0 && (
-                  <span className="text-warning/70"> (tone: {sentiment.tone.join(", ")})</span>
+                  <span className="text-warning"> (tone: {sentiment.tone.join(", ")})</span>
                 )}
               </span>
             </div>

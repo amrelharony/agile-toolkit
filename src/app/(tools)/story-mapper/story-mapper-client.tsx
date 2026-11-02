@@ -811,7 +811,7 @@ function DraggableCard({
         ref={setActivatorNodeRef}
         {...attributes}
         {...listeners}
-        className="min-touch-coarse absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center text-sub/30 hover:text-sub cursor-grab active:cursor-grabbing touch-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity"
+        className="min-touch-coarse absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center text-sub hover:text-sub cursor-grab active:cursor-grabbing touch-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity"
         aria-label={`Drag ${card.title}`}
       >
         <GripVertical

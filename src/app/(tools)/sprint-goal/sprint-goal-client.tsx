@@ -718,7 +718,7 @@ export function SprintGoalClient() {
                       placeholder="e.g., Increase user retention by streamlining the onboarding experience..."
                       value={businessObjective}
                       onCommit={setBusinessObjective}
-                      className="min-h-[120px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
+                      className="min-h-[120px] bg-card border-border text-text placeholder:text-sub focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                     />
                   </motion.div>
                 </AnimatePresence>
@@ -741,11 +741,11 @@ export function SprintGoalClient() {
                         value={sprintGoal}
                         onCommit={setGoalStatement}
                         maxLength={GOAL_MAX_CHARS}
-                        className="min-h-[120px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
+                        className="min-h-[120px] bg-card border-border text-text placeholder:text-sub focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                       />
                       <span
                         className={`absolute bottom-2 right-3 text-xs ${
-                          sprintGoal.length > GOAL_MAX_CHARS * 0.9 ? "text-danger" : "text-sub/60"
+                          sprintGoal.length > GOAL_MAX_CHARS * 0.9 ? "text-danger" : "text-sub"
                         }`}
                       >
                         {sprintGoal.length}/{GOAL_MAX_CHARS}
@@ -882,9 +882,7 @@ export function SprintGoalClient() {
                     Business Objective
                   </span>
                   <p className="text-text mt-1">
-                    {businessObjective || (
-                      <span className="text-sub/40 italic">Not yet defined</span>
-                    )}
+                    {businessObjective || <span className="text-sub italic">Not yet defined</span>}
                   </p>
                 </div>
 
@@ -893,7 +891,7 @@ export function SprintGoalClient() {
                     Sprint Goal
                   </span>
                   <p className="text-text mt-1">
-                    {sprintGoal || <span className="text-sub/40 italic">Not yet defined</span>}
+                    {sprintGoal || <span className="text-sub italic">Not yet defined</span>}
                   </p>
                   {sprintGoal.trim() && (
                     <p className="mt-1 text-xs text-sub">
@@ -918,7 +916,7 @@ export function SprintGoalClient() {
                         ))}
                     </ol>
                   ) : (
-                    <p className="text-sub/40 italic mt-1">No criteria added</p>
+                    <p className="text-sub italic mt-1">No criteria added</p>
                   )}
                 </div>
 
@@ -927,7 +925,7 @@ export function SprintGoalClient() {
                     Key Results
                   </span>
                   {linkedOkrs.length === 0 && notes.length === 0 && (
-                    <p className="text-sub/40 italic mt-1">No OKRs linked</p>
+                    <p className="text-sub italic mt-1">No OKRs linked</p>
                   )}
                   {linkedOkrs.length > 0 && (
                     <ul className="mt-1 space-y-1">

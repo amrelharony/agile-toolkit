@@ -17,6 +17,7 @@ import { generateHitlPrompts } from "@/lib/ai-prompts/hitl-quality";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { HITL_ACTIONS } from "@/lib/history/event-actions";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
+import { themed } from "@/lib/utils/theme-color";
 
 // Lazy-load — keep adapter chunks out of the eager bundle for users who
 // only manually log reviewer ratings.
@@ -342,7 +343,9 @@ export function HitlQualityClient() {
                     <span
                       className="font-bold w-6 text-center"
                       style={{
-                        color: x.rating >= 4 ? "#00ff88" : x.rating <= 2 ? "#ff6b6b" : "#ffaa00",
+                        color: themed(
+                          x.rating >= 4 ? "#00ff88" : x.rating <= 2 ? "#ff6b6b" : "#ffaa00"
+                        ),
                       }}
                     >
                       {x.rating}

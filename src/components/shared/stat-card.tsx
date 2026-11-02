@@ -3,9 +3,10 @@
 import type { LucideIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { themed, tint } from "@/lib/utils/theme-color";
 
 interface StatCardProps {
-  /** Mandatory: short uppercase label (e.g. "Cycle avg", "Predictability"). */
+  /** Mandatory: short label (e.g. "Cycle avg", "Predictability"). */
   label: string;
   /**
    * The headline value. Accepts `React.ReactNode` so tools can adorn the
@@ -19,7 +20,7 @@ interface StatCardProps {
   hint?: string;
   /** Lucide icon. Optional — when present, drives the accent chip / inline icon. */
   icon?: LucideIcon;
-  /** Hex string for the icon color + chip background. Defaults to design-system accent. */
+  /** Colour for the icon + chip background (brand hexes follow the theme). Defaults to accent. */
   iconColor?: string;
   /**
    * Visual variant:
@@ -88,23 +89,19 @@ export function StatCard({
   className,
   tone = "default",
 }: StatCardProps) {
-  const accent = iconColor ?? "var(--accent)";
+  const accent = iconColor ? themed(iconColor) : "var(--accent)";
   // Compose tone classes first so explicit `className` / `valueClassName`
   // overrides at the call site take precedence.
   const cardToneClass = TONE_CARD_CLASS[tone];
   const valueToneClass = TONE_VALUE_CLASS[tone];
-  // For the icon chip we need a translucent tint of the icon color. When
-  // `iconColor` is a #RRGGBB hex we append `1a` (≈ 10 % alpha) — matches
-  // the pre-extraction behaviour from velocity-client. Otherwise fall back
-  // to a fixed accent tint.
-  const chipBg =
-    iconColor && /^#[0-9a-f]{6}$/i.test(iconColor) ? `${iconColor}1a` : "rgba(0, 225, 255, 0.1)";
+  // For the icon chip we need a translucent tint of the icon color.
+  const chipBg = tint(iconColor ?? "var(--accent)", 10);
 
   if (variant === "compact") {
     return (
       <Card className={cn(cardToneClass, className)}>
         <CardContent className="p-3 sm:p-4">
-          <div className="text-xs uppercase tracking-wider text-sub mb-1 flex items-center gap-1 min-w-0">
+          <div className="text-xs text-sub mb-1 flex items-center gap-1 min-w-0">
             {Icon && <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
             <span className="truncate">{label}</span>
           </div>

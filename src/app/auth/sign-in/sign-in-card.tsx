@@ -104,7 +104,7 @@ export function SignInCard() {
           reach anyway; the guest-side pages stamp their own `?next=`
           when they redirect to /guest/join. */}
       <div
-        className="flex items-center gap-3 pt-2 text-xs uppercase tracking-wider text-sub/60"
+        className="flex items-center gap-3 pt-2 text-xs uppercase tracking-wider text-sub"
         aria-hidden="true"
       >
         <div className="flex-1 h-px bg-border" />
@@ -119,7 +119,7 @@ export function SignInCard() {
         <Users className="w-4 h-4 opacity-60" aria-hidden="true" />
         Join with a squad invite code
       </Link>
-      <p className="text-xs text-sub/60">No account needed — your squad lead shares a code.</p>
+      <p className="text-xs text-sub">No account needed — your squad lead shares a code.</p>
 
       <Link
         href={backHref}

@@ -58,7 +58,7 @@ export function GuestToolPlaceholder({ toolId, entityId, role, profile }: Props)
                 ? "text-warning"
                 : role === "commenter"
                   ? "text-success"
-                  : "text-cyan-300"
+                  : "text-accent"
             }`}
           >
             {role}

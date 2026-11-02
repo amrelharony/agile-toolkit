@@ -42,7 +42,9 @@ export const KUDOS_THEMES: ReadonlyArray<KudosThemeDef> = [
     title: "Awesome",
     emoji: "💪",
     accent: "text-accent border-accent/40",
-    headerBg: "bg-accent",
+    // No class: bg-accent follows the page's theme, but the card keeps its own
+    // cyan strip (and headerInk picks its words from this hex).
+    headerBg: "",
     hex: "#00f0ff",
   },
   {

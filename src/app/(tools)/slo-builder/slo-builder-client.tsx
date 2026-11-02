@@ -728,7 +728,7 @@ export function SloBuilderClient() {
                   <div className="mt-3 h-1.5 rounded-full bg-bg overflow-hidden">
                     <div
                       className={`h-full ${
-                        burned ? "bg-danger" : atRisk ? "bg-amber-400" : "bg-emerald-400"
+                        burned ? "bg-danger" : atRisk ? "bg-warning" : "bg-success"
                       }`}
                       style={{ width: `${Math.max(0, Math.min(100, 100 - remainingPct))}%` }}
                       aria-hidden="true"

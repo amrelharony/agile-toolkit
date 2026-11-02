@@ -728,24 +728,24 @@ export function KudosClient() {
           {/* Nothing until auth settles, so the owner doesn't see the
               visitor label flash on load. */}
           {!authSettled ? null : !isOwner ? (
-            <span className="inline-flex items-center gap-1.5 text-sub/70">
+            <span className="inline-flex items-center gap-1.5 text-sub">
               <WifiOff className="h-3 w-3" aria-hidden="true" />
               Browser-only — saved on this device
             </span>
           ) : room.isLocalOnly ? (
-            <span className="inline-flex items-center gap-1.5 text-warning/80">
+            <span className="inline-flex items-center gap-1.5 text-warning">
               <WifiOff className="h-3 w-3" aria-hidden="true" />
               {isRealtimeAvailable()
                 ? "Local-only"
                 : "Local-only — set Supabase env vars to share live"}
             </span>
           ) : room.isConnected ? (
-            <span className="inline-flex items-center gap-1.5 text-success/80">
+            <span className="inline-flex items-center gap-1.5 text-success">
               <Wifi className="h-3 w-3" aria-hidden="true" />
               Live
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-sub/60">Connecting…</span>
+            <span className="inline-flex items-center gap-1.5 text-sub">Connecting…</span>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">

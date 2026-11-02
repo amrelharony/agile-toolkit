@@ -3,7 +3,7 @@
  *
  * Many tools keep colours as hex strings in data (retro column colours are
  * even saved inside each board), and the neon values are unreadable on the
- * light theme (#00ff88 is 1.3:1 on white). `themed()` maps the known brand
+ * comic's paper (#00ff88 is 1.3:1 on white). `themed()` maps the known brand
  * hexes onto the per-theme CSS variables at render time; unknown colours
  * pass through unchanged. `tint()` replaces the `${hex}55` alpha-suffix
  * trick, which only works on hex strings.
@@ -24,6 +24,17 @@ const BRAND_TO_TOKEN: Record<string, string> = {
   "#3b82f6": "var(--info)",
   "#6366f1": "var(--accent2)",
   "#a855f7": "var(--accent3)",
+  "#9d4edd": "var(--accent3)",
+  "#a78bfa": "var(--accent3)",
+  "#ff6b6b": "var(--danger)",
+  "#f87171": "var(--danger)",
+  "#34d399": "var(--success)",
+  "#facc15": "var(--warning)",
+  "#fb923c": "var(--neon-amber)",
+  "#f97316": "var(--neon-amber)",
+  "#f472b6": "var(--neon-magenta)",
+  "#60a5fa": "var(--info)",
+  "#888": "var(--sub)",
 };
 
 /** CSS colour for `color`, following the active theme when it's a brand colour. */

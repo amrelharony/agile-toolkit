@@ -14,7 +14,7 @@ import { useAuth } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/utils";
 
 const HEATMAP_DAYS = 35;
-const ACCENT = "#00f0ff";
+const ACCENT = "var(--chart-1)";
 
 function dayKey(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -112,7 +112,7 @@ export default function InsightsPage() {
       className="container-meta"
     >
       {/* Header */}
-      <div className="mb-6 flex items-start justify-between gap-3 flex-wrap">
+      <div className="panel mb-6 flex items-start justify-between gap-3 flex-wrap px-4 py-4 sm:px-6 sm:py-5">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/30 flex items-center justify-center shrink-0">
             <Activity className="w-5 h-5 text-accent" aria-hidden="true" />
@@ -171,7 +171,7 @@ export default function InsightsPage() {
             className="mb-6"
           >
             <BarChart data={stats.dailySeries} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}>
-              <CartesianGrid stroke="#ffffff10" vertical={false} />
+              <CartesianGrid stroke="var(--rule)" vertical={false} />
               <XAxis
                 dataKey="day"
                 tick={{ fill: "#7a8794", fontSize: 11 }}
@@ -206,7 +206,7 @@ export default function InsightsPage() {
                 layout="vertical"
                 margin={{ top: 10, right: 16, left: 0, bottom: 8 }}
               >
-                <CartesianGrid stroke="#ffffff10" horizontal={false} />
+                <CartesianGrid stroke="var(--rule)" horizontal={false} />
                 <XAxis
                   type="number"
                   tick={{ fill: "#7a8794", fontSize: 11 }}
@@ -259,7 +259,7 @@ export default function InsightsPage() {
                       key={cell.day}
                       className="aspect-square rounded-sm border border-border"
                       style={{
-                        backgroundColor: `rgba(0, 240, 255, ${opacity})`,
+                        backgroundColor: `color-mix(in srgb, ${ACCENT} ${Math.round(opacity * 100)}%, transparent)`,
                       }}
                       title={`${cell.day}: ${cell.count} events`}
                     >
@@ -279,7 +279,9 @@ export default function InsightsPage() {
                       <span
                         key={a}
                         className="w-2.5 h-2.5 rounded-sm"
-                        style={{ backgroundColor: `rgba(0, 240, 255, ${a})` }}
+                        style={{
+                          backgroundColor: `color-mix(in srgb, ${ACCENT} ${Math.round(a * 100)}%, transparent)`,
+                        }}
                       />
                     ))}
                   </span>
@@ -293,7 +295,7 @@ export default function InsightsPage() {
           {/* Trend line */}
           <ChartCard title="30-day trend" badge="experimental" height={192}>
             <LineChart data={stats.dailySeries} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}>
-              <CartesianGrid stroke="#ffffff10" vertical={false} />
+              <CartesianGrid stroke="var(--rule)" vertical={false} />
               <XAxis
                 dataKey="day"
                 tick={{ fill: "#7a8794", fontSize: 11 }}
@@ -355,7 +357,7 @@ function KpiCard({
         <span className="truncate">{label}</span>
       </div>
       <div
-        className="mt-1 text-xl @sm:text-2xl @md:text-3xl font-display font-bold text-text truncate"
+        className="mt-1 text-xl @sm:text-2xl @md:text-3xl font-data font-bold text-text truncate"
         title={titleAttr}
       >
         {value}
@@ -376,7 +378,7 @@ function EmptyState({ visitor }: { visitor: boolean }) {
         aggregate from your history.
       </p>
       {visitor && (
-        <p className="text-xs mt-3 text-accent/80">
+        <p className="text-xs mt-3 text-accent">
           Your history and insights are saved in this browser only.
         </p>
       )}

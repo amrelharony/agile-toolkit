@@ -577,9 +577,7 @@ export function EstimationGuideClient() {
               <CardContent className="p-5 space-y-3">
                 {/* Value */}
                 <div className="text-center">
-                  <span className="text-4xl font-display font-bold text-accent text-glow-cyan">
-                    {val}
-                  </span>
+                  <span className="text-4xl font-data font-bold text-accent">{val}</span>
                 </div>
 
                 {/* Description */}

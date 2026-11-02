@@ -74,7 +74,7 @@ export function WeatherWidget({ compact = false, className }: WeatherWidgetProps
         {temp}°C
       </span>
       {!compact ? (
-        <span className="hidden md:inline text-sub/80 border-l border-border pl-1.5 ml-0.5">
+        <span className="hidden md:inline text-sub border-l border-border pl-1.5 ml-0.5">
           Cairo
         </span>
       ) : null}
@@ -100,7 +100,6 @@ export function StatusBadge({ className }: { className?: string }) {
         className={cn("h-1.5 w-1.5 rounded-full", badge.live && "animate-pulse")}
         style={{
           backgroundColor: badge.color,
-          boxShadow: badge.live ? `0 0 8px ${badge.color}` : undefined,
         }}
         aria-hidden="true"
       />

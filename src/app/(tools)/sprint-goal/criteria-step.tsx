@@ -78,7 +78,7 @@ export function CriteriaStep({
                   placeholder="e.g., 90% of new users complete onboarding within 3 minutes by end of sprint"
                   value={criterion.text}
                   onCommit={(v) => onEdit(criterion.id, v)}
-                  className="flex-1 min-h-[60px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
+                  className="flex-1 min-h-[60px] bg-card border-border text-text placeholder:text-sub focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                 />
                 <IconButton
                   label={`Remove acceptance criterion ${i + 1}`}

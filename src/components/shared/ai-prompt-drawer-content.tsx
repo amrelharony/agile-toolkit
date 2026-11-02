@@ -176,7 +176,7 @@ export default function AiPromptDrawerContent({ config }: AiPromptDrawerContentP
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-64 text-center">
-            <Sparkles className="w-10 h-10 text-sub/30 mb-4" />
+            <Sparkles className="w-10 h-10 text-sub mb-4" />
             <p className="text-sm text-sub">
               Add some data to this tool first, then come back for AI&#8209;powered prompts.
             </p>
