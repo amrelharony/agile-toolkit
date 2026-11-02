@@ -10,7 +10,9 @@ import { getToolById, getToolByPath } from "@/lib/constants/tools";
 import { searchTools } from "@/lib/search/tool-search";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 import { JOBS } from "@/lib/constants/jobs";
+import { isVipHidden } from "@/lib/tools/catalog";
 import { getGuide, type ToolGuide } from "@/lib/tools/guides";
+import { useVipHint } from "@/lib/vip/use-vip-hint";
 
 /** Common jobs, shown before the visitor types anything (same list as the home page). */
 const STARTERS = JOBS.map((job) => ({ label: job.title, toolId: job.primaryToolId }));
@@ -43,7 +45,10 @@ function useToolGuide(toolId: string | undefined): ToolGuide | null {
  */
 export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const current = pathname ? getToolByPath(pathname) : undefined;
+  const vip = useVipHint();
+  const onPath = pathname ? getToolByPath(pathname) : undefined;
+  // Same rule as the menus: a lock panel, or a tool not released yet, goes unnamed.
+  const current = onPath && !isVipHidden(onPath, vip) ? onPath : undefined;
   const guide = useToolGuide(current?.id);
   const openSettings = useLlmUiStore((s) => s.openSettings);
   const [query, setQuery] = useState("");
