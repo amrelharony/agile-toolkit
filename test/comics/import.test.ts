@@ -278,7 +278,7 @@ describe("planning the book batch", () => {
     return folder(names);
   };
 
-  it("takes the canon index and the poster words, with descriptions empty", () => {
+  it("takes the canon index and the poster words, with descriptions as drafts to review", () => {
     const plan = planBookImport(bookFiles());
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
@@ -294,7 +294,9 @@ describe("planning the book batch", () => {
       bookPage: canon.bookPage,
     });
     for (const panel of seven.panels) {
-      expect(panel.text.alt).toBe("");
+      // A draft to approve: never public until reviewed, and no story text is made up here.
+      expect(panel.text.alt.length).toBeGreaterThan(0);
+      expect(panel.text.alt.length).toBeLessThanOrEqual(220);
       expect(panel.text.needsReview).toBe(true);
     }
     expect(seven.panels[1].file.path).toBe("Art/Panels/Episode_07/E07_Panel_02.jpg");

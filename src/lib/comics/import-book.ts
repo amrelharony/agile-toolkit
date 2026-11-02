@@ -3,10 +3,15 @@
  *
  * Title, lesson, question and page come from the canon index and the words from
  * the printed posters. Nothing in the source says what a panel shows, so every
- * description starts empty and waits in the review queue. A story can't be
- * released without them, so printed links stay as text until that's done.
+ * description is a draft (book-descriptions.ts) that waits in the review queue.
+ * A story isn't released until they're approved, so printed links stay as text
+ * until that's done.
+ *
+ * The poster artwork zip's own JPGs have no lettering: use the panels rendered
+ * from the finished posters, which carry the balloons (see RUNBOOK).
  */
 
+import { bookDescriptionFor } from "./book-descriptions";
 import { BOOK_DIALOGUE } from "./book-dialogue";
 import { BOOK_EPISODES } from "./book-episodes";
 import { DEFAULT_CREDIT_CORNER, type StoredPanel } from "./story-input";
@@ -53,7 +58,7 @@ export function planBookImport<F extends FolderFile>(files: readonly F[]): Impor
         pathSmall: "",
         width: 0,
         height: 0,
-        alt: "",
+        alt: bookDescriptionFor(episode.ep, n),
         dialogue: words ? words.dialogue.map((d) => ({ ...d })) : [],
         signs: words ? [...words.signs] : [],
         needsReview: true,

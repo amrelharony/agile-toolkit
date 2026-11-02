@@ -443,6 +443,7 @@ The comics live at `/comics` and every story is `/comics?ep=NN`: book episodes a
 - **Release:** a story shows once its `release_at` has passed, within about 10 minutes (`revalidate = 600`). A number that isn't released shows "coming soon" with no content.
 - **If Supabase is down** the read throws, the ISR refresh fails and pages keep their last good copy. All 26 book episodes are prerendered at build, so printed links keep working even before anything is imported.
 - **Free-tier download allowance:** pages load the 768 px file, and the 1536 px file only when a panel opens full screen. Don't add `srcset`: a 3x phone would pick the larger file.
+- **Book art:** the poster artwork zip's JPGs have no lettering, so import the panels `scripts/render-book-panels.py` cuts from the finished posters. Their descriptions are drafts in `src/lib/comics/book-descriptions.ts`: each book episode stays text only until its four panels are approved in the review queue.
 - **Entry counts** are anonymous daily totals in `comic_entry_counts`, and licence requests wait in `comic_licence_requests`. Neither stores an IP address or user agent.
 
 ---
