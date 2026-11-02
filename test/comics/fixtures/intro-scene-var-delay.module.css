@@ -1,0 +1,4 @@
+/* A delay the timing rules can't read: it must be refused, not read as 0. */
+.overlay {
+  animation: exit 0.6s ease-in var(--exit-at) both;
+}

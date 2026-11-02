@@ -18,6 +18,12 @@ describe("sceneAnimations", () => {
     [3, 0.6, 0.9, 1.5].forEach((expected, i) => expect(ends[i]).toBeCloseTo(expected, 9));
   });
 
+  it("refuses a time it can't read rather than taking it as no delay", () => {
+    expect(() => sceneAnimations("test/comics/fixtures/intro-scene-var-delay.module.css")).toThrow(
+      /var\(--exit-at\).*isn't a literal time/
+    );
+  });
+
   it("treats a loop as never ending", () => {
     expect(
       endsAt({ selector: ".x", name: "x", duration: 1, delay: 0, iterations: "infinite" })

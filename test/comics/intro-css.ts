@@ -78,8 +78,11 @@ function parseOne(selector: string, value: string): SceneAnimation {
     if (time !== null) times.push(time);
     else if (token === "infinite") iterations = "infinite";
     else if (/^\d*\.?\d+$/.test(token)) iterations = Number(token);
-    else if (token.includes("(") || KEYWORDS.has(token)) continue;
-    else name = token;
+    else if (/^(?:cubic-bezier|steps|linear)\(/.test(token) || KEYWORDS.has(token)) continue;
+    else if (token.includes("(")) {
+      // var(--d) or calc(…) would read as no delay and slip past the timing rules.
+      throw new Error(`${selector}: "${token}" in "${value}" isn't a literal time`);
+    } else name = token;
   }
   if (!name) throw new Error(`${selector}: no animation name in "${value}"`);
   if (times.length === 0) throw new Error(`${selector}: "${value}" has no literal duration`);
@@ -91,9 +94,10 @@ export function sceneAnimations(file: string): SceneAnimation[] {
   const css = readFileSync(path.join(process.cwd(), file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   const found: SceneAnimation[] = [];
   // Innermost blocks only: a rule inside @media still has its own selector.
-  for (const block of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+  for (const block of Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/g))) {
     const selector = block[1].trim();
-    for (const decl of block[2].matchAll(/(?:^|;)\s*(animation(?:-[a-z-]+)?)\s*:\s*([^;]+)/g)) {
+    const decls = block[2].matchAll(/(?:^|;)\s*(animation(?:-[a-z-]+)?)\s*:\s*([^;]+)/g);
+    for (const decl of Array.from(decls)) {
       if (decl[1] !== "animation") {
         // Inside @keyframes a timing function per step is fine; elsewhere the
         // longhands would hide a delay or a loop from this check.
