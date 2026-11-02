@@ -18,6 +18,12 @@
  * questions ask about a moment at work, never what someone is like, and a result
  * never reads as a label on anyone.
  *
+ * Every colleague sits behind two answers, in two different questions, so anyone
+ * in the cast can come up and can win outright. An answer's second name is a
+ * colleague whose want or strength in the bible fits the same words. Keep it that
+ * way when changing an answer: test/vip/which-colleague.test.tsx plays every
+ * combination.
+ *
  * Server-only, so the questions reach a browser only as props on an unlocked,
  * approved page.
  */
@@ -43,7 +49,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "a",
           text: "Not letting colleagues or customers down.",
-          colleagues: ["Capacity Camel"],
+          colleagues: ["Capacity Camel", "Firefighter Fox"],
         },
         {
           id: "b",
@@ -53,12 +59,12 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "c",
           text: "Spending our limited attention on something worth achieving.",
-          colleagues: ["Value Falcon"],
+          colleagues: ["Value Falcon", "HiPPO"],
         },
         {
           id: "d",
           text: "Keeping things moving today with the time we've got.",
-          colleagues: ["Technical Debt Termite"],
+          colleagues: ["Technical Debt Termite", "Feature Factory Hamster"],
         },
       ],
     },
@@ -70,7 +76,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "a",
           text: "This could make the result better, and they'll feel heard.",
-          colleagues: ["Scope Creep Cat"],
+          colleagues: ["Scope Creep Cat", "Vanity Metrics Peacock"],
         },
         {
           id: "b",
@@ -80,7 +86,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "c",
           text: "Let's protect the quality people rely on.",
-          colleagues: ["Perfectionist Owl"],
+          colleagues: ["Perfectionist Owl", "Silo Hedgehog"],
         },
         {
           id: "d",
@@ -99,11 +105,15 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
           text: "Finding the one decision that's blocking everything else.",
           colleagues: ["Dependency Spider"],
         },
-        { id: "c", text: "Giving a direction and taking responsibility.", colleagues: ["HiPPO"] },
+        {
+          id: "c",
+          text: "Giving a direction and taking responsibility.",
+          colleagues: ["HiPPO", "Blame Game Wolf"],
+        },
         {
           id: "d",
           text: "One short question, asked at the right moment.",
-          colleagues: ["Agile Sticky"],
+          colleagues: ["Agile Sticky", "Ahwa Cup"],
         },
       ],
     },
@@ -111,7 +121,11 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
       id: "q4",
       prompt: "Something has just gone wrong. Where do you start?",
       answers: [
-        { id: "a", text: "Getting the service back quickly.", colleagues: ["Firefighter Fox"] },
+        {
+          id: "a",
+          text: "Getting the service back quickly.",
+          colleagues: ["Firefighter Fox", "Deadline Rabbit"],
+        },
         {
           id: "b",
           text: "Working out who's accountable, so it doesn't happen again.",
@@ -120,7 +134,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "c",
           text: "Understanding what's happening before choosing a next move.",
-          colleagues: ["Rubber Duck Analyst"],
+          colleagues: ["Rubber Duck Analyst", "Data Ghost"],
         },
         {
           id: "d",
@@ -137,17 +151,17 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "b",
           text: "Something robust, so we aren't caught unprepared later.",
-          colleagues: ["Overengineering Octopus"],
+          colleagues: ["Overengineering Octopus", "Dependable Beaver"],
         },
         {
           id: "c",
           text: "A word with whoever remembers the last time we tried this.",
-          colleagues: ["Dinosaur"],
+          colleagues: ["Dinosaur", "Zombie Backlog"],
         },
         {
           id: "d",
           text: "To find the specific risk inside that vague worry.",
-          colleagues: ["Assurance Badger"],
+          colleagues: ["Assurance Badger", "Captain Blocker Ox"],
         },
       ],
     },
@@ -184,12 +198,12 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "a",
           text: "Point out the gap before someone relies on it.",
-          colleagues: ["Data Ghost"],
+          colleagues: ["Data Ghost", "Agile Sticky"],
         },
         {
           id: "b",
           text: "Ask to hear from the people receiving the service.",
-          colleagues: ["Customer Voice Parrot"],
+          colleagues: ["Customer Voice Parrot", "Scope Creep Cat"],
         },
         {
           id: "c",
@@ -199,7 +213,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "d",
           text: "Ask what evidence would be acceptable, then ask again.",
-          colleagues: ["Assurance Badger"],
+          colleagues: ["Assurance Badger", "Perfectionist Owl"],
         },
       ],
     },
@@ -220,7 +234,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "c",
           text: "Helping the whole service move through its connections.",
-          colleagues: ["Dependency Spider"],
+          colleagues: ["Dependency Spider", "Overengineering Octopus"],
         },
         {
           id: "d",
@@ -236,7 +250,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "a",
           text: "Hear it once more, then decide whether the need still exists.",
-          colleagues: ["Zombie Backlog"],
+          colleagues: ["Zombie Backlog", "Requirement Chameleon"],
         },
         {
           id: "b",
@@ -246,9 +260,13 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "c",
           text: "See if a small repeatable part could be simplified.",
-          colleagues: ["Automation Raccoon"],
+          colleagues: ["Automation Raccoon", "Experiment Mouse"],
         },
-        { id: "d", text: "Quietly say yes and fit it in.", colleagues: ["Capacity Camel"] },
+        {
+          id: "d",
+          text: "Quietly say yes and fit it in.",
+          colleagues: ["Capacity Camel", "Technical Debt Termite"],
+        },
       ],
     },
     {
@@ -270,7 +288,11 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
           text: "A calm place for an honest conversation.",
           colleagues: ["Retrospective Turtle"],
         },
-        { id: "d", text: "Space for others to say what's going on.", colleagues: ["Amr"] },
+        {
+          id: "d",
+          text: "Space for others to say what's going on.",
+          colleagues: ["Amr", "Meeting Monkey"],
+        },
       ],
     },
   ],

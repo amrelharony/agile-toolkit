@@ -31,23 +31,43 @@ export interface WhichColleagueGame {
 /** Question id → the id of the answer picked. */
 export type ColleaguePicks = Readonly<Record<string, string>>;
 
+/** FNV-1a: a small, stable number for a tie, so the same answers give the same result. */
+function hashOf(text: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+  }
+  return hash >>> 0;
+}
+
 /**
- * The colleague these answers sit closest to: the one picked most, and on a tie
- * the one picked first. Null until there's an answer to go on.
+ * The colleague these answers sit closest to: the one picked most. Most games end
+ * in a tie, and no question should count for more than another, so a tie goes to
+ * one of the leaders by a hash of the answers: the first question gets no say over
+ * the others, and the same answers always land on the same colleague. Null until
+ * there's an answer to go on.
  */
 export function closestColleague(
   questions: readonly ColleagueQuestion[],
   picks: ColleaguePicks
 ): string | null {
   const counts = new Map<string, number>();
+  let top = 0;
+  let path = "";
   for (const question of questions) {
     const answer = question.answers.find((a) => a.id === picks[question.id]);
-    for (const name of answer?.colleagues ?? []) counts.set(name, (counts.get(name) ?? 0) + 1);
+    if (!answer) continue;
+    path += `${question.id}=${answer.id};`;
+    for (const name of answer.colleagues) {
+      const count = (counts.get(name) ?? 0) + 1;
+      counts.set(name, count);
+      if (count > top) top = count;
+    }
   }
-  let best: string | null = null;
-  // A Map keeps first-seen order, so only a higher count can replace the leader.
+  const leaders: string[] = [];
   counts.forEach((count, name) => {
-    if (best === null || count > (counts.get(best) ?? 0)) best = name;
+    if (count === top) leaders.push(name);
   });
-  return best;
+  if (leaders.length === 0) return null;
+  return leaders.length === 1 ? leaders[0] : leaders[hashOf(path) % leaders.length];
 }

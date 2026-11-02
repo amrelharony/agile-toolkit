@@ -121,10 +121,45 @@ describe("the questions", () => {
     }
   });
 
-  it("can lead to every colleague in the cast", () => {
-    const reached = new Set(questions.flatMap((q) => q.answers.flatMap((a) => a.colleagues)));
-    expect(Array.from(names).filter((n) => !reached.has(n))).toEqual([]);
+  it("offers every colleague in two different questions, so each can win outright", () => {
+    for (const name of Array.from(names)) {
+      const asked = questions.filter((q) => q.answers.some((a) => a.colleagues.includes(name)));
+      expect(asked.length, name).toBeGreaterThanOrEqual(2);
+    }
   });
+
+  it("brings up the whole cast, and no question or colleague dominates", () => {
+    // Every possible game, through the real function.
+    const results = new Map<string, number>();
+    const firstPicks = new Set(questions[0].answers.flatMap((a) => a.colleagues));
+    const picks: Record<string, string> = {};
+    let games = 0;
+    const walk = (i: number) => {
+      if (i === questions.length) {
+        const name = closestColleague(questions, picks)!;
+        results.set(name, (results.get(name) ?? 0) + 1);
+        games++;
+        return;
+      }
+      for (const answer of questions[i].answers) {
+        picks[questions[i].id] = answer.id;
+        walk(i + 1);
+      }
+    };
+    walk(0);
+
+    expect(games).toBe(4 ** questions.length);
+    expect(Array.from(names).filter((n) => !results.has(n))).toEqual([]);
+
+    const share = (name: string) => (results.get(name) ?? 0) / games;
+    for (const name of Array.from(names)) {
+      expect(share(name), name).toBeGreaterThan(0.02);
+      expect(share(name), name).toBeLessThan(0.05);
+    }
+    // Colleagues offered in the first question win no more than their share of the cast.
+    const firstShare = Array.from(firstPicks).reduce((sum, name) => sum + share(name), 0);
+    expect(firstShare).toBeLessThan(0.25);
+  }, 120_000);
 
   it("never reads as a label on a person", () => {
     const text = [
@@ -174,8 +209,40 @@ describe("closestColleague", () => {
     expect(closestColleague(qs, { "1": "a", "2": "a", "3": "a" })).toBe("Owl");
   });
 
-  it("breaks a tie by who came first", () => {
-    expect(closestColleague(qs, { "1": "a", "2": "b", "3": "a" })).toBe("Fox");
+  it("gives a tie to one of the leaders, the same one every time", () => {
+    const split = { "1": "b", "2": "b" }; // Owl and Hen, one each.
+    const first = closestColleague(qs, split);
+    expect(["Owl", "Hen"]).toContain(first);
+    expect(closestColleague(qs, split)).toBe(first);
+  });
+
+  it("doesn't favour the first question in a tie", () => {
+    // Four questions, every answer a different colleague: all 256 games are ties.
+    const distinct: ColleagueQuestion[] = ["1", "2", "3", "4"].map((id) => ({
+      id,
+      prompt: "",
+      answers: ["a", "b", "c", "d"].map((a) => ({
+        id: a,
+        text: "",
+        colleagues: [`${id}${a}`],
+      })),
+    }));
+    const byQuestion = new Map<string, number>();
+    const ids = ["a", "b", "c", "d"];
+    for (const a of ids) {
+      for (const b of ids) {
+        for (const c of ids) {
+          for (const d of ids) {
+            const name = closestColleague(distinct, { "1": a, "2": b, "3": c, "4": d })!;
+            byQuestion.set(name[0], (byQuestion.get(name[0]) ?? 0) + 1);
+          }
+        }
+      }
+    }
+    for (const id of ["1", "2", "3", "4"]) {
+      expect(byQuestion.get(id) ?? 0, id).toBeGreaterThan(30);
+      expect(byQuestion.get(id) ?? 0, id).toBeLessThan(100);
+    }
   });
 
   it("gives nothing with no answers", () => {
