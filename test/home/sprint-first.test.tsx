@@ -34,7 +34,7 @@ vi.mock("@/lib/team/use-team-roster", () => ({
   useWorkspaceHydrated: () => hydration.hydrated,
 }));
 
-import Home from "@/app/page";
+import { HomePage as Home } from "@/components/home/home-page";
 
 afterEach(() => {
   useWorkspaceStore.setState({ sprints: [] });
