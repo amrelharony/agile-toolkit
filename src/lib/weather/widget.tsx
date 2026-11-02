@@ -18,6 +18,7 @@ import type { WeatherIcon } from "./types";
 import { useWeather } from "./provider";
 import { resolveAccent } from "./wmo";
 import { cn } from "@/lib/utils";
+import { themed } from "@/lib/utils/theme-color";
 
 type LucideIcon = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 
@@ -50,7 +51,7 @@ export function WeatherWidget({ compact = false, className }: WeatherWidgetProps
 
   const accent = useMemo(() => {
     if (!weather) return null;
-    return resolveAccent(weather.code, weather.temperatureC);
+    return themed(resolveAccent(weather.code, weather.temperatureC));
   }, [weather]);
 
   if (failed || !weather || !accent) return null;
@@ -70,9 +71,7 @@ export function WeatherWidget({ compact = false, className }: WeatherWidgetProps
       title={`Cairo · ${weather.info.label} · feels like ${Math.round(weather.apparentC)}°C · wind ${weather.windSpeed.toFixed(1)} m/s`}
     >
       <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: accent }} aria-hidden="true" />
-      <span className="tabular-nums" style={{ color: accent }}>
-        {temp}°C
-      </span>
+      <span className="tabular-nums text-text">{temp}°C</span>
       {!compact ? (
         <span className="hidden md:inline text-sub border-l border-border pl-1.5 ml-0.5">
           Cairo
@@ -99,11 +98,11 @@ export function StatusBadge({ className }: { className?: string }) {
       <span
         className={cn("h-1.5 w-1.5 rounded-full", badge.live && "animate-pulse")}
         style={{
-          backgroundColor: badge.color,
+          backgroundColor: themed(badge.color),
         }}
         aria-hidden="true"
       />
-      <span className="hidden sm:inline" style={{ color: badge.color }}>
+      <span className="hidden sm:inline" style={{ color: themed(badge.color) }}>
         {badge.text}
       </span>
     </div>

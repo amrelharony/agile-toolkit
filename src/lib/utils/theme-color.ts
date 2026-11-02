@@ -35,6 +35,19 @@ const BRAND_TO_TOKEN: Record<string, string> = {
   "#f472b6": "var(--neon-magenta)",
   "#60a5fa": "var(--info)",
   "#888": "var(--sub)",
+  // The weather palette (lib/weather/wmo.ts).
+  "#fcd34d": "var(--warning)",
+  "#94a3b8": "var(--sub)",
+  "#64748b": "var(--sub)",
+  "#cbd5e1": "var(--sub)",
+  "#e2e8f0": "var(--sub)",
+  "#f1f5f9": "var(--sub)",
+  "#2563eb": "var(--info)",
+  "#1d4ed8": "var(--info)",
+  "#1e3a8a": "var(--info)",
+  "#7c3aed": "var(--accent3)",
+  "#6d28d9": "var(--accent3)",
+  "#5b21b6": "var(--accent3)",
 };
 
 /** CSS colour for `color`, following the active theme when it's a brand colour. */
