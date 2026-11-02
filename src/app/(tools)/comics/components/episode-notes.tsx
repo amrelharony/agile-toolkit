@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
+import { BOOK_PATH } from "@/lib/book/book";
 
 interface EpisodeNotesProps {
   lesson: string;
@@ -25,6 +27,11 @@ export function EpisodeNotes({ lesson, question, bookPage }: EpisodeNotesProps) 
             <h2 className="font-display font-semibold text-text">Read the full story.</h2>
             <p className="mt-1 text-sub">Book page {bookPage}</p>
             <p className="mt-1 text-sub">Borrow the book from your Scrum Master.</p>
+            <p className="mt-2 text-sm">
+              <Link href={BOOK_PATH} className="font-medium text-accent underline">
+                About the book
+              </Link>
+            </p>
           </div>
         ) : null}
       </CardContent>

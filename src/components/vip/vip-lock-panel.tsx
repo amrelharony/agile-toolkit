@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ArrowLeft, KeyRound } from "lucide-react";
+import { ArrowLeft, BookOpen, KeyRound } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
+import { BOOK_PATH } from "@/lib/book/book";
 import { VIP_TITLE } from "@/lib/vip/constants";
 
 /**
@@ -25,12 +26,20 @@ export function VipLockedMessage({ invalidLink = false }: { invalidLink?: boolea
       icon={KeyRound}
       padding="xl"
       action={
-        <Button asChild variant="toolkit" className="min-h-11 md:h-11">
-          <Link href="/">
-            <ArrowLeft aria-hidden="true" />
-            Back to tools
-          </Link>
-        </Button>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button asChild variant="toolkit" className="min-h-11 md:h-11">
+            <Link href={BOOK_PATH}>
+              <BookOpen aria-hidden="true" />
+              About the book
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="min-h-11 md:h-11">
+            <Link href="/">
+              <ArrowLeft aria-hidden="true" />
+              Back to tools
+            </Link>
+          </Button>
+        </div>
       }
     >
       {invalidLink ? (
