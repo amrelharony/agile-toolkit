@@ -125,6 +125,31 @@
     color: var(--text);
     accent-color: var(--accent);
   }
+
+  /* A link shows by its underline in every mode. Accent and muted text sit at
+     almost the same lightness (1.03:1 on paper), so colour can't carry it (WCAG
+     1.4.1). This covers links in running text and anything authored as "underlines
+     on hover"; a pill or a nav item uses neither, or adds no-underline. The
+     zero-specificity :where keeps every utility able to override it. */
+  :where(p, dd, figcaption) a,
+  a:where(.hover\:underline),
+  button:where(.hover\:underline) {
+    text-decoration-line: underline;
+    text-underline-offset: 2px;
+  }
+  a:where(.hover\:underline):hover,
+  button:where(.hover\:underline):hover {
+    text-decoration-thickness: 2px;
+  }
+
+  /* A field shows focus by a ring outside its edge, not by a change of edge colour:
+     --ring and --input are nearly the same lightness (1.03:1 on paper). Important
+     because the fields carry focus-visible:outline-none for their old 1px ring. High
+     contrast's heavier rule outranks this one. A Canvas board keeps its own editors. */
+  :where(input, textarea, select, [role="combobox"]):where(:not(.board-stage *)):focus-visible {
+    outline: 2px solid var(--ring) !important;
+    outline-offset: 1px !important;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════

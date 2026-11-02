@@ -394,7 +394,7 @@ export function ValueStreamClient() {
             <p>
               <Link
                 href="/kanban"
-                className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 px-2.5 py-1 text-xs text-accent hover:bg-accent/10"
+                className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 px-2.5 py-1 text-xs text-accent no-underline hover:bg-accent/10"
               >
                 {moved === 1 ? "1 item" : `${moved} items`} moved on the boards in the last 7 days:
                 check the stage times still match
