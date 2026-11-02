@@ -1,16 +1,42 @@
 /**
- * The poster intro: what it shows with the story's art and before it, and the
- * timing its CSS keeps to.
+ * The poster intro: what it shows with the story's art and before it, the timing
+ * its CSS keeps to, and where the poster page puts it.
  */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
-import type { StoryCover } from "@/lib/comics/types";
+import type { ReactNode } from "react";
+import type { Story, StoryCover } from "@/lib/comics/types";
+
+const h = vi.hoisted(() => ({ story: null as Story | null }));
+
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/comics/store", () => ({
+  getReleasedStory: async () => h.story,
+  listReleasedWeekly: async () => [],
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: () => {} }),
+  notFound: () => {
+    throw new Error("NEXT_NOT_FOUND");
+  },
+}));
+vi.mock("@/components/layout/tool-page-wrapper", () => ({
+  ToolPageWrapper: ({ title, children }: { title: string; children: ReactNode }) => (
+    <div data-testid="tool-page-wrapper">
+      <h1>{title}</h1>
+      {children}
+    </div>
+  ),
+}));
+
 import { PosterIntro } from "@/app/(tools)/comics/components/intro/poster-intro";
 import styles from "@/app/(tools)/comics/components/intro/poster-intro.module.css";
+import ComicPosterPage from "@/app/(tools)/comics/poster/[n]/page";
 import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
+import { bookEpisode } from "@/lib/comics/book-episodes";
 import { panelImageUrl } from "@/lib/comics/images";
 import { INTRO_SECONDS, OVERLAY_ATTR } from "@/lib/comics/intro";
 import { endsAt, sceneAnimations } from "./intro-css";
@@ -27,8 +53,31 @@ const cover = (n: number): StoryCover => ({
 });
 const FIVE_PANELS = [1, 2, 3, 4, 5].map(cover);
 
+const STORY: Story = {
+  ep: 12,
+  collection: "book",
+  title: TITLE,
+  lesson: "Write it down before you leave.",
+  squadQuestion: "What would we lose if you left today?",
+  castNames: ["Amr"],
+  themes: ["T08"],
+  panels: [1, 2].map((n) => ({
+    ...cover(n),
+    pathFull: `stories/12/${n}-1536.webp`,
+    alt: `Panel ${n}.`,
+    dialogue: [],
+    signs: [],
+  })),
+  sharePath: null,
+  bookPage: 73,
+  releaseAt: "2026-10-26T07:00:00.000Z",
+  updatedAt: "2026-10-26T07:00:00.000Z",
+};
+
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://ref.supabase.co");
+  window.history.replaceState(null, "", "/comics?ep=12");
+  h.story = null;
 });
 
 afterEach(() => {
@@ -219,5 +268,37 @@ describe("the poster intro's timing", () => {
     for (const animation of animations) {
       expect(keyframes.has(animation.name), animation.name).toBe(true);
     }
+  });
+});
+
+describe("the poster page", () => {
+  const params = { params: { n: "12" } };
+
+  it("puts the intro beside the page's wrapper, not inside it", async () => {
+    render(await ComicPosterPage(params));
+    const wrapper = screen.getByTestId("tool-page-wrapper");
+    expect(wrapper.contains(dialog())).toBe(false);
+    expect(dialog().parentElement).toBe(wrapper.parentElement);
+  });
+
+  it("before the art: letters the book's title", async () => {
+    render(await ComicPosterPage(params));
+    const book = bookEpisode(12)!;
+    expect(within(dialog()).getByText(book.title)).toBeInTheDocument();
+    expect(dialog().querySelector("img")).toBeNull();
+  });
+
+  it("with the art: the story's title and its own panels", async () => {
+    h.story = STORY;
+    render(await ComicPosterPage(params));
+    expect(within(dialog()).getByText(TITLE)).toBeInTheDocument();
+    const srcs = Array.from(dialog().querySelectorAll("img")).map((img) => img.getAttribute("src"));
+    expect(srcs).toEqual(STORY.panels.map((p) => panelImageUrl(p.pathSmall)));
+  });
+
+  it("offers the intro again, on the page itself", async () => {
+    render(await ComicPosterPage(params));
+    const replay = await screen.findByRole("button", { name: "Replay intro" });
+    expect(screen.getByTestId("tool-page-wrapper")).toContainElement(replay);
   });
 });
