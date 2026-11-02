@@ -50,7 +50,7 @@ type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 const BUTTON_INSET = 4;
 /** Size of Amr's box inside that button: one sheet cell at an exact 12:13. */
 const MASCOT_BOX = { w: 132, h: 143 };
-/** Phones get a smaller figure so it covers less of the page. */
+/** Phones get a smaller figure, standing in a strip of his own (phoneBandHeight). */
 const MASCOT_BOX_PHONE = { w: 96, h: 104 };
 /** The round launcher shown until the figure is ready (or if the sheet can't load). */
 const LAUNCHER_SIZE = 48;
@@ -76,12 +76,33 @@ function edgeInset(c: Corner, figure: boolean, boxH: number): number {
   return BUTTON_INSET - (c.startsWith("top") ? HEAD_TRIM : FEET_TRIM) * scale;
 }
 
+/**
+ * On a phone the page has no spare margin for him to stand in, so he gets a strip
+ * of his own, the way a phone app has a bottom bar: at the bottom of the screen,
+ * or just under the header when he's been dragged up there. The page scrolls
+ * behind it and main's bottom padding lets everything clear it. This is how tall
+ * the strip has to be to hold him, in px, past any safe area.
+ */
+function phoneBandHeight(c: Corner, figure: boolean, boxH: number): number {
+  if (!figure) return LAUNCHER_SIZE + 2 * BUTTON_INSET;
+  const scale = boxH / SHEET.cellH;
+  const inset = edgeInset(c, true, boxH);
+  const reach = c.startsWith("top") ? FIGURE_BOTTOM * scale : boxH - FIGURE_TOP * scale;
+  return Math.ceil(inset + reach) + BUTTON_INSET;
+}
+
+/** What his corner's offset is measured from: the screen, or a phone's strip. */
+function phoneEdge(c: Corner): string {
+  return c.startsWith("top") ? "var(--header-h)" : "env(safe-area-inset-bottom, 0px)";
+}
+
 /** Fixed-position style for the float button at a corner (default ≈ bottom-1 right-2). */
-function buttonPos(c: Corner, figure: boolean, boxH: number): CSSProperties {
+function buttonPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSSProperties {
   const inset = edgeInset(c, figure, boxH);
+  const offset = phone ? `calc(${inset}px + ${phoneEdge(c)})` : inset;
   return {
     position: "fixed",
-    ...(c.startsWith("top") ? { top: inset } : { bottom: inset }),
+    ...(c.startsWith("top") ? { top: offset } : { bottom: offset }),
     ...(c.endsWith("Left") ? { left: 8 } : { right: 8 }),
   };
 }
@@ -102,18 +123,20 @@ function hitBox(box: { w: number; h: number }): CSSProperties {
  * the rendered box height (the figure's rows scale with it); with the launcher
  * showing, the panel clears the launcher instead.
  */
-function panelPos(c: Corner, figure: boolean, boxH: number): CSSProperties {
+function panelPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSSProperties {
   const scale = boxH / SHEET.cellH;
   const top = figure ? FIGURE_TOP * scale : 0;
   const bottom = figure ? FIGURE_BOTTOM * scale : LAUNCHER_SIZE;
   const height = figure ? boxH : LAUNCHER_SIZE;
   const inset = edgeInset(c, figure, boxH);
+  const px = c.startsWith("top")
+    ? // Parked up top: clear his feet.
+      inset + bottom + PANEL_GAP
+    : // Parked at the bottom: clear its head.
+      inset + (height - top) + PANEL_GAP;
+  const offset = phone ? `calc(${px}px + ${phoneEdge(c)})` : px;
   return {
-    ...(c.startsWith("top")
-      ? // Parked up top: clear his feet.
-        { top: inset + bottom + PANEL_GAP }
-      : // Parked at the bottom: clear its head.
-        { bottom: inset + (height - top) + PANEL_GAP }),
+    ...(c.startsWith("top") ? { top: offset } : { bottom: offset }),
     ...(c.endsWith("Left") ? { left: 16 } : { right: 16 }),
   };
 }
@@ -130,6 +153,28 @@ function useIsPhone(): boolean {
     return () => mq.removeEventListener?.("change", update);
   }, []);
   return isPhone;
+}
+
+/**
+ * Reserve Amr's strip on phones: publishes its height as CSS variables, for main's
+ * top padding, scroll padding, and the few things pinned to the bottom of the
+ * screen. Zero (removed) on larger screens, where he stands in the corner.
+ */
+function usePhoneBand(band: { side: "top" | "bottom"; height: number } | null) {
+  const side = band?.side;
+  const height = band?.height;
+  useEffect(() => {
+    if (!side || height === undefined) return;
+    const root = document.documentElement;
+    const name = side === "top" ? "--amr-band-top" : "--amr-band-bottom";
+    root.style.setProperty(
+      name,
+      side === "top" ? `${height}px` : `calc(${height}px + env(safe-area-inset-bottom, 0px))`
+    );
+    return () => {
+      root.style.removeProperty(name);
+    };
+  }, [side, height]);
 }
 
 /** Start the figure this long after load if nobody has interacted yet. */
@@ -285,6 +330,22 @@ export function MascotAssistant() {
   // Drag-to-reposition: free-drag past a threshold, then snap to the nearest
   // corner (the chat panel follows via the corner state). Source initDragDrop.
   const [corner, setCorner] = useState<Corner>("bottomRight");
+  // Always the figure's height unless it can't load, so the strip doesn't jump
+  // when the launcher gives way to him a moment after the page settles.
+  const [savesData, setSavesData] = useState(false);
+  useEffect(() => {
+    const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
+    setSavesData(Boolean(nav.connection?.saveData));
+  }, []);
+  const bandSide = corner.startsWith("top") ? ("top" as const) : ("bottom" as const);
+  const band =
+    isPhone && !hideFigure
+      ? {
+          side: bandSide,
+          height: phoneBandHeight(corner, !figureFailed && !savesData, box.h),
+        }
+      : null;
+  usePhoneBand(band);
   const [dragPos, setDragPos] = useState<{ left: number; top: number } | null>(null);
   // Removes the active drag's document listeners (called on pointerup, on a new
   // drag, or on unmount) so they never leak past an in-progress drag.
@@ -419,8 +480,8 @@ export function MascotAssistant() {
           role="dialog"
           aria-label="Amr assistant"
           aria-modal={false}
-          style={panelPos(corner, showFigure, box.h)}
-          className="fixed z-50 flex h-[min(68vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border border-border bg-surface-deep/95 shadow-2xl backdrop-blur"
+          style={panelPos(corner, showFigure, box.h, isPhone)}
+          className="fixed z-50 flex h-[min(68vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden panel bg-surface-deep shadow-xl"
         >
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <div>
@@ -481,6 +542,24 @@ export function MascotAssistant() {
         </div>
       )}
 
+      {/* The strip he stands in on phones. Opaque, so the page passes behind it
+          rather than behind him, and below every overlay. */}
+      {band && (
+        <div
+          aria-hidden="true"
+          data-amr-band={band.side}
+          className={cn(
+            "fixed inset-x-0 z-30 bg-bg border-border",
+            band.side === "top" ? "border-b" : "border-t"
+          )}
+          style={
+            band.side === "top"
+              ? { top: "var(--header-h)", height: band.height }
+              : { bottom: 0, height: "var(--amr-band-bottom)" }
+          }
+        />
+      )}
+
       {/* Floating mascot — click to toggle the chat. */}
       {!hideFigure && (
         <button
@@ -492,7 +571,7 @@ export function MascotAssistant() {
           style={
             dragPos
               ? { position: "fixed", left: dragPos.left, top: dragPos.top }
-              : buttonPos(corner, showFigure, box.h)
+              : buttonPos(corner, showFigure, box.h, isPhone)
           }
           className={cn(
             "z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",

@@ -4,28 +4,30 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
+const INKED =
+  "shadow-sm hover:shadow active:translate-x-px active:translate-y-px active:shadow-none";
+
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 active-press [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[color,background-color,border-color,box-shadow,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 active-press [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
-        destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
+        // Inked buttons: an outline and a small hard shadow, pressed flat on click.
+        default: `border border-border bg-primary text-primary-foreground hover:bg-primary/90 ${INKED}`,
+        destructive: `border border-border bg-destructive text-destructive-foreground hover:bg-destructive/90 ${INKED}`,
         // shadcn's stock `hover:bg-accent` assumes "accent" is a subtle grey;
-        // here it is the brand cyan, so the label sat at ~1.4:1 (and vanished
-        // entirely where a call site added `hover:text-accent`). Tint instead.
-        outline:
-          "border border-input bg-background shadow-sm hover:border-accent/40 hover:bg-accent/10 hover:text-accent",
-        secondary: "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
+        // here it is the strong brand colour, so the label would vanish
+        // (entirely where a call site adds `hover:text-accent`). Tint instead.
+        outline: `border border-border bg-background hover:border-accent hover:bg-accent/10 hover:text-accent ${INKED}`,
+        secondary: `border border-border bg-secondary text-secondary-foreground hover:bg-surface-hover ${INKED}`,
         ghost: "hover:bg-accent/10 hover:text-text",
         link: "text-primary underline-offset-4 hover:underline",
-        // Toolkit-specific: cyan-tinted "primary action" button used for
+        // Toolkit-specific: accent-tinted "primary action" button used for
         // Add / Save / Apply throughout the tools (e.g. Add Sprint,
         // Save to History). Replaces the inline
         // `bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40`
         // pattern.
-        toolkit:
-          "bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40 disabled:opacity-40",
+        toolkit: `bg-accent/10 text-accent border border-accent hover:bg-accent/20 disabled:opacity-40 ${INKED}`,
         // Toolkit-specific: muted "icon-only delete" button used in dense
         // rows (impediments, refinement criteria, sprint-review features).
         // Replaces the inline `text-sub hover:text-danger hover:bg-danger/10`

@@ -67,7 +67,7 @@ function CommentPinsImpl({ threads, objectsById, camera, activeThreadId, onPinCl
               height: 24,
               borderRadius: "50% 50% 50% 4px",
               background: t.resolved ? "rgba(52, 211, 153, 0.85)" : "rgba(245, 158, 11, 0.95)",
-              border: active ? "2px solid #00f0ff" : "1.5px solid rgba(0,0,0,0.6)",
+              border: active ? "2px solid var(--accent)" : "1.5px solid rgba(0,0,0,0.6)",
               color: "#0b0f17",
               display: "flex",
               alignItems: "center",

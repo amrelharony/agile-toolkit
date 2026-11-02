@@ -62,8 +62,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
       className="
         fixed top-0 left-0 right-0 z-[99999]
         h-8 flex items-center justify-center
-        bg-[rgba(var(--bg2-rgb),0.8)]
-        backdrop-blur-[20px] saturate-[1.4]
+        bg-bg2
         border-b border-border
       "
       aria-label="Ecosystem navigation"
@@ -109,9 +108,8 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
                   <div
                     className="
                       absolute bottom-0 left-1/2 -translate-x-1/2
-                      w-4 h-0.5 rounded-full
-                      bg-gradient-to-r from-accent to-accent-2
-                      shadow-[0_0_6px_var(--glow)]
+                      w-4 h-0.5
+                      bg-accent
                     "
                   />
                 )}
@@ -148,8 +146,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
               className="
                 absolute top-full right-0 mt-1
                 py-1 rounded-lg min-w-[140px]
-                bg-[rgba(var(--bg2-rgb),0.95)]
-                backdrop-blur-[32px] saturate-[1.6]
+                bg-bg2
                 border border-border
                 shadow-lg
                 animate-scale-in

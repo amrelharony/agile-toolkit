@@ -378,7 +378,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                               ? "text-warning"
                               : i.role === "commenter"
                                 ? "text-success"
-                                : "text-cyan-300"
+                                : "text-accent"
                           }`}
                         >
                           {i.role}

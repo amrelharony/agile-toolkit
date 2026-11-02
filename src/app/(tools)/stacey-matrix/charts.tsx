@@ -12,6 +12,7 @@ import {
   Tooltip,
   ReferenceLine,
 } from "recharts";
+import { chartTheme } from "@/components/charts/chart-theme";
 
 export interface StaceyPoint {
   title: string;
@@ -24,19 +25,19 @@ export function StaceyScatterChart({ data }: { data: StaceyPoint[] }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
       <ScatterChart>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+        <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
         <XAxis
           type="number"
           dataKey="x"
           name="Certainty"
           domain={[0, 1]}
-          stroke="#888"
+          stroke={chartTheme.axisColor}
           fontSize={11}
           label={{
             value: "Certainty (how)",
             position: "insideBottom",
             offset: -5,
-            fill: "#888",
+            fill: chartTheme.axisColor,
             fontSize: 11,
           }}
         />
@@ -45,29 +46,22 @@ export function StaceyScatterChart({ data }: { data: StaceyPoint[] }) {
           dataKey="y"
           name="Agreement"
           domain={[0, 1]}
-          stroke="#888"
+          stroke={chartTheme.axisColor}
           fontSize={11}
           label={{
             value: "Agreement (what)",
             angle: -90,
             position: "insideLeft",
-            fill: "#888",
+            fill: chartTheme.axisColor,
             fontSize: 11,
           }}
         />
-        <ReferenceLine x={0.33} stroke="rgba(255,255,255,0.1)" />
-        <ReferenceLine x={0.66} stroke="rgba(255,255,255,0.1)" />
-        <ReferenceLine y={0.33} stroke="rgba(255,255,255,0.1)" />
-        <ReferenceLine y={0.66} stroke="rgba(255,255,255,0.1)" />
-        <Tooltip
-          cursor={{ strokeDasharray: "3 3" }}
-          contentStyle={{
-            backgroundColor: "#0f1117",
-            border: "1px solid #2a2f3a",
-            fontSize: 12,
-          }}
-        />
-        <Scatter data={data} fill="#00f0ff" />
+        <ReferenceLine x={0.33} stroke={chartTheme.gridColor} />
+        <ReferenceLine x={0.66} stroke={chartTheme.gridColor} />
+        <ReferenceLine y={0.33} stroke={chartTheme.gridColor} />
+        <ReferenceLine y={0.66} stroke={chartTheme.gridColor} />
+        <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={chartTheme.tooltipStyle} />
+        <Scatter data={data} fill={chartTheme.colors.cyan} />
       </ScatterChart>
     </ResponsiveContainer>
   );

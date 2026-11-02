@@ -81,7 +81,7 @@ function TagFilterRowImpl({ objects }: Props) {
             }`}
           >
             {t}
-            <span className={`text-xs ${active ? "text-accent/70" : "text-sub/70"}`}>{n}</span>
+            <span className={`text-xs ${active ? "text-accent" : "text-sub"}`}>{n}</span>
           </button>
         );
       })}

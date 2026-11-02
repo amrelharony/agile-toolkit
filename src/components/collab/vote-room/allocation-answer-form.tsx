@@ -243,7 +243,7 @@ export function AllocationAnswerForm({
       {/* Stuck to the bottom of the screen while the boxes scroll under it. */}
       <div
         data-testid="allocation-left-bar"
-        className="sticky bottom-0 z-10 space-y-2 border-t border-border bg-card pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+        className="sticky bottom-[var(--amr-band-bottom,0px)] z-10 space-y-2 border-t border-border bg-card pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       >
         <p id={leftId} className="text-sm font-medium text-text">
           {leftText}

@@ -106,9 +106,11 @@ export function DiagramShape({
         width: object.w,
         height: object.h,
         background: fill,
-        border: `${selected ? 2 : 1.5}px solid ${selected ? "#00f0ff" : tint}`,
+        border: `${selected ? 2 : 1.5}px solid ${selected ? "var(--accent)" : tint}`,
         borderRadius: 8,
-        boxShadow: selected ? "0 0 12px rgba(0,240,255,0.4)" : "0 1px 3px rgba(0,0,0,0.3)",
+        boxShadow: selected
+          ? "0 0 12px color-mix(in srgb, var(--accent) 40%, transparent)"
+          : "0 1px 3px rgba(0,0,0,0.3)",
         color: "#e5e7eb",
         fontFamily: "ui-sans-serif, system-ui, sans-serif",
         fontSize: 11,
@@ -191,7 +193,7 @@ function ShapeLabelEditor({
         textAlign: "center",
         background: "transparent",
         border: "none",
-        outline: "1px solid #00f0ff",
+        outline: "1px solid var(--accent)",
         outlineOffset: -1,
         borderRadius: 4,
         color: "inherit",

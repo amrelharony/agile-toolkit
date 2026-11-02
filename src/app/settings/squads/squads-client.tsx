@@ -197,7 +197,7 @@ export function SquadsClient() {
         <div className="text-sub text-sm">Loading squads…</div>
       ) : squads.length === 0 ? (
         <div className="border border-dashed border-border rounded-lg p-8 text-center">
-          <Users className="w-8 h-8 mx-auto mb-3 text-sub/40" aria-hidden="true" />
+          <Users className="w-8 h-8 mx-auto mb-3 text-sub" aria-hidden="true" />
           <p className="text-sm text-sub">
             No squads yet. Create one above to start inviting guests.
           </p>

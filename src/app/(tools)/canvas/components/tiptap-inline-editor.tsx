@@ -205,7 +205,7 @@ export function TiptapInlineEditor({
         background: background ?? "transparent",
         color: color ?? "inherit",
         border: "none",
-        outline: "2px solid #00f0ff",
+        outline: "2px solid var(--accent)",
         outlineOffset: -1,
         borderRadius: 6,
         padding: padding ?? 10,

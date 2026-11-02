@@ -62,7 +62,7 @@ export function HomeSearch() {
       {trimmed && (
         <div
           id={`${id}-results`}
-          className="mt-2 rounded-lg border border-border bg-card p-1 shadow-lg"
+          className="panel mt-2 p-1"
           role="region"
           aria-label="Search results"
           aria-live="polite"

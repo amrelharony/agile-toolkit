@@ -16,6 +16,7 @@ import { generateStaceyPrompts } from "@/lib/ai-prompts/stacey-matrix";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STACEY_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { themed } from "@/lib/utils/theme-color";
 
 // Recharts loads with the chart, not the page; the placeholder fills the
 // chart's fixed-height box while it does.
@@ -219,7 +220,7 @@ export function StaceyMatrixClient() {
             {(["simple", "complicated", "complex", "chaotic"] as const).map((r) => (
               <div key={r} className="border border-border rounded p-3 bg-surface-deep min-w-0">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-bold uppercase" style={{ color: COLORS[r] }}>
+                  <span className="font-bold uppercase" style={{ color: themed(COLORS[r]) }}>
                     {r}
                   </span>
                   <span className="text-xs text-sub">{grouped[r].length}</span>

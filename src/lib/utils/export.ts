@@ -1,5 +1,6 @@
 import { toPng } from "html-to-image";
 import { saveAs } from "file-saver";
+import { THEME_COLORS } from "@/lib/theme/boot-script";
 
 /**
  * Strip path separators, control characters, and leading dots so a download
@@ -91,18 +92,13 @@ export function exportToJSON(data: unknown, filename: string) {
   trackExport("json");
 }
 
-function detectIsLightTheme(): boolean {
-  // Prefer the explicit class set by the theme toggle / inline boot script.
-  // Fall back to the OS preference when neither class is present, otherwise
-  // dark-mode users on a fresh visit get a light-coloured PNG (or vice versa).
-  if (typeof document === "undefined") return false;
+/** The paper of the active theme (the class set by the toggle / boot script). */
+function exportBackground(): string {
+  if (typeof document === "undefined") return THEME_COLORS.light;
   const root = document.documentElement;
-  if (root.classList.contains("light")) return true;
-  if (root.classList.contains("dark")) return false;
-  if (typeof window !== "undefined" && window.matchMedia) {
-    return window.matchMedia("(prefers-color-scheme: light)").matches;
-  }
-  return false;
+  if (root.classList.contains("hc")) return THEME_COLORS.hc;
+  if (root.classList.contains("dark")) return THEME_COLORS.dark;
+  return THEME_COLORS.light;
 }
 
 export async function exportToPNG(
@@ -136,7 +132,7 @@ export async function exportToPNG(
   // SVG trees); without this the caller's UI sits in "Exporting…" forever.
   const dataUrl = await Promise.race([
     toPng(element, {
-      backgroundColor: detectIsLightTheme() ? "#f4f6fb" : "#0a0e1a",
+      backgroundColor: exportBackground(),
       pixelRatio,
     }),
     new Promise<string>((_, reject) =>

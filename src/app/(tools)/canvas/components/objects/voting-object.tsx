@@ -100,9 +100,11 @@ function VotingObjectImpl({
         width: o.w,
         height: o.h,
         background: "#0b0f17",
-        border: `2px solid ${selected ? "#00f0ff" : "#475569"}`,
+        border: `2px solid ${selected ? "var(--accent)" : "#475569"}`,
         borderRadius: 10,
-        boxShadow: selected ? "0 0 12px rgba(0,240,255,0.4)" : "0 1px 3px rgba(0,0,0,0.3)",
+        boxShadow: selected
+          ? "0 0 12px color-mix(in srgb, var(--accent) 40%, transparent)"
+          : "0 1px 3px rgba(0,0,0,0.3)",
         cursor: o.locked ? "default" : "move",
         zIndex: o.z,
         opacity: o.locked ? 0.85 : 1,
@@ -178,11 +180,11 @@ function VotingObjectImpl({
                 height: 32,
                 padding: "0 8px",
                 borderRadius: 6,
-                border: isMine ? "2px solid #00f0ff" : "1px solid #475569",
+                border: isMine ? "2px solid var(--accent)" : "1px solid #475569",
                 background: isTop
                   ? "rgba(52, 211, 153, 0.18)"
                   : isMine
-                    ? "rgba(0, 240, 255, 0.12)"
+                    ? "color-mix(in srgb, var(--accent) 12%, transparent)"
                     : "#1e293b",
                 color: "#e5e7eb",
                 fontFamily: "ui-monospace, SFMono-Regular, monospace",
@@ -198,7 +200,7 @@ function VotingObjectImpl({
               {o.revealed && count > 0 && (
                 <span style={{ fontSize: 10, color: "#94a3b8" }}>·{count}</span>
               )}
-              {isMine && <CheckCircle2 style={{ width: 10, height: 10, color: "#00f0ff" }} />}
+              {isMine && <CheckCircle2 style={{ width: 10, height: 10, color: "var(--accent)" }} />}
             </button>
           );
         })}

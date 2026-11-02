@@ -229,7 +229,7 @@ export function OodaLoopClient() {
                       <div>
                         <label
                           htmlFor={`${uid}-${c.id}-observe`}
-                          className="block text-cyan-400 font-bold mb-1"
+                          className="block text-accent font-bold mb-1"
                         >
                           Observe
                         </label>
@@ -271,7 +271,7 @@ export function OodaLoopClient() {
                       <div>
                         <label
                           htmlFor={`${uid}-${c.id}-act`}
-                          className="block text-pink-400 font-bold mb-1"
+                          className="block text-accent-magenta font-bold mb-1"
                         >
                           Act
                         </label>

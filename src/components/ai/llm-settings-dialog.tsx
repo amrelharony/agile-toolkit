@@ -405,7 +405,7 @@ function ProviderPanel({
           </Button>
         </div>
         {keyHint && (
-          <p id={`llm-key-hint-${providerId}`} className="text-xs text-warning/80">
+          <p id={`llm-key-hint-${providerId}`} className="text-xs text-warning">
             {keyHint}
           </p>
         )}

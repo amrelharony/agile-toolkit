@@ -104,8 +104,10 @@ export function DiagramShapePicker({
               width: 56,
               height: 56,
               borderRadius: 6,
-              background: isPicked ? "rgba(0, 240, 255, 0.18)" : "transparent",
-              border: isPicked ? "1px solid #00f0ff" : "1px solid transparent",
+              background: isPicked
+                ? "color-mix(in srgb, var(--accent) 18%, transparent)"
+                : "transparent",
+              border: isPicked ? "1px solid var(--accent)" : "1px solid transparent",
               color: def.tint,
               display: "flex",
               flexDirection: "column",

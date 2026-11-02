@@ -193,7 +193,7 @@ export function ModelMigrationClient() {
             />
           </div>
           <div className="mt-3 w-full bg-surface-deep h-2 rounded overflow-hidden">
-            <div className="h-2 bg-emerald-400" style={{ width: `${pct}%` }} />
+            <div className="h-2 bg-success" style={{ width: `${pct}%` }} />
           </div>
           <div className="mt-2 text-xs text-sub">
             {done}/{steps.length} steps complete ({pct}%)

@@ -1,13 +1,12 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { AmrStill } from "@/components/shared/amr-still";
 import { cn } from "@/lib/utils";
 
 interface EmptyStateProps {
   /**
-   * Optional Lucide icon rendered above the message at 40 × 40 px,
-   * centred, 40 % opacity. Matches the pattern used across the toolkit.
+   * Optional Lucide icon, small, above the message inside the balloon.
    */
   icon?: LucideIcon;
   /**
@@ -17,11 +16,11 @@ interface EmptyStateProps {
    */
   children: React.ReactNode;
   /**
-   * Padding inside the card. `lg` (default) = `p-8`, matches the most
-   * common variant. `xl` = `p-12` for the bigger empty pages.
+   * Padding inside the balloon. `lg` (default) suits most screens, `xl` the
+   * bigger empty pages.
    */
   padding?: "md" | "lg" | "xl";
-  /** Pass-through to the outer Card (e.g. `flex-1` for grid stretching). */
+  /** Pass-through to the outer row (e.g. `flex-1` for grid stretching). */
   className?: string;
   /**
    * Optional inline action — typically a `<Button>` rendered below the
@@ -31,34 +30,17 @@ interface EmptyStateProps {
 }
 
 const PADDING: Record<NonNullable<EmptyStateProps["padding"]>, string> = {
-  // Mobile-first: tighten by 8 px on phones where the card padding eats
-  // a third of the viewport. Caps at the original desktop size on sm+.
-  md: "p-4 sm:p-6",
-  lg: "p-6 sm:p-8",
-  xl: "p-8 sm:p-12",
+  // Mobile-first: tighter on phones, where the padding would eat a third of the
+  // viewport beside Amr.
+  md: "p-3 sm:p-4",
+  lg: "p-4 sm:p-6",
+  xl: "p-6 sm:p-10",
 };
 
 /**
- * Standardised "nothing here yet" placeholder used in 10+ tools.
- *
- * Replaces the recurring pattern:
- *
- *   <Card className="bg-surface border-border">
- *     <CardContent className="p-8 text-center text-sub">
- *       <Icon className="w-10 h-10 mx-auto mb-3 opacity-40" />
- *       Friendly message + CTA hint.
- *     </CardContent>
- *   </Card>
- *
- * Why a primitive: nine tools used the exact same JSX with only the icon
- * + message text varying. Centralising means a future visual tweak
- * (padding, icon size, opacity, optional action button) lands in one
- * file instead of nine.
- *
- * Mobile-first: padding stays the same — phones already render this card
- * full-width inside `.container-tool`'s 12 px gutter, and the centred
- * icon + short message read fine on narrow viewports without per-screen
- * tweaking.
+ * "Nothing here yet", said by Amr: his still frame beside a speech balloon that
+ * holds the tool's own message. Used by nearly 100 screens, so the words stay
+ * the call site's. On a narrow column the balloon wraps under him.
  */
 export function EmptyState({
   icon: Icon,
@@ -68,15 +50,18 @@ export function EmptyState({
   action,
 }: EmptyStateProps) {
   return (
-    <Card className={cn("bg-surface border-border", className)}>
-      <CardContent className={cn("text-center text-sub", PADDING[padding])}>
-        {Icon && <Icon className="w-10 h-10 mx-auto mb-3 opacity-40" aria-hidden="true" />}
+    <div className={cn("flex flex-wrap items-end gap-x-4 gap-y-2", className)}>
+      <AmrStill />
+      <div
+        className={cn("balloon min-w-0 grow basis-48 text-center font-display", PADDING[padding])}
+      >
+        {Icon && <Icon className="mx-auto mb-2 h-5 w-5 text-sub" aria-hidden="true" />}
         {/* Announce the empty state to screen readers when this card replaces
             a previously populated one (e.g. user filters down to zero rows).
             Without role="status" the SR-only transition is silent. */}
         <div role="status">{children}</div>
-        {action && <div className="mt-4 flex justify-center">{action}</div>}
-      </CardContent>
-    </Card>
+        {action && <div className="mt-4 flex justify-center font-sans">{action}</div>}
+      </div>
+    </div>
   );
 }

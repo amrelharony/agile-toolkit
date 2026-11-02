@@ -103,9 +103,11 @@ function TimerObjectImpl({ object: o, selected, onPointerDown, onMutate }: Timer
         width: o.w,
         height: o.h,
         background: finished ? "rgba(239, 68, 68, 0.15)" : "#0b0f17",
-        border: `2px solid ${selected ? "#00f0ff" : finished ? "#f87171" : "#475569"}`,
+        border: `2px solid ${selected ? "var(--accent)" : finished ? "#f87171" : "#475569"}`,
         borderRadius: 10,
-        boxShadow: selected ? "0 0 12px rgba(0,240,255,0.4)" : "0 1px 3px rgba(0,0,0,0.3)",
+        boxShadow: selected
+          ? "0 0 12px color-mix(in srgb, var(--accent) 40%, transparent)"
+          : "0 1px 3px rgba(0,0,0,0.3)",
         cursor: o.locked ? "default" : "move",
         zIndex: o.z,
         opacity: o.locked ? 0.85 : 1,

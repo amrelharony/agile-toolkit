@@ -20,7 +20,10 @@ export function EmbedObject({
 }: ObjectViewBaseProps & { object: WhiteboardEmbed }) {
   const handle = (e: React.PointerEvent) => onPointerDown?.(e, o.id);
   const selectionStyle = selected
-    ? { boxShadow: "0 0 0 2px #00f0ff, 0 0 12px rgba(0,240,255,0.4)" }
+    ? {
+        boxShadow:
+          "0 0 0 2px var(--accent), 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent)",
+      }
     : undefined;
 
   const iframeSrc = embedIframeUrl(o.src ?? "", o.kind);

@@ -10,10 +10,10 @@ import {
 } from "@/lib/theme/theme";
 
 const OPTIONS: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
-  { value: "system", label: "System", icon: Monitor },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "light", label: "Light", icon: Sun },
+  { value: "light", label: "Comic", icon: Sun },
+  { value: "dark", label: "Night", icon: Moon },
   { value: "hc", label: "High contrast", icon: Contrast },
+  { value: "system", label: "System", icon: Monitor },
 ];
 
 /** Theme choice for Settings → Appearance. */
@@ -21,16 +21,14 @@ export function ThemePicker() {
   const preference = useThemePreference();
   const applied = useAppliedTheme();
   return (
-    <section
-      className="rounded-lg border border-border bg-card p-5"
-      aria-labelledby="theme-heading"
-    >
+    <section className="panel p-5" aria-labelledby="theme-heading">
       <h2 id="theme-heading" className="font-medium text-text">
         Theme
       </h2>
       <p className="mt-1 max-w-xl text-sm text-sub">
-        System follows your device&apos;s light or dark setting. High contrast uses black, white and
-        yellow with solid borders and strong focus rings.
+        Comic is warm paper and ink. Night is the same comic on dark paper. High contrast uses
+        black, white and yellow with solid borders, strong focus rings and plain lettering. System
+        picks Comic or Night from your device&apos;s light or dark setting.
       </p>
       <ToggleGroup
         className="mt-4"
@@ -50,7 +48,7 @@ export function ThemePicker() {
       />
       {preference === "system" && (
         <p className="mt-3 text-xs text-sub" aria-live="polite">
-          Currently {applied === "light" ? "light" : "dark"}, from your device.
+          Currently {applied === "light" ? "Comic" : "Night"}, from your device.
         </p>
       )}
     </section>

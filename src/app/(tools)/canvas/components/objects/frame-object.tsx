@@ -29,7 +29,10 @@ export function FrameObject({
   const dblClick = () => onDoubleClick?.(o.id);
   const commitEdit = (text: string) => onCommitEdit?.(o.id, text);
   const selectionStyle = selected
-    ? { boxShadow: "0 0 0 2px #00f0ff, 0 0 12px rgba(0,240,255,0.4)" }
+    ? {
+        boxShadow:
+          "0 0 0 2px var(--accent), 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent)",
+      }
     : undefined;
 
   return (

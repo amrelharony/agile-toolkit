@@ -21,12 +21,11 @@ export {
 /**
  * The colour theme the visitor chose, and the one actually applied.
  *
- * "system" follows the OS (`prefers-color-scheme`); "dark", "light" and
- * "hc" (high contrast) are explicit. Without a stored choice the toolkit is
- * dark, as it always has been. The choice lives under the existing
- * `ae-theme` key, which the blocking script in app/layout.tsx reads before
- * first paint, so there's no wrong-theme flash. Previously the only control
- * was a header button cycling dark → light → hc, with no "follow my system".
+ * "system" follows the OS (`prefers-color-scheme`); "light" (comic), "dark"
+ * (night comic) and "hc" (high contrast) are explicit. Without a stored choice
+ * the toolkit is the comic. A visitor who already stored a choice keeps it. The
+ * choice lives under the existing `ae-theme` key, which the blocking script in
+ * app/layout.tsx reads before first paint, so there's no wrong-theme flash.
  */
 
 const listeners = new Set<() => void>();
@@ -45,7 +44,7 @@ function systemTheme(): AppliedTheme {
   try {
     return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
   } catch {
-    return "dark";
+    return "light";
   }
 }
 
@@ -114,11 +113,11 @@ export function useThemePreference(): ThemePreference {
   return useSyncExternalStore(subscribe, readPreference, () => DEFAULT_PREFERENCE);
 }
 
-/** The theme in effect ("dark" on the server). */
+/** The theme in effect (the comic on the server). */
 export function useAppliedTheme(): AppliedTheme {
   return useSyncExternalStore(
     subscribe,
     () => resolveTheme(readPreference(), systemTheme()),
-    () => "dark"
+    () => "light"
   );
 }

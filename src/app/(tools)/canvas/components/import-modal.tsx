@@ -362,7 +362,7 @@ export function ImportModal({ boardId, onClose }: Props) {
             type="button"
             onClick={applyJira}
             disabled={!jiraPreview || jiraPreview === 0}
-            className="mt-2 px-3 py-1.5 rounded bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+            className="mt-2 px-3 py-1.5 rounded bg-accent/15 text-accent border border-accent/30 hover:bg-accent/20 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Import {jiraPreview ?? 0} issue{jiraPreview === 1 ? "" : "s"}
           </button>
@@ -406,7 +406,7 @@ export function ImportModal({ boardId, onClose }: Props) {
             type="button"
             onClick={applyDiagram}
             disabled={!diagramParsed || diagramParsed.rows.length === 0}
-            className="mt-2 px-3 py-1.5 rounded bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+            className="mt-2 px-3 py-1.5 rounded bg-accent/15 text-accent border border-accent/30 hover:bg-accent/20 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Import {diagramParsed?.rows.length ?? 0} row
             {diagramParsed?.rows.length === 1 ? "" : "s"} as {diagramParsed?.shape ?? "diagram"}
@@ -446,7 +446,7 @@ export function ImportModal({ boardId, onClose }: Props) {
             type="button"
             onClick={applyTable}
             disabled={!tableRows || tableRows.length === 0}
-            className="mt-2 px-3 py-1.5 rounded bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+            className="mt-2 px-3 py-1.5 rounded bg-accent/15 text-accent border border-accent/30 hover:bg-accent/20 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Import as table
           </button>

@@ -28,6 +28,7 @@ import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 import { redactPii, looksLikePii } from "@/lib/utils/redact-pii";
 import { PROVIDER_META, MODELS_BY_PROVIDER, findModel } from "@/lib/llm/pricing";
 import type { ProviderId } from "@/lib/llm/types";
+import { themed, tint } from "@/lib/utils/theme-color";
 
 // Lazy-load — adapter chunks stay async for users who only log
 // pairs they generated elsewhere.
@@ -46,6 +47,10 @@ const PAIRS_SHOWN = 30;
 interface PairPick {
   provider: ProviderId;
   model: string;
+}
+
+function winnerColor(winner: string): string {
+  return winner === "tie" ? "#888" : winner === "A" ? "#00f0ff" : "#ff00aa";
 }
 
 export function RlhfLogClient() {
@@ -304,7 +309,7 @@ export function RlhfLogClient() {
               {pickA && pickB && pairPrompt.trim().length > 0 && (
                 <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <div>
-                    <div className="text-xs uppercase tracking-wider text-cyan-400 font-mono mb-1">
+                    <div className="text-xs uppercase tracking-wider text-accent font-mono mb-1">
                       Side A · {PROVIDER_META[pickA.provider].name} ·{" "}
                       {findModel(pickA.provider, pickA.model)?.label ?? pickA.model}
                     </div>
@@ -322,7 +327,7 @@ export function RlhfLogClient() {
                     />
                   </div>
                   <div>
-                    <div className="text-xs uppercase tracking-wider text-pink-400 font-mono mb-1">
+                    <div className="text-xs uppercase tracking-wider text-accent-magenta font-mono mb-1">
                       Side B · {PROVIDER_META[pickB.provider].name} ·{" "}
                       {findModel(pickB.provider, pickB.model)?.label ?? pickB.model}
                     </div>
@@ -457,18 +462,8 @@ export function RlhfLogClient() {
                         <span
                           className="text-xs uppercase font-bold px-1.5 py-0.5 rounded"
                           style={{
-                            backgroundColor:
-                              x.winner === "tie"
-                                ? "#88888820"
-                                : x.winner === "A"
-                                  ? "#00f0ff20"
-                                  : "#ff00aa20",
-                            color:
-                              x.winner === "tie"
-                                ? "#888"
-                                : x.winner === "A"
-                                  ? "#00f0ff"
-                                  : "#ff00aa",
+                            backgroundColor: tint(winnerColor(x.winner), 13),
+                            color: themed(winnerColor(x.winner)),
                           }}
                         >
                           {x.winner}
@@ -484,12 +479,12 @@ export function RlhfLogClient() {
                     </div>
                     <p className="text-xs text-text mb-2 truncate">Prompt: {x.prompt}</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                      <div className="bg-surface rounded p-2 border border-cyan-500/20">
-                        <span className="text-cyan-400 text-xs uppercase">A</span>
+                      <div className="bg-surface rounded p-2 border border-accent/40">
+                        <span className="text-accent text-xs uppercase">A</span>
                         <div className="text-sub mt-1">{x.responseA.slice(0, 200)}</div>
                       </div>
-                      <div className="bg-surface rounded p-2 border border-pink-500/20">
-                        <span className="text-pink-400 text-xs uppercase">B</span>
+                      <div className="bg-surface rounded p-2 border border-accent-magenta/40">
+                        <span className="text-accent-magenta text-xs uppercase">B</span>
                         <div className="text-sub mt-1">{x.responseB.slice(0, 200)}</div>
                       </div>
                     </div>

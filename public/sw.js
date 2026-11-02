@@ -14,7 +14,7 @@
  * switch this worker off with NEXT_PUBLIC_DISABLE_SW=1 (see
  * components/pwa/service-worker.tsx), which unregisters it.
  */
-const VERSION = "v1";
+const VERSION = "v2";
 const STATIC_CACHE = `at-static-${VERSION}`;
 const PAGE_CACHE = `at-pages-${VERSION}`;
 const MAX_PAGES = 60;
@@ -52,7 +52,7 @@ function cacheable(response) {
   return !/no-store/i.test(cc) && !response.headers.has("Set-Cookie");
 }
 
-const OFFLINE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline | Agile Toolkit</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#06080f;color:#e6edf6;font:16px/1.5 system-ui,sans-serif;padding:24px}main{max-width:28rem}a{color:#00e1ff}</style></head><body><main><h1>You're offline</h1><p>This page hasn't been opened on this device yet, so it isn't available offline. Tools you've used before still work. Your data is saved in this browser.</p><p><a href="/">Go to the home page</a></p></main></body></html>`;
+const OFFLINE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline | Agile Toolkit</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f7f1e6;color:#1d1a18;font:16px/1.5 system-ui,sans-serif;padding:24px}main{max-width:28rem;background:#fffcf5;border:2px solid #2b2622;border-radius:9px 7px 10px 6px/7px 10px 6px 9px;box-shadow:3px 3px 0 0 #1d1a18;padding:24px}a{color:#873a16}</style></head><body><main><h1>You're offline</h1><p>This page hasn't been opened on this device yet, so it isn't available offline. Tools you've used before still work. Your data is saved in this browser.</p><p><a href="/">Go to the home page</a></p></main></body></html>`;
 
 async function handleNavigation(request) {
   const cache = await caches.open(PAGE_CACHE);

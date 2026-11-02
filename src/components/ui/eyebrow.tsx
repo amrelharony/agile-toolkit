@@ -11,15 +11,9 @@ export interface EyebrowProps extends React.HTMLAttributes<HTMLElement> {
  * Small label above or beside content ("Total capacity", "Last 7 days").
  *
  * Replaces the hand-rolled `font-mono text-[10px] uppercase tracking-wider`
- * pattern (279 lines, much of it at 8–10 px): 12 px sans, semibold, a little
- * letter-spacing, muted colour. Keep the text short; uppercase is fine for
- * one or two words.
+ * pattern (279 lines, much of it at 8–10 px): 12 px sans, semibold, muted
+ * colour, in sentence case like the comic's lettering. Keep the text short.
  */
 export function Eyebrow({ as: Tag = "p", className, ...props }: EyebrowProps) {
-  return (
-    <Tag
-      className={cn("text-xs font-semibold uppercase tracking-wide text-sub", className)}
-      {...props}
-    />
-  );
+  return <Tag className={cn("text-xs font-semibold text-sub", className)} {...props} />;
 }

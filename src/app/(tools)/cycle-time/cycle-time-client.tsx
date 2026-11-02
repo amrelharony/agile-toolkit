@@ -463,7 +463,7 @@ export function CycleTimeClient() {
                       <div className="space-y-6">
                         <div className="rounded-xl border border-accent/20 bg-accent/5 p-5 text-center">
                           <p className="mb-1 text-sm text-sub">Service level expectation</p>
-                          <p className="text-2xl font-display font-bold text-text">
+                          <p className="text-2xl font-data font-bold text-text">
                             <span className="text-accent">{sle.pct}%</span> of items finish within{" "}
                             <span className="text-accent-green">{sle.days} days</span>
                           </p>

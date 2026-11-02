@@ -19,7 +19,7 @@ export interface CardColor {
 }
 
 export const CARD_COLORS: readonly CardColor[] = [
-  { value: "#00f0ff", label: "Cyan", dot: "bg-accent", border: "border-accent/30" },
+  { value: "#00f0ff", label: "Accent", dot: "bg-accent", border: "border-accent/30" },
   { value: "#a78bfa", label: "Purple", dot: "bg-accent-3", border: "border-accent-3/30" },
   { value: "#34d399", label: "Green", dot: "bg-accent-green", border: "border-accent-green/30" },
   { value: "#fb923c", label: "Orange", dot: "bg-accent-amber", border: "border-accent-amber/30" },

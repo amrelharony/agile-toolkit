@@ -168,7 +168,7 @@ function ConnectorLayerImpl({
         }
 
         const selected = selectedSet.has(c.id);
-        const stroke = selected ? "#00f0ff" : c.stroke;
+        const stroke = selected ? "var(--accent)" : c.stroke;
         const strokeWidth = selected ? c.strokeWidth + 1 : c.strokeWidth;
         const interactive = !!onConnectorPointerDown;
         return (
@@ -243,7 +243,7 @@ function ConnectorLayerImpl({
           y1={previewSource.y + previewSource.h / 2}
           x2={preview.toWorld.x}
           y2={preview.toWorld.y}
-          stroke="#00f0ff"
+          stroke="var(--accent)"
           strokeWidth={2}
           strokeDasharray="6 4"
           opacity={0.7}
@@ -334,7 +334,7 @@ function ConnectorLabelEditor({
           fontSize: 12,
           textAlign: "center",
           padding: "0 4px",
-          border: "1px solid #00f0ff",
+          border: "1px solid var(--accent)",
           borderRadius: 3,
           background: "#0b0f17",
           color: "#e5e7eb",

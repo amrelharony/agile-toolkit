@@ -139,6 +139,8 @@ const config: Config = {
 
         // ── shadcn/ui standard keys ──
         border: themeColor("--border"),
+        // The quieter line: table rows, chart grids, `divide-*`.
+        rule: themeColor("--rule"),
         input: themeColor("--input"),
         ring: themeColor("--ring"),
         background: themeColor("--background"),
@@ -167,8 +169,7 @@ const config: Config = {
         // ── Backward-compatible aliases (existing tool pages use these) ──
         "accent-cyan": themeColor("--accent"),
         // Neon accents and status aliases follow the theme too: the raw hex
-        // values were unreadable on the light theme (#00ff88 is 1.3:1 on
-        // white).
+        // values were unreadable on paper (#00ff88 is 1.3:1 on white).
         "accent-magenta": themeColor("--neon-magenta"),
         "accent-green": themeColor("--neon-green"),
         "accent-amber": themeColor("--neon-amber"),
@@ -181,8 +182,11 @@ const config: Config = {
         sans: ["var(--font-inter)", "Inter", "sans-serif"],
         mono: ["var(--font-mono)", "JetBrains Mono", "monospace"],
         serif: ["var(--font-serif)", "Source Serif 4", "Georgia", "serif"],
+        // Hand lettering for headings, through a token so high contrast can
+        // swap it for the plain face. Tables, numbers and code stay on
+        // font-data / font-mono: those are never lettered by hand.
+        display: ["var(--font-display-face)", "var(--font-inter)", "sans-serif"],
         // Backward-compatible aliases
-        display: ["var(--font-mono)", "monospace"],
         body: ["var(--font-inter)", "sans-serif"],
         data: ["var(--font-mono)", "monospace"],
       },
@@ -230,53 +234,60 @@ const config: Config = {
         "tool-content": "80rem", // 1280px
         "tool-narrow": "48rem", // 768px
       },
+      // The plain `border` width, as a token: a colour token can't set it, and
+      // ~5,000 call sites use the bare class. `border-2` and friends are as ever.
+      // divideWidth inherits this.
+      borderWidth: {
+        DEFAULT: "var(--line-w)",
+      },
+      divideColor: {
+        // `divide-border` draws rows inside a list, so it takes the quieter line.
+        border: themeColor("--rule"),
+      },
+      // Small and slightly uneven, like a pen box. `rounded-full` stays round for
+      // avatars and dots; nothing else is pill-shaped.
       borderRadius: {
-        xs: "4px",
-        sm: "6px",
-        md: "8px",
+        xs: "2px",
+        sm: "3px",
+        md: "4px",
         DEFAULT: "var(--radius)",
-        lg: "12px",
-        xl: "14px",
-        "2xl": "16px",
-        "3xl": "20px",
-        pill: "100px",
+        lg: "6px",
+        xl: "8px",
+        "2xl": "10px",
+        "3xl": "12px",
+        pill: "12px",
       },
+      // Hard offsets from globals.css (--shadow-1…6), so high contrast can turn
+      // them all off. The old glow and neon keys stay, and follow the look.
       boxShadow: {
-        sm: "0 2px 8px rgba(0, 0, 0, 0.3)",
-        md: "0 8px 24px rgba(0, 0, 0, 0.2)",
-        lg: "0 8px 32px rgba(0, 0, 0, 0.3)",
-        glow: "0 8px 32px rgba(0, 225, 255, 0.1)",
-        "glow-strong": "0 8px 32px rgba(0, 225, 255, 0.25)",
-        "glow-active": "0 6px 28px rgba(0, 225, 255, 0.22)",
-        inset: "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
-        card: "0 8px 32px -8px var(--glow)",
-        modal:
-          "0 32px 80px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04) inset, 0 0 80px rgba(0, 225, 255, 0.04)",
-        // Backward-compatible neon aliases
-        "neon-cyan": "0 0 20px rgba(0, 225, 255, 0.3)",
-        "neon-magenta": "0 0 20px rgba(255, 0, 170, 0.3)",
-        "neon-green": "0 0 20px rgba(0, 255, 136, 0.3)",
-        "neon-amber": "0 0 20px rgba(255, 170, 0, 0.3)",
+        DEFAULT: "var(--shadow-2)",
+        sm: "var(--shadow-1)",
+        md: "var(--shadow-2)",
+        lg: "var(--shadow-3)",
+        xl: "var(--shadow-4)",
+        "2xl": "var(--shadow-6)",
+        glow: "var(--shadow-3)",
+        "glow-strong": "var(--shadow-4)",
+        "glow-active": "var(--shadow-2)",
+        inset: "inset 0 0 0 0 transparent",
+        card: "var(--shadow-3)",
+        modal: "var(--shadow-6)",
+        // Backward-compatible neon aliases, in the colour the name promised.
+        "neon-cyan": "2px 2px 0 0 var(--accent)",
+        "neon-magenta": "2px 2px 0 0 var(--neon-magenta)",
+        "neon-green": "2px 2px 0 0 var(--neon-green)",
+        "neon-amber": "2px 2px 0 0 var(--neon-amber)",
       },
+      // Flat washes under the old names: paint doesn't blend in a straight line.
       backgroundImage: {
-        "gradient-accent": "linear-gradient(90deg, #00e1ff, #6366f1)",
-        "gradient-spectrum": "linear-gradient(90deg, #00e1ff, #6366f1, #a855f7)",
-        "gradient-diagonal": "linear-gradient(135deg, #00e1ff, #6366f1)",
+        "gradient-accent": "linear-gradient(var(--accent), var(--accent))",
+        "gradient-spectrum": "linear-gradient(var(--accent), var(--accent))",
+        "gradient-diagonal": "linear-gradient(var(--accent), var(--accent))",
         "gradient-shimmer":
           "linear-gradient(105deg, transparent 40%, var(--glow) 50%, transparent 60%)",
       },
       keyframes: {
         // Design system animations
-        "mesh-float-1": {
-          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
-          "33%": { transform: "translate(5vw, 8vh) scale(1.1)" },
-          "66%": { transform: "translate(-3vw, -5vh) scale(0.95)" },
-        },
-        "mesh-float-2": {
-          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
-          "33%": { transform: "translate(-8vw, -4vh) scale(1.15)" },
-          "66%": { transform: "translate(4vw, 6vh) scale(0.9)" },
-        },
         "fade-in": {
           from: { opacity: "0" },
           to: { opacity: "1" },
@@ -303,17 +314,14 @@ const config: Config = {
           "0%": { backgroundPosition: "200% 0" },
           "100%": { backgroundPosition: "-200% 0" },
         },
+        // An ink shadow pressed down and let go, no glow.
         "glow-pulse": {
           "0%, 100%": {
-            boxShadow: "0 0 0 0 rgba(0, 225, 255, 0)",
+            boxShadow: "0 0 0 0 transparent",
           },
           "50%": {
-            boxShadow: "0 0 12px 2px rgba(0, 225, 255, 0.12)",
+            boxShadow: "2px 2px 0 0 var(--accent)",
           },
-        },
-        "gradient-shift": {
-          "0%, 100%": { backgroundPosition: "0% 50%" },
-          "50%": { backgroundPosition: "100% 50%" },
         },
         float: {
           "0%, 100%": { transform: "translateY(0)" },
@@ -338,8 +346,6 @@ const config: Config = {
         },
       },
       animation: {
-        "mesh-1": "mesh-float-1 20s ease-in-out infinite",
-        "mesh-2": "mesh-float-2 25s ease-in-out infinite",
         "fade-in": "fade-in 0.4s ease-out forwards",
         "slide-up": "slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards",
         rise: "rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) both",
@@ -347,7 +353,6 @@ const config: Config = {
         shimmer: "shimmer 0.8s ease forwards",
         skeleton: "skeleton-shimmer 1.5s ease-in-out infinite",
         "glow-pulse": "glow-pulse 2s ease-in-out infinite",
-        "gradient-text": "gradient-shift 6s ease-in-out infinite",
         float: "float 3s ease-in-out infinite",
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
@@ -376,6 +381,11 @@ const config: Config = {
         overlay: "9999",
       },
     },
+  },
+  // No glass: `backdrop-blur-*` emits nothing, so a translucent bar just shows the
+  // paper behind it and the page pays for no blur layers.
+  corePlugins: {
+    backdropBlur: false,
   },
   // Tailwind resolves plugins synchronously at config load, so `require` is
   // the idiomatic form here and ESM `import` is not equivalent. These two

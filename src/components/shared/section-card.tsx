@@ -114,7 +114,9 @@ export function SectionCard({
             )}
             <span className="min-w-0 truncate">{title}</span>
             {titleSuffix && (
-              <span className="text-sm text-sub font-normal ml-1 shrink-0">{titleSuffix}</span>
+              <span className="font-sans text-sm text-sub font-normal ml-1 shrink-0">
+                {titleSuffix}
+              </span>
             )}
           </CardTitle>
           {actions && (

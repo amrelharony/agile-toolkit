@@ -33,6 +33,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PROMPT_REGISTRY_ACTIONS } from "@/lib/history/event-actions";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
 import { toast } from "@/lib/utils/toast";
+import { themed, tint } from "@/lib/utils/theme-color";
 
 // Lazy-load the run panel so prompt-registry stays out of the BYOK adapter
 // chunk for users who never use the Test feature.
@@ -305,7 +306,10 @@ export function PromptRegistryClient() {
                           </span>
                           <span
                             className="text-xs uppercase px-1.5 py-0.5 rounded font-bold"
-                            style={{ backgroundColor: statusColor + "20", color: statusColor }}
+                            style={{
+                              backgroundColor: tint(statusColor, 13),
+                              color: themed(statusColor),
+                            }}
                           >
                             {p.status}
                           </span>

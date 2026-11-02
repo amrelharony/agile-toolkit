@@ -45,7 +45,14 @@ import { installLocalDataChannelListener } from "@/lib/utils/clear-local-data";
 import { KudosHeaderBeacon } from "@/lib/kudos/beacon/header-beacon";
 import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
 import { cn } from "@/lib/utils";
-import { setThemePreference, useAppliedTheme } from "@/lib/theme/theme";
+import { setThemePreference, useAppliedTheme, type AppliedTheme } from "@/lib/theme/theme";
+
+/** What each theme is called, here and in Settings → Appearance. */
+const THEME_LABEL: Record<AppliedTheme, string> = {
+  light: "Comic",
+  dark: "Night",
+  hc: "High contrast",
+};
 
 interface HeaderProps {
   onOpenSearch: () => void;
@@ -71,7 +78,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
   const beaconHeader = useKudosSettingsStore((s) => s.beaconHeader);
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
-  // Theme quick-switch: dark → light → hc (high-contrast) → dark. The full
+  // Theme quick-switch: comic → night → high contrast → comic. The full
   // choice, including "System", is in Settings → Appearance (lib/theme).
   const theme = useAppliedTheme();
   const [isMac, setIsMac] = useState(false);
@@ -83,8 +90,9 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
     setMounted(true);
   }, []);
 
+  const nextTheme = theme === "light" ? "dark" : theme === "dark" ? "hc" : "light";
   const cycleTheme = () => {
-    setThemePreference(theme === "dark" ? "light" : theme === "light" ? "hc" : "dark");
+    setThemePreference(nextTheme);
   };
 
   // Another tab cleared this browser's toolkit data (visitor "Clear data",
@@ -126,9 +134,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
         "flex items-center gap-1 xs:gap-2 px-3 sm:px-4 md:px-6 h-14",
         "sticky top-0 z-header pt-safe pr-safe",
         "transition-all duration-default ease-spring",
-        scrolled
-          ? "glass-elevated border-b border-border"
-          : "bg-transparent border-b border-transparent"
+        scrolled ? "bg-card border-b border-border" : "bg-transparent border-b border-transparent"
       )}
     >
       {/* Mobile hamburger — hidden on md+. Touch-target compliant (44×44). */}
@@ -211,7 +217,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
           // Mobile: 36×36 icon button (acceptable inside a touch-padded header)
           "w-9 h-9 justify-center rounded-lg text-sub hover:text-text hover:bg-accent/5",
           // Desktop: full pill search
-          "md:w-full md:max-w-[280px] md:h-auto md:px-4 md:py-1.5 md:justify-between md:rounded-xl md:glass md:border md:border-border md:text-sm md:hover:border-accent/15"
+          "md:w-full md:max-w-[280px] md:h-auto md:px-4 md:py-1.5 md:justify-between md:rounded-lg md:bg-card md:border md:border-border md:text-sm md:hover:border-accent"
         )}
         aria-label="Open search"
       >
@@ -278,8 +284,8 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
           // R9: WCAG 3.2.4 — tell the user what mode they'd switch TO.
           // The previous label only said the current mode, leaving SR
           // and cognitively-impaired users guessing what the click does.
-          aria-label={`Switch to ${theme === "dark" ? "light" : theme === "light" ? "high contrast" : "dark"} theme (currently ${theme === "dark" ? "dark" : theme === "light" ? "light" : "high contrast"})`}
-          title={`Theme: ${theme === "dark" ? "Dark" : theme === "light" ? "Light" : "High contrast"} — click to switch to ${theme === "dark" ? "Light" : theme === "light" ? "High contrast" : "Dark"}`}
+          aria-label={`Switch to ${THEME_LABEL[nextTheme]} theme (currently ${THEME_LABEL[theme]})`}
+          title={`Theme: ${THEME_LABEL[theme]}. Click for ${THEME_LABEL[nextTheme]}.`}
         >
           {!mounted ? (
             <div className="w-4 h-4" aria-hidden="true" />

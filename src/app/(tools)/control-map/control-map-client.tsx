@@ -325,7 +325,7 @@ function ControlRow({
           </div>
         </div>
         {STATUS_NOTE[c.status] && (
-          <div className="text-xs text-success/80">{STATUS_NOTE[c.status]}</div>
+          <div className="text-xs text-success">{STATUS_NOTE[c.status]}</div>
         )}
       </CardContent>
     </Card>

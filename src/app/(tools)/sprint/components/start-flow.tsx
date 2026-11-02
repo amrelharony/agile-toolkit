@@ -153,7 +153,7 @@ function TeamQuickAdd() {
           {roster.map((m, i) => (
             <li
               key={m.id}
-              className="inline-flex items-center gap-0.5 rounded-full border border-border bg-surface py-0.5 pl-2.5 pr-0.5 text-xs text-text"
+              className="inline-flex items-center gap-0.5 rounded-md border border-border bg-surface py-0.5 pl-2.5 pr-0.5 text-xs text-text"
             >
               {m.name}
               <IconButton
@@ -211,7 +211,7 @@ export function StartFlow({
         </p>
       </EmptyState>
 
-      <div className="rounded-lg border border-border bg-card p-4 sm:p-6">
+      <div className="panel p-4 sm:p-6">
         <ol className="space-y-5">
           <Step n={1} title="Add your team" done={roster.length > 0}>
             <TeamQuickAdd />

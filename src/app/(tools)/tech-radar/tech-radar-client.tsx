@@ -26,6 +26,7 @@ import { generateTechRadarPrompts } from "@/lib/ai-prompts/tech-radar";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
+import { themed, tint } from "@/lib/utils/theme-color";
 
 type Ring = "adopt" | "trial" | "assess" | "hold";
 type Quadrant = "languages_frameworks" | "tools" | "platforms" | "techniques";
@@ -432,8 +433,8 @@ export function TechRadarClient() {
                     <path
                       key={`${qi}-${ri}`}
                       d={quadrantWedge(qi, ri)}
-                      fill={ri % 2 === 0 ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)"}
-                      stroke="rgba(255,255,255,0.08)"
+                      fill={tint("var(--sub)", ri % 2 === 0 ? 3 : 6)}
+                      stroke="var(--rule)"
                       strokeWidth={1}
                     />
                   ))
@@ -444,14 +445,14 @@ export function TechRadarClient() {
                   y1={RADAR_CENTER - RADAR_RADIUS}
                   x2={RADAR_CENTER}
                   y2={RADAR_CENTER + RADAR_RADIUS}
-                  stroke="rgba(255,255,255,0.18)"
+                  stroke="var(--rule)"
                 />
                 <line
                   x1={RADAR_CENTER - RADAR_RADIUS}
                   y1={RADAR_CENTER}
                   x2={RADAR_CENTER + RADAR_RADIUS}
                   y2={RADAR_CENTER}
-                  stroke="rgba(255,255,255,0.18)"
+                  stroke="var(--rule)"
                 />
                 {/* Ring labels (only on the right edge of each ring, top-right
                   quadrant, so they don't overlap blips). */}
@@ -463,7 +464,7 @@ export function TechRadarClient() {
                       x={RADAR_CENTER + ringMidR}
                       y={RADAR_CENTER - 4}
                       fontSize={9}
-                      fill="rgba(255,255,255,0.45)"
+                      fill="var(--sub)"
                       textAnchor="middle"
                       className="font-data"
                     >
@@ -477,13 +478,20 @@ export function TechRadarClient() {
                   return (
                     <g key={blip.id} data-blip-id={blip.id}>
                       <title>{`${num}. ${blip.name} — ${blip.ring}`}</title>
-                      <circle cx={x} cy={y} r={7} fill={color} stroke="#0a0a0f" strokeWidth={1} />
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={7}
+                        fill={themed(color)}
+                        stroke="var(--bg)"
+                        strokeWidth={1}
+                      />
                       <text
                         x={x}
                         y={y}
                         fontSize={num >= 100 ? 5.5 : 7.5}
                         fontWeight={700}
-                        fill="#0a0a0f"
+                        fill="var(--bg)"
                         textAnchor="middle"
                         dominantBaseline="central"
                         pointerEvents="none"
@@ -501,7 +509,7 @@ export function TechRadarClient() {
                 <span key={r.id} className="flex items-center gap-1 text-sub">
                   <span
                     className="inline-block w-2.5 h-2.5 rounded-full"
-                    style={{ background: r.color }}
+                    style={{ background: themed(r.color) }}
                   />
                   {r.label}
                 </span>
@@ -544,7 +552,7 @@ export function TechRadarClient() {
               <div key={r.id} className="rounded-lg border border-border bg-surface p-3">
                 <div
                   className="text-xs uppercase tracking-wider mb-2 font-data"
-                  style={{ color: r.color }}
+                  style={{ color: themed(r.color) }}
                 >
                   {r.label} ({blipsByRing[r.id].length})
                 </div>
@@ -557,7 +565,7 @@ export function TechRadarClient() {
                         <div className="flex items-start gap-2">
                           <span
                             className="shrink-0 min-w-[1.25rem] h-5 px-1 rounded-full text-xs font-bold font-data flex items-center justify-center text-bg"
-                            style={{ background: r.color }}
+                            style={{ background: themed(r.color) }}
                             title={`Blip ${blipNumber.get(b.id)} on the radar`}
                           >
                             {blipNumber.get(b.id)}
