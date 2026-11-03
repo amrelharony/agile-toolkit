@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { BOOK_EPISODES, bookEpisode } from "@/lib/comics/book-episodes";
 import { comicHref, parseEp } from "@/lib/comics/entry";
+import { panelImageUrl } from "@/lib/comics/images";
+import { jsonLdScript, storyJsonLd } from "@/lib/comics/rights";
 import { getReleasedStory, getStoryExtras, listReleasedWeekly } from "@/lib/comics/store";
 import { NOT_FOUND_METADATA, comicMetadata } from "../../comic-metadata";
 import { LatestComics } from "../../components/comic-card";
@@ -51,6 +53,8 @@ export async function generateMetadata({ params }: PosterPageProps): Promise<Met
     description: story?.lesson ?? book.lesson,
     canonical: comicHref(ep),
     index: false,
+    // A poster link shared from the wall previews with the story, like the story's own link.
+    image: story?.sharePath ? panelImageUrl(story.sharePath) : null,
   });
 }
 
@@ -73,6 +77,12 @@ export default async function ComicPosterPage({ params }: PosterPageProps) {
           and the intro's fixed overlay would cover the wrapper, not the screen. */}
       <PosterIntro ep={ep} title={title} panels={story?.panels ?? []} />
       <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>
+        {story ? (
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: jsonLdScript(storyJsonLd(story)) }}
+          />
+        ) : null}
         <EntryBeacon entry="poster" ep={ep} />
         <div className="space-y-4">
           {story ? <ComicPanels panels={story.panels} title={title} /> : null}
