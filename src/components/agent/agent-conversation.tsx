@@ -107,7 +107,7 @@ export function AgentConversation() {
   const onSend = async () => {
     const text = input.trim();
     if (!text || streaming || !user) return;
-    // Mascot commands (/mascot-hat, /mascot-aura, /dance) run locally, not the agent.
+    // Mascot commands (/mascot-aura, /dance) run locally, not the agent.
     if (handleMascotCommand(text)) {
       setInput("");
       return;

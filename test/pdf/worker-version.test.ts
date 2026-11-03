@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
  * version … does not match the Worker version …"), and the workers in
  * public/ are committed copies that nothing refreshes automatically. These
  * checks turn a pdfjs-dist bump without `npm run pdf:worker` into a red test
- * instead of a broken comic reader and Canvas PDF import in production.
+ * instead of a broken Canvas PDF import in production.
  */
 
 const root = path.resolve(__dirname, "../..");

@@ -25,20 +25,6 @@
 // never bind. Add the dev-only allowance back so `npm run dev` works.
 const isDev = process.env.NODE_ENV !== "production";
 
-// The mascot GLB (~2.7 MB, gitignored) is served from a CDN/LFS host in prod via
-// NEXT_PUBLIC_MASCOT_GLB_URL. When that's an absolute URL, GLTFLoader fetches it
-// (connect-src) so its origin must be whitelisted; a relative/same-origin path
-// is already covered by 'self'. Returns " https://cdn.example" or "".
-function mascotGlbOrigin() {
-  const u = process.env.NEXT_PUBLIC_MASCOT_GLB_URL;
-  if (!u) return "";
-  try {
-    return ` ${new URL(u).origin}`;
-  } catch {
-    return ""; // relative path → covered by 'self'
-  }
-}
-
 const cspDirectives = [
   "default-src 'self'",
   // 'unsafe-inline' stays in both modes because Next still emits an inline
@@ -48,12 +34,11 @@ const cspDirectives = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.supabase.co https://*.googleusercontent.com https://avatars.githubusercontent.com",
-  // `blob:` is required by connect-src (not just img-src): three's GLTFLoader
-  // decodes the mascot's embedded texture via ImageBitmapLoader, which does
-  // `fetch(blob:…)` — governed by connect-src. Without it the texture fails to
-  // load ("THREE.GLTFLoader: Couldn't load texture blob:…") and the mascot
-  // renders as an untextured white clay model.
-  `connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://api.z.ai https://open.bigmodel.cn https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://api.open-meteo.com${mascotGlbOrigin()}`,
+  // `blob:` in connect-src: nothing fetches a blob: URL since Amr replaced the
+  // 3D mascot, but the book's 3D model (deferred until the .glb arrives) will
+  // load with a GLTFLoader, whose ImageBitmapLoader does `fetch(blob:…)` for a
+  // model's embedded textures. Only this origin's own scripts can make one.
+  "connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://api.z.ai https://open.bigmodel.cn https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://api.open-meteo.com",
   "frame-src 'self' https://accounts.google.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
@@ -97,10 +82,9 @@ const nextConfig = {
         source: "/(.*)",
         headers: securityHeaders,
       },
-      // Mascot model: committed under a content-hashed name
-      // (components/agent/mascot/mascot-asset.ts), so a changed model always
-      // gets a new URL and the current one can be cached forever. The
-      // Supabase-hosted copy it replaces was served with `no-cache`.
+      // Amr's sprite sheet: committed under a content-hashed name
+      // (components/agent/mascot/mascot-asset.ts), so a changed sheet always
+      // gets a new URL and the current one can be cached forever.
       {
         source: "/mascot/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],

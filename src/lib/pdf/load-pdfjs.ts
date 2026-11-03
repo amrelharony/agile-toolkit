@@ -1,13 +1,12 @@
 /**
- * Shared pdf.js loader — used by the "Agile at Work" comic reader and the
- * Canvas PDF import, so both run the same library + worker pair.
+ * pdf.js loader for the Canvas PDF import (the comic's PDF reader that also
+ * used it was retired when the comic moved to /comics).
  *
  * Why the LEGACY build: the modern pdfjs-dist 5.x build calls very new
  * built-ins (Math.sumPrecise, Map.prototype.getOrInsertComputed,
  * Promise.try) with no polyfills, so it throws on older Safari / iOS /
- * Chromium. That was tolerable for an owner-only canvas import; it isn't
- * for a public reader. The legacy build bundles the polyfills for roughly
- * +20 KB gzipped.
+ * Chromium, and Canvas is open to every visitor, on whatever browser they
+ * have. The legacy build bundles the polyfills for roughly +20 KB gzipped.
  *
  * The worker is a committed byte copy of
  * node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs, served

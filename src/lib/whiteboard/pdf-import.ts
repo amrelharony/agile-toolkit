@@ -109,7 +109,7 @@ export async function pdfToImages(
   }
   // Dynamic import — paid only on first PDF drop. The shared loader picks
   // the legacy build (broad browser support) and points workerSrc at the
-  // same-origin copy in /public, shared with the comic reader.
+  // same-origin copy in /public.
   let pdfjs: Pdfjs;
   try {
     pdfjs = await loadPdfjs();
