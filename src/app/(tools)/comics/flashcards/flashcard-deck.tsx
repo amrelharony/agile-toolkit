@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, RotateCcw, Shuffle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,10 +26,24 @@ export function FlashcardDeck({ cards }: { cards: readonly StudyCard[] }) {
   const [deck, setDeck] = useState<readonly StudyCard[]>(cards);
   const [at, setAt] = useState(0);
   const [turned, setTurned] = useState(false);
+  const previous = useRef<HTMLButtonElement>(null);
+  const next = useRef<HTMLButtonElement>(null);
+  const pressed = useRef<"previous" | "next" | null>(null);
+
+  // At either end the button just pressed is disabled, which drops its focus:
+  // hand it to the other one.
+  useEffect(() => {
+    const was = pressed.current;
+    pressed.current = null;
+    if (was === "next" && at === deck.length - 1) previous.current?.focus();
+    if (was === "previous" && at === 0) next.current?.focus();
+  }, [at, deck.length]);
+
   const card = deck[at];
   if (!card) return null;
 
-  const go = (to: number) => {
+  const go = (to: number, by?: "previous" | "next") => {
+    pressed.current = by ?? null;
     setAt(to);
     setTurned(false);
   };
@@ -66,15 +80,22 @@ export function FlashcardDeck({ cards }: { cards: readonly StudyCard[] }) {
           <RotateCcw aria-hidden="true" />
           {turned ? "Back to the title" : "Show the lesson"}
         </Button>
-        <Button type="button" variant="outline" disabled={at === 0} onClick={() => go(at - 1)}>
+        <Button
+          ref={previous}
+          type="button"
+          variant="outline"
+          disabled={at === 0}
+          onClick={() => go(at - 1, "previous")}
+        >
           <ArrowLeft aria-hidden="true" />
           Previous
         </Button>
         <Button
+          ref={next}
           type="button"
           variant="outline"
           disabled={at === deck.length - 1}
-          onClick={() => go(at + 1)}
+          onClick={() => go(at + 1, "next")}
         >
           Next
           <ArrowRight aria-hidden="true" />

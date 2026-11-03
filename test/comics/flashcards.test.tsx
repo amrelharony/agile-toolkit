@@ -70,6 +70,8 @@ describe("the flashcards", () => {
     expect(within(deck()).getByRole("heading", { name: WEEKLY.title })).toBeTruthy();
     expect(within(deck()).queryByText(WEEKLY.lesson)).toBeNull();
     expect(within(deck()).getByRole("button", { name: /^Next/ })).toBeDisabled();
+    // Next is disabled on the last card, so focus goes to Previous.
+    expect(document.activeElement).toBe(within(deck()).getByRole("button", { name: "Previous" }));
   });
 
   it("shuffle into a new order, from the first card", async () => {
