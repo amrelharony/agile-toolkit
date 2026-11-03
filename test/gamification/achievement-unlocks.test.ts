@@ -68,4 +68,35 @@ describe("gamification achievement unlocks (regression)", () => {
     dispatch({ name: "logo-hover", meta: { count: 3 } });
     expect(useVDnaStore.getState().unlocked).not.toContain("logo-whisperer");
   });
+
+  describe("reading the comic", () => {
+    const read = (ep: number, weekStreak = 1) =>
+      dispatch({ name: "tool:comics:completed", meta: { ep, total: ep, weekStreak } });
+
+    it("unlocks First Story on the first story read, and Regular Reader on the tenth", () => {
+      read(1);
+      expect(useVDnaStore.getState().unlocked).toContain("first-story");
+      expect(useVDnaStore.getState().unlocked).not.toContain("ten-stories");
+      for (let ep = 2; ep <= 10; ep++) read(ep);
+      expect(useVDnaStore.getState().unlocked).toContain("ten-stories");
+    });
+
+    it("still gives Regular Reader at ten stories after a prestige reset cleared the counter", () => {
+      useVDnaStore.setState({ counters: {} });
+      read(10);
+      expect(useVDnaStore.getState().unlocked).toContain("ten-stories");
+    });
+
+    it("unlocks Weekly Reader at four weeks in a row, not before", () => {
+      read(1, 3);
+      expect(useVDnaStore.getState().unlocked).not.toContain("weekly-reader");
+      read(2, 4);
+      expect(useVDnaStore.getState().unlocked).toContain("weekly-reader");
+    });
+
+    it("unlocks Over to the Team when a story's question goes to the retro", () => {
+      dispatch({ name: "tool:comics:retro-question", meta: { ep: 1 } });
+      expect(useVDnaStore.getState().unlocked).toContain("squad-question");
+    });
+  });
 });

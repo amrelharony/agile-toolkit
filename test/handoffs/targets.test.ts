@@ -174,6 +174,21 @@ describe("retro-topic and retro-action", () => {
     expect(retroColumnFor(undefined)).toBe("start");
   });
 
+  it("put a question where the team talks things over, never in Stop, Mad or Drop", () => {
+    const column = (id: string) =>
+      retroColumnFor(
+        retroFormats.find((f) => f.id === id),
+        "question"
+      );
+    expect(retroFormats.map((f) => [f.id, column(f.id)])).toEqual(
+      retroFormats.map((f) => [f.id, expect.not.stringMatching(/^(?:stop|mad|drop|anchor|rocks)$/)])
+    );
+    expect(column("lean-coffee")).toBe("to-discuss");
+    ws().upsertRetroBoard(boardWith("4ls"));
+    sendHandoff("retro-topic", src({ tone: "question", title: "What can wait?" }), linkStore());
+    expect(board()!.cards.map((c) => c.columnKey)).toEqual(["learned"]);
+  });
+
   it("add to the current board without touching its cards", () => {
     const existing = boardWith("mad-sad-glad", {
       cards: [

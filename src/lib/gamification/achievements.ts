@@ -6,6 +6,41 @@ import type { Achievement } from "./types";
  * metadata — no behaviour.
  */
 export const achievements: Achievement[] = [
+  // ───── Reading the comic (4) ──────────────────────────────────────────
+  // A story counts once, when its end is reached (comics/story-actions).
+  {
+    id: "first-story",
+    title: "First Story",
+    description: "Read an Agile at Work story to the end.",
+    category: "discovery",
+    xp: 50,
+    icon: "BookOpen",
+  },
+  {
+    id: "ten-stories",
+    title: "Regular Reader",
+    description: "Read 10 Agile at Work stories.",
+    category: "discovery",
+    xp: 200,
+    icon: "Library",
+  },
+  {
+    id: "weekly-reader",
+    title: "Weekly Reader",
+    description: "Read a story in 4 weeks in a row.",
+    category: "streak",
+    xp: 250,
+    icon: "CalendarCheck",
+  },
+  {
+    id: "squad-question",
+    title: "Over to the Team",
+    description: "Send a story's question to your retro.",
+    category: "collaboration",
+    xp: 75,
+    icon: "MessagesSquare",
+  },
+
   // ───── Exploration (8) ──────────────────────────────────────────────────
   {
     id: "first-click",

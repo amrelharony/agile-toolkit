@@ -108,6 +108,17 @@ const rules: Partial<Record<string, Rule>> = {
   // counters["hover-total"], which nothing ever writes — same bug class as the
   // logo-whisperer fix below — so this could never unlock.
   "hover-hundred": (_e, _m, s) => (s.counters["hover"] ?? 0) >= 100,
+  // The comic: the story page dispatches tool:comics:completed once per story
+  // (lib/comics/reading), with the reader's week streak in its meta.
+  // The meta's total is this browser's reading record, which a prestige reset
+  // leaves alone; the counter it clears is only a second way in.
+  "first-story": (e, _m, s) =>
+    e === "tool:comics:completed" || (s.counters["tool:comics:completed"] ?? 0) >= 1,
+  "ten-stories": (e, m, s) =>
+    (e === "tool:comics:completed" && Number(m?.total) >= 10) ||
+    (s.counters["tool:comics:completed"] ?? 0) >= 10,
+  "weekly-reader": (e, m) => e === "tool:comics:completed" && Number(m?.weekStreak) >= 4,
+  "squad-question": (_e, _m, s) => (s.counters["tool:comics:retro-question"] ?? 0) >= 1,
   "night-owl": () => {
     const h = new Date().getHours();
     return h >= 0 && h < 5;

@@ -14,6 +14,8 @@ import { PosterIntro } from "../../components/intro/poster-intro";
 import { ReplayIntro } from "../../components/intro/replay-intro";
 import { ReadAheadLink } from "../../components/read-ahead-link";
 import { RightsNotice } from "../../components/rights-notice";
+import { ReadTracker } from "../../components/story-actions";
+import { TakeItToYourTeam } from "../../components/take-it-to-your-team";
 
 /**
  * What a poster's QR code opens, behind /comics?ep=NN&b=NN. People are standing
@@ -76,6 +78,12 @@ export default async function ComicPosterPage({ params }: PosterPageProps) {
             question={story?.squadQuestion ?? book.question}
             bookPage={story?.bookPage ?? book.bookPage}
           />
+          <TakeItToYourTeam
+            ep={ep}
+            question={story?.squadQuestion ?? book.question}
+            themes={story?.themes ?? []}
+          />
+          {story && story.panels.length > 0 ? <ReadTracker ep={ep} /> : null}
           {story ? null : <ArtComingSoon />}
           <LatestComics stories={latest} />
           <RightsNotice />
