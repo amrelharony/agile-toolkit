@@ -49,11 +49,12 @@ const FUTURE = "2999-01-01T07:00:00.000Z";
 const QUIZ = [{ question: "What comes first?", options: ["Everything", "One job"], answer: 1 }];
 const EXTRAS = { quiz: QUIZ, try_tool: "retro-actions" };
 
+// 28 before 27 on purpose: a read that forgets to order by ep returns them backwards.
 const ROWS = [
   row(1, "book", PAST),
   row(2, "book", null),
-  row(27, "weekly", OLDER),
   { ...row(28, "weekly", PAST), ...EXTRAS },
+  row(27, "weekly", OLDER),
   { ...row(29, "weekly", FUTURE), ...EXTRAS },
   { ...row(30, "weekly", null), ...EXTRAS },
 ];

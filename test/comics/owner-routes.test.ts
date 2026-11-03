@@ -236,26 +236,48 @@ const ROUTES: [string, unknown, string, object?][] = [
   ["PUT /stories/27/extras", extras.PUT, "PUT", { ep: "27" }],
 ];
 
-/** "PATCH /stories/[ep]" for every method a route file under api/comics exports through ownerRoute. */
-function ownerRoutesOnDisk(): string[] {
+/**
+ * The public forms, the middleware's exact-match bypasses (isBypassPath). Each
+ * checks its own Origin and limits; nothing else under api/comics may skip the
+ * owner check.
+ */
+const PUBLIC = ["POST /guestbook", "POST /hit", "POST /licence"];
+
+const METHOD = "GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS";
+
+/**
+ * Every HTTP method a route file under api/comics exports, as "PATCH /stories/[ep]",
+ * split by whether ownerRoute wraps it. A re-export counts as not wrapped.
+ */
+function routesOnDisk(): { owner: string[]; other: string[] } {
   const root = path.resolve(__dirname, "../../src/app/api/comics");
-  const found: string[] = [];
+  const owner: string[] = [];
+  const other: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (entry.name === "route.ts") {
+      else if (/^route\.[jt]sx?$/.test(entry.name)) {
         const source = readFileSync(full, "utf8");
         const route = path.relative(root, dir).split(path.sep).join("/");
-        const exported = source.matchAll(
-          /^export const (GET|POST|PUT|PATCH|DELETE) = ownerRoute/gm
+        const declared = new RegExp(
+          `^export\\s+(?:const|async\\s+function|function)\\s+(${METHOD})\\b(.*)$`,
+          "gm"
         );
-        for (const [, method] of Array.from(exported)) found.push(`${method} /${route}`);
+        for (const [, method, rest] of Array.from(source.matchAll(declared))) {
+          (/^\s*(?::[^=]*)?=\s*ownerRoute\b/.test(rest) ? owner : other).push(
+            `${method} /${route}`
+          );
+        }
+        const reexported = new RegExp(`^export\\s*\\{[^}]*\\b(${METHOD})\\b`, "gm");
+        for (const [, method] of Array.from(source.matchAll(reexported))) {
+          other.push(`${method} /${route}`);
+        }
       }
     }
   };
   walk(root);
-  return found.sort();
+  return { owner: owner.sort(), other: other.sort() };
 }
 
 describe("every owner route", () => {
@@ -263,7 +285,11 @@ describe("every owner route", () => {
     const listed = ROUTES.map(([name]) =>
       name.replace(/\/27(?=\/|$)/, "/[ep]").replace(/\/id$/, "/[id]")
     ).sort();
-    expect(listed).toEqual(ownerRoutesOnDisk());
+    expect(listed).toEqual(routesOnDisk().owner);
+  });
+
+  it("is everything but the public forms: a new route goes through ownerRoute or is listed", () => {
+    expect(routesOnDisk().other).toEqual(PUBLIC);
   });
 
   it.each(ROUTES)("%s answers 401 to someone signed out", async (_n, handler, method, params) => {

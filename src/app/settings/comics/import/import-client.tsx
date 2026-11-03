@@ -307,7 +307,7 @@ export function ImportClient() {
       />
       <ImportCard
         title="Book batch"
-        intro="The folder scripts/render-book-panels.py made from the finished posters, with Panels/Episode_NN inside it: the poster artwork zip's own files have no lettering. It needs 104 panels. Each arrives with a drafted description for you to approve in the review queue. Printed links show text until an episode's four are approved and you publish it from there."
+        intro="The folder scripts/render-book-panels.py made from the finished posters, with Panels/Episode_NN inside it: the poster artwork zip's own files have no lettering. It needs 104 panels. Each arrives with a drafted description for you to approve in the review queue. Printed links show text until an episode's four are approved: then you publish it from the review queue, or a later run that finishes its art publishes it."
         plan={planBook}
         canRun={isOwner}
       />
