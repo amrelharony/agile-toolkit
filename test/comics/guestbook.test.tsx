@@ -38,7 +38,9 @@ vi.mock("@/lib/squads/server", () => ({
     return {
       from: (table: string) => {
         expect(table).toBe("comic_guestbook");
-        const state: { id?: unknown; value?: unknown; op: string } = { op: "select" };
+        const state: { id?: unknown; value?: unknown; op: string; approved?: boolean } = {
+          op: "select",
+        };
         const chain: Record<string, unknown> = {
           select: (_cols: string, opts?: { head?: boolean }) => {
             if (opts?.head) {
@@ -67,8 +69,13 @@ vi.mock("@/lib/squads/server", () => ({
             }
             return chain;
           },
+          is: () => {
+            state.approved = false;
+            return chain;
+          },
           not: (...args: unknown[]) => {
             h.readFilter.push(args);
+            state.approved = true;
             return chain;
           },
           order: () => chain,
@@ -80,7 +87,12 @@ vi.mock("@/lib/squads/server", () => ({
             return { data: { id: state.id, ...(state.value as object) }, error: null };
           },
           then: (resolve: (v: unknown) => void) =>
-            resolve({ data: [{ id: "a", approved_at: null }], error: null }),
+            resolve({
+              data: state.approved
+                ? [{ id: "b", approved_at: "2026-11-02" }]
+                : [{ id: "a", approved_at: null }],
+              error: null,
+            }),
         };
         return chain;
       },
@@ -242,9 +254,15 @@ describe("the owner's guestbook routes", () => {
     expect(h.deleted).toEqual([]);
   });
 
-  it("list every note with how many are waiting", async () => {
+  it("list every waiting note, apart from the approved ones, with how many wait", async () => {
     const res = await listNotes(ownerReq("GET"), { params: {} });
-    expect(await res.json()).toEqual({ notes: [{ id: "a", approved_at: null }], waiting: 1 });
+    expect(await res.json()).toEqual({
+      notes: [
+        { id: "a", approved_at: null },
+        { id: "b", approved_at: "2026-11-02" },
+      ],
+      waiting: 1,
+    });
   });
 
   it("approve a note and refresh the page at once", async () => {

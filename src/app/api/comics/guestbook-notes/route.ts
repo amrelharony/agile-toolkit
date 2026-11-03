@@ -11,15 +11,29 @@ import { answer, ownerRoute, refuse } from "../_owner";
 export const dynamic = "force-dynamic";
 
 const COLUMNS = "id,name,message,created_at,approved_at";
-/** The cap on waiting notes in the form's route, plus the approved ones. */
-const MAX_ROWS = 1000;
+/** Above the form route's cap of 500 waiting, so every waiting note is here. */
+const MAX_WAITING = 600;
+/** The newest approved ones; older ones stay on the page all the same. */
+const MAX_APPROVED = 300;
 
 export const GET = ownerRoute(async ({ admin }) => {
-  const { data, error } = await admin
-    .from("comic_guestbook")
-    .select(COLUMNS)
-    .order("created_at", { ascending: false })
-    .limit(MAX_ROWS);
-  if (error || !data) return refuse(503, "service_unavailable");
-  return answer({ notes: data, waiting: data.filter((row) => !row.approved_at).length });
+  // Apart, so a long list of approved notes can never push a waiting one off.
+  const [waiting, approved] = await Promise.all([
+    admin
+      .from("comic_guestbook")
+      .select(COLUMNS)
+      .is("approved_at", null)
+      .order("created_at", { ascending: false })
+      .limit(MAX_WAITING),
+    admin
+      .from("comic_guestbook")
+      .select(COLUMNS)
+      .not("approved_at", "is", null)
+      .order("approved_at", { ascending: false })
+      .limit(MAX_APPROVED),
+  ]);
+  if (waiting.error || approved.error || !waiting.data || !approved.data) {
+    return refuse(503, "service_unavailable");
+  }
+  return answer({ notes: [...waiting.data, ...approved.data], waiting: waiting.data.length });
 });
