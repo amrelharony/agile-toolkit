@@ -60,15 +60,17 @@ describe("robots", () => {
 
   it("does not block any tool route", () => {
     const disallow = [rule().disallow ?? []].flat();
-    for (const path of ["/", "/planning-poker", "/retro", "/comics", "/history"]) {
+    for (const path of ["/", "/planning-poker", "/retro", "/comics", "/book", "/history"]) {
       expect(disallow.some((prefix) => path.startsWith(prefix))).toBe(false);
     }
   });
 
-  it("tells the known AI crawlers to stay out of the comics", () => {
+  it("tells the known AI crawlers to stay out of the comics, the book and its cover", () => {
     expect(aiRule().userAgent).toEqual(AI_CRAWLERS);
-    expect(aiRule().disallow).toEqual(expect.arrayContaining(["/comics"]));
-    expect(rule().disallow).not.toContain("/comics");
+    expect(aiRule().disallow).toEqual(expect.arrayContaining(["/comics", "/book", "/media/"]));
+    for (const path of ["/comics", "/book", "/media/"]) {
+      expect(rule().disallow).not.toContain(path);
+    }
   });
 
   it("keeps the private paths closed to AI crawlers too", () => {

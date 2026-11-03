@@ -216,7 +216,7 @@ export const SECTIONS: ToolSection[] = [
     id: "library",
     label: "Library",
     icon: BookOpen,
-    toolIds: ["comics"],
+    toolIds: ["comics", "book"],
   },
   // Listed only when this browser holds the VIP hint (lib/tools/catalog). No
   // guides: they load for whoever is on the page, and a lock panel has no steps.

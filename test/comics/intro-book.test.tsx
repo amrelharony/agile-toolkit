@@ -35,6 +35,7 @@ import ComicsPage from "@/app/(tools)/comics/page";
 import { BookIntro } from "@/app/(tools)/comics/components/intro/book-intro";
 import styles from "@/app/(tools)/comics/components/intro/book-intro.module.css";
 import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
+import { COVER_INTRO_URL } from "@/lib/book/art";
 import { panelImageUrl } from "@/lib/comics/images";
 import { INTRO_ATTR, INTRO_RUN_ATTR, INTRO_SECONDS, OVERLAY_ATTR } from "@/lib/comics/intro";
 import { endsAt, sceneAnimations } from "./intro-css";
@@ -77,6 +78,10 @@ function leftoverText(el: HTMLElement, extra: readonly string[] = []): string {
   return text;
 }
 
+function srcs(el: HTMLElement): (string | null)[] {
+  return Array.from(el.querySelectorAll("img")).map((img) => img.getAttribute("src"));
+}
+
 /** The file behind every inline background image in `el`: only Amr's sheet should be one. */
 function backgrounds(el: HTMLElement): string[] {
   return Array.from(el.querySelectorAll<HTMLElement>("*"))
@@ -110,7 +115,7 @@ describe("the book intro", () => {
     expect(dialog).toHaveClass(styles.overlay);
   });
 
-  it("letters the cover, and opens onto this week's story and its first panel", () => {
+  it("letters the cover under its art, and opens onto this week's story and its panel", () => {
     render(<BookIntro latest={{ title: TITLE, cover: COVER }} />);
     const dialog = overlay();
     expect(within(dialog).getByText("This week's story")).toBeTruthy();
@@ -120,11 +125,11 @@ describe("the book intro", () => {
     expect(leftoverText(dialog, [TITLE]).trim()).toBe("");
   });
 
-  it("shows only the story's panel and Amr's sheet", () => {
+  it("shows only the story's panel, the book's cover and Amr's sheet", () => {
     render(<BookIntro latest={{ title: TITLE, cover: COVER }} />);
     const dialog = overlay();
     const images = Array.from(dialog.querySelectorAll("img")).map((img) => img.getAttribute("src"));
-    expect(images).toEqual([panelImageUrl(COVER.pathSmall)]);
+    expect(images).toEqual([panelImageUrl(COVER.pathSmall), COVER_INTRO_URL]);
     expect(dialog.querySelector("svg")).toBeNull();
     expect(backgrounds(dialog)).toEqual([MASCOT_SPRITE_URL]);
     expect(dialog.querySelector("[data-amr-pose]")).toHaveAttribute("data-amr-pose", "waving");
@@ -133,7 +138,7 @@ describe("the book intro", () => {
   it("letters the title alone while the story has no art", () => {
     render(<BookIntro latest={{ title: TITLE, cover: null }} />);
     const dialog = overlay();
-    expect(dialog.querySelector("img")).toBeNull();
+    expect(srcs(dialog)).toEqual([COVER_INTRO_URL]);
     expect(dialog.querySelector("svg")).toBeNull();
     expect(within(dialog).getByText("This week's story")).toBeTruthy();
     expect(within(dialog).getByText(TITLE)).toBeTruthy();
@@ -144,12 +149,27 @@ describe("the book intro", () => {
   it("opens onto nothing but Amr before any story is out", () => {
     render(<BookIntro latest={null} />);
     const dialog = overlay();
-    expect(dialog.querySelector("img")).toBeNull();
+    expect(srcs(dialog)).toEqual([COVER_INTRO_URL]);
     expect(dialog.querySelector("svg")).toBeNull();
     expect(within(dialog).queryByText("This week's story")).toBeNull();
     expect(backgrounds(dialog)).toEqual([MASCOT_SPRITE_URL]);
     expect(dialog.querySelector("[data-amr-pose]")).toHaveAttribute("data-amr-pose", "waving");
     expect(leftoverText(dialog).trim()).toBe("");
+  });
+
+  it("fronts the book with its cover's art, lazily, over the lettered cover", () => {
+    render(<BookIntro latest={null} />);
+    const art = Array.from(overlay().querySelectorAll("img")).find(
+      (img) => img.getAttribute("src") === COVER_INTRO_URL
+    )!;
+    // The lettering says what the cover says, so the art adds no words.
+    expect(art).toHaveAttribute("alt", "");
+    // Fetched only when the intro shows: the head script preloads it then.
+    expect(art).toHaveAttribute("loading", "lazy");
+    expect(art).toHaveClass(styles.art);
+    const front = art.parentElement!;
+    expect(front.textContent).toContain("Agile at Work");
+    expect(front.lastElementChild).toBe(art);
   });
 
   it("letters in paragraphs, never headings, since the page has its own h1", () => {
@@ -273,6 +293,16 @@ describe("the book intro's timing", () => {
     }
   });
 
+  it("lets a short landscape page's wider window outrank the base one", () => {
+    // Same specificity, so the later rule wins: the override has to follow.
+    const base = css.search(/\n\.window \{[^}]*aspect-ratio: 3 \/ 2;/);
+    const landscape = css.search(
+      /@media \(orientation: landscape\) and \(max-height: 540px\) \{\s*\.window \{\s*aspect-ratio: 2 \/ 1;/
+    );
+    expect(base).toBeGreaterThan(-1);
+    expect(landscape).toBeGreaterThan(base);
+  });
+
   it("draws nothing of its own: no images or gradients in the CSS", () => {
     expect(css).not.toMatch(/url\(|gradient\(/);
   });
@@ -303,6 +333,7 @@ describe("on the gallery page", () => {
   it("opens onto Amr alone before anything is released", async () => {
     render(await ComicsPage());
     const dialog = overlay();
+    expect(srcs(dialog)).toEqual([COVER_INTRO_URL]);
     expect(screen.getByTestId("tool-page-wrapper").contains(dialog)).toBe(false);
     expect(within(dialog).queryByText("This week's story")).toBeNull();
     expect(dialog.querySelector("[data-amr-pose]")).not.toBeNull();

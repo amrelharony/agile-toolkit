@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "@/components/agent/mascot/engine/sprite-poses";
+import { COVER_INTRO_SIZE, COVER_INTRO_URL } from "@/lib/book/art";
 import type { StoryCover } from "@/lib/comics/types";
 import { cn } from "@/lib/utils";
 import { IntroAmr, IntroOverlay, IntroPanel } from "./intro-parts";
@@ -17,9 +18,12 @@ export interface BookIntroStory {
  * this week's story with Amr waving at the foot of the fold. The beats and
  * their times are in book-intro.module.css.
  *
- * The cover is lettered on paper, in the gallery's own words, until the book's
- * cover art is here. Before any story is released the page inside holds only
- * Amr, so the intro is finished without a single panel.
+ * The book is square, as printed, and its front is the cover's art. Under the
+ * art the cover is lettered, in the gallery's own words, which is what shows
+ * if the art hasn't loaded: the head script preloads it only when this intro
+ * plays, and the image itself is lazy, so a visit without the intro fetches
+ * nothing. Before any story is released the page inside holds only Amr, so the
+ * intro is finished without a single panel.
  *
  * Not a client component: the server page renders it, so it's in the static
  * HTML for the head script to show from the first paint.
@@ -63,8 +67,8 @@ function InsidePage({ latest }: { latest: BookIntroStory | null }) {
         <p
           className={cn(
             cover ? styles.storyTitle : styles.storyTitleAlone,
-            // A long title stops short of Amr rather than running into him.
-            cover ? "line-clamp-3" : "line-clamp-4",
+            // A long title stops at the page's foot rather than running off it.
+            cover ? "line-clamp-2" : "line-clamp-4",
             "text-balance font-display font-semibold text-text"
           )}
         >
@@ -81,7 +85,7 @@ function BookCover() {
     <div className={styles.cover}>
       <div className={cn(styles.face, styles.front)}>
         <span aria-hidden="true" className={styles.hinge} />
-        {/* Lettered until the book's own cover art takes its place. */}
+        {/* Lettered under the art, for the moment before it arrives. */}
         <p className={cn(styles.title, "font-display font-bold text-text")}>
           <span className={styles.line}>Agile</span> <span className={styles.line}>at Work</span>
         </p>
@@ -90,6 +94,17 @@ function BookCover() {
           <span className={styles.line}>Workplace comics</span>{" "}
           <span className={styles.line}>by Amr Elharony</span>
         </p>
+        {/* The cover's own words are lettered above, so the art adds none. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={COVER_INTRO_URL}
+          width={COVER_INTRO_SIZE}
+          height={COVER_INTRO_SIZE}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className={styles.art}
+        />
       </div>
       <span aria-hidden="true" className={cn(styles.face, styles.back)}>
         <span className={styles.endpaper} />

@@ -14,6 +14,9 @@
  * Sizes come from the book's width, which comes from the viewport, so nothing
  * here can scroll or spill. The overlay clips the open cover where a phone is
  * too narrow for the spread: a deliberate crop of plain paper.
+ *
+ * The book is square, as printed, and its front is the cover's own art. The
+ * cover is also lettered underneath, which is what shows until the art loads.
  */
 
 /* The overlay's one animation: its end is the intro's end. Eased in, with the
@@ -28,10 +31,10 @@
    wherever it moves, and the depth is a multiple of the book, so the swing
    looks the same on a phone and a desktop. */
 .scene {
-  /* Portrait 3:4: as wide as a phone allows, short enough for a laptop. In vh
-     first: a custom property has no fallback, so a browser without dvh would
-     lose every size built on it and draw no book at all. */
-  --book-w: min(72vw, 44vh);
+  /* Square: as wide as a phone allows, short enough for a laptop. In vh first:
+     a custom property has no fallback, so a browser without dvh would lose
+     every size built on it and draw no book at all. */
+  --book-w: min(72vw, 52vh);
   /* How far right the book moves as it opens: enough to centre the spread, but
      never so far that the inside page passes the right-hand gutter. */
   --shift: min(
@@ -49,7 +52,7 @@
 }
 @supports (height: 1dvh) {
   .scene {
-    --book-w: min(72vw, 44dvh);
+    --book-w: min(72vw, 52dvh);
   }
 }
 
@@ -88,7 +91,7 @@
 .book {
   position: relative;
   width: var(--book-w);
-  aspect-ratio: 3 / 4;
+  aspect-ratio: 1 / 1;
   transform-style: preserve-3d;
 }
 
@@ -117,7 +120,7 @@
   inset: 0;
   display: flex;
   flex-direction: column;
-  padding: calc(var(--book-w) * 0.075);
+  padding: calc(var(--book-w) * 0.07);
   background-color: var(--card);
   border: var(--panel-w) solid var(--border);
   border-radius: var(--panel-radius);
@@ -131,29 +134,40 @@
   aspect-ratio: 3 / 2;
 }
 
+/* On a phone on its side the square page is short: at the lettering's smallest
+   sizes, a wider window is what leaves the title its two lines. After the rule
+   above, which it has to outrank: a media query adds no specificity. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .window {
+    aspect-ratio: 2 / 1;
+  }
+}
+
+/* Under the panel, two lines at most: on the smallest phone the page ends a
+   few pixels below them. */
 .caption {
-  margin-top: calc(var(--book-w) * 0.055);
+  margin-top: calc(var(--book-w) * 0.04);
 }
 
 /* No panel: the lettering is the page, larger and higher. */
 .captionAlone {
-  margin-top: calc(var(--book-w) * 0.1);
+  margin-top: calc(var(--book-w) * 0.08);
 }
 
 .eyebrow {
-  font-size: max(0.75rem, calc(var(--book-w) * 0.052));
+  font-size: max(0.75rem, calc(var(--book-w) * 0.046));
   line-height: 1.3;
 }
 
 .storyTitle {
-  margin-top: calc(var(--book-w) * 0.012);
-  font-size: max(0.875rem, calc(var(--book-w) * 0.08));
-  line-height: 1.2;
+  margin-top: calc(var(--book-w) * 0.008);
+  font-size: max(0.875rem, calc(var(--book-w) * 0.07));
+  line-height: 1.15;
 }
 
 .storyTitleAlone {
   margin-top: calc(var(--book-w) * 0.02);
-  font-size: max(1.125rem, calc(var(--book-w) * 0.115));
+  font-size: max(1.125rem, calc(var(--book-w) * 0.1));
   line-height: 1.2;
 }
 
@@ -182,6 +196,16 @@
   flex-direction: column;
   padding: calc(var(--book-w) * 0.13) calc(var(--book-w) * 0.08) calc(var(--book-w) * 0.1)
     calc(var(--book-w) * 0.15);
+}
+
+/* The cover's art, filling the board inside its border, over the lettering
+   and the hinge: those are only the cover until the art arrives. */
+.art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
 }
 
 /* The inside of the cover, seen once it has turned past upright. */
@@ -244,20 +268,20 @@
   transform-origin: calc(var(--amr-cell-w) / 2) var(--amr-feet);
 }
 
-/* At the foot of the fold, standing a little in front of the book, a touch
-   to the cover's side so a three-line title never meets his shoulder. About
-   0.46 of the book's width tall. */
+/* At the foot of the fold, standing a little in front of the book, on the
+   cover's side of it: his shoulder ends short of the page's margin, so the
+   title beside him is never under him. About 0.46 of the book's width tall. */
 .amrAtFold {
-  left: calc(var(--book-w) * -0.02 - var(--amr-cell-w) / 2);
+  left: calc(var(--book-w) * -0.06 - var(--amr-cell-w) / 2);
   bottom: calc(var(--book-w) * -0.1 - (var(--amr-cell-h) - var(--amr-feet)));
   transform: translateZ(calc(var(--book-w) * 0.1)) scale(0.7);
 }
 
 /* Nothing released yet: the page is his, so he stands in the middle, bigger,
-   about 0.72 of the book's width tall. */
+   about 0.72 of the book's width tall, his head clear of the page's top. */
 .amrAlone {
   left: calc(50% - var(--amr-cell-w) / 2);
-  bottom: calc(var(--book-w) * 0.3 - (var(--amr-cell-h) - var(--amr-feet)));
+  bottom: calc(var(--book-w) * 0.14 - (var(--amr-cell-h) - var(--amr-feet)));
   transform: translateZ(calc(var(--book-w) * 0.1)) scale(1.1);
 }
 

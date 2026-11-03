@@ -10,9 +10,9 @@ import {
 import { tools } from "@/lib/constants/tools";
 
 describe("tool catalog visibility", () => {
-  it("always shows the comics and their Library category", () => {
+  it("always shows the comics, the book and their Library category", () => {
     expect(getVisibleTools().some((t) => t.id === "comics")).toBe(true);
-    expect(getVisibleToolsByCategory("Library").map((t) => t.id)).toEqual(["comics"]);
+    expect(getVisibleToolsByCategory("Library").map((t) => t.id)).toEqual(["comics", "book"]);
     expect(getVisibleCategories()).toContain("Library");
   });
 

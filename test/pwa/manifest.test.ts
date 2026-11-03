@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import manifest from "@/app/manifest";
+import { defaultToolCount } from "@/lib/tools/catalog";
 
 const pub = (p: string) => join(process.cwd(), "public", p.replace(/^\//, ""));
 
@@ -27,5 +28,11 @@ describe("web app manifest", () => {
     const sw = readFileSync(pub("sw.js"), "utf8");
     expect(sw).toMatch(/NEVER_CACHE = \/\^\\\/\(api\|auth\|settings/);
     expect(sw).toContain('request.mode === "navigate"');
+  });
+
+  it("promises the number of tools the home page shows, not a stale round one", () => {
+    const count = defaultToolCount();
+    expect(count).toBeGreaterThan(50);
+    expect(manifest().description).toMatch(new RegExp(`^${count} free tools for agile teams`));
   });
 });

@@ -36,6 +36,7 @@ import ComicPosterPage, {
   generateStaticParams as posterParams,
 } from "@/app/(tools)/comics/poster/[n]/page";
 import ComicLicensePage, { metadata as licenseMetadata } from "@/app/(tools)/comics/license/page";
+import { BOOK_SHARE_URL } from "@/lib/book/art";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
 
 const STORY: Story = {
@@ -150,11 +151,19 @@ describe("a number that isn't released", () => {
     expect(screen.queryByText("Ask your team:")).toBeNull();
   });
 
+  it("names no address for a number that isn't one, never the internal page", async () => {
+    for (const meta of [await storyMetadata(params("abc")), await posterMetadata(params("abc"))]) {
+      expect(meta.alternates).toEqual({ canonical: null });
+      expect(meta.openGraph).not.toHaveProperty("url");
+    }
+  });
+
   it("gives search engines and link previews nothing either", async () => {
     const meta = await storyMetadata(params(31));
     expect(meta.title).toBe("Coming soon — Agile at Work");
     expect(meta.robots).toEqual({ index: false, follow: true });
-    expect(meta.openGraph?.images).toBeUndefined();
+    // The book's share image, which says nothing about next Monday's story.
+    expect(meta.openGraph?.images).toEqual([`https://agile.amrelharony.com${BOOK_SHARE_URL}`]);
     expect(meta.alternates?.canonical).toBeUndefined();
   });
 });
@@ -478,7 +487,12 @@ describe("the gallery", () => {
 
   it("loads card images lazily and small", async () => {
     render(await ComicsPage());
-    for (const img of Array.from(document.querySelectorAll("img"))) {
+    // The book intro's cover is its own test's business (intro-book).
+    const cards = Array.from(document.querySelectorAll("img")).filter(
+      (img) => !img.closest("[data-intro-overlay]")
+    );
+    expect(cards.length).toBeGreaterThan(0);
+    for (const img of cards) {
       expect(img.getAttribute("loading")).toBe("lazy");
       expect(img.getAttribute("src")).toContain("-768.webp");
     }

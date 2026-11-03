@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { BOOK_SHARE_URL } from "@/lib/book/art";
+import { SITE_URL } from "@/lib/comics/rights";
 
 interface ComicMetadataOptions {
   title: string;
@@ -7,13 +9,20 @@ interface ComicMetadataOptions {
   canonical?: string;
   /** Book episodes and "coming soon" pages stay out of search. */
   index?: boolean;
-  /** A released story's share image, as a full URL. */
+  /** A released story's share image, as a full URL. Without one, the book's. */
   image?: string | null;
 }
 
+/** For a number that isn't one: the 404, with no canonical or og:url of its own. */
+export const NOT_FOUND_METADATA: Metadata = {
+  alternates: { canonical: null },
+  openGraph: { type: "website", siteName: "Agile Toolkit" },
+};
+
 /**
  * Metadata for every comics page. `other` asks image and text scrapers to leave
- * the art alone, which only the ones that follow the rules will do.
+ * the art alone, which only the ones that follow the rules will do. A page with
+ * no story image of its own shares the book's.
  */
 export function comicMetadata({
   title,
@@ -22,7 +31,7 @@ export function comicMetadata({
   index = true,
   image,
 }: ComicMetadataOptions): Metadata {
-  const images = image ? [image] : undefined;
+  const images = [image ?? `${SITE_URL}${BOOK_SHARE_URL}`];
   return {
     title,
     description,
@@ -37,14 +46,9 @@ export function comicMetadata({
       ...(canonical ? { url: canonical } : {}),
       title,
       description,
-      ...(images ? { images } : {}),
+      images,
     },
-    twitter: {
-      card: images ? "summary_large_image" : "summary",
-      title,
-      description,
-      ...(images ? { images } : {}),
-    },
+    twitter: { card: "summary_large_image", title, description, images },
     other: { robots: "noai, noimageai" },
   };
 }

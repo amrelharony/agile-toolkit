@@ -7,6 +7,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { AppToaster } from "@/components/layout/app-toaster";
 import { ServiceWorker } from "@/components/pwa/service-worker";
 import { INTRO_BOOT_SCRIPT } from "@/lib/comics/intro";
+import { SITE_METADATA } from "@/lib/seo/site-metadata";
 import { THEME_BOOT_SCRIPT, THEME_COLORS } from "@/lib/theme/boot-script";
 
 // Variable fonts (no `weight` list): the UI uses font-medium (500) and
@@ -45,43 +46,7 @@ const sourceSerif = Source_Serif_4({
   preload: false,
 });
 
-export const metadata: Metadata = {
-  title: {
-    default: "Agile Toolkit | Amr El Harony",
-    template: "%s | Agile Toolkit",
-  },
-  description:
-    "Free toolkit for Scrum masters and agile teams — sprint planning, daily scrum, retrospectives, estimation, delivery metrics and team health. Runs in your browser; no sign-up.",
-  keywords: [
-    "agile",
-    "scrum",
-    "sprint planning",
-    "planning poker",
-    "retrospective",
-    "burndown chart",
-    "velocity tracker",
-  ],
-  metadataBase: new URL("https://agile.amrelharony.com"),
-  openGraph: {
-    type: "website",
-    locale: "en_US",
-    url: "https://agile.amrelharony.com",
-    siteName: "Agile Toolkit",
-    title: "Agile Toolkit | Amr El Harony",
-    description: "Curated collection of agile delivery tools, frameworks, and templates.",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Agile Toolkit | Amr El Harony",
-    description: "Curated collection of agile delivery tools, frameworks, and templates.",
-  },
-  icons: {
-    icon: [{ url: "/AT.svg", type: "image/svg+xml" }],
-    // iOS ignores SVG touch icons; a 180 px PNG.
-    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
-  },
-  appleWebApp: { capable: true, title: "Agile Toolkit", statusBarStyle: "default" },
-};
+export const metadata: Metadata = SITE_METADATA;
 
 // Next.js 13.2+ moved viewport out of `metadata`. Without an explicit
 // export, iOS Safari defaults to a 980px-wide viewport and the responsive

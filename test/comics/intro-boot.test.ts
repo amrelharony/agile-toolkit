@@ -11,12 +11,14 @@ import {
   INTRO_ATTR,
   INTRO_BOOT_SCRIPT,
   INTRO_KINDS,
+  INTRO_PRELOAD,
   INTRO_RUN_ATTR,
   RETURN_ATTR,
   introMarkKey,
   introSafetyMs,
   type IntroKind,
 } from "@/lib/comics/intro";
+import { COVER_INTRO_URL } from "@/lib/book/art";
 import { VIP_HINT_COOKIE, VIP_HINT_VALUE } from "@/lib/vip/constants";
 
 const root = document.documentElement;
@@ -61,7 +63,15 @@ function mountOverlay(kind: IntroKind) {
   };
 }
 
+/** The images the head script asked the browser to fetch early. */
+function preloads(): string[] {
+  return Array.from(document.head.querySelectorAll<HTMLLinkElement>('link[rel="preload"]')).map(
+    (link) => `${link.getAttribute("as")} ${link.getAttribute("href")}`
+  );
+}
+
 beforeEach(() => {
+  document.head.querySelectorAll('link[rel="preload"]').forEach((link) => link.remove());
   localStorage.clear();
   setCookie("");
   setMotion(false);
@@ -207,6 +217,31 @@ describe("who gets no intro", () => {
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     expect(boot("/comics")).toBeNull();
     expect(localStorage.length).toBe(0);
+  });
+});
+
+describe("what it fetches early", () => {
+  it("preloads the book's cover when the book intro plays", () => {
+    expect(INTRO_PRELOAD).toEqual({ book: COVER_INTRO_URL });
+    expect(boot("/comics")).toBe("book");
+    expect(preloads()).toEqual([`image ${COVER_INTRO_URL}`]);
+  });
+
+  it("preloads nothing once the book intro has been seen", () => {
+    localStorage.setItem(introMarkKey("book"), "1");
+    expect(boot("/comics")).toBeNull();
+    expect(preloads()).toEqual([]);
+  });
+
+  it("preloads nothing under reduced motion", () => {
+    setMotion(true);
+    expect(boot("/comics")).toBeNull();
+    expect(preloads()).toEqual([]);
+  });
+
+  it("preloads nothing for a poster's intro, whose panels load from the page", () => {
+    expect(boot("/comics?ep=01&b=01")).toBe("poster");
+    expect(preloads()).toEqual([]);
   });
 });
 

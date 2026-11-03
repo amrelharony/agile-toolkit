@@ -2,10 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Search } from "lucide-react";
 import { getToolById } from "@/lib/constants/tools";
+import { SITE_METADATA } from "@/lib/seo/site-metadata";
 
+// Served for every unknown address, so it names none: the site's "./"
+// canonical and og:url would otherwise say /_not-found, its build path.
 export const metadata: Metadata = {
   title: "Page not found",
   robots: { index: false },
+  alternates: { canonical: null },
+  openGraph: { ...SITE_METADATA.openGraph, url: undefined },
 };
 
 const POPULAR = [

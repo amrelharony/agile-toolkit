@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { THEME_COLORS } from "@/lib/theme/boot-script";
+import { defaultToolCount } from "@/lib/tools/catalog";
 
 /**
  * Web app manifest: lets people install the toolkit on a phone or desktop
@@ -10,8 +11,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Agile Toolkit",
     short_name: "Agile Toolkit",
-    description:
-      "110+ free tools for agile teams: retros, planning poker, estimation, metrics and more. Your data stays in your browser.",
+    description: `${defaultToolCount()} free tools for agile teams: retros, planning poker, estimation, metrics and more. Your data stays in your browser.`,
     start_url: "/",
     scope: "/",
     display: "standalone",

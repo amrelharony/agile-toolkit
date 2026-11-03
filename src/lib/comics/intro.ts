@@ -22,6 +22,7 @@
  * Pure strings and constants: safe for the server layout and for the browser.
  */
 
+import { COVER_INTRO_URL } from "@/lib/book/art";
 import { VIP_HINT_COOKIE, VIP_HINT_VALUE, VIP_ROUTE } from "@/lib/vip/constants";
 import { BOOK_EPISODE_COUNT, BUILDING_PATTERN, COMICS_ROUTE, EP_PATTERN } from "./entry";
 
@@ -64,6 +65,13 @@ export function introSafetyMs(kind: IntroKind): number {
 const SAVES_DATA = `(function(){var c=navigator.connection;return !!c&&(c.saveData===true||/2g/.test(c.effectiveType||""))})()`;
 const REDUCED_MOTION = `window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches`;
 
+/**
+ * What an intro shows from its first frame and should fetch before the body is
+ * read: the book's cover. Its <img> is lazy, so a visit without the intro never
+ * fetches it; this starts it as early as the head, but only when it plays.
+ */
+export const INTRO_PRELOAD: Partial<Record<IntroKind, string>> = { book: COVER_INTRO_URL };
+
 const SAFETY_MS = JSON.stringify({
   poster: introSafetyMs("poster"),
   book: introSafetyMs("book"),
@@ -91,7 +99,8 @@ return null}`;
  * Ending an intro gives focus back to what started a replay (RETURN_ATTR); an
  * arrival has nothing to go back to, so focus is left on the page. A page that
  * loads hidden (a background tab, a prerender) plays nothing and keeps its
- * intro for a visit someone sees.
+ * intro for a visit someone sees. An intro that plays preloads its
+ * INTRO_PRELOAD image.
  */
 export const INTRO_BOOT_SCRIPT = `(function(){var d=document.documentElement,A="${INTRO_ATTR}",R="${INTRO_RUN_ATTR}";
 function on(){return d.getAttribute(A)}
@@ -104,5 +113,6 @@ document.addEventListener("animationend",function(e){var t=e.target,k=on();if(k&
 try{var k=(${KIND_FOR_ADDRESS})();if(!k||document.visibilityState==="hidden"||${REDUCED_MOTION}||${SAVES_DATA})return;
 var m="${INTRO_MARK_PREFIX}"+k;if(localStorage.getItem(m))return;localStorage.setItem(m,"1");
 d.setAttribute(R,"0");d.setAttribute(A,k);
+var w=${JSON.stringify(INTRO_PRELOAD)}[k];if(w){var l=document.createElement("link");l.rel="preload";l.setAttribute("as","image");l.href=w;document.head.appendChild(l)}
 setTimeout(function(){if(d.getAttribute(R)==="0")stop()},${SAFETY_MS}[k]);
 document.addEventListener("DOMContentLoaded",function(){var s=skip();if(s)s.focus({preventScroll:true})})}catch(x){}})()`;

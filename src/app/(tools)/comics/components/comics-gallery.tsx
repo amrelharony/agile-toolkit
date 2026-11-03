@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, BookImage, SearchX } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookImage, BookOpen, SearchX } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
@@ -17,16 +17,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
+import { BOOK, BOOK_PATH } from "@/lib/book/book";
 import { comicHref } from "@/lib/comics/entry";
 import { themeLabel } from "@/lib/comics/themes";
 import type { StorySummary } from "@/lib/comics/types";
 import { ComicCard, ComicCover } from "./comic-card";
 import { CountDisclosure, EntryBeacon } from "./entry-beacon";
 import { ReplayIntro } from "./intro/replay-intro";
-
-/** Printed on the back cover; the wording belongs to the book. */
-const BOOK_BLURB =
-  "In a fictional Cairo workplace, competing priorities, circular approvals and busy colleagues make getting things done surprisingly complicated. Across 26 comic stories, Amr and a memorable cast turn everyday challenges into humour, reflection and practical conversations about working better together.";
 
 const ALL = "all";
 
@@ -150,22 +147,38 @@ export function ComicsGallery({ stories }: { stories: readonly StorySummary[] })
       <div className="space-y-6">
         <OwnerPortalLink />
         {latest ? (
-          <ThisWeek story={latest} />
+          <>
+            <ThisWeek story={latest} />
+            <p className="text-sm text-sub">
+              The first 26 stories are in the book.{" "}
+              <Link href={BOOK_PATH} className="font-medium text-accent underline">
+                About the book
+              </Link>
+            </p>
+          </>
         ) : (
           <EmptyState
             icon={BookImage}
             padding="lg"
             action={
-              <Button asChild variant="toolkit" className="min-h-11 md:h-11">
-                <Link href="/">
-                  <ArrowLeft aria-hidden="true" />
-                  Back to tools
-                </Link>
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button asChild variant="toolkit" className="min-h-11 md:h-11">
+                  <Link href={BOOK_PATH}>
+                    <BookOpen aria-hidden="true" />
+                    About the book
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="min-h-11 md:h-11">
+                  <Link href="/">
+                    <ArrowLeft aria-hidden="true" />
+                    Back to tools
+                  </Link>
+                </Button>
+              </div>
             }
           >
             <p className="font-semibold text-text">The comics are coming soon</p>
-            <p className="mt-1">{BOOK_BLURB}</p>
+            <p className="mt-1">{BOOK.blurb.join(" ")}</p>
           </EmptyState>
         )}
 

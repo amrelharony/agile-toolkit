@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import { defaultToolCount } from "@/lib/tools/catalog";
 import { SignInCard } from "./sign-in-card";
 
 // The root layout's title template appends " | Agile Toolkit".
@@ -31,7 +32,9 @@ export default function SignInPage() {
         />
         <div className="text-center space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-text">Agile Toolkit</h1>
-          <p className="text-sm text-sub">110+ tools for agile delivery, in one workspace.</p>
+          <p className="text-sm text-sub">
+            {defaultToolCount()} tools for agile delivery, in one workspace.
+          </p>
         </div>
       </header>
 

@@ -4,7 +4,7 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { BOOK_EPISODES, bookEpisode } from "@/lib/comics/book-episodes";
 import { comicHref, parseEp } from "@/lib/comics/entry";
 import { getReleasedStory, listReleasedWeekly } from "@/lib/comics/store";
-import { comicMetadata } from "../../comic-metadata";
+import { NOT_FOUND_METADATA, comicMetadata } from "../../comic-metadata";
 import { LatestComics } from "../../components/comic-card";
 import { ArtComingSoon } from "../../components/art-coming-soon";
 import { ComicPanels } from "../../components/comic-panels";
@@ -40,7 +40,8 @@ export function generateStaticParams(): { n: string }[] {
 export async function generateMetadata({ params }: PosterPageProps): Promise<Metadata> {
   const ep = parseEp(params.n);
   const book = ep === null ? null : bookEpisode(ep);
-  if (ep === null || !book) return {};
+  // A 404: no address of its own, never the internal one behind the rewrite.
+  if (ep === null || !book) return NOT_FOUND_METADATA;
   const story = await getReleasedStory(ep);
   return comicMetadata({
     title: `${story?.title ?? book.title} — Agile at Work`,
