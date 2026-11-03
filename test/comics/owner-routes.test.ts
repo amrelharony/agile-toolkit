@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { OwnerStory, StoredPanel } from "@/lib/comics/story-input";
@@ -139,6 +141,9 @@ import * as unused from "@/app/api/comics/unused-art/route";
 import * as entries from "@/app/api/comics/entries/route";
 import * as licence from "@/app/api/comics/licence-requests/route";
 import * as licenceOne from "@/app/api/comics/licence-requests/[id]/route";
+import * as notes from "@/app/api/comics/guestbook-notes/route";
+import * as noteOne from "@/app/api/comics/guestbook-notes/[id]/route";
+import * as extras from "@/app/api/comics/stories/[ep]/extras/route";
 
 const HOST = "agile.test";
 const UUID = "11111111-1111-4111-8111-111111111111";
@@ -224,9 +229,43 @@ const ROUTES: [string, unknown, string, object?][] = [
   ["GET /licence-requests", licence.GET, "GET"],
   ["PATCH /licence-requests/id", licenceOne.PATCH, "PATCH", { id: UUID }],
   ["DELETE /licence-requests/id", licenceOne.DELETE, "DELETE", { id: UUID }],
+  ["GET /guestbook-notes", notes.GET, "GET"],
+  ["PATCH /guestbook-notes/id", noteOne.PATCH, "PATCH", { id: UUID }],
+  ["DELETE /guestbook-notes/id", noteOne.DELETE, "DELETE", { id: UUID }],
+  ["GET /stories/27/extras", extras.GET, "GET", { ep: "27" }],
+  ["PUT /stories/27/extras", extras.PUT, "PUT", { ep: "27" }],
 ];
 
+/** "PATCH /stories/[ep]" for every method a route file under api/comics exports through ownerRoute. */
+function ownerRoutesOnDisk(): string[] {
+  const root = path.resolve(__dirname, "../../src/app/api/comics");
+  const found: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name === "route.ts") {
+        const source = readFileSync(full, "utf8");
+        const route = path.relative(root, dir).split(path.sep).join("/");
+        const exported = source.matchAll(
+          /^export const (GET|POST|PUT|PATCH|DELETE) = ownerRoute/gm
+        );
+        for (const [, method] of Array.from(exported)) found.push(`${method} /${route}`);
+      }
+    }
+  };
+  walk(root);
+  return found.sort();
+}
+
 describe("every owner route", () => {
+  it("is in the list above, so none skips the checks below", () => {
+    const listed = ROUTES.map(([name]) =>
+      name.replace(/\/27(?=\/|$)/, "/[ep]").replace(/\/id$/, "/[id]")
+    ).sort();
+    expect(listed).toEqual(ownerRoutesOnDisk());
+  });
+
   it.each(ROUTES)("%s answers 401 to someone signed out", async (_n, handler, method, params) => {
     h.auth = Response.json({ error: "unauthenticated" }, { status: 401 });
     const res = await call(
