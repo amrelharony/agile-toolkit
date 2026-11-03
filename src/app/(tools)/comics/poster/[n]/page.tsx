@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { BOOK_EPISODES, bookEpisode } from "@/lib/comics/book-episodes";
 import { comicHref, parseEp } from "@/lib/comics/entry";
-import { NO_EXTRAS } from "@/lib/comics/extras";
 import { getReleasedStory, getStoryExtras, listReleasedWeekly } from "@/lib/comics/store";
 import { NOT_FOUND_METADATA, comicMetadata } from "../../comic-metadata";
 import { LatestComics } from "../../components/comic-card";
@@ -60,12 +59,13 @@ export default async function ComicPosterPage({ params }: PosterPageProps) {
   const book = ep === null ? null : bookEpisode(ep);
   if (ep === null || !book) notFound();
 
-  const [story, latest] = await Promise.all([
+  // The extras read is "none" for an episode with no story yet, so it needn't wait for one.
+  const [story, latest, extras] = await Promise.all([
     getReleasedStory(ep),
     listReleasedWeekly(LATEST_COUNT),
+    getStoryExtras(ep),
   ]);
   const title = story?.title ?? book.title;
-  const extras = story ? await getStoryExtras(ep) : NO_EXTRAS;
 
   return (
     <>

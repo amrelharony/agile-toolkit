@@ -99,13 +99,12 @@ export default async function ComicStoryPage({ params }: StoryPageProps) {
   const story = await getReleasedStory(ep);
   const book = bookEpisode(ep);
   if (!story && !book) return <ComingSoon />;
-  const extras = story ? await getStoryExtras(ep) : NO_EXTRAS;
 
   const title = story?.title ?? book!.title;
-  const { prevEp, nextEp } = await neighbours({
-    ep,
-    collection: isBookEp(ep) ? "book" : "weekly",
-  });
+  const [{ prevEp, nextEp }, extras] = await Promise.all([
+    neighbours({ ep, collection: isBookEp(ep) ? "book" : "weekly" }),
+    story ? getStoryExtras(ep) : NO_EXTRAS,
+  ]);
 
   return (
     <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>

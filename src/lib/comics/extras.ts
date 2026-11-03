@@ -28,7 +28,14 @@ export interface StoryExtras {
 
 export const NO_EXTRAS: StoryExtras = { quiz: null, tryTool: null };
 
-/** Mirrors the quiz check in migration 0033, which also caps its size. */
+/** Under the database's 8,000, with room for how jsonb spaces what it stores. */
+export const QUIZ_MAX_BYTES = 7_000;
+
+/**
+ * Mirrors the quiz check in migration 0033. The database also caps the stored
+ * quiz at 8,000 bytes, which text in a script of 3-byte letters can reach within
+ * these lengths, so checkExtras holds it to QUIZ_MAX_BYTES first.
+ */
 export const QUIZ_LIMITS = {
   questions: 3,
   minOptions: 2,
@@ -70,6 +77,8 @@ function question(raw: unknown): QuizQuestion | null {
     return null;
   }
   if (options.some((o) => o === null)) return null;
+  // Two answers alike make "the right one" meaningless.
+  if (new Set(options.map((o) => o!.toLowerCase())).size !== options.length) return null;
   const answer = q.answer;
   if (typeof answer !== "number" || !Number.isInteger(answer)) return null;
   if (answer < 0 || answer >= options.length) return null;
@@ -100,6 +109,9 @@ export function checkExtras(body: unknown): ExtrasCheck {
   if (b.quiz !== null && b.quiz !== undefined) {
     quiz = readQuiz(b.quiz);
     if (!quiz) return { ok: false, field: "quiz" };
+    if (new TextEncoder().encode(JSON.stringify(quiz)).length > QUIZ_MAX_BYTES) {
+      return { ok: false, field: "quiz" };
+    }
   }
   let tryTool: string | null = null;
   if (b.tryTool !== null && b.tryTool !== undefined) {

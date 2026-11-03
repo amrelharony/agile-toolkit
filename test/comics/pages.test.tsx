@@ -414,8 +414,11 @@ describe("a story's quiz and its own tool", () => {
     expect(within(quiz).getByText("Right.")).toBeTruthy();
     expect(within(quiz).getByText(/Not quite\. It's: The team/)).toBeTruthy();
     expect(within(quiz).getByText("Together.")).toBeTruthy();
+    // The button pressed is gone: focus goes to the score, then back to the first answer.
+    expect(document.activeElement).toBe(within(quiz).getByRole("status"));
     fireEvent.click(within(quiz).getByRole("button", { name: "Try again" }));
     expect(within(quiz).getByRole("radio", { name: "One job" })).not.toBeChecked();
+    expect(document.activeElement).toBe(within(quiz).getByRole("radio", { name: "Everything" }));
   });
 
   it("links the story's own tool over its theme's", async () => {

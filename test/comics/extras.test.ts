@@ -11,7 +11,7 @@ import { NextRequest } from "next/server";
 const h = vi.hoisted(() => ({
   auth: null as Response | null,
   row: { quiz: null, try_tool: null } as { quiz: unknown; try_tool: unknown } | null,
-  error: null as { message: string } | null,
+  error: null as { message: string; code?: string } | null,
   updates: [] as unknown[],
   revalidated: [] as string[],
 }));
@@ -87,6 +87,10 @@ describe("a quiz", () => {
     expect(readQuiz([{ ...Q, question: "x".repeat(QUIZ_LIMITS.question + 1) }])).toBeNull();
   });
 
+  it("refuses two answers alike, which would make the right one meaningless", () => {
+    expect(readQuiz([{ ...Q, options: ["One job", "one job "] }])).toBeNull();
+  });
+
   it("is shown whole or not at all", () => {
     expect(readQuiz([Q, { ...Q, answer: 9 }])).toBeNull();
     expect(readQuiz("not a quiz")).toBeNull();
@@ -127,6 +131,19 @@ describe("what the portal may send", () => {
     expect(checkExtras({ quiz: [{ ...Q, answer: 5 }] })).toEqual({ ok: false, field: "quiz" });
     expect(checkExtras({ tryTool: "ai-red-team" })).toEqual({ ok: false, field: "tryTool" });
   });
+
+  it("refuses a quiz the database's size cap would, before sending it", () => {
+    // 3-byte letters at every length limit come to more than the 8,000 bytes allowed.
+    const wide = (n: number) => "क".repeat(n);
+    const q = {
+      question: wide(200),
+      options: [wide(120), wide(119) + "a", wide(119) + "b", wide(119) + "c"],
+      answer: 0,
+      explain: wide(300),
+    };
+    expect(readQuiz([q, q, q])).not.toBeNull();
+    expect(checkExtras({ quiz: [q, q, q] })).toEqual({ ok: false, field: "quiz" });
+  });
 });
 
 describe("the extras route", () => {
@@ -137,13 +154,26 @@ describe("the extras route", () => {
     expect(h.updates).toEqual([]);
   });
 
-  it("saves both and refreshes the story's pages", async () => {
+  it("saves both and refreshes the story's pages, leaving its updated_at alone", async () => {
     h.row = { quiz: [Q], try_tool: "kudos" };
     const res = await PUT(req("PUT", { quiz: [Q], tryTool: "kudos" }), { params: { ep: "30" } });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ extras: { quiz: [Q], tryTool: "kudos" } });
-    expect(h.updates[0]).toMatchObject({ quiz: [Q], try_tool: "kudos" });
+    expect(h.updates[0]).toEqual({ quiz: [Q], try_tool: "kudos" });
     expect(h.revalidated).toContain("/comics/ep/30");
+  });
+
+  it("answers a value the database refused as bad input, not as a missing migration", async () => {
+    h.error = { message: "violates check constraint", code: "23514" };
+    const res = await PUT(req("PUT", { quiz: [Q], tryTool: null }), { params: { ep: "30" } });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid_input", field: "quiz" });
+  });
+
+  it("hands the portal no tool that's since been shelved", async () => {
+    h.row = { quiz: null, try_tool: "ai-red-team" };
+    const res = await GET(req("GET"), { params: { ep: "30" } });
+    expect(await res.json()).toEqual({ extras: { quiz: null, tryTool: null } });
   });
 
   it("names what it refused", async () => {
