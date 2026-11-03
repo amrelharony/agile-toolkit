@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/app-shell";
 import { AppToaster } from "@/components/layout/app-toaster";
 import { ServiceWorker } from "@/components/pwa/service-worker";
+import { INTRO_BOOT_SCRIPT } from "@/lib/comics/intro";
 import { THEME_BOOT_SCRIPT, THEME_COLORS } from "@/lib/theme/boot-script";
 
 // Variable fonts (no `weight` list): the UI uses font-medium (500) and
@@ -115,6 +116,8 @@ export default function RootLayout({
       <head>
         {/* Blocking script: apply the saved (or system) theme before paint. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+        {/* Blocking too: a comic intro has to be decided before the first paint. */}
+        <script dangerouslySetInnerHTML={{ __html: INTRO_BOOT_SCRIPT }} />
       </head>
       <body className="font-sans antialiased touch-manipulation">
         <TooltipProvider>

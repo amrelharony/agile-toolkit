@@ -22,6 +22,7 @@ import { themeLabel } from "@/lib/comics/themes";
 import type { StorySummary } from "@/lib/comics/types";
 import { ComicCard, ComicCover } from "./comic-card";
 import { CountDisclosure, EntryBeacon } from "./entry-beacon";
+import { ReplayIntro } from "./intro/replay-intro";
 
 /** Printed on the back cover; the wording belongs to the book. */
 const BOOK_BLURB =
@@ -214,7 +215,14 @@ export function ComicsGallery({ stories }: { stories: readonly StorySummary[] })
           </section>
         ) : null}
 
-        <CountDisclosure />
+        <div className="flex items-baseline gap-4">
+          {/* The note gives way, so the button keeps its words on one line, and
+              they sit on the note's first line, even in a 44px phone target. */}
+          <div className="min-w-0 flex-1">
+            <CountDisclosure />
+          </div>
+          <ReplayIntro kind="book" />
+        </div>
       </div>
     </ToolPageWrapper>
   );

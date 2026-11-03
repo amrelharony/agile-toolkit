@@ -16,9 +16,9 @@ export const COMICS_ROUTE = "/comics";
 export const EARLY_COMICS_ROUTE = "/comics/early";
 
 /** 1-999, with one optional leading zero below 10: "7", "07" and "126", never "007". */
-const EP_PATTERN = /^(?:0?[1-9]|[1-9]\d{1,2})$/;
+export const EP_PATTERN = /^(?:0?[1-9]|[1-9]\d{1,2})$/;
 /** Buildings 1-10, padded like the poster links. */
-const BUILDING_PATTERN = /^(?:0?[1-9]|10)$/;
+export const BUILDING_PATTERN = /^(?:0?[1-9]|10)$/;
 
 type Raw = string | readonly string[] | null | undefined;
 

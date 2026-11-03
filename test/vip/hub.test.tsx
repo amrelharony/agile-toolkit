@@ -69,8 +69,10 @@ describe("/vip", () => {
 
   it("Amr asks a plain question rather than telling anyone what to do", () => {
     render(<VipClient access="unlocked" />);
-    const line = screen.getByText(/Would one of these help your team this week\?/);
-    expect(line.textContent?.trim().endsWith("?")).toBe(true);
+    // On the hub and in the intro's balloon.
+    const lines = screen.getAllByText(/Would one of these help your team this week\?/);
+    expect(lines).toHaveLength(2);
+    for (const line of lines) expect(line.textContent?.trim().endsWith("?")).toBe(true);
   });
 
   it("says so when there's nothing to read ahead", () => {

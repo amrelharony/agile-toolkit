@@ -10,12 +10,15 @@ import { ArtComingSoon } from "../../components/art-coming-soon";
 import { ComicPanels } from "../../components/comic-panels";
 import { EpisodeNotes } from "../../components/episode-notes";
 import { CountDisclosure, EntryBeacon } from "../../components/entry-beacon";
+import { PosterIntro } from "../../components/intro/poster-intro";
+import { ReplayIntro } from "../../components/intro/replay-intro";
 import { ReadAheadLink } from "../../components/read-ahead-link";
 import { RightsNotice } from "../../components/rights-notice";
 
 /**
  * What a poster's QR code opens, behind /comics?ep=NN&b=NN. People are standing
- * at a wall, so it leads with the episode. One static page per episode, however
+ * at a wall, so it leads with the episode, and the first visit opens with a
+ * three-second intro of it (PosterIntro). One static page per episode, however
  * many buildings: the beacon reads the building from the address in the browser.
  *
  * All 26 are prerendered, so an outage keeps the last good copy and every
@@ -59,21 +62,29 @@ export default async function ComicPosterPage({ params }: PosterPageProps) {
   const title = story?.title ?? book.title;
 
   return (
-    <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>
-      <EntryBeacon entry="poster" ep={ep} />
-      <div className="space-y-4">
-        {story ? <ComicPanels panels={story.panels} title={title} /> : null}
-        <EpisodeNotes
-          lesson={story?.lesson ?? book.lesson}
-          question={story?.squadQuestion ?? book.question}
-          bookPage={story?.bookPage ?? book.bookPage}
-        />
-        {story ? null : <ArtComingSoon />}
-        <LatestComics stories={latest} />
-        <RightsNotice />
-        <ReadAheadLink />
-        <CountDisclosure />
-      </div>
-    </ToolPageWrapper>
+    <>
+      {/* Beside the wrapper, not in it: its entrance leaves a transform behind,
+          and the intro's fixed overlay would cover the wrapper, not the screen. */}
+      <PosterIntro ep={ep} title={title} panels={story?.panels ?? []} />
+      <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>
+        <EntryBeacon entry="poster" ep={ep} />
+        <div className="space-y-4">
+          {story ? <ComicPanels panels={story.panels} title={title} /> : null}
+          <EpisodeNotes
+            lesson={story?.lesson ?? book.lesson}
+            question={story?.squadQuestion ?? book.question}
+            bookPage={story?.bookPage ?? book.bookPage}
+          />
+          {story ? null : <ArtComingSoon />}
+          <LatestComics stories={latest} />
+          <RightsNotice />
+          <ReadAheadLink />
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+            <CountDisclosure />
+            <ReplayIntro kind="poster" />
+          </div>
+        </div>
+      </ToolPageWrapper>
+    </>
   );
 }

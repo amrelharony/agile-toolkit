@@ -1,0 +1,412 @@
+/*
+ * The poster intro: 3 s for someone standing at a wall with a phone in hand, so
+ * it says the episode and its title at once and gets out of the way.
+ *
+ *   0.00–0.42  the page inks in, corner to corner
+ *   0.16–0.56  "Episode N" pops onto the page's top edge
+ *   0.30–0.76  the title rises (no art: its big window inks in, 0.32–0.92)
+ *   0.50–1.54  up to four windows ink in, one after another, and settle
+ *   0.70–1.32  Amr comes up at the page's corner and waves
+ *   1.54–2.42  stillness, to read
+ *   2.42–3.00  the page lifts away
+ *
+ * Every animation is one shorthand with a literal duration and delay, and all of
+ * them end by INTRO_SECONDS.poster (test/comics/intro-poster.test.tsx). Only
+ * transform, opacity, clip-path and visibility move.
+ */
+
+/* The exit is the overlay's only animation: its end is what ends the intro. Its
+   bottom edge carries an ink rule and a hard shadow, unseen until it lifts, so
+   it leaves like a sheet of paper and not a fading screen. */
+.overlay {
+  transform-origin: 50% 0;
+  box-shadow:
+    0 var(--panel-w) 0 0 var(--border),
+    var(--shadow-6);
+  animation: lift 0.58s cubic-bezier(0.5, 0, 0.75, 0) 2.42s both;
+}
+
+/* Portrait: the page with Amr below its bottom-right corner. Every size comes
+   from the viewport, so nothing scrolls or spills from 320 × 568 up. */
+.stage {
+  /* Amr's frame is 112 × 121 px (AMR_WIDTH in poster-intro.tsx), scaled here. */
+  --amr-scale: 1;
+  /* How far he stands below the page: the rest of him overlaps its edge. */
+  --amr-below: calc(85px * var(--amr-scale));
+  --gutter-l: max(1rem, env(safe-area-inset-left));
+  --gutter-r: max(1rem, env(safe-area-inset-right));
+  --gutter-b: max(1rem, env(safe-area-inset-bottom));
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* The top clears Skip, which sits max(1rem, inset) down and 2.75rem tall. */
+  padding: calc(max(1rem, env(safe-area-inset-top)) + 3.25rem) var(--gutter-r)
+    calc(var(--gutter-b) + var(--amr-below)) var(--gutter-l);
+}
+
+/* The page and what hangs off it. Its font size is the caption's, which the
+   page's top padding reads in em to clear the caption's lower half. */
+.sheet {
+  position: relative;
+  flex: none;
+  font-size: clamp(0.875rem, min(4vw, 2.6vh), 1.375rem);
+  font-size: clamp(0.875rem, min(4vw, 2.6dvh), 1.375rem);
+}
+/* About a comic page's shape, so with the title above them four windows come
+   out near square: a fair crop of art that is wider than it is tall. */
+.sheetArt {
+  width: min(100%, 34rem);
+  height: min(100%, calc(min(100vw - 2rem, 34rem) * 1.3));
+}
+.sheetTitle {
+  width: min(100%, 30rem);
+  height: min(100%, calc(min(100vw - 2rem, 30rem) * 1.12));
+}
+
+/* The page: paper in a heavy ink frame, inked in from its top-left corner. The
+   triangle overshoots the corner so the frame's shadow is never cut off. */
+.page {
+  --pad: clamp(0.75rem, 3.4vmin, 1.75rem);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.5rem, 2.4vmin, 1.25rem);
+  padding: calc(var(--pad) + 0.95em) var(--pad) var(--pad);
+  background-color: var(--card);
+  border: clamp(3px, 0.7vmin, 5px) solid var(--border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--shadow-4);
+  animation: ink 0.42s cubic-bezier(0.65, 0, 0.35, 1) 0s both;
+}
+
+/* "Episode N": a caption box pinned across the page's top edge. Above the page,
+   which paints as a layer of its own because of its clip-path. */
+.caption {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: clamp(0.75rem, 4vmin, 1.75rem);
+  translate: 0 -50%;
+  transform-origin: 15% 100%;
+  padding: 0.3em 0.7em;
+  line-height: 1.15;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background-color: var(--card);
+  border: var(--panel-w) solid var(--border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--shadow-2);
+  animation: pop 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.16s both;
+}
+
+.title {
+  flex: none;
+  font-size: clamp(1.5rem, min(9vw, 5.2vh), 2.75rem);
+  font-size: clamp(1.5rem, min(9vw, 5.2dvh), 2.75rem);
+  line-height: 1.06;
+  text-wrap: balance;
+  overflow-wrap: break-word;
+  animation: rise 0.46s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both;
+}
+
+/* Up to four windows, filling what the title leaves. Two stack, since the art is
+   wider than it is tall; three put the first across the top. */
+.grid {
+  flex: 1 1 0;
+  align-self: stretch;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: clamp(0.5rem, 2.2vmin, 1rem);
+}
+.stacked {
+  grid-template-columns: minmax(0, 1fr);
+}
+.wide {
+  grid-column: 1 / -1;
+}
+
+/* A window inks in: a band of ink runs across it, then clears the same way and
+   leaves the panel behind. The band rests cleared, in case nothing runs. Its ink
+   is the frames' (--border), not the lettering's: in night comic --text is
+   near-white, and a band the size of the big window would flash in the dark. */
+.window {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+.window::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--border);
+  clip-path: inset(0 0 0 100%);
+  pointer-events: none;
+}
+
+.w1 {
+  animation:
+    reveal 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.5s both,
+    settle-ccw 0.62s cubic-bezier(0.34, 1.3, 0.64, 1) 0.5s both;
+}
+.w1::after {
+  animation: band 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.5s both;
+}
+.w2 {
+  animation:
+    reveal 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.64s both,
+    settle-cw 0.62s cubic-bezier(0.34, 1.3, 0.64, 1) 0.64s both;
+}
+.w2::after {
+  animation: band 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.64s both;
+}
+.w3 {
+  animation:
+    reveal 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.78s both,
+    settle-cw 0.62s cubic-bezier(0.34, 1.3, 0.64, 1) 0.78s both;
+}
+.w3::after {
+  animation: band 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.78s both;
+}
+.w4 {
+  animation:
+    reveal 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.92s both,
+    settle-ccw 0.62s cubic-bezier(0.34, 1.3, 0.64, 1) 0.92s both;
+}
+.w4::after {
+  animation: band 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.92s both;
+}
+
+/* No art yet: one big window, and the title is what's in it. */
+.bigWindow {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: clamp(0.75rem, 4vmin, 2rem);
+  text-align: center;
+  animation:
+    reveal 0.6s cubic-bezier(0.65, 0, 0.35, 1) 0.32s both,
+    settle-big 0.7s cubic-bezier(0.34, 1.3, 0.64, 1) 0.32s both;
+}
+.bigWindow::after {
+  animation: band 0.6s cubic-bezier(0.65, 0, 0.35, 1) 0.32s both;
+}
+.bigTitle {
+  font-size: clamp(1.75rem, min(10vw, 6vh), 3.5rem);
+  font-size: clamp(1.75rem, min(10vw, 6dvh), 3.5rem);
+  line-height: 1.04;
+  text-wrap: balance;
+  overflow-wrap: break-word;
+}
+
+/* Amr stands at the page's bottom-right corner, in front of it, the way the
+   reader stands at the poster. The spot sizes him; the rise moves him. */
+.amrSpot {
+  position: absolute;
+  z-index: 2;
+  right: 0.25rem;
+  bottom: calc(-1 * var(--amr-below));
+  display: block;
+  transform: scale(var(--amr-scale));
+  transform-origin: 100% 100%;
+}
+.amrRise {
+  display: block;
+  animation: come-up 0.62s cubic-bezier(0.34, 1.36, 0.64, 1) 0.7s both;
+}
+
+/* Short phones get a smaller Amr, tablets and desktops a bigger one. */
+@media (max-height: 640px) {
+  .stage {
+    --amr-scale: 0.85;
+  }
+}
+@media (min-width: 700px) and (min-height: 700px) {
+  .stage {
+    --amr-scale: 1.3;
+  }
+}
+@media (min-width: 1200px) and (min-height: 800px) {
+  .stage {
+    --amr-scale: 1.45;
+  }
+}
+
+/* Wide screens, landscape phones included: the title beside the windows, and
+   Amr beside the page, in a column on the right that also keeps it clear of
+   Skip. Nearly square screens keep the portrait layout, which suits them. */
+@media (min-aspect-ratio: 5/4) {
+  .stage {
+    /* Wide enough for Skip (about 6.25rem), and for the part of Amr outside
+       the page. */
+    --side: max(7rem, calc(112px * var(--amr-scale) - 1.5rem));
+    padding: calc(max(1rem, env(safe-area-inset-top)) + 1.25rem) calc(var(--gutter-r) + var(--side))
+      var(--gutter-b) var(--gutter-l);
+  }
+  .sheetArt {
+    width: min(100%, 68rem);
+    height: min(100%, 36rem);
+  }
+  .sheetTitle {
+    width: min(100%, 50rem);
+    height: min(100%, 27rem);
+  }
+  .pageArt {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    grid-template-rows: minmax(0, 1fr);
+    align-items: center;
+    column-gap: clamp(0.75rem, 3vmin, 1.75rem);
+  }
+  .title {
+    font-size: clamp(1.25rem, min(4.2vw, 7vh), 3rem);
+    font-size: clamp(1.25rem, min(4.2vw, 7dvh), 3rem);
+  }
+  .bigTitle {
+    font-size: clamp(1.5rem, min(6vw, 10vh), 4.25rem);
+    font-size: clamp(1.5rem, min(6vw, 10dvh), 4.25rem);
+  }
+  .amrSpot {
+    right: auto;
+    left: calc(100% - 2rem);
+    bottom: 0;
+    transform-origin: 0 100%;
+  }
+}
+@media (min-aspect-ratio: 5/4) and (max-height: 480px) {
+  .stage {
+    --amr-scale: 0.78;
+  }
+}
+
+@keyframes ink {
+  from {
+    clip-path: polygon(0 0, 0 0, 0 0);
+  }
+  to {
+    clip-path: polygon(0 0, calc(200% + 2rem) 0, 0 calc(200% + 2rem));
+  }
+}
+
+@keyframes pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6) rotate(-8deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.06) rotate(-1deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(-2.5deg);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.35em);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The window's own edge follows the band's leading edge exactly, then lets its
+   shadow out once the band has reached the far side. */
+@keyframes reveal {
+  0% {
+    clip-path: inset(-0.5rem 100% -0.5rem -0.5rem);
+  }
+  50% {
+    clip-path: inset(-0.5rem 0 -0.5rem -0.5rem);
+  }
+  50.1%,
+  100% {
+    clip-path: inset(-0.5rem);
+  }
+}
+
+@keyframes band {
+  0% {
+    clip-path: inset(0 100% 0 0);
+  }
+  50% {
+    clip-path: inset(0);
+  }
+  100% {
+    clip-path: inset(0 0 0 100%);
+  }
+}
+
+@keyframes settle-ccw {
+  from {
+    transform: translateY(0.4rem) rotate(-1.4deg);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes settle-cw {
+  from {
+    transform: translateY(0.4rem) rotate(1.2deg);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes settle-big {
+  from {
+    transform: translateY(0.5rem) rotate(-0.5deg);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes come-up {
+  from {
+    opacity: 0;
+    transform: translateY(60%);
+  }
+  35% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Picked up, a touch towards the reader, then up and away. Growing first, not
+   dipping, so no edge of the page underneath shows before it goes. */
+@keyframes lift {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1);
+    animation-timing-function: cubic-bezier(0.33, 0, 0.67, 1);
+  }
+  16% {
+    transform: translateY(0) rotate(0deg) scale(1.015);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-104%) rotate(-2deg) scale(1.015);
+    opacity: 0;
+    visibility: hidden;
+  }
+}

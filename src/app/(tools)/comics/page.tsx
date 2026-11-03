@@ -3,6 +3,7 @@ import { COMICS_ROUTE } from "@/lib/comics/entry";
 import { listReleasedWeekly } from "@/lib/comics/store";
 import { comicMetadata } from "./comic-metadata";
 import { ComicsGallery } from "./components/comics-gallery";
+import { BookIntro } from "./components/intro/book-intro";
 
 /**
  * Static, refreshed about every 10 minutes, which is also how a Monday's story
@@ -18,6 +19,18 @@ export const metadata: Metadata = comicMetadata({
   canonical: COMICS_ROUTE,
 });
 
+/**
+ * The book's intro opens onto the story the gallery leads with. It sits beside
+ * the gallery, not in it: ToolPageWrapper's entrance leaves a transform that
+ * would trap a fixed overlay.
+ */
 export default async function ComicsPage() {
-  return <ComicsGallery stories={await listReleasedWeekly()} />;
+  const stories = await listReleasedWeekly();
+  const [latest] = stories;
+  return (
+    <>
+      <BookIntro latest={latest ? { title: latest.title, cover: latest.cover } : null} />
+      <ComicsGallery stories={stories} />
+    </>
+  );
 }
