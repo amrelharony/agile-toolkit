@@ -18,6 +18,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSquadAdminClient } from "@/lib/squads/server";
+import { NO_EXTRAS, pickableTool, readQuiz, type StoryExtras } from "./extras";
 import type {
   ComicCollection,
   DialogueLine,
@@ -25,6 +26,7 @@ import type {
   Story,
   StoryCover,
   StorySummary,
+  StudyCard,
 } from "./types";
 
 /** Well under Vercel's limit, and short enough to give up and keep the last copy. */
@@ -177,6 +179,34 @@ function toSummary(row: SummaryRow): StorySummary {
   };
 }
 
+/**
+ * A released story's quiz and own tool (migration 0033). Unlike the reads here,
+ * a failure is "none": they're extras, and until that migration runs the
+ * columns don't exist at all. The story read on the same page still throws in
+ * an outage, and that's what keeps the page's last good copy.
+ */
+export async function getStoryExtras(ep: number): Promise<StoryExtras> {
+  try {
+    const row = await read<{ quiz: unknown; try_tool: unknown } | null>(
+      null,
+      (client, now, signal) =>
+        client
+          .from("comic_stories")
+          .select("quiz,try_tool")
+          .eq("ep", ep)
+          .lte("release_at", now)
+          .abortSignal(signal)
+          .maybeSingle<{ quiz: unknown; try_tool: unknown }>()
+    );
+    if (!row) return NO_EXTRAS;
+    const tryTool =
+      typeof row.try_tool === "string" && pickableTool(row.try_tool) ? row.try_tool : null;
+    return { quiz: readQuiz(row.quiz), tryTool };
+  } catch {
+    return NO_EXTRAS;
+  }
+}
+
 /** Released weekly stories, newest first. The book stays out by design. */
 export async function listReleasedWeekly(limit?: number): Promise<StorySummary[]> {
   const rows = await read<SummaryRow[]>([], (client, now, signal) => {
@@ -190,6 +220,27 @@ export async function listReleasedWeekly(limit?: number): Promise<StorySummary[]
     return (limit ? query.limit(limit) : query).abortSignal(signal).returns<SummaryRow[]>();
   });
   return rows.map(toSummary);
+}
+
+/** What a flashcard needs of a released weekly story, oldest first. */
+export async function listStudyCards(): Promise<StudyCard[]> {
+  const rows = await read<{ ep: number; title: string; lesson: string; squad_question: string }[]>(
+    [],
+    (client, now, signal) =>
+      client
+        .from("comic_stories")
+        .select("ep,title,lesson,squad_question")
+        .eq("collection", "weekly")
+        .lte("release_at", now)
+        .order("ep", { ascending: true })
+        .abortSignal(signal)
+  );
+  return rows.map((row) => ({
+    ep: row.ep,
+    title: row.title,
+    lesson: row.lesson,
+    question: row.squad_question,
+  }));
 }
 
 /** Released episode numbers in a collection, lowest first. */

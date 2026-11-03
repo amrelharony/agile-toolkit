@@ -64,4 +64,16 @@ describe("links to /book", () => {
     expect(screen.getByText(/The first 26 stories are in the book\./)).toBeTruthy();
     expect(bookLink()).toHaveAttribute("href", "/book");
   });
+
+  it("sit beside the gallery's links to the flashcards and the guestbook", () => {
+    render(<ComicsGallery stories={[]} />);
+    expect(screen.getByRole("link", { name: "flashcards" })).toHaveAttribute(
+      "href",
+      "/comics/flashcards"
+    );
+    expect(screen.getByRole("link", { name: "guestbook" })).toHaveAttribute(
+      "href",
+      "/comics/guestbook"
+    );
+  });
 });

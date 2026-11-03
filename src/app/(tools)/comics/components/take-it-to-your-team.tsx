@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
-import { toolForThemes } from "@/lib/comics/try-tool";
+import { toolForStory } from "@/lib/comics/try-tool";
 import { DiscussInRetro } from "./story-actions";
 
 /**
@@ -12,12 +12,15 @@ export function TakeItToYourTeam({
   ep,
   question,
   themes,
+  tryTool = null,
 }: {
   ep: number;
   question: string;
   themes: readonly string[];
+  /** The story's own choice from the portal, over its theme's. */
+  tryTool?: string | null;
 }) {
-  const tool = toolForThemes(themes);
+  const tool = toolForStory(tryTool, themes);
   return (
     <section aria-labelledby="take-it-heading">
       <Card>

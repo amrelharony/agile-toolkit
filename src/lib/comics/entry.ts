@@ -12,6 +12,8 @@
 export const BOOK_EPISODE_COUNT = 26;
 export const FIRST_WEEKLY_EP = BOOK_EPISODE_COUNT + 1;
 export const COMICS_ROUTE = "/comics";
+/** Every story as a flashcard (comics/flashcards). */
+export const FLASHCARDS_ROUTE = "/comics/flashcards";
 /** Next four weeks' stories, for book readers. Never rewritten: only exactly /comics is. */
 export const EARLY_COMICS_ROUTE = "/comics/early";
 

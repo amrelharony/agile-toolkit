@@ -127,7 +127,8 @@ export async function probeSession(supabase: SessionVerifier): Promise<SessionPr
  *   /not-authorized   — the denied page itself
  *   /api/health       — uptime probes
  *   /api/mcp, /api/agent/stream — bearer-token / self-gated endpoints
- *   /api/comics/hit, /api/comics/licence — public writes, gated by their handlers
+ *   /api/comics/hit, /api/comics/licence, /api/comics/guestbook — public writes,
+ *                     gated by their handlers
  *   /guest/*, /api/guest/* — invite-cookie flows, gated by their handlers
  *   /_next/*          — Next.js static + image optimisation
  *   /favicon.ico, robots.txt, sitemap.xml — typical static
@@ -309,6 +310,7 @@ function isBypassPath(pathname: string): boolean {
     // owner-only until it is listed here on purpose.
     pathname === "/api/comics/hit" ||
     pathname === "/api/comics/licence" ||
+    pathname === "/api/comics/guestbook" ||
     isGuestPath(pathname)
   );
 }

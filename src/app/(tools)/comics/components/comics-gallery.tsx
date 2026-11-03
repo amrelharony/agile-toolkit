@@ -18,7 +18,8 @@ import {
 } from "@/components/ui/select";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { BOOK, BOOK_PATH } from "@/lib/book/book";
-import { comicHref } from "@/lib/comics/entry";
+import { FLASHCARDS_ROUTE, comicHref } from "@/lib/comics/entry";
+import { GUESTBOOK_ROUTE } from "@/lib/comics/guestbook";
 import { themeLabel } from "@/lib/comics/themes";
 import type { StorySummary } from "@/lib/comics/types";
 import { ComicCard, ComicCover } from "./comic-card";
@@ -227,6 +228,18 @@ export function ComicsGallery({ stories }: { stories: readonly StorySummary[] })
             )}
           </section>
         ) : null}
+
+        <p className="text-sm text-sub">
+          For readers:{" "}
+          <Link href={FLASHCARDS_ROUTE} className="font-medium text-accent underline">
+            flashcards
+          </Link>{" "}
+          of every story&apos;s lesson, and the{" "}
+          <Link href={GUESTBOOK_ROUTE} className="font-medium text-accent underline">
+            guestbook
+          </Link>
+          .
+        </p>
 
         <div className="flex items-baseline gap-4">
           {/* The note gives way, so the button keeps its words on one line, and

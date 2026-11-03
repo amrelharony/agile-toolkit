@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import type { StoryExtras } from "@/lib/comics/extras";
 import type { Story, StorySummary } from "@/lib/comics/types";
 
 const h = vi.hoisted(() => ({
@@ -8,11 +9,17 @@ const h = vi.hoisted(() => ({
   released: [] as number[],
   listThrows: false,
   push: vi.fn(),
+  extras: { quiz: null, tryTool: null } as StoryExtras,
+  extrasCalls: [] as number[],
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/comics/store", () => ({
   getReleasedStory: async () => h.story,
+  getStoryExtras: async (ep: number) => {
+    h.extrasCalls.push(ep);
+    return h.extras;
+  },
   listReleasedWeekly: async (limit?: number) => (limit ? h.summaries.slice(0, limit) : h.summaries),
   listReleasedEps: async () => {
     if (h.listThrows) throw new Error("down");
@@ -94,6 +101,8 @@ beforeEach(() => {
   h.released = [];
   h.listThrows = false;
   h.push.mockClear();
+  h.extras = { quiz: null, tryTool: null };
+  h.extrasCalls = [];
   localStorage.clear();
   window.history.replaceState(null, "", "/comics");
   vi.stubGlobal("sendBeacon", undefined);
@@ -367,6 +376,65 @@ describe("the story reader", () => {
     expect(meta.openGraph?.images).toEqual([
       "https://ref.supabase.co/storage/v1/object/public/comic-panels/stories/30/share.jpg",
     ]);
+  });
+});
+
+describe("a story's quiz and its own tool", () => {
+  const QUIZ = [
+    { question: "What should come first?", options: ["Everything", "One job"], answer: 1 },
+    {
+      question: "Who says what can wait?",
+      options: ["Nobody", "The team", "The loudest"],
+      answer: 1,
+      explain: "Together.",
+    },
+  ];
+
+  beforeEach(() => {
+    h.story = STORY;
+    h.released = [30];
+  });
+
+  it("shows no quiz until the portal gives the story one", async () => {
+    render(await ComicStoryPage(params(30)));
+    expect(screen.queryByRole("heading", { name: "A quick quiz" })).toBeNull();
+    expect(h.extrasCalls).toEqual([30]);
+  });
+
+  it("checks the answers once every question has one, and starts again", async () => {
+    h.extras = { quiz: QUIZ, tryTool: null };
+    render(await ComicStoryPage(params(30)));
+    const quiz = screen.getByRole("region", { name: "A quick quiz" });
+    const check = within(quiz).getByRole("button", { name: "Check my answers" });
+    expect(check).toBeDisabled();
+    fireEvent.click(within(quiz).getByRole("radio", { name: "One job" }));
+    fireEvent.click(within(quiz).getByRole("radio", { name: "Nobody" }));
+    fireEvent.click(check);
+    expect(within(quiz).getByRole("status")).toHaveTextContent("1 of 2 right");
+    expect(within(quiz).getByText("Right.")).toBeTruthy();
+    expect(within(quiz).getByText(/Not quite\. It's: The team/)).toBeTruthy();
+    expect(within(quiz).getByText("Together.")).toBeTruthy();
+    // The button pressed is gone: focus goes to the score, then back to the first answer.
+    expect(document.activeElement).toBe(within(quiz).getByRole("status"));
+    fireEvent.click(within(quiz).getByRole("button", { name: "Try again" }));
+    expect(within(quiz).getByRole("radio", { name: "One job" })).not.toBeChecked();
+    expect(document.activeElement).toBe(within(quiz).getByRole("radio", { name: "Everything" }));
+  });
+
+  it("links the story's own tool over its theme's", async () => {
+    h.extras = { quiz: null, tryTool: "retro-actions" };
+    render(await ComicStoryPage(params(30)));
+    const team = screen.getByRole("region", { name: "Take it to your team" });
+    expect(within(team).getByRole("link", { name: "Retro Actions" })).toHaveAttribute(
+      "href",
+      "/retro-actions"
+    );
+  });
+
+  it("reads no extras for a book episode that has no story yet", async () => {
+    h.story = null;
+    render(await ComicStoryPage(params(12)));
+    expect(h.extrasCalls).toEqual([]);
   });
 });
 

@@ -5,6 +5,7 @@
  */
 
 import type { EntriesSummary } from "@/lib/comics/entries-summary";
+import type { StoryExtras } from "@/lib/comics/extras";
 import type { ScheduledRelease } from "@/lib/comics/queue";
 import type { OwnerStory, StoredPanel, StoryFields } from "@/lib/comics/story-input";
 import {
@@ -40,6 +41,8 @@ const MESSAGES: Readonly<Record<string, string>> = {
   art_missing: "A picture in this story is no longer in storage. Choose its art again, then save.",
   taken: "That number or source is already used by another story.",
   not_found: "That's gone. Reload the page to see the latest.",
+  extras_unavailable:
+    "Quizzes and a story's own tool need migration 0033, which hasn't been applied yet.",
 };
 
 async function call<T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> {
@@ -112,6 +115,14 @@ export const portalApi = {
   markHandled: (id: string, handled: boolean) =>
     call(`/api/comics/licence-requests/${id}`, { method: "PATCH", json: { handled } }),
   deleteRequest: (id: string) => call(`/api/comics/licence-requests/${id}`, { method: "DELETE" }),
+  storyExtras: (ep: number) => call<{ extras: StoryExtras }>(`${stories}/${ep}/extras`),
+  saveExtras: (ep: number, json: StoryExtras) =>
+    call<{ extras: StoryExtras }>(`${stories}/${ep}/extras`, { method: "PUT", json }),
+  guestbookNotes: () =>
+    call<{ notes: GuestbookNoteRow[]; waiting: number }>("/api/comics/guestbook-notes"),
+  approveNote: (id: string, approved: boolean) =>
+    call(`/api/comics/guestbook-notes/${id}`, { method: "PATCH", json: { approved } }),
+  deleteNote: (id: string) => call(`/api/comics/guestbook-notes/${id}`, { method: "DELETE" }),
   unusedArt: () => call<{ files: UnusedFile[] }>("/api/comics/unused-art"),
   deleteUnusedArt: (paths: string[]) =>
     call<{ removed: number }>("/api/comics/unused-art", { method: "POST", json: { paths } }),
@@ -127,6 +138,14 @@ export interface LicenceRequest {
   message: string;
   created_at: string;
   handled_at: string | null;
+}
+
+export interface GuestbookNoteRow {
+  id: string;
+  name: string;
+  message: string;
+  created_at: string;
+  approved_at: string | null;
 }
 
 export interface UnusedFile {

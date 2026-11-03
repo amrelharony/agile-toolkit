@@ -41,6 +41,14 @@ export interface Story {
 /** The first panel of a story: all the gallery and the feed ever see of the art. */
 export type StoryCover = Pick<Panel, "pathSmall" | "width" | "height">;
 
+/** One story as a flashcard: its title, and the lesson and question to recall. */
+export interface StudyCard {
+  ep: number;
+  title: string;
+  lesson: string;
+  question: string;
+}
+
 /** One gallery card: enough to find a story, not enough to read it. */
 export interface StorySummary {
   ep: number;

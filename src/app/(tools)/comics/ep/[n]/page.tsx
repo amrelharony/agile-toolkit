@@ -5,7 +5,8 @@ import { BOOK_EPISODES, bookEpisode } from "@/lib/comics/book-episodes";
 import { BOOK_EPISODE_COUNT, comicHref, isBookEp, parseEp } from "@/lib/comics/entry";
 import { panelImageUrl } from "@/lib/comics/images";
 import { jsonLdScript, storyJsonLd } from "@/lib/comics/rights";
-import { getReleasedStory, listReleasedEps } from "@/lib/comics/store";
+import { NO_EXTRAS } from "@/lib/comics/extras";
+import { getReleasedStory, getStoryExtras, listReleasedEps } from "@/lib/comics/store";
 import type { Story } from "@/lib/comics/types";
 import { NOT_FOUND_METADATA, comicMetadata } from "../../comic-metadata";
 import { ArtComingSoon } from "../../components/art-coming-soon";
@@ -16,6 +17,7 @@ import { ReadAheadLink } from "../../components/read-ahead-link";
 import { RightsNotice } from "../../components/rights-notice";
 import { ReadTracker } from "../../components/story-actions";
 import { StoryNav } from "../../components/story-nav";
+import { StoryQuiz } from "../../components/story-quiz";
 import { TakeItToYourTeam } from "../../components/take-it-to-your-team";
 
 /**
@@ -99,10 +101,10 @@ export default async function ComicStoryPage({ params }: StoryPageProps) {
   if (!story && !book) return <ComingSoon />;
 
   const title = story?.title ?? book!.title;
-  const { prevEp, nextEp } = await neighbours({
-    ep,
-    collection: isBookEp(ep) ? "book" : "weekly",
-  });
+  const [{ prevEp, nextEp }, extras] = await Promise.all([
+    neighbours({ ep, collection: isBookEp(ep) ? "book" : "weekly" }),
+    story ? getStoryExtras(ep) : NO_EXTRAS,
+  ]);
 
   return (
     <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>
@@ -123,7 +125,9 @@ export default async function ComicStoryPage({ params }: StoryPageProps) {
           ep={ep}
           question={story?.squadQuestion ?? book!.question}
           themes={story?.themes ?? []}
+          tryTool={extras.tryTool}
         />
+        {extras.quiz ? <StoryQuiz ep={ep} quiz={extras.quiz} /> : null}
         {story ? null : <ArtComingSoon />}
         <StoryNav ep={ep} title={title} prevEp={prevEp} nextEp={nextEp} />
         {/* Only a story with its art can be read to the end. */}
