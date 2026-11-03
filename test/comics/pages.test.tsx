@@ -505,6 +505,35 @@ describe("the poster page", () => {
     expect(meta.other).toEqual({ robots: "noai, noimageai" });
   });
 
+  it("previews with the story's own share image once it has one, and the book's until then", async () => {
+    expect((await posterMetadata(params(12))).openGraph?.images).toEqual([
+      `https://agile.amrelharony.com${BOOK_SHARE_URL}`,
+    ]);
+    h.story = { ...h.story!, sharePath: "stories/12/share.jpg" };
+    expect((await posterMetadata(params(12))).openGraph?.images).toEqual([
+      "https://ref.supabase.co/storage/v1/object/public/comic-panels/stories/12/share.jpg",
+    ]);
+  });
+
+  it("names the licence and credit in structured data, like the story's own page", async () => {
+    render(await ComicPosterPage(params(12)));
+    const data = JSON.parse(
+      document.querySelector('script[type="application/ld+json"]')!.innerHTML
+    );
+    expect(data["@type"]).toBe("ComicStory");
+    expect(data.url).toBe("https://agile.amrelharony.com/comics?ep=12");
+    expect(data.image[0]).toMatchObject({
+      license: "https://agile.amrelharony.com/comics/license",
+      creditText: "Amr Elharony",
+    });
+  });
+
+  it("has no structured data before the story's art is out", async () => {
+    h.story = null;
+    render(await ComicPosterPage(params(12)));
+    expect(document.querySelector('script[type="application/ld+json"]')).toBeNull();
+  });
+
   it("is a 404 for anything but a book episode", async () => {
     await expect(ComicPosterPage(params(27))).rejects.toThrow("NEXT_NOT_FOUND");
   });

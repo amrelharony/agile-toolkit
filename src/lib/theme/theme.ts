@@ -64,6 +64,15 @@ export function applyTheme(theme: AppliedTheme): void {
     .forEach((m) => m.setAttribute("content", THEME_COLORS[theme]));
 }
 
+/**
+ * Apply the stored choice again. When the server can't render a page, Next
+ * sends a bare document and the browser builds the whole app itself: the boot
+ * script is in <head> but never runs, so <html> keeps layout.tsx's own classes.
+ */
+export function applyStoredTheme(): void {
+  applyTheme(resolveTheme(readPreference(), systemTheme()));
+}
+
 export function getThemePreference(): ThemePreference {
   if (typeof window === "undefined") return DEFAULT_PREFERENCE;
   return readPreference();

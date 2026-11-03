@@ -6,7 +6,14 @@ const h = vi.hoisted(() => ({ client: null as unknown }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/squads/server", () => ({ getSquadAdminClient: () => h.client }));
 
-import { getReleasedStory, listReleasedEps, listReleasedWeekly } from "@/lib/comics/store";
+import {
+  getReleasedStory,
+  getStoryExtras,
+  listReleasedEps,
+  listReleasedWeekly,
+  listStudyCards,
+} from "@/lib/comics/store";
+import { NO_EXTRAS } from "@/lib/comics/extras";
 
 type Row = Record<string, unknown>;
 
@@ -39,13 +46,17 @@ const PAST = "2026-10-01T07:00:00.000Z";
 const OLDER = "2026-09-01T07:00:00.000Z";
 const FUTURE = "2999-01-01T07:00:00.000Z";
 
+const QUIZ = [{ question: "What comes first?", options: ["Everything", "One job"], answer: 1 }];
+const EXTRAS = { quiz: QUIZ, try_tool: "retro-actions" };
+
+// 28 before 27 on purpose: a read that forgets to order by ep returns them backwards.
 const ROWS = [
   row(1, "book", PAST),
   row(2, "book", null),
+  { ...row(28, "weekly", PAST), ...EXTRAS },
   row(27, "weekly", OLDER),
-  row(28, "weekly", PAST),
-  row(29, "weekly", FUTURE),
-  row(30, "weekly", null),
+  { ...row(29, "weekly", FUTURE), ...EXTRAS },
+  { ...row(30, "weekly", null), ...EXTRAS },
 ];
 
 /**
@@ -185,13 +196,33 @@ describe("public reads", () => {
     expect((await getReleasedStory(28))?.panels).toHaveLength(1);
   });
 
+  it("makes flashcards of released weekly stories only, oldest first", async () => {
+    expect(await listStudyCards()).toEqual([
+      { ep: 27, title: "Story 27", lesson: "Lesson 27", question: "Question 27" },
+      { ep: 28, title: "Story 28", lesson: "Lesson 28", question: "Question 28" },
+    ]);
+  });
+
+  it("gives a released story its quiz and its own tool", async () => {
+    expect(await getStoryExtras(28)).toEqual({ quiz: QUIZ, tryTool: "retro-actions" });
+  });
+
+  it.each([
+    ["a scheduled story's", 29],
+    ["a draft's", 30],
+  ])("keeps %s quiz and tool to itself", async (_label, ep) => {
+    expect(await getStoryExtras(ep)).toEqual(NO_EXTRAS);
+  });
+
   it("puts a deadline on every read", async () => {
     const signals: AbortSignal[] = [];
     h.client = fakeClient(ROWS, signals);
     await getReleasedStory(28);
     await listReleasedWeekly();
     await listReleasedEps("weekly");
-    expect(signals).toHaveLength(3);
+    await listStudyCards();
+    await getStoryExtras(28);
+    expect(signals).toHaveLength(5);
     for (const signal of signals) expect(signal).toBeInstanceOf(AbortSignal);
   });
 });
@@ -205,6 +236,11 @@ describe("when Supabase fails at runtime", () => {
     await expect(getReleasedStory(28)).rejects.toThrow("connection refused");
     await expect(listReleasedWeekly()).rejects.toThrow("connection refused");
     await expect(listReleasedEps("weekly")).rejects.toThrow("connection refused");
+    await expect(listStudyCards()).rejects.toThrow("connection refused");
+  });
+
+  it("reads a story's extras as none instead: the story read beside it keeps the last copy", async () => {
+    expect(await getStoryExtras(28)).toEqual(NO_EXTRAS);
   });
 
   it("throws when the service role client is missing too", async () => {
@@ -232,6 +268,7 @@ describe("during the production build", () => {
     expect(await getReleasedStory(28)).toBeNull();
     expect(await listReleasedWeekly()).toEqual([]);
     expect(await listReleasedEps("weekly")).toEqual([]);
+    expect(await listStudyCards()).toEqual([]);
   });
 
   it("returns empty with no client at all", async () => {

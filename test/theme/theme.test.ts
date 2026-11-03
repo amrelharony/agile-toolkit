@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { render } from "@testing-library/react";
+import { createElement } from "react";
+import { ThemeRestore } from "@/components/layout/theme-restore";
 import {
+  applyStoredTheme,
   applyTheme,
   getThemePreference,
   resolveTheme,
@@ -13,7 +17,14 @@ import {
 afterEach(() => {
   localStorage.clear();
   document.documentElement.className = "";
+  document.documentElement.removeAttribute("data-theme");
 });
+
+/** <html> as layout.tsx writes it, before any script has run. */
+function asTheServerWroteIt() {
+  document.documentElement.className = "light";
+  document.documentElement.removeAttribute("data-theme");
+}
 
 describe("theme", () => {
   it("resolves 'system' to the OS theme", () => {
@@ -88,6 +99,29 @@ describe("theme", () => {
     new Function(THEME_BOOT_SCRIPT)();
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     vi.unstubAllGlobals();
+  });
+
+  it("applies the stored choice again where the boot script never ran", () => {
+    localStorage.setItem("ae-theme", "hc");
+    asTheServerWroteIt();
+    applyStoredTheme();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("hc");
+    expect(document.documentElement.classList.contains("light")).toBe(false);
+  });
+
+  it("puts a night visitor's theme back on a page the server couldn't render", () => {
+    localStorage.setItem("ae-theme", "dark");
+    asTheServerWroteIt();
+    render(createElement(ThemeRestore));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+  });
+
+  it("leaves the comic as it is for a visitor with no choice stored", () => {
+    asTheServerWroteIt();
+    render(createElement(ThemeRestore));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(document.documentElement.className).toBe("light");
   });
 
   it("gives the browser chrome the same colour as each theme's paper", () => {

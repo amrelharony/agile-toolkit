@@ -430,6 +430,21 @@ describe("bypass paths", () => {
     });
   }
 
+  // The comics' public forms are exact matches: the owner's routes beside them stay checked.
+  for (const path of [
+    "/api/comics/guestbook-notes",
+    "/api/comics/guestbook-notes/x",
+    "/api/comics/guestbook/x",
+    "/api/comics/licence-requests",
+    "/api/comics/hit/x",
+  ]) {
+    it(`${path} is checked like any other API route`, async () => {
+      signedInAs(STRANGER);
+      await expectJsonError(await run(req(path, { cookie: CHUNKED })), 403, "not_authorized");
+      expect(h.createServerClient).toHaveBeenCalled();
+    });
+  }
+
   it("strips a leftover guest cookie when a chunked owner session is present", async () => {
     const res = await run(
       req("/guest/x", { cookie: `${CHUNKED}; agile-toolkit:guest=g1; theme=dark` })
