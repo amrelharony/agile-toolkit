@@ -12,23 +12,22 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  verify:
-    name: Verify (typecheck + tests + lint)
-    runs-on: ubuntu-latest
-    # The suite is ~3,150 tests (407 files) and takes ~9 min on a hosted
-    # runner, before the production build. 10 minutes cut master's run off
-    # mid-tests on 2026-10-19; 25 leaves room to grow.
-    # Slower runners take the suite and build past 25 minutes, which cancels the
-    # job mid-step and reads as a failed check.
-    timeout-minutes: 40
-    # A full type check of the app needs about 2.7 GB of heap (tsc
-    # --extendedDiagnostics, 2026-10-25), over Node's default of about 2 GB
-    # on a hosted runner, so tsc and next build ran out of memory. The
-    # runner has 16 GB.
-    env:
-      NODE_OPTIONS: --max-old-space-size=4096
+# A full type check of the app needs about 2.7 GB of heap (tsc
+# --extendedDiagnostics, 2026-10-25), over Node's default of about 2 GB, so
+# tsc and next build ran out of memory. The repo is private, so ubuntu-latest
+# is the 2-vCPU, 7 GB runner; the flag is a ceiling, not a reservation.
+env:
+  NODE_OPTIONS: --max-old-space-size=4096
 
+# Verify used to be one job that ran the type check, lint, tests and build in
+# a row: 33m36s on PR #68 against a 40-minute limit, 26 minutes of it tests.
+# These jobs run side by side on their own runners. The last one keeps the old
+# check name, so a PR still shows one Verify that passes only if all of them did.
+jobs:
+  static:
+    name: Typecheck + lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,8 +58,52 @@ jobs:
       - name: UI class guard
         run: npm run check:ui
 
+  test:
+    name: Unit tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-latest
+    # A shard takes about 5 minutes; the limit only stops a hung run.
+    timeout-minutes: 20
+    strategy:
+      # Let every shard finish, so one run reports all the failing tests.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
       - name: Unit tests
-        run: npm run test:run
+        # vitest starts min(12, CPUs - 1) workers by default, which is one on
+        # this 2-vCPU runner, so the suite ran one file at a time. Two workers
+        # use both cores. --shard gives this job its share of the test files;
+        # strategy.job-total keeps the count in step with the matrix above.
+        run: npm run test:run -- --shard=${{ matrix.shard }}/${{ strategy.job-total }} --maxWorkers=2
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
 
       - name: Production build smoke
         # Run the Next.js production build as a final check — catches
@@ -73,3 +116,23 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder.placeholder
           AUTHORIZED_EMAILS: ci-placeholder@example.com
+
+  verify:
+    # The check name PRs have always shown. It passes only when every job
+    # above passed, and fails if any of them failed, timed out or was skipped.
+    name: Verify (typecheck + tests + lint)
+    needs: [static, test, build]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed
+        env:
+          STATIC: ${{ needs.static.result }}
+          TESTS: ${{ needs.test.result }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          echo "Typecheck + lint: $STATIC"
+          echo "Unit tests:       $TESTS"
+          echo "Production build: $BUILD"
+          [ "$STATIC" = success ] && [ "$TESTS" = success ] && [ "$BUILD" = success ]
