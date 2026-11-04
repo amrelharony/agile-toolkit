@@ -60,8 +60,10 @@ export const KUDOS_THEMES: ReadonlyArray<KudosThemeDef> = [
     title: "Great Job",
     emoji: "👏",
     accent: "text-accent-3 border-accent-3/40",
-    headerBg: "bg-violet-500",
-    hex: "#8b5cf6",
+    // The 600 shades here and on Well Done: on the 500s neither ink reached
+    // 4.5:1 (best 4.46 and 4.47), and the compact card's title is small text.
+    headerBg: "bg-violet-600",
+    hex: "#7c3aed",
   },
   {
     id: "congratulations",
@@ -92,13 +94,16 @@ export const KUDOS_THEMES: ReadonlyArray<KudosThemeDef> = [
     title: "Well Done",
     emoji: "👍",
     accent: "text-accent-2 border-accent-2/40",
-    headerBg: "bg-indigo-500",
-    hex: "#6366f1",
+    headerBg: "bg-indigo-600",
+    hex: "#4f46e5",
   },
 ];
 
 const DARK_INK = "#111111";
 const LIGHT_INK = "#ffffff";
+/** For a mid-tone where neither ink above reaches AA; black and white always beat 4.5:1. */
+const BLACK_INK = "#000000";
+const AA = 4.5;
 
 /** WCAG relative luminance of a `#rgb` / `#rrggbb` colour, or null when it isn't one. */
 function luminance(hex: string): number | null {
@@ -122,15 +127,18 @@ function luminance(hex: string): number | null {
  * The header strip's text colour: near-black or white, whichever has the
  * higher contrast on the theme's colour. White on Awesome's cyan or
  * Congratulations' amber read at under 2.2:1, and a custom theme can be any
- * colour. Like the card's other print colours this is a literal, so the
- * downloaded PNG looks the same whatever the app's theme.
+ * colour. A mid-tone where the better of the two still misses 4.5:1 gets
+ * black, which the compact card's 18 px title needs. Like the card's other
+ * print colours this is a literal, so the downloaded PNG looks the same
+ * whatever the app's theme.
  */
 export function headerInk(hex: string): string {
   const l = luminance(hex);
   if (l === null) return LIGHT_INK;
   const onWhite = 1.05 / (l + 0.05);
   const onDark = (l + 0.05) / ((luminance(DARK_INK) ?? 0) + 0.05);
-  return onDark > onWhite ? DARK_INK : LIGHT_INK;
+  if (Math.max(onWhite, onDark) >= AA) return onDark > onWhite ? DARK_INK : LIGHT_INK;
+  return (l + 0.05) / 0.05 > onWhite ? BLACK_INK : LIGHT_INK;
 }
 
 /** Hash lookup for the theme catalog. Returns `undefined` for unknown ids. */
