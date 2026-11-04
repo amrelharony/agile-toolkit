@@ -5,31 +5,53 @@
  * 3D mascot: no WebGL, no model parse, one image and CSS frame steps.
  *
  * useMascotStore drives it the way it drove the 3D figure: reactions play one at
- * a time as poses (engine/sprite-poses.ts), `talking` holds the review pose, the
+ * a time as poses (engine/sprite-poses.ts), `talking` holds the talking clip, the
  * mood sets the playback speed and the drone. Between reactions Amr looks at the
  * cursor through the 16 look poses, then settles back to idle. The springs in
  * engine/procedural-anim.ts add small fidgets and a squash on each reaction, and
  * write to the DOM only when they move.
  *
+ * The interactive pet's reactions and held poses (engine/clips.ts) play on a
+ * second layer, from lazy packs (engine/packs.ts) fetched when the page is idle
+ * or the first time a clip needs one; a live-sheet pose stands in until then.
+ * That layer is painted here, frame by frame, without re-rendering React: the
+ * lip-sync while a reply streams (engine/talk.ts), the dangle while he's
+ * carried (with a pendulum swing), the stroll's slide along the bottom. A pack's
+ * cells are taller than the live sheet's, with room on top for a raised prop, so
+ * the layer stands on his floor and takes the height of the cell it paints. A
+ * weather or fireworks scene also sets the air around him (mascot-fx.tsx). His
+ * senses (engine/senses.ts) start once he's on screen.
+ *
  * Reduced motion shows a still frame of the current pose: no frame steps, no
- * springs, no cursor tracking, no entrance.
+ * springs, no cursor tracking, no entrance, no sensors or stroll.
  *
  * Mount lazily (next/dynamic, ssr:false).
  */
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
 import { MASCOT_SPRITE_URL } from "./mascot-asset";
+import { FRAMES, PACK_CELL, PACK_COLUMNS, type FrameId, type PackId } from "./mascot-packs";
 import { createMascotDrone } from "./engine/audio/mascot-drone";
 import { playMascotSound } from "./engine/audio/mascot-audio";
+import {
+  STROLL_FROM_LEFT,
+  STROLL_FROM_RIGHT,
+  clipFrameAt,
+  type Clip,
+  type FrameRef,
+} from "./engine/clips";
 import { createGestureTracker } from "./engine/interactions/gestures";
 import { MOOD_DRONE, MOOD_SPEED, moodFor, type MoodName } from "./engine/mood";
+import { createPackLoader, wantsSharp } from "./engine/packs";
 import { createProceduralAnim } from "./engine/procedural-anim";
 import { createReactionFx, type MicroName } from "./engine/reactions";
+import { installSenses } from "./engine/senses";
 import {
+  FIGURE_TOP,
   SHEET,
   chooseShot,
   lookIndex,
@@ -37,6 +59,9 @@ import {
   type Shot,
   type SpritePose,
 } from "./engine/sprite-poses";
+import { createTalker } from "./engine/talk";
+import { sceneFx, type SceneFx } from "./engine/scene-fx";
+import { FX_FADE_MS, MascotFx } from "./mascot-fx";
 import styles from "./mascot-assistant.module.css";
 
 interface MascotSpriteProps {
@@ -47,6 +72,8 @@ interface MascotSpriteProps {
   src?: string;
   /** The sheet failed to load. */
   onLoadError?: () => void;
+  /** What the stroll slides along the bottom of the screen (his button). */
+  moveRef?: RefObject<HTMLElement | null>;
 }
 
 /** Seconds between spring updates (about 30 fps). */
@@ -57,6 +84,18 @@ const LOOK_HOLD_MS = 1800;
 const FACE_ROW = 0.25;
 /** The springs work in model units; the old model was this many units tall. */
 const SPRING_UNITS_TALL = 1.4;
+/** Loaded as soon as the page is idle: touch, faces and being picked up. */
+const CORE_PACKS: PackId[] = ["faces", "touch", "lifted"];
+/** Loaded a little later, unless the connection is slow. */
+const LATER_PACKS: PackId[] = ["page", "social", "balance", "point"];
+const LATER_MS = 20_000;
+/** A pointer passing him faster than this (px/s), this close (px), startles him. */
+const FAST_PASS = { speed: 2400, near: 160, cooldownMs: 15_000 };
+/** Carried: frames by sideways speed (px/s). */
+const SWING_V = 140;
+const FLAIL_V = 1400;
+/** A drag report older than this means the pointer has stopped. */
+const DRAG_STALE_MS = 150;
 
 const IDLE_SHOT = chooseShot({
   drag: null,
@@ -77,22 +116,40 @@ function animClass(shot: Shot, take: number): string | undefined {
   return undefined;
 }
 
+function whenIdle(fn: () => void): void {
+  const w = window as Window & {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+  };
+  if (w.requestIdleCallback) w.requestIdleCallback(fn, { timeout: 4000 });
+  else setTimeout(fn, 300);
+}
+
+function slowConnection(): boolean {
+  const c = (navigator as Navigator & { connection?: { effectiveType?: string } }).connection;
+  return c?.effectiveType === "slow-2g" || c?.effectiveType === "2g";
+}
+
 export default function MascotSprite({
   width = 132,
   height = 143,
   className,
   src = MASCOT_SPRITE_URL,
   onLoadError,
+  moveRef,
 }: MascotSpriteProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const swingRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  // The effect runs once, so it reads the latest callback and height via a ref.
-  const latestRef = useRef({ onLoadError, height });
-  latestRef.current = { onLoadError, height };
+  const clipRef = useRef<HTMLDivElement>(null);
+  // The effect runs once, so it reads the latest props via a ref.
+  const latestRef = useRef({ onLoadError, width, height, src, moveRef });
+  latestRef.current = { onLoadError, width, height, src, moveRef };
 
   const [{ shot, take }, setPlaying] = useState({ shot: IDLE_SHOT, take: 0 });
   const [loaded, setLoaded] = useState(false);
   const auraColor = useMascotStore((s) => s.auraColor);
+  // The air around him for a weather or fireworks scene; it clears after the scene.
+  const [fx, setFx] = useState<{ kind: SceneFx; leaving: boolean } | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -110,12 +167,30 @@ export default function MascotSprite({
     let lastMoveAt = 0;
     let speed = 1;
     let currentMood: MoodName = "neutral";
-    let shownKey = "";
+    let shown: Shot = IDLE_SHOT;
     let shownTransform = "";
     let pumping = false;
+    let lastInterrupt = useMascotStore.getState().interrupt;
+    let disposeSenses: (() => void) | null = null;
+    let laterTimer: ReturnType<typeof setTimeout> | undefined;
+
+    // The clip layer: when the clip started, what's painted, how far it walked him.
+    let clipStart = 0;
+    let painted = "";
+    let movedX = 0;
+    let swingVx = 0;
+    const swing = { angle: 0, vel: 0 };
+    let shownSwing = "";
+    let lastPointer: { x: number; y: number; t: number } | null = null;
+    let lastStartle = -Infinity;
 
     const nowS = () => performance.now() / 1000;
 
+    const loader = createPackLoader(
+      wantsSharp(latestRef.current.width, window.devicePixelRatio),
+      () => refresh()
+    );
+    const talker = createTalker();
     const procedural = createProceduralAnim();
     const reactionFx = createReactionFx({
       queueReaction: (r) => useMascotStore.getState().queueReaction(r),
@@ -124,31 +199,126 @@ export default function MascotSprite({
     // Ambient mood drone (piggybacks the sonification engine; silent unless sound
     // is enabled + the context already exists from another mascot sound).
     const drone = createMascotDrone();
-    // Circle gesture → spin, zigzag → wiggle (tracked from the same mousemove).
+    // Circle gesture → spin, back-and-forth over him → tickle.
     const gestureTracker = createGestureTracker((g) =>
-      useMascotStore.getState().queueReaction(g === "circle" ? "spin" : "wiggle")
+      useMascotStore.getState().queueReaction(g === "circle" ? "spin" : "tickle")
     );
+
+    /** He's parked on the left half of the screen: a stroll heads right first. */
+    const strollClip = (): Clip => {
+      const r = container.getBoundingClientRect();
+      return r.left + r.width / 2 < window.innerWidth / 2 ? STROLL_FROM_LEFT : STROLL_FROM_RIGHT;
+    };
+
+    /** Put a frame on the clip layer (no-op when it's already there). */
+    const paintFrame = (ref: FrameRef) => {
+      const el = clipRef.current;
+      if (!el) return;
+      const { width: w, height: h, src: baseSrc } = latestRef.current;
+      let url: string;
+      let rows: number;
+      let index: number;
+      let cellH = h;
+      if (ref.startsWith("base:")) {
+        const [, row, col] = ref.split(":").map(Number);
+        url = baseSrc;
+        rows = SHEET.rows;
+        index = row * SHEET.columns + col;
+      } else {
+        const [pack, i] = FRAMES[ref as FrameId];
+        url = loader.url(pack);
+        rows = loader.rows(pack);
+        index = i;
+        cellH = (h * PACK_CELL.h) / SHEET.cellH;
+      }
+      const key = `${url}#${index}@${w}`;
+      if (key === painted) return;
+      painted = key;
+      el.style.height = `${cellH}px`;
+      el.style.backgroundImage = `url(${url})`;
+      el.style.backgroundSize = `${w * PACK_COLUMNS}px ${cellH * rows}px`;
+      el.style.backgroundPosition = `${-(index % PACK_COLUMNS) * w}px ${-Math.floor(index / PACK_COLUMNS) * cellH}px`;
+    };
+
+    /** Slide him (the stroll) by `x` sheet px; 0 puts him back. */
+    const moveBy = (x: number) => {
+      if (x === movedX) return;
+      movedX = x;
+      const el = latestRef.current.moveRef?.current;
+      if (!el) return;
+      const px = (x * latestRef.current.width) / SHEET.cellW;
+      el.style.translate = x === 0 ? "" : `${px.toFixed(1)}px 0`;
+    };
+
+    /** The carried frame for the drag's current speed. */
+    const liftedFrame = (): FrameId => {
+      const v = Math.abs(swingVx);
+      if (v > FLAIL_V) return "lifted.flail";
+      if (v < SWING_V) return "lifted.hang";
+      // Moving right, his legs trail to the left.
+      return swingVx > 0 ? "lifted.swing-l" : "lifted.swing-r";
+    };
+
+    /** Paint the clip layer for `now` (ms, performance clock). */
+    const paintClip = (now: number) => {
+      const c = shown.anim === "clip" ? shown.clip : undefined;
+      if (!c) {
+        moveBy(0);
+        return;
+      }
+      if (shown.still) {
+        moveBy(0);
+        paintFrame(c.driven === "lifted" ? "lifted.hang" : c.still);
+        return;
+      }
+      if (c.driven === "lifted") {
+        paintFrame(liftedFrame());
+      } else if (c.driven === "talk") {
+        paintFrame(talker.frame(now, useMascotStore.getState().speechPulse));
+      } else {
+        const { f, x } = clipFrameAt(c, now - clipStart);
+        paintFrame(f);
+        moveBy(x);
+      }
+    };
 
     /** Show the shot the current inputs call for, if it isn't showing already. */
     const refresh = () => {
+      if (disposed) return;
       const s = useMascotStore.getState();
       const next = chooseShot({
-        drag: s.dragDirection,
+        drag: s.drag,
+        holds: s.holds,
         reaction,
         micro,
         talking: s.talking,
         look,
         reducedMotion,
         speed,
+        ready: loader.isReady,
+        stroll: reaction === "stroll" ? strollClip() : undefined,
       });
-      if (next.key === shownKey) return;
-      shownKey = next.key;
+      if (next.needs) loader.ensure(next.needs);
+      if (next.key === shown.key) return;
+      const wasTalk = shown.clip?.driven === "talk";
+      shown = next;
+      clipStart = performance.now();
+      if (next.clip?.driven === "talk" && !wasTalk) talker.reset();
+      paintClip(clipStart);
       setPlaying((p) => ({ shot: next, take: p.take + 1 }));
+    };
+
+    const endReaction = () => {
+      clearTimeout(reactionTimer);
+      reactionTimer = undefined;
+      reaction = null;
     };
 
     const startReaction = (r: MascotReaction) => {
       reaction = r;
-      if (r !== "wiggle" && !reducedMotion) procedural.triggerSquashStretch("react");
+      if (r !== "wiggle" && !reducedMotion) {
+        procedural.triggerSquashStretch(r === "land" ? "land" : "react");
+      }
       playMascotSound(r); // reaction sound (no-op if not in the palette / muted)
       reactionTimer = setTimeout(
         () => {
@@ -184,6 +354,11 @@ export default function MascotSprite({
         drone.setMood(MOOD_DRONE[mood]);
         playMascotSound("mood"); // soft swell on mood change (source plays 'mood')
       }
+      // playNow: cut the current reaction short for the one it queued.
+      if (s.interrupt !== lastInterrupt) {
+        lastInterrupt = s.interrupt;
+        endReaction();
+      }
       pump();
       refresh();
     });
@@ -194,11 +369,30 @@ export default function MascotSprite({
       const cy = rect.top + rect.height / 2;
       gestureTracker.track(e.clientX, e.clientY, cx, cy, nowS());
       look = lookIndex(e.clientX - cx, e.clientY - (rect.top + rect.height * FACE_ROW));
-      lastMoveAt = performance.now();
+      const t = performance.now();
+      lastMoveAt = t;
+      // A pointer whizzing past close by startles him.
+      if (lastPointer && t > lastPointer.t) {
+        const v =
+          (Math.hypot(e.clientX - lastPointer.x, e.clientY - lastPointer.y) / (t - lastPointer.t)) *
+          1000;
+        const near = Math.hypot(e.clientX - cx, e.clientY - cy) < FAST_PASS.near;
+        if (v > FAST_PASS.speed && near && t - lastStartle > FAST_PASS.cooldownMs && !reaction) {
+          lastStartle = t;
+          useMascotStore.getState().queueReaction("startle");
+        }
+      }
+      lastPointer = { x: e.clientX, y: e.clientY, t };
       refresh();
     };
 
-    // Springs, quirks and the look timeout. The frames themselves are CSS.
+    // Hovering or pressing him: get the packs his touch reactions need.
+    const onPointerOver = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("[data-mascot-hit]")) loader.ensure([...CORE_PACKS, "social", "balance"]);
+    };
+
+    // Springs, quirks, the look timeout and the clip layer's frames.
     let lastTick = 0;
     const tick = (now: number) => {
       if (disposed) return;
@@ -207,16 +401,38 @@ export default function MascotSprite({
       if (elapsed < TICK_S) return;
       lastTick = now;
 
-      const talking = useMascotStore.getState().talking;
+      const store = useMascotStore.getState();
+      const talking = store.talking;
       const isOpen = useAgentStore.getState().open;
       const t = now / 1000;
-      reactionFx.updateQuirks(t, { isOpen, isTalking: talking, activeReaction: !!reaction });
+      reactionFx.updateQuirks(t, {
+        isOpen,
+        isTalking: talking,
+        activeReaction: !!reaction || store.holds.length > 0,
+      });
       micro = reactionFx.activeMicroExpression(t)?.pose ?? null;
       if (look !== null && now - lastMoveAt > LOOK_HOLD_MS) look = null;
       refresh();
 
+      // Carried: ease toward the drag's speed (zero once the pointer rests).
+      const drag = store.drag;
+      const vx = drag && Date.now() - drag.at < DRAG_STALE_MS ? drag.vx : 0;
+      swingVx += (vx - swingVx) * 0.3;
+      paintClip(now);
+
+      // The pendulum: he swings from the collar while carried, and settles after.
+      const dt = Math.min(elapsed, 0.1);
+      const target = drag ? Math.max(-9, Math.min(9, swingVx * 0.008)) : 0;
+      swing.vel += ((target - swing.angle) * 90 - swing.vel * 7) * dt;
+      swing.angle += swing.vel * dt;
+      const rot = Math.abs(swing.angle) < 0.05 ? "" : `rotate(${swing.angle.toFixed(2)}deg)`;
+      if (rot !== shownSwing && swingRef.current) {
+        shownSwing = rot;
+        swingRef.current.style.transform = rot;
+      }
+
       const pa = procedural.update({
-        dt: Math.min(elapsed, 0.1),
+        dt,
         activeReaction: !!reaction,
         isTalking: talking,
         isOpen,
@@ -255,6 +471,16 @@ export default function MascotSprite({
         window.addEventListener("mousemove", onMouseMove, { passive: true });
         raf = requestAnimationFrame(tick);
       }
+      window.addEventListener("pointerover", onPointerOver, { passive: true });
+      disposeSenses = installSenses({
+        reducedMotion,
+        figure: () => containerRef.current,
+        want: (packs) => loader.ensure(packs),
+      });
+      whenIdle(() => loader.ensure(CORE_PACKS));
+      laterTimer = setTimeout(() => {
+        if (!slowConnection()) whenIdle(() => loader.ensure(LATER_PACKS));
+      }, LATER_MS);
       pump();
       refresh();
     };
@@ -268,10 +494,15 @@ export default function MascotSprite({
       disposed = true;
       cancelAnimationFrame(raf);
       clearTimeout(reactionTimer);
+      clearTimeout(laterTimer);
       window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("pointerover", onPointerOver);
+      disposeSenses?.();
       gestureTracker.dispose();
       unsub();
       drone.dispose();
+      loader.dispose();
+      moveBy(0);
       sheet.onload = null;
       sheet.onerror = null;
       useMascotStore.getState().setReady(false);
@@ -280,12 +511,26 @@ export default function MascotSprite({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const isClip = shot.anim === "clip";
+  const dozing = shot.clip?.name === "hold.dozing";
+  // A still frame (reduced motion) gets no air.
+  const fxNow = isClip && !shot.still && shot.clip ? sceneFx(shot.clip.name) : null;
+  useEffect(() => {
+    if (fxNow) {
+      setFx({ kind: fxNow, leaving: false });
+      return;
+    }
+    setFx((cur) => (cur && !cur.leaving ? { ...cur, leaving: true } : cur));
+    const t = setTimeout(() => setFx(null), FX_FADE_MS);
+    return () => clearTimeout(t);
+  }, [fxNow]);
   const sheetStyle = {
     width,
     height,
     backgroundImage: `url(${src})`,
     backgroundSize: `${width * SHEET.columns}px ${height * SHEET.rows}px`,
     backgroundPosition: `${-shot.col * width}px ${-shot.row * height}px`,
+    visibility: isClip ? "hidden" : undefined,
     "--cell-w": `${width}px`,
     "--cell-h": `${height}px`,
     "--frames": shot.frames,
@@ -296,17 +541,36 @@ export default function MascotSprite({
     <div
       ref={containerRef}
       className={cn(loaded && styles.enter, className)}
-      style={{ width, height }}
+      style={{ width, height, position: "relative" }}
       aria-hidden="true"
       data-amr-shot={shot.key}
     >
+      {fx && <MascotFx kind={fx.kind} leaving={fx.leaving} width={width} height={height} />}
       <div
-        ref={bodyRef}
-        className={styles.body}
-        style={auraColor ? { filter: `drop-shadow(0 0 10px ${auraColor})` } : undefined}
+        ref={swingRef}
+        className={styles.swing}
+        style={{
+          transformOrigin: `50% ${((FIGURE_TOP / SHEET.cellH) * 100).toFixed(1)}%`,
+          ...(auraColor ? { filter: `drop-shadow(0 0 10px ${auraColor})` } : {}),
+        }}
       >
-        <div className={cn(styles.sheet, animClass(shot, take))} style={sheetStyle} />
+        <div ref={bodyRef} className={styles.body}>
+          <div className={cn(styles.sheet, animClass(shot, take))} style={sheetStyle} />
+          <div
+            ref={clipRef}
+            className={styles.clip}
+            data-amr-clip
+            style={{ width, visibility: isClip ? undefined : "hidden" }}
+          />
+        </div>
       </div>
+      {dozing && (
+        <span className={styles.zzz} style={{ top: (FIGURE_TOP / SHEET.cellH) * height }}>
+          <span>z</span>
+          <span>z</span>
+          <span>Z</span>
+        </span>
+      )}
     </div>
   );
 }

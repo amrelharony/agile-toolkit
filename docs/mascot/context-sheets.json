@@ -1,0 +1,1781 @@
+{
+  "about": "Amr's context sheets S11-S64: the weather where the visitor is, the time of day, Egyptian, Islamic, Coptic and international days, the seasons, the toolkit's own moments and play. One source for the ChatGPT prompts (scripts/build-mascot-context-brief.mjs), the pack builder (scripts/build-mascot-packs.py) and the scene tests. Slot 1 of every sheet is the standard stance; `slots` are slots 2-8. A slot's `kind` is how the builder lines it up (feet unless it says hip).",
+  "addendum": "CONTEXT SHEETS (S11 and later). These sheets give Amr a prop or a moment from the weather, the time of day, a holiday, a season or his work.\n- The sheet text describes each prop once. Draw that same prop, the same size and colours, in every slot that uses it. Props are simple, solid, slightly toy-like objects with clean shapes and bold colours, big enough to read when he is 100 pixels tall. A prop stays inside his slot and never hides his face unless a slot says so.\n- His clothes never change: no coats, jackets, costumes or hats unless a slot asks for one, and then it goes over his usual clothes. Wherever his hair shows, it is exactly the haircut in ref-hair.\n- Draw no weather and no effects: no rain, raindrops, puddles, snow, snowflakes, wind lines, sun rays, steam, smoke, sparks, sparkles, confetti, fireworks, light beams or musical notes. The website adds those. Act the weather and the moment with his body and face.\n- No writing, letters or numbers on any prop. No other people and no animals; a toy only where a slot asks for one.\n- Food and drink are always held in his hand, never floating, unless a slot says it was just tossed.",
+  "rounds": [
+    {
+      "title": "Every day: the weather and the hour",
+      "note": "These play on any day, so they make the biggest difference first.",
+      "sheets": [
+        "S11",
+        "S12",
+        "S13",
+        "S14",
+        "S15",
+        "S16",
+        "S17",
+        "S18",
+        "S19",
+        "S20",
+        "S21",
+        "S22",
+        "S23",
+        "S24",
+        "S25",
+        "S26",
+        "S27",
+        "S28",
+        "S29"
+      ]
+    },
+    {
+      "title": "Coming up, in date order",
+      "note": "From November 2026: winter, Christmas and New Year, Isra and Mi'raj (5 January 2027), 25 January, Valentine's Day, Ramadan (from about 8 February), Eid al-Fitr (about 9 March), Mother's Day, Pi Day and April Fools, Earth Day, Coptic Easter and Sham el-Nessim (2 and 3 May), Labour Day, Eid al-Adha (about 16 May), summer, the Mawlid (about 14 August), Nayrouz, back to school and Halloween.",
+      "sheets": [
+        "S53",
+        "S39",
+        "S45",
+        "S44",
+        "S37",
+        "S43",
+        "S46",
+        "S30",
+        "S31",
+        "S32",
+        "S33",
+        "S34",
+        "S35",
+        "S49",
+        "S47",
+        "S40",
+        "S41",
+        "S50",
+        "S36",
+        "S51",
+        "S38",
+        "S42",
+        "S52",
+        "S48"
+      ]
+    },
+    {
+      "title": "The toolkit and play",
+      "note": "Any time: cards, votes, timers, kudos, releases, and what he does when the visitor is idle.",
+      "sheets": ["S54", "S55", "S56", "S57", "S58", "S59", "S60", "S61", "S62", "S63", "S64"]
+    }
+  ],
+  "groups": [
+    { "id": "weather", "title": "Weather where the visitor is" },
+    { "id": "time", "title": "The visitor's time of day" },
+    { "id": "ramadan", "title": "Ramadan and the Eids" },
+    { "id": "islamic", "title": "Islamic days" },
+    { "id": "coptic", "title": "Coptic days and spring" },
+    { "id": "national", "title": "Egyptian national days" },
+    { "id": "world", "title": "International days" },
+    { "id": "season", "title": "Seasons" },
+    { "id": "agile", "title": "Toolkit moments" },
+    { "id": "play", "title": "Play and the device" }
+  ],
+  "sheets": [
+    {
+      "sheet": "S11",
+      "pack": "sun",
+      "group": "weather",
+      "title": "Sunny day",
+      "when": "Clear or mainly clear sky in the daytime where the visitor is, under 32 °C feels-like",
+      "props": "Prop: a pair of black sunglasses with a thin black frame.",
+      "slots": [
+        {
+          "id": "sun.shades-out",
+          "pose": "Holding the folded sunglasses up in one hand, squinting up at the bright sky with a happy smile."
+        },
+        {
+          "id": "sun.shades-on",
+          "pose": "Putting the sunglasses on with both hands at his temples, grinning."
+        },
+        {
+          "id": "sun.cool",
+          "pose": "Sunglasses on, arms folded across his chest, chin up, a cool confident smile."
+        },
+        {
+          "id": "sun.bask",
+          "pose": "Sunglasses on, face turned up to the sky, arms a little out from his sides with palms forward, soaking up the sun with a blissful smile."
+        },
+        {
+          "id": "sun.visor",
+          "pose": "No sunglasses: they are folded and hooked in his open collar. One hand held flat above his eyes like a visor, looking far into the distance, squinting."
+        },
+        {
+          "id": "sun.thumbs",
+          "pose": "Sunglasses on, a big thumbs-up toward us with a wide smile."
+        },
+        {
+          "id": "sun.peek",
+          "pose": "Sliding the sunglasses down his nose with one finger, peeking over them at us with raised eyebrows."
+        }
+      ]
+    },
+    {
+      "sheet": "S12",
+      "pack": "heat",
+      "group": "weather",
+      "title": "Hot day",
+      "when": "Feels-like 32-37 °C where the visitor is",
+      "props": "Props: a folded paper hand fan in soft orange; a plain white handkerchief; a clear plastic water bottle with a blue cap.",
+      "slots": [
+        {
+          "id": "heat.fan-a",
+          "pose": "Fanning his face with the open paper fan held to the viewer's left of his face, eyes half closed, cheeks puffed, hot."
+        },
+        {
+          "id": "heat.fan-b",
+          "pose": "The same, the fan swung across to the viewer's right of his face (the second frame of the fanning)."
+        },
+        {
+          "id": "heat.wipe",
+          "pose": "Wiping his forehead with the white handkerchief, a tired smile."
+        },
+        {
+          "id": "heat.collar",
+          "pose": "Pulling his shirt collar away from his neck with one finger to let air in, cheeks puffed, eyebrows up."
+        },
+        {
+          "id": "heat.wilt",
+          "pose": "Wilting in the heat: shoulders slumped, arms hanging, knees a little bent, head tilted, eyes half closed."
+        },
+        {
+          "id": "heat.drink",
+          "pose": "Tipping the water bottle up to his mouth and drinking, eyes closed."
+        },
+        {
+          "id": "heat.ahh",
+          "pose": "Holding the water bottle at his side, wiping his mouth with the back of his other hand, a refreshed 'ahh' face."
+        }
+      ]
+    },
+    {
+      "sheet": "S13",
+      "pack": "scorch",
+      "group": "weather",
+      "title": "Scorching day",
+      "when": "Feels-like 38 °C or more where the visitor is",
+      "props": "Props: an ice cream cone with one round scoop of pink strawberry ice cream; a tall glass of deep red karkadeh (hibiscus drink) with ice cubes; a small white handheld electric fan with a round head.",
+      "slots": [
+        {
+          "id": "scorch.cone",
+          "pose": "Holding the ice cream cone up beside his face, delighted."
+        },
+        { "id": "scorch.lick", "pose": "Licking the ice cream, eyes closed, very happy." },
+        {
+          "id": "scorch.drip",
+          "pose": "Looking in surprise at a drip of pink ice cream running down the cone onto his fingers."
+        },
+        {
+          "id": "scorch.glass",
+          "pose": "Pressing the cold glass of karkadeh against his cheek, eyes closed, relieved."
+        },
+        { "id": "scorch.sip", "pose": "Drinking from the glass of karkadeh, eyes closed." },
+        {
+          "id": "scorch.fan",
+          "pose": "Holding the little electric fan up to his face, chin up, eyes closed, enjoying the breeze."
+        },
+        {
+          "id": "scorch.melt",
+          "pose": "Comically melting in the heat: knees bent, shoulders and arms drooping low, head tilted, a weak smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S14",
+      "pack": "cold",
+      "group": "weather",
+      "title": "Cold day",
+      "when": "Feels-like 12 °C or less where the visitor is",
+      "props": "No props.",
+      "slots": [
+        {
+          "id": "cold.shiver-a",
+          "pose": "Hugging himself tightly, shoulders up to his ears, knees together, teeth chattering in a stiff grin, leaning a little to the viewer's left."
+        },
+        {
+          "id": "cold.shiver-b",
+          "pose": "The same shiver, leaning a little to the viewer's right (the second frame of the shiver)."
+        },
+        {
+          "id": "cold.rub",
+          "pose": "Rubbing his palms together quickly in front of his chest, shoulders raised."
+        },
+        {
+          "id": "cold.blow",
+          "pose": "Blowing warm breath into his cupped hands held at his mouth, eyes looking at us."
+        },
+        {
+          "id": "cold.hunch",
+          "pose": "Hands deep in his trouser pockets, shoulders hunched, chin tucked down, a brave little smile."
+        },
+        {
+          "id": "cold.stamp",
+          "pose": "Stamping to keep warm: one knee lifted, the foot off the floor, arms tucked in tight.",
+          "kind": "hip"
+        },
+        {
+          "id": "cold.sneeze",
+          "pose": "A big sneeze into the crook of his elbow, eyes squeezed shut."
+        }
+      ]
+    },
+    {
+      "sheet": "S15",
+      "pack": "cosy",
+      "group": "weather",
+      "title": "Cosy with a scarf and tea",
+      "when": "Cold where the visitor is (with S14), and winter mornings",
+      "props": "Props: a long knitted scarf in warm red with two cream stripes near each end; a plain white ceramic mug of hot tea with a sprig of mint, held by its handle or in both hands.",
+      "slots": [
+        {
+          "id": "cosy.wrap",
+          "pose": "Wrapping the scarf around his neck, one end flung over his shoulder, eyes closed with pleasure."
+        },
+        {
+          "id": "cosy.tuck",
+          "pose": "The scarf on, both hands tucking its ends in at his chest, a snug smile."
+        },
+        {
+          "id": "cosy.mug",
+          "pose": "The scarf on, holding the mug of tea in both hands at chest height, eyes closed, warm smile."
+        },
+        { "id": "cosy.blow", "pose": "The scarf on, blowing gently across the top of the mug." },
+        { "id": "cosy.sip", "pose": "The scarf on, sipping the tea, eyes closed." },
+        {
+          "id": "cosy.sigh",
+          "pose": "The scarf on, mug held low in both hands, a contented sigh, shoulders relaxed, eyes closed."
+        },
+        {
+          "id": "cosy.offer",
+          "pose": "The scarf on, holding the mug out toward us, offering a sip, friendly smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S16",
+      "pack": "rain",
+      "group": "weather",
+      "title": "Rainy day",
+      "when": "Drizzle, light rain or showers where the visitor is",
+      "props": "Prop: a classic umbrella with a curved wooden handle and a plain dark blue canopy with no pattern.",
+      "slots": [
+        {
+          "id": "rain.check",
+          "pose": "The umbrella closed and hanging from his forearm by its handle; his other palm held out flat, looking up at the sky to feel for rain."
+        },
+        {
+          "id": "rain.open",
+          "pose": "Opening the umbrella above his head with both hands, the canopy half open."
+        },
+        {
+          "id": "rain.under-a",
+          "pose": "Standing under the open umbrella, its handle in one hand at chest height, the other hand in his pocket, a content smile, the umbrella tilted a little to the viewer's left."
+        },
+        {
+          "id": "rain.under-b",
+          "pose": "The same, the umbrella tilted a little to the viewer's right (the second frame of a gentle sway)."
+        },
+        {
+          "id": "rain.shoulder",
+          "pose": "The open umbrella resting back on his shoulder, looking up from under it with a playful grin."
+        },
+        {
+          "id": "rain.feel",
+          "pose": "Tipping the open umbrella back to look up at the sky, his free hand out, palm up, to feel the rain."
+        },
+        {
+          "id": "rain.close",
+          "pose": "Closing the umbrella, pointing it down and giving it a shake, cheerful."
+        }
+      ]
+    },
+    {
+      "sheet": "S17",
+      "pack": "downpour",
+      "group": "weather",
+      "title": "Heavy rain",
+      "when": "Heavy rain or violent showers where the visitor is",
+      "props": "Prop: the same dark blue umbrella with a curved wooden handle as S16.",
+      "slots": [
+        {
+          "id": "downpour.brace",
+          "pose": "Holding the open umbrella low and tight over his head with both hands, hunched, squinting."
+        },
+        {
+          "id": "downpour.hop",
+          "pose": "Hopping over a puddle, drawn in place: both knees pulled up, the open umbrella held high, laughing. His lowest point still touches the floor line."
+        },
+        {
+          "id": "downpour.stomp",
+          "pose": "Stomping one foot down playfully as if splashing, arms out for balance, the open umbrella in one hand, laughing."
+        },
+        {
+          "id": "downpour.oops",
+          "pose": "The umbrella closed at his side; shoulders slumped, the other palm up, a sheepish 'oh well, I'm soaked' smile."
+        },
+        {
+          "id": "downpour.shake",
+          "pose": "Shaking water off his hands, wrists flicking, eyes squeezed shut."
+        },
+        {
+          "id": "downpour.dance",
+          "pose": "Dancing in the rain: arms wide, face up, laughing, the closed umbrella in one hand like a cane."
+        },
+        {
+          "id": "downpour.wring",
+          "pose": "Squeezing water out of one shirt cuff with the other hand, a comic grimace."
+        }
+      ]
+    },
+    {
+      "sheet": "S18",
+      "pack": "storm",
+      "group": "weather",
+      "title": "Thunderstorm",
+      "when": "A thunderstorm where the visitor is",
+      "props": "Prop: the same dark blue umbrella with a curved wooden handle as S16.",
+      "slots": [
+        {
+          "id": "storm.flinch",
+          "pose": "Flinching at a clap of thunder: shoulders up, eyes squeezed shut, both hands over his ears, the closed umbrella hooked on his forearm."
+        },
+        {
+          "id": "storm.jump",
+          "pose": "A startled jump drawn in place: arms flung up, eyes wide, mouth open, knees bent. His lowest point still touches the floor line."
+        },
+        {
+          "id": "storm.flipped",
+          "pose": "Holding the umbrella above him with both hands while the wind has blown it inside out, comic dismay."
+        },
+        {
+          "id": "storm.tug",
+          "pose": "Leaning back, tugging the inside-out umbrella with both hands, teeth gritted."
+        },
+        {
+          "id": "storm.hug",
+          "pose": "Hugging the closed umbrella to his chest, a nervous smile, eyes glancing up."
+        },
+        {
+          "id": "storm.peek",
+          "pose": "Peeking up at the sky from behind his raised forearm, nervous."
+        },
+        {
+          "id": "storm.brave",
+          "pose": "Fists on his hips, chest out, a brave determined face, the closed umbrella tucked under his arm."
+        }
+      ]
+    },
+    {
+      "sheet": "S19",
+      "pack": "snow",
+      "group": "weather",
+      "title": "Snow",
+      "when": "Snow or snow showers where the visitor is",
+      "props": "Prop: a round white snowball (only where a slot says).",
+      "slots": [
+        {
+          "id": "snow.catch",
+          "pose": "Looking with delight at his open palm, as if a snowflake has just landed on it (draw no snowflake)."
+        },
+        {
+          "id": "snow.tongue",
+          "pose": "Head tipped back, tongue out to catch snowflakes, eyes closed, happy (draw no snowflakes)."
+        },
+        {
+          "id": "snow.scoop",
+          "pose": "Bending down with both cupped hands near the floor line, scooping up snow (draw no snow)."
+        },
+        {
+          "id": "snow.ball",
+          "pose": "Standing, holding the snowball up in one hand, a mischievous grin."
+        },
+        {
+          "id": "snow.throw",
+          "pose": "Throwing the snowball toward us, his arm forward, the snowball just leaving his hand."
+        },
+        {
+          "id": "snow.thrill",
+          "pose": "A happy shiver: hugging himself, but grinning with excitement."
+        },
+        {
+          "id": "snow.star",
+          "pose": "Arms and legs spread wide in a star shape, laughing, face up to the falling snow."
+        }
+      ]
+    },
+    {
+      "sheet": "S20",
+      "pack": "wind",
+      "group": "weather",
+      "title": "Windy day",
+      "when": "Wind of 35 km/h or more where the visitor is",
+      "props": "No props. The wind blows from the viewer's right.",
+      "slots": [
+        {
+          "id": "wind.lean-a",
+          "pose": "Leaning forward into a strong wind from the viewer's right, one forearm raised to shield his face, his lanyard and badge blown back to the viewer's left."
+        },
+        {
+          "id": "wind.lean-b",
+          "pose": "The same lean, his badge flipped up by the gust (the second frame)."
+        },
+        { "id": "wind.grab", "pose": "Grabbing his flying badge with both hands, surprised." },
+        {
+          "id": "wind.brace",
+          "pose": "Feet planted wide, arms out for balance, bracing against a gust."
+        },
+        { "id": "wind.squint", "pose": "Squinting into the wind, one hand flat over his eyes." },
+        {
+          "id": "wind.collar",
+          "pose": "Holding his shirt collar closed at his neck, shoulders up, eyes narrowed."
+        },
+        {
+          "id": "wind.phew",
+          "pose": "Hands on his knees after the gust, catching his breath, a relieved smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S21",
+      "pack": "grey",
+      "group": "weather",
+      "title": "Fog and grey skies",
+      "when": "Fog or an overcast sky where the visitor is",
+      "props": "No props.",
+      "slots": [
+        {
+          "id": "grey.peer",
+          "pose": "Leaning forward, peering into the distance with one hand above his eyes."
+        },
+        {
+          "id": "grey.clear-a",
+          "pose": "Waving one hand in front of his face as if clearing fog, curious, the hand to the viewer's left."
+        },
+        {
+          "id": "grey.clear-b",
+          "pose": "The same, the hand to the viewer's right (the second frame)."
+        },
+        { "id": "grey.up", "pose": "Looking up at the clouds, hands in his pockets, thoughtful." },
+        {
+          "id": "grey.shape",
+          "pose": "Pointing up at a cloud and grinning back at us, as if it looks like something funny."
+        },
+        {
+          "id": "grey.shrug",
+          "pose": "A small shrug with palms up, an 'oh well, grey again' smile."
+        },
+        {
+          "id": "grey.dream",
+          "pose": "A dreamy sigh, chin resting on one hand, that elbow held by the other hand."
+        }
+      ]
+    },
+    {
+      "sheet": "S22",
+      "pack": "stars",
+      "group": "weather",
+      "title": "Clear night",
+      "when": "A clear sky at night where the visitor is",
+      "props": "Prop: a small brass hand telescope.",
+      "slots": [
+        {
+          "id": "stars.gaze",
+          "pose": "Looking straight up at the sky with wonder, hands clasped behind his back."
+        },
+        {
+          "id": "stars.point",
+          "pose": "Pointing up at a star with one hand, looking back at us, excited."
+        },
+        {
+          "id": "stars.wish",
+          "pose": "Eyes closed, hands together under his chin, making a wish, a gentle smile."
+        },
+        { "id": "stars.scope", "pose": "Looking up through the telescope held to one eye." },
+        {
+          "id": "stars.amazed",
+          "pose": "Lowering the telescope, amazed, mouth open in a small 'o'."
+        },
+        {
+          "id": "stars.moon",
+          "pose": "Pointing up and to the viewer's right, showing us the moon, mouth open, 'look!'."
+        },
+        {
+          "id": "stars.night",
+          "pose": "A sleepy goodnight wave, the telescope tucked under his arm."
+        }
+      ]
+    },
+    {
+      "sheet": "S23",
+      "pack": "dust",
+      "group": "weather",
+      "title": "Khamaseen dust",
+      "when": "Dusty air (the spring khamaseen wind) where the visitor is",
+      "props": "No props.",
+      "slots": [
+        {
+          "id": "dust.elbow",
+          "pose": "Covering his nose and mouth with the crook of his elbow, eyes squinted almost shut."
+        },
+        {
+          "id": "dust.squint",
+          "pose": "Squinting hard, face scrunched, one hand shielding his eyes."
+        },
+        {
+          "id": "dust.mask",
+          "pose": "Pulling the neck of his white T-shirt up over his nose and mouth with one hand, eyes narrowed."
+        },
+        {
+          "id": "dust.brush",
+          "pose": "Brushing dust off his shoulder with one hand, a tidy-up face."
+        },
+        { "id": "dust.cough", "pose": "A small polite cough into his fist, eyes closed." },
+        { "id": "dust.rub", "pose": "Rubbing one eye with a knuckle, the other eye squinting." },
+        {
+          "id": "dust.shake",
+          "pose": "Ruffling the dust out of his hair with both hands, eyes shut (his hair stays short and the same shape)."
+        }
+      ]
+    },
+    {
+      "sheet": "S24",
+      "pack": "coffee",
+      "group": "time",
+      "title": "Morning coffee",
+      "when": "The visitor's first visit between 5 and 10 in the morning",
+      "props": "Prop: a bright yellow ceramic coffee mug.",
+      "slots": [
+        {
+          "id": "coffee.hold",
+          "pose": "Holding the yellow mug in both hands under his chin, eyes still half closed, a sleepy smile."
+        },
+        { "id": "coffee.blow", "pose": "Blowing gently across the top of the mug." },
+        { "id": "coffee.sip", "pose": "Taking a sip, eyes closed." },
+        {
+          "id": "coffee.awake",
+          "pose": "Eyes snapping wide open after the sip, eyebrows up, an energised grin."
+        },
+        {
+          "id": "coffee.cheers",
+          "pose": "Raising the mug toward us in a 'good morning' toast, big smile."
+        },
+        { "id": "coffee.yawn", "pose": "A big yawn, mouth wide, the mug held at his side." },
+        { "id": "coffee.go", "pose": "The mug in one hand, the other fist pumped up, 'let's go!'." }
+      ]
+    },
+    {
+      "sheet": "S25",
+      "pack": "breakfast",
+      "group": "time",
+      "title": "Ful and ta'meya breakfast",
+      "when": "The visitor's morning, 7 to 11",
+      "props": "Prop: an Egyptian breakfast sandwich: a round baladi flatbread folded around ta'meya (green-centred falafel) and salad, half wrapped in plain white paper.",
+      "slots": [
+        {
+          "id": "breakfast.hold",
+          "pose": "Holding the sandwich up in both hands, looking at it hungrily."
+        },
+        { "id": "breakfast.bite", "pose": "Taking a big bite of the sandwich." },
+        { "id": "breakfast.chew", "pose": "Chewing with puffed cheeks, eyes closed, happy." },
+        {
+          "id": "breakfast.yum",
+          "pose": "Cheeks full, a thumbs-up with his free hand, eyebrows up, 'so good'."
+        },
+        { "id": "breakfast.offer", "pose": "Holding the sandwich out to us, offering a bite." },
+        {
+          "id": "breakfast.crumbs",
+          "pose": "Brushing crumbs off his shirt with one hand, the sandwich in the other."
+        },
+        {
+          "id": "breakfast.done",
+          "pose": "Rubbing his tummy, satisfied, the paper wrapper crumpled in his other hand."
+        }
+      ]
+    },
+    {
+      "sheet": "S26",
+      "pack": "koshary",
+      "group": "time",
+      "title": "Koshary lunch",
+      "when": "The visitor's lunchtime, 12:30 to 3",
+      "props": "Prop: a round takeaway bowl of koshary (rice, lentils and pasta topped with crispy brown fried onions and red tomato sauce) with a spoon.",
+      "slots": [
+        {
+          "id": "koshary.sniff",
+          "pose": "Holding the koshary bowl near his face, sniffing it, eyes closed, delighted."
+        },
+        { "id": "koshary.eat", "pose": "Eating a spoonful, the bowl held at chest height." },
+        { "id": "koshary.chew", "pose": "Chewing happily, eyes closed, the spoon raised." },
+        {
+          "id": "koshary.spicy",
+          "pose": "Fanning his open mouth with his free hand, cheeks flushed, 'too spicy!'."
+        },
+        { "id": "koshary.more", "pose": "Digging the spoon in for more, leaning in eagerly." },
+        {
+          "id": "koshary.full",
+          "pose": "Patting his full tummy with one hand, the bowl in the other, a satisfied smile."
+        },
+        {
+          "id": "koshary.drowsy",
+          "pose": "Heavy-eyed after lunch, shoulders drooping, the empty bowl at his side."
+        }
+      ]
+    },
+    {
+      "sheet": "S27",
+      "pack": "evening",
+      "group": "time",
+      "title": "End of the workday",
+      "when": "The visitor's workday evening, 5 to 8",
+      "props": "Prop: a thin silver laptop.",
+      "slots": [
+        {
+          "id": "evening.type",
+          "pose": "Holding the open laptop on one forearm, typing a last line with his other hand."
+        },
+        { "id": "evening.close", "pose": "Closing the laptop with both hands, a satisfied smile." },
+        {
+          "id": "evening.watch",
+          "pose": "The closed laptop tucked under one arm, checking the silver watch on his left wrist."
+        },
+        {
+          "id": "evening.stretch",
+          "pose": "Both arms stretched up over his head, the closed laptop held in one hand, eyes closed."
+        },
+        {
+          "id": "evening.sigh",
+          "pose": "Shoulders relaxed, a long relieved sigh, eyes closed, the laptop under his arm."
+        },
+        { "id": "evening.wave", "pose": "Waving goodbye to the day, the laptop under his arm." },
+        {
+          "id": "evening.home",
+          "pose": "Turned three-quarters toward the viewer's right, mid-step, the laptop under his arm, heading home."
+        }
+      ]
+    },
+    {
+      "sheet": "S28",
+      "pack": "late",
+      "group": "time",
+      "title": "Late night",
+      "when": "The visitor's clock between midnight and 4",
+      "props": "Prop: a small plain white pillow.",
+      "slots": [
+        { "id": "late.rub", "pose": "Rubbing one eye with his fist, yawning." },
+        {
+          "id": "late.watch",
+          "pose": "Tapping the silver watch on his left wrist, eyebrows raised at us: 'it's late!'."
+        },
+        {
+          "id": "late.pillow",
+          "pose": "Hugging the pillow to his chest, eyes half closed, a sleepy smile."
+        },
+        {
+          "id": "late.cheek",
+          "pose": "Resting his tilted cheek on the pillow held at his shoulder, eyes closed."
+        },
+        {
+          "id": "late.nod",
+          "pose": "Dozing on his feet: head nodding forward, hugging the pillow."
+        },
+        { "id": "late.jolt", "pose": "Jolting awake, eyes wide, the pillow held up in surprise." },
+        {
+          "id": "late.sleep-sign",
+          "pose": "Palms pressed together beside his tilted head, eyes closed, a kind smile: the 'time to sleep' sign, the pillow under his arm."
+        }
+      ]
+    },
+    {
+      "sheet": "S29",
+      "pack": "weekend",
+      "group": "time",
+      "title": "Weekend",
+      "when": "The visitor's weekend (Friday and Saturday in Egypt)",
+      "props": "Props: two white dice with black dots, from a backgammon (tawla) set; a folded newspaper with grey blocks for columns and no readable letters.",
+      "slots": [
+        {
+          "id": "weekend.shake",
+          "pose": "Shaking the two dice in his cupped hands beside his ear, eyes closed, grinning."
+        },
+        {
+          "id": "weekend.roll",
+          "pose": "Tossing the dice forward from his open hand, eager, the dice just leaving his fingers."
+        },
+        { "id": "weekend.win", "pose": "Both fists up, cheering a lucky roll." },
+        {
+          "id": "weekend.read",
+          "pose": "Reading the open newspaper held up in both hands, eyebrows raised."
+        },
+        { "id": "weekend.peek", "pose": "Lowering the newspaper to peek at us over its top edge." },
+        {
+          "id": "weekend.lazy",
+          "pose": "Hands behind his head, leaning back a little, eyes closed, a relaxed smile."
+        },
+        { "id": "weekend.wave", "pose": "A lazy happy wave, the newspaper folded under his arm." }
+      ]
+    },
+    {
+      "sheet": "S30",
+      "pack": "fanous",
+      "group": "ramadan",
+      "title": "Ramadan lantern",
+      "when": "All of Ramadan (Cairo Hijri calendar)",
+      "props": "Prop: a traditional Egyptian fanous: a hexagonal metal lantern with coloured glass panels (red, green, blue and yellow), a domed top and a ring handle on top, glowing warmly from inside.",
+      "slots": [
+        {
+          "id": "fanous.hold",
+          "pose": "Holding the fanous up by its ring at shoulder height, admiring it, a warm smile."
+        },
+        {
+          "id": "fanous.swing-a",
+          "pose": "Swinging the lantern gently out to the viewer's left, smiling at it."
+        },
+        {
+          "id": "fanous.swing-b",
+          "pose": "Swinging it to the viewer's right (the second frame of the swing)."
+        },
+        {
+          "id": "fanous.offer",
+          "pose": "Holding the lantern out to us with both hands, offering it."
+        },
+        {
+          "id": "fanous.hug",
+          "pose": "Holding the lantern close to his chest, eyes closed, happy."
+        },
+        {
+          "id": "fanous.raise",
+          "pose": "Raising the lantern up to the top of his head with one hand, the other hand on his hip, a proud grin."
+        },
+        {
+          "id": "fanous.greet",
+          "pose": "The lantern in one hand, his other hand on his heart, a small respectful nod: 'Ramadan Kareem'."
+        }
+      ]
+    },
+    {
+      "sheet": "S31",
+      "pack": "iftar",
+      "group": "ramadan",
+      "title": "Iftar at sunset",
+      "when": "Ramadan, from 20 minutes before sunset to an hour after, where the visitor is (Cairo if unknown)",
+      "props": "Props: a small round bowl of dates; one date; a glass of orange qamar el-din (apricot drink).",
+      "slots": [
+        {
+          "id": "iftar.watch",
+          "pose": "Checking the silver watch on his left wrist impatiently, his other hand on his tummy."
+        },
+        {
+          "id": "iftar.wait",
+          "pose": "Holding one date between finger and thumb, waiting, looking off to the side for the sunset."
+        },
+        {
+          "id": "iftar.cannon",
+          "pose": "A happy startled hop at the boom of the iftar cannon, drawn in place: hands at his ears, a big grin, his lowest point on the floor line."
+        },
+        { "id": "iftar.date", "pose": "Eating the date, eyes closed, blissful." },
+        { "id": "iftar.drink", "pose": "Drinking the glass of qamar el-din, eyes closed." },
+        {
+          "id": "iftar.offer",
+          "pose": "Holding the bowl of dates out to us, offering, warm smile."
+        },
+        {
+          "id": "iftar.full",
+          "pose": "Patting his tummy, satisfied, the empty glass in his other hand."
+        }
+      ]
+    },
+    {
+      "sheet": "S32",
+      "pack": "suhoor",
+      "group": "ramadan",
+      "title": "Suhoor before dawn",
+      "when": "Ramadan nights, 1 to 4:30 on the visitor's clock",
+      "props": "Props: a mesaharaty drum (a small round hand drum with a pale skin top, hung on a brown strap) and a short wooden drumstick; a small plate holding one round baladi flatbread.",
+      "slots": [
+        {
+          "id": "suhoor.drum-a",
+          "pose": "The drum hanging at his side by its strap, beating it with the stick, mouth open calling out."
+        },
+        {
+          "id": "suhoor.drum-b",
+          "pose": "The same, the stick raised for the next beat (the second frame)."
+        },
+        {
+          "id": "suhoor.call",
+          "pose": "One hand cupped beside his mouth, calling out 'wake up for suhoor!', the drum hanging at his side."
+        },
+        { "id": "suhoor.yawn", "pose": "A big yawn, the drum and stick lowered, sleepy." },
+        {
+          "id": "suhoor.knock",
+          "pose": "Knocking politely on an invisible door with his knuckles, smiling."
+        },
+        {
+          "id": "suhoor.eat",
+          "pose": "No drum. Holding the small plate, eating a piece of the bread, sleepy but happy."
+        },
+        { "id": "suhoor.done", "pose": "No drum. Wiping his mouth, a thumbs-up, eyes half closed." }
+      ]
+    },
+    {
+      "sheet": "S33",
+      "pack": "sweets",
+      "group": "ramadan",
+      "title": "Konafa and qatayef",
+      "when": "Ramadan evenings after iftar",
+      "props": "Props: a round metal tray of golden konafa (crispy shredded pastry); one qatayef (a small folded pancake filled with nuts).",
+      "slots": [
+        {
+          "id": "sweets.tray",
+          "pose": "Holding the konafa tray in both hands, sniffing it, eyes closed."
+        },
+        { "id": "sweets.offer", "pose": "Holding the tray out to us, offering, eyebrows up." },
+        {
+          "id": "sweets.qatayef",
+          "pose": "Holding up one qatayef between finger and thumb, admiring it."
+        },
+        { "id": "sweets.bite", "pose": "Biting into the qatayef, eyes closed." },
+        { "id": "sweets.lick", "pose": "Licking syrup off one fingertip, a cheeky grin." },
+        {
+          "id": "sweets.sneak",
+          "pose": "Reaching toward the tray in his other hand for one more piece, a guilty smile."
+        },
+        {
+          "id": "sweets.full",
+          "pose": "One hand on his tummy, the other raised palm out, shaking his head 'no more', laughing."
+        }
+      ]
+    },
+    {
+      "sheet": "S34",
+      "pack": "kahk",
+      "group": "ramadan",
+      "title": "Eid kahk",
+      "when": "Eid al-Fitr, 1-3 Shawwal, and Coptic Christmas",
+      "props": "Props: a round white plate of kahk (round Egyptian butter cookies dusted with white powdered sugar); one kahk cookie.",
+      "slots": [
+        { "id": "kahk.plate", "pose": "Holding the plate of kahk in both hands, delighted." },
+        { "id": "kahk.bite", "pose": "Biting a kahk, a little white sugar on his lips." },
+        {
+          "id": "kahk.sugar",
+          "pose": "Looking down in surprise at white powdered sugar on his shirt front, the cookie in his hand."
+        },
+        { "id": "kahk.dust", "pose": "Brushing the sugar off his shirt, laughing." },
+        { "id": "kahk.offer", "pose": "Holding one kahk out to us." },
+        { "id": "kahk.two", "pose": "A kahk in each hand, eating one, cheeks full." },
+        {
+          "id": "kahk.greet",
+          "pose": "The plate in one hand, the other hand on his heart, a warm smile: 'Eid Mubarak'."
+        }
+      ]
+    },
+    {
+      "sheet": "S35",
+      "pack": "eid",
+      "group": "ramadan",
+      "title": "Eid day",
+      "when": "Both Eids",
+      "props": "Props: three balloons on strings, one red, one gold, one green; a small plain white envelope (eideya, a gift of money) with no writing.",
+      "slots": [
+        {
+          "id": "eid.balloons",
+          "pose": "Holding the three balloon strings in one hand, the balloons just above his head, looking up at them, grinning."
+        },
+        {
+          "id": "eid.tiptoe",
+          "pose": "On tiptoe as the balloons tug upward, laughing, the balloons just above his head."
+        },
+        {
+          "id": "eid.give",
+          "pose": "No balloons. Holding the white envelope out to us with both hands, a kind smile: giving eideya."
+        },
+        {
+          "id": "eid.wink",
+          "pose": "No balloons. Winking at us, the envelope held near his chest."
+        },
+        {
+          "id": "eid.cheer",
+          "pose": "Both arms up celebrating, the balloon strings in one hand, the balloons just above it."
+        },
+        {
+          "id": "eid.hug",
+          "pose": "No balloons. Arms open wide toward us, offering a big Eid hug, beaming."
+        },
+        { "id": "eid.wave", "pose": "Waving to us, the balloons in his other hand." }
+      ]
+    },
+    {
+      "sheet": "S36",
+      "pack": "adha",
+      "group": "ramadan",
+      "title": "Eid al-Adha",
+      "when": "Eid al-Adha, 10-13 Dhu al-Hijjah",
+      "props": "Props: a small fluffy white toy sheep (a soft plush toy with a cream face and little black hooves); a plate of fatta (rice and toasted bread with tomato sauce) with a spoon.",
+      "slots": [
+        { "id": "adha.sheep", "pose": "Holding the toy sheep up in both hands, grinning at it." },
+        { "id": "adha.hug", "pose": "Hugging the toy sheep, eyes closed." },
+        { "id": "adha.show", "pose": "Showing the toy sheep to us, tilting it as if it waves." },
+        {
+          "id": "adha.fatta",
+          "pose": "No sheep. Holding the plate of fatta, sniffing it happily."
+        },
+        { "id": "adha.eat", "pose": "No sheep. Eating a spoonful of fatta." },
+        { "id": "adha.share", "pose": "No sheep. Offering the plate to us." },
+        {
+          "id": "adha.greet",
+          "pose": "The toy sheep under his arm, his other hand on his heart, a gentle nod: 'Eid Mubarak'."
+        }
+      ]
+    },
+    {
+      "sheet": "S37",
+      "pack": "blessed",
+      "group": "islamic",
+      "title": "Blessed days",
+      "when": "Islamic New Year, Ashura, Isra and Mi'raj, mid-Sha'ban and the Day of Arafah",
+      "props": "Props: a golden crescent moon ornament on a short ribbon; a string of wooden prayer beads (sebha); a small bowl of ashura (wheat pudding topped with nuts and raisins) with a spoon.",
+      "slots": [
+        {
+          "id": "blessed.crescent",
+          "pose": "Holding the golden crescent up by its ribbon, smiling at it."
+        },
+        {
+          "id": "blessed.hang",
+          "pose": "On tiptoe, reaching up to hang the crescent ornament, his hand just above his head."
+        },
+        {
+          "id": "blessed.sky",
+          "pose": "Looking up at the night sky, hands clasped in front of him, a peaceful smile."
+        },
+        {
+          "id": "blessed.beads",
+          "pose": "Holding the prayer beads in one hand at chest height, eyes closed, calm."
+        },
+        {
+          "id": "blessed.heart",
+          "pose": "One hand on his heart, eyes closed, a grateful gentle smile."
+        },
+        {
+          "id": "blessed.ashura",
+          "pose": "Holding the bowl of ashura, a spoonful raised, about to eat."
+        },
+        {
+          "id": "blessed.greet",
+          "pose": "A small respectful nod with his hand on his heart, a warm smile, looking at us."
+        }
+      ]
+    },
+    {
+      "sheet": "S38",
+      "pack": "mawlid",
+      "group": "islamic",
+      "title": "Mawlid sweets",
+      "when": "Mawlid al-Nabi, 12 Rabi' al-Awwal",
+      "props": "Props: an aroset el-mawlid, the traditional sugar doll (a little bride figure made of white sugar, wearing a fan-shaped dress of pink and gold paper); an open box of mawlid sweets (halawa with sesame, nut brittle and coloured sugar candies).",
+      "slots": [
+        { "id": "mawlid.doll", "pose": "Holding up the sugar doll proudly." },
+        { "id": "mawlid.admire", "pose": "Admiring the sugar doll, head tilted, delighted." },
+        {
+          "id": "mawlid.box",
+          "pose": "Holding the open box of sweets, looking in with wide eyes."
+        },
+        { "id": "mawlid.pick", "pose": "Picking one sweet out of the box." },
+        { "id": "mawlid.crunch", "pose": "Eating the sweet, eyes closed, a crunchy happy smile." },
+        { "id": "mawlid.offer", "pose": "Offering the open box to us." },
+        { "id": "mawlid.greet", "pose": "Hand on his heart, a warm smile, the box under his arm." }
+      ]
+    },
+    {
+      "sheet": "S39",
+      "pack": "xmas",
+      "group": "coptic",
+      "title": "Christmas",
+      "when": "Coptic Christmas (7 January) and 24-25 December",
+      "props": "Props: a gift box wrapped in red paper with a gold ribbon and bow; a gold five-pointed star ornament.",
+      "slots": [
+        { "id": "xmas.gift", "pose": "Holding the red gift box in both hands, excited." },
+        {
+          "id": "xmas.shake",
+          "pose": "Shaking the gift beside his ear, curious, eyes looking up."
+        },
+        { "id": "xmas.give", "pose": "Offering the gift to us with both hands, a warm smile." },
+        {
+          "id": "xmas.open",
+          "pose": "Lifting the box's lid and peeking inside, eyes wide with delight."
+        },
+        {
+          "id": "xmas.star",
+          "pose": "Holding the gold star up proudly, at the height of his head."
+        },
+        {
+          "id": "xmas.hang",
+          "pose": "On tiptoe, reaching up to hang the star, his hand just above his head."
+        },
+        {
+          "id": "xmas.wave",
+          "pose": "A cheerful wave, his other hand on his hip: 'Merry Christmas'."
+        }
+      ]
+    },
+    {
+      "sheet": "S40",
+      "pack": "eggs",
+      "group": "coptic",
+      "title": "Coloured eggs",
+      "when": "Coptic Easter and Sham el-Nessim",
+      "props": "Props: a small paintbrush; eggs painted in bright solid colours (pink, blue, yellow and green); a small woven basket.",
+      "slots": [
+        {
+          "id": "eggs.paint",
+          "pose": "Holding an egg in one hand and painting it with the brush in the other, tongue out in concentration."
+        },
+        { "id": "eggs.show", "pose": "Holding up a freshly painted pink egg proudly." },
+        { "id": "eggs.basket", "pose": "The basket of coloured eggs on his forearm, smiling." },
+        { "id": "eggs.offer", "pose": "Offering us a blue egg from the basket." },
+        {
+          "id": "eggs.tap",
+          "pose": "Tapping two eggs together, one in each hand (the egg-cracking game), grinning."
+        },
+        { "id": "eggs.cracked", "pose": "Looking at his cracked egg in mock dismay." },
+        {
+          "id": "eggs.toss",
+          "pose": "Tossing one egg up from his palm, the egg just above his hand, playful."
+        }
+      ]
+    },
+    {
+      "sheet": "S41",
+      "pack": "picnic",
+      "group": "coptic",
+      "title": "Sham el-Nessim picnic",
+      "when": "Sham el-Nessim (the Monday after Coptic Easter)",
+      "props": "Props: a diamond-shaped kite in red and yellow with a short tail; a green onion; a feseekh (a salted grey mullet, silver-grey); a small white daisy.",
+      "slots": [
+        {
+          "id": "picnic.kite",
+          "pose": "Holding the kite up above his head in one hand, ready to launch it, excited."
+        },
+        {
+          "id": "picnic.fly",
+          "pose": "No kite in his hand: holding a kite string spool, looking up delighted as if his kite flies high, a short taut string rising from the spool and ending well inside the slot."
+        },
+        { "id": "picnic.onion", "pose": "Sniffing the green onion, nose wrinkled, grinning." },
+        {
+          "id": "picnic.fish",
+          "pose": "Holding the feseekh up by its tail, holding his nose with his other hand, a comic face."
+        },
+        {
+          "id": "picnic.brave",
+          "pose": "About to take a brave bite of the feseekh, eyes squeezed shut."
+        },
+        {
+          "id": "picnic.breeze",
+          "pose": "Arms open wide, breathing in the spring air, eyes closed, happy."
+        },
+        {
+          "id": "picnic.daisy",
+          "pose": "Smelling the small white daisy, eyes closed, gentle smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S42",
+      "pack": "nayrouz",
+      "group": "coptic",
+      "title": "Nayrouz",
+      "when": "Coptic New Year (11 September, 12 before a Gregorian leap year)",
+      "props": "Props: a bunch of red dates (balah) on a small stem; a green guava.",
+      "slots": [
+        { "id": "nayrouz.dates", "pose": "Holding up the bunch of red dates, smiling." },
+        { "id": "nayrouz.bite", "pose": "Biting a red date, eyes closed." },
+        {
+          "id": "nayrouz.smell",
+          "pose": "Holding the guava up to his nose and smelling it, eyes closed."
+        },
+        { "id": "nayrouz.guava", "pose": "Biting the guava, happy." },
+        { "id": "nayrouz.offer", "pose": "Offering the dates to us." },
+        {
+          "id": "nayrouz.toss",
+          "pose": "Tossing the guava up from one hand, the guava just above his palm."
+        },
+        {
+          "id": "nayrouz.wave",
+          "pose": "A cheerful wave, the dates in his other hand: 'Happy New Year'."
+        }
+      ]
+    },
+    {
+      "sheet": "S43",
+      "pack": "flag",
+      "group": "national",
+      "title": "Egyptian flag",
+      "when": "25 January, 25 April, 30 June, 23 July, 26 July and 6 October",
+      "props": "Prop: a small Egyptian flag on a short wooden stick: three equal horizontal stripes, red at the top, white in the middle and black at the bottom, with a simple gold eagle in the middle of the white stripe and no writing.",
+      "slots": [
+        {
+          "id": "flag.wave-a",
+          "pose": "Waving the flag above his shoulder to the viewer's left, a big proud smile."
+        },
+        {
+          "id": "flag.wave-b",
+          "pose": "The same wave, the flag swung to the viewer's right (the second frame)."
+        },
+        {
+          "id": "flag.salute",
+          "pose": "A crisp salute with one hand at his brow, the flag held upright in the other."
+        },
+        {
+          "id": "flag.heart",
+          "pose": "One hand on his heart, the flag held upright in the other, chin up, proud."
+        },
+        { "id": "flag.cheer", "pose": "Both arms up, cheering, the flag in one hand." },
+        {
+          "id": "flag.show",
+          "pose": "Holding the flag out in front of him with both hands, showing it to us."
+        },
+        {
+          "id": "flag.march",
+          "pose": "Marching in place: one knee up, the foot off the floor, the flag on his shoulder.",
+          "kind": "hip"
+        }
+      ]
+    },
+    {
+      "sheet": "S44",
+      "pack": "fireworks",
+      "group": "national",
+      "title": "Watching fireworks",
+      "when": "Evenings of national days, New Year's Eve and the Eid nights",
+      "props": "Prop: a sparkler stick, unlit and drawn without sparks (the website adds them).",
+      "slots": [
+        {
+          "id": "fireworks.awe",
+          "pose": "Looking up in awe, mouth open, hands clasped in front of his chest."
+        },
+        { "id": "fireworks.point", "pose": "Pointing up excitedly, looking back at us." },
+        {
+          "id": "fireworks.ears",
+          "pose": "Covering his ears at a loud bang, eyes squeezed shut, laughing."
+        },
+        { "id": "fireworks.clap", "pose": "Clapping above his head, looking up." },
+        {
+          "id": "fireworks.spark-a",
+          "pose": "Holding the sparkler up to the viewer's left, tracing a circle in the air, grinning."
+        },
+        {
+          "id": "fireworks.spark-b",
+          "pose": "The sparkler swept across to the viewer's right (the second frame)."
+        },
+        { "id": "fireworks.wow", "pose": "Both hands on his cheeks, eyes wide, a 'wow!' face." }
+      ]
+    },
+    {
+      "sheet": "S45",
+      "pack": "newyear",
+      "group": "world",
+      "title": "New Year",
+      "when": "31 December and 1 January",
+      "props": "Props: a cone-shaped gold party hat with a white pompom; a party horn (a blower); a small party popper.",
+      "slots": [
+        {
+          "id": "newyear.hat",
+          "pose": "Putting the party hat on his head with both hands, grinning."
+        },
+        {
+          "id": "newyear.horn",
+          "pose": "Party hat on, blowing the party horn, cheeks puffed, eyes squinting with joy."
+        },
+        {
+          "id": "newyear.three",
+          "pose": "Party hat on, holding up three fingers toward us, counting down, excited."
+        },
+        { "id": "newyear.two", "pose": "Party hat on, two fingers up, more excited." },
+        { "id": "newyear.one", "pose": "Party hat on, one finger up, eyes wide, about to burst." },
+        {
+          "id": "newyear.pop",
+          "pose": "Party hat on, pulling the party popper's string with both hands, eyes squeezed shut (no confetti)."
+        },
+        {
+          "id": "newyear.cheer",
+          "pose": "Party hat on, both arms up cheering, the horn in one hand."
+        }
+      ]
+    },
+    {
+      "sheet": "S46",
+      "pack": "flowers",
+      "group": "world",
+      "title": "Flowers day",
+      "when": "Valentine's Day, International Women's Day and Egyptian Mother's Day (21 March)",
+      "props": "Props: a bouquet of pink and red tulips wrapped in white paper; a single red rose; a red heart-shaped card with no writing.",
+      "slots": [
+        {
+          "id": "flowers.hide",
+          "pose": "Holding the bouquet hidden behind his back, a shy smile, looking at us."
+        },
+        {
+          "id": "flowers.give",
+          "pose": "Holding the bouquet out to us with both hands, a warm smile, a slight bow."
+        },
+        { "id": "flowers.smell", "pose": "Smelling the bouquet, eyes closed." },
+        { "id": "flowers.rose", "pose": "Holding the single red rose up, a gentle smile." },
+        {
+          "id": "flowers.card",
+          "pose": "Holding the heart-shaped card against his chest with both hands, bashful."
+        },
+        {
+          "id": "flowers.heart",
+          "pose": "Making a heart shape with both hands in front of his chest, smiling."
+        },
+        { "id": "flowers.blush", "pose": "Hands clasped against one cheek, bashful, eyes closed." }
+      ]
+    },
+    {
+      "sheet": "S47",
+      "pack": "green",
+      "group": "world",
+      "title": "Green day",
+      "when": "Earth Day, World Environment Day and the International Day of Peace",
+      "props": "Props: a small green watering can; a small seedling in a terracotta pot; a small globe of the Earth (blue oceans, green land) without a stand.",
+      "slots": [
+        {
+          "id": "green.water",
+          "pose": "The seedling pot in one hand, tipping the watering can over it with the other (draw no water)."
+        },
+        { "id": "green.pot", "pose": "Holding the seedling pot up proudly, smiling at it." },
+        {
+          "id": "green.plant",
+          "pose": "Kneeling on one knee on the floor line, setting the pot down in front of him."
+        },
+        { "id": "green.globe", "pose": "Hugging the globe, eyes closed." },
+        { "id": "green.spin", "pose": "Spinning the globe on one fingertip, grinning." },
+        { "id": "green.show", "pose": "Showing the globe to us with both hands." },
+        { "id": "green.thumbs", "pose": "A thumbs-up, the watering can in his other hand." }
+      ]
+    },
+    {
+      "sheet": "S48",
+      "pack": "spooky",
+      "group": "world",
+      "title": "Spooky week",
+      "when": "25-31 October",
+      "props": "Props: a carved orange pumpkin lantern with a friendly face; a plain white bedsheet; a small orange bag of sweets.",
+      "slots": [
+        { "id": "spooky.pumpkin", "pose": "Holding the pumpkin lantern up, a friendly grin." },
+        { "id": "spooky.boo", "pose": "Hands up like little claws, a playful 'boo!' face." },
+        {
+          "id": "spooky.ghost",
+          "pose": "Wearing the white bedsheet over his head and body like a ghost costume, only his shoes showing below it, arms raised under the sheet."
+        },
+        {
+          "id": "spooky.reveal",
+          "pose": "The sheet pulled back off his face and head with one hand, grinning at us."
+        },
+        {
+          "id": "spooky.hide",
+          "pose": "Startled, hiding behind the pumpkin held in front of his chest, eyes peeking over it."
+        },
+        { "id": "spooky.treat", "pose": "Holding the bag of sweets, offering one to us." },
+        { "id": "spooky.laugh", "pose": "Laughing, the pumpkin under his arm." }
+      ]
+    },
+    {
+      "sheet": "S49",
+      "pack": "prank",
+      "group": "world",
+      "title": "April Fools and Pi Day",
+      "when": "1 April and 14 March",
+      "props": "Props: a pair of joke glasses with a big pink nose and a black moustache attached; a round pie with a golden crust.",
+      "slots": [
+        {
+          "id": "prank.disguise",
+          "pose": "Wearing the joke glasses with the nose and moustache, a deadpan serious face."
+        },
+        { "id": "prank.wink", "pose": "Lowering the joke glasses to wink at us." },
+        {
+          "id": "prank.gotcha",
+          "pose": "Pointing at us and laughing, the joke glasses in his other hand."
+        },
+        { "id": "prank.sly", "pose": "Hand at his chin, a sly smirk, eyes narrowed." },
+        {
+          "id": "prank.pie",
+          "pose": "Balancing the round pie on one palm at shoulder height, proud."
+        },
+        {
+          "id": "prank.slice",
+          "pose": "Holding a slice of the pie, about to take a bite, eyes wide."
+        },
+        { "id": "prank.laugh", "pose": "Bent over laughing, one hand on his knee." }
+      ]
+    },
+    {
+      "sheet": "S50",
+      "pack": "work",
+      "group": "world",
+      "title": "Labour Day and Teachers' Day",
+      "when": "1 May (slots 2-4) and 5 October (slots 5-8)",
+      "props": "Props: a yellow hard hat; a silver wrench; two hardback books, one blue and one green; a stick of white chalk.",
+      "slots": [
+        { "id": "work.hat", "pose": "Putting the yellow hard hat on with both hands, grinning." },
+        {
+          "id": "work.wrench",
+          "pose": "Hard hat on, the wrench resting on his shoulder, a proud grin."
+        },
+        {
+          "id": "work.flex",
+          "pose": "Hard hat on, flexing one arm (the sleeve stays down), the wrench in his other hand."
+        },
+        {
+          "id": "work.books",
+          "pose": "No hat. Holding the two books against his chest, a warm smile."
+        },
+        {
+          "id": "work.chalk",
+          "pose": "No hat. Holding up the chalk and pointing to the viewer's left as if at a blackboard, explaining."
+        },
+        {
+          "id": "work.thanks",
+          "pose": "No hat. Hand on his heart, a small thankful bow, the books under his arm."
+        },
+        { "id": "work.clap", "pose": "No hat. Applauding, the books under his arm." }
+      ]
+    },
+    {
+      "sheet": "S51",
+      "pack": "summer",
+      "group": "season",
+      "title": "Summer holiday",
+      "when": "July and August (January and February south of the equator)",
+      "props": "Props: a beach ball with white, red, blue and yellow panels; a big slice of watermelon; a small white tube of sunscreen.",
+      "slots": [
+        {
+          "id": "summer.ball",
+          "pose": "Holding the beach ball over his head with both hands, grinning."
+        },
+        {
+          "id": "summer.toss",
+          "pose": "Tossing the beach ball up, the ball just above his open hands."
+        },
+        { "id": "summer.melon", "pose": "Holding the big slice of watermelon, eyes wide." },
+        { "id": "summer.bite", "pose": "Biting the watermelon, a juicy happy face." },
+        {
+          "id": "summer.wipe",
+          "pose": "Holding the eaten rind, wiping his mouth with the back of his hand, satisfied."
+        },
+        {
+          "id": "summer.cream",
+          "pose": "Dabbing white sunscreen on his nose with one finger, the tube in his other hand."
+        },
+        {
+          "id": "summer.thumbs",
+          "pose": "The beach ball under one arm, a thumbs-up with the other, a holiday smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S52",
+      "pack": "school",
+      "group": "season",
+      "title": "Back to school",
+      "when": "The second half of September and early October",
+      "props": "Props: a blue backpack; a yellow pencil; a red notebook.",
+      "slots": [
+        { "id": "school.pack", "pose": "Slinging the backpack onto one shoulder, excited." },
+        {
+          "id": "school.ready",
+          "pose": "Backpack on both shoulders, thumbs hooked in the straps, a determined grin."
+        },
+        { "id": "school.read", "pose": "Holding the notebook open, reading, curious." },
+        {
+          "id": "school.write",
+          "pose": "Writing in the notebook with the pencil, tongue out in concentration."
+        },
+        { "id": "school.idea", "pose": "Pencil raised, eyebrows up, an 'I've got it!' face." },
+        { "id": "school.goofy", "pose": "The pencil balanced on his upper lip, a goofy face." },
+        { "id": "school.wave", "pose": "Backpack on, waving, ready to go." }
+      ]
+    },
+    {
+      "sheet": "S53",
+      "pack": "winter",
+      "group": "season",
+      "title": "Sahlab and sweet potato",
+      "when": "December, January and February (June to August south of the equator)",
+      "props": "Props: a clear glass cup of hot sahlab (a creamy white drink topped with crushed nuts and a dusting of cinnamon); a roasted sweet potato (batata), split open and golden inside, in a paper wrap.",
+      "slots": [
+        {
+          "id": "winter.sahlab",
+          "pose": "Holding the sahlab cup in both hands to warm them, a cosy smile."
+        },
+        { "id": "winter.sip", "pose": "Sipping the sahlab, eyes closed." },
+        {
+          "id": "winter.foam",
+          "pose": "Grinning with a white sahlab moustache on his upper lip, licking it."
+        },
+        {
+          "id": "winter.hot",
+          "pose": "No cup. Passing the hot sweet potato from hand to hand, an 'ooh, hot!' face."
+        },
+        { "id": "winter.blow", "pose": "No cup. Blowing on the sweet potato." },
+        { "id": "winter.bite", "pose": "No cup. Biting the sweet potato, happy." },
+        { "id": "winter.offer", "pose": "No cup. Offering us the sweet potato." }
+      ]
+    },
+    {
+      "sheet": "S54",
+      "pack": "sticky",
+      "group": "agile",
+      "title": "Sticky notes",
+      "when": "Cards added on a board or a retro",
+      "props": "Props: a pad of square yellow sticky notes; one pink sticky note; a black marker. No writing on any note.",
+      "slots": [
+        {
+          "id": "sticky.write",
+          "pose": "Writing on the top note of the yellow pad with the marker, focused (no visible writing)."
+        },
+        {
+          "id": "sticky.stick",
+          "pose": "Reaching out to the viewer's left at shoulder height, pressing a yellow note onto an invisible wall."
+        },
+        {
+          "id": "sticky.forehead",
+          "pose": "The pink note stuck on his forehead, eyes looking up at it, a goofy grin."
+        },
+        { "id": "sticky.peel", "pose": "Peeling the pink note off his forehead, laughing." },
+        {
+          "id": "sticky.think",
+          "pose": "Tapping the marker against his chin, thinking, the pad in his other hand."
+        },
+        { "id": "sticky.hand", "pose": "Handing a yellow note to us." },
+        { "id": "sticky.idea", "pose": "Holding up the pad, eyebrows up, an 'idea!' face." }
+      ]
+    },
+    {
+      "sheet": "S55",
+      "pack": "poker",
+      "group": "agile",
+      "title": "Planning poker",
+      "when": "Votes cast and revealed, estimates committed",
+      "props": "Props: estimation cards the size of playing cards, with a blue back and a plain white face with a thin blue border; no numbers or writing anywhere.",
+      "slots": [
+        {
+          "id": "poker.fan",
+          "pose": "Holding a fan of five cards in one hand, studying them, the other hand at his chin."
+        },
+        {
+          "id": "poker.think",
+          "pose": "Squinting at the cards, thinking hard, the tip of his tongue at the corner of his mouth."
+        },
+        { "id": "poker.pick", "pose": "Pulling one card out of the fan." },
+        {
+          "id": "poker.secret",
+          "pose": "Holding the chosen card face down against his chest, a secretive smile."
+        },
+        {
+          "id": "poker.reveal",
+          "pose": "Flipping the card to show us its plain white face, excited."
+        },
+        {
+          "id": "poker.surprise",
+          "pose": "Eyebrows up, surprised, looking off to the side as if at everyone's cards."
+        },
+        { "id": "poker.agree", "pose": "Nodding with a thumbs-up, the cards in his other hand." }
+      ]
+    },
+    {
+      "sheet": "S56",
+      "pack": "timer",
+      "group": "agile",
+      "title": "Timebox",
+      "when": "Timers started and finished, stand-ups",
+      "props": "Props: a silver stopwatch; a red twin-bell alarm clock; a small soft red ball (the stand-up token).",
+      "slots": [
+        {
+          "id": "timer.start",
+          "pose": "Holding up the stopwatch and pressing its button with his thumb, a ready face."
+        },
+        { "id": "timer.check", "pose": "Looking at the stopwatch, eyebrows raised." },
+        {
+          "id": "timer.alarm",
+          "pose": "Holding the alarm clock at arm's length, startled, eyes wide (draw no ringing lines)."
+        },
+        { "id": "timer.stop", "pose": "Pressing the top of the alarm clock to stop it, relieved." },
+        { "id": "timer.catch", "pose": "Catching the soft red ball in both hands." },
+        {
+          "id": "timer.pass",
+          "pose": "Tossing the red ball gently to the viewer's right, to the next speaker, the ball just leaving his hand."
+        },
+        {
+          "id": "timer.tap",
+          "pose": "Tapping the silver watch on his left wrist and nodding kindly: 'time's up'."
+        }
+      ]
+    },
+    {
+      "sheet": "S57",
+      "pack": "ship",
+      "group": "agile",
+      "title": "We shipped it",
+      "when": "A release shipped or a sprint completed",
+      "props": "Props: a gold trophy cup with two handles; a small toy rocket, white with red fins.",
+      "slots": [
+        {
+          "id": "ship.trophy",
+          "pose": "Holding the trophy up to the top of his head with both hands, triumphant."
+        },
+        { "id": "ship.hug", "pose": "Hugging the trophy, eyes closed, delighted." },
+        {
+          "id": "ship.rocket",
+          "pose": "No trophy. Holding the toy rocket up, ready to launch it, an eager face."
+        },
+        {
+          "id": "ship.launch",
+          "pose": "No trophy. His arm stretched up, letting the rocket go, the rocket just above his hand."
+        },
+        {
+          "id": "ship.watch",
+          "pose": "No trophy. Shading his eyes, watching the rocket fly away, grinning."
+        },
+        {
+          "id": "ship.dance",
+          "pose": "A little victory dance: elbows bent, fists pumping, one knee up, the foot off the floor.",
+          "kind": "hip"
+        },
+        {
+          "id": "ship.bow",
+          "pose": "A theatrical bow, one arm across his waist, the trophy in the other hand."
+        }
+      ]
+    },
+    {
+      "sheet": "S58",
+      "pack": "focus",
+      "group": "agile",
+      "title": "Focus mode",
+      "when": "The visitor is working for a long stretch",
+      "props": "Props: the same thin silver laptop as S27; black over-ear headphones; a small notebook and a pen.",
+      "slots": [
+        {
+          "id": "focus.type-a",
+          "pose": "Holding the open laptop on one forearm, typing fast with the other hand, focused."
+        },
+        {
+          "id": "focus.type-b",
+          "pose": "The same, different fingers down (the second frame of typing)."
+        },
+        {
+          "id": "focus.phones",
+          "pose": "No laptop. Putting the headphones on over his ears with both hands."
+        },
+        {
+          "id": "focus.groove",
+          "pose": "No laptop. Headphones on, eyes closed, bobbing his head, hands in his pockets."
+        },
+        {
+          "id": "focus.notes",
+          "pose": "No laptop. The headphones around his neck, writing in the small notebook."
+        },
+        {
+          "id": "focus.eureka",
+          "pose": "No laptop. One finger raised, eyes wide, a 'eureka!' face."
+        },
+        {
+          "id": "focus.neck",
+          "pose": "No laptop. Stretching his neck to one side, a hand on his neck, eyes closed."
+        }
+      ]
+    },
+    {
+      "sheet": "S59",
+      "pack": "kudos",
+      "group": "agile",
+      "title": "Kudos",
+      "when": "Kudos sent or received",
+      "props": "Props: a big gold star badge; a small light blue thank-you card with no writing.",
+      "slots": [
+        { "id": "kudos.star", "pose": "Holding up the gold star, showing it to us proudly." },
+        { "id": "kudos.pin", "pose": "Pinning the gold star onto his own chest, beaming." },
+        { "id": "kudos.give", "pose": "Offering the gold star to us with both hands." },
+        {
+          "id": "kudos.card",
+          "pose": "Holding the card open and reading it, touched, his other hand on his heart."
+        },
+        { "id": "kudos.thanks", "pose": "Palms pressed together at his chest, a thankful nod." },
+        { "id": "kudos.clap", "pose": "Clapping for us, a big smile." },
+        {
+          "id": "kudos.you",
+          "pose": "Pointing at us with both index fingers, a big grin: 'you rock'."
+        }
+      ]
+    },
+    {
+      "sheet": "S60",
+      "pack": "ball",
+      "group": "play",
+      "title": "Football",
+      "when": "Play when the visitor is idle",
+      "props": "Prop: a classic football with black and white panels.",
+      "slots": [
+        { "id": "ball.hold", "pose": "Holding the football under one arm, grinning at us." },
+        {
+          "id": "ball.knee",
+          "pose": "Keeping the ball up on one raised knee, the ball just above his knee, eyes on it.",
+          "kind": "hip"
+        },
+        {
+          "id": "ball.head",
+          "pose": "Heading the ball, the ball just above his head, eyes on it."
+        },
+        {
+          "id": "ball.kick",
+          "pose": "Kicking toward us, one leg swung forward, the ball just leaving his foot.",
+          "kind": "hip"
+        },
+        {
+          "id": "ball.goal",
+          "pose": "Arms out wide like wings, mouth open shouting 'GOAL!', leaning forward."
+        },
+        {
+          "id": "ball.knees",
+          "pose": "Kneeling on both knees on the floor line, both fists up, celebrating."
+        },
+        { "id": "ball.spin", "pose": "Spinning the ball on one index finger, a cool smile." }
+      ]
+    },
+    {
+      "sheet": "S61",
+      "pack": "reading",
+      "group": "play",
+      "title": "Reading a comic",
+      "when": "On the comics pages",
+      "props": "Prop: a comic book with a bright cover of bold colour blocks and no title or writing.",
+      "slots": [
+        {
+          "id": "reading.open",
+          "pose": "Holding the open comic in both hands, reading, eyebrows up."
+        },
+        { "id": "reading.laugh", "pose": "Laughing at the comic, head tipped back." },
+        { "id": "reading.turn", "pose": "Turning a page with one hand." },
+        {
+          "id": "reading.show",
+          "pose": "Turning the open comic toward us and pointing at a panel, excited."
+        },
+        {
+          "id": "reading.hug",
+          "pose": "Hugging the closed comic to his chest, eyes closed, happy."
+        },
+        {
+          "id": "reading.cover",
+          "pose": "Holding the closed comic up, showing us its cover, proud."
+        },
+        {
+          "id": "reading.doze",
+          "pose": "Dozing off, the open comic drooping in his hands, eyes closed."
+        }
+      ]
+    },
+    {
+      "sheet": "S62",
+      "pack": "music",
+      "group": "play",
+      "title": "Oud and darbuka",
+      "when": "Play when the visitor is idle",
+      "props": "Props: an oud (an Arabic lute with a pear-shaped wooden body and a short bent-back neck); a darbuka (a goblet drum) in silver with an inlaid pattern.",
+      "slots": [
+        {
+          "id": "music.oud-a",
+          "pose": "Playing the oud, strumming, eyes closed, head tilted to the viewer's left."
+        },
+        {
+          "id": "music.oud-b",
+          "pose": "The same, head tilted to the viewer's right (the second frame of the strum)."
+        },
+        {
+          "id": "music.drum-a",
+          "pose": "No oud. The darbuka under one arm, tapping it with his fingers, grinning."
+        },
+        {
+          "id": "music.drum-b",
+          "pose": "No oud. The same, his other fingers tapping (the second frame)."
+        },
+        {
+          "id": "music.sing",
+          "pose": "The oud held at his side, singing with his mouth open, his other hand raised expressively."
+        },
+        { "id": "music.bow", "pose": "A performer's bow, the oud in one hand." },
+        {
+          "id": "music.dance",
+          "pose": "No oud. A little dance, the darbuka held up, one knee lifted, the foot off the floor.",
+          "kind": "hip"
+        }
+      ]
+    },
+    {
+      "sheet": "S63",
+      "pack": "phone",
+      "group": "play",
+      "title": "Phone",
+      "when": "The visitor's battery is low, and selfies on a tap",
+      "props": "Props: a smartphone in a dark grey case with a plain dark screen; a short white charging cable.",
+      "slots": [
+        {
+          "id": "phone.selfie",
+          "pose": "Holding the phone out at arm's length, taking a selfie, a big smile."
+        },
+        { "id": "phone.peace", "pose": "Taking a selfie with a peace sign, winking." },
+        {
+          "id": "phone.scroll",
+          "pose": "Looking down at the phone, scrolling with his thumb, absorbed."
+        },
+        { "id": "phone.wow", "pose": "Surprised at something on the phone, eyebrows up." },
+        {
+          "id": "phone.low",
+          "pose": "Showing us the phone's dark screen, a worried face: the battery is low."
+        },
+        {
+          "id": "phone.plug",
+          "pose": "Holding up the charging cable, looking around for a socket."
+        },
+        { "id": "phone.charged", "pose": "Relieved, a thumbs-up, the phone in his other hand." }
+      ]
+    },
+    {
+      "sheet": "S64",
+      "pack": "lights",
+      "group": "play",
+      "title": "Lights on, lights off",
+      "when": "The visitor switches between the dark and light themes",
+      "props": "Props: a yellow flashlight (torch); the same black sunglasses as S11.",
+      "slots": [
+        {
+          "id": "lights.dark",
+          "pose": "Startled in the dark: arms out, feeling around, eyes wide."
+        },
+        {
+          "id": "lights.torch",
+          "pose": "Clicking the flashlight on and pointing it ahead and down (draw no beam), a relieved smile."
+        },
+        {
+          "id": "lights.sweep",
+          "pose": "Sweeping the flashlight to the viewer's left, looking that way, curious."
+        },
+        {
+          "id": "lights.spooky",
+          "pose": "Holding the flashlight under his chin, making a spooky face."
+        },
+        {
+          "id": "lights.dazzled",
+          "pose": "No flashlight. Squinting with both hands over his eyes, dazzled by bright light."
+        },
+        {
+          "id": "lights.shades",
+          "pose": "No flashlight. Putting on the sunglasses, a cool smile."
+        },
+        { "id": "lights.ok", "pose": "A thumbs-up, the flashlight in his other hand, cheerful." }
+      ]
+    }
+  ]
+}

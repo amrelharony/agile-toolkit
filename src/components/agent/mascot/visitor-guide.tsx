@@ -13,6 +13,10 @@ import { JOBS } from "@/lib/constants/jobs";
 import { isVipHidden } from "@/lib/tools/catalog";
 import { getGuide, type ToolGuide } from "@/lib/tools/guides";
 import { useVipHint } from "@/lib/vip/use-vip-hint";
+import { useMascotStore } from "@/lib/agent/mascot/store";
+
+/** A search with no match, left alone this long, gets a shrug from Amr. */
+const SHRUG_AFTER_MS = 900;
 
 /** Common jobs, shown before the visitor types anything (same list as the home page). */
 const STARTERS = JOBS.map((job) => ({ label: job.title, toolId: job.primaryToolId }));
@@ -55,6 +59,19 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
   const trimmed = query.trim();
   const results = useMemo(() => (trimmed ? searchTools(trimmed, 6) : []), [trimmed]);
   const signInHref = `/auth/sign-in?next=${encodeURIComponent(pathname || "/")}`;
+
+  // Amr shrugs at a search that finds nothing, once the visitor stops typing.
+  const noMatch = trimmed.length > 0 && results.length === 0;
+  useEffect(() => {
+    if (!noMatch) return;
+    const id = setTimeout(() => useMascotStore.getState().queueReaction("shrug"), SHRUG_AFTER_MS);
+    return () => clearTimeout(id);
+  }, [noMatch, trimmed]);
+  // Picking a tool: "you've got this".
+  const chose = () => {
+    useMascotStore.getState().queueReaction("cheer");
+    onNavigate?.();
+  };
 
   return (
     <div
@@ -112,7 +129,7 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
                     href={tool.path}
                     title={tool.name}
                     subtitle={tool.description}
-                    onNavigate={onNavigate}
+                    onNavigate={chose}
                   />
                 </li>
               ))}
@@ -134,7 +151,7 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
                     href={tool.path}
                     title={s.label}
                     subtitle={tool.name}
-                    onNavigate={onNavigate}
+                    onNavigate={chose}
                   />
                 </li>
               );

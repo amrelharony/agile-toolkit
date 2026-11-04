@@ -129,6 +129,7 @@ export async function probeSession(supabase: SessionVerifier): Promise<SessionPr
  *   /api/mcp, /api/agent/stream — bearer-token / self-gated endpoints
  *   /api/comics/hit, /api/comics/licence, /api/comics/guestbook — public writes,
  *                     gated by their handlers
+ *   /api/mascot/weather — the visitor's weather for Amr; reads no session
  *   /guest/*, /api/guest/* — invite-cookie flows, gated by their handlers
  *   /_next/*          — Next.js static + image optimisation
  *   /favicon.ico, robots.txt, sitemap.xml — typical static
@@ -311,6 +312,7 @@ function isBypassPath(pathname: string): boolean {
     pathname === "/api/comics/hit" ||
     pathname === "/api/comics/licence" ||
     pathname === "/api/comics/guestbook" ||
+    pathname === "/api/mascot/weather" ||
     isGuestPath(pathname)
   );
 }

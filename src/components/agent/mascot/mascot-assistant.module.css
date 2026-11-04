@@ -28,11 +28,74 @@
    frame without remounting the element (no repaint flash). */
 
 .body {
+  position: relative;
   transform-origin: 50% 100%;
 }
 
 .sheet {
   background-repeat: no-repeat;
+}
+
+/* The interactive pet's clips (engine/clips.ts), painted frame by frame from the
+   lazy packs over the live sheet. The swing wrapper turns him from the collar
+   while he's carried; its transform-origin is set inline at the top of his hair.
+   The clip layer stands on his floor: a pack's cell is taller than the live
+   sheet's (room for a hat or balloons), and the layer takes the painted cell's
+   height. */
+.swing {
+  will-change: transform;
+}
+
+.clip {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+/* Dozing: three z's drift up from beside his head. */
+.zzz {
+  position: absolute;
+  right: 18%;
+  display: flex;
+  gap: 1px;
+  font:
+    700 11px/1 ui-rounded,
+    system-ui,
+    sans-serif;
+  color: var(--sub, #6b7280);
+  pointer-events: none;
+}
+
+.zzz > span {
+  display: inline-block;
+  animation: amrZzz 2.4s ease-in infinite;
+  opacity: 0;
+}
+
+.zzz > span:nth-child(2) {
+  animation-delay: 0.6s;
+  font-size: 13px;
+}
+
+.zzz > span:nth-child(3) {
+  animation-delay: 1.2s;
+  font-size: 15px;
+}
+
+@keyframes amrZzz {
+  0% {
+    transform: translate(0, 6px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(6px, -14px);
+    opacity: 0;
+  }
 }
 
 @keyframes amrFramesA {
@@ -147,5 +210,10 @@
   .wiggleShake,
   .enter {
     animation: none;
+  }
+
+  .zzz > span {
+    animation: none;
+    opacity: 0.8;
   }
 }
