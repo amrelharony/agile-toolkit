@@ -7,7 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useHistoryStore } from "@/lib/history/history-store";
 import type { HistoryEvent } from "@/lib/history/types";
 import { useMascotStore } from "@/lib/agent/mascot/store";
-import { installToolReactions, reactionForAction } from "@/lib/agent/mascot/use-tool-reactions";
+import {
+  installToolReactions,
+  reactionForAction,
+  sceneForAction,
+} from "@/lib/agent/mascot/use-tool-reactions";
 
 let n = 0;
 function event(action: string, occurredAt = new Date().toISOString()): HistoryEvent {
@@ -30,13 +34,13 @@ function event(action: string, occurredAt = new Date().toISOString()): HistoryEv
 
 describe("reactionForAction", () => {
   it.each([
-    ["sprint_completed", "excited"],
-    ["release_shipped", "excited"],
-    ["impediment_resolved", "excited"],
-    ["decision_decided", "excited"],
+    ["sprint_completed", "clap"],
+    ["release_shipped", "clap"],
+    ["impediment_resolved", "clap"],
+    ["decision_decided", "clap"],
     ["card_added", "nod"],
     ["retro_saved", "nod"],
-    ["impediment_raised", "confused"],
+    ["impediment_raised", "downcast"],
   ])("%s → %s", (action, reaction) => {
     expect(reactionForAction(action)).toBe(reaction);
   });
@@ -72,7 +76,7 @@ describe("installToolReactions", () => {
 
   it("reacts when a tool logs a finished action", () => {
     useHistoryStore.getState().addEvent(event("sprint_completed"));
-    expect(queue()).toEqual(["excited"]);
+    expect(queue()).toEqual(["clap"]);
   });
 
   it("stays quiet for a removal", () => {
@@ -98,5 +102,41 @@ describe("installToolReactions", () => {
     useMascotStore.getState().setReady(false);
     useHistoryStore.getState().addEvent(event("sprint_completed"));
     expect(queue()).toEqual([]);
+  });
+});
+
+describe("the toolkit's own scenes", () => {
+  afterEach(() => {
+    useHistoryStore.setState({ events: [] });
+    useMascotStore.getState().reset();
+  });
+
+  it.each([
+    ["vote_cast", "poker"],
+    ["votes_revealed", "poker.reveal"],
+    ["estimate_committed", "poker.agree"],
+    ["timer_started", "timer"],
+    ["entry_added", "timer.standup"],
+    ["release_shipped", "ship"],
+    ["sprint_started", "ship.rocket"],
+    ["kudos_sent", "kudos"],
+    ["kudos_received", "kudos.got"],
+  ])("%s plays %s once its sheet has shipped", (action, scene) => {
+    expect(
+      sceneForAction(
+        action,
+        () => true,
+        () => 0
+      )
+    ).toBe(scene);
+    expect(sceneForAction(action, () => false)).toBeNull();
+  });
+
+  it("plays the scene instead of the pose when it exists", () => {
+    useMascotStore.getState().setReady(true);
+    const uninstall = installToolReactions((s) => s === "ship");
+    useHistoryStore.getState().addEvent(event("release_shipped"));
+    expect(useMascotStore.getState().reactionQueue).toEqual(["scene:ship"]);
+    uninstall();
   });
 });

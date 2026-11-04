@@ -9,6 +9,13 @@
  * tool-calling brain, confirm cards, and persistence are unchanged; only the
  * shell is new. Amr "talks" (the review pose) while the agent streams.
  *
+ * Amr answers touch: a tap pokes or pats him (by where it lands), quick taps
+ * tickle him, a long-press offers a high five, a mouse resting on him or
+ * stroking his head gets a shy smile or a pat, and dragging picks him up by the
+ * collar — he dangles and swings, and lands where he's dropped or thrown
+ * (engine/interactions/clicks.ts, touch.ts). On phones the panel header has a
+ * switch that lets him feel the phone's motion (engine/interactions/sensors.ts).
+ *
  * The agent itself is owner-only. Visitors keep the mascot (clicks, Konami,
  * Cmd/Ctrl+J) but the panel shows <VisitorGuide/> — a tool finder — instead
  * of the chat, so their panel never touches /api/agent/* or the agent tables
@@ -18,13 +25,15 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import dynamic from "next/dynamic";
-import { X, Plus, History, Sparkles } from "lucide-react";
+import { X, Plus, History, Sparkles, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
@@ -32,9 +41,16 @@ import { useMascotStore } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
 import { createClickInteraction } from "./engine/interactions/clicks";
+import { createTouchInteraction, zoneAt, type TouchPoint } from "./engine/interactions/touch";
+import {
+  canFeelPhone,
+  feelsPhone,
+  motionNeedsPermission,
+  requestMotionPermission,
+} from "./engine/interactions/sensors";
 import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
-import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "./engine/sprite-poses";
+import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./engine/sprite-poses";
 import { VisitorGuide } from "./visitor-guide";
 import styles from "./mascot-assistant.module.css";
 
@@ -47,6 +63,9 @@ function addXp(n: number): void {
 type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
 /** Inset of the float button from its corner. */
+/** Which toolkit scenes exist yet (their sheets shipped). Stable, for the hook. */
+const sceneShipped = (scene: string) => shippedScene(scene) !== undefined;
+
 const BUTTON_INSET = 4;
 /** Size of Amr's box inside that button: one sheet cell at an exact 12:13. */
 const MASCOT_BOX = { w: 132, h: 143 };
@@ -68,6 +87,34 @@ const HEAD_TRIM = 16;
 const HIT_SIDE = 0.28;
 /** Breathing room between the mascot's silhouette and the panel. */
 const PANEL_GAP = 6;
+/** Taps closer together than this are play (a tickle), not a request for the panel. */
+const TAP_TOGGLE_GAP_MS = 600;
+/** Let go faster than this (px/s), he's thrown rather than dropped. */
+const THROW_SPEED = 1100;
+/** He points at the panel when it opens, at most this often. */
+const POINT_AT_PANEL_MS = 60_000;
+
+/** A layout effect in the browser, a plain one on the server (no SSR warning). */
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+}
+
+/** A pointer event as a point on his figure (the hit box), for the touch tracker. */
+function touchPoint(
+  e: { clientX: number; clientY: number; pointerType?: string },
+  hit: Element | null
+): TouchPoint | null {
+  if (!hit) return null;
+  const r = hit.getBoundingClientRect();
+  return {
+    x: e.clientX,
+    y: e.clientY,
+    box: { left: r.left, top: r.top, width: r.width, height: r.height },
+    pointerType: e.pointerType ?? "mouse",
+  };
+}
 
 /** Distance of the button's edge from its corner (negative: past the edge). */
 function edgeInset(c: Corner, figure: boolean, boxH: number): number {
@@ -308,24 +355,42 @@ export function MascotAssistant() {
   const clickRef = useRef<ReturnType<typeof createClickInteraction> | null>(null);
   if (!clickRef.current) {
     clickRef.current = createClickInteraction({
-      queueReaction: (r) => useMascotStore.getState().queueReaction(r),
-      queueMicro: (n) => useMascotStore.getState().queueMicroExpression(n),
+      playNow: (r) => useMascotStore.getState().playNow(r),
       sound: () => playMascotSound("click"),
       addXp,
     });
   }
-  const lastToggleRef = useRef(0);
+  const touchRef = useRef<ReturnType<typeof createTouchInteraction> | null>(null);
+  if (!touchRef.current) {
+    touchRef.current = createTouchInteraction({
+      playNow: (r) => useMascotStore.getState().playNow(r),
+      hold: (h, on) => useMascotStore.getState().setHold(h, on),
+      sound: () => playMascotSound("click"),
+    });
+  }
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const hitRef = useRef<HTMLSpanElement>(null);
+  const lastTapRef = useRef(0);
   const draggedRef = useRef(false);
-  const onMascotClick = () => {
-    if (draggedRef.current) return; // a drag-release, not a click
-    clickRef.current?.onClick();
+  const onMascotClick = (e: ReactMouseEvent<HTMLButtonElement>) => {
+    if (draggedRef.current) return; // a drag-release or a high five, not a click
+    // Where it landed: his head gets a pat, his tummy a poke. (A keyboard press is a poke.)
+    const p = e.detail > 0 ? touchPoint(e, hitRef.current) : null;
+    const side = p && p.x < p.box.left + p.box.width / 2 ? "left" : "right";
+    clickRef.current?.onClick(p ? zoneAt(p) : "body", side);
+    // The first tap of a burst opens or closes the panel; the rest are play.
     const now = Date.now();
-    if (now - lastToggleRef.current > 500) {
-      lastToggleRef.current = now;
-      toggleSheet();
-    }
+    const gap = now - lastTapRef.current;
+    lastTapRef.current = now;
+    if (gap > TAP_TOGGLE_GAP_MS) toggleSheet();
   };
-  useEffect(() => () => clickRef.current?.dispose(), []);
+  useEffect(
+    () => () => {
+      clickRef.current?.dispose();
+      touchRef.current?.dispose();
+    },
+    []
+  );
 
   // Drag-to-reposition: free-drag past a threshold, then snap to the nearest
   // corner (the chat panel follows via the corner state). Source initDragDrop.
@@ -351,6 +416,48 @@ export function MascotAssistant() {
   // drag, or on unmount) so they never leak past an in-progress drag.
   const dragCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => dragCleanupRef.current?.(), []);
+  // Dropped or thrown: he flies from where he was let go to his corner, then lands.
+  const flightRef = useRef<{ left: number; top: number; thrown: boolean } | null>(null);
+  useIsomorphicLayoutEffect(() => {
+    const flight = flightRef.current;
+    if (!flight || dragPos) return;
+    flightRef.current = null;
+    const mascot = useMascotStore.getState();
+    const hold = flight.thrown ? "flying" : "falling";
+    let landed = false;
+    const land = () => {
+      if (landed) return;
+      landed = true;
+      mascot.setHold(hold, false);
+      mascot.playNow("land");
+    };
+    const el = buttonRef.current;
+    if (!el || typeof el.animate !== "function") return land();
+    const r = el.getBoundingClientRect();
+    const dx = flight.left - r.left;
+    const dy = flight.top - r.top;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 6) return land();
+    // Thrown: an arc, steady sideways. Dropped: a fall that speeds up.
+    const arc = flight.thrown ? Math.min(140, 40 + dist * 0.3) : 0;
+    const keyframes = Array.from({ length: 13 }, (_, i) => {
+      const t = i / 12;
+      const fall = t * t;
+      const x = dx * (1 - (flight.thrown ? t : fall));
+      const y = dy * (1 - fall) - arc * Math.sin(Math.PI * t);
+      return { translate: `${x.toFixed(1)}px ${y.toFixed(1)}px` };
+    });
+    const duration = Math.min(700, 240 + dist * 0.45);
+    const anim = el.animate(keyframes, { duration, easing: "linear" });
+    anim.onfinish = land;
+    anim.oncancel = land;
+    // A background tab can stall the animation; he lands regardless (once).
+    setTimeout(() => {
+      anim.cancel();
+      land();
+    }, duration + 250);
+  }, [corner, dragPos]);
+
   const onPointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0) return;
     dragCleanupRef.current?.(); // tidy any prior unfinished drag
@@ -360,34 +467,63 @@ export function MascotAssistant() {
     const offset = { x: rect.left - e.clientX, y: rect.top - e.clientY };
     const w = el.offsetWidth;
     const h = el.offsetHeight;
+    const touch = touchRef.current;
+    const onFigure = !!(e.target as HTMLElement).closest?.("[data-mascot-hit]");
+    const p = onFigure ? touchPoint(e, hitRef.current) : null;
+    if (p) touch?.down(p);
     let moved = false;
     let last = { left: rect.left, top: rect.top };
-    let pointerX = e.clientX;
-    let heading: "left" | "right" | null = null;
+    // Recent pointer positions, for the dangle's swing and the speed he's let go at.
+    let samples: { x: number; y: number; t: number }[] = [
+      { x: e.clientX, y: e.clientY, t: performance.now() },
+    ];
+    let vx = 0;
     const onMove = (ev: PointerEvent) => {
       if (!moved && Math.abs(ev.clientX - start.x) + Math.abs(ev.clientY - start.y) > 8) {
         moved = true;
+        touch?.dragStart();
       }
-      if (moved) {
-        last = {
-          left: Math.max(0, Math.min(window.innerWidth - w, ev.clientX + offset.x)),
-          top: Math.max(0, Math.min(window.innerHeight - h, ev.clientY + offset.y)),
-        };
-        setDragPos(last);
-        // Amr runs the way he's being dragged (a straight-up drag keeps the last way).
-        const dx = ev.clientX - pointerX;
-        const next = dx < 0 ? "left" : dx > 0 ? "right" : (heading ?? "right");
-        pointerX = ev.clientX;
-        if (next !== heading) {
-          heading = next;
-          useMascotStore.getState().setDragDirection(next);
-        }
+      if (!moved) {
+        const q = touchPoint(ev, hitRef.current);
+        if (q) touch?.move(q, true);
+        return;
       }
+      last = {
+        left: Math.max(0, Math.min(window.innerWidth - w, ev.clientX + offset.x)),
+        top: Math.max(0, Math.min(window.innerHeight - h, ev.clientY + offset.y)),
+      };
+      setDragPos(last);
+      // He hangs from the collar and swings with the drag's sideways speed.
+      const t = performance.now();
+      const prev = samples[samples.length - 1];
+      const dt = Math.max(t - prev.t, 1);
+      vx = vx * 0.6 + ((ev.clientX - prev.x) / dt) * 1000 * 0.4;
+      samples = [...samples.filter((s) => t - s.t < 100), { x: ev.clientX, y: ev.clientY, t }];
+      useMascotStore.getState().setDrag(vx);
     };
     const onUp = () => {
       dragCleanupRef.current?.(); // removes all three listeners + nulls the ref
-      useMascotStore.getState().setDragDirection(null);
+      useMascotStore.getState().setDrag(null);
+      if (!moved && touch?.up()) {
+        // A high five: the click that follows isn't a tap.
+        draggedRef.current = true;
+        setTimeout(() => (draggedRef.current = false), 60);
+      }
       if (moved) {
+        // How fast he was let go: over the last ~80 ms of the drag.
+        const t = performance.now();
+        const recent = samples.filter((s) => t - s.t < 80);
+        let speed = 0;
+        if (recent.length > 1) {
+          const a = recent[0];
+          const b = recent[recent.length - 1];
+          speed = (Math.hypot(b.x - a.x, b.y - a.y) / Math.max(b.t - a.t, 1)) * 1000;
+        }
+        if (!prefersReducedMotion()) {
+          const thrown = speed > THROW_SPEED;
+          flightRef.current = { left: last.left, top: last.top, thrown };
+          useMascotStore.getState().setHold(thrown ? "flying" : "falling", true);
+        }
         // Snap from the last DRAGGED position (React batches setDragPos, so the
         // DOM rect may still read the start position here).
         const cx = last.left + w / 2;
@@ -426,11 +562,45 @@ export function MascotAssistant() {
     return installKonami(() => addXp(10));
   }, []);
 
+  // When the panel opens he points at it ("here it is"), now and then.
+  const lastPointRef = useRef(0);
+  useEffect(() => {
+    if (!open || !showFigure || Date.now() - lastPointRef.current < POINT_AT_PANEL_MS) return;
+    const id = requestAnimationFrame(() => {
+      const panel = document.querySelector("[data-agent-sheet-root]")?.getBoundingClientRect();
+      const fig = hitRef.current?.getBoundingClientRect();
+      if (!panel || !fig) return;
+      lastPointRef.current = Date.now();
+      useMascotStore
+        .getState()
+        .queueReaction(
+          pointToward(
+            panel.left + panel.width / 2 - (fig.left + fig.width / 2),
+            panel.top + panel.height / 2 - (fig.top + fig.height / 2)
+          )
+        );
+    });
+    return () => cancelAnimationFrame(id);
+  }, [open, showFigure]);
+
+  // "Let Amr feel your phone": only offered on touch devices with motion sensors.
+  const [motionAvailable, setMotionAvailable] = useState(false);
+  useEffect(() => setMotionAvailable(canFeelPhone() && !prefersReducedMotion()), []);
+  const feelPhoneChoice = useMascotStore((s) => s.feelPhone);
+  const feelsMotion = motionAvailable && feelsPhone(feelPhoneChoice);
+  const toggleMotion = async () => {
+    const mascot = useMascotStore.getState();
+    if (feelsMotion) return mascot.setFeelPhone(false);
+    const granted = motionNeedsPermission() ? await requestMotionPermission() : true;
+    mascot.setFeelPhone(granted);
+    if (granted) mascot.playNow("startle");
+  };
+
   // Drive the mascot from the conversation: talk while streaming, think on send,
   // react to tool results, shift mood to the reply's sentiment.
   useMascotChatReactions();
   // React to finished tool actions, for visitors and the owner alike.
-  useMascotToolReactions();
+  useMascotToolReactions(sceneShipped);
 
   // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
   // Skip when typing in an editable element so it can't steal focus mid-edit.
@@ -519,6 +689,24 @@ export function MascotAssistant() {
                   </button>
                 </>
               )}
+              {motionAvailable && (
+                <button
+                  type="button"
+                  onClick={() => void toggleMotion()}
+                  aria-label="Let Amr feel your phone"
+                  title={
+                    feelsMotion
+                      ? "Amr feels your phone's tilt and shakes · tap to stop"
+                      : "Let Amr feel your phone's tilt and shakes"
+                  }
+                  aria-pressed={feelsMotion}
+                  className={`min-touch-coarse rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
+                    feelsMotion ? "text-accent" : "text-sub"
+                  }`}
+                >
+                  <Smartphone className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={closeSheet}
@@ -563,9 +751,11 @@ export function MascotAssistant() {
       {/* Floating mascot — click to toggle the chat. */}
       {!hideFigure && (
         <button
+          ref={buttonRef}
           type="button"
           onClick={onMascotClick}
           onPointerDown={onPointerDown}
+          onContextMenu={(e) => showFigure && e.preventDefault()}
           aria-label={open ? "Close assistant" : "Open assistant"}
           title="Ask Amr · drag to reposition"
           style={
@@ -586,10 +776,22 @@ export function MascotAssistant() {
           {!showFigure && <Sparkles className="h-5 w-5 text-accent" aria-hidden="true" />}
           {showFigure && (
             <span
+              ref={hitRef}
               aria-hidden="true"
               data-mascot-hit
-              className="pointer-events-auto absolute z-10 rounded-full"
-              style={hitBox(box)}
+              className="pointer-events-auto absolute z-10 select-none rounded-full"
+              style={{
+                ...hitBox(box),
+                // His figure is his own: a finger on him pets or carries him, never scrolls.
+                touchAction: "none",
+                WebkitTouchCallout: "none",
+              }}
+              onPointerMove={(e) => {
+                if (e.buttons) return; // pressed: the drag handles it
+                const p = touchPoint(e, e.currentTarget);
+                if (p) touchRef.current?.move(p, false);
+              }}
+              onPointerLeave={() => touchRef.current?.leave()}
             />
           )}
           {mountFigure && (
@@ -602,6 +804,7 @@ export function MascotAssistant() {
               <MascotSprite
                 width={box.w}
                 height={box.h}
+                moveRef={buttonRef}
                 onLoadError={() => setFigureFailed(true)}
               />
             </div>

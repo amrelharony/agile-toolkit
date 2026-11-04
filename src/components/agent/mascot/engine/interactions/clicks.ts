@@ -1,53 +1,58 @@
 /**
- * Mascot click interactions — flourish + multi-click escalations, ported from
- * the vanilla mascot (onMascotClick flourish 1673+ and handleMascotInteraction
- * 3564-3581). Every click does a small flourish (random reaction + squash +
- * sound + 1 XP); rapid sequences escalate at 3 / 5 / 7 clicks (reset after
- * 1.5s). The chat-toggle itself is handled by the caller (debounced).
+ * Mascot taps (docs/mascot/AMR-ART-BRIEF.md, S04): a tap on his tummy is a poke
+ * (he giggles), a tap on his head a pat (he leans into it, toward that side);
+ * three taps in quick succession tickle him, seven make him dizzy (and earn the
+ * old spin's 5 XP). Each tap answers at once instead of queuing behind the last,
+ * so a burst never backs up. Ported from the vanilla mascot's multi-click
+ * escalation (handleMascotInteraction 3564-3581); the chat toggle is the caller's.
  */
 
+import type { MascotReaction } from "@/lib/agent/mascot/store";
+
+export type Zone = "head" | "body";
+export type Side = "left" | "right";
+
 export interface ClickHooks {
-  queueReaction(r: "spin" | "wiggle" | "excited" | "nod"): void;
-  queueMicro(name: "smirk" | "wideEyes"): void;
+  /** Cut in with this reaction now. */
+  playNow(r: MascotReaction): void;
   sound(): void;
   addXp(n: number): void;
 }
 
-const FLOURISHES = ["spin", "wiggle", "excited"] as const;
+/** Taps further apart than this start a new count. */
+const BURST_MS = 1000;
+export const TICKLE_TAPS = 3;
+export const DIZZY_TAPS = 7;
 
 export interface ClickInteraction {
-  onClick(): void;
+  onClick(zone?: Zone, side?: Side): void;
   dispose(): void;
 }
 
 export function createClickInteraction(hooks: ClickHooks): ClickInteraction {
-  let patCount = 0;
+  let count = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  function onClick(): void {
-    patCount++;
+  function onClick(zone: Zone = "body", side: Side = "left"): void {
+    count++;
     clearTimeout(timer);
     timer = setTimeout(() => {
-      patCount = 0;
-    }, 1500);
+      count = 0;
+    }, BURST_MS);
 
     hooks.sound();
 
-    if (patCount === 3) {
-      hooks.queueMicro("smirk");
-      hooks.queueReaction("nod");
-    } else if (patCount === 5) {
-      hooks.queueMicro("wideEyes");
-      hooks.queueReaction("excited");
-    } else if (patCount >= 7) {
-      hooks.queueReaction("spin");
+    if (count >= DIZZY_TAPS) {
+      hooks.playNow("dizzy");
       hooks.addXp(5);
-      patCount = 0;
-    } else {
-      // Ordinary click: a small random flourish + 1 XP.
-      hooks.queueReaction(FLOURISHES[Math.floor(Math.random() * FLOURISHES.length)]);
+      count = 0;
+    } else if (count === TICKLE_TAPS) {
+      hooks.playNow("tickle");
+    } else if (count === 1) {
+      hooks.playNow(zone === "head" ? (side === "left" ? "patLeft" : "patRight") : "poke");
       hooks.addXp(1);
     }
+    // Taps 2 and 4–6 let the reaction already playing carry on.
   }
 
   return { onClick, dispose: () => clearTimeout(timer) };

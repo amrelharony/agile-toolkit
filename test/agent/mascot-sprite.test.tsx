@@ -69,11 +69,11 @@ describe("pose mapping", () => {
     expect(chooseShot({ ...CALM, talking: true }).row).toBe(POSES.review.row);
   });
 
-  it("runs the way he's dragged, over any reaction", () => {
-    expect(chooseShot({ ...CALM, drag: "left", reaction: "wave" }).row).toBe(
+  it("runs the way he's dragged, over any reaction, until the dangle has loaded", () => {
+    expect(chooseShot({ ...CALM, drag: { vx: -300, at: 0 }, reaction: "wave" }).row).toBe(
       POSES["running-left"].row
     );
-    expect(chooseShot({ ...CALM, drag: "right" }).row).toBe(POSES["running-right"].row);
+    expect(chooseShot({ ...CALM, drag: { vx: 300, at: 0 } }).row).toBe(POSES["running-right"].row);
   });
 
   it("gives a reaction time for whole loops", () => {
@@ -135,7 +135,7 @@ describe("reduced motion", () => {
     });
     expect(chooseShot({ ...STILL, reaction: "spin" })).toMatchObject({ anim: "none", row: 0 });
     expect(chooseShot({ ...STILL, reaction: "wiggle" })).toMatchObject({ anim: "none", row: 0 });
-    expect(chooseShot({ ...STILL, drag: "left" }).anim).toBe("none");
+    expect(chooseShot({ ...STILL, drag: { vx: -1, at: 0 } }).anim).toBe("none");
     expect(chooseShot({ ...STILL, talking: true }).anim).toBe("none");
   });
 
@@ -239,16 +239,16 @@ describe("<MascotSprite />", () => {
     expect(useMascotStore.getState().reactionQueue).toEqual([]);
   });
 
-  it("follows the talking flag and the drag direction", () => {
+  it("follows the talking flag and the drag direction (before the packs load)", () => {
     const images = stubImage();
     const { container } = render(<MascotSprite />);
     act(() => images[0].onload?.());
 
     act(() => useMascotStore.getState().setTalking(true));
     expect(shotOf(container)).toMatch(/^review/);
-    act(() => useMascotStore.getState().setDragDirection("left"));
+    act(() => useMascotStore.getState().setDrag(-400));
     expect(shotOf(container)).toMatch(/^running-left/);
-    act(() => useMascotStore.getState().setDragDirection(null));
+    act(() => useMascotStore.getState().setDrag(null));
     act(() => useMascotStore.getState().setTalking(false));
     expect(shotOf(container)).toMatch(/^idle/);
   });
@@ -290,5 +290,112 @@ describe("<MascotSprite />", () => {
     expect(body.style.filter).toBe("");
     act(() => useMascotStore.getState().setAuraColor("#ff8800"));
     expect(body.style.filter).toContain("#ff8800");
+  });
+});
+
+describe("<MascotSprite /> with the packs", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    useMascotStore.getState().reset();
+    stubReducedMotion(false);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    useMascotStore.getState().reset();
+  });
+
+  const shotOf = (c: HTMLElement) =>
+    c.querySelector<HTMLElement>("[data-amr-shot]")!.dataset.amrShot;
+  const clipLayer = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-amr-clip]")!;
+
+  /** Mount, load the sheet, let the idle prefetch ask for the core packs and load them. */
+  function mountLoaded() {
+    const images = stubImage();
+    const utils = render(<MascotSprite />);
+    act(() => images[0].onload?.());
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    const packs = images.slice(1);
+    act(() => packs.forEach((img) => img.onload?.()));
+    return { ...utils, images };
+  }
+
+  it("fetches the core packs once the page is idle", () => {
+    const { images } = mountLoaded();
+    const srcs = images.slice(1).map((i) => i.src);
+    expect(srcs.some((s) => /\/mascot\/amr-touch\.[0-9a-f]{8}\.webp$/.test(s))).toBe(true);
+    expect(srcs.some((s) => /amr-faces\./.test(s))).toBe(true);
+    expect(srcs.some((s) => /amr-lifted\./.test(s))).toBe(true);
+  });
+
+  it("plays a reaction's clip from its pack, painted on the clip layer", () => {
+    const { container } = mountLoaded();
+    act(() => useMascotStore.getState().playNow("poke"));
+    expect(shotOf(container)).toBe("clip:poke");
+    const layer = clipLayer(container);
+    expect(layer.style.visibility).toBe("");
+    expect(layer.style.backgroundImage).toMatch(/amr-touch\./);
+    act(() => {
+      vi.advanceTimersByTime(1200);
+    });
+    expect(shotOf(container)).toMatch(/^idle/);
+    expect(clipLayer(container).style.visibility).toBe("hidden");
+  });
+
+  it("stands the clip layer on his floor, as tall as the cell it paints", () => {
+    const { container } = mountLoaded();
+    // A pack's cell has 16 rows of headroom over the live sheet's 208: 143 → 154 px.
+    act(() => useMascotStore.getState().playNow("poke"));
+    const layer = clipLayer(container);
+    expect(layer.style.height).toBe("154px");
+    expect(layer.style.backgroundSize).toBe("1056px 154px");
+    // A clip of live-sheet cells paints them at the sheet's own height.
+    act(() => useMascotStore.getState().playNow("thumbsUp"));
+    expect(shotOf(container)).toBe("clip:thumbsUp");
+    expect(layer.style.height).toBe("143px");
+    expect(layer.style.backgroundSize).toBe("1056px 1573px");
+    expect(layer.style.backgroundPosition).toBe("-528px -1144px");
+  });
+
+  it("cuts a reaction short for one played now", () => {
+    const { container } = mountLoaded();
+    act(() => {
+      useMascotStore.getState().queueReaction("wave");
+      useMascotStore.getState().queueReaction("nod");
+    });
+    expect(shotOf(container)).toMatch(/^waving/);
+    act(() => useMascotStore.getState().playNow("poke"));
+    expect(shotOf(container)).toBe("clip:poke");
+    expect(useMascotStore.getState().reactionQueue).toEqual([]);
+  });
+
+  it("stands in a live-sheet pose for a clip whose pack isn't in yet, and fetches it", () => {
+    const { container, images } = mountLoaded();
+    const before = images.length;
+    act(() => useMascotStore.getState().queueReaction("bow"));
+    expect(shotOf(container)).toMatch(/^waving/);
+    expect(images.length).toBe(before + 1);
+    expect(images.at(-1)!.src).toMatch(/amr-social\./);
+  });
+
+  it("dangles while carried", () => {
+    const { container } = mountLoaded();
+    act(() => useMascotStore.getState().setDrag(0));
+    expect(shotOf(container)).toBe("clip:lifted");
+    expect(clipLayer(container).style.backgroundImage).toMatch(/amr-lifted\./);
+  });
+
+  it("lets a held pose go and shows the Zzz while he dozes", () => {
+    const { container, images } = mountLoaded();
+    act(() => useMascotStore.getState().setHold("dozing", true));
+    act(() => images.find((i) => /amr-rest\./.test(i.src))?.onload?.());
+    expect(shotOf(container)).toBe("clip:hold.dozing");
+    expect(container.textContent).toContain("Z");
+    act(() => useMascotStore.getState().setHold("dozing", false));
+    expect(shotOf(container)).toMatch(/^idle/);
+    expect(container.textContent).not.toContain("Z");
   });
 });
