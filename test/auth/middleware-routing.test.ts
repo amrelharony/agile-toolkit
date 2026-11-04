@@ -410,6 +410,7 @@ describe("bypass paths", () => {
     "/api/comics/hit",
     "/api/comics/licence",
     "/api/comics/guestbook",
+    "/api/mascot/weather",
     "/guest",
     "/guest/join",
     "/auth/callback",
@@ -437,6 +438,8 @@ describe("bypass paths", () => {
     "/api/comics/guestbook/x",
     "/api/comics/licence-requests",
     "/api/comics/hit/x",
+    "/api/mascot/weather/x",
+    "/api/mascot",
   ]) {
     it(`${path} is checked like any other API route`, async () => {
       signedInAs(STRANGER);
