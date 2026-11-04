@@ -93,10 +93,33 @@ describe("released", () => {
     expect(el.props.game).toBe(WHICH_COLLEAGUE_GAME);
   });
 
-  it("a locked visitor gets the lock panel, with none of the game", async () => {
-    const el = await WhichColleaguePage();
-    expect(el.type).toBe(VipLockPanel);
-    expect(JSON.stringify(el.props ?? {})).not.toContain(questions[0].prompt);
+  it("a locked visitor gets the lock panel instead", async () => {
+    // locked-pages.test.tsx renders it and checks none of the game is in it.
+    expect((await WhichColleaguePage()).type).toBe(VipLockPanel);
+  });
+});
+
+describe("withdrawn", () => {
+  afterEach(() => {
+    vi.doUnmock("@/lib/vip/which-colleague-questions");
+    vi.resetModules();
+  });
+
+  it("a book reader's direct link says coming soon, with none of the game", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/vip/which-colleague-questions", () => ({
+      WHICH_COLLEAGUE_APPROVED: false,
+      WHICH_COLLEAGUE_GAME,
+      NEVER_A_RESULT,
+    }));
+    const { default: Page } = await import("@/app/(tools)/which-colleague/page");
+    h.cookie = KEY;
+    const el = await Page();
+    expect(JSON.stringify(el.props)).not.toContain(questions[0].prompt);
+    const { container } = render(el);
+    expect(screen.getByText("This one is coming soon")).toBeInTheDocument();
+    for (const q of questions) expect(container.innerHTML).not.toContain(q.prompt);
+    expect(container.innerHTML).not.toContain(WHICH_COLLEAGUE_GAME.discussion);
   });
 });
 

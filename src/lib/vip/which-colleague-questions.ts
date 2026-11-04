@@ -10,6 +10,7 @@
  *      src/lib/constants/tools.ts. That list reaches every browser and this file
  *      must not, so it can't read this flag; test/vip/which-colleague.test.tsx
  *      fails until the two agree.
+ *   3. Flip that test's "released" block, which expects both.
  * Withdrawn, the tool leaves the hub and the catalog, and its address shows book
  * readers "coming soon" with none of this text.
  *
@@ -17,7 +18,8 @@
  * work and keep their dignity", and the joke targets a habit, not a person. So
  * questions ask about a moment at work, never what someone is like, and a result
  * never reads as a label on anyone. No answer is the obviously good one: Amr's
- * two are his habits too, a favourite method and a question for everyone.
+ * two are his habits too, reaching for his usual method and a question for
+ * everyone.
  *
  * Every colleague but those in NEVER_A_RESULT sits behind two answers, in two
  * different questions, so each can come up and can win outright. An answer's
@@ -46,7 +48,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
     "Pass the phone around, or answer together. Pick what's closest to this week, not what you'd like to be true. Nothing is saved or sent anywhere.",
   resultLead: "This week, your answers sit closest to",
   dignityNote:
-    "Everyone in the cast is capable, and anyone can pick up any of these habits on a busy day. Some of the cast are things at work, like a sticky note or a tea glass: they stand for a habit, never a person. This is about the habit, not about you.",
+    "Everyone in the cast is capable, and anyone can pick up any of these habits on a busy day. Some of the cast are things at work, like a sticky note or a tea glass, and every one of them stands for a habit, never a person. This is about the habit, not about you.",
   discussion:
     "When has this strength helped us as a team, and when have any of us taken it too far? What would make it easy to say so at the time?",
   questions: [
@@ -88,7 +90,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         },
         {
           id: "b",
-          text: "Things have changed, so the request should change too.",
+          text: "Things have changed, so what we're making should change too.",
           colleagues: ["Requirement Chameleon"],
         },
         {
@@ -158,7 +160,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         { id: "a", text: "A small practical test first.", colleagues: ["Experiment Mouse"] },
         {
           id: "b",
-          text: "Something robust, so we aren't caught unprepared later.",
+          text: "Something robust enough for whatever we might need later.",
           colleagues: ["Overengineering Octopus", "Dependable Beaver"],
         },
         {
@@ -246,7 +248,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         },
         {
           id: "d",
-          text: "Suggesting a way of working together that's helped before.",
+          text: "Suggesting my usual way of working together, straight away.",
           colleagues: ["Amr"],
         },
       ],
@@ -267,7 +269,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         },
         {
           id: "c",
-          text: "Try simplifying one small, repeatable part of it, as a test.",
+          text: "Try making one small, repetitive bit of the work easier, as a test.",
           colleagues: ["Automation Raccoon", "Experiment Mouse"],
         },
         {
