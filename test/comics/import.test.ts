@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BOOK_DIALOGUE } from "@/lib/comics/book-dialogue";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
-import { bookSourceId, planBookImport } from "@/lib/comics/import-book";
+import { BOOK_CREDIT_CORNERS, bookSourceId, planBookImport } from "@/lib/comics/import-book";
 import {
   isStoryFinished,
   planConflicts,
@@ -19,7 +19,12 @@ import {
   planWeeklyImport,
   type ImportStory,
 } from "@/lib/comics/import-weekly";
-import type { OwnerStory, StoredPanel } from "@/lib/comics/story-input";
+import {
+  CREDIT_CORNERS,
+  DEFAULT_CREDIT_CORNER,
+  type OwnerStory,
+  type StoredPanel,
+} from "@/lib/comics/story-input";
 
 /**
  * A script in the real file's shape, with its private fields named as they are
@@ -301,6 +306,30 @@ describe("planning the book batch", () => {
     }
     expect(seven.panels[1].file.path).toBe("Art/Panels/Episode_07/E07_Panel_02.jpg");
     expect(seven.panels[1].text.dialogue).toEqual(BOOK_DIALOGUE[7].panels[1].dialogue);
+  });
+
+  it("moves the credit off the balloons where the default corner would sit on one", () => {
+    const plan = planBookImport(bookFiles());
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const corners = new Map<string, string>();
+    for (const story of plan.stories) {
+      story.panels.forEach((panel, i) =>
+        corners.set(`${story.ep}:${i + 1}`, panel.text.creditCorner)
+      );
+    }
+    expect(Object.keys(BOOK_CREDIT_CORNERS).length).toBeGreaterThan(0);
+    for (const [key, corner] of Object.entries(BOOK_CREDIT_CORNERS)) {
+      // A key that names no panel would quietly move nothing.
+      expect(corners.has(key), key).toBe(true);
+      expect(corner, key).not.toBe(DEFAULT_CREDIT_CORNER);
+      expect(CREDIT_CORNERS, key).toContain(corner);
+      expect(corners.get(key), key).toBe(corner);
+    }
+    expect(corners.get("26:3")).toBe("top-left");
+    expect(corners.get("1:1")).toBe(DEFAULT_CREDIT_CORNER);
+    const moved = Array.from(corners.values()).filter((c) => c !== DEFAULT_CREDIT_CORNER);
+    expect(moved).toHaveLength(Object.keys(BOOK_CREDIT_CORNERS).length);
   });
 
   it("refuses anything but 104 panels", () => {
