@@ -59,11 +59,13 @@ next-env.d.ts
 # one-off deep-test audit workflow scratch (kept locally, not part of the app)
 /audit-pass2.workflow.mjs
 
-# Amr's sprite sheet is committed under a content-hash name
-# (amr.<sha256-prefix>.webp) so it can be cached immutably. Nothing else from the
-# pet pack belongs here: it also holds photo boards and rejected art.
+# Amr's sprite sheet and his lazy packs are committed under content-hash names
+# (amr.<sha256-prefix>.webp, amr-<pack>[@2x].<sha256-prefix>.webp, written by
+# scripts/build-mascot-packs.py) so they can be cached immutably. Nothing else from
+# the pet pack belongs here: it also holds photo boards and rejected art.
 /public/mascot/*
 !/public/mascot/amr.*.webp
+!/public/mascot/amr-*.webp
 
 # Lighthouse CI local runs (npm run lighthouse)
 /.lighthouseci/
