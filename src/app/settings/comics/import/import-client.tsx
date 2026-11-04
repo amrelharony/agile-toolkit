@@ -121,10 +121,11 @@ function ImportCard({
           savePanels: async (ep, panels, sharePath) =>
             (await portalApi.patchStory(ep, { panels: panels.map(panelForSave), sharePath })).story,
           release: async (ep) => (await portalApi.setRelease(ep, new Date().toISOString())).story,
-          convertAndUpload: (picked, panel, withShare) =>
+          convertAndUpload: (picked, panel, withShare, shareCorner) =>
             processPanelImage(picked.file, {
               corner: panel.creditCorner,
               withShare,
+              shareCorner,
               uploader,
             }),
         },

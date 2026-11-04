@@ -211,6 +211,29 @@ describe("converting one picture", () => {
     expect(made[2].texts[0].text).toBe(CREDIT_TEXT);
   });
 
+  it("puts the share image's credit in its own corner when given one", async () => {
+    const made = fakeCanvases((type) => type);
+    await convertPanel(blobOf("image/png"), {
+      corner: "top-left",
+      withShare: true,
+      shareCorner: "bottom-right",
+    });
+    // The panel's two widths keep the panel's corner.
+    expect(made[0].texts[0].x).toBeLessThan(FULL_WIDTH / 2);
+    expect(made[1].texts[0].x).toBeLessThan(SMALL_WIDTH / 2);
+    expect(made[0].texts[0].y).toBeLessThan(FULL_WIDTH / 2);
+    // The 1200 x 630 share image, its own.
+    expect(made[2].texts[0].x).toBeGreaterThan(600);
+    expect(made[2].texts[0].y).toBeGreaterThan(315);
+  });
+
+  it("puts the share image's credit in the panel's corner otherwise", async () => {
+    const made = fakeCanvases((type) => type);
+    await convertPanel(blobOf("image/png"), { corner: "top-left", withShare: true });
+    expect(made[2].texts[0].x).toBeLessThan(600);
+    expect(made[2].texts[0].y).toBeLessThan(315);
+  });
+
   it("releases the bitmap and shrinks every canvas to nothing", async () => {
     const made = fakeCanvases((type) => type);
     await convertPanel(blobOf("image/png"), { corner: "bottom-right", withShare: true });

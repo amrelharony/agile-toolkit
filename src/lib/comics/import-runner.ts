@@ -12,6 +12,7 @@ import {
   panelHasArt,
   publishProblems,
   unreviewedPanels,
+  type CreditCorner,
   type OwnerStory,
   type StoredPanel,
 } from "./story-input";
@@ -28,7 +29,13 @@ export interface ImportDeps<F> {
   createStory(story: ImportStory<F>): Promise<OwnerStory>;
   savePanels(ep: number, panels: StoredPanel[], sharePath: string | null): Promise<OwnerStory>;
   release(ep: number): Promise<OwnerStory>;
-  convertAndUpload(file: F, panel: StoredPanel, withShare: boolean): Promise<PanelArt>;
+  /** shareCorner is the share image's credit corner; it only matters when withShare. */
+  convertAndUpload(
+    file: F,
+    panel: StoredPanel,
+    withShare: boolean,
+    shareCorner: CreditCorner
+  ): Promise<PanelArt>;
 }
 
 export interface ImportProgress {
@@ -109,7 +116,12 @@ export async function runImport<F>(options: {
             break;
           }
           const textOf = panel ?? planned.panels[i].text;
-          const art = await deps.convertAndUpload(planned.panels[i].file, textOf, i === 0);
+          const art = await deps.convertAndUpload(
+            planned.panels[i].file,
+            textOf,
+            i === 0,
+            planned.shareCorner ?? textOf.creditCorner
+          );
           const panels = [...story.panels];
           panels[i] = {
             ...textOf,

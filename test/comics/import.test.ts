@@ -2,7 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BOOK_DIALOGUE } from "@/lib/comics/book-dialogue";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
-import { BOOK_CREDIT_CORNERS, bookSourceId, planBookImport } from "@/lib/comics/import-book";
+import {
+  BOOK_CREDIT_CORNERS,
+  BOOK_SHARE_CREDIT_CORNERS,
+  bookSourceId,
+  planBookImport,
+} from "@/lib/comics/import-book";
 import {
   isStoryFinished,
   planConflicts,
@@ -332,6 +337,25 @@ describe("planning the book batch", () => {
     expect(moved).toHaveLength(Object.keys(BOOK_CREDIT_CORNERS).length);
   });
 
+  it("gives each share image its own corner, not its first panel's", () => {
+    const plan = planBookImport(bookFiles());
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const share = new Map(plan.stories.map((s) => [s.ep, s.shareCorner]));
+    // The share crop is the middle of the panel: a first panel's top-left is a
+    // different part of the art there, and on 24 it would sit on a balloon.
+    for (const ep of [22, 24, 26]) {
+      expect(plan.stories[ep - 1].panels[0].text.creditCorner, String(ep)).toBe("top-left");
+      expect(share.get(ep), String(ep)).toBe(DEFAULT_CREDIT_CORNER);
+    }
+    for (const [ep, corner] of Object.entries(BOOK_SHARE_CREDIT_CORNERS)) {
+      expect(share.get(Number(ep)), ep).toBe(corner);
+      expect(corner, ep).not.toBe(DEFAULT_CREDIT_CORNER);
+    }
+    expect(share.get(3)).toBe("bottom-left");
+    expect(share.size).toBe(26);
+  });
+
   it("refuses anything but 104 panels", () => {
     const plan = planBookImport(bookFiles().slice(0, -1));
     expect(plan.ok).toBe(false);
@@ -483,6 +507,18 @@ describe("running an import", () => {
     expect(vi.mocked(deps.convertAndUpload).mock.calls.map((c) => c[2])).toEqual([true, false]);
   });
 
+  it("gives the share image the story's own credit corner, or else the first panel's", async () => {
+    const { deps } = convert;
+    const own = { ...planned(27, "AAW-N001"), shareCorner: "bottom-left" as const };
+    own.panels[0].text = { ...own.panels[0].text, creditCorner: "top-left" };
+    await runImport({ plan: [own, planned(28, "AAW-N002")], existing: [], deps });
+    const calls = vi.mocked(deps.convertAndUpload).mock.calls;
+    expect(calls[0][1].creditCorner).toBe("top-left");
+    expect(calls[0][3]).toBe("bottom-left");
+    // No corner of its own: the share image follows the panel, as before.
+    expect(calls[2][3]).toBe(planned(28, "AAW-N002").panels[0].text.creditCorner);
+  });
+
   it("skips a finished story, found by source id", async () => {
     const finished = serverStory(27, "AAW-N001", {
       panels: [withArt(), withArt()],
@@ -520,7 +556,12 @@ describe("running an import", () => {
     const { deps, stories } = fakeDeps([partial]);
     await runImport({ plan: [planned(27, "AAW-N001")], existing: [partial], deps });
     expect(deps.convertAndUpload).toHaveBeenCalledTimes(1);
-    expect(deps.convertAndUpload).toHaveBeenCalledWith("AAW-N001-2", expect.anything(), false);
+    expect(deps.convertAndUpload).toHaveBeenCalledWith(
+      "AAW-N001-2",
+      expect.anything(),
+      false,
+      expect.anything()
+    );
     const saved = stories.get(27)!;
     expect(saved.panels[0].alt).toBe("Edited by the owner");
     expect(saved.panels[1].alt).toBe("Also edited");

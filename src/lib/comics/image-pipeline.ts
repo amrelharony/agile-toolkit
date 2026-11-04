@@ -156,10 +156,14 @@ export interface ConvertedPanel {
   height: number;
 }
 
-/** Decode one picture and produce everything the site needs from it. */
+/**
+ * Decode one picture and produce everything the site needs from it. The share
+ * image is cropped from the middle of the panel, so the panel's credit corner can
+ * land somewhere else on it: shareCorner, when given, is the share image's own.
+ */
 export async function convertPanel(
   file: Blob,
-  options: { corner: CreditCorner; withShare: boolean }
+  options: { corner: CreditCorner; withShare: boolean; shareCorner?: CreditCorner }
 ): Promise<ConvertedPanel> {
   const bitmap = await createImageBitmap(file);
   try {
@@ -167,9 +171,10 @@ export async function convertPanel(
     const render = async (
       size: Size,
       encode: (c: HTMLCanvasElement) => Promise<Blob>,
+      corner: CreditCorner,
       crop?: Size & { x: number; y: number }
     ) => {
-      const canvas = renderTo(bitmap, size, options.corner, crop);
+      const canvas = renderTo(bitmap, size, corner, crop);
       try {
         return await encode(canvas);
       } finally {
@@ -177,10 +182,15 @@ export async function convertPanel(
       }
     };
     const fullSize = scaledSize(source, FULL_WIDTH);
-    const full = await render(fullSize, encodeCanvas);
-    const small = await render(scaledSize(source, SMALL_WIDTH), encodeCanvas);
+    const full = await render(fullSize, encodeCanvas, options.corner);
+    const small = await render(scaledSize(source, SMALL_WIDTH), encodeCanvas, options.corner);
     const share = options.withShare
-      ? await render({ width: SHARE_WIDTH, height: SHARE_HEIGHT }, encodeJpeg, shareCrop(source))
+      ? await render(
+          { width: SHARE_WIDTH, height: SHARE_HEIGHT },
+          encodeJpeg,
+          options.shareCorner ?? options.corner,
+          shareCrop(source)
+        )
       : null;
     return { full, small, share, width: fullSize.width, height: fullSize.height };
   } finally {
@@ -244,6 +254,7 @@ export async function processPanelImage(
   options: {
     corner: CreditCorner;
     withShare: boolean;
+    shareCorner?: CreditCorner;
     uploader: ArtUploader;
     onStep?: (step: ArtStep) => void;
   }
