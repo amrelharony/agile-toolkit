@@ -664,6 +664,21 @@ html[data-intro="vip"]:has([data-intro-overlay="vip"]) {
 html:has([data-intro-overlay]) {
   scrollbar-gutter: stable;
 }
+/* That gutter shows the page's paper, and a fixed overlay stops short of it, so
+   on a desktop with a classic scroll bar the VIP intro's opening ink had a paper
+   strip down its right edge. The ink leaves that edge last (vip-intro.module.css,
+   vipInkWipe, 0.9 s), so the gutter is inked for exactly as long. */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-intro="vip"]:has([data-intro-overlay="vip"]) {
+    animation: intro-vip-gutter-ink 0.9s;
+  }
+}
+@keyframes intro-vip-gutter-ink {
+  from,
+  to {
+    background-color: var(--border);
+  }
+}
 
 /* A toast (an achievement, say) waits until the intro is over: the toaster sits
    above every layer, so it would cover Skip. */
