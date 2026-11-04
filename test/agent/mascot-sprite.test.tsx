@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
 import MascotSprite from "@/components/agent/mascot/mascot-sprite";
+import { FX_FADE_MS } from "@/components/agent/mascot/mascot-fx";
 import {
   chooseShot,
   lookCell,
@@ -358,6 +359,37 @@ describe("<MascotSprite /> with the packs", () => {
     expect(layer.style.height).toBe("143px");
     expect(layer.style.backgroundSize).toBe("1056px 1573px");
     expect(layer.style.backgroundPosition).toBe("-528px -1144px");
+  });
+
+  it("sets the air around him for a weather scene, behind him, and clears it after", () => {
+    const { container, images } = mountLoaded();
+    act(() => useMascotStore.getState().playNow("scene:rain"));
+    act(() => images.find((i) => /amr-rain\./.test(i.src))?.onload?.());
+    expect(shotOf(container)).toBe("clip:scene:rain");
+    const fx = container.querySelector<HTMLElement>("[data-amr-fx]")!;
+    expect(fx.dataset.amrFx).toBe("rain");
+    expect(fx.children).toHaveLength(14);
+    // Before the figure in his box, so it's drawn behind him.
+    expect(fx.nextElementSibling?.contains(clipLayer(container))).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(reactionSeconds("scene:rain") * 1000 + 100);
+    });
+    expect(shotOf(container)).toMatch(/^idle/);
+    expect(container.querySelector("[data-amr-fx]")).not.toBeNull(); // clearing
+    act(() => {
+      vi.advanceTimersByTime(FX_FADE_MS);
+    });
+    expect(container.querySelector("[data-amr-fx]")).toBeNull();
+  });
+
+  it("sets no air for a scene without weather, or a reaction", () => {
+    const { container, images } = mountLoaded();
+    act(() => useMascotStore.getState().playNow("scene:sun"));
+    act(() => images.find((i) => /amr-sun\./.test(i.src))?.onload?.());
+    expect(shotOf(container)).toBe("clip:scene:sun");
+    expect(container.querySelector("[data-amr-fx]")).toBeNull();
+    act(() => useMascotStore.getState().playNow("poke"));
+    expect(container.querySelector("[data-amr-fx]")).toBeNull();
   });
 
   it("cuts a reaction short for one played now", () => {

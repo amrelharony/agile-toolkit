@@ -18,7 +18,8 @@
  * lip-sync while a reply streams (engine/talk.ts), the dangle while he's
  * carried (with a pendulum swing), the stroll's slide along the bottom. A pack's
  * cells are taller than the live sheet's, with room on top for a raised prop, so
- * the layer stands on his floor and takes the height of the cell it paints. His
+ * the layer stands on his floor and takes the height of the cell it paints. A
+ * weather or fireworks scene also sets the air around him (mascot-fx.tsx). His
  * senses (engine/senses.ts) start once he's on screen.
  *
  * Reduced motion shows a still frame of the current pose: no frame steps, no
@@ -59,6 +60,8 @@ import {
   type SpritePose,
 } from "./engine/sprite-poses";
 import { createTalker } from "./engine/talk";
+import { sceneFx, type SceneFx } from "./engine/scene-fx";
+import { FX_FADE_MS, MascotFx } from "./mascot-fx";
 import styles from "./mascot-assistant.module.css";
 
 interface MascotSpriteProps {
@@ -145,6 +148,8 @@ export default function MascotSprite({
   const [{ shot, take }, setPlaying] = useState({ shot: IDLE_SHOT, take: 0 });
   const [loaded, setLoaded] = useState(false);
   const auraColor = useMascotStore((s) => s.auraColor);
+  // The air around him for a weather or fireworks scene; it clears after the scene.
+  const [fx, setFx] = useState<{ kind: SceneFx; leaving: boolean } | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -508,6 +513,17 @@ export default function MascotSprite({
 
   const isClip = shot.anim === "clip";
   const dozing = shot.clip?.name === "hold.dozing";
+  // A still frame (reduced motion) gets no air.
+  const fxNow = isClip && !shot.still && shot.clip ? sceneFx(shot.clip.name) : null;
+  useEffect(() => {
+    if (fxNow) {
+      setFx({ kind: fxNow, leaving: false });
+      return;
+    }
+    setFx((cur) => (cur && !cur.leaving ? { ...cur, leaving: true } : cur));
+    const t = setTimeout(() => setFx(null), FX_FADE_MS);
+    return () => clearTimeout(t);
+  }, [fxNow]);
   const sheetStyle = {
     width,
     height,
@@ -529,6 +545,7 @@ export default function MascotSprite({
       aria-hidden="true"
       data-amr-shot={shot.key}
     >
+      {fx && <MascotFx kind={fx.kind} leaving={fx.leaving} width={width} height={height} />}
       <div
         ref={swingRef}
         className={styles.swing}

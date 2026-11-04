@@ -4,25 +4,26 @@ Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.web
 
 ## What's where
 
-| Path                                                         | What it is                                                                        |
-| ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| `docs/mascot/AMR-ART-BRIEF.md`, `docs/mascot/reference/`     | The brief the sheets were generated from, and its reference images                |
-| `docs/mascot/AMR-HAIR-EDITS.md`                              | Hair-only edits for sheets that came back with curly hair, and how to check them  |
-| `scripts/build-mascot-packs.py`                              | Slices, cleans and registers the sheets, writes the packs and their manifest      |
-| `public/mascot/amr-<pack>[@2x].<hash>.webp`                  | The packs: 192 × 224 cells, eight to a row, and 384 × 448 twins for sharp screens |
-| `src/components/agent/mascot/mascot-packs.ts`                | The generated manifest: each pack's files and each frame's cell                   |
-| `src/components/agent/mascot/engine/clips.ts`                | Every reaction and held pose, frame by frame                                      |
-| `src/components/agent/mascot/engine/senses.ts`               | What he notices: the page, the phone's motion, nobody being around                |
-| `src/components/agent/mascot/engine/interactions/`           | Taps, touch, page moments and the phone's motion                                  |
-| `scripts/build-mascot-review.mjs`                            | The review page: every clip at real size on the site's light and dark grounds     |
-| `docs/mascot/context-sheets.json`                            | The context sheets S11–S64: each sheet's props, poses and frame ids               |
-| `docs/mascot/AMR-CONTEXT-BRIEF.md`                           | Their ChatGPT brief, generated from the JSON                                      |
-| `docs/mascot/AMR-CONTEXT-CHATGPT.md`                         | The same, as one file to attach to ChatGPT with the reference images              |
-| `scripts/build-mascot-context-brief.mjs`                     | Writes that brief, and a prompt page with a copy button per sheet                 |
-| `src/components/agent/mascot/engine/scenes.ts`               | Every context scene, frame by frame                                               |
-| `src/lib/agent/mascot/context/`                              | Cairo's occasions, sunset, the visitor's weather, and what's on now (moments)     |
-| `src/components/agent/mascot/engine/interactions/context.ts` | When he greets, passes the time, reaches for a torch or frets about the battery   |
-| `src/app/api/mascot/weather/route.ts`                        | The visitor's weather, from their rough place                                     |
+| Path                                                              | What it is                                                                        |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `docs/mascot/AMR-ART-BRIEF.md`, `docs/mascot/reference/`          | The brief the sheets were generated from, and its reference images                |
+| `docs/mascot/AMR-HAIR-EDITS.md`                                   | Hair-only edits for sheets that came back with curly hair, and how to check them  |
+| `scripts/build-mascot-packs.py`                                   | Slices, cleans and registers the sheets, writes the packs and their manifest      |
+| `public/mascot/amr-<pack>[@2x].<hash>.webp`                       | The packs: 192 × 224 cells, eight to a row, and 384 × 448 twins for sharp screens |
+| `src/components/agent/mascot/mascot-packs.ts`                     | The generated manifest: each pack's files and each frame's cell                   |
+| `src/components/agent/mascot/engine/clips.ts`                     | Every reaction and held pose, frame by frame                                      |
+| `src/components/agent/mascot/engine/senses.ts`                    | What he notices: the page, the phone's motion, nobody being around                |
+| `src/components/agent/mascot/engine/interactions/`                | Taps, touch, page moments and the phone's motion                                  |
+| `scripts/build-mascot-review.mjs`                                 | The review page: every clip at real size on the site's light and dark grounds     |
+| `docs/mascot/context-sheets.json`                                 | The context sheets S11–S64: each sheet's props, poses and frame ids               |
+| `docs/mascot/AMR-CONTEXT-BRIEF.md`                                | Their ChatGPT brief, generated from the JSON                                      |
+| `docs/mascot/AMR-CONTEXT-CHATGPT.md`                              | The same, as one file to attach to ChatGPT with the reference images              |
+| `scripts/build-mascot-context-brief.mjs`                          | Writes that brief, and a prompt page with a copy button per sheet                 |
+| `src/components/agent/mascot/engine/scenes.ts`                    | Every context scene, frame by frame                                               |
+| `src/lib/agent/mascot/context/`                                   | Cairo's occasions, sunset, the visitor's weather, and what's on now (moments)     |
+| `src/components/agent/mascot/engine/interactions/context.ts`      | When he greets, passes the time, reaches for a torch or frets about the battery   |
+| `src/components/agent/mascot/mascot-fx.tsx`, `engine/scene-fx.ts` | The air the site draws behind him in a weather or fireworks scene                 |
+| `src/app/api/mascot/weather/route.ts`                             | The visitor's weather, from their rough place                                     |
 
 The source sheets (`S01-faces.png` … `S10-stroll.png`, about 19 MB, and `S11-sun.png` … `S64-lights.png`, about 100 MB) are not committed. Keep the zips they came in.
 
@@ -58,6 +59,7 @@ What he marks, and when:
 - **Idle** for 15 to 30 seconds, he passes the time with one of the day's scenes or a game (football, the oud, his phone). It stands in for that stretch's stroll.
 - **The theme** going dark brings out a torch; going light, sunglasses. **The battery** running low on a phone makes him fret, and charging cheers him up. **A long stretch of typing** gets him typing too.
 - **Toolkit actions** have their own scenes where one fits: cards added, votes cast and revealed, timers, stand-up entries, kudos, sprints started and releases shipped (`use-tool-reactions.ts`).
+- **The air around him**: a rain, downpour, storm, snow, wind, fog, dust, starry-night or fireworks scene plays with the air the site draws behind him (rain round his umbrella, flakes, gusts, fog banks, a sandy haze, twinkling stars, bursts of sparks). It's a layer of CSS animations, wider than his box and reaching above it, shown only while the scene plays and never with reduced motion. A scene borrowed from another sheet keeps that sheet's air: shivering in the snow has none.
 
 Holidays follow amrelharony.com's engine, on Cairo's clock and the Umm al-Qura calendar, reusing the toolkit's own calendars, with the days that engine adds (Arafah, Ashura, Isra and Mi'raj, mid-Sha'ban, 26 July, 6 October, Nayrouz and the international days). Nayrouz falls on 12 September in the year before a Gregorian leap year, not in the leap year itself as amrelharony.com has it. During Ramadan his daytime food scenes stay away; iftar plays from 20 minutes before sunset where the visitor is (Cairo's when that isn't known), sweets after it, and the mesaharaty's drum before dawn.
 

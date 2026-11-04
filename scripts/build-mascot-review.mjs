@@ -39,6 +39,9 @@ const load = (...parts) => import(pathToFileURL(path.join(MASCOT, ...parts)).hre
 const { PACKS, FRAMES, PACK_CELL, PACK_COLUMNS } = await load("mascot-packs.ts");
 const clips = await load("engine", "clips.ts");
 const { SCENES } = await load("engine", "scenes.ts");
+const FX = await load("engine", "scene-fx.ts");
+// The site's own styles for the air around a scene (its CSS-module names, unscoped here).
+const FX_CSS = readFileSync(path.join(MASCOT, "mascot-fx.module.css"), "utf8");
 const SPEC = JSON.parse(
   readFileSync(path.join(ROOT, "docs", "mascot", "context-sheets.json"), "utf8")
 );
@@ -173,7 +176,10 @@ function sceneGroups() {
           ? "Played by the toolkit's own moments: a card added, votes revealed, a sprint shipped."
           : g.id === "play"
             ? "Idle play, the theme switch, a phone's battery, a long stretch of typing."
-            : "His greeting on arrival marks the first moment of the day; the rest pass the time while it lasts.",
+            : "His greeting on arrival marks the first moment of the day; the rest pass the time while it lasts." +
+              (g.id === "weather"
+                ? " Rain, snow, wind, fog, dust and stars come with the air the site draws behind him."
+                : ""),
       clips: Object.values(SCENES)
         .filter((c) => shipped(c) && sheetOf[FRAMES[c.steps[0].f]?.[0]]?.group === g.id)
         .map((c) => {
@@ -210,8 +216,16 @@ const data = {
   groups: [...GROUPS, ...sceneGroups()].map((g) => ({
     title: g.title,
     note: g.note,
-    clips: g.clips.map(([c, trigger]) => ({ ...c, trigger })),
+    clips: g.clips.map(([c, trigger]) => ({ ...c, trigger, fx: FX.sceneFx(c.name) })),
   })),
+};
+// The air around the weather and fireworks scenes, laid out as the site lays it out.
+const fxKinds = [...new Set(data.groups.flatMap((g) => g.clips.map((c) => c.fx)).filter(Boolean))];
+data.fx = {
+  spread: FX.FX_SPREAD,
+  rays: FX.SPARK_RAYS,
+  colours: FX.SPARK_COLOURS,
+  particles: Object.fromEntries(fxKinds.map((k) => [k, FX.particles(k)])),
 };
 
 const PAGE = String.raw`<meta charset="utf-8">
@@ -302,6 +316,12 @@ section > p.note { margin: 4px 0 14px; color: var(--sub); max-width: 70ch; }
 .tile.dark { background: var(--ground-dark); }
 .card.wide .tile { min-height: 176px; }
 .amr { background-repeat: no-repeat; flex: none; will-change: transform; }
+/* A scene's air (the site's mascot-fx.module.css, below) sits behind his figure. */
+.tile.fxs { isolation: isolate; }
+.tile.fxs .amr { position: relative; }
+.amr > .fx { z-index: -1; }
+body.paused .fx, body.paused .fx * { animation-play-state: paused; }
+__FX_CSS__
 .zzz {
   position: absolute; top: 18px; left: 58%; font: 700 13px/1 var(--font-display);
   color: #8a93a3; letter-spacing: 2px;
@@ -407,6 +427,31 @@ function paint(el, ref, w, h) {
   el.style.backgroundSize = w * D.columns + "px " + ch * c.rows + "px";
   el.style.backgroundPosition = -(c.idx % D.columns) * w + "px " + -Math.floor(c.idx / D.columns) * ch + "px";
 }
+// A scene's air, as mascot-fx.tsx draws it: wider than his box, above it, behind him.
+function fxSpan(cls) { const s = document.createElement("span"); s.className = cls; return s; }
+function fxLayer(kind, w, h) {
+  const X = D.fx;
+  const lw = w * (1 + 2 * X.spread.x), lh = h * (1 + X.spread.top);
+  const el = document.createElement("div");
+  el.className = "fx " + kind;
+  el.style.cssText = "left:" + (-w * X.spread.x).toFixed(1) + "px;bottom:0;width:" + lw.toFixed(1) + "px;height:" + lh.toFixed(1) + "px;--w:" + lw.toFixed(1) + "px;--h:" + lh.toFixed(1) + "px";
+  if (kind === "storm") el.appendChild(fxSpan("flash"));
+  if (kind === "dust") el.appendChild(fxSpan("haze"));
+  X.particles[kind].forEach((p, i) => {
+    const s = fxSpan(kind === "sparks" ? "burst" : "p");
+    s.style.cssText = "--x:" + p.x.toFixed(1) + "%;--yf:" + p.y.toFixed(3) + ";--d:" + p.delay.toFixed(2) + "s;--t:" + p.dur.toFixed(2) + "s;--s:" + p.size.toFixed(2) + (kind === "sparks" ? ";--c:" + X.colours[i % X.colours.length] : "");
+    if (kind === "sparks") for (const a of X.rays) { const r = fxSpan("ray"); r.style.setProperty("--a", a + "deg"); s.appendChild(r); }
+    el.appendChild(s);
+  });
+  return el;
+}
+function placeFx(c) {
+  if (!c.clip || !c.clip.fx) return;
+  for (const el of c.els) {
+    el.querySelector(".fx")?.remove();
+    el.appendChild(fxLayer(c.clip.fx, size.w, size.h));
+  }
+}
 const ms = (steps) => steps.reduce((s, x) => s + x.ms, 0);
 
 // The clips' own clock, as engine/clips.ts clipFrameAt does it.
@@ -489,6 +534,10 @@ for (const g of D.groups) {
     if (clip.name === "hold.dozing") card.querySelectorAll(".tile").forEach((t) => { const z = document.createElement("span"); z.className = "zzz"; z.textContent = "z z Z"; t.appendChild(z); });
     grid.appendChild(card);
     cards.push({ clip, els: [...card.querySelectorAll(".amr")], head: card.querySelector(".head"), total, playMs, talker: clip.driven === "talk" ? makeTalker() : null, swing: { a: 0, v: 0 }, t0: performance.now() });
+    if (clip.fx) {
+      card.querySelectorAll(".tile").forEach((t) => t.classList.add("fxs"));
+      placeFx(cards[cards.length - 1]);
+    }
   }
   main.appendChild(sec);
 }
@@ -632,20 +681,23 @@ function draw(now) {
 
 function setPressed(a, b, on) { a.setAttribute("aria-pressed", String(on)); b.setAttribute("aria-pressed", String(!on)); }
 const $ = (id) => document.getElementById(id);
-$("size-desktop").onclick = () => { size = { w: 132, h: 143 }; setPressed($("size-desktop"), $("size-phone"), true); draw(performance.now()); };
-$("size-phone").onclick = () => { size = { w: 96, h: 104 }; setPressed($("size-desktop"), $("size-phone"), false); draw(performance.now()); };
+$("size-desktop").onclick = () => { size = { w: 132, h: 143 }; setPressed($("size-desktop"), $("size-phone"), true); cards.forEach(placeFx); draw(performance.now()); };
+$("size-phone").onclick = () => { size = { w: 96, h: 104 }; setPressed($("size-desktop"), $("size-phone"), false); cards.forEach(placeFx); draw(performance.now()); };
 $("sharp-1").onclick = () => { sharp = false; setPressed($("sharp-1"), $("sharp-2"), true); draw(performance.now()); };
 $("sharp-2").onclick = () => { sharp = true; setPressed($("sharp-1"), $("sharp-2"), false); draw(performance.now()); };
 const play = $("play");
 play.textContent = playing ? "Pause" : "Play";
-play.onclick = () => { playing = !playing; play.textContent = playing ? "Pause" : "Play"; if (playing) requestAnimationFrame(draw); else draw(performance.now()); };
+play.onclick = () => { playing = !playing; play.textContent = playing ? "Pause" : "Play"; document.body.classList.toggle("paused", !playing); if (playing) requestAnimationFrame(draw); else draw(performance.now()); };
+document.body.classList.toggle("paused", !playing);
 draw(performance.now());
 </script>
 `;
 
 writeFileSync(
   path.join(out, "index.html"),
-  PAGE.replace("__DATA__", JSON.stringify(data).replace(/</g, "\\u003c")),
+  PAGE.replace("__FX_CSS__", () => FX_CSS).replace("__DATA__", () =>
+    JSON.stringify(data).replace(/</g, "\\u003c")
+  ),
   "utf8"
 );
 console.log(`review page: ${path.join(out, "index.html")} (+ ${files.length} images in mascot/)`);

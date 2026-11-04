@@ -1,0 +1,260 @@
+/* The air around Amr while a weather or fireworks scene plays (mascot-fx.tsx).
+   Behind him, never over his face; transform and opacity only. The layer sets
+   --w and --h (its size in px); each particle sets --x (across, %), --yf (down,
+   0–1), --d (delay), --t (one pass) and --s (size factor). Colours read on the
+   light and the dark grounds alike. */
+
+.fx {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+  animation: fxIn 0.4s ease-out both;
+  /* Soft edges: the air has no box. */
+  -webkit-mask-image: radial-gradient(ellipse 50% 55% at 50% 55%, #000 60%, transparent 100%);
+  mask-image: radial-gradient(ellipse 50% 55% at 50% 55%, #000 60%, transparent 100%);
+}
+
+/* Stars and sparks live up top, over his head: the soft edge sits higher. */
+.stars,
+.sparks {
+  -webkit-mask-image: radial-gradient(ellipse 50% 60% at 50% 45%, #000 65%, transparent 100%);
+  mask-image: radial-gradient(ellipse 50% 60% at 50% 45%, #000 65%, transparent 100%);
+}
+
+.leaving {
+  animation: fxOut 0.5s ease-in both;
+}
+
+.p {
+  position: absolute;
+  top: 0;
+  left: var(--x);
+  will-change: transform;
+}
+
+/* Rain: slanted streaks, heavier and faster in a downpour or a storm. */
+.rain .p,
+.downpour .p,
+.storm .p {
+  width: 1.5px;
+  height: calc(var(--h) * 0.11 * var(--s));
+  border-radius: 1px;
+  background: linear-gradient(to bottom, transparent, rgb(86 132 190 / 0.7));
+  --tilt: 10deg;
+  --dx: calc(var(--h) * -0.18);
+  animation: fxFall var(--t) linear var(--d) infinite;
+}
+
+.downpour .p,
+.storm .p {
+  width: 2px;
+  --tilt: 16deg;
+  --dx: calc(var(--h) * -0.29);
+}
+
+/* A storm's lightning: two quick flashes every few seconds. */
+.flash {
+  position: absolute;
+  inset: 0;
+  background: rgb(214 226 255 / 0.75);
+  opacity: 0;
+  animation: fxFlash 3.4s linear infinite;
+}
+
+/* Snow: soft flakes drifting down, ringed so they show on a light page too. */
+.snow .p {
+  width: calc(5px * var(--s));
+  height: calc(5px * var(--s));
+  border-radius: 50%;
+  background: rgb(240 246 255);
+  box-shadow:
+    0 0 0 1px rgb(120 145 180 / 0.55),
+    0 0 3px rgb(255 255 255 / 0.7);
+  animation: fxSnow var(--t) linear var(--d) infinite;
+}
+
+/* Wind: streaks blowing in from the viewer's right, as on his sheet. */
+.wind .p {
+  top: calc(20% + 65% * var(--yf));
+  left: 0;
+  width: calc(var(--w) * 0.22 * var(--s));
+  height: 1.5px;
+  border-radius: 1px;
+  background: linear-gradient(to right, transparent, rgb(120 140 165 / 0.6), transparent);
+  animation: fxGust var(--t) ease-in var(--d) infinite;
+}
+
+/* Fog: soft grey banks drifting to and fro. */
+.fog .p {
+  top: calc(30% + 45% * var(--yf));
+  left: calc(var(--x) - 35%);
+  width: 70%;
+  height: 22%;
+  background: radial-gradient(closest-side, rgb(150 160 172 / 0.45), transparent);
+  animation: fxMist var(--t) ease-in-out var(--d) infinite alternate;
+}
+
+/* Dust: a sandy haze low down, and motes blowing through it. */
+.haze {
+  position: absolute;
+  inset: 15% 0 0;
+  background: linear-gradient(to top, rgb(206 166 104 / 0.38), transparent);
+}
+
+.dust .p {
+  top: calc(25% + 65% * var(--yf));
+  left: 0;
+  width: calc(3px * var(--s));
+  height: calc(3px * var(--s));
+  border-radius: 50%;
+  background: rgb(190 145 80 / 0.75);
+  animation: fxGust var(--t) linear var(--d) infinite;
+}
+
+/* Stars: a few twinkling over his head at night. */
+.stars .p {
+  top: calc(10% + 30% * var(--yf));
+  width: calc(9px * var(--s));
+  height: calc(9px * var(--s));
+  background: #f5c542;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  filter: drop-shadow(0 0 2px rgb(245 197 66 / 0.8));
+  animation: fxTwinkle var(--t) ease-in-out var(--d) infinite alternate;
+}
+
+/* Sparks: fireworks bursting over him, eight rays each. */
+.burst {
+  position: absolute;
+  top: calc(12% + 22% * var(--yf));
+  left: var(--x);
+  width: 0;
+  height: 0;
+}
+
+.ray {
+  position: absolute;
+  top: 0;
+  left: -1px;
+  width: 2px;
+  height: calc(10px * var(--s));
+  border-radius: 1px;
+  background: var(--c);
+  transform-origin: 50% 0;
+  opacity: 0;
+  animation: fxBurst var(--t) ease-out var(--d) infinite;
+}
+
+@keyframes fxIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fxOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes fxFall {
+  from {
+    transform: translate3d(0, calc(var(--h) * -0.2), 0) rotate(var(--tilt));
+  }
+  to {
+    transform: translate3d(var(--dx), var(--h), 0) rotate(var(--tilt));
+  }
+}
+
+@keyframes fxFlash {
+  0%,
+  62%,
+  66%,
+  70%,
+  100% {
+    opacity: 0;
+  }
+  63%,
+  68% {
+    opacity: 1;
+  }
+}
+
+@keyframes fxSnow {
+  0% {
+    transform: translate3d(0, calc(var(--h) * -0.05), 0);
+  }
+  25% {
+    transform: translate3d(5px, calc(var(--h) * 0.22), 0);
+  }
+  50% {
+    transform: translate3d(-3px, calc(var(--h) * 0.48), 0);
+  }
+  75% {
+    transform: translate3d(4px, calc(var(--h) * 0.74), 0);
+  }
+  100% {
+    transform: translate3d(-2px, var(--h), 0);
+  }
+}
+
+@keyframes fxGust {
+  from {
+    transform: translate3d(var(--w), 0, 0);
+    opacity: 0;
+  }
+  20%,
+  80% {
+    opacity: 1;
+  }
+  to {
+    transform: translate3d(calc(var(--w) * -0.3), 0, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes fxMist {
+  from {
+    transform: translate3d(-12%, 0, 0);
+  }
+  to {
+    transform: translate3d(12%, 0, 0);
+  }
+}
+
+@keyframes fxTwinkle {
+  from {
+    transform: scale(0.4);
+    opacity: 0.3;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes fxBurst {
+  0% {
+    transform: rotate(var(--a)) translateY(0) scaleY(0.2);
+    opacity: 0;
+  }
+  10%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(var(--a)) translateY(calc(14px * var(--s))) scaleY(1);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx {
+    display: none;
+  }
+}
