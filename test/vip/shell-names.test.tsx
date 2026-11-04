@@ -118,12 +118,11 @@ describe("the mascot's panel on a VIP tool's address", () => {
     }
   );
 
-  it("never names a tool that isn't released, hint or no hint", () => {
+  it("helps a book reader on Which Colleague, now it's released", () => {
     setVipHint();
     h.pathname = "/which-colleague";
-    const { container } = render(<VisitorGuide />);
-    expect(panel()).toBeNull();
-    expect(container.innerHTML).not.toContain("Which Colleague");
+    render(<VisitorGuide />);
+    expect(panel()).toHaveTextContent("Which Colleague Are You?");
   });
 
   it("helps a book reader on a released tool", () => {

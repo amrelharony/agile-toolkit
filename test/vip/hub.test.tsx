@@ -59,7 +59,10 @@ describe("/vip", () => {
       "href",
       "/meet-the-cast"
     );
-    expect(screen.queryByRole("link", { name: /Which Colleague/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /Which Colleague/ })).toHaveAttribute(
+      "href",
+      "/which-colleague"
+    );
     expect(screen.getByRole("link", { name: /An Early Story/ })).toHaveAttribute(
       "href",
       "/comics/early?ep=30"

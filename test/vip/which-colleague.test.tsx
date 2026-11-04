@@ -1,7 +1,7 @@
 /**
- * Which Colleague Are You?: built and tested, and hidden until the owner approves
- * the questions. The questions must come from the bible's cast and keep its
- * dignity rule, and nothing about a game leaves the page.
+ * Which Colleague Are You?: released to book readers. The questions must come
+ * from the bible's cast and keep its dignity rule, and nothing about a game
+ * leaves the page.
  */
 
 import { createHash } from "node:crypto";
@@ -50,6 +50,7 @@ import { getVipTools, getVisibleTools } from "@/lib/tools/catalog";
 import { CAST } from "@/lib/vip/cast.generated";
 import { closestColleague, type ColleagueQuestion } from "@/lib/vip/which-colleague";
 import {
+  NEVER_A_RESULT,
   WHICH_COLLEAGUE_APPROVED,
   WHICH_COLLEAGUE_GAME,
 } from "@/lib/vip/which-colleague-questions";
@@ -61,15 +62,14 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("until the owner approves", () => {
-  it("is not approved, and says so in the file", () => {
-    expect(WHICH_COLLEAGUE_APPROVED).toBe(false);
+describe("released", () => {
+  it("is approved in the questions file", () => {
+    expect(WHICH_COLLEAGUE_APPROVED).toBe(true);
     const src = readFileSync(
       path.join(process.cwd(), "src/lib/vip/which-colleague-questions.ts"),
       "utf8"
     );
-    expect(src).toContain("OWNER APPROVAL NEEDED");
-    expect(src).toContain("export const WHICH_COLLEAGUE_APPROVED = false;");
+    expect(src).toContain("export const WHICH_COLLEAGUE_APPROVED = true;");
   });
 
   it("the catalog's mirror of the flag agrees with it", () => {
@@ -78,34 +78,43 @@ describe("until the owner approves", () => {
     );
   });
 
-  it("stays out of the hub and every listing, hint or no hint", () => {
-    expect(getVipTools().map((t) => t.id)).not.toContain("which-colleague");
-    for (const vip of [false, true]) {
-      for (const showAll of [false, true]) {
-        expect(getVisibleTools(showAll, vip).map((t) => t.id)).not.toContain("which-colleague");
-      }
+  it("joins the hub, and the listings only for book readers", () => {
+    expect(getVipTools().map((t) => t.id)).toContain("which-colleague");
+    for (const showAll of [false, true]) {
+      expect(getVisibleTools(showAll, true).map((t) => t.id)).toContain("which-colleague");
+      expect(getVisibleTools(showAll, false).map((t) => t.id)).not.toContain("which-colleague");
     }
-    expect(getVisibleTools(false, true).map((t) => t.id)).toContain("squad-session");
   });
 
-  it("a book reader's direct link says coming soon, with none of the game", async () => {
+  it("a book reader's direct link gets the game", async () => {
     h.cookie = KEY;
     const el = await WhichColleaguePage();
     expect(el.type).not.toBe(VipLockPanel);
-    expect(JSON.stringify(el.props)).not.toContain(questions[0].prompt);
-    const { container } = render(el);
-    expect(screen.getByText("This one is coming soon")).toBeInTheDocument();
-    for (const q of questions) expect(container.innerHTML).not.toContain(q.prompt);
-    expect(container.innerHTML).not.toContain(WHICH_COLLEAGUE_GAME.discussion);
+    expect(el.props.game).toBe(WHICH_COLLEAGUE_GAME);
   });
 
-  it("a locked visitor gets the lock panel instead", async () => {
-    expect((await WhichColleaguePage()).type).toBe(VipLockPanel);
+  it("a locked visitor gets the lock panel, with none of the game", async () => {
+    const el = await WhichColleaguePage();
+    expect(el.type).toBe(VipLockPanel);
+    expect(JSON.stringify(el.props ?? {})).not.toContain(questions[0].prompt);
   });
 });
 
 describe("the questions", () => {
-  const names = new Set(CAST.map((c) => c.name));
+  // Every colleague who can be a player's result.
+  const names = new Set(CAST.map((c) => c.name).filter((n) => !NEVER_A_RESULT.includes(n)));
+
+  it("never make a work item a player's result", () => {
+    // The bible: Zombie Backlog "is never a diagnosis or an insult applied to a real colleague".
+    expect(NEVER_A_RESULT).toEqual(["Zombie Backlog"]);
+    const castNames = CAST.map((c) => c.name);
+    for (const name of NEVER_A_RESULT) {
+      expect(castNames, name).toContain(name);
+      for (const q of questions) {
+        for (const a of q.answers) expect(a.colleagues, `${q.id}${a.id}`).not.toContain(name);
+      }
+    }
+  });
 
   it("are 8 to 10, each with choices that point at real colleagues", () => {
     expect(questions.length).toBeGreaterThanOrEqual(8);
@@ -250,7 +259,7 @@ describe("closestColleague", () => {
   });
 });
 
-describe("the game, as it will play once approved", () => {
+describe("the game", () => {
   const play = () => {
     for (let i = 0; i < questions.length; i++) {
       fireEvent.click(screen.getByRole("button", { name: questions[i].answers[0].text }));

@@ -1,28 +1,29 @@
 /**
- * OWNER APPROVAL NEEDED
- * ─────────────────────
- * Every word in this file is a DRAFT written from the bible's wants, strengths
- * and overused strengths. Nothing here is the owner's text yet. While
- * WHICH_COLLEAGUE_APPROVED is false the tool stays out of the hub and the catalog,
- * and its address shows book readers "coming soon" with none of this text.
+ * Which Colleague Are You?: every word here was written from the bible's wants,
+ * strengths and overused strengths (Agile_At_Work_Expanded_Canon.json, "cast"),
+ * then checked answer by answer against that canon and against its humane humour
+ * rules before release on 2026-11-04.
  *
- * To release it, once the owner has approved the wording:
- *   1. Set WHICH_COLLEAGUE_APPROVED to true below.
- *   2. Remove `pendingApproval: true` from which-colleague in
+ * To withdraw it:
+ *   1. Set WHICH_COLLEAGUE_APPROVED to false below.
+ *   2. Put `pendingApproval: true` back on which-colleague in
  *      src/lib/constants/tools.ts. That list reaches every browser and this file
- *      must not, so it can't read this flag; test/vip/which-colleague.test.ts
+ *      must not, so it can't read this flag; test/vip/which-colleague.test.tsx
  *      fails until the two agree.
+ * Withdrawn, the tool leaves the hub and the catalog, and its address shows book
+ * readers "coming soon" with none of this text.
  *
  * The bible's dignity rule decides the wording: "readers should recognise their
  * work and keep their dignity", and the joke targets a habit, not a person. So
  * questions ask about a moment at work, never what someone is like, and a result
- * never reads as a label on anyone.
+ * never reads as a label on anyone. No answer is the obviously good one: Amr's
+ * two are his habits too, a favourite method and a question for everyone.
  *
- * Every colleague sits behind two answers, in two different questions, so anyone
- * in the cast can come up and can win outright. An answer's second name is a
- * colleague whose want or strength in the bible fits the same words. Keep it that
- * way when changing an answer: test/vip/which-colleague.test.tsx plays every
- * combination.
+ * Every colleague but those in NEVER_A_RESULT sits behind two answers, in two
+ * different questions, so each can come up and can win outright. An answer's
+ * second name is a colleague whose want or strength in the bible fits the same
+ * words. Keep it that way when changing an answer: test/vip/which-colleague.test.tsx
+ * plays every combination.
  *
  * Server-only, so the questions reach a browser only as props on an unlocked,
  * approved page.
@@ -31,16 +32,23 @@
 import "server-only";
 import type { WhichColleagueGame } from "./which-colleague";
 
-export const WHICH_COLLEAGUE_APPROVED = false;
+export const WHICH_COLLEAGUE_APPROVED = true;
+
+/**
+ * In no answer, so never read out as a player's result. The bible: "Zombie
+ * Backlog represents work that remains unresolved or unexamined. The character
+ * is never a diagnosis or an insult applied to a real colleague."
+ */
+export const NEVER_A_RESULT: readonly string[] = ["Zombie Backlog"];
 
 export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
   intro:
     "Pass the phone around, or answer together. Pick what's closest to this week, not what you'd like to be true. Nothing is saved or sent anywhere.",
   resultLead: "This week, your answers sit closest to",
   dignityNote:
-    "Everyone in the cast is capable, and anyone can pick up any of these habits on a busy day. This is about the habit, not about you.",
+    "Everyone in the cast is capable, and anyone can pick up any of these habits on a busy day. Some of the cast are things at work, like a sticky note or a tea glass: they stand for a habit, never a person. This is about the habit, not about you.",
   discussion:
-    "When has this strength helped our team, and when has it gone too far? What would make it easy to say so at the time?",
+    "When has this strength helped us as a team, and when have any of us taken it too far? What would make it easy to say so at the time?",
   questions: [
     {
       id: "q1",
@@ -53,12 +61,12 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         },
         {
           id: "b",
-          text: "Delivering because people are really relying on it.",
+          text: "Getting it done by when it's needed.",
           colleagues: ["Deadline Rabbit"],
         },
         {
           id: "c",
-          text: "Spending our limited attention on something worth achieving.",
+          text: "Deciding what deserves our limited attention.",
           colleagues: ["Value Falcon", "HiPPO"],
         },
         {
@@ -75,7 +83,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
       answers: [
         {
           id: "a",
-          text: "This could make the result better, and they'll feel heard.",
+          text: "This could make it better and more impressive, and they'll feel heard.",
           colleagues: ["Scope Creep Cat", "Vanity Metrics Peacock"],
         },
         {
@@ -85,7 +93,7 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         },
         {
           id: "c",
-          text: "Let's protect the quality people rely on.",
+          text: "Let's protect the quality, and be clear what's ours to change.",
           colleagues: ["Perfectionist Owl", "Silo Hedgehog"],
         },
         {
@@ -102,17 +110,17 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         { id: "a", text: "Getting a useful group together.", colleagues: ["Meeting Monkey"] },
         {
           id: "b",
-          text: "Finding the one decision that's blocking everything else.",
+          text: "Tracing what it's waiting on, and who.",
           colleagues: ["Dependency Spider"],
         },
         {
           id: "c",
-          text: "Giving a direction and taking responsibility.",
-          colleagues: ["HiPPO", "Blame Game Wolf"],
+          text: "Putting my view on the table, so there's something to react to.",
+          colleagues: ["HiPPO"],
         },
         {
           id: "d",
-          text: "One short question, asked at the right moment.",
+          text: "A small, well-timed nudge, not a speech.",
           colleagues: ["Agile Sticky", "Ahwa Cup"],
         },
       ],
@@ -156,11 +164,11 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         {
           id: "c",
           text: "A word with whoever remembers the last time we tried this.",
-          colleagues: ["Dinosaur", "Zombie Backlog"],
+          colleagues: ["Dinosaur"],
         },
         {
           id: "d",
-          text: "To find the specific risk inside that vague worry.",
+          text: "A clear view of exactly what could go wrong, or get missed.",
           colleagues: ["Assurance Badger", "Captain Blocker Ox"],
         },
       ],
@@ -207,12 +215,12 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         },
         {
           id: "c",
-          text: "Help make the assumptions behind it something we can check.",
+          text: "Walk through one real example to see if it holds.",
           colleagues: ["Rubber Duck Analyst"],
         },
         {
           id: "d",
-          text: "Ask what evidence would be acceptable, then ask again.",
+          text: "Ask what evidence would settle it.",
           colleagues: ["Assurance Badger", "Perfectionist Owl"],
         },
       ],
@@ -228,17 +236,17 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         },
         {
           id: "b",
-          text: "Making sure no obligation gets missed along the way.",
-          colleagues: ["Captain Blocker Ox"],
+          text: "Making sure it's clear who's responsible for what.",
+          colleagues: ["Captain Blocker Ox", "Blame Game Wolf"],
         },
         {
           id: "c",
-          text: "Helping the whole service move through its connections.",
+          text: "Working out who else this will touch.",
           colleagues: ["Dependency Spider", "Overengineering Octopus"],
         },
         {
           id: "d",
-          text: "Understanding the real problem, so we can choose together.",
+          text: "Suggesting a way of working together that's helped before.",
           colleagues: ["Amr"],
         },
       ],
@@ -249,17 +257,17 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
       answers: [
         {
           id: "a",
-          text: "Hear it once more, then decide whether the need still exists.",
-          colleagues: ["Zombie Backlog", "Requirement Chameleon"],
+          text: "Ask what's changed since it was first raised.",
+          colleagues: ["Requirement Chameleon"],
         },
         {
           id: "b",
-          text: "Remember why it mattered, in case it still does.",
+          text: "Keep it until we're sure nobody will miss it.",
           colleagues: ["Dinosaur"],
         },
         {
           id: "c",
-          text: "See if a small repeatable part could be simplified.",
+          text: "Try simplifying one small, repeatable part of it, as a test.",
           colleagues: ["Automation Raccoon", "Experiment Mouse"],
         },
         {
@@ -285,12 +293,12 @@ export const WHICH_COLLEAGUE_GAME: WhichColleagueGame = {
         },
         {
           id: "c",
-          text: "A calm place for an honest conversation.",
+          text: "A calm look back at what's made it so hard.",
           colleagues: ["Retrospective Turtle"],
         },
         {
           id: "d",
-          text: "Space for others to say what's going on.",
+          text: "A question to each person: what would help?",
           colleagues: ["Amr", "Meeting Monkey"],
         },
       ],

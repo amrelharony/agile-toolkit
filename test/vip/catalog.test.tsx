@@ -225,6 +225,11 @@ describe("what never recommends a VIP tool", () => {
     expect(isVipHidden(tool, false)).toBe(true);
     expect(isVipHidden(tool, true)).toBe(false);
     expect(isVipHidden(getToolById("retro")!, false)).toBe(false);
+    // A tool built but not released is hidden from everyone, hint or no hint.
+    for (const vip of [false, true]) {
+      expect(isVipHidden({ access: "vip", pendingApproval: true }, vip)).toBe(true);
+      expect(isVipHidden({ pendingApproval: true }, vip)).toBe(true);
+    }
     render(<ContinueSection />);
     expect(screen.queryByRole("link", { name: /Meet the Cast/ })).toBeNull();
     expect(screen.queryByRole("link", { name: /Squad Session Kit/ })).toBeNull();
