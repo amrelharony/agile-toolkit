@@ -34,6 +34,10 @@ import { releaseDayLabel } from "./release-day";
  *
  * A story stays readable here for a short while after it comes out, because the
  * public page can still be the cached "coming soon": see EARLY_RELEASE_GRACE_SECONDS.
+ *
+ * Read on every request, it has no last good copy to fall back on the way the
+ * public pages do, so a failed read says so here rather than throwing to the
+ * error page, as the /vip hub does.
  */
 export const dynamic = "force-dynamic";
 
@@ -58,6 +62,37 @@ function BackToEarly() {
         All early comics
       </Link>
     </Button>
+  );
+}
+
+function SeeAllComics() {
+  return (
+    <Button asChild variant="toolkit">
+      <Link href={COMICS_ROUTE} prefetch={false}>
+        See all comics
+      </Link>
+    </Button>
+  );
+}
+
+/** The read's outcome, or null when it failed: never throw, see above. */
+async function attempt<T>(read: () => Promise<T>): Promise<T | null> {
+  try {
+    return await read();
+  } catch (err) {
+    console.warn("[comics/early] couldn't read the early comics:", err);
+    return null;
+  }
+}
+
+function CantLoad() {
+  return (
+    <ToolPageWrapper title="Read ahead" description="For readers of the printed book.">
+      <EmptyState icon={BookImage} padding="lg" action={<SeeAllComics />}>
+        <p className="font-semibold text-text">The early comics can&apos;t load just now</p>
+        <p className="mt-1">Please try again in a few minutes.</p>
+      </EmptyState>
+    </ToolPageWrapper>
   );
 }
 
@@ -92,29 +127,22 @@ export default async function EarlyComicsPage({ searchParams }: EarlyPageProps) 
 
   const ep = parseEp(searchParams.ep);
   if (ep !== null) {
-    const found = await getEarlyStory(ep);
+    const found = await attempt(() => getEarlyStory(ep));
+    if (!found) return <CantLoad />;
+    // Outside the attempt: redirect() works by throwing.
     if (found.status === "released") redirect(comicHref(ep));
     return found.status === "early" ? <EarlyStory story={found.story} /> : <NothingHere />;
   }
 
-  const stories = await listEarlyWeekly();
+  const stories = await attempt(listEarlyWeekly);
+  if (!stories) return <CantLoad />;
   return (
     <ToolPageWrapper
       title="Read ahead"
       description="The next four weeks of Agile at Work, before everyone else. Thanks for reading the book."
     >
       {stories.length === 0 ? (
-        <EmptyState
-          icon={BookImage}
-          padding="lg"
-          action={
-            <Button asChild variant="toolkit">
-              <Link href={COMICS_ROUTE} prefetch={false}>
-                See all comics
-              </Link>
-            </Button>
-          }
-        >
+        <EmptyState icon={BookImage} padding="lg" action={<SeeAllComics />}>
           <p className="font-semibold text-text">Nothing to read ahead just now</p>
           <p className="mt-1">The next stories will appear here before they come out.</p>
         </EmptyState>

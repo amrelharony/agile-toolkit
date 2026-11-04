@@ -314,6 +314,51 @@ describe("/comics/early", () => {
     expect(h.redirected).toBeNull();
   });
 
+  describe("during a Supabase outage", () => {
+    /** Every read answers with PostgREST's error, as it does while Supabase is down. */
+    function failingClient() {
+      const builder: Record<string, unknown> = {};
+      for (const m of ["select", "eq", "gt", "lte", "order", "limit", "abortSignal", "returns"]) {
+        builder[m] = () => builder;
+      }
+      builder.maybeSingle = () => builder;
+      builder.then = (resolve: (value: unknown) => void) =>
+        resolve({ data: null, error: { message: "fetch failed" } });
+      return { from: () => builder };
+    }
+
+    beforeEach(() => {
+      h.client = failingClient();
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    // Read per request, the page has no cached copy: without this the reader
+    // would get the error page.
+    it.each([
+      ["the list", undefined],
+      ["a story", "31"],
+      ["a released number", "27"],
+    ])("says so on %s instead of failing", async (_what, ep) => {
+      render(await open(ep));
+      expect(screen.getByText("The early comics can't load just now")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "See all comics" })).toHaveAttribute(
+        "href",
+        "/comics"
+      );
+      expect(h.redirected).toBeNull();
+    });
+
+    it("still shows a locked visitor the lock, with no read", async () => {
+      h.cookie = undefined;
+      render(await open());
+      expect(screen.getByText("VIP access comes with the printed book")).toBeInTheDocument();
+      expect(console.warn).not.toHaveBeenCalled();
+    });
+  });
+
   it("is noindex and disallowed in robots.txt, for AI crawlers too", () => {
     expect(metadata.robots).toEqual({ index: false, follow: false });
     const { rules } = robots();
