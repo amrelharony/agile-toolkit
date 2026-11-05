@@ -538,7 +538,11 @@ describe("analysis", () => {
   });
 
   it("exports Markdown with the verdict, live flags most overdue first, and retired ones", () => {
-    const md = toMarkdown(buildExample(TODAY), TODAY, () => undefined);
+    // A fixed day, not today: the example's retirements are 6, 35, 52… days back,
+    // so how many fall in "this quarter" changes with the date (it broke on day 35
+    // of Q4). 20 October 2026 is day 19 of its quarter: one retirement counts.
+    const day = "2026-10-20";
+    const md = toMarkdown(buildExample(day), day, () => undefined);
     expect(md).toContain("**2 of 5 live flags are stale");
     expect(md).toContain("- Retired this quarter: 1");
     const live = md.split("## Live (5)")[1].split("## Retired")[0];
