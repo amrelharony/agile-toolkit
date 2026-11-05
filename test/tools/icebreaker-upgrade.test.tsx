@@ -644,20 +644,28 @@ describe("the page", () => {
   });
 
   it("says so when every match is recent, and can include them", async () => {
-    useIcebreakerSettings.setState({
-      used: [use("u1", "q-1", 1)],
-      hideRecent: true,
-      favorites: ["q-1"],
-    });
-    await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Favorites only (1)" }));
-    expect(
-      screen.getAllByText("The only match was used in the last two weeks.").length
-    ).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Random Pick" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Include the recent ones" }));
-    expect(settings().hideRecent).toBe(false);
-    expect(within(grid()).getByRole("button", { name: ib("q-1").name })).toBeInTheDocument();
+    // "The last two weeks" is counted from today: pin today to the uses' NOW, or
+    // the use stops being recent two weeks after NOW.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    try {
+      useIcebreakerSettings.setState({
+        used: [use("u1", "q-1", 1)],
+        hideRecent: true,
+        favorites: ["q-1"],
+      });
+      await mount();
+      fireEvent.click(screen.getByRole("button", { name: "Favorites only (1)" }));
+      expect(
+        screen.getAllByText("The only match was used in the last two weeks.").length
+      ).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: "Random Pick" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Include the recent ones" }));
+      expect(settings().hideRecent).toBe(false);
+      expect(within(grid()).getByRole("button", { name: ib("q-1").name })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("removes a favourite with Undo", async () => {
