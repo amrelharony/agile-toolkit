@@ -375,7 +375,6 @@ export const tools: ToolDefinition[] = [
     audience: "both",
     analyticsTier: 3,
     access: "vip",
-    pendingApproval: true,
   },
 
   // Category A: Sprint Planning & Estimation

@@ -50,7 +50,7 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 2,
     panel: 4,
-    alt: "The Capacity Camel, with only a harness on, and the Scope Creep Cat smile beside a welcome sign and an arrow pointing to an open door. A yellow note with a face and briefcase walks by; behind is a trolley tagged later.",
+    alt: "The Capacity Camel, in only a harness, and the Scope Creep Cat smile beside a welcome sign and an arrow to an open door. The visitor, a yellow note with a face and briefcase, walks by; behind is a trolley tagged later.",
   },
   {
     ep: 3,
@@ -155,22 +155,22 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 8,
     panel: 1,
-    alt: "In a corridor, Silo, a spiny animal in shirt and tie, and the spider, in glasses, each carry a box out of opposite rooms onto stacks on the floor. An open storage room lies at the far end.",
+    alt: "In a corridor, the hedgehog, in shirt and tie, and the spider, in glasses, each carry a box out of opposite rooms onto stacks on the floor. An open storage room lies at the far end.",
   },
   {
     ep: 8,
     panel: 2,
-    alt: "Silo and the spider smile from behind a wall of boxes stacked across the corridor between their two doorways. The duck stands in front of the boxes with wings spread, looking up, beak open and brows raised.",
+    alt: "The hedgehog and the spider smile from behind a wall of boxes stacked across the corridor between their two doorways. The duck stands in front of the boxes with wings spread, looking up, beak open and brows raised.",
   },
   {
     ep: 8,
     panel: 3,
-    alt: "Silo and the spider smile as they carry boxes down the corridor and through a door marked Storage, its shelves full of boxes. Behind them, the duck peers over a few remaining boxes and smiles.",
+    alt: "The hedgehog and the spider smile as they carry boxes down the corridor and through a door marked Storage, its shelves full of boxes. Behind them, the duck peers over a few remaining boxes and smiles.",
   },
   {
     ep: 8,
     panel: 4,
-    alt: "The duck, smiling with wings out, walks down a clear, shining corridor with no boxes on the floor. Silo and the spider stand in the doorways on either side, both smiling, with arms spread wide.",
+    alt: "The duck, smiling with wings out, walks down a clear, shining corridor with no boxes on the floor. The hedgehog and the spider stand in the doorways on either side, both smiling, with arms spread wide.",
   },
   {
     ep: 9,
@@ -190,7 +190,7 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 9,
     panel: 4,
-    alt: "The dispenser has one large button marked Water. The delighted duck presses it and water pours into the glass, while the hamster and Amr, crouching, clasp their hands and smile.",
+    alt: "The dispenser has one large button marked Water. The delighted duck presses it and water pours into the glass, while the hamster and a crouching Amr clasp their hands and smile.",
   },
   {
     ep: 10,
@@ -275,22 +275,22 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 14,
     panel: 1,
-    alt: "On Monday in the office kitchen, Amr frowns as he runs the tap, mug in hand. The termite in a yellow hard hat and tool belt points in alarm at a cracked pipe under the sink, dripping into a puddle.",
+    alt: "On Monday in the office kitchen, Amr frowns as he runs the tap, mug in hand. Technical Debt Termite, in a yellow hard hat and tool belt, points in alarm at a cracked pipe under the sink, dripping into a puddle.",
   },
   {
     ep: 14,
     panel: 2,
-    alt: 'Tuesday morning. Amr smiles, carrying a box holding a new white pipe. The termite sits at a table happily colouring a flowery "Welcome" poster with a green marker. Behind them, the cracked pipe drips into a bucket.',
+    alt: 'Tuesday morning. Amr smiles, carrying a box holding a new white pipe. Technical Debt Termite sits at a table happily colouring a flowery "Welcome" poster with a green marker. Behind, the cracked pipe drips into a bucket.',
   },
   {
     ep: 14,
     panel: 3,
-    alt: "The termite, chin on hand, looks worried beside the flowery poster and the boxed pipe. Amr crouches nearby, smiling at it. Under the sink, the cracked pipe still drips into a bucket of water.",
+    alt: "Technical Debt Termite, chin on hand, looks worried beside the flowery poster and the boxed pipe. Amr crouches nearby, smiling at it. Under the sink, the cracked pipe still drips into a bucket of water.",
   },
   {
     ep: 14,
     panel: 4,
-    alt: "Amr smiles as he runs the tap, and the termite happily points under the sink at a new white pipe with an empty bucket below. The old, rusted, broken pipe lies on newspaper on the floor by an empty box.",
+    alt: "Amr smiles as he runs the tap, and Technical Debt Termite happily points under the sink at a new white pipe with an empty bucket below. The old, rusted, broken pipe lies on newspaper on the floor by an empty box.",
   },
   {
     ep: 15,
@@ -335,7 +335,7 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 17,
     panel: 1,
-    alt: "Firefighter Fox bends over a chair, lifting a notebook off the seat. Retrospective Turtle stands by a blank projector screen with a folder. A chameleon and a grey striped cat sit waiting, as does a tea glass with a face.",
+    alt: "Firefighter Fox bends to lift a notebook off a chair. Retrospective Turtle stands by a blank screen with a folder. A chameleon and a grey striped cat sit waiting, and a tea glass with a face stands on a cabinet.",
   },
   {
     ep: 17,
@@ -350,7 +350,7 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 17,
     panel: 4,
-    alt: "Firefighter Fox, seated in a row with Retrospective Turtle, the chameleon and the grey cat, points a remote at the blank screen. A box labelled Remote here sits on the cabinet beside the smiling tea glass.",
+    alt: "Firefighter Fox and Retrospective Turtle sit in the front row, the chameleon and the grey cat behind. The fox, smiling, holds up a remote next to a box labelled Remote here, under the smiling tea glass on the cabinet.",
   },
   {
     ep: 18,
@@ -445,7 +445,7 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 22,
     panel: 3,
-    alt: "At the reception desk, the parrot gestures to the grey-haired man holding up his keypad phone. The chameleon works on a tablet beside a small sticky note character, while Amr, hand on chest, looks apologetic.",
+    alt: "At the reception desk, the parrot gestures to the grey-haired man holding up his keypad phone. The chameleon works on a tablet beside the paper character, a small sticky note, while Amr, hand on chest, grimaces.",
   },
   {
     ep: 22,

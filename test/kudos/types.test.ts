@@ -32,10 +32,27 @@ describe("headerInk", () => {
     return (hi + 0.05) / (lo + 0.05);
   };
 
-  it("gives every built-in header text of at least 4.2:1", () => {
+  // The compact card's title is bold 18 px, just under large text, so 4.5:1.
+  it("gives every built-in header text of at least 4.5:1", () => {
     for (const t of KUDOS_THEMES) {
-      expect(contrast(headerInk(t.hex), t.hex), t.id).toBeGreaterThanOrEqual(4.2);
+      expect(contrast(headerInk(t.hex), t.hex), t.id).toBeGreaterThanOrEqual(4.5);
     }
+  });
+
+  it("gives any custom colour header text of at least 4.5:1", () => {
+    const hexes: string[] = [];
+    for (let r = 0; r < 256; r += 17) {
+      for (let g = 0; g < 256; g += 17) {
+        for (let b = 0; b < 256; b += 17) {
+          hexes.push(`#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`);
+        }
+      }
+    }
+    for (const hex of hexes) {
+      expect(contrast(headerInk(hex), hex), hex).toBeGreaterThanOrEqual(4.5);
+    }
+    // The old violet, a mid-tone where #111 reached only 4.46.
+    expect(headerInk("#8b5cf6")).toBe("#000000");
   });
 
   it("puts dark text on the light headers that white text failed on", () => {
@@ -44,6 +61,7 @@ describe("headerInk", () => {
     expect(ink["thank-you"]).toBe("#111111");
     expect(ink.congratulations).toBe("#111111");
     expect(ink["very-happy"]).toBe("#111111");
+    expect(ink["great-job"]).toBe("#ffffff");
     expect(ink["well-done"]).toBe("#ffffff");
   });
 

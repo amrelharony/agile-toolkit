@@ -353,6 +353,19 @@ describe("the timeline in vip-intro.module.css", () => {
     }
   });
 
+  // A classic scroll bar's gutter shows the root's background, which a fixed
+  // overlay doesn't cover: globals.css inks it while the opening ink is there.
+  it("inks the scroll bar's gutter for exactly as long as the opening ink", () => {
+    const ink = animations.find((a) => a.selector === ".ink")!;
+    const globals = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+    const gutter =
+      /@media \(prefers-reduced-motion: no-preference\) \{\s*html\[data-intro="vip"\]:has\(\[data-intro-overlay="vip"\]\) \{\s*animation: intro-vip-gutter-ink ([\d.]+)s;/.exec(
+        globals
+      );
+    expect(gutter, "the gutter rule in globals.css").not.toBeNull();
+    expect(Number(gutter![1])).toBeCloseTo(endsAt(ink), 9);
+  });
+
   it("runs only keyframes the module defines", () => {
     for (const animation of animations)
       expect(keyframes.has(animation.name), animation.name).toBe(true);

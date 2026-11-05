@@ -9,7 +9,7 @@
  */
 
 import { BOOK_EPISODE_COUNT } from "./entry";
-import { DEFAULT_CREDIT_CORNER, type StoredPanel } from "./story-input";
+import { DEFAULT_CREDIT_CORNER, type CreditCorner, type StoredPanel } from "./story-input";
 import type { DialogueLine } from "./types";
 
 /** The exact file. The editorial folder also holds pilots, briefs and a rejected reserve. */
@@ -178,6 +178,8 @@ export interface ImportStory<F> {
   themes: string[];
   bookPage: number | null;
   panels: ImportPanel<F>[];
+  /** The share image's credit corner, when it isn't the first panel's. */
+  shareCorner?: CreditCorner;
 }
 
 export type ImportPlan<F> =

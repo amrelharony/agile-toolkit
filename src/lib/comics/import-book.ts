@@ -14,11 +14,43 @@
 import { bookDescriptionFor } from "./book-descriptions";
 import { BOOK_DIALOGUE } from "./book-dialogue";
 import { BOOK_EPISODES } from "./book-episodes";
-import { DEFAULT_CREDIT_CORNER, type StoredPanel } from "./story-input";
+import { DEFAULT_CREDIT_CORNER, type CreditCorner, type StoredPanel } from "./story-input";
 import type { FolderFile, ImportPlan, ImportPanel, ImportStory } from "./import-weekly";
 
 export const BOOK_PANELS = 104;
 const PANELS_PER_EPISODE = 4;
+
+/**
+ * Where the credit goes on the book panels where the default corner would put it
+ * on a balloon or its lettering, by episode:panel. Every panel's corners were
+ * checked at the 768 px the site serves. Episode 6 panel 3 has a balloon in each
+ * corner, and top-left only grazes one's outline. The review queue can move any.
+ */
+export const BOOK_CREDIT_CORNERS: Readonly<Record<string, CreditCorner>> = {
+  "5:3": "top-right",
+  "6:3": "top-left",
+  "11:4": "bottom-left",
+  "19:3": "bottom-left",
+  "20:3": "top-left",
+  "22:1": "top-left",
+  "22:3": "top-right",
+  "23:3": "top-right",
+  "24:1": "top-left",
+  "24:2": "top-right",
+  "26:1": "top-left",
+  "26:3": "top-left",
+};
+
+/**
+ * The share image is a 1200 x 630 strip from the middle of the first panel
+ * (shareCrop), so its corners are other parts of the art: its credit has its own
+ * corner, checked on every episode's. Bottom-right everywhere but these two,
+ * where it would sit on a balloon (3) and a sign (15).
+ */
+export const BOOK_SHARE_CREDIT_CORNERS: Readonly<Record<number, CreditCorner>> = {
+  3: "bottom-left",
+  15: "bottom-left",
+};
 
 /** Panels/Episode_NN/ENN_Panel_MM.jpg. The zip's Finished_Posters folder is ignored. */
 const BOOK_PANEL_FILE = /(?:^|\/)Panels\/Episode_(\d{2})\/E(\d{2})_Panel_(\d{2})\.(?:jpe?g|png)$/i;
@@ -62,7 +94,7 @@ export function planBookImport<F extends FolderFile>(files: readonly F[]): Impor
         dialogue: words ? words.dialogue.map((d) => ({ ...d })) : [],
         signs: words ? [...words.signs] : [],
         needsReview: true,
-        creditCorner: DEFAULT_CREDIT_CORNER,
+        creditCorner: BOOK_CREDIT_CORNERS[`${episode.ep}:${n}`] ?? DEFAULT_CREDIT_CORNER,
       };
       panels.push({ file, text: stored });
     }
@@ -76,6 +108,7 @@ export function planBookImport<F extends FolderFile>(files: readonly F[]): Impor
       themes: [],
       bookPage: episode.bookPage,
       panels,
+      shareCorner: BOOK_SHARE_CREDIT_CORNERS[episode.ep] ?? DEFAULT_CREDIT_CORNER,
     });
   }
   return problems.length > 0 ? { ok: false, problems } : { ok: true, stories };
