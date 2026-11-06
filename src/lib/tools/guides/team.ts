@@ -78,9 +78,10 @@ export const GUIDES: ToolGuide[] = [
       "In remote teams, where good work is easy to miss.",
     ],
     steps: [
-      "Pick a Kudos type, such as Thank You or Great Job.",
+      "Pick a Card: one of the four habits on the printed cards (Focus, Ownership, Real needs, Trust), or Thank you! or Great teamwork!. Opened from an episode (/kudos?ep=NN), the form starts on that episode's card, with its headline and quote.",
       "Choose the person in To. Nobody is picked for you, though a Suggested name may appear. Pick “Type a name…” for someone who isn't listed; a name that isn't on the team offers Add to the team.",
-      "Write a Message of up to 50 words that says what they did and why it mattered, then click Send kudos or press Ctrl+Enter. If something is missing, the form says what.",
+      "In Thank you for, write up to 50 words on what they did and why it mattered, then click Send kudos or press Ctrl+Enter. If something is missing, the form says what. First names and general thanks only: no customer names or internal details.",
+      "Signed out, To is a plain name and your kudos stays private: Send gives a link that holds the card and a card image to pass on, and nothing is saved unless you tick Keep a copy on this device.",
       "Under Recognition received, pick the Window (Sprint, Last 30 days or All time) to see how many kudos each person received. View as table adds from how many people, and when the last one came.",
       "From 5 kudos, with two or more people on the team, a hint names teammates who haven't received one. Click Send to <name> to write them one.",
       "Click Add to retro on a card to put it in the current retro's appreciations; it then shows On the retro board. React or reply to a card, and use Export for Markdown, CSV or a PNG of the wall.",
