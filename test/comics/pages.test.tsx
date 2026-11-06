@@ -28,6 +28,8 @@ vi.mock("@/lib/comics/store", () => ({
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: h.push }),
+  // Outside the app router there are no search params; the visit recorder reads the address.
+  useSearchParams: () => null,
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
   },
@@ -146,6 +148,8 @@ describe("a book episode", () => {
     expect(screen.queryByRole("button", { name: /full screen/ })).toBeNull();
     expect(screen.queryByText("The comic will appear here soon")).toBeNull();
     expect(document.querySelector('script[type="application/ld+json"]')).toBeNull();
+    // The scan that brought someone here is counted, and the page says so.
+    expect(screen.getByText(/one anonymous count when you arrive/)).toBeTruthy();
   });
 
   it("renders all 26 from the campaign's data file", async () => {
@@ -425,6 +429,7 @@ describe("the story reader", () => {
     expect(screen.getByRole("link", { name: "Read the licence" }).getAttribute("href")).toBe(
       "/comics/license"
     );
+    expect(screen.getByText(/one anonymous count when you arrive/)).toBeTruthy();
   });
 
   it("names the licence and credit in structured data, using the small files", async () => {
@@ -616,7 +621,7 @@ describe("the gallery", () => {
 
   it("discloses the anonymous count", async () => {
     render(await ComicsPage());
-    expect(screen.getByText(/one anonymous count a day/)).toBeTruthy();
+    expect(screen.getByText(/one anonymous count when you arrive/)).toBeTruthy();
   });
 });
 

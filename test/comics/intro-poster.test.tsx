@@ -21,6 +21,7 @@ vi.mock("@/lib/comics/store", () => ({
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => {} }),
+  useSearchParams: () => null,
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
   },
