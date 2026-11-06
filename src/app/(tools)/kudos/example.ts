@@ -54,19 +54,27 @@ export function buildExample(now: Date = new Date()): Kudos[] {
   });
 
   return [
-    kudos("1", 19, "Priya", "Sam", "thank-you", "Untangled the payment retries before the demo.", {
-      toMemberId: member("Priya"),
-    }),
-    kudos("2", 17, "Sam", "Dev", "great-job", "Paired with me on the flaky checkout tests."),
-    kudos("3", 15, "Dev", "Alex", "awesome", "The new release checklist saved us an hour."),
-    kudos("4", 12, "Priya", "Alex", "you-rock", "Calm and clear in the incident call."),
-    kudos("5", 10, "Alex", "Priya", "well-done", "Turned vague feedback into three good stories."),
-    kudos("6", 8, "Sam", "Priya", "thank-you", "Reviewed my PR within the hour, twice."),
-    kudos("7", 6, "Dev", "Sam", "congratulations", "First production deploy, no rollback!"),
-    kudos("8", 4, "Priya", "Dev", "great-job", "The on-call guide is finally readable."),
-    kudos("9", 2, "Alex", "Sam", "very-happy", "Kept refinement to the timebox."),
+    kudos(
+      "1",
+      19,
+      "Priya",
+      "Sam",
+      "open-thank-you",
+      "Untangled the payment retries before the demo.",
+      {
+        toMemberId: member("Priya"),
+      }
+    ),
+    kudos("2", 17, "Sam", "Dev", "open-teamwork", "Paired with me on the flaky checkout tests."),
+    kudos("3", 15, "Dev", "Alex", "focus", "The new release checklist saved us an hour."),
+    kudos("4", 12, "Priya", "Alex", "trust", "Calm and clear in the incident call."),
+    kudos("5", 10, "Alex", "Priya", "real-needs", "Turned vague feedback into three good stories."),
+    kudos("6", 8, "Sam", "Priya", "open-thank-you", "Reviewed my PR within the hour, twice."),
+    kudos("7", 6, "Dev", "Sam", "ownership", "First production deploy, no rollback!"),
+    kudos("8", 4, "Priya", "Dev", "real-needs", "The on-call guide is finally readable."),
+    kudos("9", 2, "Alex", "Sam", "focus", "Kept refinement to the timebox."),
     // A reply copies its parent's recipient; it is a thank-you back, not a kudos.
-    kudos("9-reply", 1, "Alex", "Alex", "very-happy", "Thanks Sam, team effort!", {
+    kudos("9-reply", 1, "Alex", "Alex", "focus", "Thanks Sam, team effort!", {
       replyTo: exampleId("kudos-9"),
     }),
   ];

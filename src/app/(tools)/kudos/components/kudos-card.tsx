@@ -35,7 +35,8 @@ import { forwardRef, useState } from "react";
 import { MessageCircle, Plus } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Kudos, KudosReaction } from "@/lib/stores/workspace-types";
-import { getKudosTheme, headerInk } from "../types";
+import { episodeCard } from "@/lib/kudos/print-cards";
+import { getKudosTheme, themeInk } from "../types";
 
 /**
  * Quick-pick palette for the "+" emoji button. Six common emoji keeps
@@ -111,6 +112,8 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
   ref
 ) {
   const theme = getKudosTheme(kudos.theme);
+  // A card written from a book episode says what that episode's printed card says.
+  const printed = episodeCard(kudos.episode);
   // sentAt is a stable ISO string from upsertKudos, formatted with a
   // deterministic locale to avoid SSR/CSR hydration drift. Validators
   // only length-check the field — a hostile peer that survives them
@@ -146,14 +149,16 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
         className={`px-5 py-3 flex items-center gap-3 ${theme.headerBg}`}
         style={{
           borderBottom: "2px solid rgba(0,0,0,0.2)",
-          color: headerInk(theme.hex),
+          color: themeInk(theme),
           // A custom theme has no Tailwind class: its hex is the strip.
           ...(theme.headerBg ? {} : { background: theme.hex }),
         }}
       >
-        <span className={compact ? "text-2xl" : "text-3xl"} aria-hidden="true">
-          {theme.emoji}
-        </span>
+        {theme.emoji ? (
+          <span className={compact ? "text-2xl" : "text-3xl"} aria-hidden="true">
+            {theme.emoji}
+          </span>
+        ) : null}
         <h3
           className={`font-bold ${compact ? "text-lg" : "text-fluid-h3"} flex-1`}
           style={{ margin: 0 }}
@@ -173,6 +178,16 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
         )}
       </div>
       <div className={compact ? "px-4 py-3" : "px-6 py-5"}>
+        {printed ? (
+          <div className="mb-3">
+            <p className={`font-bold ${compact ? "text-base" : "text-xl"}`} style={{ margin: 0 }}>
+              {printed.headline}
+            </p>
+            <p className={`italic ${compact ? "text-xs" : "text-sm"}`} style={{ margin: 0 }}>
+              &ldquo;{printed.quote}&rdquo; &mdash; {printed.speaker}
+            </p>
+          </div>
+        ) : null}
         <div className={`font-bold mb-2 ${compact ? "text-sm" : "text-lg"}`}>
           To: <span className="font-semibold">{kudos.toName}</span>
         </div>
@@ -182,6 +197,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
           }`}
           style={{ margin: 0 }}
         >
+          <span className="font-bold">Thank you for: </span>
           {kudos.message}
         </p>
       </div>
@@ -200,7 +216,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
         style={{ borderTop: "1px solid rgba(0,0,0,0.1)" }}
       >
         <span>
-          Signed: <span className="font-semibold">{kudos.fromName}</span>
+          From: <span className="font-semibold">{kudos.fromName}</span>
           {kudos.teamName ? `, ${kudos.teamName}` : ""}
         </span>
         <span>Date: {dateLabel}</span>
