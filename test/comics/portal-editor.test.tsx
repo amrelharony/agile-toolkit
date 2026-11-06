@@ -568,16 +568,14 @@ describe("a story that has been out and was unpublished", () => {
     expect(screen.queryByRole("button", { name: "Delete draft" })).toBeNull();
   });
 
-  it("isn't offered for the bulk publish in the review queue", async () => {
+  it("isn't offered in the review queue: the book's episodes are never published", async () => {
     h.auth = owner;
-    listed = [
-      story({ ep: 5, collection: "book", firstReleasedAt: PAST }),
-      story({ ep: 6, collection: "book" }),
-      story({ ep: 7, collection: "book", panels: [panel({ needsReview: true })] }),
-    ];
+    listed = [story({ ep: 6, collection: "book" })];
     render(<ComicsPortal />);
     fireEvent.click(await screen.findByRole("button", { name: /Review queue/ }));
-    expect(await screen.findByText("1 book episode is ready to go out.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Loading stories…")).toBeNull());
+    expect(screen.queryByText(/book episodes? (is|are) ready to go out/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Publish them/ })).toBeNull();
   });
 });
 

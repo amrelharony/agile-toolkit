@@ -9,7 +9,7 @@ import { COMICS_ROUTE, comicHref } from "@/lib/comics/entry";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
 
-/** Share the address only: never the poster's building, never a file. */
+/** Share the address only: never where the visit came from, never a file. */
 async function shareStory(ep: number, title: string): Promise<void> {
   const url = `${window.location.origin}${comicHref(ep)}`;
   if (typeof navigator.share === "function") {

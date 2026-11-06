@@ -437,7 +437,7 @@ Burndown, Burnup, Velocity, Sprint Comparison and Sprint Metrics share one list 
 
 ## The "Agile at Work" comics
 
-The comics live at `/comics` and every story is `/comics?ep=NN`: book episodes are 1-26, weekly stories continue from 27. The print campaign's QR codes add which printed piece they're on as `src` (posters and kudos cards on `/comics`, the wall sign and guide on `/kudos`; see `PRINT_SOURCES` in `src/lib/comics/entry.ts`), so `/comics`, `/kudos`, `ep` and `src` can never be renamed. The middleware rewrites a valid number to the static episode page, whatever else the address says. The building posters' old `&b=NN` is ignored.
+The comics live at `/comics` and every story is `/comics?ep=NN`: book episodes are 1-26, weekly stories continue from 27. The print campaign's QR codes add which printed piece they're on as `src` (posters and kudos cards on `/comics`, the wall sign and guide on `/kudos`; see `PRINT_SOURCES` in `src/lib/comics/entry.ts`), so `/comics`, `/kudos`, `ep` and `src` can never be renamed. The middleware rewrites a valid number to the static episode page, whatever else the address says. The building posters' old `&b=NN` no longer picks a page; with no `src` beside it, it still counts as a poster.
 
 - **Stories** are rows in `comic_stories`, with art in the `comic-panels` bucket. Both are closed to the public API; pages read through `src/lib/comics/store.ts`.
 - **Release:** a story shows once its `release_at` has passed, within about 10 minutes (`revalidate = 600`). A number that isn't released shows "coming soon" with no content.
