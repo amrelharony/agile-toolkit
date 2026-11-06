@@ -45,7 +45,10 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { useHistoryStore } from "@/lib/history/history-store";
 import { KUDOS_ACTIONS } from "@/lib/history/event-actions";
 import { emit } from "@/lib/sonification/emit";
-import { exportPng } from "@/lib/whiteboard/export";
+import { OnSearchParams } from "@/components/shared/on-search-params";
+import { parseEp } from "@/lib/comics/entry";
+import { cardImage, cardImageName, downloadBlob } from "@/lib/kudos/card-image";
+import { episodeCard } from "@/lib/kudos/print-cards";
 import { generateKudosPrompts } from "@/lib/ai-prompts/kudos";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import {
@@ -63,6 +66,7 @@ import { KudosForm, type RecipientOption } from "./components/kudos-form";
 import { KudosWall } from "./components/kudos-wall";
 import { KudosBeacon } from "./components/kudos-beacon";
 import { KudosSettings } from "./components/kudos-settings";
+import { KudosReceived } from "./components/kudos-received";
 import { useKudosRoom, useOwnerKudosRoomKey } from "./use-kudos-room";
 import { useKudosReactions } from "./use-kudos-reactions";
 import { KUDOS_ENTITY_ID, KUDOS_TOOL_ID } from "./types";
@@ -454,7 +458,13 @@ export function KudosClient() {
     </div>
   ) : null;
 
-  const handleSubmit = async (kudos: Kudos) => {
+  const handleSubmit = async (kudos: Kudos, { keep }: { keep: boolean }) => {
+    // A visitor's kudos leaves as its link and image (the form shows them).
+    // Nothing is kept, not even in the history, unless they kept a copy.
+    if (!keep) {
+      emit("kudos", "sent");
+      return;
+    }
     // Phase 3 — sentiment + dedup BEFORE the room send so the stamped
     // values ride along with the optimistic write + broadcast. Both
     // helpers return null on any failure (no key, network, parse) so
@@ -499,7 +509,8 @@ export function KudosClient() {
     log(KUDOS_ACTIONS.KUDOS_SENT, {
       kudosId: stamped.id,
       theme: typeof stamped.theme === "string" ? stamped.theme : stamped.theme.id,
-      toName: stamped.toName,
+      // A visitor's history keeps no names: the card is between them and its recipient.
+      ...(isOwner ? { toName: stamped.toName } : {}),
       toProfileId: stamped.toProfileId,
       fromProfileId: stamped.fromProfileId,
       messageWords: stamped.message.split(/\s+/).filter(Boolean).length,
@@ -528,14 +539,27 @@ export function KudosClient() {
     });
   };
 
+  // On white, like the printed cards, whatever the page's theme.
   const handleDownload = async (kudos: Kudos, el: HTMLDivElement) => {
-    const slug =
-      kudos.toName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 32) || "recipient";
-    await exportPng(el, `kudos-to-${slug}.png`);
+    downloadBlob(await cardImage(el), cardImageName(kudos.toName));
+  };
+
+  // /kudos?ep=NN opens on that book episode's printed card. A new episode in
+  // the address (a client navigation) picks again; the counter tidying `src`
+  // away leaves the same episode, which doesn't.
+  const [initialEpisode, setInitialEpisode] = useState<{ ep: number; token: number }>();
+  const onSearch = useCallback((params: URLSearchParams) => {
+    const ep = parseEp(params.getAll("ep"));
+    if (ep === null || !episodeCard(ep)) return;
+    setInitialEpisode((prev) => (prev?.ep === ep ? prev : { ep, token: (prev?.token ?? 0) + 1 }));
+  }, []);
+
+  // "Send your own" from a received card: on to the form's first field.
+  const composeRef = useRef<HTMLDivElement>(null);
+  const focusCompose = () => {
+    composeRef.current
+      ?.querySelector<HTMLElement>("input:not([readonly]), select, textarea")
+      ?.focus();
   };
 
   // ── Recognition received ────────────────────────────────────────────
@@ -719,7 +743,7 @@ export function KudosClient() {
       description={
         isOwner
           ? "Send themed recognition cards to your team, see who the kudos reach, and bring them to the retro. Live updates across all peers; downloadable as PNG."
-          : "Send themed recognition cards to your team and see who the kudos reach. Saved in this browser; downloadable as PNG."
+          : "Thank a colleague with a card like the printed ones, and send it as a link or an image. Nothing is saved unless you keep a copy on this device."
       }
       category="Outcomes & Pulse"
     >
@@ -730,7 +754,7 @@ export function KudosClient() {
           {!authSettled ? null : !isOwner ? (
             <span className="inline-flex items-center gap-1.5 text-sub">
               <WifiOff className="h-3 w-3" aria-hidden="true" />
-              Browser-only — saved on this device
+              Private: nothing is saved unless you keep a copy
             </span>
           ) : room.isLocalOnly ? (
             <span className="inline-flex items-center gap-1.5 text-warning">
@@ -789,20 +813,27 @@ export function KudosClient() {
         </div>
       )}
 
+      <OnSearchParams onChange={onSearch} />
+      <KudosReceived onSendYourOwn={focusCompose} />
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <KudosForm
-          defaultFromName={senderName}
-          fromPlaceholder={isOwner ? undefined : "Your name"}
-          onFromNameChange={isOwner ? undefined : setVisitorName}
-          defaultTeamName={teamName}
-          recipients={recipients}
-          rosterRecipients
-          onSubmit={handleSubmit}
-          onDownload={handleDownload}
-          predictedRecipientId={predictedRecipientId}
-          fairnessHintSlot={fairnessHintSlot ?? rosterHintSlot}
-          forcedRecipient={forcedRecipient ?? undefined}
-        />
+        <div ref={composeRef} className="min-w-0">
+          <KudosForm
+            defaultFromName={senderName}
+            fromPlaceholder={isOwner ? undefined : "Your name"}
+            onFromNameChange={isOwner ? undefined : setVisitorName}
+            recipients={recipients}
+            rosterRecipients
+            plainRecipient={!isOwner}
+            delivery={isOwner ? "room" : "link"}
+            initialEpisode={initialEpisode}
+            onSubmit={handleSubmit}
+            onDownload={handleDownload}
+            predictedRecipientId={predictedRecipientId}
+            fairnessHintSlot={fairnessHintSlot ?? rosterHintSlot}
+            forcedRecipient={forcedRecipient ?? undefined}
+          />
+        </div>
         <div className="flex min-w-0 flex-col gap-2">
           <h2 className="text-sm font-semibold text-text">Recent kudos</h2>
           {room.kudos.length === 0 ? (
@@ -810,7 +841,7 @@ export function KudosClient() {
               No kudos yet. Send the first one with the form;{" "}
               {isOwner
                 ? "it appears here for everyone in the session."
-                : "it is saved in this browser."}
+                : "keep a copy on this device and it appears here, for you only."}
             </EmptyState>
           ) : (
             <div ref={wallRef}>

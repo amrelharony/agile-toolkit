@@ -471,7 +471,9 @@ describe("Kudos page: compose", () => {
   it("stamps the roster member on a kudos picked from the team", async () => {
     renderPage();
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "team:m-sam" } });
-    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Great pairing" } });
+    fireEvent.change(screen.getByLabelText("Thank you for"), {
+      target: { value: "Great pairing" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /send kudos/i }));
     await waitFor(() => expect(ws().kudos).toHaveLength(1));
     expect(ws().kudos?.[0]).toMatchObject({ toName: "Sam", toMemberId: "m-sam", fromName: "Mia" });
@@ -486,7 +488,7 @@ describe("Kudos page: compose", () => {
     fireEvent.change(screen.getByLabelText("Recipient name"), {
       target: { value: " priya " },
     });
-    const message = screen.getByLabelText("Message");
+    const message = screen.getByLabelText("Thank you for");
     fireEvent.change(message, { target: { value: "Thanks for the review" } });
     fireEvent.keyDown(message, { key: "Enter", ctrlKey: true });
     await waitFor(() => expect(ws().kudos).toHaveLength(1));
@@ -546,7 +548,7 @@ describe("Kudos page: recognition received", () => {
     await waitFor(() =>
       expect((screen.getByLabelText("To") as HTMLSelectElement).value).toBe("team:m-omar")
     );
-    expect(screen.getByLabelText("Message")).toHaveFocus();
+    expect(screen.getByLabelText("Thank you for")).toHaveFocus();
   });
 
   it("reads the sprint when one has dates, and switches to all time", () => {
