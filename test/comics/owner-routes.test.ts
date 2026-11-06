@@ -432,10 +432,11 @@ describe("publishing", () => {
     );
   });
 
-  it("refreshes the poster page too for a book episode", async () => {
-    h.rows = [row(12)];
-    await call(release.PUT, req("PUT", "/", { releaseAt: PAST }), { ep: "12" });
-    expect(h.revalidated).toContain("/comics/poster/12");
+  it("refreshes the story's own page and the list", async () => {
+    h.rows = [row(27)];
+    await call(release.PUT, req("PUT", "/", { releaseAt: PAST }), { ep: "27" });
+    expect(h.revalidated).toEqual(expect.arrayContaining(["/comics", "/comics/ep/27"]));
+    expect(h.revalidated.some((p: string) => p.includes("/poster/"))).toBe(false);
   });
 
   it("unpublishes without checking anything, keeping the number", async () => {

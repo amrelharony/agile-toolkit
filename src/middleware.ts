@@ -287,7 +287,7 @@ function comicRewriteUrl(request: NextRequest): URL | null {
   if (request.nextUrl.pathname !== COMICS_ROUTE) return null;
   const path = comicRewritePath(request.nextUrl.searchParams);
   if (!path) return null;
-  // The query stays: the static poster page reads its building in the browser.
+  // The query stays, so the page's script can read where the visit came from.
   const url = request.nextUrl.clone();
   url.pathname = path;
   return url;

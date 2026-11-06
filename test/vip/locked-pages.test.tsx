@@ -215,7 +215,6 @@ describe("how the pages are built", () => {
       "app/layout.tsx",
       "app/(tools)/comics/page.tsx",
       "app/(tools)/comics/ep/[n]/page.tsx",
-      "app/(tools)/comics/poster/[n]/page.tsx",
     ]) {
       const src = read(file);
       expect(src, file).not.toContain("next/headers");

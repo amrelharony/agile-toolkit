@@ -81,19 +81,19 @@ const isOfflinePage = (answer: FakePage | Response) =>
 describe("the service worker with no connection", () => {
   it("shows the offline page for a comic this device hasn't opened", async () => {
     const worker = loadWorker();
-    await worker.visit("/comics?ep=05&b=01");
-    expect(isOfflinePage(await worker.offline("/comics?ep=12&b=03"))).toBe(true);
+    await worker.visit("/comics?ep=05&src=poster");
+    expect(isOfflinePage(await worker.offline("/comics?ep=12&src=kudos"))).toBe(true);
   });
 
   it("gives a comic its own saved copy", async () => {
     const worker = loadWorker();
-    await worker.visit("/comics?ep=05&b=01");
-    await worker.visit("/comics?ep=12&b=03");
-    expect(await worker.offline("/comics?ep=05&b=01")).toMatchObject({
-      name: "/comics?ep=05&b=01",
+    await worker.visit("/comics?ep=05&src=poster");
+    await worker.visit("/comics?ep=12&src=kudos");
+    expect(await worker.offline("/comics?ep=05&src=poster")).toMatchObject({
+      name: "/comics?ep=05&src=poster",
     });
-    expect(await worker.offline("/comics?ep=12&b=03")).toMatchObject({
-      name: "/comics?ep=12&b=03",
+    expect(await worker.offline("/comics?ep=12&src=kudos")).toMatchObject({
+      name: "/comics?ep=12&src=kudos",
     });
   });
 

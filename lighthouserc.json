@@ -10,7 +10,7 @@
         "http://localhost:3000/capacity-planner",
         "http://localhost:3000/burndown",
         "http://localhost:3000/comics",
-        "http://localhost:3000/comics?ep=01&b=01",
+        "http://localhost:3000/comics?ep=01&src=poster",
         "http://localhost:3000/book",
         "http://localhost:3000/meet-the-cast",
         "http://localhost:3000/comics/early"
