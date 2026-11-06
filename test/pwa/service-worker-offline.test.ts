@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { EP_PATTERN } from "@/lib/comics/entry";
 
 const ORIGIN = "https://agile.test";
 const SOURCE = readFileSync(join(process.cwd(), "public", "sw.js"), "utf8");
@@ -75,6 +76,10 @@ function loadWorker() {
       network.mockRejectedValueOnce(new TypeError("offline"));
       return navigate(path);
     },
+    /** A copy saved by the worker before pageKey, under the page's whole address. */
+    saveAsBefore: (path: string) => {
+      stored.set(`${ORIGIN}${path}`, page(path));
+    },
   };
 }
 
@@ -112,6 +117,32 @@ describe("the service worker with no connection", () => {
     const worker = loadWorker();
     await worker.visit("/comics?src=kudos");
     expect(await worker.offline("/comics")).toMatchObject({ name: "/comics?src=kudos" });
+  });
+
+  it("finds a printed ep=07 under the site's own ep=7, and back", async () => {
+    const scanned = loadWorker();
+    await scanned.visit("/comics?ep=07&src=poster");
+    expect(await scanned.offline("/comics?ep=7")).toMatchObject({
+      name: "/comics?ep=07&src=poster",
+    });
+    const browsed = loadWorker();
+    await browsed.visit("/comics?ep=7");
+    expect(await browsed.offline("/comics?ep=07&src=kudos")).toMatchObject({
+      name: "/comics?ep=7",
+    });
+  });
+
+  it("still finds a page the worker before saved under its whole address", async () => {
+    const worker = loadWorker();
+    worker.saveAsBefore("/comics?ep=05&src=poster");
+    expect(await worker.offline("/comics?ep=05&src=poster")).toMatchObject({
+      name: "/comics?ep=05&src=poster",
+    });
+  });
+
+  it("reads an episode as the site does", () => {
+    const sw = SOURCE.match(/const EP_PATTERN = (\/.*\/);/)?.[1];
+    expect(sw).toBe(String(EP_PATTERN));
   });
 
   it("keeps the gallery and a single story apart", async () => {
