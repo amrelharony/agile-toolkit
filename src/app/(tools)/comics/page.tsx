@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
 import { COMICS_ROUTE } from "@/lib/comics/entry";
 import { listReleasedWeekly } from "@/lib/comics/store";
 import { comicMetadata } from "./comic-metadata";
@@ -8,7 +9,8 @@ import { BookIntro } from "./components/intro/book-intro";
 /**
  * Static, refreshed about every 10 minutes, which is also how a Monday's story
  * goes live with no scheduler. A /comics address with a valid number never gets
- * here: the middleware rewrites it to ep/[n] or poster/[n].
+ * here: the middleware rewrites it to ep/[n]. Everything else, the book's and
+ * open kudos cards' QR codes included, lands here.
  */
 export const revalidate = 600;
 
@@ -30,7 +32,10 @@ export default async function ComicsPage() {
   return (
     <>
       <BookIntro latest={latest ? { title: latest.title, cover: latest.cover } : null} />
-      <ComicsGallery stories={stories} />
+      <ComicsGallery
+        stories={stories}
+        bookEpisodes={BOOK_EPISODES.map(({ ep, title, theme }) => ({ ep, title, theme }))}
+      />
     </>
   );
 }

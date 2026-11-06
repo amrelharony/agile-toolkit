@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, BookImage, BookOpen, SearchX } from "lucide-react";
+import { ArrowRight, HeartHandshake, SearchX } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
@@ -17,16 +17,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
-import { BOOK, BOOK_PATH } from "@/lib/book/book";
+import { BOOK_PATH } from "@/lib/book/book";
 import { FLASHCARDS_ROUTE, comicHref } from "@/lib/comics/entry";
+import { PRINT_THEMES, printTheme, type PrintThemeName } from "@/lib/comics/print-themes";
 import { GUESTBOOK_ROUTE } from "@/lib/comics/guestbook";
 import { themeLabel } from "@/lib/comics/themes";
 import type { StorySummary } from "@/lib/comics/types";
 import { ComicCard, ComicCover } from "./comic-card";
+import { PrintThemeChip } from "./print-theme-chip";
 import { CountDisclosure, EntryBeacon } from "./entry-beacon";
 import { ReplayIntro } from "./intro/replay-intro";
 
 const ALL = "all";
+
+/** A book episode, as the index lists it. */
+export interface IndexEpisode {
+  ep: number;
+  title: string;
+  theme: PrintThemeName;
+}
 
 function sortedUnique(values: readonly string[]): string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
@@ -68,6 +77,77 @@ function ThisWeek({ story }: { story: StorySummary }) {
   );
 }
 
+/**
+ * The book's 26 episodes, colour-coded by habit as the posters are. Each opens
+ * the episode's page: its lesson and question, and the book page it's on.
+ */
+function BookIndex({ episodes }: { episodes: readonly IndexEpisode[] }) {
+  return (
+    <section aria-labelledby="book-episodes-heading" className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="book-episodes-heading" className="font-display text-lg font-semibold text-text">
+          The 26 episodes in the book
+        </h2>
+        <Link href={BOOK_PATH} className="text-sm font-medium text-text underline">
+          About the book
+        </Link>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-sm text-sub">
+        <span>Colour-coded by habit:</span>
+        <ul className="flex list-none flex-wrap gap-2">
+          {PRINT_THEMES.map((t) => (
+            <li key={t.name}>
+              <PrintThemeChip theme={t.name} />
+            </li>
+          ))}
+        </ul>
+      </div>
+      <ol className="grid list-none gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {episodes.map((e) => {
+          const { colour, ink } = printTheme(e.theme);
+          return (
+            <li key={e.ep}>
+              <Link
+                href={comicHref(e.ep)}
+                prefetch={false}
+                className="flex h-full items-center gap-3 rounded-lg border-2 border-border bg-card p-3 hover:border-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                <span
+                  aria-hidden="true"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+                  style={{ backgroundColor: colour, color: ink }}
+                >
+                  {String(e.ep).padStart(2, "0")}
+                </span>
+                <span className="min-w-0">
+                  <span className="sr-only">Episode {e.ep}: </span>
+                  <span className="block font-medium text-text">{e.title}</span>
+                  <span className="block text-xs text-sub">{e.theme}</span>
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+/** For the open kudos cards' QR, which lands here, and anyone else. */
+function ThankSomeone() {
+  return (
+    <p className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-sub">
+      <span>Seen a colleague practise one of these habits?</span>
+      <Button asChild variant="outline">
+        <Link href="/kudos?src=comics" prefetch={false}>
+          <HeartHandshake aria-hidden="true" />
+          Thank someone
+        </Link>
+      </Button>
+    </p>
+  );
+}
+
 function FilterSelect({
   label,
   allLabel,
@@ -106,7 +186,13 @@ function FilterSelect({
  * /comics. Filtering happens here in the browser, over the list the static page
  * already carries, so there's no endpoint that hands the stories out in bulk.
  */
-export function ComicsGallery({ stories }: { stories: readonly StorySummary[] }) {
+export function ComicsGallery({
+  stories,
+  bookEpisodes,
+}: {
+  stories: readonly StorySummary[];
+  bookEpisodes: readonly IndexEpisode[];
+}) {
   const [theme, setTheme] = useState(ALL);
   const [character, setCharacter] = useState(ALL);
 
@@ -148,45 +234,18 @@ export function ComicsGallery({ stories }: { stories: readonly StorySummary[] })
       <div className="space-y-6">
         <OwnerPortalLink />
         {latest ? (
-          <>
-            <ThisWeek story={latest} />
-            <p className="text-sm text-sub">
-              The first 26 stories are in the book.{" "}
-              <Link href={BOOK_PATH} className="font-medium text-accent underline">
-                About the book
-              </Link>
-            </p>
-          </>
+          <ThisWeek story={latest} />
         ) : (
-          <EmptyState
-            icon={BookImage}
-            padding="lg"
-            action={
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button asChild variant="toolkit" className="min-h-11 md:h-11">
-                  <Link href={BOOK_PATH}>
-                    <BookOpen aria-hidden="true" />
-                    About the book
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="min-h-11 md:h-11">
-                  <Link href="/">
-                    <ArrowLeft aria-hidden="true" />
-                    Back to tools
-                  </Link>
-                </Button>
-              </div>
-            }
-          >
-            <p className="font-semibold text-text">The comics are coming soon</p>
-            <p className="mt-1">{BOOK.blurb.join(" ")}</p>
-          </EmptyState>
+          <p className="text-sub">A new story comes out every week, starting soon.</p>
         )}
+
+        <BookIndex episodes={bookEpisodes} />
+        <ThankSomeone />
 
         {stories.length > 1 ? (
           <section aria-labelledby="all-stories-heading" className="space-y-4">
             <h2 id="all-stories-heading" className="font-display text-lg font-semibold text-text">
-              All stories
+              Weekly stories
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
               <FilterSelect
