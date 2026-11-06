@@ -10,8 +10,8 @@ vi.mock("@/lib/auth/use-is-owner", () => ({ useIsOwner: () => false }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("@/app/(tools)/comics/components/entry-beacon", () => ({
-  EntryBeacon: () => null,
+vi.mock("@/components/visits/visit-recorder", () => ({
+  VisitRecorder: () => null,
   CountDisclosure: () => null,
 }));
 

@@ -23,9 +23,9 @@ import { PRINT_THEMES, printTheme, type PrintThemeName } from "@/lib/comics/prin
 import { GUESTBOOK_ROUTE } from "@/lib/comics/guestbook";
 import { themeLabel } from "@/lib/comics/themes";
 import type { StorySummary } from "@/lib/comics/types";
+import { CountDisclosure, VisitRecorder } from "@/components/visits/visit-recorder";
 import { ComicCard, ComicCover } from "./comic-card";
 import { PrintThemeChip } from "./print-theme-chip";
-import { CountDisclosure, EntryBeacon } from "./entry-beacon";
 import { ReplayIntro } from "./intro/replay-intro";
 
 const ALL = "all";
@@ -230,7 +230,7 @@ export function ComicsGallery({
 
   return (
     <ToolPageWrapper title="Agile at Work" description="Workplace comics by Amr Elharony">
-      <EntryBeacon entry="direct" />
+      <VisitRecorder path="/comics" />
       <div className="space-y-6">
         <OwnerPortalLink />
         {latest ? (

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { CountDisclosure, VisitRecorder } from "@/components/visits/visit-recorder";
 import { BOOK_EPISODES, bookEpisode, type BookEpisode } from "@/lib/comics/book-episodes";
 import { BOOK_EPISODE_COUNT, comicHref, parseEp } from "@/lib/comics/entry";
 import { panelImageUrl } from "@/lib/comics/images";
@@ -110,6 +111,7 @@ function BookEpisodePage({
           and the intro's fixed overlay would cover the wrapper, not the screen. */}
       <PosterIntro ep={ep} title={title} panels={[]} />
       <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>
+        <VisitRecorder path="/comics" />
         <div className="space-y-4">
           <p className="text-sm text-sub">
             <span className="sr-only">Habit: </span>
@@ -130,7 +132,13 @@ function BookEpisodePage({
           />
           <RightsNotice />
           <ReadAheadLink />
-          <ReplayIntro kind="poster" />
+          <div className="flex items-baseline gap-4">
+            {/* As on the list: the note gives way, so Replay keeps its words on one line. */}
+            <div className="min-w-0 flex-1">
+              <CountDisclosure />
+            </div>
+            <ReplayIntro kind="poster" />
+          </div>
         </div>
       </ToolPageWrapper>
     </>
@@ -164,6 +172,7 @@ function WeeklyStoryPage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdScript(storyJsonLd(story)) }}
       />
+      <VisitRecorder path="/comics" />
       <div className="space-y-4">
         <ComicPanels panels={story.panels} title={title} />
         <EpisodeNotes lesson={story.lesson} question={story.squadQuestion} />
@@ -179,6 +188,7 @@ function WeeklyStoryPage({
         {story.panels.length > 0 ? <ReadTracker ep={ep} /> : null}
         <RightsNotice />
         <ReadAheadLink />
+        <CountDisclosure />
       </div>
     </ToolPageWrapper>
   );

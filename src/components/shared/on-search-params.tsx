@@ -50,12 +50,18 @@ export function replaceUrl(url: URL) {
 
 /** Drops `name` from the address bar (after it was acted on), so the same link works again. */
 export function dropSearchParam(name: string) {
+  dropSearchParams([name]);
+}
+
+/** Drops each of `names` from the address bar at once, keeping the rest and the hash. */
+export function dropSearchParams(names: readonly string[]) {
   try {
     const url = new URL(window.location.href);
-    if (!url.searchParams.has(name)) return;
-    url.searchParams.delete(name);
+    const present = names.filter((name) => url.searchParams.has(name));
+    if (present.length === 0) return;
+    for (const name of present) url.searchParams.delete(name);
     replaceUrl(url);
   } catch {
-    /* no history API: the param stays, which is harmless */
+    /* no history API: the params stay, which is harmless */
   }
 }
