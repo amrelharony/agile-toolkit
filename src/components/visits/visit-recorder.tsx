@@ -37,7 +37,7 @@ export function recordVisit(path: VisitPath, params: URLSearchParams): void {
   }
   if (counted.arrival) return;
   counted.arrival = true;
-  if (isFreshArrival(path)) sendVisit(visitFor(path, params));
+  if (isFreshArrival(path, params)) sendVisit(visitFor(path, params));
 }
 
 /**

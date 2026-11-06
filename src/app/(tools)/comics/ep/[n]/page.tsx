@@ -202,7 +202,15 @@ export default async function ComicStoryPage({ params }: StoryPageProps) {
     return <BookEpisodePage episode={book} latest={await listReleasedWeekly(LATEST_COUNT)} />;
   }
   const story = await getReleasedStory(ep);
-  if (!story) return <ComingSoon />;
+  // Counted here too: a page with no recorder would leave the arrival to the
+  // next page of the visit, which isn't one.
+  if (!story)
+    return (
+      <>
+        <VisitRecorder path="/comics" />
+        <ComingSoon />
+      </>
+    );
   const [{ prevEp, nextEp }, extras] = await Promise.all([
     weeklyNeighbours(ep),
     getStoryExtras(ep),

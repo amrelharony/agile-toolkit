@@ -82,20 +82,21 @@ export function sendVisit(visit: Visit): boolean {
 }
 
 /**
- * Whether this page load is someone arriving at `path` from outside the site: a
- * document that began here, not a reload or a step back or forward, and not one
- * this site opened. A client navigation keeps the first page's document, so it
- * never is one.
+ * Whether this page load is someone arriving at `path` (with `params`) from
+ * outside the site: a document that began at this page and episode, not a
+ * reload or a step back or forward, and not one this site opened. A client
+ * navigation keeps the first page's document, so it never is one.
  */
-export function isFreshArrival(path: VisitPath): boolean {
+export function isFreshArrival(path: VisitPath, params: URLSearchParams): boolean {
   const [navigation] = (performance.getEntriesByType?.("navigation") ??
     []) as PerformanceNavigationTiming[];
-  if (navigation) {
-    if (navigation.type === "reload" || navigation.type === "back_forward") return false;
-    if (new URL(navigation.name).pathname !== path) return false;
-  } else if (window.location.pathname !== path) {
+  const began = navigation ? new URL(navigation.name) : new URL(window.location.href);
+  if (navigation && (navigation.type === "reload" || navigation.type === "back_forward")) {
     return false;
   }
+  if (began.pathname !== path) return false;
+  // /comics is every comic: the document began at this one only if the episode matches.
+  if (parseEp(began.searchParams.getAll("ep")) !== parseEp(params.getAll("ep"))) return false;
   if (!document.referrer) return true;
   try {
     return new URL(document.referrer).hostname !== window.location.hostname;

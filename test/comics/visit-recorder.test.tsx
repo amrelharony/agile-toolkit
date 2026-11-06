@@ -145,6 +145,21 @@ describe("an address with no printed piece", () => {
     expect(beacon).not.toHaveBeenCalled();
   });
 
+  it("isn't counted when the document began at another episode", () => {
+    // A page with no recorder of its own, then a client navigation to the gallery.
+    referrer = "https://www.linkedin.com/";
+    arrive("/comics?ep=27");
+    go("/comics");
+    record("/comics");
+    expect(beacon).not.toHaveBeenCalled();
+  });
+
+  it("reads a printed ep=07 as the site's ep=7", () => {
+    arrive("/comics?ep=07");
+    recordVisit("/comics", new URLSearchParams("ep=7"));
+    expect(beacon).toHaveBeenCalledTimes(1);
+  });
+
   it("counts only the first page of a visit", () => {
     arrive("/comics");
     record("/comics");
