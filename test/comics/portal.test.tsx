@@ -546,9 +546,11 @@ describe("the import page", () => {
   it("offers folder inputs on a computer", () => {
     h.auth = owner;
     render(<ImportClient />);
+    // The weekly batch only: the book's episodes are never put online.
     const inputs = screen.getAllByLabelText("Choose the folder");
-    expect(inputs).toHaveLength(2);
-    for (const input of inputs) expect(input).toHaveAttribute("webkitdirectory");
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toHaveAttribute("webkitdirectory");
+    expect(screen.queryByText("Book batch")).toBeNull();
   });
 
   it("says it runs on a computer when opened on a phone", async () => {
@@ -605,9 +607,7 @@ const CLIENT_LIB = [
   "src/lib/comics/image-pipeline.ts",
   "src/lib/comics/draft-store.ts",
   "src/lib/comics/import-weekly.ts",
-  "src/lib/comics/import-book.ts",
   "src/lib/comics/import-runner.ts",
-  "src/lib/comics/book-dialogue.ts",
   "src/lib/comics/entries-summary.ts",
   "src/lib/comics/entry.ts",
 ];

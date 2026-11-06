@@ -6,7 +6,6 @@ import { FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
-import { planBookImport } from "@/lib/comics/import-book";
 import { processPanelImage } from "@/lib/comics/image-pipeline";
 import { planConflicts, runImport, type ImportProgress } from "@/lib/comics/import-runner";
 import {
@@ -272,10 +271,6 @@ async function planWeekly(files: PickedFile[]): Promise<ImportPlan<PickedFile>> 
   return planWeeklyImport(scripts, files);
 }
 
-async function planBook(files: PickedFile[]): Promise<ImportPlan<PickedFile>> {
-  return planBookImport(files);
-}
-
 export function ImportClient() {
   const { isOwner, visitor } = useOwnerState();
   const small = useIsSmallTouchScreen();
@@ -304,12 +299,6 @@ export function ImportClient() {
         title="Weekly batch"
         intro={`The folder you extracted all five source volumes into. It reads editorial/${WEEKLY_SCRIPT_FILE} and needs 100 stories and 400 art files. Episodes 27 to 126 arrive as drafts, with nothing scheduled.`}
         plan={planWeekly}
-        canRun={isOwner}
-      />
-      <ImportCard
-        title="Book batch"
-        intro="The folder scripts/render-book-panels.py made from the finished posters, with Panels/Episode_NN inside it: the poster artwork zip's own files have no lettering. It needs 104 panels. Each arrives with a drafted description for you to approve in the review queue. Printed links show text until an episode's four are approved: then you publish it from the review queue, or a later run that finishes its art publishes it."
-        plan={planBook}
         canRun={isOwner}
       />
       <p className="text-sm text-sub">

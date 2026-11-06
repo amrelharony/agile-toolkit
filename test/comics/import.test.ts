@@ -1,13 +1,5 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BOOK_DIALOGUE } from "@/lib/comics/book-dialogue";
-import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
-import {
-  BOOK_CREDIT_CORNERS,
-  BOOK_SHARE_CREDIT_CORNERS,
-  bookSourceId,
-  planBookImport,
-} from "@/lib/comics/import-book";
 import {
   isStoryFinished,
   planConflicts,
@@ -24,12 +16,7 @@ import {
   planWeeklyImport,
   type ImportStory,
 } from "@/lib/comics/import-weekly";
-import {
-  CREDIT_CORNERS,
-  DEFAULT_CREDIT_CORNER,
-  type OwnerStory,
-  type StoredPanel,
-} from "@/lib/comics/story-input";
+import type { OwnerStory, StoredPanel } from "@/lib/comics/story-input";
 
 /**
  * A script in the real file's shape, with its private fields named as they are
@@ -275,127 +262,6 @@ describe("planning the weekly batch", () => {
     expect(findWeeklyScriptFile(files)).toBeNull();
     const real = { path: `Batch/editorial/${WEEKLY_SCRIPT_FILE}` };
     expect(findWeeklyScriptFile([...files, real])).toBe(real);
-  });
-});
-
-describe("planning the book batch", () => {
-  const bookFiles = () => {
-    const names = ["Art/README.txt", "Art/Finished_Posters/Poster_01.pdf"];
-    for (let e = 1; e <= 26; e += 1) {
-      const nn = String(e).padStart(2, "0");
-      for (let p = 1; p <= 4; p += 1) names.push(`Art/Panels/Episode_${nn}/E${nn}_Panel_0${p}.jpg`);
-    }
-    return folder(names);
-  };
-
-  it("takes the canon index and the poster words, with descriptions as drafts to review", () => {
-    const plan = planBookImport(bookFiles());
-    expect(plan.ok).toBe(true);
-    if (!plan.ok) return;
-    expect(plan.stories).toHaveLength(26);
-    const seven = plan.stories[6];
-    const canon = BOOK_EPISODES[6];
-    expect(seven).toMatchObject({
-      ep: 7,
-      sourceId: "AAW-E07",
-      title: canon.title,
-      lesson: canon.lesson,
-      squadQuestion: canon.question,
-      bookPage: canon.bookPage,
-    });
-    for (const panel of seven.panels) {
-      // A draft to approve: never public until reviewed, and no story text is made up here.
-      expect(panel.text.alt.length).toBeGreaterThan(0);
-      expect(panel.text.alt.length).toBeLessThanOrEqual(220);
-      expect(panel.text.needsReview).toBe(true);
-    }
-    expect(seven.panels[1].file.path).toBe("Art/Panels/Episode_07/E07_Panel_02.jpg");
-    expect(seven.panels[1].text.dialogue).toEqual(BOOK_DIALOGUE[7].panels[1].dialogue);
-  });
-
-  it("moves the credit off the balloons where the default corner would sit on one", () => {
-    const plan = planBookImport(bookFiles());
-    expect(plan.ok).toBe(true);
-    if (!plan.ok) return;
-    const corners = new Map<string, string>();
-    for (const story of plan.stories) {
-      story.panels.forEach((panel, i) =>
-        corners.set(`${story.ep}:${i + 1}`, panel.text.creditCorner)
-      );
-    }
-    expect(Object.keys(BOOK_CREDIT_CORNERS).length).toBeGreaterThan(0);
-    for (const [key, corner] of Object.entries(BOOK_CREDIT_CORNERS)) {
-      // A key that names no panel would quietly move nothing.
-      expect(corners.has(key), key).toBe(true);
-      expect(corner, key).not.toBe(DEFAULT_CREDIT_CORNER);
-      expect(CREDIT_CORNERS, key).toContain(corner);
-      expect(corners.get(key), key).toBe(corner);
-    }
-    expect(corners.get("26:3")).toBe("top-left");
-    expect(corners.get("1:1")).toBe(DEFAULT_CREDIT_CORNER);
-    const moved = Array.from(corners.values()).filter((c) => c !== DEFAULT_CREDIT_CORNER);
-    expect(moved).toHaveLength(Object.keys(BOOK_CREDIT_CORNERS).length);
-  });
-
-  it("gives each share image its own corner, not its first panel's", () => {
-    const plan = planBookImport(bookFiles());
-    expect(plan.ok).toBe(true);
-    if (!plan.ok) return;
-    const share = new Map(plan.stories.map((s) => [s.ep, s.shareCorner]));
-    // The share crop is the middle of the panel: a first panel's top-left is a
-    // different part of the art there, and on 24 it would sit on a balloon.
-    for (const ep of [22, 24, 26]) {
-      expect(plan.stories[ep - 1].panels[0].text.creditCorner, String(ep)).toBe("top-left");
-      expect(share.get(ep), String(ep)).toBe(DEFAULT_CREDIT_CORNER);
-    }
-    for (const [ep, corner] of Object.entries(BOOK_SHARE_CREDIT_CORNERS)) {
-      expect(share.get(Number(ep)), ep).toBe(corner);
-      expect(corner, ep).not.toBe(DEFAULT_CREDIT_CORNER);
-    }
-    expect(share.get(3)).toBe("bottom-left");
-    expect(share.size).toBe(26);
-  });
-
-  it("refuses anything but 104 panels", () => {
-    const plan = planBookImport(bookFiles().slice(0, -1));
-    expect(plan.ok).toBe(false);
-    if (!plan.ok) expect(plan.problems[0]).toContain("103");
-  });
-
-  it("pads the source id", () => {
-    expect(bookSourceId(1)).toBe("AAW-E01");
-    expect(bookSourceId(26)).toBe("AAW-E26");
-  });
-});
-
-describe("the book dialogue", () => {
-  it("has four panels for each of the 26 episodes", () => {
-    for (const { ep } of BOOK_EPISODES) expect(BOOK_DIALOGUE[ep].panels).toHaveLength(4);
-  });
-
-  it("is word for word as printed, in reading order", () => {
-    expect(BOOK_DIALOGUE[1].panels[0].dialogue).toEqual([
-      { speaker: "Amr", line: "I tidied the board." },
-      { speaker: "Dinosaur", line: "I called everything first." },
-    ]);
-    expect(BOOK_DIALOGUE[25].panels[1].dialogue.map((d) => d.line)).toEqual([
-      "Nearly done! They’re all ninety per cent.",
-      "How many can someone sit on?",
-    ]);
-  });
-
-  it("leaves a silent panel silent", () => {
-    expect(BOOK_DIALOGUE[3].panels[1].dialogue).toEqual([]);
-    expect(BOOK_DIALOGUE[13].panels[1].signs).toEqual(["BZZT"]);
-  });
-
-  it("only ever names a speaker the canon lists for that episode", () => {
-    for (const { ep } of BOOK_EPISODES) {
-      const { cast, panels } = BOOK_DIALOGUE[ep];
-      for (const panel of panels) {
-        for (const line of panel.dialogue) expect(cast).toContain(line.speaker);
-      }
-    }
   });
 });
 

@@ -35,6 +35,9 @@ const h = vi.hoisted(() => ({
   jobs: [] as Deferred[],
 }));
 
+/** The folder's script file, by the name the weekly batch looks for. */
+const SCRIPTS = "Agile_At_Work_Batch_1_100_Story_Scripts.json";
+
 vi.mock("@/lib/auth/auth-provider", () => ({ useAuthOptional: () => h.auth }));
 vi.mock("@/lib/auth/supabase-browser", () => ({ getAuthBrowserClient: () => null }));
 vi.mock("@/lib/comics/image-pipeline", async (original) => ({
@@ -46,6 +49,50 @@ vi.mock("@/lib/comics/image-pipeline", async (original) => ({
       })
   ),
 }));
+
+// A one-story weekly batch: these tests are about the folder input and the run,
+// not the 100-script file, which test/comics/import.test.ts covers.
+vi.mock("@/lib/comics/import-weekly", async (original) => {
+  const actual = await original<typeof import("@/lib/comics/import-weekly")>();
+  return {
+    ...actual,
+    planWeeklyImport: (_scripts: unknown, files: readonly { path: string }[]) => {
+      const art = files.find((f) => f.path.endsWith(".png"));
+      if (!art) return { ok: false, problems: ["No art."] };
+      return {
+        ok: true,
+        stories: [
+          {
+            ep: 27,
+            sourceId: "AAW-N001",
+            title: "One story",
+            lesson: "A lesson.",
+            squadQuestion: "A question?",
+            castNames: [],
+            themes: [],
+            bookPage: null,
+            panels: [
+              {
+                file: art,
+                text: {
+                  pathFull: "",
+                  pathSmall: "",
+                  width: 0,
+                  height: 0,
+                  alt: "Shown.",
+                  dialogue: [],
+                  signs: [],
+                  needsReview: true,
+                  creditCorner: "bottom-right",
+                },
+              },
+            ],
+          },
+        ],
+      };
+    },
+  };
+});
 
 import { ComicsPortal } from "@/app/settings/comics/comics-portal";
 import { ImportClient } from "@/app/settings/comics/import/import-client";
@@ -758,18 +805,15 @@ describe("the review queue's typing", () => {
 });
 
 describe("choosing a folder for an import", () => {
-  const bookFolder = () =>
-    Array.from({ length: 26 }, (_, e) =>
-      Array.from({ length: 4 }, (_, p) => {
-        const ep = String(e + 1).padStart(2, "0");
-        const n = String(p + 1).padStart(2, "0");
-        const file = new File(["x"], `E${ep}_Panel_${n}.jpg`);
-        Object.defineProperty(file, "webkitRelativePath", {
-          value: `Art/Panels/Episode_${ep}/E${ep}_Panel_${n}.jpg`,
-        });
-        return file;
-      })
-    ).flat();
+  const weeklyFolder = () =>
+    [
+      [`Batch/editorial/${SCRIPTS}`, "[]"],
+      ["Batch/art/N001_P1.png", "x"],
+    ].map(([path, body]) => {
+      const file = new File([body], path.split("/").pop()!);
+      Object.defineProperty(file, "webkitRelativePath", { value: path });
+      return file;
+    });
 
   const choose = async (input: HTMLElement, files: File[]) => {
     fireEvent.change(input, { target: { files } });
@@ -779,14 +823,14 @@ describe("choosing a folder for an import", () => {
   it("can be repeated with the same folder", async () => {
     h.auth = owner;
     render(<ImportClient />);
-    const input = screen.getAllByLabelText("Choose the folder")[1] as HTMLInputElement;
+    const input = screen.getByLabelText("Choose the folder") as HTMLInputElement;
     const values: string[] = [];
     Object.defineProperty(input, "value", {
       configurable: true,
       get: () => "",
       set: (v: string) => values.push(v),
     });
-    await choose(input, bookFolder());
+    await choose(input, weeklyFolder());
     expect(values).toContain("");
   });
 
@@ -797,7 +841,7 @@ describe("choosing a folder for an import", () => {
       throw new Error("offline");
     });
     render(<ImportClient />);
-    await choose(screen.getAllByLabelText("Choose the folder")[1], bookFolder());
+    await choose(screen.getByLabelText("Choose the folder"), weeklyFolder());
     fireEvent.click(screen.getByRole("button", { name: "Start the import" }));
     expect(await screen.findByText(/No connection/)).toBeInTheDocument();
     expect(screen.queryByText(/Can.t import this/)).toBeNull();
