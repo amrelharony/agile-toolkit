@@ -1,63 +1,105 @@
-/** The portal's view of the anonymous entry counts: totals, most first. Pure. */
+/**
+ * The portal's view of the anonymous counts, month by month and nothing finer:
+ * visits by printed piece, and for each book episode, posters against kudos
+ * cards. Pure.
+ */
 
-export interface EntryCountRow {
-  day: string;
-  entry: string;
+import type { ArrivalSource } from "./entry";
+
+/** A row of comic_visit_counts (migration 0034). */
+export interface VisitCountRow {
+  month: string;
+  path: string;
+  src: string;
   ep: number;
-  building: number;
   count: number | string;
 }
 
-export interface EntriesSummary {
+/** A VIP row of comic_entry_counts (0029, 0032): the book's VIP link still counts there by day. */
+export interface VipCountRow {
+  day: string;
+  count: number | string;
+}
+
+/** Every source, in the order the report lists them. */
+export const REPORT_SOURCES: readonly ArrivalSource[] = [
+  "poster",
+  "kudos",
+  "book",
+  "sign",
+  "guide",
+  "comics",
+  "none",
+];
+
+export interface MonthSummary {
+  /** The month's first day, YYYY-MM-01. */
+  month: string;
   total: number;
-  /** Plain /comics visits: the printed address or anyone typing it. */
-  direct: number;
-  poster: number;
+  bySource: Record<ArrivalSource, number>;
   /** Devices unlocked by the link printed inside the book. */
   vip: number;
-  byBuilding: { building: number; count: number }[];
-  byEpisode: { ep: number; count: number }[];
-  /** Newest first. */
-  byDay: { day: string; count: number }[];
+  /** Book episodes scanned from a poster or a kudos card, by number. */
+  byEpisode: { ep: number; poster: number; kudos: number }[];
 }
 
-function add<K>(totals: Map<K, number>, key: K, count: number) {
-  totals.set(key, (totals.get(key) ?? 0) + count);
+/** bigint comes back from the API as a number or a string, depending on size. */
+function countOf(row: { count: number | string }): number {
+  const count = Number(row.count);
+  return Number.isFinite(count) ? count : 0;
 }
 
-export function summariseEntries(rows: readonly EntryCountRow[]): EntriesSummary {
-  const buildings = new Map<number, number>();
-  const episodes = new Map<number, number>();
-  const days = new Map<string, number>();
-  let direct = 0;
-  let poster = 0;
-  let vip = 0;
-  for (const row of rows) {
-    // bigint comes back from the API as a number or a string, depending on size.
-    const count = Number(row.count);
-    if (!Number.isFinite(count)) continue;
-    add(days, row.day, count);
-    if (row.entry === "direct") direct += count;
-    if (row.entry === "vip") vip += count;
-    if (row.entry === "poster") {
-      poster += count;
-      if (row.building > 0) add(buildings, row.building, count);
-      if (row.ep > 0) add(episodes, row.ep, count);
+function emptyMonth(month: string): MonthSummary {
+  const bySource = Object.fromEntries(REPORT_SOURCES.map((s) => [s, 0])) as Record<
+    ArrivalSource,
+    number
+  >;
+  return { month, total: 0, bySource, vip: 0, byEpisode: [] };
+}
+
+/** Newest month first. */
+export function summariseVisits(
+  visits: readonly VisitCountRow[],
+  vip: readonly VipCountRow[]
+): MonthSummary[] {
+  const months = new Map<string, MonthSummary>();
+  const monthOf = (key: string) => {
+    let summary = months.get(key);
+    if (!summary) {
+      summary = emptyMonth(key);
+      months.set(key, summary);
+    }
+    return summary;
+  };
+  const episodes = new Map<string, Map<number, { poster: number; kudos: number }>>();
+
+  for (const row of visits) {
+    const count = countOf(row);
+    if (!count || !(REPORT_SOURCES as readonly string[]).includes(row.src)) continue;
+    const month = row.month.slice(0, 7) + "-01";
+    const summary = monthOf(month);
+    const src = row.src as ArrivalSource;
+    summary.bySource[src] += count;
+    summary.total += count;
+    if ((src === "poster" || src === "kudos") && row.ep > 0 && row.path === "/comics") {
+      const byEp = episodes.get(month) ?? new Map();
+      episodes.set(month, byEp);
+      const tally = byEp.get(row.ep) ?? { poster: 0, kudos: 0 };
+      tally[src] += count;
+      byEp.set(row.ep, tally);
     }
   }
-  return {
-    total: direct + poster + vip,
-    direct,
-    poster,
-    vip,
-    byBuilding: Array.from(buildings, ([building, count]) => ({ building, count })).sort(
-      (a, b) => b.count - a.count || a.building - b.building
-    ),
-    byEpisode: Array.from(episodes, ([ep, count]) => ({ ep, count })).sort(
-      (a, b) => b.count - a.count || a.ep - b.ep
-    ),
-    byDay: Array.from(days, ([day, count]) => ({ day, count })).sort((a, b) =>
-      b.day.localeCompare(a.day)
-    ),
-  };
+  for (const row of vip) {
+    const count = countOf(row);
+    if (!count) continue;
+    const summary = monthOf(row.day.slice(0, 7) + "-01");
+    summary.vip += count;
+    summary.total += count;
+  }
+  for (const [month, byEp] of Array.from(episodes)) {
+    monthOf(month).byEpisode = Array.from(byEp, ([ep, t]) => ({ ep, ...t })).sort(
+      (a, b) => a.ep - b.ep
+    );
+  }
+  return Array.from(months.values()).sort((a, b) => b.month.localeCompare(a.month));
 }
