@@ -782,16 +782,21 @@ describe("GET /api/comics/entries", () => {
       { month: "2026-11-01", path: "/kudos", src: "sign", ep: 0, count: 5 },
       { month: "2026-10-01", path: "/comics", src: "none", ep: 0, count: 7 },
     ];
-    h.entryRows = [{ day: "2026-11-03", count: 1 }];
+    h.entryRows = [
+      { day: "2026-11-03", entry: "vip", ep: 0, building: 0, count: 1 },
+      // Counted by day before the monthly counts began.
+      { day: "2026-11-02", entry: "poster", ep: 12, building: 3, count: 2 },
+      { day: "2026-11-02", entry: "direct", ep: 0, building: 0, count: 3 },
+    ];
     const res = await call(entries.GET, req("GET", "/api/comics/entries"));
     const { months, summary } = await res.json();
     expect(months).toBe(12);
     expect(summary.map((m: { month: string }) => m.month)).toEqual(["2026-11-01", "2026-10-01"]);
     expect(summary[0]).toMatchObject({
-      total: 12,
+      total: 17,
       vip: 1,
-      bySource: { poster: 4, kudos: 2, sign: 5, none: 0 },
-      byEpisode: [{ ep: 12, poster: 4, kudos: 2 }],
+      bySource: { poster: 6, kudos: 2, sign: 5, none: 3 },
+      byEpisode: [{ ep: 12, poster: 6, kudos: 2 }],
     });
     expect(summary[1]).toMatchObject({ total: 7, vip: 0, byEpisode: [] });
   });
@@ -805,6 +810,35 @@ describe("GET /api/comics/entries", () => {
     const [visits, vip] = h.since.map((s) => s.value);
     expect(visits).toMatch(/^\d{4}-\d{2}-01$/);
     expect(vip).toBe(visits);
+  });
+
+  it("starts the window on the first of the month, months - 1 back, in UTC", async () => {
+    // 2027-01-31 23:30 in UTC+2 is still January in UTC.
+    const FIXED = Date.parse("2027-01-31T21:30:00.000Z");
+    const RealDate = Date;
+    vi.stubGlobal(
+      "Date",
+      class extends RealDate {
+        constructor(...args: ConstructorParameters<typeof Date>) {
+          super(...((args.length ? args : [FIXED]) as [number]));
+        }
+        static now() {
+          return FIXED;
+        }
+      }
+    );
+    try {
+      await call(entries.GET, req("GET", "/api/comics/entries?months=3"));
+      await call(entries.GET, req("GET", "/api/comics/entries?months=14"));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(h.since.map((s) => s.value)).toEqual([
+      "2026-11-01",
+      "2026-11-01",
+      "2025-12-01",
+      "2025-12-01",
+    ]);
   });
 
   it.each(["0", "61", "2.5", "a year"])("asks for a year when months is %s", async (months) => {

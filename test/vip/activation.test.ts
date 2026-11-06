@@ -141,9 +141,9 @@ describe("the portal's Entries view", () => {
         { month: "2026-11-01", path: "/comics", src: "poster", ep: 12, count: "2" },
       ],
       [
-        { day: "2026-11-02", count: 3 },
-        { day: "2026-11-05", count: 1 },
-        { day: "2026-10-30", count: 4 },
+        { day: "2026-11-02", entry: "vip", ep: 0, count: 3 },
+        { day: "2026-11-05", entry: "vip", ep: 0, count: 1 },
+        { day: "2026-10-30", entry: "vip", ep: 0, count: 4 },
       ]
     );
     expect(november.vip).toBe(4);

@@ -24,7 +24,7 @@ const NOVEMBER = summariseVisits(
     { month: "2026-11-01", path: "/kudos", src: "sign", ep: 0, count: 5 },
     { month: "2026-10-01", path: "/comics", src: "book", ep: 0, count: 9 },
   ],
-  [{ day: "2026-11-02", count: 3 }]
+  [{ day: "2026-11-02", entry: "vip", ep: 0, count: 3 }]
 );
 
 beforeEach(() => {

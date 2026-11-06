@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { summariseVisits } from "@/lib/comics/entries-summary";
+import { REPORT_SOURCES, summariseVisits } from "@/lib/comics/entries-summary";
+import { PRINT_SOURCES } from "@/lib/comics/entry";
 import {
   checkReorder,
   nextMondaySlot,
@@ -282,7 +283,7 @@ describe("entries summary", () => {
         { month: "2026-11-01", path: "/comics", src: "none", ep: 0, count: "not a number" },
         { month: "2026-11-01", path: "/comics", src: "none", ep: 0, count: 2 },
       ],
-      [{ day: "2026-11-02", count: "also not" }]
+      [{ day: "2026-11-02", entry: "vip", ep: 0, count: "also not" }]
     );
     expect(summary.total).toBe(2);
     expect(summary.vip).toBe(0);
@@ -301,6 +302,28 @@ describe("entries summary", () => {
       ["2026-12-01", 2],
       ["2026-10-01", 1],
     ]);
+  });
+
+  it("folds in the daily counts from before the monthly ones, and VIP activations", () => {
+    const [november] = summariseVisits(
+      [{ month: "2026-11-01", path: "/comics", src: "poster", ep: 3, count: 1 }],
+      [
+        { day: "2026-11-03", entry: "poster", ep: 3, count: 2 },
+        { day: "2026-11-04", entry: "poster", ep: 3, count: 1 },
+        { day: "2026-11-04", entry: "direct", ep: 0, count: 5 },
+        { day: "2026-11-05", entry: "vip", ep: 0, count: 2 },
+        { day: "2026-11-05", entry: "something else", ep: 0, count: 9 },
+      ]
+    );
+    expect(november.bySource.poster).toBe(4);
+    expect(november.bySource.none).toBe(5);
+    expect(november.vip).toBe(2);
+    expect(november.total).toBe(11);
+    expect(november.byEpisode).toEqual([{ ep: 3, poster: 4, kudos: 0 }]);
+  });
+
+  it("lists every printed piece and no printed piece, in print order", () => {
+    expect(REPORT_SOURCES).toEqual([...PRINT_SOURCES, "none"]);
   });
 
   it("counts an episode only for a poster or kudos card scanned to /comics", () => {

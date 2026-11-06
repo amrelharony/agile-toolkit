@@ -84,7 +84,11 @@ function Month({ summary }: { summary: MonthSummary }) {
         posters, {summary.bySource.kudos} from kudos cards, and {summary.vip} VIP activations from
         the link in the book.
       </p>
-      <Rows title="By printed piece" empty="No visits this month." rows={sources} />
+      <Rows
+        title="By printed piece"
+        empty="No visits to the comics or kudos pages this month."
+        rows={sources}
+      />
       <section className="space-y-2">
         <h3 className="font-semibold text-text">By episode: posters and kudos cards</h3>
         {summary.byEpisode.length === 0 ? (
