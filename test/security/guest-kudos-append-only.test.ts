@@ -102,6 +102,16 @@ describe("guest kudos append-only write", () => {
     expect(h.inserts[0].from_profile_id).toBe(SESSION.profileId);
   });
 
+  it("stores a printed card's book episode, and only its number", async () => {
+    const res = await POST(
+      req({ ...kudosBody("kud_card"), theme: "ownership", episode: 7 }) as never
+    );
+    expect(res.status).toBe(200);
+    expect(h.inserts[0]).toMatchObject({ theme: "ownership", episode: 7 });
+    await POST(req(kudosBody("kud_plain")) as never);
+    expect(h.inserts[1].episode).toBeNull();
+  });
+
   it("REFUSES to overwrite a kudos owned by another profile (the IDOR)", async () => {
     h.existingKudos = { from_profile_id: "some-other-guest" };
     const res = await POST(req(kudosBody("kud_victim")) as never);
