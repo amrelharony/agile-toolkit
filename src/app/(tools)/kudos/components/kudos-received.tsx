@@ -30,10 +30,8 @@ export function KudosReceived({ onSendYourOwn }: { onSendYourOwn: () => void }) 
   useEffect(() => {
     const read = () => {
       const hash = window.location.hash;
-      if (!isCardLinkHash(hash)) {
-        setOpened(null);
-        return;
-      }
+      // Any other fragment (Skip to content's #main-content) leaves an open card as it is.
+      if (!isCardLinkHash(hash)) return;
       readCardLink(hash)
         .then((kudos) => setOpened({ kind: "card", kudos }))
         .catch((err: unknown) =>

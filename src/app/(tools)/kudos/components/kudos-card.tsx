@@ -197,7 +197,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
           }`}
           style={{ margin: 0 }}
         >
-          <span className="font-bold">Thank you for: </span>
+          {kudos.replyTo ? null : <span className="font-bold">Thank you for: </span>}
           {kudos.message}
         </p>
       </div>

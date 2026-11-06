@@ -223,6 +223,43 @@ describe("a visitor's kudos", () => {
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "Omar" } });
   };
 
+  it("starts each sent card's panel afresh, outside the form, and Write another goes back to it", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderPage();
+    write();
+    fireEvent.click(screen.getByRole("button", { name: /send kudos/i }));
+    await screen.findByRole("heading", { name: "Your kudos for Sara is ready" });
+    const link = (await screen.findByLabelText("Link to this card")) as HTMLInputElement;
+    expect(link.closest("form")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    expect(await screen.findByRole("button", { name: "Link copied" })).toBeInTheDocument();
+    expect(writeText).toHaveBeenCalledWith(link.value);
+
+    // A second card while the panel is open: nothing of the first one's state is left.
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "Ben" } });
+    fireEvent.change(screen.getByLabelText("Thank you for"), { target: { value: "the demo" } });
+    fireEvent.click(screen.getByRole("button", { name: /send kudos/i }));
+    await screen.findByRole("heading", { name: "Your kudos for Ben is ready" });
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Link copied" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Write another" }));
+    expect(screen.queryByRole("heading", { name: /is ready/ })).toBeNull();
+    expect(screen.getByLabelText("To")).toHaveFocus();
+  });
+
+  it("refuses a message longer than a card can carry, however few its words", async () => {
+    renderPage();
+    write();
+    const box = screen.getByLabelText("Thank you for") as HTMLTextAreaElement;
+    expect(box.maxLength).toBe(2000);
+    fireEvent.change(box, { target: { value: "x".repeat(2001) } });
+    fireEvent.click(screen.getByRole("button", { name: /send kudos/i }));
+    expect(await screen.findByText("Keep it to 50 words.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /is ready/ })).toBeNull();
+  });
+
   it("names its recipient in a plain text box", () => {
     renderPage();
     expect(screen.getByLabelText("To").tagName).toBe("INPUT");
@@ -286,6 +323,18 @@ describe("a card's link", () => {
     expect(screen.queryByRole("heading", { name: "A kudos card for Lina" })).toBeNull();
     expect(window.location.hash).toBe("");
     expect(window.location.pathname).toBe("/kudos");
+  });
+
+  it("stays open when another part of the page is linked, like Skip to content", async () => {
+    const link = await cardLink(CARD, window.location.origin);
+    window.history.replaceState(null, "", link.slice(window.location.origin.length));
+    renderPage();
+    await screen.findByRole("heading", { name: "A kudos card for Lina" });
+    await act(async () => {
+      window.history.pushState(null, "", "/kudos#main-content");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(screen.getByRole("heading", { name: "A kudos card for Lina" })).toBeInTheDocument();
   });
 
   it("says so when the link is damaged", async () => {

@@ -43,7 +43,8 @@ const BUILT_IN_THEMES: ReadonlySet<KudosBuiltInTheme> = new Set<KudosBuiltInThem
 ]);
 
 const SHORT_TEXT_MAX = 80;
-const MESSAGE_CHAR_MAX = 2000;
+/** The longest message a kudos may carry, in characters. */
+export const MESSAGE_CHAR_MAX = 2000;
 const ID_MAX = 64;
 const SENT_AT_MAX = 64;
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
