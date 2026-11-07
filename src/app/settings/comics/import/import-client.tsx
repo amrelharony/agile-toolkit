@@ -9,6 +9,8 @@ import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { processPanelImage } from "@/lib/comics/image-pipeline";
 import { planConflicts, runImport, type ImportProgress } from "@/lib/comics/import-runner";
 import {
+  MAX_IMPORT_STORIES,
+  PDF_STORIES_FILE,
   WEEKLY_SCRIPT_FILE,
   findWeeklyScriptFile,
   planWeeklyImport,
@@ -119,6 +121,9 @@ function ImportCard({
             ).story,
           savePanels: async (ep, panels, sharePath) =>
             (await portalApi.patchStory(ep, { panels: panels.map(panelForSave), sharePath })).story,
+          saveDraft: async (ep, draft) => {
+            await portalApi.leaveGuessDraft(ep, draft);
+          },
           convertAndUpload: (picked, panel, withShare, shareCorner) =>
             processPanelImage(picked.file, {
               corner: panel.creditCorner,
@@ -258,14 +263,16 @@ async function planWeekly(files: PickedFile[]): Promise<ImportPlan<PickedFile>> 
   if (!scriptFile) {
     return {
       ok: false,
-      problems: [`No editorial/${WEEKLY_SCRIPT_FILE} in this folder.`],
+      problems: [
+        `No editorial/${PDF_STORIES_FILE} (or the older editorial/${WEEKLY_SCRIPT_FILE}) in this folder.`,
+      ],
     };
   }
   let scripts: unknown;
   try {
     scripts = JSON.parse(await scriptFile.file.text());
   } catch {
-    return { ok: false, problems: [`${WEEKLY_SCRIPT_FILE} couldn't be read as JSON.`] };
+    return { ok: false, problems: [`${scriptFile.path} couldn't be read as JSON.`] };
   }
   return planWeeklyImport(scripts, files);
 }
@@ -295,8 +302,8 @@ export function ImportClient() {
         </p>
       ) : null}
       <ImportCard
-        title="Weekly batch"
-        intro={`The folder you extracted all five source volumes into. It reads editorial/${WEEKLY_SCRIPT_FILE} and needs 100 stories and 400 art files. Episodes 27 to 126 arrive as drafts, with nothing scheduled.`}
+        title="Weekly stories"
+        intro={`The folder scripts/extract-weekly-pdf.py made from the comic's PDFs: editorial/${PDF_STORIES_FILE} and its art folder. An older production folder with editorial/${WEEKLY_SCRIPT_FILE} works too. Up to ${MAX_IMPORT_STORIES} stories at a time; each arrives as a draft numbered 26 more than its N number (N001 is episode 27), with nothing scheduled. Drafted guesses wait for your approval.`}
         plan={planWeekly}
         canRun={isOwner}
       />
@@ -305,7 +312,7 @@ export function ImportClient() {
         <Link className="text-accent underline" href="/settings/comics">
           portal&apos;s review queue
         </Link>
-        .
+        , and approve each story&apos;s guess when you open it. Drafted guesses need migration 0035.
       </p>
     </div>
   );

@@ -1,21 +1,37 @@
 /**
- * Reading the weekly batch out of the production folder. Pure.
+ * Reading a weekly batch out of a folder. Pure.
  *
- * The scripts hold a great deal that must stay private: research references,
- * originality reviews, art reviews, production notes. So this never copies a
- * script and removes what it knows about. It builds each story from a fixed list
- * of fields, and anything else is dropped by construction, including whatever a
- * later edition of the scripts adds.
+ * Two kinds of folder: the one scripts/extract-weekly-pdf.py cuts out of the
+ * comic's PDFs (editorial/stories.json, with Claude's drafts merged in when
+ * there are any), and the older production folder (editorial/<WEEKLY_SCRIPT_FILE>).
+ * Any number of stories, from one to MAX_IMPORT_STORIES.
+ *
+ * The production scripts hold a great deal that must stay private: research
+ * references, originality reviews, art reviews, production notes. So this never
+ * copies a script and removes what it knows about. It builds each story from a
+ * fixed list of fields, and anything else is dropped by construction, including
+ * whatever a later edition adds.
  */
 
 import { BOOK_EPISODE_COUNT } from "./entry";
-import { DEFAULT_CREDIT_CORNER, type CreditCorner, type StoredPanel } from "./story-input";
+import { cleanText } from "./extras";
+import { readGuessDraft, type GuessDraft } from "./guess";
+import {
+  DEFAULT_CREDIT_CORNER,
+  STORY_LIMITS,
+  type CreditCorner,
+  type StoredPanel,
+} from "./story-input";
 import type { DialogueLine } from "./types";
 
-/** The exact file. The editorial folder also holds pilots, briefs and a rejected reserve. */
+/** What extract-weekly-pdf.py writes. Looked for first. */
+export const PDF_STORIES_FILE = "stories.json";
+/** The older production file. Its editorial folder also holds pilots, briefs and a rejected reserve. */
 export const WEEKLY_SCRIPT_FILE = "Agile_At_Work_Batch_1_100_Story_Scripts.json";
-export const WEEKLY_STORIES = 100;
-export const WEEKLY_PANELS = 400;
+/** All 330 stories in one go, with room for a few more. */
+export const MAX_IMPORT_STORIES = 400;
+/** The highest weekly number the database allows (migration 0029). */
+const MAX_EP = 999;
 
 /** The only script fields read. */
 export const STORY_KEYS = [
@@ -28,14 +44,19 @@ export const STORY_KEYS = [
   "episode_id",
   "art_files",
   "panels",
+  "guess",
+  "try_action",
+  "try_tool",
 ] as const;
-export const PANEL_KEYS = ["panel", "visual", "dialogue", "embedded_text"] as const;
+export const PANEL_KEYS = ["panel", "visual", "dialogue", "embedded_text", "alt"] as const;
 
 export interface ScriptPanel {
   panel: number;
   visual: string;
   dialogue: DialogueLine[];
   embeddedText: string[];
+  /** A drafted description. When there is one, it's used instead of the art direction. */
+  alt?: string;
 }
 
 export interface ScriptStory {
@@ -48,6 +69,8 @@ export interface ScriptStory {
   episodeId: string;
   artFiles: string[];
   panels: ScriptPanel[];
+  /** Claude's draft of the guess, Try it this week line and tool, or null. */
+  draft: GuessDraft | null;
 }
 
 const isString = (v: unknown): v is string => typeof v === "string";
@@ -57,9 +80,11 @@ function pickPanel(raw: unknown): ScriptPanel | null {
   if (!raw || typeof raw !== "object") return null;
   const p = raw as Record<(typeof PANEL_KEYS)[number], unknown>;
   if (typeof p.panel !== "number" || !isString(p.visual)) return null;
+  const alt = cleanText(p.alt, STORY_LIMITS.alt);
   return {
     panel: p.panel,
     visual: p.visual,
+    ...(alt ? { alt } : {}),
     dialogue: Array.isArray(p.dialogue)
       ? p.dialogue.flatMap((d: { speaker?: unknown; line?: unknown } | null) =>
           d && isString(d.line)
@@ -91,6 +116,7 @@ export function pickStory(raw: unknown): ScriptStory | null {
     episodeId: s.episode_id,
     artFiles: strings(s.art_files),
     panels: panels as ScriptPanel[],
+    draft: readGuessDraft({ guess: s.guess, tryAction: s.try_action, tryTool: s.try_tool }),
   };
 }
 
@@ -154,7 +180,7 @@ export function scriptPanelToStored(panel: ScriptPanel): StoredPanel {
     pathSmall: "",
     width: 0,
     height: 0,
-    alt: cleanDescription(panel.visual),
+    alt: panel.alt ?? cleanDescription(panel.visual),
     dialogue: panel.dialogue,
     signs: panel.embeddedText,
     needsReview: true,
@@ -180,6 +206,8 @@ export interface ImportStory<F> {
   panels: ImportPanel<F>[];
   /** The share image's credit corner, when it isn't the first panel's. */
   shareCorner?: CreditCorner;
+  /** Claude's draft, saved for the owner to approve. Never shown until then. */
+  draft?: GuessDraft | null;
 }
 
 export type ImportPlan<F> =
@@ -196,8 +224,13 @@ function endsWithPath(path: string, tail: string): boolean {
   return path === tail || path.endsWith(`/${tail}`);
 }
 
+/** The folder's stories file: the PDF extract's first, then the older production file. */
 export function findWeeklyScriptFile<F extends FolderFile>(files: readonly F[]): F | null {
-  return files.find((f) => endsWithPath(f.path, `editorial/${WEEKLY_SCRIPT_FILE}`)) ?? null;
+  return (
+    files.find((f) => endsWithPath(f.path, `editorial/${PDF_STORIES_FILE}`)) ??
+    files.find((f) => endsWithPath(f.path, `editorial/${WEEKLY_SCRIPT_FILE}`)) ??
+    null
+  );
 }
 
 const MAX_LISTED_PROBLEMS = 12;
@@ -209,8 +242,8 @@ function listProblems(label: string, items: readonly string[]): string {
 }
 
 /**
- * The whole weekly batch, or everything wrong with it. All or nothing up front,
- * so an hour's import can't discover a missing file at story 90.
+ * The whole batch, or everything wrong with it. All or nothing up front, so an
+ * hour's import can't discover a missing file at story 90.
  */
 export function planWeeklyImport<F extends FolderFile>(
   scripts: unknown,
@@ -218,11 +251,13 @@ export function planWeeklyImport<F extends FolderFile>(
 ): ImportPlan<F> {
   const episodes = (scripts as { episodes?: unknown } | null)?.episodes;
   if (!Array.isArray(episodes)) {
-    return { ok: false, problems: [`${WEEKLY_SCRIPT_FILE} has no list of episodes.`] };
+    return { ok: false, problems: ["The stories file has no list of episodes."] };
   }
   const problems: string[] = [];
-  if (episodes.length !== WEEKLY_STORIES) {
-    problems.push(`Found ${episodes.length} stories in the scripts, not ${WEEKLY_STORIES}.`);
+  if (episodes.length === 0 || episodes.length > MAX_IMPORT_STORIES) {
+    problems.push(
+      `Found ${episodes.length} stories in the file. An import takes 1 to ${MAX_IMPORT_STORIES}.`
+    );
   }
 
   const artByName = new Map<string, F>();
@@ -235,7 +270,6 @@ export function planWeeklyImport<F extends FolderFile>(
   const missing: string[] = [];
   const seenEps = new Set<number>();
   const seenIds = new Set<string>();
-  let panelCount = 0;
 
   episodes.forEach((raw, i) => {
     const story = pickStory(raw);
@@ -244,7 +278,7 @@ export function planWeeklyImport<F extends FolderFile>(
       return;
     }
     const ep = weeklyEp(story.productionNumber);
-    if (story.productionNumber < 1 || seenEps.has(ep)) {
+    if (story.productionNumber < 1 || ep > MAX_EP || seenEps.has(ep)) {
       problems.push(`${story.episodeId} has a bad or repeated production number.`);
       return;
     }
@@ -254,6 +288,12 @@ export function planWeeklyImport<F extends FolderFile>(
     }
     seenEps.add(ep);
     seenIds.add(story.episodeId);
+    if (story.panels.length === 0 || story.panels.length > STORY_LIMITS.panels) {
+      problems.push(
+        `${story.episodeId} has ${story.panels.length} panels. A story takes 1 to ${STORY_LIMITS.panels}.`
+      );
+      return;
+    }
     if (story.panels.length !== story.artFiles.length) {
       problems.push(
         `${story.episodeId} has ${story.panels.length} panels but ${story.artFiles.length} art files.`
@@ -271,7 +311,6 @@ export function planWeeklyImport<F extends FolderFile>(
       }
       panels.push({ file, text: scriptPanelToStored(panel) });
     });
-    panelCount += ordered.length;
     stories.push({
       ep,
       sourceId: story.episodeId,
@@ -282,12 +321,10 @@ export function planWeeklyImport<F extends FolderFile>(
       themes: story.themes,
       bookPage: null,
       panels,
+      draft: story.draft,
     });
   });
 
-  if (panelCount !== WEEKLY_PANELS && problems.length === 0) {
-    problems.push(`The scripts name ${panelCount} panels, not ${WEEKLY_PANELS}.`);
-  }
   if (missing.length > 0) problems.push(listProblems("Art files not in this folder", missing));
   return problems.length > 0 ? { ok: false, problems } : { ok: true, stories };
 }

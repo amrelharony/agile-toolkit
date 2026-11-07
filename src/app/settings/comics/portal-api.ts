@@ -135,6 +135,8 @@ export const portalApi = {
   saveGuess: (ep: number, json: GuessSave) =>
     call<GuessResponse>(`${stories}/${ep}/guess`, { method: "PUT", json }),
   guessDrafts: () => call<{ eps: number[] }>("/api/comics/guess-drafts"),
+  leaveGuessDraft: (ep: number, json: GuessDraft) =>
+    call<{ saved: boolean }>(`${stories}/${ep}/guess`, { method: "POST", json }),
   storyExtras: (ep: number) => call<{ extras: StoryExtras }>(`${stories}/${ep}/extras`),
   saveExtras: (ep: number, json: StoryExtras) =>
     call<{ extras: StoryExtras }>(`${stories}/${ep}/extras`, { method: "PUT", json }),
