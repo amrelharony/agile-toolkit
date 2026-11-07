@@ -88,7 +88,7 @@ export async function generateMetadata({ params }: StoryPageProps): Promise<Meta
       image: story.sharePath ? panelImageUrl(story.sharePath) : null,
     });
   }
-  // Says nothing about the story: this number may be next Monday's.
+  // Says nothing about the story: this number may be next Sunday's.
   return comicMetadata({
     title: "Coming soon — Agile at Work",
     description: "This comic is coming soon.",

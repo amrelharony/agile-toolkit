@@ -126,7 +126,7 @@ function ScheduleQueue({
       </summary>
       <div className="mt-2 space-y-3">
         <p className="text-sm text-sub">
-          Episodes 27 to 30 go out on the launch date, then one every Monday at 07:00 UTC in number
+          Episodes 27 to 30 go out on the launch date, then one every Sunday at 07:00 UTC in number
           order. You can still change any story&apos;s date afterwards.
         </p>
         {notReady > 0 ? (

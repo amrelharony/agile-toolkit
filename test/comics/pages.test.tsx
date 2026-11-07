@@ -258,7 +258,7 @@ describe("a number that isn't released", () => {
     const meta = await storyMetadata(params(31));
     expect(meta.title).toBe("Coming soon — Agile at Work");
     expect(meta.robots).toEqual({ index: false, follow: true });
-    // The book's share image, which says nothing about next Monday's story.
+    // The book's share image, which says nothing about next Sunday's story.
     expect(meta.openGraph?.images).toEqual([`https://agile.amrelharony.com${BOOK_SHARE_URL}`]);
     expect(meta.alternates?.canonical).toBeUndefined();
   });

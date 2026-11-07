@@ -17,7 +17,7 @@ import {
   type StoryDraft,
 } from "@/lib/comics/draft-store";
 import type { UploadedArt } from "@/lib/comics/image-pipeline";
-import { nextMondaySlot } from "@/lib/comics/queue";
+import { nextSundaySlot } from "@/lib/comics/queue";
 import {
   DEFAULT_CREDIT_CORNER,
   STORY_LIMITS,
@@ -551,7 +551,7 @@ export function StoryEditor({
   };
 
   const suggestDate = () =>
-    update({ release: toLocalInput(nextMondaySlot(new Date()).toISOString()) });
+    update({ release: toLocalInput(nextSundaySlot(new Date()).toISOString()) });
 
   const state = storyState(server?.releaseAt ?? null);
   const isBook = ep !== null && ep <= 26;
@@ -732,7 +732,7 @@ export function StoryEditor({
         ) : null}
       </section>
 
-      <Field label="Release date" hint="Your device's time. The usual slot is Monday at 07:00 UTC.">
+      <Field label="Release date" hint="Your device's time. The usual slot is Sunday at 07:00 UTC.">
         {(props) => (
           <Input
             {...props}
@@ -743,7 +743,7 @@ export function StoryEditor({
         )}
       </Field>
       <Button type="button" variant="outline" onClick={suggestDate}>
-        Use next Monday
+        Use next Sunday
       </Button>
 
       {problems.length > 0 ? (

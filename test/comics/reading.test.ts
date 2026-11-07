@@ -15,8 +15,8 @@ import {
   weekStreak,
 } from "@/lib/comics/reading";
 
-const MONDAY = new Date("2026-11-02T07:00:00.000Z");
-const days = (n: number) => new Date(MONDAY.getTime() + n * 86_400_000);
+const SUNDAY = new Date("2026-11-01T07:00:00.000Z");
+const days = (n: number) => new Date(SUNDAY.getTime() + n * 86_400_000);
 
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.restoreAllMocks());
@@ -24,17 +24,17 @@ afterEach(() => vi.restoreAllMocks());
 describe("reading", () => {
   it("counts a story once, however often it's read", () => {
     expect(hasRead(30)).toBe(false);
-    expect(markRead(30, MONDAY)).toEqual({ total: 1, weekStreak: 1 });
+    expect(markRead(30, SUNDAY)).toEqual({ total: 1, weekStreak: 1 });
     expect(markRead(30, days(1))).toBeNull();
     expect(markRead(31, days(1))).toEqual({ total: 2, weekStreak: 1 });
     expect(hasRead(30)).toBe(true);
   });
 
   it("keeps it under the agile-toolkit prefix, so Clear data and backups know it", () => {
-    markRead(30, MONDAY);
+    markRead(30, SUNDAY);
     expect(READING_KEY.startsWith("agile-toolkit:")).toBe(true);
     expect(JSON.parse(localStorage.getItem(READING_KEY)!).read).toEqual({
-      "30": MONDAY.toISOString(),
+      "30": SUNDAY.toISOString(),
     });
   });
 
@@ -42,12 +42,12 @@ describe("reading", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("blocked");
     });
-    expect(markRead(30, MONDAY)).toBeNull();
+    expect(markRead(30, SUNDAY)).toBeNull();
   });
 
   it("survives a damaged record", () => {
     localStorage.setItem(READING_KEY, "{not json");
-    expect(markRead(30, MONDAY)).toEqual({ total: 1, weekStreak: 1 });
+    expect(markRead(30, SUNDAY)).toEqual({ total: 1, weekStreak: 1 });
     localStorage.setItem(
       READING_KEY,
       JSON.stringify({ read: { 31: 5 }, sent: { 31: "x", 32: [null, { route: "retro-topic" }] } })
@@ -59,10 +59,11 @@ describe("reading", () => {
 });
 
 describe("the week streak", () => {
-  it("starts its weeks on Monday, in UTC like the releases", () => {
-    expect(weekNumber(new Date("2026-11-01T23:59:59.000Z"))).toBe(weekNumber(MONDAY) - 1);
-    expect(weekNumber(new Date("2026-11-02T00:00:00.000Z"))).toBe(weekNumber(MONDAY));
-    expect(weekNumber(new Date("2026-11-08T23:59:59.000Z"))).toBe(weekNumber(MONDAY));
+  it("starts its weeks on Sunday, in UTC like the releases", () => {
+    expect(weekNumber(new Date("2026-10-31T23:59:59.000Z"))).toBe(weekNumber(SUNDAY) - 1);
+    expect(weekNumber(new Date("2026-11-01T00:00:00.000Z"))).toBe(weekNumber(SUNDAY));
+    expect(weekNumber(new Date("2026-11-07T23:59:59.000Z"))).toBe(weekNumber(SUNDAY));
+    expect(weekNumber(new Date("2026-11-08T00:00:00.000Z"))).toBe(weekNumber(SUNDAY) + 1);
   });
 
   it("counts weeks in a row up to this one", () => {
@@ -89,7 +90,7 @@ describe("the week streak", () => {
 
 describe("a question sent to the retro", () => {
   it("is counted once per story", () => {
-    expect(markAsked(30, MONDAY)).toBe(true);
+    expect(markAsked(30, SUNDAY)).toBe(true);
     expect(markAsked(30, days(1))).toBe(false);
     expect(markAsked(31, days(1))).toBe(true);
   });
@@ -97,7 +98,7 @@ describe("a question sent to the retro", () => {
 
 describe("where a story's question went", () => {
   it("keeps each story's links apart, and forgets a story with none left", () => {
-    const link = { route: "retro-topic" as const, targetId: "card-1", at: MONDAY.toISOString() };
+    const link = { route: "retro-topic" as const, targetId: "card-1", at: SUNDAY.toISOString() };
     setSentLinks(30, () => [link]);
     expect(sentLinks(30)).toEqual([link]);
     expect(sentLinks(31)).toEqual([]);
