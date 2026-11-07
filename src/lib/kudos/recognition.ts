@@ -1,9 +1,10 @@
 /**
- * Who the team's kudos recognise: per person received, from how many
- * people, and when last, plus fairness hints read from the roster. Shared
- * by the Kudos page (chart, table, verdict, hints, Markdown) and
- * tool.kudos.recognition_stats, so the agent and the page count the same
- * kudos the same way.
+ * Who the team's kudos reach. The Kudos page shows only who nobody has
+ * thanked in a window (`notThanked`: its Not thanked yet panel and the
+ * Markdown export, never a count); tool.kudos.recognition_stats also reads
+ * the per-person tallies and fairness hints. Both match a kudos to a
+ * teammate the same way, so the agent and the page agree on who has been
+ * thanked.
  *
  * Pure and server-safe: no React, and only plain modules (the example-id
  * helpers, MIN_SAMPLE, the name matching in lib/team/names), so the agent
@@ -84,13 +85,19 @@ export interface RecipientTally {
   lastAt: string | null;
 }
 
+/** A roster member, by id and their trimmed name. */
+export interface RosterName {
+  memberId: string;
+  name: string;
+}
+
 export interface RecognitionSummary {
   /** Kudos counted: in the window, replies and examples left out. */
   total: number;
   /** Everyone who received one, most first (ties by name). */
   recipients: RecipientTally[];
   /** Roster members with none in the window, in roster order. */
-  rosterWithNone: { memberId: string; name: string }[];
+  rosterWithNone: RosterName[];
   /** The top recipient's share of the kudos (0–1); null with no kudos. */
   topShare: number | null;
   /** Enough kudos (MIN_SAMPLE.distribution) to read how recognition spreads. */
@@ -100,7 +107,8 @@ export interface RecognitionSummary {
 export interface RecognitionOptions {
   /**
    * Count example kudos too. Only the page's example preview passes it, so
-   * the example can show its chart; the agent and other tools never do.
+   * the example can show its Not thanked yet list; the agent and other
+   * tools never do.
    */
   includeExamples?: boolean;
 }
@@ -180,6 +188,22 @@ export function recognitionReceived(
     topShare: total > 0 && recipients[0] ? recipients[0].count / total : null,
     enough: total >= MIN_SAMPLE.distribution,
   };
+}
+
+/**
+ * The roster's teammates nobody has thanked in `window` (all time without
+ * one), in roster order: the page's Not thanked yet list. It matches a
+ * kudos to a teammate exactly as recognitionReceived does (by member id,
+ * else by name; replies and examples left out unless asked), and carries no
+ * count: a kudos is a thank-you, not a score.
+ */
+export function notThanked(
+  kudos: readonly Kudos[],
+  roster: readonly TeamMember[],
+  window?: RecognitionWindow | null,
+  opts: RecognitionOptions = {}
+): RosterName[] {
+  return recognitionReceived(kudos, roster, window, opts).rosterWithNone;
 }
 
 export interface FairnessHint {

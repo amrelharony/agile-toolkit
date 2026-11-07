@@ -1,13 +1,10 @@
 import type { Kudos } from "@/lib/stores/workspace-types";
-import type { RecognitionSummary } from "@/lib/kudos/recognition";
+import type { RosterName } from "@/lib/kudos/recognition";
 import { isExampleId } from "@/lib/utils/example-id";
 import { localDay } from "@/lib/sprints/series";
-import { getKudosTheme } from "./types";
-import { recognitionChartText, recognitionVerdict } from "./verdict";
+import { cardName, designFor } from "@/lib/kudos/card-designs";
 
 const oneLine = (s: string) => s.replace(/\s*[\r\n]+\s*/g, " ").trim();
-/** A table cell: one line, with pipes escaped so they don't split the cell. */
-const cell = (v: string | number) => oneLine(String(v)).replace(/\|/g, "\\|");
 
 const byTime = (a: Kudos, b: Kudos) => Date.parse(a.sentAt) - Date.parse(b.sentAt);
 
@@ -15,39 +12,36 @@ function line(k: Kudos, reply: boolean): string {
   const day = localDay(k.sentAt) ?? "";
   const team = k.teamName ? ` (${oneLine(k.teamName)})` : "";
   if (reply) return `  - Reply from ${oneLine(k.fromName)} · ${day} — ${oneLine(k.message)}`;
-  const theme = getKudosTheme(k.theme).title;
-  return `- **${theme}** to ${oneLine(k.toName)}${team} from ${oneLine(k.fromName)} · ${day} — ${oneLine(k.message)}`;
+  // The printed card it is drawn as: an original theme reads "Thank you!".
+  const card = cardName(designFor(k));
+  return `- **${card}** to ${oneLine(k.toName)}${team} from ${oneLine(k.fromName)} · ${day} — ${oneLine(k.message)}`;
 }
 
 export interface KudosMarkdownOptions {
-  /** "in Sprint 12", "in the last 30 days", "so far": the Recognition window. */
+  /** "in Sprint 12", "in the last 30 days", "so far": the Not thanked yet window. */
   windowLabel: string;
+  /** The team's size: with nobody on it, the Not thanked yet section is left out. */
   rosterSize: number;
 }
 
 /**
- * The wall as Markdown: the recognition verdict and table for the window,
- * then every kudos newest first with its replies under it. Example kudos
- * are left out: the export is the team's own wall.
+ * The wall as Markdown: who hasn't been thanked in the window (names only,
+ * never a count; left out without a team), then every kudos newest first
+ * with its replies under it. Example kudos are left out: the export is the
+ * team's own wall.
  */
 export function kudosToMarkdown(
   kudos: readonly Kudos[],
-  summary: RecognitionSummary,
+  notThanked: readonly RosterName[],
   { windowLabel, rosterSize }: KudosMarkdownOptions
 ): string {
   const own = kudos.filter((k) => !isExampleId(k.id));
   const lines = ["# Kudos wall", ""];
-  const { table } = recognitionChartText(summary, rosterSize, windowLabel);
-  lines.push(`> ${oneLine(recognitionVerdict(summary, rosterSize, windowLabel))}`, "");
-  if (table.rows.length > 0) {
-    lines.push(
-      `## Recognition received ${windowLabel}`,
-      "",
-      `| ${table.columns.join(" | ")} |`,
-      `| ${table.columns.map(() => "---").join(" | ")} |`,
-      ...table.rows.map((row) => `| ${row.map(cell).join(" | ")} |`),
-      ""
-    );
+  if (rosterSize > 0) {
+    lines.push(`## Not thanked yet ${windowLabel}`, "");
+    if (notThanked.length > 0) lines.push(...notThanked.map((m) => `- ${oneLine(m.name)}`));
+    else lines.push(`Everyone on your team has been thanked ${windowLabel}.`);
+    lines.push("");
   }
   lines.push("## Wall", "");
   if (own.length === 0) {
@@ -78,7 +72,7 @@ export function kudosCsv(kudos: readonly Kudos[]): {
   rows: (string | number)[][];
 } {
   return {
-    headers: ["Sent at", "To", "From", "Theme", "Team", "Message", "Reply to"],
+    headers: ["Sent at", "To", "From", "Card", "Team", "Message", "Reply to"],
     rows: kudos
       .filter((k) => !isExampleId(k.id))
       .slice()
@@ -87,7 +81,7 @@ export function kudosCsv(kudos: readonly Kudos[]): {
         k.sentAt,
         k.toName,
         k.fromName,
-        getKudosTheme(k.theme).title,
+        cardName(designFor(k)),
         k.teamName ?? "",
         k.message,
         k.replyTo ?? "",

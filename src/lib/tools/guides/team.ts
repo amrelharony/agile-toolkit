@@ -71,24 +71,23 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "kudos",
     summary:
-      "A kudos wall is a shared place to thank teammates in public. Each kudos is a themed card with a short message, and Recognition received shows who the team's kudos reach, so recognition becomes a fair, regular habit.",
+      "A kudos wall is a shared place to thank teammates for what they did. Each kudos is an Agile at Work card, like the printed ones, with a short message, and Not thanked yet shows who nobody has thanked lately.",
     whenToUse: [
       "Right after someone helps you, unblocks the team or goes beyond their role.",
       "At the end of a sprint, to bring appreciation to the retro.",
       "In remote teams, where good work is easy to miss.",
     ],
     steps: [
-      "Pick a Card: one of the four habits on the printed cards (Focus, Ownership, Real needs, Trust), or Thank you! or Great teamwork!. Opened from an episode (/kudos?ep=NN), the form starts on that episode's card, with its headline and quote.",
+      "Under Card, pick the habit (Focus, Ownership, Real needs or Trust), then the episode card that matches what they did. If nothing matches, pick Open for Thank you! or Great teamwork!, and, if you like, the episode it reminds you of. A link with ?ep=NN starts on that episode's card.",
       "Choose the person in To. Nobody is picked for you, though a Suggested name may appear. Pick “Type a name…” for someone who isn't listed; a name that isn't on the team offers Add to the team.",
-      "In Thank you for, write up to 50 words on what they did and why it mattered, then click Send kudos or press Ctrl+Enter. If something is missing, the form says what. First names and general thanks only: no customer names or internal details.",
-      "Signed out, To is a plain name and your kudos stays private: Send gives a link that holds the card and a card image to pass on, and nothing is saved unless you tick Keep a copy on this device.",
-      "Under Recognition received, pick the Window (Sprint, Last 30 days or All time) to see how many kudos each person received. View as table adds from how many people, and when the last one came.",
-      "From 5 kudos, with two or more people on the team, a hint names teammates who haven't received one. Click Send to <name> to write them one.",
-      "Click Add to retro on a card to put it in the current retro's appreciations; it then shows On the retro board. React or reply to a card, and use Export for Markdown, CSV or a PNG of the wall.",
+      "In Thank you for, write up to 50 words on exactly what they did, then click Send kudos or press Ctrl+Enter. First names and general thanks only: no customer names or internal details.",
+      "Signed out, your kudos stays private: Send gives a link and a card image to pass on, and nothing is saved unless you tick Keep a copy on this device.",
+      "Signed in, Not thanked yet names the teammates no kudos has reached in the Window (Sprint, Last 30 days or All time). Click Send to <name> to write them one.",
+      "Click Add to retro on a card to put it in the current retro's appreciations, and read the week's kudos out there. React or reply to a card, and use Export for Markdown, CSV or a PNG of the wall.",
     ],
     tips: [
-      "Be specific. “Your test fixes halved our build time” means more than “Great job”.",
-      "Spread it around. Quiet work like reviews, docs and support often goes unthanked; the hints help you notice it.",
+      "Thank what the person did, not who they are. “You asked what could wait” means more than “You're great”.",
+      "Don't count or rank kudos. They are thanks, not a scoreboard, and never feed into performance reviews.",
       "Replies thank the sender and don't count as kudos for anyone.",
       "Example kudos are never posted, shared with the room or added to the retro.",
     ],
