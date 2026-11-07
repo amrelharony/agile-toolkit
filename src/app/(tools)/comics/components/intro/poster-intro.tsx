@@ -14,11 +14,12 @@ const WINDOW_CLASSES = [styles.w1, styles.w2, styles.w3, styles.w4];
 const LETTERING = "font-display font-bold text-text";
 
 /**
- * The poster's intro, three seconds long: whoever scanned the QR is standing at a
- * wall with a phone, so it says the episode and its title at once. A page inks
- * itself in with "Episode N" and the title, up to four of the story's panels
- * ink in after them, and Amr comes up at the corner to wave before the page
- * lifts away. Until the art is imported, the title fills one big window.
+ * The poster's intro, three seconds long: whoever scanned a poster's or kudos
+ * card's QR is standing at a wall or holding a card, so it says the episode and
+ * its title at once. A page inks itself in with "Episode N" and the title, any
+ * panels it's given ink in after them, and Amr comes up at the corner to wave
+ * before the page lifts away. The book's episodes are never put online, so their
+ * page gives it none, and the title fills one big window.
  *
  * No hooks, so the server page renders it and it plays from the first paint. The
  * choreography is all in poster-intro.module.css.
@@ -52,7 +53,7 @@ export function PosterIntro({
                     <IntroPanel
                       key={panel.pathSmall}
                       panel={panel}
-                      // Open by 0.5 s, too soon for lazy loading to start. The poster
+                      // Open by 0.5 s, too soon for lazy loading to start. A story's
                       // page shows these same files, so a later visit fetches nothing extra.
                       loading="eager"
                       className={cn(

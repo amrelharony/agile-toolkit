@@ -46,7 +46,7 @@ describe("the old reader", () => {
     const config = JSON.parse(readFileSync(path.join(process.cwd(), "lighthouserc.json"), "utf8"));
     const urls: string[] = config.ci.collect.url;
     expect(urls).toContain("http://localhost:3000/comics");
-    expect(urls).toContain("http://localhost:3000/comics?ep=01&b=01");
+    expect(urls).toContain("http://localhost:3000/comics?ep=01&src=poster");
     expect(urls.some((url) => url.includes("agile-at-work"))).toBe(false);
   });
 

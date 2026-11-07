@@ -38,10 +38,6 @@ import ComicStoryPage, {
   generateMetadata as storyMetadata,
   generateStaticParams as storyParams,
 } from "@/app/(tools)/comics/ep/[n]/page";
-import ComicPosterPage, {
-  generateMetadata as posterMetadata,
-  generateStaticParams as posterParams,
-} from "@/app/(tools)/comics/poster/[n]/page";
 import ComicLicensePage, { metadata as licenseMetadata } from "@/app/(tools)/comics/license/page";
 import { BOOK_SHARE_URL } from "@/lib/book/art";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
@@ -117,35 +113,123 @@ afterEach(() => {
 /** Any image but Amr beside an empty state's balloon. */
 const comicArt = () => document.querySelector('img:not([alt="Amr, waiting"])');
 
-describe("before anything is imported", () => {
-  it("a book episode still shows what its poster promises", async () => {
+describe("a book episode", () => {
+  beforeEach(() => {
+    h.summaries = [
+      summary(40, "Newest"),
+      summary(39, "Older"),
+      summary(38, "Oldest"),
+      summary(37, "Too old"),
+    ];
+  });
+
+  it("shows what its poster and kudos card print, and where to read it", async () => {
     render(await ComicStoryPage(params(12)));
     expect(screen.getByRole("heading", { level: 1, name: "But You Were Closed!" })).toBeTruthy();
+    expect(screen.getByText("Real needs")).toBeTruthy();
     expect(
       screen.getByText("Before speaking for everyone, check whose voices you have not heard.")
     ).toBeTruthy();
-    expect(screen.getByText("Book page 73")).toBeTruthy();
-    expect(screen.getByText("Borrow the book from your Scrum Master.")).toBeTruthy();
-    expect(screen.getByText("The comic will appear here soon")).toBeTruthy();
-    expect(comicArt()).toBeNull();
+    expect(screen.getByText("Ask your team:")).toBeTruthy();
+    expect(
+      screen.getByText("Who is missing from our feedback, and how will we reach them?")
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Read the full story: book page 73" })).toBeTruthy();
+    expect(
+      screen.getByText("Borrow Agile at Work by Amr Elharony from your Scrum Master.")
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Thank someone for this habit/ })).toHaveAttribute(
+      "href",
+      "/kudos?ep=12&src=comics"
+    );
+    // Never put online: the comic is in the book, so no panels and no promise that it's coming.
+    expect(screen.queryByRole("button", { name: /full screen/ })).toBeNull();
+    expect(screen.queryByText("The comic will appear here soon")).toBeNull();
     expect(document.querySelector('script[type="application/ld+json"]')).toBeNull();
   });
 
-  it("all 26 poster pages render from the book's own text", async () => {
+  it("renders all 26 from the campaign's data file", async () => {
     for (const episode of BOOK_EPISODES) {
-      const { unmount } = render(await ComicPosterPage(params(episode.ep)));
+      const { unmount } = render(await ComicStoryPage(params(episode.ep)));
       expect(screen.getByRole("heading", { level: 1, name: episode.title })).toBeTruthy();
       expect(screen.getByText(episode.lesson)).toBeTruthy();
       expect(screen.getByText(episode.question)).toBeTruthy();
-      expect(screen.getByText(`Book page ${episode.bookPage}`)).toBeTruthy();
+      expect(
+        screen.getByRole("heading", { name: `Read the full story: book page ${episode.bookPage}` })
+      ).toBeTruthy();
+      expect(screen.getByText(episode.theme)).toBeTruthy();
       unmount();
     }
   });
 
-  it("the plain address shows the section", async () => {
+  it("ignores any row the store has for it: the print is the source", async () => {
+    h.story = { ...STORY, ep: 12, collection: "book", title: "An edited title", bookPage: 73 };
+    render(await ComicStoryPage(params(12)));
+    expect(screen.getByRole("heading", { level: 1, name: "But You Were Closed!" })).toBeTruthy();
+    expect(screen.queryByText("An edited title")).toBeNull();
+    expect(screen.queryByRole("button", { name: /full screen/ })).toBeNull();
+    expect(h.extrasCalls).toEqual([]);
+  });
+
+  it("carries the poster intro, which a poster's or kudos card's scan plays, and its replay", async () => {
+    render(await ComicStoryPage(params(12)));
+    const overlay = document.querySelector('[data-intro-overlay="poster"]');
+    expect(overlay?.textContent).toContain("But You Were Closed!");
+    expect(screen.getByRole("button", { name: "Replay intro" })).toBeTruthy();
+  });
+
+  it("then the latest weekly comics", async () => {
+    render(await ComicStoryPage(params(12)));
+    expect(screen.getByRole("heading", { name: "The latest comics" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Newest/ }).getAttribute("href")).toBe("/comics?ep=40");
+    expect(screen.queryByText("Too old")).toBeNull();
+  });
+
+  it("steps through the book's own numbers", async () => {
+    render(await ComicStoryPage(params(12)));
+    expect(screen.getByRole("link", { name: "Previous story" }).getAttribute("href")).toBe(
+      "/comics?ep=11"
+    );
+    expect(screen.getByRole("link", { name: "Next story" }).getAttribute("href")).toBe(
+      "/comics?ep=13"
+    );
+  });
+
+  it("stays out of search and points at the public address", async () => {
+    const meta = await storyMetadata(params(12));
+    expect(meta.title).toBe("But You Were Closed! — Agile at Work");
+    expect(meta.robots).toEqual({ index: false, follow: true });
+    expect(meta.alternates?.canonical).toBe("/comics?ep=12");
+    expect(meta.other).toEqual({ robots: "noai, noimageai" });
+    expect(meta.openGraph?.images).toEqual([`https://agile.amrelharony.com${BOOK_SHARE_URL}`]);
+  });
+});
+
+describe("the plain address", () => {
+  it("lists the book's 26 episodes, colour-coded, and says the weekly stories are coming", async () => {
     render(await ComicsPage());
     expect(screen.getByRole("heading", { level: 1, name: "Agile at Work" })).toBeTruthy();
-    expect(screen.getByText("The comics are coming soon")).toBeTruthy();
+    expect(screen.getByText("A new story comes out every week, starting soon.")).toBeTruthy();
+    const index = screen.getByRole("region", { name: "The 26 episodes in the book" });
+    const links = within(index)
+      .getAllByRole("link")
+      .filter((a) => a.getAttribute("href")?.startsWith("/comics?ep="));
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(
+      BOOK_EPISODES.map((e) => `/comics?ep=${e.ep}`)
+    );
+    expect(links[6]).toHaveTextContent("Episode 7: Nobody Owns It");
+    expect(links[6]).toHaveTextContent("Ownership");
+    for (const habit of ["Focus", "Ownership", "Real needs", "Trust"]) {
+      expect(within(index).getAllByText(habit).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("offers the open kudos cards' scanners a way to thank someone", async () => {
+    render(await ComicsPage());
+    expect(screen.getByRole("link", { name: /Thank someone/ })).toHaveAttribute(
+      "href",
+      "/kudos?src=comics"
+    );
   });
 });
 
@@ -161,10 +245,9 @@ describe("a number that isn't released", () => {
   });
 
   it("names no address for a number that isn't one, never the internal page", async () => {
-    for (const meta of [await storyMetadata(params("abc")), await posterMetadata(params("abc"))]) {
-      expect(meta.alternates).toEqual({ canonical: null });
-      expect(meta.openGraph).not.toHaveProperty("url");
-    }
+    const meta = await storyMetadata(params("abc"));
+    expect(meta.alternates).toEqual({ canonical: null });
+    expect(meta.openGraph).not.toHaveProperty("url");
   });
 
   it("gives search engines and link previews nothing either", async () => {
@@ -336,7 +419,8 @@ describe("the story reader", () => {
     render(await ComicStoryPage(params(30)));
     expect(screen.getByText(STORY.lesson)).toBeTruthy();
     expect(screen.getByText(STORY.squadQuestion)).toBeTruthy();
-    expect(screen.queryByText("Read the full story.")).toBeNull();
+    expect(screen.queryByText(/Read the full story/)).toBeNull();
+    expect(screen.queryByRole("link", { name: /Thank someone for this habit/ })).toBeNull();
     expect(screen.getByText(/private property of this website/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Read the licence" }).getAttribute("href")).toBe(
       "/comics/license"
@@ -438,113 +522,11 @@ describe("a story's quiz and its own tool", () => {
   });
 });
 
-describe("a book episode with its art", () => {
-  beforeEach(() => {
-    h.story = {
-      ...STORY,
-      ep: 12,
-      collection: "book",
-      title: "But You Were Closed!",
-      bookPage: 73,
-      sharePath: null,
-    };
-  });
-
-  it("stays out of search", async () => {
-    const meta = await storyMetadata(params(12));
-    expect(meta.robots).toEqual({ index: false, follow: true });
-    expect(meta.alternates?.canonical).toBe("/comics?ep=12");
-  });
-
-  it("steps through the book's own numbers", async () => {
-    render(await ComicStoryPage(params(12)));
-    expect(screen.getByRole("link", { name: "Previous story" }).getAttribute("href")).toBe(
-      "/comics?ep=11"
-    );
-    expect(screen.getByRole("link", { name: "Next story" }).getAttribute("href")).toBe(
-      "/comics?ep=13"
-    );
-    expect(screen.getByText("Book page 73")).toBeTruthy();
-  });
-});
-
-describe("the poster page", () => {
-  beforeEach(() => {
-    h.story = { ...STORY, ep: 12, collection: "book", bookPage: 73, sharePath: null };
-    h.summaries = [
-      summary(40, "Newest"),
-      summary(39, "Older"),
-      summary(38, "Oldest"),
-      summary(37, "Too old"),
-    ];
-  });
-
-  it("shows the panels, lesson, question and how to read on", async () => {
-    render(await ComicPosterPage(params(12)));
-    expect(screen.getByAltText("Dina holds a thick folder at her desk.")).toBeTruthy();
-    expect(screen.getByText(STORY.lesson)).toBeTruthy();
-    expect(screen.getByText("Ask your team:")).toBeTruthy();
-    expect(screen.getByText(STORY.squadQuestion)).toBeTruthy();
-    expect(screen.getByText("Read the full story.")).toBeTruthy();
-    expect(screen.getByText("Book page 73")).toBeTruthy();
-    expect(screen.getByText("Borrow the book from your Scrum Master.")).toBeTruthy();
-    expect(screen.getByText(/private property of this website/)).toBeTruthy();
-  });
-
-  it("then the latest weekly comics", async () => {
-    render(await ComicPosterPage(params(12)));
-    expect(screen.getByRole("heading", { name: "The latest comics" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Newest/ }).getAttribute("href")).toBe("/comics?ep=40");
-    expect(screen.queryByText("Too old")).toBeNull();
-  });
-
-  it("stays out of search and points at the public address", async () => {
-    const meta = await posterMetadata(params(12));
-    expect(meta.robots).toEqual({ index: false, follow: true });
-    expect(meta.alternates?.canonical).toBe("/comics?ep=12");
-    expect(meta.other).toEqual({ robots: "noai, noimageai" });
-  });
-
-  it("previews with the story's own share image once it has one, and the book's until then", async () => {
-    expect((await posterMetadata(params(12))).openGraph?.images).toEqual([
-      `https://agile.amrelharony.com${BOOK_SHARE_URL}`,
-    ]);
-    h.story = { ...h.story!, sharePath: "stories/12/share.jpg" };
-    expect((await posterMetadata(params(12))).openGraph?.images).toEqual([
-      "https://ref.supabase.co/storage/v1/object/public/comic-panels/stories/12/share.jpg",
-    ]);
-  });
-
-  it("names the licence and credit in structured data, like the story's own page", async () => {
-    render(await ComicPosterPage(params(12)));
-    const data = JSON.parse(
-      document.querySelector('script[type="application/ld+json"]')!.innerHTML
-    );
-    expect(data["@type"]).toBe("ComicStory");
-    expect(data.url).toBe("https://agile.amrelharony.com/comics?ep=12");
-    expect(data.image[0]).toMatchObject({
-      license: "https://agile.amrelharony.com/comics/license",
-      creditText: "Amr Elharony",
-    });
-  });
-
-  it("has no structured data before the story's art is out", async () => {
-    h.story = null;
-    render(await ComicPosterPage(params(12)));
-    expect(document.querySelector('script[type="application/ld+json"]')).toBeNull();
-  });
-
-  it("is a 404 for anything but a book episode", async () => {
-    await expect(ComicPosterPage(params(27))).rejects.toThrow("NEXT_NOT_FOUND");
-  });
-});
-
 describe("static generation", () => {
   it("prerenders every book episode, so an outage can't lose a printed link", async () => {
     h.released = [27, 28];
     const eps = (await storyParams()).map((p) => Number(p.n));
     expect(eps).toEqual([...BOOK_EPISODES.map((e) => e.ep), 27, 28]);
-    expect(posterParams().map((p) => Number(p.n))).toEqual(BOOK_EPISODES.map((e) => e.ep));
   });
 
   it("falls back to the book alone if the weekly list fails", async () => {
@@ -576,7 +558,10 @@ describe("the gallery", () => {
     expect(screen.getByRole("link", { name: /Read this story/ }).getAttribute("href")).toBe(
       "/comics?ep=30"
     );
-    const cards = screen.getAllByRole("listitem").map((li) => li.textContent);
+    const weekly = screen.getByRole("region", { name: "Weekly stories" });
+    const cards = within(weekly)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
     expect(cards[0]).toContain("Handover story");
     expect(cards[1]).toContain("Forecast story");
     expect(cards).toHaveLength(2);
@@ -603,7 +588,10 @@ describe("the gallery", () => {
     const trigger = screen.getByRole("combobox", { name: label });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: "mouse" });
     fireEvent.click(await screen.findByRole("option", { name: option }));
-    const cards = screen.getAllByRole("listitem").map((li) => li.querySelector("h3")?.textContent);
+    const weekly = screen.getByRole("region", { name: "Weekly stories" });
+    const cards = within(weekly)
+      .getAllByRole("listitem")
+      .map((li) => li.querySelector("h3")?.textContent);
     expect(cards).toEqual(expected);
   });
 

@@ -6,7 +6,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { comicRewritePath } from "@/lib/comics/entry";
 import {
   INTRO_ATTR,
   INTRO_BOOT_SCRIPT,
@@ -14,6 +13,7 @@ import {
   INTRO_PRELOAD,
   INTRO_RUN_ATTR,
   RETURN_ATTR,
+  comicsIntroKind,
   introMarkKey,
   introSafetyMs,
   type IntroKind,
@@ -88,28 +88,41 @@ afterEach(() => {
 });
 
 describe("which intro an address plays", () => {
-  it("plays the book's at exactly /comics", () => {
-    expect(boot("/comics")).toBe("book");
+  // The book's QR (page 161 and the back cover), the open kudos cards', and
+  // anyone typing the address all land on the episode list.
+  it.each([
+    "/comics",
+    "/comics?src=book",
+    "/comics?src=kudos",
+    "/comics?utm_source=newsletter",
+    "/comics?ep=abc",
+    "/comics?ep=01&ep=02",
+  ])("plays the book's on the episode list, at %s", (address) => {
+    expect(boot(address)).toBe("book");
   });
 
-  it.each(["/comics?ep=12&b=03", "/comics?ep=1&b=10", "/comics?ep=01&b=01", "/comics?b=5&ep=26"])(
-    "plays the poster's at %s",
-    (address) => {
-      expect(boot(address)).toBe("poster");
-    }
-  );
+  it.each([
+    "/comics?ep=12&src=poster",
+    "/comics?ep=01&src=poster",
+    "/comics?ep=26&src=kudos",
+    "/comics?src=kudos&ep=7",
+    "/comics?ep=12&src=poster&utm_source=qr",
+    // The building posters printed `b` and no `src`.
+    "/comics?ep=12&b=03",
+    "/comics?b=5&ep=26",
+  ])("plays the poster's when a poster or kudos card opens a book episode, at %s", (address) => {
+    expect(boot(address)).toBe("poster");
+  });
 
   it.each([
     "/comics?ep=12",
-    "/comics?ep=12&b=99",
-    "/comics?ep=12&b=0",
-    "/comics?ep=30&b=01",
-    "/comics?ep=007&b=01",
-    "/comics?ep=12&b=1&b=2",
-    "/comics?ep=12&ep=13&b=1",
-    "/comics?ep=abc",
+    "/comics?ep=12&src=comics",
+    "/comics?ep=12&src=billboard",
+    "/comics?ep=12&src=poster&src=kudos",
+    "/comics?ep=30&src=poster",
     "/comics/early",
     "/comics/license",
+    "/kudos?src=sign",
     "/",
     "/retro",
     "/vip",
@@ -118,23 +131,29 @@ describe("which intro an address plays", () => {
     expect(localStorage.length).toBe(0);
   });
 
-  it("agrees with the middleware about what a poster link is", () => {
+  it("is comicsIntroKind, run in the browser", () => {
     const queries = [
+      "",
+      "src=book",
+      "ep=12&src=poster",
+      "ep=12&src=kudos",
+      "ep=12&src=comics",
       "ep=12&b=03",
-      "ep=12&b=11",
-      "ep=27&b=01",
-      "ep=26&b=10",
-      "ep=1&b=1",
-      "ep=012&b=1",
       "ep=12&b=",
-      "ep=&b=1",
-      "ep=9&b=09",
+      "ep=12&src=&b=1",
+      "ep=27&src=poster",
+      "ep=26&src=kudos",
+      "ep=012&src=poster",
+      "ep=&src=poster",
+      "ep=9&src=poster&src=poster",
+      "src=poster",
+      "b=1",
     ];
     for (const query of queries) {
       localStorage.clear();
       root.removeAttribute(INTRO_ATTR);
-      const poster = comicRewritePath(new URLSearchParams(query))?.startsWith("/comics/poster/");
-      expect(boot(`/comics?${query}`) === "poster", query).toBe(Boolean(poster));
+      const address = query ? `/comics?${query}` : "/comics";
+      expect(boot(address), query).toBe(comicsIntroKind(new URLSearchParams(query)));
     }
   });
 

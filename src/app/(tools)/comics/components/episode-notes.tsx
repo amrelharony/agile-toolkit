@@ -24,9 +24,12 @@ export function EpisodeNotes({ lesson, question, bookPage }: EpisodeNotesProps) 
         </div>
         {bookPage ? (
           <div>
-            <h2 className="font-display font-semibold text-text">Read the full story.</h2>
-            <p className="mt-1 text-sub">Book page {bookPage}</p>
-            <p className="mt-1 text-sub">Borrow the book from your Scrum Master.</p>
+            <h2 className="font-display font-semibold text-text">
+              Read the full story: book page {bookPage}
+            </h2>
+            <p className="mt-1 text-sub">
+              Borrow Agile at Work by Amr Elharony from your Scrum Master.
+            </p>
             <p className="mt-2 text-sm">
               <Link href={BOOK_PATH} className="font-medium text-accent underline">
                 About the book

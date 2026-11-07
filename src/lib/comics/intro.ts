@@ -1,11 +1,11 @@
 /**
  * The three comic intros, and which one a page load plays.
  *
- * | Way in                          | Intro  | Length |
- * | ------------------------------- | ------ | ------ |
- * | /comics?ep=NN&b=NN (poster QR)  | poster | 3 s    |
- * | /comics (book cover, typed)     | book   | 5 s    |
- * | /vip, landing from the book QR  | vip    | 9 s    |
+ * | Way in                                               | Intro  | Length |
+ * | ---------------------------------------------------- | ------ | ------ |
+ * | /comics?ep=NN&src=poster or &src=kudos (a QR on one) | poster | 3 s    |
+ * | /comics with no episode (the book's QR, typed)       | book   | 5 s    |
+ * | /vip, landing from the book's VIP QR                 | vip    | 9 s    |
  *
  * Each plays once per device, from the first paint. INTRO_BOOT_SCRIPT runs in
  * <head> (app/layout.tsx inlines it beside the theme script), so it decides
@@ -24,7 +24,14 @@
 
 import { COVER_INTRO_URL } from "@/lib/book/art";
 import { VIP_HINT_COOKIE, VIP_HINT_VALUE, VIP_ROUTE } from "@/lib/vip/constants";
-import { BOOK_EPISODE_COUNT, BUILDING_PATTERN, COMICS_ROUTE, EP_PATTERN } from "./entry";
+import {
+  BOOK_EPISODE_COUNT,
+  COMICS_ROUTE,
+  EP_PATTERN,
+  arrivalSource,
+  isBookEp,
+  parseEp,
+} from "./entry";
 
 export type IntroKind = "poster" | "book" | "vip";
 
@@ -79,15 +86,29 @@ const SAFETY_MS = JSON.stringify({
 });
 
 /**
- * Which intro this address plays, mirroring the middleware: exactly /comics is
- * the book's; /comics with one valid book episode and one valid building is a
- * poster's (comicRewritePath's poster branch); /vip is the VIP intro when the
- * hint cookie says this device was unlocked. The server sends the VIP overlay
- * only to an unlocked device, so a forged hint shows nothing.
+ * Which intro /comics plays: the book's on the episode list (no valid episode,
+ * whatever else the address says), and the poster's on a book episode that a
+ * poster or kudos card opened (arrivalSource, which counts an old `b=` poster
+ * as one). An episode opened any other way plays nothing. KIND_FOR_ADDRESS is
+ * this, as a string for <head>; a test holds the two together.
+ */
+export function comicsIntroKind(params: URLSearchParams): IntroKind | null {
+  const ep = parseEp(params.getAll("ep"));
+  if (ep === null) return "book";
+  if (!isBookEp(ep)) return null;
+  const src = arrivalSource(params);
+  return src === "poster" || src === "kudos" ? "poster" : null;
+}
+
+/**
+ * Which intro this address plays: comicsIntroKind on /comics; /vip is the VIP
+ * intro when the hint cookie says this device was unlocked. The server sends
+ * the VIP overlay only to an unlocked device, so a forged hint shows nothing.
  */
 const KIND_FOR_ADDRESS = `function(){var p=location.pathname,s=location.search;
-if(p==="${COMICS_ROUTE}"){if(s==="")return"book";var q=new URLSearchParams(s),e=q.getAll("ep"),b=q.getAll("b");
-if(e.length===1&&b.length===1&&/${EP_PATTERN.source}/.test(e[0])&&/${BUILDING_PATTERN.source}/.test(b[0])&&Number(e[0])<=${BOOK_EPISODE_COUNT})return"poster";return null}
+if(p==="${COMICS_ROUTE}"){var q=new URLSearchParams(s),e=q.getAll("ep"),r=q.getAll("src");
+if(!(e.length===1&&/${EP_PATTERN.source}/.test(e[0])))return"book";if(Number(e[0])>${BOOK_EPISODE_COUNT})return null;
+if((r.length===1&&(r[0]==="poster"||r[0]==="kudos"))||(r.length===0&&q.has("b")))return"poster";return null}
 if(p==="${VIP_ROUTE}"&&s===""){var c="";try{c=document.cookie}catch(x){}
 if(c.split(";").some(function(v){return v.trim()==="${VIP_HINT_COOKIE}=${VIP_HINT_VALUE}"}))return"vip"}
 return null}`;

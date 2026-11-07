@@ -29,31 +29,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("the poster beacon", () => {
-  it("reads the building from the address and sends only allowlisted values", async () => {
-    window.history.replaceState(null, "", "/comics?ep=12&b=03");
-    render(<EntryBeacon entry="poster" ep={12} />);
-    expect(sendBeacon).toHaveBeenCalledTimes(1);
-    expect(await sentBody()).toEqual({ entry: "poster", ep: 12, b: 3 });
-  });
-
-  it("sends nothing without a valid building", () => {
-    window.history.replaceState(null, "", "/comics?ep=12&b=99");
-    render(<EntryBeacon entry="poster" ep={12} />);
-    expect(sendBeacon).not.toHaveBeenCalled();
-  });
-
-  it("counts each poster once a day on this device", () => {
-    window.history.replaceState(null, "", "/comics?ep=12&b=03");
-    render(<EntryBeacon entry="poster" ep={12} />);
-    render(<EntryBeacon entry="poster" ep={12} />);
-    expect(sendBeacon).toHaveBeenCalledTimes(1);
-
-    window.history.replaceState(null, "", "/comics?ep=12&b=04");
-    render(<EntryBeacon entry="poster" ep={12} />);
-    expect(sendBeacon).toHaveBeenCalledTimes(2);
-  });
-
+describe("the count's daily mark", () => {
   it("counts again the next day", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-01T12:00:00Z"));

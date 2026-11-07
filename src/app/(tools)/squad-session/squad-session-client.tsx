@@ -29,15 +29,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArtComingSoon } from "@/app/(tools)/comics/components/art-coming-soon";
-import { ComicPanels } from "@/app/(tools)/comics/components/comic-panels";
 import { EpisodeNotes } from "@/app/(tools)/comics/components/episode-notes";
 import { RightsNotice } from "@/app/(tools)/comics/components/rights-notice";
 import { durationText } from "@/app/(tools)/ceremony-timer/agenda";
 import { StepTimerPanel } from "@/app/(tools)/liberating-structures/components/step-timer-panel";
 import { useReturnFocus } from "@/hooks/use-return-focus";
 import type { BookEpisode } from "@/lib/comics/book-episodes";
-import type { Story } from "@/lib/comics/types";
 import { liveLink } from "@/lib/handoffs/registry";
 import { sendHandoffBatch } from "@/lib/handoffs/send";
 import type { HandoffLink, HandoffSource } from "@/lib/handoffs/types";
@@ -85,20 +82,18 @@ const linksOf = (id: string): HandoffLink[] | undefined =>
   normalizeActions(useSquadSessionStore.getState().actions).find((a) => a.id === id)?.sentTo;
 
 /**
- * A timed 15-minute team session on one episode of the book: read the story,
- * discuss its question, agree actions, and send those to Retro Actions. The art
- * comes from the released story once it's imported, and the book's text works
- * without it.
+ * A timed 15-minute team session on one episode of the book: read the story in
+ * the book, discuss its question, agree actions, and send those to Retro
+ * Actions. The book's episodes are never put online, so it runs on their
+ * printed text.
  */
 export function SquadSessionClient({
   episodes,
   ep,
-  story,
 }: {
   episodes: readonly BookEpisode[];
   /** The episode in the address, if any. */
   ep: number | null;
-  story: Story | null;
 }) {
   const router = useRouter();
   const announce = useAnnounce();
@@ -165,9 +160,9 @@ export function SquadSessionClient({
   const episode: SessionEpisode | null = book
     ? {
         ep: book.ep,
-        title: story?.title ?? book.title,
-        lesson: story?.lesson ?? book.lesson,
-        question: story?.squadQuestion ?? book.question,
+        title: book.title,
+        lesson: book.lesson,
+        question: book.question,
       }
     : null;
 
@@ -344,13 +339,11 @@ export function SquadSessionClient({
               </SectionCard>
             )}
 
-            {story ? <ComicPanels panels={story.panels} title={episode.title} /> : null}
             <EpisodeNotes
               lesson={episode.lesson}
               question={episode.question}
               bookPage={book?.bookPage}
             />
-            {story ? null : <ArtComingSoon />}
             <RightsNotice />
 
             <SectionCard

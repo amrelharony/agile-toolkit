@@ -2,10 +2,11 @@
  * How a comic URL maps to a page. Pure and edge-safe: the middleware runs
  * this on every /comics request, so it must never import Supabase or do I/O.
  *
- * Every comic is /comics?ep=NN and a poster adds &b=NN. The numbers are printed
- * on 260 posters, zero padded, so those links can never change. A valid number
- * is rewritten to a static page behind the same address; anything else stays
- * the normal /comics page.
+ * Every comic is /comics?ep=NN. The print campaign's QR codes add which printed
+ * piece they're on, as `src` (see PRINT_SOURCES), and print the numbers zero
+ * padded, so `ep` and `src` can never be renamed. A valid number is rewritten to
+ * a static page behind the same address, whatever else the address says;
+ * anything else stays the normal /comics page, which lists the episodes.
  */
 
 /** Episodes 1-26 are the printed book, and weekly stories continue from 27. */
@@ -19,8 +20,19 @@ export const EARLY_COMICS_ROUTE = "/comics/early";
 
 /** 1-999, with one optional leading zero below 10: "7", "07" and "126", never "007". */
 export const EP_PATTERN = /^(?:0?[1-9]|[1-9]\d{1,2})$/;
-/** Buildings 1-10, padded like the poster links. */
-export const BUILDING_PATTERN = /^(?:0?[1-9]|10)$/;
+
+/**
+ * What a printed QR code says it's on, as `?src=`:
+ * - poster: the 26 A2 posters (/comics?ep=NN&src=poster);
+ * - kudos: the kudos cards, an episode's (/comics?ep=NN&src=kudos) or an open one (/comics?src=kudos);
+ * - book: page 161 and the back cover (/comics?src=book);
+ * - sign and guide: the kudos wall sign and the Scrum Master guide (/kudos?src=sign, ?src=guide);
+ * - comics: not printed, the comic pages' own links to /kudos.
+ */
+export const PRINT_SOURCES = ["poster", "kudos", "book", "sign", "guide", "comics"] as const;
+export type PrintSource = (typeof PRINT_SOURCES)[number];
+/** Where a visit came from: a printed piece, or "none" for anything else. */
+export type ArrivalSource = PrintSource | "none";
 
 type Raw = string | readonly string[] | null | undefined;
 
@@ -35,9 +47,16 @@ export function parseEp(raw: Raw): number | null {
   return value !== null && EP_PATTERN.test(value) ? Number(value) : null;
 }
 
-export function parseBuilding(raw: Raw): number | null {
-  const value = single(raw);
-  return value !== null && BUILDING_PATTERN.test(value) ? Number(value) : null;
+/**
+ * The printed piece an address names. A missing, unknown or repeated `src` is
+ * "none". The building posters before the campaign printed `&b=NN` and no
+ * `src`, so a `b` alone still means a poster; its number no longer matters.
+ */
+export function arrivalSource(params: URLSearchParams): ArrivalSource {
+  const src = single(params.getAll("src"));
+  if (src !== null && (PRINT_SOURCES as readonly string[]).includes(src)) return src as PrintSource;
+  if (params.getAll("src").length === 0 && params.has("b")) return "poster";
+  return "none";
 }
 
 export function isBookEp(ep: number): boolean {
@@ -54,16 +73,24 @@ export function earlyComicHref(ep: number): string {
   return `${EARLY_COMICS_ROUTE}?ep=${ep}`;
 }
 
-/** The static page behind /comics?ep=NN, or null to leave the normal /comics. */
-export function comicRewritePath(params: URLSearchParams): string | null {
-  const ep = parseEp(params.getAll("ep"));
-  if (ep === null) return null;
-  if (isBookEp(ep) && parseBuilding(params.getAll("b")) !== null) {
-    return `${COMICS_ROUTE}/poster/${ep}`;
-  }
-  return `${COMICS_ROUTE}/ep/${ep}`;
+/**
+ * "Thank someone for this habit": the kudos form, opened on the episode's printed
+ * card. Padded like the printed links, and `src` says it came from a comic page.
+ */
+export function thankSomeoneHref(ep: number): string {
+  return `/kudos?ep=${String(ep).padStart(2, "0")}&src=comics`;
 }
 
+/**
+ * The static page behind /comics?ep=NN, or null to leave the normal /comics.
+ * Only `ep` decides: a poster, a kudos card and a shared link open the same page.
+ */
+export function comicRewritePath(params: URLSearchParams): string | null {
+  const ep = parseEp(params.getAll("ep"));
+  return ep === null ? null : `${COMICS_ROUTE}/ep/${ep}`;
+}
+
+/** comics/poster/N was the building posters' page; the address still goes home. */
 const INTERNAL_PAGE = /^\/comics\/(?:ep|poster)\/([^/]+)$/;
 
 /**

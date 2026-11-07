@@ -1,6 +1,6 @@
 import "server-only";
 import { revalidatePath } from "next/cache";
-import { FLASHCARDS_ROUTE, isBookEp } from "./entry";
+import { FLASHCARDS_ROUTE } from "./entry";
 
 /**
  * Refresh what a save changed, by concrete path: pages also refresh on their own
@@ -12,8 +12,5 @@ export function revalidateComics(eps: readonly number[]): void {
   revalidatePath(FLASHCARDS_ROUTE);
   revalidatePath("/comics/feed.xml");
   revalidatePath("/comics/sitemap.xml");
-  for (const ep of eps) {
-    revalidatePath(`/comics/ep/${ep}`);
-    if (isBookEp(ep)) revalidatePath(`/comics/poster/${ep}`);
-  }
+  for (const ep of eps) revalidatePath(`/comics/ep/${ep}`);
 }
