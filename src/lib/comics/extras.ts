@@ -60,7 +60,8 @@ export function pickableTools(): { id: string; name: string }[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function text(value: unknown, max: number): string | null {
+/** Trimmed text without control characters, or null when empty or over `max`. */
+export function cleanText(value: unknown, max: number): string | null {
   if (typeof value !== "string") return null;
   // eslint-disable-next-line no-control-regex
   const clean = value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim();
@@ -70,9 +71,9 @@ function text(value: unknown, max: number): string | null {
 function question(raw: unknown): QuizQuestion | null {
   if (typeof raw !== "object" || raw === null) return null;
   const q = raw as Record<string, unknown>;
-  const asked = text(q.question, QUIZ_LIMITS.question);
+  const asked = cleanText(q.question, QUIZ_LIMITS.question);
   if (!asked || !Array.isArray(q.options)) return null;
-  const options = q.options.map((o) => text(o, QUIZ_LIMITS.option));
+  const options = q.options.map((o) => cleanText(o, QUIZ_LIMITS.option));
   if (options.length < QUIZ_LIMITS.minOptions || options.length > QUIZ_LIMITS.maxOptions) {
     return null;
   }
@@ -83,7 +84,9 @@ function question(raw: unknown): QuizQuestion | null {
   if (typeof answer !== "number" || !Number.isInteger(answer)) return null;
   if (answer < 0 || answer >= options.length) return null;
   const explain =
-    q.explain === undefined || q.explain === "" ? undefined : text(q.explain, QUIZ_LIMITS.explain);
+    q.explain === undefined || q.explain === ""
+      ? undefined
+      : cleanText(q.explain, QUIZ_LIMITS.explain);
   if (explain === null) return null;
   return { question: asked, options: options as string[], answer, ...(explain ? { explain } : {}) };
 }

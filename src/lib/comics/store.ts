@@ -19,6 +19,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSquadAdminClient } from "@/lib/squads/server";
 import { NO_EXTRAS, pickableTool, readQuiz, type StoryExtras } from "./extras";
+import { NO_GUESS, readGuess, readTryAction, type StoryGuessExtras } from "./guess";
 import type {
   ComicCollection,
   DialogueLine,
@@ -204,6 +205,36 @@ export async function getStoryExtras(ep: number): Promise<StoryExtras> {
     return { quiz: readQuiz(row.quiz), tryTool };
   } catch {
     return NO_EXTRAS;
+  }
+}
+
+/**
+ * A story's guess and "Try it this week" line (migration 0035), read the same
+ * soft way as getStoryExtras. Only the live columns: an import's drafts stay
+ * out of every page until the owner approves them. `early` is for the VIP page
+ * only, after its access check, and reaches the same window as getEarlyStory.
+ */
+export async function getStoryGuess(
+  ep: number,
+  { early = false }: { early?: boolean } = {}
+): Promise<StoryGuessExtras> {
+  try {
+    const row = await read<{ guess: unknown; try_action: unknown } | null>(
+      null,
+      (client, now, signal) =>
+        client
+          .from("comic_stories")
+          .select("guess,try_action")
+          .eq("ep", ep)
+          .eq("collection", "weekly")
+          .lte("release_at", early ? earlyUntil(now) : now)
+          .abortSignal(signal)
+          .maybeSingle<{ guess: unknown; try_action: unknown }>()
+    );
+    if (!row) return NO_GUESS;
+    return { guess: readGuess(row.guess), tryAction: readTryAction(row.try_action) };
+  } catch {
+    return NO_GUESS;
   }
 }
 
