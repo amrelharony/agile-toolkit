@@ -27,6 +27,7 @@ import { PrintThemeChip } from "../../components/print-theme-chip";
 import { ReadAheadLink } from "../../components/read-ahead-link";
 import { RightsNotice } from "../../components/rights-notice";
 import { SeenAtWork } from "../../components/seen-at-work";
+import { StreakNote } from "../../components/reader-progress";
 import { ReadTracker } from "../../components/story-actions";
 import { StoryNav } from "../../components/story-nav";
 import { StoryQuiz } from "../../components/story-quiz";
@@ -193,6 +194,7 @@ function WeeklyStoryPage({
         <StoryNav ep={ep} title={title} prevEp={prevEp} nextEp={nextEp} />
         {/* Only a story with its art can be read to the end. */}
         {story.panels.length > 0 ? <ReadTracker ep={ep} /> : null}
+        {story.panels.length > 0 ? <StreakNote /> : null}
         <RightsNotice />
         <ReadAheadLink />
         <CountDisclosure />

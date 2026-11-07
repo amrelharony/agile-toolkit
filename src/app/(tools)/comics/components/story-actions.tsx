@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Check, MessagesSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMascotStore } from "@/lib/agent/mascot/store";
-import { markAsked, markRead, sentLinks, setSentLinks } from "@/lib/comics/reading";
+import { READ_EVENT, markAsked, markRead, sentLinks, setSentLinks } from "@/lib/comics/reading";
 import { dispatch } from "@/lib/gamification/engine";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { sendHandoff } from "@/lib/handoffs/send";
@@ -134,6 +134,7 @@ export function ReadTracker({ ep }: { ep: number }) {
   const finish = useCallback(() => {
     const first = markRead(ep);
     if (!first) return;
+    window.dispatchEvent(new CustomEvent(READ_EVENT, { detail: first }));
     dispatch({
       name: "tool:comics:completed",
       meta: { ep, total: first.total, weekStreak: first.weekStreak },

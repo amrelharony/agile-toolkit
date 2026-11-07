@@ -27,6 +27,7 @@ import { CountDisclosure, VisitRecorder } from "@/components/visits/visit-record
 import { ComicCard, ComicCover } from "./comic-card";
 import { PrintThemeChip } from "./print-theme-chip";
 import { ReplayIntro } from "./intro/replay-intro";
+import { ReaderProgress } from "./reader-progress";
 
 const ALL = "all";
 
@@ -189,9 +190,12 @@ function FilterSelect({
 export function ComicsGallery({
   stories,
   bookEpisodes,
+  cast = [],
 }: {
   stories: readonly StorySummary[];
   bookEpisodes: readonly IndexEpisode[];
+  /** Every colleague's name, for the cast a reader has met. Names only. */
+  cast?: readonly string[];
 }) {
   const [theme, setTheme] = useState(ALL);
   const [character, setCharacter] = useState(ALL);
@@ -238,6 +242,7 @@ export function ComicsGallery({
         ) : (
           <p className="text-sub">A new story comes out every week, starting soon.</p>
         )}
+        {latest && cast.length > 0 ? <ReaderProgress cast={cast} stories={stories} /> : null}
 
         <BookIndex episodes={bookEpisodes} />
         <ThankSomeone />

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
 import { COMICS_ROUTE } from "@/lib/comics/entry";
 import { listReleasedWeekly } from "@/lib/comics/store";
+import { CAST } from "@/lib/vip/cast.generated";
 import { comicMetadata } from "./comic-metadata";
 import { ComicsGallery } from "./components/comics-gallery";
 import { BookIntro } from "./components/intro/book-intro";
@@ -26,6 +27,9 @@ export const metadata: Metadata = comicMetadata({
  * the gallery, not in it: ToolPageWrapper's entrance leaves a transform that
  * would trap a fixed overlay.
  */
+/** Names only: the rest of each card is the bible's and stays on the VIP pages. */
+const CAST_NAMES = CAST.map((c) => c.name);
+
 export default async function ComicsPage() {
   const stories = await listReleasedWeekly();
   const [latest] = stories;
@@ -35,6 +39,7 @@ export default async function ComicsPage() {
       <ComicsGallery
         stories={stories}
         bookEpisodes={BOOK_EPISODES.map(({ ep, title, theme }) => ({ ep, title, theme }))}
+        cast={CAST_NAMES}
       />
     </>
   );
