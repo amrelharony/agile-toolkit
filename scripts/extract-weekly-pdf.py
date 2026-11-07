@@ -18,8 +18,9 @@ nothing: run it on new PDFs first. --range keeps only those N numbers (for a
 pilot). --drafts merges what Claude
 drafted for each story, keyed by episode id ("AAW-N001"): guess, try_action,
 try_tool, theme_ids and, per panel, alt and dialogue. Anything else in it is
-ignored. Drafts arrive in the portal marked for review and show nowhere until
-the owner approves them.
+ignored, and so are drafts for stories outside this run, so one drafts file
+serves every PDF and every --range. Drafts arrive in the portal marked for
+review and show nowhere until the owner approves them.
 
 It stops, listing every problem, if a story page doesn't have exactly four
 panels with their labels, if a number appears twice, or if numbers are missing
@@ -38,6 +39,7 @@ import pymupdf
 
 HEADER = re.compile(r"^AAW-N(\d{3,4}) \| BATCH")
 LABEL = re.compile(r"^N(\d{3,4}) / P(\d)$")
+DRAFT_ID = re.compile(r"AAW-N\d{3,4}")
 PANELS_PER_STORY = 4
 TITLE_MIN_SIZE = 14
 
@@ -246,17 +248,23 @@ def main(argv):
             problems.append(f"Missing between N{min(found):03d} and N{max(found):03d}: {shown}{more}")
     else:
         problems.append("No story pages found.")
-    unknown = sorted(set(drafts) - {s["episode_id"] for _, s, _ in found.values()})
-    if unknown:
-        problems.append(f"Drafts for stories not in these PDFs: {', '.join(unknown[:12])}")
+    # A key that isn't an episode id is a typo; one for a story outside this run
+    # belongs to another PDF or range and is simply left out.
+    misnamed = sorted(k for k in drafts if not DRAFT_ID.fullmatch(k))
+    if misnamed:
+        problems.append(f"Drafts keyed by something other than AAW-N001: {', '.join(misnamed[:12])}")
     if problems:
         sys.exit("Nothing written:\n  " + "\n  ".join(problems))
+    in_run = {s["episode_id"] for _, s, _ in found.values()}
+    matched = sum(1 for k in drafts if k in in_run)
+    drafts_line = f"Drafts merged: {matched}" + (
+        f" ({len(drafts) - matched} for stories outside this run, left out)." if len(drafts) > matched else "."
+    )
     if check:
         numbers = sorted(found)
         print(
             f"OK: {len(numbers)} stories, N{numbers[0]:03d} to N{numbers[-1]:03d}, "
-            f"{len(numbers) * PANELS_PER_STORY} panels. Drafts matched: "
-            f"{sum(1 for _, s, _ in found.values() if s['episode_id'] in drafts)}."
+            f"{len(numbers) * PANELS_PER_STORY} panels. {drafts_line.replace('merged', 'matched')}"
         )
         return
 
@@ -289,7 +297,7 @@ def main(argv):
         f"Wrote {len(episodes)} stories (N{episodes[0]['production_number']:03d} to "
         f"N{episodes[-1]['production_number']:03d}, episodes {26 + episodes[0]['production_number']} "
         f"to {26 + episodes[-1]['production_number']}) and {len(episodes) * PANELS_PER_STORY} panels "
-        f"to {out}. Drafts merged: {sum(1 for e in episodes if e['episode_id'] in drafts)}."
+        f"to {out}. {drafts_line}"
     )
 
 
