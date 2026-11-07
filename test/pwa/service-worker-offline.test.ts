@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { EP_PATTERN } from "@/lib/comics/entry";
 
 const ORIGIN = "https://agile.test";
 const SOURCE = readFileSync(join(process.cwd(), "public", "sw.js"), "utf8");
@@ -28,16 +29,19 @@ const withoutQuery = (url: string) => url.split("?")[0];
 /** Runs the real worker file against an in-memory Cache with the browser's match rules. */
 function loadWorker() {
   const stored = new Map<string, FakePage>();
+  /** Like the real Cache, a key is a request or its URL. */
+  const urlOf = (key: FakeRequest | string) => (typeof key === "string" ? key : key.url);
   const cache = {
-    put: async (request: FakeRequest, response: FakePage) => {
-      stored.set(request.url, response);
+    put: async (key: FakeRequest | string, response: FakePage) => {
+      stored.set(urlOf(key), response);
     },
     keys: async () => Array.from(stored.keys()),
     delete: async (url: string) => stored.delete(url),
-    match: async (request: FakeRequest, options?: { ignoreSearch?: boolean }) => {
-      if (!options?.ignoreSearch) return stored.get(request.url);
+    match: async (key: FakeRequest | string, options?: { ignoreSearch?: boolean }) => {
+      const wanted = urlOf(key);
+      if (!options?.ignoreSearch) return stored.get(wanted);
       const url = Array.from(stored.keys()).find(
-        (key) => withoutQuery(key) === withoutQuery(request.url)
+        (saved) => withoutQuery(saved) === withoutQuery(wanted)
       );
       return url === undefined ? undefined : stored.get(url);
     },
@@ -72,6 +76,10 @@ function loadWorker() {
       network.mockRejectedValueOnce(new TypeError("offline"));
       return navigate(path);
     },
+    /** A copy saved by the worker before pageKey, under the page's whole address. */
+    saveAsBefore: (path: string) => {
+      stored.set(`${ORIGIN}${path}`, page(path));
+    },
   };
 }
 
@@ -95,6 +103,46 @@ describe("the service worker with no connection", () => {
     expect(await worker.offline("/comics?ep=12&src=kudos")).toMatchObject({
       name: "/comics?ep=12&src=kudos",
     });
+  });
+
+  it("finds a scanned comic under its tidied address", async () => {
+    const worker = loadWorker();
+    await worker.visit("/comics?ep=05&src=poster");
+    expect(await worker.offline("/comics?ep=05")).toMatchObject({
+      name: "/comics?ep=05&src=poster",
+    });
+  });
+
+  it("finds the gallery opened from an open kudos card at plain /comics", async () => {
+    const worker = loadWorker();
+    await worker.visit("/comics?src=kudos");
+    expect(await worker.offline("/comics")).toMatchObject({ name: "/comics?src=kudos" });
+  });
+
+  it("finds a printed ep=07 under the site's own ep=7, and back", async () => {
+    const scanned = loadWorker();
+    await scanned.visit("/comics?ep=07&src=poster");
+    expect(await scanned.offline("/comics?ep=7")).toMatchObject({
+      name: "/comics?ep=07&src=poster",
+    });
+    const browsed = loadWorker();
+    await browsed.visit("/comics?ep=7");
+    expect(await browsed.offline("/comics?ep=07&src=kudos")).toMatchObject({
+      name: "/comics?ep=7",
+    });
+  });
+
+  it("still finds a page the worker before saved under its whole address", async () => {
+    const worker = loadWorker();
+    worker.saveAsBefore("/comics?ep=05&src=poster");
+    expect(await worker.offline("/comics?ep=05&src=poster")).toMatchObject({
+      name: "/comics?ep=05&src=poster",
+    });
+  });
+
+  it("reads an episode as the site does", () => {
+    const sw = SOURCE.match(/const EP_PATTERN = (\/.*\/);/)?.[1];
+    expect(sw).toBe(String(EP_PATTERN));
   });
 
   it("keeps the gallery and a single story apart", async () => {

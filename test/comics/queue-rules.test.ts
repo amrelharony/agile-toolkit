@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { summariseEntries } from "@/lib/comics/entries-summary";
+import { REPORT_SOURCES, summariseVisits } from "@/lib/comics/entries-summary";
+import { PRINT_SOURCES } from "@/lib/comics/entry";
 import {
   checkReorder,
   nextMondaySlot,
@@ -277,10 +278,68 @@ describe("story fields", () => {
 
 describe("entries summary", () => {
   it("skips a count it can't read", () => {
-    const summary = summariseEntries([
-      { day: "2026-11-02", entry: "direct", ep: 0, building: 0, count: "not a number" },
-      { day: "2026-11-02", entry: "direct", ep: 0, building: 0, count: 2 },
-    ]);
+    const [summary] = summariseVisits(
+      [
+        { month: "2026-11-01", path: "/comics", src: "none", ep: 0, count: "not a number" },
+        { month: "2026-11-01", path: "/comics", src: "none", ep: 0, count: 2 },
+      ],
+      [{ day: "2026-11-02", entry: "vip", ep: 0, count: "also not" }]
+    );
     expect(summary.total).toBe(2);
+    expect(summary.vip).toBe(0);
+  });
+
+  it("skips a source it doesn't know, and keeps months apart", () => {
+    const summary = summariseVisits(
+      [
+        { month: "2026-11-01", path: "/comics", src: "direct", ep: 0, count: 5 },
+        { month: "2026-10-01", path: "/comics", src: "book", ep: 0, count: 1 },
+        { month: "2026-12-01", path: "/kudos", src: "guide", ep: 0, count: 2 },
+      ],
+      []
+    );
+    expect(summary.map((m) => [m.month, m.total])).toEqual([
+      ["2026-12-01", 2],
+      ["2026-10-01", 1],
+    ]);
+  });
+
+  it("folds in the daily counts from before the monthly ones, and VIP activations", () => {
+    const [november] = summariseVisits(
+      [{ month: "2026-11-01", path: "/comics", src: "poster", ep: 3, count: 1 }],
+      [
+        { day: "2026-11-03", entry: "poster", ep: 3, count: 2 },
+        { day: "2026-11-04", entry: "poster", ep: 3, count: 1 },
+        { day: "2026-11-04", entry: "direct", ep: 0, count: 5 },
+        { day: "2026-11-05", entry: "vip", ep: 0, count: 2 },
+        { day: "2026-11-05", entry: "something else", ep: 0, count: 9 },
+      ]
+    );
+    expect(november.bySource.poster).toBe(4);
+    expect(november.bySource.none).toBe(5);
+    expect(november.vip).toBe(2);
+    expect(november.total).toBe(11);
+    expect(november.byEpisode).toEqual([{ ep: 3, poster: 4, kudos: 0 }]);
+  });
+
+  it("lists every printed piece and no printed piece, in print order", () => {
+    expect(REPORT_SOURCES).toEqual([...PRINT_SOURCES, "none"]);
+  });
+
+  it("counts an episode only for a poster or kudos card scanned to /comics", () => {
+    const [summary] = summariseVisits(
+      [
+        { month: "2026-11-01", path: "/comics", src: "poster", ep: 3, count: 1 },
+        { month: "2026-11-01", path: "/comics", src: "none", ep: 3, count: 4 },
+        { month: "2026-11-01", path: "/kudos", src: "comics", ep: 3, count: 2 },
+        { month: "2026-11-01", path: "/comics", src: "kudos", ep: 1, count: 6 },
+      ],
+      []
+    );
+    expect(summary.byEpisode).toEqual([
+      { ep: 1, poster: 0, kudos: 6 },
+      { ep: 3, poster: 1, kudos: 0 },
+    ]);
+    expect(summary.total).toBe(13);
   });
 });

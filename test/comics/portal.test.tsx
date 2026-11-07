@@ -610,6 +610,7 @@ const CLIENT_LIB = [
   "src/lib/comics/import-runner.ts",
   "src/lib/comics/entries-summary.ts",
   "src/lib/comics/entry.ts",
+  "src/lib/comics/visits.ts",
 ];
 const SERVER_ONLY = [
   "server-only",

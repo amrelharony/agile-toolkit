@@ -444,7 +444,8 @@ The comics live at `/comics` and every story is `/comics?ep=NN`: book episodes a
 - **If Supabase is down** the read throws, the ISR refresh fails and pages keep their last good copy. The 26 book episodes are prerendered at build and read nothing from Supabase but the latest weekly stories, so printed links keep working.
 - **Free-tier download allowance:** pages load the 768 px file, and the 1536 px file only when a panel opens full screen. Don't add `srcset`: a 3x phone would pick the larger file.
 - **The book's episodes are never put online.** Their pages show what the poster and kudos card print: title, theme, lesson, question and book page, from `src/lib/comics/print-campaign.json`, the campaign's data file (the VIP link is left out of it, as the key must never be committed). Change the wording there, never in the code.
-- **Entry counts** are anonymous daily totals in `comic_entry_counts`, and licence requests wait in `comic_licence_requests`. Neither stores an IP address or user agent.
+- **Visit counts** are anonymous monthly totals in `comic_visit_counts` (migration 0034): page, printed piece (`src`) and episode, one per arrival, sent by `VisitRecorder` (`src/components/visits/visit-recorder.tsx`) on `/comics`, an episode's page and `/kudos`, and checked against `src/lib/comics/visits.ts` by `/api/comics/hit`. A printed piece's address counts each time it's opened and then loses `src`, so a shared or reloaded link isn't another scan; any other address counts only as a fresh arrival from outside the site. The browser stores nothing. The portal's Entries tab shows them month by month.
+- **VIP activations** still count by day in `comic_entry_counts`, which also keeps the old daily poster and building rows from before 0034. Licence requests wait in `comic_licence_requests`. None of these tables stores an IP address or user agent.
 
 ---
 
