@@ -19,12 +19,27 @@ interface Reading {
   sent: Record<string, HandoffLink[]>;
   /** Story number → when its question first went to a retro (ISO): the trophy's count. */
   asked: Record<string, string>;
+  /** Story number → the option guessed, or SKIPPED for "Just show me". */
+  guessed: Record<string, number>;
+  /** Story number → "Seen this at work?": 0 yes, 1 not yet. */
+  seen: Record<string, number>;
 }
 
-const empty = (): Reading => ({ read: {}, sent: {}, asked: {} });
+/** "Just show me": the last panel is out, and no guess was counted. */
+export const SKIPPED = -1;
+
+const empty = (): Reading => ({ read: {}, sent: {}, asked: {}, guessed: {}, seen: {} });
 
 const isLink = (v: unknown): v is HandoffLink =>
   isRecord(v) && typeof v.route === "string" && typeof v.targetId === "string";
+
+const choices = (v: unknown, min: number) =>
+  Object.fromEntries(
+    Object.entries(isRecord(v) ? v : {}).filter(
+      (e): e is [string, number] =>
+        Number.isInteger(e[1]) && (e[1] as number) >= min && (e[1] as number) <= 3
+    )
+  );
 
 const dates = (v: Record<string, unknown>) =>
   Object.fromEntries(
@@ -52,6 +67,8 @@ function load(): Reading {
         )
       ),
       asked: dates(isRecord(parsed.asked) ? parsed.asked : {}),
+      guessed: choices(parsed.guessed, SKIPPED),
+      seen: choices(parsed.seen, 0),
     };
   } catch {
     return empty();
@@ -121,6 +138,37 @@ export function markAsked(ep: number, now = new Date()): boolean {
   const key = String(ep);
   if (Object.prototype.hasOwnProperty.call(reading.asked, key)) return false;
   reading.asked[key] = now.toISOString();
+  return save(reading);
+}
+
+/** What this browser guessed for story `ep`: an option, SKIPPED, or null if nothing yet. */
+export function guessFor(ep: number): number | null {
+  return load().guessed[String(ep)] ?? null;
+}
+
+/**
+ * Note the guess (or SKIPPED). True the first time only, so a reload or a second
+ * tab can't count the same reader twice. False too when it couldn't be kept.
+ */
+export function markGuessed(ep: number, choice: number): boolean {
+  const reading = load();
+  const key = String(ep);
+  if (Object.prototype.hasOwnProperty.call(reading.guessed, key)) return false;
+  reading.guessed[key] = choice;
+  return save(reading);
+}
+
+/** This browser's "Seen this at work?" answer for story `ep`, or null. */
+export function seenFor(ep: number): number | null {
+  return load().seen[String(ep)] ?? null;
+}
+
+/** Note the answer. True the first time only, like markGuessed. */
+export function markSeen(ep: number, choice: number): boolean {
+  const reading = load();
+  const key = String(ep);
+  if (Object.prototype.hasOwnProperty.call(reading.seen, key)) return false;
+  reading.seen[key] = choice;
   return save(reading);
 }
 

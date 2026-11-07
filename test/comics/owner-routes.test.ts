@@ -257,7 +257,7 @@ const ROUTES: [string, unknown, string, object?][] = [
  * checks its own Origin and limits; nothing else under api/comics may skip the
  * owner check.
  */
-const PUBLIC = ["POST /guestbook", "POST /hit", "POST /licence"];
+const PUBLIC = ["GET /taps", "POST /guestbook", "POST /hit", "POST /licence", "POST /taps"];
 
 const METHOD = "GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS";
 

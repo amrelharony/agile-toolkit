@@ -410,6 +410,7 @@ describe("bypass paths", () => {
     "/api/comics/hit",
     "/api/comics/licence",
     "/api/comics/guestbook",
+    "/api/comics/taps",
     "/api/mascot/weather",
     "/guest",
     "/guest/join",
@@ -438,6 +439,7 @@ describe("bypass paths", () => {
     "/api/comics/guestbook/x",
     "/api/comics/licence-requests",
     "/api/comics/hit/x",
+    "/api/comics/taps/x",
     "/api/mascot/weather/x",
     "/api/mascot",
   ]) {
