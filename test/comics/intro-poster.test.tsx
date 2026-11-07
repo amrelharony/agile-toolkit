@@ -1,6 +1,6 @@
 /**
- * The poster intro: what it shows with the story's art and before it, the timing
- * its CSS keeps to, and where the poster page puts it.
+ * The poster intro: what it shows with a story's art and without it, the timing
+ * its CSS keeps to, and where a book episode's page puts it.
  */
 
 import { readFileSync } from "node:fs";
@@ -17,9 +17,11 @@ vi.mock("@/lib/comics/store", () => ({
   getReleasedStory: async () => h.story,
   getStoryExtras: async () => ({ quiz: null, tryTool: null }),
   listReleasedWeekly: async () => [],
+  listReleasedEps: async () => [],
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => {} }),
+  useSearchParams: () => null,
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
   },
@@ -35,7 +37,7 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 
 import { PosterIntro } from "@/app/(tools)/comics/components/intro/poster-intro";
 import styles from "@/app/(tools)/comics/components/intro/poster-intro.module.css";
-import ComicPosterPage from "@/app/(tools)/comics/poster/[n]/page";
+import ComicStoryPage from "@/app/(tools)/comics/ep/[n]/page";
 import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
 import { bookEpisode } from "@/lib/comics/book-episodes";
 import { panelImageUrl } from "@/lib/comics/images";
@@ -335,33 +337,31 @@ describe("the poster intro's CSS", () => {
   });
 });
 
-describe("the poster page", () => {
+describe("a book episode's page", () => {
   const params = { params: { n: "12" } };
 
   it("puts the intro beside the page's wrapper, not inside it", async () => {
-    render(await ComicPosterPage(params));
+    render(await ComicStoryPage(params));
     const wrapper = screen.getByTestId("tool-page-wrapper");
     expect(wrapper.contains(dialog())).toBe(false);
     expect(dialog().parentElement).toBe(wrapper.parentElement);
   });
 
-  it("before the art: letters the book's title", async () => {
-    render(await ComicPosterPage(params));
+  // The book's episodes are never put online, so the intro letters the printed
+  // title and shows no art, even if the store had a row for the number.
+  it("letters the book's title, with no art", async () => {
+    h.story = STORY;
+    render(await ComicStoryPage(params));
     const book = bookEpisode(12)!;
     expect(within(dialog()).getByText(book.title)).toBeInTheDocument();
-    expect(dialog().querySelector("img")).toBeNull();
-  });
-
-  it("with the art: the story's title and its own panels", async () => {
-    h.story = STORY;
-    render(await ComicPosterPage(params));
-    expect(within(dialog()).getByText(TITLE)).toBeInTheDocument();
-    const srcs = Array.from(dialog().querySelectorAll("img")).map((img) => img.getAttribute("src"));
-    expect(srcs).toEqual(STORY.panels.map((p) => panelImageUrl(p.pathSmall)));
+    expect(within(dialog()).queryByText(TITLE)).toBeNull();
+    expect(
+      dialog().querySelector(`img[src="${panelImageUrl(STORY.panels[0].pathSmall)}"]`)
+    ).toBeNull();
   });
 
   it("offers the intro again, on the page itself, and it plays the poster's", async () => {
-    render(await ComicPosterPage(params));
+    render(await ComicStoryPage(params));
     const replay = await screen.findByRole("button", { name: "Replay intro" });
     expect(screen.getByTestId("tool-page-wrapper")).toContainElement(replay);
     fireEvent.click(replay);

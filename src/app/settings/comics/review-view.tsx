@@ -12,10 +12,7 @@ import { processPanelImage } from "@/lib/comics/image-pipeline";
 import {
   CREDIT_CORNERS,
   STORY_LIMITS,
-  everReleased,
   panelHasArt,
-  publishProblems,
-  unreviewedPanels,
   type CreditCorner,
   type OwnerStory,
   type StoredPanel,
@@ -297,67 +294,6 @@ function ReviewPanel({
   );
 }
 
-/**
- * Book episodes held back only by their descriptions go out together. One that
- * was out and got unpublished isn't among them: that was a decision about that
- * episode, so it goes back from its own page.
- */
-function PublishReadyBook({
-  stories,
-  onSaved,
-}: {
-  stories: readonly OwnerStory[];
-  onSaved: (story: OwnerStory) => void;
-}) {
-  const ready = stories.filter(
-    (s) =>
-      s.collection === "book" &&
-      !s.releaseAt &&
-      !everReleased(s) &&
-      unreviewedPanels(s) === 0 &&
-      publishProblems(s).length === 0
-  );
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  if (ready.length === 0) return null;
-
-  const publish = async () => {
-    if (
-      !window.confirm(`Publish ${ready.length} book episodes? Printed links will show their art.`)
-    ) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      for (const story of ready) {
-        const { story: saved } = await portalApi.setRelease(story.ep, new Date().toISOString());
-        onSaved(saved);
-      }
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="space-y-2 rounded-md border border-border p-3">
-      <p className="text-sm text-text">
-        {ready.length} book {ready.length === 1 ? "episode is" : "episodes are"} ready to go out.
-      </p>
-      {error ? (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
-      <Button type="button" variant="toolkit" disabled={busy} onClick={publish}>
-        Publish them
-      </Button>
-    </div>
-  );
-}
-
 export function ReviewView({
   stories,
   canSave,
@@ -385,7 +321,6 @@ export function ReviewView({
 
   return (
     <div className="space-y-4">
-      <PublishReadyBook stories={stories} onSaved={onSaved} />
       {item && story ? (
         <ReviewPanel
           key={`${item.ep}:${item.index}`}

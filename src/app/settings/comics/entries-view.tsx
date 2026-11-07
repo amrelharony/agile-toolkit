@@ -2,10 +2,38 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { EntriesSummary } from "@/lib/comics/entries-summary";
+import { Field } from "@/components/ui/field";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { ArrivalSource } from "@/lib/comics/entry";
+import { REPORT_SOURCES, type MonthSummary } from "@/lib/comics/entries-summary";
 import { errorMessage, portalApi } from "./portal-api";
 
-const RANGES = [7, 30, 90, 365] as const;
+/** A year of months: the report never shows anything finer than a month. */
+const MONTHS = 12;
+
+const SOURCE_LABELS: Record<ArrivalSource, string> = {
+  poster: "Posters",
+  kudos: "Kudos cards",
+  book: "The book (page 161 and the back cover)",
+  sign: "The kudos wall sign",
+  guide: "The Scrum Master guide",
+  comics: "The comics' own links to kudos",
+  none: "No printed piece (typed, shared or bookmarked)",
+};
+
+function monthLabel(month: string): string {
+  return new Date(`${month}T00:00:00Z`).toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
 
 function Rows({
   title,
@@ -44,10 +72,64 @@ function Rows({
   );
 }
 
-/** Anonymous daily totals: there's nothing here about any one person. */
+function Month({ summary }: { summary: MonthSummary }) {
+  const sources = REPORT_SOURCES.map((src) => ({
+    label: SOURCE_LABELS[src],
+    count: summary.bySource[src],
+  })).filter((row) => row.count > 0);
+  return (
+    <>
+      <p className="text-sm text-text">
+        {summary.total} visits in {monthLabel(summary.month)}: {summary.bySource.poster} from
+        posters, {summary.bySource.kudos} from kudos cards, and {summary.vip} VIP activations from
+        the link in the book.
+      </p>
+      <Rows
+        title="By printed piece"
+        empty="No visits to the comics or kudos pages this month."
+        rows={sources}
+      />
+      <section className="space-y-2">
+        <h3 className="font-semibold text-text">By episode: posters and kudos cards</h3>
+        {summary.byEpisode.length === 0 ? (
+          <p className="text-sm text-sub">No poster or kudos card scanned this month.</p>
+        ) : (
+          <table className="w-full max-w-md text-sm">
+            <thead>
+              <tr className="text-left text-sub">
+                <th scope="col" className="py-1 font-medium">
+                  Episode
+                </th>
+                <th scope="col" className="py-1 text-right font-medium">
+                  Posters
+                </th>
+                <th scope="col" className="py-1 text-right font-medium">
+                  Kudos cards
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.byEpisode.map((e) => (
+                <tr key={e.ep} className="border-t border-border text-text">
+                  <th scope="row" className="py-1 text-left font-normal">
+                    Episode {e.ep}
+                  </th>
+                  <td className="py-1 text-right">{e.poster}</td>
+                  <td className="py-1 text-right">{e.kudos}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </>
+  );
+}
+
+/** Anonymous monthly totals: there's nothing here about any one person. */
 export function EntriesView({ enabled }: { enabled: boolean }) {
-  const [days, setDays] = useState<number>(30);
-  const [summary, setSummary] = useState<EntriesSummary | null>(null);
+  const [summary, setSummary] = useState<MonthSummary[] | null>(null);
+  const [month, setMonth] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
@@ -56,7 +138,7 @@ export function EntriesView({ enabled }: { enabled: boolean }) {
     let current = true;
     setError(null);
     portalApi
-      .entries(days)
+      .entries(MONTHS)
       .then((result) => {
         if (current) setSummary(result.summary);
       })
@@ -66,23 +148,12 @@ export function EntriesView({ enabled }: { enabled: boolean }) {
     return () => {
       current = false;
     };
-  }, [days, enabled, attempt]);
+  }, [enabled, attempt]);
+
+  const shown = summary?.find((m) => m.month === month) ?? summary?.[0] ?? null;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2" role="group" aria-label="How far back">
-        {RANGES.map((range) => (
-          <Button
-            key={range}
-            type="button"
-            variant={range === days ? "toolkit" : "outline"}
-            aria-pressed={range === days}
-            onClick={() => setDays(range)}
-          >
-            {range} days
-          </Button>
-        ))}
-      </div>
       {error ? (
         <div role="alert" className="space-y-2 text-sm">
           <p className="text-danger">{error}</p>
@@ -92,30 +163,31 @@ export function EntriesView({ enabled }: { enabled: boolean }) {
         </div>
       ) : null}
       {summary ? (
-        <>
-          <p className="text-sm text-text">
-            {summary.total} entries: {summary.poster} from posters, {summary.direct} from the
-            printed address or direct, {summary.vip} VIP activations from the link in the book.
-          </p>
-          <Rows
-            title="By building"
-            empty="No poster scans yet."
-            rows={summary.byBuilding.map((b) => ({
-              label: `Building ${b.building}`,
-              count: b.count,
-            }))}
-          />
-          <Rows
-            title="By episode"
-            empty="No poster scans yet."
-            rows={summary.byEpisode.map((e) => ({ label: `Episode ${e.ep}`, count: e.count }))}
-          />
-          <Rows
-            title="By day"
-            empty="Nothing counted yet."
-            rows={summary.byDay.map((d) => ({ label: d.day, count: d.count }))}
-          />
-        </>
+        shown ? (
+          <>
+            <div className="max-w-xs">
+              <Field label="Month">
+                {(props) => (
+                  <Select value={shown.month} onValueChange={setMonth}>
+                    <SelectTrigger {...props}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {summary.map((m) => (
+                        <SelectItem key={m.month} value={m.month}>
+                          {monthLabel(m.month)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </Field>
+            </div>
+            <Month summary={shown} />
+          </>
+        ) : (
+          <p className="text-sm text-sub">Nothing counted yet.</p>
+        )
       ) : error ? null : (
         <p className="text-sm text-sub">Loading entries…</p>
       )}

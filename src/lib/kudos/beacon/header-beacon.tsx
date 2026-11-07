@@ -29,7 +29,7 @@ import { useGuestProfile } from "@/lib/auth/guest-profile-provider";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Kudos } from "@/lib/stores/workspace-types";
-import { getKudosTheme } from "@/app/(tools)/kudos/types";
+import { designFor } from "@/lib/kudos/card-designs";
 import { cn } from "@/lib/utils";
 
 const RECENT_LIMIT = 5;
@@ -164,9 +164,12 @@ export function KudosHeaderBeacon() {
               {recent.map((k) => (
                 <li key={k.id} className="px-3 py-2">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-base" aria-hidden="true">
-                      {getKudosTheme(k.theme).emoji}
-                    </span>
+                    {/* The card's colour; rows are raw API rows, which designFor takes as they come. */}
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ background: designFor(k).colour }}
+                      aria-hidden="true"
+                    />
                     <span className="text-xs font-medium text-text truncate">
                       {k.fromName} → {k.toName}
                     </span>

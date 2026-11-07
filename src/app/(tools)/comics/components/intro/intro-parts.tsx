@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  * and windows onto real panels. No art is drawn here: the scenes animate the
  * story panels and Amr's sprite sheet, and letter the rest in the comic's hand.
  *
- * None of these is a client component: the server poster page renders them, and
+ * None of these is a client component: the server episode page renders them, and
  * the overlay is in the HTML from the start, so the head script's attribute can
  * show it before any script loads (see lib/comics/intro.ts).
  */

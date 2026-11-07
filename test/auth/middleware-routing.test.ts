@@ -483,8 +483,8 @@ describe("/comics addresses", () => {
 
   it("rewrites for the owner too, and keeps their rotated cookies", async () => {
     h.writes = [{ name: "sb-ref-auth-token.0", value: "rotated" }];
-    const res = await run(req("/comics?ep=07&b=03", { cookie: CHUNKED }));
-    expect(target(res)).toBe("/comics/poster/7?ep=07&b=03");
+    const res = await run(req("/comics?ep=07&src=poster", { cookie: CHUNKED }));
+    expect(target(res)).toBe("/comics/ep/7?ep=07&src=poster");
     expect(h.createServerClient).toHaveBeenCalled();
     expect(setCookie(res, "sb-ref-auth-token.0")).toContain("rotated");
   });

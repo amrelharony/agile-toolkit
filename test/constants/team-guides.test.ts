@@ -34,10 +34,13 @@ const scaleValues = (g: ToolGuide, name: string) =>
 const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"];
 
 describe("Team guides match their pages", () => {
-  it("Kudos: the windows and the hints' minimum", () => {
+  it("Kudos: Not thanked yet and its windows, and no counting", () => {
     const text = allText(guide("kudos"));
+    expect(text).toContain("Not thanked yet");
     expect(text).toContain(`Last ${RECENT_DAYS} days`);
-    expect(text).toContain(`From ${MIN_SAMPLE.distribution} kudos`);
+    expect(text).toContain("Don't count or rank kudos");
+    // The page shows no tallies, so the guide promises none.
+    expect(text).not.toMatch(/Recognition received|how many kudos|View as table/);
   });
 
   it("1:1s: one line per agenda status, and the usual gap from MIN_SAMPLE.average gaps", () => {

@@ -46,7 +46,6 @@ import {
 } from "@/app/(tools)/squad-session/store";
 import { isExampleId } from "@/components/tool-frame/example-data";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
-import type { Story } from "@/lib/comics/types";
 import { sourceHref, sourceLabel } from "@/lib/handoffs/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useDockTimer, type DockedTimer } from "@/lib/timer/dock-timer";
@@ -54,36 +53,11 @@ import { runSeconds } from "@/lib/timer/step-timer";
 import { getNextStepRule } from "@/lib/tools/next-steps";
 import type { Workspace } from "@/lib/stores/workspace-types";
 
-const STORY: Story = {
-  ep: 1,
-  collection: "book",
-  title: BOOK_EPISODES[0].title,
-  lesson: BOOK_EPISODES[0].lesson,
-  squadQuestion: BOOK_EPISODES[0].question,
-  castNames: [],
-  themes: [],
-  panels: [
-    {
-      pathFull: "s/1-1536.webp",
-      pathSmall: "s/1-768.webp",
-      width: 1536,
-      height: 1024,
-      alt: "The first panel.",
-      dialogue: [],
-      signs: [],
-    },
-  ],
-  sharePath: null,
-  bookPage: 9,
-  releaseAt: "2026-10-01T07:00:00.000Z",
-  updatedAt: "2026-10-01T07:00:00.000Z",
-};
-
-function open(ep: number | null, story: Story | null = null) {
+function open(ep: number | null) {
   return render(
     <LiveAnnouncerProvider>
       <TooltipProvider>
-        <SquadSessionClient episodes={BOOK_EPISODES} ep={ep} story={story} />
+        <SquadSessionClient episodes={BOOK_EPISODES} ep={ep} />
       </TooltipProvider>
     </LiveAnnouncerProvider>
   );
@@ -176,22 +150,16 @@ describe("the page", () => {
     expect(normalizeActions(useSquadSessionStore.getState().actions)).toHaveLength(2);
   });
 
-  it("uses the book's text when the art isn't out yet", () => {
+  // The book's episodes are never put online: the session reads the story in the
+  // book, and runs on its printed text.
+  it("runs on the book's printed text, pointing to the page", () => {
     open(1);
     expect(screen.getByText(BOOK_EPISODES[0].lesson)).toBeInTheDocument();
     expect(screen.getByText(BOOK_EPISODES[0].question)).toBeInTheDocument();
-    expect(screen.getByText("The comic will appear here soon")).toBeInTheDocument();
-    // Amr beside the empty state is the only picture: no comic art.
-    expect(screen.getAllByRole("img").map((img) => img.getAttribute("alt"))).toEqual([
-      "Amr, waiting",
-    ]);
-    expect(screen.getByText(/private property of this website/)).toBeInTheDocument();
-  });
-
-  it("uses the released art when there is some", () => {
-    open(1, STORY);
-    expect(screen.getByRole("img", { name: "The first panel." })).toBeInTheDocument();
+    expect(screen.getByText("Read the full story: book page 9")).toBeInTheDocument();
     expect(screen.queryByText("The comic will appear here soon")).toBeNull();
+    expect(screen.queryAllByRole("img")).toEqual([]);
+    expect(screen.getByText(/private property of this website/)).toBeInTheDocument();
   });
 
   it("starts the clock from the button", () => {

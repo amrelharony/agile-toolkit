@@ -32,8 +32,8 @@ vi.mock("@/lib/vip/book-access", async (importOriginal) => {
 });
 
 import { GET } from "@/app/vip/[key]/route";
-import { summariseEntries } from "@/lib/comics/entries-summary";
-import { parseHit } from "@/lib/comics/hit";
+import { summariseVisits } from "@/lib/comics/entries-summary";
+import { parseVisit } from "@/lib/comics/visits";
 
 function open(key: string, cookie?: string) {
   return GET(
@@ -110,8 +110,11 @@ describe("/vip/<key> counting", () => {
 
 describe("where the count can and can't come from", () => {
   it("the public beacon can't send a VIP entry", () => {
-    expect(parseHit({ entry: "vip" })).toBeNull();
-    expect(parseHit({ entry: "vip", ep: 1, b: 1 })).toBeNull();
+    expect(parseVisit({ entry: "vip" })).toBeNull();
+    expect(parseVisit({ path: "/comics", src: "vip", ep: 0 })).toBeNull();
+    expect(parseVisit({ path: "/vip", src: "none", ep: 0 })).toBeNull();
+    const route = readFileSync(path.join(process.cwd(), "src/app/api/comics/hit/route.ts"), "utf8");
+    expect(route).not.toContain("comic_entry_hit");
   });
 
   it("the middleware has no part in it", () => {
@@ -131,17 +134,24 @@ describe("where the count can and can't come from", () => {
 });
 
 describe("the portal's Entries view", () => {
-  it("adds VIP activations to the totals and the days", () => {
-    const summary = summariseEntries([
-      { day: "2026-11-02", entry: "vip", ep: 0, building: 0, count: 3 },
-      { day: "2026-11-02", entry: "direct", ep: 0, building: 0, count: 7 },
-      { day: "2026-11-01", entry: "poster", ep: 12, building: 3, count: "2" },
-    ]);
-    expect(summary.vip).toBe(3);
-    expect(summary.total).toBe(12);
-    expect(summary.byDay[0]).toEqual({ day: "2026-11-02", count: 10 });
-    // A VIP activation is neither a building nor an episode.
-    expect(summary.byBuilding).toEqual([{ building: 3, count: 2 }]);
-    expect(summary.byEpisode).toEqual([{ ep: 12, count: 2 }]);
+  it("adds VIP activations to the month's total, apart from the printed pieces", () => {
+    const [november, october] = summariseVisits(
+      [
+        { month: "2026-11-01", path: "/comics", src: "none", ep: 0, count: 7 },
+        { month: "2026-11-01", path: "/comics", src: "poster", ep: 12, count: "2" },
+      ],
+      [
+        { day: "2026-11-02", entry: "vip", ep: 0, count: 3 },
+        { day: "2026-11-05", entry: "vip", ep: 0, count: 1 },
+        { day: "2026-10-30", entry: "vip", ep: 0, count: 4 },
+      ]
+    );
+    expect(november.vip).toBe(4);
+    expect(november.total).toBe(13);
+    // A VIP activation is neither a printed piece nor an episode.
+    expect(november.bySource.none).toBe(7);
+    expect(november.bySource.book).toBe(0);
+    expect(november.byEpisode).toEqual([{ ep: 12, poster: 2, kudos: 0 }]);
+    expect(october).toMatchObject({ month: "2026-10-01", vip: 4, total: 4, byEpisode: [] });
   });
 });

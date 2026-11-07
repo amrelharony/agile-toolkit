@@ -132,6 +132,9 @@ export async function POST(req: NextRequest) {
     from_name: session.displayName,
     from_profile_id: session.profileId,
     team_name: k.teamName ?? null,
+    // The book episode a printed card was written from (migration 0034); its
+    // wording is read from the print campaign's data file, never stored.
+    episode: k.episode ?? null,
     message: k.message,
     sent_at: k.sentAt,
     version: k.version ?? 2,

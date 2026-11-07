@@ -381,18 +381,15 @@ describe("the public side", () => {
     "app/(tools)/comics/sitemap.ts",
     "app/(tools)/comics/feed.xml/route.ts",
     "app/(tools)/comics/ep/[n]/page.tsx",
-    "app/(tools)/comics/poster/[n]/page.tsx",
     "lib/comics/feed.ts",
   ])("%s never calls an early read", (file) => {
     expect(src(file)).not.toMatch(/listEarlyWeekly|getEarlyStory/);
   });
 
-  it.each(["app/(tools)/comics/ep/[n]/page.tsx", "app/(tools)/comics/poster/[n]/page.tsx"])(
-    "%s carries the same Read ahead link",
-    (file) => {
-      expect(src(file)).toContain("<ReadAheadLink />");
-    }
-  );
+  it("the episode page carries the Read ahead link, for a book episode and a weekly story", () => {
+    const page = src("app/(tools)/comics/ep/[n]/page.tsx");
+    expect(page.match(/<ReadAheadLink \/>/g)).toHaveLength(2);
+  });
 
   it("the Read ahead link goes to /comics/early with no prefetch", async () => {
     const { ReadAheadLink } = await import("@/app/(tools)/comics/components/read-ahead-link");

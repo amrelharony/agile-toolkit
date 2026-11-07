@@ -2951,7 +2951,7 @@ const RULES: Record<string, NextStepRule<object>> = {
         steps.push({
           id: "kudos-team",
           label: "Add your team to see who the kudos reach",
-          detail: "With the roster, Recognition shows who has had kudos lately and who hasn't.",
+          detail: "With the roster, Not thanked yet shows who hasn't had a kudos lately.",
           href: "/team",
         });
       }

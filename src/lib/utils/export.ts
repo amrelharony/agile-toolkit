@@ -92,6 +92,10 @@ export function exportToJSON(data: unknown, filename: string) {
   trackExport("json");
 }
 
+/** A 1×1 transparent GIF, drawn in place of a picture html-to-image couldn't fetch. */
+const BLANK_IMAGE =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
 /** The paper of the active theme (the class set by the toggle / boot script). */
 function exportBackground(): string {
   if (typeof document === "undefined") return THEME_COLORS.light;
@@ -134,6 +138,12 @@ export async function exportToPNG(
     toPng(element, {
       backgroundColor: exportBackground(),
       pixelRatio,
+      // A picture that can't be fetched (a kudos card's panel offline, say)
+      // is left blank instead of failing the whole export, and so is one
+      // that came back as an error page (any status but 404), which fails
+      // to decode.
+      imagePlaceholder: BLANK_IMAGE,
+      onImageErrorHandler: () => undefined,
     }),
     new Promise<string>((_, reject) =>
       setTimeout(() => reject(new Error("PNG export timed out")), timeoutMs)

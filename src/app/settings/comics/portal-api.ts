@@ -4,7 +4,7 @@
  * owner's own session, which is why an import can run from here.
  */
 
-import type { EntriesSummary } from "@/lib/comics/entries-summary";
+import type { MonthSummary } from "@/lib/comics/entries-summary";
 import type { StoryExtras } from "@/lib/comics/extras";
 import type { ScheduledRelease } from "@/lib/comics/queue";
 import type { OwnerStory, StoredPanel, StoryFields } from "@/lib/comics/story-input";
@@ -108,8 +108,8 @@ export const portalApi = {
       method: "POST",
       json: { items, allowUnreviewed },
     }),
-  entries: (days: number) =>
-    call<{ days: number; summary: EntriesSummary }>(`/api/comics/entries?days=${days}`),
+  entries: (months: number) =>
+    call<{ months: number; summary: MonthSummary[] }>(`/api/comics/entries?months=${months}`),
   licenceRequests: () =>
     call<{ requests: LicenceRequest[]; unhandled: number }>("/api/comics/licence-requests"),
   markHandled: (id: string, handled: boolean) =>

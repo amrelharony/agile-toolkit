@@ -18,6 +18,20 @@
  *     stays plain text, since the roster in a guest's browser isn't the
  *     owner's team.
  *
+ *   * `delivery` — "room" (the default: the owner and squad guests) hands
+ *     the kudos to the parent to save and broadcast; "link" (a signed-out
+ *     visitor) keeps it private: Send makes a link that holds the card and
+ *     a card image, and the parent keeps a copy on the device only when
+ *     "Keep a copy on this device" is ticked.
+ *
+ * The cards are the printed Agile at Work ones (lib/kudos/card-designs),
+ * picked with CardPicker: a theme (the four habits, or Open), then one of
+ * its cards, a book episode's card or "Thank you!" / "Great teamwork!",
+ * which can name the episode it reminds the sender of. A kudos keeps only
+ * the card's theme id and its episode number. `initialEpisode` (from
+ * /kudos?ep=NN) picks that episode's card. The fields are the printed card's
+ * back: To, Thank you for, From.
+ *
  * Nothing is sent until the draft is valid: a recipient (never picked on
  * the sender's behalf), a message of 1–50 words, and the short word caps on
  * names. Send stays enabled; pressing it on an incomplete draft shows what's
@@ -36,10 +50,14 @@ import { SectionCard } from "@/components/shared/section-card";
 import { PersonPicker } from "@/components/team/person-picker";
 import { findRosterMember, useTeamRoster } from "@/lib/team/use-team-roster";
 import { focusFirstInvalid } from "@/lib/utils/form";
-import type { Kudos, KudosSentiment, KudosTheme } from "@/lib/stores/workspace-types";
-import { KUDOS_THEMES, KUDOS_WORD_LIMITS, countWords } from "../types";
+import type { Kudos, KudosSentiment } from "@/lib/stores/workspace-types";
+import { MESSAGE_CHAR_MAX } from "@/lib/kudos/parse";
+import { cardDesign, designFor, episodeDesign, type CardDesignKey } from "@/lib/kudos/card-designs";
+import { KUDOS_WORD_LIMITS, countWords } from "../types";
 import { RECIPIENT_MAX, validateKudosDraft } from "../form";
+import { CardPicker } from "./card-picker";
 import { KudosCard } from "./kudos-card";
+import { KudosSent } from "./kudos-sent";
 import { analyseSentiment } from "@/lib/kudos/llm/sentiment";
 import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
 
@@ -69,9 +87,6 @@ interface Props {
   onFromNameChange?: (name: string) => void;
   /** Sender's squad profile id (guest mode) or undefined (owner). */
   defaultFromProfileId?: string;
-  /** Optional team label seeded into the form. Owners often want
-   *  "Data Governance" or similar; guests can leave blank. */
-  defaultTeamName?: string;
   /** Recipient options — populated by the parent based on mode. */
   recipients: RecipientOption[];
   /**
@@ -80,10 +95,17 @@ interface Props {
    * name on the roster stamps `toMemberId`.
    */
   rosterRecipients?: boolean;
+  /** The recipient is a plain text box, with no list to pick from (a visitor). */
+  plainRecipient?: boolean;
+  /** How a sent kudos leaves: through the parent ("room") or as a private link ("link"). */
+  delivery?: "room" | "link";
+  /** A book episode's printed card to start on. A new token picks it again. */
+  initialEpisode?: { ep: number; token: number };
   /** Called when the user clicks Send AND all validations pass. The
    *  parent is responsible for upserting + broadcasting; the form
-   *  only builds the Kudos shape. */
-  onSubmit: (kudos: Kudos) => Promise<void> | void;
+   *  only builds the Kudos shape. With "link" delivery, `keep` says
+   *  whether to keep a copy on this device. */
+  onSubmit: (kudos: Kudos, options: { keep: boolean }) => Promise<void> | void;
   /** Called when the user clicks Download. The parent invokes
    *  `exportPng` against the live-preview card; the form passes the
    *  current preview Kudos for filename construction. */
@@ -128,14 +150,19 @@ const newKudosId = (): string => {
 const SELECT_CLASS =
   "h-10 [@media(pointer:coarse)]:h-11 rounded-md bg-surface-deep border border-border px-3 text-sm text-text aria-[invalid=true]:border-danger";
 
+/** The card a new kudos starts on. */
+const DEFAULT_DESIGN: CardDesignKey = "open-thank-you";
+
 export function KudosForm({
   defaultFromName,
   fromPlaceholder,
   onFromNameChange,
   defaultFromProfileId,
-  defaultTeamName,
   recipients,
   rosterRecipients = false,
+  plainRecipient = false,
+  delivery = "room",
+  initialEpisode,
   onSubmit,
   onDownload,
   aiSuggestSlot,
@@ -143,11 +170,19 @@ export function KudosForm({
   fairnessHintSlot,
   forcedRecipient,
 }: Props) {
-  const [theme, setTheme] = useState<KudosTheme>("awesome");
+  const [design, setDesign] = useState<CardDesignKey>(DEFAULT_DESIGN);
+  // The book episode an open card reminds the sender of (only its number is kept).
+  const [remindsOf, setRemindsOf] = useState<number | null>(null);
+  const card = cardDesign(design) ?? designFor(null);
+  // What the kudos keeps: the card's theme id, and the episode of an
+  // episode's card, or the one an open card reminds the sender of.
+  const theme = card.theme;
+  const episode = card.kind === "episode" ? card.ep : remindsOf;
   const [recipientId, setRecipientId] = useState<string>("");
   const [freeRecipient, setFreeRecipient] = useState("");
-  const [teamName, setTeamName] = useState(defaultTeamName ?? "");
   const [message, setMessage] = useState("");
+  const [keepCopy, setKeepCopy] = useState(false);
+  const [sent, setSent] = useState<{ kudos: Kudos; kept: boolean } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Errors show after the first failed Send, then follow the typing.
@@ -170,9 +205,24 @@ export function KudosForm({
     if (!forcedRecipient) return;
     if (forcedRecipient.token === lastForcedTokenRef.current) return;
     lastForcedTokenRef.current = forcedRecipient.token;
-    setRecipientId(forcedRecipient.id);
+    if (plainRecipient) {
+      // The plain To box is a typed name: fill it, and the roster match still stamps the member.
+      const target = recipients.find((r) => r.id === forcedRecipient.id);
+      if (target) setFreeRecipient(target.displayName);
+    } else {
+      setRecipientId(forcedRecipient.id);
+    }
     messageRef.current?.focus();
-  }, [forcedRecipient]);
+  }, [forcedRecipient, plainRecipient, recipients]);
+
+  // /kudos?ep=NN: start on that episode's printed card.
+  const lastEpisodeTokenRef = useRef<number>(-1);
+  useEffect(() => {
+    if (!initialEpisode || initialEpisode.token === lastEpisodeTokenRef.current) return;
+    lastEpisodeTokenRef.current = initialEpisode.token;
+    const picked = episodeDesign(initialEpisode.ep);
+    if (picked) setDesign(picked.key);
+  }, [initialEpisode]);
 
   // The predicted recipient is offered, never picked: the first kudos
   // after load used to go to whoever the prediction (or the list) put first.
@@ -226,41 +276,9 @@ export function KudosForm({
     };
   }, [message, theme, aiSentiment]);
 
-  // Phase 5 — the picker used to map only the seven built-in
-  // KUDOS_THEMES, so a custom theme created in the settings dialog was
-  // impossible to actually select. Merge the device-local catalog in;
-  // custom entries carry the inline `KudosCustomTheme` object as their
-  // value (which is exactly what the wire + card renderer accept).
-  const customThemes = useKudosSettingsStore((s) => s.customThemes);
-  const themeOptions = useMemo(() => {
-    const builtIns = KUDOS_THEMES.map((t) => ({
-      key: t.id as string,
-      value: t.id as KudosTheme,
-      title: t.title,
-      emoji: t.emoji,
-      accent: t.accent,
-      hex: t.hex,
-      custom: false,
-    }));
-    const custom = customThemes.map((t) => ({
-      // Namespaced so a custom theme that reuses a built-in id can't
-      // collide with it in the selected-state comparison.
-      key: `custom:${t.id}`,
-      value: { id: t.id, title: t.title, emoji: t.emoji, hex: t.hex } as KudosTheme,
-      title: t.title,
-      emoji: t.emoji,
-      // Custom themes ship a hex, not Tailwind classes — the selected border is
-      // applied inline below. The label stays in page text: the hex can be anything.
-      accent: "border-border text-text",
-      hex: t.hex,
-      custom: true,
-    }));
-    return [...builtIns, ...custom];
-  }, [customThemes]);
-  const selectedThemeKey = typeof theme === "string" ? theme : `custom:${theme.id}`;
-
   const selectedRecipient = useMemo<RecipientOption | null>(() => {
-    if (recipientId === "free") {
+    // A visitor's typed name is the recipient: there's no list to pick from.
+    if (plainRecipient || recipientId === "free") {
       const cleaned = freeRecipient.trim();
       if (!cleaned) return null;
       // A typed name that is on the roster is that member (owner only).
@@ -273,16 +291,16 @@ export function KudosForm({
       };
     }
     return recipients.find((r) => r.id === recipientId) ?? null;
-  }, [recipientId, freeRecipient, recipients, rosterRecipients, roster]);
+  }, [plainRecipient, recipientId, freeRecipient, recipients, rosterRecipients, roster]);
 
   const checked = validateKudosDraft({
     to: selectedRecipient?.displayName ?? "",
     message,
-    team: teamName,
+    team: "",
   });
   const errors = attempt > 0 && !checked.ok ? checked.errors : {};
   // The "To" error sits on the typed name when typing, else on the picker.
-  const toError = recipientId === "free" ? undefined : errors.to;
+  const toError = recipientId === "free" && !plainRecipient ? undefined : errors.to;
   const freeError = recipientId === "free" ? errors.to : undefined;
   const messageWords = countWords(message);
   // Sender name is fixed; if it overflows the limit (e.g. a 5-word
@@ -304,13 +322,13 @@ export function KudosForm({
       ...(selectedRecipient?.memberId ? { toMemberId: selectedRecipient.memberId } : {}),
       fromName: defaultFromName.trim() || "—",
       fromProfileId: defaultFromProfileId,
-      teamName: teamName.trim() || undefined,
-      message: message.trim() || "Your wonderful message will appear here…",
+      ...(episode !== null ? { episode } : {}),
+      message: message.trim() || "what they did, in a few words…",
       // Updated on submit to the actual moment of send; the preview
       // shows today's date so the user sees what the card will say.
       sentAt: new Date().toISOString(),
     }),
-    [theme, selectedRecipient, defaultFromName, defaultFromProfileId, teamName, message]
+    [theme, episode, selectedRecipient, defaultFromName, defaultFromProfileId, message]
   );
 
   const send = async () => {
@@ -326,12 +344,14 @@ export function KudosForm({
         ...preview,
         toName: checked.values.to,
         message: checked.values.message,
-        teamName: checked.values.team,
         sentAt: new Date().toISOString(),
       };
-      await onSubmit(finalised);
-      // Reset the form for the next kudos. Keep theme so a user
-      // sending several "Thank You" cards doesn't have to re-pick.
+      const keep = delivery === "room" || keepCopy;
+      await onSubmit(finalised, { keep });
+      // A private kudos leaves as its link and image, from the panel above the form.
+      if (delivery === "link") setSent({ kudos: finalised, kept: keep });
+      // Reset the form for the next kudos. Keep the card (and the episode
+      // it reminds of) so a user sending several doesn't have to re-pick.
       setMessage("");
       setRecipientId("");
       setFreeRecipient("");
@@ -370,129 +390,183 @@ export function KudosForm({
   const squad = recipients.filter((r) => r.source === "squad");
   const team = recipients.filter((r) => r.source === "team");
 
-  return (
-    <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
-      {fairnessHintSlot}
-      <SectionCard
-        title="Compose kudos"
-        className="border-border bg-surface"
-        headerClassName="pb-3"
-        contentClassName="flex flex-col gap-4"
-      >
-        {/* Theme picker — chip-style for tactile feel. Matches the
-            "kudos type" select in the original HTML. */}
-        <div className="flex flex-col gap-2">
-          <p id="kudos-type-label" className="text-sm font-medium leading-none text-sub">
-            Kudos type
-          </p>
-          <div
-            role="group"
-            aria-labelledby="kudos-type-label"
-            className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
-          >
-            {themeOptions.map((t) => {
-              const isSelected = selectedThemeKey === t.key;
-              return (
-                <button
-                  key={t.key}
-                  type="button"
-                  onClick={() => setTheme(t.value)}
-                  aria-pressed={isSelected}
-                  style={t.custom && isSelected ? { borderColor: t.hex } : undefined}
-                  className={[
-                    "min-touch-coarse rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
-                    "flex items-center gap-1.5 justify-center",
-                    isSelected
-                      ? `${t.accent} bg-accent/5`
-                      : "border-border bg-surface-deep text-sub hover:border-border hover:text-text",
-                  ].join(" ")}
-                >
-                  <span aria-hidden="true">{t.emoji}</span>
-                  <span>{t.title}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+  // The next card starts at To (the card picked stays as it was).
+  const recipientRef = useRef<HTMLDivElement>(null);
+  const writeAnother = () => {
+    setSent(null);
+    recipientRef.current?.querySelector<HTMLElement>("input, select")?.focus();
+  };
 
-        {/* Recipient picker. Dropdown of squad profiles + team members,
-            with a "Type a name…" free-text fallback. */}
-        <div className="flex flex-col gap-2">
-          <Field label="To" error={toError}>
-            {(props) => (
-              <select
-                {...props}
-                value={recipientId}
-                onChange={(e) => setRecipientId(e.target.value)}
-                className={SELECT_CLASS}
-              >
-                <option value="">
-                  {recipients.length === 0 ? "No teammates yet" : "Pick a recipient…"}
-                </option>
-                {squad.length > 0 && (
-                  <optgroup label="Squad">
-                    {squad.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.displayName}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {team.length > 0 && (
-                  <optgroup label="Team members">
-                    {team.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.displayName}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                <option value="free">— Type a name…</option>
-              </select>
-            )}
-          </Field>
-          {suggested && (
-            <p className="flex flex-wrap items-center gap-2 text-xs text-sub">
-              <Sparkles className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-              <span>Suggested:</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setRecipientId(suggested.id)}
-              >
-                {suggested.displayName}
-              </Button>
-            </p>
-          )}
-          {recipientId === "free" &&
-            (rosterRecipients ? (
-              <PersonPicker
-                label="Recipient name"
-                value={freeRecipient}
-                onChange={setFreeRecipient}
-                error={freeError}
-                placeholder="Recipient name"
-              />
-            ) : (
-              <Field label="Recipient name" error={freeError}>
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Outside the form, so Enter in its link box sends nothing; a new card mounts a new panel. */}
+      {sent ? (
+        <KudosSent key={sent.kudos.id} kudos={sent.kudos} kept={sent.kept} onDone={writeAnother} />
+      ) : null}
+      <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
+        {fairnessHintSlot}
+        <SectionCard
+          title="Compose kudos"
+          className="border-border bg-surface"
+          headerClassName="pb-3"
+          contentClassName="flex flex-col gap-4"
+        >
+          <p className="rounded-md border border-border bg-surface-deep px-3 py-2 text-sm text-text">
+            First names and general thanks only. No customer names or internal details.
+          </p>
+          {/* The printed cards: a theme, then one of its cards. */}
+          <CardPicker
+            design={design}
+            remindsOf={remindsOf}
+            onDesignChange={setDesign}
+            onRemindsOfChange={setRemindsOf}
+          />
+
+          {/* Recipient. A visitor types a name; everyone else picks from the
+            squad profiles + team members, with a "Type a name…" fallback.
+            data-kudos-to: the page's "Send your own" starts here too. */}
+          <div ref={recipientRef} data-kudos-to>
+            {plainRecipient ? (
+              <Field label="To" error={errors.to}>
                 {(props) => (
                   <Input
                     {...props}
-                    placeholder="Recipient name"
+                    placeholder="Their first name"
                     value={freeRecipient}
                     onChange={(e) => setFreeRecipient(e.target.value)}
                     maxLength={RECIPIENT_MAX}
-                    autoFocus
                     className="bg-surface-deep border-border text-text"
                   />
                 )}
               </Field>
-            ))}
-        </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <Field label="To" error={toError}>
+                  {(props) => (
+                    <select
+                      {...props}
+                      value={recipientId}
+                      onChange={(e) => setRecipientId(e.target.value)}
+                      className={SELECT_CLASS}
+                    >
+                      <option value="">
+                        {recipients.length === 0 ? "No teammates yet" : "Pick a recipient…"}
+                      </option>
+                      {squad.length > 0 && (
+                        <optgroup label="Squad">
+                          {squad.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.displayName}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {team.length > 0 && (
+                        <optgroup label="Team members">
+                          {team.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.displayName}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      <option value="free">— Type a name…</option>
+                    </select>
+                  )}
+                </Field>
+                {suggested && (
+                  <p className="flex flex-wrap items-center gap-2 text-xs text-sub">
+                    <Sparkles className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+                    <span>Suggested:</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setRecipientId(suggested.id)}
+                    >
+                      {suggested.displayName}
+                    </Button>
+                  </p>
+                )}
+                {recipientId === "free" &&
+                  (rosterRecipients ? (
+                    <PersonPicker
+                      label="Recipient name"
+                      value={freeRecipient}
+                      onChange={setFreeRecipient}
+                      error={freeError}
+                      placeholder="Recipient name"
+                    />
+                  ) : (
+                    <Field label="Recipient name" error={freeError}>
+                      {(props) => (
+                        <Input
+                          {...props}
+                          placeholder="Recipient name"
+                          value={freeRecipient}
+                          onChange={(e) => setFreeRecipient(e.target.value)}
+                          maxLength={RECIPIENT_MAX}
+                          autoFocus
+                          className="bg-surface-deep border-border text-text"
+                        />
+                      )}
+                    </Field>
+                  ))}
+              </div>
+            )}
+          </div>
 
-        {/* Sender — read-only display + optional team label. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Message + live word counter. */}
+          <div className="flex flex-col gap-2">
+            <Field
+              label="Thank you for"
+              error={errors.message}
+              hint={
+                <span
+                  className={`block text-right ${
+                    messageWords > KUDOS_WORD_LIMITS.message ? "font-semibold text-danger" : ""
+                  }`}
+                >
+                  {messageWords}/{KUDOS_WORD_LIMITS.message} words · Ctrl+Enter sends
+                </span>
+              }
+            >
+              {(props) => (
+                <Textarea
+                  {...props}
+                  ref={messageRef}
+                  maxLength={MESSAGE_CHAR_MAX}
+                  placeholder="What they did, in a few words"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={onMessageKeyDown}
+                  rows={4}
+                  className={
+                    "bg-surface-deep border-border resize-none text-sm text-text" +
+                    (messageWords > KUDOS_WORD_LIMITS.message ? " border-danger/60" : "")
+                  }
+                />
+              )}
+            </Field>
+            {/* Phase 3 — backhanded warning. Advisory only; the Send
+              button stays enabled so the user can override the model. */}
+            {sentiment?.label === "backhanded" && (
+              <div
+                role="status"
+                className="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
+              >
+                <Sparkles className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+                <span>
+                  This reads as sarcastic — send anyway?
+                  {sentiment.tone.length > 0 && (
+                    <span className="text-warning"> (tone: {sentiment.tone.join(", ")})</span>
+                  )}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Sender — read-only display, or a visitor's own name. */}
           <div className="flex flex-col gap-2">
             {onFromNameChange ? (
               <>
@@ -523,115 +597,72 @@ export function KudosForm({
             )}
             {!fromOk && <p className="text-xs text-sub">Long names render small on the card.</p>}
           </div>
-          <Field label="Team (optional)" error={errors.team}>
-            {(props) => (
-              <Input
-                {...props}
-                placeholder="e.g. Data Governance"
-                value={teamName}
-                onChange={(e) => setTeamName(e.target.value)}
-                maxLength={48}
-                className="bg-surface-deep border-border text-text"
-              />
-            )}
-          </Field>
-        </div>
 
-        {/* Message + live word counter. */}
-        <div className="flex flex-col gap-2">
-          <Field
-            label="Message"
-            error={errors.message}
-            hint={
-              <span
-                className={`block text-right ${
-                  messageWords > KUDOS_WORD_LIMITS.message ? "font-semibold text-danger" : ""
-                }`}
-              >
-                {messageWords}/{KUDOS_WORD_LIMITS.message} words · Ctrl+Enter sends
-              </span>
-            }
-          >
-            {(props) => (
-              <Textarea
-                {...props}
-                ref={messageRef}
-                placeholder="Write your wonderful message here…"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyDown={onMessageKeyDown}
-                rows={4}
-                className={
-                  "bg-surface-deep border-border resize-none text-sm text-text" +
-                  (messageWords > KUDOS_WORD_LIMITS.message ? " border-danger/60" : "")
-                }
-              />
-            )}
-          </Field>
-          {/* Phase 3 — backhanded warning. Advisory only; the Send
-              button stays enabled so the user can override the model. */}
-          {sentiment?.label === "backhanded" && (
+          {aiSuggestSlot && <div>{aiSuggestSlot}</div>}
+
+          {delivery === "link" ? (
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-2 text-sm text-text">
+                <input
+                  type="checkbox"
+                  checked={keepCopy}
+                  onChange={(e) => setKeepCopy(e.target.checked)}
+                  className="h-4 w-4 accent-accent"
+                />
+                Keep a copy on this device
+              </label>
+              <p className="text-xs text-sub">
+                Send gives you a link and a card image to pass on. The card travels in the link
+                itself, so nothing is saved anywhere unless you keep a copy here.
+              </p>
+            </div>
+          ) : null}
+
+          {error && (
             <div
-              role="status"
-              className="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
+              role="alert"
+              className="flex items-center gap-2 rounded border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
             >
-              <Sparkles className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
-              <span>
-                This reads as sarcastic — send anyway?
-                {sentiment.tone.length > 0 && (
-                  <span className="text-warning"> (tone: {sentiment.tone.join(", ")})</span>
-                )}
-              </span>
+              <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{error}</span>
             </div>
           )}
-        </div>
 
-        {aiSuggestSlot && <div>{aiSuggestSlot}</div>}
-
-        {error && (
-          <div
-            role="alert"
-            className="flex items-center gap-2 rounded border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
-          >
-            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>{error}</span>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 bg-accent text-bg hover:bg-accent/80 font-semibold gap-2"
+            >
+              {submitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Send className="h-4 w-4" aria-hidden="true" />
+              )}
+              Send kudos
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleDownload}
+              disabled={!checked.ok}
+              className="border-border text-sub hover:text-text gap-2"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Download PNG
+            </Button>
           </div>
-        )}
+        </SectionCard>
 
-        <div className="flex flex-col sm:flex-row gap-2">
-          <Button
-            type="submit"
-            disabled={submitting}
-            className="flex-1 bg-accent text-bg hover:bg-accent/80 font-semibold gap-2"
-          >
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Send className="h-4 w-4" aria-hidden="true" />
-            )}
-            Send kudos
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleDownload}
-            disabled={!checked.ok}
-            className="border-border text-sub hover:text-text gap-2"
-          >
-            <Download className="h-4 w-4" aria-hidden="true" />
-            Download PNG
-          </Button>
-        </div>
-      </SectionCard>
-
-      <SectionCard
-        title="Live preview"
-        className="border-border bg-surface"
-        headerClassName="pb-3"
-        contentClassName="flex justify-center"
-      >
-        <KudosCard ref={cardRef} kudos={preview} />
-      </SectionCard>
-    </form>
+        <SectionCard
+          title="Live preview"
+          className="border-border bg-surface"
+          headerClassName="pb-3"
+          contentClassName="flex justify-center"
+        >
+          <KudosCard ref={cardRef} kudos={preview} />
+        </SectionCard>
+      </form>
+    </div>
   );
 }

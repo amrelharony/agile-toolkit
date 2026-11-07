@@ -1,4 +1,5 @@
 import type { Validation } from "@/lib/utils/form";
+import { MESSAGE_CHAR_MAX } from "@/lib/kudos/parse";
 import { KUDOS_WORD_LIMITS, countWords } from "./types";
 
 /** The longest recipient name the form takes (as the parser's id-free fields allow). */
@@ -34,7 +35,9 @@ export function validateKudosDraft(d: KudosDraft): Validation<KudosValues, Kudos
   else if (countWords(to) > KUDOS_WORD_LIMITS.to || to.length > RECIPIENT_MAX)
     errors.to = `Keep the name to ${KUDOS_WORD_LIMITS.to} words.`;
   if (!message) errors.message = "Write what you're thanking them for.";
-  else if (countWords(message) > KUDOS_WORD_LIMITS.message)
+  // Fifty words can still be a very long string (no spaces, a pasted token),
+  // which the parser, the wall and a card's link would all refuse.
+  else if (countWords(message) > KUDOS_WORD_LIMITS.message || message.length > MESSAGE_CHAR_MAX)
     errors.message = `Keep it to ${KUDOS_WORD_LIMITS.message} words.`;
   if (countWords(team) > KUDOS_WORD_LIMITS.team)
     errors.team = `Keep the team to ${KUDOS_WORD_LIMITS.team} words.`;

@@ -2,15 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import {
-  Check,
-  Lightbulb,
-  MessageSquarePlus,
-  Settings,
-  Sparkles,
-  Wifi,
-  WifiOff,
-} from "lucide-react";
+import { Check, MessageSquarePlus, Settings, Sparkles, Wifi, WifiOff } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ExportButton } from "@/components/shared/export-button";
@@ -25,16 +17,11 @@ import {
 } from "@/components/tool-frame/example-data";
 import { Button } from "@/components/ui/button";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
-import {
-  fairnessHints,
-  lastDaysWindow,
-  recognitionReceived,
-  sprintWindow,
-  RECENT_DAYS,
-} from "@/lib/kudos/recognition";
+import { lastDaysWindow, notThanked, sprintWindow, RECENT_DAYS } from "@/lib/kudos/recognition";
 import { RETRO_CURRENT_ID } from "@/lib/retro/board";
 import { todayIso } from "@/lib/sprints/series";
 import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
+import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
 import { kudosCardText, kudosOnBoard, KUDOS_TOOL } from "@/app/(tools)/retro/kudos";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -45,7 +32,10 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { useHistoryStore } from "@/lib/history/history-store";
 import { KUDOS_ACTIONS } from "@/lib/history/event-actions";
 import { emit } from "@/lib/sonification/emit";
-import { exportPng } from "@/lib/whiteboard/export";
+import { OnSearchParams } from "@/components/shared/on-search-params";
+import { parseEp } from "@/lib/comics/entry";
+import { cardImage, cardImageName, downloadBlob } from "@/lib/kudos/card-image";
+import { episodeCard } from "@/lib/kudos/print-cards";
 import { generateKudosPrompts } from "@/lib/ai-prompts/kudos";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import {
@@ -63,13 +53,14 @@ import { KudosForm, type RecipientOption } from "./components/kudos-form";
 import { KudosWall } from "./components/kudos-wall";
 import { KudosBeacon } from "./components/kudos-beacon";
 import { KudosSettings } from "./components/kudos-settings";
+import { KudosReceived } from "./components/kudos-received";
+import { KudosHowTo } from "./components/kudos-how-to";
 import { useKudosRoom, useOwnerKudosRoomKey } from "./use-kudos-room";
 import { useKudosReactions } from "./use-kudos-reactions";
 import { KUDOS_ENTITY_ID, KUDOS_TOOL_ID } from "./types";
 import { EXAMPLE_ROSTER, buildExample } from "./example";
 import { kudosCsv, kudosToMarkdown } from "./markdown";
-import { RecognitionSection, firstName, type WindowMode } from "./recognition-section";
-import { recognitionVerdict } from "./verdict";
+import { NotThankedSection, type WindowMode } from "./not-thanked-section";
 
 /**
  * Owner-side Kudos client.
@@ -454,7 +445,13 @@ export function KudosClient() {
     </div>
   ) : null;
 
-  const handleSubmit = async (kudos: Kudos) => {
+  const handleSubmit = async (kudos: Kudos, { keep }: { keep: boolean }) => {
+    // A visitor's kudos leaves as its link and image (the form shows them).
+    // Nothing is kept, not even in the history, unless they kept a copy.
+    if (!keep) {
+      emit("kudos", "sent");
+      return;
+    }
     // Phase 3 — sentiment + dedup BEFORE the room send so the stamped
     // values ride along with the optimistic write + broadcast. Both
     // helpers return null on any failure (no key, network, parse) so
@@ -499,7 +496,8 @@ export function KudosClient() {
     log(KUDOS_ACTIONS.KUDOS_SENT, {
       kudosId: stamped.id,
       theme: typeof stamped.theme === "string" ? stamped.theme : stamped.theme.id,
-      toName: stamped.toName,
+      // A visitor's history keeps no names: the card is between them and its recipient.
+      ...(isOwner ? { toName: stamped.toName } : {}),
       toProfileId: stamped.toProfileId,
       fromProfileId: stamped.fromProfileId,
       messageWords: stamped.message.split(/\s+/).filter(Boolean).length,
@@ -528,21 +526,41 @@ export function KudosClient() {
     });
   };
 
+  // On white, like the printed cards, whatever the page's theme. The form
+  // doesn't wait on this, so a failure is said here, not left unhandled.
   const handleDownload = async (kudos: Kudos, el: HTMLDivElement) => {
-    const slug =
-      kudos.toName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 32) || "recipient";
-    await exportPng(el, `kudos-to-${slug}.png`);
+    try {
+      downloadBlob(await cardImage(el), cardImageName(kudos.toName));
+    } catch {
+      toast.error("Couldn't make the card image. Try again.");
+    }
   };
 
-  // ── Recognition received ────────────────────────────────────────────
+  // /kudos?ep=NN opens on that book episode's printed card. A new episode in
+  // the address (a client navigation) picks again; the counter tidying `src`
+  // away leaves the same episode, which doesn't.
+  const [initialEpisode, setInitialEpisode] = useState<{ ep: number; token: number }>();
+  const onSearch = useCallback((params: URLSearchParams) => {
+    const ep = parseEp(params.getAll("ep"));
+    if (ep === null || !episodeCard(ep)) return;
+    setInitialEpisode((prev) => (prev?.ep === ep ? prev : { ep, token: (prev?.token ?? 0) + 1 }));
+  }, []);
+
+  // "Send your own" from a received card: on to the form's To field (the
+  // card picker, above it, can hold a select of its own).
+  const composeRef = useRef<HTMLDivElement>(null);
+  const focusCompose = () => {
+    composeRef.current
+      ?.querySelector<HTMLElement>("[data-kudos-to] input, [data-kudos-to] select")
+      ?.focus();
+  };
+
+  // ── Not thanked yet ─────────────────────────────────────────────────
   //
-  // Who the kudos reached, over the sprint picked here (shared with the
+  // Who no kudos has reached, over the sprint picked here (shared with the
   // sprint tools), the last 30 days, or all time. The window starts on
   // the sprint when one has dates, else the last 30 days, until a choice.
+  // Names only, for the owner: nothing here counts or ranks kudos.
   const announce = useAnnounce();
   const [today] = useState(() => todayIso());
   const {
@@ -573,25 +591,24 @@ export function KudosClient() {
       ? `${selectedSprint ? `${selectedSprint.name} has no dates, so` : "No sprint picked:"} showing the last ${RECENT_DAYS} days. Pick a sprint with dates.`
       : undefined;
 
-  // While the example is shown the section reads it (and its own team),
-  // so the chart and hints have something to show; the export stays yours.
+  // The panel is the owner's: a visitor's page neither shows it nor puts it
+  // in the Markdown. While the example is shown the panel reads it (and its
+  // own team), so the list has someone in it; the export stays yours.
+  const showNotThanked = authSettled && isOwner;
   const roster = teamMembers;
-  const statsRoster = preview ? EXAMPLE_ROSTER : roster;
-  // At most 500 kudos (the store's cap): cheap enough to count each render.
-  const summary = preview
-    ? recognitionReceived(
+  // At most 500 kudos (the store's cap): cheap enough to read each render.
+  const ownNotThanked = notThanked(room.kudos, roster, recognitionWindow);
+  const shownNotThanked = preview
+    ? notThanked(
         room.kudos.filter((k) => isExampleId(k.id)),
         EXAMPLE_ROSTER,
         recognitionWindow,
         { includeExamples: true }
       )
-    : recognitionReceived(room.kudos, roster, recognitionWindow);
-  const hints = fairnessHints(summary, statsRoster.length, { windowLabel });
-  const verdict = recognitionVerdict(summary, statsRoster.length, windowLabel);
-  const ownSummary = preview ? recognitionReceived(room.kudos, roster, recognitionWindow) : summary;
-  const markdown = kudosToMarkdown(room.kudos, ownSummary, {
+    : ownNotThanked;
+  const markdown = kudosToMarkdown(room.kudos, ownNotThanked, {
     windowLabel,
-    rosterSize: roster.length,
+    rosterSize: showNotThanked ? roster.length : 0,
   });
   const wallRef = useRef<HTMLDivElement>(null);
 
@@ -602,26 +619,6 @@ export function KudosClient() {
     setForcedRecipient((prev) => ({ id: option.id, token: (prev?.token ?? 0) + 1 }));
     announce(`Recipient set to ${option.displayName}`);
   };
-
-  // The roster's own hint, above the form, when the opt-in AI one isn't
-  // showing: it needs no key and nothing leaves the browser.
-  const noneHint = preview ? undefined : hints.find((h) => h.kind === "none-received");
-  const noneTarget = noneHint ? recipientFor(noneHint.memberIds[0]) : undefined;
-  const rosterHintSlot =
-    noneHint && noneTarget ? (
-      <div className="flex flex-wrap items-start gap-3 rounded-lg border border-accent/40 bg-accent/5 px-4 py-3">
-        <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
-        <p className="min-w-0 flex-1 text-sm text-text">{noneHint.sentence}</p>
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => sendTo(noneHint.memberIds[0])}
-          className="bg-accent text-bg hover:bg-accent/80 font-semibold"
-        >
-          Send to {firstName(noneTarget.displayName)}
-        </Button>
-      </div>
-    ) : null;
 
   // ── Example ─────────────────────────────────────────────────────────
   //
@@ -718,8 +715,8 @@ export function KudosClient() {
       title="Kudos Wall"
       description={
         isOwner
-          ? "Send themed recognition cards to your team, see who the kudos reach, and bring them to the retro. Live updates across all peers; downloadable as PNG."
-          : "Send themed recognition cards to your team and see who the kudos reach. Saved in this browser; downloadable as PNG."
+          ? "Send Agile at Work kudos cards to your team, see who hasn't been thanked yet, and bring them to the retro. Live across your squad; downloadable as an image."
+          : "Thank a colleague with an Agile at Work kudos card, and send it as a link or an image. Nothing is saved unless you keep a copy on this device."
       }
       category="Outcomes & Pulse"
     >
@@ -730,7 +727,7 @@ export function KudosClient() {
           {!authSettled ? null : !isOwner ? (
             <span className="inline-flex items-center gap-1.5 text-sub">
               <WifiOff className="h-3 w-3" aria-hidden="true" />
-              Browser-only — saved on this device
+              Private: nothing is saved unless you keep a copy
             </span>
           ) : room.isLocalOnly ? (
             <span className="inline-flex items-center gap-1.5 text-warning">
@@ -789,20 +786,27 @@ export function KudosClient() {
         </div>
       )}
 
+      <OnSearchParams onChange={onSearch} />
+      <KudosReceived onSendYourOwn={focusCompose} />
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <KudosForm
-          defaultFromName={senderName}
-          fromPlaceholder={isOwner ? undefined : "Your name"}
-          onFromNameChange={isOwner ? undefined : setVisitorName}
-          defaultTeamName={teamName}
-          recipients={recipients}
-          rosterRecipients
-          onSubmit={handleSubmit}
-          onDownload={handleDownload}
-          predictedRecipientId={predictedRecipientId}
-          fairnessHintSlot={fairnessHintSlot ?? rosterHintSlot}
-          forcedRecipient={forcedRecipient ?? undefined}
-        />
+        <div ref={composeRef} className="min-w-0">
+          <KudosForm
+            defaultFromName={senderName}
+            fromPlaceholder={isOwner ? undefined : "Your name"}
+            onFromNameChange={isOwner ? undefined : setVisitorName}
+            recipients={recipients}
+            rosterRecipients
+            plainRecipient={!isOwner}
+            delivery={isOwner ? "room" : "link"}
+            initialEpisode={initialEpisode}
+            onSubmit={handleSubmit}
+            onDownload={handleDownload}
+            predictedRecipientId={predictedRecipientId}
+            fairnessHintSlot={fairnessHintSlot}
+            forcedRecipient={forcedRecipient ?? undefined}
+          />
+        </div>
         <div className="flex min-w-0 flex-col gap-2">
           <h2 className="text-sm font-semibold text-text">Recent kudos</h2>
           {room.kudos.length === 0 ? (
@@ -810,7 +814,7 @@ export function KudosClient() {
               No kudos yet. Send the first one with the form;{" "}
               {isOwner
                 ? "it appears here for everyone in the session."
-                : "it is saved in this browser."}
+                : "keep a copy on this device and it appears here, for you only."}
             </EmptyState>
           ) : (
             <div ref={wallRef}>
@@ -829,22 +833,26 @@ export function KudosClient() {
         </div>
       </div>
 
+      {showNotThanked && (
+        <div className="mt-6">
+          <NotThankedSection
+            members={shownNotThanked}
+            rosterSize={preview ? EXAMPLE_ROSTER.length : roster.length}
+            windowLabel={windowLabel}
+            mode={windowMode}
+            onMode={setWindowChoice}
+            sprints={datedSprints}
+            selectedSprintId={selectedSprint?.id}
+            onSelectSprint={selectSprint}
+            sprintNote={sprintNote}
+            onSendTo={preview ? undefined : sendTo}
+            canSendTo={(memberId) => Boolean(recipientFor(memberId))}
+          />
+        </div>
+      )}
+
       <div className="mt-6">
-        <RecognitionSection
-          summary={summary}
-          hints={hints}
-          rosterSize={statsRoster.length}
-          windowLabel={windowLabel}
-          verdict={verdict}
-          mode={windowMode}
-          onMode={setWindowChoice}
-          sprints={datedSprints}
-          selectedSprintId={selectedSprint?.id}
-          onSelectSprint={selectSprint}
-          sprintNote={sprintNote}
-          onSendTo={preview ? undefined : sendTo}
-          canSendTo={(memberId) => Boolean(recipientFor(memberId))}
-        />
+        <KudosHowTo isOwner={isOwner} />
       </div>
 
       <KudosSettings open={settingsOpen} onOpenChange={setSettingsOpen} />

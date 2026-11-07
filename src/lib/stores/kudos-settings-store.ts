@@ -3,19 +3,14 @@
 /**
  * Kudos device-local preferences (Phase 5).
  *
- * Three slots live here because they're per-device, not per-workspace:
+ * Two slots live here because they're per-device, not per-workspace:
  *   - AI features (sentiment / dedup / fairness)         — owner opt-in
  *   - Beacon visibility (ambient / header)               — viewer comfort
- *   - Custom themes                                       — extends the catalog
  *
- * Custom themes are workspace-shared via the Kudos row's `theme` field
- * (Phase 0 widened `KudosTheme` to accept the inline object), but the
- * CATALOG of themes the owner can choose from in the form / settings
- * lives device-local. Sharing the catalog across devices means re-
- * extending the workspace store; the plan calls that out as a separate
- * decision to be wired in by the parent. For now: device-local, opt-in
- * to settings UI = opt-in to broadcasting custom themes attached to
- * outgoing kudos.
+ * Version 0 also kept a device-local catalog of custom card themes. The
+ * cards are now only the printed Agile at Work ones, so version 1 drops
+ * that catalog from what a device kept (saved kudos that carry a custom
+ * theme still open, drawn as the "Thank you!" card).
  *
  * Persists to localStorage via the standard zustand persist middleware.
  * Storage is wrapped so Safari Private Browsing / quota-exceeded errors
@@ -25,7 +20,6 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { KudosCustomTheme } from "./workspace-types";
 
 export interface KudosSettings {
   aiSentiment: boolean;
@@ -33,7 +27,6 @@ export interface KudosSettings {
   aiFairness: boolean;
   beaconAmbient: boolean;
   beaconHeader: boolean;
-  customThemes: KudosCustomTheme[];
 }
 
 interface Actions {
@@ -42,8 +35,6 @@ interface Actions {
   setAiFairness: (v: boolean) => void;
   setBeaconAmbient: (v: boolean) => void;
   setBeaconHeader: (v: boolean) => void;
-  upsertCustomTheme: (t: KudosCustomTheme) => void;
-  removeCustomTheme: (id: string) => void;
 }
 
 const initial: KudosSettings = {
@@ -52,8 +43,10 @@ const initial: KudosSettings = {
   aiFairness: true,
   beaconAmbient: true,
   beaconHeader: true,
-  customThemes: [],
 };
+
+/** What version 0 kept and version 1 no longer does. */
+const DROPPED_IN_V1 = ["customThemes"] as const;
 
 export const useKudosSettingsStore = create<KudosSettings & Actions>()(
   persist(
@@ -64,16 +57,6 @@ export const useKudosSettingsStore = create<KudosSettings & Actions>()(
       setAiFairness: (v) => set({ aiFairness: v }),
       setBeaconAmbient: (v) => set({ beaconAmbient: v }),
       setBeaconHeader: (v) => set({ beaconHeader: v }),
-      upsertCustomTheme: (t) =>
-        set((s) => {
-          const idx = s.customThemes.findIndex((x) => x.id === t.id);
-          if (idx === -1) return { customThemes: [...s.customThemes, t] };
-          const next = s.customThemes.slice();
-          next[idx] = t;
-          return { customThemes: next };
-        }),
-      removeCustomTheme: (id) =>
-        set((s) => ({ customThemes: s.customThemes.filter((t) => t.id !== id) })),
     }),
     {
       name: "agile-toolkit:kudos-settings",
@@ -105,6 +88,15 @@ export const useKudosSettingsStore = create<KudosSettings & Actions>()(
           },
         };
       }),
+      // v1: the custom card themes are gone; a v0 device's catalog is dropped
+      // (the default shallow merge would otherwise carry it back into state).
+      version: 1,
+      migrate: (persisted) => {
+        const next: Record<string, unknown> =
+          persisted && typeof persisted === "object" ? { ...persisted } : {};
+        for (const key of DROPPED_IN_V1) delete next[key];
+        return next as unknown as KudosSettings & Actions;
+      },
       // Defer the localStorage read so SSR and the first client render both
       // start from `initial` — without this, auto-hydration reads persisted
       // values during store creation on the client while the server rendered

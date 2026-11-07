@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { LICENSE_PATH } from "@/lib/comics/rights";
 
-/** Shown on every story and poster page. */
+/** Shown on every episode's page. */
 export function RightsNotice() {
   return (
     <p className="text-xs text-sub">
