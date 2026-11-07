@@ -13,11 +13,14 @@ import { Button } from "@/components/ui/button";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { cardLink } from "@/lib/kudos/card-link";
 import {
+  type CardImageOptions,
   canShareImage,
   cardImage,
   cardImageName,
   downloadBlob,
+  SHARE_IMAGE_OPTIONS,
   shareCardImage,
+  warmCardImage,
 } from "@/lib/kudos/card-image";
 import { KudosCard } from "./kudos-card";
 
@@ -53,6 +56,13 @@ export function KudosSent({ kudos, kept, onDone }: Props) {
     };
   }, [kudos]);
 
+  // The image's sharper panel, fetched while they read: Share has only a few
+  // seconds after the click to open the sheet.
+  useEffect(() => {
+    if (!cardRef.current) return;
+    return warmCardImage(cardRef.current);
+  }, [kudos]);
+
   const copy = async () => {
     if (!link) return;
     try {
@@ -63,9 +73,9 @@ export function KudosSent({ kudos, kept, onDone }: Props) {
     }
   };
 
-  const image = async () => {
+  const image = async (options?: CardImageOptions) => {
     if (!cardRef.current) throw new Error("no card");
-    return cardImage(cardRef.current);
+    return cardImage(cardRef.current, options);
   };
 
   const download = async () => {
@@ -78,7 +88,8 @@ export function KudosSent({ kudos, kept, onDone }: Props) {
 
   const share = async () => {
     try {
-      await shareCardImage(await image(), cardImageName(kudos.toName), link ?? "");
+      const blob = await image(SHARE_IMAGE_OPTIONS);
+      await shareCardImage(blob, cardImageName(kudos.toName), link ?? "");
     } catch {
       setProblem("Couldn't open the share sheet. Copy the link or download the image.");
     }
