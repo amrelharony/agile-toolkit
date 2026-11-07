@@ -1,8 +1,10 @@
 /**
- * The Kudos page's printed cards: the four habits and two open cards in the
- * picker, ?ep=NN opening on that episode's card, To / Thank you for / From,
- * the privacy rule, and a visitor's kudos sent as a link and an image that
- * keep nothing unless they keep a copy, opened again from its link.
+ * The Kudos page's printed cards: the picker's themes (the four habits and
+ * Open) and each theme's cards (its book episodes' cards, or Thank you! and
+ * Great teamwork! with the episode they remind of), ?ep=NN opening on that
+ * episode's card, To / Thank you for / From, the privacy rule, and a
+ * visitor's kudos sent as a link and an image that keep nothing unless they
+ * keep a copy, opened again from its link.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +13,6 @@ import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { cardLink } from "@/lib/kudos/card-link";
@@ -91,11 +92,20 @@ const renderPage = () =>
   );
 
 const cardGroup = () => screen.getByRole("group", { name: "Card" });
-const pressed = () =>
-  within(cardGroup())
+/** A button's name as a screen reader reads it here: its aria-label, else its text. */
+const nameOf = (b: HTMLElement) => b.getAttribute("aria-label") ?? b.textContent;
+const buttonsIn = (group: HTMLElement) => within(group).getAllByRole("button").map(nameOf);
+const pressedIn = (group: HTMLElement) =>
+  within(group)
     .getAllByRole("button")
     .filter((b) => b.getAttribute("aria-pressed") === "true")
-    .map((b) => b.textContent);
+    .map(nameOf);
+/** The pressed theme. */
+const pressed = () => pressedIn(cardGroup());
+/** The pressed card among the theme's cards. */
+const pressedCard = (theme: string) =>
+  pressedIn(screen.getByRole("group", { name: `${theme} cards` }));
+const REMINDS = "Which episode does this remind you of?";
 
 beforeEach(() => {
   h.owner = true;
@@ -108,7 +118,6 @@ beforeEach(() => {
     "fetch",
     vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }))
   );
-  useKudosSettingsStore.setState({ customThemes: [] });
   useWorkspaceStore.setState({
     kudos: [],
     teamMembers: [{ id: "m-sara", name: "Sara" }],
@@ -122,16 +131,27 @@ afterEach(() => {
 });
 
 describe("the cards on offer", () => {
-  it("are the printed ones, starting on Thank you!, with the privacy rule and no Team", () => {
+  it("are the printed ones by theme, starting on Thank you!, with the privacy rule and no Team", () => {
     renderPage();
+    expect(buttonsIn(cardGroup())).toEqual(["Focus", "Ownership", "Real needs", "Trust", "Open"]);
+    expect(pressed()).toEqual(["Open"]);
+    expect(buttonsIn(screen.getByRole("group", { name: "Open cards" }))).toEqual([
+      "Thank you!",
+      "Great teamwork!",
+    ]);
+    expect(pressedCard("Open")).toEqual(["Thank you!"]);
+    // An open card can name the book episode it reminds the sender of: none yet.
+    const reminds = screen.getByLabelText(REMINDS) as HTMLSelectElement;
+    expect(reminds.value).toBe("");
+    const options = within(reminds).getAllByRole("option");
+    expect(options).toHaveLength(27);
+    expect(options[0]).toHaveTextContent("No episode");
+    expect(options[7]).toHaveTextContent("EP 07 · Nobody Owns It");
+    expect(screen.getByRole("heading", { name: "Thank you!" })).toBeInTheDocument();
+    // In the form (How kudos cards work, below it, says it too).
+    const form = screen.getByRole("button", { name: /send kudos/i }).closest("form")!;
     expect(
-      within(cardGroup())
-        .getAllByRole("button")
-        .map((b) => b.textContent)
-    ).toEqual(["Focus", "Ownership", "Real needs", "Trust", "Thank you!", "Great teamwork!"]);
-    expect(pressed()).toEqual(["Thank you!"]);
-    expect(
-      screen.getByText(
+      within(form).getByText(
         "First names and general thanks only. No customer names or internal details."
       )
     ).toBeInTheDocument();
@@ -145,7 +165,7 @@ describe("the cards on offer", () => {
     }
   });
 
-  it("still shows a card saved under one of the original themes", () => {
+  it("draws a card saved under one of the original themes as the Thank you! card", () => {
     useWorkspaceStore.setState({
       kudos: [
         {
@@ -160,17 +180,96 @@ describe("the cards on offer", () => {
       ],
     });
     renderPage();
-    expect(screen.getAllByText("Well Done").length).toBeGreaterThan(0);
+    const entry = screen.getByRole("article", { name: /^Thank you! kudos from Mia to Sara/ });
+    expect(within(entry).getByRole("heading", { name: "Thank you!" })).toBeInTheDocument();
+    expect(screen.queryByText("Well Done")).toBeNull();
     expect(screen.getByText(/Payments/)).toBeInTheDocument();
+  });
+
+  it("lists a theme's episode cards, and keeps the card when its own theme is picked again", () => {
+    renderPage();
+    fireEvent.click(within(cardGroup()).getByRole("button", { name: "Ownership" }));
+    expect(pressed()).toEqual(["Ownership"]);
+    const ownership = screen.getByRole("group", { name: "Ownership cards" });
+    expect(buttonsIn(ownership)).toEqual([
+      "Episode 5: Thanks for getting us unblocked",
+      "Episode 7: Thanks for seeing it through",
+      "Episode 8: Thanks for not leaving anyone stuck",
+      "Episode 14: Thanks for fixing it properly",
+      "Episode 17: Thanks for fixing the cause",
+      "Episode 18: Thanks for owning your part",
+      "Episode 19: Thanks for keeping your promise",
+      "Episode 20: Thanks for tracing where it got lost",
+    ]);
+    // A theme starts on its first episode's card.
+    expect(pressedCard("Ownership")).toEqual(["Episode 5: Thanks for getting us unblocked"]);
+    expect(screen.getByRole("heading", { name: "Thanks for getting us unblocked" })).toBeTruthy();
+    // Each card shows its EP number and the rest of its headline.
+    const ep7 = within(ownership).getByRole("button", {
+      name: "Episode 7: Thanks for seeing it through",
+    });
+    expect(within(ep7).getByText("EP 07")).toBeInTheDocument();
+    expect(within(ep7).getByText("seeing it through")).toBeInTheDocument();
+    // Only an open card names the episode it reminds of.
+    expect(screen.queryByLabelText(REMINDS)).toBeNull();
+
+    fireEvent.click(ep7);
+    expect(pressedCard("Ownership")).toEqual(["Episode 7: Thanks for seeing it through"]);
+    expect(screen.getByRole("heading", { name: "Thanks for seeing it through" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Thanks for getting us unblocked" })).toBeNull();
+
+    fireEvent.click(within(cardGroup()).getByRole("button", { name: "Ownership" }));
+    expect(pressedCard("Ownership")).toEqual(["Episode 7: Thanks for seeing it through"]);
+
+    fireEvent.click(within(cardGroup()).getByRole("button", { name: "Trust" }));
+    expect(pressed()).toEqual(["Trust"]);
+    expect(screen.queryByRole("group", { name: "Ownership cards" })).toBeNull();
+    expect(pressedCard("Trust")).toEqual(["Episode 4: Thanks for saving us a meeting"]);
+    expect(screen.queryByRole("heading", { name: "Thanks for seeing it through" })).toBeNull();
+
+    fireEvent.click(within(cardGroup()).getByRole("button", { name: "Open" }));
+    expect(pressedCard("Open")).toEqual(["Thank you!"]);
+  });
+
+  it("sends an open card with the episode it reminds of, and keeps both for the next one", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Great teamwork!" }));
+    expect(pressedCard("Open")).toEqual(["Great teamwork!"]);
+    fireEvent.change(screen.getByLabelText(REMINDS), { target: { value: "7" } });
+    // The preview's back asks the same question, and answers it.
+    expect(screen.getByText("Episode 07, “Nobody Owns It”")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "team:m-sara" } });
+    fireEvent.change(screen.getByLabelText("Thank you for"), {
+      target: { value: "pairing on the release" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send kudos/i }));
+    await waitFor(() => expect(ws().kudos).toHaveLength(1));
+    expect(ws().kudos![0]).toMatchObject({ theme: "open-teamwork", episode: 7, toName: "Sara" });
+    expect(pressedCard("Open")).toEqual(["Great teamwork!"]);
+    expect((screen.getByLabelText(REMINDS) as HTMLSelectElement).value).toBe("7");
+
+    // No episode: the card keeps none.
+    fireEvent.change(screen.getByLabelText(REMINDS), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "team:m-sara" } });
+    fireEvent.change(screen.getByLabelText("Thank you for"), { target: { value: "the demo" } });
+    fireEvent.click(screen.getByRole("button", { name: /send kudos/i }));
+    await waitFor(() => expect(ws().kudos).toHaveLength(2));
+    const plain = ws().kudos!.find((k) => k.message === "the demo");
+    expect(plain).toMatchObject({ theme: "open-teamwork" });
+    expect(plain).not.toHaveProperty("episode");
   });
 });
 
 describe("/kudos?ep=NN", () => {
-  it("opens on episode 7's card: Ownership, its headline and quote, and the card keeps only ep", async () => {
+  it("opens on episode 7's card: Ownership, its headline, and the card keeps only ep", async () => {
     window.history.replaceState(null, "", "/kudos?ep=07");
     renderPage();
     await waitFor(() => expect(pressed()).toEqual(["Ownership"]));
-    expect(screen.getAllByText("Thanks for seeing it through").length).toBeGreaterThan(0);
+    expect(pressedCard("Ownership")).toEqual(["Episode 7: Thanks for seeing it through"]);
+    expect(
+      screen.getAllByRole("heading", { name: "Thanks for seeing it through" }).length
+    ).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "team:m-sara" } });
     fireEvent.change(screen.getByLabelText("Thank you for"), {
@@ -181,32 +280,25 @@ describe("/kudos?ep=NN", () => {
     const sent = ws().kudos![0];
     expect(sent).toMatchObject({ theme: "ownership", episode: 7, toName: "Sara" });
     expect(JSON.stringify(sent)).not.toContain("Thanks for seeing it through");
+    // The card stays picked for the next kudos.
+    expect(pressedCard("Ownership")).toEqual(["Episode 7: Thanks for seeing it through"]);
   });
 
-  it("drops the episode's words when another card is picked, or when asked", async () => {
-    window.history.replaceState(null, "", "/kudos?ep=7");
-    renderPage();
-    await waitFor(() => expect(pressed()).toEqual(["Ownership"]));
-    fireEvent.click(within(cardGroup()).getByRole("button", { name: "Focus" }));
-    expect(screen.queryByText("Thanks for seeing it through")).toBeNull();
-
-    fireEvent.click(within(cardGroup()).getByRole("button", { name: "Ownership" }));
-    expect(screen.queryByText("Thanks for seeing it through")).toBeNull();
-  });
-
-  it("lets the episode's words go while keeping its card", async () => {
+  it("opens on another habit's episode, and picking a theme moves to its first card", async () => {
     window.history.replaceState(null, "", "/kudos?ep=12");
     renderPage();
     await waitFor(() => expect(pressed()).toEqual(["Real needs"]));
-    fireEvent.click(screen.getByRole("button", { name: "Leave out its words" }));
-    expect(pressed()).toEqual(["Real needs"]);
-    expect(screen.queryByRole("button", { name: "Leave out its words" })).toBeNull();
+    expect(pressedCard("Real needs")).toEqual(["Episode 12: Thanks for hearing every voice"]);
+    fireEvent.click(within(cardGroup()).getByRole("button", { name: "Focus" }));
+    expect(pressedCard("Focus")).toEqual(["Episode 1: Thanks for choosing what comes first"]);
+    expect(screen.queryByRole("heading", { name: "Thanks for hearing every voice" })).toBeNull();
   });
 
   it.each(["27", "0", "abc"])("ignores ep=%s", (ep) => {
     window.history.replaceState(null, "", `/kudos?ep=${ep}`);
     renderPage();
-    expect(pressed()).toEqual(["Thank you!"]);
+    expect(pressed()).toEqual(["Open"]);
+    expect(pressedCard("Open")).toEqual(["Thank you!"]);
   });
 });
 
@@ -265,6 +357,19 @@ describe("a visitor's kudos", () => {
     expect(screen.getByLabelText("To").tagName).toBe("INPUT");
   });
 
+  it("reads how the cards work, with the link line, and never sees Not thanked yet", () => {
+    renderPage();
+    expect(screen.getByRole("heading", { name: "How kudos cards work" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Online, Send kudos gives you a link and an image to pass on.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Online, Send kudos pins it on your squad's wall.")).toBeNull();
+    // The panel is the owner's: a visitor has the same roster in this test, and no list.
+    expect(screen.queryByRole("heading", { name: "Not thanked yet" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Not thanked yet" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Send to/ })).toBeNull();
+  });
+
   it("goes as a link and an image, keeping nothing", async () => {
     renderPage();
     expect(screen.getByRole("checkbox", { name: "Keep a copy on this device" })).not.toBeChecked();
@@ -316,6 +421,10 @@ describe("a card's link", () => {
     expect(within(panel).getByText("for owning the outage call")).toBeInTheDocument();
     expect(within(panel).getByText("Trust")).toBeInTheDocument();
     expect(ws().kudos).toEqual([]);
+    // The form is on an open card, whose episode select sits above To.
+    expect(
+      screen.getByRole("combobox", { name: "Which episode does this remind you of?" })
+    ).toBeInTheDocument();
 
     await act(async () => {
       fireEvent.click(within(panel).getByRole("button", { name: "Send your own" }));
@@ -323,6 +432,8 @@ describe("a card's link", () => {
     expect(screen.queryByRole("heading", { name: "A kudos card for Lina" })).toBeNull();
     expect(window.location.hash).toBe("");
     expect(window.location.pathname).toBe("/kudos");
+    // On to To, not the card picker's select.
+    expect(screen.getByRole("textbox", { name: "To" })).toHaveFocus();
   });
 
   it("stays open when another part of the page is linked, like Skip to content", async () => {

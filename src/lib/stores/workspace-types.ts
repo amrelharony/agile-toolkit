@@ -3405,13 +3405,14 @@ export interface Workspace {
  * snapshot re-populates the wall on their next connect.
  */
 /**
- * Built-in catalog ids. The first six are the print campaign's cards (the
- * four habits and the two open cards, lib/kudos/print-cards), which the
- * picker offers; the seven after them are the tool's original themes, which
- * saved cards still carry and every reader still takes.
- * Custom themes live alongside as `KudosCustomTheme` objects so the
- * Phase 3 LLM can synthesise themes without code edits and the Phase 5
- * settings UI can let owners define palette additions.
+ * Built-in theme ids. The first six are the print campaign's cards (the
+ * four habits and the two open cards, lib/kudos/print-cards), the only ones
+ * a new kudos is written on; the seven after them are the tool's original
+ * themes, which saved cards still carry and every reader still takes.
+ * A saved kudos may also carry a `KudosCustomTheme` object, from when the
+ * settings let owners define their own themes. No custom theme is made any
+ * more, but those rows still parse; they, the original ids and a habit with
+ * no episode are drawn as the "Thank you!" card (lib/kudos/card-designs).
  */
 export type KudosBuiltInTheme =
   | "focus"
@@ -3428,14 +3429,18 @@ export type KudosBuiltInTheme =
   | "you-rock"
   | "well-done";
 
+/**
+ * A custom theme as older saved kudos carry it. Kept so those rows still
+ * parse and type-check; the card is drawn as "Thank you!" whatever it says.
+ */
 export interface KudosCustomTheme {
   /** Stable identifier; alphanumeric+hyphen, ≤ 32 chars. */
   id: string;
   /** Display title. */
   title: string;
-  /** Emoji shown on the card header strip. ≤ 4 codepoints. */
+  /** The emoji it was made with. ≤ 4 codepoints. */
   emoji: string;
-  /** Hex accent for the PNG-export path (CSS uses Tailwind utility classes). */
+  /** The colour it was made with. */
   hex: string;
 }
 
@@ -3479,9 +3484,10 @@ export interface Kudos {
   /** Optional team label (e.g. "Data Governance"). The form no longer asks
    *  for one; saved cards keep and show theirs. */
   teamName?: string;
-  /** The book episode (1-26) whose printed kudos card this one was written
-   *  from (/kudos?ep=NN). Only the number is kept: the card's headline and
-   *  quote are always read from the print campaign's data file. */
+  /** The book episode (1-26) whose printed kudos card this one is written
+   *  on, or, on an open card ("Thank you!", "Great teamwork!"), the episode
+   *  it reminds the sender of. Only the number is kept: the card's words
+   *  are always read from the print campaign's data file. */
   episode?: number;
   /** Message body — capped at ~50 words client-side. */
   message: string;

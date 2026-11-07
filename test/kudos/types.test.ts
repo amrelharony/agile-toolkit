@@ -1,79 +1,14 @@
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_KUDOS_THEME,
-  KUDOS_THEMES,
-  KUDOS_WORD_LIMITS,
-  PICKER_THEMES,
-  countWords,
-  getKudosTheme,
-  headerInk,
-  isValidKudos,
-} from "@/app/(tools)/kudos/types";
-
-describe("theme chip colours", () => {
-  // `accent` is page UI on the paper, not the printed card: tokens only, so the
-  // chip clears AA in every mode. A card keeps its own hex and headerBg.
-  it("never uses a palette shade", () => {
-    for (const t of KUDOS_THEMES) {
-      expect(t.accent, t.id).toMatch(/^text-[a-z0-9-]+ border-[a-z0-9-]+\/40$/);
-      expect(t.accent, t.id).not.toMatch(/-[0-9]{3}\b/);
-    }
-  });
-});
-
-describe("headerInk", () => {
-  const lum = (hex: string) => {
-    const [r, g, b] = [1, 3, 5].map((i) => {
-      const v = parseInt(hex.slice(i, i + 2), 16) / 255;
-      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-    });
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  };
-  const contrast = (a: string, b: string) => {
-    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
-    return (hi + 0.05) / (lo + 0.05);
-  };
-
-  // The compact card's title is bold 18 px, just under large text, so 4.5:1.
-  it("gives every built-in header text of at least 4.5:1", () => {
-    for (const t of KUDOS_THEMES) {
-      expect(contrast(headerInk(t.hex), t.hex), t.id).toBeGreaterThanOrEqual(4.5);
-    }
-  });
-
-  it("gives any custom colour header text of at least 4.5:1", () => {
-    const hexes: string[] = [];
-    for (let r = 0; r < 256; r += 17) {
-      for (let g = 0; g < 256; g += 17) {
-        for (let b = 0; b < 256; b += 17) {
-          hexes.push(`#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`);
-        }
-      }
-    }
-    for (const hex of hexes) {
-      expect(contrast(headerInk(hex), hex), hex).toBeGreaterThanOrEqual(4.5);
-    }
-    // The old violet, a mid-tone where #111 reached only 4.46.
-    expect(headerInk("#8b5cf6")).toBe("#000000");
-  });
-
-  it("puts dark text on the light headers that white text failed on", () => {
-    const ink = Object.fromEntries(KUDOS_THEMES.map((t) => [t.id, headerInk(t.hex)]));
-    expect(ink.awesome).toBe("#111111");
-    expect(ink["thank-you"]).toBe("#111111");
-    expect(ink.congratulations).toBe("#111111");
-    expect(ink["very-happy"]).toBe("#111111");
-    expect(ink["great-job"]).toBe("#ffffff");
-    expect(ink["well-done"]).toBe("#ffffff");
-  });
-
-  it("reads 3-digit hex and falls back to white on anything else", () => {
-    expect(headerInk("#ff0")).toBe("#111111");
-    expect(headerInk("#003")).toBe("#ffffff");
-    expect(headerInk("not a colour")).toBe("#ffffff");
-  });
-});
+import * as kudosTypes from "@/app/(tools)/kudos/types";
 import type { Kudos } from "@/lib/stores/workspace-types";
+
+const { KUDOS_WORD_LIMITS, countWords, isValidKudos, parseKudos } = kudosTypes;
+
+/**
+ * What the Kudos tool's types file still holds: the word limits, the word
+ * count and the re-exported shape guard. The cards a kudos is drawn as live
+ * in lib/kudos/card-designs (test/kudos/card-designs.test.ts).
+ */
 
 function baseKudos(overrides: Partial<Kudos> = {}): Kudos {
   return {
@@ -86,6 +21,27 @@ function baseKudos(overrides: Partial<Kudos> = {}): Kudos {
     ...overrides,
   };
 }
+
+describe("the types file", () => {
+  it("no longer carries a theme catalog: the printed cards are the only ones", () => {
+    for (const gone of [
+      "KUDOS_THEMES",
+      "PICKER_THEMES",
+      "RETIRED_THEMES",
+      "DEFAULT_KUDOS_THEME",
+      "getKudosTheme",
+      "headerInk",
+      "themeInk",
+    ]) {
+      expect(kudosTypes, gone).not.toHaveProperty(gone);
+    }
+  });
+
+  it("names the workspace-wide kudos channel", () => {
+    expect(kudosTypes.KUDOS_ENTITY_ID).toBe("workspace");
+    expect(kudosTypes.KUDOS_TOOL_ID).toBe("kudos");
+  });
+});
 
 describe("countWords", () => {
   it("counts whitespace-separated tokens", () => {
@@ -100,57 +56,6 @@ describe("countWords", () => {
   });
 });
 
-describe("KUDOS_THEMES catalog", () => {
-  it("has the six printed cards, then the seven original themes, with stable ids", () => {
-    expect(KUDOS_THEMES.map((t) => t.id)).toEqual([
-      "focus",
-      "ownership",
-      "real-needs",
-      "trust",
-      "open-thank-you",
-      "open-teamwork",
-      "awesome",
-      "thank-you",
-      "great-job",
-      "congratulations",
-      "very-happy",
-      "you-rock",
-      "well-done",
-    ]);
-  });
-
-  it("offers only the printed cards; the originals stay for saved cards", () => {
-    expect(PICKER_THEMES.map((t) => t.title)).toEqual([
-      "Focus",
-      "Ownership",
-      "Real needs",
-      "Trust",
-      "Thank you!",
-      "Great teamwork!",
-    ]);
-    expect(KUDOS_THEMES.filter((t) => t.retired)).toHaveLength(7);
-  });
-
-  it("every theme has a title and a hex; the originals an emoji, the printed cards their ink", () => {
-    for (const theme of KUDOS_THEMES) {
-      expect(theme.title.length).toBeGreaterThan(0);
-      expect(theme.hex).toMatch(/^#[0-9a-fA-F]{6}$/);
-      if (theme.retired) expect(theme.emoji.length).toBeGreaterThan(0);
-      else expect(theme.ink).toMatch(/^#[0-9a-fA-F]{6}$/);
-    }
-  });
-
-  it("getKudosTheme shows an unknown id as the open Thank you! card", () => {
-    expect(getKudosTheme("not-a-theme").title).toBe("Thank you!");
-    expect(getKudosTheme("constructor").title).toBe("Thank you!");
-    expect(getKudosTheme(DEFAULT_KUDOS_THEME).id).toBe("open-thank-you");
-  });
-
-  it("getKudosTheme returns the requested theme when valid", () => {
-    expect(getKudosTheme("thank-you").id).toBe("thank-you");
-  });
-});
-
 describe("KUDOS_WORD_LIMITS", () => {
   it("has sensible caps", () => {
     expect(KUDOS_WORD_LIMITS.message).toBe(50);
@@ -162,6 +67,21 @@ describe("KUDOS_WORD_LIMITS", () => {
 describe("isValidKudos", () => {
   it("accepts a well-formed kudos", () => {
     expect(isValidKudos(baseKudos())).toBe(true);
+  });
+
+  it("still accepts a card saved under an original theme or a custom theme", () => {
+    expect(isValidKudos(baseKudos({ theme: "well-done" }))).toBe(true);
+    expect(
+      isValidKudos(
+        baseKudos({ theme: { id: "ship-day", title: "Ship Day", emoji: "🚢", hex: "#123456" } })
+      )
+    ).toBe(true);
+  });
+
+  it("is the canonical parser's guard", () => {
+    const parsed = parseKudos(baseKudos({ theme: "open-teamwork", episode: 7 }));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.kudos).toMatchObject({ theme: "open-teamwork", episode: 7 });
   });
 
   it("accepts a kudos with all optional fields populated", () => {

@@ -9,10 +9,10 @@
  * room's `sendKudos`. Threading depth is hard-capped at 1: replies can't
  * be replied to (the card hides the chevron in that case).
  *
- * Inherits the parent's theme + recipient so the reply visually anchors
- * to the original — the user is replying to a recognition, not minting
- * a new theme. The sender name comes from the local viewer (passed via
- * props so the same component works for owner + guest seats).
+ * A reply is a thank-you back: it goes on the "Thank you!" card with no
+ * episode, and keeps the parent's recipient so it sits under the original.
+ * The sender name comes from the local viewer (passed via props so the
+ * same component works for owner + guest seats).
  */
 
 import { useState } from "react";
@@ -59,9 +59,8 @@ export function KudosThreadReply({ parent, fromName, fromProfileId, onSend, onSe
     try {
       const reply: Kudos = {
         id: newReplyId(),
-        // Inherit parent's theme so the reply visually anchors to the
-        // original card — see component-doc comment.
-        theme: parent.theme,
+        // A thank-you back, not another episode's card: see the component doc.
+        theme: "open-thank-you",
         toName: parent.toName,
         toProfileId: parent.toProfileId,
         fromName: fromName.trim() || "—",

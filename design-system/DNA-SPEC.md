@@ -62,7 +62,7 @@ Rules:
 - Colours kept as hex in data (retro columns, tool status maps) go through `themed()` and `tint()` from `lib/utils/theme-color.ts`.
 - Own-colour text sits on a tint of at most `/20`. `check:ui` flags anything stronger.
 
-**Deliberate exceptions.** A saved Canvas board holds its own colours, and new text and pen default to near-white, which can't be read on paper. So `.board-stage` keeps Night's tokens in Comic too: a dark ground like a blackboard in the room, with its toolbars and selection colour following those tokens. Holiday art keeps its own colours. Kudos cards keep their themes and `headerInk` contrast logic.
+**Deliberate exceptions.** A saved Canvas board holds its own colours, and new text and pen default to near-white, which can't be read on paper. So `.board-stage` keeps Night's tokens in Comic too: a dark ground like a blackboard in the room, with its toolbars and selection colour following those tokens. Holiday art keeps its own colours. Kudos cards keep the printed Agile at Work cards' colours and fixed inks, on white paper, in every mode.
 
 ---
 
