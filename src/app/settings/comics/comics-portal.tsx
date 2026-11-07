@@ -16,6 +16,7 @@ import {
 import type { OwnerStory } from "@/lib/comics/story-input";
 import { EntriesView } from "./entries-view";
 import { ExtrasEditor } from "./extras-editor";
+import { GuessEditor } from "./guess-editor";
 import { GuestbookView } from "./guestbook-view";
 import { LicenceView } from "./licence-view";
 import { errorMessage, portalApi, type GuestbookNoteRow, type LicenceRequest } from "./portal-api";
@@ -90,6 +91,9 @@ export function ComicsPortal() {
   const [notes, setNotes] = useState<GuestbookNoteRow[] | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
   const [unsaved, setUnsaved] = useState<DraftKey[]>([]);
+  // Bumped when a guess is saved: the quiz-and-tool form reloads (approving a
+  // draft can set the tool) and the story list rereads which drafts still wait.
+  const [guessRound, setGuessRound] = useState(0);
   /** The open form has pictures in hand, which stop if it closes. */
   const uploading = useRef(false);
   const setUploading = useCallback((active: boolean) => {
@@ -262,6 +266,7 @@ export function ComicsPortal() {
           onEdit={openEditor}
           onStories={setStories}
           onRetry={refreshStories}
+          guessRound={guessRound}
         />
       </div>
       {/* Hidden, not unmounted: visiting another view can't lose what's typed. */}
@@ -281,7 +286,19 @@ export function ComicsPortal() {
           />
           {/* Outside the story's form, and only once it has a number to save under. */}
           {editing.ep !== null ? (
-            <ExtrasEditor key={editing.ep} ep={editing.ep} verified={isOwner} />
+            <>
+              <GuessEditor
+                key={`guess-${editing.ep}`}
+                ep={editing.ep}
+                verified={isOwner}
+                onSaved={() => setGuessRound((round) => round + 1)}
+              />
+              <ExtrasEditor
+                key={`extras-${editing.ep}-${guessRound}`}
+                ep={editing.ep}
+                verified={isOwner}
+              />
+            </>
           ) : null}
         </div>
       ) : null}
