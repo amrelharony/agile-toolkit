@@ -85,6 +85,17 @@ describe("tool.kudos lifecycle", () => {
     expect(s.topRecipients[0]).toEqual({ name: "Alice", count: 2 });
   });
 
+  it("post_kudos starts on the open Thank you! card, or a book episode's own card", async () => {
+    await post({ toName: "Alice", message: "thanks" });
+    await post({ toName: "Bob", message: "for seeing it through", episode: 7 });
+    await post({ toName: "Cy", message: "for the focus", episode: 7, theme: "focus" });
+    const [plain, card, chosen] = useWorkspaceStore.getState().kudos ?? [];
+    expect(plain).toMatchObject({ theme: "open-thank-you" });
+    expect(plain).not.toHaveProperty("episode");
+    expect(card).toMatchObject({ theme: "ownership", episode: 7 });
+    expect(chosen).toMatchObject({ theme: "focus", episode: 7 });
+  });
+
   it("remove_kudos removes by id and refuses an unknown id", async () => {
     const p = (await post({ toName: "Alice", message: "kudos!", theme: "awesome" })) as {
       posted: boolean;

@@ -3405,12 +3405,21 @@ export interface Workspace {
  * snapshot re-populates the wall on their next connect.
  */
 /**
- * Built-in catalog ids — the seven themes that ship with the tool.
+ * Built-in catalog ids. The first six are the print campaign's cards (the
+ * four habits and the two open cards, lib/kudos/print-cards), which the
+ * picker offers; the seven after them are the tool's original themes, which
+ * saved cards still carry and every reader still takes.
  * Custom themes live alongside as `KudosCustomTheme` objects so the
  * Phase 3 LLM can synthesise themes without code edits and the Phase 5
  * settings UI can let owners define palette additions.
  */
 export type KudosBuiltInTheme =
+  | "focus"
+  | "ownership"
+  | "real-needs"
+  | "trust"
+  | "open-thank-you"
+  | "open-teamwork"
   | "awesome"
   | "thank-you"
   | "great-job"
@@ -3467,8 +3476,13 @@ export interface Kudos {
   fromName: string;
   /** Squad profile id when guest-authored; null for owner-authored. */
   fromProfileId?: string;
-  /** Optional team label (e.g. "Data Governance"). */
+  /** Optional team label (e.g. "Data Governance"). The form no longer asks
+   *  for one; saved cards keep and show theirs. */
   teamName?: string;
+  /** The book episode (1-26) whose printed kudos card this one was written
+   *  from (/kudos?ep=NN). Only the number is kept: the card's headline and
+   *  quote are always read from the print campaign's data file. */
+  episode?: number;
   /** Message body — capped at ~50 words client-side. */
   message: string;
   /** Send timestamp. */

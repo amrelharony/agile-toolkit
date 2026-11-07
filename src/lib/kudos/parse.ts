@@ -24,12 +24,15 @@ import type {
   KudosSentiment,
   KudosTheme,
 } from "@/lib/stores/workspace-types";
+import { PRINT_CARD_THEME_IDS, isCardEpisode } from "./print-cards";
 
 export type KudosParseResult =
   | { ok: true; kudos: Kudos; upgraded: boolean }
   | { ok: false; error: string };
 
+/** The printed cards' themes, then the seven original ones, which saved cards still carry. */
 const BUILT_IN_THEMES: ReadonlySet<KudosBuiltInTheme> = new Set<KudosBuiltInTheme>([
+  ...PRINT_CARD_THEME_IDS,
   "awesome",
   "thank-you",
   "great-job",
@@ -40,7 +43,8 @@ const BUILT_IN_THEMES: ReadonlySet<KudosBuiltInTheme> = new Set<KudosBuiltInThem
 ]);
 
 const SHORT_TEXT_MAX = 80;
-const MESSAGE_CHAR_MAX = 2000;
+/** The longest message a kudos may carry, in characters. */
+export const MESSAGE_CHAR_MAX = 2000;
 const ID_MAX = 64;
 const SENT_AT_MAX = 64;
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
@@ -298,6 +302,15 @@ export function parseKudos(raw: unknown): KudosParseResult {
     sawV2Field = true;
   }
 
+  // The book episode whose printed card this was written from. Only the
+  // number travels; the wording is read from the print campaign's data file.
+  let episode: number | undefined;
+  if (raw.episode !== undefined && raw.episode !== null) {
+    if (!isCardEpisode(raw.episode)) return { ok: false, error: "invalid_episode" };
+    episode = raw.episode;
+    sawV2Field = true;
+  }
+
   const inputVersion = raw.version;
   let version: 1 | 2;
   if (inputVersion === 2 || sawV2Field) {
@@ -328,6 +341,7 @@ export function parseKudos(raw: unknown): KudosParseResult {
   if (fairnessScoreAtSend !== undefined) kudos.fairnessScoreAtSend = fairnessScoreAtSend;
   if (reactions !== undefined) kudos.reactions = reactions;
   if (replyTo !== undefined) kudos.replyTo = replyTo;
+  if (episode !== undefined) kudos.episode = episode;
 
   // A row was "upgraded" if the input didn't already carry a v2 version
   // marker but we either stamped one from v2 field presence, or stamped

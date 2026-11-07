@@ -14,6 +14,7 @@ vi.mock("@/lib/kudos/llm/sentiment", () => ({
 }));
 
 import { KudosForm, type RecipientOption } from "@/app/(tools)/kudos/components/kudos-form";
+import { KudosCard } from "@/app/(tools)/kudos/components/kudos-card";
 
 const recipients: RecipientOption[] = [{ id: "team:1", displayName: "Sam", source: "team" }];
 
@@ -60,11 +61,57 @@ describe("KudosForm sender field", () => {
 
     // Nobody is picked on the sender's behalf: the visitor picks Sam.
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "team:1" } });
-    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Thanks!" } });
+    fireEvent.change(screen.getByLabelText("Thank you for"), { target: { value: "Thanks!" } });
     await waitFor(() => expect(screen.getByRole("button", { name: /send kudos/i })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: /send kudos/i }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit.mock.calls[0][0]).toMatchObject({ fromName: "Ada", toName: "Sam" });
+  });
+});
+
+describe("KudosForm for a visitor", () => {
+  it("fills the plain To box when a hint picks someone", () => {
+    const { rerender } = render(
+      <KudosForm
+        defaultFromName="Ada"
+        recipients={recipients}
+        plainRecipient
+        delivery="link"
+        onSubmit={() => {}}
+        onDownload={() => {}}
+      />
+    );
+    expect(screen.getByLabelText("To")).toHaveValue("");
+    rerender(
+      <KudosForm
+        defaultFromName="Ada"
+        recipients={recipients}
+        plainRecipient
+        delivery="link"
+        forcedRecipient={{ id: "team:1", token: 1 }}
+        onSubmit={() => {}}
+        onDownload={() => {}}
+      />
+    );
+    expect(screen.getByLabelText("To")).toHaveValue("Sam");
+    expect(screen.getByLabelText("Thank you for")).toHaveFocus();
+  });
+});
+
+describe("KudosCard", () => {
+  it("labels a kudos Thank you for, but not a reply thanking the sender back", () => {
+    const card = {
+      id: "kud_1",
+      theme: "open-thank-you" as const,
+      toName: "Sam",
+      fromName: "Ada",
+      message: "the review",
+      sentAt: "2026-11-06T10:00:00.000Z",
+    };
+    const { rerender } = render(<KudosCard kudos={card} excludeInteractive />);
+    expect(screen.getByText("Thank you for:")).toBeInTheDocument();
+    rerender(<KudosCard kudos={{ ...card, replyTo: "kud_0" }} excludeInteractive />);
+    expect(screen.queryByText("Thank you for:")).toBeNull();
   });
 });

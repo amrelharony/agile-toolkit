@@ -9,13 +9,17 @@
 
 import type { Kudos, KudosBuiltInTheme, KudosTheme } from "@/lib/stores/workspace-types";
 import { isValidKudos as canonicalIsValidKudos, parseKudos } from "@/lib/kudos/parse";
+import { DEFAULT_PRINT_CARD_THEME, PRINT_CARD_THEMES } from "@/lib/kudos/print-cards";
 
 /**
- * Catalog of the seven kudos themes the user's original HTML defined.
+ * Catalog of the kudos themes: first the print campaign's six cards (the
+ * four habits and the two open cards), which the picker offers, in their
+ * printed colours with their printed ink; then the seven themes the user's
+ * original HTML defined, which saved cards still carry, so they still render.
  *
- * Colors are toolkit palette tokens (CSS vars + Tailwind), not raw
- * hexes — so light / dark / high-contrast themes all render correctly.
- * The `gradient` is for the card's header strip; `accent` drives the
+ * The originals' colors are toolkit palette tokens (CSS vars + Tailwind),
+ * not raw hexes — so light / dark / high-contrast themes all render
+ * correctly. `headerBg` is for the card's header strip; `accent` drives the
  * surrounding border + emoji-chip badge.
  */
 export interface KudosThemeDef {
@@ -34,9 +38,25 @@ export interface KudosThemeDef {
   headerBg: string;
   /** Hex value used by the PNG-export path; mirrors the Tailwind class. */
   hex: string;
+  /** The header strip's text colour when it is fixed, as on the printed cards. */
+  ink?: string;
+  /** One of the original seven: shown on saved cards, no longer offered. */
+  retired?: boolean;
 }
 
-export const KUDOS_THEMES: ReadonlyArray<KudosThemeDef> = [
+/** The printed cards carry no emoji: the strip shows the habit or the open card's words. */
+const PRINT_CARD_DEFS: KudosThemeDef[] = PRINT_CARD_THEMES.map((t) => ({
+  id: t.id,
+  title: t.title,
+  emoji: "",
+  // Page tokens for the picker chip; the printed colour is the card's own.
+  accent: "text-text border-accent/40",
+  headerBg: "",
+  hex: t.colour,
+  ink: t.ink,
+}));
+
+const RETIRED_THEMES: KudosThemeDef[] = [
   {
     id: "awesome",
     title: "Awesome",
@@ -99,6 +119,17 @@ export const KUDOS_THEMES: ReadonlyArray<KudosThemeDef> = [
   },
 ];
 
+export const KUDOS_THEMES: ReadonlyArray<KudosThemeDef> = [
+  ...PRINT_CARD_DEFS,
+  ...RETIRED_THEMES.map((t) => ({ ...t, retired: true })),
+];
+
+/** What the picker offers: the printed cards. */
+export const PICKER_THEMES: ReadonlyArray<KudosThemeDef> = KUDOS_THEMES.filter((t) => !t.retired);
+
+/** The theme a new kudos starts on, and the card an unknown id shows as. */
+export const DEFAULT_KUDOS_THEME = DEFAULT_PRINT_CARD_THEME;
+
 const DARK_INK = "#111111";
 const LIGHT_INK = "#ffffff";
 /** For a mid-tone where neither ink above reaches AA; black and white always beat 4.5:1. */
@@ -146,6 +177,11 @@ const THEMES_BY_ID: Record<string, KudosThemeDef> = Object.fromEntries(
   KUDOS_THEMES.map((t) => [t.id, t])
 );
 
+/** The header strip's ink: the printed one where fixed, else the better of dark and white. */
+export function themeInk(theme: KudosThemeDef): string {
+  return theme.ink ?? headerInk(theme.hex);
+}
+
 /**
  * Resolve the styling definition for a kudos theme. Accepts the original
  * id-string form (the seven built-ins) AND the Phase 0 custom-theme
@@ -154,7 +190,10 @@ const THEMES_BY_ID: Record<string, KudosThemeDef> = Object.fromEntries(
  */
 export function getKudosTheme(theme: KudosTheme | string): KudosThemeDef {
   if (typeof theme === "string") {
-    return THEMES_BY_ID[theme] ?? KUDOS_THEMES[0];
+    // Own keys only, so "constructor" isn't read off the prototype.
+    return Object.prototype.hasOwnProperty.call(THEMES_BY_ID, theme)
+      ? THEMES_BY_ID[theme]
+      : THEMES_BY_ID[DEFAULT_KUDOS_THEME];
   }
   return {
     id: theme.id as KudosBuiltInTheme,

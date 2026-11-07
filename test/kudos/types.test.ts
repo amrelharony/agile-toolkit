@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_KUDOS_THEME,
   KUDOS_THEMES,
   KUDOS_WORD_LIMITS,
+  PICKER_THEMES,
   countWords,
   getKudosTheme,
   headerInk,
@@ -99,22 +101,49 @@ describe("countWords", () => {
 });
 
 describe("KUDOS_THEMES catalog", () => {
-  it("has 7 themes with stable ids", () => {
-    expect(KUDOS_THEMES).toHaveLength(7);
-    const ids = KUDOS_THEMES.map((t) => t.id);
-    expect(new Set(ids).size).toBe(7);
+  it("has the six printed cards, then the seven original themes, with stable ids", () => {
+    expect(KUDOS_THEMES.map((t) => t.id)).toEqual([
+      "focus",
+      "ownership",
+      "real-needs",
+      "trust",
+      "open-thank-you",
+      "open-teamwork",
+      "awesome",
+      "thank-you",
+      "great-job",
+      "congratulations",
+      "very-happy",
+      "you-rock",
+      "well-done",
+    ]);
   });
 
-  it("every theme has a non-empty title + emoji + hex", () => {
+  it("offers only the printed cards; the originals stay for saved cards", () => {
+    expect(PICKER_THEMES.map((t) => t.title)).toEqual([
+      "Focus",
+      "Ownership",
+      "Real needs",
+      "Trust",
+      "Thank you!",
+      "Great teamwork!",
+    ]);
+    expect(KUDOS_THEMES.filter((t) => t.retired)).toHaveLength(7);
+  });
+
+  it("every theme has a title and a hex; the originals an emoji, the printed cards their ink", () => {
     for (const theme of KUDOS_THEMES) {
       expect(theme.title.length).toBeGreaterThan(0);
-      expect(theme.emoji.length).toBeGreaterThan(0);
       expect(theme.hex).toMatch(/^#[0-9a-fA-F]{6}$/);
+      if (theme.retired) expect(theme.emoji.length).toBeGreaterThan(0);
+      else expect(theme.ink).toMatch(/^#[0-9a-fA-F]{6}$/);
     }
   });
 
-  it("getKudosTheme falls back to the first theme on unknown id", () => {
-    expect(getKudosTheme("not-a-theme").id).toBe(KUDOS_THEMES[0].id);
+  it("getKudosTheme shows an unknown id as the open Thank you! card", () => {
+    expect(getKudosTheme("not-a-theme").title).toBe("Thank you!");
+    expect(getKudosTheme("constructor").title).toBe("Thank you!");
+    expect(getKudosTheme(DEFAULT_KUDOS_THEME).id).toBe("open-thank-you");
   });
 
   it("getKudosTheme returns the requested theme when valid", () => {

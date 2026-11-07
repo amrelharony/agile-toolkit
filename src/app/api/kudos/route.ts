@@ -42,6 +42,9 @@ function kudosToRow(k: Kudos, ownerId: string): Record<string, unknown> {
     from_name: k.fromName,
     from_profile_id: k.fromProfileId ?? null,
     team_name: k.teamName ?? null,
+    // The book episode a printed card was written from (migration 0034); its
+    // wording is read from the print campaign's data file, never stored.
+    episode: k.episode ?? null,
     message: k.message,
     sent_at: k.sentAt,
     version: k.version ?? 1,
@@ -153,7 +156,7 @@ export async function GET(req: NextRequest) {
     .select(
       "id, theme, to_name, to_profile_id, from_name, from_profile_id, team_name, " +
         "message, sent_at, version, sentiment, fairness_score_at_send, llm_dedup_group, " +
-        "reply_to, reactions"
+        "reply_to, reactions, episode"
     )
     .eq("owner_id", user.id)
     // Secondary `id` order so ms-collision rows have a stable
@@ -210,6 +213,7 @@ export async function GET(req: NextRequest) {
     llmDedupGroup: (r.llm_dedup_group as string | null) ?? undefined,
     replyTo: (r.reply_to as string | null) ?? undefined,
     reactions: r.reactions ?? [],
+    episode: (r.episode as number | null) ?? undefined,
   }));
 
   return Response.json({ kudos });

@@ -28,6 +28,7 @@
  */
 
 import { z } from "zod";
+import { DEFAULT_PRINT_CARD_THEME, episodeCard } from "@/lib/kudos/print-cards";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
@@ -182,19 +183,23 @@ function buildKudo(params: {
   message: string;
   fromName?: string;
   theme?: string;
+  episode?: number;
   teamName?: string;
   toProfileId?: string;
   toMemberId?: string;
   fromProfileId?: string;
 }): unknown {
+  // A book episode's card is on its habit's theme unless another is asked for.
+  const card = episodeCard(params.episode);
   const raw: Record<string, unknown> = {
     id: crypto.randomUUID(),
-    theme: params.theme ?? "awesome",
+    theme: params.theme ?? card?.theme ?? DEFAULT_PRINT_CARD_THEME,
     toName: params.toName,
     fromName: params.fromName ?? "AI Assistant",
     message: params.message,
     sentAt: new Date().toISOString(),
   };
+  if (params.episode !== undefined) raw.episode = params.episode;
   if (params.teamName) raw.teamName = params.teamName;
   if (params.toProfileId) raw.toProfileId = params.toProfileId;
   if (params.toMemberId) raw.toMemberId = params.toMemberId;
@@ -264,12 +269,13 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Post a kudo to the wall. theme is a built-in id (awesome, thank-you, great-job, congratulations, very-happy, you-rock, well-done; default awesome). fromName defaults to 'AI Assistant'. toMemberId (optional) is the roster member (TeamMember.id) it is for, so a later rename keeps it counted for them; it must be on the roster, toName must be that member's name (trimmed, case-insensitive), and the kudos is saved with the roster's spelling. Validated via parseKudos. Returns {posted: false, error} on a rejected shape (error 'unknown_member' for a toMemberId off the roster, 'name_mismatch' when toName isn't that member), else {posted: true, id}.",
+    "Post a kudo to the wall. theme is one of the printed cards (focus, ownership, real-needs, trust, open-thank-you for Thank you!, open-teamwork for Great teamwork!; default open-thank-you); the original ids (awesome, thank-you, great-job, congratulations, very-happy, you-rock, well-done) are still accepted, as saved cards carry them. episode (optional, 1-26) makes it that book episode's printed card: its headline and quote show on the card, read from the print campaign's data, and theme then defaults to the episode's habit. fromName defaults to 'AI Assistant'. toMemberId (optional) is the roster member (TeamMember.id) it is for, so a later rename keeps it counted for them; it must be on the roster, toName must be that member's name (trimmed, case-insensitive), and the kudos is saved with the roster's spelling. Validated via parseKudos. Returns {posted: false, error} on a rejected shape (error 'unknown_member' for a toMemberId off the roster, 'name_mismatch' when toName isn't that member), else {posted: true, id}.",
   paramsSchema: z.object({
     toName: z.string().min(1).max(80),
     message: z.string().min(1).max(2000),
     fromName: z.string().min(1).max(80).optional(),
     theme: z.string().max(64).optional(),
+    episode: z.number().int().min(1).max(26).optional(),
     teamName: z.string().min(1).max(80).optional(),
     toProfileId: z.string().min(1).max(64).optional(),
     toMemberId: z.string().min(1).max(64).optional(),
