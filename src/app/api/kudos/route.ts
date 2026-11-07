@@ -33,9 +33,8 @@ function kudosToRow(k: Kudos, ownerId: string): Record<string, unknown> {
     // form for built-in themes keeps the round-trip identity (GET parses
     // back into the same `KudosTheme | string` union the workspace store
     // holds). Wrapping `"awesome"` as `{id:"awesome"}` would survive POST
-    // but parseKudos rejects it on the GET (no title/emoji/hex), and
-    // getKudosTheme falls through to inline-style rendering with
-    // undefined hex.
+    // but parseKudos rejects it on the GET (no title/emoji/hex), and an
+    // object theme is never matched by its id when the card is drawn.
     theme: k.theme,
     to_name: k.toName,
     to_profile_id: k.toProfileId ?? null,

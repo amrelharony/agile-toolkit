@@ -15,17 +15,20 @@ import {
   isRecognition,
   lastDaysWindow,
   listNames,
+  notThanked,
   recognitionReceived,
   sprintWindow,
 } from "@/lib/kudos/recognition";
 
 /**
- * Kudos, upgraded: who the kudos reach (a chart with a table, replies and
- * example kudos left out, a roster member matched by id then by name),
- * fairness hints from the roster once there are enough kudos, a wall
- * export, a feed into the retro's appreciations, no recipient picked on
- * the sender's behalf, a validated form that stamps the roster member, an
- * example that never reaches the room, and Undo on a custom theme delete.
+ * Kudos, upgraded: Not thanked yet, the owner's list of the teammates no
+ * kudos has reached in a window (names only, never a count; replies and
+ * example kudos left out, a roster member matched by id then by name), each
+ * with Send to <name>; the tallies and fairness hints the agent still reads;
+ * a wall export, a feed into the retro's appreciations, no recipient picked
+ * on the sender's behalf, a validated form that stamps the roster member,
+ * an example that never reaches the room, and settings with no custom
+ * themes.
  */
 
 const toastSpy = vi.hoisted(() =>
@@ -93,11 +96,6 @@ import { KudosSettings } from "@/app/(tools)/kudos/components/kudos-settings";
 import { EXAMPLE_ROSTER, buildExample } from "@/app/(tools)/kudos/example";
 import { validateKudosDraft } from "@/app/(tools)/kudos/form";
 import { kudosCsv, kudosToMarkdown } from "@/app/(tools)/kudos/markdown";
-import {
-  recognitionChartText,
-  recognitionRows,
-  recognitionVerdict,
-} from "@/app/(tools)/kudos/verdict";
 import { kudosCardText } from "@/app/(tools)/retro/kudos";
 
 /* ── Fixtures ───────────────────────────────────────────────────────── */
@@ -165,7 +163,6 @@ beforeEach(() => {
     "fetch",
     vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }))
   );
-  useKudosSettingsStore.setState({ customThemes: [] });
   seed([]);
 });
 
@@ -273,6 +270,48 @@ describe("recognitionReceived", () => {
   });
 });
 
+describe("notThanked", () => {
+  it("names the roster's teammates no kudos reached, in roster order, as recognitionReceived matches them", () => {
+    const parent = kudo("Sam");
+    const rows = [
+      parent,
+      // A reply copies its parent's recipient: it thanks nobody new.
+      kudo("Priya", { replyTo: parent.id }),
+      kudo("Omar", { id: "example-kudos-1" }),
+      // Off the roster: never on the list, and never thanks a teammate.
+      kudo("Kim"),
+    ];
+    expect(notThanked(rows, ROSTER)).toEqual([
+      { memberId: "m-priya", name: "Priya" },
+      { memberId: "m-omar", name: "Omar" },
+    ]);
+    expect(notThanked(rows, ROSTER)).toEqual(recognitionReceived(rows, ROSTER).rosterWithNone);
+    // By member id after a rename, else by name (trimmed, any case).
+    const renamed: TeamMember[] = [{ id: "m-sam", name: "Samuel" }, ...ROSTER.slice(1)];
+    expect(
+      notThanked([kudo("Sam", { toMemberId: "m-sam" }), kudo(" OMAR ")], renamed).map((m) => m.name)
+    ).toEqual(["Priya"]);
+  });
+
+  it("reads the window, everyone with no kudos, nobody with no roster, and examples when asked", () => {
+    const rows = [kudo("Sam", { sentAt: daysAgo(40) }), kudo("Priya", { sentAt: daysAgo(3) })];
+    expect(notThanked(rows, ROSTER, lastDaysWindow(TODAY, 30)).map((m) => m.name)).toEqual([
+      "Sam",
+      "Omar",
+    ]);
+    expect(notThanked(rows, ROSTER, null).map((m) => m.name)).toEqual(["Omar"]);
+    expect(notThanked([], ROSTER)).toHaveLength(3);
+    expect(notThanked(rows, [])).toEqual([]);
+    // A blank name on the roster names nobody.
+    expect(notThanked([], [{ id: "m-blank", name: "  " }])).toEqual([]);
+    const example = buildExample(NOW);
+    expect(notThanked(example, EXAMPLE_ROSTER)).toHaveLength(5);
+    expect(
+      notThanked(example, EXAMPLE_ROSTER, null, { includeExamples: true }).map((m) => m.name)
+    ).toEqual(["Omar"]);
+  });
+});
+
 describe("fairnessHints", () => {
   const five = (names: string[]) => names.map((n) => kudo(n));
 
@@ -318,9 +357,7 @@ describe("fairnessHints", () => {
     expect(s.topShare).toBe(0.5);
     const hints = fairnessHints(s, four.length);
     expect(hints.map((h) => h.kind)).toEqual(["none-received"]);
-    expect(recognitionVerdict(s, four.length, "so far")).toBe(
-      "Recognition reached 2 of 4 teammates so far; Omar and Lee have none yet."
-    );
+    expect(hints[0].sentence).toBe("Omar and Lee haven't received a kudos yet in this window.");
     // One more for Sam and he leads alone: now it reads as concentrated.
     const ahead = recognitionReceived(
       five([...Array(6).fill("Sam"), ...Array(5).fill("Priya")]),
@@ -348,64 +385,6 @@ describe("fairnessHints", () => {
   });
 });
 
-describe("verdict and chart text", () => {
-  it("counts below the minimum, then reads the reach", () => {
-    expect(recognitionVerdict(recognitionReceived([], ROSTER), 3, "in Sprint 12")).toBe(
-      "No kudos in Sprint 12 yet."
-    );
-    const few = recognitionReceived([kudo("Sam"), kudo("Priya")], ROSTER);
-    expect(recognitionVerdict(few, 3, "in Sprint 12")).toBe("2 kudos in Sprint 12, for 2 people.");
-    const some = recognitionReceived(
-      ["Sam", "Sam", "Priya", "Priya", "Sam"].map((n) => kudo(n)),
-      ROSTER
-    );
-    expect(recognitionVerdict(some, 3, "in Sprint 12")).toBe(
-      "Recognition reached 2 of 3 teammates in Sprint 12; Omar has none yet."
-    );
-    const all = recognitionReceived(
-      ["Sam", "Sam", "Priya", "Priya", "Omar"].map((n) => kudo(n)),
-      ROSTER
-    );
-    expect(recognitionVerdict(all, 3, "so far")).toBe(
-      "Recognition reached all 3 teammates so far."
-    );
-    const piled = recognitionReceived(
-      ["Sam", "Sam", "Sam", "Sam", "Priya", "Omar"].map((n) => kudo(n)),
-      ROSTER
-    );
-    expect(recognitionVerdict(piled, 3, "so far")).toBe(
-      "Recognition reached all 3 teammates so far; Sam received 4 of 6."
-    );
-    const noRoster = recognitionReceived(
-      ["Sam", "Sam", "Priya", "Kim", "Kim", "Kim"].map((n) => kudo(n)),
-      []
-    );
-    expect(recognitionVerdict(noRoster, 0, "so far")).toBe(
-      "6 kudos so far, for 3 people; Kim received the most (3)."
-    );
-  });
-
-  it("gives every teammate a row, those with none included", () => {
-    const s = recognitionReceived([kudo("Sam"), kudo("Kim", { sentAt: daysAgo(1) })], ROSTER);
-    expect(recognitionRows(s).map((r) => [r.name, r.count])).toEqual([
-      ["Kim", 1],
-      ["Sam", 1],
-      ["Priya", 0],
-      ["Omar", 0],
-    ]);
-    const text = recognitionChartText(s, ROSTER.length, "so far");
-    expect(text.summary).toBe("Kudos received so far: Kim 1, Sam 1, Priya 0 and Omar 0.");
-    expect(text.table.columns).toEqual(["Person", "Kudos received", "From people", "Last kudos"]);
-    expect(text.table.rows[0]).toEqual([
-      "Kim (not on the team)",
-      1,
-      1,
-      localIso(new Date(daysAgo(1))),
-    ]);
-    expect(text.table.rows[2]).toEqual(["Priya", 0, 0, "—"]);
-  });
-});
-
 describe("validateKudosDraft", () => {
   it("needs a recipient and a message, within the card's word limits", () => {
     expect(validateKudosDraft({ to: " ", message: "", team: "" })).toEqual({
@@ -427,7 +406,7 @@ describe("validateKudosDraft", () => {
 });
 
 describe("Markdown and CSV export", () => {
-  it("exports the recognition table and the wall, replies under their kudos, examples left out", () => {
+  it("exports who hasn't been thanked and the wall, replies under their kudos, examples left out", () => {
     const parent = kudo("Sam", { sentAt: daysAgo(3), message: "Fixed the | build" });
     const reply = kudo("Sam", {
       replyTo: parent.id,
@@ -437,19 +416,36 @@ describe("Markdown and CSV export", () => {
     });
     const later = kudo("Priya", { sentAt: daysAgo(1), teamName: "Checkout" });
     const rows = [parent, reply, later, kudo("Omar", { id: "example-kudos-x" })];
-    const md = kudosToMarkdown(rows, recognitionReceived(rows, ROSTER), {
+    const md = kudosToMarkdown(rows, notThanked(rows, ROSTER), {
       windowLabel: "so far",
       rosterSize: ROSTER.length,
     });
-    expect(md).toContain("> 2 kudos so far, for 2 people.");
-    expect(md).toContain("## Recognition received so far");
-    expect(md).toContain("| Omar | 0 | 0 | — |");
+    expect(md).toContain("# Kudos wall\n\n## Not thanked yet so far\n\n- Omar\n\n## Wall\n");
+    // Names only: no verdict, no table, no counts.
+    expect(md).not.toMatch(/^>|\|\s*\d|Recognition received/m);
     const wall = md.slice(md.indexOf("## Wall"));
     expect(wall.indexOf("to Priya (Checkout)")).toBeLessThan(wall.indexOf("to Sam"));
     expect(wall).toContain("— Fixed the | build");
     expect(wall).toContain("  - Reply from Sam");
     expect(md).not.toContain("example");
     expect(kudosCsv(rows).rows.map((r) => r[1])).toEqual(["Sam", "Sam", "Priya"]);
+  });
+
+  it("says everyone has been thanked, and leaves the section out with no team", () => {
+    const rows = ["Sam", "Priya", "omar"].map((n) => kudo(n));
+    const all = kudosToMarkdown(rows, notThanked(rows, ROSTER), {
+      windowLabel: "in Sprint 12",
+      rosterSize: ROSTER.length,
+    });
+    expect(all).toContain(
+      "## Not thanked yet in Sprint 12\n\nEveryone on your team has been thanked in Sprint 12.\n"
+    );
+    const none = kudosToMarkdown(rows, notThanked(rows, []), {
+      windowLabel: "so far",
+      rosterSize: 0,
+    });
+    expect(none).not.toContain("Not thanked yet");
+    expect(none.startsWith("# Kudos wall\n\n## Wall\n")).toBe(true);
   });
 });
 
@@ -507,51 +503,81 @@ describe("Kudos page: compose", () => {
   });
 });
 
-describe("Kudos page: recognition received", () => {
-  it("shows the counts below the minimum, and no hints", () => {
-    seed([kudo("Sam"), kudo("Sam"), kudo("Priya")]);
-    renderPage();
-    expect(screen.getByText("3 kudos in the last 30 days, for 2 people.")).toBeInTheDocument();
-    expect(
-      screen.getByText("Kudos received in the last 30 days: Sam 2, Priya 1 and Omar 0.")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Send 2 more kudos to see how recognition spreads across the team.")
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("list", { name: "Fairness hints" })).toBeNull();
-  });
+describe("Kudos page: not thanked yet", () => {
+  const list = () => screen.getByRole("list", { name: "Not thanked yet" });
+  const listed = () =>
+    within(list())
+      .getAllByRole("listitem")
+      .map((li) => li.firstChild?.textContent);
 
-  it("hints at teammates with none from five kudos, and Send to picks them", async () => {
+  it("names each teammate nobody has thanked, one Send to each, no counts, nothing above the form", async () => {
     const parent = kudo("Sam");
     seed([
       parent,
-      kudo("Sam"),
-      kudo("Priya"),
-      kudo("Priya"),
       kudo("sam "),
-      kudo("Sam", { replyTo: parent.id, fromName: "Sam" }),
+      // A reply is a kudos for nobody, whoever it names; Kim isn't on the team.
+      kudo("Priya", { replyTo: parent.id, fromName: "Sam" }),
+      kudo("Kim"),
     ]);
     renderPage();
+    expect(screen.getByRole("heading", { name: "Not thanked yet" })).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "Recognition reached 2 of 3 teammates in the last 30 days; Omar has none yet."
-      )
+      screen.getByText("No kudos have reached these teammates in the last 30 days.")
     ).toBeInTheDocument();
-    const hints = screen.getByRole("list", { name: "Fairness hints" });
-    expect(
-      within(hints).getByText("Omar hasn't received a kudos yet in the last 30 days.")
-    ).toBeInTheDocument();
-    // The same hint sits above the form, with the AI one off.
-    const buttons = screen.getAllByRole("button", { name: "Send to Omar" });
-    expect(buttons).toHaveLength(2);
-    fireEvent.click(within(hints).getByRole("button", { name: "Send to Omar" }));
+    expect(listed()).toEqual(["Priya", "Omar"]);
+    // One button per teammate, all of them in the list: no hint above the form.
+    for (const name of ["Priya", "Omar"]) {
+      expect(screen.getAllByRole("button", { name: `Send to ${name}` })).toHaveLength(1);
+    }
+    const sends = screen.getAllByRole("button", { name: /^Send to/ });
+    expect(sends).toHaveLength(2);
+    for (const b of sends) expect(list()).toContainElement(b);
+    expect(screen.queryByRole("button", { name: "Send to Sam" })).toBeNull();
+    // Names only: no tally, chart, table, verdict or hints.
+    expect(list().textContent).not.toMatch(/\d/);
+    expect(screen.queryByRole("list", { name: "Fairness hints" })).toBeNull();
+    expect(screen.queryByRole("table", { name: /kudos received/i })).toBeNull();
+    expect(screen.queryByText(/kudos received|Recognition reached|more kudos to see/i)).toBeNull();
+
+    fireEvent.click(within(list()).getByRole("button", { name: "Send to Omar" }));
     await waitFor(() =>
       expect((screen.getByLabelText("To") as HTMLSelectElement).value).toBe("team:m-omar")
     );
     expect(screen.getByLabelText("Thank you for")).toHaveFocus();
   });
 
-  it("reads the sprint when one has dates, and switches to all time", () => {
+  it("names a teammate by their first name on the button", () => {
+    seed([], { teamMembers: [{ id: "m-sl", name: "Sam Lee" }] });
+    renderPage();
+    expect(listed()).toEqual(["Sam Lee"]);
+    expect(within(list()).getByRole("button", { name: "Send to Sam" })).toBeInTheDocument();
+  });
+
+  it("says when everyone has been thanked", () => {
+    seed([kudo("Sam"), kudo("Priya"), kudo("OMAR")]);
+    renderPage();
+    expect(
+      screen.getByText("Everyone on your team has been thanked in the last 30 days.")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Not thanked yet" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Send to/ })).toBeNull();
+  });
+
+  it("asks for the team on the Team page when there is no roster", () => {
+    seed([kudo("Sam")], { teamMembers: [] });
+    renderPage();
+    const link = screen.getByRole("link", { name: "Team page" });
+    expect(link).toHaveAttribute("href", "/team");
+    expect(link.closest("p")?.textContent).toBe(
+      "Add your teammates on the Team page to see who hasn't been thanked yet."
+    );
+    expect(screen.queryByRole("list", { name: "Not thanked yet" })).toBeNull();
+    expect(screen.queryByText(/Everyone on your team/)).toBeNull();
+    // And the Markdown leaves the section out.
+    expect(screen.getByTestId("export-markdown").textContent).not.toContain("Not thanked yet");
+  });
+
+  it("reads the sprint when one has dates, then the last 30 days, then all time", () => {
     const start = localIso(new Date(NOW.getTime() - 6 * DAY_MS));
     const end = localIso(new Date(NOW.getTime() + 7 * DAY_MS));
     const sprint: Sprint = {
@@ -562,22 +588,55 @@ describe("Kudos page: recognition received", () => {
       pointsPlanned: 20,
       status: "active",
     };
-    seed([kudo("Sam", { sentAt: daysAgo(2) }), kudo("Priya", { sentAt: daysAgo(20) })], {
-      sprints: [sprint],
-    });
+    seed(
+      [
+        kudo("Sam", { sentAt: daysAgo(2) }),
+        kudo("Priya", { sentAt: daysAgo(20) }),
+        kudo("Omar", { sentAt: daysAgo(40) }),
+      ],
+      { sprints: [sprint] }
+    );
     renderPage();
-    expect(screen.getByText("1 kudos in Sprint 12, for 1 person.")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Sprint" })).toBeChecked();
+    expect(
+      screen.getByText("No kudos have reached these teammates in Sprint 12.")
+    ).toBeInTheDocument();
+    expect(listed()).toEqual(["Priya", "Omar"]);
+
+    fireEvent.click(screen.getByRole("radio", { name: "Last 30 days" }));
+    expect(
+      screen.getByText("No kudos have reached these teammates in the last 30 days.")
+    ).toBeInTheDocument();
+    expect(listed()).toEqual(["Omar"]);
+
     fireEvent.click(screen.getByRole("radio", { name: "All time" }));
-    expect(screen.getByText("2 kudos so far, for 2 people.")).toBeInTheDocument();
+    expect(screen.getByText("Everyone on your team has been thanked so far.")).toBeInTheDocument();
+    // The Markdown follows the window.
+    expect(screen.getByTestId("export-markdown").textContent).toContain(
+      "## Not thanked yet so far\n\nEveryone on your team has been thanked so far."
+    );
   });
 
-  it("exports the wall as Markdown", () => {
+  it("exports who hasn't been thanked and the wall as Markdown", () => {
     seed([kudo("Sam", { message: "Shipped the fix" })]);
     renderPage();
     const md = screen.getByTestId("export-markdown").textContent ?? "";
     expect(md).toContain("# Kudos wall");
-    expect(md).toContain("| Sam | 1 | 1 |");
-    expect(md).toContain("**Thank You** to Sam from Mia");
+    expect(md).toContain("## Not thanked yet in the last 30 days\n\n- Priya\n- Omar\n");
+    expect(md).not.toContain("| Sam |");
+    // A card saved under an original theme is named as the card it is drawn as.
+    expect(md).toContain("**Thank you!** to Sam from Mia");
+  });
+
+  it("shows How kudos cards work below, with the owner's line on Send kudos", () => {
+    renderPage();
+    expect(screen.getByRole("heading", { name: "How kudos cards work" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Online, Send kudos pins it on your squad's wall.")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Online, Send kudos gives you a link and an image to pass on.")
+    ).toBeNull();
   });
 });
 
@@ -632,11 +691,17 @@ describe("Kudos page: example", () => {
     expect(rows.every((k) => k.id.startsWith("example-"))).toBe(true);
     expect(room.broadcast).not.toHaveBeenCalled();
     expect(ws().teamMembers).toEqual(ROSTER);
+    // Not thanked yet reads the example's own team: Omar, with no button to send him one.
+    const notThankedList = screen.getByRole("list", { name: "Not thanked yet" });
     expect(
-      screen.getByText(
-        "Recognition reached 4 of 5 teammates in the last 30 days; Omar has none yet."
-      )
+      within(notThankedList)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent)
+    ).toEqual(["Omar"]);
+    expect(
+      screen.getByText("No kudos have reached these teammates in the last 30 days.")
     ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Send to/ })).toBeNull();
     // Example cards can't be sent to the retro, reacted to or replied to.
     expect(screen.queryByRole("button", { name: /to the retro/ })).toBeNull();
     // The notice says it stays on the wall until cleared.
@@ -651,33 +716,18 @@ describe("Kudos page: example", () => {
   });
 });
 
-describe("Kudos settings: custom themes", () => {
-  it("deletes a custom theme with Undo that puts it back in its place", () => {
-    const a = { id: "ship-day", title: "Ship Day", emoji: "🚢", hex: "#123456" };
-    const b = { id: "fix-it", title: "Fix It", emoji: "🔧", hex: "#654321" };
-    useKudosSettingsStore.setState({ customThemes: [a, b] });
+describe("Kudos settings", () => {
+  it("has the AI and beacon switches, and no custom themes: the cards are the printed ones", () => {
     render(<KudosSettings open onOpenChange={() => undefined} />);
-    fireEvent.click(screen.getByRole("button", { name: "Delete theme Ship Day" }));
-    expect(useKudosSettingsStore.getState().customThemes).toEqual([b]);
-    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Deleted the “Ship Day” theme");
-    undoLast();
-    expect(useKudosSettingsStore.getState().customThemes).toEqual([a, b]);
-  });
+    const dialog = screen.getByRole("dialog", { name: "Kudos settings" });
+    expect(within(dialog).getAllByRole("switch")).toHaveLength(5);
+    expect(within(dialog).getByRole("heading", { name: "AI features" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "Beacon visibility" })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/custom theme/i)).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: /Add theme/ })).toBeNull();
 
-  it("offers the Undo inside the dialog too, focused, and restores once", async () => {
-    const a = { id: "ship-day", title: "Ship Day", emoji: "🚢", hex: "#123456" };
-    const b = { id: "fix-it", title: "Fix It", emoji: "🔧", hex: "#654321" };
-    useKudosSettingsStore.setState({ customThemes: [a, b] });
-    render(<KudosSettings open onOpenChange={() => undefined} />);
-    fireEvent.click(screen.getByRole("button", { name: "Delete theme Ship Day" }));
-    const undo = screen.getByRole("button", { name: "Undo deleting the Ship Day theme" });
-    // The toast sits outside the dialog's focus trap; this one is in reach.
-    await waitFor(() => expect(undo).toHaveFocus());
-    fireEvent.click(undo);
-    expect(useKudosSettingsStore.getState().customThemes).toEqual([a, b]);
-    expect(screen.queryByRole("button", { name: /^Undo deleting/ })).toBeNull();
-    // The toast's Undo after it does nothing more: no second copy.
-    undoLast();
-    expect(useKudosSettingsStore.getState().customThemes).toEqual([a, b]);
+    fireEvent.click(within(dialog).getByRole("switch", { name: /Sentiment analysis/ }));
+    expect(useKudosSettingsStore.getState().aiSentiment).toBe(false);
+    useKudosSettingsStore.setState({ aiSentiment: true });
   });
 });

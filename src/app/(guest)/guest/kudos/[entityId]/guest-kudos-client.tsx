@@ -23,7 +23,8 @@ import { ArrowLeft, Loader2, AlertTriangle, Users, Wifi, WifiOff } from "lucide-
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { KUDOS_ACTIONS } from "@/lib/history/event-actions";
 import { emit } from "@/lib/sonification/emit";
-import { exportPng } from "@/lib/whiteboard/export";
+import { cardImage, cardImageName, downloadBlob } from "@/lib/kudos/card-image";
+import { toast } from "@/lib/utils/toast";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { KudosForm, type RecipientOption } from "@/app/(tools)/kudos/components/kudos-form";
 import { KudosWall } from "@/app/(tools)/kudos/components/kudos-wall";
@@ -158,14 +159,13 @@ export function GuestKudosClient({ role, profile, roomKey }: Props) {
     }
   };
 
+  // On white, like the printed cards and the owner's download.
   const handleDownload = async (kudos: Kudos, el: HTMLDivElement) => {
-    const slug =
-      kudos.toName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 32) || "recipient";
-    await exportPng(el, `kudos-to-${slug}.png`);
+    try {
+      downloadBlob(await cardImage(el), cardImageName(kudos.toName));
+    } catch {
+      toast.error("Couldn't make the card image. Try again.");
+    }
   };
 
   return (

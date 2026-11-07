@@ -38,7 +38,7 @@ import type { Kudos } from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/lib/utils/example-id";
 import { KudosCard } from "./kudos-card";
 import { KudosThreadReply } from "./kudos-thread-reply";
-import { getKudosTheme } from "../types";
+import { cardName, designFor } from "@/lib/kudos/card-designs";
 import { useKudosThread } from "../use-kudos-thread";
 
 interface Props {
@@ -346,11 +346,11 @@ function WallEntry({
 
 /**
  * Build a screen-reader-friendly label so an assistive tech user is
- * told "Thank You kudos from Alice to Bob: thanks for the review"
- * rather than just navigating a wall of unlabeled cards.
+ * told "Thank you! kudos from Alice to Bob: thanks for the review" (the
+ * card drawn, as designFor draws it) rather than just navigating a wall
+ * of unlabeled cards.
  */
 function kudosAriaLabel(k: Kudos): string {
-  const theme = getKudosTheme(k.theme);
   const messageBrief = k.message.length > 120 ? `${k.message.slice(0, 117)}…` : k.message;
-  return `${theme.title} kudos from ${k.fromName} to ${k.toName}: ${messageBrief}`;
+  return `${cardName(designFor(k))} kudos from ${k.fromName} to ${k.toName}: ${messageBrief}`;
 }

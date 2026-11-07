@@ -1278,7 +1278,7 @@ export const tools: ToolDefinition[] = [
     code: "D17",
     name: "Kudos Wall",
     description:
-      "Recognition wall: send themed kudos cards, see who the kudos reach with fairness hints, and bring them to the retro as appreciations",
+      "Kudos wall: send Agile at Work kudos cards, see who hasn't been thanked yet, and bring them to the retro as appreciations",
     category: "Outcomes & Pulse",
     path: "/kudos",
     icon: Award,

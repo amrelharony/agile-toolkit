@@ -24,10 +24,13 @@
  *     a card image, and the parent keeps a copy on the device only when
  *     "Keep a copy on this device" is ticked.
  *
- * The cards are the printed ones (lib/kudos/print-cards): the four habits
- * and the two open cards. `initialEpisode` (from /kudos?ep=NN) picks a book
- * episode's card, with its headline and quote; picking another theme drops
- * them. The fields are the printed card's back: To, Thank you for, From.
+ * The cards are the printed Agile at Work ones (lib/kudos/card-designs),
+ * picked with CardPicker: a theme (the four habits, or Open), then one of
+ * its cards, a book episode's card or "Thank you!" / "Great teamwork!",
+ * which can name the episode it reminds the sender of. A kudos keeps only
+ * the card's theme id and its episode number. `initialEpisode` (from
+ * /kudos?ep=NN) picks that episode's card. The fields are the printed card's
+ * back: To, Thank you for, From.
  *
  * Nothing is sent until the draft is valid: a recipient (never picked on
  * the sender's behalf), a message of 1–50 words, and the short word caps on
@@ -47,11 +50,12 @@ import { SectionCard } from "@/components/shared/section-card";
 import { PersonPicker } from "@/components/team/person-picker";
 import { findRosterMember, useTeamRoster } from "@/lib/team/use-team-roster";
 import { focusFirstInvalid } from "@/lib/utils/form";
-import type { Kudos, KudosSentiment, KudosTheme } from "@/lib/stores/workspace-types";
+import type { Kudos, KudosSentiment } from "@/lib/stores/workspace-types";
 import { MESSAGE_CHAR_MAX } from "@/lib/kudos/parse";
-import { episodeCard } from "@/lib/kudos/print-cards";
-import { DEFAULT_KUDOS_THEME, KUDOS_WORD_LIMITS, PICKER_THEMES, countWords } from "../types";
+import { cardDesign, designFor, episodeDesign, type CardDesignKey } from "@/lib/kudos/card-designs";
+import { KUDOS_WORD_LIMITS, countWords } from "../types";
 import { RECIPIENT_MAX, validateKudosDraft } from "../form";
+import { CardPicker } from "./card-picker";
 import { KudosCard } from "./kudos-card";
 import { KudosSent } from "./kudos-sent";
 import { analyseSentiment } from "@/lib/kudos/llm/sentiment";
@@ -146,6 +150,9 @@ const newKudosId = (): string => {
 const SELECT_CLASS =
   "h-10 [@media(pointer:coarse)]:h-11 rounded-md bg-surface-deep border border-border px-3 text-sm text-text aria-[invalid=true]:border-danger";
 
+/** The card a new kudos starts on. */
+const DEFAULT_DESIGN: CardDesignKey = "open-thank-you";
+
 export function KudosForm({
   defaultFromName,
   fromPlaceholder,
@@ -163,9 +170,14 @@ export function KudosForm({
   fairnessHintSlot,
   forcedRecipient,
 }: Props) {
-  const [theme, setTheme] = useState<KudosTheme>(DEFAULT_KUDOS_THEME);
-  // The book episode whose printed card this is: only its number is kept.
-  const [episode, setEpisode] = useState<number | null>(null);
+  const [design, setDesign] = useState<CardDesignKey>(DEFAULT_DESIGN);
+  // The book episode an open card reminds the sender of (only its number is kept).
+  const [remindsOf, setRemindsOf] = useState<number | null>(null);
+  const card = cardDesign(design) ?? designFor(null);
+  // What the kudos keeps: the card's theme id, and the episode of an
+  // episode's card, or the one an open card reminds the sender of.
+  const theme = card.theme;
+  const episode = card.kind === "episode" ? card.ep : remindsOf;
   const [recipientId, setRecipientId] = useState<string>("");
   const [freeRecipient, setFreeRecipient] = useState("");
   const [message, setMessage] = useState("");
@@ -203,23 +215,14 @@ export function KudosForm({
     messageRef.current?.focus();
   }, [forcedRecipient, plainRecipient, recipients]);
 
-  // /kudos?ep=NN: start on that episode's printed card, its theme, headline and quote.
+  // /kudos?ep=NN: start on that episode's printed card.
   const lastEpisodeTokenRef = useRef<number>(-1);
   useEffect(() => {
     if (!initialEpisode || initialEpisode.token === lastEpisodeTokenRef.current) return;
     lastEpisodeTokenRef.current = initialEpisode.token;
-    const card = episodeCard(initialEpisode.ep);
-    if (!card) return;
-    setTheme(card.theme);
-    setEpisode(card.ep);
+    const picked = episodeDesign(initialEpisode.ep);
+    if (picked) setDesign(picked.key);
   }, [initialEpisode]);
-  const printed = episodeCard(episode);
-
-  const pickTheme = (value: KudosTheme) => {
-    setTheme(value);
-    // The episode's headline and quote belong to its own card.
-    if (!printed || value !== printed.theme) setEpisode(null);
-  };
 
   // The predicted recipient is offered, never picked: the first kudos
   // after load used to go to whoever the prediction (or the list) put first.
@@ -273,42 +276,6 @@ export function KudosForm({
     };
   }, [message, theme, aiSentiment]);
 
-  // Phase 5 — the picker used to map only the seven built-in
-  // KUDOS_THEMES, so a custom theme created in the settings dialog was
-  // impossible to actually select. Merge the device-local catalog in;
-  // custom entries carry the inline `KudosCustomTheme` object as their
-  // value (which is exactly what the wire + card renderer accept).
-  const customThemes = useKudosSettingsStore((s) => s.customThemes);
-  const themeOptions = useMemo(() => {
-    const builtIns = PICKER_THEMES.map((t) => ({
-      key: t.id as string,
-      value: t.id as KudosTheme,
-      title: t.title,
-      emoji: t.emoji,
-      accent: t.accent,
-      hex: t.hex,
-      // The printed cards are told apart by colour, so their buttons carry its swatch.
-      swatch: !t.emoji,
-      custom: false,
-    }));
-    const custom = customThemes.map((t) => ({
-      // Namespaced so a custom theme that reuses a built-in id can't
-      // collide with it in the selected-state comparison.
-      key: `custom:${t.id}`,
-      value: { id: t.id, title: t.title, emoji: t.emoji, hex: t.hex } as KudosTheme,
-      title: t.title,
-      emoji: t.emoji,
-      // Custom themes ship a hex, not Tailwind classes — the selected border is
-      // applied inline below. The label stays in page text: the hex can be anything.
-      accent: "border-border text-text",
-      hex: t.hex,
-      swatch: false,
-      custom: true,
-    }));
-    return [...builtIns, ...custom];
-  }, [customThemes]);
-  const selectedThemeKey = typeof theme === "string" ? theme : `custom:${theme.id}`;
-
   const selectedRecipient = useMemo<RecipientOption | null>(() => {
     // A visitor's typed name is the recipient: there's no list to pick from.
     if (plainRecipient || recipientId === "free") {
@@ -355,13 +322,13 @@ export function KudosForm({
       ...(selectedRecipient?.memberId ? { toMemberId: selectedRecipient.memberId } : {}),
       fromName: defaultFromName.trim() || "—",
       fromProfileId: defaultFromProfileId,
-      ...(printed ? { episode: printed.ep } : {}),
+      ...(episode !== null ? { episode } : {}),
       message: message.trim() || "what they did, in a few words…",
       // Updated on submit to the actual moment of send; the preview
       // shows today's date so the user sees what the card will say.
       sentAt: new Date().toISOString(),
     }),
-    [theme, printed, selectedRecipient, defaultFromName, defaultFromProfileId, message]
+    [theme, episode, selectedRecipient, defaultFromName, defaultFromProfileId, message]
   );
 
   const send = async () => {
@@ -383,8 +350,8 @@ export function KudosForm({
       await onSubmit(finalised, { keep });
       // A private kudos leaves as its link and image, from the panel above the form.
       if (delivery === "link") setSent({ kudos: finalised, kept: keep });
-      // Reset the form for the next kudos. Keep theme so a user
-      // sending several "Thank You" cards doesn't have to re-pick.
+      // Reset the form for the next kudos. Keep the card (and the episode
+      // it reminds of) so a user sending several doesn't have to re-pick.
       setMessage("");
       setRecipientId("");
       setFreeRecipient("");
@@ -423,9 +390,11 @@ export function KudosForm({
   const squad = recipients.filter((r) => r.source === "squad");
   const team = recipients.filter((r) => r.source === "team");
 
+  // The next card starts at To (the card picked stays as it was).
+  const recipientRef = useRef<HTMLDivElement>(null);
   const writeAnother = () => {
     setSent(null);
-    formRef.current?.querySelector<HTMLElement>("input:not([readonly]), select, textarea")?.focus();
+    recipientRef.current?.querySelector<HTMLElement>("input, select")?.focus();
   };
 
   return (
@@ -445,152 +414,107 @@ export function KudosForm({
           <p className="rounded-md border border-border bg-surface-deep px-3 py-2 text-sm text-text">
             First names and general thanks only. No customer names or internal details.
           </p>
-          {/* Theme picker — chip-style for tactile feel. The printed cards,
-            then any custom themes from the settings. */}
-          <div className="flex flex-col gap-2">
-            <p id="kudos-type-label" className="text-sm font-medium leading-none text-sub">
-              Card
-            </p>
-            <div
-              role="group"
-              aria-labelledby="kudos-type-label"
-              className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
-            >
-              {themeOptions.map((t) => {
-                const isSelected = selectedThemeKey === t.key;
-                return (
-                  <button
-                    key={t.key}
-                    type="button"
-                    onClick={() => pickTheme(t.value)}
-                    aria-pressed={isSelected}
-                    style={
-                      (t.custom || t.swatch) && isSelected ? { borderColor: t.hex } : undefined
-                    }
-                    className={[
-                      "min-touch-coarse rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
-                      "flex items-center gap-1.5 justify-center",
-                      isSelected
-                        ? `${t.accent} bg-accent/5`
-                        : "border-border bg-surface-deep text-sub hover:border-border hover:text-text",
-                    ].join(" ")}
-                  >
-                    {t.swatch ? (
-                      <span
-                        aria-hidden="true"
-                        className="h-3 w-3 shrink-0 rounded-full border border-border"
-                        style={{ background: t.hex }}
-                      />
-                    ) : (
-                      <span aria-hidden="true">{t.emoji}</span>
-                    )}
-                    <span>{t.title}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {printed ? (
-              <p className="flex flex-wrap items-center gap-2 text-xs text-sub">
-                <span>
-                  Episode {printed.ep}&apos;s card: &ldquo;{printed.headline}&rdquo;
-                </span>
-                <Button type="button" size="sm" variant="outline" onClick={() => setEpisode(null)}>
-                  Leave out its words
-                </Button>
-              </p>
-            ) : null}
-          </div>
+          {/* The printed cards: a theme, then one of its cards. */}
+          <CardPicker
+            design={design}
+            remindsOf={remindsOf}
+            onDesignChange={setDesign}
+            onRemindsOfChange={setRemindsOf}
+          />
 
           {/* Recipient. A visitor types a name; everyone else picks from the
-            squad profiles + team members, with a "Type a name…" fallback. */}
-          {plainRecipient ? (
-            <Field label="To" error={errors.to}>
-              {(props) => (
-                <Input
-                  {...props}
-                  placeholder="Their first name"
-                  value={freeRecipient}
-                  onChange={(e) => setFreeRecipient(e.target.value)}
-                  maxLength={RECIPIENT_MAX}
-                  className="bg-surface-deep border-border text-text"
-                />
-              )}
-            </Field>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <Field label="To" error={toError}>
+            squad profiles + team members, with a "Type a name…" fallback.
+            data-kudos-to: the page's "Send your own" starts here too. */}
+          <div ref={recipientRef} data-kudos-to>
+            {plainRecipient ? (
+              <Field label="To" error={errors.to}>
                 {(props) => (
-                  <select
+                  <Input
                     {...props}
-                    value={recipientId}
-                    onChange={(e) => setRecipientId(e.target.value)}
-                    className={SELECT_CLASS}
-                  >
-                    <option value="">
-                      {recipients.length === 0 ? "No teammates yet" : "Pick a recipient…"}
-                    </option>
-                    {squad.length > 0 && (
-                      <optgroup label="Squad">
-                        {squad.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.displayName}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {team.length > 0 && (
-                      <optgroup label="Team members">
-                        {team.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.displayName}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    <option value="free">— Type a name…</option>
-                  </select>
+                    placeholder="Their first name"
+                    value={freeRecipient}
+                    onChange={(e) => setFreeRecipient(e.target.value)}
+                    maxLength={RECIPIENT_MAX}
+                    className="bg-surface-deep border-border text-text"
+                  />
                 )}
               </Field>
-              {suggested && (
-                <p className="flex flex-wrap items-center gap-2 text-xs text-sub">
-                  <Sparkles className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-                  <span>Suggested:</span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setRecipientId(suggested.id)}
-                  >
-                    {suggested.displayName}
-                  </Button>
-                </p>
-              )}
-              {recipientId === "free" &&
-                (rosterRecipients ? (
-                  <PersonPicker
-                    label="Recipient name"
-                    value={freeRecipient}
-                    onChange={setFreeRecipient}
-                    error={freeError}
-                    placeholder="Recipient name"
-                  />
-                ) : (
-                  <Field label="Recipient name" error={freeError}>
-                    {(props) => (
-                      <Input
-                        {...props}
-                        placeholder="Recipient name"
-                        value={freeRecipient}
-                        onChange={(e) => setFreeRecipient(e.target.value)}
-                        maxLength={RECIPIENT_MAX}
-                        autoFocus
-                        className="bg-surface-deep border-border text-text"
-                      />
-                    )}
-                  </Field>
-                ))}
-            </div>
-          )}
+            ) : (
+              <div className="flex flex-col gap-2">
+                <Field label="To" error={toError}>
+                  {(props) => (
+                    <select
+                      {...props}
+                      value={recipientId}
+                      onChange={(e) => setRecipientId(e.target.value)}
+                      className={SELECT_CLASS}
+                    >
+                      <option value="">
+                        {recipients.length === 0 ? "No teammates yet" : "Pick a recipient…"}
+                      </option>
+                      {squad.length > 0 && (
+                        <optgroup label="Squad">
+                          {squad.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.displayName}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {team.length > 0 && (
+                        <optgroup label="Team members">
+                          {team.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.displayName}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      <option value="free">— Type a name…</option>
+                    </select>
+                  )}
+                </Field>
+                {suggested && (
+                  <p className="flex flex-wrap items-center gap-2 text-xs text-sub">
+                    <Sparkles className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+                    <span>Suggested:</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setRecipientId(suggested.id)}
+                    >
+                      {suggested.displayName}
+                    </Button>
+                  </p>
+                )}
+                {recipientId === "free" &&
+                  (rosterRecipients ? (
+                    <PersonPicker
+                      label="Recipient name"
+                      value={freeRecipient}
+                      onChange={setFreeRecipient}
+                      error={freeError}
+                      placeholder="Recipient name"
+                    />
+                  ) : (
+                    <Field label="Recipient name" error={freeError}>
+                      {(props) => (
+                        <Input
+                          {...props}
+                          placeholder="Recipient name"
+                          value={freeRecipient}
+                          onChange={(e) => setFreeRecipient(e.target.value)}
+                          maxLength={RECIPIENT_MAX}
+                          autoFocus
+                          className="bg-surface-deep border-border text-text"
+                        />
+                      )}
+                    </Field>
+                  ))}
+              </div>
+            )}
+          </div>
 
           {/* Message + live word counter. */}
           <div className="flex flex-col gap-2">
