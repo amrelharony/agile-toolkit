@@ -8,7 +8,11 @@ Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.web
 | ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `docs/mascot/AMR-ART-BRIEF.md`, `docs/mascot/reference/`          | The brief the sheets were generated from, and its reference images                |
 | `docs/mascot/AMR-HAIR-EDITS.md`                                   | Hair-only edits for sheets that came back with curly hair, and how to check them  |
+| `docs/mascot/AMR-HAIR-ROUND-2.md`, `reference/ref-hair-fix.png`   | The second hair round: the sides, the colour and the last curls                   |
+| `docs/mascot/AMR-HAIR-ROUND-3.md`, `reference/ref-hair-fix-3.png` | The third hair round: S01's haircut for the other 53 sheets, in five zips         |
 | `scripts/build-mascot-packs.py`                                   | Slices, cleans and registers the sheets, writes the packs and their manifest      |
+| `scripts/mascot_heads.py`                                         | Measures his head, hair and skin in a cell; the builder and the audit share it    |
+| `scripts/audit-mascot-heads.py`                                   | Checks the shipped packs' head size, skin and hair against the live sprite        |
 | `public/mascot/amr-<pack>[@2x].<hash>.webp`                       | The packs: 192 × 224 cells, eight to a row, and 384 × 448 twins for sharp screens |
 | `src/components/agent/mascot/mascot-packs.ts`                     | The generated manifest: each pack's files and each frame's cell                   |
 | `src/components/agent/mascot/engine/clips.ts`                     | Every reaction and held pose, frame by frame                                      |
@@ -25,7 +29,7 @@ Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.web
 | `src/components/agent/mascot/mascot-fx.tsx`, `engine/scene-fx.ts` | The air the site draws behind him in a weather or fireworks scene                 |
 | `src/app/api/mascot/weather/route.ts`                             | The visitor's weather, from their rough place                                     |
 
-The source sheets (`S01-faces.png` … `S10-stroll.png`, about 19 MB, and `S11-sun.png` … `S64-lights.png`, about 100 MB) are not committed. Keep the zips they came in.
+The source sheets (`S01-faces.png` … `S10-stroll.png`, about 19 MB, and `S11-sun.png` … `S64-lights.png`, about 100 MB) are not committed. Keep the zips they came in. Twelve of them (S01, S05, S12, S14, S23, S25, S30, S33, S36, S44, S47 and S55) are now the versions from [hair round 2](AMR-HAIR-ROUND-2.md), which replace the earlier ones. 52 more are the versions from [hair round 3](AMR-HAIR-ROUND-3.md) (`AMR_Hair_Round_3_{A..E}_Reviewed.zip`). S06, S41 and S62 keep their round-1 versions, and S01, S05, S23 and S25 their round-2 ones. The five sheets where a hat or an umbrella hides his hair (S16–S18, S45 and S50) no longer have source PNGs on hand: the zip of the context sheets is gone, so rebuilds keep their shipped packs (below).
 
 ## Rebuilding
 
@@ -35,7 +39,17 @@ New or corrected sheets: put all 64 in one folder, then
 python -I scripts/build-mascot-packs.py <sheets folder> --preview <scratch folder>
 ```
 
-It replaces every `amr-*.webp` pack, rewrites `mascot-packs.ts`, and writes contact sheets and the talking composites to the preview folder for a visual check. `hair@2x.png` there puts every frame's head under the live sprite's head from eight angles (the same angles as `reference/ref-hair.png`), so a haircut that drifts shows at a glance. `test/agent/mascot-asset.test.ts` checks that each pack's name matches its bytes.
+With `--keep-missing`, a context sheet that isn't in the folder keeps the pack it ships with now (its files and frames, unchanged) instead of being left out. That is how the five covered sheets are built today: a folder of the other 59, plus `--keep-missing`.
+
+It replaces every `amr-*.webp` pack it builds, rewrites `mascot-packs.ts`, and writes contact sheets and the talking composites to the preview folder for a visual check. `hair@2x.png` there puts every frame's head under the live sprite's head from eight angles (the same angles as `reference/ref-hair.png`), so a haircut that drifts shows at a glance. `test/agent/mascot-asset.test.ts` checks that each pack's name matches its bytes.
+
+Then check the packs against the live sprite:
+
+```bash
+python -I scripts/audit-mascot-heads.py --check
+```
+
+It prints each pack's skin difference from the live idle (CIEDE2000, where about 1 is just visible side by side) and its head size, with the live sheet's own spread as the yardstick, and fails when a pack's skin is more than 3 from live or its head more than 5% off. It also prints two hair numbers against the live idle's, for reading rather than for the check: how thick the hair down his sides is, and how much of his head the hair covers (a dome on top shows as more).
 
 Then the review page:
 
@@ -76,11 +90,17 @@ Each sheet's slot 1 (his standard stance) sets the scale: he stands 177 px tall 
 
 Every slot's lowest point goes on the floor row, except the carried ones.
 
-Heads are then matched to the live head. The generator draws his head 2–9% bigger than the live sheet does, at the same height, with his shoulders lower to make room, so every new pose looked bigger than the live ones. The build measures each sheet's stance head against the live idle's and shrinks every frame's head by that much. It finds the head by its hair, shrinks it about the head's centre, and eases back to no change across the neck and shoulders. That leaves no seams, and a hand on his head shrinks with it while staying on its arm. The S01 heads also move onto the live head's position, because talking flips between them and the S02 gestures. The build prints each sheet's factor.
+Side hair comes next. Hair round 2 asked for the sides cut very short, and they came back thinner than the live idle's: about 7 px down each side of the S01 faces at 2×, against live's 9. Thin sides also fooled the head measure: the hair read narrow, so his ears looked like hands at his head. So wherever a head faces us, the build follows the hair down each side, from the top of his hair to his ear, and compares it with the live idle's, scaled to the head's width. A side below 95% of live's is stretched inward to live's thickness, row by row. Its soft edge and a little skin move with it, and the moved pixels are blended with the rows above and below, so the new edge stays smooth. Sides about as thick as live's, or thicker, stay as drawn. The build prints the frames it thickened.
+
+Heads are then matched to the live head. The generator draws his head 2–9% bigger than the live sheet does, at the same height, with his shoulders lower to make room, so every new pose looked bigger than the live ones. The build measures each frame's head the way `mascot_heads.py` does: the head's width at the ears times the hair's width, which a tilt or a hand under the chin doesn't change. It scales that head to the live idle's, between 85% and 106%. It finds the head by its hair, scales it about the head's centre, and eases back to no change across the neck and shoulders. That leaves no seams, and a hand on his head shrinks with it while staying on its arm. A frame whose head is covered (a hat, headphones, an umbrella) or can't be measured takes its sheet's number, from the sheet's stance. The S01 faces all take one number, the median of their own, and their heads also move onto the live head's position, because talking flips between them and the S02 gestures.
+
+The first build used the stance's number for every frame of a sheet. An audit on 5 November 2026 found heads up to 13% too big where a sheet drew some poses bigger than its stance, and six sheets 5–10% big overall; measuring frame by frame fixed that.
+
+Skin is matched last. Each sheet came back from the generator with its own colour grade: next to the live sprite his face was about 5 points darker, 3 redder and 4 less yellow (CIELAB), with the same shading, so his face darkened every time a reaction cut in. The build measures the median colour of each sheet's faces and moves that sheet's skin (face, ears, neck and hands, not his props) by one shift onto the live idle's. Lit and shaded skin keep their difference, and a blush drawn on purpose, like the koshary's, stays a blush. The build prints each sheet's shift.
 
 The S01 faces share one body: each face goes onto `face.default`'s body, with its own head lined up on the default head. An edit can move a head (the hair edits moved six of them by up to 11 px at 2×), and lip-sync flips between these faces many times a second, so a moved head would make him twitch. The build prints a note for any head it had to move more than 2 px.
 
-Talking composites put the S01 heads (the smile and three mouths) on the S02 gestures. The cut is feathered at the neck, so one head stays on every talking frame.
+Talking composites put the S01 heads (the smile and three mouths) on the S02 gestures. The cut is feathered at the neck, so one head stays on every talking frame. The gestures' own heads are cut away under the new one, and first go to 96% of the live size, so the S01 head always covers them: a body head any bigger peeks out as a ring round the new head or a notch at the jaw.
 
 ## Decisions
 
