@@ -1,13 +1,16 @@
 """
 Build Amr's lazy sprite packs from the generated art sheets.
 
-    python -I scripts/build-mascot-packs.py <sheets folder> [--preview <folder>]
+    python -I scripts/build-mascot-packs.py <sheets folder> [--preview <folder>] [--keep-missing]
 
 The sheets folder holds S01-faces.png … S10-stroll.png: 1536 x 1024, eight
 384 x 512 slots each, slot 1 the standard stance (docs/mascot/AMR-ART-BRIEF.md).
 It may also hold any of the context sheets S11-sun.png … S64-lights.png
 (docs/mascot/context-sheets.json); each one present becomes a pack, and the
-ones not drawn yet are left out, so they can come back a few at a time.
+ones not drawn yet are left out, so they can come back a few at a time. With
+--keep-missing, a context sheet missing from the folder keeps the pack it ships
+with now instead (its files and its frames, as they are), so a folder only needs
+the sheets that changed since that pack was built.
 Each slot is cleaned, registered to the live sheet (public/mascot/amr.*.webp) —
 same height, same floor row, centred on its anchor — and packed into small WebP
 sheets under public/mascot, named after their bytes. A pack's cells are the live
@@ -16,17 +19,27 @@ above his hair (384 x 448 for sharp screens). The pack manifest is written to
 src/components/agent/mascot/mascot-packs.ts. With --preview, contact sheets for
 review land in that folder too.
 
+Two corrections bring the generated art to the live sprite (scripts/mascot_heads.py
+measures both; scripts/audit-mascot-heads.py checks the result):
+  head size  every head is scaled to the live idle's, measured frame by frame
+  skin       each sheet's skin is moved to the live idle's colour, keeping its shading
+
 Needs Pillow and numpy. The source PNGs never ship; only the packs do.
 """
 
 import hashlib
 import io
 import json
+import re
 import sys
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+
+sys.dont_write_bytecode = True  # no __pycache__ beside the scripts
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import mascot_heads as heads  # noqa: E402  (next to this script; -I leaves it off the path)
 
 ROOT = Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "public" / "mascot"
@@ -183,6 +196,50 @@ def overflow(cell: Image.Image) -> list[str]:
     return edges
 
 
+def shipped_packs() -> dict:
+    """The packs in the current manifest: {pack: (its entry, its frame ids in cell order)}."""
+    ts = MANIFEST.read_text(encoding="utf-8")
+    entries = {}
+    for m in re.finditer(r'^  (\w+): \{\s*src: "([^"]+)",\s*src2x: "([^"]+)",\s*frames: (\d+),'
+                         r'\s*bytes: (\d+),\s*bytes2x: (\d+),', ts, re.M):
+        entries[m.group(1)] = {"src": m.group(2), "src2x": m.group(3), "frames": int(m.group(4)),
+                               "bytes": int(m.group(5)), "bytes2x": int(m.group(6))}
+    cells: dict[str, list[tuple[int, str]]] = {}
+    for m in re.finditer(r'^  "([^"]+)": \["(\w+)", (\d+)\],', ts, re.M):
+        cells.setdefault(m.group(2), []).append((int(m.group(3)), m.group(1)))
+    return {p: (e, [f for _, f in sorted(cells.get(p, []))]) for p, e in entries.items()}
+
+
+def keep_missing(found: list[str]) -> dict:
+    """The shipped packs of the context sheets missing from the folder, to keep as
+    they are: {pack: (its manifest entry, its frame ids)}."""
+    shipped, kept = shipped_packs(), {}
+    for stem, (pack, _kind, _ids, _group) in context_sheets().items():
+        if stem in found or pack not in shipped:
+            continue
+        entry, fids = shipped[pack]
+        for key in ("src", "src2x"):
+            if not (PUBLIC / Path(entry[key]).name).exists():
+                raise SystemExit(f"{stem} isn't in the folder, and its shipped pack {entry[key]} is gone")
+        if len(fids) != entry["frames"]:
+            raise SystemExit(f"{stem}: the manifest lists {len(fids)} frames for {pack}, not {entry['frames']}")
+        kept[pack] = (entry, fids)
+    return kept
+
+
+def add_kept(kept: dict) -> None:
+    """Put the kept packs into PACKS, every pack in the spec's order, so the manifest
+    keeps its order. Only once the frames are built: no step before touches them."""
+    order = {p: PACKS[p] for p in PACKS if p not in {c[0] for c in context_sheets().values()}}
+    for pack, *_ in context_sheets().values():
+        if pack in PACKS:
+            order[pack] = PACKS[pack]
+        elif pack in kept:
+            order[pack] = kept[pack][1]
+    PACKS.clear()
+    PACKS.update(order)
+
+
 def load_frames(src: Path):
     """Every registered frame: {frame id: {k: cell image}}, plus the stances."""
     frames, stances, notes = {}, {}, []
@@ -295,13 +352,14 @@ def swap_head(body_img: Image.Image, head_img: Image.Image, dx: int, dy: int, ne
         return Image.frombytes("RGBa", (out.shape[1], out.shape[0]), out.tobytes()).convert("RGBA")
     head_mask = head[..., 3] > 0
     head_mask[hi:] = False
-    # The body's own head, where it would show past the new one (its ears, when the two
-    # are the same size): the part of the body above the seam that touches the new head.
-    # A raised hand beside the head doesn't touch it, so it stays.
+    # The body's own head, where it would show past the new one (its ears, or a ring of
+    # its hair when the new head is the smaller): the part of the body above the seam
+    # that touches the new head, all of it. A raised hand beside the head doesn't touch
+    # it, so it stays.
     above = body[..., 3] > 0
     above[lo:] = False
     old_head = flood(above, above & head_mask)
-    body[old_head & ~dilate(head_mask, 1)] = 0
+    body[old_head] = 0
     # Remove the body's own head where the new one will sit (and a hair around it),
     # but keep hands raised beside the head.
     near = dilate(head_mask, 3)
@@ -378,6 +436,57 @@ def live_head() -> tuple[int, int, int, int]:
     """head_box of the live idle, in a pack cell's rows at 2x."""
     idle = live_cell(Image.open(next(PUBLIC.glob("amr.*.webp"))).convert("RGBA"))
     return head_box(idle.convert("RGBa").resize((CELL_W * 2, PACK_H * 2), Image.LANCZOS).convert("RGBA"))
+
+
+def live_idle2x() -> Image.Image:
+    """The live idle in a pack cell at 2x."""
+    idle = live_cell(Image.open(next(PUBLIC.glob("amr.*.webp"))).convert("RGBA"))
+    return idle.convert("RGBa").resize((CELL_W * 2, PACK_H * 2), Image.LANCZOS).convert("RGBA")
+
+
+def live_ref() -> dict:
+    """The live idle's head, measured the way every frame is (mascot_heads)."""
+    return heads.measure(live_idle2x())
+
+
+def thicken_sides(frames) -> list[str]:
+    """Hair round 2 cut the sides thinner than the live idle's: on the S01 faces, which
+    are on screen whenever he talks, about 7 px at 2x down each side against live's 9.
+    So wherever a head faces us, side hair clearly thinner than
+    the live idle's (for the head's width) is stretched in to its thickness, its
+    soft edge with it. Sides about as thick as live's, or thicker, stay as drawn."""
+    ref = heads.side_strips(live_idle2x())
+    notes, thick = [], []
+    for fid in frames:
+        if fid in GESTURES or heads.covered(fid):  # gestures get the S01 heads
+            continue
+        # Not a turned head. "hands-at-head" stays in: thin sides alone set it (the
+        # ears outgrow the hair), and a hand at the side ends the strip there anyway.
+        seg = heads.segment(frames[fid][2])
+        if not seg.get("ok") or "turned" in seg["flags"]:
+            continue
+        out2, most = heads.thicken_sides(frames[fid][2], ref)
+        if most < 0.25:
+            continue
+        out1 = out2.convert("RGBa").resize((CELL_W, PACK_H), Image.LANCZOS).convert("RGBA")
+        frames[fid] = {1: out1, 2: out2}
+        thick.append(f"{fid} {most:.1f}")
+    if thick:
+        notes.append(f"side hair thickened (most px at 2x) on {len(thick)} frames: " + ", ".join(thick))
+    return notes
+
+
+def own_scale(fid: str, img2: Image.Image, ref: dict, fallback: float) -> tuple[float, str | None]:
+    """How much to scale this frame's head to the live size: its own measure, or
+    the sheet's number when its head is covered or can't be measured, or when the
+    measure is so far from the sheet's that it's a misreading."""
+    size = None if heads.covered(fid) else heads.size_against(heads.measure(img2), ref)
+    if size is None:
+        return fallback, None
+    own = min(max(1 / size, 0.85), 1.06)
+    if abs(own - fallback) > 0.12:
+        return fallback, f"{fid}: head measured at {size:.2f} of live, kept the sheet's {fallback:.3f}"
+    return own, None
 
 
 def head_scales(stances) -> dict[str, float]:
@@ -461,13 +570,16 @@ def shrunk(img2: Image.Image, cx: float, cy: float, radius: float, s: float,
     return {1: out2.convert("RGBa").resize((CELL_W, PACK_H), Image.LANCZOS).convert("RGBA"), 2: out2}
 
 
-def shrink_faces(frames, scales) -> None:
+def shrink_faces(frames, scales, ref) -> None:
     """The S01 faces share one body and one head position, so one centre for all of
     them, taken from face.default. Their heads also go where the live idle's head is:
     talking flips between these faces and the S02 gestures, whose shoulders are higher
     (as the live sheet's are), and the head mustn't bob between the two."""
-    s = scales["faces"]
-    if s == 1.0:
+    sizes = [heads.size_against(heads.measure(frames[f][2]), ref) for f in SHEETS["S01-faces"][2]]
+    sizes = [x for x in sizes if x is not None]
+    s = min(max(1 / float(np.median(sizes)), 0.85), 1.06) if sizes else scales["faces"]
+    scales["faces"] = s
+    if abs(s - 1) < 0.01:
         return
     top, neck, h, w = head_box(frames["face.default"][2])
     m = np.array(frames["face.default"][2].getchannel("A"))[top:neck] > 128
@@ -478,8 +590,37 @@ def shrink_faces(frames, scales) -> None:
         frames[fid] = shrunk(frames[fid][2], cx, cy, max(h, w) / 2, s, (live_top + live_neck) / 2)
 
 
-def shrink_heads(frames, stances, scales) -> list[str]:
-    """Every other shipped frame, its head found by its hair."""
+def size_head(frames, fid, sheet, stances, scales, ref, target: float = 1.0) -> list[str]:
+    """Scale one frame's head to `target` times the live size, found by its hair."""
+    s, note = own_scale(fid, frames[fid][2], ref, scales[sheet])
+    s *= target
+    notes = [note] if note else []
+    if abs(s - 1) < 0.01:
+        return notes
+    top, _, h, w = head_box(stances[sheet][2])
+    hair = hair_blob(frames[fid][2])
+    if hair is None:
+        return notes + [f"{fid}: no hair found, head left as drawn"]
+    cx, hair_top = hair
+    frames[fid] = shrunk(frames[fid][2], cx, hair_top + h / 2, max(h, w) / 2, s)
+    return notes
+
+
+# The S02 gestures carry the S01 heads when he talks, and their own heads are cut
+# away under the new one. Where the two meet, a body head any bigger than the new
+# head shows: as a ring round it, or a notch at the jaw. So the body's head goes a
+# little under the live size first, and the new head always covers it.
+GESTURE_HEAD = 0.96
+
+
+def size_gestures(frames, stances, scales, ref) -> list[str]:
+    return [n for gid in GESTURES for n in size_head(frames, gid, "explain", stances, scales, ref, GESTURE_HEAD)]
+
+
+def shrink_heads(frames, stances, scales, ref) -> list[str]:
+    """Every other shipped frame, its head found by its hair and scaled by its own
+    measure: one number per sheet, taken from its stance, left heads that the art
+    drew bigger than the stance's up to 13% too big."""
     pack_of = {}
     for stem, (pack, _, ids) in SHEETS.items():
         for e in ids:
@@ -490,18 +631,42 @@ def shrink_heads(frames, stances, scales) -> list[str]:
         if pack in ("faces", "talk"):
             continue
         for fid in fids:
-            sheet = pack_of[fid]
-            s = scales[sheet]
-            if s == 1.0:
-                continue
-            top, _, h, w = head_box(stances[sheet][2])
-            hair = hair_blob(frames[fid][2])
-            if hair is None:
-                notes.append(f"{fid}: no hair found, head left as drawn")
-                continue
-            cx, hair_top = hair
-            frames[fid] = shrunk(frames[fid][2], cx, hair_top + h / 2, max(h, w) / 2, s)
+            notes += size_head(frames, fid, pack_of[fid], stances, scales, ref)
     return notes
+
+
+# Skin. Each generated sheet came back with its own colour grade: next to the live
+# sprite his face is about 5 points darker, 3 redder and 4 less yellow, with the
+# same shading. So each sheet's skin (face, ears, neck and hands, not his props) is
+# moved by one Lab shift to the live idle's median: lit and shaded skin keep their
+# difference, and a blush drawn on purpose stays a blush.
+
+def match_skin(frames, ref) -> tuple[list[str], dict]:
+    """Returns the notes, and each sheet's shift (for the previews' stances)."""
+    pack_of = {}
+    for stem, (pack, _, ids) in SHEETS.items():
+        for e in ids:
+            if e:
+                pack_of[e[0] if isinstance(e, tuple) else e] = pack
+    groups: dict[str, list[str]] = {}
+    for fids in PACKS.values():
+        for fid in fids:
+            groups.setdefault(pack_of.get(fid, "talk"), []).append(fid)
+    notes, deltas = [], {}
+    for sheet, fids in groups.items():
+        segs = {f: heads.segment(frames[f][2]) for f in fids}
+        labs = [lab for lab in (heads.skin_lab(segs[f], ref) for f in fids) if lab is not None]
+        if not labs:
+            notes.append(f"skin: {sheet} has no face to measure, left as drawn")
+            continue
+        sheet_lab = np.median(labs, 0)
+        delta = deltas[sheet] = np.asarray(ref["lab"]) - sheet_lab
+        notes.append(f"skin: {sheet} moved L {delta[0]:+.1f} a {delta[1]:+.1f} b {delta[2]:+.1f}"
+                     f" (was {heads.de2000(ref['lab'], sheet_lab):.1f} from live)")
+        for f in fids:
+            w = heads.skin_weights(frames[f][2], sheet_lab, segs[f])
+            frames[f] = {k: heads.shift_skin(frames[f][k], w, delta) for k in SCALES}
+    return notes, deltas
 
 
 # What ships, pack by pack. Each pack loads only when he first needs it.
@@ -525,12 +690,19 @@ def webp_bytes(img: Image.Image) -> bytes:
     return buf.getvalue()
 
 
-def write_packs(frames) -> dict:
-    """Write each pack's 1x and 2x WebP into public/mascot; returns the manifest."""
+def write_packs(frames, kept: dict | None = None) -> dict:
+    """Write each pack's 1x and 2x WebP into public/mascot; returns the manifest.
+    Packs in `kept` (keep_missing) stay as they ship, files and all."""
+    kept = kept or {}
+    keep = {Path(e[k]).name for e, _ in kept.values() for k in ("src", "src2x")}
     for old in PUBLIC.glob("amr-*.webp"):
-        old.unlink()
+        if old.name not in keep:
+            old.unlink()
     manifest = {}
     for pack, fids in PACKS.items():
+        if pack in kept:
+            manifest[pack] = dict(kept[pack][0])
+            continue
         entry = {"frames": len(fids)}
         for k in SCALES:
             data = webp_bytes(pack_sheet([frames[f][k] for f in fids], k))
@@ -602,22 +774,34 @@ def main() -> None:
     found = add_context_sheets(src)
     total = len(context_sheets())
     print(f"context sheets: {len(found)} of {total}" + (f" ({', '.join(found)})" if found else ""))
+    kept = keep_missing(found) if "--keep-missing" in args else {}
+    if kept:
+        print(f"kept as shipped ({len(kept)}): {', '.join(kept)}")
     frames, stances, notes = load_frames(src)
     notes += align_faces(frames)
+    notes += thicken_sides(frames)
     scales = head_scales(stances)
-    print("heads shrunk to the live size:", ", ".join(f"{p} {s:.3f}" for p, s in scales.items()))
-    shrink_faces(frames, scales)
+    print("each sheet's head scale, from its stance:", ", ".join(f"{p} {s:.3f}" for p, s in scales.items()))
+    ref = live_ref()
+    shrink_faces(frames, scales, ref)
+    notes += size_gestures(frames, stances, scales, ref)
     build_talk(frames)
-    notes += shrink_heads(frames, stances, scales)
+    notes += shrink_heads(frames, stances, scales, ref)
+    skin_notes, deltas = match_skin(frames, ref)
+    notes += skin_notes
     for pack, st in stances.items():  # for the previews, like the frames
         if scales[pack] != 1.0:
             top, neck, h, w = head_box(st[2])
             m = np.array(st[2].getchannel("A"))[top:neck] > 128
             cols = np.nonzero(m.any(0))[0]
             stances[pack] = shrunk(st[2], (cols[0] + cols[-1] + 1) / 2, (top + neck) / 2, max(h, w) / 2, scales[pack])
+        if pack in deltas:
+            w = heads.skin_weights(stances[pack][2], np.asarray(ref["lab"]) - deltas[pack])
+            stances[pack] = {k: heads.shift_skin(stances[pack][k], w, deltas[pack]) for k in SCALES}
     for n in notes:
         print("note:", n)
-    manifest = write_packs(frames)
+    add_kept(kept)
+    manifest = write_packs(frames, kept)
     write_manifest(manifest)
     for pack, e in manifest.items():
         print(f"{pack:8} {e['frames']:2} frames  {e['bytes'] // 1024:4} KB  2x {e['bytes2x'] // 1024:4} KB")
