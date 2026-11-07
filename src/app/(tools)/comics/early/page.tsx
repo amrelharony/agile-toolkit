@@ -13,7 +13,8 @@ import {
   earlyComicHref,
   parseEp,
 } from "@/lib/comics/entry";
-import { getEarlyStory, listEarlyWeekly } from "@/lib/comics/store";
+import { NO_GUESS, type StoryGuessExtras } from "@/lib/comics/guess";
+import { getEarlyStory, getStoryGuess, listEarlyWeekly } from "@/lib/comics/store";
 import type { Story } from "@/lib/comics/types";
 import { hasVipAccess } from "@/lib/vip/access";
 import { comicMetadata } from "../comic-metadata";
@@ -21,6 +22,7 @@ import { ComicCard } from "../components/comic-card";
 import { ComicPanels } from "../components/comic-panels";
 import { EpisodeNotes } from "../components/episode-notes";
 import { RightsNotice } from "../components/rights-notice";
+import { SeenAtWork } from "../components/seen-at-work";
 import { releaseDayLabel } from "./release-day";
 
 /**
@@ -106,15 +108,24 @@ function NothingHere() {
   );
 }
 
-function EarlyStory({ story }: { story: Story }) {
+function EarlyStory({ story, guess }: { story: Story; guess: StoryGuessExtras }) {
   return (
     <ToolPageWrapper
       title={story.title}
       description={`Episode ${story.ep}, by Amr Elharony. ${releaseDayLabel(story.releaseAt)}`}
     >
       <div className="space-y-4">
-        <ComicPanels panels={story.panels} title={story.title} />
+        <ComicPanels panels={story.panels} title={story.title} ep={story.ep} guess={guess.guess} />
         <EpisodeNotes lesson={story.lesson} question={story.squadQuestion} />
+        {story.panels.length > 0 ? <SeenAtWork ep={story.ep} /> : null}
+        {guess.tryAction ? (
+          <section aria-labelledby="try-heading" className="space-y-1">
+            <h2 id="try-heading" className="font-display font-semibold text-text">
+              Try it this week
+            </h2>
+            <p className="text-sub">{guess.tryAction}</p>
+          </section>
+        ) : null}
         <BackToEarly />
         <RightsNotice />
       </div>
@@ -131,7 +142,10 @@ export default async function EarlyComicsPage({ searchParams }: EarlyPageProps) 
     if (!found) return <CantLoad />;
     // Outside the attempt: redirect() works by throwing.
     if (found.status === "released") redirect(comicHref(ep));
-    return found.status === "early" ? <EarlyStory story={found.story} /> : <NothingHere />;
+    if (found.status !== "early") return <NothingHere />;
+    // Soft like the public page's: a story still reads without its guess.
+    const guess = await getStoryGuess(ep, { early: true }).catch(() => NO_GUESS);
+    return <EarlyStory story={found.story} guess={guess} />;
   }
 
   const stories = await attempt(listEarlyWeekly);

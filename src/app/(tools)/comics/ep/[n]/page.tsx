@@ -9,10 +9,12 @@ import { jsonLdScript, storyJsonLd } from "@/lib/comics/rights";
 import {
   getReleasedStory,
   getStoryExtras,
+  getStoryGuess,
   listReleasedEps,
   listReleasedWeekly,
 } from "@/lib/comics/store";
 import type { StoryExtras } from "@/lib/comics/extras";
+import type { StoryGuessExtras } from "@/lib/comics/guess";
 import type { Story, StorySummary } from "@/lib/comics/types";
 import { NOT_FOUND_METADATA, comicMetadata } from "../../comic-metadata";
 import { LatestComics } from "../../components/comic-card";
@@ -24,6 +26,7 @@ import { ReplayIntro } from "../../components/intro/replay-intro";
 import { PrintThemeChip } from "../../components/print-theme-chip";
 import { ReadAheadLink } from "../../components/read-ahead-link";
 import { RightsNotice } from "../../components/rights-notice";
+import { SeenAtWork } from "../../components/seen-at-work";
 import { ReadTracker } from "../../components/story-actions";
 import { StoryNav } from "../../components/story-nav";
 import { StoryQuiz } from "../../components/story-quiz";
@@ -159,11 +162,13 @@ function WeeklyStoryPage({
   prevEp,
   nextEp,
   extras,
+  guess,
 }: {
   story: Story;
   prevEp: number | null;
   nextEp: number | null;
   extras: StoryExtras;
+  guess: StoryGuessExtras;
 }) {
   const { ep, title } = story;
   return (
@@ -174,13 +179,15 @@ function WeeklyStoryPage({
       />
       <VisitRecorder path="/comics" />
       <div className="space-y-4">
-        <ComicPanels panels={story.panels} title={title} />
+        <ComicPanels panels={story.panels} title={title} ep={ep} guess={guess.guess} />
         <EpisodeNotes lesson={story.lesson} question={story.squadQuestion} />
+        {story.panels.length > 0 ? <SeenAtWork ep={ep} /> : null}
         <TakeItToYourTeam
           ep={ep}
           question={story.squadQuestion}
           themes={story.themes}
           tryTool={extras.tryTool}
+          tryAction={guess.tryAction}
         />
         {extras.quiz ? <StoryQuiz ep={ep} quiz={extras.quiz} /> : null}
         <StoryNav ep={ep} title={title} prevEp={prevEp} nextEp={nextEp} />
@@ -211,9 +218,12 @@ export default async function ComicStoryPage({ params }: StoryPageProps) {
         <ComingSoon />
       </>
     );
-  const [{ prevEp, nextEp }, extras] = await Promise.all([
+  const [{ prevEp, nextEp }, extras, guess] = await Promise.all([
     weeklyNeighbours(ep),
     getStoryExtras(ep),
+    getStoryGuess(ep),
   ]);
-  return <WeeklyStoryPage story={story} prevEp={prevEp} nextEp={nextEp} extras={extras} />;
+  return (
+    <WeeklyStoryPage story={story} prevEp={prevEp} nextEp={nextEp} extras={extras} guess={guess} />
+  );
 }
