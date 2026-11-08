@@ -48,10 +48,17 @@ export function FlashcardDeck({ cards }: { cards: readonly StudyCard[] }) {
   };
 
   // A swipe on the card is a shortcut for a touch screen; the buttons below stay
-  // the way for everyone, so focus isn't moved.
+  // the way for everyone, so focus isn't moved, unless it's on a button the
+  // swipe is about to disable (a tapped button keeps focus on Android): then it
+  // goes to the other one, as a press would hand it.
   const swipe = useSwipe((step) => {
     const to = at + step;
-    if (to >= 0 && to < deck.length) go(to);
+    if (to < 0 || to >= deck.length) return;
+    const focused = document.activeElement;
+    go(
+      to,
+      focused === next.current ? "next" : focused === previous.current ? "previous" : undefined
+    );
   });
 
   const card = deck[at];

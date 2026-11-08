@@ -112,6 +112,44 @@ describe("the flashcards", () => {
     expect(within(deck()).getByText("Card 1 of 27 · Episode 1")).toBeTruthy();
   });
 
+  it("hand focus on when a swipe disables the button that has it, and leave it be otherwise", async () => {
+    h.weekly = [];
+    render(await FlashcardsPage());
+    const card = within(deck()).getByText("Card 1 of 26 · Episode 1").closest(".panel")!;
+    const swipe = (dx: number) => {
+      fireEvent.touchStart(card, { touches: [{ clientX: 200, clientY: 300 }] });
+      fireEvent.touchEnd(card, {
+        touches: [],
+        changedTouches: [{ clientX: 200 + dx, clientY: 300 }],
+      });
+    };
+    const previous = within(deck()).getByRole("button", { name: "Previous" });
+    const next = within(deck()).getByRole("button", { name: /^Next/ });
+    const shuffle = within(deck()).getByRole("button", { name: "Shuffle" });
+
+    // A tapped Next keeps focus (Android): swiping to the last card disables it.
+    for (let i = 0; i < 24; i++) fireEvent.click(next);
+    next.focus();
+    swipe(-100);
+    expect(within(deck()).getByText("Card 26 of 26 · Episode 26")).toBeTruthy();
+    expect(next).toBeDisabled();
+    expect(document.activeElement).toBe(previous);
+
+    // And back at the start, Previous hands it to Next.
+    for (let i = 0; i < 24; i++) fireEvent.click(previous);
+    previous.focus();
+    swipe(100);
+    expect(within(deck()).getByText("Card 1 of 26 · Episode 1")).toBeTruthy();
+    expect(previous).toBeDisabled();
+    expect(document.activeElement).toBe(next);
+
+    // Focus anywhere else stays put.
+    shuffle.focus();
+    swipe(-100);
+    expect(within(deck()).getByText("Card 2 of 26 · Episode 2")).toBeTruthy();
+    expect(document.activeElement).toBe(shuffle);
+  });
+
   it("shuffle into a new order, from the first card", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     render(await FlashcardsPage());
