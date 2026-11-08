@@ -77,6 +77,41 @@ describe("DialogContent", () => {
     expect(within(dialog).getByLabelText("API key")).toHaveFocus();
   });
 
+  it("gives the close button an opaque fill so scrolled content can't show through", () => {
+    const { dialog } = renderDialog();
+    const close = within(dialog).getByRole("button", { name: "Close dialog" });
+    const cls = classesOf(close);
+    expect(cls).toContain("bg-inherit");
+    // Dimming the whole button would make that fill translucent: only the icon dims.
+    expect(cls).not.toContain("opacity-70");
+    expect(classesOf(close.querySelector("svg"))).toContain("opacity-70");
+    // The hover tint layers on the fill instead of replacing it.
+    expect(cls).not.toContain("hover:bg-accent/10");
+    expect(cls).toEqual(
+      expect.arrayContaining([
+        "hover:bg-gradient-to-r",
+        "hover:from-accent/10",
+        "hover:to-accent/10",
+      ])
+    );
+  });
+
+  it("sends closeClassName to the close button", () => {
+    render(
+      <Dialog open>
+        <DialogContent closeClassName="bg-transparent">
+          <DialogTitle>Plain</DialogTitle>
+          <DialogDescription>No fill.</DialogDescription>
+        </DialogContent>
+      </Dialog>
+    );
+    const close = within(screen.getByRole("dialog", { name: "Plain" })).getByRole("button", {
+      name: "Close dialog",
+    });
+    expect(classesOf(close)).toContain("bg-transparent");
+    expect(classesOf(close)).not.toContain("bg-inherit");
+  });
+
   it("bounds the grid track so wide children can't widen the dialog", () => {
     const { body } = renderDialog();
     expect(classesOf(body)).toEqual(expect.arrayContaining(["grid", "grid-cols-[minmax(0,1fr)]"]));
@@ -186,6 +221,13 @@ describe("CommandDialog", () => {
     const close = within(dialog).getByRole("button", { name: "Close dialog" });
     expect(inputWrapper!.contains(close)).toBe(false);
     expect(within(dialog).getByRole("combobox")).toHaveFocus();
+  });
+
+  it("keeps the close button see-through over the input row's own fill", () => {
+    const { dialog } = renderPalette();
+    const close = within(dialog).getByRole("button", { name: "Close dialog" });
+    expect(classesOf(close)).toContain("bg-transparent");
+    expect(classesOf(close)).not.toContain("bg-inherit");
   });
 });
 

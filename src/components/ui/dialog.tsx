@@ -38,12 +38,18 @@ interface DialogContentProps extends React.ComponentPropsWithoutRef<
    * colours, border).
    */
   bodyClassName?: string;
+  /**
+   * Classes for the close button. It masks whatever scrolls under it with the
+   * box's own background; a caller whose X sits over a different fill (the
+   * command palette's input row) can pass `bg-transparent`.
+   */
+  closeClassName?: string;
 }
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, bodyClassName, children, ...props }, ref) => (
+>(({ className, bodyClassName, closeClassName, children, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -84,12 +90,19 @@ const DialogContent = React.forwardRef<
         {children}
       </div>
       {/* Outside the scroll body, so it never scrolls away. Last in the DOM, so
-          Radix still focuses the first control in the body on open. */}
+          Radix still focuses the first control in the body on open, and it
+          paints over positioned content scrolling under it. `bg-inherit` takes
+          the box's fill so that content doesn't show through the X; the icon,
+          not the button, is dimmed, and the hover tint is a one-colour gradient
+          layered on that fill, so the button stays opaque in every state. */}
       <DialogPrimitive.Close
         aria-label="Close dialog"
-        className="absolute right-3 top-3 sm:right-4 sm:top-4 min-touch-coarse inline-flex items-center justify-center rounded-md p-1.5 opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none hover:bg-accent/10"
+        className={cn(
+          "group/close absolute right-3 top-3 sm:right-4 sm:top-4 min-touch-coarse inline-flex items-center justify-center rounded-md bg-inherit p-1.5 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none hover:bg-gradient-to-r hover:from-accent/10 hover:to-accent/10",
+          closeClassName
+        )}
       >
-        <X className="h-4 w-4" />
+        <X className="h-4 w-4 opacity-70 transition-opacity group-hover/close:opacity-100" />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>

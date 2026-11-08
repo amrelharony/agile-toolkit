@@ -47,6 +47,9 @@ const CommandDialog = ({
         // cap (landscape phones, an open keyboard), so the last results stay
         // reachable. Only the phone padding goes; `sm:p-6` stays as before.
         bodyClassName="flex flex-col overflow-hidden p-0"
+        // The X sits over the input row, which nothing scrolls under, and
+        // whose fill (popover) differs from the box's: keep it see-through.
+        closeClassName="bg-transparent"
         {...(description ? {} : { "aria-describedby": undefined })}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
