@@ -349,6 +349,11 @@ describe("LoveButton", () => {
   });
 
   it("catches up when another tab already loved the story, sending what it couldn't", async () => {
+    // Web Locks, so this tab's send waits for any the other tab has out.
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request: (_name: string, task: () => Promise<void>) => task() },
+    });
     render(<LoveButton ep={30} initialLoves={2} />);
     // Another tab loved it, but its send failed: the server doesn't hold it.
     localStorage.setItem(
@@ -361,6 +366,20 @@ describe("LoveButton", () => {
     // This press wants the heart on, so it's sent, once.
     expect(sentBodies()).toEqual(["love"]);
     expect(line()).toBe("3 readers love this");
+  });
+
+  it("only catches up on a stale heart where there's no lock to wait on", async () => {
+    render(<LoveButton ep={30} initialLoves={2} />);
+    // Another tab loved it; its send may still be out.
+    localStorage.setItem(
+      "agile-toolkit:comics:reading",
+      JSON.stringify({ loved: { 30: "2026-11-08T08:00:00Z" } })
+    );
+    await act(async () => fireEvent.click(heart()));
+    expect(heart().getAttribute("aria-pressed")).toBe("true");
+    // Sending now could race that send, and nothing says it isn't counted.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(line()).toBe("2 readers love this");
   });
 
   it("never counts the owner's own heart, or one pressed before sign-in settles", async () => {

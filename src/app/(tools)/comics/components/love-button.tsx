@@ -35,10 +35,15 @@ export function heartLine(count: number, own = false, pressed = own, uncounted =
   return pressed && !own && uncounted && count > 0 ? `${line} (yours isn't counted)` : line;
 }
 
+/** Whether this browser can hold a lock across its tabs (Web Locks). */
+function canLock(): boolean {
+  return typeof navigator !== "undefined" && typeof navigator.locks?.request === "function";
+}
+
 /** Runs `task` with this story's heart to itself across the browser's tabs, where it can. */
 function exclusive(ep: number, task: () => Promise<void>): Promise<void> {
-  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
-  if (!locks?.request) return task();
+  const locks = canLock() ? navigator.locks : undefined;
+  if (!locks) return task();
   return locks.request(`agile-toolkit:comics:love:${ep}`, task).then(() => undefined);
 }
 
@@ -54,7 +59,8 @@ function exclusive(ep: number, task: () => Promise<void>): Promise<void> {
  * browser's tabs (Web Locks, where there are any): each sends what the reader
  * wants now if the server doesn't hold it already, so quick taps, or taps in a
  * second tab, never send a love twice; a tab that finds another sent its press
- * catches its count up (a press on a stale heart goes through the lock too).
+ * catches its count up (a press on a stale heart goes through the lock too,
+ * and only catches up where there's no lock to wait on).
  * A press the server didn't count (or that isn't sent: the owner's, one before
  * sign-in settles) leaves the count as the server has it, and the line says
  * this visit's heart isn't counted; it isn't sent again by itself, since the
@@ -157,13 +163,18 @@ export function LoveButton({ ep, initialLoves }: { ep: number; initialLoves: num
     if (kept === "unchanged") {
       const now = isLoved(ep);
       setLovedState(now);
-      if (counting && !memoryOnly.current) {
+      const sends = counting && !memoryOnly.current;
+      if (sends && canLock()) {
         sync();
         return;
       }
+      // Without a lock, sending here could race a send that tab still has out,
+      // so this tab only catches up. Whether that love is counted is unknown
+      // unless this tab couldn't have sent it anyway.
       const s = catchUp() ?? serverNow.current;
-      setUncounted(now && !s.held);
-      setAnnouncement(heartLine(s.loves, now && s.held, now, now && !s.held));
+      const uncounted = !sends && now && !s.held;
+      setUncounted(uncounted);
+      setAnnouncement(heartLine(s.loves, now && s.held, now, uncounted));
       return;
     }
     if (kept === "unavailable") memoryOnly.current = true;
