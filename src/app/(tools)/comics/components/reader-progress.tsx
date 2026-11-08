@@ -104,6 +104,9 @@ export function ReaderProgress({
   const vip = useVipHint();
   const met = useMemo(() => metCast(cast, stories, read), [cast, stories, read]);
   const titles = useMemo(() => new Map(stories.map((s) => [s.ep, s.title])), [stories]);
+  // Only stories that are out: one loved early on the read-ahead page waits here
+  // until its Sunday, rather than linking to "coming soon".
+  const lovedOut = useMemo(() => loved.filter(({ ep }) => titles.has(ep)), [loved, titles]);
 
   return (
     <section aria-labelledby="reader-progress-heading">
@@ -112,17 +115,17 @@ export function ReaderProgress({
           <h2 id="reader-progress-heading" className="font-display font-semibold text-text">
             Your reading
           </h2>
-          <p className="flex flex-wrap gap-2 text-sm">
-            <span className="rounded-full border border-border px-3 py-1 font-medium text-text">
+          <p className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+            <span className="flex min-h-12 items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
               Stories read: {read.length}
             </span>
-            <span className="rounded-full border border-border px-3 py-1 font-medium text-text">
+            <span className="flex min-h-12 items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
               Time reading: {readingTimeLabel(seconds)}
             </span>
-            <span className="rounded-full border border-border px-3 py-1 font-medium text-text">
+            <span className="flex min-h-12 items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
               {streakText(streak)}
             </span>
-            <span className="rounded-full border border-border px-3 py-1 font-medium text-text">
+            <span className="flex min-h-12 items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
               Cast met: {met.length} of {cast.length}
             </span>
           </p>
@@ -165,22 +168,22 @@ export function ReaderProgress({
           </details>
           <details>
             <summary className="min-h-11 cursor-pointer py-2 font-medium text-text">
-              Stories you loved ({loved.length})
+              Stories you loved ({lovedOut.length})
             </summary>
-            {loved.length === 0 ? (
+            {lovedOut.length === 0 ? (
               <p className="mt-2 text-sm text-sub">
                 Press &ldquo;Love this&rdquo; under a story to keep it here.
               </p>
             ) : (
               <ul className="mt-2 list-none space-y-1">
-                {loved.map(({ ep }) => (
+                {lovedOut.map(({ ep }) => (
                   <li key={ep}>
                     <Link
                       href={comicHref(ep)}
                       prefetch={false}
                       className="inline-flex min-h-11 items-center font-medium text-accent underline"
                     >
-                      {titles.get(ep) ?? `Episode ${ep}`}
+                      {titles.get(ep)}
                     </Link>
                   </li>
                 ))}
