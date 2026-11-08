@@ -9,6 +9,7 @@ import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ActionRow } from "@/components/shared/action-row";
 import { EmptyState } from "@/components/shared/empty-state";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup } from "@/components/ui/toggle-group";
 import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
@@ -219,14 +220,7 @@ export function KanbanClient() {
 
   let body: ReactNode;
   if (!hydrated) {
-    body = (
-      <p
-        role="status"
-        className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
-      >
-        Loading the board…
-      </p>
-    );
+    body = <WorkspaceLoading>Loading the board…</WorkspaceLoading>;
   } else if (view === "flow") {
     body = <FlowBoard state={board} setState={setBoard} />;
   } else if (exampleStore && exampleWriter) {
