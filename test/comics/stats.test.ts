@@ -7,7 +7,6 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   FAVOURITES_MIN_LOVES,
-  MAX_STAT_EVENTS,
   NO_TOTALS,
   STAT_METRICS,
   TIME_BAND_COUNT,
@@ -21,9 +20,11 @@ import {
 import {
   READING_KEY,
   addSeconds,
+  isLoveCounted,
   isLoved,
   lovedStories,
   markViewed,
+  setLoveCounted,
   setLoved,
   totalSeconds,
 } from "@/lib/comics/reading";
@@ -67,7 +68,8 @@ describe("parseStats", () => {
       { ep: 30, events: ["time:1", "time:2"] },
       { ep: 30, events: ["view", "view"] },
       { ep: 30, events: ["love", "unlove"] },
-      { ep: 30, events: [...STAT_METRICS].slice(0, MAX_STAT_EVENTS + 1) },
+      // One more than MAX_STAT_EVENTS, with no other reason to refuse them.
+      { ep: 30, events: ["view", "visitor", "reader", "love", "share", "retro", "tool"] },
     ]) {
       expect(parseStats(body)).toBeNull();
     }
@@ -117,13 +119,25 @@ describe("the reading record's views, loves and time", () => {
 
   it("loves and takes the love back, changing only what changed", () => {
     expect(isLoved(30)).toBe(false);
-    expect(setLoved(30, true, new Date("2026-11-08T08:00:00Z"))).toBe(true);
-    expect(setLoved(30, true)).toBe(false);
-    expect(setLoved(31, true, new Date("2026-11-09T08:00:00Z"))).toBe(true);
+    expect(setLoved(30, true, new Date("2026-11-08T08:00:00Z"))).toBe("changed");
+    expect(setLoved(30, true)).toBe("unchanged");
+    expect(setLoved(31, true, new Date("2026-11-09T08:00:00Z"))).toBe("changed");
     expect(lovedStories().map((s) => s.ep)).toEqual([31, 30]);
-    expect(setLoved(30, false)).toBe(true);
+    expect(setLoved(30, false)).toBe("changed");
     expect(isLoved(30)).toBe(false);
-    expect(setLoved(30, false)).toBe(false);
+    expect(setLoved(30, false)).toBe("unchanged");
+  });
+
+  it("keeps which loves the server counted apart from the loves themselves", () => {
+    setLoved(30, true);
+    expect(isLoveCounted(30)).toBe(false);
+    setLoveCounted(30, true);
+    expect(isLoveCounted(30)).toBe(true);
+    setLoved(30, false);
+    // Taking the love back locally doesn't forget that the server holds it.
+    expect(isLoveCounted(30)).toBe(true);
+    setLoveCounted(30, false);
+    expect(isLoveCounted(30)).toBe(false);
   });
 
   it("adds up active reading time", () => {
@@ -171,7 +185,13 @@ describe("migration 0036", () => {
     expect(sql).toMatch(/alter table public\.comic_story_stats enable row level security;/);
     expect(sql).toMatch(/revoke all on table public\.comic_story_stats from anon, authenticated;/);
     expect(sql).not.toMatch(/create policy/i);
-    for (const fn of ["comic_story_stat(int, text[])", "comic_story_totals()"]) {
+    const functions = [
+      "comic_story_stat(int, text[])",
+      "comic_story_totals(int)",
+      "comic_story_insight_totals(int)",
+      "comic_story_weekly_totals()",
+    ];
+    for (const fn of functions) {
       const name = fn.replace(/[()[\]]/g, "\\$&");
       expect(sql).toMatch(
         new RegExp(`revoke all on function public\\.${name} from public, anon, authenticated;`)
@@ -180,7 +200,19 @@ describe("migration 0036", () => {
         new RegExp(`grant execute on function public\\.${name} to service_role;`)
       );
     }
-    expect(sql.match(/set search_path = ''/g)).toHaveLength(2);
+    expect(sql.match(/set search_path = ''/g)).toHaveLength(functions.length);
+  });
+
+  it("only takes back a love the story has, one call per story at a time", () => {
+    expect(sql).toMatch(/perform pg_advisory_xact_lock\(36, p_ep\);/);
+    expect(sql).toMatch(/n := least\(n, greatest\(net, 0\)\);/);
+    expect(sql).toMatch(/continue when n <= 0;/);
+  });
+
+  it("sums totals for one story or all, and Insights' rows, in the database", () => {
+    expect(sql).toMatch(/drop function if exists public\.comic_story_totals\(\);/);
+    expect(sql).toMatch(/where p_ep is null or s\.ep = p_ep/);
+    expect(sql).toMatch(/s\.week < r\.release_week \+ p_first_weeks \* 7/);
   });
 
   it("adds the owner's print shortlist", () => {

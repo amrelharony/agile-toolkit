@@ -102,20 +102,33 @@ describe("POST /api/comics/stats", () => {
     expect(h.rpc).not.toHaveBeenCalled();
   });
 
-  it("only counts a story that's out, or in a VIP's window", async () => {
+  it("only counts a story that's out, never one still in a VIP's window", async () => {
     h.story = null;
     expect((await post({ ep: 30, events: ["view"] })).status).toBe(404);
     h.story = released({ release_at: null });
     expect((await post({ ep: 30, events: ["view"] })).status).toBe(404);
     h.story = released({ collection: "book" });
     expect((await post({ ep: 30, events: ["view"] })).status).toBe(404);
+    // A story's number can still move in a reorder until it's out.
+    h.vip = true;
     h.story = released({ release_at: new Date(Date.now() + 3 * DAY).toISOString() });
     expect((await post({ ep: 30, events: ["view"] })).status).toBe(404);
-    h.vip = true;
-    expect((await post({ ep: 30, events: ["view"] })).status).toBe(200);
-    h.story = released({ release_at: new Date(Date.now() + 40 * DAY).toISOString() });
-    expect((await post({ ep: 30, events: ["view"] })).status).toBe(404);
-    expect(h.rpc).toHaveBeenCalledTimes(1);
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+
+  it("drops a connection's events over their hourly limit on one story, keeping the rest", async () => {
+    ip += 1; // An address no other test has used.
+    for (let i = 0; i < 10; i += 1) await post({ ep: 40, events: ["love"] }, {}, true);
+    expect(h.rpc).toHaveBeenCalledTimes(10);
+    // The eleventh love is dropped quietly: nothing left to count.
+    expect((await post({ ep: 40, events: ["love"] }, {}, true)).status).toBe(204);
+    expect(h.rpc).toHaveBeenCalledTimes(10);
+    // The view still counts, the love doesn't.
+    await post({ ep: 40, events: ["view", "love"] }, {}, true);
+    expect(h.rpc).toHaveBeenLastCalledWith("comic_story_stat", { p_ep: 40, p_events: ["view"] });
+    // Another story has its own limit.
+    await post({ ep: 41, events: ["love"] }, {}, true);
+    expect(h.rpc).toHaveBeenLastCalledWith("comic_story_stat", { p_ep: 41, p_events: ["love"] });
   });
 
   it("goes quiet over the rate limit, as a beacon expects", async () => {

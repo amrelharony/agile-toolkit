@@ -7,18 +7,21 @@
  *
  * Reachable without a session through an exact-match middleware bypass, so this
  * handler is the whole gate: same-site Origin, a per-instance rate limit, a body
- * cap, an allowlist of events, and a story that's out (or in the reader's VIP
- * window). Nothing about the reader is stored: no IP address, no user agent, no
- * cookie, no device id. The browser's own record (lib/comics/reading) is all
- * that stops a second first view, finish or love. Most calls are beacons, so
- * going over the rate limit is a quiet 204, as at /api/comics/hit.
+ * cap, an allowlist of events, per-story limits for each connection on the
+ * events that matter (EVENT_LIMITS_PER_HOUR: an event over its limit is dropped,
+ * the rest still count), and a story that's out. Nothing about the reader is
+ * stored: no IP address, no user agent, no cookie, no device id; the limits'
+ * addresses live in memory only (../_guard). The browser's own record
+ * (lib/comics/reading) is what keeps an honest reader to one first view, finish
+ * or love. Most calls are beacons, so going over the rate limit is a quiet 204,
+ * as at /api/comics/hit, and so is a request whose events were all dropped.
  *
  * Errors: 400 invalid_json | invalid_input, 403 bad_origin, 404 not_found,
  * 413 body_too_large, 503 service_unavailable.
  */
 
 import type { NextRequest } from "next/server";
-import { parseStats } from "@/lib/comics/stats";
+import { EVENT_LIMITS_PER_HOUR, parseStats, type StatMetric } from "@/lib/comics/stats";
 import { storyOpenForCounts } from "@/lib/comics/story-access";
 import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
 import { getSquadAdminClient } from "@/lib/squads/server";
@@ -30,6 +33,7 @@ const MAX_BODY_BYTES = 256;
 /** A few calls a story (view, finish, time, a love); an office shares one address. */
 const RATE_LIMIT = 120;
 const RATE_WINDOW_MS = 60_000;
+const HOUR_MS = 3_600_000;
 
 const refuse = (status: number, error: string) =>
   Response.json({ error }, { status, headers: { "cache-control": "no-store" } });
@@ -53,12 +57,20 @@ export async function POST(req: NextRequest) {
 
   const admin = getSquadAdminClient();
   if (!admin) return refuse(503, "service_unavailable");
-  const access = await storyOpenForCounts(admin, stats.ep);
+  const access = await storyOpenForCounts(admin, stats.ep, { early: false });
   if (!access.ok) return refuse(access.status, access.error);
+
+  const events = stats.events.filter((event) => {
+    const limit = EVENT_LIMITS_PER_HOUR[event as StatMetric];
+    return (
+      limit === undefined || withinRateLimit(req, `stats:${stats.ep}:${event}`, limit, HOUR_MS)
+    );
+  });
+  if (events.length === 0) return new Response(null, { status: 204 });
 
   const { data, error } = await admin.rpc("comic_story_stat", {
     p_ep: stats.ep,
-    p_events: stats.events,
+    p_events: events,
   });
   if (error) {
     console.warn("[comics] stats failed:", error.message);
