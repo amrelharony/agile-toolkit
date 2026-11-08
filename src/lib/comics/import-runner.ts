@@ -6,6 +6,7 @@
  * "Schedule the queue".
  */
 
+import type { GuessDraft } from "./guess";
 import type { ImportStory } from "./import-weekly";
 import { panelHasArt, type CreditCorner, type OwnerStory, type StoredPanel } from "./story-input";
 
@@ -20,6 +21,12 @@ export interface PanelArt {
 export interface ImportDeps<F> {
   createStory(story: ImportStory<F>): Promise<OwnerStory>;
   savePanels(ep: number, panels: StoredPanel[], sharePath: string | null): Promise<OwnerStory>;
+  /**
+   * Leaves Claude's draft for the owner. Called before any of a story's art, so
+   * a story whose draft didn't save has no art either and the next run tries
+   * again. The route never writes over a guess the owner has approved.
+   */
+  saveDraft?(ep: number, draft: GuessDraft): Promise<void>;
   /** shareCorner is the share image's credit corner; it only matters when withShare. */
   convertAndUpload(
     file: F,
@@ -75,6 +82,9 @@ export async function runImport<F>(options: {
         progress.current = planned.title;
         report();
         if (!story) story = await deps.createStory(planned);
+        if (planned.draft && deps.saveDraft && !story.panels.some(panelHasArt)) {
+          await deps.saveDraft(story.ep, planned.draft);
+        }
 
         let stopped = false;
         for (let i = 0; i < planned.panels.length; i += 1) {

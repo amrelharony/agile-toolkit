@@ -50,6 +50,10 @@ vi.mock("@/lib/squads/server", () => ({
           h.filters.push(["lte", ...args]);
           return chain;
         },
+        is: (...args: unknown[]) => {
+          h.filters.push(["is", ...args]);
+          return chain;
+        },
         not: (...args: unknown[]) => {
           h.filters.push(["not", ...args]);
           return chain;
@@ -64,7 +68,7 @@ vi.mock("@/lib/squads/server", () => ({
   }),
 }));
 
-import { GET, PUT } from "@/app/api/comics/stories/[ep]/guess/route";
+import { GET, POST, PUT } from "@/app/api/comics/stories/[ep]/guess/route";
 import { GET as LIST_DRAFTS } from "@/app/api/comics/guess-drafts/route";
 import {
   GUESS_LIMITS,
@@ -256,6 +260,33 @@ describe("the guess route", () => {
     const res = await GET(req("GET", "/api/comics/stories/30/guess"), params);
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "guess_unavailable" });
+  });
+
+  it("lets an import leave a draft, never over what the owner has saved", async () => {
+    h.row = { ep: 30 };
+    const res = await POST(
+      req("POST", "/api/comics/stories/30/guess", { guess: G, tryAction: "Ask first." }),
+      params
+    );
+    expect(await res.json()).toEqual({ saved: true });
+    expect(h.updates[0]).toEqual({
+      extras_draft: { guess: G, tryAction: "Ask first.", tryTool: null },
+    });
+    expect(h.filters).toContainEqual(["is", "guess", null]);
+    expect(h.filters).toContainEqual(["is", "try_action", null]);
+    expect(h.revalidated).toEqual([]);
+  });
+
+  it("says nothing was saved when the owner got there first, and refuses an empty draft", async () => {
+    h.row = null;
+    const kept = await POST(req("POST", "/api/comics/stories/30/guess", { guess: G }), params);
+    expect(await kept.json()).toEqual({ saved: false });
+    const empty = await POST(
+      req("POST", "/api/comics/stories/30/guess", { guess: { ...G, options: [] } }),
+      params
+    );
+    expect(empty.status).toBe(400);
+    expect(await empty.json()).toEqual({ error: "invalid_input", field: "draft" });
   });
 
   it("lists the stories with a draft still waiting", async () => {

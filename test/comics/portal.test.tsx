@@ -692,7 +692,11 @@ describe("the import page", () => {
     fireEvent.change(screen.getAllByLabelText("Choose the folder")[0], {
       target: { files: [file] },
     });
-    expect(await screen.findByText(/No editorial\/Agile_At_Work_Batch_1_100/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /No editorial\/stories\.json \(or the older editorial\/Agile_At_Work_Batch_1_100/
+      )
+    ).toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalledWith(
       "/api/comics/stories",
       expect.objectContaining({ method: "POST" })

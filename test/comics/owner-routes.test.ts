@@ -248,6 +248,7 @@ const ROUTES: [string, unknown, string, object?][] = [
   ["PUT /stories/27/extras", extras.PUT, "PUT", { ep: "27" }],
   ["GET /stories/27/guess", guess.GET, "GET", { ep: "27" }],
   ["PUT /stories/27/guess", guess.PUT, "PUT", { ep: "27" }],
+  ["POST /stories/27/guess", guess.POST, "POST", { ep: "27" }],
   ["GET /guess-drafts", guessDrafts.GET, "GET"],
 ];
 

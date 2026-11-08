@@ -5,6 +5,11 @@
  * clear it. Saving is approving: it writes the live columns and clears the
  * draft. tryTool is only sent when approving a draft that suggested one.
  *
+ * POST /api/comics/stories/N/guess: { guess?, tryAction?, tryTool? }, an
+ * import leaving its draft for the owner. It goes only into extras_draft, which
+ * no page reads, and never onto a story whose guess or line the owner has
+ * already saved: then it answers { saved: false } and changes nothing.
+ *
  * Apart from the story's own route and the quiz's, so both keep working before
  * migration 0035 adds these columns: until then this answers 503
  * guess_unavailable, and the portal says why.
@@ -76,4 +81,25 @@ export const PUT = ownerRoute<Params>(async ({ req, admin, params }) => {
 
   revalidateComics([ep]);
   return answer(toBody(data));
+});
+
+export const POST = ownerRoute<Params>(async ({ req, admin, params }) => {
+  const ep = parseEp(params.ep);
+  if (ep === null) return refuse(400, "invalid_ep");
+  const read = await readJson(req);
+  if (read instanceof Response) return read;
+  const draft = readGuessDraft(read.body);
+  if (!draft) return refuse(400, "invalid_input", { field: "draft" });
+
+  const { data, error } = await admin
+    .from("comic_stories")
+    .update({ extras_draft: draft })
+    .eq("ep", ep)
+    .is("guess", null)
+    .is("try_action", null)
+    .select("ep")
+    .maybeSingle<{ ep: number }>();
+  if (error?.code === CHECK_VIOLATION) return refuse(400, "invalid_input", { field: "draft" });
+  if (error) return refuse(503, "guess_unavailable");
+  return answer({ saved: Boolean(data) });
 });
