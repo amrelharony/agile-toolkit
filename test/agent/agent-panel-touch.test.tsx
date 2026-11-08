@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ConversationMeta } from "@/lib/agent/types";
 
 /**
  * The owner's agent panel on a touch screen (mobile audit 2026-11-08):
  * conversation row actions show without hover, are 44 px on touch, and
- * Delete offers Undo before anything leaves for Supabase.
+ * Delete offers Undo before anything leaves for Supabase; the composer's
+ * keyboard hints hide on coarse pointers.
  */
 
 const h = vi.hoisted(() => ({
@@ -29,8 +30,16 @@ vi.mock("@/lib/agent/persist", () => ({
 }));
 vi.mock("@/lib/auth/supabase-browser", () => ({ getAuthBrowserClient: () => null }));
 vi.mock("@/lib/utils/toast", () => ({ toast: h.toast }));
+vi.mock("@/lib/auth/auth-provider", () => ({ useAuth: () => ({ user: { id: "owner-1" } }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/sprint" }));
+vi.mock("@/lib/agent/client", () => ({
+  sendUserMessage: vi.fn(),
+  abortInFlight: vi.fn(),
+  generateTitle: vi.fn(async () => null),
+}));
 
 import { ConversationList, DELETE_UNDO_MS } from "@/components/agent/conversation-list";
+import { AgentConversation } from "@/components/agent/agent-conversation";
 import { useAgentStore } from "@/lib/agent/store";
 
 const meta = (id: string, title: string): ConversationMeta => ({
@@ -175,5 +184,28 @@ describe("ConversationList on touch", () => {
     expect(screen.getByRole("textbox", { name: "Rename conversation" })).toHaveClass(
       "pointer-coarse:text-base"
     );
+  });
+});
+
+describe("AgentConversation composer hints", () => {
+  beforeEach(() => {
+    h.conversations = [];
+    if (typeof Element.prototype.scrollTo !== "function") {
+      Element.prototype.scrollTo = () => {};
+    }
+  });
+
+  afterEach(() => {
+    useAgentStore.getState().reset();
+  });
+
+  it("hides the keyboard hints on coarse pointers and keeps the safety note", async () => {
+    render(<AgentConversation />);
+    const hint = screen.getByText(/Enter to send · Shift\+Enter for newline/);
+    expect(hint).toHaveClass("pointer-coarse:hidden");
+    const note = screen.getByText(/Write actions ask for confirmation/);
+    expect(note).not.toHaveClass("pointer-coarse:hidden");
+    expect(note).toContainElement(hint);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus());
   });
 });

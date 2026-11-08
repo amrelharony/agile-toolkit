@@ -166,6 +166,15 @@ describe("MascotAssistant — owner gating", () => {
     );
   });
 
+  it("hides the Cmd/Ctrl+J hint on touch screens", () => {
+    h.auth = { status: "anonymous", user: null };
+    render(<MascotAssistant />);
+
+    const hint = screen.getByText(/Cmd\/Ctrl\+J/);
+    expect(hint).toHaveClass("pointer-coarse:hidden");
+    expect(screen.getByText("Find the right tool")).not.toHaveClass("pointer-coarse:hidden");
+  });
+
   it("gives the owner's New chat and History buttons a 44 px target on touch", async () => {
     h.auth = OWNER;
     render(<MascotAssistant />);
@@ -179,6 +188,7 @@ describe("MascotAssistant — owner gating", () => {
         "justify-center"
       );
     }
+    expect(screen.getByText(/Cmd\/Ctrl\+J/)).toHaveClass("pointer-coarse:hidden");
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
   });
 

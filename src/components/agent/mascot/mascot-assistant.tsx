@@ -951,7 +951,9 @@ export function MascotAssistant() {
             <div>
               <p className="text-sm font-semibold text-text">✦ Amr</p>
               <p className="text-xs text-sub">
-                {isOwner ? "Drive every tool · " : "Find the right tool · "}Cmd/Ctrl+J
+                {isOwner ? "Drive every tool" : "Find the right tool"}
+                {/* A keyboard shortcut means nothing on a touch screen. */}
+                <span className="pointer-coarse:hidden"> · Cmd/Ctrl+J</span>
               </p>
             </div>
             <div className="flex items-center gap-0.5">
