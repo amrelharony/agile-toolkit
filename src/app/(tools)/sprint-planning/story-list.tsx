@@ -94,7 +94,9 @@ function PointsCell({
 
 /**
  * Where the story stands against the Definition of Ready. "Not refined"
- * links to Refinement, where the team checks it.
+ * links to Refinement, where the team checks it. The chip is an inner span
+ * so that on a touch screen the link can be 44 px tall (a target a finger
+ * can hit) while the chip keeps its size; with a mouse the link is the chip.
  */
 function ReadinessBadge({ story }: { story: Story }) {
   if (isReady(story)) {
@@ -108,9 +110,11 @@ function ReadinessBadge({ story }: { story: Story }) {
   return (
     <Link
       href="/refinement"
-      className="inline-flex items-center rounded border border-border px-1.5 text-xs text-sub underline-offset-2 hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="group inline-flex items-center rounded text-xs text-sub underline-offset-2 hover:text-accent hover:underline focus-visible:outline-none pointer-coarse:min-h-11"
     >
-      Not refined<span className="sr-only">: refine “{story.title}”</span>
+      <span className="inline-flex items-center rounded border border-border px-1.5 group-focus-visible:ring-2 group-focus-visible:ring-accent">
+        Not refined<span className="sr-only">: refine “{story.title}”</span>
+      </span>
     </Link>
   );
 }

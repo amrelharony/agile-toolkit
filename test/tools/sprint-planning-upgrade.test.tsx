@@ -1015,6 +1015,11 @@ describe("story sources", () => {
 
 describe("story rows on a touch screen", () => {
   const classesOf = (el: Element | null) => (el?.getAttribute("class") ?? "").split(/\s+/);
+  const backlogRow = (title: string) =>
+    within(screen.getByRole("list", { name: "Backlog" }))
+      .getByText(title)
+      .closest("li")!;
+
   it("pads the sprint box out to a 44px label on touch, laid out as the 16px box", () => {
     renderPlanning();
     const box = screen.getByLabelText("Add to sprint: Remove a saved card");
@@ -1069,5 +1074,19 @@ describe("story rows on a touch screen", () => {
     // 56px below sm gives the title back 24px; 80px from sm up, as before.
     expect(points).toEqual(expect.arrayContaining(["w-14", "sm:w-20", "px-2", "sm:px-3"]));
     expect(points).not.toContain("w-20");
+  });
+
+  it("gives the Not refined link a 44px touch height and keeps the chip inside it", () => {
+    renderPlanning();
+    const link = within(backlogRow("Remove a saved card")).getByRole("link", {
+      name: "Not refined: refine “Remove a saved card”",
+    });
+    expect(link).toHaveAttribute("href", "/refinement");
+    expect(classesOf(link)).toContain("pointer-coarse:min-h-11");
+    // The chip is drawn by the inner span, so the taller link doesn't stretch it.
+    expect(classesOf(link)).not.toContain("border");
+    const chip = link.firstElementChild;
+    expect(classesOf(chip)).toEqual(expect.arrayContaining(["border", "border-border", "px-1.5"]));
+    expect(classesOf(chip)).toContain("group-focus-visible:ring-2");
   });
 });
