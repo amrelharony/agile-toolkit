@@ -1,5 +1,5 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import {
   Dialog,
   DialogContent,
@@ -228,6 +228,75 @@ describe("CommandDialog", () => {
     const close = within(dialog).getByRole("button", { name: "Close dialog" });
     expect(classesOf(close)).toContain("bg-transparent");
     expect(classesOf(close)).not.toContain("bg-inherit");
+  });
+
+  describe("with an on-screen keyboard", () => {
+    // jsdom has no visualViewport; a stand-in with the fields the hook reads.
+    class FakeVisualViewport extends EventTarget {
+      height = 640;
+      offsetTop = 0;
+    }
+    let vv: FakeVisualViewport;
+    beforeEach(() => {
+      vv = new FakeVisualViewport();
+      Object.defineProperty(window, "visualViewport", { configurable: true, value: vv });
+    });
+    afterEach(() => {
+      Reflect.deleteProperty(window, "visualViewport");
+    });
+
+    it("centres on and caps to the visible area, following it as it changes", () => {
+      const { dialog } = renderPalette();
+      // No keyboard: the same as the CSS (top 50%, 100dvh - 2rem).
+      expect(dialog.style.top).toBe("320px");
+      expect(dialog.style.maxHeight).toBe("calc(640px - 2rem)");
+
+      // The keyboard takes the bottom 300px and the page pans 20px.
+      act(() => {
+        vv.height = 340;
+        vv.offsetTop = 20;
+        vv.dispatchEvent(new Event("resize"));
+      });
+      expect(dialog.style.top).toBe("190px");
+      expect(dialog.style.maxHeight).toBe("calc(340px - 2rem)");
+
+      act(() => {
+        vv.offsetTop = 0;
+        vv.dispatchEvent(new Event("scroll"));
+      });
+      expect(dialog.style.top).toBe("170px");
+    });
+
+    it("stops listening once closed and reads afresh on reopen", () => {
+      const remove = vi.spyOn(vv, "removeEventListener");
+      const palette = (open: boolean) => (
+        <CommandDialog open={open} onOpenChange={() => {}} title="Search tools">
+          <CommandInput aria-label="Search tools" />
+        </CommandDialog>
+      );
+      const { rerender } = render(palette(true));
+      act(() => {
+        vv.height = 340;
+        vv.dispatchEvent(new Event("resize"));
+      });
+      rerender(palette(false));
+      expect(remove).toHaveBeenCalledWith("resize", expect.any(Function));
+      expect(remove).toHaveBeenCalledWith("scroll", expect.any(Function));
+
+      // The keyboard went away while it was closed.
+      vv.height = 640;
+      rerender(palette(true));
+      const dialog = screen.getByRole("dialog", { name: "Search tools" });
+      expect(dialog.style.top).toBe("320px");
+      expect(dialog.style.maxHeight).toBe("calc(640px - 2rem)");
+    });
+  });
+
+  it("leaves placement to the CSS where there is no visualViewport", () => {
+    expect(window.visualViewport).toBeFalsy();
+    const { dialog } = renderPalette();
+    expect(dialog.style.top).toBe("");
+    expect(dialog.style.maxHeight).toBe("");
   });
 });
 

@@ -32,6 +32,47 @@ interface CommandDialogProps extends DialogProps {
   commandProps?: React.ComponentPropsWithoutRef<typeof CommandPrimitive>;
 }
 
+interface VisibleArea {
+  height: number;
+  offsetTop: number;
+}
+
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
+
+/**
+ * The part of the page the visitor can see, tracked while `active`. An
+ * on-screen keyboard on iOS Safari, and on Chrome Android (which resizes only
+ * the visual viewport by default), shrinks this but never `100dvh`, so a
+ * dialog centred and capped by CSS alone stays half under the keyboard. Null
+ * where the browser has no `visualViewport`, so the CSS applies there.
+ */
+function useVisibleArea(active: boolean): VisibleArea | null {
+  const [area, setArea] = React.useState<VisibleArea | null>(null);
+  // A layout effect, so an opening palette is placed from a fresh reading
+  // before it paints, never from where the keyboard was last time.
+  useIsomorphicLayoutEffect(() => {
+    const vv = active ? window.visualViewport : null;
+    if (!vv) return;
+    const read = () =>
+      setArea((prev) =>
+        prev?.height === vv.height && prev.offsetTop === vv.offsetTop
+          ? prev
+          : { height: vv.height, offsetTop: vv.offsetTop }
+      );
+    read();
+    vv.addEventListener("resize", read);
+    vv.addEventListener("scroll", read);
+    // Keeps the last reading: a closing palette fades out where it was
+    // instead of jumping back to the CSS position mid-animation.
+    return () => {
+      vv.removeEventListener("resize", read);
+      vv.removeEventListener("scroll", read);
+    };
+  }, [active]);
+  return area;
+}
+
 const CommandDialog = ({
   children,
   title = "Command menu",
@@ -39,6 +80,9 @@ const CommandDialog = ({
   commandProps,
   ...props
 }: CommandDialogProps) => {
+  // Uncontrolled palettes (no `open` prop) listen for as long as they're
+  // mounted; the app's palette is controlled and listens only while open.
+  const visible = useVisibleArea(props.open ?? true);
   return (
     <Dialog {...props}>
       <DialogContent
@@ -50,6 +94,18 @@ const CommandDialog = ({
         // The X sits over the input row, which nothing scrolls under, and
         // whose fill (popover) differs from the box's: keep it see-through.
         closeClassName="bg-transparent"
+        // Centre on and cap to the visible area, so with a keyboard open the
+        // list shrinks above it instead of running underneath. Without a
+        // keyboard this equals the CSS (`top-[50%]`, `100dvh - 2rem`), so
+        // desktop doesn't move.
+        style={
+          visible
+            ? {
+                top: `${visible.offsetTop + visible.height / 2}px`,
+                maxHeight: `calc(${visible.height}px - 2rem)`,
+              }
+            : undefined
+        }
         {...(description ? {} : { "aria-describedby": undefined })}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
