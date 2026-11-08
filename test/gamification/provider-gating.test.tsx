@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -46,6 +46,7 @@ vi.mock("@/lib/utils/toast", () => ({ toast: h.toast }));
 
 import { GamificationProvider } from "@/lib/gamification/provider";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
+import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 
 const LEVEL_UP = { kind: "level-up", payload: { level: 8 } };
 const ACHIEVEMENT = {
@@ -169,5 +170,41 @@ describe("GamificationProvider celebration gating (characterization)", () => {
     emit(PRESTIGE);
     expect(h.toast.success).toHaveBeenCalledTimes(2);
     expect(h.toast.success.mock.calls[0][0]).toBe("Prestige!");
+  });
+});
+
+describe("GamificationProvider silent-mode adoption", () => {
+  beforeEach(() => {
+    act(() => {
+      useNotificationPrefsStore.setState(useNotificationPrefsStore.getInitialState(), true);
+    });
+    localStorage.removeItem("agile-toolkit:notification-prefs");
+  });
+
+  it("maps a stored silent mode to Quiet celebrations once both stores load", async () => {
+    act(() => {
+      useVDnaStore.setState({ silentMode: true });
+    });
+    mount();
+    await waitFor(() => expect(useNotificationPrefsStore.getState().silentModeAdopted).toBe(true));
+    expect(useNotificationPrefsStore.getState().celebrationLevel).toBe("quiet");
+  });
+
+  it("keeps Balanced when silent mode was off", async () => {
+    mount();
+    await waitFor(() => expect(useNotificationPrefsStore.getState().silentModeAdopted).toBe(true));
+    expect(useNotificationPrefsStore.getState().celebrationLevel).toBe("balanced");
+  });
+
+  it("does not map again after the first time", async () => {
+    act(() => {
+      useNotificationPrefsStore.setState({ silentModeAdopted: true, celebrationLevel: "lively" });
+      useVDnaStore.setState({ silentMode: true });
+    });
+    mount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(useNotificationPrefsStore.getState().celebrationLevel).toBe("lively");
   });
 });

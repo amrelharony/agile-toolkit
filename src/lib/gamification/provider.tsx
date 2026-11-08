@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
+import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 import { installEventBridge } from "./event-bridge";
 import { installSecretDetector } from "./secrets";
 import { installWindowBridge, subscribe } from "./engine";
@@ -32,7 +33,18 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
   const lastCelebrationRef = useRef(0);
 
   useEffect(() => {
-    useVDnaStore.persist.rehydrate();
+    // Once both stores hold the user's data, map the legacy silent mode onto
+    // the celebration level (once ever; see notification-prefs-store).
+    void Promise.all([
+      useVDnaStore.persist.rehydrate(),
+      useNotificationPrefsStore.persist.rehydrate(),
+    ])
+      .then(() => {
+        if (!useVDnaStore.persist.hasHydrated()) return;
+        if (!useNotificationPrefsStore.persist.hasHydrated()) return;
+        useNotificationPrefsStore.getState().adoptSilentMode(useVDnaStore.getState().silentMode);
+      })
+      .catch(() => {});
     setMounted(true);
   }, []);
 
