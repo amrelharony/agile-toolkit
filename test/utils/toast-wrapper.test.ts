@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * its toast through lib/notify (kind → duration, close button, sound,
  * haptic), and feedback goes out only through `emitFeedback` (never the
  * gamification engine) and can never throw out of a helper.
- * `NEXT_PUBLIC_NOTIFY_POLICY=legacy` restores the old pass-through.
+ * The `NEXT_PUBLIC_NOTIFY_POLICY=legacy` kill switch is gone.
  */
 
 const h = vi.hoisted(() => {
@@ -146,32 +146,11 @@ describe("toast wrapper (policy)", () => {
   });
 });
 
-describe("toast wrapper (NEXT_PUBLIC_NOTIFY_POLICY=legacy)", () => {
-  beforeEach(() => {
+describe("toast wrapper (no legacy kill switch)", () => {
+  it("ignores NEXT_PUBLIC_NOTIFY_POLICY=legacy: toasts still go through the policy", () => {
     vi.stubEnv("NEXT_PUBLIC_NOTIFY_POLICY", "legacy");
-  });
-
-  it.each([
-    ["plain", (m: string, o?: object) => toast(m, o), h.sonner, "toast-info", "id-plain"],
-    ["success", toast.success, h.sonner.success, "toast-success", "id-success"],
-    ["error", toast.error, h.sonner.error, "toast-error", "id-error"],
-    ["info", toast.info, h.sonner.info, "toast-info", "id-info"],
-    ["warning", toast.warning, h.sonner.warning, "toast-warning", "id-warning"],
-    ["message", toast.message, h.sonner.message, "toast-info", "id-message"],
-    ["loading", toast.loading, h.sonner.loading, "toast-info", "id-loading"],
-  ] as const)(
-    "%s forwards unchanged, returns sonner's id and emits %s",
-    (_n, fn, target, ev, id) => {
-      const opts = { description: "d", id: "k1", duration: 1234 };
-      expect(fn("Hello", opts)).toBe(id);
-      expect(target).toHaveBeenCalledWith("Hello", opts);
-      expect(h.emitFeedback).toHaveBeenCalledTimes(1);
-      expect(h.emitFeedback).toHaveBeenCalledWith("ui", ev);
-    }
-  );
-
-  it("dismiss passes straight through", () => {
-    toast.dismiss("t1");
-    expect(h.sonner.dismiss).toHaveBeenCalledWith("t1");
+    toast.info("Saved for later");
+    expect(optsOf(h.sonner.info)).toMatchObject({ duration: 4000 });
+    expect(h.emitFeedback).not.toHaveBeenCalled();
   });
 });
