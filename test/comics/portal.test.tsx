@@ -775,6 +775,7 @@ describe("the service-role boundary", () => {
       "/api/comics/guestbook",
       "/api/comics/hit",
       "/api/comics/licence",
+      "/api/comics/stats",
       "/api/comics/taps",
     ]);
   });
