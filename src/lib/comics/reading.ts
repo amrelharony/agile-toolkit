@@ -2,7 +2,9 @@
  * What this browser has read of the comic, and where each story's question was
  * sent. One record under the `agile-toolkit:` prefix, so a backup carries it to
  * another device and "Clear data on this browser" removes it
- * (lib/utils/clear-local-data). Nothing here leaves the browser.
+ * (lib/utils/clear-local-data). Nothing here leaves the browser: it only decides
+ * whether this browser's view, finish or love is a first, for the anonymous
+ * counts (lib/comics/stats), and feeds "Your reading".
  *
  * A story counts as read once, the first time its end is reached
  * (components/story-actions), which is what the reading trophies count.
@@ -23,12 +25,30 @@ interface Reading {
   guessed: Record<string, number>;
   /** Story number → "Seen this at work?": 0 yes, 1 not yet. */
   seen: Record<string, number>;
+  /** Story number → when this browser first opened it (ISO). */
+  viewed: Record<string, string>;
+  /** Story number → when it was loved (ISO). Taking the love back removes it. */
+  loved: Record<string, string>;
+  /** Story number → seconds of active reading, all visits added up. */
+  seconds: Record<string, number>;
 }
 
 /** "Just show me": the last panel is out, and no guess was counted. */
 export const SKIPPED = -1;
 
-const empty = (): Reading => ({ read: {}, sent: {}, asked: {}, guessed: {}, seen: {} });
+const empty = (): Reading => ({
+  read: {},
+  sent: {},
+  asked: {},
+  guessed: {},
+  seen: {},
+  viewed: {},
+  loved: {},
+  seconds: {},
+});
+
+/** Ten minutes a visit, so even years of weekly reading stays a sane number. */
+const MAX_STORED_SECONDS = 1_000_000;
 
 const isLink = (v: unknown): v is HandoffLink =>
   isRecord(v) && typeof v.route === "string" && typeof v.targetId === "string";
@@ -44,6 +64,14 @@ const choices = (v: unknown, min: number) =>
 const dates = (v: Record<string, unknown>) =>
   Object.fromEntries(
     Object.entries(v).filter((e): e is [string, string] => typeof e[1] === "string")
+  );
+
+const durations = (v: unknown) =>
+  Object.fromEntries(
+    Object.entries(isRecord(v) ? v : {}).filter(
+      (e): e is [string, number] =>
+        typeof e[1] === "number" && Number.isFinite(e[1]) && e[1] >= 0 && e[1] <= MAX_STORED_SECONDS
+    )
   );
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -69,6 +97,9 @@ function load(): Reading {
       asked: dates(isRecord(parsed.asked) ? parsed.asked : {}),
       guessed: choices(parsed.guessed, SKIPPED),
       seen: choices(parsed.seen, 0),
+      viewed: dates(isRecord(parsed.viewed) ? parsed.viewed : {}),
+      loved: dates(isRecord(parsed.loved) ? parsed.loved : {}),
+      seconds: durations(parsed.seconds),
     };
   } catch {
     return empty();
@@ -198,4 +229,59 @@ export function setSentLinks(
   if (next.length > 0) reading.sent[key] = next;
   else delete reading.sent[key];
   save(reading);
+}
+
+/**
+ * Note that this browser has opened story `ep`. True the first time only, which
+ * is what the anonymous "visitor" count adds up.
+ */
+export function markViewed(ep: number, now = new Date()): boolean {
+  const reading = load();
+  const key = String(ep);
+  if (Object.prototype.hasOwnProperty.call(reading.viewed, key)) return false;
+  reading.viewed[key] = now.toISOString();
+  return save(reading);
+}
+
+export function isLoved(ep: number): boolean {
+  return Object.prototype.hasOwnProperty.call(load().loved, String(ep));
+}
+
+/**
+ * Love story `ep`, or take the love back. True only when that changed something
+ * and was kept, so a second tab can't count the same love twice.
+ */
+export function setLoved(ep: number, on: boolean, now = new Date()): boolean {
+  const reading = load();
+  const key = String(ep);
+  const was = Object.prototype.hasOwnProperty.call(reading.loved, key);
+  if (was === on) return false;
+  if (on) reading.loved[key] = now.toISOString();
+  else delete reading.loved[key];
+  return save(reading);
+}
+
+/** Every story this browser loves, most recent first. */
+export function lovedStories(): { ep: number; at: string }[] {
+  return Object.entries(load().loved)
+    .map(([ep, at]) => ({ ep: Number(ep), at }))
+    .filter((r) => Number.isInteger(r.ep) && !Number.isNaN(Date.parse(r.at)))
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || b.ep - a.ep);
+}
+
+/** Add one visit's active reading time to story `ep`. */
+export function addSeconds(ep: number, seconds: number): void {
+  if (!Number.isFinite(seconds) || seconds <= 0) return;
+  const reading = load();
+  const key = String(ep);
+  reading.seconds[key] = Math.min(
+    MAX_STORED_SECONDS,
+    Math.round((reading.seconds[key] ?? 0) + seconds)
+  );
+  save(reading);
+}
+
+/** This browser's active reading time, every story added up, in seconds. */
+export function totalSeconds(): number {
+  return Object.values(load().seconds).reduce((sum, s) => sum + s, 0);
 }
