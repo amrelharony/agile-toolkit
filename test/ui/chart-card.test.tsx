@@ -248,6 +248,50 @@ describe("ChartDataTable", () => {
     expect(headers[0]).toHaveClass("text-left");
     expect(headers[2]).toHaveClass("text-right");
   });
+
+  it("pins the row names on the left and pads cells less on a phone", () => {
+    render(<ChartDataTable table={TABLE} />);
+    const table = screen.getByRole("table");
+    const headers = within(table).getAllByRole("columnheader");
+    expect(headers[0]).toHaveClass("sticky", "left-0", "bg-card");
+    expect(headers[1]).not.toHaveClass("sticky");
+    for (const rowHeader of within(table).getAllByRole("rowheader")) {
+      expect(rowHeader).toHaveClass("sticky", "left-0", "bg-card");
+    }
+    for (const cell of within(table).getAllByRole("cell")) {
+      expect(cell).toHaveClass("px-2", "sm:px-3");
+    }
+  });
+
+  it("fades its right edge only while there's more to scroll to", () => {
+    // jsdom lays nothing out: a 445 px table in a 284 px box.
+    const widths = [
+      vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(445),
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(284),
+    ];
+    try {
+      const { container } = render(<ChartDataTable table={TABLE} />);
+      const region = screen.getByRole("region");
+      const fade = () => container.querySelector("[data-scroll-fade]");
+      expect(fade()).toBeInTheDocument();
+      expect(fade()).toHaveAttribute("aria-hidden", "true");
+
+      region.scrollLeft = 445 - 284;
+      fireEvent.scroll(region);
+      expect(fade()).not.toBeInTheDocument();
+
+      region.scrollLeft = 40;
+      fireEvent.scroll(region);
+      expect(fade()).toBeInTheDocument();
+    } finally {
+      widths.forEach((w) => w.mockRestore());
+    }
+  });
+
+  it("shows no fade when the table fits", () => {
+    const { container } = render(<ChartDataTable table={TABLE} />);
+    expect(container.querySelector("[data-scroll-fade]")).toBeNull();
+  });
 });
 
 /* -------------------------------------------------------------------------- */
