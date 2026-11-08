@@ -118,7 +118,7 @@ export function KudosBeacon() {
                   : "Kudos beacon"
             }
             className={cn(
-              "relative inline-flex items-center gap-2 rounded-full px-3 py-2",
+              "relative inline-flex items-center gap-2 rounded-full px-3 py-2 pointer-coarse:min-h-11",
               "border border-border bg-surface/80 backdrop-blur-sm shadow-md",
               "text-text hover:bg-surface transition-all duration-fast",
               idleGlow && !reducedMotion && "ring-2 ring-accent/60 shadow-accent/30"

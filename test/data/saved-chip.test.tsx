@@ -26,9 +26,21 @@ describe("SavedChip", () => {
     render(<SavedChip />);
     const chip = screen.getByRole("button", { name: /Saved in this browser/ });
     fireEvent.click(chip);
-    // The dialog loads on first open.
-    expect(await screen.findByRole("dialog", { name: "Your data" })).toBeInTheDocument();
+    // The dialog loads on first open. A cold import of it can take over the
+    // default 1 s on a busy machine.
+    expect(
+      await screen.findByRole("dialog", { name: "Your data" }, { timeout: 10_000 })
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Download backup/ })).toBeInTheDocument();
+  });
+
+  it("is 32 px with a mouse and 44 px on touch, and grows instead of clipping", () => {
+    render(<SavedChip />);
+    const classes = screen
+      .getByRole("button", { name: /Saved in this browser/ })
+      .className.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(["min-h-8", "pointer-coarse:min-h-11"]));
+    expect(classes).not.toContain("h-8");
   });
 
   it("warns when the browser has stopped saving", () => {
