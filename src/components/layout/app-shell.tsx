@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { MotionConfig } from "framer-motion";
@@ -11,9 +11,11 @@ import { PresentationController } from "@/components/presentation/presentation-m
 import { StorageHealthBanner } from "@/components/data/storage-health-banner";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
-import { CommandPalette } from "./command-palette";
+import { useCommandPaletteShortcut } from "./use-command-palette-shortcut";
+import { useOpenedOnce } from "@/hooks/use-opened-once";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useLlmStore } from "@/lib/stores/llm-store";
+import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 import { dismissUndoToasts } from "@/lib/utils/undoable";
 import { installSignalBridge } from "@/lib/signals/signal-bridge";
 import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
@@ -33,6 +35,28 @@ const LlmSettingsDialog = dynamic(
   { ssr: false }
 );
 
+// Off the first screen too, so every page's start-up neither downloads nor
+// hydrates them: the Ctrl/Cmd+K tool finder (cmdk and the search synonyms)
+// and the trophy case load when first opened (see useOpenedOnce), and the
+// holiday engine, which renders nothing until a theme applies after
+// hydration, right after the page is up.
+const CommandPalette = dynamic(() => import("./command-palette").then((m) => m.CommandPalette), {
+  ssr: false,
+});
+const TrophyCase = dynamic(
+  () => import("@/components/gamification/trophy-case").then((m) => m.TrophyCase),
+  { ssr: false }
+);
+const HolidayEngine = dynamic(() => import("@/lib/holiday/engine").then((m) => m.HolidayEngine), {
+  ssr: false,
+});
+
+/** The BYOK settings dialog, mounted (and so downloaded) once something opens it. */
+function DeferredLlmSettings() {
+  const open = useLlmUiStore((s) => s.settingsOpen);
+  return useOpenedOnce(open) ? <LlmSettingsDialog /> : null;
+}
+
 // Floating 3D mascot + agent chat — dynamic-imported (ssr:false) so the WebGL
 // mascot + agent runtime (SSE parser, tool-execution machinery) only load
 // client-side. Replaces the old right-side agent sheet.
@@ -43,7 +67,6 @@ const MascotAssistant = dynamic(
 import { SonificationProvider } from "@/lib/sonification/provider";
 import { GamificationProvider } from "@/lib/gamification/provider";
 import { HapticsProvider } from "@/lib/haptics/provider";
-import { HolidayEngine } from "@/lib/holiday/engine";
 import { EmotionProvider } from "@/lib/emotion/provider";
 import { WeatherProvider } from "@/lib/weather/provider";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
@@ -62,7 +85,6 @@ const FlyingCardPortal = dynamic(
   () => import("@/lib/kudos/beacon/flying-card").then((m) => m.FlyingCardPortal),
   { ssr: false }
 );
-import { TrophyCase } from "@/components/gamification/trophy-case";
 import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 
 // Routes that bypass the full app chrome (sidebar/header/providers).
@@ -106,6 +128,23 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
   const [trophyOpen, setTrophyOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
+  const paletteOpened = useOpenedOnce(searchOpen);
+  const trophyOpened = useOpenedOnce(trophyOpen);
+  useCommandPaletteShortcut(useCallback(() => setSearchOpen((open) => !open), []));
+
+  // Ctrl/Cmd+K is a mouse-and-keyboard habit: with a fine pointer, fetch the
+  // palette's code once the page is idle, so its first open is as instant as
+  // it was. A phone fetches it only when someone opens it.
+  useEffect(() => {
+    if (!window.matchMedia?.("(pointer: fine)").matches) return;
+    const warm = () => void import("./command-palette");
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(warm, { timeout: 5000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const timer = window.setTimeout(warm, 3000);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   // An Undo toast belongs to the page that raised it (lib/utils/undoable).
   useEffect(() => {
@@ -194,16 +233,20 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                                   {children}
                                 </main>
                               </div>
-                              <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
+                              {paletteOpened ? (
+                                <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
+                              ) : null}
                             </div>
-                            <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
+                            {trophyOpened ? (
+                              <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
+                            ) : null}
                             <Suspense fallback={null}>
                               <HolidayEngine />
                             </Suspense>
                             {/* BYOK settings dialog — open/close state lives in llm-ui-store,
             so this single mount serves both header-chip and UserMenu
             entry points. Dynamic-imported so non-AI users never load it. */}
-                            <LlmSettingsDialog />
+                            <DeferredLlmSettings />
                             <MascotAssistant />
                           </HistorySyncProvider>
                         </CloudSyncProvider>
