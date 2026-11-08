@@ -76,6 +76,16 @@ export interface ChallengeProgress {
   seedDate: string; // YYYY-MM-DD for dailies, YYYY-WW for weeklies
 }
 
+/** Outcome XP earned on one local day, for the daily caps. */
+export interface XpDay {
+  /** Local day "YYYY-MM-DD" the totals belong to ("" before the first outcome). */
+  date: string;
+  /** Outcome XP earned that day (achievement and challenge rewards excluded). */
+  total: number;
+  /** Outcome XP earned that day per cap key (outcome id or shared cap). */
+  byKey: Record<string, number>;
+}
+
 export interface VDna {
   /** Opaque visitor id (localStorage-persisted nanoid). */
   visitorId: string;
@@ -111,6 +121,12 @@ export interface VDna {
   silentMode: boolean;
   /** Counters (generic, used by achievement rules). */
   counters: Record<string, number>;
+  /** Today's outcome XP, for the daily caps (schema v1). */
+  xpDay: XpDay;
+  /** Idempotency keys already paid, mapped to the day ordinal they were claimed (schema v1). */
+  claims: Record<string, number>;
+  /** Keys that pay only once ever, e.g. secrets (schema v1). */
+  onceKeys: string[];
 }
 
 export interface LevelInfo {

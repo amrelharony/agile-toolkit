@@ -29,6 +29,7 @@ const EXCLUDED_KEYS = new Set([
   "agile-toolkit:share-tokens", // owner share-link secrets
   "agile-toolkit:weather:cairo", // cache
   "agile-toolkit:canvas:last-catchup", // cache
+  "agile-toolkit:activity", // Activity inbox: a restore must not bring back stale unread rows
 ]);
 const EXCLUDED_PREFIXES = [
   "agile-toolkit:sync:",

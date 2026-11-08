@@ -5,10 +5,20 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { VDna, XpEvent, ChallengeProgress } from "@/lib/gamification/types";
-import { mergePersisted, passThroughMigrate } from "./persist-migrate";
+import {
+  EMPTY_XP_DAY,
+  ensureVDnaShape,
+  migrateVDna,
+  VDNA_SCHEMA_VERSION,
+} from "@/lib/gamification/vdna-migrate";
+import { mergePersisted } from "./persist-migrate";
 
-/** Persisted schema version of `agile-toolkit:vdna`. */
-export const VDNA_PERSIST_VERSION = 0;
+/**
+ * Persisted schema version of `agile-toolkit:vdna`.
+ * v0: original shape. v1: XP ledger fields (`xpDay`, `claims`, `onceKeys`),
+ * input-only counters dropped, `level` recomputed (lib/gamification/vdna-migrate.ts).
+ */
+export const VDNA_PERSIST_VERSION = VDNA_SCHEMA_VERSION;
 
 /**
  * Generate a fresh visitor id. The id is stored INSIDE the persisted payload
@@ -41,6 +51,9 @@ const initial: VDna = {
   shareOnLeaderboard: false,
   silentMode: false,
   counters: {},
+  xpDay: EMPTY_XP_DAY,
+  claims: {},
+  onceKeys: [],
 };
 
 interface VDnaActions {
@@ -58,7 +71,11 @@ interface VDnaActions {
   setWeeklyChallenges: (list: ChallengeProgress[]) => void;
   /** Increment a named counter. */
   bumpCounter: (key: string, by?: number) => number;
-  /** Reset for prestige (keeps visitorId, lifetimeXp, unlocked, streak). */
+  /**
+   * Reset for prestige (keeps visitorId, lifetimeXp, unlocked, streak, and
+   * the ledger's `xpDay` / `claims` / `onceKeys` so a prestige can't reopen
+   * caps or once-only rewards).
+   */
   prestigeReset: () => void;
   /** Settings toggles. */
   setDisplayName: (name: string | undefined) => void;
@@ -128,16 +145,16 @@ export const useVDnaStore = create<VDna & VDnaActions>()(
       storage: safeJSONStorage("vdna"),
       skipHydration: true,
       // Rollback safety. zustand's persist drops a stored payload whose
-      // version differs from `version` unless `migrate` is given, so a later
-      // build that bumps the version followed by a revert to this one would
-      // wipe everyone's XP. The explicit version plus a pass-through migrate
-      // keep every field (unknown ones included) whatever version wrote them.
-      // The version marker itself drops to 0 when this build writes a newer
-      // payload back, so later migrations must detect shape rather than trust
-      // the version: idempotent, fill-if-absent, tolerant of unknown fields.
+      // version differs from `version` unless `migrate` is given. migrateVDna
+      // brings older payloads up to v1 and passes newer ones through whole
+      // (unknown fields included). A build without v1 (PR A) re-stamps what
+      // it writes as v0, so the v0 → v1 step detects shape rather than
+      // trusting the version: idempotent, fill-if-absent, keeps unknown fields.
       version: VDNA_PERSIST_VERSION,
-      migrate: passThroughMigrate,
-      merge: mergePersisted,
+      migrate: migrateVDna,
+      // An unstamped legacy payload never reaches `migrate`; upgrade it here
+      // by shape (a no-op for payloads already in v1 shape).
+      merge: (persisted, current) => mergePersisted(ensureVDnaShape(persisted), current),
       onRehydrateStorage: () => (state) => {
         // Seed the visitor id once at rehydrate time if it's missing or
         // still the "pending" sentinel. On first-ever visit the persisted
@@ -171,5 +188,8 @@ export function getVDnaSnapshot(): VDna {
     shareOnLeaderboard: s.shareOnLeaderboard,
     silentMode: s.silentMode,
     counters: s.counters,
+    xpDay: s.xpDay,
+    claims: s.claims,
+    onceKeys: s.onceKeys,
   };
 }
