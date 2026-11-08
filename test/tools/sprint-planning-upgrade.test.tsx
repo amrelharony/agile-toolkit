@@ -1028,17 +1028,21 @@ describe("story rows on a touch screen", () => {
     // The box is all the label holds: its name stays the box's own.
     expect(label?.textContent).toBe("");
     expect(box).toHaveAccessibleName("Add to sprint: Remove a saved card");
-    // 12 + 16 + 16 across and 12 + 4 + 16 + 12 down, given back by margins.
+    // 12 + 16 + 16 across and 12 + 4 + 16 + 12 down, given back by margins
+    // except 4 px on the right: the row's gap is 12 px, so -mr-4 would leave
+    // the label's last 4 px under the title, which paints later and takes
+    // the tap. With -mr-3 the padding ends where the title starts.
     expect(classesOf(label)).toEqual(
       expect.arrayContaining([
         "pointer-coarse:pl-3",
         "pointer-coarse:pr-4",
         "pointer-coarse:py-3",
         "pointer-coarse:-ml-3",
-        "pointer-coarse:-mr-4",
+        "pointer-coarse:-mr-3",
         "pointer-coarse:-my-3",
       ])
     );
+    expect(classesOf(label)).not.toContain("pointer-coarse:-mr-4");
     // A mouse gets the same 16px box as before: nothing unscoped pads it.
     expect(classesOf(label).filter((c) => /^-?[mp][xytblr]?-/.test(c))).toEqual([]);
     expect(classesOf(box)).toEqual(expect.arrayContaining(["h-4", "w-4"]));

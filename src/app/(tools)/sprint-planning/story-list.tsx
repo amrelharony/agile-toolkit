@@ -164,9 +164,12 @@ function StoryRow({
     <li className="px-3 py-2">
       <div className="flex items-start gap-3">
         {/* The box is the step's main action, so on a touch screen its label
-            pads it out to a 44 px target. The negative margins keep the row's
-            layout: the padding reaches into the row's own edge and the gap. */}
-        <label className="flex shrink-0 pointer-coarse:-my-3 pointer-coarse:-ml-3 pointer-coarse:-mr-4 pointer-coarse:py-3 pointer-coarse:pl-3 pointer-coarse:pr-4">
+            pads it out to a 44 px target. The negative margins give most of
+            that back: the padding reaches into the row's own edge and the
+            whole gap. Its last 4 px stay its own, so the padding ends where
+            the title starts; the title paints after it and would take a tap
+            on any strip the two shared. */}
+        <label className="flex shrink-0 pointer-coarse:-my-3 pointer-coarse:-ml-3 pointer-coarse:-mr-3 pointer-coarse:py-3 pointer-coarse:pl-3 pointer-coarse:pr-4">
           <input
             type="checkbox"
             className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent)] disabled:opacity-60"
