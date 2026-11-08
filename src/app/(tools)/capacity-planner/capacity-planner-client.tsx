@@ -1089,7 +1089,7 @@ function ForecastCard({
       )}
       <Link
         href={sprintHref("/sprint-planning", sprint?.id)}
-        className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+        className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline pointer-coarse:min-h-11"
       >
         {sprint ? `Plan ${sprint.name} in Sprint Planning` : "Open Sprint Planning"}
         <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
