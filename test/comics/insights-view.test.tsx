@@ -194,11 +194,15 @@ describe("Insights", () => {
     // part of the row's header.
     const row = star.closest("tr");
     expect(row?.nextElementSibling?.textContent).toBe("Not saved: Couldn't save.");
+    // Not an extra row for a screen reader: the star carries it.
+    expect(row?.nextElementSibling?.getAttribute("aria-hidden")).toBe("true");
+    expect(star).toHaveAccessibleDescription("Not saved: Couldn't save.");
     expect(within(storyTable()).getAllByRole("rowheader")[0].textContent).toBe("The Practice Desk");
     // The next press on it clears the message.
     h.setShortlist.mockResolvedValue({ ep: 28, shortlisted: true });
     await act(async () => fireEvent.click(star));
     expect(screen.queryByText(/Not saved/)).toBeNull();
+    expect(star).not.toHaveAttribute("aria-describedby");
     expect(screen.getByRole("alert").textContent).toBe("");
   });
 

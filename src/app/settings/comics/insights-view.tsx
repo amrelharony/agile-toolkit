@@ -629,6 +629,9 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
                             size="icon"
                             aria-pressed={s.shortlisted}
                             aria-label={`Shortlist episode ${s.ep}`}
+                            aria-describedby={
+                              failures.has(s.ep) ? `shortlist-failure-${s.ep}` : undefined
+                            }
                             onClick={() => toggleShortlist(s.ep, !s.shortlisted)}
                             className="size-11"
                           >
@@ -669,11 +672,15 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
                       ))}
                     </tr>
                     {failures.has(s.ep) ? (
-                      // Under its row, pinned with the star and name; announced
-                      // above, so it isn't part of the row's header.
-                      <tr>
+                      // Under its row, pinned with the star and name. Out of
+                      // the table for screen readers (no extra headerless row);
+                      // the star it belongs to is described by it instead.
+                      <tr aria-hidden="true">
                         <td colSpan={COLUMNS.length + 2} className="p-0">
-                          <p className="sticky left-0 w-40 px-2 pb-2 text-xs text-danger sm:w-64">
+                          <p
+                            id={`shortlist-failure-${s.ep}`}
+                            className="sticky left-0 w-40 px-2 pb-2 text-xs text-danger sm:w-64"
+                          >
                             Not saved: {failures.get(s.ep)}
                           </p>
                         </td>
