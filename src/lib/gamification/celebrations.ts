@@ -3,7 +3,7 @@
 /**
  * Silent celebrations: every reward the engine or the ledger reports becomes
  * a row in the Activity inbox. Nothing here shows a toast, and nothing is
- * dropped — quiet routes, presenting and silent mode only matter for the
+ * dropped — quiet routes, presenting and the celebration level only matter for the
  * moments with Amr (PR I), which read the rarity set here.
  *
  * - **Same-action merge.** A level-up, badge or prestige reported within
@@ -16,9 +16,6 @@
  * - **"Today's XP is full"** once per day, when the ledger reports the cap.
  * - **"Your progress carried over"** once ever, for someone who already
  *   had a level or badges before the inbox existed.
- *
- * `NEXT_PUBLIC_CELEBRATIONS=legacy` (build-time) keeps the old toasts
- * instead (see provider.tsx).
  */
 
 import { useVDnaStore } from "@/lib/stores/vdna-store";
@@ -53,11 +50,6 @@ import type { Achievement } from "./types";
 
 /** Effects this close together came from one action and share a row. */
 export const SAME_ACTION_MERGE_MS = 1500;
-
-/** Whether the build-time kill switch restores the old celebration toasts. */
-export function isLegacyCelebrations(): boolean {
-  return process.env.NEXT_PUBLIC_CELEBRATIONS === "legacy";
-}
 
 // ---------------------------------------------------------------------------
 // Rarity

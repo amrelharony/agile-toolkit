@@ -37,9 +37,10 @@ import { X, Plus, History, Sparkles, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
-import { useMascotStore } from "@/lib/agent/mascot/store";
+import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
+import { useMascotCelebrationReactions } from "@/lib/agent/mascot/use-celebration-reactions";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { createTouchInteraction, zoneAt, type TouchPoint } from "./engine/interactions/touch";
 import {
@@ -52,10 +53,11 @@ import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./engine/sprite-poses";
 import { VisitorGuide } from "./visitor-guide";
+import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import styles from "./mascot-assistant.module.css";
 
 /** Which corner the mascot is parked in (drag-to-reposition). */
-type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+type Corner = MascotCorner;
 
 /** Inset of the float button from its corner. */
 /** Which toolkit scenes exist yet (their sheets shipped). Stable, for the hook. */
@@ -184,11 +186,11 @@ function panelPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSS
   };
 }
 
-/** True below the `sm` breakpoint (640px). */
+/** True at phone width (`PHONE_MAX_PX`, below Tailwind's `sm`). */
 function useIsPhone(): boolean {
   const [isPhone, setIsPhone] = useState(false);
   useEffect(() => {
-    const mq = window.matchMedia?.("(max-width: 639px)");
+    const mq = window.matchMedia?.(PHONE_MEDIA_QUERY);
     if (!mq) return;
     const update = () => setIsPhone(mq.matches);
     update();
@@ -196,6 +198,24 @@ function useIsPhone(): boolean {
     return () => mq.removeEventListener?.("change", update);
   }, []);
   return isPhone;
+}
+
+/**
+ * The CSS variables that keep space for Amr on phones, for a band on `side` of
+ * `height` px. `--amr-band-top` / `--amr-band-bottom` are the band's own height
+ * (the bottom one includes the home-indicator inset; the top one is measured
+ * from the header's bottom edge, since a top-docked Amr stands below the
+ * header). `--amr-band-top-edge` is where the top band ends, measured from the
+ * top of the viewport, for things positioned against the viewport (the phone
+ * trophy sheet) rather than against the header.
+ */
+export function phoneBandVars(side: "top" | "bottom", height: number): Record<string, string> {
+  return side === "top"
+    ? {
+        "--amr-band-top": `${height}px`,
+        "--amr-band-top-edge": `calc(var(--header-h, 56px) + ${height}px)`,
+      }
+    : { "--amr-band-bottom": `calc(${height}px + env(safe-area-inset-bottom, 0px))` };
 }
 
 /**
@@ -210,13 +230,10 @@ function usePhoneBand(band: { side: "top" | "bottom"; height: number } | null) {
   useEffect(() => {
     if (!side || height === undefined) return;
     const root = document.documentElement;
-    const name = side === "top" ? "--amr-band-top" : "--amr-band-bottom";
-    root.style.setProperty(
-      name,
-      side === "top" ? `${height}px` : `calc(${height}px + env(safe-area-inset-bottom, 0px))`
-    );
+    const vars = phoneBandVars(side, height);
+    for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
     return () => {
-      root.style.removeProperty(name);
+      for (const name of Object.keys(vars)) root.style.removeProperty(name);
     };
   }, [side, height]);
 }
@@ -391,6 +408,10 @@ export function MascotAssistant() {
   // Drag-to-reposition: free-drag past a threshold, then snap to the nearest
   // corner (the chat panel follows via the corner state). Source initDragDrop.
   const [corner, setCorner] = useState<Corner>("bottomRight");
+  // The moment chip stands beside him, wherever he's parked.
+  useEffect(() => {
+    useMascotStore.getState().setCorner(corner);
+  }, [corner]);
   // Always the figure's height unless it can't load, so the strip doesn't jump
   // when the launcher gives way to him a moment after the page settles.
   const [savesData, setSavesData] = useState(false);
@@ -598,6 +619,8 @@ export function MascotAssistant() {
   useMascotChatReactions();
   // React to finished tool actions, for visitors and the owner alike.
   useMascotToolReactions(sceneShipped);
+  // Cheer once when a rare moment plays (lib/notify/moment-scheduler.ts).
+  useMascotCelebrationReactions();
 
   // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
   // Skip when typing in an editable element so it can't steal focus mid-edit.

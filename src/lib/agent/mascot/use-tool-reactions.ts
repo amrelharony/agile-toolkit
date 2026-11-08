@@ -12,6 +12,7 @@ import { useEffect } from "react";
 import { useHistoryStore } from "@/lib/history/history-store";
 import type { HistoryEvent } from "@/lib/history/types";
 import { useMascotStore, type MascotReaction } from "./store";
+import { isCheerRecent, noteToolReaction } from "./use-celebration-reactions";
 
 /** One reaction at most this often, so a burst of edits isn't a jumping fit. */
 const MIN_GAP_MS = 4000;
@@ -113,6 +114,8 @@ export function installToolReactions(
     const now = Date.now();
     if (now - new Date(event.occurredAt).getTime() > FRESH_MS) return;
     if (now - lastAt < MIN_GAP_MS) return;
+    // He just cheered for a moment: one reaction per action is enough.
+    if (isCheerRecent(now)) return;
     const mascot = useMascotStore.getState();
     // Nobody plays the queue while the figure isn't on screen.
     if (!mascot.ready) return;
@@ -122,6 +125,7 @@ export function installToolReactions(
       : reactionForAction(event.action);
     if (!reaction) return;
     lastAt = now;
+    noteToolReaction(now);
     mascot.queueReaction(reaction);
   });
 }
