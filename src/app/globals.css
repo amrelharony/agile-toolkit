@@ -686,6 +686,26 @@ html[data-intro] [data-sonner-toaster] {
   visibility: hidden;
 }
 
+/* The toast stack sits above the header (100) and the sidebar drawer but below
+   modals (1000), instead of sonner's own 999999999 that covered everything. */
+html [data-sonner-toaster] {
+  z-index: theme("zIndex.toast");
+}
+/* Over an open dialog or sheet, toasts (errors, mostly: the policy holds the
+   rest) are raised above it so they stay visible. */
+body:has([role="dialog"][data-state="open"]) [data-sonner-toaster],
+body:has([role="alertdialog"][data-state="open"]) [data-sonner-toaster] {
+  z-index: 1010;
+}
+/* Touch screens: the small close button gets a 44 px hit area. */
+@media (pointer: coarse) {
+  [data-sonner-toast] [data-close-button]::after {
+    content: "";
+    position: absolute;
+    inset: -12px;
+  }
+}
+
 .intro-overlay {
   position: fixed;
   inset: 0;

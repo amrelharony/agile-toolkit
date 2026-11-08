@@ -60,6 +60,8 @@ describe("undoable — toast contract (characterization)", () => {
     const [label, opts] = toastSpy.mock.calls[0];
     expect(label).toBe("Item deleted");
     expect(opts).toMatchObject({ description: "From the backlog", duration: 8000 });
+    // The toast policy's undo kind: always shown, close button, never merged.
+    expect(opts.kind).toBe("undo");
     expect(typeof opts.onDismiss).toBe("function");
     expect(typeof opts.onAutoClose).toBe("function");
   });

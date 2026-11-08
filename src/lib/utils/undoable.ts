@@ -31,6 +31,9 @@ export function undoable({ label, description, apply, revert, durationMs = 8000 
   apply();
   let undone = false;
   const id = toast(label, {
+    // Undo toasts always show (even in a ceremony or Focus), stay 8 s, have
+    // a close button and are never merged with another Undo.
+    kind: "undo",
     description,
     duration: durationMs,
     onDismiss: () => openUndoToasts.delete(id),

@@ -78,16 +78,36 @@ export function shouldForwardToGamification(toolId: string, eventName: string): 
  *
  * `targetEl` is optional and, when provided, lets the haptics engine apply its
  * per-element cooldown + iOS visual-pulse fallback to the originating element.
+ *
+ * `opts` lets the notification policy pick each half on its own: a success
+ * toast plays its chord (only in Full sound mode) but no vibration, a warning
+ * vibrates but an info toast does neither. Both default to on.
  */
-export function emitFeedback(toolId: string, eventName: string, targetEl?: HTMLElement | null) {
+export interface FeedbackOptions {
+  /** Play the sound (still gated by the sound prefs). Default true. */
+  sound?: boolean;
+  /** Fire the haptic (still gated by the haptics prefs). Default true. */
+  haptics?: boolean;
+  /** Play the sound only in Full sound mode, not Minimal. Default false. */
+  soundFullModeOnly?: boolean;
+}
+
+export function emitFeedback(
+  toolId: string,
+  eventName: string,
+  targetEl?: HTMLElement | null,
+  opts: FeedbackOptions = {}
+) {
   if (typeof window === "undefined") return;
 
   // Forward to haptics — independent gating (runs even if sonification is off).
-  void forwardToHaptics(toolId, eventName, targetEl ?? undefined);
+  if (opts.haptics !== false) void forwardToHaptics(toolId, eventName, targetEl ?? undefined);
 
+  if (opts.sound === false) return;
   const prefs = useSonificationStore.getState();
   if (!prefs.enabled) return;
   if (prefs.respectReducedMotion && prefersReducedMotionSync()) return;
+  if (opts.soundFullModeOnly && prefs.mode !== "full") return;
   if (!isAllowed(prefs.mode, toolId)) return;
   const entry = getEntry(toolId, eventName);
   if (!entry) return;

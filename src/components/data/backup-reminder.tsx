@@ -28,6 +28,9 @@ export function BackupReminder() {
       if (!backupReminderDue()) return;
       recordBackupReminder();
       toast.info("Back up your toolkit data", {
+        // A system nudge: held while the user types, a dialog is open, or
+        // it's quiet (Focus, quiet hours, presenting), and shown after.
+        kind: "system",
         description:
           "Your work is saved only in this browser. A backup file lets you get it back if site data is cleared.",
         duration: 15_000,

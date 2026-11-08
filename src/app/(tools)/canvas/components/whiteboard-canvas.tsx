@@ -951,8 +951,12 @@ export function WhiteboardCanvas({
       return;
     }
     // Lazy import so the toast bundle isn't pulled into desktop sessions.
-    void import("sonner").then(({ toast }) => {
+    // Through the app's wrapper as a system nudge: the policy holds it while
+    // the user types, a dialog is open or it's quiet, instead of sonner
+    // showing it straight away.
+    void import("@/lib/utils/toast").then(({ toast }) => {
       toast.message("Tablet tips", {
+        kind: "system",
         description: "Pinch to zoom · Two-finger drag to pan · Long-press for actions",
         duration: 7000,
       });
