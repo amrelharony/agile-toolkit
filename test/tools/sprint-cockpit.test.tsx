@@ -6,6 +6,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Impediment, Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { DEFAULT_CADENCE } from "@/lib/sprints/cadence";
+import { TOUCH_LINK } from "@/components/ui/touch-target";
 
 /**
  * The Sprint Cockpit: with no sprint it runs the start flow; with one it
@@ -132,6 +133,18 @@ describe("with no sprint", () => {
     ).toHaveLength(1);
   });
 
+  it("gives the start card's standalone links a 44px touch height", () => {
+    seed([]);
+    render(<SprintCockpit />);
+    expect(screen.getByRole("link", { name: "Just browse the tools" })).toHaveClass(
+      ...TOUCH_LINK.split(" ")
+    );
+    expect(screen.getByRole("link", { name: "Team page" })).toHaveClass(
+      ...TOUCH_LINK.split(" "),
+      "ml-auto"
+    );
+  });
+
   it("creates the first sprint from the dialog and opens on it", () => {
     seed([]);
     render(<SprintCockpit />);
@@ -221,6 +234,23 @@ describe("with a sprint", () => {
     const series = state().sprintSeries?.find((s) => s.id === "s2");
     expect(series?.days?.find((d) => d.day === 7)).toMatchObject({ remaining: 20 });
     expect(logs.map((l) => l.action)).toContain("day_logged");
+  });
+
+  it("gives the ceremony and blocker links a 44px touch height", () => {
+    useWorkspaceStore.setState({
+      stories: STORIES.map((s) => (s.id === "b" ? { ...s, blocked: true } : s)),
+    });
+    render(<SprintCockpit />);
+    const strip = screen.getByRole("list", { name: "Sprint ceremonies" });
+    const ctas = within(strip).getAllByRole("link");
+    expect(ctas).toHaveLength(5);
+    for (const link of ctas) expect(link).toHaveClass(...TOUCH_LINK.split(" "), "mt-auto");
+
+    // The Open blockers card: its header link and the board link.
+    expect(screen.getByRole("link", { name: "Impediments" })).toHaveClass(...TOUCH_LINK.split(" "));
+    expect(screen.getByRole("link", { name: "Unblock them on the board" })).toHaveClass(
+      ...TOUCH_LINK.split(" ")
+    );
   });
 
   it("edits ceremony times from the next-ceremony card", () => {

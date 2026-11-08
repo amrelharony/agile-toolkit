@@ -11,6 +11,7 @@ import {
   impedimentStatus,
 } from "@/lib/impediments/model";
 import { cn } from "@/lib/utils";
+import { TOUCH_LINK } from "@/components/ui/touch-target";
 
 const SEVERITY_CLASS: Record<Impediment["severity"], string> = {
   critical: "border-danger/40 bg-danger/10 text-danger",
@@ -63,7 +64,10 @@ export function Blockers({
       actions={
         <Link
           href="/impediments"
-          className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+          className={cn(
+            "inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline",
+            TOUCH_LINK
+          )}
         >
           {open.length > SHOWN ? `All ${open.length}` : "Impediments"}
           <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -124,7 +128,10 @@ export function Blockers({
               </ul>
               <Link
                 href={boardHref}
-                className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+                className={cn(
+                  "mt-1 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline",
+                  TOUCH_LINK
+                )}
               >
                 Unblock them on the board
                 <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
