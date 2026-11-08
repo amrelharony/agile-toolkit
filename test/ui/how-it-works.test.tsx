@@ -57,4 +57,13 @@ describe("HowItWorks", () => {
     expect(hide).toHaveAttribute("type", "button");
     expect(hide.parentElement).toHaveClass("lg:hidden");
   });
+
+  it("keeps Hide guide 44px on touch screens wider than md (landscape phone, tablet)", async () => {
+    render(<HowItWorks toolId="wsjf" />);
+    const hide = await screen.findByRole("button", { name: "Hide guide" });
+    // Button is 44px below md and shrinks to 36px from md. On touch it keeps
+    // 44px at md too; the md sits in the variant so the rule is emitted after
+    // Button's md:min-h-9 (a bare pointer-coarse: rule comes before it).
+    expect(hide).toHaveClass("min-h-[44px]", "md:min-h-9", "pointer-coarse:md:min-h-11");
+  });
 });

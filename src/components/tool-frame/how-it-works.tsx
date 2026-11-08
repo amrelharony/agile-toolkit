@@ -124,12 +124,16 @@ export function HowItWorks({ toolId }: { toolId: string }) {
             )}
           </div>
           {/* Desktop (lg up) keeps its look: the guide is two short columns
-              there and closes from the header as before. */}
+              there and closes from the header as before. Button shrinks to
+              36 px from md, but a landscape phone or a tablet is md and still
+              touch, so it keeps 44 px there. The md is in the variant on
+              purpose: a bare pointer-coarse: rule is emitted before md: rules
+              and would lose to Button's md:min-h-9. */}
           <div className="flex justify-end md:col-span-2 lg:hidden">
             <Button
               type="button"
               variant="outline"
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto pointer-coarse:md:min-h-11"
               onClick={hideGuide}
             >
               <ChevronUp aria-hidden="true" />
