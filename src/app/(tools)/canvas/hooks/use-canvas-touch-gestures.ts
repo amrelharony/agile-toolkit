@@ -3,7 +3,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { useGesture } from "@use-gesture/react";
 import { panBy, zoomAt, fitToRects } from "@/lib/whiteboard/canvas-transform";
-import type { Camera } from "@/lib/geometry/bbox";
+import type { Camera, Vec2 } from "@/lib/geometry/bbox";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 
 /**
@@ -14,9 +14,11 @@ import type { WhiteboardObject } from "@/lib/stores/workspace-types";
  *
  *  - Pinch — zoom-to-pinch-centre, reusing `zoomAt` so the math matches
  *    the wheel-zoom code path exactly.
- *  - Two-finger drag — pan, reusing `panBy`. Single-finger drag is
- *    deliberately NOT consumed here: it stays available to the pointer
- *    machine for marquee / draw / drag-object.
+ *  - Two-finger drag — pan, reusing `panBy`. @use-gesture treats ANY
+ *    two-finger contact as a pinch, so the pan lives inside `onPinch`
+ *    (see `pinchCamera`): the pinch follows its centre as it moves.
+ *    Single-finger drag is deliberately NOT consumed here: it stays
+ *    available to the pointer machine for marquee / draw / drag-object.
  *
  * Double-tap and long-press are NOT routed through @use-gesture/react —
  * its `onDoubleClick` registers an `addEventListener("doubleclick", ...)`
@@ -38,6 +40,29 @@ const DOUBLE_TAP_MS = 300; // max gap between two taps to count as double
 const DOUBLE_TAP_PX = 24; // max screen-space distance between two taps
 const LONG_PRESS_MS = 500; // hold time to trigger long-press menu
 const LONG_PRESS_SLOP_PX = 8; // finger movement that cancels a long-press
+
+/** Where a pinch began: the camera then and the pinch centre (viewport px). */
+export interface PinchStart {
+  camera: Camera;
+  focal: Vec2;
+}
+
+/**
+ * The camera for one pinch frame. Pans by how far the pinch centre has
+ * moved since the gesture began, then zooms about where the centre is
+ * now — so the board point that was under the fingers stays under them
+ * while they spread AND while they slide together (two-finger pan).
+ *
+ * Derived from the gesture's START rather than applied as a per-event
+ * delta to the live camera: the camera reaches React through a
+ * rAF-throttled setter and both fingers' pointermoves land in the same
+ * frame, so a delta added to the not-yet-updated camera would drop every
+ * other step (the board would pan at about half the finger speed).
+ */
+export function pinchCamera(start: PinchStart, focal: Vec2, scale: number): Camera {
+  const panned = panBy(start.camera, focal.x - start.focal.x, focal.y - start.focal.y);
+  return zoomAt(panned, focal, start.camera.zoom * scale);
+}
 
 export function useCanvasTouchGestures(params: {
   viewportRef: RefObject<HTMLDivElement | null>;
@@ -95,14 +120,18 @@ export function useCanvasTouchGestures(params: {
         // `startZoom * scale` re-applied the previous pinch's total on
         // the first event of every NEW pinch: zoom 2 jumped straight to
         // 4 the moment a second pinch registered). On the first event
-        // we capture the starting zoom; subsequent events apply the
-        // per-gesture cumulative factor.
-        const startZoom = first
-          ? cameraRef.current.zoom
-          : (memo?.startZoom ?? cameraRef.current.zoom);
-        throttledSetCamera(zoomAt(cameraRef.current, focal, startZoom * scale));
-        return { startZoom };
+        // we capture the starting camera and centre; every event then
+        // derives the camera from that start — zoom by the per-gesture
+        // factor, pan by how far the centre has travelled.
+        const start: PinchStart =
+          first || !memo ? { camera: cameraRef.current, focal } : (memo as PinchStart);
+        throttledSetCamera(pinchCamera(start, focal, scale));
+        return start;
       },
+      // Fallback only: while two fingers are down @use-gesture reports
+      // `pinching` and onPinch above does the pan. This branch runs only
+      // if a two-finger drag ever arrives without an active pinch, so the
+      // two never move the camera for the same event.
       onDrag: ({ delta: [dx, dy], touches, event, pinching }) => {
         if (presentationRef.current !== null) return;
         if (pinching) return;
