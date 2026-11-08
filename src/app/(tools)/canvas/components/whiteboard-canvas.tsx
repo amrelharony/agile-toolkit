@@ -953,6 +953,7 @@ export function WhiteboardCanvas({
     lassoRafRef,
     lassoPointsRef,
     lastLassoWorldRef,
+    multiTouchRef,
   } = useCanvasPointerMachine({
     boardId,
     readOnly,
@@ -1107,7 +1108,7 @@ export function WhiteboardCanvas({
   });
 
   const {
-    onObjectPointerDown,
+    onObjectPointerDown: onObjectPress,
     onObjectDoubleClick,
     onCommitObjectEdit,
     onPatchStyles,
@@ -1143,6 +1144,20 @@ export function WhiteboardCanvas({
     logActivity,
     readOnly,
   });
+
+  // A second finger landing on an object belongs to the pinch (see the
+  // pointer machine's multi-touch latch): it must not select the object
+  // or start dragging it by the gap between the fingers.
+  const onObjectPointerDown = useCallback(
+    (e: React.PointerEvent, id: string) => {
+      if (e.pointerType === "touch" && multiTouchRef.current) {
+        e.stopPropagation();
+        return;
+      }
+      onObjectPress(e, id);
+    },
+    [onObjectPress, multiTouchRef]
+  );
 
   // Mind-map Tab/Enter/Shift+Tab routing — wired through every
   // mind-map node's inline editor. Owns layout + selection +
