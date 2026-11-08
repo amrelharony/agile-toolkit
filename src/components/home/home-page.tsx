@@ -13,6 +13,7 @@ import { ToolSections } from "@/components/home/tool-sections";
 import { SprintCockpit } from "@/app/(tools)/sprint/cockpit";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { cn } from "@/lib/utils";
 
 /**
  * Home: say what this is, then the team's sprint — the cockpit once a sprint
@@ -70,10 +71,16 @@ export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
       {/* Rendered on the server too: until the workspace loads, the cockpit is
           its "Loading sprints…" placeholder, which holds the block's room on
           phones. Inserting the whole block after hydration pushed the job
-          cards down under the reader's thumb. */}
+          cards down under the reader's thumb. Until then nobody knows whether
+          the reader has a sprint, so the heading keeps its line but stays
+          hidden, with a neutral name for the region: "Start your sprint"
+          used to flash above a returning team's sprint on every load. */}
       <section aria-labelledby="your-sprint-heading" className="space-y-4">
-        <h2 id="your-sprint-heading" className="font-display text-lg font-semibold text-text">
-          {hydrated && hasSprints ? "Your sprint" : "Start your sprint"}
+        <h2
+          id="your-sprint-heading"
+          className={cn("font-display text-lg font-semibold text-text", !hydrated && "invisible")}
+        >
+          {!hydrated ? "Sprint" : hasSprints ? "Your sprint" : "Start your sprint"}
         </h2>
         <SprintCockpit compact />
       </section>

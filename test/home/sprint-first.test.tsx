@@ -68,7 +68,7 @@ describe("sprint-first home", () => {
       ],
     });
     render(<Home />);
-    expect(screen.getByRole("heading", { name: "Your sprint" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your sprint" })).not.toHaveClass("invisible");
     expect(screen.getByRole("link", { name: /Sprint Cockpit/ })).toHaveAttribute("href", "/sprint");
     expect(screen.queryByRole("link", { name: /Team dashboard/ })).toBeNull();
   });
@@ -93,7 +93,12 @@ describe("sprint-first home", () => {
     // The cockpit shows its own placeholder until then (see
     // test/layout/workspace-loading.test.tsx); the block is there from the start,
     // so it can't push the job cards down when the workspace arrives.
-    const heading = screen.getByRole("heading", { name: "Start your sprint" });
+    // The heading holds its line but stays hidden, under a neutral name: it
+    // doesn't yet know whether to say "Your sprint" or "Start your sprint".
+    const heading = screen.getByRole("heading", { name: "Sprint" });
+    expect(heading).toHaveClass("invisible");
+    expect(screen.queryByText("Start your sprint")).toBeNull();
+    expect(screen.queryByText("Your sprint")).toBeNull();
     const cockpit = screen.getByTestId("cockpit");
     expect(cockpit).toHaveTextContent("compact");
     expect(heading.closest("section")).toContainElement(cockpit);
@@ -105,7 +110,8 @@ describe("sprint-first home", () => {
   it("is in the server HTML, above the jobs", () => {
     hydration.hydrated = false;
     const html = renderToString(<Home />);
-    expect(html).toContain("Start your sprint");
+    expect(html).toContain('id="your-sprint-heading"');
+    expect(html).not.toContain("Start your sprint");
     expect(html).toContain('data-testid="cockpit"');
     expect(html.indexOf('data-testid="cockpit"')).toBeLessThan(html.indexOf(">jobs<"));
   });
