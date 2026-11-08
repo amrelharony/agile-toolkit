@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
 import { COMICS_ROUTE } from "@/lib/comics/entry";
-import { listReleasedWeekly } from "@/lib/comics/store";
+import { pickFavourites } from "@/lib/comics/stats";
+import { listReleasedWeekly, listStoryTotals } from "@/lib/comics/store";
 import { CAST } from "@/lib/vip/cast.generated";
 import { comicMetadata } from "./comic-metadata";
 import { ComicsGallery } from "./components/comics-gallery";
@@ -31,8 +32,13 @@ export const metadata: Metadata = comicMetadata({
 const CAST_NAMES = CAST.map((c) => c.name);
 
 export default async function ComicsPage() {
-  const stories = await listReleasedWeekly();
+  const [stories, totals] = await Promise.all([listReleasedWeekly(), listStoryTotals()]);
   const [latest] = stories;
+  // Worked out here, at each refresh: the gallery never fetches counts in bulk.
+  const favourites = pickFavourites(
+    stories,
+    new Map(Array.from(totals, ([ep, t]) => [ep, t.loves] as const))
+  );
   return (
     <>
       <BookIntro latest={latest ? { title: latest.title, cover: latest.cover } : null} />
@@ -40,6 +46,7 @@ export default async function ComicsPage() {
         stories={stories}
         bookEpisodes={BOOK_EPISODES.map(({ ep, title, theme }) => ({ ep, title, theme }))}
         cast={CAST_NAMES}
+        favourites={favourites}
       />
     </>
   );

@@ -21,6 +21,7 @@ vi.mock("@/lib/comics/store", () => ({
     h.listCalls += 1;
     return h.summaries;
   },
+  listStoryTotals: async () => new Map(),
 }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ title, children }: { title: string; children: ReactNode }) => (
