@@ -46,7 +46,11 @@
     --surface-deep: #0e1117;
     --surface-hover: #272d3b;
     --sidebar-w: 260px;
-    --header-h: 56px;
+    /* The header (components/layout/header): a 56 px row (3.5rem, so it follows
+       the reader's font size like the row's h-14 did) under the top safe area,
+       which is non-zero only when the page draws under the status bar. Amr's top
+       corner on phones hangs from it. */
+    --header-h: calc(3.5rem + env(safe-area-inset-top, 0px));
 
     /* Line weights. Tailwind's plain `border` reads --line-w (colour tokens can't
        set a width); panels, the framed things with a shadow, read --panel-w.

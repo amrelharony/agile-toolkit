@@ -64,6 +64,28 @@ const THEME_LABEL: Record<AppliedTheme, string> = {
   hc: "High contrast",
 };
 
+/**
+ * What the bar calls a page that isn't a tool (tools name themselves). On a
+ * phone this is the only title in the sticky bar, so it must not say "Home"
+ * anywhere but home (mobile audit 2026-11-08). Matches each page's own heading.
+ */
+const PAGE_TITLES = new Map<string, string>([
+  ["/", "Home"],
+  ["/history", "History"],
+  ["/insights", "Your activity"],
+  ["/team", "Team"],
+  ["/more-tools", "More tools"],
+  ["/vip", VIP_TITLE],
+  ["/s", "Shared snapshot"],
+]);
+
+/** The title for a non-tool address, or undefined when it has none. */
+function pageTitleFor(pathname: string | null): string | undefined {
+  if (!pathname) return undefined;
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) return "Settings";
+  return PAGE_TITLES.get(pathname);
+}
+
 interface HeaderProps {
   onOpenSearch: () => void;
   onOpenSidebar?: () => void;
@@ -77,6 +99,7 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
   // for everyone, and the page itself names the tool once it has checked access.
   const onVipTool = Boolean(pathTool && isVipOnly(pathTool));
   const tool = onVipTool ? undefined : pathTool;
+  const pageTitle = pageTitleFor(pathname);
   const openAgent = useAgentStore((s) => s.openSheet);
   // The agent and the Cairo weather are the owner's; visitors get the
   // mascot's help panel behind the same button instead.
@@ -139,10 +162,23 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
       data-chrome="header"
       className={cn(
         // Mobile-first: tight 8 px gap on the smallest phones, growing as the
-        // viewport widens. Padding scales 12 → 16 → 24 px to match the
-        // .container-tool padding rhythm.
-        "flex items-center gap-1 xs:gap-2 px-3 sm:px-4 md:px-6 h-14",
-        "sticky top-0 z-header pt-safe pr-safe",
+        // viewport widens.
+        "flex items-center gap-1 xs:gap-2",
+        // Side gutters scale 12 → 16 → 24 px to match the .container-tool
+        // rhythm, and never drop below the notch or rounded corner's safe
+        // area. A bare `pr-safe` beat `px-3` (0 on most phones), so the
+        // account button sat flush against the screen edge; from md the
+        // right one stayed 24 px under a landscape iPhone's notch. From md
+        // the left edge is the rail's, which keeps its own inset (sidebar).
+        "pl-[max(0.75rem,env(safe-area-inset-left))] sm:pl-[max(1rem,env(safe-area-inset-left))] md:pl-6",
+        "pr-[max(0.75rem,env(safe-area-inset-right))] sm:pr-[max(1rem,env(safe-area-inset-right))] md:pr-[max(1.5rem,env(safe-area-inset-right))]",
+        // A 56 px row below the status bar's safe area. --header-h
+        // (globals.css) is that row plus the inset, and is what Amr's top
+        // corner hangs from. A fixed h-14 with pt-safe (border-box) took the
+        // inset out of the row, so with a top inset the buttons spilled over
+        // the status bar and the page.
+        "min-h-[var(--header-h)] pt-safe",
+        "sticky top-0 z-header",
         "transition-all duration-default ease-spring",
         scrolled ? "bg-card border-b border-border" : "bg-transparent border-b border-transparent"
       )}
@@ -172,10 +208,13 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
           overflow defensively — without it, when the search pill +
           XpBar + right cluster squeeze the breadcrumb below its content
           size, the inner flex-nowrap items spill out and collide with
-          the search pill. `min-w-0` on the list lets the inner flex
-          chain shrink so the tool-name truncate can engage. */}
+          the search pill. `min-w-0` on the nav and the list lets the
+          inner flex chain shrink so the title's truncate can engage:
+          without it on the nav (a flex item of this wrapper) the nav
+          kept the title's full width and the wrapper cut it mid-letter
+          ("Planning Poke") instead of ending it with an ellipsis. */}
       <div className="flex items-center gap-3 min-w-0 flex-1 overflow-hidden">
-        <Breadcrumb>
+        <Breadcrumb className="min-w-0">
           <BreadcrumbList className="flex-nowrap min-w-0">
             {/* "Home" + separator only at lg+. Below that the tool name
                 stands alone — Home is reachable via the sidebar / logo
@@ -210,9 +249,15 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
                 </BreadcrumbItem>
               </>
             )}
-            {!tool && !onVipTool && (
-              <BreadcrumbItem className="lg:hidden">
-                <BreadcrumbPage className="text-text font-medium">Home</BreadcrumbPage>
+            {/* Any other page: its own title below lg, where it's the only
+                one in the bar (from lg the Home link above stands alone, as
+                before). An address with no entry gets nothing rather than a
+                wrong "Home". */}
+            {!tool && !onVipTool && pageTitle && (
+              <BreadcrumbItem className="lg:hidden min-w-0">
+                <BreadcrumbPage className="text-text font-medium truncate">
+                  {pageTitle}
+                </BreadcrumbPage>
               </BreadcrumbItem>
             )}
           </BreadcrumbList>
@@ -230,9 +275,10 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
         data-header-search=""
         className={cn(
           "flex items-center gap-2",
-          // Below lg: 36×36 icon button (acceptable inside a touch-padded
-          // header). The min-width keeps the row from squeezing it.
-          "w-9 min-w-9 h-9 justify-center rounded-lg text-sub hover:text-text hover:bg-accent/5",
+          // Below lg: a 36×36 icon button for a mouse, 44×44 on touch. The
+          // min-width keeps the row from squeezing it. (From lg the pill's
+          // own min-width wins: breakpoint rules come after pointer ones.)
+          "w-9 min-w-9 h-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11 justify-center rounded-lg text-sub hover:text-text hover:bg-accent/5",
           // lg+: the full pill — 280 px when there's room. A fixed width
           // (not w-full + max-w, which the flex algorithm clamps straight
           // back to 280) so it can give width back, and before the right
@@ -307,11 +353,12 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
             back to its other anchors when the beacon is hidden). */}
         {beaconHeader && <KudosHeaderBeacon />}
         {/* Agent chat button. Visible from xs+ — keyboard users can also
-            hit Cmd/Ctrl+J to toggle (matches ChatGPT / Claude.ai). */}
+            hit Cmd/Ctrl+J to toggle (matches ChatGPT / Claude.ai). It and
+            the theme button are 36×36 for a mouse, 44×44 on touch. */}
         <button
           onClick={openAgent}
           data-no-sound="true"
-          className="w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
+          className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
           aria-label={isOwner ? "Open agent chat" : "Open help"}
           title={isOwner ? "Open agent (Cmd/Ctrl+J)" : "Find a tool or get help (Cmd/Ctrl+J)"}
         >
@@ -324,7 +371,7 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
         <button
           onClick={cycleTheme}
           data-no-sound="true"
-          className="w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
+          className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
           // R9: WCAG 3.2.4 — tell the user what mode they'd switch TO.
           // The previous label only said the current mode, leaving SR
           // and cognitively-impaired users guessing what the click does.
