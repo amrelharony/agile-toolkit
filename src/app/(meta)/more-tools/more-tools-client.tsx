@@ -47,7 +47,10 @@ export function MoreToolsClient() {
         {/* Below lg the shelf is one long column (over 6,000px on a phone):
             a row of chips, scrolling sideways, jumps to each category. */}
         <nav aria-label="Jump to a category" className="lg:hidden">
-          <ul className="-mx-1 flex gap-2 overflow-x-auto overscroll-x-contain px-1 py-1">
+          {/* relative: the chips' sr-only counts are absolutely positioned, and
+              without a containing block they escape this scroller and widen
+              the page (the .scroll-x-snap lesson). */}
+          <ul className="relative -mx-1 flex gap-2 overflow-x-auto overscroll-x-contain px-1 py-1">
             {groups.map((group) => (
               <li key={group.category} className="shrink-0">
                 <a

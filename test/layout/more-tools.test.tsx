@@ -47,6 +47,10 @@ describe("More tools page", () => {
     const { container } = render(<MoreToolsClient />);
     const nav = screen.getByRole("navigation", { name: "Jump to a category" });
     const chips = within(nav).getAllByRole("link");
+    // The sideways scroller is a containing block, so the chips' sr-only
+    // counts (position: absolute) can't escape it and widen the page.
+    const scroller = nav.querySelector("ul")!;
+    expect(scroller).toHaveClass("relative", "overflow-x-auto");
     const headings = Array.from(container.querySelectorAll("section > h2"));
     expect(chips).toHaveLength(headings.length);
     expect(chips.length).toBeGreaterThan(1);
