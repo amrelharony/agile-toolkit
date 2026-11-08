@@ -1,0 +1,157 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import type { AuthContextValue } from "@/lib/auth/types";
+
+/**
+ * The /canvas stage on phones (mobile audit #23): its 440 / 520 px floor
+ * beat its 100dvh height on short screens, so a landscape phone got a
+ * board taller than the screen with its zoom controls below the fold. The
+ * floor now gives way to a cap at the visible height, and touch screens
+ * get a full-screen board toggle.
+ */
+
+const h = vi.hoisted(() => ({
+  auth: { status: "anonymous", user: null } as Partial<AuthContextValue>,
+  zoomProps: [] as Record<string, unknown>[],
+}));
+
+vi.mock("@/lib/auth/auth-provider", () => ({
+  useAuthOptional: () => h.auth,
+}));
+vi.mock("@/lib/utils/toast", () => ({
+  toast: Object.assign(vi.fn(), { info: vi.fn() }),
+}));
+vi.mock("@/components/layout/tool-page-wrapper", () => ({
+  ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+}));
+vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+vi.mock("@/lib/whiteboard/export", () => ({
+  exportPng: vi.fn(),
+  exportSvg: vi.fn(),
+  exportJson: vi.fn(),
+  exportJpg: vi.fn(),
+  exportPdf: vi.fn(),
+  exportCsv: vi.fn(),
+  exportPptx: vi.fn(),
+}));
+vi.mock("@/app/(tools)/canvas/components/whiteboard-canvas", () => ({
+  WhiteboardCanvas: () => <div data-testid="whiteboard" />,
+}));
+vi.mock("@/app/(tools)/canvas/components/toolbar-left", () => ({ ToolbarLeft: () => null }));
+vi.mock("@/app/(tools)/canvas/components/toolbar-top", () => ({ ToolbarTop: () => null }));
+vi.mock("@/app/(tools)/canvas/components/zoom-controls", () => ({
+  // Stands in for the touch row's toggle (tested in canvas-zoom-controls).
+  ZoomControls: (props: Record<string, unknown>) => {
+    h.zoomProps.push(props);
+    const fill = props.fillScreen as { on: boolean; toggle: () => void } | undefined;
+    return fill ? (
+      <button type="button" aria-pressed={fill.on} onClick={fill.toggle}>
+        Full-screen board
+      </button>
+    ) : null;
+  },
+}));
+vi.mock("@/app/(tools)/canvas/components/template-gallery", () => ({
+  TemplateGallery: () => <div role="dialog" aria-label="Templates" />,
+}));
+vi.mock("@/app/(tools)/canvas/components/import-modal", () => ({ ImportModal: () => null }));
+vi.mock("@/app/(tools)/canvas/components/find-bar", () => ({ FindBar: () => null }));
+vi.mock("@/app/(tools)/canvas/components/share-modal", () => ({ ShareModal: () => null }));
+vi.mock("@/app/(tools)/canvas/components/activity-stream", () => ({
+  ActivityStream: () => null,
+}));
+vi.mock("@/app/(tools)/canvas/components/tag-filter-row", () => ({ TagFilterRow: () => null }));
+vi.mock("@/app/(tools)/canvas/components/voice-input-button", () => ({
+  VoiceInputButton: () => null,
+}));
+
+import { CanvasClient } from "@/app/(tools)/canvas/canvas-client";
+import { BOARD_FILL_H, BOARD_MAX_H } from "@/app/(tools)/canvas/hooks/use-board-fill-screen";
+
+const realScrollTo = window.scrollTo;
+
+beforeEach(() => {
+  h.zoomProps.length = 0;
+  window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
+});
+
+afterEach(() => {
+  window.scrollTo = realScrollTo;
+  document.documentElement.style.overflow = "";
+});
+
+/** The stage: the board's positioned box, parent of the whiteboard. */
+async function findStage() {
+  const board = await screen.findByTestId("whiteboard");
+  return board.parentElement as HTMLElement;
+}
+
+describe("CanvasClient stage height", () => {
+  it("never outgrows the visible screen", async () => {
+    render(<CanvasClient />);
+    const stage = await findStage();
+    expect(stage).toHaveClass(
+      "board-stage",
+      "h-[calc(100dvh-220px)]",
+      // The old floors, now capped at the visible height.
+      "min-h-[min(440px,var(--board-max-h))]",
+      "sm:min-h-[min(520px,var(--board-max-h))]",
+      "max-h-[var(--board-max-h)]"
+    );
+    expect(stage).not.toHaveClass("min-h-[440px]");
+    expect(stage).not.toHaveClass("sm:min-h-[520px]");
+    expect(stage.style.getPropertyValue("--board-max-h")).toBe(BOARD_MAX_H);
+    // The cap is the dynamic viewport less the sticky header and the
+    // space phones keep for Amr (or the home-indicator safe area).
+    expect(BOARD_MAX_H).toMatch(/^calc\(100dvh - var\(--header-h\)/);
+    expect(BOARD_MAX_H).toContain("var(--amr-band-top, 0px)");
+    expect(BOARD_MAX_H).toContain("var(--amr-band-bottom, env(safe-area-inset-bottom, 0px))");
+  });
+
+  it("fills the screen on request, and gives the page back", async () => {
+    render(<CanvasClient />);
+    const stage = await findStage();
+    const toggle = screen.getByRole("button", { name: "Full-screen board" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(stage).toHaveAttribute("data-fill-screen", "true");
+    expect(stage.style.height).toBe(BOARD_FILL_H);
+    expect(BOARD_FILL_H).toMatch(/^calc\(100dvh - var\(--header-h\)/);
+    // The capped height classes step aside (min-h would clamp it).
+    expect(stage).not.toHaveClass("h-[calc(100dvh-220px)]");
+    expect(stage).not.toHaveClass("max-h-[var(--board-max-h)]");
+    // Its top goes up under the header and the page holds still.
+    expect(window.scrollTo).toHaveBeenCalled();
+    expect(document.documentElement.style.overflow).toBe("hidden");
+    // Same box: the board isn't remounted (a dictation would abort).
+    expect(screen.getByTestId("whiteboard").parentElement).toBe(stage);
+
+    fireEvent.click(toggle);
+    expect(stage).not.toHaveAttribute("data-fill-screen");
+    expect(stage.style.height).toBe("");
+    expect(stage).toHaveClass("h-[calc(100dvh-220px)]", "max-h-[var(--board-max-h)]");
+    expect(document.documentElement.style.overflow).toBe("");
+  });
+
+  it("re-aligns the full-screen board when the phone rotates", async () => {
+    render(<CanvasClient />);
+    await findStage();
+    fireEvent.click(screen.getByRole("button", { name: "Full-screen board" }));
+    const calls = vi.mocked(window.scrollTo).mock.calls.length;
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(vi.mocked(window.scrollTo).mock.calls.length).toBe(calls + 1);
+  });
+
+  it("gives the page's own ZoomControls the full-screen switch", async () => {
+    render(<CanvasClient />);
+    await findStage();
+    const last = h.zoomProps.at(-1)!;
+    expect(typeof last.onFit).toBe("function");
+    expect(last.fillScreen).toMatchObject({ on: false, toggle: expect.any(Function) });
+  });
+});

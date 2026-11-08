@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   LayoutTemplate,
@@ -54,7 +62,19 @@ import { ActivityStream } from "./components/activity-stream";
 import { TagFilterRow } from "./components/tag-filter-row";
 import { VoiceInputButton } from "./components/voice-input-button";
 import { useLiveBoards } from "./hooks/use-live-boards";
+import { BOARD_FILL_H, BOARD_MAX_H, useBoardFillScreen } from "./hooks/use-board-fill-screen";
 import { liveContainerOf } from "./lib/live-board-ids";
+import { cn } from "@/lib/utils";
+
+/**
+ * The board stage's height. It used to be a 100dvh calc with a 440 /
+ * 520 px floor, and the floor won on short screens: a landscape phone
+ * (812x375) got a 520 px board, taller than the screen, with its zoom
+ * controls below the fold. The floor now gives way to BOARD_MAX_H, so
+ * the board never outgrows the screen (desktop heights are unchanged).
+ */
+const STAGE_HEIGHT =
+  "h-[calc(100dvh-220px)] min-h-[min(440px,var(--board-max-h))] sm:min-h-[min(520px,var(--board-max-h))] max-h-[var(--board-max-h)]";
 
 /** Per-board access mode. Resolved from the URL with `?share=<token>`
  * winning over `?view=<role>` — the token's role is the source of
@@ -588,6 +608,8 @@ export function CanvasClient() {
   const [showShare, setShowShare] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
+  // Touch only (the toggle sits in the touch row of ZoomControls).
+  const fillScreen = useBoardFillScreen(canvasViewportRef);
 
   // Selection setter pulled from canvas store so the find-bar can
   // select an object after panning to it.
@@ -942,8 +964,22 @@ export function CanvasClient() {
         //     via min-h.
         //   - min-h falls from 520px (desktop) to 440px (small) so the
         //     board stays usable on a 667px-tall portrait phone where
-        //     220px of chrome leaves only 447px for the canvas.
-        className="relative h-[calc(100dvh-220px)] min-h-[440px] sm:min-h-[520px] w-full rounded-lg border border-border overflow-hidden bg-bg board-stage"
+        //     220px of chrome leaves only 447px for the canvas — but
+        //     never past BOARD_MAX_H (see STAGE_HEIGHT), so the board
+        //     always fits the screen and the page around it scrolls.
+        //   - Full screen (touch): BOARD_FILL_H, everything under the
+        //     app header (useBoardFillScreen).
+        className={cn(
+          "relative w-full rounded-lg border border-border overflow-hidden bg-bg board-stage",
+          !fillScreen.on && STAGE_HEIGHT
+        )}
+        style={
+          {
+            "--board-max-h": BOARD_MAX_H,
+            ...(fillScreen.on ? { height: BOARD_FILL_H } : null),
+          } as CSSProperties
+        }
+        data-fill-screen={fillScreen.on ? "true" : undefined}
       >
         {activeBoardId ? (
           <WhiteboardCanvas
@@ -974,7 +1010,7 @@ export function CanvasClient() {
             <VoiceInputButton boardId={activeBoardId} worldCenter={voiceWorldCenter} />
           </div>
         )}
-        <ZoomControls onFit={onFit} viewportSize={viewportSize} />
+        <ZoomControls onFit={onFit} viewportSize={viewportSize} fillScreen={fillScreen} />
         {readOnly && (
           <div
             data-canvas-export-ignore="true"
