@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * Activity inbox (PR H) they never toast: every level, badge, challenge and
  * prestige lands silently in the inbox and nothing is dropped: not on a
  * ceremony route, not while presenting, not in silent mode, not by a
- * throttle. `NEXT_PUBLIC_CELEBRATIONS=legacy` brings the old toasts back.
+ * throttle. The old `NEXT_PUBLIC_CELEBRATIONS=legacy` kill switch is gone.
  */
 
 const h = vi.hoisted(() => ({
@@ -50,7 +50,7 @@ vi.mock("@/lib/gamification/opfs", () => ({ appendXpEvent: h.appendXpEvent }));
 vi.mock("@/lib/utils/toast", () => ({ toast: h.toast }));
 
 import { GamificationProvider } from "@/lib/gamification/provider";
-import { useVDnaStore } from "@/lib/stores/vdna-store";
+import { __resetLegacySilentModeForTests, useVDnaStore } from "@/lib/stores/vdna-store";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 import { useInboxStore } from "@/lib/notify/inbox-store";
 import { __resetCelebrationsForTests, flushCelebrations } from "@/lib/gamification/celebrations";
@@ -101,9 +101,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   __resetCelebrationsForTests();
+  __resetLegacySilentModeForTests();
   delete document.documentElement.dataset.presenting;
   act(() => {
-    useVDnaStore.setState({ silentMode: false, visitorId: "v-1" });
+    useVDnaStore.setState({ visitorId: "v-1" });
     useInboxStore.setState({ items: [], seeded: true });
   });
 });
@@ -153,10 +154,10 @@ describe("GamificationProvider silent celebrations", () => {
     expect(shownCount()).toBe(0);
   });
 
-  it("silent mode no longer drops anything: rows still land, quietly", async () => {
+  it("Quiet celebrations (the old silent mode) drop nothing: rows still land", async () => {
     mount();
     act(() => {
-      useVDnaStore.setState({ silentMode: true });
+      useNotificationPrefsStore.setState({ celebrationLevel: "quiet" });
     });
     emit(PRESTIGE);
     emit(CHALLENGE);
@@ -246,69 +247,14 @@ describe("GamificationProvider silent celebrations", () => {
   });
 });
 
-describe("GamificationProvider NEXT_PUBLIC_CELEBRATIONS=legacy", () => {
-  beforeEach(() => {
+describe("GamificationProvider without the legacy kill switch", () => {
+  it("ignores NEXT_PUBLIC_CELEBRATIONS=legacy: rows still go to the inbox, no toasts", async () => {
     vi.stubEnv("NEXT_PUBLIC_CELEBRATIONS", "legacy");
-    act(() => {
-      useNotificationPrefsStore.setState(useNotificationPrefsStore.getInitialState(), true);
-    });
-  });
-
-  it("shows the old toasts and writes no inbox rows", async () => {
     mount();
     emit(LEVEL_UP);
-    emit(ACHIEVEMENT);
-    emit(CHALLENGE);
-    expect(h.toast.success).toHaveBeenCalledWith("Level 8!", {
-      description: "New milestone unlocked.",
-    });
-    expect(h.toast.success.mock.calls[1][0]).toBe("Achievement: Retro Regular");
-    expect(h.toast.info).toHaveBeenCalledWith("Challenge complete!", { description: "+30 XP" });
-    act(() => flushCelebrations());
-    await tick();
-    expect(useInboxStore.getState().items).toHaveLength(0);
-  });
-
-  it("stays quiet on ceremony routes and while presenting (prestige too)", () => {
-    h.pathname = "/retro";
-    const view = mount();
     emit(PRESTIGE);
-    emit(LEVEL_UP);
-    h.pathname = "/";
-    document.documentElement.dataset.presenting = "true";
-    view.rerender(<GamificationProvider>{null}</GamificationProvider>);
-    emit(PRESTIGE);
-    delete document.documentElement.dataset.presenting;
+    await settle(1);
     expect(shownCount()).toBe(0);
-  });
-
-  it("follows Settings › Notifications: Quiet level, paused and Focus silence it", () => {
-    mount();
-    act(() => {
-      useNotificationPrefsStore.setState({ celebrationLevel: "quiet" });
-    });
-    emit(LEVEL_UP);
-    emit(PRESTIGE);
-    act(() => {
-      useNotificationPrefsStore.setState({
-        celebrationLevel: "balanced",
-        celebrationsPausedUntil: Date.now() + 60_000,
-      });
-    });
-    emit(LEVEL_UP);
-    act(() => {
-      useNotificationPrefsStore.setState({
-        celebrationsPausedUntil: null,
-        focusUntil: Date.now() + 60_000,
-      });
-    });
-    emit(LEVEL_UP);
-    expect(shownCount()).toBe(0);
-    act(() => {
-      useNotificationPrefsStore.setState({ focusUntil: null });
-    });
-    emit(LEVEL_UP);
-    expect(shownCount()).toBe(1);
   });
 });
 
@@ -321,12 +267,31 @@ describe("GamificationProvider silent-mode adoption", () => {
   });
 
   it("maps a stored silent mode to Quiet celebrations once both stores load", async () => {
-    act(() => {
-      useVDnaStore.setState({ silentMode: true });
-    });
+    // A v1 profile with silent mode on: vdna v2 drops the field on load, but
+    // the store notes it first so the level still becomes Quiet.
+    localStorage.setItem(
+      "agile-toolkit:vdna",
+      JSON.stringify({ state: { visitorId: "v-1", xp: 0, silentMode: true }, version: 1 })
+    );
     mount();
     await waitFor(() => expect(useNotificationPrefsStore.getState().silentModeAdopted).toBe(true));
     expect(useNotificationPrefsStore.getState().celebrationLevel).toBe("quiet");
+    // Adopted, so the note kept for a retry is cleared.
+    expect(localStorage.getItem("agile-toolkit:legacy-silent")).toBeNull();
+  });
+
+  it("adopts a silent mode noted on an earlier load whose prefs never loaded", async () => {
+    // The earlier page migrated the vdna payload (silentMode already gone)
+    // but closed before adopting: the storage flag carries it over.
+    localStorage.setItem("agile-toolkit:legacy-silent", "1");
+    localStorage.setItem(
+      "agile-toolkit:vdna",
+      JSON.stringify({ state: { visitorId: "v-1", xp: 0 }, version: 2 })
+    );
+    mount();
+    await waitFor(() => expect(useNotificationPrefsStore.getState().silentModeAdopted).toBe(true));
+    expect(useNotificationPrefsStore.getState().celebrationLevel).toBe("quiet");
+    expect(localStorage.getItem("agile-toolkit:legacy-silent")).toBeNull();
   });
 
   it("keeps Balanced when silent mode was off", async () => {
@@ -344,8 +309,11 @@ describe("GamificationProvider silent-mode adoption", () => {
         celebrationLevel: "lively",
         adoptSilentMode: spy,
       });
-      useVDnaStore.setState({ silentMode: true });
     });
+    localStorage.setItem(
+      "agile-toolkit:vdna",
+      JSON.stringify({ state: { visitorId: "v-1", xp: 0, silentMode: true }, version: 1 })
+    );
     mount();
     // Wait until the provider has actually asked to adopt (after both
     // stores rehydrated), so the check below can't pass by running early.
