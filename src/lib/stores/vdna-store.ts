@@ -5,6 +5,10 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { VDna, XpEvent, ChallengeProgress } from "@/lib/gamification/types";
+import { passThroughMigrate } from "./persist-migrate";
+
+/** Persisted schema version of `agile-toolkit:vdna`. */
+export const VDNA_PERSIST_VERSION = 0;
 
 /**
  * Generate a fresh visitor id. The id is stored INSIDE the persisted payload
@@ -123,6 +127,14 @@ export const useVDnaStore = create<VDna & VDnaActions>()(
       name: "agile-toolkit:vdna",
       storage: safeJSONStorage("vdna"),
       skipHydration: true,
+      // Rollback safety. zustand's persist drops a stored payload whose
+      // version differs from `version` unless `migrate` is given, so a later
+      // build that bumps the version followed by a revert to this one would
+      // wipe everyone's XP. The explicit version plus a pass-through migrate
+      // keep every field (unknown ones included) whatever version wrote them.
+      // Later migrations must be idempotent and tolerate unknown fields too.
+      version: VDNA_PERSIST_VERSION,
+      migrate: passThroughMigrate,
       onRehydrateStorage: () => (state) => {
         // Seed the visitor id once at rehydrate time if it's missing or
         // still the "pending" sentinel. On first-ever visit the persisted

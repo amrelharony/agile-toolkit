@@ -46,6 +46,47 @@ describe("undoable", () => {
   });
 });
 
+describe("undoable — toast contract (characterization)", () => {
+  it("shows the label through the plain toast with an 8 s default and the description", () => {
+    toastSpy.mockReturnValueOnce("t1");
+    const id = undoable({
+      label: "Item deleted",
+      description: "From the backlog",
+      apply: () => {},
+      revert: () => {},
+    });
+    expect(id).toBe("t1");
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+    const [label, opts] = toastSpy.mock.calls[0];
+    expect(label).toBe("Item deleted");
+    expect(opts).toMatchObject({ description: "From the backlog", duration: 8000 });
+    expect(typeof opts.onDismiss).toBe("function");
+    expect(typeof opts.onAutoClose).toBe("function");
+  });
+
+  it("honours a custom duration", () => {
+    undoable({ label: "Cleared", apply: () => {}, revert: () => {}, durationMs: 12_000 });
+    expect(toastSpy.mock.calls[0][1].duration).toBe(12_000);
+  });
+
+  it("applies before the toast appears, and a manual dismiss forgets the toast", () => {
+    // Clear toasts earlier tests left open in the module-level set.
+    dismissUndoToasts();
+    toastSpy.dismiss.mockReset();
+    const order: string[] = [];
+    toastSpy.mockImplementationOnce(() => {
+      order.push("toast");
+      return "t9";
+    });
+    undoable({ label: "Deleted", apply: () => order.push("apply"), revert: () => {} });
+    expect(order).toEqual(["apply", "toast"]);
+
+    toastSpy.mock.calls[0][1].onDismiss();
+    dismissUndoToasts();
+    expect(toastSpy.dismiss).not.toHaveBeenCalled();
+  });
+});
+
 describe("removeWithUndo", () => {
   /** A functional setter over a plain variable, like a useState setter. */
   function listState<T>(initial: T[]) {

@@ -4,6 +4,10 @@ import { safeJSONStorage } from "./safe-storage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { HapticsMode, PerCategoryOverrides } from "@/lib/haptics/types";
+import { passThroughMigrate } from "./persist-migrate";
+
+/** Persisted schema version of `agile-toolkit:haptics`. */
+export const HAPTICS_PERSIST_VERSION = 0;
 
 export interface HapticsState {
   enabled: boolean;
@@ -68,6 +72,10 @@ export const useHapticsStore = create<HapticsState>()(
       name: "agile-toolkit:haptics",
       storage: safeJSONStorage("haptics"),
       skipHydration: true,
+      // Rollback safety: keep a payload written by a newer build instead of
+      // resetting to defaults (see vdna-store).
+      version: HAPTICS_PERSIST_VERSION,
+      migrate: passThroughMigrate,
     }
   )
 );
