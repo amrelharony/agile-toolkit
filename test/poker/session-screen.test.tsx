@@ -7,7 +7,8 @@ import type { Session } from "@/app/(tools)/planning-poker/types";
  * SessionScreen behaviour shared by the owner and guest clients: any card
  * on the deck can be accepted as the estimate (not just numbers, and not
  * only the ones voted), leaving a session with stories asks first, and the
- * voting deck is a keyboard-operable radiogroup.
+ * voting deck is a keyboard-operable radiogroup. Its small controls are
+ * 44px tap targets on touch screens.
  */
 
 vi.mock("@/lib/history/use-history-logger", () => ({
@@ -289,5 +290,69 @@ describe("phone layout", () => {
       g.classList.contains("lg:grid-cols-[minmax(0,1fr)_260px]")
     );
     expect(session).toBeDefined();
+  });
+});
+
+describe("touch targets", () => {
+  // jsdom has no layout, so check the classes: a 44px coarse-pointer minimum,
+  // repeated at md: where the icon size's md:min-h-0 / md:min-w-0 would
+  // otherwise win (md: rules come later in the stylesheet).
+  const expectTouchTarget = (el: Element, axes: readonly ("h" | "w")[] = ["h", "w"]) => {
+    const classes = Array.from(el.classList);
+    for (const axis of axes) {
+      expect(classes, el.className).toContain(`pointer-coarse:min-${axis}-11`);
+      if (classes.some((c) => c.startsWith(`md:min-${axis}-`))) {
+        expect(classes, el.className).toContain(`md:pointer-coarse:min-${axis}-11`);
+      }
+    }
+  };
+  const players = [
+    { id: HOST, name: "Scrum Master", vote: null },
+    { id: "p2", name: "Priya", vote: null },
+  ];
+
+  it("gives Remove from the room a 44px tap area on touch, keeping the dense size for a mouse", () => {
+    render(
+      <SessionScreen
+        session={makeSession({ participants: players })}
+        onUpdateSession={() => {}}
+        localParticipantId={HOST}
+        isHost
+        onLeave={() => {}}
+        onRemoveParticipant={() => {}}
+      />
+    );
+    const remove = screen.getByRole("button", { name: "Remove Priya from the room" });
+    expectTouchTarget(remove);
+    expect(remove).toHaveClass("h-7", "w-7");
+  });
+
+  it("does the same for the facilitator's Remove player, the player field and Add player", () => {
+    render(
+      <SessionScreen
+        session={makeSession({ participants: players })}
+        onUpdateSession={() => {}}
+        localParticipantId={HOST}
+        isHost
+        onLeave={() => {}}
+        facilitator
+      />
+    );
+    const remove = screen.getByRole("button", { name: "Remove Priya" });
+    expectTouchTarget(remove);
+    expect(remove).toHaveClass("h-7", "w-7");
+
+    const name = screen.getByRole("textbox", { name: "Player name" });
+    expectTouchTarget(name, ["h"]);
+    expect(name).toHaveClass("h-9");
+    const add = screen.getByRole("button", { name: "Add player" });
+    expectTouchTarget(add, ["h"]);
+    expect(add).toHaveClass("h-9");
+  });
+
+  it("covers the story queue's Edit and Delete in the session", () => {
+    render(<Harness initial={makeSession()} />);
+    expectTouchTarget(screen.getByRole("button", { name: "Edit Login page" }));
+    expectTouchTarget(screen.getByRole("button", { name: "Delete Login page" }));
   });
 });
