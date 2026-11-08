@@ -947,6 +947,54 @@ html[data-intro] [data-sonner-toaster] {
     overscroll-behavior: contain;
   }
 
+  /*
+   * Touch-target minimums. In the utilities layer, emitted after Tailwind's
+   * own utilities, so they win over a component's `min-h-*`/`min-w-*` on the
+   * same element (Button `sm` is `min-h-[36px]`): in @layer components the
+   * utility won and `min-touch-coarse` on a small Button did nothing on
+   * touch. A `md:`/`pointer-fine:` variant on the element still overrides
+   * them. For a minimum above 44 px, use `min-w-*` plus
+   * `pointer-coarse:min-h-11` instead: these would cap it at 44 px.
+   */
+
+  /**
+   * .min-touch
+   * Enforces the WCAG 2.2 minimum interactive target (44×44 CSS px) on
+   * mobile, then relaxes on pointer-fine devices (mouse, trackpad) where
+   * 36×36 is acceptable for density.
+   */
+  .min-touch {
+    min-inline-size: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .min-touch {
+      min-inline-size: 2.25rem;
+      min-block-size: 2.25rem;
+    }
+  }
+
+  /**
+   * .min-touch-coarse
+   * Mobile-only variant: enforces the 44×44 minimum on coarse-pointer
+   * devices (touch) but imposes NO minimum on fine pointers, so the
+   * element's own `h-* w-*` decides the desktop visual size.
+   *
+   * Use this for icon buttons inside dense rows where 28–32 px is the
+   * intentional desktop density (refinement criteria, impediment rows,
+   * ceremony-timer trash buttons). The tap area expands on touch devices
+   * via the `min-*` properties without changing the rendered glyph.
+   */
+  .min-touch-coarse {
+    /* No minimum on fine-pointer / unknown devices — explicit size wins. */
+  }
+  @media (pointer: coarse) {
+    .min-touch-coarse {
+      min-inline-size: 2.75rem;
+      min-block-size: 2.75rem;
+    }
+  }
+
   /* Active-press state — only on touch devices where no hover exists */
   @media (hover: none) {
     .active-press:active {
@@ -1057,43 +1105,8 @@ html[data-intro] [data-sonner-toaster] {
     }
   }
 
-  /**
-   * .min-touch
-   * Enforces the WCAG 2.2 minimum interactive target (44×44 CSS px) on
-   * mobile, then relaxes on pointer-fine devices (mouse, trackpad) where
-   * 36×36 is acceptable for density.
-   */
-  .min-touch {
-    min-inline-size: 2.75rem;
-    min-block-size: 2.75rem;
-  }
-  @media (hover: hover) and (pointer: fine) {
-    .min-touch {
-      min-inline-size: 2.25rem;
-      min-block-size: 2.25rem;
-    }
-  }
-
-  /**
-   * .min-touch-coarse
-   * Mobile-only variant: enforces the 44×44 minimum on coarse-pointer
-   * devices (touch) but imposes NO minimum on fine pointers, so the
-   * element's own `h-* w-*` decides the desktop visual size.
-   *
-   * Use this for icon buttons inside dense rows where 28–32 px is the
-   * intentional desktop density (refinement criteria, impediment rows,
-   * ceremony-timer trash buttons). The tap area expands on touch devices
-   * via the `min-*` properties without changing the rendered glyph.
-   */
-  .min-touch-coarse {
-    /* No minimum on fine-pointer / unknown devices — explicit size wins. */
-  }
-  @media (pointer: coarse) {
-    .min-touch-coarse {
-      min-inline-size: 2.75rem;
-      min-block-size: 2.75rem;
-    }
-  }
+  /* .min-touch and .min-touch-coarse live in @layer utilities (MOBILE
+     FOUNDATION, above): here a Button's `min-h-[36px]` beat them. */
 
   /**
    * .btn-danger-ghost
