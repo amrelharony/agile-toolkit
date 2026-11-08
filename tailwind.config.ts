@@ -298,10 +298,11 @@ const config: Config = {
           to: { opacity: "1", transform: "translateY(0)" },
         },
         // Translate-only entrance: content is visible from the first frame
-        // (no opacity ramp), so it also reads fine before JS hydrates.
+        // (no opacity ramp), so it also reads fine before JS hydrates. It
+        // ends at `none` and fills `backwards` only (see `animation.rise`).
         rise: {
           from: { transform: "translateY(8px)" },
-          to: { transform: "translateY(0)" },
+          to: { transform: "none" },
         },
         "scale-in": {
           from: { opacity: "0", transform: "scale(0.95)" },
@@ -349,7 +350,12 @@ const config: Config = {
       animation: {
         "fade-in": "fade-in 0.4s ease-out forwards",
         "slide-up": "slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards",
-        rise: "rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) both",
+        // `backwards`, not `both`: a transform left on the element after the
+        // entrance, even translateY(0), makes it the containing block for
+        // every position:fixed descendant, so a tool page's drag overlays and
+        // fixed popups drew a scroll's height off-screen. There's no delay,
+        // so the first frame is the same as before.
+        rise: "rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards",
         "scale-in": "scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards",
         shimmer: "shimmer 0.8s ease forwards",
         skeleton: "skeleton-shimmer 1.5s ease-in-out infinite",

@@ -40,7 +40,13 @@ interface ToolPageWrapperProps {
  *     readable line lengths instead of single 200-char lines.
  *   - Entrance: a CSS translate-only rise. It used to be a framer-motion
  *     fade from `opacity: 0`, which the server rendered into the HTML, so
- *     every tool page stayed invisible until the JS bundle hydrated.
+ *     every tool page stayed invisible until the JS bundle hydrated. The
+ *     rise leaves no transform behind once it ends (fill `backwards`, see
+ *     tailwind.config.ts): a leftover transform made this div the
+ *     containing block for every `position: fixed` element inside a tool,
+ *     so on a scrolled page drag overlays drew off-screen and drops missed.
+ *     Don't add a transform, filter or `will-change` to this div for the
+ *     same reason.
  */
 export function ToolPageWrapper({
   title,
