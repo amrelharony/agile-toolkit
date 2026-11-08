@@ -38,27 +38,6 @@ describe("check-ui-classes guard", () => {
     ]);
   });
 
-  it("caps own-colour text on its own tint at /20", () => {
-    const flagged = [
-      '<b className="bg-accent/15 hover:bg-accent/25 text-accent">x</b>',
-      '<b className="bg-success/30 text-success">x</b>',
-      '<b className="bg-accent-green/40 text-accent-green">x</b>',
-    ].join("\n");
-    expect(findViolations(flagged)).toEqual([
-      expect.objectContaining({ line: 1, rule: "strong-own-tint", match: "hover:bg-accent/25" }),
-      expect.objectContaining({ line: 2, rule: "strong-own-tint", match: "bg-success/30" }),
-      expect.objectContaining({ line: 3, rule: "strong-own-tint", match: "bg-accent-green/40" }),
-    ]);
-
-    const ok = [
-      '<b className="bg-accent/10 hover:bg-accent/20 text-accent">x</b>',
-      '<b className="bg-accent/30 text-text">x</b>',
-      '<b className="bg-accent/30 text-accent-green">x</b>',
-      '<b className="bg-accent/90 text-white">x</b>',
-    ].join("\n");
-    expect(findViolations(ok)).toEqual([]);
-  });
-
   it("flags 100vh centring wrappers and page mains", () => {
     const flagged = [
       '<main className="min-h-screen flex items-center justify-center px-4">',
@@ -79,6 +58,27 @@ describe("check-ui-classes guard", () => {
       // The app shell's row is not a centring wrapper.
       '<div className="flex min-h-screen">',
       '// a comment: <main className="min-h-screen flex items-center">',
+    ].join("\n");
+    expect(findViolations(ok)).toEqual([]);
+  });
+
+  it("caps own-colour text on its own tint at /20", () => {
+    const flagged = [
+      '<b className="bg-accent/15 hover:bg-accent/25 text-accent">x</b>',
+      '<b className="bg-success/30 text-success">x</b>',
+      '<b className="bg-accent-green/40 text-accent-green">x</b>',
+    ].join("\n");
+    expect(findViolations(flagged)).toEqual([
+      expect.objectContaining({ line: 1, rule: "strong-own-tint", match: "hover:bg-accent/25" }),
+      expect.objectContaining({ line: 2, rule: "strong-own-tint", match: "bg-success/30" }),
+      expect.objectContaining({ line: 3, rule: "strong-own-tint", match: "bg-accent-green/40" }),
+    ]);
+
+    const ok = [
+      '<b className="bg-accent/10 hover:bg-accent/20 text-accent">x</b>',
+      '<b className="bg-accent/30 text-text">x</b>',
+      '<b className="bg-accent/30 text-accent-green">x</b>',
+      '<b className="bg-accent/90 text-white">x</b>',
     ].join("\n");
     expect(findViolations(ok)).toEqual([]);
   });
