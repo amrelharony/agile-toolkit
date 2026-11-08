@@ -29,6 +29,13 @@ interface Reading {
   viewed: Record<string, string>;
   /** Story number → when it was loved (ISO). Taking the love back removes it. */
   loved: Record<string, string>;
+  /**
+   * Story number → when the server counted this browser's love (ISO). Kept
+   * apart from `loved`: only a love the server holds is ever taken back from
+   * its count, so a love that was never counted (the owner's, one sent while
+   * offline) can't cancel another reader's.
+   */
+  counted: Record<string, string>;
   /** Story number → seconds of active reading, all visits added up. */
   seconds: Record<string, number>;
 }
@@ -44,6 +51,7 @@ const empty = (): Reading => ({
   seen: {},
   viewed: {},
   loved: {},
+  counted: {},
   seconds: {},
 });
 
@@ -99,6 +107,7 @@ function load(): Reading {
       seen: choices(parsed.seen, 0),
       viewed: dates(isRecord(parsed.viewed) ? parsed.viewed : {}),
       loved: dates(isRecord(parsed.loved) ? parsed.loved : {}),
+      counted: dates(isRecord(parsed.counted) ? parsed.counted : {}),
       seconds: durations(parsed.seconds),
     };
   } catch {
@@ -248,16 +257,35 @@ export function isLoved(ep: number): boolean {
 }
 
 /**
- * Love story `ep`, or take the love back. True only when that changed something
- * and was kept, so a second tab can't count the same love twice.
+ * Love story `ep`, or take the love back: "changed" when it did and was kept,
+ * "unchanged" when it already was so (another tab got there first), and
+ * "unavailable" when this browser can't keep it (storage blocked or full).
  */
-export function setLoved(ep: number, on: boolean, now = new Date()): boolean {
+export function setLoved(
+  ep: number,
+  on: boolean,
+  now = new Date()
+): "changed" | "unchanged" | "unavailable" {
   const reading = load();
   const key = String(ep);
   const was = Object.prototype.hasOwnProperty.call(reading.loved, key);
-  if (was === on) return false;
+  if (was === on) return "unchanged";
   if (on) reading.loved[key] = now.toISOString();
   else delete reading.loved[key];
+  return save(reading) ? "changed" : "unavailable";
+}
+
+/** Whether the server counted this browser's love for story `ep`. */
+export function isLoveCounted(ep: number): boolean {
+  return Object.prototype.hasOwnProperty.call(load().counted, String(ep));
+}
+
+/** Note that the server now holds (or no longer holds) this browser's love. */
+export function setLoveCounted(ep: number, on: boolean, now = new Date()): boolean {
+  const reading = load();
+  const key = String(ep);
+  if (on) reading.counted[key] = now.toISOString();
+  else delete reading.counted[key];
   return save(reading);
 }
 

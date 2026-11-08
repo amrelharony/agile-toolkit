@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SHOW_SHARES_AT, type StoryGuess } from "@/lib/comics/guess";
 import { SKIPPED, guessFor, markGuessed } from "@/lib/comics/reading";
 import { readTaps, sendTap, type TapResult } from "@/lib/comics/taps-client";
+import { useCounting } from "./use-counting";
 import { cn } from "@/lib/utils";
 
 export interface GuessState {
@@ -28,6 +29,7 @@ export interface GuessState {
  * The tap counts in the background: the panel never waits for the network.
  */
 export function useStoryGuess(ep: number, guess: StoryGuess | null): GuessState {
+  const counting = useCounting();
   const size = guess?.options.length ?? 0;
   const [revealed, setRevealed] = useState(!guess);
   const [picked, setPicked] = useState<number | null>(null);
@@ -58,12 +60,15 @@ export function useStoryGuess(ep: number, guess: StoryGuess | null): GuessState 
       setRevealed(true);
       const first = guessFor(ep) === null;
       markGuessed(ep, option);
-      void (first ? sendTap(ep, "guess", option, size) : readTaps(ep, "guess", size)).then((r) => {
+      // The signed-in owner's guess is shown, never counted.
+      const request =
+        first && counting ? sendTap(ep, "guess", option, size) : readTaps(ep, "guess", size);
+      void request.then((r) => {
         setResult(r);
         setBusy(false);
       });
     },
-    [busy, ep, guess, revealed, size]
+    [busy, counting, ep, guess, revealed, size]
   );
 
   const skip = useCallback(() => {
