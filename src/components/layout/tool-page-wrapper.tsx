@@ -1,14 +1,27 @@
 "use client";
 
-import { InsightsEngine } from "@/components/shared/insights-engine";
+import dynamic from "next/dynamic";
 import { ToolHistoryDrawer } from "@/components/history/tool-history-drawer";
 import { UndoRedoControls } from "@/components/history/undo-redo-controls";
 import { SavedChip } from "@/components/data/saved-chip";
-import { HowItWorks } from "@/components/tool-frame/how-it-works";
 import { RelatedTools } from "@/components/tool-frame/related-tools";
-import { NextStepCard } from "@/components/tool-frame/next-step";
 import { PresentButton } from "@/components/presentation/presentation-mode";
 import { FavoriteButton } from "@/components/tool-frame/favorite-button";
+
+// Only a tool's own page (toolId) shows these. The insight and next-step
+// rules import most tools' stores between them: about 190 kB gzipped that a
+// page without a toolId (the comics, the book, VIP) used to download and parse
+// before it could respond. Still server-rendered, so a tool page's markup is
+// unchanged; their code arrives in chunks of its own.
+const InsightsEngine = dynamic(() =>
+  import("@/components/shared/insights-engine").then((m) => m.InsightsEngine)
+);
+const HowItWorks = dynamic(() =>
+  import("@/components/tool-frame/how-it-works").then((m) => m.HowItWorks)
+);
+const NextStepCard = dynamic(() =>
+  import("@/components/tool-frame/next-step").then((m) => m.NextStepCard)
+);
 
 interface ToolPageWrapperProps {
   title: string;
