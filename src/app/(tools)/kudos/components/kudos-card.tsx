@@ -311,7 +311,11 @@ function Back({ kudos, design, reminds, chevron }: BackProps) {
             <span className="min-w-0 break-words">{senderOf(kudos)}</span>
           </p>
           <p className="flex shrink-0 gap-1.5">
-            <span className="font-bold">Date:</span> <span>{dateLabelOf(kudos.sentAt)}</span>
+            <span className="font-bold">Date:</span>{" "}
+            {/* The preview's date is today's, and the server's today (UTC) can
+                be a day off the visitor's near midnight: React then takes the
+                browser's text instead of failing the hydration. */}
+            <span suppressHydrationWarning>{dateLabelOf(kudos.sentAt)}</span>
           </p>
         </div>
       </div>
