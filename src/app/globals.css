@@ -897,8 +897,10 @@ html[data-intro] [data-sonner-toaster] {
     --holiday-glow: transparent;
   }
 
-  /* Kill iOS auto-zoom on input focus — any input < 16px triggers it */
-  @media (max-width: 768px) {
+  /* Kill iOS auto-zoom on input focus — any input < 16px triggers it.
+     Keyed to touch as well as width: a landscape iPhone is 812–932px wide,
+     past the old max-width guard, and zoomed on every focus. */
+  @media (pointer: coarse), (max-width: 768px) {
     /* `!important` because these base-layer selectors lose to utility
        classes: 78 textareas/inputs with `text-xs`/`text-sm` stayed at
        12–14px and iOS zoomed the page on every focus. */
