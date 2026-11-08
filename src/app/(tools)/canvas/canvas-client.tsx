@@ -90,9 +90,12 @@ const STAGE_HEIGHT =
  * and its dialogs get the same floor on every touch screen, or a zoom
  * there would stick: the board is touch-none and keeps a pinch for
  * itself, so the page can't be pinched back out over it.
+ *
+ * A field marked data-own-font already sets 16 px or more itself (a large
+ * shape's label while it's edited), so it keeps its own size.
  */
 const TOUCH_INPUT_FONT_FLOOR =
-  "pointer-coarse:[&_:is(textarea,select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]))]:![font-size:max(16px,1rem)]";
+  "pointer-coarse:[&_:is(textarea,select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color])):not([data-own-font])]:![font-size:max(16px,1rem)]";
 
 /**
  * The empty-board card on a touch screen keeps clear of the board

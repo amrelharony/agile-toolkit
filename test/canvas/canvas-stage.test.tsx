@@ -294,7 +294,7 @@ describe("CanvasClient text fields on touch", () => {
   // touch-none board the page can't be pinched back out. So the board's
   // fields and its dialogs get the 16 px floor on every touch screen.
   const FLOOR =
-    "pointer-coarse:[&_:is(textarea,select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]))]:![font-size:max(16px,1rem)]";
+    "pointer-coarse:[&_:is(textarea,select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color])):not([data-own-font])]:![font-size:max(16px,1rem)]";
 
   it("floors the board's fields at 16 px on touch", async () => {
     render(<CanvasClient />);
