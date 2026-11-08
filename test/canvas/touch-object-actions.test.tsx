@@ -209,12 +209,15 @@ describe("ZoomControls Undo / Redo", () => {
     expect(params.redo).toHaveBeenCalledTimes(1);
     // The zoom bar itself is untouched.
     const zoomBar = screen.getByRole("toolbar", { name: "Zoom controls" });
-    // Stacked above the zoom bar on phones; beside it from sm up, where
-    // the mini-map sits right above the zoom bar.
+    // In the touch row (with the full-screen switch, where the page has
+    // one), stacked above the zoom bar on phones and beside it from sm up.
     const wrapper = zoomBar.parentElement!;
-    expect(wrapper).toBe(bar.parentElement);
+    const touchRow = bar.parentElement!;
+    expect(touchRow).toHaveClass("hidden", "pointer-coarse:flex");
+    expect(touchRow.parentElement).toBe(wrapper);
     expect(wrapper).toHaveClass("flex-col", "sm:flex-row", "sm:items-end");
-    expect(wrapper.firstElementChild).toBe(bar);
+    expect(wrapper.firstElementChild).toBe(touchRow);
+    expect(touchRow.firstElementChild).toBe(bar);
     unmount();
 
     // Board closed: no stale buttons.
