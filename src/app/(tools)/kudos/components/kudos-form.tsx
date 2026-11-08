@@ -602,7 +602,7 @@ export function KudosForm({
 
           {delivery === "link" ? (
             <div className="flex flex-col gap-1">
-              <label className="flex items-center gap-2 text-sm text-text">
+              <label className="flex items-center gap-2 text-sm text-text pointer-coarse:min-h-11">
                 <input
                   type="checkbox"
                   checked={keepCopy}

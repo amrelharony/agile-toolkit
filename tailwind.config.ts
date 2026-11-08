@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 
 /**
  * A theme colour backed by a CSS custom property that still honours
@@ -404,6 +405,22 @@ const config: Config = {
     // when the sidebar collapse changes available content width without
     // crossing a viewport breakpoint.
     require("@tailwindcss/container-queries"),
+    // Input-type variants. `pointer-coarse:` styles touch screens (phones,
+    // tablets) and `pointer-fine:` mouse and trackpad, independent of width:
+    // a landscape phone is wider than `md` but still needs 44 px targets, and
+    // a narrow desktop window doesn't. Prefer these over raw
+    // `[@media(pointer:coarse)]:` arbitrary variants.
+    plugin(({ addVariant }) => {
+      addVariant("pointer-coarse", "@media (pointer: coarse)");
+      addVariant("pointer-fine", "@media (pointer: fine)");
+      // Desktop density: `md-fine:` is `md:` for a mouse only, for the
+      // primitives that shrink from 44 px to 36 px on md+ (Button sizes).
+      // One variant, not `md:pointer-fine:`, on purpose: custom variants
+      // sort before the screen variants, so a call site's own `md:h-7` or
+      // `md:h-auto` still overrides the shrink, as it did when it was `md:`.
+      // A stacked `md:pointer-fine:` would sort after them and win.
+      addVariant("md-fine", "@media (min-width: 768px) and (pointer: fine)");
+    }),
   ],
   /* eslint-enable @typescript-eslint/no-require-imports */
 };
