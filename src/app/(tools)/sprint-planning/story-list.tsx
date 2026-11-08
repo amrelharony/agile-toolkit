@@ -154,19 +154,24 @@ function StoryRow({
   return (
     <li className="px-3 py-2">
       <div className="flex items-start gap-3">
-        <input
-          type="checkbox"
-          className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent)] disabled:opacity-60"
-          checked={checked}
-          disabled={locked}
-          title={done ? "Done: stays in the sprint" : blocked ? cantAdd : undefined}
-          aria-label={
-            done
-              ? `Done, stays in the sprint: ${story.title}`
-              : `${checked ? "Remove from sprint" : "Add to sprint"}: ${story.title}`
-          }
-          onChange={() => onToggle(story)}
-        />
+        {/* The box is the step's main action, so on a touch screen its label
+            pads it out to a 44 px target. The negative margins keep the row's
+            layout: the padding reaches into the row's own edge and the gap. */}
+        <label className="flex shrink-0 pointer-coarse:-my-3 pointer-coarse:-ml-3 pointer-coarse:-mr-4 pointer-coarse:py-3 pointer-coarse:pl-3 pointer-coarse:pr-4">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent)] disabled:opacity-60"
+            checked={checked}
+            disabled={locked}
+            title={done ? "Done: stays in the sprint" : blocked ? cantAdd : undefined}
+            aria-label={
+              done
+                ? `Done, stays in the sprint: ${story.title}`
+                : `${checked ? "Remove from sprint" : "Add to sprint"}: ${story.title}`
+            }
+            onChange={() => onToggle(story)}
+          />
+        </label>
         <div className="min-w-0 flex-1">
           {edit.editing ? (
             <InlineItemEditor

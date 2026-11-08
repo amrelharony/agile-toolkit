@@ -1010,3 +1010,51 @@ describe("story sources", () => {
     expect(screen.getAllByRole("link", { name: /^From / })).toHaveLength(1);
   });
 });
+
+/* ── Touch targets (mobile audit, findings 13 and 54) ───────────────── */
+
+describe("story rows on a touch screen", () => {
+  const classesOf = (el: Element | null) => (el?.getAttribute("class") ?? "").split(/\s+/);
+  it("pads the sprint box out to a 44px label on touch, laid out as the 16px box", () => {
+    renderPlanning();
+    const box = screen.getByLabelText("Add to sprint: Remove a saved card");
+    const label = box.closest("label");
+    expect(label).not.toBeNull();
+    // The box is all the label holds: its name stays the box's own.
+    expect(label?.textContent).toBe("");
+    expect(box).toHaveAccessibleName("Add to sprint: Remove a saved card");
+    // 12 + 16 + 16 across and 12 + 4 + 16 + 12 down, given back by margins.
+    expect(classesOf(label)).toEqual(
+      expect.arrayContaining([
+        "pointer-coarse:pl-3",
+        "pointer-coarse:pr-4",
+        "pointer-coarse:py-3",
+        "pointer-coarse:-ml-3",
+        "pointer-coarse:-mr-4",
+        "pointer-coarse:-my-3",
+      ])
+    );
+    // A mouse gets the same 16px box as before: nothing unscoped pads it.
+    expect(classesOf(label).filter((c) => /^-?[mp][xytblr]?-/.test(c))).toEqual([]);
+    expect(classesOf(box)).toEqual(expect.arrayContaining(["h-4", "w-4"]));
+  });
+
+  it("ticks a story in or out of the sprint from the box's label", () => {
+    renderPlanning();
+    const label = screen.getByLabelText("Add to sprint: Remove a saved card").closest("label")!;
+    fireEvent.click(label);
+    expect(story("b1")?.sprintId).toBe("s2");
+
+    const out = screen.getByLabelText("Remove from sprint: Remove a saved card").closest("label")!;
+    fireEvent.click(out);
+    expect(story("b1")?.sprintId).toBeUndefined();
+  });
+
+  it("doesn't move a done story when its label is tapped", () => {
+    renderPlanning();
+    const done = screen.getByLabelText("Done, stays in the sprint: Receipts");
+    expect(done).toBeDisabled();
+    fireEvent.click(done.closest("label")!);
+    expect(story("in-done")?.sprintId).toBe("s2");
+  });
+});
