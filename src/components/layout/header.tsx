@@ -239,9 +239,10 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
         data-header-search=""
         className={cn(
           "flex items-center gap-2",
-          // Below lg: 36×36 icon button (acceptable inside a touch-padded
-          // header). The min-width keeps the row from squeezing it.
-          "w-9 min-w-9 h-9 justify-center rounded-lg text-sub hover:text-text hover:bg-accent/5",
+          // Below lg: a 36×36 icon button for a mouse, 44×44 on touch. The
+          // min-width keeps the row from squeezing it. (From lg the pill's
+          // own min-width wins: breakpoint rules come after pointer ones.)
+          "w-9 min-w-9 h-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11 justify-center rounded-lg text-sub hover:text-text hover:bg-accent/5",
           // lg+: the full pill — 280 px when there's room. A fixed width
           // (not w-full + max-w, which the flex algorithm clamps straight
           // back to 280) so it can give width back, and before the right
@@ -312,11 +313,12 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
             back to its other anchors when the beacon is hidden). */}
         {beaconHeader && <KudosHeaderBeacon />}
         {/* Agent chat button. Visible from xs+ — keyboard users can also
-            hit Cmd/Ctrl+J to toggle (matches ChatGPT / Claude.ai). */}
+            hit Cmd/Ctrl+J to toggle (matches ChatGPT / Claude.ai). It and
+            the theme button are 36×36 for a mouse, 44×44 on touch. */}
         <button
           onClick={openAgent}
           data-no-sound="true"
-          className="w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
+          className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
           aria-label={isOwner ? "Open agent chat" : "Open help"}
           title={isOwner ? "Open agent (Cmd/Ctrl+J)" : "Find a tool or get help (Cmd/Ctrl+J)"}
         >
@@ -329,7 +331,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
         <button
           onClick={cycleTheme}
           data-no-sound="true"
-          className="w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
+          className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
           // R9: WCAG 3.2.4 — tell the user what mode they'd switch TO.
           // The previous label only said the current mode, leaving SR
           // and cognitively-impaired users guessing what the click does.

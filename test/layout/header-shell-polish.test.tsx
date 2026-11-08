@@ -1,6 +1,6 @@
 /**
  * The app shell's header on phones (mobile audit 2026-11-08): the safe areas
- * around it and around the page below it.
+ * around it and around the page below it, and the size of its touch targets.
  * jsdom has no layout, so the sizes are pinned as classes and the CSS token;
  * the real boxes are checked on phone emulation (375x812 with a simulated
  * 47 px top inset, 812x375 with 47 px side insets).
@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 
 const h = vi.hoisted(() => ({ pathname: "/", owner: false }));
 
@@ -107,5 +107,32 @@ describe("the main element's side safe areas", () => {
 
   it("leaves the left inset to the rail from md", () => {
     expect(cls).toContain("md:pl-0");
+  });
+});
+
+describe("the header's icon buttons on touch", () => {
+  const TOUCH = ["pointer-coarse:min-h-11", "pointer-coarse:min-w-11"];
+
+  it.each([
+    ["Open search", false],
+    ["Open help", false],
+    ["Open agent chat", true],
+    [/^Switch to .* theme/, false],
+  ] as const)("%s is 44 px on touch and keeps its 36 px mouse size", (name, owner) => {
+    h.owner = owner;
+    render(<Header onOpenSearch={() => {}} />);
+    const cls = classesOf(screen.getByRole("button", { name }));
+    expect(cls).toEqual(expect.arrayContaining([...TOUCH, "w-9", "h-9"]));
+    // Touch size by input, not by width (a landscape phone is wider than md):
+    // no other minimum size, bar the search pill's own floors.
+    const otherMins = cls.filter(
+      (c) => /^([\w-]+:)*min-[hw]-/.test(c) && !c.startsWith("pointer-coarse:")
+    );
+    expect(otherMins).toEqual(name === "Open search" ? ["min-w-9", "lg:min-w-[10rem]"] : []);
+  });
+
+  it("leaves the search pill's desktop height to lg:h-auto", () => {
+    render(<Header onOpenSearch={() => {}} />);
+    expect(classesOf(screen.getByRole("button", { name: "Open search" }))).toContain("lg:h-auto");
   });
 });
