@@ -19,10 +19,12 @@ above his hair (384 x 448 for sharp screens). The pack manifest is written to
 src/components/agent/mascot/mascot-packs.ts. With --preview, contact sheets for
 review land in that folder too.
 
-Two corrections bring the generated art to the live sprite (scripts/mascot_heads.py
-measures both; scripts/audit-mascot-heads.py checks the result):
+Corrections bring the generated art to the live sprite (scripts/mascot_heads.py
+measures them; scripts/audit-mascot-heads.py checks the result):
   head size  every head is scaled to the live idle's, measured frame by frame
   skin       each sheet's skin is moved to the live idle's colour, keeping its shading
+  hair       on the tool sheets, a frame's hair far from the live idle's colour is
+             moved toward it, keeping its highlights
 
 Needs Pillow and numpy. The source PNGs never ship; only the packs do.
 """
@@ -669,6 +671,67 @@ def match_skin(frames, ref) -> tuple[list[str], dict]:
     return notes, deltas
 
 
+# Hair colour, on the tool sheets only (S65 on). Their hair edits came back a shade
+# lighter or browner than the slots ChatGPT left alone, so his hair would change
+# shade between two frames of one scene. A frame whose hair is more than HAIR_DE
+# from the live idle's moves toward it by one Lab shift, so its highlights keep
+# their difference, until it is HAIR_DE away. The other sheets were matched in the
+# hair rounds and stay as they ship.
+HAIR_DE = 3.0
+
+
+def hair_lab(cell: Image.Image, seg: dict | None = None):
+    """The hair's median Lab in a 2x cell, or None when too little hair shows."""
+    seg = seg if seg is not None else heads.segment(cell)
+    if not seg.get("ok"):
+        return None
+    m = heads.erode(seg["masks"]["hair"], 2)
+    if m.sum() < 200:
+        return None
+    lab = heads.srgb_to_lab(np.array(cell.convert("RGBA")).astype(np.float64)[..., :3])
+    return np.median(lab[m], 0)
+
+
+def hair_weights(cell: Image.Image, seg: dict) -> np.ndarray:
+    """His hair (0..1) in a 2x cell, with a soft edge onto hair-dark pixels only, so
+    his forehead, ears and whatever he holds against his head stay as drawn."""
+    a = np.array(cell.convert("RGBA")).astype(np.float64)
+    hair = seg["masks"]["hair"]
+    w = hair.astype(np.float64)
+    for _ in range(2):
+        p = np.pad(w, 1, mode="edge")
+        w = sum(p[1 + dy:1 + dy + w.shape[0], 1 + dx:1 + dx + w.shape[1]] for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9
+    return np.where(hair, 1.0, w * heads._dark(a))
+
+
+def match_hair(frames) -> list[str]:
+    live = hair_lab(live_idle2x())
+    notes = []
+    for stem, (_, _, ids, group) in context_sheets().items():
+        if stem not in SHEETS or not group.startswith("tools-"):
+            continue
+        moved = []
+        for e in ids:
+            fid = e[0] if e else None
+            if fid not in frames or heads.covered(fid):
+                continue
+            seg = heads.segment(frames[fid][2])
+            lab = hair_lab(frames[fid][2], seg)
+            if lab is None:
+                continue
+            d = live - lab
+            off = float(np.linalg.norm(d))
+            if off <= HAIR_DE:
+                continue
+            delta = d * (1 - HAIR_DE / off)
+            w = hair_weights(frames[fid][2], seg)
+            frames[fid] = {k: heads.shift_skin(frames[fid][k], w, delta) for k in SCALES}
+            moved.append(f"{fid.split('.', 1)[1]} {off:.1f}")
+        if moved:
+            notes.append(f"hair: {stem} moved to within {HAIR_DE:g} of live's colour: {', '.join(moved)}")
+    return notes
+
+
 # What ships, pack by pack. Each pack loads only when he first needs it.
 PACKS = {
     "faces": [f for f in SHEETS["S01-faces"][2]],
@@ -789,6 +852,7 @@ def main() -> None:
     notes += shrink_heads(frames, stances, scales, ref)
     skin_notes, deltas = match_skin(frames, ref)
     notes += skin_notes
+    notes += match_hair(frames)
     for pack, st in stances.items():  # for the previews, like the frames
         if scales[pack] != 1.0:
             top, neck, h, w = head_box(st[2])
