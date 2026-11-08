@@ -232,11 +232,12 @@ describe("Kanban: delete and Undo", () => {
 
   it("keeps a card's selects and title easy to tap on phones and touch screens", () => {
     render(<KanbanClient />, { wrapper: TooltipProvider });
-    // 36 px below sm and on any touch screen; the 28 px row is for a mouse
+    // 36 px below sm, 44 px on any touch screen; the 28 px row is for a mouse
     // from sm up. Move is the way to move a card without dragging.
     for (const name of ["Move Search", "Class of service for Search"]) {
       const select = screen.getByRole("combobox", { name });
-      expect(select).toHaveClass("h-9", "sm:h-7", "pointer-coarse:min-h-9");
+      expect(select).toHaveClass("h-9", "sm:h-7", "pointer-coarse:min-h-11");
+      expect(select).not.toHaveClass("pointer-coarse:min-h-9");
       expect(select).not.toHaveClass("xs:h-7");
     }
     // The title is a 36 px target on touch, not a 16 px line of text.
