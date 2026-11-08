@@ -18,7 +18,13 @@ import { tools } from "@/lib/constants/tools";
  */
 
 const undo = vi.hoisted(() => ({
-  last: null as null | { label: string; apply: () => void; revert: () => void },
+  last: null as null | {
+    label: string;
+    apply: () => void;
+    revert: () => void;
+    kind?: string;
+    id?: string;
+  },
 }));
 vi.mock("@/lib/utils/undoable", () => ({
   undoable: (a: { label: string; apply: () => void; revert: () => void }) => {
@@ -333,6 +339,8 @@ describe("linkNewRow", () => {
     expect(linked.backlogItemId).toBe("b1");
     expect(storedItem("b1")).toMatchObject({ reach: 700, impact: 2, confidence: 80 });
     expect(undo.last?.label).toBe("Updated “Item b1” in the backlog");
+    // A write destroys nothing: a success with Undo, one toast per item.
+    expect(undo.last).toMatchObject({ kind: "success", id: "backlog:b1" });
 
     undo.last!.revert();
     expect(storedItem("b1")).toMatchObject({ reach: 500, impact: 2 });

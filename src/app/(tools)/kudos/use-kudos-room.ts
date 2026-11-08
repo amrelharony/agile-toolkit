@@ -38,7 +38,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRoom } from "@/lib/realtime/use-room";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { emitSignal } from "@/lib/signals/signal-bus";
-import { emit } from "@/lib/sonification/emit";
+import { onKudosReceived } from "@/lib/kudos/receive-bridge";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/lib/utils/example-id";
 import { KUDOS_TOOL_ID, isValidKudos } from "./types";
@@ -174,10 +174,12 @@ export function useKudosRoom(opts: UseKudosRoomOptions): KudosRoomHook {
       // Guest receive-side signal emission. The workspace-store diff in
       // signal-bridge.ts only runs on the owner tree (AppShell installs
       // it); guests mutate `ephemeralKudos` which the bridge never sees.
-      // Emit directly so the receive-bridge fan-out (sonification,
-      // haptics, mood lift, header-beacon pulse) and the gamification
-      // receive-XP path fire on the guest side too. Owners skip this
-      // branch — their bridge path already covers it.
+      // Emit the signal (header-beacon pulse) and run the receive fan-out
+      // (sonification, haptics, mood lift, receive XP) directly, so it
+      // fires on bare /guest routes where the bridge isn't installed. Where
+      // the bridge IS installed it hears the signal too; onKudosReceived
+      // runs once per kudos id, so the receive pays and plays once.
+      // Owners skip this branch — their bridge path already covers it.
       if (
         persistence === "ephemeral" &&
         env.kudos.toProfileId === roomRef.current.userId &&
@@ -189,7 +191,7 @@ export function useKudosRoom(opts: UseKudosRoomOptions): KudosRoomHook {
           at: new Date().toISOString(),
           payload: { id: env.kudos.id, fromProfileId: env.kudos.fromProfileId },
         });
-        emit("kudos", "received");
+        onKudosReceived(env.kudos.id);
       }
     });
     const offSnapshot = roomRef.current.subscribeToEvent("kudos:snapshot", (raw) => {

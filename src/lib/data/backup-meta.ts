@@ -4,6 +4,7 @@
  */
 
 import { LOCAL_DATA_CHANNEL } from "@/lib/utils/clear-local-data";
+import { signalGamification } from "@/lib/gamification/signal";
 
 export const LAST_BACKUP_KEY = "agile-toolkit:backup:last";
 
@@ -15,12 +16,15 @@ export function readLastBackupAt(): string | null {
   }
 }
 
+/** Remember a backup download (every download path calls this). */
 export function recordBackup(now = new Date()): void {
   try {
     window.localStorage.setItem(LAST_BACKUP_KEY, now.toISOString());
   } catch {
     /* storage blocked — nothing to remember */
   }
+  // "Safe Keeper": the first backup downloaded.
+  signalGamification("backup-downloaded");
 }
 
 /**

@@ -52,6 +52,9 @@ vi.mock("@/app/(tools)/kudos/components/kudos-beacon", () => ({ KudosBeacon: () 
 vi.mock("@/lib/sonification/emit", () => ({ emit: () => undefined }));
 vi.mock("@/lib/whiteboard/export", () => ({ exportPng: async () => undefined }));
 vi.mock("@/lib/gamification/engine", () => ({ dispatch: () => undefined }));
+vi.mock("@/lib/gamification/ledger", () => ({
+  recordOutcome: () => ({ awarded: false, xp: 0, reason: "unknown" }),
+}));
 vi.mock("@/lib/predictions/use-predicted-default", () => ({
   usePredictedDefault: () => ({ confidence: "none", value: "" }),
 }));

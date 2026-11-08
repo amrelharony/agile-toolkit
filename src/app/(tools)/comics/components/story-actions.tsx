@@ -9,6 +9,7 @@ import { FIRST_WEEKLY_EP } from "@/lib/comics/entry";
 import { READ_EVENT, markAsked, markRead, sentLinks, setSentLinks } from "@/lib/comics/reading";
 import { beaconStats } from "@/lib/comics/stats-client";
 import { dispatch } from "@/lib/gamification/engine";
+import { recordOutcome } from "@/lib/gamification/ledger";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { sendHandoff } from "@/lib/handoffs/send";
 import { RETRO_BOARD_ID } from "@/lib/handoffs/targets/retro-board";
@@ -148,6 +149,8 @@ export function ReadTracker({ ep }: { ep: number }) {
       name: "tool:comics:completed",
       meta: { ep, total: first.total, weekStreak: first.weekStreak },
     });
+    // Reading pays once per story, at most two a day.
+    recordOutcome("story-read", { key: `story:${ep}`, meta: { ep } });
     const mascot = useMascotStore.getState();
     // Nobody plays the queue while he isn't on screen.
     if (mascot.ready) mascot.queueReaction("excited");

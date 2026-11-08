@@ -173,7 +173,17 @@ export function Board({
     const idx = PHASES.findIndex((p) => p.key === state.phase);
     const next = PHASES[idx + 1];
     if (!next) return;
-    const transition = { from: state.phase, to: next.key };
+    // A stable id for this retro, so the XP ledger pays a finished retro
+    // once however often it reaches Actions (reloads, stepping back): the
+    // sprint it looks back on, else its first card (a new retro's cards,
+    // carried-over actions included, get fresh ids).
+    const firstCardId = state.cards[0]?.id;
+    const retroId = state.sprintId
+      ? `sprint:${state.sprintId}`
+      : firstCardId
+        ? `card:${firstCardId}`
+        : undefined;
+    const transition = { from: state.phase, to: next.key, ...(retroId ? { retroId } : {}) };
     sonify("retro", "phase-advance");
     onUpdate((prev) => {
       // Re-check inside the updater to handle a concurrent advance.
@@ -184,7 +194,7 @@ export function Board({
     });
     log(RETRO_ACTIONS.PHASE_ADVANCED, transition);
     announce(`${next.label} phase. ${next.description}.`);
-  }, [onUpdate, log, announce, state.phase]);
+  }, [onUpdate, log, announce, state.phase, state.sprintId, state.cards]);
 
   // Step back one phase. Nothing is undone: votes, groups and actions stay.
   // Not logged: PHASE_ADVANCED is a forward milestone.
