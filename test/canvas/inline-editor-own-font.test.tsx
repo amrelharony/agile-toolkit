@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { InlineEditor } from "@/app/(tools)/canvas/components/objects/object-render-primitives";
 
