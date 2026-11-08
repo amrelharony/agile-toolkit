@@ -89,17 +89,15 @@ describe("CanvasTouchTips", () => {
       const note = screen.getByRole("note");
       const report = (ratio: number) =>
         act(() => {
-          observers
-            .at(-1)!
-            .cb(
-              [
-                {
-                  isIntersecting: ratio > 0,
-                  intersectionRatio: ratio,
-                } as IntersectionObserverEntry,
-              ],
-              observers.at(-1) as unknown as IntersectionObserver
-            );
+          observers.at(-1)!.cb(
+            [
+              {
+                isIntersecting: ratio > 0,
+                intersectionRatio: ratio,
+              } as IntersectionObserverEntry,
+            ],
+            observers.at(-1) as unknown as IntersectionObserver
+          );
         });
       // Below the fold: still waiting, long past the countdown.
       report(0);
@@ -129,9 +127,10 @@ describe("CanvasTouchTips", () => {
   });
 
   it("sits below the tag filter row, which would cover its dismiss button", () => {
-    // TagFilterRow is `absolute top-14 z-10`, about 56-88 px down.
+    // On touch TagFilterRow (z-10) starts 68-72 px down, under the 54 px
+    // board toolbar, and ends by 118 px with its clear-filter button.
     render(<CanvasTouchTips enabled readOnly={false} />);
-    expect(screen.getByRole("note")).toHaveClass("top-24");
+    expect(screen.getByRole("note")).toHaveClass("top-[7.5rem]");
   });
 
   it("stays away on mouse devices", () => {
