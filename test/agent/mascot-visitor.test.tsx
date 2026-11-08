@@ -128,6 +128,30 @@ describe("MascotAssistant — owner gating", () => {
     expect(within(tool).getByText(/WSJF = cost of delay ÷ job size/)).toBeInTheDocument();
   });
 
+  it("puts the tool search before the current tool's guide", async () => {
+    h.auth = { status: "anonymous", user: null };
+    h.pathname = "/wsjf";
+    render(<MascotAssistant />);
+
+    const search = screen.getByLabelText("What do you need to do?");
+    const tool = screen.getByRole("region", { name: "This tool" });
+    const howTo = await within(tool).findByText("How to run it");
+    const popular = screen.getByRole("list", { name: "Popular tasks" });
+    const follows = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    // Search first (a phone shows ~360 px of the panel), then the tool's
+    // card, then the common jobs.
+    expect(follows(search, howTo)).toBe(true);
+    expect(follows(tool, popular)).toBe(true);
+
+    // Results show right under the field, above the tool's card.
+    fireEvent.change(search, { target: { value: "retrospective" } });
+    const results = screen.getByRole("list", { name: "Matching tools" });
+    expect(follows(search, results)).toBe(true);
+    expect(follows(results, tool)).toBe(true);
+    expect(screen.queryByRole("list", { name: "Popular tasks" })).toBeNull();
+  });
+
   it("gives the owner the full chat panel", async () => {
     h.auth = OWNER;
     render(<MascotAssistant />);
