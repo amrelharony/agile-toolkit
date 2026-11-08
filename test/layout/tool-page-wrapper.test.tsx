@@ -9,33 +9,45 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 describe("ToolPageWrapper's first download", () => {
   // Only a tool page (toolId) shows them, and they import most tools' stores:
   // a page without a toolId (the comics, the book) mustn't download them.
-  const file = path.join(process.cwd(), "src/components/layout/tool-page-wrapper.tsx");
-  it.each([
-    "@/components/shared/insights-engine",
-    "@/components/tool-frame/next-step",
-    "@/components/tool-frame/how-it-works",
-  ])("loads %s with next/dynamic, never statically", (spec) => {
-    const src = readFileSync(file, "utf8");
-    const staticImports = Array.from(src.matchAll(/^import[^;]*?from\s+["']([^"']+)["']/gm)).map(
-      (m) => m[1]
-    );
-    expect(staticImports).not.toContain(spec);
-    expect(src).toContain(`import("${spec}")`);
+  const src = readFileSync(
+    path.join(process.cwd(), "src/components/layout/tool-page-wrapper.tsx"),
+    "utf8"
+  );
+  const staticImports = Array.from(src.matchAll(/^import[^;]*?from\s+["']([^"']+)["']/gm)).map(
+    (m) => m[1]
+  );
+
+  it.each(["@/components/shared/insights-engine", "@/components/tool-frame/next-step"])(
+    "loads %s on the client only, never statically",
+    (spec) => {
+      expect(staticImports).not.toContain(spec);
+      // Client-only: both render nothing on the server, and a server-rendered
+      // dynamic part's HTML can be swapped for its empty fallback mid-hydration.
+      const start = src.indexOf(`import("${spec}")`);
+      expect(start).toBeGreaterThan(-1);
+      const call = src.slice(start).split(");")[0];
+      expect(call).toMatch(/\{\s*ssr:\s*false\s*\}/);
+    }
+  );
+
+  it("keeps the How this works bar a static import, since it's in the server HTML", () => {
+    expect(staticImports).toContain("@/components/tool-frame/how-it-works");
   });
 });
 
 describe("ToolPageWrapper on a tool's page", () => {
-  it("still shows the parts whose code loads on demand", async () => {
-    render(
+  it("shows How this works in the first render, server render included", () => {
+    const tree = (
       <TooltipProvider>
         <ToolPageWrapper title="WSJF" description="Weighted shortest job first" toolId="wsjf">
           <p>Board</p>
         </ToolPageWrapper>
       </TooltipProvider>
     );
-    // The tool itself never waits for them.
+    expect(renderToString(tree)).toContain("How this works");
+    render(tree);
     expect(screen.getByText("Board")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "How this works" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "How this works" })).toBeInTheDocument();
   });
 });
 
