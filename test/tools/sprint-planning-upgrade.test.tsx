@@ -1057,4 +1057,17 @@ describe("story rows on a touch screen", () => {
     fireEvent.click(done.closest("label")!);
     expect(story("in-done")?.sprintId).toBe("s2");
   });
+
+  it("keeps the points field 44px tall on touch and narrower on a phone", () => {
+    renderPlanning();
+    const points = classesOf(screen.getByLabelText("Points for Remove a saved card"));
+    // Input's own 44px phone height and 36px md height now apply (h-8 cut it
+    // to 32px on phones), and md:pointer-coarse: keeps 44px on a touch
+    // screen that is md-wide; a bare pointer-coarse: would lose to md:h-9.
+    expect(points).toEqual(expect.arrayContaining(["h-11", "md:h-9", "md:pointer-coarse:h-11"]));
+    expect(points).not.toContain("h-8");
+    // 56px below sm gives the title back 24px; 80px from sm up, as before.
+    expect(points).toEqual(expect.arrayContaining(["w-14", "sm:w-20", "px-2", "sm:px-3"]));
+    expect(points).not.toContain("w-20");
+  });
 });

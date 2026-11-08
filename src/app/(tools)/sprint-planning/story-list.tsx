@@ -60,6 +60,11 @@ function PointsCell({
     }
     if (checked.points !== story.points) onChange(checked.points);
   };
+  // Height comes from Input (44 px on phones, 36 px from md up), and stays
+  // 44 px on any touch screen: a landscape phone or a tablet is md-wide too
+  // (md:pointer-coarse:, because a bare pointer-coarse: loses to Input's md:).
+  // Narrower below sm: it holds a few digits, and the width goes back to the
+  // story's title, which shares the row.
   return (
     <Input
       type="number"
@@ -69,7 +74,7 @@ function PointsCell({
       aria-label={`Points for ${story.title}`}
       aria-invalid={error ? true : undefined}
       aria-describedby={error ? errorId : undefined}
-      className="h-8 w-20 shrink-0 text-right"
+      className="w-14 shrink-0 px-2 text-right sm:w-20 sm:px-3 md:pointer-coarse:h-11"
       value={draft}
       placeholder="—"
       onChange={(e) => {
