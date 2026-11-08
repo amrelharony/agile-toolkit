@@ -14,6 +14,9 @@ export const metadata: Metadata = {
 // cancels the page pinch there for browsers that don't honour it, so the
 // page zoom never fights the canvas zoom over the board. This route used
 // to lock zoom for the whole page (maximum-scale=1, user-scalable=no).
+// That lock also kept iOS from zooming in on a small text field on a
+// landscape phone; canvas-client floors the board's fields at 16 px on
+// touch instead (TOUCH_INPUT_FONT_FLOOR).
 
 export default function Page() {
   return <CanvasClient />;

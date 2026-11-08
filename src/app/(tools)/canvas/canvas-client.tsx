@@ -82,6 +82,19 @@ const STAGE_HEIGHT =
   "h-[calc(100dvh-220px)] min-h-[min(440px,var(--board-max-h))] sm:min-h-[min(520px,var(--board-max-h))] max-h-[var(--board-max-h)]";
 
 /**
+ * iOS Safari zooms the page in when a text field under 16 px takes focus,
+ * and leaves it zoomed. globals.css floors fields at 16 px up to 768 px
+ * wide; /canvas also had maximum-scale=1, which stopped that zoom on a
+ * landscape phone (812-932 px) or a tablet too. With that lock gone the
+ * board's fields (a sticky being edited, Find, comments, card details)
+ * and its dialogs get the same floor on every touch screen, or a zoom
+ * there would stick: the board is touch-none and keeps a pinch for
+ * itself, so the page can't be pinched back out over it.
+ */
+const TOUCH_INPUT_FONT_FLOOR =
+  "pointer-coarse:[&_:is(textarea,select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]))]:![font-size:max(16px,1rem)]";
+
+/**
  * The empty-board card on a touch screen keeps clear of the board
  * toolbar (top, ends by 68 px) and of the bottom-left zoom controls with
  * the hint above them (EMPTY_HINT_TOUCH_PLACE): 136 px + two hint lines
@@ -996,6 +1009,7 @@ export function CanvasClient() {
         className={cn(
           "relative w-full rounded-lg border border-border overflow-hidden bg-bg board-stage",
           BOARD_VH,
+          TOUCH_INPUT_FONT_FLOOR,
           !fillScreen.on && STAGE_HEIGHT
         )}
         style={
@@ -1156,29 +1170,33 @@ export function CanvasClient() {
         </div>
       )}
 
-      {showTemplates && activeBoardId && (
-        <TemplateGallery
-          boardId={activeBoardId}
-          onClose={() => setShowTemplates(false)}
-          onApplied={(rect) => {
-            const camera = fitToRects([rect], viewportSize.w, viewportSize.h, 0.1);
-            if (camera) setCamera(camera);
-          }}
-        />
-      )}
-      {showImport && activeBoardId && (
-        <ImportModal boardId={activeBoardId} onClose={() => setShowImport(false)} />
-      )}
-      {showShare && activeBoardId && activeBoard && (
-        <ShareModal
-          boardId={activeBoardId}
-          boardName={activeBoard.name}
-          onClose={() => setShowShare(false)}
-        />
-      )}
-      {showActivity && activeBoardId && (
-        <ActivityStream boardId={activeBoardId} onClose={() => setShowActivity(false)} />
-      )}
+      {/* No box of its own (the dialogs are fixed overlays); it only
+          carries the touch input-size floor to their fields. */}
+      <div className={cn("contents", TOUCH_INPUT_FONT_FLOOR)}>
+        {showTemplates && activeBoardId && (
+          <TemplateGallery
+            boardId={activeBoardId}
+            onClose={() => setShowTemplates(false)}
+            onApplied={(rect) => {
+              const camera = fitToRects([rect], viewportSize.w, viewportSize.h, 0.1);
+              if (camera) setCamera(camera);
+            }}
+          />
+        )}
+        {showImport && activeBoardId && (
+          <ImportModal boardId={activeBoardId} onClose={() => setShowImport(false)} />
+        )}
+        {showShare && activeBoardId && activeBoard && (
+          <ShareModal
+            boardId={activeBoardId}
+            boardName={activeBoard.name}
+            onClose={() => setShowShare(false)}
+          />
+        )}
+        {showActivity && activeBoardId && (
+          <ActivityStream boardId={activeBoardId} onClose={() => setShowActivity(false)} />
+        )}
+      </div>
     </ToolPageWrapper>
   );
 }

@@ -286,3 +286,29 @@ describe("CanvasClient empty-board card", () => {
     expect(unscoped).toEqual([]);
   });
 });
+
+describe("CanvasClient text fields on touch", () => {
+  // iOS zooms the page into a focused field under 16 px and leaves it
+  // zoomed. globals.css floors fields only up to 768 px wide; the old
+  // maximum-scale=1 covered a landscape phone here, and over the
+  // touch-none board the page can't be pinched back out. So the board's
+  // fields and its dialogs get the 16 px floor on every touch screen.
+  const FLOOR =
+    "pointer-coarse:[&_:is(textarea,select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]))]:![font-size:max(16px,1rem)]";
+
+  it("floors the board's fields at 16 px on touch", async () => {
+    render(<CanvasClient />);
+    const stage = await findStage();
+    expect(stage).toHaveClass(FLOOR);
+    // Full screen keeps it.
+    fireEvent.click(screen.getByRole("button", { name: "Full-screen board" }));
+    expect(stage).toHaveClass(FLOOR);
+  });
+
+  it("floors the board's dialogs' fields too, without adding a box", async () => {
+    render(<CanvasClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Templates" }));
+    const holder = screen.getByRole("dialog", { name: "Templates" }).parentElement!;
+    expect(holder).toHaveClass("contents", FLOOR);
+  });
+});
