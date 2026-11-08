@@ -28,7 +28,7 @@ import { BoardDnd, DragPreview, DraggableCard, DropColumn } from "@/app/(tools)/
 
 function Board({ onMove = () => {} }: { onMove?: (id: string, col: string) => void }) {
   return (
-    <div data-testid="page" className="container-tool motion-safe:animate-rise">
+    <div data-testid="page" className="container-tool isolate motion-safe:animate-rise">
       <BoardDnd
         onMove={onMove}
         titleOf={(id) => `Card ${id}`}

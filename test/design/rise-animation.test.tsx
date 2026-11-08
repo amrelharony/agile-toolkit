@@ -6,6 +6,11 @@
  * Kanban drag overlay drew a scroll's height off-screen and drops never
  * landed. This compiles the wrapper's real classes against the real
  * tailwind.config.ts and checks what a browser would compute.
+ *
+ * The leftover transform also gave the wrapper a stacking context, which
+ * kept a tool's own z-indexes (the canvas's pins and handles sit at
+ * 9990-10000) under the sticky header, Amr and portalled dialogs. `isolate`
+ * keeps that layering without the containing block.
  */
 import { describe, expect, it } from "vitest";
 import postcss from "postcss";
@@ -85,6 +90,13 @@ describe("tool page entrance", () => {
     const frames = keyframeBlocks(await compile("animate-rise")).get("rise") ?? "";
     expect(frames).toMatch(/from\s*\{\s*transform:\s*translateY\(8px\)/);
     expect(frames).toMatch(/to\s*\{\s*transform:\s*none/);
+  });
+
+  it("keeps its own stacking context for every visitor, motion or not", async () => {
+    // Unprefixed: reduced-motion visitors get the same layering.
+    expect(wrapperClasses().split(/\s+/)).toContain("isolate");
+    const css = await compile(wrapperClasses());
+    expect(css).toMatch(/\.isolate\s*\{\s*isolation:\s*isolate;?\s*\}/);
   });
 
   it("gives the wrapper nothing else that would trap fixed descendants", async () => {
