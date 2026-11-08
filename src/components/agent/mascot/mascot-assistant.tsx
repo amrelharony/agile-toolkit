@@ -969,7 +969,9 @@ export function MascotAssistant() {
             <div>
               <p className="text-sm font-semibold text-text">✦ Amr</p>
               <p className="text-xs text-sub">
-                {isOwner ? "Drive every tool · " : "Find the right tool · "}Cmd/Ctrl+J
+                {isOwner ? "Drive every tool" : "Find the right tool"}
+                {/* A keyboard shortcut means nothing on a touch screen. */}
+                <span className="pointer-coarse:hidden"> · Cmd/Ctrl+J</span>
               </p>
             </div>
             <div className="flex items-center gap-0.5">
@@ -983,7 +985,7 @@ export function MascotAssistant() {
                     }}
                     aria-label="New chat"
                     title="New chat"
-                    className="rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
+                    className="min-touch-coarse inline-flex items-center justify-center rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
                   >
                     <Plus className="h-4 w-4" aria-hidden="true" />
                   </button>
@@ -993,7 +995,7 @@ export function MascotAssistant() {
                     aria-label="Conversation history"
                     title="History"
                     aria-pressed={showHistory}
-                    className={`rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
+                    className={`min-touch-coarse inline-flex items-center justify-center rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
                       showHistory ? "text-accent" : "text-sub"
                     }`}
                   >
@@ -1012,7 +1014,7 @@ export function MascotAssistant() {
                       : "Let Amr feel your phone's tilt and shakes"
                   }
                   aria-pressed={feelsMotion}
-                  className={`min-touch-coarse rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
+                  className={`min-touch-coarse inline-flex items-center justify-center rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
                     feelsMotion ? "text-accent" : "text-sub"
                   }`}
                 >
@@ -1023,7 +1025,7 @@ export function MascotAssistant() {
                 type="button"
                 onClick={closeSheet}
                 aria-label="Close assistant"
-                className="min-touch-coarse rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
+                className="min-touch-coarse inline-flex items-center justify-center rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
