@@ -229,18 +229,24 @@ function usePhoneBand(band: { side: "top" | "bottom"; height: number } | null) {
 /** Start the figure this long after load if nobody has interacted yet. */
 const MASCOT_DELAY_MS = 2000;
 
+/** True when the visitor asked the browser to save data (Data Saver, Lite mode). */
+function savesData(): boolean {
+  const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
+  return Boolean(nav.connection?.saveData);
+}
+
 /**
  * Defer the figure (its chunk and the sprite sheet) until the visitor first
  * interacts (pointer, key, scroll) or a moment after the page has loaded,
  * whichever comes first, then wait for an idle moment, so it never competes with
- * the page's own content. The launcher shows until then. Skipped entirely when
- * the visitor asked to save data.
+ * the page's own content. The launcher shows until then. When the visitor asked
+ * to save data, only an interaction starts him: the sheet is fetched for someone
+ * using the page, and he still shows for everyone.
  */
 function useDeferredFigure(): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => {
-    const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
-    if (nav.connection?.saveData) return;
+    const interactionOnly = savesData();
     const w = window as Window & {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
       cancelIdleCallback?: (id: number) => void;
@@ -262,8 +268,11 @@ function useDeferredFigure(): boolean {
     const arm = () => {
       timer = window.setTimeout(start, MASCOT_DELAY_MS);
     };
-    if (document.readyState === "complete") arm();
-    else window.addEventListener("load", arm, { once: true });
+    // Saving data: no timer, only the first interaction starts him.
+    if (!interactionOnly) {
+      if (document.readyState === "complete") arm();
+      else window.addEventListener("load", arm, { once: true });
+    }
     return () => {
       events.forEach((e) => window.removeEventListener(e, start));
       window.removeEventListener("load", arm);
@@ -398,18 +407,14 @@ export function MascotAssistant() {
   // corner (the chat panel follows via the corner state). Source initDragDrop.
   const [corner, setCorner] = useState<Corner>("bottomRight");
   // Always the figure's height unless it can't load, so the strip doesn't jump
-  // when the launcher gives way to him a moment after the page settles.
-  const [savesData, setSavesData] = useState(false);
-  useEffect(() => {
-    const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
-    setSavesData(Boolean(nav.connection?.saveData));
-  }, []);
+  // when the launcher gives way to him a moment after the page settles. That
+  // includes Data Saver: he arrives there too, on the first interaction.
   const bandSide = corner.startsWith("top") ? ("top" as const) : ("bottom" as const);
   const band =
     isPhone && !hideFigure
       ? {
           side: bandSide,
-          height: phoneBandHeight(corner, !figureFailed && !savesData, box.h),
+          height: phoneBandHeight(corner, !figureFailed, box.h),
         }
       : null;
   usePhoneBand(band);
