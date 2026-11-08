@@ -7,18 +7,19 @@ best-practices / SEO baselines for the app's **public routes**.
 
 `lighthouserc.json` runs Lighthouse's default **mobile** profile (a mid-range
 phone on slow 4G): most visitors arrive on phones, and it's the harder target.
-It covers eight public routes:
+It covers these public routes:
 
-| URL                        | Why                                                                                                                        |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `/`                        | The landing page (search, jobs, tool index by section).                                                                    |
-| `/retro`                   | The most-used ceremony tool.                                                                                               |
-| `/capacity-planner`        | A representative form-style tool. Every tool route is public and browser-only, so a visitor sees what Lighthouse measures. |
-| `/burndown`                | A chart tool: shows whether Recharts stays out of the first load (charts load lazily).                                     |
-| `/comics`                  | The comics gallery: the book's 26 episodes, and the weekly stories once they're out.                                       |
-| `/comics?ep=01&src=poster` | A printed poster link, rewritten by the middleware to the episode's static page, which is text: the comic is in the book.  |
-| `/meet-the-cast`           | A VIP tool's lock page. The build never renders a dynamic page, so this is the first time CI loads one.                    |
-| `/comics/early`            | The early comics' lock page, for the same reason.                                                                          |
+| URL                        | Why                                                                                                                         |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `/`                        | The landing page (search, jobs, tool index by section).                                                                     |
+| `/sprint`                  | The Sprint Cockpit: its pre-hydration placeholder had the worst layout shift on phones (0.25-0.43), so CLS is watched here. |
+| `/retro`                   | The most-used ceremony tool.                                                                                                |
+| `/capacity-planner`        | A representative form-style tool. Every tool route is public and browser-only, so a visitor sees what Lighthouse measures.  |
+| `/burndown`                | A chart tool: shows whether Recharts stays out of the first load (charts load lazily).                                      |
+| `/comics`                  | The comics gallery: the book's 26 episodes, and the weekly stories once they're out.                                        |
+| `/comics?ep=01&src=poster` | A printed poster link, rewritten by the middleware to the episode's static page, which is text: the comic is in the book.   |
+| `/meet-the-cast`           | A VIP tool's lock page. The build never renders a dynamic page, so this is the first time CI loads one.                     |
+| `/comics/early`            | The early comics' lock page, for the same reason.                                                                           |
 
 Lighthouse starts each run with a fresh profile, so `/comics` and the poster
 link open with their intros: the book intro (5 s) and the poster intro (3 s)
