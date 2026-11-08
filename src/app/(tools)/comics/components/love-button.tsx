@@ -24,18 +24,21 @@ export function lovesLabel(count: number, own = false, pressed = own): string {
   return `${count} ${count === 1 ? "reader loves" : "readers love"} this`;
 }
 
+/**
+ * The whole line beside the heart, shown and announced after a press: the
+ * count, and, when this visit knows the reader's heart isn't among it
+ * (`uncounted`: a send failed, or the press wasn't sent), that it isn't. A
+ * counted mark missing from this device (after a restore, or storage wiped)
+ * proves nothing, so says nothing.
+ */
+export function heartLine(count: number, own = false, pressed = own, uncounted = false): string {
+  const line = lovesLabel(count, own, pressed);
+  return pressed && !own && uncounted && count > 0 ? `${line} (yours isn't counted)` : line;
+}
+
 /** "Read by N readers", once enough have finished the story to say so. */
 export function readersLabel(count: number): string | null {
   return count >= SHOW_READERS_AT ? `Read by ${count} readers` : null;
-}
-
-/**
- * The whole line beside the heart: the count, and whether this reader's heart,
- * when it's on, is among it. Shown, and announced after a press.
- */
-export function heartLine(count: number, own = false, pressed = own): string {
-  const line = lovesLabel(count, own, pressed);
-  return pressed && !own && count > 0 ? `${line} (yours isn't counted)` : line;
 }
 
 /** Runs `task` with this story's heart to itself across the browser's tabs, where it can. */
@@ -58,12 +61,13 @@ function exclusive(ep: number, task: () => Promise<void>): Promise<void> {
  * browser's tabs (Web Locks, where there are any): each sends what the reader
  * wants now if the server doesn't hold it already, so quick taps, or taps in a
  * second tab, never send a love twice; a tab that finds another sent its press
- * catches its count up. A press the server didn't count (or that isn't sent:
- * the owner's, one before sign-in settles) leaves the count as the server has
- * it, and the line says the reader's heart isn't counted; it isn't sent again
- * by itself, since the owner's presses must never be. When the browser can't keep the
- * heart (storage blocked or full) it works for the visit but sends nothing:
- * with no record, every visit could add another love.
+ * catches its count up (a press on a stale heart goes through the lock too).
+ * A press the server didn't count (or that isn't sent: the owner's, one before
+ * sign-in settles) leaves the count as the server has it, and the line says
+ * this visit's heart isn't counted; it isn't sent again by itself, since the
+ * owner's presses must never be. When the browser can't keep the heart
+ * (storage blocked or full) it works for the visit but sends nothing: with no
+ * record, every visit could add another love.
  *
  * The label stays "Love this" (aria-pressed and the filled heart say it's on),
  * so the button never changes width. The line beside it isn't a live region,
@@ -92,6 +96,14 @@ export function LoveButton({
   const setServer = useCallback((next: typeof server) => {
     serverNow.current = next;
     setServerState(next);
+  }, []);
+  // This visit knows the reader's heart isn't counted: a send failed, or the
+  // press wasn't sent. Never guessed from a missing counted mark.
+  const [uncounted, setUncountedState] = useState(false);
+  const uncountedNow = useRef(false);
+  const setUncounted = useCallback((value: boolean) => {
+    uncountedNow.current = value;
+    setUncountedState(value);
   }, []);
   const [sending, setSending] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -131,9 +143,11 @@ export function LoveButton({
         if (!answer) {
           failed = true;
           outcome = NOT_COUNTED;
+          setUncounted(true);
           return;
         }
         if (!setLoveCounted(ep, want)) memoryOnly.current = true;
+        setUncounted(false);
         setServer({
           ...serverNow.current,
           loves: answer.loves,
@@ -153,7 +167,7 @@ export function LoveButton({
         // say what the line now says.
         const s = (memoryOnly.current ? null : catchUp()) ?? serverNow.current;
         const now = isLoved(ep);
-        setAnnouncement(outcome || heartLine(s.loves, now && s.held, now));
+        setAnnouncement(outcome || heartLine(s.loves, now && s.held, now, uncountedNow.current));
         // A press that came in as the lock was let go.
         if (!failed && !memoryOnly.current && isLoved(ep) !== isLoveCounted(ep)) sync();
       });
@@ -162,12 +176,18 @@ export function LoveButton({
   const toggle = () => {
     const next = !loved;
     const kept = memoryOnly.current ? "unavailable" : setLoved(ep, next);
-    // Another tab got there first: this button only catches up.
+    // Another tab got there first: this button catches up. When it counts, it
+    // goes through the lock, so it waits for a send that other tab still has out.
     if (kept === "unchanged") {
       const now = isLoved(ep);
       setLovedState(now);
+      if (counting && !memoryOnly.current) {
+        sync();
+        return;
+      }
       const s = catchUp() ?? serverNow.current;
-      setAnnouncement(heartLine(s.loves, now && s.held, now));
+      setUncounted(now && !s.held);
+      setAnnouncement(heartLine(s.loves, now && s.held, now, now && !s.held));
       return;
     }
     if (kept === "unavailable") memoryOnly.current = true;
@@ -178,7 +198,8 @@ export function LoveButton({
     }
     // Not sent: say what the line now says.
     const s = serverNow.current;
-    setAnnouncement(heartLine(s.loves, next && s.held, next));
+    setUncounted(next && !s.held);
+    setAnnouncement(heartLine(s.loves, next && s.held, next, next && !s.held));
   };
 
   // While a press is being sent the count follows the heart; otherwise it's
@@ -202,7 +223,7 @@ export function LoveButton({
         Love this
       </Button>
       <p className="text-sm text-sub">
-        {heartLine(shown, own, loved)}
+        {heartLine(shown, own, loved, uncounted)}
         {readersLine ? ` · ${readersLine}` : null}
       </p>
       <p role="status" className="sr-only">
