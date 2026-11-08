@@ -13,6 +13,8 @@ const h = vi.hoisted(() => ({
   extras: { quiz: null, tryTool: null } as StoryExtras,
   extrasCalls: [] as number[],
   guess: { guess: null, tryAction: null } as StoryGuessExtras,
+  totals: { views: 0, visitors: 0, readers: 0, loves: 0, shares: 0, retros: 0, tools: 0 },
+  totalsMap: new Map<number, { loves: number }>(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -23,6 +25,8 @@ vi.mock("@/lib/comics/store", () => ({
     return h.extras;
   },
   getStoryGuess: async () => h.guess,
+  getStoryTotals: async () => h.totals,
+  listStoryTotals: async () => h.totalsMap,
   listReleasedWeekly: async (limit?: number) => (limit ? h.summaries.slice(0, limit) : h.summaries),
   listReleasedEps: async () => {
     if (h.listThrows) throw new Error("down");
@@ -105,6 +109,8 @@ beforeEach(() => {
   h.extras = { quiz: null, tryTool: null };
   h.extrasCalls = [];
   h.guess = { guess: null, tryAction: null };
+  h.totals = { views: 0, visitors: 0, readers: 0, loves: 0, shares: 0, retros: 0, tools: 0 };
+  h.totalsMap = new Map();
   localStorage.clear();
   window.history.replaceState(null, "", "/comics");
   vi.stubGlobal("sendBeacon", undefined);
@@ -433,7 +439,17 @@ describe("the story reader", () => {
     expect(screen.getByRole("link", { name: "Read the licence" }).getAttribute("href")).toBe(
       "/comics/license"
     );
-    expect(screen.getByText(/one anonymous count when you arrive/)).toBeTruthy();
+    // A weekly story counts its reading too, and says so.
+    expect(screen.getByText(/anonymous counts: that you arrived/)).toBeTruthy();
+    expect(screen.queryByText(/one anonymous count when you arrive/)).toBeNull();
+  });
+
+  it("puts a heart with the readers' count under the panels", async () => {
+    h.totals = { ...h.totals, loves: 24 };
+    render(await ComicStoryPage(params(30)));
+    const heart = screen.getByRole("button", { name: "Love this" });
+    expect(heart.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("24 readers love this")).toBeTruthy();
   });
 
   it("names the licence and credit in structured data, using the small files", async () => {
@@ -730,6 +746,25 @@ describe("the gallery", () => {
     expect(cards[0]).toContain("Handover story");
     expect(cards[1]).toContain("Forecast story");
     expect(cards).toHaveLength(2);
+  });
+
+  it("shows readers' favourites once a story has five loves", async () => {
+    h.totalsMap = new Map([
+      [29, { loves: 12 }],
+      [28, { loves: 3 }],
+    ]);
+    render(await ComicsPage());
+    const favourites = screen.getByRole("region", { name: "Readers' favourites" });
+    const cards = within(favourites).getAllByRole("listitem");
+    expect(cards).toHaveLength(1);
+    expect(cards[0].textContent).toContain("Handover story");
+    expect(cards[0].textContent).toContain("Loved by 12 readers");
+  });
+
+  it("leaves favourites out until a story has enough loves", async () => {
+    h.totalsMap = new Map([[29, { loves: 4 }]]);
+    render(await ComicsPage());
+    expect(screen.queryByRole("region", { name: "Readers' favourites" })).toBeNull();
   });
 
   it("loads card images lazily and small", async () => {
