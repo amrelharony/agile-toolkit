@@ -228,6 +228,9 @@ export function RetroCardItem({
               type="button"
               onClick={edit.start}
               aria-label="Edit card"
+              // The ghost Button's sound and haptic tick, which it had as an IconButton.
+              data-variant="ghost"
+              data-haptic="tick"
               className={`relative z-10 ${CARD_ICON_TOUCH} h-6 w-6 p-1 rounded-md text-sub transition-colors active-press hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100`}
             >
               <Pencil className="w-3.5 h-3.5" aria-hidden="true" />

@@ -110,6 +110,9 @@ describe("Retro card controls: touch sizing", () => {
     const edit = screen.getByRole("button", { name: "Edit card" });
     expectTouchSized(edit);
     expect(edit).toHaveClass("h-6", "w-6", "relative", "z-10");
+    // Still sounds and ticks like the ghost Button it was (sonification + haptics routers).
+    expect(edit).toHaveAttribute("data-variant", "ghost");
+    expect(edit).toHaveAttribute("data-haptic", "tick");
     expectTouchSized(screen.getByRole("button", { name: /vote for this card/ }));
 
     fireEvent.click(edit);
