@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link2, Copy, Check, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,8 +14,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 import { nanoid } from "nanoid";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
+import { signalGamification } from "@/lib/gamification/signal";
 
 interface InviteDialogProps {
   toolName: string;
@@ -26,20 +28,12 @@ interface InviteDialogProps {
 export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: InviteDialogProps) {
   const [roomId, setRoomId] = useState(currentRoomId ?? "");
   const [url, setUrl] = useState("");
-  const [copied, setCopied] = useState(false);
+  const { flash, isFlashing } = useFlash();
+  const copied = isFlashing();
   const [available, setAvailable] = useState(false);
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setAvailable(isRealtimeAvailable());
-  }, []);
-
-  // Clear any pending "Copied!" reset timer on unmount so we don't
-  // setState on an unmounted component (dev warning + tiny mem leak).
-  useEffect(() => {
-    return () => {
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-    };
   }, []);
 
   useEffect(() => {
@@ -61,6 +55,7 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
     const fresh = nanoid(10);
     setRoomId(fresh);
     onRoomIdChange?.(fresh);
+    signalGamification("invite-created");
     if (typeof window !== "undefined") {
       const u = new URL(window.location.href);
       u.searchParams.set("room", fresh);
@@ -71,12 +66,8 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
   const handleCopy = async () => {
     if (!url) return;
     const ok = await copyToClipboard(url);
-    if (ok) {
-      setCopied(true);
-      toast.success("Invite link copied");
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
-    }
+    if (ok) flash("Invite link copied");
+    else toast.error("Couldn't copy the link. Select it and copy it by hand.");
   };
 
   return (
@@ -117,7 +108,9 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
             {roomId && (
               <>
                 <div className="space-y-1.5">
-                  <label htmlFor="invite-room-id" className="text-xs text-sub">Room ID</label>
+                  <label htmlFor="invite-room-id" className="text-xs text-sub">
+                    Room ID
+                  </label>
                   <Input
                     id="invite-room-id"
                     value={roomId}
@@ -126,7 +119,9 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="invite-link" className="text-xs text-sub">Invite link</label>
+                  <label htmlFor="invite-link" className="text-xs text-sub">
+                    Invite link
+                  </label>
                   <div className="flex gap-2">
                     <Input
                       id="invite-link"
@@ -139,7 +134,11 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
                       onClick={handleCopy}
                       className="gap-1.5 border-border hover:border-accent/30"
                     >
-                      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copied ? (
+                        <Check className="w-3.5 h-3.5" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
                       {copied ? "Copied" : "Copy"}
                     </Button>
                   </div>

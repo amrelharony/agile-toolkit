@@ -41,6 +41,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
       theme={theme}
       className="toaster group"
       toastOptions={{
+        // The close button is shown per toast (lib/notify/policy.ts); on touch
+        // screens globals.css gives it a 44 px hit area.
+        closeButtonAriaLabel: "Dismiss",
         classNames: {
           toast:
             "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",

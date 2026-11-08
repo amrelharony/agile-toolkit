@@ -17,6 +17,11 @@ export interface Achievement {
   xp: number;
   icon: string; // lucide icon name
   hidden?: boolean; // show as ??? until unlocked
+  /**
+   * No longer awarded: never evaluated and left out of the x/y totals. A
+   * user who already holds it keeps it (and its XP) under "Classic badges".
+   */
+  retired?: true;
   /** When unlocked: the event name that triggered it (for provenance). */
   unlocks?: string[];
 }
@@ -62,6 +67,11 @@ export interface ChallengeDef {
   trigger: string;
   /** Optional meta predicate (e.g., only count for a specific toolId). */
   match?: (meta?: Record<string, unknown>) => boolean;
+  /**
+   * Count each distinct value once (e.g. one tick per tool). Events whose
+   * value is missing don't count. The values seen are kept on the progress.
+   */
+  distinctBy?: (meta?: Record<string, unknown>) => string | undefined;
 }
 
 export type ChallengeKind = "daily" | "weekly";
@@ -75,6 +85,8 @@ export interface ChallengeProgress {
   completed: boolean;
   completedAt?: string;
   seedDate: string; // YYYY-MM-DD for dailies, YYYY-WW for weeklies
+  /** Values already counted by a `distinctBy` challenge. */
+  seen?: string[];
 }
 
 /** Outcome XP earned on one local day, for the daily caps. */
@@ -118,8 +130,6 @@ export interface VDna {
   recentEvents: XpEvent[];
   /** Opt-in for leaderboard sync. */
   shareOnLeaderboard: boolean;
-  /** Muted UI (disable level-up toasts etc.). */
-  silentMode: boolean;
   /** Counters (generic, used by achievement rules). */
   counters: Record<string, number>;
   /** Today's outcome XP, for the daily caps (schema v1). */
