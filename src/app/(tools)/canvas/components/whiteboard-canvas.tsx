@@ -1537,8 +1537,12 @@ export function WhiteboardCanvas({
       <EmptyCanvasHint objectCount={objects.length} />
 
       {/* First-visit touch tips, inside the board (was a bottom toast
-          over the tool rail and Amr). */}
-      <CanvasTouchTips enabled={inputClass.isCoarse} readOnly={readOnly} />
+          over the tool rail and Amr). They wait for the board's first
+          object: an empty board shows the "Start your board" card
+          (canvas-client), which sits in the tips' band on a phone or a
+          short landscape board, and its hint (EmptyCanvasHint) already
+          gives the pinch and two-finger pan. Back to empty, they go. */}
+      {objects.length > 0 && <CanvasTouchTips enabled={inputClass.isCoarse} readOnly={readOnly} />}
     </div>
   );
 }
