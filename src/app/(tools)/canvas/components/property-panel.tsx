@@ -26,7 +26,7 @@
  *   embed     → (read-only)
  */
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bold,
   AlignLeft,
@@ -65,6 +65,10 @@ interface PropertyPanelProps {
   selectionBbox: Rect;
   camera: Camera;
   viewportHeight: number;
+  /** Stage width in px. When given, the bar is kept inside the stage
+   * (the stage clips overflow, so a bar centred on an object near an
+   * edge lost its ends). */
+  viewportWidth?: number;
   /** Patch the styles of one or more objects. Caller bumps version +
    * upserts. Each entry is a partial of the object that's merged on top
    * of the existing one. */
@@ -118,6 +122,60 @@ const BAR_SPACE_COARSE = 84;
 /** Room the bar needs below the selection on touch (no handle there). */
 const BAR_BELOW_COARSE = 58;
 
+/** Gap kept between the bar and the stage's left / right edge, in px.
+ * Matches the bar's `calc(100%-1rem)` width cap. */
+export const BAR_EDGE_MARGIN = 8;
+
+/**
+ * Horizontal centre for the bar: the selection's centre, moved just far
+ * enough that the whole bar stays inside the stage with `margin` to
+ * spare. A bar too wide for that is centred on the stage (its width cap
+ * keeps it inside). Without a measured width or stage it returns the
+ * centre unchanged.
+ */
+export function clampBarCenterX(
+  centerX: number,
+  barWidth: number,
+  stageWidth: number,
+  margin = BAR_EDGE_MARGIN
+): number {
+  if (!(barWidth > 0) || !(stageWidth > 0)) return centerX;
+  const min = margin + barWidth / 2;
+  const max = stageWidth - margin - barWidth / 2;
+  if (min >= max) return stageWidth / 2;
+  return Math.min(max, Math.max(min, centerX));
+}
+
+/**
+ * Touch size for the bar's small buttons: 44 px on coarse pointers, the
+ * dense desktop size unchanged. (Utilities, so they also beat a button's
+ * own `min-w-[…]`.)
+ */
+const TOUCH = "pointer-coarse:min-h-11 pointer-coarse:min-w-11";
+
+/** Live offsetWidth of an element: read on attach and on every resize
+ * (a new selection type or tag count changes the bar's controls). */
+function useElementWidth(): [(el: HTMLElement | null) => void, number] {
+  const [width, setWidth] = useState(0);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const attach = useCallback((el: HTMLElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!el) return;
+    const read = () => {
+      const w = el.offsetWidth;
+      setWidth((prev) => (prev === w ? prev : w));
+    };
+    read();
+    if (typeof ResizeObserver !== "undefined") {
+      observerRef.current = new ResizeObserver(read);
+      observerRef.current.observe(el);
+    }
+  }, []);
+  useEffect(() => () => observerRef.current?.disconnect(), []);
+  return [attach, width];
+}
+
 /** Project a world rect to the screen-anchor point for the panel. */
 function anchorScreenY(
   bbox: Rect,
@@ -142,16 +200,20 @@ function PropertyPanelImpl({
   selectionBbox,
   camera,
   viewportHeight,
+  viewportWidth = 0,
   onPatch,
   onOpenCardDetail,
   objectActions,
   isCoarse = false,
 }: PropertyPanelProps) {
+  const [barRef, barWidth] = useElementWidth();
   if (selection.length === 0) return null;
 
-  // Project to screen position.
-  const screenLeft =
+  // Project to screen position: centred over the selection, kept inside
+  // the stage so neither end is clipped.
+  const selectionCenterX =
     (selectionBbox.x - camera.x) * camera.zoom + (selectionBbox.w * camera.zoom) / 2;
+  const screenLeft = clampBarCenterX(selectionCenterX, barWidth, viewportWidth);
   const { top: screenTop } = anchorScreenY(selectionBbox, camera, viewportHeight, isCoarse);
 
   // Compute which control sets to show based on type uniformity.
@@ -188,6 +250,7 @@ function PropertyPanelImpl({
 
   return (
     <div
+      ref={barRef}
       role="toolbar"
       aria-label="Object properties"
       data-canvas-export-ignore="true"
@@ -200,28 +263,26 @@ function PropertyPanelImpl({
       }}
       // Single-row scrollable: was `flex-wrap max-w-[680px]` which split
       // a busy selection onto two rows + reserved the orphaned tag chip
-      // at the bottom-left. Now: `flex-nowrap max-w-[min(95vw,640px)]
-      // overflow-x-auto` keeps everything on one row and scrolls
-      // horizontally when content overflows, with a hidden scrollbar
-      // for the sleek look. Padding tightened: gap-1 → gap-0.5,
-      // px-2 py-1 → px-1.5 py-0.5.
-      className="flex items-center gap-0.5 bg-surface/95 border border-border rounded-lg px-1.5 py-0.5 shadow-lg backdrop-blur-sm flex-nowrap max-w-[min(95vw,640px)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      // at the bottom-left. Now: `flex-nowrap overflow-x-auto` keeps
+      // everything on one row and scrolls horizontally when content
+      // overflows, with a hidden scrollbar for the sleek look. Padding
+      // tightened: gap-1 → gap-0.5, px-2 py-1 → px-1.5 py-0.5.
+      // Width: its content (`w-max`, so a bar near the stage edge never
+      // shrink-wraps), capped at 640 px and at the STAGE width less 8 px
+      // a side — the old `95vw` cap was wider than a phone's stage,
+      // which clips it. `left` is clamped to match (clampBarCenterX).
+      className="flex w-max items-center gap-0.5 bg-surface/95 border border-border rounded-lg px-1.5 py-0.5 shadow-lg backdrop-blur-sm flex-nowrap max-w-[min(calc(100%-1rem),640px)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {/* ─── Sticky color (palette swatches) ─────────────────── */}
       {stickies.length > 0 && (
         <div className="flex items-center gap-0.5 shrink-0" role="group" aria-label="Sticky color">
           {STICKY_COLORS.map((c) => (
-            <button
+            <Swatch
               key={c}
-              type="button"
-              aria-label={`Set color ${c}`}
+              label={`Set color ${c}`}
               title={`Sticky color: ${c}`}
+              background={c}
               onClick={() => patchAll(stickies, { color: c } as Partial<WhiteboardSticky>)}
-              // 16 → 14 px swatches, full circles (was rounded-sm),
-              // hover ring instead of scale so adjacent swatches
-              // don't jitter when the user moves between them.
-              className="w-3.5 h-3.5 rounded-full border border-black/20 hover:ring-2 hover:ring-accent/50 transition-shadow"
-              style={{ background: c }}
             />
           ))}
           <div className="w-px h-4 bg-border/70 mx-1.5" />
@@ -292,7 +353,7 @@ function PropertyPanelImpl({
                   if (freehands.length > 0)
                     patchAll(freehands, { strokeWidth: w } as Partial<WhiteboardFreehand>);
                 }}
-                className={`w-6 h-6 rounded flex items-center justify-center transition-colors ${
+                className={`${TOUCH} w-6 h-6 rounded flex items-center justify-center transition-colors ${
                   active
                     ? "bg-accent/20 text-accent"
                     : "text-sub hover:text-text hover:bg-surface-deep"
@@ -345,7 +406,7 @@ function PropertyPanelImpl({
                   });
                 onPatch(entries);
               }}
-              className={`w-6 h-6 rounded flex items-center justify-center shrink-0 transition-colors ${
+              className={`${TOUCH} w-6 h-6 rounded flex items-center justify-center shrink-0 transition-colors ${
                 allDashed
                   ? "bg-accent/20 text-accent"
                   : "text-sub hover:text-text hover:bg-surface-deep"
@@ -368,7 +429,7 @@ function PropertyPanelImpl({
               aria-pressed={connectors.every((c) => c.routing === r)}
               title={r}
               onClick={() => patchAll(connectors, { routing: r } as Partial<WhiteboardConnector>)}
-              className="text-xs uppercase font-mono px-1.5 py-1 rounded text-sub hover:text-text hover:bg-surface-deep"
+              className={`${TOUCH} text-xs uppercase font-mono px-1.5 py-1 rounded text-sub hover:text-text hover:bg-surface-deep`}
             >
               {r[0]}
             </button>
@@ -391,7 +452,7 @@ function PropertyPanelImpl({
                 }))
               );
             }}
-            className="w-6 h-6 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep"
+            className={`${TOUCH} w-6 h-6 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep`}
           >
             <MoveLeft className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
@@ -408,7 +469,7 @@ function PropertyPanelImpl({
                 }))
               );
             }}
-            className="w-6 h-6 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep"
+            className={`${TOUCH} w-6 h-6 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep`}
           >
             <MoveRight className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
@@ -455,7 +516,7 @@ function PropertyPanelImpl({
                     patchAll(stickies, { fontSize: s } as Partial<WhiteboardSticky>);
                   if (texts.length > 0) patchAll(texts, { fontSize: s } as Partial<WhiteboardText>);
                 }}
-                className={`min-w-[22px] h-6 px-1 rounded text-xs font-mono transition-colors ${
+                className={`${TOUCH} min-w-[22px] h-6 px-1 rounded text-xs font-mono transition-colors ${
                   active
                     ? "bg-accent/20 text-accent"
                     : "text-sub hover:text-text hover:bg-surface-deep"
@@ -491,7 +552,7 @@ function PropertyPanelImpl({
                   if (texts.length > 0)
                     patchAll(texts, { fontFamily: f.value } as Partial<WhiteboardText>);
                 }}
-                className={`h-6 px-1.5 rounded text-xs transition-colors ${
+                className={`${TOUCH} h-6 px-1.5 rounded text-xs transition-colors ${
                   active
                     ? "bg-accent/20 text-accent"
                     : "text-sub hover:text-text hover:bg-surface-deep"
@@ -526,7 +587,7 @@ function PropertyPanelImpl({
                 }))
               );
             }}
-            className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className={`${TOUCH} w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors`}
           >
             <Bold className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
@@ -536,7 +597,7 @@ function PropertyPanelImpl({
             aria-pressed={texts.every((t) => (t.align ?? "left") === "left")}
             title="Align left"
             onClick={() => patchAll(texts, { align: "left" } as Partial<WhiteboardText>)}
-            className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className={`${TOUCH} w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors`}
           >
             <AlignLeft className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
@@ -546,7 +607,7 @@ function PropertyPanelImpl({
             aria-pressed={texts.every((t) => (t.align ?? "left") === "center")}
             title="Align center"
             onClick={() => patchAll(texts, { align: "center" } as Partial<WhiteboardText>)}
-            className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className={`${TOUCH} w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors`}
           >
             <AlignCenter className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
@@ -556,7 +617,7 @@ function PropertyPanelImpl({
             aria-pressed={texts.every((t) => (t.align ?? "left") === "right")}
             title="Align right"
             onClick={() => patchAll(texts, { align: "right" } as Partial<WhiteboardText>)}
-            className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className={`${TOUCH} w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors`}
           >
             <AlignRight className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
@@ -589,7 +650,7 @@ function PropertyPanelImpl({
           type="button"
           onClick={() => onOpenCardDetail(cards[0].id)}
           title="Open full card details (Cmd+E)"
-          className="text-xs uppercase font-mono px-2 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors"
+          className={`${TOUCH} text-xs uppercase font-mono px-2 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors`}
         >
           Details
         </button>
@@ -612,7 +673,7 @@ function PropertyPanelImpl({
                   startedAt: undefined,
                 } as Partial<WhiteboardTimer>)
               }
-              className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+              className={`${TOUCH} px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors`}
             >
               {Math.round(sec / 60)}m
             </button>
@@ -635,7 +696,7 @@ function PropertyPanelImpl({
                 revealed: false,
               } as Partial<WhiteboardVoting>)
             }
-            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className={`${TOUCH} px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors`}
           >
             Fib
           </button>
@@ -650,7 +711,7 @@ function PropertyPanelImpl({
                 revealed: false,
               } as Partial<WhiteboardVoting>)
             }
-            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className={`${TOUCH} px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors`}
           >
             T-shirt
           </button>
@@ -665,7 +726,7 @@ function PropertyPanelImpl({
                 revealed: false,
               } as Partial<WhiteboardVoting>)
             }
-            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className={`${TOUCH} px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors`}
           >
             Dots
           </button>
@@ -686,7 +747,7 @@ function PropertyPanelImpl({
                 columnLabels: ["To do", "In progress", "Done"],
               } as Partial<WhiteboardKanbanFrame>)
             }
-            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className={`${TOUCH} px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors`}
           >
             3
           </button>
@@ -700,7 +761,7 @@ function PropertyPanelImpl({
                 columnLabels: ["Backlog", "To do", "In progress", "Done"],
               } as Partial<WhiteboardKanbanFrame>)
             }
-            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className={`${TOUCH} px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors`}
           >
             4
           </button>
@@ -714,7 +775,7 @@ function PropertyPanelImpl({
                 columnLabels: ["Backlog", "To do", "In progress", "Review", "Done"],
               } as Partial<WhiteboardKanbanFrame>)
             }
-            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className={`${TOUCH} px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors`}
           >
             5
           </button>
@@ -886,7 +947,7 @@ function TagsEditor({
         aria-haspopup="dialog"
         title="Tags"
         onClick={() => setOpen((v) => !v)}
-        className={`w-7 h-7 rounded flex items-center justify-center transition-colors ${
+        className={`${TOUCH} w-7 h-7 rounded flex items-center justify-center transition-colors ${
           tags.length > 0 || open
             ? "text-accent bg-accent/10"
             : "text-sub hover:text-text hover:bg-surface-deep"
@@ -962,7 +1023,7 @@ function TagsEditor({
             <button
               type="submit"
               disabled={!input.trim()}
-              className="text-xs uppercase font-mono text-sub hover:text-accent px-2 py-1 disabled:opacity-30"
+              className={`${TOUCH} text-xs uppercase font-mono text-sub hover:text-accent px-2 py-1 disabled:opacity-30`}
             >
               Add
             </button>
@@ -997,23 +1058,57 @@ function PaletteRow({
   return (
     <div className="flex items-center gap-0.5" role="group" aria-label={label} title={label}>
       {colors.map((c) => (
-        <button
+        <Swatch
           key={c}
-          type="button"
-          aria-label={`${label} ${c}`}
+          label={`${label} ${c}`}
           title={`${label}: ${c}`}
+          background={
+            c === "transparent"
+              ? "repeating-conic-gradient(#374151 0% 25%, transparent 0% 50%) 50% / 6px 6px"
+              : c
+          }
           onClick={() => onPick(c)}
-          className="w-3.5 h-3.5 rounded-full border border-black/20 hover:ring-2 hover:ring-accent/50 transition-shadow"
-          style={{
-            background:
-              c === "transparent"
-                ? "repeating-conic-gradient(#374151 0% 25%, transparent 0% 50%) 50% / 6px 6px"
-                : c,
-          }}
         />
       ))}
       <div className="w-px h-4 bg-border/70 mx-1.5" />
     </div>
+  );
+}
+
+/**
+ * One colour swatch. The visible dot is 14 px with a mouse (full
+ * circles, a hover ring instead of scale so neighbours don't jitter);
+ * on touch the button grows to a 44 px target around a 20 px dot, so a
+ * fingertip doesn't land on the next colour 2 px away. The bar scrolls
+ * sideways, so it can take the extra width.
+ */
+function Swatch({
+  label,
+  title,
+  background,
+  onClick,
+}: {
+  label: string;
+  title: string;
+  background: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={title}
+      onClick={onClick}
+      // Named group: a plain `group` would also light up from any
+      // ancestor `.group` being hovered.
+      className="group/swatch flex shrink-0 items-center justify-center rounded-full pointer-coarse:h-11 pointer-coarse:w-11"
+    >
+      <span
+        aria-hidden="true"
+        className="block w-3.5 h-3.5 rounded-full border border-black/20 transition-shadow group-hover/swatch:ring-2 group-hover/swatch:ring-accent/50 pointer-coarse:w-5 pointer-coarse:h-5"
+        style={{ background }}
+      />
+    </button>
   );
 }
 

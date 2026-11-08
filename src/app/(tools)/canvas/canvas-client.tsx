@@ -957,15 +957,18 @@ export function CanvasClient() {
             Pick or create a board to start.
           </div>
         )}
-        {!readOnly && <ToolbarLeft />}
+        {!readOnly && <ToolbarLeft clearBoardBar />}
         {!readOnly && <ToolbarTop />}
         {!readOnly && <TagFilterRow objects={objects} />}
         {/* Voice input button — pinned to top-right next to ZoomControls
             so it stays one click away during retros / standups.
-            Phase 33. */}
+            Phase 33. Below `sm` it lines up with the board toolbar
+            (top-2), which stops short of it there. It keeps this one
+            place in the tree at every width: a remount (rotating a
+            phone across a breakpoint) would abort a dictation. */}
         {!readOnly && activeBoardId && (
           <div
-            className="absolute top-3 right-3 z-20 bg-surface/95 border border-border rounded-lg p-0.5 shadow-md backdrop-blur-sm"
+            className="absolute top-2 right-2 sm:top-3 sm:right-3 z-20 bg-surface/95 border border-border rounded-lg p-0.5 shadow-md backdrop-blur-sm"
             data-canvas-export-ignore="true"
           >
             <VoiceInputButton boardId={activeBoardId} worldCenter={voiceWorldCenter} />
