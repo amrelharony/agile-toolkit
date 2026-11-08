@@ -349,11 +349,13 @@ export function getOutcome(id: string): OutcomeDef | undefined {
 }
 
 /**
- * Outcomes that are not finished work: a first visit to a tool and a found
- * secret still pay XP, but don't count toward the outcome badges and
- * challenges ("first win", "busy day", "outcomes in 5 tools"...).
+ * Outcomes that are not finished work: a first visit to a tool, a found
+ * secret and a kudos someone else sent (it arrives on its own, at any hour)
+ * still pay XP, but don't count toward the outcome badges and challenges
+ * ("first win", "busy day", "night owl", "outcomes in 5 tools"...). A
+ * received kudos still counts toward "Thankful Week" (engine.ts).
  */
-export const NON_WORK_OUTCOMES: readonly OutcomeId[] = ["first-tool", "secret"];
+export const NON_WORK_OUTCOMES: readonly OutcomeId[] = ["first-tool", "secret", "kudos-received"];
 
 /** True for an outcome that counts as finished work. */
 export function isWorkOutcome(id: string): boolean {

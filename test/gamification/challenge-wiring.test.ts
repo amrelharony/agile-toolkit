@@ -135,11 +135,14 @@ describe("engine triggers", () => {
     expect(weeklyById("w-streak-7")?.progress).toBe(1);
   });
 
-  it("raw input no longer counts as activity for w-streak-7", () => {
+  it("any interaction counts as the day's activity for w-streak-7, once", () => {
     setWeekly("w-streak-7");
     dispatch({ name: "click" });
     dispatch({ name: "hover" });
-    expect(weeklyById("w-streak-7")?.progress).toBe(0);
+    dispatch({ name: "tool-visit", meta: { toolId: "kanban" } });
+    expect(weeklyById("w-streak-7")?.progress).toBe(1);
+    // Raw input still moves no counter.
+    expect(useVDnaStore.getState().counters.click).toBeUndefined();
   });
 
   it("achievement-unlocked advances w-achievements-5 per unlock", () => {

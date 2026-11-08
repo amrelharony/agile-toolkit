@@ -42,6 +42,9 @@ beforeEach(() => {
     level: 1,
     prestige: 0,
     toolsVisited: [],
+    streak: 0,
+    longestStreak: 0,
+    lastActiveDate: "",
     dailyChallenges: [],
     weeklyChallenges: [],
     recentEvents: [],
@@ -235,6 +238,37 @@ describe("time-of-day badges read finished work", () => {
     at(2026, 9, 15, 0, 0);
     cardDone();
     expect(unlocked()).toContain("midnight-commit");
+  });
+});
+
+describe("a received kudos isn't finished work", () => {
+  it("unlocks no time-of-day, Focus or first-win badge, at 02:00 in Focus", () => {
+    at(2026, 9, 14, 2, 0);
+    useNotificationPrefsStore.getState().startFocus(30 * 60_000, Date.now());
+    recordOutcome("kudos-received", { key: "kudos-in:night" });
+    const s = useVDnaStore.getState();
+    for (const id of ["night-owl", "deep-focus", "first-win", "midnight-commit"]) {
+      expect(s.unlocked, id).not.toContain(id);
+    }
+    expect(s.counters["outcomes-total"] ?? 0).toBe(0);
+    expect(s.counters["outcome-tools"] ?? 0).toBe(0);
+    // It still marks the day for Thankful Week.
+    expect(s.counters["kudos-week-days"]).toBe(1);
+  });
+});
+
+describe("the day streak", () => {
+  it("ticks on any interaction, a home-page click included", () => {
+    at(2026, 9, 14);
+    cardDone();
+    expect(useVDnaStore.getState().streak).toBe(1);
+    at(2026, 9, 15, 9);
+    dispatch({ name: "click" });
+    expect(useVDnaStore.getState().streak).toBe(2);
+    expect(useVDnaStore.getState().lastActiveDate).not.toBe("");
+    dispatch({ name: "hover" }); // same day: no second tick
+    expect(useVDnaStore.getState().streak).toBe(2);
+    expect(useVDnaStore.getState().counters.click).toBeUndefined();
   });
 });
 

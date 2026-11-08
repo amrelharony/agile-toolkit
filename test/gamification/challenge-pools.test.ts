@@ -227,6 +227,8 @@ describe("a stored list from the old pool", () => {
 
   it("swaps d-click-10 out on the next relevant event, and a click changes nothing", () => {
     const today = todaySeedKey();
+    // Already active today: the click doesn't even tick the day streak.
+    useVDnaStore.setState({ lastActiveDate: today });
     const stored = [
       { ...progress("d-click-10", "daily", { goal: 10, progress: 6 }), seedDate: today },
       { ...progress("d-poker", "daily", { goal: 1, xp: 60 }), seedDate: today },

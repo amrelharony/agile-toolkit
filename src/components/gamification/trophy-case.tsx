@@ -23,9 +23,20 @@ import {
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { computeLevel } from "@/lib/gamification/xp-curve";
 import { prestige } from "@/lib/gamification/engine";
-import { DAILY_POOL, WEEKLY_POOL, findDaily, findWeekly } from "@/lib/gamification/challenges";
+import {
+  DAILY_POOL,
+  WEEKLY_POOL,
+  findDaily,
+  findWeekly,
+  sanitizeChallenges,
+} from "@/lib/gamification/challenges";
 import { fetchLeaderboard, type LeaderboardRow } from "@/lib/gamification/supabase-sync";
-import type { Achievement, AchievementCategory } from "@/lib/gamification/types";
+import type {
+  Achievement,
+  AchievementCategory,
+  ChallengeDef,
+  ChallengeProgress,
+} from "@/lib/gamification/types";
 import { cn } from "@/lib/utils";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
@@ -65,6 +76,16 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
   // sharing to it and reading it are owner-only. Visitors keep their
   // profile in this browser.
   const isOwner = useIsOwner();
+  // Show the lists the engine will store: ids that left the pool dropped
+  // (completed ones kept) and topped up to 3 from the same seed.
+  const dailyChallenges = useMemo(
+    () => sanitizeChallenges(dna.dailyChallenges, "daily"),
+    [dna.dailyChallenges]
+  );
+  const weeklyChallenges = useMemo(
+    () => sanitizeChallenges(dna.weeklyChallenges, "weekly"),
+    [dna.weeklyChallenges]
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -275,38 +296,10 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
             <div>
               <div className="text-xs uppercase tracking-wider text-sub mb-2">Daily</div>
               <div className="space-y-2">
-                {dna.dailyChallenges.map((c) => {
-                  const def = findDaily(c.id);
-                  if (!def) return null;
-                  return (
-                    <div
-                      key={c.id}
-                      className={cn(
-                        "rounded-lg border p-3",
-                        c.completed ? "border-accent/40 bg-accent/5" : "border-border bg-surface"
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="text-sm font-semibold text-text">{def.title}</span>
-                        <Badge variant="outline" className="font-data">
-                          +{c.xp} XP
-                        </Badge>
-                      </div>
-                      <div className="text-xs text-sub mb-2">{def.description}</div>
-                      <div className="flex items-center gap-2">
-                        <Progress
-                          value={(c.progress / c.goal) * 100}
-                          aria-label={`${def.title} progress`}
-                          className="h-1.5 flex-1"
-                        />
-                        <span className="text-xs font-data text-text">
-                          {c.progress} / {c.goal}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-                {dna.dailyChallenges.length === 0 && (
+                {dailyChallenges.map((c) => (
+                  <ChallengeCard key={c.id} c={c} def={findDaily(c.id)} />
+                ))}
+                {dailyChallenges.length === 0 && (
                   <div className="text-sm text-sub">
                     No challenges yet. Interact with any tool to generate today&apos;s set.
                   </div>
@@ -316,37 +309,9 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
             <div>
               <div className="text-xs uppercase tracking-wider text-sub mb-2">Weekly</div>
               <div className="space-y-2">
-                {dna.weeklyChallenges.map((c) => {
-                  const def = findWeekly(c.id);
-                  if (!def) return null;
-                  return (
-                    <div
-                      key={c.id}
-                      className={cn(
-                        "rounded-lg border p-3",
-                        c.completed ? "border-accent/40 bg-accent/5" : "border-border bg-surface"
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="text-sm font-semibold text-text">{def.title}</span>
-                        <Badge variant="outline" className="font-data">
-                          +{c.xp} XP
-                        </Badge>
-                      </div>
-                      <div className="text-xs text-sub mb-2">{def.description}</div>
-                      <div className="flex items-center gap-2">
-                        <Progress
-                          value={(c.progress / c.goal) * 100}
-                          aria-label={`${def.title} progress`}
-                          className="h-1.5 flex-1"
-                        />
-                        <span className="text-xs font-data text-text">
-                          {c.progress} / {c.goal}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
+                {weeklyChallenges.map((c) => (
+                  <ChallengeCard key={c.id} c={c} def={findWeekly(c.id)} />
+                ))}
               </div>
             </div>
             <div className="text-xs text-sub">
@@ -511,6 +476,42 @@ function AchievementCard({
         {hidden ? "Hidden achievement" : a.description}
       </div>
       <div className="text-xs mt-1 font-data text-accent">+{a.xp} XP</div>
+    </div>
+  );
+}
+
+/**
+ * One challenge row. A completed challenge whose id has left the pool has no
+ * definition any more; it still counts toward daily-three / weekly-sweep, so
+ * it shows as a plain "Completed" card from its stored progress.
+ */
+function ChallengeCard({ c, def }: { c: ChallengeProgress; def: ChallengeDef | undefined }) {
+  const title = def?.title ?? "Completed challenge";
+  const description = def?.description ?? "This challenge has left the rotation.";
+  return (
+    <div
+      className={cn(
+        "rounded-lg border p-3",
+        c.completed ? "border-accent/40 bg-accent/5" : "border-border bg-surface"
+      )}
+    >
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span className="text-sm font-semibold text-text">{title}</span>
+        <Badge variant="outline" className="font-data">
+          +{c.xp} XP
+        </Badge>
+      </div>
+      <div className="text-xs text-sub mb-2">{description}</div>
+      <div className="flex items-center gap-2">
+        <Progress
+          value={c.goal > 0 ? (c.progress / c.goal) * 100 : 100}
+          aria-label={`${title} progress`}
+          className="h-1.5 flex-1"
+        />
+        <span className="text-xs font-data text-text">
+          {c.progress} / {c.goal}
+        </span>
+      </div>
     </div>
   );
 }

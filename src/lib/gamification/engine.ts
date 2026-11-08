@@ -274,7 +274,7 @@ function markDay(
  *   - `outcome-day-count` for the current local day (`outcome-day`);
  *   - `outcome-week-days` and `outcome-week-streak` (weeks in a row);
  *   - `outcome-tool:<toolId>` markers and their count `outcome-tools`;
- *   - `kudos-week-days` for kudos sent or received;
+ *   - `kudos-week-days` for kudos sent (received ones: recordKudosDay);
  *   - `outcome-focus` for outcomes finished during Focus time.
  */
 function recordOutcomeStats(outcomeId: string, toolId: string | undefined) {
@@ -301,10 +301,25 @@ function recordOutcomeStats(outcomeId: string, toolId: string | undefined) {
       c[`outcome-tool:${toolId}`] = 1;
       c["outcome-tools"] = (c["outcome-tools"] ?? 0) + 1;
     }
-    if (outcomeId === "kudos-sent" || outcomeId === "kudos-received") {
-      markDay(c, "kudos", today, week);
-    }
+    if (outcomeId === "kudos-sent") markDay(c, "kudos", today, week);
     if (focus) c["outcome-focus"] = (c["outcome-focus"] ?? 0) + 1;
+    return { counters: c };
+  });
+}
+
+/**
+ * A received kudos isn't finished work (it lands whenever a teammate sends
+ * it), so it skips recordOutcomeStats; it only marks the day for "Thankful
+ * Week" (kudos sent or received on 3 days of one week).
+ */
+function recordKudosDay() {
+  const now = new Date();
+  const today = localDayOrdinal(now);
+  const week = localWeekOrdinal(now);
+  useVDnaStore.setState((s) => {
+    if (s.counters["kudos-day"] === today) return {};
+    const c: Record<string, number> = { ...s.counters };
+    markDay(c, "kudos", today, week);
     return { counters: c };
   });
 }
@@ -555,11 +570,25 @@ function evaluateAchievements(eventName: string, meta: Record<string, unknown> |
 export function dispatch(event: GamificationEvent) {
   if (typeof window === "undefined") return;
   const name = event.name;
-  if (!isRelevantEvent(name)) return;
   // persist writes on every setState, hydrated or not. Until the profile is
   // read from storage (a bare /guest route mounts no GamificationProvider),
   // a counter bump would save the empty in-memory profile over it.
   if (!useVDnaStore.persist.hasHydrated()) return;
+  // The day streak ticks on any interaction, a click on the home page
+  // included: it returns at once when today is already counted, so it costs
+  // nothing on the hot path. Everything else only looks at relevant events.
+  if (!isRelevantEvent(name)) {
+    if (emitDepth < MAX_EMIT_DEPTH && useVDnaStore.getState().lastActiveDate !== todaySeedKey()) {
+      emitDepth++;
+      try {
+        refreshChallengesIfStale();
+        touchDailyActivity();
+      } finally {
+        emitDepth--;
+      }
+    }
+    return;
+  }
   if (emitDepth >= MAX_EMIT_DEPTH) return;
   emitDepth++;
   try {
@@ -591,6 +620,8 @@ export function dispatch(event: GamificationEvent) {
       const toolId = outcomeToolId(outcomeId, meta);
       recordOutcomeStats(outcomeId, toolId);
       outcomeMeta = { ...meta, outcomeId, toolId };
+    } else if (name === "outcome:kudos-received") {
+      recordKudosDay();
     }
 
     // Daily activity tracking.

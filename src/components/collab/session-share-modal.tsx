@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Users, Plus, Trash2, AlertTriangle, X, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/utils/toast";
+import { signalGamification } from "@/lib/gamification/signal";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 
 interface SquadOption {
@@ -195,6 +196,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
         toast.info("This invite already exists");
       } else {
         toast.success("Invite created");
+        signalGamification("invite-created", { toolId });
       }
       await load(unmountedRef);
     } catch (err) {

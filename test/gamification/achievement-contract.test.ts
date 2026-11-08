@@ -9,7 +9,9 @@ import {
 } from "@/lib/gamification/achievements";
 import { ACHIEVEMENT_RULE_IDS, dispatch, isRelevantEvent } from "@/lib/gamification/engine";
 import { recordOutcome } from "@/lib/gamification/ledger";
+import { OUTCOMES } from "@/lib/gamification/outcomes";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
+import { scanEmissions, scannedFiles } from "./emit-scan";
 
 /**
  * The achievement catalog's contract: badges reward finished work, retired
@@ -185,4 +187,79 @@ describe("retired badges in a real profile", () => {
     expect(s.unlocked).toEqual(expect.arrayContaining(["first-click", "combo-5", "silent-run"]));
     expect(s.xp).toBeGreaterThan(425);
   });
+});
+
+describe("every badge rule can fire", () => {
+  const engine = readFileSync(join(process.cwd(), "src/lib/gamification/engine.ts"), "utf8");
+  const rulesBlock = engine.slice(
+    engine.indexOf("const rules"),
+    engine.indexOf("ACHIEVEMENT_RULE_IDS")
+  );
+  const literals = (re: RegExp) =>
+    Array.from(new Set(Array.from(rulesBlock.matchAll(re), (m) => m[1])));
+
+  /**
+   * Badges whose tool event (or meta) nothing sends today. They predate the
+   * outcome catalog and stay listed here until their tool emits; a new dead
+   * rule fails the test, and wiring one of these fails it too until the
+   * entry is removed.
+   */
+  const KNOWN_DEAD_TOOL_EVENTS = [
+    "tool:velocity:sprint-added", // velocity-five
+    "tool:decision-log:adr-new", // adr-writer
+    "tool:release-planner:simulate", // release-forecast
+    "tool:user-interviews:interview-new", // interview-ten
+    "tool:kudos:squad-complete", // squad-booster-all
+  ];
+
+  it("names only outcomes that exist", () => {
+    const ids = new Set(OUTCOMES.map((o) => `outcome:${o.id}`));
+    const named = literals(/"(outcome:[a-z0-9-]+)"/g);
+    expect(named.length).toBeGreaterThan(0);
+    expect(named.filter((n) => !ids.has(n))).toEqual([]);
+  });
+
+  it("names only tool events something emits (known dead ones listed)", () => {
+    const emitted = new Set(scanEmissions().map((e) => e.name));
+    const dead = literals(/"(tool:[a-z0-9-]+:[a-z0-9-]+)"/g).filter((n) => !emitted.has(n));
+    expect(dead.sort()).toEqual([...KNOWN_DEAD_TOOL_EVENTS].sort());
+  }, 30_000);
+
+  it("has a sender in a mounted module for every named signal", () => {
+    // Bare event names a rule compares against (evt === "room-joined").
+    const named = literals(/\b(?:evt|e) === "([a-z][a-z0-9-]*)"/g).filter(
+      (n) => n !== "logo-whispered"
+    );
+    expect(named).toEqual(
+      expect.arrayContaining([
+        "room-joined",
+        "invite-created",
+        "room-members",
+        "backup-downloaded",
+        "workspace-import",
+        "sync-remote",
+      ])
+    );
+    const files = scannedFiles();
+    /** A module counts as mounted when another source file imports it. */
+    const mounted = (path: string) => {
+      const noExt = path.replace(/\.tsx?$/, "");
+      const base = noExt.slice(noExt.lastIndexOf("/") + 1);
+      const alias = `"@/${noExt}"`;
+      const relative = new RegExp(`["']\\.{1,2}/(?:[^"']*/)?${base}["']`);
+      return files.some(
+        (f) => f.path !== path && (f.text.includes(alias) || relative.test(f.text))
+      );
+    };
+    const senders = (name: string) =>
+      files.filter(
+        (f) =>
+          f.text.includes(`signalGamification("${name}"`) ||
+          f.text.includes(`dispatch({ name: "${name}"`) ||
+          f.text.includes(`emitRtEvent("${name}")`) ||
+          f.text.includes(`emitUiEvent("${name}")`)
+      );
+    const unsent = named.filter((n) => !senders(n).some((f) => mounted(f.path)));
+    expect(unsent).toEqual([]);
+  }, 30_000);
 });

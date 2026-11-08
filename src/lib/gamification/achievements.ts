@@ -255,7 +255,7 @@ export const achievements: Achievement[] = [
   {
     id: "room-host",
     title: "Host with the Most",
-    description: "Create a room invite link.",
+    description: "Host a live room or create an invite link.",
     category: "collaboration",
     xp: 150,
     icon: "Link2",

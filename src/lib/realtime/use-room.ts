@@ -369,6 +369,8 @@ export function useRoom<T>(
     /** Wire up `channel`, subscribe, and return its teardown. */
     const joinChannel = (channel: RealtimeChannel): (() => void) => {
       let memberCount = 0;
+      let joinSignalled = false;
+      let partySignalled = false;
       // Capture into a local that the cleanup closure can use safely —
       // satisfies react-hooks/exhaustive-deps' ref-mutation check.
       const boundEvents = boundEventsRef.current;
@@ -386,9 +388,18 @@ export function useRoom<T>(
           if (allMembers.length > memberCount) emitRtEvent("member-join");
           else if (allMembers.length < memberCount) emitRtEvent("member-leave");
         }
-        // "Party of Four": tell the engine once per channel when the room
-        // first holds 4 or more people.
-        if (allMembers.length >= 4 && memberCount < 4) {
+        // "Teammate": the first time this channel holds someone besides us
+        // (a second tab of our own carries the same id, so it doesn't count).
+        // Auto-joined rooms opened alone (the owner's kudos room, a host
+        // waiting for the first guest) and reconnects don't count.
+        if (!joinSignalled && allMembers.some((m) => m.id !== me.id)) {
+          joinSignalled = true;
+          signalGamification("room-joined", { toolId });
+        }
+        // "Party of Four": once per channel, when the room first holds 4 or
+        // more people.
+        if (!partySignalled && allMembers.length >= 4) {
+          partySignalled = true;
           signalGamification("room-members", { memberCount: allMembers.length });
         }
         memberCount = allMembers.length;
@@ -513,7 +524,6 @@ export function useRoom<T>(
         if (status === "SUBSCRIBED") {
           setIsConnected(true);
           emitRtEvent("room-connected");
-          signalGamification("room-joined", { toolId });
           void channel.track({
             id: me.id,
             name: me.name,

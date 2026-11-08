@@ -32,6 +32,7 @@ import {
   type VisitorIdentity,
 } from "@/lib/realtime/visitor-rooms";
 import { toast } from "@/lib/utils/toast";
+import { signalGamification } from "@/lib/gamification/signal";
 import type { BoardState } from "../types";
 import { useRetroRoom, type RetroRoomStatus, type EndReason } from "./use-retro-room";
 import { IdlePromptDialog, RoomMemberList } from "./room-controls";
@@ -122,6 +123,7 @@ export function RetroGoLive({
           }
           setConsentOpen(false);
           setLive({ code, identity, startedAt: Date.now() });
+          signalGamification("invite-created", { toolId: "retro" });
         }}
       />
     </>
