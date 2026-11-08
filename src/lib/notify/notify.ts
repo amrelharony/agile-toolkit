@@ -30,9 +30,6 @@
  * Sound and haptics go through `emitFeedback` only: nothing here reaches the
  * gamification engine. A toast the policy drops, sends inline or holds still
  * returns an id, so callers can always `toast.dismiss(id)`.
- *
- * `NEXT_PUBLIC_NOTIFY_POLICY=legacy` (build-time) switches back to the old
- * behaviour: every toast shown at once with its sound (see toast.ts).
  */
 
 import { toast as sonnerToast, type ExternalToast, type ToastT } from "sonner";
@@ -46,6 +43,7 @@ import { isTyping } from "./attention";
 import { isDialogOpen } from "./dialog-open";
 import { MUTABLE_KINDS, decide } from "./policy";
 import { defaultQuietDom, getQuietState } from "./quiet-state";
+import { useInboxStore, withInbox } from "./inbox-store";
 import type { NotifyDecision, NotifyKind, NotifyRequest, PolicyContext } from "./types";
 
 export type ToastInput = Parameters<typeof sonnerToast>[0];
@@ -82,17 +80,6 @@ export const METHOD_KIND: Record<ToastMethod, NotifyKind> = {
   loading: "progress",
 };
 
-/** The sound/haptic event the legacy wrapper played for each helper. */
-const LEGACY_FEEDBACK: Record<ToastMethod, string> = {
-  plain: "toast-info",
-  success: "toast-success",
-  error: "toast-error",
-  info: "toast-info",
-  warning: "toast-warning",
-  message: "toast-info",
-  loading: "toast-info",
-};
-
 export const DEDUPE_WINDOW_MS = 10_000;
 export const DEDUPE_CAP = 50;
 export const BURST_WINDOW_MS = 10_000;
@@ -109,11 +96,6 @@ const DEDUPED_KINDS: ReadonlySet<NotifyKind> = new Set<NotifyKind>([
   "system",
 ]);
 const BURST_KINDS: ReadonlySet<NotifyKind> = new Set<NotifyKind>(["success", "info"]);
-
-/** Whether the build-time kill switch restores the old toast behaviour. */
-export function isLegacyNotifyPolicy(): boolean {
-  return process.env.NEXT_PUBLIC_NOTIFY_POLICY === "legacy";
-}
 
 // ---------------------------------------------------------------------------
 // Feedback
@@ -538,11 +520,29 @@ export function notify(
       return id;
     }
     default:
-      // inline: the control confirms it itself; inbox: celebrations (Activity);
-      // drop: not shown. The caller still gets an id it may dismiss.
+      // inline: the control confirms it itself; inbox: celebrations go to
+      // the Activity inbox; drop: not shown. The caller still gets an id it
+      // may dismiss.
+      if (d.channel === "inbox") sendToInbox(message, opts);
       if (callerGaveId) closeStale(id, kind);
       return id;
   }
+}
+
+/** A `kind: "celebration"` toast becomes a quiet Activity row instead. */
+function sendToInbox(message: ToastInput, opts: ExternalToast): void {
+  const title = titleText(message);
+  if (!title) return;
+  const body = typeof opts.description === "string" ? opts.description : undefined;
+  withInbox(() => {
+    useInboxStore.getState().add({
+      kind: "note",
+      title,
+      ...(body ? { body } : {}),
+      icon: "Sparkles",
+      rarity: "common",
+    });
+  });
 }
 
 /** Close a toast (or all), including one still held in the queue. */
@@ -558,32 +558,7 @@ export function dismissNotification(id?: string | number): void {
   sonnerToast.dismiss(id);
 }
 
-/** The old wrapper's behaviour: show at once and play the helper's sound. */
-export function notifyLegacy(
-  method: ToastMethod,
-  message: ToastInput,
-  options?: NotifyOptions
-): string | number {
-  const { kind: _kind, onShow, ...opts } = options ?? {};
-  void _kind;
-  safeFeedback(LEGACY_FEEDBACK[method]);
-  const id =
-    method === "plain"
-      ? sonnerToast(message, opts)
-      : (sonnerToast[method] as (m: ToastInput, o?: ExternalToast) => string | number)(
-          message,
-          opts
-        );
-  try {
-    onShow?.(id);
-  } catch {
-    /* a caller's onShow never breaks the toast */
-  }
-  return id;
-}
-
 export const sonnerPromise: typeof sonnerToast.promise = (...args) => sonnerToast.promise(...args);
-export const sonnerDismiss = (id?: string | number) => sonnerToast.dismiss(id);
 
 /** Number of toasts held in the deferred queue (tests, diagnostics). */
 export function pendingCount(): number {

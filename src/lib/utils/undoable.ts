@@ -10,10 +10,24 @@ export interface UndoableAction {
   revert: () => void;
   /** How long the Undo button stays available (default 8 s). */
   durationMs?: number;
+  /**
+   * `"undo"` (default) for a destructive change: always shown, never merged.
+   * `"success"` for a change that destroys nothing (a write to another
+   * tool, a hand-off): it follows the success policy (waits for a dialog to
+   * close or typing to stop) and keeps its Undo button.
+   */
+  kind?: "undo" | "success";
+  /**
+   * Toast id. With `kind: "success"`, a repeat with the same id while the
+   * toast is still open updates it in place, and its Undo then takes back
+   * every change the toast covers, newest first.
+   */
+  id?: string;
 }
 
 /**
- * Run a destructive change and offer Undo in a toast.
+ * Run a change and offer Undo in a toast (`kind: "success"` for one that
+ * destroys nothing).
  *
  * Most deletes in the tools were instant and permanent, and only three tools
  * had any undo. Capture whatever `revert` needs before calling (the deleted
@@ -27,23 +41,64 @@ export interface UndoableAction {
  *     revert: () => restoreCard(card),
  *   });
  */
-export function undoable({ label, description, apply, revert, durationMs = 8000 }: UndoableAction) {
+export function undoable({
+  label,
+  description,
+  apply,
+  revert,
+  durationMs = 8000,
+  kind = "undo",
+  id: toastId,
+}: UndoableAction) {
   apply();
   let undone = false;
+  // A toast id reused while its toast is still open updates that toast in
+  // place (the executor's dedupe), which replaces its Undo button. Chain the
+  // reverts so that Undo still takes back everything the toast covers,
+  // newest first: two edits to one backlog item, two hand-offs that share a
+  // title.
+  const chainKey = toastId;
+  const now = Date.now();
+  const prev = chainKey !== undefined ? revertChains.get(chainKey) : undefined;
+  const fullRevert =
+    prev && now - prev.at < CHAIN_MAX_AGE_MS
+      ? () => {
+          revert();
+          prev.revert();
+        }
+      : revert;
+  if (chainKey !== undefined) revertChains.set(chainKey, { revert: fullRevert, at: now });
+  const endChain = () => {
+    if (chainKey !== undefined && revertChains.get(chainKey)?.revert === fullRevert) {
+      revertChains.delete(chainKey);
+    }
+  };
+  // Always the plain helper: the kind (not the helper) decides the policy.
   const id = toast(label, {
-    // Undo toasts always show (even in a ceremony or Focus), stay 8 s, have
-    // a close button and are never merged with another Undo.
-    kind: "undo",
+    // Undo toasts always show (even in a ceremony or Focus), stay 8 s and
+    // are never merged with another Undo. A success keeps the Undo button
+    // and the 8 s, and follows the success policy.
+    kind,
+    ...(toastId !== undefined ? { id: toastId } : {}),
     description,
     duration: durationMs,
-    onDismiss: () => openUndoToasts.delete(id),
-    onAutoClose: () => openUndoToasts.delete(id),
+    // Every Undo toast can be closed, whatever its kind and on any device.
+    closeButton: true,
+    onDismiss: () => {
+      openUndoToasts.delete(id);
+      endChain();
+    },
+    onAutoClose: () => {
+      openUndoToasts.delete(id);
+      endChain();
+    },
     action: {
       label: "Undo",
       onClick: () => {
         if (undone) return;
         undone = true;
-        revert();
+        endChain();
+        fullRevert();
       },
     },
   });
@@ -108,6 +163,14 @@ export function removeWithUndo<T>({
 const openUndoToasts = new Set<string | number>();
 
 /**
+ * The revert behind each open toast id (see `undoable`). An entry ends when
+ * its toast closes or is undone; one older than this is never chained (a
+ * toast the policy dropped fires no close callback).
+ */
+const revertChains = new Map<string, { revert: () => void; at: number }>();
+const CHAIN_MAX_AGE_MS = 60_000;
+
+/**
  * Close every open Undo toast. The app shell calls this on navigation: a
  * revert that restores a page's local state can't work once that page has
  * unmounted, and an Undo that silently does nothing is worse than none.
@@ -115,4 +178,5 @@ const openUndoToasts = new Set<string | number>();
 export function dismissUndoToasts(): void {
   openUndoToasts.forEach((id) => toast.dismiss(id));
   openUndoToasts.clear();
+  revertChains.clear();
 }

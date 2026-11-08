@@ -3,6 +3,7 @@
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 import { isFocusActive } from "@/lib/notify/prefs";
+import { isGamificationEnabled } from "./enabled";
 import { achievements, getAchievement } from "./achievements";
 import {
   findDaily,
@@ -431,6 +432,8 @@ function touchDailyActivity() {
     streak: newStreak,
     longestStreak: longest,
   });
+  // Gamification off keeps the streak alive but moves no challenge.
+  if (!isGamificationEnabled()) return;
   // Wire w-streak-7 ("use the toolkit every day this week"): one tick the
   // first time we register activity on a given local day. The early-return
   // above guarantees this fires at most once per day.
@@ -478,6 +481,7 @@ function awardXp(
   meta?: Record<string, string | number | boolean>
 ) {
   if (amount <= 0) return;
+  if (!isGamificationEnabled()) return; // paused in Settings › Notifications
   if (emitDepth >= MAX_EMIT_DEPTH) return; // re-entrant circuit breaker
   emitDepth++;
   try {
@@ -578,7 +582,9 @@ export function dispatch(event: GamificationEvent) {
   // every route change sends `app-active` (event-bridge trackPathVisit), so
   // opening the home page counts. It returns at once when today is already
   // counted, so it costs nothing on the hot path. Everything else only looks at relevant events.
-  if (!isRelevantEvent(name)) {
+  // Gamification off (Settings › Notifications): only the day streak moves.
+  // No counter, challenge, badge or XP; totals stay as they are.
+  if (!isRelevantEvent(name) || !isGamificationEnabled()) {
     if (emitDepth < MAX_EMIT_DEPTH && useVDnaStore.getState().lastActiveDate !== todaySeedKey()) {
       emitDepth++;
       try {
