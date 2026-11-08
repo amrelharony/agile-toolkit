@@ -29,6 +29,13 @@ import { useSwipeToClose } from "@/hooks/use-swipe-to-close";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
 
+/**
+ * The section headings (and Favorites / Recent) are 32 px rows for a mouse,
+ * stacked with no gap; on touch (the phone drawer, or a tablet with the
+ * sidebar pinned open) they grow to 44 px so each is an easy tap.
+ */
+const SECTION_TRIGGER_TOUCH = "pointer-coarse:min-h-11";
+
 interface SidebarProps {
   /** Mobile drawer open state (parent-controlled). */
   mobileOpen?: boolean;
@@ -482,7 +489,10 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   {expanded && (
                     <CollapsibleTrigger
                       data-no-sound="true"
-                      className="flex items-center w-full px-3 py-2 text-xs font-semibold text-sub hover:text-text transition-colors rounded-lg gap-2"
+                      className={cn(
+                        "flex items-center w-full px-3 py-2 text-xs font-semibold text-sub hover:text-text transition-colors rounded-lg gap-2",
+                        SECTION_TRIGGER_TOUCH
+                      )}
                     >
                       <Star className="w-3 h-3 text-accent-amber" aria-hidden="true" />
                       <span className="truncate">Favorites</span>
@@ -517,7 +527,10 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   {expanded && (
                     <CollapsibleTrigger
                       data-no-sound="true"
-                      className="flex items-center w-full px-3 py-2 text-xs font-semibold text-sub hover:text-text transition-colors rounded-lg gap-2"
+                      className={cn(
+                        "flex items-center w-full px-3 py-2 text-xs font-semibold text-sub hover:text-text transition-colors rounded-lg gap-2",
+                        SECTION_TRIGGER_TOUCH
+                      )}
                     >
                       <Clock className="w-3 h-3 text-accent" aria-hidden="true" />
                       <span className="truncate">Recent</span>
@@ -606,6 +619,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   data-no-sound="true"
                   className={cn(
                     "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors",
+                    SECTION_TRIGGER_TOUCH,
                     isActiveSection ? "text-accent" : "text-sub hover:text-text"
                   )}
                 >
