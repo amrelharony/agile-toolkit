@@ -152,6 +152,30 @@ describe("PropertyPanel object actions", () => {
     expect(bar.lastElementChild).toBe(group);
   });
 
+  it("sits higher on touch, clear of the rotation handle", () => {
+    // The bbox top is at y 200. With a mouse the bar keeps its 56 px
+    // slot; on touch its 44 px buttons make it ~50 px tall, and with 56
+    // the rotation handle (24 px above the object, over the bar in z)
+    // landed on the middle of it.
+    const props = {
+      selection: [stickyFixture()],
+      selectionBbox: { x: 100, y: 200, w: 200, h: 160 },
+      camera: { x: 0, y: 0, zoom: 1 },
+      viewportHeight: 600,
+      onPatch: vi.fn(),
+    };
+    const { rerender } = render(<PropertyPanel {...props} />);
+    const bar = screen.getByRole("toolbar", { name: "Object properties" });
+    expect(bar.style.top).toBe("144px");
+    rerender(<PropertyPanel {...props} isCoarse />);
+    expect(bar.style.top).toBe("116px");
+    // No room above on touch: below the selection instead.
+    rerender(
+      <PropertyPanel {...props} isCoarse selectionBbox={{ x: 100, y: 60, w: 200, h: 160 }} />
+    );
+    expect(bar.style.top).toBe(`${60 + 160 + 8}px`);
+  });
+
   it("has no object actions without handlers (read-only views)", () => {
     panel(undefined);
     expect(screen.queryByRole("group", { name: "Object actions" })).not.toBeInTheDocument();

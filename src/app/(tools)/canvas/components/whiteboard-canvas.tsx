@@ -1403,6 +1403,7 @@ export function WhiteboardCanvas({
             onPatch={onPatchStyles}
             onOpenCardDetail={setCardDetailId}
             objectActions={readOnly ? undefined : objectActions}
+            isCoarse={inputClass.isCoarse}
           />
         )}
 
