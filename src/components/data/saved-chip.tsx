@@ -30,18 +30,22 @@ const CHIP_BOX = "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 
  * warning when the browser has stopped saving. The owner's data syncs to
  * their account, so they don't get it.
  *
- * Until auth settles (or while an owner check is being retried) nobody knows
- * which of the two the reader is, so it holds the chip's place with an
- * invisible copy, in the server HTML too. Mounting the chip only then wrapped
- * the toolbar onto a second line on phones and pushed the whole tool down
- * after the first paint. The copy goes once the reader is the confirmed owner.
+ * Until auth settles nobody knows which of the two the reader is, so it
+ * holds the chip's place with an invisible copy, in the server HTML too.
+ * Mounting the chip only then wrapped the toolbar onto a second line on
+ * phones and pushed the whole tool down after the first paint. The copy goes
+ * once auth settles on anyone but a visitor: the owner, or a session whose
+ * owner check is being retried (offline, 5xx). That session is almost always
+ * the owner's, who gets no chip, and the retries can run for as long as the
+ * reader stays offline, so holding a blank chip-sized gap in every toolbar
+ * for it would only cost room.
  */
 export function SavedChip({ className }: { className?: string }) {
-  const { settled, unverified, visitor } = useOwnerState();
+  const { settled, visitor } = useOwnerState();
   const writeFailed = useStorageHealth((s) => s.writeFailed);
   const [open, setOpen] = useState(false);
   const [opened, setOpened] = useState(false);
-  if (!settled || unverified) {
+  if (!settled) {
     return (
       // Not a control: invisible, hidden from assistive tech, never focusable.
       <span

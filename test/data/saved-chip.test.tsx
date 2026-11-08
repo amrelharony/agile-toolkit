@@ -102,10 +102,17 @@ describe("SavedChip before auth settles", () => {
     expect(html).not.toContain("<button");
   });
 
-  it("keeps holding the place while an owner check is retried", () => {
-    owner.unverified = true;
-    const { container } = render(<SavedChip />);
+  it("lets go of the place while an owner check is retried", () => {
+    // A session whose owner check went unanswered (offline, 5xx) is almost
+    // always the owner's, who gets no chip, and the retries can run for as
+    // long as the reader is offline: no blank gap in the toolbar meanwhile.
+    owner.settled = false;
+    const { container, rerender } = render(<SavedChip />);
     expect(container.querySelector("[data-saved-chip-placeholder]")).not.toBeNull();
+    owner.settled = true;
+    owner.unverified = true;
+    rerender(<SavedChip />);
+    expect(container).toBeEmptyDOMElement();
     expect(screen.queryByRole("button")).toBeNull();
   });
 
