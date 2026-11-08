@@ -3,7 +3,7 @@
 /**
  * Silent celebrations: every reward the engine or the ledger reports becomes
  * a row in the Activity inbox. Nothing here shows a toast, and nothing is
- * dropped — quiet routes, presenting and silent mode only matter for the
+ * dropped — quiet routes, presenting and the celebration level only matter for the
  * moments with Amr (PR I), which read the rarity set here.
  *
  * - **Same-action merge.** A level-up, badge or prestige reported within
@@ -16,9 +16,6 @@
  * - **"Today's XP is full"** once per day, when the ledger reports the cap.
  * - **"Your progress carried over"** once ever, for someone who already
  *   had a level or badges before the inbox existed.
- *
- * `NEXT_PUBLIC_CELEBRATIONS=legacy` (build-time) keeps the old toasts
- * instead (see provider.tsx).
  */
 
 import { useVDnaStore } from "@/lib/stores/vdna-store";
@@ -47,51 +44,12 @@ import {
 import { subscribe, type GamificationSideEffect } from "./engine";
 import { subscribeOutcomes, type OutcomeRecord } from "./ledger";
 import { getAchievement } from "./achievements";
-import {
-  areCelebrationsPaused,
-  effectiveCelebrationLevel,
-  type NotificationPrefs,
-} from "@/lib/notify/prefs";
-import { getQuietState, type QuietDom } from "@/lib/notify/quiet-state";
 import { findDaily, findWeekly } from "./challenges";
 import { localDateOf } from "./outcomes";
 import type { Achievement } from "./types";
 
 /** Effects this close together came from one action and share a row. */
 export const SAME_ACTION_MERGE_MS = 1500;
-
-/** Whether the build-time kill switch restores the old celebration toasts. */
-export function isLegacyCelebrations(): boolean {
-  return process.env.NEXT_PUBLIC_CELEBRATIONS === "legacy";
-}
-
-/**
- * Whether a legacy celebration toast may show (kill switch only, removed in
- * PR K). The Notifications page still governs it: the Quiet level, "Pause
- * celebrations", Focus and quiet hours silence it, as do ceremonies,
- * presenting and the intro. The old silent mode only counts until it has
- * been mapped onto the level (its switch is gone, so it can't be undone).
- */
-export function legacyCelebrationAllowed(input: {
-  silentMode: boolean;
-  prefs: Pick<
-    NotificationPrefs,
-    | "celebrationLevel"
-    | "celebrationsPausedUntil"
-    | "focusUntil"
-    | "quietHours"
-    | "silentModeAdopted"
-  >;
-  pathname: string | null | undefined;
-  dom: QuietDom | null | undefined;
-  now: number;
-}): boolean {
-  const { silentMode, prefs, pathname, dom, now } = input;
-  if (silentMode && !prefs.silentModeAdopted) return false;
-  if (effectiveCelebrationLevel(prefs) === "quiet") return false;
-  if (areCelebrationsPaused(prefs, now)) return false;
-  return !getQuietState(now, pathname, dom, prefs).quiet;
-}
 
 // ---------------------------------------------------------------------------
 // Rarity

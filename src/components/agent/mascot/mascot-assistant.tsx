@@ -53,6 +53,7 @@ import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./engine/sprite-poses";
 import { VisitorGuide } from "./visitor-guide";
+import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import styles from "./mascot-assistant.module.css";
 
 /** Which corner the mascot is parked in (drag-to-reposition). */
@@ -185,11 +186,11 @@ function panelPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSS
   };
 }
 
-/** True below the `sm` breakpoint (640px). */
+/** True at phone width (`PHONE_MAX_PX`, below Tailwind's `sm`). */
 function useIsPhone(): boolean {
   const [isPhone, setIsPhone] = useState(false);
   useEffect(() => {
-    const mq = window.matchMedia?.("(max-width: 639px)");
+    const mq = window.matchMedia?.(PHONE_MEDIA_QUERY);
     if (!mq) return;
     const update = () => setIsPhone(mq.matches);
     update();
