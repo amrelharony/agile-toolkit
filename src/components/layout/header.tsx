@@ -135,10 +135,23 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
       data-chrome="header"
       className={cn(
         // Mobile-first: tight 8 px gap on the smallest phones, growing as the
-        // viewport widens. Padding scales 12 → 16 → 24 px to match the
-        // .container-tool padding rhythm.
-        "flex items-center gap-1 xs:gap-2 px-3 sm:px-4 md:px-6 h-14",
-        "sticky top-0 z-header pt-safe pr-safe",
+        // viewport widens.
+        "flex items-center gap-1 xs:gap-2",
+        // Side gutters scale 12 → 16 → 24 px to match the .container-tool
+        // rhythm, and never drop below the notch or rounded corner's safe
+        // area. A bare `pr-safe` beat `px-3` (0 on most phones), so the
+        // account button sat flush against the screen edge; from md the
+        // right one stayed 24 px under a landscape iPhone's notch. From md
+        // the left edge is the rail's, which keeps its own inset (sidebar).
+        "pl-[max(0.75rem,env(safe-area-inset-left))] sm:pl-[max(1rem,env(safe-area-inset-left))] md:pl-6",
+        "pr-[max(0.75rem,env(safe-area-inset-right))] sm:pr-[max(1rem,env(safe-area-inset-right))] md:pr-[max(1.5rem,env(safe-area-inset-right))]",
+        // A 56 px row below the status bar's safe area. --header-h
+        // (globals.css) is that row plus the inset, and is what Amr's top
+        // corner hangs from. A fixed h-14 with pt-safe (border-box) took the
+        // inset out of the row, so with a top inset the buttons spilled over
+        // the status bar and the page.
+        "min-h-[var(--header-h)] pt-safe",
+        "sticky top-0 z-header",
         "transition-all duration-default ease-spring",
         scrolled ? "bg-card border-b border-border" : "bg-transparent border-b border-transparent"
       )}

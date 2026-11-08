@@ -367,8 +367,13 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           // (64 px) and full (256 px) — the `transition-all` on the
           // shared layout above smooths the swap. Hover-expand uses the
           // same width change so the page content stays in step.
-          "md:static md:translate-x-0 md:top-0 md:h-screen md:sticky md:pl-0",
-          expanded ? "md:w-64" : "md:w-16"
+          // It keeps `pl-safe` from md and grows by that inset: md covers
+          // every landscape iPhone, whose notch would otherwise sit over
+          // the rail's icons (the inset is 0 everywhere else).
+          "md:static md:translate-x-0 md:top-0 md:h-screen md:sticky",
+          expanded
+            ? "md:w-[calc(16rem+env(safe-area-inset-left))]"
+            : "md:w-[calc(4rem+env(safe-area-inset-left))]"
         )}
       >
         {/* Brand */}
