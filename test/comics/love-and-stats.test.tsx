@@ -90,7 +90,9 @@ describe("LoveButton", () => {
     expect(lovesLabel(0, false, true)).toBe("No loves counted yet");
     expect(lovesLabel(1, false, true)).toBe("1 reader loves this");
     // The whole line says when a heart that's on isn't among the count.
-    expect(heartLine(3, false, true)).toBe("3 readers love this (yours isn't counted)");
+    expect(heartLine(3, false, true, true)).toBe("3 readers love this (yours isn't counted)");
+    // A counted mark missing from this device (a restore) proves nothing.
+    expect(heartLine(3, false, true)).toBe("3 readers love this");
     expect(heartLine(3, true)).toBe("3 readers love this");
     expect(heartLine(0, false, true)).toBe("No loves counted yet");
   });
@@ -184,7 +186,7 @@ describe("LoveButton", () => {
   });
 
   it("counts in a love another tab already sent when this tab catches up", async () => {
-    render(<LoveButton ep={30} initialLoves={0} />);
+    render(<LoveButton ep={30} initialLoves={4} />);
     // Another tab loved it and the server counted it.
     localStorage.setItem(
       "agile-toolkit:comics:reading",
@@ -193,9 +195,40 @@ describe("LoveButton", () => {
     localStorage.setItem(COUNTED_KEY, JSON.stringify({ 30: "2026-11-08T08:00:01Z" }));
     await act(async () => fireEvent.click(heart()));
     expect(heart().getAttribute("aria-pressed")).toBe("true");
-    expect(line()).toBe("You love this");
-    expect(announced()).toBe("You love this");
+    expect(line()).toBe("5 readers love this");
+    expect(announced()).toBe("5 readers love this");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("counts out a love another tab took back when this tab catches up", async () => {
+    localStorage.setItem(
+      "agile-toolkit:comics:reading",
+      JSON.stringify({ loved: { 30: "2026-11-08T08:00:00Z" } })
+    );
+    localStorage.setItem(COUNTED_KEY, JSON.stringify({ 30: "2026-11-08T08:00:01Z" }));
+    await act(async () => {
+      render(<LoveButton ep={30} initialLoves={5} />);
+    });
+    // Another tab took it back, and the server let it go.
+    localStorage.clear();
+    await act(async () => fireEvent.click(heart()));
+    expect(heart().getAttribute("aria-pressed")).toBe("false");
+    expect(line()).toBe("4 readers love this");
+    expect(announced()).toBe("4 readers love this");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("doesn't say a restored love isn't counted: this device just has no mark", async () => {
+    // A backup carries the love, never the counted mark.
+    localStorage.setItem(
+      "agile-toolkit:comics:reading",
+      JSON.stringify({ loved: { 30: "2026-11-08T08:00:00Z" } })
+    );
+    await act(async () => {
+      render(<LoveButton ep={30} initialLoves={1} />);
+    });
+    expect(heart().getAttribute("aria-pressed")).toBe("true");
+    expect(line()).toBe("1 reader loves this");
   });
 
   it("clears the announcement while a press is sent, so the same outcome is said again", async () => {
@@ -211,7 +244,14 @@ describe("LoveButton", () => {
     expect(announced()).toBe("5 readers love this");
     await act(async () => fireEvent.click(heart()));
     expect(announced()).toBe(NOT_COUNTED);
-    expect(sentBodies()).toEqual(["love", "love"]);
+    // And once more with the send held: the old outcome is gone while it's out.
+    const again = held();
+    await act(async () => fireEvent.click(heart()));
+    await act(async () => fireEvent.click(heart()));
+    expect(announced()).toBe("");
+    await again(new Response(null, { status: 503 }));
+    expect(announced()).toBe(NOT_COUNTED);
+    expect(sentBodies()).toEqual(["love", "love", "love"]);
   });
 
   it("doesn't take back the owner's uncounted love when that browser is later a visitor", async () => {
@@ -308,15 +348,19 @@ describe("LoveButton", () => {
     }
   });
 
-  it("catches up when another tab already loved the story", async () => {
+  it("catches up when another tab already loved the story, sending what it couldn't", async () => {
     render(<LoveButton ep={30} initialLoves={2} />);
+    // Another tab loved it, but its send failed: the server doesn't hold it.
     localStorage.setItem(
       "agile-toolkit:comics:reading",
       JSON.stringify({ loved: { 30: "2026-11-08T08:00:00Z" } })
     );
+    fetchMock.mockResolvedValue(answer(3));
     await act(async () => fireEvent.click(heart()));
     expect(heart().getAttribute("aria-pressed")).toBe("true");
-    expect(fetchMock).not.toHaveBeenCalled();
+    // This press wants the heart on, so it's sent, once.
+    expect(sentBodies()).toEqual(["love"]);
+    expect(line()).toBe("3 readers love this");
   });
 
   it("never counts the owner's own heart, or one pressed before sign-in settles", async () => {
