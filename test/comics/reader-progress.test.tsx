@@ -118,15 +118,15 @@ describe("Your reading, on /comics", () => {
   it("explains the loved list before there's anything in it", () => {
     render(<ReaderProgress cast={CAST} stories={STORIES} />);
     expect(screen.getByText("Stories read: 0")).toBeTruthy();
-    expect(screen.getByText("Time reading: under a minute")).toBeTruthy();
+    expect(screen.getByText("Time reading: under 1 min")).toBeTruthy();
     fireEvent.click(screen.getByText("Stories you loved (0)"));
     expect(screen.getByText(/under a story to keep it here/)).toBeTruthy();
   });
 
   it("words reading time in minutes and hours", () => {
     expect([0, 59, 60, 1500, 3600, 4800].map(readingTimeLabel)).toEqual([
-      "under a minute",
-      "under a minute",
+      "under 1 min",
+      "under 1 min",
       "1 min",
       "25 min",
       "1 h",

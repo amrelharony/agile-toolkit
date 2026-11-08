@@ -42,10 +42,14 @@ export function metCast(
   return cast.flatMap((name) => (met.has(name) ? [{ name, ep: met.get(name)! }] : []));
 }
 
-/** "under a minute", "25 min", "1 h 20 min": the reader's own reading time. */
+/**
+ * "under 1 min", "25 min", "1 h 20 min": the reader's own reading time. The
+ * first paint always shows the first, so it's no wider than the figures that
+ * replace it: the chip never loses a line and moves the page.
+ */
 export function readingTimeLabel(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 1) return "under a minute";
+  if (minutes < 1) return "under 1 min";
   if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
