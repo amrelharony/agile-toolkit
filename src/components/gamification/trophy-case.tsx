@@ -354,19 +354,21 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
             selected falls back to Achievements instead of an empty panel. */}
       <Tabs key={isOwner ? "owner" : "visitor"} defaultValue="achievements" className="mt-4">
         <TabsList className="bg-surface border border-border max-w-full justify-start overflow-x-auto">
-          <TabsTrigger value="achievements" className="gap-1.5">
-            <Trophy className="w-3.5 h-3.5" /> Achievements
+          <TabsTrigger value="achievements" className="gap-1.5 px-2 sm:px-3">
+            <Trophy className="hidden w-3.5 h-3.5 sm:inline" />
+            <span className="sm:hidden">Badges</span>
+            <span className="hidden sm:inline">Achievements</span>
           </TabsTrigger>
-          <TabsTrigger value="challenges" className="gap-1.5">
-            <Flag className="w-3.5 h-3.5" /> Challenges
+          <TabsTrigger value="challenges" className="gap-1.5 px-2 sm:px-3">
+            <Flag className="hidden w-3.5 h-3.5 sm:inline" /> Challenges
           </TabsTrigger>
           {isOwner && (
-            <TabsTrigger value="leaderboard" className="gap-1.5">
-              <Users className="w-3.5 h-3.5" /> Leaderboard
+            <TabsTrigger value="leaderboard" className="gap-1.5 px-2 sm:px-3">
+              <Users className="hidden w-3.5 h-3.5 sm:inline" /> Leaderboard
             </TabsTrigger>
           )}
-          <TabsTrigger value="activity" className="gap-1.5">
-            <Activity className="w-3.5 h-3.5" /> Activity
+          <TabsTrigger value="activity" className="gap-1.5 px-2 sm:px-3">
+            <Activity className="hidden w-3.5 h-3.5 sm:inline" /> Activity
           </TabsTrigger>
         </TabsList>
 
