@@ -14,13 +14,14 @@ import {
   ReaderProgress,
   StreakNote,
   metCast,
+  readingTimeLabel,
 } from "@/app/(tools)/comics/components/reader-progress";
 
 const CAST = ["Amr", "Dinosaur", "HiPPO", "Retrospective Turtle"];
 const STORIES = [
-  { ep: 27, castNames: ["HiPPO", "Retrospective Turtle"] },
-  { ep: 28, castNames: ["Amr", "Dinosaur", "Someone Unlisted"] },
-  { ep: 29, castNames: ["HiPPO", "Amr"] },
+  { ep: 27, castNames: ["HiPPO", "Retrospective Turtle"], title: "Return Address" },
+  { ep: 28, castNames: ["Amr", "Dinosaur", "Someone Unlisted"], title: "The Practice Desk" },
+  { ep: 29, castNames: ["HiPPO", "Amr"], title: "A Different Kind of Help" },
 ];
 
 function reading(read: Record<number, string>) {
@@ -75,6 +76,62 @@ describe("Your reading, on /comics", () => {
     expect(screen.getByRole("link", { name: /HiPPO/ })).toHaveAttribute("href", "/comics?ep=27");
     expect(screen.getByRole("link", { name: /Dinosaur/ })).toHaveAttribute("href", "/comics?ep=28");
     expect(screen.queryByRole("link", { name: "Meet the whole cast" })).toBeNull();
+  });
+
+  it("counts the stories read and the reader's own reading time", () => {
+    localStorage.setItem(
+      READING_KEY,
+      JSON.stringify({
+        read: { 27: "2026-11-09T09:00:00.000Z", 28: "2026-11-10T09:00:00.000Z" },
+        seconds: { 27: 1800, 28: 2100 },
+      })
+    );
+    render(<ReaderProgress cast={CAST} stories={STORIES} />);
+    expect(screen.getByText("Stories read: 2")).toBeTruthy();
+    expect(screen.getByText("Time reading: 1 h 5 min")).toBeTruthy();
+  });
+
+  it("lists the stories this browser loves, newest love first", () => {
+    localStorage.setItem(
+      READING_KEY,
+      JSON.stringify({
+        loved: {
+          27: "2026-11-09T09:00:00.000Z",
+          29: "2026-11-10T09:00:00.000Z",
+          // Loved early on the read-ahead page: not out yet, so not listed.
+          99: "2026-11-11T09:00:00.000Z",
+        },
+      })
+    );
+    render(<ReaderProgress cast={CAST} stories={STORIES} />);
+    fireEvent.click(screen.getByText("Stories you loved (2)"));
+    const links = screen
+      .getAllByRole("link")
+      .filter((a) => /Return Address|A Different Kind of Help/.test(a.textContent ?? ""));
+    expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["A Different Kind of Help", "/comics?ep=29"],
+      ["Return Address", "/comics?ep=27"],
+    ]);
+    expect(screen.queryByRole("link", { name: /Episode 99/ })).toBeNull();
+  });
+
+  it("explains the loved list before there's anything in it", () => {
+    render(<ReaderProgress cast={CAST} stories={STORIES} />);
+    expect(screen.getByText("Stories read: 0")).toBeTruthy();
+    expect(screen.getByText("Time reading: under 1 min")).toBeTruthy();
+    fireEvent.click(screen.getByText("Stories you loved (0)"));
+    expect(screen.getByText(/under a story to keep it here/)).toBeTruthy();
+  });
+
+  it("words reading time in minutes and hours", () => {
+    expect([0, 59, 60, 1500, 3600, 4800].map(readingTimeLabel)).toEqual([
+      "under 1 min",
+      "under 1 min",
+      "1 min",
+      "25 min",
+      "1 h",
+      "1 h 20 min",
+    ]);
   });
 
   it("points a book reader to the whole cast", () => {
