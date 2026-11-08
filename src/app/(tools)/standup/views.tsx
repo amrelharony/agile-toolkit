@@ -4,6 +4,7 @@ import { useId, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Calendar,
+  Check,
   CheckCircle2,
   Copy,
   Mail,
@@ -12,6 +13,7 @@ import {
   User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useFlash } from "@/hooks/use-flash";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { LoadExampleButton } from "@/components/tool-frame/example-data";
@@ -89,8 +91,11 @@ export function TodayView({
   editingId: string | null;
   actions: EntryCardActions;
   onLoadExample: () => void;
-  onCopyDigest: (digest: string) => void;
+  /** Resolves true once the digest is on the clipboard. */
+  onCopyDigest: (digest: string) => Promise<boolean>;
 }) {
+  const { flash, isFlashing } = useFlash();
+  const digestCopied = isFlashing();
   const todays = useMemo(
     () => entries.filter((e) => e.date === today).sort((a, b) => a.timestamp - b.timestamp),
     [entries, today]
@@ -127,10 +132,18 @@ export function TodayView({
               variant="outline"
               size="sm"
               className="gap-1"
-              onClick={() => onCopyDigest(digest)}
+              onClick={() =>
+                void onCopyDigest(digest).then((ok) => {
+                  if (ok) flash("Digest copied");
+                })
+              }
             >
-              <Copy className="h-4 w-4" aria-hidden="true" />
-              Copy digest
+              {digestCopied ? (
+                <Check className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Copy className="h-4 w-4" aria-hidden="true" />
+              )}
+              {digestCopied ? "Digest copied" : "Copy digest"}
             </Button>
             <ExportButton
               filename={`standup-digest-${today}`}

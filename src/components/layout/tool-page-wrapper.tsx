@@ -40,7 +40,18 @@ interface ToolPageWrapperProps {
  *     readable line lengths instead of single 200-char lines.
  *   - Entrance: a CSS translate-only rise. It used to be a framer-motion
  *     fade from `opacity: 0`, which the server rendered into the HTML, so
- *     every tool page stayed invisible until the JS bundle hydrated.
+ *     every tool page stayed invisible until the JS bundle hydrated. The
+ *     rise leaves no transform behind once it ends (fill `backwards`, see
+ *     tailwind.config.ts): a leftover transform made this div the
+ *     containing block for every `position: fixed` element inside a tool,
+ *     so on a scrolled page drag overlays drew off-screen and drops missed.
+ *     Don't add a transform, filter or `will-change` to this div for the
+ *     same reason.
+ *   - Layering: `isolate` keeps the stacking context the leftover transform
+ *     used to give this div, without making it a containing block for fixed
+ *     elements. A tool's own z-indexes (the canvas's pins, selection handles
+ *     and property panel sit at 9990-10000) stay inside the page, under the
+ *     sticky header, Amr, and dialogs and menus portalled to <body>.
  */
 export function ToolPageWrapper({
   title,
@@ -53,7 +64,7 @@ export function ToolPageWrapper({
   const showToolbar = showHistory && Boolean(toolId);
 
   return (
-    <div className="container-tool motion-safe:animate-rise">
+    <div className="container-tool isolate motion-safe:animate-rise">
       {/* Header row — title + toolbar */}
       <header className="panel mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:gap-4 gap-3 px-4 py-4 sm:px-6 sm:py-5">
         <div className="flex-1 min-w-0">

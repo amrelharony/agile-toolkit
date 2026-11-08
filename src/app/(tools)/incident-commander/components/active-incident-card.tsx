@@ -12,8 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Siren, Clock, CheckCircle2, Copy } from "lucide-react";
-import { toast } from "@/lib/utils/toast";
+import { Plus, Trash2, Siren, Clock, CheckCircle2 } from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
 import type { Incident, IncidentStatus } from "../types";
 import { SEVERITY_BADGE_CLASS, SEVERITY_LABEL, STATUS_BADGE_CLASS } from "../constants";
 import { formatDuration } from "../helpers";
@@ -78,15 +78,6 @@ export function ActiveIncidentCard({
     `Scribe: ${incident.scribe ?? "TBD"}.\n` +
     `Status: ${incident.status}.\n\n` +
     `We will follow up with another update within 30 minutes or sooner if status changes.`;
-
-  const copy = async (text: string, label: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(`${label} copied`);
-    } catch {
-      toast.error("Copy failed");
-    }
-  };
 
   const submitEntry = () => {
     if (!entryText.trim()) return;
@@ -177,15 +168,15 @@ export function ActiveIncidentCard({
           <div className="rounded-md border border-border bg-bg p-3">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs uppercase tracking-wider text-sub">Slack template</span>
-              <Button
+              <CopyButton
+                text={slackTemplate}
                 variant="ghost"
                 size="sm"
-                onClick={() => copy(slackTemplate, "Slack template")}
+                announcement="Slack template copied"
+                errorMessage="Couldn't copy the slack template"
                 aria-label="Copy Slack template"
-                className="h-6 px-2 text-xs text-sub hover:text-accent"
-              >
-                <Copy className="w-3 h-3 mr-1" aria-hidden="true" /> Copy
-              </Button>
+                className="h-6 px-2 text-xs text-sub hover:text-accent [&_svg]:size-3"
+              />
             </div>
             <pre className="text-xs text-text whitespace-pre-wrap break-words font-data">
               {slackTemplate}
@@ -194,15 +185,15 @@ export function ActiveIncidentCard({
           <div className="rounded-md border border-border bg-bg p-3">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs uppercase tracking-wider text-sub">Email template</span>
-              <Button
+              <CopyButton
+                text={emailTemplate}
                 variant="ghost"
                 size="sm"
-                onClick={() => copy(emailTemplate, "Email template")}
+                announcement="Email template copied"
+                errorMessage="Couldn't copy the email template"
                 aria-label="Copy email template"
-                className="h-6 px-2 text-xs text-sub hover:text-accent"
-              >
-                <Copy className="w-3 h-3 mr-1" aria-hidden="true" /> Copy
-              </Button>
+                className="h-6 px-2 text-xs text-sub hover:text-accent [&_svg]:size-3"
+              />
             </div>
             <pre className="text-xs text-text whitespace-pre-wrap break-words font-data">
               {emailTemplate}

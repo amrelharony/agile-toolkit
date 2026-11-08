@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   DragOverlay,
   PointerSensor,
@@ -11,8 +12,51 @@ import {
   type Announcements,
 } from "@dnd-kit/core";
 import { GripVertical } from "lucide-react";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { useMounted } from "@/hooks/use-mounted";
 import { SonifiedDndContext } from "@/lib/sonification/sonified-dnd-context";
 import { cn } from "@/lib/utils";
+
+/**
+ * Auto-scroll on touch screens. On a phone the lanes are a swipe row, each
+ * 70–80 % of the screen wide, so the next lane shows only as a sliver at the
+ * edge. dnd-kit's default edge zone (20 % of the row) covers that whole
+ * sliver and scrolls at up to 2000 px/s, which carried a card past the lane
+ * it was dropped on. A narrower side zone and half the speed leave the
+ * sliver droppable. Mouse boards keep dnd-kit's defaults.
+ */
+const TOUCH_AUTO_SCROLL = { threshold: { x: 0.1, y: 0.2 }, acceleration: 5 };
+
+/**
+ * Turns off scroll snapping on the lanes' swipe row (and any other snapping
+ * ancestor of the grip) for the length of a drag, and returns a function
+ * that puts it back. dnd-kit auto-scrolls with many small `scrollBy` steps,
+ * and under `scroll-snap-type: x mandatory` each step jumps a whole lane,
+ * so a card raced to the last column. Putting the snap back re-snaps the
+ * row to the lane nearest the drop.
+ */
+function suspendScrollSnap(from: EventTarget | null | undefined): () => void {
+  const held: { el: HTMLElement; value: string; priority: string }[] = [];
+  let el = from instanceof Element ? from.parentElement : null;
+  while (el && el !== document.body) {
+    const snap = getComputedStyle(el).getPropertyValue("scroll-snap-type").trim();
+    if (snap && snap !== "none") {
+      held.push({
+        el,
+        value: el.style.getPropertyValue("scroll-snap-type"),
+        priority: el.style.getPropertyPriority("scroll-snap-type"),
+      });
+      el.style.setProperty("scroll-snap-type", "none");
+    }
+    el = el.parentElement;
+  }
+  return () => {
+    for (const { el: node, value, priority } of held) {
+      if (value) node.style.setProperty("scroll-snap-type", value, priority);
+      else node.style.removeProperty("scroll-snap-type");
+    }
+  };
+}
 
 /**
  * Drag a card to another column with a mouse, pen or finger, on either
@@ -21,6 +65,12 @@ import { cn } from "@/lib/utils";
  * order and hidden from assistive tech. The board announces where a card
  * went in its own words, so dnd-kit's announcements only cover picking up
  * and cancelling.
+ *
+ * The overlay that follows the pointer is portalled to `<body>`. It is
+ * `position: fixed`, and any ancestor with a transform (a page entrance
+ * animation, say) becomes its containing block: once the page was scrolled
+ * the overlay drew a scroll's height off-screen, and dnd-kit, which finds the
+ * column under the overlay's rect, never found one, so drops did nothing.
  */
 export function BoardDnd({
   onMove,
@@ -39,6 +89,17 @@ export function BoardDnd({
   // A few pixels of travel before a drag starts, so a tap on the grip
   // isn't a drop.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const mounted = useMounted();
+  const coarse = useMediaQuery("(pointer: coarse)");
+
+  const restoreSnap = useRef<(() => void) | null>(null);
+  const endDrag = useCallback(() => {
+    setActive(null);
+    restoreSnap.current?.();
+    restoreSnap.current = null;
+  }, []);
+  // A board that unmounts mid-drag (a tab switch) still gives the snap back.
+  useEffect(() => () => restoreSnap.current?.(), []);
 
   const accessibility = useMemo(() => {
     const announcements: Announcements = {
@@ -59,15 +120,26 @@ export function BoardDnd({
     <SonifiedDndContext
       sensors={sensors}
       accessibility={accessibility}
-      onDragStart={({ active: a }) => setActive(String(a.id))}
-      onDragCancel={() => setActive(null)}
+      autoScroll={coarse ? TOUCH_AUTO_SCROLL : true}
+      onDragStart={({ active: a, activatorEvent }) => {
+        setActive(String(a.id));
+        restoreSnap.current?.();
+        restoreSnap.current = suspendScrollSnap(activatorEvent?.target);
+      }}
+      onDragCancel={endDrag}
       onDragEnd={({ active: a, over }) => {
-        setActive(null);
+        endDrag();
         if (over) onMove(String(a.id), String(over.id));
       }}
     >
       {children}
-      <DragOverlay dropAnimation={null}>{active ? renderOverlay(active) : null}</DragOverlay>
+      {/* Client-only: there is no <body> to portal into on the server, and
+          nothing to show before the first drag anyway. */}
+      {mounted &&
+        createPortal(
+          <DragOverlay dropAnimation={null}>{active ? renderOverlay(active) : null}</DragOverlay>,
+          document.body
+        )}
     </SonifiedDndContext>
   );
 }

@@ -89,17 +89,15 @@ describe("CanvasTouchTips", () => {
       const note = screen.getByRole("note");
       const report = (ratio: number) =>
         act(() => {
-          observers
-            .at(-1)!
-            .cb(
-              [
-                {
-                  isIntersecting: ratio > 0,
-                  intersectionRatio: ratio,
-                } as IntersectionObserverEntry,
-              ],
-              observers.at(-1) as unknown as IntersectionObserver
-            );
+          observers.at(-1)!.cb(
+            [
+              {
+                isIntersecting: ratio > 0,
+                intersectionRatio: ratio,
+              } as IntersectionObserverEntry,
+            ],
+            observers.at(-1) as unknown as IntersectionObserver
+          );
         });
       // Below the fold: still waiting, long past the countdown.
       report(0);

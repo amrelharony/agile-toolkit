@@ -41,6 +41,7 @@ import {
   revokeShareToken,
   type ShareToken,
 } from "@/lib/whiteboard/share-link";
+import { signalGamification } from "@/lib/gamification/signal";
 import type { WhiteboardSavedTemplate } from "@/lib/stores/workspace-types";
 import { wbId } from "@/lib/whiteboard/clipboard";
 import { withoutLiveChildren } from "../lib/live-boards";
@@ -287,6 +288,7 @@ function ShareTab({
     try {
       const { url, token } = await createShareToken(boardId, role, ttlDays);
       onTokensChanged();
+      signalGamification("invite-created", { toolId: "canvas" });
       setCopyError(null);
       // Auto-copy newly created link to clipboard.
       if (typeof navigator !== "undefined" && navigator.clipboard) {

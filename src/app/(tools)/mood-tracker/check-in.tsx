@@ -106,7 +106,7 @@ function MemberRow({
                 onClick={() => onLog(f.score, note)}
                 aria-pressed={on}
                 className={cn(
-                  "min-touch-coarse min-w-[60px] flex-1 rounded-md border py-1.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60",
+                  "min-w-[60px] pointer-coarse:min-h-11 flex-1 rounded-md border py-1.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60",
                   on
                     ? cn("border-border", f.bg, f.text)
                     : "border-border text-sub hover:border-accent/40"
