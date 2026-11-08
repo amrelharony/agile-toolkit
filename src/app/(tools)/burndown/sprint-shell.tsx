@@ -24,6 +24,7 @@ import { SectionCard } from "@/components/shared/section-card";
 import { SmartInput } from "@/components/shared/smart-input";
 import { NewSprintDialog } from "@/components/sprints/new-sprint-dialog";
 import { SprintPicker, nextSprintName } from "@/components/sprints/sprint-picker";
+import { LoadingSprints } from "@/components/sprints/start";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -340,14 +341,6 @@ export function SprintSettings({
 /* -------------------------------------------------------------------------- */
 /*  States around the sprint                                                   */
 /* -------------------------------------------------------------------------- */
-
-function LoadingSprints() {
-  return (
-    <p role="status" className="py-12 text-center text-sm text-sub">
-      Loading sprints…
-    </p>
-  );
-}
 
 /** For sprints without real dates (the old Velocity tool's placeholder dates). */
 function SetSprintDates({
