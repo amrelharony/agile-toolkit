@@ -5,7 +5,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { VDna, XpEvent, ChallengeProgress } from "@/lib/gamification/types";
-import { passThroughMigrate } from "./persist-migrate";
+import { mergePersisted, passThroughMigrate } from "./persist-migrate";
 
 /** Persisted schema version of `agile-toolkit:vdna`. */
 export const VDNA_PERSIST_VERSION = 0;
@@ -132,9 +132,12 @@ export const useVDnaStore = create<VDna & VDnaActions>()(
       // build that bumps the version followed by a revert to this one would
       // wipe everyone's XP. The explicit version plus a pass-through migrate
       // keep every field (unknown ones included) whatever version wrote them.
-      // Later migrations must be idempotent and tolerate unknown fields too.
+      // The version marker itself drops to 0 when this build writes a newer
+      // payload back, so later migrations must detect shape rather than trust
+      // the version: idempotent, fill-if-absent, tolerant of unknown fields.
       version: VDNA_PERSIST_VERSION,
       migrate: passThroughMigrate,
+      merge: mergePersisted,
       onRehydrateStorage: () => (state) => {
         // Seed the visitor id once at rehydrate time if it's missing or
         // still the "pending" sentinel. On first-ever visit the persisted

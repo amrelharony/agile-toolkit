@@ -54,6 +54,11 @@ function stored(key: string): { state: Record<string, unknown>; version: number 
 }
 
 beforeEach(() => {
+  // zustand merges a loaded payload into the CURRENT state, so reset the
+  // in-memory stores to their defaults first; setState writes through to
+  // storage, hence the clear afterwards.
+  useVDnaStore.setState(useVDnaStore.getInitialState(), true);
+  useHapticsStore.setState(useHapticsStore.getInitialState(), true);
   localStorage.clear();
 });
 
@@ -82,19 +87,33 @@ describe("vdna store persistence", () => {
     expect(useVDnaStore.getState()).toMatchObject({ ...savedVDna, ...futureFields });
 
     // Written back with the newer fields intact, so rolling forward again
-    // finds them where it left them.
+    // finds them where it left them...
     const back = stored(VDNA_KEY);
     expect(back.state).toMatchObject({ ...savedVDna, ...futureFields });
+    // ...but stamped with THIS build's version: the marker drops to 0, so a
+    // newer build's migrations must detect shape, not trust the version.
+    expect(back.version).toBe(0);
   });
 
-  it("falls back to defaults for a corrupted newer payload", async () => {
-    store(VDNA_KEY, "garbage", 7);
+  it.each([
+    ["newer", 7],
+    ["same-version", 0],
+  ])("falls back to defaults for a corrupted %s payload", async (_n, version) => {
+    // Something real in memory first, so a merge over it would show.
+    store(VDNA_KEY, savedVDna, 0);
     await useVDnaStore.persist.rehydrate();
-    const s = useVDnaStore.getState();
-    expect(typeof s.lifetimeXp).toBe("number");
-    expect(Array.isArray(s.unlocked)).toBe(true);
-    // The rehydrate hook still seeds a visitor id.
+    useVDnaStore.setState(useVDnaStore.getInitialState(), true);
+
+    store(VDNA_KEY, "garbage", version);
+    await useVDnaStore.persist.rehydrate();
+    const s = useVDnaStore.getState() as unknown as Record<string, unknown>;
+    expect(s.lifetimeXp).toBe(0);
+    expect(s.unlocked).toEqual([]);
+    expect(s.displayName).not.toBe("Sam");
+    expect(s["0"]).toBeUndefined();
+    // The rehydrate hook still seeds a fresh visitor id.
     expect(s.visitorId).not.toBe("pending");
+    expect(s.visitorId).not.toBe("visitor-abc");
   });
 });
 

@@ -73,12 +73,10 @@ describe("toast wrapper", () => {
     expect(h.sonner.error).toHaveBeenCalledWith("Couldn't save", undefined);
   });
 
-  it("swallows an async sonify rejection", async () => {
-    const rejected = Promise.reject(new Error("haptics import failed"));
-    h.emitUiEvent.mockImplementation(() => rejected);
+  it("attaches a catch to an async sonify result", () => {
+    const thenable = { then: vi.fn(), catch: vi.fn() };
+    h.emitUiEvent.mockImplementation(() => thenable);
     expect(toast.success("Saved")).toBe("id-success");
-    // Let the rejection settle; an unhandled one would fail the run.
-    await rejected.catch(() => {});
-    await Promise.resolve();
+    expect(thenable.catch).toHaveBeenCalledTimes(1);
   });
 });

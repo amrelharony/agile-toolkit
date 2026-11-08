@@ -4,7 +4,7 @@ import { safeJSONStorage } from "./safe-storage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { HapticsMode, PerCategoryOverrides } from "@/lib/haptics/types";
-import { passThroughMigrate } from "./persist-migrate";
+import { mergePersisted, passThroughMigrate } from "./persist-migrate";
 
 /** Persisted schema version of `agile-toolkit:haptics`. */
 export const HAPTICS_PERSIST_VERSION = 0;
@@ -76,6 +76,7 @@ export const useHapticsStore = create<HapticsState>()(
       // resetting to defaults (see vdna-store).
       version: HAPTICS_PERSIST_VERSION,
       migrate: passThroughMigrate,
+      merge: mergePersisted,
     }
   )
 );
