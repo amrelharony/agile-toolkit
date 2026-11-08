@@ -574,9 +574,10 @@ export function dispatch(event: GamificationEvent) {
   // read from storage (a bare /guest route mounts no GamificationProvider),
   // a counter bump would save the empty in-memory profile over it.
   if (!useVDnaStore.persist.hasHydrated()) return;
-  // The day streak ticks on any interaction, a click on the home page
-  // included: it returns at once when today is already counted, so it costs
-  // nothing on the hot path. Everything else only looks at relevant events.
+  // The day streak ticks on any event that reaches here, relevant or not —
+  // every route change sends `app-active` (event-bridge trackPathVisit), so
+  // opening the home page counts. It returns at once when today is already
+  // counted, so it costs nothing on the hot path. Everything else only looks at relevant events.
   if (!isRelevantEvent(name)) {
     if (emitDepth < MAX_EMIT_DEPTH && useVDnaStore.getState().lastActiveDate !== todaySeedKey()) {
       emitDepth++;

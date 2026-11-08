@@ -57,6 +57,18 @@ describe("isEditableTarget", () => {
     expect(isEditableTarget(make())).toBe(expected);
   });
 
+  it("trusts the browser's isContentEditable over the attribute walk", () => {
+    const parent = el("div", { contenteditable: "true" });
+    const island = el("span", { contenteditable: "false" });
+    parent.appendChild(island);
+    Object.defineProperty(island, "isContentEditable", { value: false });
+    expect(isEditableTarget(island)).toBe(false);
+    const child = el("span");
+    parent.appendChild(child);
+    Object.defineProperty(child, "isContentEditable", { value: true });
+    expect(isEditableTarget(child)).toBe(true);
+  });
+
   it("tolerates window, document and null", () => {
     expect(isEditableTarget(window)).toBe(false);
     expect(isEditableTarget(document)).toBe(false);

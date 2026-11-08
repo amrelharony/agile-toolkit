@@ -55,13 +55,19 @@ function play(toolId: string, entry: PaletteEntry) {
 const GAMIFIED_RT_EVENTS: ReadonlySet<string> = new Set(["sync-remote"]);
 
 /**
+ * Surfaces whose events are feedback only. `ui` covers clicks, hovers,
+ * keystrokes, toasts and dialog state; `mascot` covers taps, reactions and
+ * mood changes on the always-visible mascot. Input, not outcomes.
+ */
+const FEEDBACK_SURFACES: ReadonlySet<string> = new Set(["ui", "mascot"]);
+
+/**
  * Whether an emit reaches the gamification engine. Tool events always do (the
- * ledger decides whether they pay); `ui` events never do (clicks, hovers,
- * keystrokes, toasts and dialog state are input, not outcomes); `rt` events
- * only when the engine has a rule for them.
+ * ledger decides whether they pay); feedback surfaces (`ui`, `mascot`) never
+ * do; `rt` events only when the engine has a rule for them.
  */
 export function shouldForwardToGamification(toolId: string, eventName: string): boolean {
-  if (toolId === "ui") return false;
+  if (FEEDBACK_SURFACES.has(toolId)) return false;
   if (toolId === "rt") return GAMIFIED_RT_EVENTS.has(eventName);
   return true;
 }

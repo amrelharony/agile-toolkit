@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatch } from "@/lib/gamification/engine";
 import { recordOutcome } from "@/lib/gamification/ledger";
+import { __resetPathVisitForTests, trackPathVisit } from "@/lib/gamification/event-bridge";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 
@@ -269,6 +270,19 @@ describe("the day streak", () => {
     dispatch({ name: "hover" }); // same day: no second tick
     expect(useVDnaStore.getState().streak).toBe(2);
     expect(useVDnaStore.getState().counters.click).toBeUndefined();
+  });
+
+  it("ticks when the app is opened on the home page, with no tool used", () => {
+    __resetPathVisitForTests();
+    at(2026, 9, 14);
+    cardDone();
+    at(2026, 9, 15, 9);
+    trackPathVisit("/");
+    const s = useVDnaStore.getState();
+    expect(s.streak).toBe(2);
+    expect(s.lastActiveDate).not.toBe("");
+    expect(s.toolsVisited).toEqual([]);
+    expect(s.counters["app-active"]).toBeUndefined();
   });
 });
 

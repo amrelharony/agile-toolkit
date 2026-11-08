@@ -153,6 +153,16 @@ describe("trackPathVisit", () => {
     ]);
   });
 
+  it("ticks the day on every route change, the home page included", () => {
+    trackPathVisit("/");
+    trackPathVisit("/");
+    trackPathVisit("/comics/n001");
+    expect(h.dispatch.mock.calls).toEqual([[{ name: "app-active" }], [{ name: "app-active" }]]);
+    expect(h.ingestToolVisit).not.toHaveBeenCalled();
+    trackPathVisit(null);
+    expect(h.dispatch).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores non-tool routes, nested routes, VIP tools and empty paths", () => {
     trackPathVisit("/");
     trackPathVisit("/history");

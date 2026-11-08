@@ -447,5 +447,9 @@ export const ZERO_XP_EVENTS: readonly string[] = [
   "tool:risk-register:risk-added",
 ];
 
-/** Canonical-name prefixes of surfaces that never pay XP. */
+/**
+ * Canonical-name prefixes of surfaces that never pay XP. `emit()` doesn't
+ * forward `ui` or `mascot` events at all (shouldForwardToGamification), and
+ * `rt` only for `sync-remote`; the emit scan names them under these prefixes.
+ */
 export const ZERO_XP_PREFIXES: readonly string[] = ["ui:", "rt:", "mascot:", "toast-"];

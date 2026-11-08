@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * What `emit()` hands to the gamification engine. Tool events always go to
- * the ledger; `ui` events never do (clicks, hovers, keystrokes, toasts); `rt`
+ * the ledger; `ui` and `mascot` events never do (clicks, hovers, keystrokes,
+ * toasts, mascot taps); `rt`
  * events only for `sync-remote`, which `sync-first` needs. `emitFeedback()`
  * and the toast wrapper play sound and haptics but never reach the engine.
  */
@@ -59,6 +60,8 @@ describe("shouldForwardToGamification", () => {
     ["ui", "keystroke", false],
     ["ui", "toast-success", false],
     ["ui", "state-open", false],
+    ["mascot", "click", false],
+    ["mascot", "wiggle", false],
     ["rt", "sync-remote", true],
     ["rt", "member-join", false],
     ["rt", "member-leave", false],
@@ -86,6 +89,14 @@ describe("emit", () => {
     await settle();
     expect(h.ingestEvent).not.toHaveBeenCalled();
     expect(h.fireFromEvent).toHaveBeenCalledTimes(3);
+  });
+
+  it("never forwards mascot taps, reactions or mood changes", async () => {
+    emit("mascot", "click");
+    emit("mascot", "wiggle");
+    await settle();
+    expect(h.ingestEvent).not.toHaveBeenCalled();
+    expect(h.fireFromEvent).toHaveBeenCalledTimes(2);
   });
 
   it("forwards only sync-remote among rt events, under its bare name", async () => {

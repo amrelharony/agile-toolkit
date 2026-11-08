@@ -44,7 +44,9 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   if (tag === "INPUT") {
     return !NON_TEXT_INPUT_TYPES.has(((el as HTMLInputElement).type || "text").toLowerCase());
   }
-  if (el.isContentEditable) return true;
+  // Trust the browser's answer when it has one: a contenteditable="false"
+  // island inside an editor (a mention chip, a node view) isn't typing.
+  if (typeof el.isContentEditable === "boolean") return el.isContentEditable;
   // jsdom doesn't implement isContentEditable; the attribute walk covers it.
   return el.closest("[contenteditable]:not([contenteditable='false'])") !== null;
 }

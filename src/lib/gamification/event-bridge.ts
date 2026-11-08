@@ -67,7 +67,8 @@ export function installEventBridge(): () => void {
 let lastVisitedPath: string | null = null;
 
 /**
- * Record a visit when the route lands on a tool page. Called by the provider
+ * Tick the day streak on every route change, and record a visit when the
+ * route lands on a tool page. Called by the provider
  * with `usePathname()` on mount and on every navigation. The same path twice
  * in a row (a re-render, a remount) counts once; leaving and coming back
  * counts again, as a route change always did.
@@ -76,6 +77,10 @@ export function trackPathVisit(pathname: string | null | undefined): void {
   if (typeof window === "undefined" || !pathname) return;
   if (pathname === lastVisitedPath) return;
   lastVisitedPath = pathname;
+  // Keep the day streak alive on any route — the home cockpit, a comic, a VIP
+  // page. `app-active` isn't a relevant event, so dispatch() only ticks the
+  // day (once; it returns at once when today is already counted).
+  dispatch({ name: "app-active" });
   const toolId = extractToolId(pathname);
   if (toolId) ingestToolVisit(toolId);
 }
