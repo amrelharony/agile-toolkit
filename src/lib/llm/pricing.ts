@@ -235,26 +235,44 @@ export const MODELS_BY_PROVIDER: Record<ProviderId, readonly ModelInfo[]> = {
     // Listed newest-first so the dropdown surfaces current models at the top.
     // Pricing is approximate USD conversion from Zhipu's CNY pricing page —
     // update against https://open.bigmodel.cn/pricing if numbers drift.
+    // GLM-5.3 / GLM-5.3-Flash: Z.AI's USD list prices per
+    // https://docs.z.ai/guides/overview/pricing (checked 2026-11-08):
+    // $1.40 / $4.40 and $0.15 / $0.50 per 1M input / output tokens. The
+    // context window isn't published there; 200K matches GLM-5.1.
+    {
+      id: "glm-5.3",
+      label: "GLM-5.3",
+      contextWindow: 200_000,
+      inputPer1k: 0.0014,
+      outputPer1k: 0.0044,
+    },
+    {
+      id: "glm-5.3-flash",
+      label: "GLM-5.3 Flash",
+      contextWindow: 200_000,
+      inputPer1k: 0.00015,
+      outputPer1k: 0.0005,
+    },
     {
       id: "glm-5.1",
       label: "GLM-5.1",
       contextWindow: 200_000,
-      inputPer1k: 0.0010,
-      outputPer1k: 0.0040,
+      inputPer1k: 0.001,
+      outputPer1k: 0.004,
     },
     {
       id: "glm-5",
       label: "GLM-5",
       contextWindow: 200_000,
-      inputPer1k: 0.0010,
-      outputPer1k: 0.0040,
+      inputPer1k: 0.001,
+      outputPer1k: 0.004,
     },
     {
       id: "glm-4.7",
       label: "GLM-4.7",
       contextWindow: 200_000,
       inputPer1k: 0.0008,
-      outputPer1k: 0.0030,
+      outputPer1k: 0.003,
     },
     {
       id: "glm-4.6",
@@ -268,7 +286,7 @@ export const MODELS_BY_PROVIDER: Record<ProviderId, readonly ModelInfo[]> = {
       label: "GLM-4.5",
       contextWindow: 128_000,
       inputPer1k: 0.0005,
-      outputPer1k: 0.0020,
+      outputPer1k: 0.002,
     },
     {
       id: "glm-4.5-air",
@@ -288,8 +306,8 @@ export const MODELS_BY_PROVIDER: Record<ProviderId, readonly ModelInfo[]> = {
       id: "glm-4-plus",
       label: "GLM-4 Plus",
       contextWindow: 128_000,
-      inputPer1k: 0.0070,
-      outputPer1k: 0.0070,
+      inputPer1k: 0.007,
+      outputPer1k: 0.007,
     },
     {
       id: "glm-4-air",
