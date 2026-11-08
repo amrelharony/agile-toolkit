@@ -77,7 +77,7 @@ import {
   restoreStory,
   type StoryDraft,
 } from "./stories";
-import { StoryQueueItem } from "./story-queue-item";
+import { ICON_TOUCH_TARGET, StoryQueueItem } from "./story-queue-item";
 
 interface Props {
   session: Session;
@@ -1130,7 +1130,7 @@ export function SessionScreen({
                     tooltip={false}
                     variant="danger-ghost"
                     onClick={() => removeTeamPlayer(p)}
-                    className="-my-1 h-7 w-7 shrink-0"
+                    className={`-my-1 h-7 w-7 shrink-0 ${ICON_TOUCH_TARGET}`}
                   />
                 )}
                 {!facilitating &&
@@ -1144,7 +1144,7 @@ export function SessionScreen({
                       tooltip={false}
                       variant="danger-ghost"
                       onClick={() => setRemoveTarget(p)}
-                      className="-my-1 h-7 w-7 shrink-0"
+                      className={`-my-1 h-7 w-7 shrink-0 ${ICON_TOUCH_TARGET}`}
                     />
                   )}
               </div>
