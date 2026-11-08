@@ -59,9 +59,16 @@ function show(): void {
 }
 
 describe("MomentChip", () => {
-  it("renders nothing between moments", () => {
-    const { container } = render(<MomentChip />);
-    expect(container).toBeEmptyDOMElement();
+  it("keeps an empty live region between moments, so the chip is announced when it appears", () => {
+    render(<MomentChip />);
+    const region = screen.getByRole("status");
+    expect(region).toBeEmptyDOMElement();
+    expect(region).toHaveAttribute("aria-live", "polite");
+    expect(region.className).toContain("pointer-events-none");
+    show();
+    // The same node now holds the chip (not a freshly inserted region).
+    expect(screen.getByRole("status")).toBe(region);
+    expect(region).toHaveTextContent("Level 8 · tap to see");
   });
 
   it("reads 'Level 8 · tap to see' as a status, and fades after about 4 s", () => {
@@ -71,9 +78,9 @@ describe("MomentChip", () => {
     const chip = screen.getByRole("status");
     expect(chip).toHaveTextContent("Level 8 · tap to see");
     act(() => vi.advanceTimersByTime(CHIP_MS - 1));
-    expect(screen.queryByRole("status")).not.toBeNull();
+    expect(chip).not.toBeEmptyDOMElement();
     act(() => vi.advanceTimersByTime(1));
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(chip).toBeEmptyDOMElement();
   });
 
   it("stays while the pointer is on it", () => {
@@ -83,10 +90,10 @@ describe("MomentChip", () => {
     const tap = screen.getByRole("button", { name: /tap to see/ });
     fireEvent.pointerEnter(tap);
     act(() => vi.advanceTimersByTime(CHIP_MS * 3));
-    expect(screen.queryByRole("status")).not.toBeNull();
+    expect(screen.getByRole("status")).not.toBeEmptyDOMElement();
     fireEvent.pointerLeave(tap);
     act(() => vi.advanceTimersByTime(CHIP_MS));
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("a tap opens Activity and closes the chip", () => {
@@ -123,12 +130,13 @@ describe("MomentChip", () => {
   it("has no animation under reduced motion and never exceeds the screen", () => {
     render(<MomentChip />);
     show();
-    const cls = screen.getByRole("status").className;
+    const cls = document.querySelector("[data-moment-chip]")!.className;
     expect(cls).toContain("motion-reduce:animate-none");
     expect(cls).toMatch(/motion-safe:animate-in/);
     expect(cls).not.toMatch(/(?<!motion-safe:)animate-in/);
-    expect(cls).toContain("max-w-[min(18rem,calc(100vw-32px))]");
-    expect(cls).toContain("z-[55]");
+    const region = screen.getByRole("status").className;
+    expect(region).toContain("max-w-[min(18rem,calc(100vw-32px))]");
+    expect(region).toContain("z-[55]");
   });
 
   it("phones: just above Amr's band on his side", () => {

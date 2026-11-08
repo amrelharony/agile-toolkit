@@ -23,10 +23,12 @@
  *
  * **When it fires** the rarest fresh item plays. Everything else that was
  * held becomes one recap row named after what it waited through ("While you
- * were in Retro Board: Retro Regular, +1 challenge"). Items older than 12 h
- * only go to the recap. What waits survives a reload, and the first calm
- * moment of a new browser session turns what's left from before into one
- * "Since last time…" row.
+ * were in Retro Board: Retro Regular, +1 challenge"). A hold that ends with
+ * nothing to play still writes that recap at the first calm check, and the
+ * moment limits (gap, per day) never hold a recap back. Items older than 12 h
+ * only go to the recap. What waits survives a reload; the first calm check of
+ * a new browser session, or of a new day, turns what's left from before into
+ * one "Since last time…" row.
  *
  * Nothing is dropped: the rows are in the inbox whether or not a moment plays.
  */
@@ -437,12 +439,40 @@ function arm(delayMs: number): void {
   timer = setTimeout(runMomentCheck, Math.max(0, Math.min(delayMs, 2_147_000_000)));
 }
 
-/** Something waits that a moment or a recap could use. */
-function hasWork(now: number, level: CelebrationLevel): boolean {
-  const { pending } = useMomentStore.getState();
-  if (pending.length === 0) return false;
-  if (sinceLastTimeArmed) return true;
-  return pickHead(pending, level, now) !== null;
+/**
+ * Something waits that a moment or a recap could use. Every pending item
+ * does: a fresh worthy one plays, and a held or stale one goes to a recap.
+ */
+function hasWork(): boolean {
+  return useMomentStore.getState().pending.length > 0;
+}
+
+/** Some waiting item arrived on an earlier local day. */
+function leftFromEarlierDay(pending: readonly PendingMoment[], now: number): boolean {
+  const today = localDate(now);
+  return pending.some((p) => localDate(p.at) !== today);
+}
+
+/**
+ * Keep at most PENDING_CAP items. Over the cap, the ones least worth keeping
+ * go first: anything that can't get a moment (or is past fresh), then the
+ * least rare, then the oldest. A moment-worthy item is never pushed out by
+ * a pile of common rows (they're all in the inbox anyway).
+ */
+export function capPending(
+  pending: readonly PendingMoment[],
+  level: CelebrationLevel,
+  now: number
+): PendingMoment[] {
+  if (pending.length <= PENDING_CAP) return [...pending];
+  const playable = (p: PendingMoment) =>
+    isMomentWorthy(level, p) && now - p.at < MOMENT_FRESH_MS ? 1 : 0;
+  const ranked = [...pending].sort(
+    (a, b) =>
+      playable(b) - playable(a) || rarityRank(b.rarity) - rarityRank(a.rarity) || b.at - a.at
+  );
+  const keep = new Set(ranked.slice(0, PENDING_CAP));
+  return pending.filter((p) => keep.has(p));
 }
 
 /** How long to sleep for a blocker, or null to wait for a kick. */
@@ -490,15 +520,25 @@ export function runMomentCheck(): void {
   const prefs = prefsNow();
   const level = effectiveCelebrationLevel(prefs);
   prune(now);
-  if (!prefs.gamificationEnabled || !hasWork(now, level)) return;
+  if (!prefs.gamificationEnabled || !hasWork()) return;
   const inputs = readCalm(now, prefs);
   const blocker = calmBlocker(inputs);
+  if (blocker === "daily" || blocker === "gap") {
+    // Everything else is calm; the limits only bound moments. The recap of
+    // what was held goes now, and a moment-worthy head waits out the limit.
+    const head = fire(now, level, false);
+    if (head) {
+      const delay = retryDelay(blocker, inputs, prefs);
+      if (delay !== null) arm(delay);
+    }
+    return;
+  }
   if (blocker) {
     const delay = retryDelay(blocker, inputs, prefs);
     if (delay !== null) arm(delay);
     return;
   }
-  fire(now, level);
+  fire(now, level, true);
 }
 
 function prune(now: number): void {
@@ -507,23 +547,38 @@ function prune(now: number): void {
   if (kept.length !== pending.length) useMomentStore.setState({ pending: kept });
 }
 
-function fire(now: number, level: CelebrationLevel): void {
+/**
+ * Write the recap of everything but the head and, when `playHead`, play the
+ * head. Without `playHead` the head (if any) stays pending and is returned.
+ */
+function fire(now: number, level: CelebrationLevel, playHead: boolean): PendingMoment | null {
   attempts = 0;
   const { pending, day } = useMomentStore.getState();
   const head = pickHead(pending, level, now);
   const rest = pending.filter((p) => p !== head);
-  const sinceLastTime = sinceLastTimeArmed;
-  sinceLastTimeArmed = false;
+  const sinceLastTime = sinceLastTimeArmed || leftFromEarlierDay(pending, now);
+  if (sinceLastTimeArmed) {
+    sinceLastTimeArmed = false;
+    markSessionSeen();
+  }
+  // What the recap stands for: whatever was held, or waited for a moment it
+  // didn't get. A common row that arrived at a calm time is only an inbox row
+  // (it can be pending only after a level change), unless it's left from
+  // before.
+  const recapped = sinceLastTime
+    ? rest
+    : rest.filter((p) => p.context !== null || isMomentWorthy(level, p));
 
-  if (rest.length > 0) {
-    const context = rest.find((p) => p.context)?.context ?? null;
+  if (recapped.length > 0) {
+    // Named after the most recent hold.
+    const context = [...recapped].reverse().find((p) => p.context)?.context ?? null;
     const title = sinceLastTime ? SINCE_LAST_TIME_TITLE : recapTitle(context);
-    const children = rest.map((p) => ({ title: p.title, icon: p.icon, kind: p.kind }));
+    const children = recapped.map((p) => ({ title: p.title, icon: p.icon, kind: p.kind }));
     withInbox(() => {
       useInboxStore.getState().add({
         kind: "recap",
         title,
-        body: recapBody(rest),
+        body: recapBody(recapped),
         icon: "History",
         // A recap never earns a moment of its own.
         rarity: "common",
@@ -531,6 +586,11 @@ function fire(now: number, level: CelebrationLevel): void {
         children,
       });
     });
+  }
+
+  if (!playHead) {
+    useMomentStore.setState({ pending: head ? [head] : [] });
+    return head;
   }
 
   const today = localDate(now);
@@ -554,6 +614,7 @@ function fire(now: number, level: CelebrationLevel): void {
       at: now,
     });
   }
+  return null;
 }
 
 /** Show the chip, tell Amr, play the chime and (Full haptics only) a buzz. */
@@ -611,7 +672,7 @@ export function onCelebration(item: InboxItem): void {
     count: item.children && item.children.length > 0 ? item.children.length : 1,
     context: existing?.context ?? context,
   };
-  const next = [...pending.filter((p) => p.id !== item.id), entry].slice(-PENDING_CAP);
+  const next = capPending([...pending.filter((p) => p.id !== item.id), entry], level, now);
   useMomentStore.setState({ pending: next });
   kickMoments();
 }
@@ -622,9 +683,7 @@ export function onCelebration(item: InboxItem): void {
  */
 export function kickMoments(): void {
   attempts = 0;
-  const now = env.now();
-  const prefs = prefsNow();
-  if (!hasWork(now, effectiveCelebrationLevel(prefs))) {
+  if (!hasWork()) {
     clearTimer();
     return;
   }
@@ -656,13 +715,24 @@ export function dismissMoment(): void {
   useMomentStore.getState().dismiss();
 }
 
+/** No "since last time" has been spent in this browser session yet. */
 function isNewSession(): boolean {
   try {
-    if (sessionStorage.getItem(SESSION_KEY)) return false;
-    sessionStorage.setItem(SESSION_KEY, "1");
-    return true;
+    return !sessionStorage.getItem(SESSION_KEY);
   } catch {
     return false;
+  }
+}
+
+/**
+ * This session's "since last time" is spent (its recap was written, or
+ * nothing was left from before). Until then a same-tab reload keeps it.
+ */
+function markSessionSeen(): void {
+  try {
+    sessionStorage.setItem(SESSION_KEY, "1");
+  } catch {
+    /* storage blocked: the next load counts as new, which only re-titles a recap */
   }
 }
 
@@ -678,7 +748,10 @@ export function installMomentScheduler(): () => void {
     .catch(() => {})
     .then(() => {
       if (detached) return;
-      if (newSession && useMomentStore.getState().pending.length > 0) sinceLastTimeArmed = true;
+      if (newSession) {
+        if (useMomentStore.getState().pending.length > 0) sinceLastTimeArmed = true;
+        else markSessionSeen();
+      }
       kickMoments();
     });
 

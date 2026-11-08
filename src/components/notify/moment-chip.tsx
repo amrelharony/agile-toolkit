@@ -1,11 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MutableRefObject,
+} from "react";
 import { Award, Crown, Flag, Sparkles, TrendingUp, X, type LucideIcon } from "lucide-react";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
-import { CHIP_MS, useMomentStore } from "@/lib/notify/moment-scheduler";
+import { CHIP_MS, useMomentStore, type MomentShown } from "@/lib/notify/moment-scheduler";
 import { momentChipText } from "@/lib/notify/copy";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { cn } from "@/lib/utils";
@@ -49,7 +56,8 @@ export function momentChipPosition(corner: MascotCorner, phone: boolean): CSSPro
  * The moment chip: "Level 8 · tap to see", beside Amr for about 4 s while he
  * cheers. Tapping it opens Activity; the X or a sideways swipe closes it.
  * It stays while hovered or focused, and has no animation under reduced
- * motion. Mounted once in app-shell.tsx; renders nothing between moments.
+ * motion. Mounted once in app-shell.tsx; between moments only its empty live
+ * region is in the page.
  */
 export function MomentChip() {
   const moment = useMomentStore((s) => s.current);
@@ -77,7 +85,43 @@ export function MomentChip() {
     openActivity();
   }, [dismiss, openActivity]);
 
-  if (!moment) return null;
+  // The live region is always mounted (empty between moments), so screen
+  // readers announce the chip when it appears inside it.
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      data-moment-region
+      style={{ position: "fixed", ...momentChipPosition(corner, phone) }}
+      className="pointer-events-none z-[55] max-w-[min(18rem,calc(100vw-32px))]"
+    >
+      {moment ? (
+        <ChipBody
+          moment={moment}
+          open={open}
+          dismiss={dismiss}
+          setHeld={setHeld}
+          swipeFrom={swipeFrom}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ChipBody({
+  moment,
+  open,
+  dismiss,
+  setHeld,
+  swipeFrom,
+}: {
+  moment: MomentShown;
+  open: () => void;
+  dismiss: () => void;
+  setHeld: (held: boolean) => void;
+  swipeFrom: MutableRefObject<number | null>;
+}) {
   const Icon = KIND_ICON[moment.kind] ?? Sparkles;
   const text = momentChipText(moment.title);
   // Held open while the pointer or focus is on either button.
@@ -90,13 +134,10 @@ export function MomentChip() {
 
   return (
     <div
-      role="status"
-      aria-live="polite"
       data-moment-chip
       data-rarity={moment.rarity}
-      style={{ position: "fixed", ...momentChipPosition(corner, phone) }}
       className={cn(
-        "z-[55] flex max-w-[min(18rem,calc(100vw-32px))] items-center gap-1 rounded-full border border-border bg-surface py-1 pl-3 pr-1 text-sm text-text shadow-lg",
+        "pointer-events-auto flex max-w-full items-center gap-1 rounded-full border border-border bg-surface py-1 pl-3 pr-1 text-sm text-text shadow-lg",
         "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-reduce:animate-none"
       )}
     >

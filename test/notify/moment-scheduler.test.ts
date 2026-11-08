@@ -15,7 +15,9 @@ import {
   __armSinceLastTimeForTests,
   __resetMomentsForTests,
   __setMomentEnvForTests,
+  PENDING_CAP,
   calmBlocker,
+  capPending,
   installMomentScheduler,
   isMomentTimerArmed,
   isMomentWorthy,
@@ -432,6 +434,115 @@ describe("held, never dropped", () => {
     expect(current()?.title).toBe("Level 8");
   });
 
+  it("a hold that ends with nothing to play writes its recap right away", () => {
+    setMomentPathname("/retro");
+    badge("retro-one", "Retro Regular", 50);
+    challenge();
+    advance(RETRY_MIN_MS);
+    expect(pending()).toHaveLength(2);
+    expect(isMomentTimerArmed()).toBe(false);
+
+    setMomentPathname("/");
+    advance(RETRY_MIN_MS);
+    expect(current()).toBeNull();
+    const recaps = rows().filter((r) => r.kind === "recap");
+    expect(recaps).toHaveLength(1);
+    expect(recaps[0]).toMatchObject({
+      title: "While you were in Retro Board",
+      body: "Retro Regular, +1 challenge",
+    });
+    expect(pending()).toEqual([]);
+    expect(isMomentTimerArmed()).toBe(false);
+    // A recap isn't a moment: no limit is spent.
+    expect(useMomentStore.getState().lastMomentAt).toBeNull();
+    expect(useMomentStore.getState().day.count).toBe(0);
+
+    // Nothing comes back later under the old title.
+    clock += 24 * 60 * 60_000;
+    levelUp(8);
+    advance(RETRY_MIN_MS);
+    expect(current()?.title).toBe("Level 8");
+    expect(rows().filter((r) => r.kind === "recap")).toHaveLength(1);
+  });
+
+  it("the moment limits never hold a recap back", () => {
+    useMomentStore.setState({ day: { date: "2026-11-09", count: 3 } });
+    setMomentPathname("/retro");
+    badge("retro-one", "Retro Regular", 50);
+    setMomentPathname("/");
+    advance(RETRY_MIN_MS);
+    expect(rows().find((r) => r.kind === "recap")?.title).toBe("While you were in Retro Board");
+    expect(pending()).toEqual([]);
+  });
+
+  it("inside the gap the recap goes now and the moment plays when the gap ends", () => {
+    useMomentStore.setState({ lastMomentAt: clock - 60_000 });
+    setMomentPathname("/retro");
+    badge("retro-one", "Retro Regular", 50);
+    levelUp(8);
+    setMomentPathname("/");
+    advance(RETRY_MIN_MS);
+    expect(current()).toBeNull();
+    expect(rows().find((r) => r.kind === "recap")?.body).toBe("Retro Regular");
+    expect(pending().map((p) => p.title)).toEqual(["Level 8"]);
+    expect(isMomentTimerArmed()).toBe(true);
+    advance(9 * 60_000);
+    expect(current()?.title).toBe("Level 8");
+    expect(rows().filter((r) => r.kind === "recap")).toHaveLength(1);
+  });
+
+  it("a pile of common rows never pushes a held rare item out", () => {
+    setMomentPathname("/retro");
+    levelUp(8);
+    for (let i = 0; i < PENDING_CAP + 5; i++) {
+      clock += 1_000;
+      onCelebration({
+        id: `kudos-${i}`,
+        kind: "kudos",
+        title: `Kudos ${i}`,
+        icon: "Heart",
+        rarity: "common",
+        at: new Date(clock).toISOString(),
+        read: false,
+        momentShown: false,
+      });
+    }
+    expect(pending()).toHaveLength(PENDING_CAP);
+    expect(pending().some((p) => p.title === "Level 8")).toBe(true);
+    // The oldest commons went first.
+    expect(pending().some((p) => p.title === "Kudos 0")).toBe(false);
+    expect(pending().some((p) => p.title === `Kudos ${PENDING_CAP + 4}`)).toBe(true);
+    setMomentPathname("/");
+    advance(RETRY_MIN_MS);
+    expect(current()?.title).toBe("Level 8");
+  });
+
+  it("capPending keeps order and evicts unplayable, then least rare, then oldest", () => {
+    const item = (id: string, over: Partial<PendingMoment> = {}): PendingMoment => ({
+      id,
+      title: id,
+      kind: "kudos",
+      rarity: "common",
+      icon: "Heart",
+      at: T0,
+      count: 1,
+      context: null,
+      ...over,
+    });
+    const list = [
+      item("rare-badge", { kind: "achievement", rarity: "rare", at: T0 - 5 }),
+      item("stale-level", { kind: "level-up", rarity: "epic", at: T0 - MOMENT_FRESH_MS - 1 }),
+      ...Array.from({ length: PENDING_CAP }, (_, i) => item(`c${i}`, { at: T0 + i })),
+    ];
+    const kept = capPending(list, "balanced", T0 + 100);
+    expect(kept).toHaveLength(PENDING_CAP);
+    expect(kept[0].id).toBe("rare-badge");
+    expect(kept[1].id).toBe("stale-level");
+    expect(kept.some((p) => p.id === "c0")).toBe(false);
+    expect(kept.some((p) => p.id === "c1")).toBe(false);
+    expect(capPending(list.slice(0, 3), "balanced", T0)).toEqual(list.slice(0, 3));
+  });
+
   it("what waits survives a reload (persisted)", () => {
     setMomentPathname("/planning-poker");
     levelUp(8);
@@ -506,8 +617,8 @@ describe("limits", () => {
 });
 
 describe("since last time", () => {
-  function previousSession(items: Partial<PendingMoment>[]): void {
-    const now = clock - 20 * 60 * 60_000;
+  function previousSession(items: Partial<PendingMoment>[], ageMs = 20 * 60 * 60_000): void {
+    const now = clock - ageMs;
     localStorage.setItem(
       MOMENTS_STORAGE_KEY,
       JSON.stringify({
@@ -531,10 +642,14 @@ describe("since last time", () => {
     );
   }
 
-  async function reload(newSession: boolean, items: Partial<PendingMoment>[]): Promise<void> {
+  async function reload(
+    newSession: boolean,
+    items: Partial<PendingMoment>[] | null,
+    ageMs?: number
+  ): Promise<void> {
     detach?.();
     __resetMomentsForTests();
-    previousSession(items);
+    if (items) previousSession(items, ageMs);
     __setMomentEnvForTests({
       now: () => clock,
       typing: () => typing,
@@ -575,12 +690,51 @@ describe("since last time", () => {
     expect(rows().find((r) => r.title === "While you were in Retro Board")).toBeDefined();
   });
 
-  it("a reload in the same session doesn't count as 'since last time'", async () => {
+  it("a reload in the same session doesn't count as 'since last time'; held rows still get their recap", async () => {
     sessionStorage.setItem("agile-toolkit:moments-session", "1");
-    await reload(false, [{ title: "Retro Regular", rarity: "common" }]);
+    // Held two hours ago, earlier today.
+    await reload(false, [{ title: "Retro Regular", rarity: "common" }], 2 * 60 * 60_000);
     advance(RETRY_MIN_MS);
-    expect(rows().filter((r) => r.kind === "recap")).toHaveLength(0);
+    const recaps = rows().filter((r) => r.kind === "recap");
+    expect(recaps).toHaveLength(1);
+    expect(recaps[0].title).toBe("While you were in Retro Board");
+    expect(pending()).toEqual([]);
     __armSinceLastTimeForTests(false);
+  });
+
+  it("an unspent 'since last time' survives a same-tab reload", async () => {
+    // A new session with leftovers from earlier today, reloaded before a calm check.
+    await reload(true, [{ title: "Retro Regular", rarity: "common" }], 2 * 60 * 60_000);
+    expect(sessionStorage.getItem("agile-toolkit:moments-session")).toBeNull();
+    // Reload in the same tab: the leftovers are still pending (not spent).
+    detach?.();
+    detach = installMomentScheduler();
+    __armSinceLastTimeForTests(false);
+    await useMomentStore.persist.rehydrate();
+    await Promise.resolve();
+    await Promise.resolve();
+    advance(RETRY_MIN_MS);
+    const recaps = rows().filter((r) => r.kind === "recap");
+    expect(recaps).toHaveLength(1);
+    expect(recaps[0].title).toBe("Since last time…");
+    expect(sessionStorage.getItem("agile-toolkit:moments-session")).toBe("1");
+  });
+
+  it("a new session with nothing left from before spends its 'since last time'", async () => {
+    await reload(true, null);
+    expect(sessionStorage.getItem("agile-toolkit:moments-session")).toBe("1");
+  });
+
+  it("a tab left open overnight gets 'Since last time…' the next day", () => {
+    clock = new Date(2026, 10, 9, 23, 50).getTime();
+    setMomentPathname("/retro");
+    badge("retro-one", "Retro Regular", 50);
+    clock = new Date(2026, 10, 10, 9, 0).getTime();
+    setMomentPathname("/");
+    advance(RETRY_MIN_MS);
+    const recaps = rows().filter((r) => r.kind === "recap");
+    expect(recaps).toHaveLength(1);
+    expect(recaps[0]).toMatchObject({ title: "Since last time…", body: "Retro Regular" });
   });
 });
 
