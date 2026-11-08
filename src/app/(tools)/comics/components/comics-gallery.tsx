@@ -72,7 +72,8 @@ function ThisWeek({ story }: { story: StorySummary }) {
   return (
     <section aria-labelledby="this-week-heading">
       <Card className="grid overflow-hidden md:grid-cols-2">
-        {story.cover ? <ComicCover cover={story.cover} /> : null}
+        {/* What /comics opens on, and the book intro's window shares the file. */}
+        {story.cover ? <ComicCover cover={story.cover} priority /> : null}
         <div className="space-y-3 p-4 sm:p-6">
           <Eyebrow>This week&apos;s story</Eyebrow>
           <h2 id="this-week-heading" className="font-display text-xl font-semibold text-text">
