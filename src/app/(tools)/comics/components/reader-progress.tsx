@@ -115,17 +115,19 @@ export function ReaderProgress({
           <h2 id="reader-progress-heading" className="font-display font-semibold text-text">
             Your reading
           </h2>
+          {/* Each chip holds two lines from the first paint (2 × 20px, padding
+              and border), so the figures filling in never move the page. */}
           <p className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-            <span className="flex min-h-12 items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
+            <span className="flex min-h-[3.25rem] items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
               Stories read: {read.length}
             </span>
-            <span className="flex min-h-12 items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
+            <span className="flex min-h-[3.25rem] items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
               Time reading: {readingTimeLabel(seconds)}
             </span>
-            <span className="flex min-h-12 items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
+            <span className="flex min-h-[3.25rem] items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
               {streakText(streak)}
             </span>
-            <span className="flex min-h-12 items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
+            <span className="flex min-h-[3.25rem] items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
               Cast met: {met.length} of {cast.length}
             </span>
           </p>
