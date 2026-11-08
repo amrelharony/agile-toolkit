@@ -16,7 +16,7 @@ import { mergePersisted } from "./persist-migrate";
 /**
  * Persisted schema version of `agile-toolkit:vdna`.
  * v0: original shape. v1: XP ledger fields (`xpDay`, `claims`, `onceKeys`),
- * input-only counters dropped, `level` recomputed (lib/gamification/vdna-migrate.ts).
+ * secrets seeded as paid, `level` recomputed (lib/gamification/vdna-migrate.ts).
  */
 export const VDNA_PERSIST_VERSION = VDNA_SCHEMA_VERSION;
 

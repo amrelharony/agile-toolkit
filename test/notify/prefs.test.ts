@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   areCelebrationsPaused,
   DEFAULT_NOTIFICATION_PREFS,
+  effectiveCelebrationLevel,
+  effectiveQuietHours,
   FOCUS_UNTIL_OFF,
   isFocusActive,
   isWithinQuietHours,
@@ -174,13 +176,36 @@ describe("notification prefs persistence", () => {
     expect(stored().state.futureFlag).toBe("kept");
   });
 
-  it("sanitises malformed fields, even in a same-version payload", async () => {
+  it("keeps a newer build's values for known fields through load and write-back", async () => {
     store(
       {
-        celebrationLevel: "loud",
+        ...DEFAULT_NOTIFICATION_PREFS,
+        celebrationLevel: "off",
+        quietHours: { enabled: true, start: "21:00:00", end: "07:00" },
+      },
+      2
+    );
+    await useNotificationPrefsStore.persist.rehydrate();
+    // The migration wrote the state straight back, stamped with this version.
+    expect(stored().version).toBe(1);
+    expect(stored().state.celebrationLevel).toBe("off");
+    expect(stored().state.quietHours).toMatchObject({ start: "21:00:00" });
+    // A later write keeps them too.
+    useNotificationPrefsStore.getState().setShowXpBar(false);
+    expect(stored().state.celebrationLevel).toBe("off");
+    // Readers normalise what this build doesn't understand.
+    const prefs = getNotificationPrefsSnapshot();
+    expect(effectiveCelebrationLevel(prefs)).toBe("balanced");
+    expect(effectiveQuietHours(prefs.quietHours)).toMatchObject({ start: "22:00", end: "07:00" });
+  });
+
+  it("sanitises wrongly typed fields, even in a same-version payload", async () => {
+    store(
+      {
+        celebrationLevel: 3,
         gamificationEnabled: "yes",
         focusUntil: "soon",
-        quietHours: { enabled: true, start: "9pm", end: "06:30" },
+        quietHours: { enabled: true, start: 21, end: "06:30" },
         mutedKeys: ["a", 3, "", "a", "b"],
       },
       1

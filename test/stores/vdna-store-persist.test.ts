@@ -51,8 +51,7 @@ const savedAsV1 = {
   ...savedVDna,
   // 4,321 XP at prestige 1 is level 8 on the curve; the stored 9 was stale.
   level: 8,
-  // `click` is an input-only counter, dropped in v1.
-  counters: { "tool:retro:vote": 12 },
+  // Counters are kept as stored: live rules still read the input-only ones.
   xpDay: { date: "", total: 0, byKey: {} },
   claims: {},
   onceKeys: [],
@@ -158,31 +157,22 @@ describe("vdna v0 → v1", () => {
     ]);
   });
 
-  it("drops input-only counters and keeps the rest", () => {
-    const out = migrateVDna<{ counters: Record<string, number> }>(
-      {
-        counters: {
-          click: 1,
-          hover: 2,
-          "logo-hover": 3,
-          "session-minutes": 4,
-          "session-minutes-silent": 5,
-          "audio-modes-used": 6,
-          "audio-mode:full": 1,
-          "tool:retro:card-add": 7,
-          "week-tool:2026-45:kanban": 1,
-          "retro-formats-used": 2,
-          "export-png": 1,
-        },
-      },
-      0
-    );
-    expect(out.counters).toEqual({
+  it("keeps every counter, input-only ones included (live rules still read them)", () => {
+    const counters = {
+      click: 1,
+      hover: 95,
+      "logo-hover": 3,
+      "session-minutes": 29,
+      "session-minutes-silent": 5,
+      "audio-modes-used": 2,
+      "audio-mode:full": 1,
       "tool:retro:card-add": 7,
       "week-tool:2026-45:kanban": 1,
       "retro-formats-used": 2,
       "export-png": 1,
-    });
+    };
+    const out = migrateVDna<{ counters: Record<string, number> }>({ counters }, 0);
+    expect(out.counters).toEqual(counters);
   });
 
   it("recomputes level from xp and prestige", () => {

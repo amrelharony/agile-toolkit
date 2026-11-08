@@ -17,16 +17,27 @@ export type CelebrationLevel = "quiet" | "balanced" | "lively";
 
 export const CELEBRATION_LEVELS: readonly CelebrationLevel[] = ["quiet", "balanced", "lively"];
 
+/**
+ * `celebrationLevel` as stored: normally a `CelebrationLevel`, but a newer
+ * build may have saved one this build doesn't know (say "off"). It is kept
+ * as-is so a rollback doesn't overwrite it; read it through
+ * `effectiveCelebrationLevel`.
+ */
+export type StoredCelebrationLevel = CelebrationLevel | string;
+
 export interface QuietHours {
   enabled: boolean;
-  /** Local time "HH:MM" quiet hours start. */
+  /**
+   * Local time "HH:MM" quiet hours start. A string this build can't parse
+   * (a newer build's format) is kept; checks go through `effectiveQuietHours`.
+   */
   start: string;
   /** Local time "HH:MM" quiet hours end. Before `start` means overnight. */
   end: string;
 }
 
 export interface NotificationPrefs {
-  celebrationLevel: CelebrationLevel;
+  celebrationLevel: StoredCelebrationLevel;
   /** Off hides XP and badges and pauses awarding them; totals are kept. */
   gamificationEnabled: boolean;
   /** Show the XP bar on larger screens. */
@@ -53,10 +64,12 @@ export const FOCUS_UNTIL_OFF = Number.MAX_SAFE_INTEGER;
 /** Learned muting keeps at most this many keys (oldest go first). */
 export const MUTED_KEYS_CAP = 100;
 
+export const DEFAULT_CELEBRATION_LEVEL: CelebrationLevel = "balanced";
+
 export const DEFAULT_QUIET_HOURS: QuietHours = { enabled: false, start: "22:00", end: "08:00" };
 
 export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
-  celebrationLevel: "balanced",
+  celebrationLevel: DEFAULT_CELEBRATION_LEVEL,
   gamificationEnabled: true,
   showXpBar: true,
   confirmationsAsToasts: false,
@@ -100,13 +113,36 @@ export function capMutedKeys(keys: readonly unknown[]): string[] {
   return Array.from(seen).slice(-MUTED_KEYS_CAP);
 }
 
+/** The stored level when this build knows it, else the default. */
+export function effectiveCelebrationLevel(
+  prefs: Pick<NotificationPrefs, "celebrationLevel">
+): CelebrationLevel {
+  return CELEBRATION_LEVELS.includes(prefs.celebrationLevel as CelebrationLevel)
+    ? (prefs.celebrationLevel as CelebrationLevel)
+    : DEFAULT_CELEBRATION_LEVEL;
+}
+
+/** Quiet hours with any time this build can't parse replaced by its default. */
+export function effectiveQuietHours(quietHours: QuietHours): QuietHours {
+  return {
+    ...quietHours,
+    start: isValidTime(quietHours.start) ? quietHours.start : DEFAULT_QUIET_HOURS.start,
+    end: isValidTime(quietHours.end) ? quietHours.end : DEFAULT_QUIET_HOURS.end,
+  };
+}
+
 /**
  * Bring any stored payload to the current shape.
  *
- * Idempotent and tolerant: unknown fields are kept (a newer build's fields
- * survive a rollback), known fields with a wrong type fall back to their
- * default, and a non-object payload yields the defaults. It never trusts
- * the version, because a rolled-back build re-stamps payloads it writes.
+ * Idempotent and tolerant: unknown fields are kept, and a known field only
+ * falls back to its default when its JSON type is wrong. A value of the
+ * right type that this build doesn't understand (a newer build's
+ * `celebrationLevel` or time format) is kept too: zustand writes the result
+ * straight back, so normalising it here would lose it for good on a
+ * rollback. Readers normalise instead (`effectiveCelebrationLevel`,
+ * `effectiveQuietHours`). A non-object payload yields the defaults. It
+ * never trusts the version, because a rolled-back build re-stamps payloads
+ * it writes.
  */
 export function migrateNotificationPrefs(persisted: unknown): NotificationPrefs {
   if (!isPlainObject(persisted)) return { ...DEFAULT_NOTIFICATION_PREFS };
@@ -116,9 +152,10 @@ export function migrateNotificationPrefs(persisted: unknown): NotificationPrefs 
   const qh = isPlainObject(p.quietHours) ? p.quietHours : {};
   return {
     ...p,
-    celebrationLevel: CELEBRATION_LEVELS.includes(p.celebrationLevel as CelebrationLevel)
-      ? (p.celebrationLevel as CelebrationLevel)
-      : d.celebrationLevel,
+    celebrationLevel:
+      typeof p.celebrationLevel === "string" && p.celebrationLevel
+        ? p.celebrationLevel
+        : d.celebrationLevel,
     gamificationEnabled: bool(p.gamificationEnabled, d.gamificationEnabled),
     showXpBar: bool(p.showXpBar, d.showXpBar),
     confirmationsAsToasts: bool(p.confirmationsAsToasts, d.confirmationsAsToasts),
@@ -126,8 +163,8 @@ export function migrateNotificationPrefs(persisted: unknown): NotificationPrefs 
     quietHours: {
       ...qh,
       enabled: bool(qh.enabled, d.quietHours.enabled),
-      start: isValidTime(qh.start) ? qh.start : d.quietHours.start,
-      end: isValidTime(qh.end) ? qh.end : d.quietHours.end,
+      start: typeof qh.start === "string" ? qh.start : d.quietHours.start,
+      end: typeof qh.end === "string" ? qh.end : d.quietHours.end,
     },
     celebrationsPausedUntil: timestampOrNull(p.celebrationsPausedUntil),
     mutedKeys: Array.isArray(p.mutedKeys) ? capMutedKeys(p.mutedKeys) : [],
@@ -152,11 +189,13 @@ export function areCelebrationsPaused(
  * Whether `now` falls inside the quiet hours, in local time. The start
  * minute is inside, the end minute is not. A range whose end is before its
  * start wraps past midnight (22:00–08:00). Equal start and end is empty.
+ * A time this build can't parse counts as its default.
  */
 export function isWithinQuietHours(quietHours: QuietHours, now: Date): boolean {
   if (!quietHours.enabled) return false;
-  const start = parseTime(quietHours.start);
-  const end = parseTime(quietHours.end);
+  const effective = effectiveQuietHours(quietHours);
+  const start = parseTime(effective.start);
+  const end = parseTime(effective.end);
   if (start === null || end === null || start === end) return false;
   const minute = now.getHours() * 60 + now.getMinutes();
   return start < end ? minute >= start && minute < end : minute >= start || minute < end;

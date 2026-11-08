@@ -98,8 +98,10 @@ export const useNotificationPrefsStore = create<NotificationPrefsState>()(
       storage: safeJSONStorage("notification-prefs"),
       skipHydration: true,
       version: NOTIFICATION_PREFS_VERSION,
-      // Runs for any other stored version, older or newer: idempotent and
-      // keeps unknown fields, so a rollback loses nothing.
+      // Runs for any other stored version, older or newer. Idempotent, keeps
+      // unknown fields and only fixes wrong JSON types, so a newer build's
+      // values (even ones this build doesn't understand) survive the
+      // write-back that follows a migration.
       migrate: (persisted) => migrateNotificationPrefs(persisted) as NotificationPrefsState,
       // Same-version payloads skip `migrate`, so sanitise them here too.
       merge: (persisted, current) =>

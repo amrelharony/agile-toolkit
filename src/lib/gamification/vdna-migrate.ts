@@ -33,20 +33,15 @@ export const SECRET_ONCE_KEYS: Readonly<Record<string, string>> = {
   "type-scrum": "secret:typed-scrum",
 };
 
-/**
- * Counters fed only by raw input or time on site (clicks, hovers, session
- * minutes, audio modes tried, logo hovers). v1 stops rewarding them, so
- * they are dropped from stored profiles.
+/*
+ * Input-only counters (`click`, `hover`, `logo-hover`, `session-minutes*`,
+ * `audio-mode*`) are deliberately KEPT in v1: live achievements still read
+ * them (`hover-hundred`, `marathon-*`, `silent-run`, `audio-modes`) and their
+ * writers still run, so stripping them now would cost users real progress and
+ * the counters would simply build back up. The strip belongs to the schema
+ * step that ships after the outcome catalog and input diet retire those rules
+ * and writers (vdna v2).
  */
-export function isRetiredCounter(key: string): boolean {
-  return (
-    key === "click" ||
-    key === "hover" ||
-    key === "logo-hover" ||
-    key.startsWith("session-minutes") ||
-    key.startsWith("audio-mode")
-  );
-}
 
 export const EMPTY_XP_DAY: XpDay = { date: "", total: 0, byKey: {} };
 
@@ -81,15 +76,9 @@ function unlockedIds(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
-/** v0 → v1: ledger fields, secrets seeded as paid, input counters dropped, level recomputed. */
+/** v0 → v1: ledger fields, secrets seeded as paid, level recomputed. Counters are kept as stored. */
 function toV1(state: Obj): Obj {
   const next: Obj = { ...state };
-
-  if (isPlainObject(state.counters)) {
-    const counters: Obj = {};
-    for (const [k, v] of Object.entries(state.counters)) if (!isRetiredCounter(k)) counters[k] = v;
-    next.counters = counters;
-  }
 
   if (finiteNumber(state.xp)) {
     const prestige = finiteNumber(state.prestige) ? state.prestige : 0;

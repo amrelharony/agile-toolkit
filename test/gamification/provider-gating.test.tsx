@@ -197,14 +197,24 @@ describe("GamificationProvider silent-mode adoption", () => {
   });
 
   it("does not map again after the first time", async () => {
+    const adopt = useNotificationPrefsStore.getState().adoptSilentMode;
+    const spy = vi.fn((silentMode: boolean) => adopt(silentMode));
     act(() => {
-      useNotificationPrefsStore.setState({ silentModeAdopted: true, celebrationLevel: "lively" });
+      useNotificationPrefsStore.setState({
+        silentModeAdopted: true,
+        celebrationLevel: "lively",
+        adoptSilentMode: spy,
+      });
       useVDnaStore.setState({ silentMode: true });
     });
     mount();
-    await act(async () => {
-      await Promise.resolve();
+    // Wait until the provider has actually asked to adopt (after both
+    // stores rehydrated), so the check below can't pass by running early.
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(true));
+    await act(() => new Promise((r) => setTimeout(r, 0)));
+    expect(useNotificationPrefsStore.getState()).toMatchObject({
+      silentModeAdopted: true,
+      celebrationLevel: "lively",
     });
-    expect(useNotificationPrefsStore.getState().celebrationLevel).toBe("lively");
   });
 });
