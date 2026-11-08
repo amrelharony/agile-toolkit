@@ -5,6 +5,7 @@ import { act, render, screen } from "@testing-library/react";
  * Where Amr stands (mobile audit, 8 November 2026):
  * - Data Saver visitors got only the round launcher for the whole visit; he now
  *   arrives on their first interaction, and his space is kept for him all along.
+ * - He keeps clear of a landscape iPhone's notch and home indicator.
  */
 
 vi.mock("@/lib/auth/auth-provider", () => ({
@@ -40,6 +41,8 @@ function setSaveData(on: boolean | undefined) {
     configurable: true,
   });
 }
+
+const amrButton = () => screen.getByRole("button", { name: "Open assistant" });
 
 beforeEach(() => {
   useAgentStore.setState({ open: false });
@@ -96,5 +99,23 @@ describe("Data Saver", () => {
     render(<MascotAssistant />);
     const published = document.documentElement.style.getPropertyValue("--amr-band-bottom");
     expect(parseInt(published.match(/\d+/)![0], 10)).toBeGreaterThan(80);
+  });
+});
+
+describe("safe areas", () => {
+  it("keeps clear of a landscape iPhone's notch and home indicator", () => {
+    stubScreen({ phone: false, coarse: true });
+    render(<MascotAssistant />);
+    const button = amrButton();
+    // (jsdom garbles env() when it reads the value back; the string set is
+    // calc(8px + env(safe-area-inset-right, 0px)).)
+    expect(button.style.right).toMatch(/^calc\(8px \+ env\(.*safe-area-inset-right/);
+    expect(button.style.bottom).toContain("safe-area-inset-bottom");
+  });
+
+  it("keeps the side inset on phones too", () => {
+    stubScreen({ phone: true });
+    render(<MascotAssistant />);
+    expect(amrButton().style.right).toMatch(/^calc\(8px \+ env\(.*safe-area-inset-right/);
   });
 });

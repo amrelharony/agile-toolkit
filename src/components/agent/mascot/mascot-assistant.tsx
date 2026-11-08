@@ -139,19 +139,35 @@ function phoneBandHeight(c: Corner, figure: boolean, boxH: number): number {
   return Math.ceil(inset + reach) + BUTTON_INSET;
 }
 
-/** What his corner's offset is measured from: the screen, or a phone's strip. */
+/**
+ * What his corner's offset is measured from on a phone: the header's bottom (the
+ * header publishes its height, top safe area included, as --header-h), or the
+ * home indicator.
+ */
 function phoneEdge(c: Corner): string {
-  return c.startsWith("top") ? "var(--header-h)" : "env(safe-area-inset-bottom, 0px)";
+  return c.startsWith("top") ? "var(--header-h, 56px)" : "env(safe-area-inset-bottom, 0px)";
+}
+
+/** Offset from his edge: a phone's strip, or the screen clear of the home indicator. */
+function edgeOffset(c: Corner, px: number, phone: boolean): string | number {
+  if (phone) return `calc(${px}px + ${phoneEdge(c)})`;
+  return c.startsWith("top") ? px : `calc(${px}px + env(safe-area-inset-bottom, 0px))`;
+}
+
+/** Offset from his side, clear of a landscape iPhone's notch and rounded corners. */
+function sideOffset(c: Corner, px: number): CSSProperties {
+  return c.endsWith("Left")
+    ? { left: `calc(${px}px + env(safe-area-inset-left, 0px))` }
+    : { right: `calc(${px}px + env(safe-area-inset-right, 0px))` };
 }
 
 /** Fixed-position style for the float button at a corner (default ≈ bottom-1 right-2). */
 function buttonPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSSProperties {
-  const inset = edgeInset(c, figure, boxH);
-  const offset = phone ? `calc(${inset}px + ${phoneEdge(c)})` : inset;
+  const offset = edgeOffset(c, edgeInset(c, figure, boxH), phone);
   return {
     position: "fixed",
     ...(c.startsWith("top") ? { top: offset } : { bottom: offset }),
-    ...(c.endsWith("Left") ? { left: 8 } : { right: 8 }),
+    ...sideOffset(c, 8),
   };
 }
 
@@ -182,10 +198,10 @@ function panelPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSS
       inset + bottom + PANEL_GAP
     : // Parked at the bottom: clear its head.
       inset + (height - top) + PANEL_GAP;
-  const offset = phone ? `calc(${px}px + ${phoneEdge(c)})` : px;
+  const offset = edgeOffset(c, px, phone);
   return {
     ...(c.startsWith("top") ? { top: offset } : { bottom: offset }),
-    ...(c.endsWith("Left") ? { left: 16 } : { right: 16 }),
+    ...sideOffset(c, 16),
   };
 }
 
