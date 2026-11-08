@@ -11,6 +11,8 @@ const h = vi.hoisted(() => ({
   insights: vi.fn(),
   setShortlist: vi.fn(),
   csv: vi.fn(),
+  chart: [] as Record<string, unknown>[],
+  lines: [] as Record<string, unknown>[],
 }));
 
 vi.mock("@/app/settings/comics/portal-api", async (original) => ({
@@ -19,7 +21,30 @@ vi.mock("@/app/settings/comics/portal-api", async (original) => ({
 }));
 vi.mock("@/lib/utils/export", () => ({ exportToCSV: h.csv }));
 // The chart itself is Recharts' business; its figures are also in a table.
-vi.mock("@/components/charts/lazy-chart", () => ({ Chart: () => null }));
+// Only the props this view gives it are checked.
+vi.mock("@/components/charts/lazy-chart", () => {
+  const Pass = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
+  const Nothing = () => null;
+  return {
+    Chart: ({ children }: { children: (r: Record<string, unknown>) => React.ReactNode }) =>
+      children({
+        ResponsiveContainer: Pass,
+        LineChart: (props: Record<string, unknown>) => {
+          h.chart.push(props);
+          return <Pass>{props.children as React.ReactNode}</Pass>;
+        },
+        Line: (props: Record<string, unknown>) => {
+          h.lines.push(props);
+          return null;
+        },
+        XAxis: Nothing,
+        YAxis: Nothing,
+        Tooltip: Nothing,
+        Legend: Nothing,
+        CartesianGrid: Nothing,
+      }),
+  };
+});
 
 import { InsightsView } from "@/app/settings/comics/insights-view";
 import { PortalError } from "@/app/settings/comics/portal-api";
@@ -82,6 +107,8 @@ beforeEach(() => {
   h.setShortlist.mockReset();
   h.setShortlist.mockResolvedValue({ ep: 28, shortlisted: true });
   h.csv.mockReset();
+  h.chart = [];
+  h.lines = [];
 });
 
 describe("Insights", () => {
@@ -110,14 +137,16 @@ describe("Insights", () => {
     );
   });
 
-  it("keeps each story's name pinned with its star, and says the link opens a new tab", async () => {
+  it("keeps each story's star and name pinned, the row named by its title alone", async () => {
     await open();
     const [first] = within(storyTable()).getAllByRole("rowheader");
-    expect(first.className).toMatch(/sticky left-0/);
-    expect(within(first).getByRole("button", { name: "Shortlist episode 28" })).toBeTruthy();
-    expect(within(first).getByRole("link").textContent).toBe(
-      "The Practice Desk (opens in a new tab)"
-    );
+    const star = within(storyTable()).getByRole("button", { name: "Shortlist episode 28" });
+    // The star has its own pinned cell, so it isn't read before every figure.
+    expect(star.closest("td")?.className).toMatch(/sticky left-0/);
+    expect(first.className).toMatch(/sticky left-12/);
+    expect(first.textContent).toBe("The Practice Desk");
+    const link = within(first).getByRole("link", { name: "The Practice Desk" });
+    expect(link).toHaveAccessibleDescription("Opens in a new tab");
   });
 
   it("stars a story onto the shortlist and saves it, keeping the star in reach", async () => {
@@ -132,7 +161,26 @@ describe("Insights", () => {
     expect(screen.getByText(/2 shortlisted: 2 of 26 for a volume/)).toBeTruthy();
   });
 
-  it("takes the star back if the save fails, saying so by the table", async () => {
+  it("sends a press made while a save is out once that save settles", async () => {
+    let settle: (v: unknown) => void = () => {};
+    h.setShortlist.mockImplementationOnce(() => new Promise((resolve) => (settle = resolve)));
+    h.setShortlist.mockResolvedValueOnce({ ep: 28, shortlisted: false });
+    await open();
+    const star = screen.getByRole("button", { name: "Shortlist episode 28" });
+    await act(async () => fireEvent.click(star));
+    // Changed their mind before the first save came back.
+    await act(async () => fireEvent.click(star));
+    expect(star.getAttribute("aria-pressed")).toBe("false");
+    expect(h.setShortlist).toHaveBeenCalledTimes(1);
+    await act(async () => settle({ ep: 28, shortlisted: true }));
+    expect(h.setShortlist.mock.calls).toEqual([
+      [28, true],
+      [28, false],
+    ]);
+    expect(star.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("takes the star back if the save fails, saying so in that story's row", async () => {
     h.setShortlist.mockRejectedValue(new PortalError("Couldn't save.", 503, "service_unavailable"));
     await open();
     const star = screen.getByRole("button", { name: "Shortlist episode 28" });
@@ -140,8 +188,12 @@ describe("Insights", () => {
     expect(star.getAttribute("aria-pressed")).toBe("false");
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toBe("Couldn't save.");
-    // Next to the table, not at the top of the view.
-    expect(alert.closest("section")?.getAttribute("aria-labelledby")).toBe("stories-heading");
+    // Where the star is, wherever the row sits in a long table.
+    expect(alert.closest("tr")).toBe(star.closest("tr"));
+    // The next press on it clears the message.
+    h.setShortlist.mockResolvedValue({ ep: 28, shortlisted: true });
+    await act(async () => fireEvent.click(star));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("explains every column in words, not only in a tooltip", async () => {
@@ -149,6 +201,17 @@ describe("Insights", () => {
     fireEvent.click(screen.getByText("What the columns mean"));
     expect(screen.getByText("Readers out of the browsers that opened it.")).toBeTruthy();
     expect(screen.getByText(/0 to 100: where the story's loves per reader/)).toBeTruthy();
+  });
+
+  it("draws the trend as a picture only, its lines told apart in the legend too", async () => {
+    await open();
+    // aria-hidden, so the SVG mustn't be a tab stop.
+    expect(h.chart.at(-1)?.accessibilityLayer).toBe(false);
+    expect(h.lines.slice(-3).map((l) => [l.name, l.legendType, l.strokeDasharray])).toEqual([
+      ["Views", "plainline", undefined],
+      ["Readers", "plainline", "6 3"],
+      ["Loves", "plainline", "2 3"],
+    ]);
   });
 
   it("gives the trend as a table too", async () => {

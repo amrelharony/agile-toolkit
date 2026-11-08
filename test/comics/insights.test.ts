@@ -2,8 +2,9 @@
  * The owner's Insights maths: per-story figures from the sums the database
  * works out (all time and each story's first four weeks), the print score, the
  * theme and character roll-ups, the trend, the summary and the CSV. Which weeks
- * count as a story's first four is the database's (migration 0036), checked in
- * test/comics/stats.test.ts and a rolled-back run against PostgreSQL.
+ * count as a story's first four is the database's (migration 0036): its SQL is
+ * pinned in test/comics/stats.test.ts, and was run against PostgreSQL in a
+ * rolled-back check before the merge (not part of this suite).
  */
 
 import { describe, expect, it } from "vitest";
@@ -194,29 +195,31 @@ describe("roll-ups, trend and summary", () => {
   });
 
   it("writes one full CSV row per story, column for column", () => {
+    // Every figure differs, so two columns swapped can't pass.
     const [row] = csvRows(
       storyInsights(
         [story(27, { castNames: ["Amr", "HiPPO"], shortlisted: true })],
         [
-          total(27, "view", 50),
+          total(27, "view", 57),
           total(27, "visitor", 40),
-          total(27, "reader", 30),
+          total(27, "reader", 32),
           total(27, "love", 9),
-          total(27, "unlove", 3),
+          total(27, "unlove", 1),
           total(27, "share", 2),
           total(27, "retro", 1),
-          total(27, "tool", 3),
+          total(27, "tool", 4),
           total(27, "time", 10, "all", 3),
         ],
         [
           { ep: 27, kind: "guess", choice: 1, count: 3 },
-          { ep: 27, kind: "guess", choice: 0, count: 1 },
-          { ep: 27, kind: "seen", choice: 0, count: 2 },
-          { ep: 27, kind: "seen", choice: 1, count: 2 },
+          { ep: 27, kind: "guess", choice: 0, count: 2 },
+          { ep: 27, kind: "seen", choice: 0, count: 3 },
+          { ep: 27, kind: "seen", choice: 1, count: 1 },
         ],
         "all"
       )
     );
+    expect(row).toHaveLength(CSV_HEADERS.length);
     expect(Object.fromEntries(CSV_HEADERS.map((h, i) => [h, row[i]]))).toEqual({
       Episode: 27,
       Title: "Story 27",
@@ -224,19 +227,19 @@ describe("roll-ups, trend and summary", () => {
       Themes: "Shared language and direct understanding",
       Characters: "Amr; HiPPO",
       Shortlisted: "yes",
-      Views: 50,
+      Views: 57,
       Visitors: 40,
-      Readers: 30,
-      "Finished %": 75,
+      Readers: 32,
+      "Finished %": 80,
       "Median reading time": "1–2 min",
-      Loves: 6,
-      "Loves per 100 readers": 20,
+      Loves: 8,
+      "Loves per 100 readers": 25,
       Shares: 2,
       "Retro hand-offs": 1,
-      "Tool clicks": 3,
-      "Actions per 100 readers": 20,
-      "Guessed right %": 75,
-      "Seen this at work %": 50,
+      "Tool clicks": 4,
+      "Actions per 100 readers": 21.9,
+      "Guessed right %": 60,
+      "Seen this at work %": 75,
       // The only story with enough readers sits in the middle of itself.
       "Print score": 50,
     });

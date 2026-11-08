@@ -207,6 +207,25 @@ const TREND_LINES = [
 ] as const;
 
 /**
+ * Keeps a control focused in the scrolling columns clear of the pinned star
+ * and story name (WCAG 2.4.11). The box's scroll padding does most of it; this
+ * nudges after the browser has scrolled the control into view.
+ */
+function keepClearOfPinned(e: React.FocusEvent<HTMLElement>) {
+  const target = e.currentTarget;
+  const box = target.closest<HTMLElement>("[data-scroll-box]");
+  if (!box) return;
+  requestAnimationFrame(() => {
+    const edge = box.querySelector("[data-pinned-edge]")?.getBoundingClientRect().right;
+    if (edge === undefined) return;
+    const { left, right } = target.getBoundingClientRect();
+    const boxRight = box.getBoundingClientRect().right;
+    if (left < edge) box.scrollLeft -= edge - left + 4;
+    else if (right > boxRight) box.scrollLeft += right - boxRight + 4;
+  });
+}
+
+/**
  * Settings › Comics › Insights: what readers do with each weekly story, by
  * theme and by character, and the print shortlist. Everything is anonymous
  * weekly totals the database sums; the figures are worked out here
@@ -215,7 +234,10 @@ const TREND_LINES = [
 export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; now?: number }) {
   const [data, setData] = useState<InsightsData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [shortlistError, setShortlistError] = useState<string | null>(null);
+  // A failed star says so in its own row.
+  const [shortlistError, setShortlistError] = useState<{ ep: number; message: string } | null>(
+    null
+  );
   const [period, setPeriod] = useState<InsightPeriod>("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "score",
@@ -224,8 +246,12 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
   const [theme, setTheme] = useState(ALL);
   const [character, setCharacter] = useState(ALL);
   const [shortlistOnly, setShortlistOnly] = useState(false);
-  // A star stays focusable while it saves; a second press waits for the first.
+  // A star follows each press at once and stays focusable. One save per story
+  // at a time: a press while one is out is sent when it settles.
   const saving = useRef<Set<number>>(new Set());
+  const wanted = useRef<Map<number, boolean>>(new Map());
+  // What the server holds for a story while its saves are out.
+  const confirmed = useRef<Map<number, boolean>>(new Map());
 
   const load = useCallback(() => {
     setError(null);
@@ -275,28 +301,42 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
     [live, theme, character, shortlistOnly, sort]
   );
 
-  const toggleShortlist = async (ep: number, on: boolean) => {
-    if (!data || saving.current.has(ep)) return;
-    const mark = (value: boolean) =>
-      setData((d) =>
-        d
-          ? {
-              ...d,
-              stories: d.stories.map((s) => (s.ep === ep ? { ...s, shortlisted: value } : s)),
-            }
-          : d
-      );
-    mark(on);
-    setShortlistError(null);
+  const mark = (ep: number, value: boolean) =>
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            stories: d.stories.map((s) => (s.ep === ep ? { ...s, shortlisted: value } : s)),
+          }
+        : d
+    );
+
+  const save = async (ep: number) => {
     saving.current.add(ep);
     try {
-      await portalApi.setShortlist(ep, on);
+      for (;;) {
+        const on = wanted.current.get(ep) ?? false;
+        await portalApi.setShortlist(ep, on);
+        confirmed.current.set(ep, on);
+        if (wanted.current.get(ep) === on) break;
+      }
     } catch (err) {
-      mark(!on);
-      setShortlistError(errorMessage(err));
+      mark(ep, confirmed.current.get(ep) ?? false);
+      setShortlistError({ ep, message: errorMessage(err) });
     } finally {
+      wanted.current.delete(ep);
       saving.current.delete(ep);
     }
+  };
+
+  const toggleShortlist = (ep: number, on: boolean) => {
+    if (!data) return;
+    // With no save out, the star shows what the server holds.
+    if (!saving.current.has(ep)) confirmed.current.set(ep, !on);
+    wanted.current.set(ep, on);
+    mark(ep, on);
+    setShortlistError((e) => (e?.ep === ep ? null : e));
+    if (!saving.current.has(ep)) void save(ep);
   };
 
   const sortBy = (key: SortKey) =>
@@ -390,7 +430,13 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
                     CartesianGrid,
                   }) => (
                     <ResponsiveContainer>
-                      <LineChart data={trend} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
+                      <LineChart
+                        data={trend}
+                        margin={{ top: 8, right: 8, bottom: 0, left: -16 }}
+                        // Hidden from screen readers (the table below has the
+                        // figures), so the SVG mustn't be a tab stop either.
+                        accessibilityLayer={false}
+                      >
                         <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
                         <XAxis dataKey="week" stroke={chartTheme.axisColor} fontSize={11} />
                         <YAxis allowDecimals={false} stroke={chartTheme.axisColor} fontSize={11} />
@@ -406,6 +452,8 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
                             strokeDasharray={line.dash}
                             strokeWidth={2}
                             dot={false}
+                            // The legend draws each line's own dashes.
+                            legendType="plainline"
                           />
                         ))}
                       </LineChart>
@@ -506,11 +554,6 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
           />
           Shortlisted only
         </label>
-        {shortlistError ? (
-          <p role="alert" className="text-sm text-danger">
-            {shortlistError}
-          </p>
-        ) : null}
         {rows.length === 0 ? (
           <p className="text-sm text-sub">
             {live.length === 0
@@ -518,7 +561,13 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
               : "No stories match these filters."}
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-border">
+          <div
+            data-scroll-box
+            className="overflow-x-auto rounded-lg border border-border scroll-pl-[12.5rem] sm:scroll-pl-[16rem]"
+          >
+            <span id="insights-new-tab" hidden>
+              Opens in a new tab
+            </span>
             <table className="w-full min-w-[56rem] text-left text-sm">
               <caption className="sr-only">
                 Stories, sorted by {COLUMNS.find((c) => c.key === sort.key)?.label},{" "}
@@ -526,7 +575,19 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
               </caption>
               <thead className="bg-surface text-xs text-sub">
                 <tr>
-                  <th scope="col" className="sticky left-0 z-10 bg-surface p-2 font-medium">
+                  <th
+                    scope="col"
+                    data-pinned
+                    className="sticky left-0 z-10 w-12 bg-surface p-0.5 font-medium"
+                  >
+                    <span className="sr-only">Shortlist</span>
+                  </th>
+                  <th
+                    scope="col"
+                    data-pinned
+                    data-pinned-edge
+                    className="sticky left-12 z-10 w-[9.5rem] bg-surface p-2 font-medium sm:w-[13rem]"
+                  >
                     Story
                   </th>
                   {COLUMNS.map((c) => (
@@ -536,36 +597,45 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
               </thead>
               <tbody>
                 {rows.map((s) => (
-                  <tr key={s.ep} className="border-t border-border">
+                  <tr key={s.ep} className="border-t border-border align-top">
+                    <td data-pinned className="sticky left-0 z-10 w-12 bg-card p-0.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-pressed={s.shortlisted}
+                        aria-label={`Shortlist episode ${s.ep}`}
+                        onClick={() => toggleShortlist(s.ep, !s.shortlisted)}
+                        className="size-11"
+                      >
+                        <Star
+                          className={cn("size-5", s.shortlisted && "fill-current text-accent")}
+                          aria-hidden="true"
+                        />
+                      </Button>
+                    </td>
                     <th
                       scope="row"
-                      className="sticky left-0 z-10 w-[13rem] max-w-[13rem] bg-card p-1 font-medium text-text"
+                      data-pinned
+                      className="sticky left-12 z-10 w-[9.5rem] bg-card p-2 font-medium text-text sm:w-[13rem]"
                     >
-                      <span className="flex items-center gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-pressed={s.shortlisted}
-                          aria-label={`Shortlist episode ${s.ep}`}
-                          onClick={() => void toggleShortlist(s.ep, !s.shortlisted)}
-                          className="size-11 shrink-0"
-                        >
-                          <Star
-                            className={cn("size-5", s.shortlisted && "fill-current text-accent")}
-                            aria-hidden="true"
-                          />
-                        </Button>
+                      {/* A set width: the table squeezes cells to their narrowest otherwise. */}
+                      <div className="w-[7.5rem] sm:w-[11rem]">
                         <a
                           href={comicHref(s.ep)}
                           target="_blank"
                           rel="noreferrer"
-                          className="min-w-0 underline"
+                          aria-describedby="insights-new-tab"
+                          className="underline"
                         >
                           {s.title}
-                          <span className="sr-only"> (opens in a new tab)</span>
                         </a>
-                      </span>
+                        {shortlistError?.ep === s.ep ? (
+                          <span role="alert" className="mt-1 block text-xs font-normal text-danger">
+                            {shortlistError.message}
+                          </span>
+                        ) : null}
+                      </div>
                     </th>
                     {COLUMNS.map((c) => (
                       <td
@@ -674,6 +744,7 @@ function SortHeader({
       <button
         type="button"
         onClick={() => onSort(column.key)}
+        onFocus={keepClearOfPinned}
         className={cn(
           "inline-flex min-h-11 min-w-11 items-center gap-1 whitespace-nowrap rounded px-1 text-left hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
           active && "text-text"
