@@ -1,6 +1,8 @@
 "use client";
 
 import { dispatch } from "./engine";
+import { ingestToolVisit } from "./ledger";
+import { installOutcomeBridge } from "./outcome-bridge";
 import { getToolByPath } from "@/lib/constants/tools";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
@@ -83,7 +85,7 @@ export function installEventBridge(): () => void {
     if (window.location.pathname !== lastPath) {
       lastPath = window.location.pathname;
       const toolId = extractToolId(lastPath);
-      if (toolId) dispatch({ name: "tool-visit", meta: { toolId } });
+      if (toolId) ingestToolVisit(toolId);
     }
   };
   // Patch history API to catch client-side navigations.
@@ -102,7 +104,7 @@ export function installEventBridge(): () => void {
   window.addEventListener("popstate", onPathCheck);
   // Fire once for initial page.
   const initialTool = extractToolId(window.location.pathname);
-  if (initialTool) dispatch({ name: "tool-visit", meta: { toolId: initialTool } });
+  if (initialTool) ingestToolVisit(initialTool);
 
   // --- session minute ticker ----------------------------------------------
   // R10: gate on document.visibilityState. A backgrounded tab previously
@@ -162,6 +164,9 @@ export function installEventBridge(): () => void {
   });
   syncRetroFormats();
 
+  // --- finished work in the history log → outcome XP ----------------------
+  const detachOutcomes = installOutcomeBridge();
+
   window.addEventListener("click", onClick, { passive: true });
   window.addEventListener("pointerover", onPointerOver, { passive: true });
   window.addEventListener("keydown", onKeyDown);
@@ -178,6 +183,7 @@ export function installEventBridge(): () => void {
     window.clearInterval(minuteTimer);
     unsubSonification();
     unsubHistory();
+    detachOutcomes();
     // Cancel pending RAF/timeout so they don't dispatch after the bridge is
     // torn down (HMR + provider remount used to leak duplicate handlers).
     if (rafId) window.cancelAnimationFrame(rafId);

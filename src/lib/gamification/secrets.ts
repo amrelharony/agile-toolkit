@@ -1,6 +1,24 @@
 "use client";
 
 import { dispatch } from "./engine";
+import { ingestEvent } from "./ledger";
+
+/**
+ * Secrets pay once ever: each secret event goes through the ledger, whose
+ * `secret` outcome keys on the event name (lib/gamification/outcomes.ts).
+ * Keys typed into a field never count: writing "agile" in a retro card
+ * isn't finding a secret.
+ */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!target || typeof (target as HTMLElement).closest !== "function") return false;
+  const el = target as HTMLElement;
+  if (el.isContentEditable) return true;
+  return Boolean(
+    el.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']")
+  );
+}
+
+const found = (name: string) => ingestEvent(name);
 
 const KONAMI = [
   "ArrowUp",
@@ -34,6 +52,7 @@ export function installSecretDetector(): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
     // Ignore modifier combos / function keys
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isEditableTarget(e.target)) return;
     if (e.key.length !== 1 && !e.key.startsWith("Arrow") && e.key !== "a" && e.key !== "b") return;
 
     // Konami progress.
@@ -42,7 +61,7 @@ export function installSecretDetector(): () => void {
       konamiIdx++;
       if (konamiIdx === KONAMI.length) {
         konamiIdx = 0;
-        dispatch({ name: "secret:konami" });
+        found("secret:konami");
       }
     } else {
       konamiIdx = e.key === KONAMI[0] ? 1 : 0;
@@ -53,7 +72,7 @@ export function installSecretDetector(): () => void {
       buffer = (buffer + e.key.toLowerCase()).slice(-16);
       for (const p of PHRASES) {
         if (buffer.endsWith(p.word)) {
-          dispatch({ name: p.event });
+          found(p.event);
           buffer = "";
           break;
         }
@@ -76,7 +95,7 @@ export function installSecretDetector(): () => void {
       clickCount++;
       if (clickCount >= 3) {
         clickCount = 0;
-        dispatch({ name: "secret:triple-tap" });
+        found("secret:triple-tap");
       }
     } else {
       clickCount = 1;
@@ -89,7 +108,8 @@ export function installSecretDetector(): () => void {
   const onPointerOver = (e: PointerEvent) => {
     const target = e.target as HTMLElement | null;
     if (!target) return;
-    const logo = target.closest("[data-sidebar-logo='true']") ?? target.closest("img[alt='Agile Toolkit']");
+    const logo =
+      target.closest("[data-sidebar-logo='true']") ?? target.closest("img[alt='Agile Toolkit']");
     if (!logo) return;
     const now = Date.now();
     if (now - lastLogoHoverTs < 400) return; // debounce same-hover
@@ -98,7 +118,7 @@ export function installSecretDetector(): () => void {
     dispatch({ name: "logo-hover", meta: { count: logoHoverCount } });
     if (logoHoverCount >= 10) {
       logoHoverCount = 0;
-      dispatch({ name: "logo-whispered" });
+      found("logo-whispered");
     }
   };
 
@@ -107,7 +127,7 @@ export function installSecretDetector(): () => void {
     const target = e.target as HTMLElement | null;
     if (!target) return;
     if (target.closest("[data-footer-year='true']")) {
-      dispatch({ name: "secret:footer-click" });
+      found("secret:footer-click");
     }
   };
 

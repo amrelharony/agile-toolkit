@@ -54,11 +54,6 @@ import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./e
 import { VisitorGuide } from "./visitor-guide";
 import styles from "./mascot-assistant.module.css";
 
-/** Award XP via the gamification window bridge (no-op if unavailable). */
-function addXp(n: number): void {
-  (window as unknown as { VDna?: { addXp?: (x: number) => void } }).VDna?.addXp?.(n);
-}
-
 /** Which corner the mascot is parked in (drag-to-reposition). */
 type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
@@ -359,7 +354,6 @@ export function MascotAssistant() {
     clickRef.current = createClickInteraction({
       playNow: (r) => useMascotStore.getState().playNow(r),
       sound: () => playMascotSound("click"),
-      addXp,
     });
   }
   const touchRef = useRef<ReturnType<typeof createTouchInteraction> | null>(null);
@@ -558,10 +552,11 @@ export function MascotAssistant() {
     };
   };
 
-  // Konami easter egg (spin + rainbow + XP) + restore the persisted aura.
+  // Konami easter egg (spin + rainbow) + restore the persisted aura. Its XP
+  // is the `secret:konami` outcome, paid once ever (lib/gamification/secrets).
   useEffect(() => {
     useMascotStore.getState().hydrateAppearance();
-    return installKonami(() => addXp(10));
+    return installKonami();
   }, []);
 
   // When the panel opens he points at it ("here it is"), now and then.

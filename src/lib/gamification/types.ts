@@ -38,6 +38,7 @@ export type XpSource =
   | "level-up"
   | "prestige"
   | "secret"
+  | "outcome"
   | "sonification-toggle"
   | "theme-toggle";
 
@@ -82,7 +83,7 @@ export interface XpDay {
   date: string;
   /** Outcome XP earned that day (achievement and challenge rewards excluded). */
   total: number;
-  /** Outcome XP earned that day per cap key (outcome id or shared cap). */
+  /** Outcomes that counted toward their daily cap that day, per outcome id. */
   byKey: Record<string, number>;
 }
 

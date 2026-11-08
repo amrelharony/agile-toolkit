@@ -36,9 +36,7 @@ function play(toolId: string, entry: PaletteEntry) {
   };
 
   if (entry.steps && entry.steps.length > 0) {
-    const freqs = chordFreqs(entry.steps, root).map((f) =>
-      octaveShift(f, shift)
-    );
+    const freqs = chordFreqs(entry.steps, root).map((f) => octaveShift(f, shift));
     engine.playChord(entry.voice, freqs, opts);
     return;
   }
@@ -78,8 +76,10 @@ let gamificationDispatch: ((name: string, meta?: Record<string, unknown>) => voi
 async function forwardToGamification(toolId: string, eventName: string) {
   try {
     if (!gamificationDispatch) {
-      const mod = await import("@/lib/gamification/engine");
-      gamificationDispatch = (name, meta) => mod.dispatch({ name, meta });
+      // The ledger hands the event to the engine and records it when it is
+      // an outcome (lib/gamification/outcomes.ts); nothing else pays XP.
+      const mod = await import("@/lib/gamification/ledger");
+      gamificationDispatch = (name, meta) => mod.ingestEvent(name, meta);
     }
     const canonical =
       toolId === "ui" || toolId === "rt" ? eventName : `tool:${toolId}:${eventName}`;
@@ -89,14 +89,9 @@ async function forwardToGamification(toolId: string, eventName: string) {
   }
 }
 
-let hapticsDispatch:
-  | ((toolId: string, eventName: string, targetEl?: HTMLElement) => void)
-  | null = null;
-async function forwardToHaptics(
-  toolId: string,
-  eventName: string,
-  targetEl?: HTMLElement,
-) {
+let hapticsDispatch: ((toolId: string, eventName: string, targetEl?: HTMLElement) => void) | null =
+  null;
+async function forwardToHaptics(toolId: string, eventName: string, targetEl?: HTMLElement) {
   try {
     if (!hapticsDispatch) {
       const mod = await import("@/lib/haptics/engine");

@@ -239,60 +239,9 @@ function setCounter(key: string, value: number) {
   if (cur !== value) useVDnaStore.getState().bumpCounter(key, value - cur);
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// XP source mapping for event names
-// ──────────────────────────────────────────────────────────────────────────
-
-// XP rewards doing the work — adding, resolving and finishing things in the
-// tools, exporting, exploring new tools — not raw input. Clicks, hovers,
-// focus and keystrokes still drive counters, combos and achievements, but
-// with combo multipliers they used to be worth up to 5 XP each, so three
-// retro cards could jump a visitor from level 1 to 6 mid-ceremony.
-function xpForEvent(name: string): { amount: number; source: XpSource } {
-  if (name === "click") return { amount: 0, source: "click" };
-  if (name === "hover") return { amount: 0, source: "hover" };
-  if (name === "focus") return { amount: 0, source: "focus" };
-  if (name === "key") return { amount: 0, source: "key" };
-  if (name === "scroll-floor") return { amount: 1, source: "scroll" };
-  if (name === "tool-visit") return { amount: 5, source: "tool-visit" };
-  if (name === "theme-toggle") return { amount: 2, source: "theme-toggle" };
-  if (name === "sonification-on") return { amount: 2, source: "sonification-toggle" };
-  if (name === "workspace-push") return { amount: 10, source: "entity-added" };
-  // The export helpers (utils/export.ts) dispatch the format-specific
-  // names so `export-master` can count per-format; all of them are worth
-  // the same 5 XP as the legacy bare "export".
-  if (
-    name === "export" ||
-    name === "export-png" ||
-    name === "export-csv" ||
-    name === "export-json" ||
-    name === "export-markdown"
-  )
-    return { amount: 5, source: "click" };
-  if (name === "prompt-copied") return { amount: 10, source: "click" };
-  if (name.startsWith("secret:")) return { amount: 100, source: "secret" };
-  // Kudos redesign Phase 2 — recognition events have higher XP than
-  // ordinary entity adds because they are social signals. Receive is
-  // attributed to the viewer (signal-bridge fires the signal-side
-  // kudos.received only when toProfileId matches the local viewer).
-  // `llm-suggested-pick` rewards using the fairness recommendation
-  // (Phase 3 wires the emit site).
-  if (name === "tool:kudos:sent") return { amount: 25, source: "entity-added" };
-  if (name === "tool:kudos:received") return { amount: 15, source: "entity-resolved" };
-  if (name === "tool:kudos:reaction-added") return { amount: 5, source: "entity-added" };
-  if (name === "tool:kudos:thread-reply") return { amount: 10, source: "entity-added" };
-  if (name === "tool:kudos:llm-suggested-pick") return { amount: 30, source: "entity-added" };
-  if (name.startsWith("tool:")) {
-    // Tool-specific events: most are entity creation or state transitions.
-    if (name.endsWith(":finish") || name.endsWith(":achieved"))
-      return { amount: 50, source: "tool-completed" };
-    if (name.endsWith(":resolved") || name.endsWith(":completed"))
-      return { amount: 30, source: "entity-resolved" };
-    return { amount: 5, source: "entity-added" };
-  }
-  // Unknown/passive UI events (session minutes, palette opens, …).
-  return { amount: 0, source: "click" };
-}
+// XP comes only from the outcome ledger (ledger.ts / outcomes.ts) plus the
+// achievement and challenge rewards below. dispatch() itself never pays XP:
+// clicks, hovers, route changes and exports used to, and could be farmed.
 
 // ──────────────────────────────────────────────────────────────────────────
 // Daily / weekly challenge advancement
@@ -450,14 +399,10 @@ function awardXp(
     // the second `apply()` clobbered the first → silently lost XP.
     // Mirror the bumpCounter fix: compute INSIDE the functional setState
     // so both reads share one snapshot.
-    const combos = getCombo();
-    const effectiveAmount = Math.round(amount * combos.multiplier);
-    // BUG-L6: a 0.2-XP hover event rounds to 0 at combo multiplier 1.
-    // The legacy code still pushed a {amount: 0} XpEvent into the
-    // events ring AND scheduled a Supabase profile sync AND fired the
-    // OPFS-disk-write subscriber. Over a long session that's thousands
-    // of useless writes per hour. Bail at 0 instead.
-    if (effectiveAmount === 0) return;
+    // No combo multiplier: rapid tool events used to multiply outcome,
+    // achievement and challenge rewards up to x5.
+    const effectiveAmount = Math.round(amount);
+    if (effectiveAmount <= 0) return;
     let nextXp = 0;
     let nextLevel = 1;
     let leveledUp = false;
@@ -476,8 +421,8 @@ function awardXp(
     const evt: XpEvent = {
       amount: effectiveAmount,
       source,
-      multiplier: combos.multiplier,
-      comboDepth: combos.depth,
+      multiplier: 1,
+      comboDepth: getCombo().depth,
       total: nextXp,
       at: new Date().toISOString(),
       meta,
@@ -599,10 +544,6 @@ export function dispatch(event: GamificationEvent) {
     // Daily activity tracking.
     touchDailyActivity();
 
-    // XP award.
-    const { amount, source } = xpForEvent(name);
-    if (amount > 0) awardXp(amount, source, safeMeta(meta));
-
     // Challenge advancement.
     advanceChallenges(name, meta);
     // Wire d-secret ("Find a secret"): every secret easter-egg dispatches a
@@ -656,17 +597,6 @@ export function dispatch(event: GamificationEvent) {
   }
 }
 
-function safeMeta(
-  m: Record<string, unknown> | undefined
-): Record<string, string | number | boolean> | undefined {
-  if (!m) return undefined;
-  const out: Record<string, string | number | boolean> = {};
-  for (const [k, v] of Object.entries(m)) {
-    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") out[k] = v;
-  }
-  return out;
-}
-
 /** Trigger a prestige reset. */
 export function prestige() {
   const s = useVDnaStore.getState();
@@ -677,9 +607,10 @@ export function prestige() {
   return true;
 }
 
-/** Expose to window for secret commands. */
+/** Expose `window.VDna` for poking at the engine — development builds only. */
 export function installWindowBridge() {
   if (typeof window === "undefined") return;
+  if (process.env.NODE_ENV === "production") return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).VDna = {
     addXp: (n: number) => awardXp(n, "secret", {}),
