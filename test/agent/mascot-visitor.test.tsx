@@ -152,6 +152,20 @@ describe("MascotAssistant — owner gating", () => {
     expect(screen.queryByRole("list", { name: "Popular tasks" })).toBeNull();
   });
 
+  it("gives the footer controls a 44 px target on touch", () => {
+    h.auth = { status: "anonymous", user: null };
+    render(<MascotAssistant />);
+
+    expect(screen.getByRole("button", { name: "AI settings" })).toHaveClass(
+      "pointer-coarse:min-h-11"
+    );
+    expect(screen.getByRole("link", { name: "Owner sign in" })).toHaveClass(
+      "min-touch-coarse",
+      "inline-flex",
+      "items-center"
+    );
+  });
+
   it("gives the owner the full chat panel", async () => {
     h.auth = OWNER;
     render(<MascotAssistant />);

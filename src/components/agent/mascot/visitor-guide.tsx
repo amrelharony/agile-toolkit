@@ -182,6 +182,7 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
             type="button"
             variant="toolkit"
             size="sm"
+            className="pointer-coarse:min-h-11"
             onClick={() => {
               onNavigate?.();
               openSettings();
@@ -193,7 +194,7 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
           <Link
             href={signInHref}
             onClick={onNavigate}
-            className="text-xs text-sub underline-offset-2 hover:text-text hover:underline"
+            className="min-touch-coarse inline-flex items-center justify-end text-xs text-sub underline-offset-2 hover:text-text hover:underline"
           >
             Owner sign in
           </Link>
