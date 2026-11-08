@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
 import { SourceLink } from "@/components/handoff/source-link";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
+import { cn } from "@/lib/utils";
 import type { Story } from "@/lib/stores/workspace-types";
 import { isRankedStory, storyPoints } from "@/lib/sprints/plan";
 import { checkStoryPoints, isReady } from "./view";
@@ -32,12 +33,15 @@ function PointsCell({
   errorId,
   error,
   onError,
+  className,
 }: {
   story: Story;
   onChange: (points?: number) => void;
   errorId: string;
   error: string | undefined;
   onError: (error: string | undefined) => void;
+  /** Where the row places it (its grid cell on a phone). */
+  className?: string;
 }) {
   const shown = storyPoints(story) > 0 ? String(story.points) : "";
   const [draft, setDraft] = useState(shown);
@@ -60,6 +64,11 @@ function PointsCell({
     }
     if (checked.points !== story.points) onChange(checked.points);
   };
+  // Height comes from Input (44 px on phones, 36 px from md up), and stays
+  // 44 px on any touch screen: a landscape phone or a tablet is md-wide too
+  // (md:pointer-coarse:, because a bare pointer-coarse: loses to Input's md:).
+  // Narrower below sm, where it sits beside the meta line: it holds a few
+  // digits, and the rest of the width goes to that line.
   return (
     <Input
       type="number"
@@ -69,7 +78,10 @@ function PointsCell({
       aria-label={`Points for ${story.title}`}
       aria-invalid={error ? true : undefined}
       aria-describedby={error ? errorId : undefined}
-      className="h-8 w-20 shrink-0 text-right"
+      className={cn(
+        "w-14 shrink-0 px-2 text-right sm:w-20 sm:px-3 md:pointer-coarse:h-11",
+        className
+      )}
       value={draft}
       placeholder="—"
       onChange={(e) => {
@@ -89,7 +101,9 @@ function PointsCell({
 
 /**
  * Where the story stands against the Definition of Ready. "Not refined"
- * links to Refinement, where the team checks it.
+ * links to Refinement, where the team checks it. The chip is an inner span
+ * so that on a touch screen the link can be 44 px tall (a target a finger
+ * can hit) while the chip keeps its size; with a mouse the link is the chip.
  */
 function ReadinessBadge({ story }: { story: Story }) {
   if (isReady(story)) {
@@ -103,9 +117,11 @@ function ReadinessBadge({ story }: { story: Story }) {
   return (
     <Link
       href="/refinement"
-      className="inline-flex items-center rounded border border-border px-1.5 text-xs text-sub underline-offset-2 hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="group inline-flex items-center rounded text-xs text-sub underline-offset-2 hover:text-accent hover:underline focus-visible:outline-none pointer-coarse:min-h-11"
     >
-      Not refined<span className="sr-only">: refine “{story.title}”</span>
+      <span className="inline-flex items-center rounded border border-border px-1.5 group-focus-visible:ring-2 group-focus-visible:ring-accent">
+        Not refined<span className="sr-only">: refine “{story.title}”</span>
+      </span>
     </Link>
   );
 }
@@ -150,49 +166,70 @@ function StoryRow({
       typeof story.priorityScore === "number" ? `Priority ${story.priorityScore}` : "Not scored"
     );
   }
+  const hasMeta = meta.length > 0 || story.status !== "done" || Boolean(story.sourceRef);
+  // On a phone (below sm) the row is a grid: the points field leaves the
+  // title's line for the meta line under it, so the title gets the row's
+  // width and a long one wraps to about 3 lines at 360 px, not 5. The middle
+  // column's wrapper drops out of the layout there (contents) so the title
+  // and the meta line take their own cells. From sm up it is the flex row
+  // it always was, and these cell placements do nothing.
+  const titleCell = cn("max-sm:col-start-2 max-sm:row-start-1", hasMeta && "max-sm:col-end-4");
 
   return (
     <li className="px-3 py-2">
-      <div className="flex items-start gap-3">
-        <input
-          type="checkbox"
-          className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent)] disabled:opacity-60"
-          checked={checked}
-          disabled={locked}
-          title={done ? "Done: stays in the sprint" : blocked ? cantAdd : undefined}
-          aria-label={
-            done
-              ? `Done, stays in the sprint: ${story.title}`
-              : `${checked ? "Remove from sprint" : "Add to sprint"}: ${story.title}`
-          }
-          onChange={() => onToggle(story)}
-        />
-        <div className="min-w-0 flex-1">
+      <div className="flex items-start gap-3 max-sm:grid max-sm:grid-cols-[auto_minmax(0,1fr)_auto] max-sm:gap-y-1">
+        {/* The box is the step's main action, so on a touch screen its label
+            pads it out to a 44 px target. The negative margins give most of
+            that back: the padding reaches into the row's own edge and the
+            whole gap. Its last 4 px stay its own, so the padding ends where
+            the title starts; the title paints after it and would take a tap
+            on any strip the two shared. */}
+        <label className="flex shrink-0 pointer-coarse:-my-3 pointer-coarse:-ml-3 pointer-coarse:-mr-3 pointer-coarse:py-3 pointer-coarse:pl-3 pointer-coarse:pr-4">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent)] disabled:opacity-60"
+            checked={checked}
+            disabled={locked}
+            title={done ? "Done: stays in the sprint" : blocked ? cantAdd : undefined}
+            aria-label={
+              done
+                ? `Done, stays in the sprint: ${story.title}`
+                : `${checked ? "Remove from sprint" : "Add to sprint"}: ${story.title}`
+            }
+            onChange={() => onToggle(story)}
+          />
+        </label>
+        <div className="min-w-0 flex-1 max-sm:contents">
           {edit.editing ? (
             <InlineItemEditor
               label={`Edit ${story.title}`}
               title={story.title}
               titleLabel="Story title"
               titleMaxLength={200}
+              className={titleCell}
               onDone={(next, opts) => {
                 if (next) onRename(story, next.title);
                 edit.stop(opts);
               }}
             />
           ) : (
-            <div className="flex items-start gap-1">
+            <div className={cn("flex items-start gap-1", titleCell)}>
               <span className="min-w-0 break-words pt-0.5 text-sm text-text">{story.title}</span>
+              {/* 44 px to a finger at any width (md:pointer-coarse: outranks
+                  the button's md: sizes), but laid out as the 28 px button it
+                  looks like: the margins keep the pencil where it sits beside
+                  the title and leave the title its width on a phone. */}
               <IconButton
                 ref={edit.triggerRef}
                 label={`Edit ${story.title}`}
                 icon={<Pencil className="h-3.5 w-3.5" />}
-                className="h-7 w-7 shrink-0 text-sub hover:text-text"
+                className="h-7 w-7 shrink-0 text-sub hover:text-text pointer-coarse:-mx-2 pointer-coarse:-mt-2 pointer-coarse:min-h-11 pointer-coarse:min-w-11 md:pointer-coarse:min-h-11 md:pointer-coarse:min-w-11"
                 onClick={edit.start}
               />
             </div>
           )}
-          {(meta.length > 0 || story.status !== "done" || story.sourceRef) && (
-            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-sub">
+          {hasMeta && (
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-sub max-sm:col-start-2 max-sm:row-start-2 max-sm:self-center">
               {meta.flatMap((part, i) => [
                 ...(i > 0
                   ? [
@@ -215,6 +252,11 @@ function StoryRow({
           errorId={errorId}
           error={pointsError}
           onError={setPointsError}
+          className={
+            hasMeta
+              ? "max-sm:col-start-3 max-sm:row-start-2"
+              : "max-sm:col-start-3 max-sm:row-start-1"
+          }
         />
       </div>
       {pointsError && (
