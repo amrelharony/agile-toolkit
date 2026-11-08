@@ -5,8 +5,8 @@ import type { ReactElement, ReactNode } from "react";
 
 /**
  * Layout stability before hydration: the server can't read this browser's
- * saved workspace, so tools render a "Loading …" placeholder first. Below
- * desktop width it reserves about a phone screen's height, so the tool that
+ * saved workspace, so tools render a "Loading …" placeholder first. On
+ * phones it reserves about a phone screen's height, so the tool that
  * replaces it doesn't push Related tools down after the first paint (CLS up
  * to 0.46 on phones). These render on the server, where no effect runs and
  * the workspace never counts as loaded, exactly as the first HTML does.
@@ -46,15 +46,18 @@ function serverStatus(ui: ReactElement): HTMLElement {
 }
 
 describe("WorkspaceLoading", () => {
-  it("announces itself and reserves a phone screen below desktop width only", () => {
+  it("announces itself and reserves a phone screen on phones only", () => {
     render(<WorkspaceLoading>Loading the board…</WorkspaceLoading>);
     const status = screen.getByRole("status");
     expect(status).toHaveTextContent("Loading the board…");
-    // Below lg only, viewport-relative so it fits short and tall phones.
-    expect(WORKSPACE_LOADING_RESERVE).toBe("max-lg:min-h-[60svh]");
+    // Below md only, viewport-relative so it fits short and tall phones.
+    expect(WORKSPACE_LOADING_RESERVE).toBe("max-md:min-h-[60svh]");
     expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
-    // Desktop keeps the old one-line card: no unprefixed min-height.
-    expect(Array.from(status.classList).filter((c) => c.startsWith("min-h-"))).toEqual([]);
+    // Tablets (768x1024, where the short visitor empty states would pull
+    // Related tools up into view) and desktop keep the old one-line card: no
+    // unprefixed or tablet-wide min-height.
+    const minHeights = Array.from(status.classList).filter((c) => c.includes("min-h-"));
+    expect(minHeights).toEqual(["max-md:min-h-[60svh]"]);
   });
 
   it("keeps the reserve when a caller adds its own classes", () => {

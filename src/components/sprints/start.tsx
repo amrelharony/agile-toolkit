@@ -68,9 +68,9 @@ export function ExampleBanner({ onStart, onExit }: { onStart: () => void; onExit
 
 /**
  * While the workspace loads, or old sprint data is being moved in. On phones
- * and tablets it holds the room the sprint tool will take, so the cockpit or
- * start flow that replaces it doesn't push the page down (home, Sprint
- * Cockpit, Sprint Planning, Burndown and the other sprint tools).
+ * it holds the room the sprint tool will take, so the cockpit or start flow
+ * that replaces it doesn't push the page down (home, Sprint Cockpit, Sprint
+ * Planning, Burndown and the other sprint tools).
  */
 export function LoadingSprints() {
   return <WorkspaceLoading>Loading sprints…</WorkspaceLoading>;
