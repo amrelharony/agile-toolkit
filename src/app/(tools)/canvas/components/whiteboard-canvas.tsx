@@ -71,6 +71,7 @@ import { useInputClass } from "../hooks/use-input-class";
 import { WetInkLayer, type WetInkApi } from "./wet-ink-layer";
 import { useCanvasTouchGestures } from "../hooks/use-canvas-touch-gestures";
 import { CanvasObjectMenu } from "./canvas-object-menu";
+import { CanvasTouchTips } from "./canvas-touch-tips";
 
 interface WhiteboardCanvasProps {
   boardId: string;
@@ -541,7 +542,7 @@ export function WhiteboardCanvas({
   // Declared up here because the touch-gesture hook below needs the pen
   // counter to gate pinch / pan during stylus inking; consumers further
   // down (selection-handles hit area, palm rejection in pointer machine,
-  // first-run toast) also read from this same instance.
+  // first-visit touch tips) also read from this same instance.
   const inputClass = useInputClass();
 
   // Touch gestures (pinch zoom, two-finger pan, double-tap fit, long-press
@@ -938,33 +939,6 @@ export function WhiteboardCanvas({
   // Wet-ink layer is mounted below; the pointer machine writes into this
   // ref to push live samples at < 1 frame latency.
   const wetInkApiRef = useRef<WetInkApi | null>(null);
-
-  // One-time gesture hint for touch users so they discover the new
-  // pinch / two-finger pan / long-press affordances on first visit.
-  // Persisted in localStorage so it only fires once per device.
-  useEffect(() => {
-    if (!inputClass.isCoarse) return;
-    if (typeof window === "undefined") return;
-    const KEY = "canvas:touchGestureHintSeen:v1";
-    try {
-      if (window.localStorage.getItem(KEY) === "1") return;
-    } catch {
-      return;
-    }
-    // Lazy import so the toast bundle isn't pulled into desktop sessions.
-    void import("sonner").then(({ toast }) => {
-      toast.message("Tablet tips", {
-        description: "Pinch to zoom · Two-finger drag to pan · Long-press for actions",
-        duration: 7000,
-      });
-      try {
-        window.localStorage.setItem(KEY, "1");
-      } catch {
-        // Ignore storage errors (private mode, quota); the hint just
-        // shows again next visit, which is harmless.
-      }
-    });
-  }, [inputClass.isCoarse]);
 
   // The canvas pointer state machine owns the three viewport pointer
   // handlers + every ref they share (pan latches, lasso fast-path,
@@ -1534,6 +1508,10 @@ export function WhiteboardCanvas({
       <ConnectorBanner tool={tool} pendingConnectorFromId={pendingConnectorFromId} />
 
       <EmptyCanvasHint objectCount={objects.length} />
+
+      {/* First-visit touch tips, inside the board (was a bottom toast
+          over the tool rail and Amr). */}
+      <CanvasTouchTips enabled={inputClass.isCoarse} readOnly={readOnly} />
     </div>
   );
 }
