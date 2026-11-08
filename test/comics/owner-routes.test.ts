@@ -98,6 +98,7 @@ function storyQuery(table: string) {
       return chain;
     },
     is: () => chain,
+    not: () => chain,
     gte: (column: string, value: unknown) => {
       h.since.push({ table, column, value });
       return chain;
@@ -151,6 +152,8 @@ import * as licenceOne from "@/app/api/comics/licence-requests/[id]/route";
 import * as notes from "@/app/api/comics/guestbook-notes/route";
 import * as noteOne from "@/app/api/comics/guestbook-notes/[id]/route";
 import * as extras from "@/app/api/comics/stories/[ep]/extras/route";
+import * as guess from "@/app/api/comics/stories/[ep]/guess/route";
+import * as guessDrafts from "@/app/api/comics/guess-drafts/route";
 
 const HOST = "agile.test";
 const UUID = "11111111-1111-4111-8111-111111111111";
@@ -243,6 +246,9 @@ const ROUTES: [string, unknown, string, object?][] = [
   ["DELETE /guestbook-notes/id", noteOne.DELETE, "DELETE", { id: UUID }],
   ["GET /stories/27/extras", extras.GET, "GET", { ep: "27" }],
   ["PUT /stories/27/extras", extras.PUT, "PUT", { ep: "27" }],
+  ["GET /stories/27/guess", guess.GET, "GET", { ep: "27" }],
+  ["PUT /stories/27/guess", guess.PUT, "PUT", { ep: "27" }],
+  ["GET /guess-drafts", guessDrafts.GET, "GET"],
 ];
 
 /**
