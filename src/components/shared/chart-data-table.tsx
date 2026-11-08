@@ -25,6 +25,14 @@ const CELL_PAD = "px-2 py-2 sm:px-3";
  * its name ("Day 3") in view. The card's colour hides what slides beneath.
  */
 const STICKY_COL = "sticky left-0 z-[1] bg-card";
+/**
+ * Row dividers live on the cells, not the rows: in the collapsed border model
+ * the table paints a row's border, and the pinned cells' card-coloured
+ * background (a layer above the table) covered it, so the first column lost
+ * its dividers. In the separate model (see the table) each cell, pinned ones
+ * included, draws its own.
+ */
+const DIVIDER = "border-b border-border";
 
 /**
  * Whether the region has more to show to its right, and how tall its caption
@@ -84,7 +92,7 @@ export function ChartDataTable({
   const align = (c: number) => (numeric[c] ? "text-right" : "text-left");
   const { scrollRef, captionRef, more, captionHeight } = useMoreToTheRight(table);
   return (
-    // `isolate` keeps the pinned column's and the fade's z-index inside the table.
+    // `isolate` keeps the pinned column's, the fade's and the ring's z-index inside the table.
     <div className={cn("relative isolate", className)}>
       <div
         ref={scrollRef}
@@ -92,15 +100,17 @@ export function ChartDataTable({
         role="region"
         aria-labelledby={captionId}
         // Focusable so the keyboard can scroll a table wider than the screen.
+        // The overlay below draws its focus ring: an inset ring on this box
+        // paints under its cells, and the pinned column hid the left side.
         tabIndex={0}
-        className="overflow-x-auto rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        className="peer overflow-x-auto rounded-md focus-visible:outline-none"
       >
-        <table className="w-full text-sm">
+        <table className="w-full border-separate border-spacing-0 text-sm">
           <caption ref={captionRef} id={captionId} className="pb-2 text-left text-xs text-sub">
             {table.caption ?? fallbackCaption}
           </caption>
           <thead>
-            <tr className="border-b border-border text-xs text-sub">
+            <tr className="text-xs text-sub">
               {table.columns.map((col, c) => (
                 <th
                   key={c}
@@ -108,6 +118,7 @@ export function ChartDataTable({
                   className={cn(
                     "whitespace-nowrap font-medium",
                     CELL_PAD,
+                    DIVIDER,
                     align(c),
                     c === 0 && STICKY_COL
                   )}
@@ -118,29 +129,37 @@ export function ChartDataTable({
             </tr>
           </thead>
           <tbody>
-            {table.rows.map((row, r) => (
-              <tr key={r} className="border-b border-border last:border-0">
-                {row.map((value, c) =>
-                  c === 0 ? (
-                    <th
-                      key={c}
-                      scope="row"
-                      className={cn(
-                        "whitespace-nowrap text-left font-medium text-text",
-                        CELL_PAD,
-                        STICKY_COL
-                      )}
-                    >
-                      {value}
-                    </th>
-                  ) : (
-                    <td key={c} className={cn("font-data text-text", CELL_PAD, align(c))}>
-                      {value}
-                    </td>
-                  )
-                )}
-              </tr>
-            ))}
+            {table.rows.map((row, r) => {
+              // Every row but the last is divided from the next.
+              const divider = r < table.rows.length - 1 && DIVIDER;
+              return (
+                <tr key={r}>
+                  {row.map((value, c) =>
+                    c === 0 ? (
+                      <th
+                        key={c}
+                        scope="row"
+                        className={cn(
+                          "whitespace-nowrap text-left font-medium text-text",
+                          CELL_PAD,
+                          divider,
+                          STICKY_COL
+                        )}
+                      >
+                        {value}
+                      </th>
+                    ) : (
+                      <td
+                        key={c}
+                        className={cn("font-data text-text", CELL_PAD, divider, align(c))}
+                      >
+                        {value}
+                      </td>
+                    )
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -148,11 +167,17 @@ export function ChartDataTable({
         <div
           aria-hidden="true"
           data-scroll-fade=""
-          // A pixel in from the edge, so the region's inset focus ring still shows.
-          className="pointer-events-none absolute bottom-px right-px z-[2] w-8 rounded-r-md bg-gradient-to-l from-card"
+          className="pointer-events-none absolute bottom-0 right-0 z-[2] w-8 rounded-r-md bg-gradient-to-l from-card"
           style={{ top: captionHeight }}
         />
       )}
+      {/* The region's focus ring, drawn above the pinned column and the fade
+          so all four sides show. */}
+      <div
+        aria-hidden="true"
+        data-focus-ring=""
+        className="pointer-events-none absolute inset-0 z-[3] rounded-md peer-focus-visible:ring-1 peer-focus-visible:ring-inset peer-focus-visible:ring-ring"
+      />
     </div>
   );
 }

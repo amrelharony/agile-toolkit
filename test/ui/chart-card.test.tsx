@@ -266,6 +266,43 @@ describe("ChartDataTable", () => {
     }
   });
 
+  it("draws the row dividers on the cells, so the pinned column keeps them", () => {
+    render(<ChartDataTable table={TABLE} />);
+    const table = screen.getByRole("table");
+    // Collapsed borders are painted by the table, under the pinned cells'
+    // background: the separate model lets each cell draw its own.
+    expect(table).toHaveClass("border-separate", "border-spacing-0");
+    const rows = within(table).getAllByRole("row");
+    for (const row of rows) expect(row).not.toHaveClass("border-b");
+    const cellsOf = (row: HTMLElement) => Array.from(row.children);
+    // The header rule and every body row but the last, pinned cells included.
+    for (const row of rows.slice(0, -1)) {
+      for (const cell of cellsOf(row)) expect(cell).toHaveClass("border-b", "border-border");
+    }
+    for (const cell of cellsOf(rows[rows.length - 1])) expect(cell).not.toHaveClass("border-b");
+  });
+
+  it("draws its focus ring above the pinned column", () => {
+    const { container } = render(<ChartDataTable table={TABLE} />);
+    const region = screen.getByRole("region");
+    // An inset ring on the region itself paints under its cells.
+    expect(region).toHaveClass("peer");
+    expect(region.className).not.toMatch(/\bring-/);
+    const ring = container.querySelector("[data-focus-ring]");
+    expect(ring).toHaveAttribute("aria-hidden", "true");
+    expect(ring).toHaveClass(
+      "absolute",
+      "inset-0",
+      "z-[3]",
+      "pointer-events-none",
+      "peer-focus-visible:ring-1",
+      "peer-focus-visible:ring-inset"
+    );
+    // A later sibling of the region, so the peer selector reaches it.
+    expect(ring?.parentElement).toBe(region.parentElement);
+    expect(region.compareDocumentPosition(ring!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("fades its right edge only while there's more to scroll to", () => {
     // jsdom lays nothing out: a 445 px table in a 284 px box.
     const widths = [
