@@ -1232,4 +1232,13 @@ describe("on a phone", () => {
     expect(box).toBeChecked();
     expect(cardOf(RETRO_CURRENT_ID, "c9")?.done).toBeUndefined();
   });
+
+  it("labels the keyboard's return key done in quick add, where Enter adds the action", () => {
+    renderPage();
+    const field = screen.getByLabelText(/^Action/);
+    expect(field).toHaveAttribute("enterkeyhint", "done");
+    fireEvent.change(field, { target: { value: "Ask ops for a sandbox" } });
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    expect(boardOf(RETRO_CURRENT_ID)?.cards.at(-1)?.text).toBe("Ask ops for a sandbox");
+  });
 });
