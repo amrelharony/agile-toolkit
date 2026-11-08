@@ -149,9 +149,9 @@ const rules: Partial<Record<string, Rule>> = {
   // (lib/gamification/signal.ts).
   "room-join": (evt) => evt === "room-joined",
   "room-host": (evt) => evt === "invite-created",
-  // emitRtEvent("sync-remote") reaches the engine as the bare name: rt
-  // events lose their surface prefix in emit(), so `rt:sync-remote` never
-  // matched.
+  // emitRtEvent("sync-remote") reaches the engine as the bare name. It is
+  // the only rt event emit() still forwards (sonification/emit.ts
+  // GAMIFIED_RT_EVENTS); `rt:sync-remote` never matched.
   "sync-first": (evt) => evt === "sync-remote",
   "party-of-four": (evt, m) =>
     evt === "room-members" && typeof m?.memberCount === "number" && m.memberCount >= 4,

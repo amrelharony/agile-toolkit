@@ -47,18 +47,34 @@ function play(toolId: string, entry: PaletteEntry) {
 }
 
 /**
- * Non-hook emit.  Safe in any event handler or imperative context.
- * Reads the current prefs synchronously from the store and no-ops if gated off.
+ * Realtime events the gamification engine still listens to. `sync-first`
+ * unlocks on the first remote sync; every other `rt` event (member join and
+ * leave, connection state) is feedback only. Party-of-four has its own direct
+ * signal from use-room.ts, so it doesn't need `rt` forwarding.
+ */
+const GAMIFIED_RT_EVENTS: ReadonlySet<string> = new Set(["sync-remote"]);
+
+/**
+ * Whether an emit reaches the gamification engine. Tool events always do (the
+ * ledger decides whether they pay); `ui` events never do (clicks, hovers,
+ * keystrokes, toasts and dialog state are input, not outcomes); `rt` events
+ * only when the engine has a rule for them.
+ */
+export function shouldForwardToGamification(toolId: string, eventName: string): boolean {
+  if (toolId === "ui") return false;
+  if (toolId === "rt") return GAMIFIED_RT_EVENTS.has(eventName);
+  return true;
+}
+
+/**
+ * Sound and haptics only — never the gamification engine. Toasts and other
+ * feedback-only surfaces use this, so a toast can't earn XP or move a badge.
  *
  * `targetEl` is optional and, when provided, lets the haptics engine apply its
  * per-element cooldown + iOS visual-pulse fallback to the originating element.
  */
-export function emit(toolId: string, eventName: string, targetEl?: HTMLElement | null) {
+export function emitFeedback(toolId: string, eventName: string, targetEl?: HTMLElement | null) {
   if (typeof window === "undefined") return;
-
-  // Forward to gamification — lazy-imported to avoid circular module dep.
-  // Gamification runs even when sonification is off.
-  void forwardToGamification(toolId, eventName);
 
   // Forward to haptics — independent gating (runs even if sonification is off).
   void forwardToHaptics(toolId, eventName, targetEl ?? undefined);
@@ -72,6 +88,23 @@ export function emit(toolId: string, eventName: string, targetEl?: HTMLElement |
   play(toolId, entry);
 }
 
+/**
+ * Non-hook emit.  Safe in any event handler or imperative context.
+ * Plays feedback (sound + haptics, each gated by its own prefs) and hands
+ * tool events to the gamification engine (see shouldForwardToGamification).
+ */
+export function emit(toolId: string, eventName: string, targetEl?: HTMLElement | null) {
+  if (typeof window === "undefined") return;
+
+  // Forward to gamification — lazy-imported to avoid circular module dep.
+  // Gamification runs even when sonification is off.
+  if (shouldForwardToGamification(toolId, eventName)) {
+    void forwardToGamification(toolId, eventName);
+  }
+
+  emitFeedback(toolId, eventName, targetEl);
+}
+
 let gamificationDispatch: ((name: string, meta?: Record<string, unknown>) => void) | null = null;
 async function forwardToGamification(toolId: string, eventName: string) {
   try {
@@ -81,8 +114,8 @@ async function forwardToGamification(toolId: string, eventName: string) {
       const mod = await import("@/lib/gamification/ledger");
       gamificationDispatch = (name, meta) => mod.ingestEvent(name, meta);
     }
-    const canonical =
-      toolId === "ui" || toolId === "rt" ? eventName : `tool:${toolId}:${eventName}`;
+    // rt events reach the engine under their bare name (`sync-remote`).
+    const canonical = toolId === "rt" ? eventName : `tool:${toolId}:${eventName}`;
     gamificationDispatch(canonical, { toolId, eventName });
   } catch {
     /* engine not loadable — ignore */
@@ -103,7 +136,7 @@ async function forwardToHaptics(toolId: string, eventName: string, targetEl?: HT
   }
 }
 
-/** Convenience for UI surface events (`click-default`, `hover`, etc.) */
+/** Convenience for UI surface events (`click-default`, `hover`, etc.). Feedback only. */
 export function emitUiEvent(eventName: string) {
   emit("ui", eventName);
 }

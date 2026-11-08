@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
-import { installEventBridge } from "./event-bridge";
+import { installEventBridge, trackPathVisit } from "./event-bridge";
 import { installSecretDetector } from "./secrets";
 import { installWindowBridge, subscribe } from "./engine";
 import { appendXpEvent } from "./opfs";
@@ -59,6 +59,12 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
       detachSecrets();
     };
   }, [mounted]);
+
+  // Tool visits follow the router, not a patched history.pushState.
+  useEffect(() => {
+    if (!mounted) return;
+    trackPathVisit(pathname);
+  }, [mounted, pathname]);
 
   // Signing out drops a sync still waiting out its debounce.
   useEffect(() => {

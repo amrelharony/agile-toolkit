@@ -1,26 +1,25 @@
 "use client";
 
 import { toast as sonnerToast, type ExternalToast } from "sonner";
-import { emitUiEvent } from "@/lib/sonification/emit";
+import { emitFeedback } from "@/lib/sonification/emit";
 
 type ToastInput = Parameters<typeof sonnerToast>[0];
 type ToastOpts = ExternalToast | undefined;
 
 /**
  * Sonify safely — never let an audio/haptics rejection bubble out of the
- * toast helpers. `emitUiEvent` does dynamic imports (audio engine, haptics)
- * which can reject async; the original try/catch only caught sync throws,
- * letting promise rejections escape unhandled. Wrap in
- * `Promise.resolve(...).catch(...)` for true safety.
+ * toast helpers. `emitFeedback` does dynamic imports (audio engine, haptics)
+ * which can reject async; a plain try/catch only catches sync throws, so a
+ * returned promise is `.catch`ed too.
+ *
+ * Feedback only: a toast plays its sound and haptic but never reaches the
+ * gamification engine, so no toast can earn XP or move a badge.
  */
 function safeEmit(name: string) {
   try {
-    // emitUiEvent has return type `void` in its current signature, but a
-    // future change to make it dynamic-import-aware could return a Promise.
-    // Cast through unknown so we can still defensively `.catch` if a Promise
-    // does show up — no TS error from "void truthiness" today, and we get
-    // forward-compat for free.
-    const result = emitUiEvent(name) as unknown;
+    // emitFeedback returns `void` today; cast through unknown so a future
+    // promise-returning version is still `.catch`ed.
+    const result = emitFeedback("ui", name) as unknown;
     if (result && typeof (result as Promise<unknown>).then === "function") {
       (result as Promise<unknown>).catch(() => {
         /* swallow async emit failures */
@@ -76,7 +75,10 @@ export const toast: {
     },
     dismiss: sonnerToast.dismiss.bind(sonnerToast),
     promise: sonnerToast.promise.bind(sonnerToast),
-    loading: ((m: Parameters<typeof sonnerToast.loading>[0], o?: Parameters<typeof sonnerToast.loading>[1]) => {
+    loading: ((
+      m: Parameters<typeof sonnerToast.loading>[0],
+      o?: Parameters<typeof sonnerToast.loading>[1]
+    ) => {
       safeEmit("toast-info");
       return sonnerToast.loading(m, o);
     }) as typeof sonnerToast.loading,

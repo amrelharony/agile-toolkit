@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   pathname: "/" as string | null,
   subscriber: null as ((effect: { kind: string; payload: unknown }) => void) | null,
   appendXpEvent: vi.fn(),
+  trackPathVisit: vi.fn(),
   toast: Object.assign(vi.fn(), {
     success: vi.fn(),
     info: vi.fn(),
@@ -39,7 +40,10 @@ vi.mock("@/lib/gamification/engine", () => ({
   },
   installWindowBridge: () => {},
 }));
-vi.mock("@/lib/gamification/event-bridge", () => ({ installEventBridge: () => () => {} }));
+vi.mock("@/lib/gamification/event-bridge", () => ({
+  installEventBridge: () => () => {},
+  trackPathVisit: h.trackPathVisit,
+}));
 vi.mock("@/lib/gamification/secrets", () => ({ installSecretDetector: () => () => {} }));
 vi.mock("@/lib/gamification/opfs", () => ({ appendXpEvent: h.appendXpEvent }));
 vi.mock("@/lib/utils/toast", () => ({ toast: h.toast }));
@@ -216,5 +220,17 @@ describe("GamificationProvider silent-mode adoption", () => {
       silentModeAdopted: true,
       celebrationLevel: "lively",
     });
+  });
+});
+
+describe("GamificationProvider tool visits", () => {
+  it("tracks the pathname on mount and on every navigation", () => {
+    h.pathname = "/retro";
+    const view = mount();
+    expect(h.trackPathVisit).toHaveBeenLastCalledWith("/retro");
+    h.pathname = "/planning-poker";
+    view.rerender(<GamificationProvider>{null}</GamificationProvider>);
+    expect(h.trackPathVisit).toHaveBeenLastCalledWith("/planning-poker");
+    expect(h.trackPathVisit).toHaveBeenCalledTimes(2);
   });
 });

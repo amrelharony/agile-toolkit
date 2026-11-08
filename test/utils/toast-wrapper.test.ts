@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * Characterization of the `@/lib/utils/toast` wrapper. Its API is imported by
  * ~73 modules and must stay exactly as it is through the notification
  * redesign: every helper forwards to sonner unchanged and returns sonner's id,
- * and each one sonifies through a UI event that can never throw out of it.
+ * and each one sonifies through a feedback-only UI event (sound + haptics,
+ * never the gamification engine) that can never throw out of it.
  */
 
 const h = vi.hoisted(() => {
@@ -21,17 +22,17 @@ const h = vi.hoisted(() => {
       dismiss: vi.fn(),
     }
   );
-  return { sonner, emitUiEvent: vi.fn() as ReturnType<typeof vi.fn> };
+  return { sonner, emitFeedback: vi.fn() as ReturnType<typeof vi.fn> };
 });
 
 vi.mock("sonner", () => ({ toast: h.sonner }));
-vi.mock("@/lib/sonification/emit", () => ({ emitUiEvent: h.emitUiEvent }));
+vi.mock("@/lib/sonification/emit", () => ({ emitFeedback: h.emitFeedback }));
 
 import { toast } from "@/lib/utils/toast";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.emitUiEvent.mockImplementation(() => undefined);
+  h.emitFeedback.mockImplementation(() => undefined);
 });
 
 describe("toast wrapper", () => {
@@ -46,14 +47,14 @@ describe("toast wrapper", () => {
     const opts = { description: "d", id: "k1", duration: 1234 };
     expect(fn("Hello", opts)).toBe(id);
     expect(target).toHaveBeenCalledWith("Hello", opts);
-    expect(h.emitUiEvent).toHaveBeenCalledTimes(1);
-    expect(h.emitUiEvent).toHaveBeenCalledWith(ev);
+    expect(h.emitFeedback).toHaveBeenCalledTimes(1);
+    expect(h.emitFeedback).toHaveBeenCalledWith("ui", ev);
   });
 
   it("loading forwards and emits toast-info", () => {
     expect(toast.loading("Saving…")).toBe("id-loading");
     expect(h.sonner.loading).toHaveBeenCalledWith("Saving…", undefined);
-    expect(h.emitUiEvent).toHaveBeenCalledWith("toast-info");
+    expect(h.emitFeedback).toHaveBeenCalledWith("ui", "toast-info");
   });
 
   it("dismiss and promise pass straight through without sonifying", () => {
@@ -62,11 +63,11 @@ describe("toast wrapper", () => {
     const p = Promise.resolve(1);
     toast.promise(p, { loading: "…", success: "ok", error: "no" });
     expect(h.sonner.promise).toHaveBeenCalledWith(p, { loading: "…", success: "ok", error: "no" });
-    expect(h.emitUiEvent).not.toHaveBeenCalled();
+    expect(h.emitFeedback).not.toHaveBeenCalled();
   });
 
   it("still shows the toast when sonifying throws", () => {
-    h.emitUiEvent.mockImplementation(() => {
+    h.emitFeedback.mockImplementation(() => {
       throw new Error("audio blocked");
     });
     expect(toast.error("Couldn't save")).toBe("id-error");
@@ -75,7 +76,7 @@ describe("toast wrapper", () => {
 
   it("attaches a catch to an async sonify result", () => {
     const thenable = { then: vi.fn(), catch: vi.fn() };
-    h.emitUiEvent.mockImplementation(() => thenable);
+    h.emitFeedback.mockImplementation(() => thenable);
     expect(toast.success("Saved")).toBe("id-success");
     expect(thenable.catch).toHaveBeenCalledTimes(1);
   });

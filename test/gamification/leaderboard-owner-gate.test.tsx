@@ -30,7 +30,10 @@ vi.mock("@/lib/gamification/engine", () => ({
   installWindowBridge: () => {},
   prestige: () => {},
 }));
-vi.mock("@/lib/gamification/event-bridge", () => ({ installEventBridge: () => () => {} }));
+vi.mock("@/lib/gamification/event-bridge", () => ({
+  installEventBridge: () => () => {},
+  trackPathVisit: () => {},
+}));
 vi.mock("@/lib/gamification/secrets", () => ({ installSecretDetector: () => () => {} }));
 vi.mock("@/lib/gamification/opfs", () => ({ appendXpEvent: () => {} }));
 
