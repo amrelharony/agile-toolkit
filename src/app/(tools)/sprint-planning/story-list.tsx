@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
 import { SourceLink } from "@/components/handoff/source-link";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
+import { cn } from "@/lib/utils";
 import type { Story } from "@/lib/stores/workspace-types";
 import { isRankedStory, storyPoints } from "@/lib/sprints/plan";
 import { checkStoryPoints, isReady } from "./view";
@@ -32,12 +33,15 @@ function PointsCell({
   errorId,
   error,
   onError,
+  className,
 }: {
   story: Story;
   onChange: (points?: number) => void;
   errorId: string;
   error: string | undefined;
   onError: (error: string | undefined) => void;
+  /** Where the row places it (its grid cell on a phone). */
+  className?: string;
 }) {
   const shown = storyPoints(story) > 0 ? String(story.points) : "";
   const [draft, setDraft] = useState(shown);
@@ -63,8 +67,8 @@ function PointsCell({
   // Height comes from Input (44 px on phones, 36 px from md up), and stays
   // 44 px on any touch screen: a landscape phone or a tablet is md-wide too
   // (md:pointer-coarse:, because a bare pointer-coarse: loses to Input's md:).
-  // Narrower below sm: it holds a few digits, and the width goes back to the
-  // story's title, which shares the row.
+  // Narrower below sm, where it sits beside the meta line: it holds a few
+  // digits, and the rest of the width goes to that line.
   return (
     <Input
       type="number"
@@ -74,7 +78,10 @@ function PointsCell({
       aria-label={`Points for ${story.title}`}
       aria-invalid={error ? true : undefined}
       aria-describedby={error ? errorId : undefined}
-      className="w-14 shrink-0 px-2 text-right sm:w-20 sm:px-3 md:pointer-coarse:h-11"
+      className={cn(
+        "w-14 shrink-0 px-2 text-right sm:w-20 sm:px-3 md:pointer-coarse:h-11",
+        className
+      )}
       value={draft}
       placeholder="—"
       onChange={(e) => {
@@ -159,10 +166,18 @@ function StoryRow({
       typeof story.priorityScore === "number" ? `Priority ${story.priorityScore}` : "Not scored"
     );
   }
+  const hasMeta = meta.length > 0 || story.status !== "done" || Boolean(story.sourceRef);
+  // On a phone (below sm) the row is a grid: the points field leaves the
+  // title's line for the meta line under it, so the title gets the row's
+  // width and a long one wraps to about 3 lines at 360 px, not 5. The middle
+  // column's wrapper drops out of the layout there (contents) so the title
+  // and the meta line take their own cells. From sm up it is the flex row
+  // it always was, and these cell placements do nothing.
+  const titleCell = cn("max-sm:col-start-2 max-sm:row-start-1", hasMeta && "max-sm:col-end-4");
 
   return (
     <li className="px-3 py-2">
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 max-sm:grid max-sm:grid-cols-[auto_minmax(0,1fr)_auto] max-sm:gap-y-1">
         {/* The box is the step's main action, so on a touch screen its label
             pads it out to a 44 px target. The negative margins give most of
             that back: the padding reaches into the row's own edge and the
@@ -184,20 +199,21 @@ function StoryRow({
             onChange={() => onToggle(story)}
           />
         </label>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 max-sm:contents">
           {edit.editing ? (
             <InlineItemEditor
               label={`Edit ${story.title}`}
               title={story.title}
               titleLabel="Story title"
               titleMaxLength={200}
+              className={titleCell}
               onDone={(next, opts) => {
                 if (next) onRename(story, next.title);
                 edit.stop(opts);
               }}
             />
           ) : (
-            <div className="flex items-start gap-1">
+            <div className={cn("flex items-start gap-1", titleCell)}>
               <span className="min-w-0 break-words pt-0.5 text-sm text-text">{story.title}</span>
               {/* 44 px to a finger at any width (md:pointer-coarse: outranks
                   the button's md: sizes), but laid out as the 28 px button it
@@ -212,8 +228,8 @@ function StoryRow({
               />
             </div>
           )}
-          {(meta.length > 0 || story.status !== "done" || story.sourceRef) && (
-            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-sub">
+          {hasMeta && (
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-sub max-sm:col-start-2 max-sm:row-start-2 max-sm:self-center">
               {meta.flatMap((part, i) => [
                 ...(i > 0
                   ? [
@@ -236,6 +252,11 @@ function StoryRow({
           errorId={errorId}
           error={pointsError}
           onError={setPointsError}
+          className={
+            hasMeta
+              ? "max-sm:col-start-3 max-sm:row-start-2"
+              : "max-sm:col-start-3 max-sm:row-start-1"
+          }
         />
       </div>
       {pointsError && (

@@ -60,6 +60,7 @@ import {
   validateStory,
 } from "@/app/(tools)/sprint-planning/view";
 import { planToMarkdown } from "@/app/(tools)/sprint-planning/markdown";
+import { StoryList } from "@/app/(tools)/sprint-planning/story-list";
 import { buildExample } from "@/app/(tools)/sprint-planning/example";
 import {
   createExampleStore,
@@ -1113,6 +1114,94 @@ describe("story rows on a touch screen", () => {
         "pointer-coarse:-mx-2",
         "pointer-coarse:-mt-2",
       ])
+    );
+  });
+});
+
+/* ── Phone layout (mobile audit, finding 54) ────────────────────────── */
+
+describe("story rows on a phone", () => {
+  const classesOf = (el: Element | null) => (el?.getAttribute("class") ?? "").split(/\s+/);
+  // Any grid placement that isn't scoped to phones would move a cell on desktop.
+  const unscopedPlacement = (el: Element | null) =>
+    classesOf(el).filter((c) => /^(?:col|row)-/.test(c) || c === "grid" || c === "contents");
+  const backlogRow = (title: string) =>
+    within(screen.getByRole("list", { name: "Backlog" }))
+      .getByText(title)
+      .closest("li")!;
+
+  it("gives the title the row's width and puts the points beside the meta line", () => {
+    renderPlanning();
+    const row = backlogRow("Remove a saved card");
+    const layout = row.firstElementChild!;
+    // A flex row from sm up, as before; a three-column grid below sm.
+    expect(classesOf(layout)).toEqual(
+      expect.arrayContaining([
+        "flex",
+        "gap-3",
+        "max-sm:grid",
+        "max-sm:grid-cols-[auto_minmax(0,1fr)_auto]",
+      ])
+    );
+    const titleLine = within(row).getByRole("button", {
+      name: "Edit Remove a saved card",
+    }).parentElement!;
+    // The title spans the middle and points columns of the first line.
+    expect(classesOf(titleLine)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-2", "max-sm:col-end-4", "max-sm:row-start-1"])
+    );
+    // Its wrapper keeps its flex-1 column from sm up and drops out below.
+    const column = titleLine.parentElement!;
+    expect(classesOf(column)).toEqual(
+      expect.arrayContaining(["min-w-0", "flex-1", "max-sm:contents"])
+    );
+    const metaLine = within(row).getByText("Ann").closest("p")!;
+    expect(classesOf(metaLine)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-2", "max-sm:row-start-2"])
+    );
+    const points = within(row).getByLabelText("Points for Remove a saved card");
+    expect(classesOf(points)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-3", "max-sm:row-start-2"])
+    );
+    for (const el of [layout, titleLine, column, metaLine, points]) {
+      expect(unscopedPlacement(el)).toEqual([]);
+    }
+  });
+
+  it("gives the title editor the same cell", () => {
+    renderPlanning();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Remove a saved card" }));
+    const editor = screen.getByRole("group", { name: "Edit Remove a saved card" });
+    expect(classesOf(editor)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-2", "max-sm:col-end-4", "max-sm:row-start-1"])
+    );
+    expect(unscopedPlacement(editor)).toEqual([]);
+  });
+
+  it("keeps the points on the title's line when the row has no meta line", () => {
+    render(
+      <TooltipProvider>
+        <StoryList
+          stories={[{ id: "d1", title: "Shipped", status: "done", sprintId: "s2", points: 3 }]}
+          checked
+          onToggle={() => {}}
+          onPoints={() => {}}
+          onRename={() => {}}
+          label="Sprint"
+          listKey="sprint"
+        />
+      </TooltipProvider>
+    );
+    const row = screen.getByText("Shipped").closest("li")!;
+    expect(row.querySelector("p")).toBeNull();
+    const titleLine = within(row).getByRole("button", { name: "Edit Shipped" }).parentElement!;
+    expect(classesOf(titleLine)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-2", "max-sm:row-start-1"])
+    );
+    expect(classesOf(titleLine)).not.toContain("max-sm:col-end-4");
+    const points = within(row).getByLabelText("Points for Shipped");
+    expect(classesOf(points)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-3", "max-sm:row-start-1"])
     );
   });
 });
