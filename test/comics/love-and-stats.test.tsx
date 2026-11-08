@@ -20,14 +20,18 @@ vi.mock("@/lib/auth/use-is-owner", () => ({
 
 import { LoveButton, lovesLabel, readersLabel } from "@/app/(tools)/comics/components/love-button";
 import { StoryStats } from "@/app/(tools)/comics/components/story-stats";
-import { isLoveCounted, isLoved, markRead, totalSeconds } from "@/lib/comics/reading";
+import { COUNTED_KEY, isLoveCounted, isLoved, markRead, totalSeconds } from "@/lib/comics/reading";
 
 const fetchMock = vi.fn();
 const beacon = vi.fn(() => true);
 
-async function sentEvents(): Promise<string[][]> {
+async function sentPayloads(): Promise<{ ep: number; events: string[] }[]> {
   const calls = beacon.mock.calls as unknown as [string, Blob][];
-  return Promise.all(calls.map(async ([, blob]) => JSON.parse(await blob.text()).events));
+  return Promise.all(calls.map(async ([, blob]) => JSON.parse(await blob.text())));
+}
+
+async function sentEvents(): Promise<string[][]> {
+  return (await sentPayloads()).map((p) => p.events);
 }
 
 function setVisibility(state: "visible" | "hidden") {
@@ -59,6 +63,15 @@ describe("LoveButton", () => {
     new Response(JSON.stringify({ loves, readers: 4 }), { status: 200 });
   const sentBodies = () => fetchMock.mock.calls.map((c) => JSON.parse(c[1].body).events[0]);
   const heart = () => screen.getByRole("button", { name: "Love this" });
+  // The line beside the heart, which is read, not announced.
+  const line = () => heart().parentElement?.querySelector("p:not([role])")?.textContent;
+  const announced = () => screen.getByRole("status").textContent;
+  /** A request whose answer comes when the test says. */
+  const held = () => {
+    let release: (r: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (release = resolve)));
+    return (r: Response) => act(async () => release(r));
+  };
 
   it("words the count for none, one and many, and for this reader's own love", () => {
     expect(lovesLabel(0)).toBe("Be the first to love this");
@@ -76,37 +89,42 @@ describe("LoveButton", () => {
     expect(isLoveCounted(30)).toBe(true);
     // The label never changes: the pressed state is aria-pressed.
     expect(heart().getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("status").textContent).toBe("25 readers love this");
+    expect(line()).toBe("25 readers love this");
+    expect(announced()).toBe("25 readers love this");
 
     fetchMock.mockResolvedValue(answer(24));
     await act(async () => fireEvent.click(heart()));
     expect(isLoved(30)).toBe(false);
     expect(isLoveCounted(30)).toBe(false);
     expect(sentBodies()).toEqual(["love", "unlove"]);
-    expect(screen.getByRole("status").textContent).toBe("24 readers love this");
+    expect(line()).toBe("24 readers love this");
   });
 
-  it("never takes back a love the server didn't count", async () => {
+  it("never takes back a love the server didn't count, nor shows it in the count", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "x" }), { status: 503 }));
     render(<LoveButton ep={30} initialLoves={4} />);
     await act(async () => fireEvent.click(heart()));
     expect(isLoved(30)).toBe(true);
     expect(isLoveCounted(30)).toBe(false);
+    // The press's +1 goes again: the server holds 4.
+    expect(line()).toBe("4 readers love this");
     await act(async () => fireEvent.click(heart()));
     expect(sentBodies()).toEqual(["love"]);
+    expect(line()).toBe("4 readers love this");
   });
 
   it("doesn't take back the owner's uncounted love when that browser is later a visitor", async () => {
     h.owner = true;
-    const first = render(<LoveButton ep={30} initialLoves={3} />);
+    const first = render(<LoveButton ep={30} initialLoves={1} />);
     await act(async () => fireEvent.click(heart()));
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("status").textContent).toBe("3 readers love this");
+    // The one love is another reader's, so it isn't "You love this".
+    expect(line()).toBe("1 reader loves this");
     first.unmount();
 
     h.owner = false;
     await act(async () => {
-      render(<LoveButton ep={30} initialLoves={3} />);
+      render(<LoveButton ep={30} initialLoves={1} />);
     });
     await act(async () => fireEvent.click(heart()));
     expect(isLoved(30)).toBe(false);
@@ -124,19 +142,21 @@ describe("LoveButton", () => {
     expect(isLoved(30)).toBe(true);
   });
 
-  it("shows the answer to the latest press when answers arrive out of order", async () => {
-    let releaseFirst: (r: Response) => void = () => {};
-    fetchMock
-      .mockImplementationOnce(() => new Promise<Response>((resolve) => (releaseFirst = resolve)))
-      .mockResolvedValueOnce(answer(9));
+  it("sends one request at a time, however quick the taps", async () => {
+    const release = held();
     render(<LoveButton ep={30} initialLoves={9} />);
     await act(async () => fireEvent.click(heart()));
-    // The first press's answer hasn't come, so the love isn't counted yet:
-    // taking it back sends nothing and the count stays.
+    // While it's out, the count follows the heart.
+    expect(line()).toBe("10 readers love this");
+    await act(async () => fireEvent.click(heart()));
+    expect(line()).toBe("9 readers love this");
     await act(async () => fireEvent.click(heart()));
     expect(sentBodies()).toEqual(["love"]);
-    await act(async () => releaseFirst(answer(10)));
-    expect(screen.getByRole("status").textContent).toBe("10 readers love this");
+    // The answer matches what the reader wants now: nothing more to send.
+    await release(answer(10));
+    expect(sentBodies()).toEqual(["love"]);
+    expect(isLoveCounted(30)).toBe(true);
+    expect(line()).toBe("10 readers love this");
   });
 
   it("says how many have read it, from ten readers", async () => {
@@ -146,23 +166,40 @@ describe("LoveButton", () => {
       new Response(JSON.stringify({ loves: 3, readers: 40 }), { status: 200 })
     );
     render(<LoveButton ep={30} initialLoves={2} initialReaders={9} />);
-    expect(screen.getByRole("status").textContent).toBe("2 readers love this");
+    expect(line()).toBe("2 readers love this");
     await act(async () => fireEvent.click(heart()));
-    expect(screen.getByRole("status").textContent).toBe("3 readers love this · Read by 40 readers");
+    expect(line()).toBe("3 readers love this · Read by 40 readers");
   });
 
-  it("remembers this browser's love on the next visit", async () => {
+  it("takes back a love pressed away while it was being sent", async () => {
+    const release = held();
+    fetchMock.mockResolvedValueOnce(answer(9));
+    render(<LoveButton ep={30} initialLoves={9} />);
+    await act(async () => fireEvent.click(heart()));
+    await act(async () => fireEvent.click(heart()));
+    await release(answer(10));
+    expect(sentBodies()).toEqual(["love", "unlove"]);
+    expect(isLoveCounted(30)).toBe(false);
+    expect(heart().getAttribute("aria-pressed")).toBe("false");
+    expect(line()).toBe("9 readers love this");
+    expect(announced()).toBe("9 readers love this");
+  });
+
+  it("remembers this browser's love on the next visit, without announcing it", async () => {
     localStorage.setItem(
       "agile-toolkit:comics:reading",
       JSON.stringify({ loved: { 30: "2026-11-08T08:00:00Z" } })
     );
+    localStorage.setItem(COUNTED_KEY, JSON.stringify({ 30: "2026-11-08T08:00:01Z" }));
     await act(async () => {
-      render(<LoveButton ep={30} initialLoves={3} />);
+      render(<LoveButton ep={30} initialLoves={1} />);
     });
     expect(heart().getAttribute("aria-pressed")).toBe("true");
+    expect(line()).toBe("You love this");
+    expect(announced()).toBe("");
   });
 
-  it("still works for the visit when the browser can't keep it", async () => {
+  it("works for the visit when the browser can't keep it, counting nothing", async () => {
     const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("QuotaExceededError");
     });
@@ -170,9 +207,11 @@ describe("LoveButton", () => {
       render(<LoveButton ep={30} initialLoves={2} />);
       await act(async () => fireEvent.click(heart()));
       expect(heart().getAttribute("aria-pressed")).toBe("true");
+      expect(line()).toBe("2 readers love this");
       await act(async () => fireEvent.click(heart()));
       expect(heart().getAttribute("aria-pressed")).toBe("false");
-      expect(sentBodies()).toEqual(["love", "unlove"]);
+      // With no record, every visit could add another love.
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       setItem.mockRestore();
     }
@@ -244,13 +283,19 @@ describe("StoryStats", () => {
   });
 
   it("sends one time band when the story is left inside the site, or the page is put away", async () => {
+    const bands = async () =>
+      (await sentPayloads()).filter((p) => p.events[0].startsWith("time:")).map((p) => p.ep);
+    // Left for another page of the site: the story unmounts.
     const leaving = render(<StoryStats ep={34} />);
     leaving.unmount();
+    expect(await bands()).toEqual([34]);
+    // Put away: pagehide alone sends it, and nothing after adds another.
     render(<StoryStats ep={35} />);
     window.dispatchEvent(new Event("pagehide"));
+    expect(await bands()).toEqual([34, 35]);
     setVisibility("hidden");
-    const events = await sentEvents();
-    expect(events.filter((e) => e[0].startsWith("time:"))).toHaveLength(2);
+    window.dispatchEvent(new Event("pagehide"));
+    expect(await bands()).toEqual([34, 35]);
   });
 
   it("doesn't call a story read before the counts began a new visitor", async () => {

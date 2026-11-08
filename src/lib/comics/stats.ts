@@ -42,17 +42,23 @@ export type StatEvent = StatMetric | `time:${number}`;
 export const MAX_STAT_EVENTS = 6;
 
 /**
- * How many of each event one connection (an IP address, held in memory only)
- * may add to one story in an hour. A browser sends each first only once; these
- * stop a script from inflating loves, readers or actions with a loop, while an
- * office sharing one address still counts its colleagues. Views and time bands
- * fall under the route's overall limit.
+ * How many of each event one connection (its address, only ever a salted hash
+ * in memory: api/comics/_guard) may add to one story in an hour. A browser
+ * sends each first only once; these stop a loop from inflating the counts.
+ *
+ * A balance: an office or a phone network behind one address shares these, so
+ * opens and finishes allow a crowd, while loves sit below FAVOURITES_MIN_LOVES
+ * so no single connection can put a story in Readers' favourites, or take more
+ * than a few loves back, within the hour. Loves are rarer than finishes, so a
+ * busy office still counts most of its hearts; one over the limit simply isn't
+ * counted, and that reader's heart stays theirs. Views and time bands fall
+ * under the route's overall limit.
  */
 export const EVENT_LIMITS_PER_HOUR: Readonly<Partial<Record<StatMetric, number>>> = {
   visitor: 30,
   reader: 30,
-  love: 10,
-  unlove: 10,
+  love: 3,
+  unlove: 3,
   share: 10,
   retro: 10,
   tool: 20,

@@ -35,6 +35,7 @@ vi.mock("@/lib/squads/server", () => ({
 }));
 
 import { POST } from "@/app/api/comics/stats/route";
+import { EVENT_LIMITS_PER_HOUR, FAVOURITES_MIN_LOVES } from "@/lib/comics/stats";
 
 const HOST = "agile.test";
 let ip = 0;
@@ -118,11 +119,14 @@ describe("POST /api/comics/stats", () => {
 
   it("drops a connection's events over their hourly limit on one story, keeping the rest", async () => {
     ip += 1; // An address no other test has used.
-    for (let i = 0; i < 10; i += 1) await post({ ep: 40, events: ["love"] }, {}, true);
-    expect(h.rpc).toHaveBeenCalledTimes(10);
-    // The eleventh love is dropped quietly: nothing left to count.
+    const loves = EVENT_LIMITS_PER_HOUR.love ?? 0;
+    // One connection alone can't put a story in Readers' favourites.
+    expect(loves).toBeLessThan(FAVOURITES_MIN_LOVES);
+    for (let i = 0; i < loves; i += 1) await post({ ep: 40, events: ["love"] }, {}, true);
+    expect(h.rpc).toHaveBeenCalledTimes(loves);
+    // The next love is dropped quietly: nothing left to count.
     expect((await post({ ep: 40, events: ["love"] }, {}, true)).status).toBe(204);
-    expect(h.rpc).toHaveBeenCalledTimes(10);
+    expect(h.rpc).toHaveBeenCalledTimes(loves);
     // The view still counts, the love doesn't.
     await post({ ep: 40, events: ["view", "love"] }, {}, true);
     expect(h.rpc).toHaveBeenLastCalledWith("comic_story_stat", { p_ep: 40, p_events: ["view"] });
