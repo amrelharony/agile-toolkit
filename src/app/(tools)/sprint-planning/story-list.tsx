@@ -196,11 +196,15 @@ function StoryRow({
           ) : (
             <div className="flex items-start gap-1">
               <span className="min-w-0 break-words pt-0.5 text-sm text-text">{story.title}</span>
+              {/* 44 px to a finger at any width (md:pointer-coarse: outranks
+                  the button's md: sizes), but laid out as the 28 px button it
+                  looks like: the margins keep the pencil where it sits beside
+                  the title and leave the title its width on a phone. */}
               <IconButton
                 ref={edit.triggerRef}
                 label={`Edit ${story.title}`}
                 icon={<Pencil className="h-3.5 w-3.5" />}
-                className="h-7 w-7 shrink-0 text-sub hover:text-text"
+                className="h-7 w-7 shrink-0 text-sub hover:text-text pointer-coarse:-mx-2 pointer-coarse:-mt-2 pointer-coarse:min-h-11 pointer-coarse:min-w-11 md:pointer-coarse:min-h-11 md:pointer-coarse:min-w-11"
                 onClick={edit.start}
               />
             </div>

@@ -1089,4 +1089,26 @@ describe("story rows on a touch screen", () => {
     expect(classesOf(chip)).toEqual(expect.arrayContaining(["border", "border-border", "px-1.5"]));
     expect(classesOf(chip)).toContain("group-focus-visible:ring-2");
   });
+
+  it("gives the edit button 44px on touch at any width without widening its place", () => {
+    renderPlanning();
+    const edit = within(backlogRow("Remove a saved card")).getByRole("button", {
+      name: "Edit Remove a saved card",
+    });
+    const cls = classesOf(edit);
+    expect(cls).toEqual(
+      expect.arrayContaining([
+        "h-7",
+        "w-7",
+        "pointer-coarse:min-h-11",
+        "pointer-coarse:min-w-11",
+        // Button size="icon" sets md:min-h-0, which a bare pointer-coarse: loses to.
+        "md:pointer-coarse:min-h-11",
+        "md:pointer-coarse:min-w-11",
+        // 44 - 2 × 8 = the 28px it takes up today, so the title keeps its width.
+        "pointer-coarse:-mx-2",
+        "pointer-coarse:-mt-2",
+      ])
+    );
+  });
 });
