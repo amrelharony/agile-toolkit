@@ -49,13 +49,27 @@ export function VisitRecorder({ path }: { path: VisitPath }) {
   return <OnSearchParams onChange={(params) => recordVisit(path, params)} />;
 }
 
-/** Says what the count does, wherever one is on the page. */
-export function CountDisclosure() {
+/**
+ * Says what the counts do, wherever one is on the page. A weekly story
+ * (`story`) also counts its reading (lib/comics/stats), so it says so.
+ */
+export function CountDisclosure({ story = false }: { story?: boolean }) {
+  if (story) {
+    return (
+      <p className="text-xs text-sub">
+        This page sends us anonymous counts: that you arrived (and which printed piece brought you,
+        if any), opened and finished this story, roughly how long you spent reading it, and your
+        answers, love, share, retro hand-off or click on its tool. Nothing about you is kept: no
+        cookies, no account and no IP address. What you&apos;ve read, guessed and loved stays in
+        this browser, for Your reading.
+      </p>
+    );
+  }
   return (
     <p className="text-xs text-sub">
       This page sends us one anonymous count when you arrive: which printed piece brought you here,
-      if any, and the episode. Nothing about you is kept: no cookies, nothing stored in your
-      browser, and no IP address. The link is then tidied, so sharing it doesn&apos;t count again.
+      if any, and the episode. It keeps nothing about you: no cookies and no IP address. The link is
+      then tidied, so sharing it doesn&apos;t count again.
     </p>
   );
 }

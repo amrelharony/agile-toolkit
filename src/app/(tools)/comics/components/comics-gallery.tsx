@@ -187,15 +187,42 @@ function FilterSelect({
  * /comics. Filtering happens here in the browser, over the list the static page
  * already carries, so there's no endpoint that hands the stories out in bulk.
  */
+/** The most-loved stories so far (lib/comics/stats pickFavourites), counted anonymously. */
+function ReadersFavourites({
+  stories,
+}: {
+  stories: readonly (StorySummary & { loves: number })[];
+}) {
+  return (
+    <section aria-labelledby="favourites-heading" className="space-y-3">
+      <h2 id="favourites-heading" className="font-display text-lg font-semibold text-text">
+        Readers&apos; favourites
+      </h2>
+      <ul className="grid list-none gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {stories.map((story) => (
+          <ComicCard
+            key={story.ep}
+            story={story}
+            note={`Loved by ${story.loves} ${story.loves === 1 ? "reader" : "readers"}`}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function ComicsGallery({
   stories,
   bookEpisodes,
   cast = [],
+  favourites = [],
 }: {
   stories: readonly StorySummary[];
   bookEpisodes: readonly IndexEpisode[];
   /** Every colleague's name, for the cast a reader has met. Names only. */
   cast?: readonly string[];
+  /** Readers' favourites, worked out by the page at each refresh. */
+  favourites?: readonly (StorySummary & { loves: number })[];
 }) {
   const [theme, setTheme] = useState(ALL);
   const [character, setCharacter] = useState(ALL);
@@ -243,6 +270,7 @@ export function ComicsGallery({
           <p className="text-sub">A new story comes out every week, starting soon.</p>
         )}
         {latest && cast.length > 0 ? <ReaderProgress cast={cast} stories={stories} /> : null}
+        {favourites.length > 0 ? <ReadersFavourites stories={favourites} /> : null}
 
         <BookIndex episodes={bookEpisodes} />
         <ThankSomeone />
