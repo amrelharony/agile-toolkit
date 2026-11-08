@@ -1,6 +1,6 @@
 # Amr, the interactive pet
 
-Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.webp`) is his boot frame and his identity reference. The interactive pet adds ten art sheets drawn from [the art brief](AMR-ART-BRIEF.md), cut into small packs that load only when he needs them. Fifty-four more, [the context sheets](AMR-CONTEXT-BRIEF.md) S11–S64, give him the weather where the visitor is, their time of day, Cairo's holidays, the seasons, the toolkit's own moments and play.
+Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.webp`) is his boot frame and his identity reference. The interactive pet adds ten art sheets drawn from [the art brief](AMR-ART-BRIEF.md), cut into small packs that load only when he needs them. Fifty-four more, [the context sheets](AMR-CONTEXT-BRIEF.md) S11–S64, give him the weather where the visitor is, their time of day, Cairo's holidays, the seasons, the toolkit's own moments and play. Fifty [tool sheets](AMR-TOOLS-BRIEF.md), S65–S114, give 50 of the site's tools a sheet of their own: he greets you with the tool's props when you open it and acts out its key moments.
 
 ## What's where
 
@@ -19,10 +19,16 @@ Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.web
 | `src/components/agent/mascot/engine/senses.ts`                    | What he notices: the page, the phone's motion, nobody being around                |
 | `src/components/agent/mascot/engine/interactions/`                | Taps, touch, page moments and the phone's motion                                  |
 | `scripts/build-mascot-review.mjs`                                 | The review page: every clip at real size on the site's light and dark grounds     |
-| `docs/mascot/context-sheets.json`                                 | The context sheets S11–S64: each sheet's props, poses and frame ids               |
+| `docs/mascot/context-sheets.json`                                 | The context and tool sheets S11–S114: each sheet's props, poses and frame ids     |
 | `docs/mascot/AMR-CONTEXT-BRIEF.md`                                | Their ChatGPT brief, generated from the JSON                                      |
 | `docs/mascot/AMR-CONTEXT-CHATGPT.md`                              | The same, as one file to attach to ChatGPT with the reference images              |
 | `scripts/build-mascot-context-brief.mjs`                          | Writes that brief, and a prompt page with a copy button per sheet                 |
+| `docs/mascot/AMR-TOOLS-BRIEF.md`, `AMR-TOOLS-CHATGPT.md`          | The tool sheets' brief and ChatGPT file (`--tools`), with a kickoff per batch     |
+| `docs/mascot/reference/ref-current.png`                           | Amr as the packs show him today, rendered by `scripts/build-mascot-reference.py`  |
+| `docs/mascot/AMR-TOOLS-FIX-1.md`                                  | The first fix round for the returned tool sheets: hair edits and one redraw       |
+| `src/lib/agent/mascot/context/tool-scenes.ts`                     | Each tool's greeting and the scenes its actions and moments play                  |
+| `src/lib/agent/mascot/use-tool-reactions.ts`                      | Plays a tool's scene, or a pose, when it logs an action or announces a moment     |
+| `src/lib/agent/mascot/tool-moments.ts`, `timer-watch.ts`          | Moments nothing logs: a vote revealed, an OKR achieved, the docked timer at zero  |
 | `src/components/agent/mascot/engine/scenes.ts`                    | Every context scene, frame by frame                                               |
 | `src/lib/agent/mascot/context/`                                   | Cairo's occasions, sunset, the visitor's weather, and what's on now (moments)     |
 | `src/components/agent/mascot/engine/interactions/context.ts`      | When he greets, passes the time, reaches for a torch or frets about the battery   |
@@ -72,12 +78,32 @@ What he marks, and when:
 - **Arriving**, he greets with one scene, the most important moment not yet marked today: Cairo's occasion of the day, then striking weather, the comics pages, the visitor's hour, a nice day, the season. Each moment greets once per Cairo day (`mascot_greeted` in localStorage).
 - **Idle** for 15 to 30 seconds, he passes the time with one of the day's scenes or a game (football, the oud, his phone). It stands in for that stretch's stroll.
 - **The theme** going dark brings out a torch; going light, sunglasses. **The battery** running low on a phone makes him fret, and charging cheers him up. **A long stretch of typing** gets him typing too.
-- **Toolkit actions** have their own scenes where one fits: cards added, votes cast and revealed, timers, stand-up entries, kudos, sprints started and releases shipped (`use-tool-reactions.ts`).
+- **Toolkit actions** have their own scenes where one fits: cards added, votes cast and revealed, timers, stand-up entries, kudos, sprints started and releases shipped (`use-tool-reactions.ts`). The tool sheets add each tool's own (below).
 - **The air around him**: a rain, downpour, storm, snow, wind, fog, dust, starry-night or fireworks scene plays with the air the site draws behind him (rain round his umbrella, flakes, gusts, fog banks, a sandy haze, twinkling stars, bursts of sparks). It's a layer of CSS animations, wider than his box and reaching above it, shown only while the scene plays and never with reduced motion. A scene borrowed from another sheet keeps that sheet's air: shivering in the snow has none.
 
 Holidays follow amrelharony.com's engine, on Cairo's clock and the Umm al-Qura calendar, reusing the toolkit's own calendars, with the days that engine adds (Arafah, Ashura, Isra and Mi'raj, mid-Sha'ban, 26 July, 6 October, Nayrouz and the international days). Nayrouz falls on 12 September in the year before a Gregorian leap year, not in the leap year itself as amrelharony.com has it. During Ramadan his daytime food scenes stay away; iftar plays from 20 minutes before sunset where the visitor is (Cairo's when that isn't known), sweets after it, and the mesaharaty's drum before dawn.
 
 The weather comes from `/api/mascot/weather`. It reads the rough place Vercel attaches to every request, rounds it to a tenth of a degree (about 11 km), asks Open-Meteo, and answers with the weather alone, never the place. Nothing asks the visitor for their location, and nothing is stored beyond the tab (30 minutes in sessionStorage). In local dev there is no place, so it answers 204; off production, `?at=lat,lon` tries one out. The route is an exact-match bypass in the middleware.
+
+## Tool sheets
+
+The tool sheets S65–S114 are context sheets for one tool each, in eight `tools-*` groups by site section and five ChatGPT batches of ten (the `Tools, batch A…E` rounds in the JSON). Their brief carries tool rules on top of the context rules: S01's haircut, smooth shading like S01, simple props with no text. After changing the JSON, run
+
+```bash
+node --no-warnings scripts/build-mascot-context-brief.mjs --tools <page folder>
+```
+
+to rewrite `AMR-TOOLS-BRIEF.md`, `AMR-TOOLS-CHATGPT.md` and the prompt page, which has a kickoff message per batch. Each batch goes to ChatGPT as one zip (`AMR_Tool_Sheets_A.zip` … `E.zip`): the ChatGPT file, the kickoff, and the five references the image tool takes at most: `ref-1-stance.png`, `ref-current.png`, `ref-hair-fix-3.png`, `ref-3-range.png` and the corrected `S01-faces.png` from hair round 3. `ref-current.png` replaces `ref-2-detail.png`, whose curly hair isn't his; re-render it after a rebuild with `python -I scripts/build-mascot-reference.py`.
+
+A returned batch is reviewed head by head against S01 before it goes in: the haircut and its colour, smooth shading, and only the props the sheet names. Numbers don't catch ChatGPT's curls in near-black hair; only looking at each head enlarged beside S01's does. Then put the batch's sheets with the 59 current sources and build with `--keep-missing`, as above. Each new pack's scenes go into `scenes.ts` with its sheet, since the tests ask that every built frame is in a scene and every scene has shipped; frames of sheets not built yet are left out of that check.
+
+**Status:** all 50 are built (8 November 2026). 33 came back right the first time (`AMR_Tool_Sheets_{A..E}_Completed.zip`). The other 17 went through [fix round 1](AMR-TOOLS-FIX-1.md) (`AMR_Tool_Fix_{A,B}.zip`, back the same day): hair-only edits for 16, and S79 drawn again. To rebuild, put the 59 current sources, then the 50 sheets from the first zips, then the 17 from the fix zips over them, in one folder. Before building, clear the faint specks some sheets carry away from the figure (alpha 9–24, more than 10 px from anything solid): S68 had about 900, S83 about 350. The builder drops anything fainter itself.
+
+The fix round's edits came back with hair a shade lighter or browner than the slots ChatGPT left alone, so his hair would change shade between two frames of one scene. On the tool sheets only, the build moves any frame's hair that is more than ΔE 3 from the live idle's toward it, keeping its highlights, and prints the frames it moved (`match_hair`). The other sheets were matched in the hair rounds and stay as they ship.
+
+`tool-scenes.ts` says what each tool plays. Opening a tool's page (`/<tool id>`) loads its packs, greets once a day with its first `open` scene (ahead of the weather and the hour, after the day's occasion), and adds its `open` scenes to his pastimes there. Its logged actions (`event-actions.ts`) play their scenes through `use-tool-reactions.ts`, looked up by tool first, then the toolkit's shared scenes, then a pose. Three moments aren't logged: a vote round revealed (the vote rooms announce it), the named sounds listed in `EMITTED` (an OKR achieved, a hypothesis validated or not, a premortem completed), and the docked timer running out wherever the visitor is (its tool's scene, or the Ceremony Timer's). When an action and a moment land in the same tick, as a check-in that achieves its OKR does, only the moment plays. Seven more tools reuse a sheet: RICE and ICE the prioritizer's, the $100 test buy-a-feature's, DACI and RAPID the decision log's, maturity the health check's, burnup the burndown's.
+
+Squad guests' pages (`/guest/*`) don't show Amr, so their actions get no reaction.
 
 ## How the frames line up
 
