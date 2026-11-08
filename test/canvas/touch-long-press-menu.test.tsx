@@ -17,7 +17,10 @@ import {
   isCanvasLongPress,
 } from "@/app/(tools)/canvas/hooks/use-canvas-touch-gestures";
 import type { CanvasObjectActions } from "@/app/(tools)/canvas/hooks/use-canvas-shortcuts";
-import { CanvasObjectMenu } from "@/app/(tools)/canvas/components/canvas-object-menu";
+import {
+  CanvasObjectMenu,
+  objectMenuSide,
+} from "@/app/(tools)/canvas/components/canvas-object-menu";
 import { GestureHarness, touchPointer } from "./touch-harness";
 
 beforeAll(() => {
@@ -143,6 +146,23 @@ function MenuHarness(props: {
 }
 
 const longPress = () => act(() => dispatchCanvasLongPress(screen.getByTestId("item"), 50, 60));
+
+describe("objectMenuSide", () => {
+  it("opens above the finger when the whole menu fits above or below it", () => {
+    // Portrait phones: room above (or below, where Radix flips it).
+    expect(objectMenuSide(400, 640)).toBe("top");
+    expect(objectMenuSide(120, 915)).toBe("top");
+    expect(objectMenuSide(320, 640)).toBe("top");
+  });
+
+  it("opens beside the finger on a landscape phone, so Delete isn't scrolled away", () => {
+    // 812x375: about 170 px above and below the middle; the menu is ~290.
+    expect(objectMenuSide(187, 375)).toBe("right");
+    expect(objectMenuSide(100, 375)).toBe("right");
+    // Near the top of the same screen it fits below, where Radix flips it.
+    expect(objectMenuSide(40, 375)).toBe("top");
+  });
+});
 
 describe("CanvasObjectMenu", () => {
   it("opens at the touch point with the board's actions", () => {

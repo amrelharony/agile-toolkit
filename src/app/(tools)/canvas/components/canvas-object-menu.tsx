@@ -29,6 +29,24 @@ interface CanvasObjectMenuProps {
 /** Touch rows reach 44 px; desktop never opens this menu. */
 const ITEM = "pointer-coarse:min-h-11";
 
+/** The menu's height with 44 px rows: six rows, a separator, padding. */
+const TOUCH_MENU_HEIGHT = 290;
+/** The gap to the finger (sideOffset) plus the collision padding. */
+const MENU_GAP = 12 + 8;
+
+/**
+ * Which side of the finger the menu opens on. Above it, so the hand
+ * doesn't hide it, whenever the whole menu fits above or below (Radix
+ * flips top to bottom by itself). On a short screen, such as a landscape
+ * phone, it fits neither way and would scroll with Delete out of view,
+ * so it opens beside the finger instead: Radix slides it up or down to
+ * fit and flips it to the left near the right edge.
+ */
+export function objectMenuSide(clientY: number, viewportHeight: number): "top" | "right" {
+  const room = Math.max(clientY, viewportHeight - clientY) - MENU_GAP;
+  return room >= TOUCH_MENU_HEIGHT ? "top" : "right";
+}
+
 /**
  * The long-press menu for the selection on touch screens. A finger held
  * on an object selects it (the pointer machine) and, after the hold,
@@ -46,8 +64,9 @@ export function CanvasObjectMenu({
   allLocked,
   onOpen,
 }: CanvasObjectMenuProps) {
-  // Where the menu is anchored, in viewport px; null while closed.
-  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  // Where the menu is anchored, in viewport px, and on which side of
+  // the finger it opens; null while closed.
+  const [at, setAt] = useState<{ x: number; y: number; side: "top" | "right" } | null>(null);
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -56,7 +75,11 @@ export function CanvasObjectMenu({
       if (!isCanvasLongPress(e) || !canOpen()) return;
       e.preventDefault();
       const rect = el.getBoundingClientRect();
-      setAt({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      setAt({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+        side: objectMenuSide(e.clientY, window.innerHeight),
+      });
       onOpen?.();
     };
     el.addEventListener("contextmenu", onContextMenu);
@@ -94,9 +117,9 @@ export function CanvasObjectMenu({
         // the menu's z-modal and win only by stylesheet order. Radix
         // copies this onto its positioning wrapper.
         style={{ zIndex: 10000 }}
-        // Above the finger, so the hand doesn't hide it; flips below near
-        // the top edge.
-        side="top"
+        // Above the finger, so the hand doesn't hide it (flips below near
+        // the top edge); beside it on a short screen (objectMenuSide).
+        side={at?.side ?? "top"}
         align="center"
         sideOffset={12}
         collisionPadding={8}
