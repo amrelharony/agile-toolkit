@@ -1,9 +1,12 @@
 import type { Achievement } from "./types";
 
 /**
- * 60+ achievements, grouped by category.  The engine evaluates unlock
- * conditions lazily (via registered rules in engine.ts) so this file is pure
- * metadata — no behaviour.
+ * Achievements, grouped by category. The engine evaluates unlock conditions
+ * (rules in engine.ts) so this file is pure metadata — no behaviour.
+ *
+ * Badges reward finished work (outcomes, see outcomes.ts), never raw input.
+ * Badges that used to reward clicks, hovers, time on site, combos or
+ * settings are `retired`: never evaluated, never revoked.
  */
 export const achievements: Achievement[] = [
   // ───── Reading the comic (4) ──────────────────────────────────────────
@@ -49,6 +52,7 @@ export const achievements: Achievement[] = [
     category: "exploration",
     xp: 25,
     icon: "MousePointerClick",
+    retired: true,
   },
   {
     id: "tool-hop-5",
@@ -81,6 +85,7 @@ export const achievements: Achievement[] = [
     category: "exploration",
     xp: 30,
     icon: "ArrowDownToLine",
+    retired: true,
   },
   {
     id: "hover-hundred",
@@ -89,11 +94,12 @@ export const achievements: Achievement[] = [
     category: "exploration",
     xp: 75,
     icon: "Mouse",
+    retired: true,
   },
   {
     id: "night-owl",
     title: "Night Owl",
-    description: "Use the toolkit between midnight and 5am local.",
+    description: "Finish something between midnight and 5am local.",
     category: "exploration",
     xp: 150,
     icon: "Moon",
@@ -101,7 +107,7 @@ export const achievements: Achievement[] = [
   {
     id: "early-bird",
     title: "Early Bird",
-    description: "Use the toolkit before 6am local.",
+    description: "Finish something between 5am and 7am local.",
     category: "exploration",
     xp: 150,
     icon: "Sunrise",
@@ -111,7 +117,7 @@ export const achievements: Achievement[] = [
   {
     id: "poker-voter",
     title: "Fibonacci Believer",
-    description: "Cast 10 Planning Poker votes.",
+    description: "Commit 10 Planning Poker estimates.",
     category: "tool-mastery",
     xp: 150,
     icon: "Target",
@@ -127,15 +133,15 @@ export const achievements: Achievement[] = [
   {
     id: "retro-one",
     title: "Reflective Practitioner",
-    description: "Add your first retro card.",
+    description: "Finish a retro, all the way to its actions.",
     category: "tool-mastery",
     xp: 50,
     icon: "MessageSquare",
   },
   {
     id: "retro-fifty",
-    title: "Card Dealer",
-    description: "Add 50 retro cards.",
+    title: "Retro Veteran",
+    description: "Finish 10 retros.",
     category: "tool-mastery",
     xp: 400,
     icon: "MessagesSquare",
@@ -151,7 +157,7 @@ export const achievements: Achievement[] = [
   {
     id: "kanban-ten",
     title: "Flow State",
-    description: "Move 10 Kanban cards.",
+    description: "Move your first Kanban card to done.",
     category: "tool-mastery",
     xp: 200,
     icon: "Columns",
@@ -241,7 +247,7 @@ export const achievements: Achievement[] = [
   {
     id: "room-join",
     title: "Teammate",
-    description: "Join a multiplayer room.",
+    description: "Join a live room.",
     category: "collaboration",
     xp: 100,
     icon: "Users",
@@ -249,7 +255,7 @@ export const achievements: Achievement[] = [
   {
     id: "room-host",
     title: "Host with the Most",
-    description: "Create an invite link.",
+    description: "Create a room invite link.",
     category: "collaboration",
     xp: 150,
     icon: "Link2",
@@ -257,7 +263,7 @@ export const achievements: Achievement[] = [
   {
     id: "sync-first",
     title: "In Sync",
-    description: "Receive your first realtime sync event.",
+    description: "Receive your first live update from a teammate.",
     category: "collaboration",
     xp: 75,
     icon: "RefreshCw",
@@ -277,6 +283,7 @@ export const achievements: Achievement[] = [
     category: "collaboration",
     xp: 150,
     icon: "Database",
+    retired: true,
   },
 
   // ───── Flow (6) — combos, streaks of action ─────────────────────────────
@@ -287,6 +294,7 @@ export const achievements: Achievement[] = [
     category: "flow",
     xp: 100,
     icon: "Zap",
+    retired: true,
   },
   {
     id: "combo-5",
@@ -295,6 +303,7 @@ export const achievements: Achievement[] = [
     category: "flow",
     xp: 300,
     icon: "Flame",
+    retired: true,
   },
   {
     id: "marathon-30",
@@ -303,6 +312,7 @@ export const achievements: Achievement[] = [
     category: "flow",
     xp: 200,
     icon: "Timer",
+    retired: true,
   },
   {
     id: "marathon-60",
@@ -311,6 +321,7 @@ export const achievements: Achievement[] = [
     category: "flow",
     xp: 500,
     icon: "Trophy",
+    retired: true,
   },
   {
     id: "daily-three",
@@ -333,7 +344,7 @@ export const achievements: Achievement[] = [
   {
     id: "sprint-complete",
     title: "Sprint Delivered",
-    description: "Mark a sprint as completed.",
+    description: "Close a sprint.",
     category: "delivery",
     xp: 400,
     icon: "Rocket",
@@ -369,6 +380,7 @@ export const achievements: Achievement[] = [
     category: "delivery",
     xp: 200,
     icon: "ShieldCheck",
+    retired: true,
   },
 
   // ───── Discovery (5) ────────────────────────────────────────────────────
@@ -455,6 +467,7 @@ export const achievements: Achievement[] = [
     category: "meta",
     xp: 25,
     icon: "Volume2",
+    retired: true,
   },
   {
     id: "audio-modes",
@@ -463,6 +476,7 @@ export const achievements: Achievement[] = [
     category: "meta",
     xp: 100,
     icon: "Music",
+    retired: true,
   },
   {
     id: "theme-toggle",
@@ -471,11 +485,12 @@ export const achievements: Achievement[] = [
     category: "meta",
     xp: 50,
     icon: "SunMoon",
+    retired: true,
   },
   {
     id: "workspace-import",
     title: "Data Migrator",
-    description: "Import data from the shared workspace.",
+    description: "Import workspace data onto a canvas.",
     category: "meta",
     xp: 100,
     icon: "Download",
@@ -487,6 +502,7 @@ export const achievements: Achievement[] = [
     category: "meta",
     xp: 75,
     icon: "Copy",
+    retired: true,
   },
   {
     id: "export-master",
@@ -503,6 +519,7 @@ export const achievements: Achievement[] = [
     category: "meta",
     xp: 50,
     icon: "Accessibility",
+    retired: true,
   },
   {
     id: "level-ten",
@@ -553,6 +570,105 @@ export const achievements: Achievement[] = [
     category: "flow",
     xp: 350,
     icon: "Flame",
+    retired: true,
+  },
+
+  // ───── Outcomes (12) — finished work, see outcomes.ts ─────────────────
+  {
+    id: "first-win",
+    title: "First Win",
+    description: "Finish your first piece of work.",
+    category: "flow",
+    xp: 25,
+    icon: "Medal",
+  },
+  {
+    id: "busy-day",
+    title: "Busy Day",
+    description: "Finish 5 things in one day.",
+    category: "flow",
+    xp: 100,
+    icon: "ListChecks",
+  },
+  {
+    id: "big-day",
+    title: "Big Day",
+    description: "Finish 10 things in one day.",
+    category: "flow",
+    xp: 300,
+    icon: "CalendarCheck2",
+  },
+  {
+    id: "steady-week",
+    title: "Steady Week",
+    description: "Finish something on 3 days in one week.",
+    category: "streak",
+    xp: 200,
+    icon: "CalendarDays",
+  },
+  {
+    id: "steady-month",
+    title: "Steady Month",
+    description: "Finish something in 4 weeks in a row.",
+    category: "streak",
+    xp: 500,
+    icon: "CalendarRange",
+  },
+  {
+    id: "five-tool-finisher",
+    title: "All-Rounder",
+    description: "Finish something in 5 different tools.",
+    category: "exploration",
+    xp: 150,
+    icon: "LayoutGrid",
+  },
+  {
+    id: "ten-tool-finisher",
+    title: "Toolkit Native",
+    description: "Finish something in 10 different tools.",
+    category: "exploration",
+    xp: 400,
+    icon: "Boxes",
+  },
+  {
+    id: "kudos-week",
+    title: "Thankful Week",
+    description: "Send or receive kudos on 3 days in one week.",
+    category: "collaboration",
+    xp: 350,
+    icon: "HeartHandshake",
+  },
+  {
+    id: "deep-focus",
+    title: "Deep Focus",
+    description: "Finish something during Focus time.",
+    category: "flow",
+    xp: 150,
+    icon: "Focus",
+  },
+  {
+    id: "full-ceremony",
+    title: "Full Ceremony",
+    description: "Run 3 ceremony timers to the end.",
+    category: "tool-mastery",
+    xp: 150,
+    icon: "AlarmClockCheck",
+  },
+  {
+    id: "unblocker",
+    title: "Unblocker",
+    description: "Resolve 3 impediments.",
+    category: "tool-mastery",
+    xp: 200,
+    icon: "Unlock",
+  },
+  {
+    id: "safe-keeper",
+    title: "Safe Keeper",
+    description: "Download your first backup.",
+    category: "meta",
+    xp: 100,
+    icon: "ShieldCheck",
   },
 
   // ───── Secret (9) — hidden until unlocked ──────────────────────────────
@@ -618,11 +734,12 @@ export const achievements: Achievement[] = [
     xp: 200,
     icon: "Volume1",
     hidden: true,
+    retired: true,
   },
   {
     id: "midnight-commit",
     title: "Midnight Commit",
-    description: "Interact at exactly midnight.",
+    description: "Finish something in the very first minute after midnight.",
     category: "secret",
     xp: 250,
     icon: "Clock",
@@ -643,9 +760,16 @@ export function getAchievement(id: string): Achievement | undefined {
   return achievements.find((a) => a.id === id);
 }
 
+/** Achievements still awarded (retired ones left out). */
+export const activeAchievements: Achievement[] = achievements.filter((a) => !a.retired);
+
+/** Retired achievements: shown only to users who already hold them. */
+export const retiredAchievements: Achievement[] = achievements.filter((a) => a.retired);
+
+/** Active achievements grouped by category. Retired ones are left out. */
 export function achievementsByCategory() {
   const map = new Map<string, Achievement[]>();
-  for (const a of achievements) {
+  for (const a of activeAchievements) {
     const list = map.get(a.category) ?? [];
     list.push(a);
     map.set(a.category, list);

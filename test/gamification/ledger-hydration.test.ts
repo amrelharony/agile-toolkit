@@ -16,7 +16,8 @@ const KEY = "agile-toolkit:vdna";
 const savedProfile = {
   xp: 1234,
   level: 6,
-  unlocked: ["konami"],
+  // First Win already held, so the kudos below pays its outcome XP only.
+  unlocked: ["konami", "first-win"],
   counters: { "tool:kudos:received": 3 },
   xpDay: { date: "", total: 0, byKey: {} },
   claims: {},
@@ -76,7 +77,7 @@ describe("before the profile is read from storage", () => {
     expect(state.unlocked).toContain("konami");
     expect(state.onceKeys).toContain("secret:konami");
     expect(Object.keys(state.claims)).toEqual(["kudos-in:k1"]);
-    expect(stored()).toMatchObject({ xp: 1244, unlocked: ["konami"] });
+    expect(stored()).toMatchObject({ xp: 1244, unlocked: ["konami", "first-win"] });
   });
 });
 

@@ -5,6 +5,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabaseClient, isRealtimeAvailable } from "./supabase-client";
 import { nanoid } from "nanoid";
 import { emitRtEvent } from "@/lib/sonification/emit";
+import { signalGamification } from "@/lib/gamification/signal";
 import { usePresenceIdentityOverride } from "./presence-identity";
 import { useRealtimeAllowed } from "./use-realtime-allowed";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
@@ -385,6 +386,11 @@ export function useRoom<T>(
           if (allMembers.length > memberCount) emitRtEvent("member-join");
           else if (allMembers.length < memberCount) emitRtEvent("member-leave");
         }
+        // "Party of Four": tell the engine once per channel when the room
+        // first holds 4 or more people.
+        if (allMembers.length >= 4 && memberCount < 4) {
+          signalGamification("room-members", { memberCount: allMembers.length });
+        }
         memberCount = allMembers.length;
         setMembers(allMembers);
       };
@@ -507,6 +513,7 @@ export function useRoom<T>(
         if (status === "SUBSCRIBED") {
           setIsConnected(true);
           emitRtEvent("room-connected");
+          signalGamification("room-joined", { toolId });
           void channel.track({
             id: me.id,
             name: me.name,

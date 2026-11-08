@@ -23,6 +23,7 @@ import {
   getOutcome,
   localDateOf,
   matchEventOutcome,
+  outcomeToolId,
   type OutcomeDef,
   type OutcomeId,
 } from "./outcomes";
@@ -271,7 +272,13 @@ export function recordOutcome(id: OutcomeId | string, opts: RecordOptions = {}):
   }
   dispatch({
     name: `outcome:${def.id}`,
-    meta: { ...opts.meta, outcomeId: def.id, xp: result.xp, capped: result.reason !== "awarded" },
+    meta: {
+      ...opts.meta,
+      outcomeId: def.id,
+      toolId: outcomeToolId(def.id, opts.meta),
+      xp: result.xp,
+      capped: result.reason !== "awarded",
+    },
   });
 
   const record: OutcomeRecord = {

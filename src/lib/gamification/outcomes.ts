@@ -69,6 +69,11 @@ interface OutcomeBase {
   once?: boolean;
   /** Short line for the Activity inbox and the trophy case. */
   label: string;
+  /**
+   * The tool a `direct` outcome belongs to, for "outcomes in N tools"
+   * badges. Event and history outcomes carry their tool on the meta.
+   */
+  tool?: string;
 }
 
 export interface EventOutcome extends OutcomeBase {
@@ -296,6 +301,7 @@ export const OUTCOMES: readonly OutcomeDef[] = [
   },
   {
     id: "kudos-sent",
+    tool: "kudos",
     label: "Sent kudos",
     xp: 20,
     bonusXp: (meta) => (meta?.suggested === true ? 10 : 0),
@@ -304,6 +310,7 @@ export const OUTCOMES: readonly OutcomeDef[] = [
   },
   {
     id: "kudos-received",
+    tool: "kudos",
     label: "Received kudos",
     xp: 10,
     capPerDay: 5,
@@ -311,6 +318,7 @@ export const OUTCOMES: readonly OutcomeDef[] = [
   },
   {
     id: "story-read",
+    tool: "comics",
     label: "Read a story",
     xp: 15,
     capPerDay: 2,
@@ -338,6 +346,33 @@ const BY_ID = new Map<OutcomeId, OutcomeDef>(OUTCOMES.map((o) => [o.id, o]));
 
 export function getOutcome(id: string): OutcomeDef | undefined {
   return BY_ID.get(id as OutcomeId);
+}
+
+/**
+ * Outcomes that are not finished work: a first visit to a tool and a found
+ * secret still pay XP, but don't count toward the outcome badges and
+ * challenges ("first win", "busy day", "outcomes in 5 tools"...).
+ */
+export const NON_WORK_OUTCOMES: readonly OutcomeId[] = ["first-tool", "secret"];
+
+/** True for an outcome that counts as finished work. */
+export function isWorkOutcome(id: string): boolean {
+  return BY_ID.has(id as OutcomeId) && !NON_WORK_OUTCOMES.includes(id as OutcomeId);
+}
+
+/** Outcomes that resolve or close something (a risk, an impediment, debt...). */
+export const RESOLVED_OUTCOMES: readonly OutcomeId[] = [
+  "risk-closed",
+  "impediment-resolved",
+  "debt-resolved",
+  "other-resolved",
+];
+
+/** The tool an outcome happened in: the meta's `toolId`, else the row's own tool. */
+export function outcomeToolId(id: string, meta?: Record<string, unknown>): string | undefined {
+  const fromMeta = meta?.toolId;
+  if (typeof fromMeta === "string" && fromMeta) return fromMeta;
+  return BY_ID.get(id as OutcomeId)?.tool;
 }
 
 /** Event name → the outcome it records. */

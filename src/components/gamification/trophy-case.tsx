@@ -15,13 +15,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Trophy, Lock, Crown, Flag, Users, Activity } from "lucide-react";
-import { achievements, achievementsByCategory } from "@/lib/gamification/achievements";
+import {
+  activeAchievements,
+  achievementsByCategory,
+  retiredAchievements,
+} from "@/lib/gamification/achievements";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { computeLevel } from "@/lib/gamification/xp-curve";
 import { prestige } from "@/lib/gamification/engine";
 import { DAILY_POOL, WEEKLY_POOL, findDaily, findWeekly } from "@/lib/gamification/challenges";
 import { fetchLeaderboard, type LeaderboardRow } from "@/lib/gamification/supabase-sync";
-import type { AchievementCategory } from "@/lib/gamification/types";
+import type { Achievement, AchievementCategory } from "@/lib/gamification/types";
 import { cn } from "@/lib/utils";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
@@ -49,8 +53,14 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
   const unlockedSet = useMemo(() => new Set(dna.unlocked), [dna.unlocked]);
   const info = computeLevel(dna.xp, dna.prestige);
   const groups = useMemo(() => achievementsByCategory(), []);
-  const totalUnlocked = dna.unlocked.length;
-  const totalAvailable = achievements.length;
+  // Retired badges stay with whoever holds them ("Classic badges") but
+  // don't count toward the x / y totals.
+  const totalUnlocked = activeAchievements.filter((a) => unlockedSet.has(a.id)).length;
+  const totalAvailable = activeAchievements.length;
+  const classicBadges = useMemo(
+    () => retiredAchievements.filter((a) => unlockedSet.has(a.id)),
+    [unlockedSet]
+  );
   // The global leaderboard lives in the owner's Supabase project, so
   // sharing to it and reading it are owner-only. Visitors keep their
   // profile in this browser.
@@ -237,39 +247,28 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                  {list.map((a) => {
-                    const unlocked = unlockedSet.has(a.id);
-                    const hidden = a.hidden && !unlocked;
-                    return (
-                      <div
-                        key={a.id}
-                        className={cn(
-                          "rounded-lg border p-2.5 text-xs",
-                          unlocked
-                            ? "border-accent/40 bg-accent/5"
-                            : "border-border bg-surface text-sub"
-                        )}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold truncate">{hidden ? "???" : a.title}</span>
-                          {unlocked ? (
-                            <Trophy className="w-3.5 h-3.5 text-accent shrink-0" />
-                          ) : (
-                            <Lock className="w-3.5 h-3.5 text-sub shrink-0" />
-                          )}
-                          {/* The trophy / lock icons are decorative; say it. */}
-                          <span className="sr-only">{unlocked ? "Unlocked" : "Locked"}</span>
-                        </div>
-                        <div className="text-xs mt-0.5 line-clamp-2">
-                          {hidden ? "Hidden achievement" : a.description}
-                        </div>
-                        <div className="text-xs mt-1 font-data text-accent">+{a.xp} XP</div>
-                      </div>
-                    );
-                  })}
+                  {list.map((a) => (
+                    <AchievementCard key={a.id} achievement={a} unlocked={unlockedSet.has(a.id)} />
+                  ))}
                 </div>
               </div>
             ))}
+            {classicBadges.length > 0 && (
+              <div>
+                <div className="text-xs uppercase tracking-wider text-sub mb-1">
+                  Classic badges
+                  <span className="ml-2 text-accent font-data">{classicBadges.length}</span>
+                </div>
+                <p className="text-xs text-sub mb-2">
+                  Earned before badges moved to finished work. They&apos;re yours to keep.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                  {classicBadges.map((a) => (
+                    <AchievementCard key={a.id} achievement={a} unlocked />
+                  ))}
+                </div>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="challenges" className="space-y-4 pt-4">
@@ -479,6 +478,39 @@ function LeaderboardTab() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function AchievementCard({
+  achievement: a,
+  unlocked,
+}: {
+  achievement: Achievement;
+  unlocked: boolean;
+}) {
+  const hidden = a.hidden && !unlocked;
+  return (
+    <div
+      className={cn(
+        "rounded-lg border p-2.5 text-xs",
+        unlocked ? "border-accent/40 bg-accent/5" : "border-border bg-surface text-sub"
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold truncate">{hidden ? "???" : a.title}</span>
+        {unlocked ? (
+          <Trophy className="w-3.5 h-3.5 text-accent shrink-0" />
+        ) : (
+          <Lock className="w-3.5 h-3.5 text-sub shrink-0" />
+        )}
+        {/* The trophy / lock icons are decorative; say it. */}
+        <span className="sr-only">{unlocked ? "Unlocked" : "Locked"}</span>
+      </div>
+      <div className="text-xs mt-0.5 line-clamp-2">
+        {hidden ? "Hidden achievement" : a.description}
+      </div>
+      <div className="text-xs mt-1 font-data text-accent">+{a.xp} XP</div>
     </div>
   );
 }

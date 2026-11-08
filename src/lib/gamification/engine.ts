@@ -1,50 +1,52 @@
 "use client";
 
 import { useVDnaStore } from "@/lib/stores/vdna-store";
+import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
+import { isFocusActive } from "@/lib/notify/prefs";
 import { achievements, getAchievement } from "./achievements";
 import {
   findDaily,
   findWeekly,
   pickDailies,
   pickWeeklies,
+  sanitizeChallenges,
   todaySeedKey,
   weekSeedKey,
 } from "./challenges";
+import { isWorkOutcome, outcomeToolId } from "./outcomes";
 import { awardingCrossesLevel, computeLevel, MAX_LEVEL } from "./xp-curve";
 import type { Achievement, GamificationEvent, XpEvent, XpSource } from "./types";
 
 // ──────────────────────────────────────────────────────────────────────────
-// Combo timer
+// Which events the engine looks at
 // ──────────────────────────────────────────────────────────────────────────
 
-const COMBO_WINDOW_MS = 3000;
-const COMBO_MULTIPLIERS = [1, 1.5, 2, 3, 5]; // index = depth (capped)
+/**
+ * Event names the engine acts on. Anything else (clicks, hovers, keys,
+ * scrolling, session minutes, settings toggles) returns from dispatch()
+ * before touching the store: no badge, challenge or counter reads raw
+ * input any more.
+ */
+const RELEVANT_PREFIXES = ["tool:", "outcome:", "secret:"] as const;
+const RELEVANT_EVENTS: ReadonlySet<string> = new Set([
+  "tool-visit",
+  "logo-whispered",
+  "export-png",
+  "export-csv",
+  "export-json",
+  "export-markdown",
+  "room-joined",
+  "room-members",
+  "invite-created",
+  "sync-remote",
+  "workspace-import",
+  "backup-downloaded",
+  "retro-format-used",
+  "prestige-completed",
+]);
 
-interface ComboState {
-  depth: number;
-  lastTs: number;
-  multiplier: number;
-}
-
-const combo: ComboState = { depth: 0, lastTs: 0, multiplier: 1 };
-
-function bumpCombo(now: number): ComboState {
-  if (now - combo.lastTs > COMBO_WINDOW_MS) {
-    combo.depth = 1;
-  } else {
-    combo.depth = Math.min(combo.depth + 1, COMBO_MULTIPLIERS.length - 1);
-  }
-  combo.lastTs = now;
-  combo.multiplier = COMBO_MULTIPLIERS[Math.min(combo.depth, COMBO_MULTIPLIERS.length - 1)];
-  return { ...combo };
-}
-
-export function getCombo(): Readonly<ComboState> {
-  if (Date.now() - combo.lastTs > COMBO_WINDOW_MS) {
-    combo.depth = 0;
-    combo.multiplier = 1;
-  }
-  return combo;
+export function isRelevantEvent(name: string): boolean {
+  return RELEVANT_EVENTS.has(name) || RELEVANT_PREFIXES.some((p) => name.startsWith(p));
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -62,7 +64,7 @@ type SubFn = (evt: GamificationSideEffect) => void;
 const subscribers = new Set<SubFn>();
 
 export interface GamificationSideEffect {
-  kind: "xp" | "level-up" | "achievement" | "challenge-complete" | "combo-peak" | "prestige";
+  kind: "xp" | "level-up" | "achievement" | "challenge-complete" | "prestige";
   payload: Record<string, unknown>;
 }
 
@@ -89,7 +91,8 @@ function notify(effect: GamificationSideEffect) {
 
 /**
  * Rule: given event name + current VDna, return true if the achievement should
- * unlock NOW.  Rules are evaluated only for still-locked achievements.
+ * unlock NOW.  Rules are evaluated only for still-locked, non-retired
+ * achievements.
  */
 type Rule = (
   eventName: string,
@@ -97,127 +100,123 @@ type Rule = (
   state: ReturnType<typeof useVDnaStore.getState>
 ) => boolean;
 
+const count = (s: { counters: Record<string, number> }, key: string) => s.counters[key] ?? 0;
+
+/** An `outcome:<id>` event for finished work (not a first visit or a secret). */
+function isWorkOutcomeEvent(evt: string): boolean {
+  return evt.startsWith("outcome:") && isWorkOutcome(evt.slice("outcome:".length));
+}
+
 const rules: Partial<Record<string, Rule>> = {
-  "first-click": (evt) => evt === "click",
   "tool-hop-5": (_e, _m, s) => s.toolsVisited.length >= 5,
   "tool-hop-20": (_e, _m, s) => s.toolsVisited.length >= 20,
   "tool-hop-42": (_e, _m, s) => s.toolsVisited.length >= 42,
-  "scroll-floor": (evt) => evt === "scroll-floor",
-  // dispatch() bumps counters under the raw event name, i.e. counters["hover"]
-  // (engine bumps `name` for hover/click/export-*/tool:*). The old rule read
-  // counters["hover-total"], which nothing ever writes — same bug class as the
-  // logo-whisperer fix below — so this could never unlock.
-  "hover-hundred": (_e, _m, s) => (s.counters["hover"] ?? 0) >= 100,
   // The comic: the story page dispatches tool:comics:completed once per story
   // (lib/comics/reading), with the reader's week streak in its meta.
   // The meta's total is this browser's reading record, which a prestige reset
   // leaves alone; the counter it clears is only a second way in.
   "first-story": (e, _m, s) =>
-    e === "tool:comics:completed" || (s.counters["tool:comics:completed"] ?? 0) >= 1,
+    e === "tool:comics:completed" || count(s, "tool:comics:completed") >= 1,
   "ten-stories": (e, m, s) =>
     (e === "tool:comics:completed" && Number(m?.total) >= 10) ||
-    (s.counters["tool:comics:completed"] ?? 0) >= 10,
+    count(s, "tool:comics:completed") >= 10,
   "weekly-reader": (e, m) => e === "tool:comics:completed" && Number(m?.weekStreak) >= 4,
-  "squad-question": (_e, _m, s) => (s.counters["tool:comics:retro-question"] ?? 0) >= 1,
-  "night-owl": () => {
+  "squad-question": (_e, _m, s) => count(s, "tool:comics:retro-question") >= 1,
+  // Time-of-day badges read the time finished work happened, not a click.
+  "night-owl": (e) => isWorkOutcomeEvent(e) && new Date().getHours() < 5,
+  "early-bird": (e) => {
+    if (!isWorkOutcomeEvent(e)) return false;
     const h = new Date().getHours();
-    return h >= 0 && h < 5;
+    return h >= 5 && h < 7;
   },
-  "early-bird": () => {
-    const h = new Date().getHours();
-    return h < 6;
-  },
-  "poker-voter": (_e, _m, s) => (s.counters["tool:planning-poker:vote"] ?? 0) >= 10,
+  "poker-voter": (_e, _m, s) => count(s, "outcome:estimate-committed") >= 10,
   "poker-reveal": (evt) => evt === "tool:planning-poker:reveal",
-  "retro-one": (evt) => evt === "tool:retro:card-add",
-  "retro-fifty": (_e, _m, s) => (s.counters["tool:retro:card-add"] ?? 0) >= 50,
-  "retro-all-formats": (_e, _m, s) => (s.counters["retro-formats-used"] ?? 0) >= 3,
-  "kanban-ten": (_e, _m, s) => (s.counters["tool:kanban:card-move"] ?? 0) >= 10,
-  "kanban-done-ten": (_e, _m, s) => (s.counters["tool:kanban:card-done"] ?? 0) >= 10,
+  "retro-one": (_e, _m, s) => count(s, "outcome:retro-finished") >= 1,
+  "retro-fifty": (_e, _m, s) => count(s, "outcome:retro-finished") >= 10,
+  "retro-all-formats": (_e, _m, s) => count(s, "retro-formats-used") >= 3,
+  "kanban-ten": (_e, _m, s) => count(s, "outcome:card-done") >= 1,
+  "kanban-done-ten": (_e, _m, s) => count(s, "tool:kanban:card-done") >= 10,
   "ceremony-finish": (evt) => evt === "tool:ceremony-timer:finish",
-  "burndown-full": (_e, _m, s) => (s.counters["tool:burndown:day-logged"] ?? 0) >= 10,
-  "velocity-five": (_e, _m, s) => (s.counters["tool:velocity:sprint-added"] ?? 0) >= 5,
-  "risk-closer": (_e, _m, s) => (s.counters["tool:risk-register:close"] ?? 0) >= 5,
-  "impediments-clear": (_e, _m, s) =>
-    (s.counters["tool:impediments:impediment-resolved"] ?? 0) >= 10,
+  "burndown-full": (_e, _m, s) => count(s, "tool:burndown:day-logged") >= 10,
+  "velocity-five": (_e, _m, s) => count(s, "tool:velocity:sprint-added") >= 5,
+  "risk-closer": (_e, _m, s) => count(s, "outcome:risk-closed") >= 5,
+  "impediments-clear": (_e, _m, s) => count(s, "outcome:impediment-resolved") >= 10,
   "okr-complete": (evt) => evt === "tool:okrs:okr-achieved",
-  "debt-paydown": (_e, _m, s) => (s.counters["tool:tech-debt:debt-resolved"] ?? 0) >= 5,
-  "adr-writer": (_e, _m, s) => (s.counters["tool:decision-log:adr-new"] ?? 0) >= 5,
-  "mood-streak": (_e, _m, s) => (s.counters["mood-streak-days"] ?? 0) >= 7,
+  "debt-paydown": (_e, _m, s) => count(s, "outcome:debt-resolved") >= 5,
+  "adr-writer": (_e, _m, s) => count(s, "tool:decision-log:adr-new") >= 5,
+  "mood-streak": (_e, _m, s) => count(s, "mood-streak-days") >= 7,
+  // Real signals from lib/realtime/use-room.ts and the invite dialog
+  // (lib/gamification/signal.ts).
   "room-join": (evt) => evt === "room-joined",
   "room-host": (evt) => evt === "invite-created",
-  "sync-first": (evt) => evt === "rt:sync-remote",
-  "party-of-four": (_e, m) => typeof m?.memberCount === "number" && m.memberCount >= 4,
-  "workspace-share": (evt) => evt === "workspace-push",
-  // depth→multiplier: COMBO_MULTIPLIERS[depth] = [1, 1.5, 2, 3, 5]. "On A
-  // Roll" promises a x3 combo (depth 3); "Unstoppable" a x5 combo (depth 4).
-  "combo-3": (_e, m) => typeof m?.comboDepth === "number" && m.comboDepth >= 3,
-  "combo-5": (_e, m) => typeof m?.comboDepth === "number" && m.comboDepth >= 4,
-  "marathon-30": (_e, _m, s) => (s.counters["session-minutes"] ?? 0) >= 30,
-  "marathon-60": (_e, _m, s) => (s.counters["session-minutes"] ?? 0) >= 60,
+  // emitRtEvent("sync-remote") reaches the engine as the bare name: rt
+  // events lose their surface prefix in emit(), so `rt:sync-remote` never
+  // matched.
+  "sync-first": (evt) => evt === "sync-remote",
+  "party-of-four": (evt, m) =>
+    evt === "room-members" && typeof m?.memberCount === "number" && m.memberCount >= 4,
   "daily-three": (_e, _m, s) =>
     s.dailyChallenges.length > 0 && s.dailyChallenges.every((c) => c.completed),
   "weekly-sweep": (_e, _m, s) =>
     s.weeklyChallenges.length > 0 && s.weeklyChallenges.every((c) => c.completed),
-  "sprint-complete": (evt) => evt === "sprint-completed",
+  "sprint-complete": (evt) => evt === "outcome:sprint-closed",
   "release-forecast": (evt) => evt === "tool:release-planner:simulate",
-  "dependency-free": (_e, m) => evtFlag(m, "zeroCycles"),
+  "dependency-free": (_e, m) => Boolean(m?.zeroCycles),
   "flow-efficient": (_e, m) => typeof m?.flowEfficiency === "number" && m.flowEfficiency >= 0.4,
-  "wip-disciplined": () => false, // advanced rule; can be wired later
   "hypothesis-valid": (evt) => evt === "tool:hypothesis-tracker:validated",
   "hypothesis-invalid": (evt) => evt === "tool:hypothesis-tracker:invalidated",
-  "interview-ten": (_e, _m, s) => (s.counters["tool:user-interviews:interview-new"] ?? 0) >= 10,
+  "interview-ten": (_e, _m, s) => count(s, "tool:user-interviews:interview-new") >= 10,
   "opportunity-deep": (_e, m) => typeof m?.depth === "number" && m.depth >= 4,
   "premortem-complete": (evt) => evt === "tool:premortem:completed",
   "streak-3": (_e, _m, s) => s.streak >= 3,
   "streak-7": (_e, _m, s) => s.streak >= 7,
   "streak-30": (_e, _m, s) => s.streak >= 30,
   "streak-100": (_e, _m, s) => s.streak >= 100,
-  "audio-on": (evt) => evt === "sonification-on",
-  "audio-modes": (_e, _m, s) => (s.counters["audio-modes-used"] ?? 0) >= 3,
-  "theme-toggle": (evt) => evt === "theme-toggle",
+  // A successful import of workspace data onto a canvas.
   "workspace-import": (evt) => evt === "workspace-import",
-  "prompt-copier": (evt) => evt === "prompt-copied",
   "export-master": (_e, _m, s) =>
-    (s.counters["export-png"] ?? 0) > 0 &&
-    (s.counters["export-csv"] ?? 0) > 0 &&
-    (s.counters["export-json"] ?? 0) > 0,
-  "reduce-motion": (evt) => evt === "reduce-motion-on",
+    count(s, "export-png") > 0 && count(s, "export-csv") > 0 && count(s, "export-json") > 0,
   "level-ten": (_e, _m, s) => s.level >= 10,
+  // ─── Outcomes (counters kept by recordOutcomeStats) ──────────────────
+  "first-win": (_e, _m, s) => count(s, "outcomes-total") >= 1,
+  "busy-day": (_e, _m, s) => count(s, "outcome-day-count") >= 5,
+  "big-day": (_e, _m, s) => count(s, "outcome-day-count") >= 10,
+  "steady-week": (_e, _m, s) => count(s, "outcome-week-days") >= 3,
+  "steady-month": (_e, _m, s) => count(s, "outcome-week-streak") >= 4,
+  "five-tool-finisher": (_e, _m, s) => count(s, "outcome-tools") >= 5,
+  "ten-tool-finisher": (_e, _m, s) => count(s, "outcome-tools") >= 10,
+  "kudos-week": (_e, _m, s) => count(s, "kudos-week-days") >= 3,
+  "deep-focus": (_e, _m, s) => count(s, "outcome-focus") >= 1,
+  "full-ceremony": (_e, _m, s) => count(s, "outcome:ceremony-finished") >= 3,
+  unblocker: (_e, _m, s) => count(s, "outcome:impediment-resolved") >= 3,
+  "safe-keeper": (evt) => evt === "backup-downloaded",
+  // ─── Secrets (each pays its outcome XP once ever; see secrets.ts) ────
   konami: (evt) => evt === "secret:konami",
   // secrets.ts dispatches `logo-whispered` exactly when the hover count
-  // reaches 10. The old rule read counters["logo-hover"], which dispatch()
-  // never bumps (only tool:* / click / hover / export-* events bump
-  // counters), so it could never unlock.
+  // reaches 10.
   "logo-whisperer": (evt) => evt === "logo-whispered",
   "triple-tap": (evt) => evt === "secret:triple-tap",
   "footer-click": (evt) => evt === "secret:footer-click",
   "type-agile": (evt) => evt === "secret:typed-agile",
   "type-scrum": (evt) => evt === "secret:typed-scrum",
-  "silent-run": (_e, _m, s) => s.silentMode && (s.counters["session-minutes-silent"] ?? 0) >= 10,
-  "midnight-commit": () => {
+  "midnight-commit": (e) => {
+    if (!isWorkOutcomeEvent(e)) return false;
     const d = new Date();
     return d.getHours() === 0 && d.getMinutes() === 0;
   },
   "prestige-one": (_e, _m, s) => s.prestige >= 1,
-  // ─── Recognition (Phase 2 kudos redesign) ────────────────────────────
-  // Counters are bumped by the `tool:kudos:*` events forwarded from
-  // emit(). `kudos-combo-5` reads `meta.comboDepth` (injected from the live
-  // combo state in dispatch); `tool:kudos:sent` is a combo event, so rapid
-  // sends inside the 3 s window build depth to the x5 cap (4) and unlock it.
+  // ─── Recognition ─────────────────────────────────────────────────────
+  // Counters are bumped by the `tool:kudos:*` events forwarded from emit().
   // The multi-recipient gate lives in the dispatch site that emits
   // `tool:kudos:squad-complete`.
-  "generous-spirit-25": (_e, _m, s) => (s.counters["tool:kudos:sent"] ?? 0) >= 25,
-  "receiver-10": (_e, _m, s) => (s.counters["tool:kudos:received"] ?? 0) >= 10,
+  "generous-spirit-25": (_e, _m, s) => count(s, "tool:kudos:sent") >= 25,
+  "receiver-10": (_e, _m, s) => count(s, "tool:kudos:received") >= 10,
   "squad-booster-all": (evt) => evt === "tool:kudos:squad-complete",
   "fair-witness": (evt, m) => evt === "tool:kudos:llm-suggested-pick" && Boolean(m?.suggested),
-  "kudos-combo-5": (evt, m) =>
-    evt === "tool:kudos:sent" && typeof m?.comboDepth === "number" && m.comboDepth >= 4,
 };
 
-function evtFlag(meta: Record<string, unknown> | undefined, key: string): boolean {
-  return Boolean(meta?.[key]);
-}
+/** The rule table, for contract tests. */
+export const ACHIEVEMENT_RULE_IDS: readonly string[] = Object.keys(rules);
 
 /**
  * Local-calendar day ordinal (days since epoch in the user's timezone).
@@ -227,6 +226,11 @@ function evtFlag(meta: Record<string, unknown> | undefined, key: string): boolea
  */
 function localDayOrdinal(d: Date = new Date()): number {
   return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000);
+}
+
+/** Day ordinal of the Monday that starts `d`'s week. */
+function localWeekOrdinal(d: Date = new Date()): number {
+  return localDayOrdinal(d) - ((d.getDay() + 6) % 7);
 }
 
 /**
@@ -239,6 +243,72 @@ function setCounter(key: string, value: number) {
   if (cur !== value) useVDnaStore.getState().bumpCounter(key, value - cur);
 }
 
+/**
+ * Days-in-a-week bookkeeping for one kind of activity, in place on `c`:
+ * `<prefix>-day` (last day seen), `<prefix>-week` (its week) and
+ * `<prefix>-week-days` (distinct days in that week). Returns true on the
+ * first activity of a new week, with `prevWeek` the week before it.
+ */
+function markDay(
+  c: Record<string, number>,
+  prefix: string,
+  today: number,
+  week: number
+): { newWeek: boolean; prevWeek: number | undefined } | null {
+  if (c[`${prefix}-day`] === today) return null;
+  c[`${prefix}-day`] = today;
+  const prevWeek = c[`${prefix}-week`];
+  if (prevWeek === week) {
+    c[`${prefix}-week-days`] = (c[`${prefix}-week-days`] ?? 0) + 1;
+    return { newWeek: false, prevWeek };
+  }
+  c[`${prefix}-week`] = week;
+  c[`${prefix}-week-days`] = 1;
+  return { newWeek: true, prevWeek };
+}
+
+/**
+ * Counters behind the outcome badges, updated in one functional write for
+ * every outcome that counts as work (also past a daily XP cap):
+ *   - `outcomes-total`;
+ *   - `outcome-day-count` for the current local day (`outcome-day`);
+ *   - `outcome-week-days` and `outcome-week-streak` (weeks in a row);
+ *   - `outcome-tool:<toolId>` markers and their count `outcome-tools`;
+ *   - `kudos-week-days` for kudos sent or received;
+ *   - `outcome-focus` for outcomes finished during Focus time.
+ */
+function recordOutcomeStats(outcomeId: string, toolId: string | undefined) {
+  const now = new Date();
+  const today = localDayOrdinal(now);
+  const week = localWeekOrdinal(now);
+  let focus = false;
+  try {
+    focus = isFocusActive(useNotificationPrefsStore.getState(), now.getTime());
+  } catch {
+    /* prefs unreadable — not in Focus */
+  }
+  useVDnaStore.setState((s) => {
+    const c: Record<string, number> = { ...s.counters };
+    c["outcomes-total"] = (c["outcomes-total"] ?? 0) + 1;
+    if (c["outcome-day"] !== today) c["outcome-day-count"] = 0;
+    c["outcome-day-count"] = (c["outcome-day-count"] ?? 0) + 1;
+    const day = markDay(c, "outcome", today, week);
+    if (day?.newWeek) {
+      c["outcome-week-streak"] =
+        day.prevWeek === week - 7 ? (c["outcome-week-streak"] ?? 0) + 1 : 1;
+    }
+    if (toolId && !c[`outcome-tool:${toolId}`]) {
+      c[`outcome-tool:${toolId}`] = 1;
+      c["outcome-tools"] = (c["outcome-tools"] ?? 0) + 1;
+    }
+    if (outcomeId === "kudos-sent" || outcomeId === "kudos-received") {
+      markDay(c, "kudos", today, week);
+    }
+    if (focus) c["outcome-focus"] = (c["outcome-focus"] ?? 0) + 1;
+    return { counters: c };
+  });
+}
+
 // XP comes only from the outcome ledger (ledger.ts / outcomes.ts) plus the
 // achievement and challenge rewards below. dispatch() itself never pays XP:
 // clicks, hovers, route changes and exports used to, and could be farmed.
@@ -247,25 +317,27 @@ function setCounter(key: string, value: number) {
 // Daily / weekly challenge advancement
 // ──────────────────────────────────────────────────────────────────────────
 
+/**
+ * New period: pick a fresh set. Same period: sanitise the stored set
+ * against the current pools (see sanitizeChallenges), so pool edits need
+ * no store version bump.
+ */
 function refreshChallengesIfStale() {
   const s = useVDnaStore.getState();
   const dayKey = todaySeedKey();
   const weekKey = weekSeedKey();
   let daily = s.dailyChallenges;
   let weekly = s.weeklyChallenges;
-  let changed = false;
-  if (daily.length === 0 || daily[0].seedDate !== dayKey) {
-    daily = pickDailies();
-    changed = true;
-  }
-  if (weekly.length === 0 || weekly[0].seedDate !== weekKey) {
-    weekly = pickWeeklies();
-    changed = true;
-  }
-  if (changed) {
-    useVDnaStore.getState().setDailyChallenges(daily);
-    useVDnaStore.getState().setWeeklyChallenges(weekly);
-  }
+  daily =
+    daily.length === 0 || daily[0].seedDate !== dayKey
+      ? pickDailies()
+      : sanitizeChallenges(daily, "daily");
+  weekly =
+    weekly.length === 0 || weekly[0].seedDate !== weekKey
+      ? pickWeeklies()
+      : sanitizeChallenges(weekly, "weekly");
+  if (daily !== s.dailyChallenges) useVDnaStore.getState().setDailyChallenges(daily);
+  if (weekly !== s.weeklyChallenges) useVDnaStore.getState().setWeeklyChallenges(weekly);
 }
 
 function advanceChallenges(
@@ -285,6 +357,12 @@ function advanceChallenges(
       if (!def) return c;
       if (def.trigger !== eventName) return c;
       if (def.match && !def.match(meta)) return c;
+      let seen = c.seen;
+      if (def.distinctBy) {
+        const value = def.distinctBy(meta);
+        if (!value || c.seen?.includes(value)) return c;
+        seen = [...(c.seen ?? []), value];
+      }
       const newProgress = Math.min(c.goal, c.progress + increment);
       const justCompleted = newProgress >= c.goal && !c.completed;
       if (newProgress !== c.progress) mutated = true;
@@ -293,6 +371,7 @@ function advanceChallenges(
         progress: newProgress,
         completed: justCompleted ? true : c.completed,
         completedAt: justCompleted ? new Date().toISOString() : c.completedAt,
+        ...(seen ? { seen } : {}),
       };
     });
     return { next, mutated };
@@ -347,20 +426,13 @@ function registerToolVisit(toolId: string) {
   const s = useVDnaStore.getState();
   if (s.toolsVisited.includes(toolId)) return;
   useVDnaStore.getState().setToolsVisited([...s.toolsVisited, toolId]);
-  // Wire w-sprint-cycle ("Full Cycle" — visit sprint-goal + burndown + retro):
-  // fire once per first-ever visit to a tool. The challenge's `match` gate
-  // restricts which toolIds actually count.
-  advanceChallenges("tool-visit-unique", { toolId });
 }
 
 /**
- * Per-ISO-week distinct-tool tracking for w-explore-10 ("Visit 10 different
- * tools this week"). Neither existing event fits it: raw `tool-visit` fires
- * on every pathname CHANGE, so bouncing /velocity ↔ /kanban used to finish
- * a "10 different tools" challenge with two; `tool-visit-unique` is
- * first-ever-only, so an established user could never complete it again.
- * Mark one counter per (week, tool) and tick only on a tool's first sighting
- * within the current week.
+ * Per-ISO-week distinct-tool tracking for w-sprint-cycle ("Use Sprint Goal,
+ * Burndown and Retro this week"). Raw `tool-visit` fires on every pathname
+ * change, so mark one counter per (week, tool) and tick only on a tool's
+ * first sighting within the current week.
  */
 function registerWeeklyToolVisit(toolId: string) {
   const prefix = `week-tool:${weekSeedKey()}:`;
@@ -399,8 +471,8 @@ function awardXp(
     // the second `apply()` clobbered the first → silently lost XP.
     // Mirror the bumpCounter fix: compute INSIDE the functional setState
     // so both reads share one snapshot.
-    // No combo multiplier: rapid tool events used to multiply outcome,
-    // achievement and challenge rewards up to x5.
+    // There is no combo multiplier: rapid tool events used to multiply
+    // outcome, achievement and challenge rewards up to x5.
     const effectiveAmount = Math.round(amount);
     if (effectiveAmount <= 0) return;
     let nextXp = 0;
@@ -422,7 +494,7 @@ function awardXp(
       amount: effectiveAmount,
       source,
       multiplier: 1,
-      comboDepth: getCombo().depth,
+      comboDepth: 0,
       total: nextXp,
       at: new Date().toISOString(),
       meta,
@@ -435,7 +507,7 @@ function awardXp(
         payload: { level: nextLevel, xp: nextXp, prestige: prestigeAtTime },
       });
     }
-    // Wire w-xp-2000 ("Earn N XP this week"): advance by the XP actually
+    // Wire w-xp-600 ("Earn N XP this week"): advance by the XP actually
     // awarded (not +1). Safe against the mutual advanceChallenges→awardXp
     // recursion: a challenge short-circuits once `completed`, and awardXp's
     // emitDepth circuit-breaker caps nesting.
@@ -454,6 +526,8 @@ function evaluateAchievements(eventName: string, meta: Record<string, unknown> |
   const unlocked = new Set(s.unlocked);
   const newlyUnlocked: Achievement[] = [];
   for (const ach of achievements) {
+    // Retired badges are never awarded again (and never revoked).
+    if (ach.retired) continue;
     if (unlocked.has(ach.id)) continue;
     const rule = rules[ach.id];
     if (!rule) continue;
@@ -480,6 +554,8 @@ function evaluateAchievements(eventName: string, meta: Record<string, unknown> |
 /** Main entry point — dispatch a gamification event with optional meta. */
 export function dispatch(event: GamificationEvent) {
   if (typeof window === "undefined") return;
+  const name = event.name;
+  if (!isRelevantEvent(name)) return;
   // persist writes on every setState, hydrated or not. Until the profile is
   // read from storage (a bare /guest route mounts no GamificationProvider),
   // a counter bump would save the empty in-memory profile over it.
@@ -488,7 +564,6 @@ export function dispatch(event: GamificationEvent) {
   emitDepth++;
   try {
     refreshChallengesIfStale();
-    const name = event.name;
     const meta = event.meta;
 
     // Tool-visit bookkeeping.
@@ -497,52 +572,25 @@ export function dispatch(event: GamificationEvent) {
       registerWeeklyToolVisit(meta.toolId);
     }
 
-    // Counter bumps for any tool:* or named event.
-    if (
-      name.startsWith("tool:") ||
-      name === "click" ||
-      name === "hover" ||
+    const isExport =
       name === "export-png" ||
       name === "export-csv" ||
       name === "export-json" ||
-      name === "export-markdown"
-    ) {
+      name === "export-markdown";
+
+    // Counter bumps for tool events, outcomes and exports.
+    if (name.startsWith("tool:") || name.startsWith("outcome:") || isExport) {
       useVDnaStore.getState().bumpCounter(name, 1);
     }
 
-    // R9: previously the `session-minute` event dispatched by
-    // event-bridge.ts every 60s was never bumping any counter, leaving
-    // the `marathon-30` / `marathon-60` / `silent-run` achievements
-    // unreachable. Bump the plural-form counter so the achievement
-    // thresholds (defined in plural) match. Silent variant is only
-    // bumped when silentMode is on.
-    if (name === "session-minute") {
-      useVDnaStore.getState().bumpCounter("session-minutes", 1);
-      if (useVDnaStore.getState().silentMode) {
-        useVDnaStore.getState().bumpCounter("session-minutes-silent", 1);
-      }
-    }
-
-    // Combo tick (only bump for "active" events, not passive hovers).
-    // The combo-peak notification should only fire on the *transition* to max
-    // multiplier, not on every subsequent event while the combo is sustained.
-    // Otherwise a spam of rapid clicks produces a spam of peak toasts.
-    // Only tool actions chain combos: rapid clicking or typing used to reach
-    // x5 in seconds and unlock the combo achievements without doing any work.
-    const now = Date.now();
-    if (name.startsWith("tool:")) {
-      const prevMultiplier = combo.multiplier;
-      const prevDepth = combo.depth;
-      const c = bumpCombo(now);
-      if (c.multiplier === 5 && prevMultiplier < 5) {
-        notify({ kind: "combo-peak", payload: { depth: c.depth, multiplier: c.multiplier } });
-      }
-      // Wire d-combo-3 / w-combos-10: fire once each time a *fresh* chain
-      // crosses into x3 (depth 3). Sustained events at depth 3+ don't re-fire;
-      // a lapsed-then-rebuilt chain does.
-      if (c.depth >= 3 && prevDepth < 3) {
-        advanceChallenges("combo-reached-3", meta);
-      }
+    // Finished work: the outcome badges' counters, and the meta the
+    // synthetic `outcome` challenge trigger reads.
+    let outcomeMeta: Record<string, unknown> | null = null;
+    if (isWorkOutcomeEvent(name)) {
+      const outcomeId = name.slice("outcome:".length);
+      const toolId = outcomeToolId(outcomeId, meta);
+      recordOutcomeStats(outcomeId, toolId);
+      outcomeMeta = { ...meta, outcomeId, toolId };
     }
 
     // Daily activity tracking.
@@ -550,33 +598,18 @@ export function dispatch(event: GamificationEvent) {
 
     // Challenge advancement.
     advanceChallenges(name, meta);
-    // Wire d-secret ("Find a secret"): every secret easter-egg dispatches a
-    // `secret:*` event (or `logo-whispered`), none of which equals the bare
-    // `secret-found` trigger — so bridge them here.
-    if (name.startsWith("secret:") || name === "logo-whispered") {
-      advanceChallenges("secret-found", meta);
-    }
+    if (outcomeMeta) advanceChallenges("outcome", outcomeMeta);
     // Wire d-export ("Export anything"): utils/export.ts dispatches the
     // format-specific names (so `export-master` can count per-format), but
-    // the challenge trigger is the bare `export` — bridge it, same pattern
-    // as secret-found above.
-    if (
-      name === "export-png" ||
-      name === "export-csv" ||
-      name === "export-json" ||
-      name === "export-markdown"
-    ) {
-      advanceChallenges("export", meta);
-    }
+    // the challenge trigger is the bare `export`.
+    if (isExport) advanceChallenges("export", meta);
     // Wire the mood-log day streak: `mood-streak` reads
-    // counters["mood-streak-days"], which nothing ever wrote (same
-    // dead-counter class as the hover-hundred fix above). The mood tool
-    // emits per-score events (tool:mood-tracker:mood-great etc.), never a
-    // bare "logged" — derive the consecutive-day streak here, at most one
-    // step per local day. The same once-per-day gate also bridges the
-    // d-mood / w-mood-5 challenge trigger `tool:mood-tracker:logged`,
-    // which no emit site fires either — and gating it here makes w-mood-5
-    // ("log mood 5 DAYS this week") count days, not raw logs.
+    // counters["mood-streak-days"]. The mood tool emits per-score events
+    // (tool:mood-tracker:mood-great etc.), never a bare "logged" — derive
+    // the consecutive-day streak here, at most one step per local day. The
+    // same once-per-day gate also bridges the d-mood / w-mood-5 challenge
+    // trigger `tool:mood-tracker:logged`, so w-mood-5 ("log mood 5 DAYS
+    // this week") counts days, not raw logs.
     if (name.startsWith("tool:mood-tracker:mood-")) {
       const s = useVDnaStore.getState();
       const today = localDayOrdinal();
@@ -589,13 +622,8 @@ export function dispatch(event: GamificationEvent) {
       }
     }
 
-    // Achievement evaluation. Inject the LIVE combo depth: the combo-based
-    // rules (combo-3 / combo-5 / kudos-combo-5) read `meta.comboDepth`, but
-    // the depth lives in the module-level combo state and is never present
-    // on the raw event meta — so without this those achievements could never
-    // unlock. getCombo() returns the depth just bumped above (or 0 if the
-    // combo window has lapsed for a non-combo event).
-    evaluateAchievements(name, { ...meta, comboDepth: getCombo().depth });
+    // Achievement evaluation.
+    evaluateAchievements(name, meta);
   } finally {
     emitDepth--;
   }

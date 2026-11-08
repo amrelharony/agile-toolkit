@@ -16,6 +16,7 @@ import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
 import { nanoid } from "nanoid";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
+import { signalGamification } from "@/lib/gamification/signal";
 
 interface InviteDialogProps {
   toolName: string;
@@ -61,6 +62,7 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
     const fresh = nanoid(10);
     setRoomId(fresh);
     onRoomIdChange?.(fresh);
+    signalGamification("invite-created");
     if (typeof window !== "undefined") {
       const u = new URL(window.location.href);
       u.searchParams.set("room", fresh);
@@ -117,7 +119,9 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
             {roomId && (
               <>
                 <div className="space-y-1.5">
-                  <label htmlFor="invite-room-id" className="text-xs text-sub">Room ID</label>
+                  <label htmlFor="invite-room-id" className="text-xs text-sub">
+                    Room ID
+                  </label>
                   <Input
                     id="invite-room-id"
                     value={roomId}
@@ -126,7 +130,9 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="invite-link" className="text-xs text-sub">Invite link</label>
+                  <label htmlFor="invite-link" className="text-xs text-sub">
+                    Invite link
+                  </label>
                   <div className="flex gap-2">
                     <Input
                       id="invite-link"
@@ -139,7 +145,11 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
                       onClick={handleCopy}
                       className="gap-1.5 border-border hover:border-accent/30"
                     >
-                      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copied ? (
+                        <Check className="w-3.5 h-3.5" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
                       {copied ? "Copied" : "Copy"}
                     </Button>
                   </div>

@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { computeLevel } from "@/lib/gamification/xp-curve";
-import { getCombo } from "@/lib/gamification/engine";
-import { Crown, Zap } from "lucide-react";
+import { activeAchievements } from "@/lib/gamification/achievements";
+import { Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const ACTIVE_IDS: ReadonlySet<string> = new Set(activeAchievements.map((a) => a.id));
 
 interface XpBarProps {
   onOpenTrophyCase?: () => void;
@@ -20,36 +22,20 @@ interface XpBarProps {
  *   - xs (mobile): level chip + tight progress bar only
  *   - sm+:        + xp/needed counter
  *   - md+:        + achievements count
- *   - any:         combo multiplier badge when active
+ *
+ * Everything it shows comes from store subscriptions: no timers, no
+ * polling (the combo readout that polled every 150–500 ms is gone with
+ * the combo itself).
  */
 export function XpBar({ onOpenTrophyCase }: XpBarProps) {
   const [mounted, setMounted] = useState(false);
   const xp = useVDnaStore((s) => s.xp);
   const prestige = useVDnaStore((s) => s.prestige);
-  const unlockedCount = useVDnaStore((s) => s.unlocked.length);
-  const [comboDepth, setComboDepth] = useState(0);
-  const [comboMult, setComboMult] = useState(1);
+  // Retired badges a user still holds don't count toward the total.
+  const unlockedCount = useVDnaStore((s) => s.unlocked.filter((id) => ACTIVE_IDS.has(id)).length);
 
   useEffect(() => {
     setMounted(true);
-    // Combo readout: poll at 500 ms when idle, 150 ms when actively comboing.
-    // The previous flat 150 ms ran 6.6 wakeups/sec on every page for the
-    // entire session even when nothing was happening, which on low-end
-    // mobile is a measurable battery cost. The bumped cadence kicks in
-    // automatically once a combo starts.
-    let pollId: ReturnType<typeof setInterval> | null = null;
-    const tick = () => {
-      const c = getCombo();
-      setComboDepth(c.depth);
-      setComboMult(c.multiplier);
-      const nextInterval = c.depth >= 1 && c.multiplier > 1 ? 150 : 500;
-      if (pollId !== null) clearInterval(pollId);
-      pollId = setInterval(tick, nextInterval);
-    };
-    tick();
-    return () => {
-      if (pollId !== null) clearInterval(pollId);
-    };
   }, []);
 
   // Reserve layout space pre-mount so the header doesn't shift on hydrate.
@@ -104,12 +90,6 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
         <span className="font-data text-accent">{unlockedCount}</span>
         <span className="text-xs">ach</span>
       </span>
-      {comboDepth >= 1 && comboMult > 1 && (
-        <span className="flex items-center gap-0.5 text-warning animate-pulse shrink-0">
-          <Zap className="w-3 h-3" aria-hidden="true" />
-          <span className="font-data">×{comboMult}</span>
-        </span>
-      )}
     </button>
   );
 }
