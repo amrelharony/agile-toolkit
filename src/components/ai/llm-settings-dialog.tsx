@@ -84,7 +84,9 @@ export function LlmSettingsDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as ProviderId)}>
+        {/* `min-w-0`: never let the nowrap tab list widen the dialog; the list
+            scrolls sideways inside this width instead. */}
+        <Tabs value={tab} onValueChange={(v) => setTab(v as ProviderId)} className="min-w-0">
           {/*
            * `grid-cols-4` previously forced four equal columns regardless
            * of viewport — at 320 px each tab clamped to ~70 px and the
