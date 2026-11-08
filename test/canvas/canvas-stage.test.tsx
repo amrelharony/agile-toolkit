@@ -70,7 +70,11 @@ vi.mock("@/app/(tools)/canvas/components/voice-input-button", () => ({
 }));
 
 import { CanvasClient } from "@/app/(tools)/canvas/canvas-client";
-import { BOARD_FILL_H, BOARD_MAX_H } from "@/app/(tools)/canvas/hooks/use-board-fill-screen";
+import {
+  BOARD_FILL_H,
+  BOARD_MAX_H,
+  BOARD_VH,
+} from "@/app/(tools)/canvas/hooks/use-board-fill-screen";
 
 const realScrollTo = window.scrollTo;
 
@@ -107,9 +111,26 @@ describe("CanvasClient stage height", () => {
     expect(stage.style.getPropertyValue("--board-max-h")).toBe(BOARD_MAX_H);
     // The cap is the dynamic viewport less the sticky header and the
     // space phones keep for Amr (or the home-indicator safe area).
-    expect(BOARD_MAX_H).toMatch(/^calc\(100dvh - var\(--header-h\)/);
+    expect(BOARD_MAX_H).toMatch(/^calc\(var\(--board-vh\) - var\(--header-h\)/);
     expect(BOARD_MAX_H).toContain("var(--amr-band-top, 0px)");
     expect(BOARD_MAX_H).toContain("var(--amr-band-bottom, env(safe-area-inset-bottom, 0px))");
+  });
+
+  it("keeps its height in browsers that don't know 100dvh", async () => {
+    // 100dvh written straight into --board-max-h would be found invalid
+    // only at computed-value time there, which resets min- and max-height
+    // and collapses the board (its content is all absolutely positioned).
+    render(<CanvasClient />);
+    const stage = await findStage();
+    expect(BOARD_VH).toBe("[--board-vh:100vh] supports-[height:100dvh]:[--board-vh:100dvh]");
+    expect(stage).toHaveClass("[--board-vh:100vh]", "supports-[height:100dvh]:[--board-vh:100dvh]");
+    for (const height of [BOARD_MAX_H, BOARD_FILL_H]) {
+      expect(height).toContain("var(--board-vh)");
+      expect(height).not.toContain("100dvh");
+    }
+    // Full screen keeps the fallback (it's on the stage, not STAGE_HEIGHT).
+    fireEvent.click(screen.getByRole("button", { name: "Full-screen board" }));
+    expect(stage).toHaveClass("[--board-vh:100vh]", "supports-[height:100dvh]:[--board-vh:100dvh]");
   });
 
   it("fills the screen on request, and gives the page back", async () => {
@@ -122,7 +143,7 @@ describe("CanvasClient stage height", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "true");
     expect(stage).toHaveAttribute("data-fill-screen", "true");
     expect(stage.style.height).toBe(BOARD_FILL_H);
-    expect(BOARD_FILL_H).toMatch(/^calc\(100dvh - var\(--header-h\)/);
+    expect(BOARD_FILL_H).toMatch(/^calc\(var\(--board-vh\) - var\(--header-h\)/);
     // The capped height classes step aside (min-h would clamp it).
     expect(stage).not.toHaveClass("h-[calc(100dvh-220px)]");
     expect(stage).not.toHaveClass("max-h-[var(--board-max-h)]");

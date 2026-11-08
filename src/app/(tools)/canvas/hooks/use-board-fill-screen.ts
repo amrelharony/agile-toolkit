@@ -5,15 +5,27 @@ import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } fro
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
- * The tallest the board stage may be: the visible viewport (100dvh follows
- * a phone's collapsing address bar) less the sticky app header, the space
- * a phone keeps for Amr (mascot-assistant's --amr-band-top / -bottom; just
- * the home-indicator safe area where he has none) and a 1 rem gap. So the
- * whole board, zoom controls included, fits on screen once scrolled to,
- * and there is always page above or below it to scroll from.
+ * The stage's viewport height, for BOARD_MAX_H and BOARD_FILL_H: 100dvh
+ * (it follows a phone's collapsing address bar) where the browser knows
+ * it, 100vh before that (Safari < 15.4, Chrome < 108, Firefox < 101).
+ * Without the fallback those browsers would meet 100dvh inside the custom
+ * property only at computed-value time, reset the stage's min- and
+ * max-height (or its full-screen height) to their initial values, and
+ * collapse the board to 0 px: everything in it is absolutely positioned.
+ * Put these classes on the element that uses the two heights.
+ */
+export const BOARD_VH = "[--board-vh:100vh] supports-[height:100dvh]:[--board-vh:100dvh]";
+
+/**
+ * The tallest the board stage may be: the visible viewport (BOARD_VH)
+ * less the sticky app header, the space a phone keeps for Amr
+ * (mascot-assistant's --amr-band-top / -bottom; just the home-indicator
+ * safe area where he has none) and a 1 rem gap. So the whole board, zoom
+ * controls included, fits on screen once scrolled to, and there is always
+ * page above or below it to scroll from.
  */
 export const BOARD_MAX_H =
-  "calc(100dvh - var(--header-h) - var(--amr-band-top, 0px) - var(--amr-band-bottom, env(safe-area-inset-bottom, 0px)) - 1rem)";
+  "calc(var(--board-vh) - var(--header-h) - var(--amr-band-top, 0px) - var(--amr-band-bottom, env(safe-area-inset-bottom, 0px)) - 1rem)";
 
 /**
  * The stage's height while it fills the screen: everything under the app
@@ -22,7 +34,7 @@ export const BOARD_MAX_H =
  * does over the page; the zoom controls sit bottom-left on touch.
  */
 export const BOARD_FILL_H =
-  "calc(100dvh - var(--header-h) - var(--amr-band-top, 0px) - env(safe-area-inset-bottom, 0px))";
+  "calc(var(--board-vh) - var(--header-h) - var(--amr-band-top, 0px) - env(safe-area-inset-bottom, 0px))";
 
 function cssPx(name: string): number {
   const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));

@@ -62,7 +62,12 @@ import { ActivityStream } from "./components/activity-stream";
 import { TagFilterRow } from "./components/tag-filter-row";
 import { VoiceInputButton } from "./components/voice-input-button";
 import { useLiveBoards } from "./hooks/use-live-boards";
-import { BOARD_FILL_H, BOARD_MAX_H, useBoardFillScreen } from "./hooks/use-board-fill-screen";
+import {
+  BOARD_FILL_H,
+  BOARD_MAX_H,
+  BOARD_VH,
+  useBoardFillScreen,
+} from "./hooks/use-board-fill-screen";
 import { liveContainerOf } from "./lib/live-board-ids";
 import { cn } from "@/lib/utils";
 
@@ -979,8 +984,11 @@ export function CanvasClient() {
         //     always fits the screen and the page around it scrolls.
         //   - Full screen (touch): BOARD_FILL_H, everything under the
         //     app header (useBoardFillScreen).
+        //   - BOARD_VH gives both heights 100vh where 100dvh is unknown,
+        //     so the board can't collapse there.
         className={cn(
           "relative w-full rounded-lg border border-border overflow-hidden bg-bg board-stage",
+          BOARD_VH,
           !fillScreen.on && STAGE_HEIGHT
         )}
         style={
