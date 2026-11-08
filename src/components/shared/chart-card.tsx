@@ -209,31 +209,33 @@ export function ChartCard({
     >
       <CardHeader className={cn((hasActions || summary) && "pb-2")}>
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          {/* On a phone the title never squeezes to "Bur…": it claims its own
-              width before the buttons do (they wrap below instead), wraps
-              rather than truncating, and the badge drops to the next line
-              when it doesn't fit beside it. From sm up the row is unchanged. */}
-          <CardTitle className="text-sm flex items-center gap-2 min-w-0 flex-1 max-sm:flex-wrap max-sm:basis-auto">
+          {/* On a phone or tablet the title never squeezes to "Bur…": it
+              claims its own width before the buttons do (they wrap below
+              instead), wraps rather than truncating, and the badge drops to
+              the next line when it doesn't fit beside it. Below lg, not sm:
+              at 768 px the three buttons still left "Burndow…". From lg up
+              the row is unchanged. */}
+          <CardTitle className="text-sm flex items-center gap-2 min-w-0 flex-1 max-lg:flex-wrap max-lg:basis-auto">
             {Icon && <Icon className="w-4 h-4 text-accent shrink-0" aria-hidden="true" />}
             <span
               id={alt.titleId}
               className={cn(
-                "min-w-0 break-words sm:truncate",
+                "min-w-0 break-words lg:truncate",
                 // A wrapping row breaks between items: capped at the room
                 // beside the icon, a long title wraps there instead of
                 // dropping below it and leaving the icon on its own.
-                Icon && "max-sm:max-w-[calc(100%-1.5rem)]"
+                Icon && "max-lg:max-w-[calc(100%-1.5rem)]"
               )}
             >
               {title}
             </span>
             {badge &&
               (typeof badge === "string" ? (
-                <Badge variant="outline" className="sm:ml-2 whitespace-nowrap font-sans text-xs">
+                <Badge variant="outline" className="lg:ml-2 whitespace-nowrap font-sans text-xs">
                   {badge}
                 </Badge>
               ) : (
-                <span className="sm:ml-2 font-sans">{badge}</span>
+                <span className="lg:ml-2 font-sans">{badge}</span>
               ))}
           </CardTitle>
           {hasActions && (

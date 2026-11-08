@@ -133,7 +133,7 @@ describe("ChartCard", () => {
     expect(screen.queryByRole("button", { name: "View as table" })).not.toBeInTheDocument();
   });
 
-  it("on a phone, lets the title wrap and take its width, with the badge as one pill", () => {
+  it("on a phone or tablet, lets the title wrap and take its width, with the badge as one pill", () => {
     render(
       <ChartCard
         title="Burndown chart"
@@ -146,18 +146,24 @@ describe("ChartCard", () => {
       </ChartCard>
     );
     const heading = screen.getByRole("heading", { level: 3 });
-    // Below sm the title row wraps (the badge drops a line when it doesn't
+    // Below lg the title row wraps (the badge drops a line when it doesn't
     // fit) and sizes to its content, so the buttons wrap below rather than
-    // squeezing the title to "Bur…". From sm up it is the old row.
-    expect(heading).toHaveClass("max-sm:flex-wrap", "max-sm:basis-auto", "flex-1", "min-w-0");
+    // squeezing the title to "Bur…". Not just below sm: at 768 px the three
+    // buttons still left "Burndow…". From lg up it is the old row.
+    expect(heading).toHaveClass("max-lg:flex-wrap", "max-lg:basis-auto", "flex-1", "min-w-0");
+    expect(heading.className).not.toMatch(/max-sm:/);
     const title = within(heading).getByText("Burndown chart");
-    expect(title).toHaveClass("sm:truncate", "break-words");
+    expect(title).toHaveClass("lg:truncate", "break-words");
     // Capped at the room beside the icon, so a long title wraps next to it
     // rather than dropping below it.
-    expect(title).toHaveClass("max-sm:max-w-[calc(100%-1.5rem)]");
+    expect(title).toHaveClass("max-lg:max-w-[calc(100%-1.5rem)]");
     expect(title).not.toHaveClass("truncate");
-    // The badge never splits over lines (its border broke open on each).
-    expect(within(heading).getByText("From the sprint board")).toHaveClass("whitespace-nowrap");
+    expect(title).not.toHaveClass("sm:truncate");
+    // The badge never splits over lines (its border broke open on each), and
+    // its desktop gap returns only where the row stops wrapping.
+    const badge = within(heading).getByText("From the sprint board");
+    expect(badge).toHaveClass("whitespace-nowrap", "lg:ml-2");
+    expect(badge).not.toHaveClass("sm:ml-2");
   });
 
   it("without the new props, renders the old card markup apart from the figure", () => {
@@ -362,28 +368,28 @@ function LegacyChartCard({
   children: ReactNode;
 }) {
   // The header classes are today's (the 2026-11 phone fix: the title wraps
-  // and the badge stays one pill below sm); the structure is the old card's.
+  // and the badge stays one pill below lg); the structure is the old card's.
   return (
     <Card className={cn(className)}>
       <CardHeader className={cn(headerExtras && "pb-2")}>
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          <CardTitle className="text-sm flex items-center gap-2 min-w-0 flex-1 max-sm:flex-wrap max-sm:basis-auto">
+          <CardTitle className="text-sm flex items-center gap-2 min-w-0 flex-1 max-lg:flex-wrap max-lg:basis-auto">
             {Icon && <Icon className="w-4 h-4 text-accent shrink-0" aria-hidden="true" />}
             <span
               className={cn(
-                "min-w-0 break-words sm:truncate",
-                Icon && "max-sm:max-w-[calc(100%-1.5rem)]"
+                "min-w-0 break-words lg:truncate",
+                Icon && "max-lg:max-w-[calc(100%-1.5rem)]"
               )}
             >
               {title}
             </span>
             {badge &&
               (typeof badge === "string" ? (
-                <Badge variant="outline" className="sm:ml-2 whitespace-nowrap font-sans text-xs">
+                <Badge variant="outline" className="lg:ml-2 whitespace-nowrap font-sans text-xs">
                   {badge}
                 </Badge>
               ) : (
-                <span className="sm:ml-2 font-sans">{badge}</span>
+                <span className="lg:ml-2 font-sans">{badge}</span>
               ))}
           </CardTitle>
           {headerExtras && (
