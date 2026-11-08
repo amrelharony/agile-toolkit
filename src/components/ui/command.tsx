@@ -42,14 +42,18 @@ const CommandDialog = ({
   return (
     <Dialog {...props}>
       <DialogContent
-        className="overflow-hidden p-0"
+        // The list scrolls, not the dialog body: a flex column lets the
+        // Command root and its list shrink when the dialog meets its height
+        // cap (landscape phones, an open keyboard), so the last results stay
+        // reachable. Only the phone padding goes; `sm:p-6` stays as before.
+        bodyClassName="flex flex-col overflow-hidden p-0"
         {...(description ? {} : { "aria-describedby": undefined })}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         {description && <DialogDescription className="sr-only">{description}</DialogDescription>}
         <Command
           {...commandProps}
-          className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5"
+          className="min-h-0 flex-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5"
         >
           {children}
         </Command>
@@ -64,9 +68,14 @@ const CommandInput = React.forwardRef<
 >(({ className, ...props }, ref) => (
   // `mx-1 mt-1` gives the focused input's 2px+2px outline-offset ring room
   // to render — without it the top + side portions of the ring get clipped
-  // by DialogContent's `overflow-hidden` because CommandInput sits flush
-  // with the dialog's edge (the wrapping DialogContent uses `p-0`).
-  <div className="flex items-center border-b px-3 mx-1 mt-1" cmdk-input-wrapper="">
+  // by the Command root's `overflow-hidden` because CommandInput sits flush
+  // with the dialog's edge (CommandDialog's body uses `p-0` on phones).
+  // `pr-12` keeps the input clear of the dialog's close button, which sits
+  // over this row's right end; touch makes that button 44px, so `pr-14`.
+  <div
+    className="mx-1 mt-1 flex items-center border-b pl-3 pr-12 pointer-coarse:pr-14"
+    cmdk-input-wrapper=""
+  >
     <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
     <CommandPrimitive.Input
       ref={ref}
@@ -87,7 +96,9 @@ const CommandList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CommandPrimitive.List
     ref={ref}
-    className={cn("max-h-[300px] overflow-y-auto overflow-x-hidden", className)}
+    // `min-h-0 flex-1`: below 300px of room (CommandDialog at its height cap)
+    // the list shrinks and scrolls instead of running past the dialog's edge.
+    className={cn("max-h-[300px] min-h-0 flex-1 overflow-y-auto overflow-x-hidden", className)}
     {...props}
   />
 ));
