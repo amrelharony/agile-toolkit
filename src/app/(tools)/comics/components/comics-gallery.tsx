@@ -42,28 +42,28 @@ function sortedUnique(values: readonly string[]): string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
 }
 
-/**
- * A row that's there for every reader and already as tall as a touch target, so
- * the owner's portal link can join it without moving anything (OwnerPortalLink).
- */
-const PORTAL_ROW = "flex flex-wrap items-center gap-x-4 gap-y-2 pointer-coarse:min-h-11";
+/** A touch target's height for every reader, so the owner's link adds none. */
+const PORTAL_ROW_HEIGHT = "pointer-coarse:min-h-11";
 
 /**
  * Only the verified owner ever sees a way to the portal. That's known once
- * sign-in has been checked, after the page has painted, so the link goes in a
- * row that holds its space for everyone (PORTAL_ROW): on a line of its own it
- * pushed the whole page down as it appeared.
+ * sign-in has been checked, after the page has painted, so the link joins a
+ * row that's there for every reader and already as tall as it is: on a line of
+ * its own it pushed the whole page down as it appeared. The row never wraps,
+ * since a second line would move the page all the same; where the row is too
+ * narrow for both (a 320px phone, a tablet with the sidebar pinned open) the
+ * link gives way, cut short, and the story's button keeps its size.
  */
 function OwnerPortalLink() {
   const isOwner = useIsOwner();
   if (!isOwner) return null;
   return (
     <Link
-      className="inline-flex items-center text-sm text-accent underline pointer-coarse:min-h-11"
+      className="inline-flex min-w-0 items-center text-sm text-accent underline pointer-coarse:min-h-11"
       href="/settings/comics"
       prefetch={false}
     >
-      Comics portal
+      <span className="truncate">Comics portal</span>
     </Link>
   );
 }
@@ -79,8 +79,8 @@ function ThisWeek({ story }: { story: StorySummary }) {
             {story.title}
           </h2>
           <p className="text-sub">{story.lesson}</p>
-          <div className={PORTAL_ROW}>
-            <Button asChild variant="toolkit">
+          <div className={`flex flex-nowrap items-center gap-x-4 ${PORTAL_ROW_HEIGHT}`}>
+            <Button asChild variant="toolkit" className="shrink-0">
               <Link href={comicHref(story.ep)} prefetch={false}>
                 Read this story
                 <ArrowRight aria-hidden="true" />
@@ -285,7 +285,10 @@ export function ComicsGallery({
         {latest ? (
           <ThisWeek story={latest} />
         ) : (
-          <div className={PORTAL_ROW}>
+          // Before the first story: wide enough, the link sits beside the note; on
+          // a phone the note fills its line and the link still drops below it.
+          // Holding that line for everyone would leave visitors a blank one.
+          <div className={`flex flex-wrap items-center gap-x-4 gap-y-2 ${PORTAL_ROW_HEIGHT}`}>
             <p className="text-sub">A new story comes out every week, starting soon.</p>
             <OwnerPortalLink />
           </div>

@@ -950,9 +950,14 @@ describe("the gallery", () => {
       expect.arrayContaining(["inline-flex", "items-center", "pointer-coarse:min-h-11"])
     );
     // Not a line of its own above the story, which pushed the page down as it appeared.
-    expect(portal.parentElement).toBe(
-      screen.getByRole("link", { name: /Read this story/ }).parentElement
-    );
+    const read = screen.getByRole("link", { name: /Read this story/ });
+    expect(portal.parentElement).toBe(read.parentElement);
+    // Nor a second line where the row is narrow: the row never wraps, and the
+    // link gives way, cut short, while the story's button keeps its size.
+    expect(read.parentElement!.className.split(/\s+/)).toContain("flex-nowrap");
+    expect(read.className.split(/\s+/)).toContain("shrink-0");
+    expect(portal.className.split(/\s+/)).toContain("min-w-0");
+    expect(within(portal).getByText("Comics portal").className.split(/\s+/)).toContain("truncate");
   });
 });
 
