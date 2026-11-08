@@ -62,7 +62,10 @@ function TagFilterRowImpl({ objects }: Props) {
         WebkitMaskImage:
           "linear-gradient(to right, black 0%, black calc(100% - 24px), transparent 100%)",
       }}
-      className="absolute top-14 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-surface/95 border border-border rounded-lg px-2 py-1 shadow-md backdrop-blur-sm z-10 max-w-[80vw] overflow-x-auto"
+      // Below `sm` the tool rail starts under the board toolbar, at this
+      // row's height, so the row starts right of the rail (4.25rem)
+      // instead of centring over it.
+      className="absolute top-14 left-[4.25rem] max-w-[calc(100%-4.75rem)] sm:left-1/2 sm:-translate-x-1/2 sm:max-w-[80vw] flex items-center gap-1 bg-surface/95 border border-border rounded-lg px-2 py-1 shadow-md backdrop-blur-sm z-10 overflow-x-auto"
       aria-label="Filter objects by tag"
     >
       <Tag className="w-3 h-3 text-sub flex-shrink-0" aria-hidden="true" />
