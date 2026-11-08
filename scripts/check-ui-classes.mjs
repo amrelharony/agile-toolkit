@@ -18,6 +18,10 @@
  *   text-accent on the same line, hover and other variants included): the
  *   three themes' tokens keep 4.5:1 only up to /20
  *   (test/design/theme-contrast.test.ts). Use /20 or less, or text-text.
+ * - min-h-screen (100vh) on a centring wrapper or a page's <main>: on a phone
+ *   100vh is the height with the browser bars hidden, so the card sat 40-80px
+ *   low and the page scrolled for nothing. Use min-h-screen-dvh (the visible
+ *   height, with a 100vh fallback for old iOS).
  *
  * Exits 0 when clean. Prints file:line and the offending class otherwise.
  */
@@ -81,6 +85,17 @@ function strongOwnTints(line) {
   return found;
 }
 
+// `min-h-screen` but not `min-h-screen-dvh`, on a line that centres its
+// content or opens a <main>. The app shell's plain `flex min-h-screen` row is
+// neither.
+const SCREEN_RE = /(?<![\w-])(?:[a-z0-9-]+:)*min-h-screen(?![\w-])/g;
+const WRAPPER_RE =
+  /(?<![\w-])(?:[a-z0-9-]+:)*(?:items-center|justify-center|place-items-center|place-content-center)(?![\w-])|<main(?![\w-])/;
+
+function screenWrappers(line) {
+  return WRAPPER_RE.test(line) ? [...line.matchAll(SCREEN_RE)].map((m) => m[0]) : [];
+}
+
 export function findViolations(source) {
   const found = [];
   const lines = source.split("\n");
@@ -99,6 +114,14 @@ export function findViolations(source) {
         rule: "strong-own-tint",
         match,
         hint: `tint at most /${MAX_OWN_TINT} under its own text colour, or use text-text`,
+      });
+    }
+    for (const match of screenWrappers(line)) {
+      found.push({
+        line: i + 1,
+        rule: "min-h-screen-wrapper",
+        match,
+        hint: "use min-h-screen-dvh: 100vh is taller than a phone's visible area",
       });
     }
   });

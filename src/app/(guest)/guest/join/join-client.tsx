@@ -63,7 +63,7 @@ export function JoinClient({ initialCode, nextUrl }: Props) {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-6 py-12">
+    <main className="min-h-screen-dvh flex items-center justify-center px-6 py-12">
       <div className="w-full max-w-lg space-y-6">
         <header className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-accent/10 text-accent">

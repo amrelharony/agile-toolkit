@@ -1,6 +1,9 @@
 // @vitest-environment node
 /**
  * The CSS half of the phone form-field fixes:
+ *  - `min-h-screen-dvh` writes 100vh and then 100dvh, so a centred card sits
+ *    in the visible area under mobile browser bars and old iOS still gets a
+ *    full-height minimum;
  *  - the iOS no-zoom guard in globals.css covers touch screens of any width
  *    (a landscape iPhone is 812-932px wide), not only narrow windows;
  *  - `pointer-fine:md:` sorts after `md:`, which is why Input/Textarea callers
@@ -23,6 +26,28 @@ async function compile(classes: string): Promise<string> {
   ]).process("@tailwind utilities;", { from: undefined });
   return result.css;
 }
+
+function rule(css: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`));
+  return match ? match[1] : "";
+}
+
+describe("min-h-screen-dvh", () => {
+  it("writes a 100vh fallback and then 100dvh", async () => {
+    const body = rule(await compile("min-h-screen-dvh"), ".min-h-screen-dvh");
+    const decls = body
+      .split(";")
+      .map((d) => d.trim())
+      .filter(Boolean);
+    expect(decls).toEqual(["min-height: 100vh", "min-height: 100dvh"]);
+  });
+
+  it("works with variants", async () => {
+    const css = await compile("md:min-h-screen-dvh");
+    expect(css).toMatch(/@media \(min-width: 768px\)\s*\{\s*\.md\\:min-h-screen-dvh\s*\{/);
+  });
+});
 
 describe("pointer-fine:md: order", () => {
   it("comes after md: in the stylesheet, so it beats a bare md: override", async () => {

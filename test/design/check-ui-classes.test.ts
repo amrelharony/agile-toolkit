@@ -58,4 +58,28 @@ describe("check-ui-classes guard", () => {
     ].join("\n");
     expect(findViolations(ok)).toEqual([]);
   });
+
+  it("flags 100vh centring wrappers and page mains", () => {
+    const flagged = [
+      '<main className="min-h-screen flex items-center justify-center px-4">',
+      '<div className="min-h-screen grid place-items-center">',
+      '<main className="mx-auto min-h-screen w-full max-w-3xl px-4 py-6">',
+      '<section className="md:min-h-screen flex flex-col justify-center">',
+    ].join("\n");
+    expect(findViolations(flagged)).toEqual([
+      expect.objectContaining({ line: 1, rule: "min-h-screen-wrapper", match: "min-h-screen" }),
+      expect.objectContaining({ line: 2, rule: "min-h-screen-wrapper", match: "min-h-screen" }),
+      expect.objectContaining({ line: 3, rule: "min-h-screen-wrapper", match: "min-h-screen" }),
+      expect.objectContaining({ line: 4, rule: "min-h-screen-wrapper", match: "md:min-h-screen" }),
+    ]);
+
+    const ok = [
+      '<main className="min-h-screen-dvh flex items-center justify-center px-4">',
+      '<main className="mx-auto min-h-screen-dvh w-full max-w-3xl">',
+      // The app shell's row is not a centring wrapper.
+      '<div className="flex min-h-screen">',
+      '// a comment: <main className="min-h-screen flex items-center">',
+    ].join("\n");
+    expect(findViolations(ok)).toEqual([]);
+  });
 });

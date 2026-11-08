@@ -50,7 +50,7 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div
           role="alert"
-          className="min-h-screen flex items-center justify-center p-6 bg-bg text-text"
+          className="min-h-screen-dvh flex items-center justify-center p-6 bg-bg text-text"
         >
           <div className="max-w-md text-center space-y-3">
             <h1 className="text-xl font-display font-bold">Something went wrong</h1>

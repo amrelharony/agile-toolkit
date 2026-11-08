@@ -71,7 +71,7 @@ export function VisitorRetroRoom(props: {
 }): JSX.Element {
   if (!visitorRoomsEnabled()) {
     return (
-      <main className="mx-auto min-h-screen w-full max-w-3xl px-4 py-6">
+      <main className="mx-auto min-h-screen-dvh w-full max-w-3xl px-4 py-6">
         <ClosedPanel
           title="Live rooms are off"
           body="This site isn't running live rooms right now."
@@ -252,7 +252,7 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
   const phaseIndex = PHASES.findIndex((p) => p.key === phase);
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-6xl space-y-5 px-4 py-6">
+    <main className="mx-auto min-h-screen-dvh w-full max-w-6xl space-y-5 px-4 py-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-xl font-bold text-text">

@@ -410,6 +410,17 @@ const config: Config = {
       addVariant("pointer-coarse", "@media (pointer: coarse)");
       addVariant("pointer-fine", "@media (pointer: fine)");
     }),
+    // `min-h-screen` is 100vh, which on a phone is the height with the
+    // browser bars hidden: a card centred in it sits 40-80px low and the page
+    // scrolls for nothing. `min-h-screen-dvh` uses the visible height, with
+    // 100vh first for browsers that don't know dvh (iOS Safari < 15.4), the
+    // same cascade as `body` in globals.css. Tailwind's own `min-h-dvh` has
+    // no fallback, so old browsers would drop it and get no minimum at all.
+    plugin(({ addUtilities }) => {
+      addUtilities({
+        ".min-h-screen-dvh": { minHeight: ["100vh", "100dvh"] },
+      });
+    }),
   ],
   /* eslint-enable @typescript-eslint/no-require-imports */
 };

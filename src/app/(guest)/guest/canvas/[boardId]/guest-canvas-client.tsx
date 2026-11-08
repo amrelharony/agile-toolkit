@@ -112,7 +112,7 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
 
   if (!ready) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
+      <main className="min-h-screen-dvh flex items-center justify-center">
         <div className="flex items-center gap-2 text-sub text-sm">
           <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
           Loading session…

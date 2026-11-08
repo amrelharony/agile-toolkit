@@ -103,7 +103,7 @@ export function VisitorPokerRoom({ code, identity, onLeave }: VisitorPokerRoomPr
 
   if (!session) {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
+      <main className="min-h-screen-dvh flex flex-col items-center justify-center gap-4 px-4 text-center">
         <div className="flex items-center gap-2 text-sub text-sm" role="status">
           <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
           {isConnected ? "Waiting for the host to share the session…" : "Connecting to the room…"}
@@ -122,7 +122,7 @@ export function VisitorPokerRoom({ code, identity, onLeave }: VisitorPokerRoomPr
   }
 
   return (
-    <div className="min-h-screen px-4 py-4">
+    <div className="min-h-screen-dvh px-4 py-4">
       <div className="mx-auto max-w-6xl space-y-3">
         <PokerRoomBar
           code={code}
@@ -239,7 +239,7 @@ function RoomNotice({
     announce(announcement);
   }, [announcement, announce]);
   return (
-    <main className="min-h-screen flex items-center justify-center px-4">
+    <main className="min-h-screen-dvh flex items-center justify-center px-4">
       <section className="w-full max-w-md rounded-xl border border-border bg-surface p-6 flex flex-col gap-4">
         <h1
           ref={headingRef}
