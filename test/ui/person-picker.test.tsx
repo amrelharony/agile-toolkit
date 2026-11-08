@@ -80,16 +80,26 @@ describe("PersonPicker", () => {
       .split(/\s+/)
       .filter(Boolean);
     // Each padding is cancelled by a matching negative margin, so the
-    // line height stays; up only by the 4 px gap to the input above.
+    // line height stays: 4 + 16 + 6 = 26 px, above the 24 px floor.
     expect(classes).toEqual(
       expect.arrayContaining([
         "pointer-coarse:inline-block",
         "pointer-coarse:pt-1",
         "pointer-coarse:-mt-1",
-        "pointer-coarse:pb-3",
-        "pointer-coarse:-mb-3",
+        "pointer-coarse:pb-1.5",
+        "pointer-coarse:-mb-1.5",
       ])
     );
+    // Up no further than the 4 px gap to the input above, down no further
+    // than the 6 px gap to the inline editors' Save/Cancel row, so the link
+    // never reaches into either.
+    const grow = (side: "t" | "b") =>
+      classes
+        .filter((c) => c.startsWith(`pointer-coarse:p${side}-`))
+        .map((c) => Number(c.slice(`pointer-coarse:p${side}-`.length)) * 4);
+    expect(grow("t")).toEqual([4]);
+    expect(grow("b")).toEqual([6]);
+    expect(classes.filter((c) => /^pointer-coarse:(p[ytb]?|-?m[ytb]?)-/.test(c))).toHaveLength(4);
     // A mouse gets the plain inline link it had.
     expect(classes.filter((c) => !c.includes(":"))).toEqual(["text-accent", "underline-offset-2"]);
   });

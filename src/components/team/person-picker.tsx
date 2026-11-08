@@ -47,17 +47,20 @@ function RosterNote({
   const typed = name.trim();
 
   if (roster.length === 0 && !typed) {
-    // On touch the link's tap area grows from 16 px to 32 px without moving
-    // a line: negative margins cancel the padding. It grows only 4 px up,
-    // no more than the gap to the field above (gap-1 here, gap-1.5 in
-    // PeoplePicker), so a tap on the input's bottom edge never opens the
-    // Team page; whatever comes after it wins any overlap below.
+    // On touch the link's tap area grows from 16 px to 26 px without moving
+    // a line: negative margins cancel the padding. Each side grows no more
+    // than the smallest gap next to the note, because an overflowing link
+    // can beat the empty background of a block after it in normal flow:
+    // 4 px up (gap-1 to the field above here, gap-1.5 in PeoplePicker) and
+    // 6 px down (gap-1.5 to the Save/Cancel row in the inline owner
+    // editors). So a tap on the input's bottom edge, or beside Cancel,
+    // never opens the Team page.
     return (
       <p className="text-xs text-sub">
         Add your team on the{" "}
         <Link
           href="/team"
-          className="text-accent underline-offset-2 hover:underline pointer-coarse:-mb-3 pointer-coarse:-mt-1 pointer-coarse:inline-block pointer-coarse:pb-3 pointer-coarse:pt-1"
+          className="text-accent underline-offset-2 hover:underline pointer-coarse:-mb-1.5 pointer-coarse:-mt-1 pointer-coarse:inline-block pointer-coarse:pb-1.5 pointer-coarse:pt-1"
         >
           Team page
         </Link>{" "}
