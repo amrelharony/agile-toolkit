@@ -35,6 +35,8 @@ import { LoadingSprints } from "@/components/sprints/start";
 import { SprintCockpit } from "@/app/(tools)/sprint/cockpit";
 import { CapacityPlannerClient } from "@/app/(tools)/capacity-planner/capacity-planner-client";
 import { KanbanClient } from "@/app/(tools)/kanban/kanban-client";
+import { RetroActionsTracker } from "@/app/(tools)/retro-actions/tracker";
+import { TeamClient } from "@/app/(meta)/team/team-client";
 
 /** The first HTML's status placeholder, parsed back into the DOM. */
 function serverStatus(ui: ReactElement): HTMLElement {
@@ -91,5 +93,20 @@ describe("pre-hydration placeholders reserve the tool's room", () => {
     const status = serverStatus(<KanbanClient />);
     expect(status).toHaveTextContent("Loading the board…");
     expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
+  });
+
+  it("Retro Actions", () => {
+    const status = serverStatus(<RetroActionsTracker />);
+    expect(status).toHaveTextContent("Loading retro actions…");
+    expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
+  });
+
+  it("the Team page, capped near its empty state's height", () => {
+    const status = serverStatus(<TeamClient />);
+    expect(status).toHaveTextContent("Loading your team…");
+    // The cap replaces the default reserve (tailwind-merge), on phones only.
+    const minHeights = Array.from(status.classList).filter((c) => c.includes("min-h-"));
+    expect(minHeights).toEqual(["max-md:min-h-[min(60svh,20rem)]"]);
+    expect(status).not.toHaveAttribute("aria-busy");
   });
 });
