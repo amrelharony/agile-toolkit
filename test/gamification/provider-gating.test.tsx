@@ -249,6 +249,9 @@ describe("GamificationProvider silent celebrations", () => {
 describe("GamificationProvider NEXT_PUBLIC_CELEBRATIONS=legacy", () => {
   beforeEach(() => {
     vi.stubEnv("NEXT_PUBLIC_CELEBRATIONS", "legacy");
+    act(() => {
+      useNotificationPrefsStore.setState(useNotificationPrefsStore.getInitialState(), true);
+    });
   });
 
   it("shows the old toasts and writes no inbox rows", async () => {
@@ -266,7 +269,7 @@ describe("GamificationProvider NEXT_PUBLIC_CELEBRATIONS=legacy", () => {
     expect(useInboxStore.getState().items).toHaveLength(0);
   });
 
-  it("stays quiet on ceremony routes, while presenting and in silent mode (prestige too)", () => {
+  it("stays quiet on ceremony routes and while presenting (prestige too)", () => {
     h.pathname = "/retro";
     const view = mount();
     emit(PRESTIGE);
@@ -276,11 +279,36 @@ describe("GamificationProvider NEXT_PUBLIC_CELEBRATIONS=legacy", () => {
     view.rerender(<GamificationProvider>{null}</GamificationProvider>);
     emit(PRESTIGE);
     delete document.documentElement.dataset.presenting;
-    act(() => {
-      useVDnaStore.setState({ silentMode: true });
-    });
-    emit(PRESTIGE);
     expect(shownCount()).toBe(0);
+  });
+
+  it("follows Settings › Notifications: Quiet level, paused and Focus silence it", () => {
+    mount();
+    act(() => {
+      useNotificationPrefsStore.setState({ celebrationLevel: "quiet" });
+    });
+    emit(LEVEL_UP);
+    emit(PRESTIGE);
+    act(() => {
+      useNotificationPrefsStore.setState({
+        celebrationLevel: "balanced",
+        celebrationsPausedUntil: Date.now() + 60_000,
+      });
+    });
+    emit(LEVEL_UP);
+    act(() => {
+      useNotificationPrefsStore.setState({
+        celebrationsPausedUntil: null,
+        focusUntil: Date.now() + 60_000,
+      });
+    });
+    emit(LEVEL_UP);
+    expect(shownCount()).toBe(0);
+    act(() => {
+      useNotificationPrefsStore.setState({ focusUntil: null });
+    });
+    emit(LEVEL_UP);
+    expect(shownCount()).toBe(1);
   });
 });
 

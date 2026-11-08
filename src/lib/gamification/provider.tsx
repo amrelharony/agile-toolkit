@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
-import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
+import {
+  getNotificationPrefsSnapshot,
+  useNotificationPrefsStore,
+} from "@/lib/stores/notification-prefs-store";
 import { installEventBridge, trackPathVisit } from "./event-bridge";
 import { installSecretDetector } from "./secrets";
 import { installWindowBridge, subscribe } from "./engine";
@@ -13,9 +16,14 @@ import { achievements } from "./achievements";
 import { toast } from "@/lib/utils/toast";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
 import type { XpEvent } from "./types";
-import { isQuietRoute } from "./quiet";
+import { defaultQuietDom } from "@/lib/notify/quiet-state";
 import { useInboxStore } from "@/lib/notify/inbox-store";
-import { installCelebrations, isLegacyCelebrations, seedCarriedOver } from "./celebrations";
+import {
+  installCelebrations,
+  isLegacyCelebrations,
+  legacyCelebrationAllowed,
+  seedCarriedOver,
+} from "./celebrations";
 import { installMomentScheduler, setMomentPathname } from "@/lib/notify/moment-scheduler";
 
 /**
@@ -25,7 +33,6 @@ import { installMomentScheduler, setMomentPathname } from "@/lib/notify/moment-s
  */
 export function GamificationProvider({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
-  const silentMode = useVDnaStore((s) => s.silentMode);
   const isOwner = useIsOwner();
   // Read through a ref so the subscription isn't torn down on every
   // navigation (only the legacy celebration toasts look at the route).
@@ -112,14 +119,19 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
   }, [mounted, pathname]);
 
   // NEXT_PUBLIC_CELEBRATIONS=legacy: the old celebration toasts (kill switch,
-  // removed in PR K). Still quiet in ceremonies, presenting and silent mode.
+  // removed in PR K). The Notifications page still governs them: Quiet
+  // level, paused, Focus, quiet hours, ceremonies and presenting silence them.
   useEffect(() => {
     if (!mounted || !isLegacyCelebrations()) return;
     const celebrate = (show: () => void) => {
-      if (silentMode) return;
-      if (document.documentElement.dataset.presenting === "true") return;
-      if (isQuietRoute(pathnameRef.current)) return;
-      show();
+      const allowed = legacyCelebrationAllowed({
+        silentMode: useVDnaStore.getState().silentMode,
+        prefs: getNotificationPrefsSnapshot(),
+        pathname: pathnameRef.current,
+        dom: defaultQuietDom(),
+        now: Date.now(),
+      });
+      if (allowed) show();
     };
     return subscribe((effect) => {
       if (effect.kind === "level-up") {
@@ -144,7 +156,7 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
         );
       }
     });
-  }, [mounted, silentMode]);
+  }, [mounted]);
 
   return <>{children}</>;
 }

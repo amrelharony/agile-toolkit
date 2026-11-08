@@ -311,6 +311,43 @@ describe("Settings › Notifications page", () => {
     act(() => opts.action.onClick());
     expect(useInboxStore.getState().items).toEqual(before);
   });
+
+  it("activity: with gamification off, its hidden rows are not counted, marked read or cleared", async () => {
+    useNotificationPrefsStore.setState({ gamificationEnabled: false });
+    act(() => {
+      useInboxStore
+        .getState()
+        .add({ kind: "achievement", icon: "Award", title: "Badge", gamification: true });
+      useInboxStore.getState().add({ kind: "kudos", icon: "Heart", title: "Thanks" });
+    });
+    await renderPage();
+    const region = section("Activity");
+    expect(within(region).getByText(/1 item, 1 unread/)).toBeInTheDocument();
+    fireEvent.click(within(region).getByRole("button", { name: "Mark all read" }));
+    const byTitle = (t: string) => useInboxStore.getState().items.find((i) => i.title === t);
+    expect(byTitle("Thanks")?.read).toBe(true);
+    expect(byTitle("Badge")?.read).toBe(false);
+
+    fireEvent.click(within(region).getByRole("button", { name: "Clear" }));
+    expect(within(region).getByText("Activity is empty.")).toBeInTheDocument();
+    expect(useInboxStore.getState().items.map((i) => i.title)).toEqual(["Badge"]);
+  });
+
+  it("activity: Undo after Clear keeps a row that arrived in between", async () => {
+    act(() => {
+      useInboxStore.getState().add({ kind: "achievement", icon: "Award", title: "Old" });
+    });
+    await renderPage();
+    const region = section("Activity");
+    fireEvent.click(within(region).getByRole("button", { name: "Clear" }));
+    nowMs += 1000;
+    act(() => {
+      useInboxStore.getState().add({ kind: "achievement", icon: "Award", title: "New" });
+    });
+    const opts = h.toast.mock.calls[0][1] as { action: { onClick: () => void } };
+    act(() => opts.action.onClick());
+    expect(useInboxStore.getState().items.map((i) => i.title)).toEqual(["New", "Old"]);
+  });
 });
 
 describe("helpers", () => {

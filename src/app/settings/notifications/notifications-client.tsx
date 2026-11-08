@@ -10,6 +10,8 @@ import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store
 import { useHapticsStore } from "@/lib/stores/haptics-store";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
 import { useInboxStore } from "@/lib/notify/inbox-store";
+import { pruneInbox, type InboxItem } from "@/lib/notify/inbox";
+import { visibleInboxItems } from "@/components/notify/activity-dot";
 import {
   effectiveCelebrationLevel,
   effectiveQuietHours,
@@ -21,6 +23,13 @@ import { previewMoment } from "@/lib/notify/moment-scheduler";
 import { undoable } from "@/lib/utils/undoable";
 import type { HapticCategory, HapticsMode } from "@/lib/haptics/types";
 import type { SonificationMode } from "@/lib/sonification/types";
+
+/**
+ * 44 px tap targets on touch. `min-touch-coarse` alone loses to the small
+ * Button's own `min-h-[36px]` utility, so the height is raised here too.
+ */
+const TAP = "min-touch-coarse [@media(pointer:coarse)]:min-h-11";
+const TAP_GROUP = "[@media(pointer:coarse)]:[&>button]:min-h-11";
 
 const LEVEL_OPTIONS: { value: CelebrationLevel; label: string; description: string }[] = [
   { value: "quiet", label: "Quiet", description: "Activity only, never a moment." },
@@ -203,6 +212,7 @@ function CelebrationsSection({ hydrated }: { hydrated: boolean }) {
       description="Levels, badges and finished challenges. Nothing ever pops up in the middle of a ceremony, while presenting or while you type."
     >
       <ToggleGroup
+        className={TAP_GROUP}
         label="Celebrations"
         value={level}
         onValueChange={(v) => hydrated && setLevel(v)}
@@ -217,12 +227,7 @@ function CelebrationsSection({ hydrated }: { hydrated: boolean }) {
       <p id="celebrations-hint" className="text-xs text-sub" aria-live="polite">
         {LEVEL_HINT[level]}
       </p>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => previewMoment()}
-        className="min-touch-coarse"
-      >
+      <Button variant="outline" size="sm" onClick={() => previewMoment()} className={TAP}>
         <Eye className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
         Preview a moment
       </Button>
@@ -290,6 +295,7 @@ function SoundSection({ hydrated }: { hydrated: boolean }) {
         disabled={!hydrated}
       />
       <ToggleGroup
+        className={TAP_GROUP}
         label="Sound style"
         size="sm"
         value={mode}
@@ -318,6 +324,7 @@ function HapticsSection({ hydrated }: { hydrated: boolean }) {
       description="Essential vibrates for errors, timers ending and milestones only."
     >
       <ToggleGroup
+        className={TAP_GROUP}
         label="Vibration"
         size="sm"
         value={effective}
@@ -372,7 +379,7 @@ function QuietTimeSection({ hydrated }: { hydrated: boolean }) {
               key={o.label}
               variant="outline"
               size="sm"
-              className="min-touch-coarse"
+              className={TAP}
               disabled={!hydrated}
               onClick={() => startFocus(o.ms)}
             >
@@ -383,7 +390,7 @@ function QuietTimeSection({ hydrated }: { hydrated: boolean }) {
             <Button
               variant="secondary"
               size="sm"
-              className="min-touch-coarse"
+              className={TAP}
               disabled={!hydrated}
               onClick={endFocus}
             >
@@ -450,7 +457,7 @@ function TipsSection({ hydrated }: { hydrated: boolean }) {
       <Button
         variant="outline"
         size="sm"
-        className="min-touch-coarse"
+        className={TAP}
         onClick={clear}
         disabled={!hydrated || muted === 0}
       >
@@ -461,15 +468,39 @@ function TipsSection({ hydrated }: { hydrated: boolean }) {
   );
 }
 
+/** Newest first, the order the inbox keeps. */
+function byNewest(a: InboxItem, b: InboxItem): number {
+  const t = (i: InboxItem) => {
+    const n = Date.parse(i.at);
+    return Number.isFinite(n) ? n : 0;
+  };
+  return t(b) - t(a);
+}
+
 function ActivitySection({ hydrated }: { hydrated: boolean }) {
-  const total = useInboxStore((s) => s.items.length);
-  const unread = useInboxStore((s) => s.items.filter((i) => !i.read).length);
+  // Like the Activity panel: with gamification off its rows are hidden, so
+  // they're neither counted nor marked read nor cleared here.
+  const gamificationEnabled = useNotificationPrefsStore((s) => s.gamificationEnabled);
+  const items = useInboxStore((s) => s.items);
+  const visible = visibleInboxItems(items, gamificationEnabled);
+  const total = visible.length;
+  const unreadIds = visible.filter((i) => !i.read).map((i) => i.id);
+  const unread = unreadIds.length;
   const onClear = () => {
-    const before = useInboxStore.getState().items;
+    const removed = visibleInboxItems(useInboxStore.getState().items, gamificationEnabled);
+    const removedIds = new Set(removed.map((i) => i.id));
     undoable({
       label: "Activity cleared",
-      apply: () => useInboxStore.getState().clear(),
-      revert: () => useInboxStore.setState({ items: before }),
+      apply: () =>
+        useInboxStore.setState((s) => ({ items: s.items.filter((i) => !removedIds.has(i.id)) })),
+      // Put the cleared rows back without dropping any that arrived while
+      // the Undo toast was open.
+      revert: () =>
+        useInboxStore.setState((s) => {
+          const ids = new Set(s.items.map((i) => i.id));
+          const back = removed.filter((i) => !ids.has(i.id));
+          return { items: pruneInbox([...s.items, ...back].sort(byNewest), Date.now()) };
+        }),
     });
   };
   return (
@@ -486,8 +517,8 @@ function ActivitySection({ hydrated }: { hydrated: boolean }) {
         <Button
           variant="outline"
           size="sm"
-          className="min-touch-coarse"
-          onClick={() => useInboxStore.getState().markAllRead()}
+          className={TAP}
+          onClick={() => useInboxStore.getState().markRead(unreadIds)}
           disabled={!hydrated || unread === 0}
         >
           <CheckCheck className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
@@ -496,7 +527,7 @@ function ActivitySection({ hydrated }: { hydrated: boolean }) {
         <Button
           variant="outline"
           size="sm"
-          className="min-touch-coarse"
+          className={TAP}
           onClick={onClear}
           disabled={!hydrated || total === 0}
         >

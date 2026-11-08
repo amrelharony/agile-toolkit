@@ -47,6 +47,12 @@ import {
 import { subscribe, type GamificationSideEffect } from "./engine";
 import { subscribeOutcomes, type OutcomeRecord } from "./ledger";
 import { getAchievement } from "./achievements";
+import {
+  areCelebrationsPaused,
+  effectiveCelebrationLevel,
+  type NotificationPrefs,
+} from "@/lib/notify/prefs";
+import { getQuietState, type QuietDom } from "@/lib/notify/quiet-state";
 import { findDaily, findWeekly } from "./challenges";
 import { localDateOf } from "./outcomes";
 import type { Achievement } from "./types";
@@ -57,6 +63,34 @@ export const SAME_ACTION_MERGE_MS = 1500;
 /** Whether the build-time kill switch restores the old celebration toasts. */
 export function isLegacyCelebrations(): boolean {
   return process.env.NEXT_PUBLIC_CELEBRATIONS === "legacy";
+}
+
+/**
+ * Whether a legacy celebration toast may show (kill switch only, removed in
+ * PR K). The Notifications page still governs it: the Quiet level, "Pause
+ * celebrations", Focus and quiet hours silence it, as do ceremonies,
+ * presenting and the intro. The old silent mode only counts until it has
+ * been mapped onto the level (its switch is gone, so it can't be undone).
+ */
+export function legacyCelebrationAllowed(input: {
+  silentMode: boolean;
+  prefs: Pick<
+    NotificationPrefs,
+    | "celebrationLevel"
+    | "celebrationsPausedUntil"
+    | "focusUntil"
+    | "quietHours"
+    | "silentModeAdopted"
+  >;
+  pathname: string | null | undefined;
+  dom: QuietDom | null | undefined;
+  now: number;
+}): boolean {
+  const { silentMode, prefs, pathname, dom, now } = input;
+  if (silentMode && !prefs.silentModeAdopted) return false;
+  if (effectiveCelebrationLevel(prefs) === "quiet") return false;
+  if (areCelebrationsPaused(prefs, now)) return false;
+  return !getQuietState(now, pathname, dom, prefs).quiet;
 }
 
 // ---------------------------------------------------------------------------

@@ -227,7 +227,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
             <Link
               href="/settings/notifications"
               onClick={() => onOpenChange(false)}
-              className="flex items-center justify-between gap-2 rounded-md text-xs text-text hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="flex min-h-11 items-center justify-between gap-2 rounded-md py-2 text-xs text-text hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <span>
                 <span className="block">Notifications &amp; celebrations</span>
