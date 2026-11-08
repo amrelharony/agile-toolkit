@@ -391,6 +391,83 @@ describe("the story reader", () => {
     expect(scroller.style.touchAction).toBe("pan-x pan-y pinch-zoom");
   });
 
+  it("fills the height on an upright phone, panning from the panel's left edge", async () => {
+    render(await ComicStoryPage(params(30)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 1 of 2 full screen" }));
+    const img = within(screen.getByRole("dialog")).getByRole("img");
+    const classes = img.className.split(/\s+/);
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        "m-auto",
+        "max-sm:portrait:h-full",
+        "max-sm:portrait:max-w-none",
+        "max-sm:portrait:shrink-0",
+      ])
+    );
+    // Elsewhere it still fits the screen, as before.
+    expect(classes).toEqual(expect.arrayContaining(["max-h-full", "max-w-full", "object-contain"]));
+    // Centring the row would cut a wider panel's left edge off; m-auto doesn't.
+    expect(img.parentElement!.className).not.toMatch(/justify-center|items-center/);
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+
+  it("swipes between panels, but not while the page is pinch-zoomed", async () => {
+    render(await ComicStoryPage(params(30)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 1 of 2 full screen" }));
+    const dialog = screen.getByRole("dialog");
+    const src = () => within(dialog).getByRole("img").getAttribute("src");
+    const scroller = within(dialog).getByRole("img").parentElement!;
+    const swipe = (dx: number) => {
+      fireEvent.touchStart(scroller, { touches: [{ clientX: 300, clientY: 300 }] });
+      fireEvent.touchEnd(scroller, {
+        touches: [],
+        changedTouches: [{ clientX: 300 + dx, clientY: 300 }],
+      });
+    };
+
+    swipe(-20);
+    expect(src()).toContain("one-1536.webp");
+    swipe(-120);
+    expect(src()).toContain("two-1536.webp");
+    swipe(-120);
+    expect(src()).toContain("two-1536.webp");
+
+    vi.stubGlobal("visualViewport", { scale: 2.5 });
+    swipe(120);
+    expect(src()).toContain("two-1536.webp");
+    vi.stubGlobal("visualViewport", { scale: 1 });
+    swipe(120);
+    expect(src()).toContain("one-1536.webp");
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+
+  it("pans a wide panel to its edge before a swipe moves on, and starts the next at its beginning", async () => {
+    render(await ComicStoryPage(params(30)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 1 of 2 full screen" }));
+    const dialog = screen.getByRole("dialog");
+    const src = () => within(dialog).getByRole("img").getAttribute("src");
+    const scroller = within(dialog).getByRole("img").parentElement!;
+    // A height-filled panel on an upright phone: 900 px wide in a 360 px screen.
+    Object.defineProperty(scroller, "scrollWidth", { configurable: true, value: 900 });
+    Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 360 });
+    Object.defineProperty(scroller, "scrollLeft", { configurable: true, writable: true, value: 0 });
+    const swipeLeft = () => {
+      fireEvent.touchStart(scroller, { touches: [{ clientX: 300, clientY: 300 }] });
+      fireEvent.touchEnd(scroller, {
+        touches: [],
+        changedTouches: [{ clientX: 100, clientY: 300 }],
+      });
+    };
+
+    swipeLeft();
+    expect(src()).toContain("one-1536.webp");
+    scroller.scrollLeft = 540;
+    swipeLeft();
+    expect(src()).toContain("two-1536.webp");
+    expect(scroller.scrollLeft).toBe(0);
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+
   it("moves between released stories, by link and by arrow key", async () => {
     render(await ComicStoryPage(params(30)));
     expect(screen.getByRole("link", { name: "Previous story" }).getAttribute("href")).toBe(
