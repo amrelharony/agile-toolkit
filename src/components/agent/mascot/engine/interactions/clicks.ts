@@ -1,8 +1,8 @@
 /**
  * Mascot taps (docs/mascot/AMR-ART-BRIEF.md, S04): a tap on his tummy is a poke
  * (he giggles), a tap on his head a pat (he leans into it, toward that side);
- * three taps in quick succession tickle him, seven make him dizzy (and earn the
- * old spin's 5 XP). Each tap answers at once instead of queuing behind the last,
+ * three taps in quick succession tickle him, seven make him dizzy. Taps earn no
+ * XP: XP rewards finished work, not input. Each tap answers at once instead of queuing behind the last,
  * so a burst never backs up. Ported from the vanilla mascot's multi-click
  * escalation (handleMascotInteraction 3564-3581); the chat toggle is the caller's.
  */
@@ -16,7 +16,6 @@ export interface ClickHooks {
   /** Cut in with this reaction now. */
   playNow(r: MascotReaction): void;
   sound(): void;
-  addXp(n: number): void;
 }
 
 /** Taps further apart than this start a new count. */
@@ -44,13 +43,11 @@ export function createClickInteraction(hooks: ClickHooks): ClickInteraction {
 
     if (count >= DIZZY_TAPS) {
       hooks.playNow("dizzy");
-      hooks.addXp(5);
       count = 0;
     } else if (count === TICKLE_TAPS) {
       hooks.playNow("tickle");
     } else if (count === 1) {
       hooks.playNow(zone === "head" ? (side === "left" ? "patLeft" : "patRight") : "poke");
-      hooks.addXp(1);
     }
     // Taps 2 and 4–6 let the reaction already playing carry on.
   }

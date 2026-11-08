@@ -47,6 +47,7 @@ import {
   type FairnessResult,
 } from "@/lib/kudos/llm";
 import { dispatch as dispatchGamification } from "@/lib/gamification/engine";
+import { recordOutcome } from "@/lib/gamification/ledger";
 import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
 import type { Kudos, Workspace } from "@/lib/stores/workspace-types";
 import { KudosForm, type RecipientOption } from "./components/kudos-form";
@@ -507,6 +508,12 @@ export function KudosClient() {
     // `kudos.sent` on the workspace-store add so the cloud-sync layer
     // independently picks it up.
     emit("kudos", "sent");
+    // XP only for a card that was kept, once per card. A recipient the
+    // fairness hint flagged (stamped above) earns the suggested bonus.
+    recordOutcome("kudos-sent", {
+      key: `kudos:${stamped.id}`,
+      meta: { suggested: typeof stamped.fairnessScoreAtSend === "number" },
+    });
   };
 
   const [settingsOpen, setSettingsOpen] = useState(false);

@@ -3,16 +3,25 @@
 import { useEffect, useState } from "react";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { computeLevel } from "@/lib/gamification/xp-curve";
-import { getCombo } from "@/lib/gamification/engine";
-import { Crown, Zap } from "lucide-react";
+import { activeAchievements } from "@/lib/gamification/achievements";
+import { Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
+import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
+import { ActivityDot, useVisibleUnreadCount } from "@/components/notify/activity-dot";
+
+const ACTIVE_IDS: ReadonlySet<string> = new Set(activeAchievements.map((a) => a.id));
 
 interface XpBarProps {
-  onOpenTrophyCase?: () => void;
+  /** Overrides what a click does (default: open or close the Activity panel). */
+  onOpen?: () => void;
 }
 
 /**
- * Header XP pill — opens the trophy case on click.
+ * Header XP pill — opens the Activity panel on click (the panel links on to
+ * the trophy case). Carries the unread dot too, so desktop users see new
+ * Activity without opening the avatar menu. Hidden when Settings ›
+ * Notifications turns the XP bar or gamification off.
  *
  * Lives inline inside the header action cluster (previously was a
  * fixed-bottom floating pill, moved up for a cleaner page surface).
@@ -20,52 +29,41 @@ interface XpBarProps {
  *   - xs (mobile): level chip + tight progress bar only
  *   - sm+:        + xp/needed counter
  *   - md+:        + achievements count
- *   - any:         combo multiplier badge when active
+ *
+ * Everything it shows comes from store subscriptions: no timers, no
+ * polling (the combo readout that polled every 150–500 ms is gone with
+ * the combo itself).
  */
-export function XpBar({ onOpenTrophyCase }: XpBarProps) {
+export function XpBar({ onOpen }: XpBarProps) {
   const [mounted, setMounted] = useState(false);
+  const toggleActivity = useActivityUiStore((s) => s.toggleActivity);
+  const unread = useVisibleUnreadCount();
+  const shown = useNotificationPrefsStore((s) => s.showXpBar && s.gamificationEnabled);
   const xp = useVDnaStore((s) => s.xp);
   const prestige = useVDnaStore((s) => s.prestige);
-  const unlockedCount = useVDnaStore((s) => s.unlocked.length);
-  const [comboDepth, setComboDepth] = useState(0);
-  const [comboMult, setComboMult] = useState(1);
+  // Retired badges a user still holds don't count toward the total.
+  const unlockedCount = useVDnaStore((s) => s.unlocked.filter((id) => ACTIVE_IDS.has(id)).length);
 
   useEffect(() => {
     setMounted(true);
-    // Combo readout: poll at 500 ms when idle, 150 ms when actively comboing.
-    // The previous flat 150 ms ran 6.6 wakeups/sec on every page for the
-    // entire session even when nothing was happening, which on low-end
-    // mobile is a measurable battery cost. The bumped cadence kicks in
-    // automatically once a combo starts.
-    let pollId: ReturnType<typeof setInterval> | null = null;
-    const tick = () => {
-      const c = getCombo();
-      setComboDepth(c.depth);
-      setComboMult(c.multiplier);
-      const nextInterval = c.depth >= 1 && c.multiplier > 1 ? 150 : 500;
-      if (pollId !== null) clearInterval(pollId);
-      pollId = setInterval(tick, nextInterval);
-    };
-    tick();
-    return () => {
-      if (pollId !== null) clearInterval(pollId);
-    };
   }, []);
 
   // Reserve layout space pre-mount so the header doesn't shift on hydrate.
   if (!mounted) return <div className="h-8 w-28 sm:w-44 md:w-56" aria-hidden="true" />;
+  if (!shown) return null;
   const info = computeLevel(xp, prestige);
   const pct = Math.round(info.progress01 * 100);
 
   return (
     <button
       type="button"
-      onClick={onOpenTrophyCase}
+      onClick={onOpen ?? toggleActivity}
+      data-activity-trigger=""
       data-no-sound="true"
-      aria-label={`Level ${info.level}, ${pct}% to next level. ${unlockedCount} achievements. Open trophy case.`}
-      title="Open trophy case"
+      aria-label={`Level ${info.level}, ${pct}% to next level. ${unlockedCount} achievements.${unread > 0 ? ` ${unread} new in Activity.` : ""} Open Activity.`}
+      title="Open Activity"
       className={cn(
-        "min-touch-coarse flex items-center gap-2 h-8 rounded-md",
+        "relative min-touch-coarse flex items-center gap-2 h-8 rounded-md",
         "border border-border bg-surface",
         "px-2.5 sm:px-3",
         "text-xs font-mono",
@@ -74,6 +72,7 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
         "shrink-0"
       )}
     >
+      <ActivityDot className="-top-0.5 -right-0.5" />
       {prestige > 0 && (
         <span className="flex items-center gap-0.5 text-warning shrink-0">
           <Crown className="w-3 h-3" aria-hidden="true" />
@@ -104,12 +103,6 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
         <span className="font-data text-accent">{unlockedCount}</span>
         <span className="text-xs">ach</span>
       </span>
-      {comboDepth >= 1 && comboMult > 1 && (
-        <span className="flex items-center gap-0.5 text-warning animate-pulse shrink-0">
-          <Zap className="w-3 h-3" aria-hidden="true" />
-          <span className="font-data">×{comboMult}</span>
-        </span>
-      )}
     </button>
   );
 }
