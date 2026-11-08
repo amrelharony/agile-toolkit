@@ -11,7 +11,8 @@
 -- counting twice. Written only through comic_story_stat, by /api/comics/stats.
 --
 -- comic_story_totals sums them per story for the pages (the heart's count,
--- "Read by N readers", Readers' favourites) and the owner's Insights tab.
+-- "Read by N readers", Readers' favourites); comic_story_insight_totals and
+-- comic_story_weekly_totals sum them for the owner's Insights tab.
 --
 -- print_shortlist marks the stories the owner is considering for a printed
 -- volume. Owner-only: no page reads it.
@@ -38,48 +39,62 @@ alter table public.comic_story_stats enable row level security;
 revoke all on table public.comic_story_stats from anon, authenticated;
 
 -- One call adds one to each event ("view", "time:3", ...) in the current week,
--- then answers the story's net loves and readers, this call included. The rest
--- of the statement reads the table as it was before the insert, so this call's
--- own events are added from `ev`. Repeated events are grouped first: one insert
--- can't update the same row twice.
+-- then answers the story's net loves and readers, this call included. A love
+-- taken back is only counted while the story has a love to take back, so stray
+-- or replayed "unlove" events can't leave a deficit that hides later loves. The
+-- story's lock makes two calls for one story take turns, so that check holds.
 create or replace function public.comic_story_stat(
   p_ep     int,
   p_events text[]
 ) returns table (loves bigint, readers bigint)
-language sql
+language plpgsql
 set search_path = ''
 as $$
-  with ev as (
+declare
+  this_week date := (now() at time zone 'utc')::date - extract(dow from (now() at time zone 'utc'))::int;
+  net bigint;
+  n bigint;
+  ev record;
+begin
+  perform pg_advisory_xact_lock(36, p_ep);
+  select coalesce(sum(case s.metric when 'love' then s.count when 'unlove' then -s.count end), 0)
+    into net
+    from public.comic_story_stats s
+   where s.ep = p_ep and s.metric in ('love', 'unlove');
+
+  for ev in
     select split_part(e, ':', 1) as metric,
            coalesce(nullif(split_part(e, ':', 2), ''), '0')::smallint as bucket,
-           count(*)::bigint as n
+           count(*)::bigint as total
       from unnest(p_events) as e
      group by 1, 2
-  ),
-  hit as (
+  loop
+    n := ev.total;
+    if ev.metric = 'unlove' then
+      n := least(n, greatest(net, 0));
+    end if;
+    continue when n <= 0;
     insert into public.comic_story_stats as s (ep, week, metric, bucket, count)
-    select p_ep,
-           (now() at time zone 'utc')::date - extract(dow from (now() at time zone 'utc'))::int,
-           ev.metric,
-           ev.bucket,
-           ev.n
-      from ev
+    values (p_ep, this_week, ev.metric, ev.bucket, n)
     on conflict (ep, week, metric, bucket)
-    do update set count = s.count + excluded.count
-    returning 1
-  )
-  select greatest(
-           0,
-           coalesce(sum(case s.metric when 'love' then s.count when 'unlove' then -s.count end), 0)
-           + coalesce((select sum(case ev.metric when 'love' then ev.n when 'unlove' then -ev.n end) from ev), 0)
-         )::bigint,
-         (coalesce(sum(s.count) filter (where s.metric = 'reader'), 0)
-           + coalesce((select sum(ev.n) from ev where ev.metric = 'reader'), 0))::bigint
-    from public.comic_story_stats s
-   where s.ep = p_ep and s.metric in ('love', 'unlove', 'reader');
+    do update set count = s.count + excluded.count;
+    if ev.metric = 'love' then
+      net := net + n;
+    elsif ev.metric = 'unlove' then
+      net := net - n;
+    end if;
+  end loop;
+
+  return query
+    select greatest(net, 0),
+           coalesce((select sum(s.count) from public.comic_story_stats s
+                      where s.ep = p_ep and s.metric = 'reader'), 0)::bigint;
+end;
 $$;
 
-create or replace function public.comic_story_totals()
+-- Per story, or for one story with p_ep.
+drop function if exists public.comic_story_totals();
+create or replace function public.comic_story_totals(p_ep int default null)
 returns table (
   ep       int,
   views    bigint,
@@ -107,15 +122,59 @@ as $$
          coalesce(sum(s.count) filter (where s.metric = 'retro'), 0)::bigint,
          coalesce(sum(s.count) filter (where s.metric = 'tool'), 0)::bigint
     from public.comic_story_stats s
+   where p_ep is null or s.ep = p_ep
    group by s.ep;
+$$;
+
+-- The owner's Insights: each story's totals per metric and time band, all
+-- time ('all') and over its first p_first_weeks weeks from its release week
+-- ('first4'). A few rows per story, however many weeks pass.
+create or replace function public.comic_story_insight_totals(p_first_weeks int default 4)
+returns table (ep int, scope text, metric text, bucket smallint, count bigint)
+language sql
+stable
+set search_path = ''
+as $$
+  select s.ep, 'all'::text, s.metric, s.bucket, sum(s.count)::bigint
+    from public.comic_story_stats s
+   group by s.ep, s.metric, s.bucket
+  union all
+  select s.ep, 'first4'::text, s.metric, s.bucket, sum(s.count)::bigint
+    from public.comic_story_stats s
+    join public.comic_stories c on c.ep = s.ep
+   cross join lateral (
+     select (c.release_at at time zone 'utc')::date
+            - extract(dow from (c.release_at at time zone 'utc'))::int as release_week
+   ) r
+   where c.release_at is not null
+     and s.week >= r.release_week
+     and s.week < r.release_week + p_first_weeks * 7
+   group by s.ep, s.metric, s.bucket;
+$$;
+
+-- Views, readers and loves across every story, week by week, for the trend.
+create or replace function public.comic_story_weekly_totals()
+returns table (week date, metric text, count bigint)
+language sql
+stable
+set search_path = ''
+as $$
+  select s.week, s.metric, sum(s.count)::bigint
+    from public.comic_story_stats s
+   where s.metric in ('view', 'reader', 'love', 'unlove')
+   group by s.week, s.metric;
 $$;
 
 -- `from public` alone isn't enough: Supabase grants EXECUTE explicitly to anon
 -- and authenticated (see 0025). Service role only.
 revoke all on function public.comic_story_stat(int, text[]) from public, anon, authenticated;
 grant execute on function public.comic_story_stat(int, text[]) to service_role;
-revoke all on function public.comic_story_totals() from public, anon, authenticated;
-grant execute on function public.comic_story_totals() to service_role;
+revoke all on function public.comic_story_totals(int) from public, anon, authenticated;
+grant execute on function public.comic_story_totals(int) to service_role;
+revoke all on function public.comic_story_insight_totals(int) from public, anon, authenticated;
+grant execute on function public.comic_story_insight_totals(int) to service_role;
+revoke all on function public.comic_story_weekly_totals() from public, anon, authenticated;
+grant execute on function public.comic_story_weekly_totals() to service_role;
 
 alter table public.comic_stories
   add column if not exists print_shortlist boolean not null default false;

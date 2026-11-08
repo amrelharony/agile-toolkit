@@ -21,7 +21,7 @@ const CAST = ["Amr", "Dinosaur", "HiPPO", "Retrospective Turtle"];
 const STORIES = [
   { ep: 27, castNames: ["HiPPO", "Retrospective Turtle"], title: "Return Address" },
   { ep: 28, castNames: ["Amr", "Dinosaur", "Someone Unlisted"], title: "The Practice Desk" },
-  { ep: 29, castNames: ["HiPPO", "Amr"] },
+  { ep: 29, castNames: ["HiPPO", "Amr"], title: "A Different Kind of Help" },
 ];
 
 function reading(read: Record<number, string>) {
@@ -95,18 +95,24 @@ describe("Your reading, on /comics", () => {
     localStorage.setItem(
       READING_KEY,
       JSON.stringify({
-        loved: { 27: "2026-11-09T09:00:00.000Z", 29: "2026-11-10T09:00:00.000Z" },
+        loved: {
+          27: "2026-11-09T09:00:00.000Z",
+          29: "2026-11-10T09:00:00.000Z",
+          // Loved early on the read-ahead page: not out yet, so not listed.
+          99: "2026-11-11T09:00:00.000Z",
+        },
       })
     );
     render(<ReaderProgress cast={CAST} stories={STORIES} />);
     fireEvent.click(screen.getByText("Stories you loved (2)"));
     const links = screen
       .getAllByRole("link")
-      .filter((a) => /Return Address|Episode 29/.test(a.textContent ?? ""));
+      .filter((a) => /Return Address|A Different Kind of Help/.test(a.textContent ?? ""));
     expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
-      ["Episode 29", "/comics?ep=29"],
+      ["A Different Kind of Help", "/comics?ep=29"],
       ["Return Address", "/comics?ep=27"],
     ]);
+    expect(screen.queryByRole("link", { name: /Episode 99/ })).toBeNull();
   });
 
   it("explains the loved list before there's anything in it", () => {

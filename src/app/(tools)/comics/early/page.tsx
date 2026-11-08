@@ -14,18 +14,15 @@ import {
   parseEp,
 } from "@/lib/comics/entry";
 import { NO_GUESS, type StoryGuessExtras } from "@/lib/comics/guess";
-import { getEarlyStory, getStoryGuess, getStoryTotals, listEarlyWeekly } from "@/lib/comics/store";
-import type { StoryTotals } from "@/lib/comics/stats";
+import { getEarlyStory, getStoryGuess, listEarlyWeekly } from "@/lib/comics/store";
 import type { Story } from "@/lib/comics/types";
 import { hasVipAccess } from "@/lib/vip/access";
 import { comicMetadata } from "../comic-metadata";
 import { ComicCard } from "../components/comic-card";
 import { ComicPanels } from "../components/comic-panels";
 import { EpisodeNotes } from "../components/episode-notes";
-import { LoveButton } from "../components/love-button";
 import { RightsNotice } from "../components/rights-notice";
 import { SeenAtWork } from "../components/seen-at-work";
-import { StoryStats } from "../components/story-stats";
 import { releaseDayLabel } from "./release-day";
 
 /**
@@ -111,15 +108,7 @@ function NothingHere() {
   );
 }
 
-function EarlyStory({
-  story,
-  guess,
-  totals,
-}: {
-  story: Story;
-  guess: StoryGuessExtras;
-  totals: StoryTotals;
-}) {
+function EarlyStory({ story, guess }: { story: Story; guess: StoryGuessExtras }) {
   const readable = story.panels.length > 0;
   return (
     <ToolPageWrapper
@@ -128,9 +117,6 @@ function EarlyStory({
     >
       <div className="space-y-4">
         <ComicPanels panels={story.panels} title={story.title} ep={story.ep} guess={guess.guess} />
-        {readable ? (
-          <LoveButton ep={story.ep} initialLoves={totals.loves} initialReaders={totals.readers} />
-        ) : null}
         <EpisodeNotes lesson={story.lesson} question={story.squadQuestion} />
         {readable ? <SeenAtWork ep={story.ep} /> : null}
         {guess.tryAction ? (
@@ -143,7 +129,6 @@ function EarlyStory({
         ) : null}
         <BackToEarly />
         <RightsNotice />
-        {readable ? <StoryStats ep={story.ep} /> : null}
       </div>
     </ToolPageWrapper>
   );
@@ -160,11 +145,8 @@ export default async function EarlyComicsPage({ searchParams }: EarlyPageProps) 
     if (found.status === "released") redirect(comicHref(ep));
     if (found.status !== "early") return <NothingHere />;
     // Soft like the public page's: a story still reads without its guess.
-    const [guess, totals] = await Promise.all([
-      getStoryGuess(ep, { early: true }).catch(() => NO_GUESS),
-      getStoryTotals(ep),
-    ]);
-    return <EarlyStory story={found.story} guess={guess} totals={totals} />;
+    const guess = await getStoryGuess(ep, { early: true }).catch(() => NO_GUESS);
+    return <EarlyStory story={found.story} guess={guess} />;
   }
 
   const stories = await attempt(listEarlyWeekly);

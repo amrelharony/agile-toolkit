@@ -246,28 +246,15 @@ export async function getStoryGuess(
  */
 export async function getStoryTotals(ep: number): Promise<StoryTotals> {
   try {
-    const rows = await read<{ metric: string; count: number | string }[]>(
+    // Summed in the database: one row, however many weeks the story has.
+    const rows = await read<Record<string, unknown>[]>(
       [],
       (client, _now, signal) =>
         client
-          .from("comic_story_stats")
-          .select("metric,count")
-          .eq("ep", ep)
-          .neq("metric", "time")
-          .abortSignal(signal)
-          .returns<{ metric: string; count: number | string }[]>()
+          .rpc("comic_story_totals", { p_ep: ep })
+          .abortSignal(signal) as unknown as PromiseLike<QueryResult<Record<string, unknown>[]>>
     );
-    const sum = (metric: string) =>
-      rows.filter((r) => r.metric === metric).reduce((n, r) => n + Number(r.count), 0);
-    return readTotals({
-      views: sum("view"),
-      visitors: sum("visitor"),
-      readers: sum("reader"),
-      loves: sum("love") - sum("unlove"),
-      shares: sum("share"),
-      retros: sum("retro"),
-      tools: sum("tool"),
-    });
+    return readTotals(rows.find((r) => Number(r.ep) === ep));
   } catch {
     return NO_TOTALS;
   }

@@ -41,6 +41,23 @@ export type StatEvent = StatMetric | `time:${number}`;
 /** The most events one request may carry. */
 export const MAX_STAT_EVENTS = 6;
 
+/**
+ * How many of each event one connection (an IP address, held in memory only)
+ * may add to one story in an hour. A browser sends each first only once; these
+ * stop a script from inflating loves, readers or actions with a loop, while an
+ * office sharing one address still counts its colleagues. Views and time bands
+ * fall under the route's overall limit.
+ */
+export const EVENT_LIMITS_PER_HOUR: Readonly<Partial<Record<StatMetric, number>>> = {
+  visitor: 30,
+  reader: 30,
+  love: 10,
+  unlove: 10,
+  share: 10,
+  retro: 10,
+  tool: 20,
+};
+
 /** A visible tab with no scroll, pointer, key or touch for this long stops the clock. */
 export const IDLE_AFTER_S = 60;
 /** One view never adds more than this much reading time. */

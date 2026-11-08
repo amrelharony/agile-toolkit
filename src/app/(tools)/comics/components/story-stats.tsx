@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { addSeconds, markViewed } from "@/lib/comics/reading";
+import { addSeconds, hasRead, markViewed } from "@/lib/comics/reading";
 import { ACTIVE_CAP_S, IDLE_AFTER_S, timeEvent } from "@/lib/comics/stats";
 import { beaconStats } from "@/lib/comics/stats-client";
 import { useCounting } from "./use-counting";
@@ -22,7 +22,11 @@ export function StoryStats({ ep }: { ep: number }) {
 
   useEffect(() => {
     if (!counting) return;
-    beaconStats(ep, markViewed(ep) ? ["view", "visitor"] : ["view"]);
+    // A story this browser read before the counts began is a returning reader:
+    // counting it as a new visitor, who can never become a reader again, would
+    // pull its finishing rate down.
+    const firstView = markViewed(ep) && !hasRead(ep);
+    beaconStats(ep, firstView ? ["view", "visitor"] : ["view"]);
 
     const visible = () => document.visibilityState === "visible";
     let activeMs = 0;

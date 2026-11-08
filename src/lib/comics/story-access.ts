@@ -1,8 +1,11 @@
 /**
  * Whether a weekly story can take a reader's count yet: the guess and "Seen
  * this at work?" taps (/api/comics/taps) and the engagement counts
- * (/api/comics/stats) share it. A story counts once it's out, or while it's in
- * the reader's VIP window for a device with the book's key. Server only.
+ * (/api/comics/stats) share it. A story counts once it's out, or, with `early`,
+ * while it's in the reader's VIP window for a device with the book's key. The
+ * engagement counts leave `early` off: a story's number can still change in a
+ * queue reorder until it's out, and its counts would stay with the old number.
+ * Server only.
  */
 
 import "server-only";
@@ -25,7 +28,7 @@ type StoryRow = { guess: unknown; release_at: string | null; collection: string 
 export async function storyOpenForCounts(
   admin: SupabaseClient,
   ep: number,
-  now = Date.now()
+  { early = true, now = Date.now() }: { early?: boolean; now?: number } = {}
 ): Promise<StoryAccess> {
   const { data, error } = await admin
     .from("comic_stories")
@@ -38,6 +41,7 @@ export async function storyOpenForCounts(
   }
   const releaseAt = Date.parse(data.release_at);
   if (releaseAt > now) {
+    if (!early) return { ok: false, status: 404, error: "not_found" };
     const inWindow = releaseAt <= now + EARLY_WINDOW_DAYS * DAY_MS;
     if (!inWindow || !(await hasVipAccess())) return { ok: false, status: 404, error: "not_found" };
   }
