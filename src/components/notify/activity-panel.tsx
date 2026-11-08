@@ -15,6 +15,7 @@ import {
   Trophy,
   X,
   type LucideIcon,
+  Settings,
 } from "lucide-react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -139,6 +140,7 @@ export function ActivityPanel() {
                 Activity
               </DialogPrimitive.Title>
               <MarkAllRead unreadIds={visibleUnreadIds} />
+              <SettingsLink />
               <DialogPrimitive.Close
                 aria-label="Close Activity"
                 className="min-touch-coarse inline-flex h-9 w-9 items-center justify-center rounded-md text-sub hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -184,10 +186,27 @@ export function ActivityPanel() {
         <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border">
           <h2 className="text-sm font-semibold text-text flex-1">Activity</h2>
           <MarkAllRead unreadIds={visibleUnreadIds} />
+          <SettingsLink />
         </div>
         <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-3">{body}</div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** The gear: Settings › Notifications. Closing the panel marks its rows read. */
+function SettingsLink() {
+  const setOpen = useActivityUiStore((s) => s.setActivityOpen);
+  return (
+    <Link
+      href="/settings/notifications"
+      onClick={() => setOpen(false)}
+      aria-label="Notification settings"
+      title="Notification settings"
+      className="min-touch-coarse inline-flex h-8 w-8 items-center justify-center rounded-md text-sub hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    >
+      <Settings className="h-4 w-4" aria-hidden="true" />
+    </Link>
   );
 }
 

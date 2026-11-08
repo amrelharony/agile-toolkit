@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Trophy, Lock, Crown, Flag, Users, Activity } from "lucide-react";
+import { Trophy, Lock, Crown, Flag, Users, Activity, SlidersHorizontal } from "lucide-react";
 import {
   activeAchievements,
   achievementsByCategory,
@@ -221,19 +222,19 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 />
               </div>
             )}
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <div id="trophy-silent-label" className="text-xs text-text">
-                  Silent mode
-                </div>
-                <div className="text-xs text-sub">Suppress toasts</div>
-              </div>
-              <Switch
-                checked={dna.silentMode}
-                onCheckedChange={(v) => useVDnaStore.getState().setSilentMode(v)}
-                aria-labelledby="trophy-silent-label"
-              />
-            </div>
+            {/* Silent mode moved to Settings › Notifications (celebration
+                level, quiet hours, Focus); phones reach it from the menu too. */}
+            <Link
+              href="/settings/notifications"
+              onClick={() => onOpenChange(false)}
+              className="flex items-center justify-between gap-2 rounded-md text-xs text-text hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <span>
+                <span className="block">Notifications &amp; celebrations</span>
+                <span className="block text-sub">Quiet, Balanced or Lively; quiet hours</span>
+              </span>
+              <SlidersHorizontal className="w-4 h-4 shrink-0" aria-hidden="true" />
+            </Link>
             <div className="text-xs text-sub font-mono">ID: {dna.visitorId.slice(0, 10)}…</div>
           </div>
         </div>

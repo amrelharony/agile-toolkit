@@ -57,6 +57,7 @@ import {
   Bell,
   BellOff,
   Trophy,
+  SlidersHorizontal,
 } from "lucide-react";
 
 // Loaded on first open: backup/restore isn't needed until someone asks.
@@ -586,8 +587,9 @@ function withUnread(label: string, unread: number): string {
 const PAUSE_CELEBRATIONS_MS = 60 * 60 * 1000;
 
 /**
- * Progress, Activity, Trophies and "Pause celebrations" rows. The header's XP
- * bar is hidden on phones, so this is where every visitor reaches them.
+ * Progress, Activity, Trophies, Notifications and "Pause celebrations" rows.
+ * The header's XP bar is hidden on phones, so this is where every visitor
+ * reaches them.
  */
 function ProgressMenuSection() {
   const gamificationEnabled = useNotificationPrefsStore((s) => s.gamificationEnabled);
@@ -626,6 +628,12 @@ function ProgressMenuSection() {
           <span>Trophies &amp; challenges</span>
         </DropdownMenuItem>
       )}
+      <DropdownMenuItem asChild>
+        <Link href="/settings/notifications" className="cursor-pointer">
+          <SlidersHorizontal className="w-4 h-4" aria-hidden="true" />
+          <span>Notifications</span>
+        </Link>
+      </DropdownMenuItem>
       <DropdownMenuItem
         onSelect={() => (paused ? resume() : pause(PAUSE_CELEBRATIONS_MS))}
         className="cursor-pointer"

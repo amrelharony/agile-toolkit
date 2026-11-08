@@ -17,6 +17,7 @@
 
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { awardXp, dispatch } from "./engine";
+import { isGamificationEnabled } from "./enabled";
 import {
   CLAIM_RETENTION_DAYS,
   GLOBAL_DAILY_XP_CAP,
@@ -45,7 +46,12 @@ export type OutcomeReason =
    * The profile hasn't been read from storage yet. Writing now would save
    * the empty in-memory profile over the stored one, so nothing happens.
    */
-  | "not-ready";
+  | "not-ready"
+  /**
+   * Gamification is off (Settings › Notifications). Nothing is paid, claimed
+   * or dispatched, so the same outcome can still pay once it is back on.
+   */
+  | "paused";
 
 export interface OutcomeResult {
   awarded: boolean;
@@ -249,6 +255,9 @@ export function recordOutcome(id: OutcomeId | string, opts: RecordOptions = {}):
   // would save an empty profile over the stored one.
   if (!useVDnaStore.persist.hasHydrated()) {
     return { awarded: false, xp: 0, reason: "not-ready" };
+  }
+  if (!isGamificationEnabled()) {
+    return { awarded: false, xp: 0, reason: "paused" };
   }
 
   // Decide inside the functional update so two outcomes in one tick can't
