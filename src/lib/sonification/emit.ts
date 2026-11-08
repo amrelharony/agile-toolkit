@@ -1,5 +1,6 @@
 "use client";
 
+import { announceToolMoment } from "@/lib/agent/mascot/tool-moments";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
 import { getEngine } from "./engine";
 import { getEntry } from "./palette";
@@ -36,9 +37,7 @@ function play(toolId: string, entry: PaletteEntry) {
   };
 
   if (entry.steps && entry.steps.length > 0) {
-    const freqs = chordFreqs(entry.steps, root).map((f) =>
-      octaveShift(f, shift)
-    );
+    const freqs = chordFreqs(entry.steps, root).map((f) => octaveShift(f, shift));
     engine.playChord(entry.voice, freqs, opts);
     return;
   }
@@ -57,6 +56,9 @@ function play(toolId: string, entry: PaletteEntry) {
  */
 export function emit(toolId: string, eventName: string, targetEl?: HTMLElement | null) {
   if (typeof window === "undefined") return;
+
+  // Amr marks a few of these (an OKR achieved, a hypothesis settled), sound or not.
+  announceToolMoment(toolId, eventName);
 
   // Forward to gamification — lazy-imported to avoid circular module dep.
   // Gamification runs even when sonification is off.
@@ -89,14 +91,9 @@ async function forwardToGamification(toolId: string, eventName: string) {
   }
 }
 
-let hapticsDispatch:
-  | ((toolId: string, eventName: string, targetEl?: HTMLElement) => void)
-  | null = null;
-async function forwardToHaptics(
-  toolId: string,
-  eventName: string,
-  targetEl?: HTMLElement,
-) {
+let hapticsDispatch: ((toolId: string, eventName: string, targetEl?: HTMLElement) => void) | null =
+  null;
+async function forwardToHaptics(toolId: string, eventName: string, targetEl?: HTMLElement) {
   try {
     if (!hapticsDispatch) {
       const mod = await import("@/lib/haptics/engine");

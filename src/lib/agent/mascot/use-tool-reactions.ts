@@ -5,13 +5,19 @@
  * actions to the history store (useHistoryLogger), for visitors and the owner
  * alike, so the mascot reacts to all of them without any per-tool wiring. Amr
  * says nothing here; the reaction is a pose only. Some actions have a scene of
- * their own (the toolkit sheets S54–S59): cards, votes, timers, kudos, a release.
+ * their own: each tool's from its sheet (context/tool-scenes.ts, S65 on), and
+ * the toolkit's shared ones (S54–S59): cards, votes, timers, kudos, a release.
+ * He also marks a few moments nothing logs: those tools announce
+ * (tool-moments.ts) and the docked timer running out (timer-watch.ts).
  */
 
 import { useEffect } from "react";
 import { useHistoryStore } from "@/lib/history/history-store";
 import type { HistoryEvent } from "@/lib/history/types";
+import { EMITTED, toolActionScenes } from "./context/tool-scenes";
 import { useMascotStore, type MascotReaction } from "./store";
+import { installTimerWatch } from "./timer-watch";
+import { onToolMoment } from "./tool-moments";
 
 /** One reaction at most this often, so a burst of edits isn't a jumping fit. */
 const MIN_GAP_MS = 4000;
@@ -87,44 +93,143 @@ const ACTION_SCENES: Record<string, readonly string[]> = {
   kudos_reacted: ["kudos.clap"],
 };
 
+/** One of these scenes whose sheet has shipped, at random. */
+function pickShipped(
+  scenes: readonly string[],
+  shipped: (scene: string) => boolean,
+  random: () => number
+): string | null {
+  const choices = scenes.filter(shipped);
+  if (!choices.length) return null;
+  return choices[Math.floor(random() * choices.length) % choices.length];
+}
+
 /** The scene for an action, when it has one whose sheet has shipped. */
 export function sceneForAction(
   action: string,
   shipped: (scene: string) => boolean,
   random: () => number = Math.random
 ): string | null {
-  const choices = (ACTION_SCENES[action] ?? []).filter(shipped);
-  if (!choices.length) return null;
-  return choices[Math.floor(random() * choices.length) % choices.length];
+  return pickShipped(ACTION_SCENES[action] ?? [], shipped, random);
 }
 
 /**
- * Start reacting to logged actions. Returns the unsubscribe. `shipped` says
- * which scenes exist yet; without it, actions get their poses only.
+ * The scene for a tool's action: the tool's own first (context/tool-scenes.ts),
+ * then the toolkit's shared ones.
+ */
+export function sceneForEvent(
+  toolId: string,
+  action: string,
+  shipped: (scene: string) => boolean,
+  random: () => number = Math.random
+): string | null {
+  return (
+    pickShipped(toolActionScenes(toolId, action), shipped, random) ??
+    sceneForAction(action, shipped, random)
+  );
+}
+
+/** A moment's name as the tool table spells it: emitted sounds use dashes. */
+export const momentName = (name: string) => name.replace(/-/g, "_");
+
+/**
+ * The scene for a moment nothing logs (an emitted event, a revealed vote, a
+ * timer running out), from the tool table only: no pose, since it may echo an
+ * action the tool logged. A timer whose tool has no scene of its own gets the
+ * Ceremony Timer's.
+ */
+export function sceneForMoment(
+  toolId: string,
+  name: string,
+  shipped: (scene: string) => boolean,
+  random: () => number = Math.random
+): string | null {
+  const moment = momentName(name);
+  if (moment === "timer_finished") {
+    return (
+      pickShipped(toolActionScenes(toolId, moment), shipped, random) ??
+      pickShipped(toolActionScenes("ceremony-timer", moment), shipped, random)
+    );
+  }
+  if (!EMITTED.has(moment)) return null;
+  return pickShipped(toolActionScenes(toolId, moment), shipped, random);
+}
+
+/** How telling a reaction is: in one tick, only the most telling plays. */
+const RANK = { pose: 1, scene: 2, moment: 3 } as const;
+
+/**
+ * Start reacting to logged actions, announced moments and the docked timer
+ * running out. Returns the unsubscribe. `shipped` says which scenes exist yet;
+ * without it, actions get their poses only.
  */
 export function installToolReactions(
-  shipped: (scene: string) => boolean = () => false
+  shipped: (scene: string) => boolean = () => false,
+  random: () => number = Math.random
 ): () => void {
   let lastAt = -Infinity;
-  return useHistoryStore.subscribe((s, prev) => {
-    if (s.events === prev.events || s.events.length <= prev.events.length) return;
-    const event: HistoryEvent | undefined = s.events[s.events.length - 1];
-    if (!event) return;
+  let pending: { reaction: MascotReaction; rank: number } | null = null;
+
+  const flush = () => {
+    const p = pending;
+    pending = null;
+    if (!p) return;
     const now = Date.now();
-    if (now - new Date(event.occurredAt).getTime() > FRESH_MS) return;
     if (now - lastAt < MIN_GAP_MS) return;
     const mascot = useMascotStore.getState();
     // Nobody plays the queue while the figure isn't on screen.
     if (!mascot.ready) return;
-    const scene = sceneForAction(event.action, shipped);
-    const reaction: MascotReaction | null = scene
-      ? `scene:${scene}`
-      : reactionForAction(event.action);
-    if (!reaction) return;
     lastAt = now;
-    mascot.queueReaction(reaction);
+    mascot.queueReaction(p.reaction);
+  };
+  // A check-in that also achieves its OKR logs and announces in the same tick:
+  // wait for the tick to end and play the most telling of them.
+  const offer = (reaction: MascotReaction, rank: number) => {
+    if (pending) {
+      if (rank > pending.rank) pending = { reaction, rank };
+      return;
+    }
+    pending = { reaction, rank };
+    queueMicrotask(flush);
+  };
+
+  const onAction = (toolId: string, action: string) => {
+    const scene = sceneForEvent(toolId, action, shipped, random);
+    if (scene) return offer(`scene:${scene}`, RANK.scene);
+    const pose = reactionForAction(action);
+    if (pose) offer(pose, RANK.pose);
+  };
+  const onMoment = (toolId: string, name: string) => {
+    const scene = sceneForMoment(toolId, name, shipped, random);
+    if (scene) offer(`scene:${scene}`, RANK.moment);
+  };
+
+  let seen = lastId(useHistoryStore.getState().events);
+  const offHistory = useHistoryStore.subscribe((s, prev) => {
+    if (s.events === prev.events) return;
+    const id = lastId(s.events);
+    const isNew = id !== seen;
+    seen = id;
+    // The store keeps the newest 2,000, so a new event can leave the length as
+    // it was; a shorter list is an undo or a clear, not something done.
+    if (!isNew || s.events.length < prev.events.length) return;
+    const event: HistoryEvent | undefined = s.events[s.events.length - 1];
+    if (!event) return;
+    if (Date.now() - new Date(event.occurredAt).getTime() > FRESH_MS) return;
+    onAction(event.toolId, event.action);
   });
+  const offMoments = onToolMoment(onMoment);
+  const offTimer = installTimerWatch((toolId) => onMoment(toolId, "timer_finished"));
+
+  return () => {
+    offHistory();
+    offMoments();
+    offTimer();
+    pending = null;
+  };
 }
+
+const lastId = (events: readonly HistoryEvent[]) => events[events.length - 1]?.id ?? null;
 
 /** Call once from the mascot assistant. */
 export function useMascotToolReactions(shipped?: (scene: string) => boolean): void {

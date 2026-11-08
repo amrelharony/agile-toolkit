@@ -13,6 +13,7 @@
 import type { MascotReaction } from "@/lib/agent/mascot/store";
 import { cairoDay } from "@/lib/agent/mascot/context/occasions";
 import { momentsNow, PLAY_SCENES, type Moment } from "@/lib/agent/mascot/context/moments";
+import { toolPageScenes } from "@/lib/agent/mascot/context/tool-scenes";
 import type { WeatherNow } from "@/lib/agent/mascot/context/weather";
 import type { PackId } from "../../mascot-packs";
 import { clipPacks, shippedScene } from "../sprite-poses";
@@ -226,7 +227,14 @@ export function installContextSenses(hooks: ContextHooks): ContextSenses {
   };
   if (typeof window !== "undefined") window.addEventListener("keydown", onKey, { passive: true });
 
+  /** On a tool's page, load the packs its moments play, before the first one happens. */
+  const preloadTool = (path: string) => {
+    const packs = Array.from(new Set(toolPageScenes(path).filter(shipped).flatMap(packsOf)));
+    if (packs.length) hooks.want(packs);
+  };
+
   let lastPath = hooks.path();
+  preloadTool(lastPath);
 
   return {
     play() {
@@ -241,6 +249,7 @@ export function installContextSenses(hooks: ContextHooks): ContextSenses {
       const path = hooks.path();
       if (path === lastPath) return;
       lastPath = path;
+      preloadTool(path);
       if (greetedOnArrival) greet(false); // a new page may have its own moment
     },
     dispose() {
