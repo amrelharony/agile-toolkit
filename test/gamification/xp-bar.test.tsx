@@ -23,7 +23,7 @@ import { useVDnaStore } from "@/lib/stores/vdna-store";
  */
 
 beforeEach(() => {
-  useVDnaStore.setState({ xp: 0, prestige: 0, unlocked: [], silentMode: false });
+  useVDnaStore.setState({ xp: 0, prestige: 0, unlocked: [] });
 });
 afterEach(() => {
   vi.restoreAllMocks();

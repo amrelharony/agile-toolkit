@@ -53,6 +53,7 @@ import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./engine/sprite-poses";
 import { VisitorGuide } from "./visitor-guide";
+import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import styles from "./mascot-assistant.module.css";
 
 /** Which corner the mascot is parked in (drag-to-reposition). */
@@ -185,11 +186,11 @@ function panelPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSS
   };
 }
 
-/** True below the `sm` breakpoint (640px). */
+/** True at phone width (`PHONE_MAX_PX`, below Tailwind's `sm`). */
 function useIsPhone(): boolean {
   const [isPhone, setIsPhone] = useState(false);
   useEffect(() => {
-    const mq = window.matchMedia?.("(max-width: 639px)");
+    const mq = window.matchMedia?.(PHONE_MEDIA_QUERY);
     if (!mq) return;
     const update = () => setIsPhone(mq.matches);
     update();
@@ -197,6 +198,24 @@ function useIsPhone(): boolean {
     return () => mq.removeEventListener?.("change", update);
   }, []);
   return isPhone;
+}
+
+/**
+ * The CSS variables that keep space for Amr on phones, for a band on `side` of
+ * `height` px. `--amr-band-top` / `--amr-band-bottom` are the band's own height
+ * (the bottom one includes the home-indicator inset; the top one is measured
+ * from the header's bottom edge, since a top-docked Amr stands below the
+ * header). `--amr-band-top-edge` is where the top band ends, measured from the
+ * top of the viewport, for things positioned against the viewport (the phone
+ * trophy sheet) rather than against the header.
+ */
+export function phoneBandVars(side: "top" | "bottom", height: number): Record<string, string> {
+  return side === "top"
+    ? {
+        "--amr-band-top": `${height}px`,
+        "--amr-band-top-edge": `calc(var(--header-h, 56px) + ${height}px)`,
+      }
+    : { "--amr-band-bottom": `calc(${height}px + env(safe-area-inset-bottom, 0px))` };
 }
 
 /**
@@ -211,13 +230,10 @@ function usePhoneBand(band: { side: "top" | "bottom"; height: number } | null) {
   useEffect(() => {
     if (!side || height === undefined) return;
     const root = document.documentElement;
-    const name = side === "top" ? "--amr-band-top" : "--amr-band-bottom";
-    root.style.setProperty(
-      name,
-      side === "top" ? `${height}px` : `calc(${height}px + env(safe-area-inset-bottom, 0px))`
-    );
+    const vars = phoneBandVars(side, height);
+    for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
     return () => {
-      root.style.removeProperty(name);
+      for (const name of Object.keys(vars)) root.style.removeProperty(name);
     };
   }, [side, height]);
 }

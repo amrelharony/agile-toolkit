@@ -2,10 +2,7 @@
 
 import {
   dismissNotification,
-  isLegacyNotifyPolicy,
   notify,
-  notifyLegacy,
-  sonnerDismiss,
   sonnerPromise,
   type NotifyOptions,
   type ToastInput,
@@ -30,13 +27,9 @@ type ToastOpts = NotifyOptions | undefined;
  * Feedback only: a toast plays its sound and haptic but never reaches the
  * gamification engine, so no toast can earn XP or move a badge. Sound and
  * haptics failures never escape these helpers.
- *
- * `NEXT_PUBLIC_NOTIFY_POLICY=legacy` restores the old behaviour.
  */
 function route(method: ToastMethod, message: ToastInput, opts?: ToastOpts): string | number {
-  return isLegacyNotifyPolicy()
-    ? notifyLegacy(method, message, opts)
-    : notify(method, message, opts);
+  return notify(method, message, opts);
 }
 
 /**
@@ -65,10 +58,7 @@ export const toast: {
     warning: (m: ToastInput, o?: ToastOpts) => route("warning", m, o),
     message: (m: ToastInput, o?: ToastOpts) => route("message", m, o),
     loading: (m: ToastInput, o?: ToastOpts) => route("loading", m, o),
-    dismiss: (id?: string | number) => {
-      if (isLegacyNotifyPolicy()) sonnerDismiss(id);
-      else dismissNotification(id);
-    },
+    dismiss: (id?: string | number) => dismissNotification(id),
     // A promise toast is progress: shown at once, settled by sonner, silent.
     promise: sonnerPromise,
   }

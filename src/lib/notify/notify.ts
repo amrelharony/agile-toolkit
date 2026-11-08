@@ -30,9 +30,6 @@
  * Sound and haptics go through `emitFeedback` only: nothing here reaches the
  * gamification engine. A toast the policy drops, sends inline or holds still
  * returns an id, so callers can always `toast.dismiss(id)`.
- *
- * `NEXT_PUBLIC_NOTIFY_POLICY=legacy` (build-time) switches back to the old
- * behaviour: every toast shown at once with its sound (see toast.ts).
  */
 
 import { toast as sonnerToast, type ExternalToast, type ToastT } from "sonner";
@@ -83,17 +80,6 @@ export const METHOD_KIND: Record<ToastMethod, NotifyKind> = {
   loading: "progress",
 };
 
-/** The sound/haptic event the legacy wrapper played for each helper. */
-const LEGACY_FEEDBACK: Record<ToastMethod, string> = {
-  plain: "toast-info",
-  success: "toast-success",
-  error: "toast-error",
-  info: "toast-info",
-  warning: "toast-warning",
-  message: "toast-info",
-  loading: "toast-info",
-};
-
 export const DEDUPE_WINDOW_MS = 10_000;
 export const DEDUPE_CAP = 50;
 export const BURST_WINDOW_MS = 10_000;
@@ -110,11 +96,6 @@ const DEDUPED_KINDS: ReadonlySet<NotifyKind> = new Set<NotifyKind>([
   "system",
 ]);
 const BURST_KINDS: ReadonlySet<NotifyKind> = new Set<NotifyKind>(["success", "info"]);
-
-/** Whether the build-time kill switch restores the old toast behaviour. */
-export function isLegacyNotifyPolicy(): boolean {
-  return process.env.NEXT_PUBLIC_NOTIFY_POLICY === "legacy";
-}
 
 // ---------------------------------------------------------------------------
 // Feedback
@@ -577,32 +558,7 @@ export function dismissNotification(id?: string | number): void {
   sonnerToast.dismiss(id);
 }
 
-/** The old wrapper's behaviour: show at once and play the helper's sound. */
-export function notifyLegacy(
-  method: ToastMethod,
-  message: ToastInput,
-  options?: NotifyOptions
-): string | number {
-  const { kind: _kind, onShow, ...opts } = options ?? {};
-  void _kind;
-  safeFeedback(LEGACY_FEEDBACK[method]);
-  const id =
-    method === "plain"
-      ? sonnerToast(message, opts)
-      : (sonnerToast[method] as (m: ToastInput, o?: ExternalToast) => string | number)(
-          message,
-          opts
-        );
-  try {
-    onShow?.(id);
-  } catch {
-    /* a caller's onShow never breaks the toast */
-  }
-  return id;
-}
-
 export const sonnerPromise: typeof sonnerToast.promise = (...args) => sonnerToast.promise(...args);
-export const sonnerDismiss = (id?: string | number) => sonnerToast.dismiss(id);
 
 /** Number of toasts held in the deferred queue (tests, diagnostics). */
 export function pendingCount(): number {
