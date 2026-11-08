@@ -13,6 +13,36 @@ interface MiniMapProps {
 
 const MINIMAP_W = 200;
 const MINIMAP_H = 140;
+/** Its border. The page is border-box, so the map draws in the 198x138 inside it. */
+const MINIMAP_BORDER = 1;
+
+/**
+ * Where the mini-map sits on a touch screen (the zoom stack it clears is
+ * in zoom-controls.tsx).
+ *
+ * - On touch the zoom stack (Undo / Redo, full screen, the zoom bar) sits
+ *   bottom-left. Its top is 4rem + 2px up from the board's bottom, and
+ *   from sm up its right end is 26.875rem + 6px in from the left. On a
+ *   board narrower than 28.125rem + 206px (656 px) the map's corner came
+ *   down 10 px over that end. There the map rises 1rem + 2px, to 0.5rem
+ *   above the stack. A margin's percentage is of the board's width, so
+ *   the clamp is a step: the whole rise under 656 px, none from there up,
+ *   where the map already clears the stack and stays where it was.
+ * - The board toolbar (top-3) is the same 4rem + 2px tall, and a short
+ *   landscape board has little room between the two. On touch the map is
+ *   never taller than the board less both of them and a 0.5rem gap from
+ *   each (9rem + 4px), and it keeps its shape as it shrinks
+ *   (MINI_MAP_TOUCH_SIZE). So it never reaches the toolbar: at 640x360
+ *   the board is 286 px tall inside, and the map 138 px, 8 px under it.
+ *
+ * With a mouse it stays right-3 bottom-14 at 200x140.
+ */
+export const MINI_MAP_TOUCH_PLACE =
+  "pointer-coarse:mb-[clamp(0px,calc((28.125rem+206px-100%)*99),calc(1rem+2px))] pointer-coarse:h-[min(140px,calc(100%-9rem-4px))]";
+
+/** On touch the map fills MINI_MAP_TOUCH_PLACE's height at its own 10:7 shape. */
+export const MINI_MAP_TOUCH_SIZE =
+  "pointer-coarse:h-full pointer-coarse:w-auto pointer-coarse:aspect-[10/7]";
 
 /**
  * Bottom-right minimap. Renders every object's bbox as a tiny rect plus
@@ -83,8 +113,11 @@ function MiniMapImpl({ objects, camera, viewportSize, onPan }: MiniMapProps) {
   const handleClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!onPan) return;
     const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    // A short touch board draws the map smaller (MINI_MAP_TOUCH_SIZE):
+    // bring the press back to its 200x140 units. With a mouse this is 1.
+    const k = rect.width > 0 ? MINIMAP_W / rect.width : 1;
+    const mx = (e.clientX - rect.left) * k;
+    const my = (e.clientY - rect.top) * k;
     const worldX = mx / scale + worldBbox.x;
     const worldY = my / scale + worldBbox.y;
     onPan(worldX, worldY);
@@ -92,18 +125,22 @@ function MiniMapImpl({ objects, camera, viewportSize, onPan }: MiniMapProps) {
 
   return (
     <div
-      className="absolute right-3 bottom-14 z-10 select-none hidden sm:block"
+      className={`absolute right-3 bottom-14 z-10 select-none hidden sm:block ${MINI_MAP_TOUCH_PLACE}`}
       data-canvas-export-ignore="true"
     >
       <svg
         width={MINIMAP_W}
         height={MINIMAP_H}
+        // The drawing area inside the border, so with a mouse one unit is
+        // still one pixel; on touch the drawing scales with the map.
+        viewBox={`0 0 ${MINIMAP_W - 2 * MINIMAP_BORDER} ${MINIMAP_H - 2 * MINIMAP_BORDER}`}
+        className={MINI_MAP_TOUCH_SIZE}
         onMouseDown={handleClick}
         role="img"
         aria-label="Mini-map — click to pan the camera"
         style={{
           background: "rgba(11, 15, 23, 0.92)",
-          border: "1px solid #2a2f3a",
+          border: `${MINIMAP_BORDER}px solid #2a2f3a`,
           borderRadius: 6,
           backdropFilter: "blur(8px)",
           cursor: "pointer",
