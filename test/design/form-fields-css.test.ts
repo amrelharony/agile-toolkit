@@ -58,6 +58,23 @@ describe("pointer-fine:md: order", () => {
     expect(fine).toBeGreaterThan(bare);
     expect(css).toContain("@media (pointer: fine)");
   });
+
+  it("comes after sm:, so a caller's h-8 sm:h-7 stays 36px for a mouse at md+, as with md:h-9", async () => {
+    const css = await compile("h-8 sm:h-7 pointer-fine:md:h-9");
+    const sm = css.indexOf(".sm\\:h-7");
+    const fine = css.indexOf(".pointer-fine\\:md\\:h-9");
+    expect(sm).toBeGreaterThan(-1);
+    expect(fine).toBeGreaterThan(sm);
+  });
+});
+
+describe("pointer-coarse:min-h-11", () => {
+  it("is a 44px min-height for touch screens only", async () => {
+    const css = await compile("pointer-coarse:min-h-11");
+    expect(css).toMatch(
+      /@media \(pointer: coarse\)\s*\{\s*\.pointer-coarse\\:min-h-11\s*\{\s*min-height: 2\.75rem/
+    );
+  });
 });
 
 describe("iOS no-zoom guard", () => {
