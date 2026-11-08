@@ -171,6 +171,47 @@ describe("CanvasClient stage height", () => {
     expect(vi.mocked(window.scrollTo).mock.calls.length).toBe(calls + 1);
   });
 
+  it("ends full screen when the pointer stops being touch, so the page isn't stuck", async () => {
+    // The switch renders only under (pointer: coarse). A 2-in-1 leaving
+    // tablet mode would hide it with the page still locked.
+    const listeners = new Set<(e: MediaQueryListEvent) => void>();
+    const coarse = {
+      matches: true,
+      media: "(pointer: coarse)",
+      addEventListener: (_: string, fn: (e: MediaQueryListEvent) => void) => listeners.add(fn),
+      removeEventListener: (_: string, fn: (e: MediaQueryListEvent) => void) =>
+        listeners.delete(fn),
+    };
+    const realMatchMedia = window.matchMedia;
+    const spy = vi
+      .spyOn(window, "matchMedia")
+      .mockImplementation((query: string) =>
+        query === "(pointer: coarse)"
+          ? (coarse as unknown as MediaQueryList)
+          : realMatchMedia(query)
+      );
+    try {
+      render(<CanvasClient />);
+      const stage = await findStage();
+      fireEvent.click(screen.getByRole("button", { name: "Full-screen board" }));
+      expect(stage).toHaveAttribute("data-fill-screen", "true");
+      expect(listeners.size).toBe(1);
+
+      // Still touch: nothing changes.
+      act(() => listeners.forEach((fn) => fn({ matches: true } as MediaQueryListEvent)));
+      expect(stage).toHaveAttribute("data-fill-screen", "true");
+
+      act(() => listeners.forEach((fn) => fn({ matches: false } as MediaQueryListEvent)));
+      expect(stage).not.toHaveAttribute("data-fill-screen");
+      expect(stage).toHaveClass("max-h-[var(--board-max-h)]");
+      expect(document.documentElement.style.overflow).toBe("");
+      // Off again: it stops listening.
+      expect(listeners.size).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("gives the page's own ZoomControls the full-screen switch", async () => {
     render(<CanvasClient />);
     await findStage();

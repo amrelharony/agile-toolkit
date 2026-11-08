@@ -36,6 +36,9 @@ export const BOARD_MAX_H =
 export const BOARD_FILL_H =
   "calc(var(--board-vh) - var(--header-h) - var(--amr-band-top, 0px) - env(safe-area-inset-bottom, 0px))";
 
+/** The switch only renders for this pointer (ZoomControls' touch row). */
+const COARSE_POINTER = "(pointer: coarse)";
+
 function cssPx(name: string): number {
   const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
   return Number.isFinite(v) ? v : 0;
@@ -71,6 +74,21 @@ export function useBoardFillScreen(stageRef: RefObject<HTMLElement | null>) {
       root.style.overflow = prevOverflow;
     };
   }, [on, stageRef]);
+
+  // The switch shows only while the primary pointer is coarse. When that
+  // stops (a 2-in-1 leaving tablet mode, a tablet gaining a trackpad) the
+  // switch goes, and the page would stay locked under a full-screen board
+  // with no way back short of a reload. So full screen ends with it.
+  useEffect(() => {
+    if (!on || typeof window.matchMedia !== "function") return;
+    const coarse = window.matchMedia(COARSE_POINTER);
+    if (typeof coarse.addEventListener !== "function") return;
+    const onChange = (e: MediaQueryListEvent) => {
+      if (!e.matches) setOn(false);
+    };
+    coarse.addEventListener("change", onChange);
+    return () => coarse.removeEventListener("change", onChange);
+  }, [on]);
 
   return { on, toggle };
 }
