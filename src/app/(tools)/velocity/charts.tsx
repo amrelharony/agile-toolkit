@@ -153,19 +153,26 @@ export function shortSprintName(name: string): string {
 // 12 px Inter: about 7 px a character (generous, so a "fit" really fits).
 const TICK_CHAR_PX = 7;
 const TICK_GAP = 8;
+/**
+ * Plots at least this wide (every desktop, a tablet, a landscape phone) keep
+ * Recharts' own axis. The estimate above runs wider than Recharts' measured
+ * labels, so on a wide plot it would shorten names Recharts fits (13 sprints
+ * on a 1280 px desktop became "S1…S13").
+ */
+export const NARROW_PLOT_PX = 400;
 
 /**
- * How the sprint axis labels its bars in a plot this wide. Names that fit
- * under their bars stay as they are (Recharts' own spacing). Where they don't,
- * "Sprint N" shortens to "SN" and every bar keeps its label: Recharts used to
- * drop every other one ("Sprint 1, Sprint 3, Sprint 5" on a phone). Pure, for
- * tests.
+ * How the sprint axis labels its bars in a plot this wide. On a narrow plot
+ * (a portrait phone), names that fit under their bars stay as they are
+ * (Recharts' own spacing); where they don't, "Sprint N" shortens to "SN" and
+ * every bar keeps its label: Recharts used to drop every other one ("Sprint 1,
+ * Sprint 3, Sprint 5"). A wider plot is left to Recharts. Pure, for tests.
  */
 export function sprintAxisTicks(
   names: readonly string[],
   plotWidth: number | undefined
 ): { format?: (name: string) => string; interval?: 0 } {
-  if (!plotWidth || names.length === 0) return {};
+  if (!plotWidth || plotWidth >= NARROW_PLOT_PX || names.length === 0) return {};
   const slot = plotWidth / names.length;
   const fits = (labels: readonly string[]) =>
     Math.max(...labels.map((l) => l.length)) * TICK_CHAR_PX + TICK_GAP <= slot;

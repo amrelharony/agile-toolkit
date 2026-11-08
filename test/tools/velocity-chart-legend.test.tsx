@@ -5,6 +5,7 @@ import { render, screen } from "@testing-library/react";
 import {
   COMMITTED_OPACITY,
   GRADE_FILL,
+  NARROW_PLOT_PX,
   VelocityChart,
   shortSprintName,
   sprintAxisTicks,
@@ -108,6 +109,16 @@ describe("the sprint axis", () => {
     // Too many even shortened: shortened, and Recharts thins them.
     const many = Array.from({ length: 40 }, (_, i) => `Sprint ${i + 1}`);
     expect(sprintAxisTicks(many, 212).interval).toBeUndefined();
+  });
+
+  it("leaves a desktop-wide plot to Recharts, however many sprints", () => {
+    // 14 sprints in a 1280 px desktop's plot: about 62 px a bar, where
+    // Recharts fits "Sprint 14" (the estimate alone would have shortened them).
+    const fourteen = Array.from({ length: 14 }, (_, i) => `Sprint ${i + 1}`);
+    expect(sprintAxisTicks(fourteen, 870)).toEqual({});
+    expect(sprintAxisTicks(fourteen, NARROW_PLOT_PX)).toEqual({});
+    // Just under the line, a crowded axis is still shortened.
+    expect(sprintAxisTicks(fourteen, NARROW_PLOT_PX - 1).format?.("Sprint 14")).toBe("S14");
   });
 
   it("draws S1–S5 on a phone and the full names on a wide chart", () => {
