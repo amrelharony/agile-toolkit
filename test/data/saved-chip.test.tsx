@@ -26,7 +26,7 @@ beforeEach(() => {
 
 /** The classes that size the chip (not colours, hover or focus). */
 const sizing = (el: Element) =>
-  [...el.classList].filter((c) =>
+  Array.from(el.classList).filter((c) =>
     /^(inline-flex|h-|min-h-|min-w-|items-|gap-|rounded-|border$|px-|py-|text-xs)/.test(c)
   );
 

@@ -54,7 +54,7 @@ describe("WorkspaceLoading", () => {
     expect(WORKSPACE_LOADING_RESERVE).toBe("max-lg:min-h-[60svh]");
     expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
     // Desktop keeps the old one-line card: no unprefixed min-height.
-    expect([...status.classList].filter((c) => c.startsWith("min-h-"))).toEqual([]);
+    expect(Array.from(status.classList).filter((c) => c.startsWith("min-h-"))).toEqual([]);
   });
 
   it("keeps the reserve when a caller adds its own classes", () => {
