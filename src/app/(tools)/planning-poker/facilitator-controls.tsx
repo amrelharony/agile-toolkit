@@ -118,7 +118,7 @@ export function AddPlayers({
                 if (error) setError(null);
               }}
               placeholder="e.g. Priya"
-              className="h-9 text-sm bg-surface-deep border-border text-text"
+              className="h-9 pointer-coarse:min-h-11 text-sm bg-surface-deep border-border text-text"
             />
           )}
         </Field>
@@ -127,7 +127,7 @@ export function AddPlayers({
           variant="toolkit"
           size="sm"
           disabled={!name.trim()}
-          className="h-9 shrink-0"
+          className="h-9 shrink-0 pointer-coarse:min-h-11"
         >
           Add player
         </Button>
