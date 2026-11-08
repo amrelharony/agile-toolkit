@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   DragOverlay,
   PointerSensor,
@@ -11,6 +12,7 @@ import {
   type Announcements,
 } from "@dnd-kit/core";
 import { GripVertical } from "lucide-react";
+import { useMounted } from "@/hooks/use-mounted";
 import { SonifiedDndContext } from "@/lib/sonification/sonified-dnd-context";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +23,12 @@ import { cn } from "@/lib/utils";
  * order and hidden from assistive tech. The board announces where a card
  * went in its own words, so dnd-kit's announcements only cover picking up
  * and cancelling.
+ *
+ * The overlay that follows the pointer is portalled to `<body>`. It is
+ * `position: fixed`, and any ancestor with a transform (a page entrance
+ * animation, say) becomes its containing block: once the page was scrolled
+ * the overlay drew a scroll's height off-screen, and dnd-kit, which finds the
+ * column under the overlay's rect, never found one, so drops did nothing.
  */
 export function BoardDnd({
   onMove,
@@ -39,6 +47,7 @@ export function BoardDnd({
   // A few pixels of travel before a drag starts, so a tap on the grip
   // isn't a drop.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const mounted = useMounted();
 
   const accessibility = useMemo(() => {
     const announcements: Announcements = {
@@ -67,7 +76,13 @@ export function BoardDnd({
       }}
     >
       {children}
-      <DragOverlay dropAnimation={null}>{active ? renderOverlay(active) : null}</DragOverlay>
+      {/* Client-only: there is no <body> to portal into on the server, and
+          nothing to show before the first drag anyway. */}
+      {mounted &&
+        createPortal(
+          <DragOverlay dropAnimation={null}>{active ? renderOverlay(active) : null}</DragOverlay>,
+          document.body
+        )}
     </SonifiedDndContext>
   );
 }
