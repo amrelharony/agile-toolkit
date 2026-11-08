@@ -8,14 +8,24 @@
  *   10 s, while the first is still on screen, updates that toast in place as
  *   "Title (×N)" and plays no second sound or haptic. Undo and progress
  *   toasts are never merged: two Undo toasts are two different changes.
- * - **Burst cap.** At most 2 success/info toasts per 10 s; a third replaces
- *   the newest one in place. Error, undo and warning are never limited.
+ * - **Burst cap.** At most 2 success/info toasts per 10 s; a third closes
+ *   the newest one and takes its place under a fresh id (an in-place update
+ *   would keep the old toast's action, description and icon: sonner merges
+ *   updates). Error, undo, warning and any toast with an action or cancel
+ *   button are never limited, and never replaced.
  * - **Deferred queue.** A toast the policy holds (typing, a dialog, the quiet
  *   state) keeps its id and is asked about again on a timer that runs only
  *   while something waits, and whenever `flushPending()` is called (route,
  *   presenting or intro changes; see provider.tsx).
  * - **Learned muting.** Dismissing the same info/success key 3 times adds it
- *   to `prefs.mutedKeys`; Settings can show them again.
+ *   to `prefs.mutedKeys`; Settings can show them again. A toast with an
+ *   action is never learned from: muting is for noise, not for recovery.
+ * - **Tracking.** A toast leaves `active` when it is dismissed, closes on its
+ *   own, or its action/cancel button closes it (sonner fires neither callback
+ *   then). A caller-id update the policy drops, or holds for long, closes the
+ *   older toast with that id when it was a different kind (a spinner, say).
+ * - **onShow.** Called once when the toast is actually shown, for callers
+ *   that record "seen" (the backup reminder, the tablet tips).
  *
  * Sound and haptics go through `emitFeedback` only: nothing here reaches the
  * gamification engine. A toast the policy drops, sends inline or holds still
@@ -44,6 +54,11 @@ export type ToastInput = Parameters<typeof sonnerToast>[0];
 export type NotifyOptions = ExternalToast & {
   /** Overrides the kind the helper implies (`toast.success` → success, …). */
   kind?: NotifyKind;
+  /**
+   * Called once when the toast is really shown, not when the policy holds or
+   * drops it. For callers that record "seen" only once the user saw it.
+   */
+  onShow?: (id: string | number) => void;
 };
 
 /** Which sonner helper renders the toast (its icon and style). */
@@ -195,6 +210,7 @@ interface PendingToast {
   kind: NotifyKind;
   message: ToastInput;
   opts: ExternalToast;
+  onShow?: (id: string | number) => void;
   firstAt: number;
   retryAt: number;
 }
@@ -233,6 +249,56 @@ function rememberDedupe(key: string, rec: DedupeRecord): void {
   }
 }
 
+/** Whether the toast carries an action or cancel button (Undo, Download, …). */
+function hasActionButton(opts: ExternalToast): boolean {
+  return (
+    (opts.action !== undefined && opts.action !== null) ||
+    (opts.cancel !== undefined && opts.cancel !== null)
+  );
+}
+
+/** Forget a toast that has closed. */
+function forget(id: string | number): void {
+  active.delete(id);
+  programmatic.delete(id);
+}
+
+/** Close a toast ourselves (not the user: its onDismiss teaches nothing). */
+function closeOwn(id: string | number): void {
+  active.delete(id);
+  programmatic.add(id);
+  sonnerToast.dismiss(id);
+}
+
+/**
+ * A caller-id update that won't show now: close the older toast with that id
+ * when it is a different kind, so a spinner (progress never times out) isn't
+ * left on screen with no close button.
+ */
+function closeStale(id: string | number, kind: NotifyKind): void {
+  const shown = active.get(id);
+  if (shown && shown.kind !== kind) closeOwn(id);
+}
+
+/**
+ * Wrap an action/cancel button's onClick so the toast is forgotten when the
+ * button closes it: sonner calls deleteToast() without onDismiss/onAutoClose
+ * then. An action whose handler calls preventDefault() keeps the toast open.
+ */
+function trackButton<T>(btn: T, id: string | number, respectPrevent: boolean): T {
+  if (!btn || typeof btn !== "object" || !("label" in btn) || !("onClick" in btn)) return btn;
+  const original = (btn as unknown as { onClick?: (e: unknown) => void }).onClick;
+  return {
+    ...btn,
+    onClick: (event: unknown) => {
+      original?.(event);
+      const prevented = (event as { defaultPrevented?: boolean } | undefined)?.defaultPrevented;
+      if (respectPrevent && prevented) return;
+      forget(id);
+    },
+  } as T;
+}
+
 function learnDismissal(key: string, kind: NotifyKind): void {
   if (!MUTABLE_KINDS.has(kind)) return;
   const n = (dismissals.get(key) ?? 0) + 1;
@@ -268,20 +334,23 @@ function withTracking(
 ): ExternalToast {
   const callerDismiss = opts.onDismiss;
   const callerAutoClose = opts.onAutoClose;
-  return {
+  const withAction = hasActionButton(opts);
+  const tracked: ExternalToast = {
     ...opts,
     onDismiss: (t: ToastT) => {
       active.delete(id);
       if (programmatic.has(id)) programmatic.delete(id);
-      else learnDismissal(key, kind);
+      else if (!withAction) learnDismissal(key, kind);
       callerDismiss?.(t);
     },
     onAutoClose: (t: ToastT) => {
-      active.delete(id);
-      programmatic.delete(id);
+      forget(id);
       callerAutoClose?.(t);
     },
   };
+  if (opts.action) tracked.action = trackButton(opts.action, id, true);
+  if (opts.cancel) tracked.cancel = trackButton(opts.cancel, id, false);
+  return tracked;
 }
 
 function feedbackEvent(kind: NotifyKind, d: NotifyDecision): string | null {
@@ -300,7 +369,8 @@ function show(
   opts: ExternalToast,
   id: string | number,
   d: NotifyDecision,
-  callerGaveId: boolean
+  callerGaveId: boolean,
+  onShow?: (id: string | number) => void
 ): string | number {
   const now = nowMs();
   const title = titleText(message);
@@ -329,25 +399,33 @@ function show(
     return rec.id;
   }
 
-  // 2. Burst cap: a third success/info within 10 s replaces the newest.
-  if (BURST_KINDS.has(kind) && !callerGaveId) {
+  // 2. Burst cap: a third success/info within 10 s closes the newest and
+  //    takes its place, silently. Toasts with an action are never limited
+  //    and never in the ring, so no Undo is lost or carried over.
+  let replaced = false;
+  if (BURST_KINDS.has(kind) && !callerGaveId && !hasActionButton(opts)) {
     burst = burst.filter((b) => now - b.at < BURST_WINDOW_MS && active.has(b.id));
     if (burst.length >= BURST_MAX) {
       const newest = burst[burst.length - 1];
+      closeOwn(newest.id);
+      newest.id = id;
       newest.at = now;
-      active.set(newest.id, { key, kind });
-      rememberDedupe(key, { id: newest.id, kind, title, count: 1, lastAt: now });
-      render(method, message, withTracking(sized, newest.id, key, kind), newest.id);
-      return newest.id;
+      replaced = true;
+    } else {
+      burst.push({ id, at: now });
     }
-    burst.push({ id, at: now });
   }
 
   // 3. A fresh toast (or the caller's own id updated in place).
   active.set(id, { key, kind });
   rememberDedupe(key, { id, kind, title, count: 1, lastAt: now });
   render(method, message, withTracking(sized, id, key, kind), id);
-  const event = feedbackEvent(kind, d);
+  try {
+    onShow?.(id);
+  } catch {
+    /* a caller's onShow never breaks the toast */
+  }
+  const event = replaced ? null : feedbackEvent(kind, d);
   if (event) {
     safeFeedback(event, {
       sound: d.sound !== null,
@@ -369,7 +447,7 @@ function requestFor(
     title: titleText(message),
     id: opts.id,
     duration: opts.duration,
-    hasAction: opts.action !== undefined && opts.action !== null,
+    hasAction: hasActionButton(opts),
     waitedMs,
   };
 }
@@ -402,12 +480,16 @@ export function flushPending(): void {
   const still: PendingToast[] = [];
   for (const p of pending) {
     const d = decide(requestFor(p.kind, p.message, p.opts, now - p.firstAt), ctx);
+    const callerGaveId = p.opts.id !== undefined;
     if (d.channel === "toast") {
-      show(p.method, p.kind, p.message, p.opts, p.id, d, p.opts.id !== undefined);
+      show(p.method, p.kind, p.message, p.opts, p.id, d, callerGaveId, p.onShow);
     } else if (d.channel === "defer") {
       still.push({ ...p, retryAt: now + (d.retryInMs ?? 1000) });
+    } else if (callerGaveId) {
+      // inline / inbox / drop: nothing shows; don't leave an older toast
+      // with this id (a spinner) behind.
+      closeStale(p.id, p.kind);
     }
-    // inline / inbox / drop: nothing more to do.
   }
   pending = still;
   scheduleFlush();
@@ -422,7 +504,7 @@ export function notify(
   message: ToastInput,
   options?: NotifyOptions
 ): string | number {
-  const { kind: explicitKind, ...rest } = options ?? {};
+  const { kind: explicitKind, onShow, ...rest } = options ?? {};
   const kind = explicitKind ?? METHOD_KIND[method];
   const callerGaveId = rest.id !== undefined;
   const id = callerGaveId ? (rest.id as string | number) : `n${++seq}`;
@@ -434,15 +516,20 @@ export function notify(
   const d = decide(requestFor(kind, message, opts, 0), readPolicyContext());
   switch (d.channel) {
     case "toast":
-      return show(method, kind, message, opts, id, d, callerGaveId);
+      return show(method, kind, message, opts, id, d, callerGaveId, onShow);
     case "defer": {
       const now = nowMs();
+      // A success or warning waits a few seconds at most (dialog, typing):
+      // the older toast stays until it lands. Info and system can be held a
+      // long time, so an older toast of another kind with this id closes.
+      if (callerGaveId && kind !== "success" && kind !== "warning") closeStale(id, kind);
       pending.push({
         id,
         method,
         kind,
         message,
         opts,
+        onShow,
         firstAt: now,
         retryAt: now + (d.retryInMs ?? 1000),
       });
@@ -453,6 +540,7 @@ export function notify(
     default:
       // inline: the control confirms it itself; inbox: celebrations (Activity);
       // drop: not shown. The caller still gets an id it may dismiss.
+      if (callerGaveId) closeStale(id, kind);
       return id;
   }
 }
@@ -476,14 +564,22 @@ export function notifyLegacy(
   message: ToastInput,
   options?: NotifyOptions
 ): string | number {
-  const { kind: _kind, ...opts } = options ?? {};
+  const { kind: _kind, onShow, ...opts } = options ?? {};
   void _kind;
   safeFeedback(LEGACY_FEEDBACK[method]);
-  if (method === "plain") return sonnerToast(message, opts);
-  return (sonnerToast[method] as (m: ToastInput, o?: ExternalToast) => string | number)(
-    message,
-    opts
-  );
+  const id =
+    method === "plain"
+      ? sonnerToast(message, opts)
+      : (sonnerToast[method] as (m: ToastInput, o?: ExternalToast) => string | number)(
+          message,
+          opts
+        );
+  try {
+    onShow?.(id);
+  } catch {
+    /* a caller's onShow never breaks the toast */
+  }
+  return id;
 }
 
 export const sonnerPromise: typeof sonnerToast.promise = (...args) => sonnerToast.promise(...args);

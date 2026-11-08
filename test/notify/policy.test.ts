@@ -3,7 +3,9 @@ import {
   decide,
   dedupeKeyFor,
   DIALOG_DEFER_MAX_MS,
+  HOLD_RETRY_MS,
   INFO_HOLD_MAX_MS,
+  QUIET_RETRY_MS,
   TYPING_DEFER_MAX_MS,
 } from "@/lib/notify/policy";
 import type { NotifyKind, NotifyRequest, PolicyContext } from "@/lib/notify/types";
@@ -133,6 +135,14 @@ describe("decide: quiet (ceremony, presenting, Focus, quiet hours, intro)", () =
   it("says why", () => {
     expect(d("success", QUIET).reason).toBe("quiet:ceremony");
   });
+
+  it("a quiet hold asks again only every minute; a dialog hold every second", () => {
+    expect(d("info", QUIET).retryInMs).toBe(QUIET_RETRY_MS);
+    expect(d("system", QUIET).retryInMs).toBe(QUIET_RETRY_MS);
+    expect(d("info", { ...QUIET, ...DIALOG }).retryInMs).toBe(QUIET_RETRY_MS);
+    expect(d("info", DIALOG).retryInMs).toBe(HOLD_RETRY_MS);
+    expect(d("system", DIALOG).retryInMs).toBe(HOLD_RETRY_MS);
+  });
 });
 
 describe("decide: a dialog is open", () => {
@@ -194,6 +204,13 @@ describe("decide: learned muting", () => {
       reason: "muted",
     });
     expect(d("success", { mutedKeys: ["tip-1"] }, { id: "tip-1" }).channel).toBe("drop");
+  });
+
+  it("never mutes a toast that carries an action (Undo, Download backup)", () => {
+    expect(d("info", { mutedKeys: ["info:Hello"] }, { hasAction: true }).channel).toBe("toast");
+    expect(d("success", { mutedKeys: ["success:Hello"] }, { hasAction: true }).channel).toBe(
+      "toast"
+    );
   });
 
   it("never mutes error, undo or warning", () => {

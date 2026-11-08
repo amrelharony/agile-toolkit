@@ -138,10 +138,11 @@ describe("toaster stacking (globals.css + tailwind token)", () => {
     expect(css).toMatch(/\[data-sonner-toaster\]\s*\{\s*z-index:\s*theme\("zIndex\.toast"\)/);
   });
 
-  it("raises toasts over an open dialog", () => {
+  it("raises toasts over an open dialog, hand-built modals and the z-[9999] card detail", () => {
     expect(css).toMatch(
-      /body:has\(\[role="dialog"\]\[data-state="open"\]\) \[data-sonner-toaster\][^{]*\{\s*z-index:\s*1010/
+      /body:has\(\[role="dialog"\]\[data-state="open"\][^)]*\)\)\s*\[data-sonner-toaster\][^{]*\{\s*z-index:\s*10000/
     );
+    expect(css).toContain('body:has([role="dialog"][aria-modal="true"]) [data-sonner-toaster]');
   });
 
   it("keeps the intro hide rule and gives the close button a 44 px touch target", () => {

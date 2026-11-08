@@ -136,17 +136,39 @@ describe("dedupe", () => {
 });
 
 describe("burst cap", () => {
-  it("a third success within 10 s replaces the newest", () => {
+  it("a third success within 10 s closes the newest and takes its place", () => {
     const a = notify("success", "one");
     const b = notify("success", "two");
     const c = notify("success", "three");
     expect(a).not.toBe(b);
-    expect(c).toBe(b);
+    expect(c).not.toBe(b);
+    expect(c).not.toBe(a);
+    expect(h.sonner.dismiss).toHaveBeenCalledWith(b);
     expect(calls(h.sonner.success).map(([m, o]) => [m, o.id])).toEqual([
       ["one", a],
       ["two", b],
-      ["three", b],
+      ["three", c],
     ]);
+    // The replacement is silent: two sounds for three toasts.
+    expect(h.emitFeedback).toHaveBeenCalledTimes(2);
+    // A fourth replaces the third, not the closed second.
+    const e = notify("success", "four");
+    expect(h.sonner.dismiss).toHaveBeenLastCalledWith(c);
+    expect(e).not.toBe(c);
+  });
+
+  it("a replacement carries no stale action or description; Undo toasts are never replaced", () => {
+    const undo = { label: "Undo", onClick: vi.fn() };
+    notify("success", "one");
+    const saved = notify("success", "Saved a copy", { action: undo, description: "Level 3!" });
+    notify("success", "two");
+    const fresh = notify("success", "Downloaded a copy");
+    expect(h.sonner.dismiss).not.toHaveBeenCalledWith(saved);
+    const [, last] = calls(h.sonner.success).at(-1)!;
+    expect(last.id).toBe(fresh);
+    expect(last.id).not.toBe(saved);
+    expect(last.action).toBeUndefined();
+    expect(last.description).toBeUndefined();
   });
 
   it("errors, warnings and undo are never limited", () => {
@@ -242,6 +264,101 @@ describe("deferred queue", () => {
   });
 });
 
+describe("action and cancel buttons", () => {
+  it("a toast closed by its action is forgotten: a repeat is fresh, not (x2)", () => {
+    const onClick = vi.fn();
+    const a = notify("success", "Saved", { action: { label: "Undo", onClick } });
+    const [, o] = calls(h.sonner.success)[0];
+    (o.action as { onClick: (e: unknown) => void }).onClick({ defaultPrevented: false });
+    expect(onClick).toHaveBeenCalledTimes(1);
+    advance(1000);
+    const b = notify("success", "Saved", { action: { label: "Undo", onClick } });
+    expect(b).not.toBe(a);
+    expect(calls(h.sonner.success).map(([m]) => m)).toEqual(["Saved", "Saved"]);
+  });
+
+  it("an action that prevents default keeps the toast tracked", () => {
+    const a = notify("error", "Couldn't save", {
+      action: { label: "Retry", onClick: () => {} },
+    });
+    const [, o] = calls(h.sonner.error)[0];
+    (o.action as { onClick: (e: unknown) => void }).onClick({ defaultPrevented: true });
+    advance(1000);
+    expect(notify("error", "Couldn't save")).toBe(a);
+  });
+
+  it("a cancel click forgets the toast too", () => {
+    const cancel = { label: "Got it", onClick: () => {} };
+    const a = notify("info", "Heads up", { cancel });
+    const [, o] = calls(h.sonner.info)[0];
+    (o.cancel as { onClick: (e: unknown) => void }).onClick({});
+    advance(1000);
+    expect(notify("info", "Heads up", { cancel })).not.toBe(a);
+  });
+
+  it("a caller's own element as action is passed through untouched", () => {
+    const el = { type: "button", props: {} };
+    notify("success", "Saved", { action: el as never });
+    expect(calls(h.sonner.success)[0][1].action).toBe(el);
+  });
+});
+
+describe("caller-id updates", () => {
+  it("a dropped success closes the spinner it was meant to replace", () => {
+    notify("loading", "Saving…", { id: "save" });
+    __setPolicyContextForTests({ ...CALM, quiet: { quiet: true, reason: "ceremony" } });
+    notify("success", "Saved", { id: "save" });
+    expect(h.sonner.success).not.toHaveBeenCalled();
+    expect(h.sonner.dismiss).toHaveBeenCalledWith("save");
+  });
+
+  it("a long-held info closes the spinner; a briefly held success leaves it until it lands", () => {
+    notify("loading", "Syncing…", { id: "sync" });
+    __setPolicyContextForTests({ ...CALM, dialogOpen: true });
+    notify("success", "Synced", { id: "sync" });
+    expect(h.sonner.dismiss).not.toHaveBeenCalled();
+    notify("info", "Sync finished", { id: "sync" });
+    expect(h.sonner.dismiss).toHaveBeenCalledWith("sync");
+  });
+
+  it("the same kind updated and dropped leaves the toast alone", () => {
+    notify("success", "Saved", { id: "s" });
+    __setPolicyContextForTests({ ...CALM, quiet: { quiet: true, reason: "focus" } });
+    notify("success", "Saved again", { id: "s" });
+    expect(h.sonner.dismiss).not.toHaveBeenCalled();
+  });
+});
+
+describe("onShow", () => {
+  it("runs only once the toast is really shown, and is not passed to sonner", () => {
+    const onShow = vi.fn();
+    __setPolicyContextForTests({ ...CALM, quiet: { quiet: true, reason: "focus" } });
+    const id = notify("info", "Back up", { kind: "system", id: "backup", onShow });
+    expect(onShow).not.toHaveBeenCalled();
+    __setPolicyContextForTests(CALM);
+    flushPending();
+    expect(onShow).toHaveBeenCalledTimes(1);
+    expect(onShow).toHaveBeenCalledWith(id);
+    expect(calls(h.sonner.info)[0][1]).not.toHaveProperty("onShow");
+  });
+
+  it("never runs for a dropped toast, and a throwing onShow doesn't break the toast", () => {
+    const dropped = vi.fn();
+    __setPolicyContextForTests({ ...CALM, quiet: { quiet: true, reason: "ceremony" } });
+    notify("success", "Saved", { onShow: dropped });
+    expect(dropped).not.toHaveBeenCalled();
+    __setPolicyContextForTests(CALM);
+    expect(() =>
+      notify("success", "Saved", {
+        onShow: () => {
+          throw new Error("boom");
+        },
+      })
+    ).not.toThrow();
+    expect(h.sonner.success).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("learned muting", () => {
   it("three user dismissals of an info key mute it", () => {
     for (let i = 0; i < 3; i++) {
@@ -263,6 +380,15 @@ describe("learned muting", () => {
       calls(h.sonner.info).at(-1)![1].onDismiss?.({});
       notify("error", "Boom");
       calls(h.sonner.error).at(-1)![1].onDismiss?.({});
+      advance(11_000);
+    }
+    expect(useNotificationPrefsStore.getState().mutedKeys).toEqual([]);
+  });
+
+  it("a toast with an action is never learned from", () => {
+    for (let i = 0; i < 3; i++) {
+      notify("success", "Saved a copy", { action: { label: "Undo", onClick: () => {} } });
+      calls(h.sonner.success).at(-1)![1].onDismiss?.({});
       advance(11_000);
     }
     expect(useNotificationPrefsStore.getState().mutedKeys).toEqual([]);
@@ -298,5 +424,22 @@ describe("context", () => {
     expect(readPolicyContext().dialogOpen).toBe(true);
     el.remove();
     expect(readPolicyContext().dialogOpen).toBe(false);
+  });
+
+  it("holds a success while a hand-built aria-modal dialog is open; errors still show", () => {
+    __setPolicyContextForTests(null);
+    setNotifyPathname("/");
+    const el = document.createElement("div");
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-modal", "true");
+    document.body.appendChild(el);
+    try {
+      notify("success", "Invite created");
+      expect(h.sonner.success).not.toHaveBeenCalled();
+      notify("error", "Couldn't copy to clipboard");
+      expect(h.sonner.error).toHaveBeenCalledTimes(1);
+    } finally {
+      el.remove();
+    }
   });
 });

@@ -19,7 +19,9 @@
  * still gated by the haptics prefs: a warning only vibrates in Full mode
  * (patterns.ts), and nothing but timer-end vibrates under reduced motion,
  * quiet hours or Focus (gate.ts). A caller's own `duration` wins over the
- * default. Learned muting only ever applies to info and success.
+ * default. Learned muting only ever applies to info and success, and never
+ * to a toast that carries an action (Undo, Download backup, …): muting is for
+ * noise, not for taking away a way to recover.
  *
  * Pure: everything comes in through `req` and `ctx`, so it is tested as a
  * table (test/notify/policy.test.ts). The executor (notify.ts) does the
@@ -46,8 +48,14 @@ export const TYPING_DEFER_MAX_MS = 3000;
 export const DIALOG_DEFER_MAX_MS = 5000;
 /** An info toast held by the quiet state is dropped after this, unless it has an action. */
 export const INFO_HOLD_MAX_MS = 30 * 60_000;
-/** How often a held toast asks again while nothing else wakes the queue. */
+/** How often a toast held by a dialog or typing asks again. */
 export const HOLD_RETRY_MS = 1000;
+/**
+ * How often a toast held by the quiet state asks again. The provider already
+ * flushes on route, presenting, intro, visibility and prefs changes, so this
+ * only catches quiet hours or Focus running out on their own.
+ */
+export const QUIET_RETRY_MS = 60_000;
 
 /** Kinds learned muting may silence. Never error, undo or warning. */
 export const MUTABLE_KINDS: ReadonlySet<NotifyKind> = new Set<NotifyKind>(["info", "success"]);
@@ -122,7 +130,7 @@ export function decide(req: NotifyRequest, ctx: PolicyContext): NotifyDecision {
     case "success": {
       const d = base(req, DURATION_MS.success);
       d.closeButton = ctx.touch;
-      if (ctx.mutedKeys.includes(d.dedupeKey)) return drop(d, "muted");
+      if (!req.hasAction && ctx.mutedKeys.includes(d.dedupeKey)) return drop(d, "muted");
       if (quiet) {
         return req.hasAction
           ? { ...d, reason: `quiet:${ctx.quiet.reason}` }
@@ -149,10 +157,12 @@ export function decide(req: NotifyRequest, ctx: PolicyContext): NotifyDecision {
     case "info": {
       const d = base(req, DURATION_MS.info);
       d.closeButton = ctx.touch;
-      if (ctx.mutedKeys.includes(d.dedupeKey)) return drop(d, "muted");
+      if (!req.hasAction && ctx.mutedKeys.includes(d.dedupeKey)) return drop(d, "muted");
       if (quiet || ctx.dialogOpen) {
         if (!req.hasAction && waited >= INFO_HOLD_MAX_MS) return drop(d, "expired");
-        return defer(d, HOLD_RETRY_MS, quiet ? `quiet:${ctx.quiet.reason}` : "dialog");
+        return quiet
+          ? defer(d, QUIET_RETRY_MS, `quiet:${ctx.quiet.reason}`)
+          : defer(d, HOLD_RETRY_MS, "dialog");
       }
       if (typingOnPhone) {
         const held = typingDefer(d, waited, TYPING_DEFER_MAX_MS);
@@ -164,7 +174,7 @@ export function decide(req: NotifyRequest, ctx: PolicyContext): NotifyDecision {
     case "system": {
       const d = base(req, DURATION_MS.system);
       d.closeButton = true;
-      if (quiet) return defer(d, HOLD_RETRY_MS, `quiet:${ctx.quiet.reason}`);
+      if (quiet) return defer(d, QUIET_RETRY_MS, `quiet:${ctx.quiet.reason}`);
       if (ctx.dialogOpen) return defer(d, HOLD_RETRY_MS, "dialog");
       if (typingOnPhone) return defer(d, HOLD_RETRY_MS, "typing");
       return d;

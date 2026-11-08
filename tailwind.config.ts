@@ -378,7 +378,8 @@ const config: Config = {
         nav: "50",
         header: "100",
         // Toasts: above the header (100) and the sidebar drawer, below modals.
-        // globals.css lifts them over an open dialog so errors stay visible.
+        // globals.css lifts them (to 10000) over an open dialog so errors stay
+        // visible.
         toast: "990",
         modal: "1000",
         overlay: "9999",

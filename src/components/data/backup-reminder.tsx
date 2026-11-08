@@ -12,6 +12,7 @@ import { toast } from "@/lib/utils/toast";
 
 /** Let the page settle before nudging. */
 const REMINDER_DELAY_MS = 20_000;
+const BACKUP_REMINDER_TOAST_ID = "backup-reminder";
 
 /**
  * A weekly-at-most "back up your work" toast for visitors whose only copy
@@ -26,11 +27,14 @@ export function BackupReminder() {
     if (!visitor || quiet) return;
     const timer = window.setTimeout(() => {
       if (!backupReminderDue()) return;
-      recordBackupReminder();
       toast.info("Back up your toolkit data", {
         // A system nudge: held while the user types, a dialog is open, or
-        // it's quiet (Focus, quiet hours, presenting), and shown after.
+        // it's quiet (Focus, quiet hours, presenting), and shown after. The
+        // fixed id lets a re-run replace a held copy instead of adding one,
+        // and the week only starts counting once the nudge is really shown.
         kind: "system",
+        id: BACKUP_REMINDER_TOAST_ID,
+        onShow: () => recordBackupReminder(),
         description:
           "Your work is saved only in this browser. A backup file lets you get it back if site data is cleared.",
         duration: 15_000,
