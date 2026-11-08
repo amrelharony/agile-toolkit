@@ -376,8 +376,11 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           // same width change so the page content stays in step.
           // It keeps `pl-safe` from md and grows by that inset: md covers
           // every landscape iPhone, whose notch would otherwise sit over
-          // the rail's icons (the inset is 0 everywhere else).
-          "md:static md:translate-x-0 md:top-0 md:h-screen md:sticky",
+          // the rail's icons (the inset is 0 everywhere else). The drawer's
+          // 18 rem cap goes at md: it would clamp the pinned-open width
+          // (256 px + a 47-59 px inset) and squeeze the labels beside the
+          // notch. (The md widths alone never reached 18 rem.)
+          "md:static md:translate-x-0 md:top-0 md:h-screen md:sticky md:max-w-none",
           expanded
             ? "md:w-[calc(16rem+env(safe-area-inset-left))]"
             : "md:w-[calc(4rem+env(safe-area-inset-left))]"

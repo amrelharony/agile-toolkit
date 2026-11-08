@@ -65,6 +65,17 @@ describe("the rail from md", () => {
     expect(cls).toContain("md:w-[calc(16rem+env(safe-area-inset-left))]");
     expect(cls).not.toContain("md:w-64");
   });
+
+  it("drops the drawer's 18 rem cap from md, so a notch inset can't clamp the open rail", () => {
+    // 256 px + a 47 px inset is 303 px: under the drawer's max-w-[18rem]
+    // (288 px) the labels lost 15 px more beside the notch.
+    window.localStorage.setItem("agile-toolkit:sidebar:collapsed:v2", "false");
+    render(<Sidebar />);
+    const cls = classesOf(aside());
+    expect(cls).toContain("max-w-[18rem]");
+    expect(cls).toContain("md:max-w-none");
+    expect(cls.filter((c) => c.startsWith("md:max-w-"))).toEqual(["md:max-w-none"]);
+  });
 });
 
 describe("the drawer's section headings", () => {
