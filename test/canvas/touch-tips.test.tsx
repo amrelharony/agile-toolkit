@@ -61,6 +61,79 @@ describe("CanvasTouchTips", () => {
     expect(screen.queryByRole("note")).not.toBeInTheDocument();
   });
 
+  it("counts as seen only once the card is on screen", () => {
+    // The board often starts below the fold on a phone: the flag and the
+    // countdown wait for the card to scroll into view.
+    vi.useFakeTimers();
+    const observers: { cb: IntersectionObserverCallback; disconnect: () => void }[] = [];
+    class FakeObserver {
+      cb: IntersectionObserverCallback;
+      constructor(cb: IntersectionObserverCallback) {
+        this.cb = cb;
+        observers.push(this);
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+      takeRecords() {
+        return [];
+      }
+    }
+    // Set by hand, not vi.stubGlobal: unstubAllGlobals would also drop
+    // test/setup.ts's matchMedia stub.
+    const g = globalThis as { IntersectionObserver?: unknown };
+    const original = g.IntersectionObserver;
+    g.IntersectionObserver = FakeObserver;
+    try {
+      render(<CanvasTouchTips enabled readOnly={false} />);
+      const note = screen.getByRole("note");
+      const report = (ratio: number) =>
+        act(() => {
+          observers
+            .at(-1)!
+            .cb(
+              [
+                {
+                  isIntersecting: ratio > 0,
+                  intersectionRatio: ratio,
+                } as IntersectionObserverEntry,
+              ],
+              observers.at(-1) as unknown as IntersectionObserver
+            );
+        });
+      // Below the fold: still waiting, long past the countdown.
+      report(0);
+      act(() => {
+        vi.advanceTimersByTime(TOUCH_TIPS_MS * 2);
+      });
+      expect(note).toBeInTheDocument();
+      expect(localStorage.getItem(TOUCH_TIPS_SEEN_KEY)).toBeNull();
+      // Barely peeking in doesn't count either.
+      report(0.2);
+      expect(localStorage.getItem(TOUCH_TIPS_SEEN_KEY)).toBeNull();
+      // On screen: remembered, and the countdown starts now.
+      report(0.6);
+      expect(localStorage.getItem(TOUCH_TIPS_SEEN_KEY)).toBe("1");
+      act(() => {
+        vi.advanceTimersByTime(TOUCH_TIPS_MS - 1);
+      });
+      expect(screen.getByRole("note")).toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(screen.queryByRole("note")).not.toBeInTheDocument();
+    } finally {
+      if (original === undefined) delete g.IntersectionObserver;
+      else g.IntersectionObserver = original;
+    }
+  });
+
+  it("sits below the tag filter row, which would cover its dismiss button", () => {
+    // TagFilterRow is `absolute top-14 z-10`, about 56-88 px down.
+    render(<CanvasTouchTips enabled readOnly={false} />);
+    expect(screen.getByRole("note")).toHaveClass("top-24");
+  });
+
   it("stays away on mouse devices", () => {
     render(<CanvasTouchTips enabled={false} readOnly={false} />);
     expect(screen.queryByRole("note")).not.toBeInTheDocument();
