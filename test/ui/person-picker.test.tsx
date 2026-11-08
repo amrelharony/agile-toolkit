@@ -72,6 +72,27 @@ describe("PersonPicker", () => {
     render(<One />);
     expect(screen.getByRole("link", { name: "Team page" })).toHaveAttribute("href", "/team");
   });
+
+  it("grows the Team page link's tap area on touch only, without moving a line", () => {
+    useWorkspaceStore.setState({ teamMembers: [] });
+    render(<One />);
+    const classes = (screen.getByRole("link", { name: "Team page" }).getAttribute("class") ?? "")
+      .split(/\s+/)
+      .filter(Boolean);
+    // Each padding is cancelled by a matching negative margin, so the
+    // line height stays; up only by the 4 px gap to the input above.
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        "pointer-coarse:inline-block",
+        "pointer-coarse:pt-1",
+        "pointer-coarse:-mt-1",
+        "pointer-coarse:pb-3",
+        "pointer-coarse:-mb-3",
+      ])
+    );
+    // A mouse gets the plain inline link it had.
+    expect(classes.filter((c) => !c.includes(":"))).toEqual(["text-accent", "underline-offset-2"]);
+  });
 });
 
 describe("PeoplePicker", () => {

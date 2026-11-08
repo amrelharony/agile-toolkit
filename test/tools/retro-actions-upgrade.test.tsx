@@ -1241,4 +1241,14 @@ describe("on a phone", () => {
     fireEvent.submit(field.closest("form") as HTMLFormElement);
     expect(boardOf(RETRO_CURRENT_ID)?.cards.at(-1)?.text).toBe("Ask ops for a sandbox");
   });
+
+  it("pads the Retro board link on touch without changing the line's height", () => {
+    renderPage();
+    const link = screen.getByRole("link", { name: "Retro board" });
+    expect(link).toHaveAttribute("href", "/retro");
+    expect(classes(link)).toEqual(
+      expect.arrayContaining(["pointer-coarse:py-2", "pointer-coarse:-my-2"])
+    );
+    expect(boxModel(link)).toEqual([]);
+  });
 });
