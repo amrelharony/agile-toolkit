@@ -33,8 +33,9 @@ SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 const sheetVariants = cva(
   // Mobile-first: full-width sheets on phones (less awkward than the old
   // 75 % width that left a dead strip), cap height with a scrollable body,
-  // and respect notch / home-bar safe areas. Padding tightens on mobile.
-  "fixed z-modal flex flex-col gap-4 bg-background p-4 sm:p-6 shadow-lg overflow-y-auto overscroll-contain transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out",
+  // and respect notch / home-bar safe areas. The panel itself never scrolls:
+  // the body inside it does (see SheetContent), so the close button stays put.
+  "fixed z-modal flex flex-col bg-background shadow-lg overflow-hidden transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out",
   {
     variants: {
       side: {
@@ -55,23 +56,40 @@ const sheetVariants = cva(
 interface SheetContentProps
   extends
     React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
-    VariantProps<typeof sheetVariants> {}
+    VariantProps<typeof sheetVariants> {
+  /**
+   * Classes for the scrolling body that holds `children`: padding, gap and
+   * layout. `className` styles the panel itself (width, colours, border).
+   */
+  bodyClassName?: string;
+}
 
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = "right", className, children, ...props }, ref) => (
+>(({ side = "right", className, bodyClassName, children, ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
     <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
+      {/* Outside the scroll body, so it never scrolls away. `z-10` keeps it
+          above positioned content (cards, sticky rows) scrolling beneath it,
+          which would otherwise paint over it because it comes first. */}
       <SheetPrimitive.Close
         aria-label="Close panel"
-        className="absolute right-3 top-3 sm:right-4 sm:top-4 min-touch-coarse inline-flex items-center justify-center rounded-md p-1.5 opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary"
+        className="absolute right-3 top-3 z-10 sm:right-4 sm:top-4 min-touch-coarse inline-flex items-center justify-center rounded-md p-1.5 opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary"
       >
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </SheetPrimitive.Close>
-      {children}
+      <div
+        data-sheet-body=""
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-4 sm:p-6",
+          bodyClassName
+        )}
+      >
+        {children}
+      </div>
     </SheetPrimitive.Content>
   </SheetPortal>
 ));

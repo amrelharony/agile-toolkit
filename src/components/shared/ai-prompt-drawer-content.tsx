@@ -129,7 +129,11 @@ export default function AiPromptDrawerContent({ config }: AiPromptDrawerContentP
   const hasPrompts = config.prompts.length > 0;
   const { isReady, providerName, model, openSettings } = useActiveLlm();
   return (
-    <SheetContent side="right" className="w-[90vw] sm:max-w-lg bg-bg border-border p-0">
+    <SheetContent
+      side="right"
+      className="w-[90vw] sm:max-w-lg bg-bg border-border"
+      bodyClassName="p-0"
+    >
       <SheetHeader className="px-4 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-border">
         <SheetTitle className="flex items-center gap-2 text-text">
           <Sparkles className="w-5 h-5 text-accent" />
