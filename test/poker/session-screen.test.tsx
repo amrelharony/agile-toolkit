@@ -246,3 +246,48 @@ describe("voting deck", () => {
     expect(screen.getByRole("button", { name: "Add story" })).toBeInTheDocument();
   });
 });
+
+describe("phone layout", () => {
+  // Every grid between the session root and a long participant name must cap
+  // its single phone column (grid-cols-N, or an arbitrary template starting at
+  // minmax(0,…)). An implicit auto track grows to the nowrap name's full width,
+  // so at 360px every session card ran 26px past the screen edge.
+  const capsItsColumn = (el: Element) =>
+    Array.from(el.classList).some(
+      (c) => /^grid-cols-\d+$/.test(c) || c.startsWith("grid-cols-[minmax(0,")
+    );
+
+  it("lets a long participant name truncate instead of widening the session", () => {
+    const longName = "Omar Abdelrahman Mahmoud Elsayed";
+    render(
+      <Harness
+        initial={makeSession({
+          participants: [
+            { id: HOST, name: "Scrum Master", vote: null },
+            { id: "p2", name: "Priya", vote: null },
+            { id: "p3", name: longName, vote: null },
+          ],
+        })}
+      />
+    );
+
+    // The Votes card and the Participants list both show the name.
+    const names = screen.getAllByText(longName);
+    expect(names.length).toBeGreaterThanOrEqual(2);
+    const grids = new Set<HTMLElement>();
+    for (const name of names) {
+      expect(name).toHaveClass("truncate");
+      for (let el = name.parentElement; el; el = el.parentElement) {
+        if (!el.classList.contains("grid")) continue;
+        grids.add(el);
+        expect(capsItsColumn(el), `uncapped grid: ${el.className}`).toBe(true);
+      }
+    }
+    // The session's two-column grid is on the path, so the check ran, and the
+    // desktop side column keeps its 260px.
+    const session = Array.from(grids).find((g) =>
+      g.classList.contains("lg:grid-cols-[minmax(0,1fr)_260px]")
+    );
+    expect(session).toBeDefined();
+  });
+});
