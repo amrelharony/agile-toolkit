@@ -1074,7 +1074,9 @@ describe("story rows on a touch screen", () => {
     // Input's own 44px phone height and 36px md height now apply (h-8 cut it
     // to 32px on phones), and md:pointer-coarse: keeps 44px on a touch
     // screen that is md-wide; a bare pointer-coarse: would lose to md:h-9.
-    expect(points).toEqual(expect.arrayContaining(["h-11", "md:h-9", "md:pointer-coarse:h-11"]));
+    expect(points).toEqual(expect.arrayContaining(["h-11", "md:pointer-coarse:h-11"]));
+    // Input's md height: md:h-9, or pointer-fine:md:h-9 once Input only shrinks for a mouse.
+    expect(points.some((c: string) => /(^|:)md:h-9$/.test(c))).toBe(true);
     expect(points).not.toContain("h-8");
     // 56px below sm gives the title back 24px; 80px from sm up, as before.
     expect(points).toEqual(expect.arrayContaining(["w-14", "sm:w-20", "px-2", "sm:px-3"]));
