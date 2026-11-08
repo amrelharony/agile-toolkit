@@ -215,7 +215,16 @@ export function ChartCard({
               when it doesn't fit beside it. From sm up the row is unchanged. */}
           <CardTitle className="text-sm flex items-center gap-2 min-w-0 flex-1 max-sm:flex-wrap max-sm:basis-auto">
             {Icon && <Icon className="w-4 h-4 text-accent shrink-0" aria-hidden="true" />}
-            <span id={alt.titleId} className="min-w-0 break-words sm:truncate">
+            <span
+              id={alt.titleId}
+              className={cn(
+                "min-w-0 break-words sm:truncate",
+                // A wrapping row breaks between items: capped at the room
+                // beside the icon, a long title wraps there instead of
+                // dropping below it and leaving the icon on its own.
+                Icon && "max-sm:max-w-[calc(100%-1.5rem)]"
+              )}
+            >
               {title}
             </span>
             {badge &&

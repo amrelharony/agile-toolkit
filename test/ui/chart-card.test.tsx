@@ -152,6 +152,9 @@ describe("ChartCard", () => {
     expect(heading).toHaveClass("max-sm:flex-wrap", "max-sm:basis-auto", "flex-1", "min-w-0");
     const title = within(heading).getByText("Burndown chart");
     expect(title).toHaveClass("sm:truncate", "break-words");
+    // Capped at the room beside the icon, so a long title wraps next to it
+    // rather than dropping below it.
+    expect(title).toHaveClass("max-sm:max-w-[calc(100%-1.5rem)]");
     expect(title).not.toHaveClass("truncate");
     // The badge never splits over lines (its border broke open on each).
     expect(within(heading).getByText("From the sprint board")).toHaveClass("whitespace-nowrap");
@@ -329,7 +332,14 @@ function LegacyChartCard({
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <CardTitle className="text-sm flex items-center gap-2 min-w-0 flex-1 max-sm:flex-wrap max-sm:basis-auto">
             {Icon && <Icon className="w-4 h-4 text-accent shrink-0" aria-hidden="true" />}
-            <span className="min-w-0 break-words sm:truncate">{title}</span>
+            <span
+              className={cn(
+                "min-w-0 break-words sm:truncate",
+                Icon && "max-sm:max-w-[calc(100%-1.5rem)]"
+              )}
+            >
+              {title}
+            </span>
             {badge &&
               (typeof badge === "string" ? (
                 <Badge variant="outline" className="sm:ml-2 whitespace-nowrap font-sans text-xs">
