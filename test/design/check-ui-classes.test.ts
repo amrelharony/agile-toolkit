@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { findViolations } from "../../scripts/check-ui-classes.mjs";
 
@@ -57,6 +59,50 @@ describe("check-ui-classes guard", () => {
       '<b className="bg-accent/90 text-white">x</b>',
     ].join("\n");
     expect(findViolations(ok)).toEqual([]);
+  });
+
+  describe("the header search pill", () => {
+    it("may not be rigid (shrink-0, flex-shrink-0, flex-none, any variant)", () => {
+      const src = [
+        "<button",
+        "  onClick={() => open(a > b)}",
+        '  data-header-search=""',
+        "  className={cn(",
+        '    "flex items-center shrink-0",',
+        '    "lg:flex-shrink-0 md:!flex-none"',
+        "  )}",
+        ">",
+        '  <Search className="shrink-0" />',
+        "</button>",
+      ].join("\n");
+      expect(findViolations(src)).toEqual([
+        expect.objectContaining({ line: 5, rule: "rigid-header-search", match: "shrink-0" }),
+        expect.objectContaining({ line: 6, match: "lg:flex-shrink-0" }),
+        expect.objectContaining({ line: 6, match: "md:!flex-none" }),
+      ]);
+    });
+
+    it("passes a shrinkable pill, rigid children, comments and unmarked elements", () => {
+      const src = [
+        '<span className="shrink-0">not the search</span>',
+        "<button",
+        '  className={cn("min-w-9 lg:min-w-[10rem] lg:shrink-[100] [&>svg]:shrink-0",',
+        "    // never shrink-0: it pushed the bar wider than the screen",
+        '    /* nor flex-none */ "lg:w-[280px]")}',
+        "  data-header-search",
+        ">",
+        '  <kbd className="shrink-0">K</kbd>',
+        "</button>",
+      ].join("\n");
+      expect(findViolations(src)).toEqual([]);
+    });
+
+    it("holds for the real header", () => {
+      const file = path.join(process.cwd(), "src/components/layout/header.tsx");
+      const source = readFileSync(file, "utf8");
+      expect(source).toContain("data-header-search");
+      expect(findViolations(source)).toEqual([]);
+    });
   });
 
   describe("touch primitives", () => {
