@@ -26,10 +26,13 @@ export function ZoomControls({ onFit, viewportSize }: ZoomControlsProps) {
 
   return (
     <div
-      // Stacks the touch-only Undo / Redo bar above the zoom bar, left-
-      // aligned so it stays out of Amr's bottom-right corner. Clicks pass
-      // through the empty corner beside the narrower bar.
-      className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-start gap-2"
+      // Phones: the touch-only Undo / Redo bar stacks above the zoom bar,
+      // left-aligned so it stays out of Amr's bottom-right corner. From
+      // sm up the mini-map sits right above the zoom bar, so Undo / Redo
+      // goes beside it instead of over the map's corner. Clicks pass
+      // through the empty space around the bars. With a mouse only the
+      // zoom bar renders, so desktop is unchanged.
+      className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-end"
       // PNG export filters out anything carrying this attribute.
       data-canvas-export-ignore="true"
     >

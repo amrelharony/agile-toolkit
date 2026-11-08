@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
@@ -206,12 +208,31 @@ describe("ZoomControls Undo / Redo", () => {
     expect(params.undo).toHaveBeenCalledTimes(1);
     expect(params.redo).toHaveBeenCalledTimes(1);
     // The zoom bar itself is untouched.
-    expect(screen.getByRole("toolbar", { name: "Zoom controls" })).toBeInTheDocument();
+    const zoomBar = screen.getByRole("toolbar", { name: "Zoom controls" });
+    // Stacked above the zoom bar on phones; beside it from sm up, where
+    // the mini-map sits right above the zoom bar.
+    const wrapper = zoomBar.parentElement!;
+    expect(wrapper).toBe(bar.parentElement);
+    expect(wrapper).toHaveClass("flex-col", "sm:flex-row", "sm:items-end");
+    expect(wrapper.firstElementChild).toBe(bar);
     unmount();
 
     // Board closed: no stale buttons.
     render(<ZoomControls />);
     expect(screen.queryByRole("toolbar", { name: "Undo and redo" })).not.toBeInTheDocument();
+  });
+
+  it("sits on the guest board, not above it", () => {
+    // ZoomControls is `absolute right-3 bottom-3`: inside a 0x0 box at
+    // the board's top-right it ended above the board, and the Undo / Redo
+    // bar stacked over it was off-screen for guest editors.
+    const src = readFileSync(
+      join(process.cwd(), "src/app/(guest)/guest/canvas/[boardId]/guest-canvas-client.tsx"),
+      "utf8"
+    );
+    expect(src).toMatch(
+      /<div className="pointer-events-none absolute inset-0 z-overlay">\s*<ZoomControls \/>/
+    );
   });
 
   it("has no Undo / Redo on a read-only board", () => {
