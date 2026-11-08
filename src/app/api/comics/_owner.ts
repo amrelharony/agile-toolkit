@@ -66,12 +66,17 @@ export function ownerRoute<P = Record<string, never>>(
  */
 export async function allRows<T>(
   page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
-  keyOf: (row: T) => string
+  keyOf: (row: T) => string,
+  /** Told the error when a page fails, for callers that answer differently by its code. */
+  onError?: (error: unknown) => void
 ): Promise<T[] | null> {
   const rows = new Map<string, T>();
   for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
     const { data, error } = await page(offset, offset + PAGE_SIZE - 1);
-    if (error || !data) return null;
+    if (error || !data) {
+      onError?.(error);
+      return null;
+    }
     for (const row of data) rows.set(keyOf(row), row);
     if (data.length < PAGE_SIZE) break;
   }

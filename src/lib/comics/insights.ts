@@ -1,12 +1,14 @@
 /**
  * The owner's Insights: what readers do with each weekly story, rolled up by
  * theme and character, and a print score for choosing stories for a printed
- * volume. Pure, from the anonymous weekly totals (migration 0036), the guess and
- * "Seen this at work?" totals (0035) and the stories themselves.
+ * volume. Pure, from sums the database works out of the anonymous weekly totals
+ * (migration 0036: comic_story_insight_totals, comic_story_weekly_totals), the
+ * guess and "Seen this at work?" totals (0035) and the stories themselves.
  *
  * Two periods: all time, or each story's first four weeks from its release
- * week, which compares an old story and a new one on the same footing. Taps
- * keep no dates, so guesses and "seen" answers are all time in both.
+ * week, which compares an old story and a new one on the same footing; the
+ * database sums both. Taps keep no dates, so guesses and "seen" answers are all
+ * time in both.
  */
 
 import { THEME_LABELS } from "./themes";
@@ -14,13 +16,21 @@ import { TIME_BAND_COUNT, TIME_BAND_LABELS } from "./stats";
 
 export type InsightPeriod = "all" | "first4";
 
-/** A comic_story_stats row. */
-export interface StatRow {
+/** A comic_story_insight_totals row: one story's sum of a metric (and time band) in a period. */
+export interface TotalRow {
   ep: number;
+  /** "all", or "first4" for the story's first four weeks. */
+  scope: string;
+  metric: string;
+  bucket: number;
+  count: number;
+}
+
+/** A comic_story_weekly_totals row: every story's sum of a metric in one week. */
+export interface WeekRow {
   /** yyyy-mm-dd, the Sunday that starts the week. */
   week: string;
   metric: string;
-  bucket: number;
   count: number;
 }
 
@@ -76,23 +86,6 @@ export interface StoryInsight extends InsightStory {
 export const MIN_READERS_FOR_SCORE = 20;
 /** A printed volume holds this many stories. */
 export const VOLUME_SIZE = 26;
-const FIRST_WEEKS = 4;
-const DAY_MS = 86_400_000;
-
-/** The Sunday (UTC) that starts the week holding `iso`, as yyyy-mm-dd. */
-export function weekOf(iso: string): string {
-  const at = new Date(iso);
-  const day = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate());
-  return new Date(day - at.getUTCDay() * DAY_MS).toISOString().slice(0, 10);
-}
-
-function inPeriod(row: StatRow, story: InsightStory, period: InsightPeriod): boolean {
-  if (period === "all") return true;
-  if (!story.releaseAt) return false;
-  const start = Date.parse(`${weekOf(story.releaseAt)}T00:00:00Z`);
-  const week = Date.parse(`${row.week}T00:00:00Z`);
-  return week >= start && week < start + FIRST_WEEKS * 7 * DAY_MS;
-}
 
 const rate = (part: number, whole: number, per = 1) => (whole > 0 ? (part / whole) * per : null);
 
@@ -157,16 +150,15 @@ export function scoreStories(insights: readonly StoryInsight[]): StoryInsight[] 
 /** Every weekly story's figures for `period`, scored. */
 export function storyInsights(
   stories: readonly InsightStory[],
-  stats: readonly StatRow[],
+  totals: readonly TotalRow[],
   taps: readonly TapRow[],
   period: InsightPeriod
 ): StoryInsight[] {
   const byEp = new Map(stories.map((s) => [s.ep, s]));
   const sums = new Map<number, Record<string, number>>();
   const bands = new Map<number, number[]>();
-  for (const row of stats) {
-    const story = byEp.get(row.ep);
-    if (!story || !inPeriod(row, story, period)) continue;
+  for (const row of totals) {
+    if (row.scope !== period || !byEp.has(row.ep)) continue;
     const n = Number(row.count) || 0;
     if (row.metric === "time") {
       const list = bands.get(row.ep) ?? Array.from({ length: TIME_BAND_COUNT }, () => 0);
@@ -285,9 +277,9 @@ export interface WeekPoint {
 }
 
 /** Views, readers and net loves across all stories, week by week, oldest first. */
-export function weeklyTrend(stats: readonly StatRow[]): WeekPoint[] {
+export function weeklyTrend(rows: readonly WeekRow[]): WeekPoint[] {
   const weeks = new Map<string, WeekPoint>();
-  for (const row of stats) {
+  for (const row of rows) {
     const point = weeks.get(row.week) ?? { week: row.week, views: 0, readers: 0, loves: 0 };
     const n = Number(row.count) || 0;
     if (row.metric === "view") point.views += n;

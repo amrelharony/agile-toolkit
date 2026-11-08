@@ -1,7 +1,9 @@
 /**
- * The owner's Insights maths: per-story figures from the weekly totals, the
- * first-four-weeks window, the print score, the theme and character roll-ups,
- * the trend and the CSV.
+ * The owner's Insights maths: per-story figures from the sums the database
+ * works out (all time and each story's first four weeks), the print score, the
+ * theme and character roll-ups, the trend, the summary and the CSV. Which weeks
+ * count as a story's first four is the database's (migration 0036), checked in
+ * test/comics/stats.test.ts and a rolled-back run against PostgreSQL.
  */
 
 import { describe, expect, it } from "vitest";
@@ -14,11 +16,10 @@ import {
   rollUp,
   storyInsights,
   summarise,
-  weekOf,
   weeklyTrend,
   type InsightStory,
-  type StatRow,
   type TapRow,
+  type TotalRow,
 } from "@/lib/comics/insights";
 
 const story = (ep: number, over: Partial<InsightStory> = {}): InsightStory => ({
@@ -32,27 +33,15 @@ const story = (ep: number, over: Partial<InsightStory> = {}): InsightStory => ({
   ...over,
 });
 
-const row = (
-  ep: number,
-  metric: string,
-  count: number,
-  week = "2026-11-08",
-  bucket = 0
-): StatRow => ({
+const total = (ep: number, metric: string, count: number, scope = "all", bucket = 0): TotalRow => ({
   ep,
-  week,
+  scope,
   metric,
   bucket,
   count,
 });
 
 describe("helpers", () => {
-  it("finds the Sunday that starts a week, in UTC", () => {
-    expect(weekOf("2026-11-08T07:00:00.000Z")).toBe("2026-11-08"); // a Sunday
-    expect(weekOf("2026-11-14T23:59:00.000Z")).toBe("2026-11-08"); // the Saturday after
-    expect(weekOf("2026-11-15T00:00:00.000Z")).toBe("2026-11-15");
-  });
-
   it("finds the band holding the middle view", () => {
     expect(medianBand([0, 0, 0, 0, 0, 0])).toBeNull();
     expect(medianBand([1, 0, 0, 5, 0, 0])).toBe(3);
@@ -70,19 +59,19 @@ describe("helpers", () => {
 
 describe("storyInsights", () => {
   const stories = [story(27), story(28, { happened: null, themes: ["T01", "T08"] })];
-  const stats = [
-    row(27, "view", 50),
-    row(27, "visitor", 40),
-    row(27, "reader", 30),
-    row(27, "love", 9),
-    row(27, "unlove", 3),
-    row(27, "share", 2),
-    row(27, "retro", 1),
-    row(27, "tool", 3),
-    row(27, "time", 10, "2026-11-08", 3),
-    row(27, "time", 4, "2026-11-08", 1),
-    row(27, "view", 7, "2026-12-13"), // the fifth week after release
-    row(99, "view", 5), // a story Insights doesn't know
+  const totals = [
+    total(27, "view", 57),
+    total(27, "visitor", 40),
+    total(27, "reader", 30),
+    total(27, "love", 9),
+    total(27, "unlove", 3),
+    total(27, "share", 2),
+    total(27, "retro", 1),
+    total(27, "tool", 3),
+    total(27, "time", 10, "all", 3),
+    total(27, "time", 4, "all", 1),
+    total(27, "view", 50, "first4"),
+    total(99, "view", 5), // a story Insights doesn't know
   ];
   const taps: TapRow[] = [
     { ep: 27, kind: "guess", choice: 1, count: 6 },
@@ -93,7 +82,7 @@ describe("storyInsights", () => {
   ];
 
   it("works out each story's figures", () => {
-    const [a, b] = storyInsights(stories, stats, taps, "all");
+    const [a, b] = storyInsights(stories, totals, taps, "all");
     expect(a).toMatchObject({
       views: 57,
       visitors: 40,
@@ -122,30 +111,30 @@ describe("storyInsights", () => {
     });
   });
 
-  it("keeps each story's first four weeks, from its release week", () => {
-    const [a] = storyInsights(stories, stats, taps, "first4");
+  it("takes the period's sums, and taps as they are", () => {
+    const [a] = storyInsights(stories, totals, taps, "first4");
     expect(a.views).toBe(50);
-    const [unreleased] = storyInsights([story(27, { releaseAt: null })], stats, taps, "first4");
-    expect(unreleased.views).toBe(0);
+    expect(a.readers).toBe(0);
+    expect(a.guessTotal).toBe(8);
   });
 });
 
 describe("the print score", () => {
   it("ranks stories with enough readers and leaves the rest too early", () => {
     const stories = [27, 28, 29].map((ep) => story(ep));
-    const stats = [
-      row(27, "visitor", 40),
-      row(27, "reader", MIN_READERS_FOR_SCORE),
-      row(27, "love", 2),
-      row(28, "visitor", 40),
-      row(28, "reader", 30),
-      row(28, "love", 15),
-      row(28, "share", 6),
-      row(29, "visitor", 10),
-      row(29, "reader", MIN_READERS_FOR_SCORE - 1),
-      row(29, "love", 19),
+    const totals = [
+      total(27, "visitor", 40),
+      total(27, "reader", MIN_READERS_FOR_SCORE),
+      total(27, "love", 2),
+      total(28, "visitor", 40),
+      total(28, "reader", 30),
+      total(28, "love", 15),
+      total(28, "share", 6),
+      total(29, "visitor", 10),
+      total(29, "reader", MIN_READERS_FOR_SCORE - 1),
+      total(29, "love", 19),
     ];
-    const scored = storyInsights(stories, stats, [], "all");
+    const scored = storyInsights(stories, totals, [], "all");
     expect(scored.map((s) => s.score)).toEqual([0, 100, null]);
   });
 });
@@ -155,18 +144,16 @@ describe("roll-ups, trend and summary", () => {
     story(27, { themes: ["T01"], castNames: ["Amr", "HiPPO"], shortlisted: true }),
     story(28, { themes: ["T01", "T08"], castNames: ["HiPPO"] }),
   ];
-  const stats = [
-    row(27, "visitor", 10),
-    row(27, "reader", 10),
-    row(27, "love", 5),
-    row(28, "visitor", 20),
-    row(28, "reader", 10),
-    row(28, "love", 1),
-    row(28, "view", 4, "2026-11-15"),
-    row(27, "view", 3, "2026-11-08"),
-    row(28, "unlove", 1, "2026-11-15"),
+  const totals = [
+    total(27, "visitor", 10),
+    total(27, "reader", 10),
+    total(27, "love", 5),
+    total(28, "visitor", 20),
+    total(28, "reader", 10),
+    total(28, "love", 1),
+    total(28, "unlove", 1),
   ];
-  const insights = storyInsights(stories, stats, [], "all");
+  const insights = storyInsights(stories, totals, [], "all");
 
   it("rolls figures up by theme and by character, from summed counts", () => {
     const themes = rollUp(insights, "themes");
@@ -180,8 +167,16 @@ describe("roll-ups, trend and summary", () => {
     expect(cast[1].completion).toBeCloseTo(20 / 30);
   });
 
-  it("charts views, readers and net loves week by week", () => {
-    expect(weeklyTrend(stats)).toEqual([
+  it("charts views, readers and net loves week by week, oldest first", () => {
+    expect(
+      weeklyTrend([
+        { week: "2026-11-15", metric: "view", count: 4 },
+        { week: "2026-11-15", metric: "unlove", count: 1 },
+        { week: "2026-11-08", metric: "view", count: 3 },
+        { week: "2026-11-08", metric: "reader", count: 20 },
+        { week: "2026-11-08", metric: "love", count: 6 },
+      ])
+    ).toEqual([
       { week: "2026-11-08", views: 3, readers: 20, loves: 6 },
       { week: "2026-11-15", views: 4, readers: 0, loves: -1 },
     ]);
@@ -198,17 +193,52 @@ describe("roll-ups, trend and summary", () => {
     });
   });
 
-  it("writes one CSV row per story under the headers", () => {
-    const rows = csvRows(insights);
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveLength(CSV_HEADERS.length);
-    expect(rows[0].slice(0, 6)).toEqual([
-      27,
-      "Story 27",
-      "2026-11-08",
-      "Shared language and direct understanding",
-      "Amr; HiPPO",
-      "yes",
-    ]);
+  it("writes one full CSV row per story, column for column", () => {
+    const [row] = csvRows(
+      storyInsights(
+        [story(27, { castNames: ["Amr", "HiPPO"], shortlisted: true })],
+        [
+          total(27, "view", 50),
+          total(27, "visitor", 40),
+          total(27, "reader", 30),
+          total(27, "love", 9),
+          total(27, "unlove", 3),
+          total(27, "share", 2),
+          total(27, "retro", 1),
+          total(27, "tool", 3),
+          total(27, "time", 10, "all", 3),
+        ],
+        [
+          { ep: 27, kind: "guess", choice: 1, count: 3 },
+          { ep: 27, kind: "guess", choice: 0, count: 1 },
+          { ep: 27, kind: "seen", choice: 0, count: 2 },
+          { ep: 27, kind: "seen", choice: 1, count: 2 },
+        ],
+        "all"
+      )
+    );
+    expect(Object.fromEntries(CSV_HEADERS.map((h, i) => [h, row[i]]))).toEqual({
+      Episode: 27,
+      Title: "Story 27",
+      Released: "2026-11-08",
+      Themes: "Shared language and direct understanding",
+      Characters: "Amr; HiPPO",
+      Shortlisted: "yes",
+      Views: 50,
+      Visitors: 40,
+      Readers: 30,
+      "Finished %": 75,
+      "Median reading time": "1–2 min",
+      Loves: 6,
+      "Loves per 100 readers": 20,
+      Shares: 2,
+      "Retro hand-offs": 1,
+      "Tool clicks": 3,
+      "Actions per 100 readers": 20,
+      "Guessed right %": 75,
+      "Seen this at work %": 50,
+      // The only story with enough readers sits in the middle of itself.
+      "Print score": 50,
+    });
   });
 });

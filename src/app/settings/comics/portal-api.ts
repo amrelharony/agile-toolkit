@@ -7,7 +7,7 @@
 import type { MonthSummary } from "@/lib/comics/entries-summary";
 import type { StoryExtras } from "@/lib/comics/extras";
 import type { GuessDraft, StoryGuess } from "@/lib/comics/guess";
-import type { InsightStory, StatRow, TapRow } from "@/lib/comics/insights";
+import type { InsightStory, TapRow, TotalRow, WeekRow } from "@/lib/comics/insights";
 import type { ScheduledRelease } from "@/lib/comics/queue";
 import type { OwnerStory, StoredPanel, StoryFields } from "@/lib/comics/story-input";
 import {
@@ -130,7 +130,9 @@ export const portalApi = {
   entries: (months: number) =>
     call<{ months: number; summary: MonthSummary[] }>(`/api/comics/entries?months=${months}`),
   insights: () =>
-    call<{ stories: InsightStory[]; stats: StatRow[]; taps: TapRow[] }>("/api/comics/insights"),
+    call<{ stories: InsightStory[]; totals: TotalRow[]; weeks: WeekRow[]; taps: TapRow[] }>(
+      "/api/comics/insights"
+    ),
   setShortlist: (ep: number, on: boolean) =>
     call<{ ep: number; shortlisted: boolean }>(`${stories}/${ep}/shortlist`, {
       method: "PUT",

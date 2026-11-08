@@ -1,7 +1,7 @@
 "use client";
 
 import { Star } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Chart } from "@/components/charts/lazy-chart";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { Button } from "@/components/ui/button";
@@ -28,9 +28,10 @@ import {
   type GroupInsight,
   type InsightPeriod,
   type InsightStory,
-  type StatRow,
   type StoryInsight,
   type TapRow,
+  type TotalRow,
+  type WeekRow,
 } from "@/lib/comics/insights";
 import { THEME_LABELS } from "@/lib/comics/themes";
 import { exportToCSV } from "@/lib/utils/export";
@@ -51,26 +52,41 @@ type SortKey =
   | "seenYes"
   | "score";
 
-const COLUMNS: { key: SortKey; label: string; title?: string }[] = [
-  { key: "ep", label: "Ep" },
-  { key: "readers", label: "Readers", title: "Browsers that finished the story" },
-  { key: "completion", label: "Finished", title: "Readers ÷ visitors" },
-  { key: "medianBand", label: "Typical time", title: "Median active reading time" },
-  { key: "loves", label: "Loves" },
-  { key: "loveRate", label: "Loves /100", title: "Loves per 100 readers" },
+/** The table's figures, each with what it means, shown under the table too. */
+const COLUMNS: { key: SortKey; label: string; meaning: string }[] = [
+  { key: "ep", label: "Ep", meaning: "The episode number." },
+  { key: "readers", label: "Readers", meaning: "Browsers that read the story to the end." },
+  { key: "completion", label: "Finished", meaning: "Readers out of the browsers that opened it." },
+  { key: "medianBand", label: "Typical time", meaning: "The middle view's active reading time." },
+  { key: "loves", label: "Loves", meaning: "Hearts, net of those taken back." },
+  { key: "loveRate", label: "Loves /100", meaning: "Loves for every 100 readers." },
   {
     key: "actionRate",
     label: "Actions /100",
-    title: "Shares, retro hand-offs and tool clicks per 100 readers",
+    meaning: "Shares, retro hand-offs and tool clicks for every 100 readers.",
   },
-  { key: "guessRight", label: "Guessed right" },
-  { key: "seenYes", label: "Seen at work", title: "“Seen this at work?” answered yes" },
-  { key: "score", label: "Print score", title: `0–100, from ${MIN_READERS_FOR_SCORE} readers` },
+  {
+    key: "guessRight",
+    label: "Guessed right",
+    meaning: "Guesses that picked what the last panel shows.",
+  },
+  {
+    key: "seenYes",
+    label: "Seen at work",
+    meaning: "“Seen this at work?” answers that said yes.",
+  },
+  {
+    key: "score",
+    label: "Print score",
+    meaning: `0 to 100: where the story's loves per reader, finishing rate, seen-at-work share and actions per reader sit among stories with at least ${MIN_READERS_FOR_SCORE} readers, averaged. Fewer readers: too early.`,
+  },
 ];
+const FIGURES = COLUMNS.filter((c) => c.key !== "ep");
 
 interface InsightsData {
   stories: InsightStory[];
-  stats: StatRow[];
+  totals: TotalRow[];
+  weeks: WeekRow[];
   taps: TapRow[];
 }
 
@@ -116,10 +132,11 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function GroupTable({ title, groups }: { title: string; groups: GroupInsight[] }) {
+function GroupTable({ title, groups }: { title: "Themes" | "Characters"; groups: GroupInsight[] }) {
+  const id = `group-${title.toLowerCase()}`;
   return (
-    <section className="space-y-2" aria-labelledby={`group-${title}`}>
-      <h3 id={`group-${title}`} className="font-semibold text-text">
+    <section className="space-y-2" aria-labelledby={id}>
+      <h3 id={id} className="font-semibold text-text">
         {title}
       </h3>
       {groups.length === 0 ? (
@@ -127,9 +144,10 @@ function GroupTable({ title, groups }: { title: string; groups: GroupInsight[] }
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full min-w-[34rem] text-left text-sm">
+            <caption className="sr-only">{title}, most loved for their readers first</caption>
             <thead className="bg-surface text-xs text-sub">
               <tr>
-                <th scope="col" className="p-2 font-medium">
+                <th scope="col" className="sticky left-0 bg-surface p-2 font-medium">
                   {title === "Themes" ? "Theme" : "Character"}
                 </th>
                 <th scope="col" className="p-2 font-medium">
@@ -158,7 +176,10 @@ function GroupTable({ title, groups }: { title: string; groups: GroupInsight[] }
             <tbody>
               {groups.map((g) => (
                 <tr key={g.key} className="border-t border-border">
-                  <th scope="row" className="p-2 font-medium text-text">
+                  <th
+                    scope="row"
+                    className="sticky left-0 max-w-[12rem] bg-card p-2 font-medium text-text"
+                  >
                     {g.label}
                   </th>
                   <td className="p-2 text-text">{g.stories}</td>
@@ -178,14 +199,23 @@ function GroupTable({ title, groups }: { title: string; groups: GroupInsight[] }
   );
 }
 
+/** Three lines a reader tells apart by their dashes as well as their colours. */
+const TREND_LINES = [
+  { key: "views", name: "Views", color: chartTheme.colors.cyan, dash: undefined },
+  { key: "readers", name: "Readers", color: chartTheme.colors.green, dash: "6 3" },
+  { key: "loves", name: "Loves", color: chartTheme.colors.magenta, dash: "2 3" },
+] as const;
+
 /**
  * Settings › Comics › Insights: what readers do with each weekly story, by
  * theme and by character, and the print shortlist. Everything is anonymous
- * weekly totals; the figures are worked out here (lib/comics/insights).
+ * weekly totals the database sums; the figures are worked out here
+ * (lib/comics/insights).
  */
 export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; now?: number }) {
   const [data, setData] = useState<InsightsData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shortlistError, setShortlistError] = useState<string | null>(null);
   const [period, setPeriod] = useState<InsightPeriod>("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "score",
@@ -194,7 +224,8 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
   const [theme, setTheme] = useState(ALL);
   const [character, setCharacter] = useState(ALL);
   const [shortlistOnly, setShortlistOnly] = useState(false);
-  const [saving, setSaving] = useState<number | null>(null);
+  // A star stays focusable while it saves; a second press waits for the first.
+  const saving = useRef<Set<number>>(new Set());
 
   const load = useCallback(() => {
     setError(null);
@@ -209,16 +240,16 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
   }, [enabled, load]);
 
   const all = useMemo(
-    () => (data ? storyInsights(data.stories, data.stats, data.taps, period) : []),
+    () => (data ? storyInsights(data.stories, data.totals, data.taps, period) : []),
     [data, period]
   );
-  // Out, or already read early by a book reader: the rest have nothing to show.
+  // Out, or already read: the rest have nothing to show.
   const live = useMemo(
     () => all.filter((s) => (s.releaseAt && Date.parse(s.releaseAt) <= now) || s.views > 0),
     [all, now]
   );
   const summary = useMemo(() => summarise(live, now), [live, now]);
-  const trend = useMemo(() => (data ? weeklyTrend(data.stats) : []), [data]);
+  const trend = useMemo(() => (data ? weeklyTrend(data.weeks) : []), [data]);
   const themes = useMemo(() => rollUp(live, "themes"), [live]);
   const characters = useMemo(() => rollUp(live, "castNames"), [live]);
   const shortlist = useMemo(() => all.filter((s) => s.shortlisted), [all]);
@@ -245,7 +276,7 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
   );
 
   const toggleShortlist = async (ep: number, on: boolean) => {
-    if (!data) return;
+    if (!data || saving.current.has(ep)) return;
     const mark = (value: boolean) =>
       setData((d) =>
         d
@@ -256,14 +287,15 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
           : d
       );
     mark(on);
-    setSaving(ep);
+    setShortlistError(null);
+    saving.current.add(ep);
     try {
       await portalApi.setShortlist(ep, on);
     } catch (err) {
       mark(!on);
-      setError(errorMessage(err));
+      setShortlistError(errorMessage(err));
     } finally {
-      setSaving(null);
+      saving.current.delete(ep);
     }
   };
 
@@ -298,7 +330,8 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
         <h2 className="font-display text-lg font-semibold text-text">Insights</h2>
         <p className="text-sm text-sub">
           Anonymous counts from readers of the weekly stories. Use them to choose stories for a
-          printed volume and to see which themes land. Your own reading isn&apos;t counted.
+          printed volume and to see which themes land. Your own reading, guesses and answers
+          aren&apos;t counted while you&apos;re signed in.
         </p>
         <div role="group" aria-label="Period" className="flex flex-wrap gap-2">
           {(
@@ -324,11 +357,6 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
             and &ldquo;Seen this at work?&rdquo; keep no dates, so they&apos;re all time.
           </p>
         ) : null}
-        {error ? (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
       </div>
 
       <section aria-label="Summary" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -348,50 +376,77 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
           <p className="text-sm text-sub">The trend shows once there are two weeks of counts.</p>
         ) : (
           <Card>
-            <CardContent className="p-2 sm:p-4">
-              <Chart height={240}>
-                {({
-                  ResponsiveContainer,
-                  LineChart,
-                  Line,
-                  XAxis,
-                  YAxis,
-                  Tooltip,
-                  Legend,
-                  CartesianGrid,
-                }) => (
-                  <ResponsiveContainer>
-                    <LineChart data={trend} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
-                      <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                      <XAxis dataKey="week" stroke={chartTheme.axisColor} fontSize={11} />
-                      <YAxis allowDecimals={false} stroke={chartTheme.axisColor} fontSize={11} />
-                      <Tooltip contentStyle={chartTheme.tooltipStyle} />
-                      <Legend wrapperStyle={chartTheme.legendStyle} />
-                      <Line
-                        type="monotone"
-                        dataKey="views"
-                        name="Views"
-                        stroke={chartTheme.colors.cyan}
-                        dot={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="readers"
-                        name="Readers"
-                        stroke={chartTheme.colors.green}
-                        dot={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="loves"
-                        name="Loves"
-                        stroke={chartTheme.colors.magenta}
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
-              </Chart>
+            <CardContent className="space-y-2 p-2 sm:p-4">
+              <div aria-hidden="true">
+                <Chart height={240}>
+                  {({
+                    ResponsiveContainer,
+                    LineChart,
+                    Line,
+                    XAxis,
+                    YAxis,
+                    Tooltip,
+                    Legend,
+                    CartesianGrid,
+                  }) => (
+                    <ResponsiveContainer>
+                      <LineChart data={trend} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
+                        <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+                        <XAxis dataKey="week" stroke={chartTheme.axisColor} fontSize={11} />
+                        <YAxis allowDecimals={false} stroke={chartTheme.axisColor} fontSize={11} />
+                        <Tooltip contentStyle={chartTheme.tooltipStyle} />
+                        <Legend wrapperStyle={chartTheme.legendStyle} />
+                        {TREND_LINES.map((line) => (
+                          <Line
+                            key={line.key}
+                            type="monotone"
+                            dataKey={line.key}
+                            name={line.name}
+                            stroke={line.color}
+                            strokeDasharray={line.dash}
+                            strokeWidth={2}
+                            dot={false}
+                          />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </Chart>
+              </div>
+              <details>
+                <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium text-text">
+                  Week by week as a table
+                </summary>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <caption className="sr-only">Views, readers and loves, week by week</caption>
+                    <thead className="text-xs text-sub">
+                      <tr>
+                        <th scope="col" className="p-2 font-medium">
+                          Week of
+                        </th>
+                        {TREND_LINES.map((line) => (
+                          <th key={line.key} scope="col" className="p-2 font-medium">
+                            {line.name}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {trend.map((point) => (
+                        <tr key={point.week} className="border-t border-border">
+                          <th scope="row" className="p-2 font-medium text-text">
+                            {point.week}
+                          </th>
+                          <td className="p-2 text-text">{point.views}</td>
+                          <td className="p-2 text-text">{point.readers}</td>
+                          <td className="p-2 text-text">{point.loves}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
             </CardContent>
           </Card>
         )}
@@ -451,6 +506,11 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
           />
           Shortlisted only
         </label>
+        {shortlistError ? (
+          <p role="alert" className="text-sm text-danger">
+            {shortlistError}
+          </p>
+        ) : null}
         {rows.length === 0 ? (
           <p className="text-sm text-sub">
             {live.length === 0
@@ -466,16 +526,10 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
               </caption>
               <thead className="bg-surface text-xs text-sub">
                 <tr>
-                  <th scope="col" className="p-2 font-medium">
-                    <span className="sr-only">Shortlist</span>
-                  </th>
-                  {COLUMNS.slice(0, 1).map((c) => (
-                    <SortHeader key={c.key} column={c} sort={sort} onSort={sortBy} />
-                  ))}
-                  <th scope="col" className="p-2 font-medium">
+                  <th scope="col" className="sticky left-0 z-10 bg-surface p-2 font-medium">
                     Story
                   </th>
-                  {COLUMNS.slice(1).map((c) => (
+                  {COLUMNS.map((c) => (
                     <SortHeader key={c.key} column={c} sort={sort} onSort={sortBy} />
                   ))}
                 </tr>
@@ -483,35 +537,37 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
               <tbody>
                 {rows.map((s) => (
                   <tr key={s.ep} className="border-t border-border">
-                    <td className="p-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-pressed={s.shortlisted}
-                        aria-label={`Shortlist episode ${s.ep}`}
-                        disabled={saving === s.ep}
-                        onClick={() => void toggleShortlist(s.ep, !s.shortlisted)}
-                        className="size-11"
-                      >
-                        <Star
-                          className={cn("size-5", s.shortlisted && "fill-current text-accent")}
-                          aria-hidden="true"
-                        />
-                      </Button>
-                    </td>
-                    <td className="p-2 text-text">{s.ep}</td>
-                    <th scope="row" className="max-w-[16rem] p-2 font-medium text-text">
-                      <a
-                        href={comicHref(s.ep)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline"
-                      >
-                        {s.title}
-                      </a>
+                    <th
+                      scope="row"
+                      className="sticky left-0 z-10 w-[13rem] max-w-[13rem] bg-card p-1 font-medium text-text"
+                    >
+                      <span className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-pressed={s.shortlisted}
+                          aria-label={`Shortlist episode ${s.ep}`}
+                          onClick={() => void toggleShortlist(s.ep, !s.shortlisted)}
+                          className="size-11 shrink-0"
+                        >
+                          <Star
+                            className={cn("size-5", s.shortlisted && "fill-current text-accent")}
+                            aria-hidden="true"
+                          />
+                        </Button>
+                        <a
+                          href={comicHref(s.ep)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="min-w-0 underline"
+                        >
+                          {s.title}
+                          <span className="sr-only"> (opens in a new tab)</span>
+                        </a>
+                      </span>
                     </th>
-                    {COLUMNS.slice(1).map((c) => (
+                    {COLUMNS.map((c) => (
                       <td
                         key={c.key}
                         className={cn(
@@ -528,11 +584,19 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
             </table>
           </div>
         )}
-        <p className="text-xs text-sub">
-          Print score: where a story&apos;s loves per reader, finishing rate, &ldquo;seen it at
-          work&rdquo; share and actions per reader sit among stories with at least{" "}
-          {MIN_READERS_FOR_SCORE} readers, averaged, 0 to 100.
-        </p>
+        <details>
+          <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium text-text">
+            What the columns mean
+          </summary>
+          <dl className="mt-2 space-y-2 text-sm">
+            {FIGURES.map((c) => (
+              <div key={c.key}>
+                <dt className="font-medium text-text">{c.label}</dt>
+                <dd className="text-sub">{c.meaning}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
       </section>
 
       <GroupTable title="Themes" groups={themes} />
@@ -596,7 +660,7 @@ function SortHeader({
   sort,
   onSort,
 }: {
-  column: { key: SortKey; label: string; title?: string };
+  column: { key: SortKey; label: string };
   sort: { key: SortKey; dir: "asc" | "desc" };
   onSort: (key: SortKey) => void;
 }) {
@@ -609,15 +673,16 @@ function SortHeader({
     >
       <button
         type="button"
-        title={column.title}
         onClick={() => onSort(column.key)}
         className={cn(
-          "min-h-11 whitespace-nowrap rounded px-1 text-left hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+          "inline-flex min-h-11 min-w-11 items-center gap-1 whitespace-nowrap rounded px-1 text-left hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
           active && "text-text"
         )}
       >
         {column.label}
-        {active ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
+        <span aria-hidden="true" className="inline-block w-3">
+          {active ? (sort.dir === "asc" ? "↑" : "↓") : ""}
+        </span>
       </button>
     </th>
   );
