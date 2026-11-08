@@ -92,3 +92,38 @@ describe("iOS no-zoom guard", () => {
     expect(guard![2]).toContain("font-size: max(16px, 1rem) !important");
   });
 });
+
+describe("native selects styled to match <Input>", () => {
+  // They sit beside Inputs in the same forms: a plain md:h-9 left them 36px
+  // on touch at md+ while the Input stayed 44px, 8px out of line.
+  const FILES = [
+    "src/app/(tools)/dependency-map/fields.tsx",
+    "src/app/(tools)/feature-flag-tracker/flag-fields.tsx",
+    "src/app/(tools)/hypothesis-tracker/hypothesis-fields.tsx",
+    "src/app/(tools)/impediments/components/impediment-fields.tsx",
+    "src/app/(tools)/riskiest-assumption/assumption-card.tsx",
+    "src/app/(tools)/user-interviews/quote-card.tsx",
+    "src/app/(tools)/epic-roadmap/epic-stories.tsx",
+    "src/app/(tools)/jtbd-mapper/job-form.tsx",
+    "src/app/(tools)/premortem/components/premortem-form.tsx",
+    "src/app/(tools)/premortem/premortem-client.tsx",
+    "src/components/shared/quarter-picker.tsx",
+  ];
+
+  it.each(FILES)("%s shrinks only for a mouse at md+", (file) => {
+    const source = readFileSync(path.join(__dirname, "../..", file), "utf8");
+    const cls = source.match(/SELECT_CLASS =\s*"([^"]*)"/)?.[1];
+    expect(cls).toBeDefined();
+    const c = cls!.split(/\s+/);
+    expect(c).toEqual(
+      expect.arrayContaining([
+        "h-11",
+        "text-base",
+        "pointer-fine:md:h-9",
+        "pointer-fine:md:text-sm",
+      ])
+    );
+    expect(c).not.toContain("md:h-9");
+    expect(c).not.toContain("md:text-sm");
+  });
+});
