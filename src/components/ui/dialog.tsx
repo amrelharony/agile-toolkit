@@ -111,7 +111,15 @@ const DialogContent = React.forwardRef<
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("flex flex-col space-y-1.5 text-center sm:text-left", className)} {...props} />
+  // Right padding keeps a wrapped title clear of the close button, which is
+  // opaque and 44px on touch screens.
+  <div
+    className={cn(
+      "flex flex-col space-y-1.5 pr-8 text-center pointer-coarse:pr-11 sm:text-left",
+      className
+    )}
+    {...props}
+  />
 );
 DialogHeader.displayName = "DialogHeader";
 
