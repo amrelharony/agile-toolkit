@@ -66,6 +66,55 @@ function chainToHeader(el: Element): Element[] {
   return chain;
 }
 
+/** Tailwind's width breakpoints, mobile-first ("" = no prefix). */
+const BREAKPOINTS = ["", "xs", "sm", "md", "lg", "xl", "2xl"] as const;
+const DISPLAY_UTILITIES = new Set([
+  "hidden",
+  "flex",
+  "inline-flex",
+  "block",
+  "inline-block",
+  "inline",
+  "grid",
+  "inline-grid",
+  "list-item",
+  "contents",
+]);
+
+/**
+ * Whether `el`'s own classes leave it displayed at breakpoint `bp`: the last
+ * display utility at or below `bp` wins (mobile-first). Other variants
+ * (hover:, pointer-coarse:, [&>svg]:…) don't change display here.
+ */
+function displayedAt(el: Element, bp: (typeof BREAKPOINTS)[number]): boolean {
+  let shown = true;
+  for (const prefix of BREAKPOINTS.slice(0, BREAKPOINTS.indexOf(bp) + 1)) {
+    for (const c of classesOf(el)) {
+      const cut = c.lastIndexOf(":");
+      const variant = cut === -1 ? "" : c.slice(0, cut);
+      const utility = c.slice(cut + 1);
+      if (variant === prefix && DISPLAY_UTILITIES.has(utility)) shown = utility !== "hidden";
+    }
+  }
+  return shown;
+}
+
+/**
+ * The bar's controls that take width at `bp`, outside the breadcrumb (which
+ * is flex-1 min-w-0 and gives its width away), as short names.
+ */
+function rigidControlsAt(container: HTMLElement, bp: "md" | "lg"): string[] {
+  const header = container.querySelector("header");
+  if (!header) throw new Error("no header");
+  return Array.from(header.querySelectorAll("button, a, [role='status']"))
+    .filter((el) => !el.closest("nav[aria-label='breadcrumb']"))
+    .filter((el) => chainToHeader(el).every((n) => displayedAt(n, bp)))
+    .map((el) => (el.getAttribute("aria-label") ?? el.textContent ?? "").trim())
+    .map((name) =>
+      name.replace(/^Level \d+,.*$/, "Level chip").replace(/^Switch to .* theme.*$/, "Theme")
+    );
+}
+
 beforeAll(() => {
   // Radix's popper measures its anchor with ResizeObserver (absent in jsdom).
   vi.stubGlobal(
@@ -219,6 +268,58 @@ describe("the extras between md and xl", () => {
     } finally {
       window.matchMedia = original;
     }
+  });
+});
+
+/*
+ * A tripwire, not a layout check (jsdom has none). At 768 px with the 64 px
+ * rail the bar has ~656 px of row; these controls take ~350 of it, so the
+ * 44 px touch sizes fit, but a new inline control (or the full XP bar or the
+ * weather coming back below xl) is how the page grew wider than the screen.
+ * If you add one: check scrollWidth <= visualViewport.width at 768x1024 and
+ * 812x375 (visitor and owner), move it into More if it doesn't fit, then
+ * update the list here.
+ */
+describe("the controls taking width between md and xl", () => {
+  const VISITOR = [
+    "Open search",
+    "Level chip",
+    "More: sound and AI",
+    "Kudos beacon",
+    "Open help",
+    "Theme",
+    "Visitor menu",
+  ];
+  const OWNER = [
+    "Open search",
+    "Level chip",
+    "More: sound, AI and weather",
+    "Kudos beacon",
+    "Open agent chat",
+    "Theme",
+    "Visitor menu",
+  ];
+
+  it("are only the known compact set for a visitor", () => {
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    expect(rigidControlsAt(container, "md")).toEqual(VISITOR);
+    expect(rigidControlsAt(container, "lg")).toEqual(VISITOR);
+  });
+
+  it("are only the known compact set for the owner (no inline weather)", () => {
+    h.owner = true;
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    expect(rigidControlsAt(container, "md")).toEqual(OWNER);
+    expect(rigidControlsAt(container, "lg")).toEqual(OWNER);
+  });
+
+  it("reads display classes mobile-first, so the tripwire itself can be trusted", () => {
+    const el = document.createElement("div");
+    el.className = "hidden md:flex xl:hidden pointer-coarse:block hover:hidden";
+    expect(displayedAt(el, "sm")).toBe(false);
+    expect(displayedAt(el, "md")).toBe(true);
+    expect(displayedAt(el, "lg")).toBe(true);
+    expect(displayedAt(el, "xl")).toBe(false);
   });
 });
 
