@@ -42,16 +42,29 @@ function sortedUnique(values: readonly string[]): string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
 }
 
-/** Only the verified owner ever sees a way to the portal. */
+/**
+ * A row that's there for every reader and already as tall as a touch target, so
+ * the owner's portal link can join it without moving anything (OwnerPortalLink).
+ */
+const PORTAL_ROW = "flex flex-wrap items-center gap-x-4 gap-y-2 pointer-coarse:min-h-11";
+
+/**
+ * Only the verified owner ever sees a way to the portal. That's known once
+ * sign-in has been checked, after the page has painted, so the link goes in a
+ * row that holds its space for everyone (PORTAL_ROW): on a line of its own it
+ * pushed the whole page down as it appeared.
+ */
 function OwnerPortalLink() {
   const isOwner = useIsOwner();
   if (!isOwner) return null;
   return (
-    <p>
-      <Link className="text-sm text-accent underline" href="/settings/comics" prefetch={false}>
-        Comics portal
-      </Link>
-    </p>
+    <Link
+      className="inline-flex items-center text-sm text-accent underline pointer-coarse:min-h-11"
+      href="/settings/comics"
+      prefetch={false}
+    >
+      Comics portal
+    </Link>
   );
 }
 
@@ -66,12 +79,15 @@ function ThisWeek({ story }: { story: StorySummary }) {
             {story.title}
           </h2>
           <p className="text-sub">{story.lesson}</p>
-          <Button asChild variant="toolkit">
-            <Link href={comicHref(story.ep)} prefetch={false}>
-              Read this story
-              <ArrowRight aria-hidden="true" />
-            </Link>
-          </Button>
+          <div className={PORTAL_ROW}>
+            <Button asChild variant="toolkit">
+              <Link href={comicHref(story.ep)} prefetch={false}>
+                Read this story
+                <ArrowRight aria-hidden="true" />
+              </Link>
+            </Button>
+            <OwnerPortalLink />
+          </div>
         </div>
       </Card>
     </section>
@@ -89,7 +105,10 @@ function BookIndex({ episodes }: { episodes: readonly IndexEpisode[] }) {
         <h2 id="book-episodes-heading" className="font-display text-lg font-semibold text-text">
           The 26 episodes in the book
         </h2>
-        <Link href={BOOK_PATH} className="text-sm font-medium text-text underline">
+        <Link
+          href={BOOK_PATH}
+          className="inline-flex items-center text-sm font-medium text-text underline pointer-coarse:min-h-11"
+        >
           About the book
         </Link>
       </div>
@@ -263,11 +282,13 @@ export function ComicsGallery({
     <ToolPageWrapper title="Agile at Work" description="Workplace comics by Amr Elharony">
       <VisitRecorder path="/comics" />
       <div className="space-y-6">
-        <OwnerPortalLink />
         {latest ? (
           <ThisWeek story={latest} />
         ) : (
-          <p className="text-sub">A new story comes out every week, starting soon.</p>
+          <div className={PORTAL_ROW}>
+            <p className="text-sub">A new story comes out every week, starting soon.</p>
+            <OwnerPortalLink />
+          </div>
         )}
         {latest && cast.length > 0 ? <ReaderProgress cast={cast} stories={stories} /> : null}
         {favourites.length > 0 ? <ReadersFavourites stories={favourites} /> : null}

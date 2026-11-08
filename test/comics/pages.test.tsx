@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   guess: { guess: null, tryAction: null } as StoryGuessExtras,
   totals: { views: 0, visitors: 0, readers: 0, loves: 0, shares: 0, retros: 0, tools: 0 },
   totalsMap: new Map<number, { loves: number }>(),
+  owner: false,
 }));
 
 vi.mock("server-only", () => ({}));
@@ -32,6 +33,11 @@ vi.mock("@/lib/comics/store", () => ({
     if (h.listThrows) throw new Error("down");
     return h.released;
   },
+}));
+// No AuthProvider here, so everyone is a visitor unless a test says otherwise.
+vi.mock("@/lib/auth/use-is-owner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/use-is-owner")>()),
+  useIsOwner: () => h.owner,
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: h.push }),
@@ -111,6 +117,7 @@ beforeEach(() => {
   h.guess = { guess: null, tryAction: null };
   h.totals = { views: 0, visitors: 0, readers: 0, loves: 0, shares: 0, retros: 0, tools: 0 };
   h.totalsMap = new Map();
+  h.owner = false;
   localStorage.clear();
   window.history.replaceState(null, "", "/comics");
   vi.stubGlobal("sendBeacon", undefined);
@@ -917,6 +924,35 @@ describe("the gallery", () => {
   it("discloses the anonymous count", async () => {
     render(await ComicsPage());
     expect(screen.getByText(/one anonymous count when you arrive/)).toBeTruthy();
+  });
+
+  it("gives About the book a touch-sized target", async () => {
+    render(await ComicsPage());
+    const classes = screen.getByRole("link", { name: "About the book" }).className.split(/\s+/);
+    expect(classes).toEqual(
+      expect.arrayContaining(["inline-flex", "items-center", "pointer-coarse:min-h-11"])
+    );
+  });
+
+  it("shows visitors no portal link, in a row that already holds its space", async () => {
+    render(await ComicsPage());
+    expect(screen.queryByRole("link", { name: "Comics portal" })).toBeNull();
+    const row = screen.getByRole("link", { name: /Read this story/ }).parentElement!;
+    expect(row.className.split(/\s+/)).toContain("pointer-coarse:min-h-11");
+  });
+
+  it("puts the owner's portal link beside this week's story, touch-sized, moving nothing", async () => {
+    h.owner = true;
+    render(await ComicsPage());
+    const portal = screen.getByRole("link", { name: "Comics portal" });
+    expect(portal.getAttribute("href")).toBe("/settings/comics");
+    expect(portal.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(["inline-flex", "items-center", "pointer-coarse:min-h-11"])
+    );
+    // Not a line of its own above the story, which pushed the page down as it appeared.
+    expect(portal.parentElement).toBe(
+      screen.getByRole("link", { name: /Read this story/ }).parentElement
+    );
   });
 });
 
