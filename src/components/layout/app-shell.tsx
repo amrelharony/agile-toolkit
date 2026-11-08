@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { MotionConfig } from "framer-motion";
@@ -11,11 +11,9 @@ import { PresentationController } from "@/components/presentation/presentation-m
 import { StorageHealthBanner } from "@/components/data/storage-health-banner";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
-import { useCommandPaletteShortcut } from "./use-command-palette-shortcut";
-import { useOpenedOnce } from "@/hooks/use-opened-once";
+import { ShellDialogs } from "./shell-dialogs";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useLlmStore } from "@/lib/stores/llm-store";
-import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 import { dismissUndoToasts } from "@/lib/utils/undoable";
 import { installSignalBridge } from "@/lib/signals/signal-bridge";
 import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
@@ -27,35 +25,13 @@ import { LegacyToolMigrations } from "@/components/data/legacy-tool-migrations";
 // (components/agent/mascot/owner-agent-panel) when it loads — only the
 // agent reads it client-side, so visitors never download it.
 
-// Settings dialog is dynamic-imported so its body (tabs, model lists, the
-// tested provider import) never lands in the eager bundle — only loads
-// when the user actually clicks the header chip or UserMenu entry.
-const LlmSettingsDialog = dynamic(
-  () => import("@/components/ai/llm-settings-dialog").then((m) => m.LlmSettingsDialog),
-  { ssr: false }
-);
-
-// Off the first screen too, so every page's start-up neither downloads nor
-// hydrates them: the Ctrl/Cmd+K tool finder (cmdk and the search synonyms)
-// and the trophy case load when first opened (see useOpenedOnce), and the
-// holiday engine, which renders nothing until a theme applies after
-// hydration, right after the page is up.
-const CommandPalette = dynamic(() => import("./command-palette").then((m) => m.CommandPalette), {
-  ssr: false,
-});
-const TrophyCase = dynamic(
-  () => import("@/components/gamification/trophy-case").then((m) => m.TrophyCase),
-  { ssr: false }
-);
+// The holiday engine (its Hijri and Coptic calendars) renders nothing until
+// a theme applies after hydration, so it loads right after the page is up
+// instead of in every page's first download. The tool finder, the trophy case
+// and the BYOK settings dialog load when first opened (see ShellDialogs).
 const HolidayEngine = dynamic(() => import("@/lib/holiday/engine").then((m) => m.HolidayEngine), {
   ssr: false,
 });
-
-/** The BYOK settings dialog, mounted (and so downloaded) once something opens it. */
-function DeferredLlmSettings() {
-  const open = useLlmUiStore((s) => s.settingsOpen);
-  return useOpenedOnce(open) ? <LlmSettingsDialog /> : null;
-}
 
 // Floating 3D mascot + agent chat — dynamic-imported (ssr:false) so the WebGL
 // mascot + agent runtime (SSE parser, tool-execution machinery) only load
@@ -128,23 +104,6 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
   const [trophyOpen, setTrophyOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
-  const paletteOpened = useOpenedOnce(searchOpen);
-  const trophyOpened = useOpenedOnce(trophyOpen);
-  useCommandPaletteShortcut(useCallback(() => setSearchOpen((open) => !open), []));
-
-  // Ctrl/Cmd+K is a mouse-and-keyboard habit: with a fine pointer, fetch the
-  // palette's code once the page is idle, so its first open is as instant as
-  // it was. A phone fetches it only when someone opens it.
-  useEffect(() => {
-    if (!window.matchMedia?.("(pointer: fine)").matches) return;
-    const warm = () => void import("./command-palette");
-    if (typeof window.requestIdleCallback === "function") {
-      const id = window.requestIdleCallback(warm, { timeout: 5000 });
-      return () => window.cancelIdleCallback(id);
-    }
-    const timer = window.setTimeout(warm, 3000);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   // An Undo toast belongs to the page that raised it (lib/utils/undoable).
   useEffect(() => {
@@ -233,20 +192,21 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                                   {children}
                                 </main>
                               </div>
-                              {paletteOpened ? (
-                                <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
-                              ) : null}
                             </div>
-                            {trophyOpened ? (
-                              <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
-                            ) : null}
-                            <Suspense fallback={null}>
-                              <HolidayEngine />
-                            </Suspense>
-                            {/* BYOK settings dialog — open/close state lives in llm-ui-store,
-            so this single mount serves both header-chip and UserMenu
-            entry points. Dynamic-imported so non-AI users never load it. */}
-                            <DeferredLlmSettings />
+                            {/* The tool finder (and Ctrl/Cmd+K), the trophy case and the BYOK
+                                settings dialog: each one's code loads when it first opens. */}
+                            <ShellDialogs
+                              searchOpen={searchOpen}
+                              setSearchOpen={setSearchOpen}
+                              trophyOpen={trophyOpen}
+                              setTrophyOpen={setTrophyOpen}
+                            />
+                            {/* Cosmetic: if its code can't load, the page carries on without it. */}
+                            <ErrorBoundary name="HolidayEngine" fallback={() => null}>
+                              <Suspense fallback={null}>
+                                <HolidayEngine />
+                              </Suspense>
+                            </ErrorBoundary>
                             <MascotAssistant />
                           </HistorySyncProvider>
                         </CloudSyncProvider>
