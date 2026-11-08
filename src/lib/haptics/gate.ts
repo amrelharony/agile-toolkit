@@ -11,9 +11,15 @@ import { isEssential } from "./patterns";
 import { installAttention, msSinceEdit, msSinceScroll } from "@/lib/notify/attention";
 
 /**
- * All the gating logic for firing a haptic: enable toggles, mode, reduced-motion,
- * battery, scroll/input suppression windows, per-element + global cooldowns,
- * rolling rate-limit. Priority patterns bypass cooldown/rate-limit/suppression.
+ * All the gating logic for firing a haptic: enable toggles, mode, reduced
+ * motion, quiet hours / Focus, battery, scroll/input suppression windows,
+ * per-element + global cooldowns, rolling rate-limit.
+ *
+ * Priority patterns bypass the cooldowns and the rate limit only; the scroll
+ * and typing windows still apply to them. Under reduced motion (when
+ * respected), quiet hours or Focus only `timer-end` passes, and it alone
+ * also ignores the suppression windows: a timer running out is the one
+ * signal that must always reach the user.
  */
 
 export interface GateContext {
@@ -23,6 +29,8 @@ export interface GateContext {
   perCategory: PerCategoryOverrides;
   batteryGuardEnabled: boolean;
   reducedMotion: boolean;
+  /** Quiet hours or Focus is on (Settings › Notifications). */
+  quiet?: boolean;
   batterySnapshot: { level: number; charging: boolean } | null;
   now: number;
   patternName: HapticPatternName;
@@ -77,9 +85,11 @@ export function shouldFire(ctx: GateContext): GateDecision {
   // Essential mode drops everything except high-signal patterns
   if (ctx.mode === "essential" && !isEssential(patternName)) return "suppress";
 
-  // Reduced-motion: suppress unless pattern is error or timer-end (critical signals)
-  if (ctx.respectReducedMotion && ctx.reducedMotion) {
-    if (!(patternName === "error" || patternName === "timer-end")) return "suppress";
+  // Reduced motion, quiet hours, Focus: only a timer running out vibrates.
+  // (An error toast still shows; it just doesn't buzz.)
+  const isTimerEnd = patternName === "timer-end";
+  if ((ctx.respectReducedMotion && ctx.reducedMotion) || ctx.quiet) {
+    if (!isTimerEnd) return "suppress";
   }
 
   // Per-category override
@@ -112,10 +122,6 @@ export function shouldFire(ctx: GateContext): GateDecision {
       const last = perElementLast.get(targetEl) ?? 0;
       if (now - last < PER_ELEMENT_COOLDOWN) return "suppress";
     }
-    // Scroll suppression always applies — keystrokes shouldn't fire mid-scroll.
-    if (msSinceScroll(now) < SCROLL_SUPPRESS_MS) return "suppress";
-    // Typing suppression: applies to non-keystroke patterns only.
-    if (!isKeystroke && msSinceEdit(now) < TYPING_SUPPRESS_MS) return "suppress";
     // Rolling rate limit: bypassed for keystrokes (cooldowns above are enough).
     if (!isKeystroke) {
       while (rollingWindow.length && now - rollingWindow[0] > ROLLING_WINDOW_MS) {
@@ -123,6 +129,13 @@ export function shouldFire(ctx: GateContext): GateDecision {
       }
       if (rollingWindow.length >= ROLLING_MAX) return "suppress";
     }
+  }
+
+  if (!isTimerEnd) {
+    // Scroll suppression always applies — keystrokes shouldn't fire mid-scroll.
+    if (msSinceScroll(now) < SCROLL_SUPPRESS_MS) return "suppress";
+    // Typing suppression: applies to non-keystroke patterns only.
+    if (!isKeystroke && msSinceEdit(now) < TYPING_SUPPRESS_MS) return "suppress";
   }
 
   return downgrade ? "downgrade" : "fire";

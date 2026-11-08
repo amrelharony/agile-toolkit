@@ -301,9 +301,9 @@ describe("haptics store persistence", () => {
     welcomeToastShown: true,
   };
 
-  it("declares version 0 explicitly", () => {
-    expect(HAPTICS_PERSIST_VERSION).toBe(0);
-    expect(useHapticsStore.persist.getOptions().version).toBe(0);
+  it("declares version 1 (PR F: Essential defaults) explicitly", () => {
+    expect(HAPTICS_PERSIST_VERSION).toBe(1);
+    expect(useHapticsStore.persist.getOptions().version).toBe(1);
   });
 
   it("loads a v0 payload without loss", async () => {

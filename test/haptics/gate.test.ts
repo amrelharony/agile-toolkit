@@ -105,7 +105,7 @@ describe("shouldFire with attention", () => {
     input.remove();
   });
 
-  it("priority patterns ignore the suppression windows", () => {
+  it("timer-end ignores the suppression windows", () => {
     registerSuppressionListeners();
     clock += 30_000;
     window.dispatchEvent(new Event("scroll"));
