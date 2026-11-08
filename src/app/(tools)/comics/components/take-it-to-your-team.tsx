@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { thankSomeoneHref } from "@/lib/comics/entry";
 import { toolForStory } from "@/lib/comics/try-tool";
 import { DiscussInRetro } from "./story-actions";
+import { ToolLink } from "./tool-link";
 
 /**
  * Under a story's notes: its question for the team's retro, its "Try it this
@@ -58,9 +59,9 @@ export function TakeItToYourTeam({
           {tool ? (
             <p className="text-sm text-sub">
               Try this with your team:{" "}
-              <Link href={tool.path} className="font-medium text-accent underline">
+              <ToolLink ep={ep} href={tool.path}>
                 {tool.name}
-              </Link>
+              </ToolLink>
             </p>
           ) : null}
         </CardContent>

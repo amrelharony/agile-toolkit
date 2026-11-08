@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { comicHref } from "@/lib/comics/entry";
-import { READ_EVENT, readStories, weekStreak } from "@/lib/comics/reading";
+import {
+  READ_EVENT,
+  lovedStories,
+  readStories,
+  totalSeconds,
+  weekStreak,
+} from "@/lib/comics/reading";
 import { useVipHint } from "@/lib/vip/use-vip-hint";
 
 /** Where a VIP meets everyone, with what each one wants and does. */
@@ -36,13 +42,31 @@ export function metCast(
   return cast.flatMap((name) => (met.has(name) ? [{ name, ep: met.get(name)! }] : []));
 }
 
+/**
+ * "under 1 min", "25 min", "1 h 20 min": the reader's own reading time. The
+ * first paint always shows the first, so it's no wider than the figures that
+ * replace it: the chip never loses a line and moves the page.
+ */
+export function readingTimeLabel(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 1) return "under 1 min";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+}
+
 /** Read after mount and after each story counts: the server knows nothing of this browser. */
 function useReading() {
   const [read, setRead] = useState<{ ep: number; at: string }[]>([]);
+  const [loved, setLoved] = useState<{ ep: number; at: string }[]>([]);
+  const [seconds, setSeconds] = useState(0);
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
     const update = () => {
       setRead(readStories());
+      setLoved(lovedStories());
+      setSeconds(totalSeconds());
       setNow(new Date());
     };
     update();
@@ -59,7 +83,7 @@ function useReading() {
         now
       )
     : 0;
-  return { read, streak };
+  return { read, loved, seconds, streak };
 }
 
 function streakText(streak: number) {
@@ -67,9 +91,10 @@ function streakText(streak: number) {
 }
 
 /**
- * On /comics: the reader's weekly streak and the cast they've met so far. The
- * same height from the first paint, numbers filled in after, so nothing below it
- * moves; the cards wait in a closed disclosure, which keeps a phone's page short.
+ * On /comics: how many stories the reader has read, their reading time and
+ * weekly streak, the cast they've met and the stories they love. The same
+ * height from the first paint, numbers filled in after, so nothing below it
+ * moves; the lists wait in closed disclosures, which keeps a phone's page short.
  * Nothing leaves the browser.
  */
 export function ReaderProgress({
@@ -77,11 +102,15 @@ export function ReaderProgress({
   stories,
 }: {
   cast: readonly string[];
-  stories: readonly { ep: number; castNames: readonly string[] }[];
+  stories: readonly { ep: number; castNames: readonly string[]; title?: string }[];
 }) {
-  const { read, streak } = useReading();
+  const { read, loved, seconds, streak } = useReading();
   const vip = useVipHint();
   const met = useMemo(() => metCast(cast, stories, read), [cast, stories, read]);
+  const titles = useMemo(() => new Map(stories.map((s) => [s.ep, s.title])), [stories]);
+  // Only stories that are out: one loved early on the read-ahead page waits here
+  // until its Sunday, rather than linking to "coming soon".
+  const lovedOut = useMemo(() => loved.filter(({ ep }) => titles.has(ep)), [loved, titles]);
 
   return (
     <section aria-labelledby="reader-progress-heading">
@@ -90,11 +119,19 @@ export function ReaderProgress({
           <h2 id="reader-progress-heading" className="font-display font-semibold text-text">
             Your reading
           </h2>
-          <p className="flex flex-wrap gap-2 text-sm">
-            <span className="rounded-full border border-border px-3 py-1 font-medium text-text">
+          {/* Each chip holds two lines from the first paint (2 × 20px, padding
+              and border), so the figures filling in never move the page. */}
+          <p className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+            <span className="flex min-h-[3.25rem] items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
+              Stories read: {read.length}
+            </span>
+            <span className="flex min-h-[3.25rem] items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
+              Time reading: {readingTimeLabel(seconds)}
+            </span>
+            <span className="flex min-h-[3.25rem] items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
               {streakText(streak)}
             </span>
-            <span className="rounded-full border border-border px-3 py-1 font-medium text-text">
+            <span className="flex min-h-[3.25rem] items-center rounded-lg border border-border px-3 py-1 font-medium text-text">
               Cast met: {met.length} of {cast.length}
             </span>
           </p>
@@ -134,6 +171,30 @@ export function ReaderProgress({
                 </Link>
               </p>
             ) : null}
+          </details>
+          <details>
+            <summary className="min-h-11 cursor-pointer py-2 font-medium text-text">
+              Stories you loved ({lovedOut.length})
+            </summary>
+            {lovedOut.length === 0 ? (
+              <p className="mt-2 text-sm text-sub">
+                Press &ldquo;Love this&rdquo; under a story to keep it here.
+              </p>
+            ) : (
+              <ul className="mt-2 list-none space-y-1">
+                {lovedOut.map(({ ep }) => (
+                  <li key={ep}>
+                    <Link
+                      href={comicHref(ep)}
+                      prefetch={false}
+                      className="inline-flex min-h-11 items-center font-medium text-accent underline"
+                    >
+                      {titles.get(ep)}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </details>
         </CardContent>
       </Card>
