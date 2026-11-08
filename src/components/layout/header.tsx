@@ -34,8 +34,12 @@ import { SonificationToggle } from "@/components/shared/sonification-toggle";
 import { LlmStatusChip } from "@/components/ai/llm-status-chip";
 import { useAgentStore } from "@/lib/agent/store";
 import { XpBar } from "@/components/gamification/xp-bar";
+import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { computeLevel } from "@/lib/gamification/xp-curve";
+import { activeAchievements } from "@/lib/gamification/achievements";
+import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
+import { ActivityDot, useVisibleUnreadCount } from "@/components/notify/activity-dot";
 import { WeatherWidget } from "@/lib/weather/widget";
 import { UserMenu } from "@/components/auth/user-menu";
 import { VisitorDataMergeDialog } from "@/components/auth/visitor-data-merge-dialog";
@@ -63,10 +67,9 @@ const THEME_LABEL: Record<AppliedTheme, string> = {
 interface HeaderProps {
   onOpenSearch: () => void;
   onOpenSidebar?: () => void;
-  onOpenTrophyCase?: () => void;
 }
 
-export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: HeaderProps) {
+export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
   const pathname = usePathname();
   const pathTool = getToolByPath(pathname);
   // A VIP tool's address may be showing a lock panel, and this bar can't know: the
@@ -82,6 +85,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
   // read (skipHydration), so SSR and the first client render both see
   // the `true` default and the gate can't cause a hydration mismatch.
   const beaconHeader = useKudosSettingsStore((s) => s.beaconHeader);
+  const showXpBar = useNotificationPrefsStore((s) => s.showXpBar && s.gamificationEnabled);
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
   // Theme quick-switch: comic → night → high contrast → comic. The full
@@ -271,14 +275,18 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
         data-header-actions=""
         className="flex items-center justify-end gap-0.5 sm:gap-1 min-w-0"
       >
-        <div className="hidden sm:flex items-center gap-0.5 sm:gap-1">
-          <div className="flex md:hidden xl:flex items-center">
-            <XpBar onOpenTrophyCase={onOpenTrophyCase} />
+        {/* Settings › Notifications can hide the bar (or all progress):
+            drop its slot too, so the cluster keeps even spacing. */}
+        {showXpBar && (
+          <div className="hidden sm:flex items-center gap-0.5 sm:gap-1">
+            <div className="flex md:hidden xl:flex items-center">
+              <XpBar />
+            </div>
+            <div className="hidden md:flex xl:hidden items-center">
+              <XpLevelChip />
+            </div>
           </div>
-          <div className="hidden md:flex xl:hidden items-center">
-            <XpLevelChip onOpen={onOpenTrophyCase} />
-          </div>
-        </div>
+        )}
         <div className="hidden sm:flex md:hidden xl:flex items-center">
           <SonificationToggle />
         </div>
@@ -353,11 +361,22 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
  * line. It opens what the full bar opens and reads the same to a screen
  * reader.
  */
-function XpLevelChip({ onOpen }: { onOpen?: () => void }) {
+const ACTIVE_ACHIEVEMENT_IDS: ReadonlySet<string> = new Set(activeAchievements.map((a) => a.id));
+
+/**
+ * The XP bar's compact form for md–xl, where the full bar doesn't fit. Same
+ * job as XpBar: opens the Activity panel and carries its unread dot.
+ */
+function XpLevelChip() {
   const mounted = useMounted();
+  const toggleActivity = useActivityUiStore((s) => s.toggleActivity);
+  const unread = useVisibleUnreadCount();
   const xp = useVDnaStore((s) => s.xp);
   const prestige = useVDnaStore((s) => s.prestige);
-  const unlockedCount = useVDnaStore((s) => s.unlocked.length);
+  // Retired badges a user still holds don't count toward the total.
+  const unlockedCount = useVDnaStore(
+    (s) => s.unlocked.filter((id) => ACTIVE_ACHIEVEMENT_IDS.has(id)).length
+  );
 
   // The XP store hydrates on the client only: hold the space until then.
   if (!mounted) return <div className="h-8 w-16" aria-hidden="true" />;
@@ -367,17 +386,19 @@ function XpLevelChip({ onOpen }: { onOpen?: () => void }) {
   return (
     <button
       type="button"
-      onClick={onOpen}
+      onClick={toggleActivity}
+      data-activity-trigger=""
       data-no-sound="true"
-      aria-label={`Level ${info.level}, ${pct}% to next level. ${unlockedCount} achievements. Open trophy case.`}
-      title="Open trophy case"
+      aria-label={`Level ${info.level}, ${pct}% to next level. ${unlockedCount} achievements.${unread > 0 ? ` ${unread} new in Activity.` : ""} Open Activity.`}
+      title="Open Activity"
       className={cn(
-        "pointer-coarse:min-h-11 pointer-coarse:min-w-11 flex items-center justify-center gap-1.5 h-8 rounded-md",
+        "relative pointer-coarse:min-h-11 pointer-coarse:min-w-11 flex items-center justify-center gap-1.5 h-8 rounded-md",
         "border border-border bg-surface px-2",
         "text-xs font-mono text-sub hover:text-text hover:border-accent",
         "transition-all duration-fast"
       )}
     >
+      <ActivityDot className="-top-0.5 -right-0.5" />
       {prestige > 0 && (
         <span className="flex items-center gap-0.5 text-warning">
           <Crown className="w-3 h-3" aria-hidden="true" />

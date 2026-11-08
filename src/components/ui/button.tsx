@@ -35,11 +35,15 @@ const buttonVariants = cva(
         "danger-ghost": "text-sub hover:text-danger hover:bg-danger/10",
       },
       size: {
-        // Mobile-first: meet 44px touch target; shrink to 36px on md+ for density
-        default: "min-h-[44px] md:min-h-9 md:h-9 px-4 py-2",
-        sm: "min-h-[36px] md:h-8 rounded-md px-3 text-xs",
-        lg: "min-h-[48px] md:h-10 rounded-md px-8",
-        icon: "min-h-[44px] min-w-[44px] md:h-9 md:w-9 md:min-h-0 md:min-w-0",
+        // Mobile-first: meet the 44px touch target, and shrink to 36px for
+        // density only on md+ with a mouse (`md-fine:`). A touch screen keeps
+        // 44px at any width: a landscape phone or a tablet is md+ too.
+        // `sm` is 36px with a mouse and 44px on touch (`pointer-coarse:`).
+        // scripts/check-ui-classes.mjs rejects a plain `md:` shrink here.
+        default: "min-h-[44px] md-fine:min-h-9 md-fine:h-9 px-4 py-2",
+        sm: "min-h-[36px] pointer-coarse:min-h-11 md-fine:h-8 rounded-md px-3 text-xs",
+        lg: "min-h-[48px] md-fine:h-10 rounded-md px-8",
+        icon: "min-h-[44px] min-w-[44px] md-fine:h-9 md-fine:w-9 md-fine:min-h-0 md-fine:min-w-0",
       },
     },
     defaultVariants: {

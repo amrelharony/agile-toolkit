@@ -378,6 +378,10 @@ const config: Config = {
         component: "10",
         nav: "50",
         header: "100",
+        // Toasts: above the header (100) and the sidebar drawer, below modals.
+        // globals.css lifts them (to 10000) over an open dialog so errors stay
+        // visible.
+        toast: "990",
         modal: "1000",
         overlay: "9999",
       },
@@ -409,6 +413,13 @@ const config: Config = {
     plugin(({ addVariant }) => {
       addVariant("pointer-coarse", "@media (pointer: coarse)");
       addVariant("pointer-fine", "@media (pointer: fine)");
+      // Desktop density: `md-fine:` is `md:` for a mouse only, for the
+      // primitives that shrink from 44 px to 36 px on md+ (Button sizes).
+      // One variant, not `md:pointer-fine:`, on purpose: custom variants
+      // sort before the screen variants, so a call site's own `md:h-7` or
+      // `md:h-auto` still overrides the shrink, as it did when it was `md:`.
+      // A stacked `md:pointer-fine:` would sort after them and win.
+      addVariant("md-fine", "@media (min-width: 768px) and (pointer: fine)");
     }),
   ],
   /* eslint-enable @typescript-eslint/no-require-imports */

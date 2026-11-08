@@ -438,6 +438,30 @@ const mascot: ToolPalette = {
   talking: { voice: "blip", step: 3, octave: 5, velocity: 0.4 },
 };
 
+/**
+ * Moments with Amr (lib/notify/moment-scheduler.ts): one soft chime when a
+ * rare item plays at a calm time. Never a toast, never during a ceremony.
+ * Pseudo-tool, so it plays in Full sound mode only.
+ */
+const gamification: ToolPalette = {
+  "level-up": {
+    voice: "chord",
+    steps: [0, 4, 7],
+    octave: 5,
+    duration: 0.9,
+    velocity: 0.45,
+    filter: "warm",
+  },
+  "trophy-unlock": {
+    voice: "chord",
+    steps: [0, 4, 7, 12],
+    octave: 5,
+    duration: 1.1,
+    velocity: 0.45,
+    filter: "bright",
+  },
+};
+
 export const palette: PaletteMap = {
   "planning-poker": planningPoker,
   retro,
@@ -483,6 +507,7 @@ export const palette: PaletteMap = {
   "mood-tracker": moodTracker,
   kudos,
   mascot,
+  gamification,
   // pseudo-tools for universal surfaces
   ui,
   rt,

@@ -26,8 +26,8 @@ vi.mock("@/lib/auth/auth-provider", async (importOriginal) => ({
   useAuth: () => ({ status: "anonymous", error: null }),
 }));
 vi.mock("@/components/gamification/xp-bar", () => ({
-  XpBar: ({ onOpenTrophyCase }: { onOpenTrophyCase?: () => void }) => (
-    <button type="button" onClick={onOpenTrophyCase}>
+  XpBar: ({ onOpen }: { onOpen?: () => void }) => (
+    <button type="button" onClick={onOpen}>
       Full XP bar
     </button>
   ),
@@ -54,6 +54,8 @@ vi.mock("@/lib/kudos/beacon/header-beacon", () => ({
 import { Header } from "@/components/layout/header";
 import { computeLevel } from "@/lib/gamification/xp-curve";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
+import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
+import { activeAchievements } from "@/lib/gamification/achievements";
 
 const classesOf = (el: Element | null) => (el?.getAttribute("class") ?? "").split(/\s+/);
 
@@ -133,7 +135,12 @@ afterAll(() => {
 
 beforeEach(() => {
   h.owner = false;
-  useVDnaStore.setState({ xp: 250, prestige: 0, unlocked: ["first-retro", "first-poker"] });
+  useVDnaStore.setState({
+    xp: 250,
+    prestige: 0,
+    unlocked: activeAchievements.slice(0, 2).map((a) => a.id),
+  });
+  useActivityUiStore.setState({ activityOpen: false });
 });
 
 afterEach(() => {
@@ -170,7 +177,7 @@ describe("the XP bar between md and xl", () => {
     const info = computeLevel(250, 0);
     const pct = Math.round(info.progress01 * 100);
     const chip = screen.getByRole("button", {
-      name: `Level ${info.level}, ${pct}% to next level. 2 achievements. Open trophy case.`,
+      name: `Level ${info.level}, ${pct}% to next level. 2 achievements. Open Activity.`,
     });
     expect(chip).toHaveTextContent(`L${info.level}`);
     expect(classesOf(chip.parentElement)).toEqual(
@@ -183,11 +190,12 @@ describe("the XP bar between md and xl", () => {
     );
   });
 
-  it("opens the trophy case from the chip, as the full bar does", () => {
-    const onOpenTrophyCase = vi.fn();
-    render(<Header onOpenSearch={() => {}} onOpenTrophyCase={onOpenTrophyCase} />);
-    fireEvent.click(screen.getByRole("button", { name: /^Level \d+,/ }));
-    expect(onOpenTrophyCase).toHaveBeenCalledTimes(1);
+  it("opens the Activity panel from the chip, as the full bar does", () => {
+    render(<Header onOpenSearch={() => {}} />);
+    const chip = screen.getByRole("button", { name: /^Level \d+,/ });
+    expect(chip).toHaveAttribute("data-activity-trigger");
+    fireEvent.click(chip);
+    expect(useActivityUiStore.getState().activityOpen).toBe(true);
   });
 
   it("shows prestige on the chip too", () => {
