@@ -99,3 +99,21 @@ describe("the drawer's section headings", () => {
     }
   });
 });
+
+describe("the drawer's links and the rail's controls", () => {
+  it("are 44 px tall on touch and keep their 40 px mouse rows", () => {
+    render(<Sidebar mobileOpen onClose={() => {}} />);
+    const nav = screen.getAllByRole("navigation")[0];
+    const links = Array.from(nav.querySelectorAll("a"));
+    expect(links.length).toBeGreaterThan(3);
+    for (const link of links) {
+      const cls = classesOf(link);
+      expect(cls).toContain("pointer-coarse:min-h-11");
+      expect(cls.filter((c) => /^(sm|md|lg|xl):min-h-/.test(c))).toEqual([]);
+    }
+    const home = screen.getAllByRole("link").find((a) => a.getAttribute("href") === "/");
+    expect(classesOf(home ?? null)).toContain("pointer-coarse:min-h-11");
+    const toggle = screen.getByRole("button", { name: /(Expand|Collapse) sidebar/ });
+    expect(classesOf(toggle)).toContain("pointer-coarse:min-h-11");
+  });
+});

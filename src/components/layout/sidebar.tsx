@@ -67,7 +67,7 @@ function SidebarToolLink({
       data-no-sound="true"
       title={!expanded ? tool.name : undefined}
       className={cn(
-        "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px]",
+        "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px] pointer-coarse:min-h-11",
         !expanded && "md:justify-center md:px-0 md:gap-0",
         isActive ? "bg-accent/10 text-accent" : "text-sub hover:text-text hover:bg-accent/5"
       )}
@@ -392,7 +392,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
             href="/"
             onClick={handleNavClick}
             data-no-sound="true"
-            className="flex items-center gap-3 min-w-0"
+            className="flex items-center gap-3 min-w-0 pointer-coarse:min-h-11"
           >
             <div
               data-sidebar-logo="true"
@@ -444,7 +444,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   onClick={handleNavClick}
                   data-no-sound="true"
                   className={cn(
-                    "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px]",
+                    "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px] pointer-coarse:min-h-11",
                     isActive
                       ? "bg-accent/10 text-accent"
                       : "text-sub hover:text-text hover:bg-accent/5",
@@ -583,7 +583,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   aria-current={isActiveSection ? "true" : undefined}
                   title={section.label}
                   className={cn(
-                    "flex w-full items-center justify-center rounded-lg py-2.5 transition-colors",
+                    "flex w-full items-center justify-center rounded-lg py-2.5 pointer-coarse:min-h-11 transition-colors",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                     isActiveSection
                       ? "bg-accent/10 text-accent"
@@ -663,7 +663,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               aria-current={pathname === "/more-tools" ? "page" : undefined}
               title={expanded ? undefined : "More tools"}
               className={cn(
-                "mt-3 flex min-h-[40px] items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors",
+                "mt-3 flex min-h-[40px] pointer-coarse:min-h-11 items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors",
                 !expanded && "justify-center",
                 pathname === "/more-tools"
                   ? "bg-accent/10 text-accent"
@@ -689,7 +689,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           data-no-sound="true"
           className="
             hidden md:flex items-center justify-center
-            w-full py-3 border-t border-border
+            w-full py-3 pointer-coarse:min-h-11 border-t border-border
             text-sub hover:text-accent
             transition-all duration-default ease-spring
           "
