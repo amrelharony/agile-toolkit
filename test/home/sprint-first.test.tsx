@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 /**
@@ -72,10 +73,40 @@ describe("sprint-first home", () => {
     expect(screen.queryByRole("link", { name: /Team dashboard/ })).toBeNull();
   });
 
-  it("renders nothing sprint-related until the workspace has loaded", () => {
+  it("holds the sprint block's place above the jobs until the workspace has loaded", () => {
     hydration.hydrated = false;
+    // Even with sprints saved: the server can't know, and the first client
+    // render must match its HTML.
+    useWorkspaceStore.setState({
+      sprints: [
+        {
+          id: "s1",
+          name: "Sprint 1",
+          startDate: "2026-10-15",
+          endDate: "2026-10-25",
+          pointsPlanned: 20,
+          status: "active",
+        },
+      ],
+    });
     render(<Home />);
-    expect(screen.queryByTestId("cockpit")).toBeNull();
+    // The cockpit shows its own placeholder until then (see
+    // test/layout/workspace-loading.test.tsx); the block is there from the start,
+    // so it can't push the job cards down when the workspace arrives.
+    const heading = screen.getByRole("heading", { name: "Start your sprint" });
+    const cockpit = screen.getByTestId("cockpit");
+    expect(cockpit).toHaveTextContent("compact");
+    expect(heading.closest("section")).toContainElement(cockpit);
+    const jobs = screen.getByText("jobs");
+    expect(cockpit.compareDocumentPosition(jobs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("link", { name: /Team dashboard/ })).toBeInTheDocument();
+  });
+
+  it("is in the server HTML, above the jobs", () => {
+    hydration.hydrated = false;
+    const html = renderToString(<Home />);
+    expect(html).toContain("Start your sprint");
+    expect(html).toContain('data-testid="cockpit"');
+    expect(html.indexOf('data-testid="cockpit"')).toBeLessThan(html.indexOf(">jobs<"));
   });
 });

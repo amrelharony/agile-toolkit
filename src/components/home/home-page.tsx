@@ -17,10 +17,11 @@ import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 /**
  * Home: say what this is, then the team's sprint — the cockpit once a sprint
  * exists, the three-step start before that — then the common jobs, what they
- * used last, the comic, and the full index. The server renders the page without
- * the sprint block (it needs this browser's data), which appears once the
- * workspace has loaded. The comic's card comes from the server page (app/page),
- * since only the server can read the stories.
+ * used last, the comic, and the full index. The sprint block needs this
+ * browser's data, so the server renders it as a placeholder of about its size
+ * and the cockpit fills it once the workspace has loaded. The comic's card
+ * comes from the server page (app/page), since only the server can read the
+ * stories.
  */
 export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
   const { tools: visibleTools, shelfCount, showAll } = useToolVisibility();
@@ -66,14 +67,16 @@ export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
         </div>
       </div>
 
-      {hydrated && (
-        <section aria-labelledby="your-sprint-heading" className="space-y-4">
-          <h2 id="your-sprint-heading" className="font-display text-lg font-semibold text-text">
-            {hasSprints ? "Your sprint" : "Start your sprint"}
-          </h2>
-          <SprintCockpit compact />
-        </section>
-      )}
+      {/* Rendered on the server too: until the workspace loads, the cockpit is
+          its "Loading sprints…" placeholder, which holds the block's room on
+          phones. Inserting the whole block after hydration pushed the job
+          cards down under the reader's thumb. */}
+      <section aria-labelledby="your-sprint-heading" className="space-y-4">
+        <h2 id="your-sprint-heading" className="font-display text-lg font-semibold text-text">
+          {hydrated && hasSprints ? "Your sprint" : "Start your sprint"}
+        </h2>
+        <SprintCockpit compact />
+      </section>
 
       <JobLauncher />
 
