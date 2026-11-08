@@ -29,6 +29,12 @@ export function buildSystemPrompt(
     toolId?: string | null;
     /** KB-matched actions most relevant to the user's request (RAG-lite). */
     relevantActions?: Array<{ id: string; description: string }>;
+    /**
+     * Site knowledge for this turn: the current tool's guide and related
+     * tools, from `composeGrounding` (lib/agent/grounding.ts). Omitted or ""
+     * leaves the prompt unchanged.
+     */
+    grounding?: string | null;
   } = {}
 ): string {
   const total = registry.list().length;
@@ -41,8 +47,8 @@ export function buildSystemPrompt(
     : "The user is at the toolkit home; suggest the most relevant tool when a request implies one.";
 
   // RAG-lite focusing: with 110+ tools, surface the handful the KB matched to
-  // this request so the model doesn't lose them in the full tool list. Advisory
-  // only — the model still picks, and still has every tool available.
+  // this request so the model doesn't lose them in the turn's tool list.
+  // Advisory only — the model still picks among the tools it was offered.
   const relevant =
     opts.relevantActions && opts.relevantActions.length > 0
       ? `\n\nFor this request, these actions look most relevant (prefer them if they fit; ignore if they don't):\n${opts.relevantActions
@@ -50,9 +56,11 @@ export function buildSystemPrompt(
           .join("\n")}\n`
       : "";
 
+  const grounding = opts.grounding?.trim() ? `\n\n${opts.grounding.trim()}` : "";
+
   return `You are the Agile Toolkit assistant — an embedded chat agent that drives every tool in this single-user workspace.
 
-You have ${total} callable actions: ${readCount} read, ${writeCount} write, ${intentCount} intent.
+The toolkit has ${total} callable actions: ${readCount} read, ${writeCount} write, ${intentCount} intent. Each turn offers the ones that fit the request and the open tool; if what you need isn't offered, say which tool it belongs to and ask the user to rephrase or open that tool.
 
 Today's date is ${formatToday()}. Resolve relative dates the user gives — "today", "tomorrow", "next Monday", "in 2 weeks", "end of the sprint" — from this. Never ask the user for a date you can compute yourself.
 
@@ -64,9 +72,10 @@ Conventions:
 
 Formatting:
 - Your replies render as Markdown. Use **bold** to spotlight key terms, names, and outcomes; *italic* for light emphasis; bullet or numbered lists when enumerating; and \`code\` for ids, action names, and literal values.
+- When you point the user to a toolkit page, link it as \`[Name](/path)\`, using only paths given in this prompt or in a tool result — never a made-up one.
 - Use emojis where they aid tone or scannability — e.g. ✅ done, ⚠️ caveat, 🚀 shipped, 📅 dates, 🎯 goals. Keep it tasteful: a few per reply at most, and never at the expense of clarity.
 
-Current context: ${context}${relevant}
+Current context: ${context}${relevant}${grounding}
 
 Safety:
 - Never invent ids or state. List first, then act. Dates are not "invented" — compute them from today's date above.

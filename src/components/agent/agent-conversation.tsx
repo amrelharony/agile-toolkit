@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAgentStore } from "@/lib/agent/store";
+import { toolIdForPath } from "@/lib/agent/page-tool";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { sendUserMessage, abortInFlight, generateTitle } from "@/lib/agent/client";
 import {
@@ -113,7 +114,8 @@ export function AgentConversation() {
       return;
     }
     setInput("");
-    const toolId = inferToolId(pathname);
+    // The registry's id for this page's tool (a sub-page counts), or null.
+    const toolId = toolIdForPath(pathname);
     // Ensure a persisted conversation exists so the thread survives reload.
     let convId = useAgentStore.getState().activeConversationId;
     if (!convId) {
@@ -296,11 +298,4 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       </div>
     </div>
   );
-}
-
-function inferToolId(pathname: string | null): string | null {
-  if (!pathname) return null;
-  // /planning-poker → "planning-poker"; / → null
-  const m = pathname.match(/^\/([a-z0-9-]+)(?:\/|$)/);
-  return m ? m[1] : null;
 }

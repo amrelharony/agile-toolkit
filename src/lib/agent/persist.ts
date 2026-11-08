@@ -194,8 +194,13 @@ export async function appendMessages(
     .eq("id", conversationId);
 }
 
-/** Record token spend onto the current turn's usage row (best-effort). */
-export async function recordChatUsage(tokens: number, model = "openclaw"): Promise<void> {
+/**
+ * Record token spend onto the current turn's usage row (best-effort). `model`
+ * is the model the request actually used (the server's, from the route's GET
+ * probe, or the BYOK one), so the usage table doesn't label every row
+ * "openclaw".
+ */
+export async function recordChatUsage(tokens: number, model: string): Promise<void> {
   const supabase = getAuthBrowserClient();
   if (!supabase) return;
   try {
