@@ -8,6 +8,7 @@ import {
   scopeMarks,
   type BurndownChartRow,
 } from "@/app/(tools)/burndown/charts";
+import { BurnupChart, type BurnupChartRow } from "@/app/(tools)/burnup/charts";
 
 /**
  * The burndown's reference-line labels at phone width (mobile audit
@@ -81,13 +82,6 @@ describe("placeScopeLabels", () => {
       { row: 0, side: "right" },
       { row: 1, side: "right" },
       null,
-    ]);
-  });
-
-  it("can stagger instead of hiding on a narrow chart (Burnup)", () => {
-    expect(placeScopeLabels(marks, { dayPx: 15, maxX: 300, hideWhenNarrow: false })).toEqual([
-      { row: 0, side: "right" },
-      { row: 1, side: "right" },
     ]);
   });
 });
@@ -180,5 +174,35 @@ describe("BurndownChart", () => {
     );
     expect(lineLabels(container)).toEqual(["Today"]);
     expect(screen.getByText("Scope change")).toBeInTheDocument();
+  });
+});
+
+describe("Burnup's scope markers (shared, outside this fix)", () => {
+  it("keep every amount printed above the plot, as they always were", () => {
+    // Burnup has no tooltip or legend entry for a scope amount, and its scope
+    // line runs along the plot's top edge: its labels stay where they were.
+    const data: BurnupChartRow[] = Array.from({ length: 15 }, (_, day) => ({
+      day,
+      scope: 30 + (day >= 3 ? 8 : 0),
+      completed: day <= 6 ? day * 2 : null,
+    }));
+    const scopeMoves = [
+      { day: 3, added: 13, removed: 12 },
+      { day: 4, added: 10.5, removed: 12.5 },
+      { day: 5, added: 8, removed: 0 },
+      { day: 6, added: 0, removed: 5 },
+    ];
+    const { container } = render(
+      <BurnupChart data={data} todayDay={7} scopeMoves={scopeMoves} width={292} height={200} />
+    );
+    const labels = ["+13 −12", "+10.5 −12.5", "+8", "−5"];
+    expect(lineLabels(container)).toEqual(expect.arrayContaining([...labels, "Today"]));
+    // All on Today's line above the plot: none moved inside or dropped.
+    const y = (text: string) =>
+      Array.from(container.querySelectorAll("text.recharts-label"))
+        .find((t) => t.textContent === text)
+        ?.getAttribute("y");
+    for (const label of labels) expect(y(label)).toBe(y("Today"));
+    expect(screen.queryByText("Scope added")).not.toBeInTheDocument();
   });
 });

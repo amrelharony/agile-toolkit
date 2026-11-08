@@ -218,8 +218,8 @@ const LABEL_ROW_PX = 14;
  * (to the right, or to the left where the right would run off the chart),
  * dropping a label to the next row when it would touch one already placed.
  * A label that fits in no row, or every label on a chart narrower than
- * MIN_DAY_PX_FOR_SCOPE_LABELS per day (with `hideWhenNarrow`), gets null:
- * its line stays, unlabelled. Pure, for tests.
+ * MIN_DAY_PX_FOR_SCOPE_LABELS per day, gets null: its line stays, unlabelled,
+ * and the burndown's tooltip and legend carry it instead. Pure, for tests.
  */
 export function placeScopeLabels(
   marks: readonly { x: number; label: string }[],
@@ -227,18 +227,16 @@ export function placeScopeLabels(
     dayPx,
     maxX,
     rows = 2,
-    hideWhenNarrow = true,
   }: {
     /** Pixels between neighbouring days. */
     dayPx: number;
     /** The right edge labels may reach (the chart's width). */
     maxX: number;
     rows?: number;
-    hideWhenNarrow?: boolean;
   }
 ): (ScopeLabelSpot | null)[] {
   const spots: (ScopeLabelSpot | null)[] = marks.map(() => null);
-  if (hideWhenNarrow && !(dayPx >= MIN_DAY_PX_FOR_SCOPE_LABELS)) return spots;
+  if (!(dayPx >= MIN_DAY_PX_FOR_SCOPE_LABELS)) return spots;
   const taken: [number, number][][] = Array.from({ length: rows }, () => []);
   const order = marks.map((_, i) => i).sort((a, b) => marks[a].x - marks[b].x);
   for (const i of order) {
@@ -265,16 +263,8 @@ export function placeScopeLabels(
  */
 function useScopeLabelSpots(
   marks: readonly ScopeMark[],
-  {
-    firstDays,
-    rows,
-    hideWhenNarrow,
-  }: {
-    /** The chart's first two days, to measure the spacing between days. */
-    firstDays: readonly number[];
-    rows: number;
-    hideWhenNarrow: boolean;
-  }
+  /** The chart's first two days, to measure the spacing between days. */
+  firstDays: readonly number[]
 ): (ScopeLabelSpot | null)[] | null {
   const xOf = useXAxisScale();
   const plot = usePlotArea();
@@ -288,8 +278,8 @@ function useScopeLabelSpots(
     // One day on the axis: nothing beside it to collide with.
     const dayPx = x0 !== undefined && x1 !== undefined ? Math.abs(x1 - x0) : Infinity;
     const placed = marks.map((m) => ({ x: at(m.day) ?? plot.x, label: m.label }));
-    return placeScopeLabels(placed, { dayPx, maxX: chartWidth, rows, hideWhenNarrow });
-  }, [xOf, plot, chartWidth, marks, d0, d1, rows, hideWhenNarrow]);
+    return placeScopeLabels(placed, { dayPx, maxX: chartWidth });
+  }, [xOf, plot, chartWidth, marks, d0, d1]);
 }
 
 /** The dashed scope lines, each labelled where `spots` puts it (or bare). */
@@ -324,21 +314,27 @@ function scopeLines(marks: readonly ScopeMark[], spots: readonly (ScopeLabelSpot
   });
 }
 
-/** Burnup's scope markers: labels beside their lines, staggered, never moved off them. */
-function StaggeredScopeMarkers({ marks }: { marks: readonly ScopeMark[] }) {
-  const spots = useScopeLabelSpots(marks, { firstDays: [], rows: 3, hideWhenNarrow: false });
-  return <>{scopeLines(marks, spots)}</>;
-}
-
 /**
- * Markers where scope joined (+) or left (−) the sprint, or a day the log
- * flags, labelled inside the plot so they never print over "Today" (Burnup).
+ * Burnup's markers where scope joined (+) or left (−) the sprint, or a day
+ * the log flags, each labelled above the plot. Burnup keeps the layout it
+ * had: inside the plot its labels would cut gaps in the scope line along the
+ * top edge, and it has no tooltip or legend entry to carry a label laid off
+ * its line, so every amount stays printed.
  */
 export function scopeMarkers(
   moves: readonly ScopeMove[] | undefined,
   flaggedDays: readonly number[]
 ) {
-  return <StaggeredScopeMarkers marks={scopeMarks(moves, flaggedDays)} />;
+  return scopeMarks(moves, flaggedDays).map((m) => (
+    <ReferenceLine
+      key={`scope-${m.day}`}
+      x={m.day}
+      stroke={m.color}
+      strokeDasharray="3 3"
+      strokeWidth={1.5}
+      label={{ value: m.label, position: "top", fill: m.color, fontSize: 12 }}
+    />
+  ));
 }
 
 /** A legend entry per kind of unlabelled scope line, so a bare dashed line still has a name. */
@@ -370,7 +366,7 @@ function BurndownMarkers({
   firstDays: readonly number[];
   todayDay: number | null;
 }) {
-  const spots = useScopeLabelSpots(marks, { firstDays, rows: 2, hideWhenNarrow: true });
+  const spots = useScopeLabelSpots(marks, firstDays);
   const hidden = useMemo(
     () => (spots ? marks.filter((_, i) => spots[i] === null) : []),
     [marks, spots]
