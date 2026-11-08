@@ -7,6 +7,7 @@
 import type { MonthSummary } from "@/lib/comics/entries-summary";
 import type { StoryExtras } from "@/lib/comics/extras";
 import type { GuessDraft, StoryGuess } from "@/lib/comics/guess";
+import type { InsightStory, StatRow, TapRow } from "@/lib/comics/insights";
 import type { ScheduledRelease } from "@/lib/comics/queue";
 import type { OwnerStory, StoredPanel, StoryFields } from "@/lib/comics/story-input";
 import {
@@ -46,6 +47,8 @@ const MESSAGES: Readonly<Record<string, string>> = {
     "Quizzes and a story's own tool need migration 0033, which hasn't been applied yet.",
   guess_unavailable:
     "The guess and Try it this week need migration 0035, which hasn't been applied yet.",
+  insights_unavailable:
+    "Insights and the print shortlist need migration 0036, which hasn't been applied yet.",
 };
 
 async function call<T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> {
@@ -126,6 +129,13 @@ export const portalApi = {
     }),
   entries: (months: number) =>
     call<{ months: number; summary: MonthSummary[] }>(`/api/comics/entries?months=${months}`),
+  insights: () =>
+    call<{ stories: InsightStory[]; stats: StatRow[]; taps: TapRow[] }>("/api/comics/insights"),
+  setShortlist: (ep: number, on: boolean) =>
+    call<{ ep: number; shortlisted: boolean }>(`${stories}/${ep}/shortlist`, {
+      method: "PUT",
+      json: { on },
+    }),
   licenceRequests: () =>
     call<{ requests: LicenceRequest[]; unhandled: number }>("/api/comics/licence-requests"),
   markHandled: (id: string, handled: boolean) =>

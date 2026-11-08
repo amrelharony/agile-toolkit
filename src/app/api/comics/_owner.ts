@@ -23,6 +23,9 @@ import { isSameOrigin } from "./_guard";
 
 /** Well above any story, and a long way under Vercel's limit. Images never come here. */
 const MAX_BODY_BYTES = 256 * 1024;
+/** PostgREST answers 1000 rows at most, whatever the query asks for. */
+const PAGE_SIZE = 1000;
+const MAX_ROWS = 100_000;
 
 export const BUCKET = "comic-panels";
 
@@ -53,6 +56,26 @@ export function ownerRoute<P = Record<string, never>>(
     if (!admin) return refuse(503, "service_unavailable");
     return handler({ req, admin, params: context?.params });
   };
+}
+
+/**
+ * Every row of a query, a page at a time, once each. The pages are read while
+ * scans keep arriving: a new row moves the rows after it down
+ * one, so a page can repeat the last row of the one before. Keeping each row
+ * once by its key means it's never counted twice.
+ */
+export async function allRows<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  keyOf: (row: T) => string
+): Promise<T[] | null> {
+  const rows = new Map<string, T>();
+  for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
+    const { data, error } = await page(offset, offset + PAGE_SIZE - 1);
+    if (error || !data) return null;
+    for (const row of data) rows.set(keyOf(row), row);
+    if (data.length < PAGE_SIZE) break;
+  }
+  return Array.from(rows.values());
 }
 
 /** The parsed body, or a Response to return. */
