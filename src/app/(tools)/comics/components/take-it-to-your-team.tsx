@@ -7,9 +7,9 @@ import { toolForStory } from "@/lib/comics/try-tool";
 import { DiscussInRetro } from "./story-actions";
 
 /**
- * Under a story's notes: its question for the team's retro, a tool for the
- * story's theme when it has one, and, for a book episode, a kudos for the habit
- * on the episode's printed card. Not a client component: only the retro button
+ * Under a story's notes: its question for the team's retro, its "Try it this
+ * week" line when it has one, a tool for the story's theme when it has one,
+ * and, for a book episode, a kudos for the habit on the episode's printed card. Not a client component: only the retro button
  * is, and it gets the number and the question, nothing else.
  */
 export function TakeItToYourTeam({
@@ -17,6 +17,7 @@ export function TakeItToYourTeam({
   question,
   themes,
   tryTool = null,
+  tryAction = null,
   kudos = false,
 }: {
   ep: number;
@@ -24,6 +25,8 @@ export function TakeItToYourTeam({
   themes: readonly string[];
   /** The story's own choice from the portal, over its theme's. */
   tryTool?: string | null;
+  /** One small thing to do this week (migration 0035). */
+  tryAction?: string | null;
   /** A book episode, which has a printed kudos card to open. */
   kudos?: boolean;
 }) {
@@ -46,6 +49,12 @@ export function TakeItToYourTeam({
               </Button>
             ) : null}
           </div>
+          {tryAction ? (
+            <div>
+              <h3 className="font-medium text-text">Try it this week</h3>
+              <p className="mt-1 text-sub">{tryAction}</p>
+            </div>
+          ) : null}
           {tool ? (
             <p className="text-sm text-sub">
               Try this with your team:{" "}

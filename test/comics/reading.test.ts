@@ -13,6 +13,11 @@ import {
   setSentLinks,
   weekNumber,
   weekStreak,
+  SKIPPED,
+  guessFor,
+  markGuessed,
+  markSeen,
+  seenFor,
 } from "@/lib/comics/reading";
 
 const SUNDAY = new Date("2026-11-01T07:00:00.000Z");
@@ -104,5 +109,38 @@ describe("where a story's question went", () => {
     expect(sentLinks(31)).toEqual([]);
     setSentLinks(30, () => []);
     expect(JSON.parse(localStorage.getItem(READING_KEY)!).sent).toEqual({});
+  });
+});
+
+describe("a story's guess and Seen this at work", () => {
+  it("keeps each story's first answer only, so a reload can't count twice", () => {
+    expect(guessFor(30)).toBeNull();
+    expect(markGuessed(30, 2)).toBe(true);
+    expect(markGuessed(30, 0)).toBe(false);
+    expect(guessFor(30)).toBe(2);
+    expect(markGuessed(31, SKIPPED)).toBe(true);
+    expect(guessFor(31)).toBe(SKIPPED);
+    expect(seenFor(30)).toBeNull();
+    expect(markSeen(30, 1)).toBe(true);
+    expect(markSeen(30, 0)).toBe(false);
+    expect(seenFor(30)).toBe(1);
+  });
+
+  it("drops a damaged answer rather than trusting it", () => {
+    localStorage.setItem(
+      READING_KEY,
+      JSON.stringify({ guessed: { 30: 9, 31: "1", 32: 1 }, seen: { 30: -1, 31: 0 } })
+    );
+    expect(guessFor(30)).toBeNull();
+    expect(guessFor(31)).toBeNull();
+    expect(guessFor(32)).toBe(1);
+    expect(seenFor(30)).toBeNull();
+    expect(seenFor(31)).toBe(0);
+  });
+
+  it("leaves the reading record's other parts alone", () => {
+    markRead(30, SUNDAY);
+    markGuessed(30, 1);
+    expect(hasRead(30)).toBe(true);
   });
 });

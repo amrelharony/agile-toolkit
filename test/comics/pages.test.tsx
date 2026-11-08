@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { StoryExtras } from "@/lib/comics/extras";
+import type { StoryGuessExtras } from "@/lib/comics/guess";
 import type { Story, StorySummary } from "@/lib/comics/types";
 
 const h = vi.hoisted(() => ({
@@ -11,6 +12,7 @@ const h = vi.hoisted(() => ({
   push: vi.fn(),
   extras: { quiz: null, tryTool: null } as StoryExtras,
   extrasCalls: [] as number[],
+  guess: { guess: null, tryAction: null } as StoryGuessExtras,
 }));
 
 vi.mock("server-only", () => ({}));
@@ -20,6 +22,7 @@ vi.mock("@/lib/comics/store", () => ({
     h.extrasCalls.push(ep);
     return h.extras;
   },
+  getStoryGuess: async () => h.guess,
   listReleasedWeekly: async (limit?: number) => (limit ? h.summaries.slice(0, limit) : h.summaries),
   listReleasedEps: async () => {
     if (h.listThrows) throw new Error("down");
@@ -101,6 +104,7 @@ beforeEach(() => {
   h.push.mockClear();
   h.extras = { quiz: null, tryTool: null };
   h.extrasCalls = [];
+  h.guess = { guess: null, tryAction: null };
   localStorage.clear();
   window.history.replaceState(null, "", "/comics");
   vi.stubGlobal("sendBeacon", undefined);
@@ -524,6 +528,162 @@ describe("a story's quiz and its own tool", () => {
     h.story = null;
     render(await ComicStoryPage(params(12)));
     expect(h.extrasCalls).toEqual([]);
+  });
+});
+
+describe("a story's guess, Seen this at work and Try it this week", () => {
+  const GUESS = {
+    question: "What does Amr do next?",
+    options: ["Asks Dina where she saved them", "Prints them again", "Waits for Friday"],
+    happened: 1,
+    note: "Printing again fixed today, not next time.",
+  };
+
+  type Call = { url: string; init?: RequestInit };
+  let calls: Call[];
+  let reply: { counts: number[]; shares: number[] | null };
+
+  beforeEach(() => {
+    h.story = STORY;
+    h.released = [30];
+    h.guess = { guess: GUESS, tryAction: "Ask who else keeps notes only on paper." };
+    calls = [];
+    reply = { counts: [1, 0, 0], shares: null };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init });
+        if (String(url).startsWith("/api/comics/taps")) return Response.json(reply);
+        return new Response(null, { status: 204 });
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const taps = (method: string) =>
+    calls.filter(
+      (c) => c.url.startsWith("/api/comics/taps") && (c.init?.method ?? "GET") === method
+    );
+
+  it("hides the last panel, its description and its transcript until the reader guesses", async () => {
+    render(await ComicStoryPage(params(30)));
+    expect(screen.getByRole("img", { name: /Panel 2 is hidden until you guess/ })).toBeTruthy();
+    expect(screen.queryByAltText("Amr shrugs by the printer.")).toBeNull();
+    expect(screen.queryByText("Amr shrugs by the printer.")).toBeNull();
+    expect(screen.queryByText("I thought you had them.")).toBeNull();
+    // The picture still loads behind the cover, so the reveal doesn't wait.
+    const covered = document.querySelectorAll("img[src*='two-768']");
+    expect(covered).toHaveLength(1);
+    expect(covered[0].getAttribute("loading")).toBe("lazy");
+    // Only the panels already read open full screen.
+    expect(screen.getAllByRole("button", { name: /Open panel \d of 2 full screen/ })).toHaveLength(
+      1
+    );
+    const question = screen.getByRole("region", { name: GUESS.question });
+    expect(within(question).getAllByRole("button")).toHaveLength(4);
+  });
+
+  it("reveals the panel on a pick, counts it once, and shows what happened", async () => {
+    render(await ComicStoryPage(params(30)));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Waits for Friday" }));
+    });
+    expect(screen.getByAltText("Amr shrugs by the printer.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open panel 2 of 2 full screen" })).toBeTruthy();
+    expect(taps("POST")).toHaveLength(1);
+    expect(JSON.parse(String(taps("POST")[0].init?.body))).toEqual({
+      ep: 30,
+      kind: "guess",
+      choice: 2,
+    });
+    const results = screen.getByRole("region", { name: GUESS.question });
+    expect(within(results).getByText("What happened").closest("li")).toHaveTextContent(
+      "Prints them again"
+    );
+    expect(within(results).getByText("Your guess").closest("li")).toHaveTextContent(
+      "Waits for Friday"
+    );
+    expect(within(results).getByText(/You're the first to guess/)).toBeTruthy();
+    expect(within(results).getByText(GUESS.note)).toBeTruthy();
+    // Focus goes to the panel that just appeared, which carries its own description.
+    expect(document.activeElement?.tagName).toBe("FIGURE");
+    expect(document.activeElement).toHaveAccessibleName(/Amr shrugs by the printer/);
+  });
+
+  it("shows how readers picked once there are enough of them", async () => {
+    reply = { counts: [6, 30, 4], shares: [15, 75, 10] };
+    render(await ComicStoryPage(params(30)));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Prints them again" }));
+    });
+    const results = screen.getByRole("region", { name: "What readers picked" });
+    expect(within(results).getByText("75%")).toBeTruthy();
+    expect(within(results).getByText("15%")).toBeTruthy();
+  });
+
+  it("lets a reader skip the guess without counting anything", async () => {
+    render(await ComicStoryPage(params(30)));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Just show me" }));
+    });
+    expect(screen.getByAltText("Amr shrugs by the printer.")).toBeTruthy();
+    expect(taps("POST")).toHaveLength(0);
+    expect(taps("GET")).toHaveLength(1);
+    expect(screen.queryByText("Your guess")).toBeNull();
+  });
+
+  it("remembers the guess on this device: no second count, no cover", async () => {
+    localStorage.setItem(
+      "agile-toolkit:comics:reading",
+      JSON.stringify({ read: {}, sent: {}, asked: {}, guessed: { 30: 0 }, seen: {} })
+    );
+    await act(async () => {
+      render(await ComicStoryPage(params(30)));
+    });
+    expect(screen.getByAltText("Amr shrugs by the printer.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Just show me" })).toBeNull();
+    expect(taps("POST")).toHaveLength(0);
+    expect(taps("GET")[0].url).toBe("/api/comics/taps?ep=30&kind=guess");
+    expect(screen.getByText("Your guess").closest("li")).toHaveTextContent(
+      "Asks Dina where she saved them"
+    );
+  });
+
+  it("keeps the whole story as before when there's no guess", async () => {
+    h.guess = { guess: null, tryAction: null };
+    render(await ComicStoryPage(params(30)));
+    expect(screen.getByAltText("Amr shrugs by the printer.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Just show me" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Try it this week" })).toBeNull();
+  });
+
+  it("asks once whether the reader has seen this at work, then says how many have", async () => {
+    reply = { counts: [21, 4], shares: [84, 16] };
+    render(await ComicStoryPage(params(30)));
+    const seen = screen.getByRole("region", { name: "Seen this at work?" });
+    await act(async () => {
+      fireEvent.click(within(seen).getByRole("button", { name: "Yes, I've seen this" }));
+    });
+    expect(within(seen).queryByRole("button")).toBeNull();
+    expect(within(seen).getByRole("status")).toHaveTextContent(
+      "Thanks. 84% of readers have seen this at work."
+    );
+    expect(document.activeElement).toBe(within(seen).getByRole("status"));
+    expect(JSON.parse(String(taps("POST")[0].init?.body))).toEqual({
+      ep: 30,
+      kind: "seen",
+      choice: 0,
+    });
+  });
+
+  it("puts Try it this week above the team's tool", async () => {
+    render(await ComicStoryPage(params(30)));
+    const team = screen.getByRole("region", { name: "Take it to your team" });
+    expect(within(team).getByRole("heading", { name: "Try it this week" })).toBeTruthy();
+    expect(within(team).getByText("Ask who else keeps notes only on paper.")).toBeTruthy();
   });
 });
 
