@@ -1228,9 +1228,10 @@ html[data-intro] [data-sonner-toaster] {
   }
 }
 
-/* Amr's strip on phones (components/agent/mascot/mascot-assistant): main already
-   has more bottom padding than the strip is tall, so only a strip under the header
-   needs room made at the top. Focus and anchor scrolling stop clear of either. */
+/* Amr's space on phones (components/agent/mascot/mascot-assistant): nothing is
+   drawn there, but main already has more bottom padding than the space is tall,
+   so only space under the header needs room made at the top. Focus and anchor
+   scrolling stop clear of either. */
 @media (max-width: 639px) {
   html {
     scroll-padding-bottom: var(--amr-band-bottom, 0px);
