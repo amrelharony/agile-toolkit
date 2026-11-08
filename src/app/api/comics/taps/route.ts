@@ -26,10 +26,9 @@ import {
   tapCounts,
   type TapKind,
 } from "@/lib/comics/guess";
-import { EARLY_WINDOW_DAYS } from "@/lib/comics/store";
+import { storyOpenForCounts } from "@/lib/comics/story-access";
 import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
 import { getSquadAdminClient } from "@/lib/squads/server";
-import { hasVipAccess } from "@/lib/vip/access";
 import { isSameOrigin, withinRateLimit } from "../_guard";
 
 export const dynamic = "force-dynamic";
@@ -38,14 +37,11 @@ const MAX_BODY_BYTES = 256;
 /** A reader taps twice a story at most; an office shares one address. */
 const RATE_LIMIT = 60;
 const RATE_WINDOW_MS = 60_000;
-const DAY_MS = 86_400_000;
 
 const refuse = (status: number, error: string) => Response.json({ error }, { status });
 
 const answer = (counts: number[], cache: string) =>
   Response.json({ counts, shares: shares(counts) }, { headers: { "cache-control": cache } });
-
-type StoryRow = { guess: unknown; release_at: string | null; collection: string };
 
 /**
  * How many choices `kind` has on story `ep`, or a Response refusing it: a
@@ -57,20 +53,9 @@ async function choicesOn(
   ep: number,
   kind: TapKind
 ): Promise<number | Response> {
-  const { data, error } = await admin
-    .from("comic_stories")
-    .select("guess,release_at,collection")
-    .eq("ep", ep)
-    .maybeSingle<StoryRow>();
-  if (error) return refuse(503, "service_unavailable");
-  if (!data || data.collection !== "weekly" || !data.release_at) return refuse(404, "not_found");
-  const releaseAt = Date.parse(data.release_at);
-  const now = Date.now();
-  if (releaseAt > now) {
-    const inWindow = releaseAt <= now + EARLY_WINDOW_DAYS * DAY_MS;
-    if (!inWindow || !(await hasVipAccess())) return refuse(404, "not_found");
-  }
-  const size = choicesFor(kind, readGuess(data.guess));
+  const access = await storyOpenForCounts(admin, ep);
+  if (!access.ok) return refuse(access.status, access.error);
+  const size = choicesFor(kind, readGuess(access.story.guess));
   return size > 0 ? size : refuse(404, "not_found");
 }
 

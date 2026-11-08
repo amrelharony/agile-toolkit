@@ -20,6 +20,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSquadAdminClient } from "@/lib/squads/server";
 import { NO_EXTRAS, pickableTool, readQuiz, type StoryExtras } from "./extras";
 import { NO_GUESS, readGuess, readTryAction, type StoryGuessExtras } from "./guess";
+import { NO_TOTALS, readTotals, type StoryTotals } from "./stats";
 import type {
   ComicCollection,
   DialogueLine,
@@ -235,6 +236,61 @@ export async function getStoryGuess(
     return { guess: readGuess(row.guess), tryAction: readTryAction(row.try_action) };
   } catch {
     return NO_GUESS;
+  }
+}
+
+/**
+ * One story's anonymous totals (migration 0036): the heart's count and "Read by
+ * N readers". Soft like getStoryGuess: before the migration runs, or in an
+ * outage, the page shows no counts rather than failing.
+ */
+export async function getStoryTotals(ep: number): Promise<StoryTotals> {
+  try {
+    const rows = await read<{ metric: string; count: number | string }[]>(
+      [],
+      (client, _now, signal) =>
+        client
+          .from("comic_story_stats")
+          .select("metric,count")
+          .eq("ep", ep)
+          .neq("metric", "time")
+          .abortSignal(signal)
+          .returns<{ metric: string; count: number | string }[]>()
+    );
+    const sum = (metric: string) =>
+      rows.filter((r) => r.metric === metric).reduce((n, r) => n + Number(r.count), 0);
+    return readTotals({
+      views: sum("view"),
+      visitors: sum("visitor"),
+      readers: sum("reader"),
+      loves: sum("love") - sum("unlove"),
+      shares: sum("share"),
+      retros: sum("retro"),
+      tools: sum("tool"),
+    });
+  } catch {
+    return NO_TOTALS;
+  }
+}
+
+/** Every story's totals, for Readers' favourites. Soft: empty on any failure. */
+export async function listStoryTotals(): Promise<Map<number, StoryTotals>> {
+  try {
+    const rows = await read<Record<string, unknown>[]>(
+      [],
+      (client, _now, signal) =>
+        // An untyped RPC: its rows are read field by field in readTotals.
+        client.rpc("comic_story_totals").abortSignal(signal) as unknown as PromiseLike<
+          QueryResult<Record<string, unknown>[]>
+        >
+    );
+    return new Map(
+      rows
+        .filter((r) => Number.isInteger(Number(r.ep)))
+        .map((r) => [Number(r.ep), readTotals(r)] as const)
+    );
+  } catch {
+    return new Map();
   }
 }
 
