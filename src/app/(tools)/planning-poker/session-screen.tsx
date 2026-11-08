@@ -668,7 +668,10 @@ export function SessionScreen({
         />
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
+      {/* minmax(0,…) on the phone column too: an implicit auto track grows to
+          the widest nowrap text (a long participant name), pushing every
+          session card past the screen edge instead of letting it truncate. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
         <div className="flex flex-col gap-5">
           {currentStory ? (
             <Card className="border-border bg-surface">
