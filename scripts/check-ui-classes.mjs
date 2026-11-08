@@ -18,6 +18,11 @@
  *   text-accent on the same line, hover and other variants included): the
  *   three themes' tokens keep 4.5:1 only up to /20
  *   (test/design/theme-contrast.test.ts). Use /20 or less, or text-text.
+ * - A rigid header search pill (shrink-0, flex-shrink-0 or flex-none, any
+ *   variant, on the element marked data-header-search): a pill that can't
+ *   give width back pushed the 768–1040 px header wider than the screen,
+ *   taking help, theme, the account menu and Amr off it. Use a min-width
+ *   floor instead.
  *
  * Exits 0 when clean. Prints file:line and the offending class otherwise.
  */
@@ -81,6 +86,75 @@ function strongOwnTints(line) {
   return found;
 }
 
+const HEADER_SEARCH_MARKER = "data-header-search";
+// A class that stops a flex item shrinking. Not after `:` or `]`, so an
+// arbitrary child variant (`[&>svg]:shrink-0`) — about the children — passes.
+const RIGID_FLEX_RE =
+  /(?<![\w:\]-])(?:[a-z0-9-]+:)*!?(?:shrink-0|flex-shrink-0|flex-none)(?![\w-])/g;
+
+/**
+ * The JSX opening tag that starts at `start` (a `<`), with comments inside
+ * `{…}` blanked out (same length, so offsets still map to lines). Skips
+ * strings and `{…}` expressions, so `=>` and `>` in them don't end the tag.
+ */
+function openingTag(source, start) {
+  let out = "";
+  let depth = 0;
+  let quote = null;
+  for (let i = start; i < source.length; i++) {
+    const c = source[i];
+    if (quote) {
+      out += c;
+      if (c === "\\") {
+        out += source[i + 1] ?? "";
+        i++;
+      } else if (c === quote) quote = null;
+      continue;
+    }
+    const next = source[i + 1];
+    if (depth > 0 && c === "/" && (next === "/" || next === "*")) {
+      let stop = next === "/" ? source.indexOf("\n", i) : source.indexOf("*/", i + 2);
+      if (stop === -1) stop = source.length;
+      else if (next === "*") stop += 2;
+      out += source.slice(i, stop).replace(/[^\n]/g, " ");
+      i = stop - 1;
+      continue;
+    }
+    out += c;
+    if (c === '"' || c === "'" || c === "`") quote = c;
+    else if (c === "{") depth++;
+    else if (c === "}") depth--;
+    else if (c === ">" && depth === 0) break;
+  }
+  return out;
+}
+
+function rigidHeaderSearch(source) {
+  const found = [];
+  if (!source.includes(HEADER_SEARCH_MARKER)) return found;
+  const tagStarts = [...source.matchAll(/<[A-Za-z]/g)].map((m) => m.index);
+  for (const marker of source.matchAll(new RegExp(HEADER_SEARCH_MARKER, "g"))) {
+    // The nearest tag start before the marker whose opening tag spans it.
+    for (let k = tagStarts.length - 1; k >= 0; k--) {
+      const start = tagStarts[k];
+      if (start > marker.index) continue;
+      const tag = openingTag(source, start);
+      if (start + tag.length <= marker.index) continue;
+      for (const m of tag.matchAll(RIGID_FLEX_RE)) {
+        const line = source.slice(0, start + m.index).split("\n").length;
+        found.push({
+          line,
+          rule: "rigid-header-search",
+          match: m[0],
+          hint: "the header search must shrink: give it a min-width floor, not shrink-0",
+        });
+      }
+      break;
+    }
+  }
+  return found;
+}
+
 export function findViolations(source) {
   const found = [];
   const lines = source.split("\n");
@@ -102,6 +176,7 @@ export function findViolations(source) {
       });
     }
   });
+  found.push(...rigidHeaderSearch(source));
   return found;
 }
 
