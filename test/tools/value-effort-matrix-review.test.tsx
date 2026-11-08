@@ -32,6 +32,7 @@ import { ValueEffortMatrixClient } from "@/app/(tools)/value-effort-matrix/value
 import { veVerdict } from "@/app/(tools)/value-effort-matrix/verdict";
 import { legacyValueNote, trayDraft, trayNote } from "@/app/(tools)/value-effort-matrix/model";
 import "@/lib/actions/tools/value-effort-matrix";
+import { dismissUndoToasts } from "@/lib/utils/undoable";
 
 const FW = "value-effort" as const;
 const STAMP = "2026-10-20T09:00:00.000Z";
@@ -85,6 +86,9 @@ const lastUndo = () => {
 };
 
 beforeEach(() => {
+  // The mocked toasts never close: forget the last test's open Undo toasts,
+  // or a write to the same backlog item would chain onto their reverts.
+  dismissUndoToasts();
   toastSpy.mockReset();
   useWorkspaceStore.setState({ backlogItems: [], prioritizations: [] });
 });

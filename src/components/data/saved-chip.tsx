@@ -41,7 +41,8 @@ export function SavedChip({ className }: { className?: string }) {
         aria-haspopup="dialog"
         aria-label={`${label} — back up or restore your data`}
         className={cn(
-          "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors",
+          // 32 px with a mouse, 44 px on touch screens.
+          "inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors pointer-coarse:min-h-11",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
           writeFailed
             ? "border-warning/40 bg-warning/10 text-warning hover:bg-warning/15"

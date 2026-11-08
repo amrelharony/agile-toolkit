@@ -76,7 +76,7 @@ export function GuestHomeClient({ profile }: Props) {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-6 py-12">
+    <main className="min-h-screen-dvh flex items-center justify-center px-6 py-12">
       <div className="w-full max-w-lg space-y-6">
         <header className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">

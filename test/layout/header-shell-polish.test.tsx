@@ -1,0 +1,218 @@
+/**
+ * The app shell's header on phones (mobile audit 2026-11-08): the safe areas
+ * around it, the size of its touch targets and the page title in the bar.
+ * jsdom has no layout, so the sizes are pinned as classes and the CSS token;
+ * the real boxes are checked on phone emulation (375x812 with a simulated
+ * 47 px top inset, 812x375 with 47 px side insets).
+ */
+
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+
+const h = vi.hoisted(() => ({ pathname: "/", owner: false }));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => h.pathname,
+  useRouter: () => ({ push: () => {} }),
+}));
+vi.mock("@/lib/auth/use-is-owner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/use-is-owner")>()),
+  useIsOwner: () => h.owner,
+}));
+vi.mock("@/lib/auth/auth-provider", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/auth-provider")>()),
+  useAuth: () => ({ status: "anonymous", error: null }),
+}));
+vi.mock("@/components/gamification/xp-bar", () => ({ XpBar: () => null }));
+vi.mock("@/components/shared/sonification-toggle", () => ({ SonificationToggle: () => null }));
+vi.mock("@/components/ai/llm-status-chip", () => ({ LlmStatusChip: () => null }));
+vi.mock("@/lib/weather/widget", () => ({ WeatherWidget: () => null }));
+vi.mock("@/components/auth/user-menu", () => ({
+  UserMenu: () => <button type="button" aria-label="Visitor menu" />,
+}));
+vi.mock("@/components/auth/visitor-data-merge-dialog", () => ({
+  VisitorDataMergeDialog: () => null,
+}));
+vi.mock("@/lib/kudos/beacon/header-beacon", () => ({ KudosHeaderBeacon: () => null }));
+
+import { Header } from "@/components/layout/header";
+import { getToolById } from "@/lib/constants/tools";
+import { VIP_TITLE } from "@/lib/vip/constants";
+
+const ROOT = path.resolve(__dirname, "../..");
+const classesOf = (el: Element | null) => (el?.getAttribute("class") ?? "").split(/\s+/);
+
+beforeEach(() => {
+  h.pathname = "/";
+  h.owner = false;
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+describe("the header's box", () => {
+  const header = () => {
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    const el = container.querySelector("header[data-chrome='header']");
+    expect(el).not.toBeNull();
+    return classesOf(el);
+  };
+
+  it("adds the top safe area to a 56 px row instead of taking it out of the row", () => {
+    const cls = header();
+    expect(cls).toEqual(expect.arrayContaining(["min-h-[var(--header-h)]", "pt-safe"]));
+    // A fixed height with pt-safe (border-box) squeezed the row to 9 px
+    // under a 47 px inset.
+    expect(cls.filter((c) => /^([\w-]+:)*h-/.test(c))).toEqual([]);
+  });
+
+  it("keeps a gutter on both sides that never drops below the safe area", () => {
+    const cls = header();
+    expect(cls).toEqual(
+      expect.arrayContaining([
+        "pl-[max(0.75rem,env(safe-area-inset-left))]",
+        "sm:pl-[max(1rem,env(safe-area-inset-left))]",
+        "md:pl-6",
+        "pr-[max(0.75rem,env(safe-area-inset-right))]",
+        "sm:pr-[max(1rem,env(safe-area-inset-right))]",
+        "md:pr-[max(1.5rem,env(safe-area-inset-right))]",
+      ])
+    );
+    // A bare pr-safe (0 on most phones) beat px-3, and md:px-6 beat it on a
+    // landscape iPhone: neither may come back.
+    expect(cls).not.toContain("pr-safe");
+    expect(cls.filter((c) => /^([\w-]+:)*px-/.test(c))).toEqual([]);
+  });
+});
+
+describe("--header-h", () => {
+  const css = readFileSync(path.join(ROOT, "src/app/globals.css"), "utf8");
+
+  it("is the 56 px row plus the top safe area, so Amr's top corner clears the taller bar", () => {
+    const decls = Array.from(css.matchAll(/--header-h:\s*([^;]+);/g), (m) => m[1].trim());
+    expect(decls).toEqual(["calc(3.5rem + env(safe-area-inset-top, 0px))"]);
+  });
+});
+
+describe("the main element's side safe areas", () => {
+  const source = readFileSync(path.join(ROOT, "src/components/layout/app-shell.tsx"), "utf8");
+  const mainClass = source.match(/<main[^>]*id="main-content"[^>]*className="([^"]+)"/)?.[1] ?? "";
+  const cls = mainClass.split(/\s+/);
+
+  it("keeps the right inset from md, where landscape iPhones are", () => {
+    expect(cls).toEqual(expect.arrayContaining(["pl-safe", "pr-safe"]));
+    expect(cls).not.toContain("md:pr-0");
+  });
+
+  it("leaves the left inset to the rail from md", () => {
+    expect(cls).toContain("md:pl-0");
+  });
+});
+
+describe("the header's icon buttons on touch", () => {
+  const TOUCH = ["pointer-coarse:min-h-11", "pointer-coarse:min-w-11"];
+
+  it.each([
+    ["Open search", false],
+    ["Open help", false],
+    ["Open agent chat", true],
+    [/^Switch to .* theme/, false],
+  ] as const)("%s is 44 px on touch and keeps its 36 px mouse size", (name, owner) => {
+    h.owner = owner;
+    render(<Header onOpenSearch={() => {}} />);
+    const cls = classesOf(screen.getByRole("button", { name }));
+    expect(cls).toEqual(expect.arrayContaining([...TOUCH, "w-9", "h-9"]));
+    // Touch size by input, not by width (a landscape phone is wider than md):
+    // no other minimum size, bar the search pill's own floors.
+    const otherMins = cls.filter(
+      (c) => /^([\w-]+:)*min-[hw]-/.test(c) && !c.startsWith("pointer-coarse:")
+    );
+    expect(otherMins).toEqual(name === "Open search" ? ["min-w-9", "lg:min-w-[10rem]"] : []);
+  });
+
+  it("leaves the search pill's desktop height to lg:h-auto", () => {
+    render(<Header onOpenSearch={() => {}} />);
+    expect(classesOf(screen.getByRole("button", { name: "Open search" }))).toContain("lg:h-auto");
+  });
+});
+
+/** The page items in the bar's breadcrumb (BreadcrumbPage: aria-current="page"). */
+function currentPages(container: HTMLElement): HTMLElement[] {
+  const nav = container.querySelector("nav[aria-label='breadcrumb']");
+  return Array.from(nav?.querySelectorAll<HTMLElement>("[aria-current='page']") ?? []);
+}
+
+describe("the bar's title on a page that isn't a tool", () => {
+  it.each([
+    ["/", "Home"],
+    ["/history", "History"],
+    ["/insights", "Your activity"],
+    ["/team", "Team"],
+    ["/more-tools", "More tools"],
+    ["/vip", VIP_TITLE],
+    ["/s", "Shared snapshot"],
+    ["/settings/appearance", "Settings"],
+    ["/settings/comics/import", "Settings"],
+  ])("%s is called %s, as the only title below lg", (pathname, title) => {
+    h.pathname = pathname;
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    const pages = currentPages(container);
+    expect(pages.map((p) => p.textContent)).toEqual([title]);
+    // Below lg only: from lg the Home link stands alone, as before.
+    expect(classesOf(pages[0].closest("li"))).toContain("lg:hidden");
+  });
+
+  it.each(["/history", "/insights", "/vip", "/settings/squads"])(
+    "%s is never called Home",
+    (pathname) => {
+      h.pathname = pathname;
+      const { container } = render(<Header onOpenSearch={() => {}} />);
+      expect(currentPages(container).map((p) => p.textContent)).not.toContain("Home");
+    }
+  );
+
+  it("names nothing on an address it has no title for, rather than a wrong Home", () => {
+    h.pathname = "/no-such-page";
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    expect(currentPages(container)).toEqual([]);
+    // The desktop trail's Home link is still there (from lg).
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+  });
+
+  it("does not match a page by prefix (only Settings groups its pages)", () => {
+    h.pathname = "/history/extra";
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    expect(currentPages(container)).toEqual([]);
+  });
+
+  it.each(["/insights", "/more-tools", "/planning-poker"])(
+    "%s: every box from the clipping wrapper down to the title can shrink, so it ends in an ellipsis",
+    (pathname) => {
+      // With 44 px touch buttons a 360 px bar leaves the title about 54 px.
+      // A nav without min-w-0 kept the title's full width and the wrapper's
+      // overflow-hidden cut it mid-letter instead of letting truncate work.
+      h.pathname = pathname;
+      const { container } = render(<Header onOpenSearch={() => {}} />);
+      const nav = container.querySelector("nav[aria-label='breadcrumb']");
+      expect(classesOf(nav?.parentElement ?? null)).toEqual(
+        expect.arrayContaining(["min-w-0", "overflow-hidden"])
+      );
+      const [page] = currentPages(container);
+      expect(page).toBeDefined();
+      expect(classesOf(page)).toContain("truncate");
+      for (let el = page.parentElement; el && el !== nav?.parentElement; el = el.parentElement) {
+        expect(classesOf(el)).toContain("min-w-0");
+      }
+    }
+  );
+
+  it("still names a tool by itself", () => {
+    const retro = getToolById("retro")!;
+    h.pathname = retro.path;
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    expect(currentPages(container).map((p) => p.textContent)).toEqual([retro.name]);
+  });
+});

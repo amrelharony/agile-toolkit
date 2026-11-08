@@ -6,7 +6,8 @@ import { render, screen } from "@testing-library/react";
 // subscriber is captured so the test can feed it effects directly.
 const h = vi.hoisted(() => ({
   auth: null as { status: string; user: { id: string } | null } | null,
-  subscriber: null as ((effect: { kind: string; payload: unknown }) => void) | null,
+  // Several provider effects subscribe (the XP log, the celebrations).
+  subscribers: new Set<(effect: { kind: string; payload: unknown }) => void>(),
   schedule: vi.fn(),
   cancel: vi.fn(),
   fetchLeaderboard: vi.fn(async () => []),
@@ -22,15 +23,18 @@ vi.mock("@/lib/gamification/supabase-sync", () => ({
 }));
 vi.mock("@/lib/gamification/engine", () => ({
   subscribe: (fn: (effect: { kind: string; payload: unknown }) => void) => {
-    h.subscriber = fn;
+    h.subscribers.add(fn);
     return () => {
-      if (h.subscriber === fn) h.subscriber = null;
+      h.subscribers.delete(fn);
     };
   },
   installWindowBridge: () => {},
   prestige: () => {},
 }));
-vi.mock("@/lib/gamification/event-bridge", () => ({ installEventBridge: () => () => {} }));
+vi.mock("@/lib/gamification/event-bridge", () => ({
+  installEventBridge: () => () => {},
+  trackPathVisit: () => {},
+}));
 vi.mock("@/lib/gamification/secrets", () => ({ installSecretDetector: () => () => {} }));
 vi.mock("@/lib/gamification/opfs", () => ({ appendXpEvent: () => {} }));
 
@@ -41,9 +45,13 @@ const OWNER = { status: "authenticated", user: { id: "u1" } };
 const XP = { kind: "xp", payload: { amount: 5, source: "tool", at: "2026-01-01T00:00:00Z" } };
 const LEVEL_UP = { kind: "level-up", payload: { level: 2 } };
 
+function fire(effect: { kind: string; payload: unknown }) {
+  h.subscribers.forEach((fn) => fn(effect));
+}
+
 beforeEach(() => {
   h.auth = null;
-  h.subscriber = null;
+  h.subscribers.clear();
   h.schedule.mockClear();
   h.cancel.mockClear();
   h.fetchLeaderboard.mockClear();
@@ -53,17 +61,17 @@ describe("GamificationProvider — leaderboard sync", () => {
   it("never schedules a profile upsert for a visitor", () => {
     h.auth = { status: "anonymous", user: null };
     render(<GamificationProvider>{null}</GamificationProvider>);
-    expect(h.subscriber).not.toBeNull();
-    h.subscriber?.(XP);
-    h.subscriber?.(LEVEL_UP);
+    expect(h.subscribers.size).toBeGreaterThan(0);
+    fire(XP);
+    fire(LEVEL_UP);
     expect(h.schedule).not.toHaveBeenCalled();
   });
 
   it("schedules it for the owner", () => {
     h.auth = OWNER;
     render(<GamificationProvider>{null}</GamificationProvider>);
-    h.subscriber?.(XP);
-    h.subscriber?.(LEVEL_UP);
+    fire(XP);
+    fire(LEVEL_UP);
     expect(h.schedule).toHaveBeenCalledTimes(2);
   });
 
@@ -76,7 +84,7 @@ describe("GamificationProvider — leaderboard sync", () => {
     rerender(<GamificationProvider>{null}</GamificationProvider>);
     expect(h.cancel).toHaveBeenCalled();
 
-    h.subscriber?.(XP);
+    fire(XP);
     expect(h.schedule).not.toHaveBeenCalled();
   });
 });

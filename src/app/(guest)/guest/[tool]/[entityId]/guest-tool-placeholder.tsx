@@ -42,7 +42,7 @@ export function GuestToolPlaceholder({ toolId, entityId, role, profile }: Props)
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-6 py-12">
+    <main className="min-h-screen-dvh flex items-center justify-center px-6 py-12">
       <div className="w-full max-w-lg space-y-4">
         <header className="flex items-center justify-between gap-3">
           <Link

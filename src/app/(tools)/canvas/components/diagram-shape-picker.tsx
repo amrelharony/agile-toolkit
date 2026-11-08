@@ -1,8 +1,20 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useCanvasStore } from "../use-canvas-store";
 import { DIAGRAM_SHAPE_KINDS } from "./objects/diagram-shape";
+
+/** Viewport gap the picker keeps when it has to move up. */
+const EDGE_GAP = 8;
+
+/**
+ * Top for a fixed menu that should start level with its anchor but end on
+ * screen: a fixed box can't be scrolled into view, so lift it until its
+ * bottom clears the viewport edge (never above the top gap).
+ */
+export function clampMenuTop(anchorTop: number, menuHeight: number, viewportHeight: number) {
+  return Math.max(EDGE_GAP, Math.min(anchorTop, viewportHeight - menuHeight - EDGE_GAP));
+}
 
 /**
  * Popover palette that appears beside the toolbar when the user
@@ -53,7 +65,23 @@ export function DiagramShapePicker({
   // Default positioning when no anchor (component mounted without
   // a known target): float at top-left of the canvas region.
   const left = anchorRect ? anchorRect.right + 8 : 60;
-  const top = anchorRect ? anchorRect.top : 80;
+  const anchorTop = anchorRect ? anchorRect.top : 80;
+  // On a phone the Diagrams button is the rail's last item, near the
+  // bottom of the screen, so the menu moves up until it fits.
+  const [top, setTop] = useState(anchorTop);
+  useLayoutEffect(() => {
+    const height = ref.current?.getBoundingClientRect().height ?? 0;
+    setTop(clampMenuTop(anchorTop, height, window.innerHeight));
+  }, [anchorTop]);
+
+  // The menu takes focus when it opens (on the picked shape, else the
+  // first), so the keyboard reaches the shapes wherever the menu sits in
+  // the DOM.
+  const pickedRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    const start = pickedRef.current ?? ref.current?.querySelector<HTMLElement>('[role="menuitem"]');
+    start?.focus({ preventScroll: true });
+  }, []);
 
   const entries = Object.entries(DIAGRAM_SHAPE_KINDS);
 
@@ -88,6 +116,7 @@ export function DiagramShapePicker({
         return (
           <button
             key={kind}
+            ref={isPicked ? pickedRef : undefined}
             type="button"
             role="menuitem"
             title={def.label}

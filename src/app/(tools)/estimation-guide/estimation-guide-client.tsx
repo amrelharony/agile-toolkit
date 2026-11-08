@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { ArrowRight, BookOpen, Share2 } from "lucide-react";
+import { ArrowRight, BookOpen, Check, Share2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import { scales, type EstimationScale } from "@/lib/constants/scales";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 import { undoable } from "@/lib/utils/undoable";
 import {
   defaultDescription,
@@ -136,6 +137,7 @@ function scaleResetPair(scale: EstimationScale) {
 
 export function EstimationGuideClient() {
   const store = useEstimationGuideStore();
+  const { flash, isFlashing } = useFlash();
   const stories = useWorkspaceStore((s) => s.stories ?? NO_STORIES);
   const queued = useWorkspaceStore(
     (s) => (s.pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)?.queue?.length ?? 0
@@ -368,7 +370,7 @@ export function EstimationGuideClient() {
       const encoded = encodeSharedState(payload);
       const url = `${window.location.origin}${window.location.pathname}?state=${encoded}`;
       navigator.clipboard.writeText(url).then(
-        () => toast.success("Share link copied to clipboard"),
+        () => flash("Share link copied"),
         () => toast.error("Failed to copy share link")
       );
     } catch {
@@ -377,7 +379,7 @@ export function EstimationGuideClient() {
       // user's descriptions used to throw in the old btoa() implementation.
       toast.error("Failed to build share link");
     }
-  }, [store.selectedScale, store.descriptions, store.examples]);
+  }, [store.selectedScale, store.descriptions, store.examples, flash]);
 
   // Build export data
   const clipboardText = useMemo(() => {
@@ -495,8 +497,12 @@ export function EstimationGuideClient() {
             onClick={handleShare}
             className="gap-2 border-border bg-card hover:bg-cardH hover:border-accent-cyan/30 text-sub hover:text-text"
           >
-            <Share2 className="w-4 h-4" />
-            Share
+            {isFlashing() ? (
+              <Check className="w-4 h-4" aria-hidden="true" />
+            ) : (
+              <Share2 className="w-4 h-4" aria-hidden="true" />
+            )}
+            {isFlashing() ? "Link copied" : "Share"}
           </Button>
 
           <ResetButton

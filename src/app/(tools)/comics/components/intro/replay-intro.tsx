@@ -35,7 +35,9 @@ export function ReplayIntro({ kind }: { kind: IntroKind }) {
         if (playIntro(kind))
           started.current = document.documentElement.getAttribute(INTRO_RUN_ATTR);
       }}
-      className="min-h-11 text-sm font-medium text-text underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md:min-h-0"
+      // 44 px tall on touch screens of any width (a landscape phone is md+),
+      // text height with a mouse on md+.
+      className="min-h-11 text-sm font-medium text-text underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md-fine:min-h-0"
     >
       Replay intro
     </button>

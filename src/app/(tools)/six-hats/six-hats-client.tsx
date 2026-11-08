@@ -510,7 +510,7 @@ export function SixHatsClient() {
                   {(props) => (
                     <select
                       {...props}
-                      className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-1 text-base text-text shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm"
+                      className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-1 text-base text-text shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-fine:md:h-9 pointer-fine:md:text-sm"
                       value={session.id}
                       onChange={(e) => {
                         setPickedId(e.target.value);
