@@ -276,6 +276,22 @@ describe("GamificationProvider silent-mode adoption", () => {
     mount();
     await waitFor(() => expect(useNotificationPrefsStore.getState().silentModeAdopted).toBe(true));
     expect(useNotificationPrefsStore.getState().celebrationLevel).toBe("quiet");
+    // Adopted, so the note kept for a retry is cleared.
+    expect(localStorage.getItem("agile-toolkit:legacy-silent")).toBeNull();
+  });
+
+  it("adopts a silent mode noted on an earlier load whose prefs never loaded", async () => {
+    // The earlier page migrated the vdna payload (silentMode already gone)
+    // but closed before adopting: the storage flag carries it over.
+    localStorage.setItem("agile-toolkit:legacy-silent", "1");
+    localStorage.setItem(
+      "agile-toolkit:vdna",
+      JSON.stringify({ state: { visitorId: "v-1", xp: 0 }, version: 2 })
+    );
+    mount();
+    await waitFor(() => expect(useNotificationPrefsStore.getState().silentModeAdopted).toBe(true));
+    expect(useNotificationPrefsStore.getState().celebrationLevel).toBe("quiet");
+    expect(localStorage.getItem("agile-toolkit:legacy-silent")).toBeNull();
   });
 
   it("keeps Balanced when silent mode was off", async () => {

@@ -26,6 +26,18 @@ export interface AlertDialogProps {
   /** Style the confirm button as destructive (red). */
   destructive?: boolean;
   className?: string;
+  /**
+   * Where focus goes when the alert closes. Radix returns focus to a dialog
+   * trigger, and this alert has none (it is opened from state), so without
+   * this focus falls to `<body>`, which strands keyboard and screen-reader
+   * users when the alert sits over another modal. Return the element to
+   * focus; when it gives nothing, Radix's default runs.
+   */
+  returnFocus?: () => HTMLElement | null | undefined;
+  /** Extra style for the overlay (e.g. stop short of Amr's phone bands). */
+  overlayStyle?: React.CSSProperties;
+  /** Extra style for the content box (e.g. centre it between Amr's bands). */
+  contentStyle?: React.CSSProperties;
 }
 
 export function AlertDialog({
@@ -38,15 +50,28 @@ export function AlertDialog({
   onConfirm,
   destructive = false,
   className,
+  returnFocus,
+  overlayStyle,
+  contentStyle,
 }: AlertDialogProps) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-modal bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 motion-reduce:animate-none" />
+        <DialogPrimitive.Overlay
+          className="fixed inset-0 z-modal bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 motion-reduce:animate-none"
+          style={overlayStyle}
+        />
         <DialogPrimitive.Content
           role="alertdialog"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => {
+            const target = returnFocus?.();
+            if (!target) return;
+            e.preventDefault();
+            target.focus();
+          }}
+          style={contentStyle}
           className={cn(
             "fixed left-1/2 top-1/2 z-modal grid -translate-x-1/2 -translate-y-1/2 gap-3",
             "w-[calc(100vw-2rem)] max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto",

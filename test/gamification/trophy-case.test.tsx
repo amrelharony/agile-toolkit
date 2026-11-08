@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -50,7 +50,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import { PRESTIGE_CONFIRM, TrophyCase } from "@/components/gamification/trophy-case";
+import { PRESTIGE_CONFIRM, SHEET_TOP, TrophyCase } from "@/components/gamification/trophy-case";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import { MAX_LEVEL } from "@/lib/gamification/xp-curve";
@@ -113,14 +113,17 @@ describe("trophy case frame", () => {
     const sheet = screen.getByTestId("trophy-sheet");
     expect(screen.queryByTestId("trophy-dialog")).toBeNull();
     expect(sheet.getAttribute("role")).toBe("dialog");
-    expect(sheet.style.top).toContain("--amr-band-top");
+    // Positioned against the viewport, so the top band's edge includes the
+    // header Amr stands below when docked at the top.
+    expect(SHEET_TOP).toContain("--amr-band-top-edge");
+    expect(sheet.style.top).toContain("--amr-band-top-edge");
     expect(sheet.style.bottom).toContain("--amr-band-bottom");
     // Full height between the bands: no max-height cap, no centring.
     expect(sheet.className).not.toMatch(/max-h-/);
     expect(sheet.className).toMatch(/inset-x-0/);
     // The overlay leaves both bands clear too, so Amr isn't dimmed.
     const overlay = screen.getByTestId("trophy-overlay");
-    expect(overlay.style.top).toContain("--amr-band-top");
+    expect(overlay.style.top).toContain("--amr-band-top-edge");
     expect(overlay.style.bottom).toContain("--amr-band-bottom");
     expect(overlay.className).not.toMatch(/inset-0/);
   });
@@ -228,6 +231,57 @@ describe("prestige confirmation", () => {
       })
     );
     expect(h.prestige).toHaveBeenCalledTimes(1);
+  });
+
+  it("Cancel and Escape return focus to the Prestige button", async () => {
+    atMaxLevel();
+    render(<TrophyCase open onOpenChange={() => {}} />);
+    const button = screen.getByRole("button", { name: /Prestige \(reset run/ });
+    fireEvent.click(button);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(button));
+
+    fireEvent.click(button);
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+    });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(button));
+  });
+
+  it("after prestiging, focus stays inside the trophy case", async () => {
+    h.phone = true;
+    // The real prestige drops the level, which removes the Prestige button.
+    h.prestige.mockImplementationOnce(() => {
+      useVDnaStore.setState({ xp: 0, prestige: 1, level: 1 });
+    });
+    atMaxLevel();
+    render(<TrophyCase open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Prestige \(reset run/ }));
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByRole("alertdialog")).getByRole("button", {
+          name: PRESTIGE_CONFIRM.confirm,
+        })
+      );
+    });
+    expect(screen.queryByRole("button", { name: /Prestige \(reset run/ })).toBeNull();
+    const sheet = screen.getByTestId("trophy-sheet");
+    await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+  });
+
+  it("on phones the alert stays between Amr's bands", () => {
+    h.phone = true;
+    atMaxLevel();
+    render(<TrophyCase open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Prestige \(reset run/ }));
+    const alert = screen.getByRole("alertdialog");
+    expect(alert.style.top).toContain("--amr-band-top-edge");
+    expect(alert.style.top).toContain("--amr-band-bottom");
+    expect(alert.style.maxHeight).toContain("--amr-band-bottom");
   });
 
   it("is not offered below the level cap", () => {

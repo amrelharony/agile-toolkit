@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   __resetLegacySilentModeForTests,
+  clearLegacySilentMode,
   hadLegacySilentMode,
   useVDnaStore,
   VDNA_PERSIST_VERSION,
@@ -143,6 +144,22 @@ describe("vdna store persistence", () => {
     await useVDnaStore.persist.rehydrate();
     expect(hadLegacySilentMode()).toBe(true);
     expectNoV2Leftovers(useVDnaStore.getState() as unknown as Record<string, unknown>);
+  });
+
+  it("keeps the note across a reload until it has been adopted", async () => {
+    store(VDNA_KEY, { ...savedVDna, silentMode: true }, 1);
+    await useVDnaStore.persist.rehydrate();
+    // The migrated payload is written back without silentMode ...
+    expectNoV2Leftovers(stored(VDNA_KEY).state);
+    // ... so the note is kept in a storage flag a fresh page still sees,
+    // until the provider adopts it.
+    expect(localStorage.getItem("agile-toolkit:legacy-silent")).toBe("1");
+    await useVDnaStore.persist.rehydrate();
+    expect(hadLegacySilentMode()).toBe(true);
+    clearLegacySilentMode();
+    expect(hadLegacySilentMode()).toBe(false);
+    await useVDnaStore.persist.rehydrate();
+    expect(hadLegacySilentMode()).toBe(false);
   });
 
   it("notes nothing when silent mode was off or absent", async () => {

@@ -201,6 +201,24 @@ function useIsPhone(): boolean {
 }
 
 /**
+ * The CSS variables that keep space for Amr on phones, for a band on `side` of
+ * `height` px. `--amr-band-top` / `--amr-band-bottom` are the band's own height
+ * (the bottom one includes the home-indicator inset; the top one is measured
+ * from the header's bottom edge, since a top-docked Amr stands below the
+ * header). `--amr-band-top-edge` is where the top band ends, measured from the
+ * top of the viewport, for things positioned against the viewport (the phone
+ * trophy sheet) rather than against the header.
+ */
+export function phoneBandVars(side: "top" | "bottom", height: number): Record<string, string> {
+  return side === "top"
+    ? {
+        "--amr-band-top": `${height}px`,
+        "--amr-band-top-edge": `calc(var(--header-h, 56px) + ${height}px)`,
+      }
+    : { "--amr-band-bottom": `calc(${height}px + env(safe-area-inset-bottom, 0px))` };
+}
+
+/**
  * Keep space for Amr on phones: publishes its height as CSS variables, for main's
  * top padding, scroll padding, and the few things pinned to the bottom of the
  * screen, so they stop clear of him. Nothing is drawn there: the page shows behind
@@ -212,13 +230,10 @@ function usePhoneBand(band: { side: "top" | "bottom"; height: number } | null) {
   useEffect(() => {
     if (!side || height === undefined) return;
     const root = document.documentElement;
-    const name = side === "top" ? "--amr-band-top" : "--amr-band-bottom";
-    root.style.setProperty(
-      name,
-      side === "top" ? `${height}px` : `calc(${height}px + env(safe-area-inset-bottom, 0px))`
-    );
+    const vars = phoneBandVars(side, height);
+    for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
     return () => {
-      root.style.removeProperty(name);
+      for (const name of Object.keys(vars)) root.style.removeProperty(name);
     };
   }, [side, height]);
 }

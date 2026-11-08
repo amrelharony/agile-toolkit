@@ -25,8 +25,12 @@ export const VDNA_PERSIST_VERSION = VDNA_SCHEMA_VERSION;
  * v2 drops `silentMode`, but an older payload's silent mode still has to be
  * mapped onto the celebration level once (notification-prefs-store's
  * `adoptSilentMode`). The persist hooks note it here before the field goes,
- * and the provider reads it once both stores have loaded.
+ * and the provider reads it once both stores have loaded. persist writes the
+ * migrated payload (without `silentMode`) straight back, so the note is also
+ * kept in a small storage flag until the provider has adopted it: a page
+ * that closes, or whose prefs store fails to load, retries on the next load.
  */
+const LEGACY_SILENT_KEY = "agile-toolkit:legacy-silent";
 let legacySilentModeSeen = false;
 
 function noteLegacySilentMode(persisted: unknown): void {
@@ -36,17 +40,37 @@ function noteLegacySilentMode(persisted: unknown): void {
     (persisted as { silentMode?: unknown }).silentMode === true
   ) {
     legacySilentModeSeen = true;
+    try {
+      localStorage.setItem(LEGACY_SILENT_KEY, "1");
+    } catch {
+      // Storage unavailable: the in-page note still covers this load.
+    }
   }
 }
 
-/** True when a stored profile loaded in this page still had the old silent mode on. */
+/** True when a stored profile still had the old silent mode on and it hasn't been adopted yet. */
 export function hadLegacySilentMode(): boolean {
-  return legacySilentModeSeen;
+  if (legacySilentModeSeen) return true;
+  try {
+    return localStorage.getItem(LEGACY_SILENT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Call once the old silent mode has been mapped onto the celebration level. */
+export function clearLegacySilentMode(): void {
+  legacySilentModeSeen = false;
+  try {
+    localStorage.removeItem(LEGACY_SILENT_KEY);
+  } catch {
+    // Nothing to clear.
+  }
 }
 
 /** Tests only. */
 export function __resetLegacySilentModeForTests(): void {
-  legacySilentModeSeen = false;
+  clearLegacySilentMode();
 }
 
 /**

@@ -66,12 +66,21 @@ interface TrophyCaseProps {
 
 /**
  * Phones: the sheet runs the full height between Amr's bands, so he stays
- * visible whether he is parked at the bottom or docked at the top. Each band
- * variable already includes its safe-area inset; without one (Amr not
- * loaded yet, Save-Data) fall back to the inset alone.
+ * visible whether he is parked at the bottom or docked at the top. The sheet
+ * is positioned against the viewport, so the top uses `--amr-band-top-edge`
+ * (header height + band; `--amr-band-top` alone is measured from the header's
+ * bottom edge), and the bottom uses `--amr-band-bottom` (which includes the
+ * home-indicator inset). Without a band (Amr not loaded yet, Save-Data, or
+ * parked at the other end) fall back to the safe-area inset alone.
  */
-const SHEET_TOP = "var(--amr-band-top, env(safe-area-inset-top, 0px))";
-const SHEET_BOTTOM = "var(--amr-band-bottom, env(safe-area-inset-bottom, 0px))";
+export const SHEET_TOP = "var(--amr-band-top-edge, env(safe-area-inset-top, 0px))";
+export const SHEET_BOTTOM = "var(--amr-band-bottom, env(safe-area-inset-bottom, 0px))";
+
+/** The prestige alert on phones: centred between Amr's bands, never over them. */
+const PHONE_ALERT_STYLE: React.CSSProperties = {
+  top: `calc((${SHEET_TOP} + 100dvh - ${SHEET_BOTTOM}) / 2)`,
+  maxHeight: `calc(100dvh - ${SHEET_TOP} - ${SHEET_BOTTOM} - 2rem)`,
+};
 
 /** Copy for the prestige confirmation (calm, says what stays). */
 export const PRESTIGE_CONFIRM = {
@@ -90,8 +99,13 @@ function TrophyFrame({
   open,
   onOpenChange,
   description,
+  contentRef,
   children,
-}: TrophyCaseProps & { description: string; children: React.ReactNode }) {
+}: TrophyCaseProps & {
+  description: string;
+  contentRef: React.Ref<HTMLDivElement>;
+  children: React.ReactNode;
+}) {
   const phone = useMediaQuery(PHONE_MEDIA_QUERY);
 
   if (phone) {
@@ -104,6 +118,7 @@ function TrophyFrame({
             style={{ top: SHEET_TOP, bottom: SHEET_BOTTOM }}
           />
           <DialogPrimitive.Content
+            ref={contentRef}
             data-testid="trophy-sheet"
             className="fixed inset-x-0 z-modal flex flex-col border-y border-border bg-bg shadow-lg outline-none pl-safe pr-safe data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom motion-reduce:animate-none"
             style={{ top: SHEET_TOP, bottom: SHEET_BOTTOM }}
@@ -135,6 +150,7 @@ function TrophyFrame({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        ref={contentRef}
         data-testid="trophy-dialog"
         className="max-w-4xl max-h-[90dvh] overflow-y-auto bg-bg border-border"
       >
@@ -179,11 +195,17 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
     [dna.weeklyChallenges]
   );
   const [confirmPrestige, setConfirmPrestige] = useState(false);
+  const phone = useMediaQuery(PHONE_MEDIA_QUERY);
+  // After the prestige alert closes, focus goes back to the Prestige button,
+  // or to the trophy case itself once prestiging has removed that button.
+  const prestigeButtonRef = useRef<HTMLButtonElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
 
   return (
     <TrophyFrame
       open={open}
       onOpenChange={onOpenChange}
+      contentRef={frameRef}
       description={
         isOwner
           ? "Visitor DNA profile, achievements, daily & weekly challenges, and global leaderboard."
@@ -254,6 +276,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
           </div>
           {info.atMax && (
             <Button
+              ref={prestigeButtonRef}
               variant="outline"
               className="w-full border-warning/40 text-warning hover:bg-warning/10"
               onClick={() => setConfirmPrestige(true)}
@@ -269,6 +292,10 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
             description={PRESTIGE_CONFIRM.description}
             confirmLabel={PRESTIGE_CONFIRM.confirm}
             onConfirm={() => prestige()}
+            returnFocus={() => prestigeButtonRef.current ?? frameRef.current}
+            // Phones: like the sheet, the alert stays between Amr's bands.
+            overlayStyle={phone ? { top: SHEET_TOP, bottom: SHEET_BOTTOM } : undefined}
+            contentStyle={phone ? PHONE_ALERT_STYLE : undefined}
           />
         </div>
 

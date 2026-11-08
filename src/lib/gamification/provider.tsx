@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { hadLegacySilentMode, useVDnaStore } from "@/lib/stores/vdna-store";
+import { clearLegacySilentMode, hadLegacySilentMode, useVDnaStore } from "@/lib/stores/vdna-store";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 import { installEventBridge, trackPathVisit } from "./event-bridge";
 import { installSecretDetector } from "./secrets";
@@ -28,7 +28,8 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     // Once the stores hold the user's data, map the old silent mode onto the
     // celebration level (once ever; see notification-prefs-store). vdna v2
-    // drops the field, so the store notes it while migrating the payload.
+    // drops the field, so the store notes it while migrating the payload
+    // (kept in storage until adopted here, so a failed load retries).
     // Then give an existing profile its "Your progress carried over" row.
     void Promise.all([
       useVDnaStore.persist.rehydrate(),
@@ -39,6 +40,7 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
         if (!useVDnaStore.persist.hasHydrated()) return;
         if (useNotificationPrefsStore.persist.hasHydrated()) {
           useNotificationPrefsStore.getState().adoptSilentMode(hadLegacySilentMode());
+          clearLegacySilentMode();
         }
         if (useInboxStore.persist.hasHydrated()) seedCarriedOver();
       })
