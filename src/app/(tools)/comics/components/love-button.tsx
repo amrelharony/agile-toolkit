@@ -8,15 +8,26 @@ import { sendStats } from "@/lib/comics/stats-client";
 import { cn } from "@/lib/utils";
 import { useCounting } from "./use-counting";
 
+/** Said when a press couldn't be counted: the heart stays on this device. */
+export const NOT_COUNTED = "That couldn't be counted just now.";
+
 /**
  * The line beside the heart: how many readers love the story. `own` is whether
  * this reader's love is among them, so "You love this" never hides another
- * reader's love behind one the server didn't count.
+ * reader's love behind one the server didn't count; `pressed` is whether the
+ * heart is on, so a heart that wasn't counted never sits beside "Be the first".
  */
-export function lovesLabel(count: number, own = false): string {
+export function lovesLabel(count: number, own = false, pressed = own): string {
   if (own && count <= 1) return "You love this";
-  if (count <= 0) return "Be the first to love this";
+  if (count <= 0) return pressed ? "No loves counted yet" : "Be the first to love this";
   return `${count} ${count === 1 ? "reader loves" : "readers love"} this`;
+}
+
+/** Runs `task` with this story's heart to itself across the browser's tabs, where it can. */
+function exclusive(ep: number, task: () => Promise<void>): Promise<void> {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  if (!locks?.request) return task();
+  return locks.request(`agile-toolkit:comics:love:${ep}`, task).then(() => undefined);
 }
 
 /**
@@ -27,12 +38,14 @@ export function lovesLabel(count: number, own = false): string {
  * Only a love the server counted is ever taken back from its count (the
  * device's counted mark, lib/comics/reading), so the owner's own presses, a
  * press while sign-in is still being checked, or one that failed to send can't
- * cancel another reader's love. One request at a time: presses while it's out
- * only change what the reader wants, and its answer sends the difference, if
- * any, so quick taps never send a love twice. A press the server didn't count
- * leaves the count as the server has it. When the browser can't keep the heart
- * (storage blocked or full) it works for the visit but sends nothing: with no
- * record, every visit could add another love.
+ * cancel another reader's love. One send at a time for the story across the
+ * browser's tabs (Web Locks, where there are any): each sends what the reader
+ * wants now if the server doesn't hold it already, so quick taps, or taps in a
+ * second tab, never send a love twice. A press the server didn't count leaves
+ * the count as the server has it and says so; it isn't sent again by itself,
+ * since the owner's presses must never be. When the browser can't keep the
+ * heart (storage blocked or full) it works for the visit but sends nothing:
+ * with no record, every visit could add another love.
  *
  * The label stays "Love this" (aria-pressed and the filled heart say it's on),
  * so the button never changes width. The line beside it isn't a live region,
@@ -55,22 +68,41 @@ export function LoveButton({ ep, initialLoves }: { ep: number; initialLoves: num
     setServer((s) => ({ ...s, held: isLoveCounted(ep) }));
   }, [ep]);
 
-  // Send what the reader wants now, if the server doesn't hold it already.
+  // Send what the reader wants until the server holds it, or a send fails.
   const sync = () => {
     if (inFlight.current || memoryOnly.current) return;
-    const want = isLoved(ep);
-    if (want === isLoveCounted(ep)) return;
     inFlight.current = true;
     setSending(true);
-    void sendStats(ep, [want ? "love" : "unlove"]).then((answer) => {
-      inFlight.current = false;
-      setSending(false);
-      if (!answer) return;
-      if (!setLoveCounted(ep, want)) memoryOnly.current = true;
-      setServer({ loves: answer.loves, held: want });
-      if (isLoved(ep) !== want) sync();
-      else setAnnouncement(lovesLabel(answer.loves, want));
-    });
+    setAnnouncement("");
+    let outcome = "";
+    let failed = false;
+    void exclusive(ep, async () => {
+      while (!memoryOnly.current) {
+        const want = isLoved(ep);
+        if (want === isLoveCounted(ep)) return;
+        const answer = await sendStats(ep, [want ? "love" : "unlove"]);
+        if (!answer) {
+          failed = true;
+          outcome = NOT_COUNTED;
+          return;
+        }
+        if (!setLoveCounted(ep, want)) memoryOnly.current = true;
+        setServer({ loves: answer.loves, held: want });
+        outcome = lovesLabel(answer.loves, want);
+      }
+    })
+      .catch(() => {
+        failed = true;
+      })
+      .finally(() => {
+        inFlight.current = false;
+        setSending(false);
+        // Another tab may have sent it meanwhile.
+        setServer((s) => ({ ...s, held: isLoveCounted(ep) }));
+        if (outcome) setAnnouncement(outcome);
+        // A press that came in as the lock was let go.
+        if (!failed && !memoryOnly.current && isLoved(ep) !== isLoveCounted(ep)) sync();
+      });
   };
 
   const toggle = () => {
@@ -105,7 +137,7 @@ export function LoveButton({ ep, initialLoves }: { ep: number; initialLoves: num
         <Heart className={cn("size-5", loved && "fill-current")} aria-hidden="true" />
         Love this
       </Button>
-      <p className="text-sm text-sub">{lovesLabel(shown, own)}</p>
+      <p className="text-sm text-sub">{lovesLabel(shown, own, loved)}</p>
       <p role="status" className="sr-only">
         {announcement}
       </p>

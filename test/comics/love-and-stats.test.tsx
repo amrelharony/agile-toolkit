@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 const h = vi.hoisted(() => ({ owner: false, settled: true }));
 
@@ -18,7 +18,7 @@ vi.mock("@/lib/auth/use-is-owner", () => ({
   }),
 }));
 
-import { LoveButton, lovesLabel } from "@/app/(tools)/comics/components/love-button";
+import { LoveButton, NOT_COUNTED, lovesLabel } from "@/app/(tools)/comics/components/love-button";
 import { StoryStats } from "@/app/(tools)/comics/components/story-stats";
 import { COUNTED_KEY, isLoveCounted, isLoved, markRead, totalSeconds } from "@/lib/comics/reading";
 
@@ -56,6 +56,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
 });
 
 describe("LoveButton", () => {
@@ -80,6 +81,9 @@ describe("LoveButton", () => {
     expect(lovesLabel(0, true)).toBe("You love this");
     expect(lovesLabel(1, true)).toBe("You love this");
     expect(lovesLabel(5, true)).toBe("5 readers love this");
+    // A heart that's on but wasn't counted never says "Be the first".
+    expect(lovesLabel(0, false, true)).toBe("No loves counted yet");
+    expect(lovesLabel(1, false, true)).toBe("1 reader loves this");
   });
 
   it("loves, shows the server's fresh count, and takes it back", async () => {
@@ -106,11 +110,64 @@ describe("LoveButton", () => {
     await act(async () => fireEvent.click(heart()));
     expect(isLoved(30)).toBe(true);
     expect(isLoveCounted(30)).toBe(false);
-    // The press's +1 goes again: the server holds 4.
+    // The press's +1 goes again: the server holds 4. And it says so.
     expect(line()).toBe("4 readers love this");
+    expect(announced()).toBe(NOT_COUNTED);
     await act(async () => fireEvent.click(heart()));
     expect(sentBodies()).toEqual(["love"]);
     expect(line()).toBe("4 readers love this");
+  });
+
+  it("says when a heart on a story with no loves wasn't counted, and clears an old announcement", async () => {
+    render(<LoveButton ep={30} initialLoves={0} />);
+    fetchMock.mockResolvedValue(answer(1));
+    await act(async () => fireEvent.click(heart()));
+    expect(announced()).toBe("You love this");
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    await act(async () => fireEvent.click(heart()));
+    // The take-back wasn't counted: the server still holds the love.
+    expect(announced()).toBe(NOT_COUNTED);
+    expect(line()).toBe("1 reader loves this");
+    localStorage.clear();
+    fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
+    const other = render(<LoveButton ep={31} initialLoves={0} />);
+    await act(async () => fireEvent.click(within(other.container).getByRole("button")));
+    expect(other.container.querySelector("p:not([role])")?.textContent).toBe(
+      "No loves counted yet"
+    );
+  });
+
+  it("sends once for two tabs of the same story, one after the other", async () => {
+    // Web Locks, as a browser runs them: one holder per name at a time.
+    const queues = new Map<string, Promise<unknown>>();
+    const names: string[] = [];
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: {
+        request: (name: string, task: () => Promise<void>) => {
+          names.push(name);
+          const run = (queues.get(name) ?? Promise.resolve()).then(task);
+          queues.set(
+            name,
+            run.catch(() => undefined)
+          );
+          return run;
+        },
+      },
+    });
+    const release = held();
+    const first = render(<LoveButton ep={30} initialLoves={9} />);
+    const second = render(<LoveButton ep={30} initialLoves={9} />);
+    const tab = (r: typeof first) => within(r.container).getByRole("button");
+    await act(async () => fireEvent.click(tab(first)));
+    // The second tab's heart is stale: it catches up, takes it back, loves again.
+    await act(async () => fireEvent.click(tab(second)));
+    await act(async () => fireEvent.click(tab(second)));
+    await act(async () => fireEvent.click(tab(second)));
+    await release(answer(10));
+    expect(sentBodies()).toEqual(["love"]);
+    expect(isLoveCounted(30)).toBe(true);
+    expect(new Set(names)).toEqual(new Set(["agile-toolkit:comics:love:30"]));
   });
 
   it("doesn't take back the owner's uncounted love when that browser is later a visitor", async () => {
