@@ -23,8 +23,21 @@ const TOUCH = [
   "pointer-coarse:!text-sm",
 ];
 
-/** Sizing utilities that would change the button for a mouse too. */
-const SIZING = /^(?:!)?(?:min-h|min-w|h|w|p[xy]?|text-(?:xs|sm|base|lg))-/;
+/** Utilities that change a button's box or text size. */
+const SIZE_UTILITY =
+  /^(?:(?:min-|max-)?[hw]|size|p[xytrblse]?|leading)-|^text-(?:xs|sm|base|lg|\d*xl|\[\d[^\]]*\])$/;
+
+/**
+ * True for a sizing class that would also apply to a mouse: any variant chain
+ * (`group-[.toast]:`, `hover:`…) is stripped before matching, along with the
+ * `!` modifier, and only a chain that includes `pointer-coarse` counts as
+ * touch-only.
+ */
+function sizesForMouse(cls: string): boolean {
+  const parts = cls.split(":");
+  const utility = parts.pop()!.replace(/^!/, "");
+  return SIZE_UTILITY.test(utility) && !parts.includes("pointer-coarse");
+}
 
 function classes(el: HTMLElement): string[] {
   return el.className.split(/\s+/).filter(Boolean);
@@ -33,6 +46,37 @@ function classes(el: HTMLElement): string[] {
 afterEach(() => {
   act(() => {
     toast.dismiss();
+  });
+});
+
+describe("sizesForMouse", () => {
+  // Guards the guard: the desktop test below is only as good as this matcher.
+  it.each([
+    "text-sm",
+    "!text-sm",
+    "text-xs",
+    "text-[13px]",
+    "min-h-11",
+    "!px-4",
+    "group-[.toast]:min-h-11",
+    "group-[.toast]:px-4",
+    "group-[.toast]:!text-sm",
+    "hover:h-8",
+    "size-11",
+  ])("flags %s, which would resize the button for a mouse", (cls) => {
+    expect(sizesForMouse(cls)).toBe(true);
+  });
+
+  it.each([
+    "pointer-coarse:min-h-11",
+    "pointer-coarse:!px-4",
+    "pointer-coarse:!text-sm",
+    "group-[.toast]:pointer-coarse:min-w-11",
+    "group-[.toast]:text-primary-foreground",
+    "group-[.toast]:bg-primary",
+    "text-muted-foreground",
+  ])("lets %s through", (cls) => {
+    expect(sizesForMouse(cls)).toBe(false);
   });
 });
 
@@ -74,7 +118,7 @@ describe("Toaster buttons", () => {
 
     for (const name of ["View", "Dismiss"]) {
       const button = await screen.findByRole("button", { name });
-      const unscoped = classes(button).filter((c) => SIZING.test(c));
+      const unscoped = classes(button).filter(sizesForMouse);
       expect(unscoped).toEqual([]);
     }
   });
