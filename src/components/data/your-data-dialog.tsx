@@ -6,8 +6,10 @@ import { Download, HardDrive, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -208,6 +210,16 @@ export function YourDataDialog({
               </>
             )}
           </section>
+
+          {/* A way out where the reading ends, as AI settings has: on a phone
+              this dialog scrolls, and the X sits in the far top corner. */}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Done
+              </Button>
+            </DialogClose>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
