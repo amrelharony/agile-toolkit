@@ -95,6 +95,21 @@ describe("an episode's card at full size", () => {
     expect(screen.queryByText("Which episode does this remind you of?")).toBeNull();
   });
 
+  it("moves the Date down a line rather than splitting the From name mid-word", () => {
+    // jsdom does no layout, so this reads the classes. With min-w-0 the From
+    // item could shrink below its longest word next to the Date, and the name
+    // broke mid-word on a phone ("Workspac / e owner"), in the image too.
+    render(<KudosCard kudos={{ ...EP7, teamName: undefined, fromName: "Workspace owner" }} />);
+    const from = screen.getByText("From:").parentElement!;
+    expect(from).toHaveClass("flex-1", "max-w-full");
+    expect(from).not.toHaveClass("min-w-0");
+    // A single token longer than the whole row still breaks inside the line.
+    expect(screen.getByText("Workspace owner")).toHaveClass("min-w-0", "break-words");
+    const row = from.parentElement!;
+    expect(row).toHaveClass("flex-wrap");
+    expect(screen.getByText("Date:").parentElement).toHaveClass("shrink-0");
+  });
+
   it("says a date it can't read as a dash", () => {
     render(<KudosCard kudos={{ ...EP7, sentAt: "lol" }} excludeInteractive />);
     once("—");

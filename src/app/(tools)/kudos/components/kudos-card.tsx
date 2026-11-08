@@ -293,8 +293,12 @@ function Back({ kudos, design, reminds, chevron }: BackProps) {
           {kudos.replyTo ? null : <p className="font-bold">Thank you for:</p>}
           <p className="min-h-[3.75rem] whitespace-pre-wrap break-words">{kudos.message}</p>
         </div>
+        {/* No min-w-0 on From: its narrowest is its longest word, so a short
+            row moves the Date to a line of its own instead of splitting the
+            name mid-word ("Workspac / e owner"). max-w-full still lets a
+            single token too long for the whole row break inside it. */}
         <div className="flex flex-wrap gap-x-4 gap-y-1 py-2" style={RULED}>
-          <p className="flex min-w-0 flex-1 gap-1.5">
+          <p className="flex max-w-full flex-1 gap-1.5">
             <span className="shrink-0 font-bold">From:</span>{" "}
             <span className="min-w-0 break-words">{senderOf(kudos)}</span>
           </p>
