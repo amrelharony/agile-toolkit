@@ -563,7 +563,7 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
         ) : (
           <div
             data-scroll-box
-            className="overflow-x-auto rounded-lg border border-border scroll-pl-[12.5rem] sm:scroll-pl-[16rem]"
+            className="overflow-x-auto rounded-lg border border-border scroll-pl-[10rem] sm:scroll-pl-[16rem]"
           >
             <span id="insights-new-tab" hidden>
               Opens in a new tab
@@ -578,17 +578,19 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
                   <th
                     scope="col"
                     data-pinned
-                    className="sticky left-0 z-10 w-12 bg-surface p-0.5 font-medium"
+                    className="sticky left-0 z-10 bg-surface p-0.5 font-medium"
                   >
-                    <span className="sr-only">Shortlist</span>
+                    <span className="block w-11">
+                      <span className="sr-only">Shortlist</span>
+                    </span>
                   </th>
                   <th
                     scope="col"
                     data-pinned
                     data-pinned-edge
-                    className="sticky left-12 z-10 w-[9.5rem] bg-surface p-2 font-medium sm:w-[13rem]"
+                    className="sticky left-12 z-10 bg-surface p-2 font-medium"
                   >
-                    Story
+                    <span className="block w-24 sm:w-48">Story</span>
                   </th>
                   {COLUMNS.map((c) => (
                     <SortHeader key={c.key} column={c} sort={sort} onSort={sortBy} />
@@ -598,29 +600,33 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
               <tbody>
                 {rows.map((s) => (
                   <tr key={s.ep} className="border-t border-border align-top">
-                    <td data-pinned className="sticky left-0 z-10 w-12 bg-card p-0.5">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-pressed={s.shortlisted}
-                        aria-label={`Shortlist episode ${s.ep}`}
-                        onClick={() => toggleShortlist(s.ep, !s.shortlisted)}
-                        className="size-11"
-                      >
-                        <Star
-                          className={cn("size-5", s.shortlisted && "fill-current text-accent")}
-                          aria-hidden="true"
-                        />
-                      </Button>
+                    <td data-pinned className="sticky left-0 z-10 bg-card p-0.5">
+                      {/* Set widths, so the pinned cells sit exactly at their
+                          offsets: the table squeezes cells to their narrowest
+                          otherwise, and this button is smaller from md up. */}
+                      <div className="flex w-11 justify-center">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-pressed={s.shortlisted}
+                          aria-label={`Shortlist episode ${s.ep}`}
+                          onClick={() => toggleShortlist(s.ep, !s.shortlisted)}
+                          className="size-11"
+                        >
+                          <Star
+                            className={cn("size-5", s.shortlisted && "fill-current text-accent")}
+                            aria-hidden="true"
+                          />
+                        </Button>
+                      </div>
                     </td>
                     <th
                       scope="row"
                       data-pinned
-                      className="sticky left-12 z-10 w-[9.5rem] bg-card p-2 font-medium text-text sm:w-[13rem]"
+                      className="sticky left-12 z-10 bg-card p-2 font-medium text-text"
                     >
-                      {/* A set width: the table squeezes cells to their narrowest otherwise. */}
-                      <div className="w-[7.5rem] sm:w-[11rem]">
+                      <div className="w-24 sm:w-48">
                         <a
                           href={comicHref(s.ep)}
                           target="_blank"
