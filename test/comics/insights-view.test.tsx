@@ -180,20 +180,46 @@ describe("Insights", () => {
     expect(star.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("takes the star back if the save fails, saying so in that story's row", async () => {
+  it("takes the star back if the save fails, saying so under that story's row", async () => {
     h.setShortlist.mockRejectedValue(new PortalError("Couldn't save.", 503, "service_unavailable"));
     await open();
     const star = screen.getByRole("button", { name: "Shortlist episode 28" });
     await act(async () => fireEvent.click(star));
     expect(star.getAttribute("aria-pressed")).toBe("false");
-    const alert = screen.getByRole("alert");
-    expect(alert.textContent).toBe("Couldn't save.");
-    // Where the star is, wherever the row sits in a long table.
-    expect(alert.closest("tr")).toBe(star.closest("tr"));
+    // Announced once, outside the table.
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Episode 28 is still off the shortlist: Couldn't save."
+    );
+    // Shown right under its row, wherever that sits in a long table, and not
+    // part of the row's header.
+    const row = star.closest("tr");
+    expect(row?.nextElementSibling?.textContent).toBe("Not saved: Couldn't save.");
+    expect(within(storyTable()).getAllByRole("rowheader")[0].textContent).toBe("The Practice Desk");
     // The next press on it clears the message.
     h.setShortlist.mockResolvedValue({ ep: 28, shortlisted: true });
     await act(async () => fireEvent.click(star));
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/Not saved/)).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe("");
+  });
+
+  it("keeps every failed star's message, and shows one whose row a filter hides", async () => {
+    h.setShortlist.mockRejectedValue(new PortalError("Couldn't save.", 503, "service_unavailable"));
+    await open();
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Shortlist episode 28" }))
+    );
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Shortlist episode 27" }))
+    );
+    // 27 was on the shortlist, so it stays on.
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Episode 27 is still on the shortlist: Couldn't save."
+    );
+    expect(screen.getAllByText("Not saved: Couldn't save.")).toHaveLength(2);
+    // Only the shortlisted: 28's row goes, its message moves above the table.
+    fireEvent.click(screen.getByLabelText("Shortlisted only"));
+    expect(screen.getByText("Episode 28 wasn't saved: Couldn't save.")).toBeTruthy();
+    expect(screen.getAllByText("Not saved: Couldn't save.")).toHaveLength(1);
   });
 
   it("explains every column in words, not only in a tooltip", async () => {

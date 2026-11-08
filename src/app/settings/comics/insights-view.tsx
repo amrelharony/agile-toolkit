@@ -1,7 +1,7 @@
 "use client";
 
 import { Star } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Chart } from "@/components/charts/lazy-chart";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { Button } from "@/components/ui/button";
@@ -208,8 +208,9 @@ const TREND_LINES = [
 
 /**
  * Keeps a control focused in the scrolling columns clear of the pinned star
- * and story name (WCAG 2.4.11). The box's scroll padding does most of it; this
- * nudges after the browser has scrolled the control into view.
+ * and story name (WCAG 2.4.11): a nudge after the browser has scrolled it into
+ * view. Not scroll padding, which would treat the pinned cells' own controls
+ * as hidden and scroll the table back whenever one of them got focus.
  */
 function keepClearOfPinned(e: React.FocusEvent<HTMLElement>) {
   const target = e.currentTarget;
@@ -234,10 +235,10 @@ function keepClearOfPinned(e: React.FocusEvent<HTMLElement>) {
 export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; now?: number }) {
   const [data, setData] = useState<InsightsData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // A failed star says so in its own row.
-  const [shortlistError, setShortlistError] = useState<{ ep: number; message: string } | null>(
-    null
-  );
+  // Each failed star, by story, until it's pressed again: shown under its row
+  // (or above the table while a filter hides the row), and announced once.
+  const [failures, setFailures] = useState<ReadonlyMap<number, string>>(new Map());
+  const [failureNote, setFailureNote] = useState("");
   const [period, setPeriod] = useState<InsightPeriod>("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "score",
@@ -321,8 +322,11 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
         if (wanted.current.get(ep) === on) break;
       }
     } catch (err) {
-      mark(ep, confirmed.current.get(ep) ?? false);
-      setShortlistError({ ep, message: errorMessage(err) });
+      const kept = confirmed.current.get(ep) ?? false;
+      const message = errorMessage(err);
+      mark(ep, kept);
+      setFailures((m) => new Map(m).set(ep, message));
+      setFailureNote(`Episode ${ep} is still ${kept ? "on" : "off"} the shortlist: ${message}`);
     } finally {
       wanted.current.delete(ep);
       saving.current.delete(ep);
@@ -335,7 +339,13 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
     if (!saving.current.has(ep)) confirmed.current.set(ep, !on);
     wanted.current.set(ep, on);
     mark(ep, on);
-    setShortlistError((e) => (e?.ep === ep ? null : e));
+    setFailureNote("");
+    setFailures((m) => {
+      if (!m.has(ep)) return m;
+      const next = new Map(m);
+      next.delete(ep);
+      return next;
+    });
     if (!saving.current.has(ep)) void save(ep);
   };
 
@@ -554,6 +564,16 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
           />
           Shortlisted only
         </label>
+        <p role="alert" className="sr-only">
+          {failureNote}
+        </p>
+        {Array.from(failures)
+          .filter(([ep]) => !rows.some((s) => s.ep === ep))
+          .map(([ep, message]) => (
+            <p key={ep} className="text-sm text-danger">
+              Episode {ep} wasn&apos;t saved: {message}
+            </p>
+          ))}
         {rows.length === 0 ? (
           <p className="text-sm text-sub">
             {live.length === 0
@@ -561,10 +581,7 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
               : "No stories match these filters."}
           </p>
         ) : (
-          <div
-            data-scroll-box
-            className="overflow-x-auto rounded-lg border border-border scroll-pl-[10rem] sm:scroll-pl-[16rem]"
-          >
+          <div data-scroll-box className="overflow-x-auto rounded-lg border border-border">
             <span id="insights-new-tab" hidden>
               Opens in a new tab
             </span>
@@ -599,62 +616,70 @@ export function InsightsView({ enabled, now = Date.now() }: { enabled: boolean; 
               </thead>
               <tbody>
                 {rows.map((s) => (
-                  <tr key={s.ep} className="border-t border-border align-top">
-                    <td data-pinned className="sticky left-0 z-10 bg-card p-0.5">
-                      {/* Set widths, so the pinned cells sit exactly at their
+                  <Fragment key={s.ep}>
+                    <tr className="border-t border-border align-top">
+                      <td data-pinned className="sticky left-0 z-10 bg-card p-0.5">
+                        {/* Set widths, so the pinned cells sit exactly at their
                           offsets: the table squeezes cells to their narrowest
                           otherwise, and this button is smaller from md up. */}
-                      <div className="flex w-11 justify-center">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-pressed={s.shortlisted}
-                          aria-label={`Shortlist episode ${s.ep}`}
-                          onClick={() => toggleShortlist(s.ep, !s.shortlisted)}
-                          className="size-11"
-                        >
-                          <Star
-                            className={cn("size-5", s.shortlisted && "fill-current text-accent")}
-                            aria-hidden="true"
-                          />
-                        </Button>
-                      </div>
-                    </td>
-                    <th
-                      scope="row"
-                      data-pinned
-                      className="sticky left-12 z-10 bg-card p-2 font-medium text-text"
-                    >
-                      <div className="w-24 sm:w-48">
-                        <a
-                          href={comicHref(s.ep)}
-                          target="_blank"
-                          rel="noreferrer"
-                          aria-describedby="insights-new-tab"
-                          className="underline"
-                        >
-                          {s.title}
-                        </a>
-                        {shortlistError?.ep === s.ep ? (
-                          <span role="alert" className="mt-1 block text-xs font-normal text-danger">
-                            {shortlistError.message}
-                          </span>
-                        ) : null}
-                      </div>
-                    </th>
-                    {COLUMNS.map((c) => (
-                      <td
-                        key={c.key}
-                        className={cn(
-                          "p-2 text-text",
-                          c.key === "score" && s.score === null && "text-sub"
-                        )}
-                      >
-                        {cell(s, c.key)}
+                        <div className="flex w-11 justify-center">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-pressed={s.shortlisted}
+                            aria-label={`Shortlist episode ${s.ep}`}
+                            onClick={() => toggleShortlist(s.ep, !s.shortlisted)}
+                            className="size-11"
+                          >
+                            <Star
+                              className={cn("size-5", s.shortlisted && "fill-current text-accent")}
+                              aria-hidden="true"
+                            />
+                          </Button>
+                        </div>
                       </td>
-                    ))}
-                  </tr>
+                      <th
+                        scope="row"
+                        data-pinned
+                        className="sticky left-12 z-10 bg-card p-2 font-medium text-text"
+                      >
+                        <div className="w-24 sm:w-48">
+                          <a
+                            href={comicHref(s.ep)}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-describedby="insights-new-tab"
+                            className="underline"
+                          >
+                            {s.title}
+                          </a>
+                        </div>
+                      </th>
+                      {COLUMNS.map((c) => (
+                        <td
+                          key={c.key}
+                          className={cn(
+                            "p-2 text-text",
+                            c.key === "score" && s.score === null && "text-sub"
+                          )}
+                        >
+                          {cell(s, c.key)}
+                        </td>
+                      ))}
+                    </tr>
+                    {failures.has(s.ep) ? (
+                      // Under its row, pinned with the star and name; announced
+                      // above, so it isn't part of the row's header.
+                      <tr>
+                        <td colSpan={COLUMNS.length + 2} className="p-0">
+                          <p className="sticky left-0 w-40 px-2 pb-2 text-xs text-danger sm:w-64">
+                            Not saved: {failures.get(s.ep)}
+                          </p>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
