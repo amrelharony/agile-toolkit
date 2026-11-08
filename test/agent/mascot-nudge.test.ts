@@ -3,6 +3,7 @@ import {
   HOME,
   chooseNudge,
   controlsUnder,
+  otherSideLeft,
   placeRect,
   type NudgeInput,
   type Rect,
@@ -99,6 +100,21 @@ describe("placeRect", () => {
     expect(placeRect({ ...HOME_BOX, top: 70 }, { flip: false, lift: 48 }, "top", 360).top).toBe(
       118
     );
+  });
+
+  it("measures the other side past its own safe area, not this one's", () => {
+    // An Android phone in landscape with a camera cutout on the left only: his
+    // button sits 8 px in on either side, past that side's inset. At home on the
+    // right (132 px box, hit box 37 px in, 58 wide) the hit box starts at 709.
+    const insets = { left: 80, right: 0 };
+    const home: Rect = { left: 812 - 8 - 132 + 37, top: 249, width: 58, height: 122 };
+    const flipped = placeRect(home, { flip: true, lift: 0 }, "bottom", 812, insets);
+    // On the left: 8 px past the 80 px cutout, then 37 px in.
+    expect(flipped.left).toBe(8 + 80 + 37);
+    // And back again lands on home (homeHitRect undoes a flip the same way).
+    expect(otherSideLeft(flipped.left, flipped.width, 812, insets)).toBe(home.left);
+    // Equal insets (an iPhone) are a plain mirror.
+    expect(otherSideLeft(home.left, 58, 812, { left: 47, right: 47 })).toBe(812 - home.left - 58);
   });
 });
 
@@ -281,6 +297,23 @@ describe("chooseNudge", () => {
     expect(chooseNudge(input({ viewport: { ...VIEWPORT, minTop: 500 } }))).toEqual(HOME);
     const asked = elementsFromPoint.mock.calls.map(([, y]) => y);
     expect(Math.min(...asked)).toBeGreaterThanOrEqual(500);
+  });
+
+  it("with a cutout on one side, judges the other side where he'd really land", () => {
+    setup();
+    // 812x375 landscape, a 80 px cutout on the left. His own side is covered all
+    // the way up; on the left, a button sits where he'd really land (125-183),
+    // and nothing sits where a plain mirror would put him (45-103).
+    const home: Rect = { left: 709, top: 249, width: 58, height: 122 };
+    control("button", { left: 700, top: 56, width: 75, height: 319 });
+    control("button", { left: 120, top: 240, width: 70, height: 135 });
+    const landscape = { width: 812, height: 375, minTop: 56 };
+    const ask = (insets?: { left: number; right: number }) =>
+      chooseNudge(input({ home, viewport: landscape, insets }));
+    // A plain mirror would send him onto the button on the left.
+    expect(ask()).toEqual({ flip: true, lift: 0 });
+    // Measured past the cutout, the left is covered until he's 144 px up.
+    expect(ask({ left: 80, right: 0 })).toEqual({ flip: true, lift: 144 });
   });
 
   it("with nowhere clear, moves off the control he'd block most", () => {

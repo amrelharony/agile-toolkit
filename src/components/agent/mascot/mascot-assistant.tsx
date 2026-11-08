@@ -55,7 +55,15 @@ import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./engine/sprite-poses";
 import { VisitorGuide } from "./visitor-guide";
-import { HOME, chooseNudge, sameNudge, type Nudge, type Rect } from "./mascot-nudge";
+import {
+  HOME,
+  chooseNudge,
+  otherSideLeft,
+  sameNudge,
+  type Nudge,
+  type Rect,
+  type SideInsets,
+} from "./mascot-nudge";
 import styles from "./mascot-assistant.module.css";
 
 /** Award XP via the gamification window bridge (no-op if unavailable). */
@@ -394,6 +402,17 @@ const NUDGE_SETTLE_MS = 250;
 const NUDGE_PLACED_MS = 700;
 
 /**
+ * The screen's side safe areas (a landscape phone's notch or camera cutout, often
+ * on one side only), read off a hidden probe padded by them. 0 where there are none.
+ */
+function readSideInsets(probe: HTMLElement | null): SideInsets {
+  if (!probe) return { left: 0, right: 0 };
+  const cs = window.getComputedStyle(probe);
+  const px = (v: string) => Math.max(0, parseFloat(v) || 0);
+  return { left: px(cs.paddingLeft), right: px(cs.paddingRight) };
+}
+
+/**
  * His hit box (or the launcher) at HOME, in viewport px, from the layout: the
  * button's used position, not its painted one, so his float, a stroll or a
  * landing in progress doesn't skew it. Null when there's no layout to read.
@@ -404,7 +423,8 @@ function homeHitRect(
   n: Nudge,
   edge: "top" | "bottom",
   vw: number,
-  vh: number
+  vh: number,
+  insets: SideInsets
 ): Rect | null {
   const cs = window.getComputedStyle(button);
   const w = button.offsetWidth;
@@ -415,7 +435,7 @@ function homeHitRect(
   if (!Number.isFinite(left)) left = vw - parseFloat(cs.right) - w;
   if (!w || !h || !Number.isFinite(top) || !Number.isFinite(left)) return null;
   // Undo where he has stepped to.
-  if (n.flip) left = vw - left - w;
+  if (n.flip) left = otherSideLeft(left, w, vw, insets);
   top += edge === "bottom" ? n.lift : -n.lift;
   if (!hit) return { left, top, width: w, height: h };
   return {
@@ -444,6 +464,7 @@ function useStepAside({
   allowFlip,
   buttonRef,
   hitRef,
+  insetProbeRef,
 }: {
   active: boolean;
   frozen: boolean;
@@ -453,6 +474,7 @@ function useStepAside({
   allowFlip: boolean;
   buttonRef: RefObject<HTMLButtonElement | null>;
   hitRef: RefObject<HTMLSpanElement | null>;
+  insetProbeRef: RefObject<HTMLSpanElement | null>;
 }): { nudge: Nudge; reset: () => void } {
   const [state, setState] = useState<{ key: string; nudge: Nudge }>({ key: "", nudge: HOME });
   const nudge = state.key === placeKey ? state.nudge : HOME;
@@ -476,7 +498,8 @@ function useStepAside({
       const { nudge: current, edge: side, placeKey: key, allowFlip: flip } = latest.current;
       const vw = document.documentElement.clientWidth || window.innerWidth;
       const vh = window.innerHeight;
-      const home = homeHitRect(button, hitRef.current, current, side, vw, vh);
+      const insets = readSideInsets(insetProbeRef.current);
+      const home = homeHitRect(button, hitRef.current, current, side, vw, vh, insets);
       if (!home) return;
       const header = document.querySelector("[data-chrome='header']")?.getBoundingClientRect();
       const next = chooseNudge({
@@ -485,6 +508,7 @@ function useStepAside({
         edge: side,
         allowFlip: flip,
         viewport: { width: vw, height: vh, minTop: Math.max(0, header?.bottom ?? 0) },
+        insets,
         elementsFromPoint: (x, y) => document.elementsFromPoint(x, y),
         ignore: own,
         // The sticky header stacks above him (a top corner tucks him under it).
@@ -532,7 +556,7 @@ function useStepAside({
       document.removeEventListener("pointercancel", up, true);
       window.clearTimeout(timer);
     };
-  }, [active, frozen, placeKey, figure, buttonRef, hitRef]);
+  }, [active, frozen, placeKey, figure, buttonRef, hitRef, insetProbeRef]);
 
   // He slides to where he stepped, rather than jumping there.
   useIsomorphicLayoutEffect(() => {
@@ -619,6 +643,7 @@ export function MascotAssistant() {
   }
   const buttonRef = useRef<HTMLButtonElement>(null);
   const hitRef = useRef<HTMLSpanElement>(null);
+  const insetProbeRef = useRef<HTMLSpanElement>(null);
   const lastTapRef = useRef(0);
   const draggedRef = useRef(false);
   const onMascotClick = (e: ReactMouseEvent<HTMLButtonElement>) => {
@@ -674,6 +699,7 @@ export function MascotAssistant() {
     allowFlip: !sideChosen,
     buttonRef,
     hitRef,
+    insetProbeRef,
   });
   const placed = nudge.flip ? otherSide(corner) : corner;
   // Removes the active drag's document listeners (called on pointerup, on a new
@@ -997,6 +1023,18 @@ export function MascotAssistant() {
           )}
         </div>
       )}
+
+      {/* The screen's side safe areas, for stepping aside to the other side (readSideInsets). */}
+      <span
+        ref={insetProbeRef}
+        aria-hidden="true"
+        data-amr-inset-probe
+        className="pointer-events-none invisible fixed left-0 top-0 h-0 w-0"
+        style={{
+          paddingLeft: "env(safe-area-inset-left, 0px)",
+          paddingRight: "env(safe-area-inset-right, 0px)",
+        }}
+      />
 
       {/* Floating mascot — click to toggle the chat. */}
       {!hideFigure && (

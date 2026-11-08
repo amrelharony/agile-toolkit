@@ -84,18 +84,41 @@ export function sameNudge(a: Nudge, b: Nudge): boolean {
   return a.flip === b.flip && a.lift === b.lift;
 }
 
+/** The screen's side safe areas, px: a landscape phone's notch or camera cutout. */
+export interface SideInsets {
+  left: number;
+  right: number;
+}
+
+const NO_INSETS: SideInsets = { left: 0, right: 0 };
+
+/**
+ * A box's left edge on the other side of the screen: as far from that edge as it
+ * was from this one, each measured past its own side's safe area (a camera
+ * cutout is often on one side only). Going there and back is a round trip.
+ */
+export function otherSideLeft(
+  left: number,
+  width: number,
+  viewportWidth: number,
+  insets: SideInsets = NO_INSETS
+): number {
+  return viewportWidth - left - width + insets.left - insets.right;
+}
+
 /**
  * His box at `n`, from where it is at HOME. `edge` is the screen edge his corner
- * is on; the other side is the mirror image across the viewport.
+ * is on; the other side is the mirror image across the viewport (otherSideLeft).
  */
 export function placeRect(
   home: Rect,
   n: Nudge,
   edge: "top" | "bottom",
-  viewportWidth: number
+  viewportWidth: number,
+  insets: SideInsets = NO_INSETS
 ): Rect {
   return {
-    left: n.flip ? viewportWidth - home.left - home.width : home.left,
+    left: n.flip ? otherSideLeft(home.left, home.width, viewportWidth, insets) : home.left,
     top: edge === "bottom" ? home.top - n.lift : home.top + n.lift,
     width: home.width,
     height: home.height,
@@ -194,6 +217,8 @@ export interface NudgeInput extends HitTesting {
   edge: "top" | "bottom";
   /** The viewport, and the lowest top he may reach (the header's bottom). */
   viewport: { width: number; height: number; minTop: number };
+  /** The screen's side safe areas: the other side is measured past its own. */
+  insets?: SideInsets;
   /** False once the visitor has put him on a side themselves: then he only steps up or down. */
   allowFlip?: boolean;
 }
@@ -205,9 +230,10 @@ export interface NudgeInput extends HitTesting {
  * is worth the move.
  */
 export function chooseNudge(input: NudgeInput): Nudge {
-  const { home, edge, viewport, allowFlip = true } = input;
+  const { home, edge, viewport, allowFlip = true, insets } = input;
+  const at = (n: Nudge) => placeRect(home, n, edge, viewport.width, insets);
   const fits = (n: Nudge) => {
-    const r = placeRect(home, n, edge, viewport.width);
+    const r = at(n);
     return (
       r.left >= 0 &&
       r.left + r.width <= viewport.width &&
@@ -220,7 +246,7 @@ export function chooseNudge(input: NudgeInput): Nudge {
   const score = (n: Nudge) => {
     let s = scores.get(n);
     if (s === undefined) {
-      s = coverageScore(controlsUnder(placeRect(home, n, edge, viewport.width), input));
+      s = coverageScore(controlsUnder(at(n), input));
       scores.set(n, s);
     }
     return s;

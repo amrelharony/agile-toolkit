@@ -219,8 +219,11 @@ describe("stepping aside", () => {
   const VH = 640;
   const saved = new Map<string, PropertyDescriptor | undefined>();
   const OFFSETS = ["offsetLeft", "offsetTop", "offsetWidth", "offsetHeight"] as const;
+  /** The screen's side safe areas, as his probe reads them (jsdom can't resolve env()). */
+  let insets = { left: 0, right: 0 };
 
   beforeEach(() => {
+    insets = { left: 0, right: 0 };
     vi.stubGlobal("innerWidth", VW);
     vi.stubGlobal("innerHeight", VH);
     // jsdom has no layout: give Amr's button (96×104) and his hit box (42×89,
@@ -238,17 +241,23 @@ describe("stepping aside", () => {
         },
       });
     }
-    // His used position, from his inline style (anchored right or left, 8 px in).
+    // His used position, from his inline style (anchored right or left, 8 px in
+    // past that side's safe area), and the safe areas his probe is padded by.
     const real = window.getComputedStyle.bind(window);
     vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => {
       const cs = real(el, pseudo);
-      if (!(el instanceof HTMLElement) || !el.title.startsWith("Ask Amr")) return cs;
-      const used: Record<string, string> = {
-        top: "auto",
-        bottom: `${parseFloat(el.style.bottom.replace(/^calc\(/, ""))}px`,
-        left: el.style.left ? "8px" : "auto",
-        right: el.style.right ? "8px" : "auto",
-      };
+      if (!(el instanceof HTMLElement)) return cs;
+      let used: Record<string, string>;
+      if (el.hasAttribute("data-amr-inset-probe")) {
+        used = { paddingLeft: `${insets.left}px`, paddingRight: `${insets.right}px` };
+      } else if (el.title.startsWith("Ask Amr")) {
+        used = {
+          top: "auto",
+          bottom: `${parseFloat(el.style.bottom.replace(/^calc\(/, ""))}px`,
+          left: el.style.left ? `${8 + insets.left}px` : "auto",
+          right: el.style.right ? `${8 + insets.right}px` : "auto",
+        };
+      } else return cs;
       return new Proxy(cs, {
         get(target, prop) {
           if (typeof prop === "string" && prop in used) return used[prop];
@@ -375,6 +384,59 @@ describe("stepping aside", () => {
     expect(box.top).toBeGreaterThanOrEqual(HEADER_H);
     expect(VH - box.bottom).toBeCloseTo(98.5 + 144);
     useAgentStore.setState({ open: false });
+  });
+
+  it("with a cutout on one side, finds his way home from the other side", async () => {
+    stubScreen({ phone: true });
+    // A camera cutout on the left only: the left side is 8 px past 30 px.
+    insets = { left: 30, right: 0 };
+    const start = document.createElement("button");
+    start.setAttribute("data-test-control", "");
+    const box = { left: 278, top: 547, width: 45, height: 44 };
+    vi.spyOn(start, "getBoundingClientRect").mockReturnValue({
+      ...box,
+      x: box.left,
+      y: box.top,
+      right: box.left + box.width,
+      bottom: box.top + box.height,
+      toJSON: () => ({}),
+    } as DOMRect);
+    document.body.appendChild(start);
+    const asked: number[] = [];
+    Object.defineProperty(document, "elementsFromPoint", {
+      configurable: true,
+      value: (x: number, y: number) => {
+        asked.push(Math.round(x));
+        return x >= box.left &&
+          x <= box.left + box.width &&
+          y >= box.top &&
+          y <= box.top + box.height
+          ? [start, document.body]
+          : [document.body];
+      },
+    });
+
+    render(<MascotAssistant />);
+    act(() => {
+      window.dispatchEvent(new Event("pointerdown"));
+    });
+    await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
+    await waitFor(() => expect(amrButton().style.left).toContain("safe-area-inset-left"), {
+      timeout: 2000,
+    });
+
+    // He looks again from the left (a resize): home is where it really is,
+    // 283-325 on the right, not 30 px off; the left is where he really stands.
+    asked.length = 0;
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    await waitFor(() => expect(asked.length).toBeGreaterThan(0), { timeout: 2000 });
+    expect(asked).toContain(286);
+    expect(asked).not.toContain(256);
+    expect(asked).toContain(68);
+    // Start is still at home, so he stays on the left.
+    expect(amrButton().style.left).toContain("safe-area-inset-left");
   });
 
   it("leaves a desktop with a mouse alone", async () => {
