@@ -18,7 +18,7 @@ vi.mock("@/lib/auth/use-is-owner", () => ({
   }),
 }));
 
-import { LoveButton, lovesLabel } from "@/app/(tools)/comics/components/love-button";
+import { LoveButton, lovesLabel, readersLabel } from "@/app/(tools)/comics/components/love-button";
 import { StoryStats } from "@/app/(tools)/comics/components/story-stats";
 import { isLoved, totalSeconds } from "@/lib/comics/reading";
 
@@ -66,7 +66,9 @@ describe("LoveButton", () => {
     await act(async () => fireEvent.click(button));
     expect(isLoved(30)).toBe(true);
     expect(button.getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByText("25 readers love this")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe(
+      "25 readers love this · Read by 40 readers"
+    );
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ ep: 30, events: ["love"] });
 
     fetchMock.mockResolvedValue(
@@ -75,7 +77,21 @@ describe("LoveButton", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Loved" })));
     expect(isLoved(30)).toBe(false);
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ ep: 30, events: ["unlove"] });
-    expect(screen.getByText("24 readers love this")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe(
+      "24 readers love this · Read by 40 readers"
+    );
+  });
+
+  it("says how many have read it, from ten readers", async () => {
+    expect(readersLabel(9)).toBeNull();
+    expect(readersLabel(10)).toBe("Read by 10 readers");
+    render(<LoveButton ep={30} initialLoves={2} initialReaders={9} />);
+    expect(screen.queryByText(/Read by/)).toBeNull();
+    // The press brings fresh counts: 40 readers now.
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Love this" })));
+    expect(screen.getByRole("status").textContent).toBe(
+      "25 readers love this · Read by 40 readers"
+    );
   });
 
   it("remembers this browser's love on the next visit", async () => {

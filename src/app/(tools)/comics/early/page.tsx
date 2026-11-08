@@ -128,7 +128,9 @@ function EarlyStory({
     >
       <div className="space-y-4">
         <ComicPanels panels={story.panels} title={story.title} ep={story.ep} guess={guess.guess} />
-        {readable ? <LoveButton ep={story.ep} initialLoves={totals.loves} /> : null}
+        {readable ? (
+          <LoveButton ep={story.ep} initialLoves={totals.loves} initialReaders={totals.readers} />
+        ) : null}
         <EpisodeNotes lesson={story.lesson} question={story.squadQuestion} />
         {readable ? <SeenAtWork ep={story.ep} /> : null}
         {guess.tryAction ? (
