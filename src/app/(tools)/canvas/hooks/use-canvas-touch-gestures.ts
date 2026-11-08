@@ -3,7 +3,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { useGesture } from "@use-gesture/react";
 import { panBy, zoomAt, fitToRects } from "@/lib/whiteboard/canvas-transform";
-import type { Camera } from "@/lib/geometry/bbox";
+import type { Camera, Vec2 } from "@/lib/geometry/bbox";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 
 /**
@@ -14,9 +14,11 @@ import type { WhiteboardObject } from "@/lib/stores/workspace-types";
  *
  *  - Pinch — zoom-to-pinch-centre, reusing `zoomAt` so the math matches
  *    the wheel-zoom code path exactly.
- *  - Two-finger drag — pan, reusing `panBy`. Single-finger drag is
- *    deliberately NOT consumed here: it stays available to the pointer
- *    machine for marquee / draw / drag-object.
+ *  - Two-finger drag — pan, reusing `panBy`. @use-gesture treats ANY
+ *    two-finger contact as a pinch, so the pan lives inside `onPinch`
+ *    (see `pinchCamera`): the pinch follows its centre as it moves.
+ *    Single-finger drag is deliberately NOT consumed here: it stays
+ *    available to the pointer machine for marquee / draw / drag-object.
  *
  * Double-tap and long-press are NOT routed through @use-gesture/react —
  * its `onDoubleClick` registers an `addEventListener("doubleclick", ...)`
@@ -32,12 +34,85 @@ import type { WhiteboardObject } from "@/lib/stores/workspace-types";
  *
  * `eventOptions: { passive: false }` is required so the recognizers can
  * preventDefault and stop the OS from scrolling / page-pinching the
- * canvas page (the per-route viewport.ts also disables OS pinch).
+ * board (useBoardPinchGuard does the same for Safari's own pinch events;
+ * the rest of the page keeps browser zoom).
  */
 const DOUBLE_TAP_MS = 300; // max gap between two taps to count as double
 const DOUBLE_TAP_PX = 24; // max screen-space distance between two taps
 const LONG_PRESS_MS = 500; // hold time to trigger long-press menu
 const LONG_PRESS_SLOP_PX = 8; // finger movement that cancels a long-press
+
+/** Where a pinch began: the camera then and the pinch centre (viewport px). */
+export interface PinchStart {
+  camera: Camera;
+  focal: Vec2;
+}
+
+/**
+ * The camera for one pinch frame. Pans by how far the pinch centre has
+ * moved since the gesture began, then zooms about where the centre is
+ * now — so the board point that was under the fingers stays under them
+ * while they spread AND while they slide together (two-finger pan).
+ *
+ * Derived from the gesture's START rather than applied as a per-event
+ * delta to the live camera: the camera reaches React through a
+ * rAF-throttled setter and both fingers' pointermoves land in the same
+ * frame, so a delta added to the not-yet-updated camera would drop every
+ * other step (the board would pan at about half the finger speed).
+ */
+export function pinchCamera(start: PinchStart, focal: Vec2, scale: number): Camera {
+  const panned = panBy(start.camera, focal.x - start.focal.x, focal.y - start.focal.y);
+  return zoomAt(panned, focal, start.camera.zoom * scale);
+}
+
+/**
+ * A pinch made with fingers: touch pointer events, or touch events where
+ * @use-gesture falls back to them. Ctrl+wheel and trackpad pinches arrive
+ * as wheel or gesture events and don't count.
+ */
+function isTouchPinch(event: unknown): boolean {
+  if (!event || typeof event !== "object") return false;
+  if ((event as PointerEvent).pointerType === "touch") return true;
+  return "touches" in event;
+}
+
+/**
+ * Controls that sit on the board (the selection bar, buttons inside
+ * widgets, text fields). A press on one is the control's, not a board
+ * gesture: two quick taps on Duplicate must not also fit the board, and
+ * holding a swatch must not open the actions menu.
+ */
+const BOARD_CONTROL_SELECTOR =
+  'button, a[href], input, textarea, select, [contenteditable="true"], [role="toolbar"], [role="menu"]';
+
+function isBoardControl(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(BOARD_CONTROL_SELECTOR) !== null;
+}
+
+/** The synthetic `contextmenu` events a touch long-press dispatched. */
+const longPressEvents = new WeakSet<Event>();
+
+/**
+ * True for the `contextmenu` this hook dispatches for a touch long-press;
+ * false for a mouse right-click, which keeps the browser's own menu (so
+ * desktop behaviour is unchanged).
+ */
+export function isCanvasLongPress(e: Event): boolean {
+  return longPressEvents.has(e);
+}
+
+/** Dispatch the long-press `contextmenu` on `target` at a screen point. */
+export function dispatchCanvasLongPress(target: EventTarget, clientX: number, clientY: number) {
+  const ev = new MouseEvent("contextmenu", {
+    bubbles: true,
+    cancelable: true,
+    clientX,
+    clientY,
+    button: 2,
+  });
+  longPressEvents.add(ev);
+  target.dispatchEvent(ev);
+}
 
 export function useCanvasTouchGestures(params: {
   viewportRef: RefObject<HTMLDivElement | null>;
@@ -95,14 +170,27 @@ export function useCanvasTouchGestures(params: {
         // `startZoom * scale` re-applied the previous pinch's total on
         // the first event of every NEW pinch: zoom 2 jumped straight to
         // 4 the moment a second pinch registered). On the first event
-        // we capture the starting zoom; subsequent events apply the
-        // per-gesture cumulative factor.
-        const startZoom = first
-          ? cameraRef.current.zoom
-          : (memo?.startZoom ?? cameraRef.current.zoom);
-        throttledSetCamera(zoomAt(cameraRef.current, focal, startZoom * scale));
-        return { startZoom };
+        // we capture the starting camera and centre; every event then
+        // derives the camera from that start — zoom by the per-gesture
+        // factor, pan by how far the centre has travelled.
+        const start: PinchStart =
+          first || !memo ? { camera: cameraRef.current, focal } : (memo as PinchStart);
+        // Only fingers pan. @use-gesture also reports Ctrl+wheel and
+        // trackpad pinches (wheel / Safari gesture events, no
+        // pointerType) with the cursor as the origin: those keep zooming
+        // about the cursor where it is now, as before, so a cursor that
+        // drifts mid-zoom doesn't drag the board along with it.
+        if (isTouchPinch(event)) {
+          throttledSetCamera(pinchCamera(start, focal, scale));
+        } else {
+          throttledSetCamera(zoomAt(cameraRef.current, focal, start.camera.zoom * scale));
+        }
+        return start;
       },
+      // Fallback only: while two fingers are down @use-gesture reports
+      // `pinching` and onPinch above does the pan. This branch runs only
+      // if a two-finger drag ever arrives without an active pinch, so the
+      // two never move the camera for the same event.
       onDrag: ({ delta: [dx, dy], touches, event, pinching }) => {
         if (presentationRef.current !== null) return;
         if (pinching) return;
@@ -177,23 +265,24 @@ export function useCanvasTouchGestures(params: {
         lastTap = null;
         return;
       }
+      if (isBoardControl(e.target)) {
+        lastTap = null;
+        return;
+      }
       pressOrigin = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
+      const pressTarget = e.target;
       longPressTimer = window.setTimeout(() => {
-        // Dispatch a synthetic contextmenu MouseEvent at the touch
-        // position so the existing right-click handlers on objects fire.
-        // React's delegated event system catches the bubbled event.
-        const target = document.elementFromPoint(e.clientX, e.clientY);
-        if (target) {
-          target.dispatchEvent(
-            new MouseEvent("contextmenu", {
-              bubbles: true,
-              cancelable: true,
-              clientX: e.clientX,
-              clientY: e.clientY,
-              button: 2,
-            })
-          );
-        }
+        // Dispatch a marked contextmenu at the touch position. It bubbles
+        // to the viewport, where the board's long-press menu
+        // (CanvasObjectMenu) opens for the selection the press made. Only
+        // a target inside the board: anything else would never reach it.
+        const hit =
+          typeof document.elementFromPoint === "function"
+            ? document.elementFromPoint(e.clientX, e.clientY)
+            : null;
+        const inBoard = (t: EventTarget | null): t is Node => t instanceof Node && el.contains(t);
+        const target = inBoard(hit) ? hit : inBoard(pressTarget) ? pressTarget : el;
+        dispatchCanvasLongPress(target, e.clientX, e.clientY);
         clearLongPress();
         lastTap = null;
       }, LONG_PRESS_MS);
@@ -261,7 +350,7 @@ export function useCanvasTouchGestures(params: {
   // Belt-and-braces: even with `touch-action: none` on the viewport,
   // browsers vary on whether they suppress the system context-menu
   // (long-press) by default. Force it off — our manual long-press
-  // synthesises the right contextmenu event at the right position.
+  // dispatches its own marked contextmenu at the right position.
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;

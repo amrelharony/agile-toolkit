@@ -29,6 +29,13 @@ import { useSwipeToClose } from "@/hooks/use-swipe-to-close";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
 
+/**
+ * The section headings (and Favorites / Recent) are 32 px rows for a mouse,
+ * stacked with no gap; on touch (the phone drawer, or a tablet with the
+ * sidebar pinned open) they grow to 44 px so each is an easy tap.
+ */
+const SECTION_TRIGGER_TOUCH = "pointer-coarse:min-h-11";
+
 interface SidebarProps {
   /** Mobile drawer open state (parent-controlled). */
   mobileOpen?: boolean;
@@ -60,7 +67,7 @@ function SidebarToolLink({
       data-no-sound="true"
       title={!expanded ? tool.name : undefined}
       className={cn(
-        "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px]",
+        "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px] pointer-coarse:min-h-11",
         !expanded && "md:justify-center md:px-0 md:gap-0",
         isActive ? "bg-accent/10 text-accent" : "text-sub hover:text-text hover:bg-accent/5"
       )}
@@ -367,8 +374,16 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           // (64 px) and full (256 px) — the `transition-all` on the
           // shared layout above smooths the swap. Hover-expand uses the
           // same width change so the page content stays in step.
-          "md:static md:translate-x-0 md:top-0 md:h-screen md:sticky md:pl-0",
-          expanded ? "md:w-64" : "md:w-16"
+          // It keeps `pl-safe` from md and grows by that inset: md covers
+          // every landscape iPhone, whose notch would otherwise sit over
+          // the rail's icons (the inset is 0 everywhere else). The drawer's
+          // 18 rem cap goes at md: it would clamp the pinned-open width
+          // (256 px + a 47-59 px inset) and squeeze the labels beside the
+          // notch. (The md widths alone never reached 18 rem.)
+          "md:static md:translate-x-0 md:top-0 md:h-screen md:sticky md:max-w-none",
+          expanded
+            ? "md:w-[calc(16rem+env(safe-area-inset-left))]"
+            : "md:w-[calc(4rem+env(safe-area-inset-left))]"
         )}
       >
         {/* Brand */}
@@ -377,7 +392,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
             href="/"
             onClick={handleNavClick}
             data-no-sound="true"
-            className="flex items-center gap-3 min-w-0"
+            className="flex items-center gap-3 min-w-0 pointer-coarse:min-h-11"
           >
             <div
               data-sidebar-logo="true"
@@ -429,7 +444,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   onClick={handleNavClick}
                   data-no-sound="true"
                   className={cn(
-                    "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px]",
+                    "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px] pointer-coarse:min-h-11",
                     isActive
                       ? "bg-accent/10 text-accent"
                       : "text-sub hover:text-text hover:bg-accent/5",
@@ -477,7 +492,10 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   {expanded && (
                     <CollapsibleTrigger
                       data-no-sound="true"
-                      className="flex items-center w-full px-3 py-2 text-xs font-semibold text-sub hover:text-text transition-colors rounded-lg gap-2"
+                      className={cn(
+                        "flex items-center w-full px-3 py-2 text-xs font-semibold text-sub hover:text-text transition-colors rounded-lg gap-2",
+                        SECTION_TRIGGER_TOUCH
+                      )}
                     >
                       <Star className="w-3 h-3 text-accent-amber" aria-hidden="true" />
                       <span className="truncate">Favorites</span>
@@ -512,7 +530,10 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   {expanded && (
                     <CollapsibleTrigger
                       data-no-sound="true"
-                      className="flex items-center w-full px-3 py-2 text-xs font-semibold text-sub hover:text-text transition-colors rounded-lg gap-2"
+                      className={cn(
+                        "flex items-center w-full px-3 py-2 text-xs font-semibold text-sub hover:text-text transition-colors rounded-lg gap-2",
+                        SECTION_TRIGGER_TOUCH
+                      )}
                     >
                       <Clock className="w-3 h-3 text-accent" aria-hidden="true" />
                       <span className="truncate">Recent</span>
@@ -562,7 +583,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   aria-current={isActiveSection ? "true" : undefined}
                   title={section.label}
                   className={cn(
-                    "flex w-full items-center justify-center rounded-lg py-2.5 transition-colors",
+                    "flex w-full items-center justify-center rounded-lg py-2.5 pointer-coarse:min-h-11 transition-colors",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                     isActiveSection
                       ? "bg-accent/10 text-accent"
@@ -601,6 +622,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   data-no-sound="true"
                   className={cn(
                     "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors",
+                    SECTION_TRIGGER_TOUCH,
                     isActiveSection ? "text-accent" : "text-sub hover:text-text"
                   )}
                 >
@@ -641,7 +663,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               aria-current={pathname === "/more-tools" ? "page" : undefined}
               title={expanded ? undefined : "More tools"}
               className={cn(
-                "mt-3 flex min-h-[40px] items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors",
+                "mt-3 flex min-h-[40px] pointer-coarse:min-h-11 items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors",
                 !expanded && "justify-center",
                 pathname === "/more-tools"
                   ? "bg-accent/10 text-accent"
@@ -667,7 +689,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           data-no-sound="true"
           className="
             hidden md:flex items-center justify-center
-            w-full py-3 border-t border-border
+            w-full py-3 pointer-coarse:min-h-11 border-t border-border
             text-sub hover:text-accent
             transition-all duration-default ease-spring
           "

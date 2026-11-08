@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/app-shell";
 import { AppToaster } from "@/components/layout/app-toaster";
+import { NotifyProvider } from "@/lib/notify/provider";
 import { ThemeRestore } from "@/components/layout/theme-restore";
 import { ServiceWorker } from "@/components/pwa/service-worker";
 import { INTRO_BOOT_SCRIPT } from "@/lib/comics/intro";
@@ -89,6 +90,7 @@ export default function RootLayout({
         <TooltipProvider>
           <AppShell>{children}</AppShell>
           <AppToaster />
+          <NotifyProvider />
         </TooltipProvider>
         <ServiceWorker />
         <ThemeRestore />

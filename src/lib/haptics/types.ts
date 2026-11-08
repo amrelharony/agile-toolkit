@@ -40,20 +40,13 @@ export interface HapticPatternSpec {
   vibrate: number[];
   /** iOS / unsupported fallback — applied as a CSS micro-scale on the element. */
   ios?: { cssScale: number; durationMs: number };
-  /** Flagged priority patterns bypass cooldown + rate-limit + scroll/input suppression. */
+  /** Priority patterns bypass the cooldowns and the rate limit, not the suppression windows. */
   priority?: boolean;
   /** Category for per-category override gating. */
   category: HapticCategory;
 }
 
-export type HapticCategory =
-  | "ceremonies"
-  | "voting"
-  | "drag"
-  | "toasts"
-  | "ui"
-  | "timer"
-  | "error";
+export type HapticCategory = "ceremonies" | "voting" | "drag" | "toasts" | "ui" | "timer" | "error";
 
 export type HapticsMode = "full" | "essential" | "off";
 

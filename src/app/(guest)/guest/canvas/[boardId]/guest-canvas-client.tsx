@@ -166,7 +166,12 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
             <ToolbarLeft />
           </div>
         )}
-        <div className="absolute right-2 top-2 z-overlay">
+        {/* A full-size box so ZoomControls (absolute right-3 bottom-3)
+            sits at the board's bottom-right. The old 0x0 top-right box
+            put it above the board, over the header, and the touch Undo /
+            Redo bar stacked over it landed off-screen. Clicks pass
+            through: ZoomControls only takes them on its own bars. */}
+        <div className="pointer-events-none absolute inset-0 z-overlay">
           <ZoomControls />
         </div>
         <div className="board-stage absolute inset-0 bg-bg">

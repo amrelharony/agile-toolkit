@@ -170,7 +170,9 @@ export function RetroColumnPanel({
     if (onAddMany) onAddMany(column.key, texts);
     else for (const text of texts) onAdd(column.key, text);
     if (pasted.dropped > 0) {
+      // One toast per column: a second paste updates it in place.
       toast.info(`Added ${texts.length} cards.`, {
+        id: `retro-paste:${column.key}`,
         description: `${leftOutMessage(pasted.dropped)} One paste adds up to ${pasteCap}.`,
       });
     }

@@ -22,6 +22,15 @@
  *   text-accent on the same line, hover and other variants included): the
  *   three themes' tokens keep 4.5:1 only up to /20
  *   (test/design/theme-contrast.test.ts). Use /20 or less, or text-text.
+ * - A rigid header search pill (shrink-0, flex-shrink-0 or flex-none, any
+ *   variant, on the element marked data-header-search): a pill that can't
+ *   give width back pushed the 768–1040 px header wider than the screen,
+ *   taking help, theme, the account menu and Amr off it. Use a min-width
+ *   floor instead.
+ * - A width breakpoint shrinking a touch primitive (md:h-9, md:min-h-0,
+ *   md:w-9 in Button, IconButton, Input, Textarea, ToggleGroup): a landscape
+ *   phone or a tablet is md+ but still touch, so it got 36 px controls. Shrink
+ *   for a mouse only: md-fine:h-9 (or pointer-fine:).
  *
  * Exits 0 when clean. Prints file:line and the offending class otherwise.
  */
@@ -96,7 +105,114 @@ function strongOwnTints(line) {
   return found;
 }
 
-export function findViolations(source) {
+const HEADER_SEARCH_MARKER = "data-header-search";
+// A class that stops a flex item shrinking. Not after `:` or `]`, so an
+// arbitrary child variant (`[&>svg]:shrink-0`) — about the children — passes.
+const RIGID_FLEX_RE =
+  /(?<![\w:\]-])(?:[a-z0-9-]+:)*!?(?:shrink-0|flex-shrink-0|flex-none)(?![\w-])/g;
+
+/**
+ * The JSX opening tag that starts at `start` (a `<`), with comments inside
+ * `{…}` blanked out (same length, so offsets still map to lines). Skips
+ * strings and `{…}` expressions, so `=>` and `>` in them don't end the tag.
+ */
+function openingTag(source, start) {
+  let out = "";
+  let depth = 0;
+  let quote = null;
+  for (let i = start; i < source.length; i++) {
+    const c = source[i];
+    if (quote) {
+      out += c;
+      if (c === "\\") {
+        out += source[i + 1] ?? "";
+        i++;
+      } else if (c === quote) quote = null;
+      continue;
+    }
+    const next = source[i + 1];
+    if (depth > 0 && c === "/" && (next === "/" || next === "*")) {
+      let stop = next === "/" ? source.indexOf("\n", i) : source.indexOf("*/", i + 2);
+      if (stop === -1) stop = source.length;
+      else if (next === "*") stop += 2;
+      out += source.slice(i, stop).replace(/[^\n]/g, " ");
+      i = stop - 1;
+      continue;
+    }
+    out += c;
+    if (c === '"' || c === "'" || c === "`") quote = c;
+    else if (c === "{") depth++;
+    else if (c === "}") depth--;
+    else if (c === ">" && depth === 0) break;
+  }
+  return out;
+}
+
+function rigidHeaderSearch(source) {
+  const found = [];
+  if (!source.includes(HEADER_SEARCH_MARKER)) return found;
+  const tagStarts = [...source.matchAll(/<[A-Za-z]/g)].map((m) => m.index);
+  for (const marker of source.matchAll(new RegExp(HEADER_SEARCH_MARKER, "g"))) {
+    // The nearest tag start before the marker whose opening tag spans it.
+    for (let k = tagStarts.length - 1; k >= 0; k--) {
+      const start = tagStarts[k];
+      if (start > marker.index) continue;
+      const tag = openingTag(source, start);
+      if (start + tag.length <= marker.index) continue;
+      for (const m of tag.matchAll(RIGID_FLEX_RE)) {
+        const line = source.slice(0, start + m.index).split("\n").length;
+        found.push({
+          line,
+          rule: "rigid-header-search",
+          match: m[0],
+          hint: "the header search must shrink: give it a min-width floor, not shrink-0",
+        });
+      }
+      break;
+    }
+  }
+  return found;
+}
+
+// The primitives whose size is a touch target. Their compact desktop size has
+// to be scoped to a mouse (md-fine:, pointer-fine:), not to a width.
+const TOUCH_PRIMITIVES = new Set([
+  "src/components/ui/button.tsx",
+  "src/components/ui/icon-button.tsx",
+  "src/components/ui/input.tsx",
+  "src/components/ui/textarea.tsx",
+  "src/components/ui/toggle-group.tsx",
+]);
+// Shrinks already on master that another fix moves to a pointer variant.
+// Input belongs to the form-fields fix (claude/mobile-form-fields): drop the
+// entry when it lands. Anything new in these files still fails.
+const PENDING_SHRINKS = new Map([["src/components/ui/input.tsx", new Set(["md:h-9"])]]);
+// A size utility (h, w, min-h, min-w, size) with a number, px, or an
+// arbitrary value, behind a chain of variants that includes a width
+// breakpoint. A chain that also says pointer-fine is scoped to a mouse.
+const WIDTH_SHRINK_RE =
+  /(?<![\w-])((?:[a-z0-9-]+:)*)(?:min-)?(?:h|w|size)-(?:\d[\d.]*|px|\[[^\]\s]+\])(?![\w\]-])/g;
+const SCREEN_VARIANT = /(?:^|:)(?:xs|sm|md|lg|xl|2xl|3xl):/;
+
+function widthShrinks(line, file) {
+  if (!file || !TOUCH_PRIMITIVES.has(file)) return [];
+  const pending = PENDING_SHRINKS.get(file);
+  const found = [];
+  for (const m of line.matchAll(WIDTH_SHRINK_RE)) {
+    const chain = `:${m[1]}`;
+    if (!SCREEN_VARIANT.test(chain) || /(?:^|:)pointer-fine:/.test(chain)) continue;
+    if (pending?.has(m[0])) continue;
+    found.push(m[0]);
+  }
+  return found;
+}
+
+/**
+ * @param {string} source file contents
+ * @param {string} [file] repo-relative path with forward slashes; enables the
+ *   rules that only apply to some files (touch primitives)
+ */
+export function findViolations(source, file) {
   const found = [];
   const lines = source.split("\n");
   lines.forEach((line, i) => {
@@ -107,6 +223,14 @@ export function findViolations(source) {
         if (ALLOWED.test(m[0])) continue;
         found.push({ line: i + 1, rule: rule.id, match: m[0], hint: rule.hint });
       }
+    }
+    for (const match of widthShrinks(line, file)) {
+      found.push({
+        line: i + 1,
+        rule: "touch-primitive-width-shrink",
+        match,
+        hint: "touch screens of any width keep 44 px: shrink for a mouse with md-fine: (or pointer-fine:)",
+      });
     }
     for (const match of strongOwnTints(line)) {
       found.push({
@@ -125,6 +249,7 @@ export function findViolations(source) {
       });
     }
   });
+  found.push(...rigidHeaderSearch(source));
   return found;
 }
 
@@ -133,7 +258,8 @@ if (isMain) {
   const root = path.resolve(process.cwd(), "src");
   let total = 0;
   for (const file of walk(root)) {
-    for (const v of findViolations(readFileSync(file, "utf8"))) {
+    const rel = path.relative(process.cwd(), file).split(path.sep).join("/");
+    for (const v of findViolations(readFileSync(file, "utf8"), rel)) {
       total++;
       console.log(
         `${path.relative(process.cwd(), file)}:${v.line}  ${v.rule}  ${v.match}  (${v.hint})`

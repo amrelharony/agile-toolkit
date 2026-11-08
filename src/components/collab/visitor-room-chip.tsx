@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Check, Copy, LogOut, Radio, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 import { cn } from "@/lib/utils";
 import {
   VISITOR_LIMITS,
@@ -52,7 +53,8 @@ export function VisitorRoomChip({
   className,
 }: VisitorRoomChipProps) {
   const announce = useAnnounce();
-  const [copied, setCopied] = useState(false);
+  const { flash, isFlashing } = useFlash();
+  const copied = isFlashing();
   const prevCount = useRef<number | null>(null);
   const max = VISITOR_LIMITS.maxMembers;
 
@@ -64,12 +66,6 @@ export function VisitorRoomChip({
     announce(`${what}. ${memberCount} of ${max} people in the room.`);
   }, [memberCount, max, announce]);
 
-  useEffect(() => {
-    if (!copied) return;
-    const t = window.setTimeout(() => setCopied(false), 2000);
-    return () => window.clearTimeout(t);
-  }, [copied]);
-
   const path = joinUrl(tool, code);
   if (!visitorRoomsEnabled() || !path) return null;
 
@@ -79,8 +75,7 @@ export function VisitorRoomChip({
     try {
       if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
       await navigator.clipboard.writeText(url);
-      setCopied(true);
-      toast.success("Link copied. Share it only with your team.");
+      flash("Link copied. Share it only with your team.");
     } catch {
       toast.error(`Couldn't copy. The link is ${url}`);
     }
@@ -117,6 +112,7 @@ export function VisitorRoomChip({
         variant="ghost"
         size="sm"
         className="gap-1"
+        title="Share it only with your team"
         onClick={() => void copyLink()}
       >
         {copied ? (

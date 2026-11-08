@@ -36,6 +36,9 @@ vi.mock("@/components/collab/session-share-button", () => ({ SessionShareButton:
 vi.mock("@/app/(tools)/kudos/components/kudos-beacon", () => ({ KudosBeacon: () => null }));
 vi.mock("@/lib/sonification/emit", () => ({ emit: () => undefined }));
 vi.mock("@/lib/gamification/engine", () => ({ dispatch: () => undefined }));
+vi.mock("@/lib/gamification/ledger", () => ({
+  recordOutcome: () => ({ awarded: false, xp: 0, reason: "unknown" }),
+}));
 vi.mock("@/lib/predictions/use-predicted-default", () => ({
   usePredictedDefault: () => ({ confidence: "none", value: "" }),
 }));

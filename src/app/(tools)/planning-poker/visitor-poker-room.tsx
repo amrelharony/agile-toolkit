@@ -16,11 +16,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Download, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { exportToMarkdown } from "@/lib/utils/export";
-import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 import { VISITOR_LIMITS, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
 import { SessionScreen } from "./session-screen";
 import { usePokerSession, type VisitorLeaveReason } from "./use-poker-session";
@@ -154,7 +154,9 @@ export function VisitorPokerRoom({ code, identity, onLeave }: VisitorPokerRoomPr
 /** Download what this person saw of the session, as Markdown. */
 function SaveCopyButton({ session, code }: { session: Session | null; code: string }) {
   const markdown = useMemo(() => toMarkdown(session), [session]);
+  const { flash, isFlashing } = useFlash();
   if (!session) return null;
+  const done = isFlashing();
   return (
     <Button
       type="button"
@@ -163,11 +165,15 @@ function SaveCopyButton({ session, code }: { session: Session | null; code: stri
       className="gap-1.5 text-xs h-8"
       onClick={() => {
         exportToMarkdown(markdown, `planning-poker-${code}`);
-        toast.success("Saved a copy as Markdown");
+        flash("Saved a copy as Markdown");
       }}
     >
-      <Download className="w-3.5 h-3.5" aria-hidden="true" />
-      Save a copy
+      {done ? (
+        <Check className="w-3.5 h-3.5" aria-hidden="true" />
+      ) : (
+        <Download className="w-3.5 h-3.5" aria-hidden="true" />
+      )}
+      {done ? "Saved" : "Save a copy"}
     </Button>
   );
 }
