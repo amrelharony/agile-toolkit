@@ -82,7 +82,7 @@ const early = (ep: number, withCover = true): StorySummary => ({
   castNames: ["Amr"],
   themes: [],
   cover: withCover ? cover(ep) : null,
-  releaseAt: "2026-11-09T07:00:00.000Z",
+  releaseAt: "2026-11-08T07:00:00.000Z",
   updatedAt: "2026-11-01T07:00:00.000Z",
 });
 

@@ -68,11 +68,11 @@ function save(reading: Reading): boolean {
 }
 
 /**
- * Weeks run Monday to Sunday in UTC, like the releases (Mondays at 07:00 UTC).
- * Day 0 of the epoch was a Thursday, hence the 3.
+ * Weeks run Sunday to Saturday in UTC, like the releases (Sundays at 07:00 UTC),
+ * so each week holds one story. Day 0 of the epoch was a Thursday, hence the 4.
  */
 export function weekNumber(at: Date): number {
-  return Math.floor((Math.floor(at.getTime() / 86_400_000) + 3) / 7);
+  return Math.floor((Math.floor(at.getTime() / 86_400_000) + 4) / 7);
 }
 
 /** How many weeks in a row, up to `now`'s, have at least one story read. */

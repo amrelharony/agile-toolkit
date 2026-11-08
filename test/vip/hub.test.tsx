@@ -34,7 +34,7 @@ const STORY: StorySummary = {
   castNames: [],
   themes: [],
   cover: null,
-  releaseAt: "2026-11-09T07:00:00.000Z",
+  releaseAt: "2026-11-08T07:00:00.000Z",
   updatedAt: "2026-11-01T07:00:00.000Z",
 };
 
@@ -67,7 +67,7 @@ describe("/vip", () => {
       "href",
       "/comics/early?ep=30"
     );
-    expect(screen.getByText("Out Monday 9 November")).toBeInTheDocument();
+    expect(screen.getByText("Out Sunday 8 November")).toBeInTheDocument();
   });
 
   it("Amr asks a plain question rather than telling anyone what to do", () => {

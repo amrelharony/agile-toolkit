@@ -7,7 +7,7 @@ import { ComicsGallery } from "./components/comics-gallery";
 import { BookIntro } from "./components/intro/book-intro";
 
 /**
- * Static, refreshed about every 10 minutes, which is also how a Monday's story
+ * Static, refreshed about every 10 minutes, which is also how a Sunday's story
  * goes live with no scheduler. A /comics address with a valid number never gets
  * here: the middleware rewrites it to ep/[n]. Everything else, the book's and
  * open kudos cards' QR codes included, lands here.

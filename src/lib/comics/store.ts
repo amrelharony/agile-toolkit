@@ -258,7 +258,7 @@ export async function listReleasedEps(collection: ComicCollection): Promise<numb
   return rows.map((row) => row.ep);
 }
 
-/** How far ahead book readers can see: the next four Mondays. */
+/** How far ahead book readers can see: the next four Sundays. */
 export const EARLY_WINDOW_DAYS = 28;
 const DAY_MS = 86_400_000;
 
