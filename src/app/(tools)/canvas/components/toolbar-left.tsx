@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   MousePointer2,
@@ -98,7 +98,8 @@ const TOOL_GROUPS: ToolDef[][] = [
 
 /**
  * Rail top below `sm` when the board toolbar (ToolbarTop) shares the
- * stage: that bar spans the stage at `top-2` and is 54 px tall on touch
+ * stage: that bar starts at the stage's left edge at `top-2` (it stops
+ * short of the corner voice button) and is 54 px tall on touch
  * (44 px controls + padding + border), so the rail starts under it
  * (8 + 54 + a 6 px gap = 68 px = 4.25rem). From `sm` up the board
  * toolbar is narrowed to clear the rail, and both sit at `top-3`.
@@ -121,6 +122,17 @@ export function ToolbarLeft({ clearBoardBar = false }: ToolbarLeftProps = {}) {
   // (rather than at a fixed viewport position).
   const [pickerAnchor, setPickerAnchor] = useState<DOMRect | null>(null);
   const diagramBtnRef = useRef<HTMLButtonElement | null>(null);
+  // The picker takes focus when it opens (it is portalled to the end of
+  // <body>, far from this button in Tab order). When it closes with focus
+  // inside (Escape, or a shape picked), focus comes back to the Diagrams
+  // button; a press elsewhere moves focus on by itself.
+  const pickerHostRef = useRef<HTMLDivElement | null>(null);
+  const closePicker = useCallback(() => {
+    const active = document.activeElement;
+    const focusInPicker = !!active && !!pickerHostRef.current?.contains(active);
+    setPickerAnchor(null);
+    if (focusInPicker) diagramBtnRef.current?.focus({ preventScroll: true });
+  }, []);
   // The 22-tool rail scrolls on phones (about 8 tools fit at 360x640)
   // and touch browsers hide its scrollbar, so a faded end shows there
   // is more above / below.
@@ -226,10 +238,15 @@ export function ToolbarLeft({ clearBoardBar = false }: ToolbarLeftProps = {}) {
       {/* Portalled to <body>: the picker is position:fixed beside the
           rail, and inside the rail it would be cut off by the rail's
           scroll box, its touch fade mask and its backdrop-filter (which
-          makes the rail the containing block for fixed children). */}
+          makes the rail the containing block for fixed children). A
+          sibling of the rail would not do either: the tool page's
+          entrance animation leaves a transform on an ancestor, which
+          would offset a fixed picker from the button's viewport rect. */}
       {pickerAnchor &&
         createPortal(
-          <DiagramShapePicker anchorRect={pickerAnchor} onClose={() => setPickerAnchor(null)} />,
+          <div ref={pickerHostRef} className="contents">
+            <DiagramShapePicker anchorRect={pickerAnchor} onClose={closePicker} />
+          </div>,
           document.body
         )}
     </div>
