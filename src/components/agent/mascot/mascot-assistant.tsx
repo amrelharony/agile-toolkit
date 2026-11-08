@@ -487,6 +487,8 @@ function useStepAside({
         viewport: { width: vw, height: vh, minTop: Math.max(0, header?.bottom ?? 0) },
         elementsFromPoint: (x, y) => document.elementsFromPoint(x, y),
         ignore: own,
+        // The sticky header stacks above him (a top corner tucks him under it).
+        above: (el) => !!el.closest("[data-chrome='header']"),
       });
       if (sameNudge(next, current)) return;
       fromRef.current = button.getBoundingClientRect();

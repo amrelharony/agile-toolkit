@@ -131,6 +131,11 @@ export interface HitTesting {
   elementsFromPoint: (x: number, y: number) => Element[];
   /** Amr's own elements (his figure, his panel): looked through, never counted. */
   ignore: (el: Element) => boolean;
+  /**
+   * Layers that sit above him wherever he stands (the sticky header): a tap
+   * reaches them whether he's there or not, so he's never in their way.
+   */
+  above?: (el: Element) => boolean;
 }
 
 /** The enabled controls a tap on `rect` would have reached if he weren't there. */
@@ -141,9 +146,16 @@ export function controlsUnder(rect: Rect, hit: HitTesting): Covered[] {
     for (let j = 0; j < rows; j++) {
       const x = rect.left + inset + ((rect.width - 2 * inset) * i) / (cols - 1);
       const y = rect.top + inset + ((rect.height - 2 * inset) * j) / (rows - 1);
-      // The topmost element that isn't him is what the tap would reach.
-      const top = hit.elementsFromPoint(x, y).find((el) => !hit.ignore(el));
-      const control = top?.closest(CONTROL_SELECTOR);
+      // The topmost element that isn't him is what the tap would reach...
+      const stack = hit.elementsFromPoint(x, y);
+      const at = stack.findIndex((el) => !hit.ignore(el));
+      if (at < 0) continue;
+      const top = stack[at];
+      // ...but only if he's what's in the way: where he stands now, something
+      // stacked above him (the header, a popover) takes the tap anyway.
+      const his = stack.findIndex((el) => hit.ignore(el));
+      if ((his >= 0 && his > at) || hit.above?.(top)) continue;
+      const control = top.closest(CONTROL_SELECTOR);
       if (!control || seen.has(control)) continue;
       if (!isEnabled(control)) {
         seen.set(control, null);

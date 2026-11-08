@@ -125,6 +125,98 @@ describe("controlsUnder", () => {
     control("input", { left: 16, top: 610, width: 271, height: 44 });
     expect(controlsUnder(HOME_BOX, input())).toEqual([]);
   });
+
+  describe("what's stacked above him", () => {
+    // A tablet, Amr dragged to the top right: his hit box runs up under the
+    // sticky header (z-index 100, over his 50), whose buttons stay tappable.
+    const TOP_HOME: Rect = { left: 680, top: 10, width: 58, height: 122 };
+    const HEADER: Rect = { left: 0, top: 0, width: 768, height: 56 };
+    const inBox = (r: Rect, x: number, y: number) =>
+      x >= r.left && x <= r.left + r.width && y >= r.top && y <= r.top + r.height;
+    let header: HTMLElement;
+    let menu: HTMLElement;
+
+    function setupHeader() {
+      setup();
+      header = document.createElement("header");
+      header.setAttribute("data-chrome", "header");
+      menu = document.createElement("button");
+      menu.setAttribute("aria-label", "Account");
+      header.appendChild(menu);
+      document.body.appendChild(header);
+      vi.spyOn(menu, "getBoundingClientRect").mockReturnValue({
+        left: 660,
+        top: 6,
+        width: 100,
+        height: 44,
+        x: 660,
+        y: 6,
+        right: 760,
+        bottom: 50,
+        toJSON: () => ({}),
+      } as DOMRect);
+    }
+
+    /** The page, topmost first, with him standing at `at` (or nowhere). */
+    function stackWithAmrAt(at: Rect | null) {
+      return (x: number, y: number) => [
+        ...(inBox(HEADER, x, y) ? [menu, header] : []),
+        ...(at && inBox(at, x, y) ? [amr] : []),
+        document.body,
+      ];
+    }
+
+    it("doesn't count the header's buttons where he stands under it", () => {
+      setupHeader();
+      const hit = input({ elementsFromPoint: stackWithAmrAt(TOP_HOME) });
+      expect(controlsUnder(TOP_HOME, hit)).toEqual([]);
+      // So his home under the header is clear: no stepping down for good.
+      expect(
+        chooseNudge({
+          ...hit,
+          home: TOP_HOME,
+          edge: "top",
+          viewport: { width: 768, height: 1024, minTop: 56 },
+        })
+      ).toEqual(HOME);
+    });
+
+    it("comes home under the header once he has stepped away from it", () => {
+      setupHeader();
+      // He stepped 48 px down earlier; now the header's buttons are all that's at home.
+      const stepped = placeRect(TOP_HOME, { flip: false, lift: 48 }, "top", 768);
+      const hit = input({
+        elementsFromPoint: stackWithAmrAt(stepped),
+        above: (el) => !!el.closest("[data-chrome='header']"),
+      });
+      expect(
+        chooseNudge({
+          ...hit,
+          home: TOP_HOME,
+          current: { flip: false, lift: 48 },
+          edge: "top",
+          viewport: { width: 768, height: 1024, minTop: 56 },
+        })
+      ).toEqual(HOME);
+    });
+
+    it("still counts a page control under him", () => {
+      setupHeader();
+      const save = control("button", { left: 690, top: 80, width: 40, height: 40 });
+      const base = stackWithAmrAt(TOP_HOME);
+      const hit = input({
+        // The page's button sits under him (he's on top of it).
+        elementsFromPoint: (x, y) => {
+          const s = base(x, y);
+          return inBox({ left: 690, top: 80, width: 40, height: 40 }, x, y)
+            ? [...s.slice(0, -1), save, document.body]
+            : s;
+        },
+        above: (el) => !!el.closest("[data-chrome='header']"),
+      });
+      expect(controlsUnder(TOP_HOME, hit).map((c) => c.control)).toEqual([save]);
+    });
+  });
 });
 
 describe("chooseNudge", () => {
