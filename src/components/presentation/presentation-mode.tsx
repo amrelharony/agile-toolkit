@@ -16,7 +16,8 @@ import { Button } from "@/components/ui/button";
  * Escape, leaving fullscreen, or the "Exit" button ends it.
  *
  * Below `sm` the Exit button is a 44 px icon (its name stays for screen
- * readers) and a strip above the page keeps it off the tool's title.
+ * readers). Below `sm` and on any touch screen, where the button is 44 px
+ * tall, a strip above the page keeps it off the tool's title.
  */
 export const usePresentation = create<{ presenting: boolean; set: (on: boolean) => void }>(
   (set) => ({ presenting: false, set: (on) => set({ presenting: on }) })
@@ -85,9 +86,16 @@ export function PresentationController() {
   if (!presenting) return null;
   return (
     <>
-      {/* Phones: a strip for the fixed button (top-3 + size-11 = h-14), so it
-          never sits over the tool's title. */}
-      <div aria-hidden="true" data-exit-strip className="h-14 shrink-0 sm:hidden" />
+      {/* A strip for the fixed button wherever it can be 44 px tall (top-3 +
+          2.75rem = h-14), so it never sits over the tool's title: below sm,
+          and on touch screens of any width (landscape phones, tablets), where
+          Button sm is sized for touch. Mouse screens from sm up don't get it,
+          so desktop is unchanged. */}
+      <div
+        aria-hidden="true"
+        data-exit-strip
+        className="hidden h-14 shrink-0 max-sm:block pointer-coarse:block"
+      />
       <Button
         ref={exitRef}
         type="button"

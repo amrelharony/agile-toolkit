@@ -41,7 +41,20 @@ describe("presentation mode", () => {
 
     const strip = container.querySelector("[data-exit-strip]");
     expect(strip).toHaveAttribute("aria-hidden", "true");
-    expect(strip).toHaveClass("h-14", "sm:hidden");
+    expect(strip).toHaveClass("h-14", "max-sm:block");
+  });
+
+  it("keeps the strip on touch screens of any width, where Exit is 44px tall", () => {
+    const { container } = render(<PresentationController />);
+    act(() => usePresentation.getState().set(true));
+
+    const strip = container.querySelector("[data-exit-strip]");
+    // Landscape phones and tablets are >= sm but still touch: the strip stays.
+    expect(strip).toHaveClass("pointer-coarse:block");
+    // Mouse screens from sm up (desktop) get no strip, so they look the same.
+    expect(strip).toHaveClass("hidden");
+    expect(strip?.className).not.toMatch(/(?:^|\s)(?:sm|md|lg|xl|2xl):block\b/);
+    expect(strip?.className).not.toContain("pointer-fine:block");
   });
 
   it("ends from the Exit button", () => {
