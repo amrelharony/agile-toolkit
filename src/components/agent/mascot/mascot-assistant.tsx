@@ -15,6 +15,8 @@
  * collar — he dangles and swings, and lands where he's dropped or thrown
  * (engine/interactions/clicks.ts, touch.ts). On phones the panel header has a
  * switch that lets him feel the phone's motion (engine/interactions/sensors.ts).
+ * On touch screens he steps aside (up, or to the other side) when his figure
+ * would sit on one of the page's controls (mascot-nudge.ts).
  *
  * The agent itself is owner-only. Visitors keep the mascot (clicks, Konami,
  * Cmd/Ctrl+J) but the panel shows <VisitorGuide/> — a tool finder — instead
@@ -31,6 +33,7 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
 import { X, Plus, History, Sparkles, Smartphone } from "lucide-react";
@@ -52,6 +55,7 @@ import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./engine/sprite-poses";
 import { VisitorGuide } from "./visitor-guide";
+import { HOME, chooseNudge, sameNudge, type Nudge, type Rect } from "./mascot-nudge";
 import styles from "./mascot-assistant.module.css";
 
 /** Award XP via the gamification window bridge (no-op if unavailable). */
@@ -148,6 +152,11 @@ function phoneEdge(c: Corner): string {
   return c.startsWith("top") ? "var(--header-h, 56px)" : "env(safe-area-inset-bottom, 0px)";
 }
 
+/** The same edge, the other side of the screen (where he steps aside to). */
+function otherSide(c: Corner): Corner {
+  return `${c.startsWith("top") ? "top" : "bottom"}${c.endsWith("Left") ? "Right" : "Left"}` as Corner;
+}
+
 /** Offset from his edge: a phone's strip, or the screen clear of the home indicator. */
 function edgeOffset(c: Corner, px: number, phone: boolean): string | number {
   if (phone) return `calc(${px}px + ${phoneEdge(c)})`;
@@ -161,9 +170,18 @@ function sideOffset(c: Corner, px: number): CSSProperties {
     : { right: `calc(${px}px + env(safe-area-inset-right, 0px))` };
 }
 
-/** Fixed-position style for the float button at a corner (default ≈ bottom-1 right-2). */
-function buttonPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSSProperties {
-  const offset = edgeOffset(c, edgeInset(c, figure, boxH), phone);
+/**
+ * Fixed-position style for the float button at a corner (default ≈ bottom-1
+ * right-2). `lift` moves him off his edge when he steps aside for a control.
+ */
+function buttonPos(
+  c: Corner,
+  figure: boolean,
+  boxH: number,
+  phone: boolean,
+  lift = 0
+): CSSProperties {
+  const offset = edgeOffset(c, edgeInset(c, figure, boxH) + lift, phone);
   return {
     position: "fixed",
     ...(c.startsWith("top") ? { top: offset } : { bottom: offset }),
@@ -187,12 +205,18 @@ function hitBox(box: { w: number; h: number }): CSSProperties {
  * the rendered box height (the figure's rows scale with it); with the launcher
  * showing, the panel clears the launcher instead.
  */
-function panelPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSSProperties {
+function panelPos(
+  c: Corner,
+  figure: boolean,
+  boxH: number,
+  phone: boolean,
+  lift = 0
+): CSSProperties {
   const scale = boxH / SHEET.cellH;
   const top = figure ? FIGURE_TOP * scale : 0;
   const bottom = figure ? FIGURE_BOTTOM * scale : LAUNCHER_SIZE;
   const height = figure ? boxH : LAUNCHER_SIZE;
-  const inset = edgeInset(c, figure, boxH);
+  const inset = edgeInset(c, figure, boxH) + lift;
   const px = c.startsWith("top")
     ? // Parked up top: clear his feet.
       inset + bottom + PANEL_GAP
@@ -205,18 +229,23 @@ function panelPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSS
   };
 }
 
-/** True below the `sm` breakpoint (640px). */
-function useIsPhone(): boolean {
-  const [isPhone, setIsPhone] = useState(false);
+/** Whether a media query matches, kept up to date (false on the server). */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
   useEffect(() => {
-    const mq = window.matchMedia?.("(max-width: 639px)");
+    const mq = window.matchMedia?.(query);
     if (!mq) return;
-    const update = () => setIsPhone(mq.matches);
+    const update = () => setMatches(mq.matches);
     update();
     mq.addEventListener?.("change", update);
     return () => mq.removeEventListener?.("change", update);
-  }, []);
-  return isPhone;
+  }, [query]);
+  return matches;
+}
+
+/** True below the `sm` breakpoint (640px). */
+function useIsPhone(): boolean {
+  return useMediaQuery("(max-width: 639px)");
 }
 
 /**
@@ -335,6 +364,170 @@ function useTypingOnPhone(isPhone: boolean): boolean {
   return typing;
 }
 
+/** How long the page must be still (no scroll, resize, tap or change) before he looks under him. */
+const NUDGE_SETTLE_MS = 250;
+/** After he's placed (the figure arriving, a drop, the panel closing): once he has landed. */
+const NUDGE_PLACED_MS = 700;
+
+/**
+ * His hit box (or the launcher) at HOME, in viewport px, from the layout: the
+ * button's used position, not its painted one, so his float, a stroll or a
+ * landing in progress doesn't skew it. Null when there's no layout to read.
+ */
+function homeHitRect(
+  button: HTMLElement,
+  hit: HTMLElement | null,
+  n: Nudge,
+  edge: "top" | "bottom",
+  vw: number,
+  vh: number
+): Rect | null {
+  const cs = window.getComputedStyle(button);
+  const w = button.offsetWidth;
+  const h = button.offsetHeight;
+  let top = parseFloat(cs.top);
+  let left = parseFloat(cs.left);
+  if (!Number.isFinite(top)) top = vh - parseFloat(cs.bottom) - h;
+  if (!Number.isFinite(left)) left = vw - parseFloat(cs.right) - w;
+  if (!w || !h || !Number.isFinite(top) || !Number.isFinite(left)) return null;
+  // Undo where he has stepped to.
+  if (n.flip) left = vw - left - w;
+  top += edge === "bottom" ? n.lift : -n.lift;
+  if (!hit) return { left, top, width: w, height: h };
+  return {
+    left: left + hit.offsetLeft,
+    top: top + hit.offsetTop,
+    width: hit.offsetWidth,
+    height: hit.offsetHeight,
+  };
+}
+
+/**
+ * On touch screens he steps aside when his figure sits on one of the page's
+ * controls (mascot-nudge.ts): up from his edge, or to the other side. He looks
+ * once he's placed and whenever the page settles after a scroll, resize, tap or
+ * change, never mid-scroll, so he doesn't jitter, and he slides to the new spot.
+ * Frozen while his panel is open or he's carried. A new corner (or box size) is a
+ * new home; `reset` sends him home at once (a drop). `figure` says whether the
+ * figure or the launcher is showing: he looks again when one gives way to the other.
+ */
+function useStepAside({
+  active,
+  frozen,
+  edge,
+  placeKey,
+  figure,
+  allowFlip,
+  buttonRef,
+  hitRef,
+}: {
+  active: boolean;
+  frozen: boolean;
+  edge: "top" | "bottom";
+  placeKey: string;
+  figure: boolean;
+  allowFlip: boolean;
+  buttonRef: RefObject<HTMLButtonElement | null>;
+  hitRef: RefObject<HTMLSpanElement | null>;
+}): { nudge: Nudge; reset: () => void } {
+  const [state, setState] = useState<{ key: string; nudge: Nudge }>({ key: "", nudge: HOME });
+  const nudge = state.key === placeKey ? state.nudge : HOME;
+  // The check runs from timers and listeners: it reads the latest values here.
+  const latest = useRef({ nudge, edge, placeKey, allowFlip });
+  latest.current = { nudge, edge, placeKey, allowFlip };
+  const fromRef = useRef<DOMRect | null>(null);
+
+  useEffect(() => {
+    if (!active || frozen) return;
+    let timer: number | undefined;
+    let pressed = false;
+    const own = (node: Node) =>
+      !!buttonRef.current?.contains(node) ||
+      (node instanceof Element && !!node.closest("[data-agent-sheet-root]"));
+    const check = () => {
+      timer = undefined;
+      if (pressed) return; // looked at again when the finger lifts
+      const button = buttonRef.current;
+      if (!button || typeof document.elementsFromPoint !== "function") return;
+      const { nudge: current, edge: side, placeKey: key, allowFlip: flip } = latest.current;
+      const vw = document.documentElement.clientWidth || window.innerWidth;
+      const vh = window.innerHeight;
+      const home = homeHitRect(button, hitRef.current, current, side, vw, vh);
+      if (!home) return;
+      const header = document.querySelector("[data-chrome='header']")?.getBoundingClientRect();
+      const next = chooseNudge({
+        home,
+        current,
+        edge: side,
+        allowFlip: flip,
+        viewport: { width: vw, height: vh, minTop: Math.max(0, header?.bottom ?? 0) },
+        elementsFromPoint: (x, y) => document.elementsFromPoint(x, y),
+        ignore: own,
+      });
+      if (sameNudge(next, current)) return;
+      fromRef.current = button.getBoundingClientRect();
+      setState({ key, nudge: next });
+    };
+    // Scrolling and resizing push the look back until they stop; page changes
+    // only make sure one is coming (a ticking timer can't put it off forever).
+    const settle = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(check, NUDGE_SETTLE_MS);
+    };
+    const soon = () => {
+      if (timer === undefined) timer = window.setTimeout(check, NUDGE_SETTLE_MS);
+    };
+    const down = () => {
+      pressed = true;
+    };
+    const up = () => {
+      pressed = false;
+      settle();
+    };
+    const observer =
+      typeof MutationObserver === "function"
+        ? new MutationObserver((records) => {
+            if (records.some((r) => !own(r.target))) soon();
+          })
+        : null;
+    observer?.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("scroll", settle, { passive: true, capture: true });
+    window.addEventListener("resize", settle);
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("pointerup", up, true);
+    document.addEventListener("pointercancel", up, true);
+    timer = window.setTimeout(check, NUDGE_PLACED_MS);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("scroll", settle, { capture: true });
+      window.removeEventListener("resize", settle);
+      document.removeEventListener("pointerdown", down, true);
+      document.removeEventListener("pointerup", up, true);
+      document.removeEventListener("pointercancel", up, true);
+      window.clearTimeout(timer);
+    };
+  }, [active, frozen, placeKey, figure, buttonRef, hitRef]);
+
+  // He slides to where he stepped, rather than jumping there.
+  useIsomorphicLayoutEffect(() => {
+    const from = fromRef.current;
+    fromRef.current = null;
+    const el = buttonRef.current;
+    if (!from || !el || typeof el.animate !== "function" || prefersReducedMotion()) return;
+    const to = el.getBoundingClientRect();
+    const dx = from.left - to.left;
+    const dy = from.top - to.top;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 2) return;
+    el.animate([{ translate: `${dx.toFixed(1)}px ${dy.toFixed(1)}px` }, { translate: "0px 0px" }], {
+      duration: Math.min(450, 200 + dist * 0.8),
+      easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+    });
+  }, [nudge.flip, nudge.lift, buttonRef]);
+
+  return { nudge, reset: () => setState({ key: "", nudge: HOME }) };
+}
+
 const MascotSprite = dynamic(() => import("./mascot-sprite"), { ssr: false });
 const OwnerAgentPanel = dynamic(() => import("./owner-agent-panel"), {
   ssr: false,
@@ -350,6 +543,9 @@ export function MascotAssistant() {
   // auth is still loading; no chat component mounts until it's settled.
   const { isOwner, settled } = useOwnerState();
   const isPhone = useIsPhone();
+  // Touch screens of any width (a landscape phone, a tablet): his figure there is
+  // where a finger lands, so he steps aside for the page's controls.
+  const coarsePointer = useMediaQuery("(pointer: coarse)");
   const typingOnPhone = useTypingOnPhone(isPhone);
   const hideFigure = typingOnPhone;
   const box = isPhone ? MASCOT_BOX_PHONE : MASCOT_BOX;
@@ -435,6 +631,25 @@ export function MascotAssistant() {
       : null;
   usePhoneBand(band);
   const [dragPos, setDragPos] = useState<{ left: number; top: number } | null>(null);
+
+  // Stepping aside for a control under him. Only once he's settled: the figure,
+  // or a launcher that stays (the figure failed, or Data Saver is waiting for the
+  // first interaction), not the launcher of the first seconds after load.
+  const [dataSaver, setDataSaver] = useState(false);
+  useEffect(() => setDataSaver(savesData()), []);
+  // Once the visitor has put him on a side, he only steps up or down from it.
+  const [sideChosen, setSideChosen] = useState(false);
+  const { nudge, reset: resetNudge } = useStepAside({
+    active: (isPhone || coarsePointer) && !hideFigure && (showFigure || figureFailed || dataSaver),
+    frozen: open || dragPos !== null,
+    edge: bandSide,
+    placeKey: `${corner}:${box.h}`,
+    figure: showFigure,
+    allowFlip: !sideChosen,
+    buttonRef,
+    hitRef,
+  });
+  const placed = nudge.flip ? otherSide(corner) : corner;
   // Removes the active drag's document listeners (called on pointerup, on a new
   // drag, or on unmount) so they never leak past an in-progress drag.
   const dragCleanupRef = useRef<(() => void) | null>(null);
@@ -555,6 +770,10 @@ export function MascotAssistant() {
           cx < window.innerWidth / 2 ? "Left" : "Right"
         }` as Corner;
         setCorner(next);
+        // Dropped where the visitor wants him: that corner, not where he'd
+        // stepped aside to, and he keeps to that side from now on.
+        resetNudge();
+        setSideChosen(true);
         // Suppress the click that fires right after a drag-release.
         draggedRef.current = true;
         setTimeout(() => (draggedRef.current = false), 60);
@@ -673,7 +892,7 @@ export function MascotAssistant() {
           role="dialog"
           aria-label="Amr assistant"
           aria-modal={false}
-          style={panelPos(corner, showFigure, box.h, isPhone)}
+          style={panelPos(placed, showFigure, box.h, isPhone, nudge.lift)}
           className="fixed z-50 flex h-[min(68vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden panel bg-surface-deep shadow-xl"
         >
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
@@ -766,7 +985,7 @@ export function MascotAssistant() {
           style={
             dragPos
               ? { position: "fixed", left: dragPos.left, top: dragPos.top }
-              : buttonPos(corner, showFigure, box.h, isPhone)
+              : buttonPos(placed, showFigure, box.h, isPhone, nudge.lift)
           }
           className={cn(
             "z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
