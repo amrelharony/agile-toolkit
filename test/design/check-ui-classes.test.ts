@@ -174,10 +174,10 @@ describe("check-ui-classes guard", () => {
       expect(findViolations('<Button className="md:h-7 md:w-7" />')).toEqual([]);
     });
 
-    it("tolerates only Input's existing md:h-9, which the form-fields fix moves", () => {
+    it("flags Input's bare md:h-9 too, now that Input shrinks for a mouse only", () => {
       const input = "src/components/ui/input.tsx";
-      expect(findViolations('"flex h-11 md:h-9 w-full"', input)).toEqual([]);
-      expect(findViolations('"flex h-11 md:h-9 w-full"', BUTTON)).toHaveLength(1);
+      expect(findViolations('"flex h-11 md:h-9 w-full"', input)).toHaveLength(1);
+      expect(findViolations('"flex h-11 pointer-fine:md:h-9 w-full"', input)).toEqual([]);
     });
   });
 });
