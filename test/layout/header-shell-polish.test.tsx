@@ -1,6 +1,6 @@
 /**
  * The app shell's header on phones (mobile audit 2026-11-08): the safe areas
- * around it and around the page below it, and the size of its touch targets.
+ * around it, the size of its touch targets and the page title in the bar.
  * jsdom has no layout, so the sizes are pinned as classes and the CSS token;
  * the real boxes are checked on phone emulation (375x812 with a simulated
  * 47 px top inset, 812x375 with 47 px side insets).
@@ -38,6 +38,8 @@ vi.mock("@/components/auth/visitor-data-merge-dialog", () => ({
 vi.mock("@/lib/kudos/beacon/header-beacon", () => ({ KudosHeaderBeacon: () => null }));
 
 import { Header } from "@/components/layout/header";
+import { getToolById } from "@/lib/constants/tools";
+import { VIP_TITLE } from "@/lib/vip/constants";
 
 const ROOT = path.resolve(__dirname, "../..");
 const classesOf = (el: Element | null) => (el?.getAttribute("class") ?? "").split(/\s+/);
@@ -134,5 +136,62 @@ describe("the header's icon buttons on touch", () => {
   it("leaves the search pill's desktop height to lg:h-auto", () => {
     render(<Header onOpenSearch={() => {}} />);
     expect(classesOf(screen.getByRole("button", { name: "Open search" }))).toContain("lg:h-auto");
+  });
+});
+
+/** The page items in the bar's breadcrumb (BreadcrumbPage: aria-current="page"). */
+function currentPages(container: HTMLElement): HTMLElement[] {
+  const nav = container.querySelector("nav[aria-label='breadcrumb']");
+  return Array.from(nav?.querySelectorAll<HTMLElement>("[aria-current='page']") ?? []);
+}
+
+describe("the bar's title on a page that isn't a tool", () => {
+  it.each([
+    ["/", "Home"],
+    ["/history", "History"],
+    ["/insights", "Your activity"],
+    ["/team", "Team"],
+    ["/more-tools", "More tools"],
+    ["/vip", VIP_TITLE],
+    ["/s", "Shared snapshot"],
+    ["/settings/appearance", "Settings"],
+    ["/settings/comics/import", "Settings"],
+  ])("%s is called %s, as the only title below lg", (pathname, title) => {
+    h.pathname = pathname;
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    const pages = currentPages(container);
+    expect(pages.map((p) => p.textContent)).toEqual([title]);
+    // Below lg only: from lg the Home link stands alone, as before.
+    expect(classesOf(pages[0].closest("li"))).toContain("lg:hidden");
+  });
+
+  it.each(["/history", "/insights", "/vip", "/settings/squads"])(
+    "%s is never called Home",
+    (pathname) => {
+      h.pathname = pathname;
+      const { container } = render(<Header onOpenSearch={() => {}} />);
+      expect(currentPages(container).map((p) => p.textContent)).not.toContain("Home");
+    }
+  );
+
+  it("names nothing on an address it has no title for, rather than a wrong Home", () => {
+    h.pathname = "/no-such-page";
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    expect(currentPages(container)).toEqual([]);
+    // The desktop trail's Home link is still there (from lg).
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+  });
+
+  it("does not match a page by prefix (only Settings groups its pages)", () => {
+    h.pathname = "/history/extra";
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    expect(currentPages(container)).toEqual([]);
+  });
+
+  it("still names a tool by itself", () => {
+    const retro = getToolById("retro")!;
+    h.pathname = retro.path;
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    expect(currentPages(container).map((p) => p.textContent)).toEqual([retro.name]);
   });
 });

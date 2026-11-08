@@ -60,6 +60,28 @@ const THEME_LABEL: Record<AppliedTheme, string> = {
   hc: "High contrast",
 };
 
+/**
+ * What the bar calls a page that isn't a tool (tools name themselves). On a
+ * phone this is the only title in the sticky bar, so it must not say "Home"
+ * anywhere but home (mobile audit 2026-11-08). Matches each page's own heading.
+ */
+const PAGE_TITLES = new Map<string, string>([
+  ["/", "Home"],
+  ["/history", "History"],
+  ["/insights", "Your activity"],
+  ["/team", "Team"],
+  ["/more-tools", "More tools"],
+  ["/vip", VIP_TITLE],
+  ["/s", "Shared snapshot"],
+]);
+
+/** The title for a non-tool address, or undefined when it has none. */
+function pageTitleFor(pathname: string | null): string | undefined {
+  if (!pathname) return undefined;
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) return "Settings";
+  return PAGE_TITLES.get(pathname);
+}
+
 interface HeaderProps {
   onOpenSearch: () => void;
   onOpenSidebar?: () => void;
@@ -74,6 +96,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
   // for everyone, and the page itself names the tool once it has checked access.
   const onVipTool = Boolean(pathTool && isVipOnly(pathTool));
   const tool = onVipTool ? undefined : pathTool;
+  const pageTitle = pageTitleFor(pathname);
   const openAgent = useAgentStore((s) => s.openSheet);
   // The agent and the Cairo weather are the owner's; visitors get the
   // mascot's help panel behind the same button instead.
@@ -219,9 +242,15 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
                 </BreadcrumbItem>
               </>
             )}
-            {!tool && !onVipTool && (
-              <BreadcrumbItem className="lg:hidden">
-                <BreadcrumbPage className="text-text font-medium">Home</BreadcrumbPage>
+            {/* Any other page: its own title below lg, where it's the only
+                one in the bar (from lg the Home link above stands alone, as
+                before). An address with no entry gets nothing rather than a
+                wrong "Home". */}
+            {!tool && !onVipTool && pageTitle && (
+              <BreadcrumbItem className="lg:hidden min-w-0">
+                <BreadcrumbPage className="text-text font-medium truncate">
+                  {pageTitle}
+                </BreadcrumbPage>
               </BreadcrumbItem>
             )}
           </BreadcrumbList>
