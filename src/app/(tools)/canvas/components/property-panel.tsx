@@ -38,6 +38,8 @@ import {
   ArrowRightCircle,
   Tag,
   X,
+  CopyPlus,
+  Trash2,
 } from "lucide-react";
 import type { Camera, Rect } from "@/lib/geometry/bbox";
 import type {
@@ -56,6 +58,7 @@ import type {
   ConnectorRouting,
 } from "@/lib/stores/workspace-types";
 import { isSprintBoard } from "../lib/live-board-ids";
+import type { CanvasObjectActions } from "../hooks/use-canvas-shortcuts";
 
 interface PropertyPanelProps {
   selection: readonly WhiteboardObject[];
@@ -69,6 +72,10 @@ interface PropertyPanelProps {
   /** Open the card detail modal. Surface as a pill on the panel when a
    * single card is selected. */
   onOpenCardDetail?: (cardId: string) => void;
+  /** Duplicate / Delete for the selection — the board's own Cmd+D and
+   * Delete handlers. Shown as 44 px buttons on coarse pointers only (a
+   * phone has no keyboard); omitted in read-only views. */
+  objectActions?: Pick<CanvasObjectActions, "duplicate" | "deleteSelected">;
 }
 
 /** Sticky palette — matches templates.ts STICKY_PALETTE. */
@@ -120,6 +127,7 @@ function PropertyPanelImpl({
   viewportHeight,
   onPatch,
   onOpenCardDetail,
+  objectActions,
 }: PropertyPanelProps) {
   if (selection.length === 0) return null;
 
@@ -712,6 +720,38 @@ function PropertyPanelImpl({
        * so a sticky tagged "blocker" surfaces in the same filter. */}
       {selection.length > 0 && !types.has("embed") && (
         <TagsEditor selection={selection} onPatch={onPatch} />
+      )}
+
+      {/* ─── Object actions (touch only) ─────────────────────────────
+       * A phone can't press Delete or Cmd+D, so coarse pointers get both
+       * as buttons. Pinned to the bar's right edge (sticky) so they stay
+       * in view when a busy selection makes the row scroll sideways. */}
+      {objectActions && (
+        <div
+          role="group"
+          aria-label="Object actions"
+          className="sticky right-0 hidden shrink-0 items-center gap-0.5 bg-surface pointer-coarse:flex"
+        >
+          <div className="w-px h-5 bg-border mx-1" />
+          <button
+            type="button"
+            onClick={objectActions.duplicate}
+            aria-label="Duplicate selection"
+            title="Duplicate (Cmd+D)"
+            className="w-11 h-11 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep transition-colors"
+          >
+            <CopyPlus className="w-4 h-4" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={objectActions.deleteSelected}
+            aria-label="Delete selection"
+            title="Delete (Del)"
+            className="w-11 h-11 rounded flex items-center justify-center text-danger hover:bg-danger/10 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" aria-hidden="true" />
+          </button>
+        </div>
       )}
     </div>
   );

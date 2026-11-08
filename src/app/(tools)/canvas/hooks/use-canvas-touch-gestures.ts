@@ -64,6 +64,19 @@ export function pinchCamera(start: PinchStart, focal: Vec2, scale: number): Came
   return zoomAt(panned, focal, start.camera.zoom * scale);
 }
 
+/**
+ * Controls that sit on the board (the selection bar, buttons inside
+ * widgets, text fields). A press on one is the control's, not a board
+ * gesture: two quick taps on Duplicate must not also fit the board, and
+ * holding a swatch must not open the actions menu.
+ */
+const BOARD_CONTROL_SELECTOR =
+  'button, a[href], input, textarea, select, [contenteditable="true"], [role="toolbar"], [role="menu"]';
+
+function isBoardControl(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(BOARD_CONTROL_SELECTOR) !== null;
+}
+
 export function useCanvasTouchGestures(params: {
   viewportRef: RefObject<HTMLDivElement | null>;
   viewportRectRef: RefObject<DOMRect | null>;
@@ -203,6 +216,10 @@ export function useCanvasTouchGestures(params: {
       // down, abort any pending long-press and reset double-tap.
       if (pressOrigin) {
         clearLongPress();
+        lastTap = null;
+        return;
+      }
+      if (isBoardControl(e.target)) {
         lastTap = null;
         return;
       }

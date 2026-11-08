@@ -1041,8 +1041,10 @@ export function WhiteboardCanvas({
   // Keyboard shortcuts wired AFTER the pointer machine so the Esc-cancel
   // path can tear down an in-flight lasso via the refs the machine
   // owns. The shortcuts also reference the same drag/resize/etc.
-  // ephemeral state so they can self-suppress mid-gesture.
-  useCanvasShortcuts({
+  // ephemeral state so they can self-suppress mid-gesture. The returned
+  // actions are those same handlers, for the phone buttons and the
+  // long-press menu (a phone has no Delete key or Cmd+Z).
+  const objectActions = useCanvasShortcuts({
     objectsRef,
     objectsByIdRef,
     topZRef,
@@ -1383,6 +1385,7 @@ export function WhiteboardCanvas({
             viewportHeight={size.h}
             onPatch={onPatchStyles}
             onOpenCardDetail={setCardDetailId}
+            objectActions={readOnly ? undefined : objectActions}
           />
         )}
 
