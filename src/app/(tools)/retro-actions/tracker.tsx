@@ -583,9 +583,11 @@ export function RetroActionsTracker() {
           </SectionCard>
 
           <p className="text-sm text-sub">
+            {/* On touch, -my-2 cancels the py-2 so the line keeps its height
+                while the tap area grows to 36 px (space-y-4 above it). */}
             <Link
               href="/retro"
-              className="inline-flex items-center gap-1 font-medium text-accent hover:underline"
+              className="inline-flex items-center gap-1 font-medium text-accent hover:underline pointer-coarse:-my-2 pointer-coarse:py-2"
             >
               Retro board
               <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />

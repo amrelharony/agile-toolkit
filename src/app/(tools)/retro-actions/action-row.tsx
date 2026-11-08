@@ -303,14 +303,21 @@ export function ActionRow({
 
   return (
     <li className="flex flex-wrap items-start gap-3 px-3 py-2">
-      <input
-        type="checkbox"
-        className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent)]"
-        checked={a.done}
-        disabled={a.closedByTarget}
-        aria-label={`Done: ${a.text}`}
-        onChange={(e) => onDone(a, e.target.checked)}
-      />
+      {/* Ticking Done is the page's main job, so on touch the label around
+          the box is the tap target: 44 px, pulled back by its -m-3 so the
+          row keeps its spacing (it reaches the li's edge and the text's
+          start, no further), with a 20 px box centred on the first line.
+          With a mouse it is just the 16 px box, as before. */}
+      <label className="mt-1 flex shrink-0 items-center justify-center pointer-coarse:-m-3 pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:cursor-pointer">
+        <input
+          type="checkbox"
+          className="h-4 w-4 shrink-0 accent-[var(--accent)] pointer-coarse:h-5 pointer-coarse:w-5"
+          checked={a.done}
+          disabled={a.closedByTarget}
+          aria-label={`Done: ${a.text}`}
+          onChange={(e) => onDone(a, e.target.checked)}
+        />
+      </label>
       <div className="min-w-0 flex-1 basis-56">
         {edit.editing ? (
           <InlineItemEditor
