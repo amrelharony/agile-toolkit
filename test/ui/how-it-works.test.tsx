@@ -44,6 +44,13 @@ describe("HowItWorks", () => {
     expect(summary).toHaveFocus();
   });
 
+  it("brings the header back clear of the sticky app bar, not under it", () => {
+    // Firefox scrolls a focused element to the nearest edge (the top), where
+    // the sticky header sits; the scroll margin keeps the summary below it.
+    const { container } = render(<HowItWorks toolId="wsjf" />);
+    expect(container.querySelector("summary")).toHaveClass("scroll-mt-20");
+  });
+
   it("keeps desktop as it was: the Hide guide row is gone from lg up", async () => {
     render(<HowItWorks toolId="wsjf" />);
     const hide = await screen.findByRole("button", { name: "Hide guide" });

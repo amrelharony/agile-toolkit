@@ -17,7 +17,9 @@ import { getGuide, hasGuide, type ToolGuide } from "@/lib/tools/guides";
  * On a phone the open guide is one long column (about 1,300 px), so it ends
  * with a "Hide guide" button: closing it there doesn't mean scrolling back up
  * to the header. Focus goes back to the header, which brings it into view
- * with the tool right under it.
+ * with the tool right under it. The header's scroll margin keeps it clear of
+ * the sticky app bar: Firefox scrolls a focused element to the nearest edge,
+ * not the centre, so without it the header would land under the bar.
  */
 export function HowItWorks({ toolId }: { toolId: string }) {
   const [guide, setGuide] = useState<ToolGuide | null>(null);
@@ -50,7 +52,7 @@ export function HowItWorks({ toolId }: { toolId: string }) {
     >
       <summary
         ref={summaryRef}
-        className="flex cursor-pointer select-none list-none items-center gap-2 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden"
+        className="flex scroll-mt-20 cursor-pointer select-none list-none items-center gap-2 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden"
       >
         <BookOpen className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
         <h2 className="text-sm font-medium text-text">How this works</h2>
