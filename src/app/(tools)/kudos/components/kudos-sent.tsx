@@ -113,12 +113,15 @@ export function KudosSent({ kudos, kept, onDone }: Props) {
           ? "A copy is kept on this device. Send the link or the image to pass it on."
           : "Nothing was saved. Send the link or the image to pass it on."}
       </p>
-      {/* On a phone the link and Copy link / Share come first, right under the
-          heading: the whole card (both faces) is over a screen tall, and they
-          sat below it. From sm up the card comes first again. The card has
-          nothing to focus, so the Tab order is the same either way, and a
-          screen reader on a phone reaches the actions in the order it sees. */}
-      <div className="flex flex-col gap-4 sm:order-last">
+      {/* On a touch screen the link and Copy link / Share come first, right
+          under the heading: the card is at least a face tall (423 px) and both
+          faces stack below 640 px of panel, so they sat a screen or more below
+          it. That holds for a landscape phone and a tablet too, which are
+          wider than sm, so the card comes first again only with a mouse or
+          trackpad from sm up (desktop as before). The card has nothing to
+          focus, so the Tab order is the same either way, and a screen reader
+          on a phone reaches the actions in the order it sees. */}
+      <div className="flex flex-col gap-4 pointer-fine:sm:order-last">
         {link ? (
           <div className="flex flex-col gap-1">
             <label htmlFor="kudos-link" className="text-sm font-medium text-sub">

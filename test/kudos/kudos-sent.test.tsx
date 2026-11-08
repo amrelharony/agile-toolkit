@@ -80,10 +80,12 @@ describe("KudosSent", () => {
     );
   });
 
-  it("puts the link and Copy link / Share above the card on a phone, and below it from sm up", async () => {
+  it("puts the link and Copy link / Share above the card on touch screens, and below it with a mouse from sm up", async () => {
     // jsdom does no layout, so this reads the order: on a phone the actions
     // come first in the page (which a screen reader follows too), and the
-    // group's sm:order-last puts the card back first on wider screens.
+    // group's pointer-fine:sm:order-last puts the card back first only with a
+    // mouse or trackpad. A landscape phone (812x375) and a tablet are wider
+    // than sm but still touch, and the card would push the actions off them.
     const { container } = render(<KudosSent kudos={EP7} kept onDone={() => {}} />);
     const linkBox = await screen.findByLabelText("Link to this card");
     const copy = screen.getByRole("button", { name: /copy link/i });
@@ -94,8 +96,12 @@ describe("KudosSent", () => {
       expect(el.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
 
-    const actions = copy.closest('[class~="sm:order-last"]')!;
+    const actions = copy.closest('[class~="pointer-fine:sm:order-last"]')!;
     expect(actions).not.toBeNull();
+    // Not by width alone: that puts the card first on a landscape phone.
+    for (const byWidth of ["sm:order-last", "md:order-last", "lg:order-last"]) {
+      expect(actions).not.toHaveClass(byWidth);
+    }
     expect(actions).toContainElement(linkBox);
     expect(actions).toContainElement(share);
     expect(actions.contains(card)).toBe(false);
