@@ -20,6 +20,17 @@ import { cn } from "@/lib/utils";
 export const WORKSPACE_LOADING_RESERVE = "max-md:min-h-[60svh]";
 
 /**
+ * For tools whose hydrated page is taller than any first screen (Kanban,
+ * Capacity Planner, the Sprint Cockpit and the home card): from md up the
+ * placeholder also holds a full screen, so Related tools and the sections
+ * below start off-screen and stay there after the swap. Measured at 768x1024
+ * and 1280x800, where the one-line card let the swap shift them by 0.13-0.23.
+ * Short tools must not use it: their hydrated empty state would pull the
+ * content below up into view instead.
+ */
+export const WORKSPACE_LOADING_RESERVE_TALL = "md:min-h-[100svh]";
+
+/**
  * "Loading …" while this browser's saved workspace loads: one line in a card,
  * announced as a status, that reserves the tool's room on phones (see
  * WORKSPACE_LOADING_RESERVE). Server-safe, so it is in the first HTML.
@@ -27,9 +38,12 @@ export const WORKSPACE_LOADING_RESERVE = "max-md:min-h-[60svh]";
 export function WorkspaceLoading({
   children,
   className,
+  tall = false,
 }: {
   children: ReactNode;
   className?: string;
+  /** Also reserve a full screen from md up (see WORKSPACE_LOADING_RESERVE_TALL). */
+  tall?: boolean;
 }) {
   return (
     <p
@@ -37,6 +51,7 @@ export function WorkspaceLoading({
       className={cn(
         "flex items-center justify-center rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub",
         WORKSPACE_LOADING_RESERVE,
+        tall && WORKSPACE_LOADING_RESERVE_TALL,
         className
       )}
     >

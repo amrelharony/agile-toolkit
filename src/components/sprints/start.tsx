@@ -72,6 +72,6 @@ export function ExampleBanner({ onStart, onExit }: { onStart: () => void; onExit
  * that replaces it doesn't push the page down (home, Sprint Cockpit, Sprint
  * Planning, Burndown and the other sprint tools).
  */
-export function LoadingSprints() {
-  return <WorkspaceLoading>Loading sprints…</WorkspaceLoading>;
+export function LoadingSprints({ tall = false }: { tall?: boolean } = {}) {
+  return <WorkspaceLoading tall={tall}>Loading sprints…</WorkspaceLoading>;
 }

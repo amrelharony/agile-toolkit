@@ -162,7 +162,7 @@ export function CapacityPlannerClient() {
       {hydrated ? (
         <CapacityPlanner />
       ) : (
-        <WorkspaceLoading>Loading the capacity plan…</WorkspaceLoading>
+        <WorkspaceLoading tall>Loading the capacity plan…</WorkspaceLoading>
       )}
     </ToolPageWrapper>
   );
