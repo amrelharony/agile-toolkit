@@ -20,28 +20,39 @@ import {
   titleSlug,
 } from "@/lib/agent/persist";
 import type { ConversationMeta } from "@/lib/agent/types";
+import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
 
 /** How long a deleted thread can still come back with Undo. */
 export const DELETE_UNDO_MS = 8000;
 
+interface PendingDelete {
+  /** Deletes the thread for good once Undo is no longer offered. */
+  timer: ReturnType<typeof setTimeout>;
+  /** The toast offering Undo, closed the moment the delete goes out. */
+  toastId?: string | number;
+}
+
 /**
- * Threads deleted in the last few seconds, each with the timer that deletes it
- * for good once Undo is no longer offered. Until then the row is only hidden,
- * so Undo needs nothing rebuilt. Module-level so a list closed and reopened in
- * that window keeps the thread hidden, and the delete still lands after the
- * list has unmounted.
+ * Threads deleted in the last few seconds. Until the delete goes out the row
+ * is only hidden, so Undo needs nothing rebuilt. Module-level so a list closed
+ * and reopened in that window keeps the thread hidden, and the delete still
+ * lands after the list has unmounted.
  */
-const pendingDeletes = new Map<string, ReturnType<typeof setTimeout> | "deleting">();
+const pendingDeletes = new Map<string, PendingDelete | "deleting">();
 
 /** Mounted lists, told to re-read when an Undo brings a thread back. */
 const listListeners = new Set<() => void>();
 
 async function commitDelete(id: string): Promise<void> {
-  const timer = pendingDeletes.get(id);
-  if (timer === undefined || timer === "deleting") return;
-  clearTimeout(timer);
+  const pending = pendingDeletes.get(id);
+  if (pending === undefined || pending === "deleting") return;
+  clearTimeout(pending.timer);
   pendingDeletes.set(id, "deleting");
+  // Undo must not outlive the delete. Sonner pauses its toast's clock while
+  // the toaster is hovered or tapped and while the tab is hidden, so the toast
+  // can still be up when this timer fires: close it before anything is sent.
+  if (pending.toastId !== undefined) toast.dismiss(pending.toastId);
   try {
     await deleteConversation(id);
   } finally {
@@ -52,9 +63,9 @@ async function commitDelete(id: string): Promise<void> {
 
 /** Cancel a delete still inside its Undo window. False once it has gone out. */
 function cancelDelete(id: string): boolean {
-  const timer = pendingDeletes.get(id);
-  if (timer === undefined || timer === "deleting") return false;
-  clearTimeout(timer);
+  const pending = pendingDeletes.get(id);
+  if (pending === undefined || pending === "deleting") return false;
+  clearTimeout(pending.timer);
   pendingDeletes.delete(id);
   return true;
 }
@@ -159,28 +170,32 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
   };
 
   // Delete hides the row at once and offers Undo; the thread is deleted in
-  // Supabase only when the Undo window closes (or the page is left). A stray
-  // tap on a phone used to erase a thread for good.
+  // Supabase only when the Undo window closes (or the page is left), and the
+  // Undo toast closes with it. A stray tap on a phone used to erase a thread
+  // for good.
   const remove = (meta: ConversationMeta) => {
     const store = useAgentStore.getState();
     const wasActive = store.activeConversationId === meta.id;
     // What Undo puts back if this was the open thread.
     const openMessages = wasActive ? store.messages : [];
     const index = (items ?? []).findIndex((c) => c.id === meta.id);
-    undoable({
+    const toastId = undoable({
       label: `Deleted “${meta.title}”`,
       durationMs: DELETE_UNDO_MS,
       apply: () => {
-        pendingDeletes.set(
-          meta.id,
-          setTimeout(() => void commitDelete(meta.id), DELETE_UNDO_MS)
-        );
+        pendingDeletes.set(meta.id, {
+          timer: setTimeout(() => void commitDelete(meta.id), DELETE_UNDO_MS),
+        });
         flushPendingOnPageHide();
         setItems((list) => list && list.filter((c) => c.id !== meta.id));
         if (wasActive) useAgentStore.getState().reset();
       },
       revert: () => {
-        if (!cancelDelete(meta.id)) return;
+        // Undo tapped as the delete went out: say so rather than do nothing.
+        if (!cancelDelete(meta.id)) {
+          toast.error("Too late to undo: the conversation was already deleted");
+          return;
+        }
         setItems((list) => {
           if (!list || list.some((c) => c.id === meta.id)) return list;
           const next = [...list];
@@ -196,6 +211,8 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
         listListeners.forEach((fn) => fn());
       },
     });
+    const pending = pendingDeletes.get(meta.id);
+    if (pending && pending !== "deleting") pending.toastId = toastId;
   };
 
   const commitRename = async (id: string) => {

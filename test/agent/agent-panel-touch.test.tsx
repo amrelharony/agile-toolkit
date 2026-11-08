@@ -14,7 +14,7 @@ const h = vi.hoisted(() => ({
   deleteConversation: vi.fn<(id: string) => Promise<void>>(async () => {}),
   toast: Object.assign(
     vi.fn<(label: unknown, opts?: unknown) => string>(() => "toast-1"),
-    { dismiss: vi.fn() }
+    { dismiss: vi.fn(), error: vi.fn() }
   ),
 }));
 
@@ -73,8 +73,13 @@ const rowOf = (title: string) => screen.getByText(title).closest("div") as HTMLE
 describe("ConversationList on touch", () => {
   beforeEach(() => {
     h.conversations = THREADS;
-    h.deleteConversation.mockClear();
+    h.deleteConversation.mockReset();
+    h.deleteConversation.mockImplementation(async (id) => {
+      h.conversations = h.conversations.filter((c) => c.id !== id);
+    });
     h.toast.mockClear();
+    h.toast.dismiss.mockClear();
+    h.toast.error.mockClear();
   });
 
   afterEach(() => {
@@ -118,6 +123,42 @@ describe("ConversationList on touch", () => {
 
     act(() => vi.advanceTimersByTime(1));
     expect(h.deleteConversation).toHaveBeenCalledWith("c2");
+  });
+
+  it("closes the Undo toast before the delete goes out", async () => {
+    await renderList();
+    vi.useFakeTimers();
+
+    fireEvent.click(
+      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+    );
+    expect(h.toast.dismiss).not.toHaveBeenCalled();
+
+    // Sonner pauses its toast while hovered or tapped; this clock doesn't, so
+    // the toast is closed here rather than left offering a dead Undo.
+    act(() => vi.advanceTimersByTime(DELETE_UNDO_MS));
+    expect(h.toast.dismiss).toHaveBeenCalledWith("toast-1");
+    expect(h.deleteConversation).toHaveBeenCalledWith("c2");
+    expect(h.toast.dismiss.mock.invocationCallOrder[0]).toBeLessThan(
+      h.deleteConversation.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("says it is too late when Undo lands after the delete went out", async () => {
+    useAgentStore.getState().setActiveConversation(THREADS[1], []);
+    await renderList();
+    vi.useFakeTimers();
+
+    fireEvent.click(
+      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+    );
+    act(() => vi.advanceTimersByTime(DELETE_UNDO_MS + 1000));
+    clickUndo();
+
+    expect(h.toast.error).toHaveBeenCalledWith(expect.stringMatching(/too late to undo/i));
+    expect(screen.queryByText("Backlog grooming notes")).toBeNull();
+    // The deleted thread is not reopened.
+    expect(useAgentStore.getState().activeConversationId).toBeNull();
   });
 
   it("Undo puts the thread back in its place and never deletes it", async () => {
