@@ -87,9 +87,16 @@ const STAGE_HEIGHT =
  * the hint above them (EMPTY_HINT_TOUCH_PLACE): 136 px + two hint lines
  * + a gap on phones, 76 px + one line + a gap from sm up. It loses its
  * decorative icon there, and some padding on short (landscape) screens.
+ *
+ * From sm up the mini-map (mini-map.tsx: right-3 bottom-14, 200x140)
+ * shows too, and on a short board it reaches up beside the card: at
+ * 812x375 it covered the end of the card's sentence. There the card
+ * centres between the tool rail (ends 59 px in) and the map (216 px with
+ * its margin and a gap), narrowing and wrapping as it needs to. Taller
+ * boards keep the card centred, well above the map.
  */
 const EMPTY_CARD_TOUCH_ROOM =
-  "pointer-coarse:pt-[4.5rem] pointer-coarse:pb-[11rem] sm:pointer-coarse:pb-[6.25rem]";
+  "pointer-coarse:pt-[4.5rem] pointer-coarse:pb-[11rem] sm:pointer-coarse:pb-[6.25rem] sm:pointer-coarse:[@media(max-height:600px)]:pl-[4.5rem] sm:pointer-coarse:[@media(max-height:600px)]:pr-[13.5rem]";
 
 /** Per-board access mode. Resolved from the URL with `?share=<token>`
  * winning over `?view=<role>` — the token's role is the source of

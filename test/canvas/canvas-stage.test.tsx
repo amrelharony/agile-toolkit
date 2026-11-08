@@ -266,4 +266,23 @@ describe("CanvasClient empty-board card", () => {
     // Its decorative icon goes on touch, to fit a landscape board.
     expect(card.querySelector("svg")).toHaveClass("pointer-coarse:hidden");
   });
+
+  it("keeps clear of the mini-map on a short touch board", async () => {
+    // From sm up the mini-map (right-3 bottom-14, 200 px wide) shows, and
+    // on a landscape phone it reaches up beside the card; it covered the
+    // end of the sentence at 812x375. There the card centres between the
+    // tool rail and the map. A mouse, and taller boards, keep it centred.
+    render(<CanvasClient />);
+    const card = await findCard();
+    const wrapper = card.parentElement!;
+    expect(wrapper).toHaveClass(
+      "sm:pointer-coarse:[@media(max-height:600px)]:pl-[4.5rem]",
+      "sm:pointer-coarse:[@media(max-height:600px)]:pr-[13.5rem]"
+    );
+    const unscoped = Array.from(wrapper.classList).filter(
+      (c) =>
+        /(^|:)p[lrx]-/.test(c) && !c.startsWith("sm:pointer-coarse:[@media(max-height:600px)]:")
+    );
+    expect(unscoped).toEqual([]);
+  });
 });
