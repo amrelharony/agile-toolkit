@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { IconButton } from "@/components/ui/icon-button";
@@ -10,6 +10,7 @@ import { useInertSiblings } from "@/hooks/use-inert-siblings";
 import { panelImageUrl } from "@/lib/comics/images";
 import type { Panel } from "@/lib/comics/types";
 import { PanelTranscript } from "./panel-transcript";
+import { useSwipe } from "./use-swipe";
 
 interface PanelOverlayProps {
   panels: readonly Panel[];
@@ -24,10 +25,16 @@ interface PanelOverlayProps {
  * loaded. Zoom is the browser's own pinch: the page stays zoomable, and
  * touch-action below keeps the gesture ours to give. No JS zoom and no
  * Fullscreen API, which iPhones don't have anyway.
+ *
+ * On a phone held upright a panel fitted to the width is barely bigger than the
+ * one in the page, so there it fills the height instead and pans sideways. A
+ * sideways swipe moves between panels once the panel has been panned to that
+ * edge, and only at the page's own size, so it never fights a pinch.
  */
 export function PanelOverlay({ panels, index, title, onClose, onMove }: PanelOverlayProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const panel = panels[index];
   const hasPrevious = index > 0;
   const hasNext = index < panels.length - 1;
@@ -37,9 +44,27 @@ export function PanelOverlay({ panels, index, title, onClose, onMove }: PanelOve
     if (to >= 0 && to < panels.length) onMove(to);
   };
 
+  const swipe = useSwipe(moveBy, () => {
+    const el = scrollerRef.current;
+    if (!el) return { back: true, on: true };
+    return {
+      back: el.scrollLeft <= 1,
+      on: el.scrollLeft + el.clientWidth >= el.scrollWidth - 1,
+    };
+  });
+
   useBodyScrollLock(true);
   useInertSiblings(overlayRef, true);
   useFocusTrap(overlayRef, { active: true, initialFocusRef: closeRef });
+
+  // Each panel starts at its beginning, where its first words are, before it
+  // paints.
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollLeft = 0;
+    el.scrollTop = 0;
+  }, [index]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -92,9 +117,14 @@ export function PanelOverlay({ panels, index, title, onClose, onMove }: PanelOve
         </div>
       </div>
       <div
-        className="flex min-h-0 flex-1 items-center justify-center overflow-auto"
+        ref={scrollerRef}
+        className="flex min-h-0 flex-1 overflow-auto"
         style={{ touchAction: "pan-x pan-y pinch-zoom" }}
+        {...swipe}
       >
+        {/* m-auto centres the panel while it fits and, unlike centring the
+            row, lets a wider one scroll from its left edge instead of cutting
+            that edge off. Upright phones: the height filled, the width free. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           key={panel.pathFull}
@@ -103,7 +133,7 @@ export function PanelOverlay({ panels, index, title, onClose, onMove }: PanelOve
           height={panel.height}
           alt={panel.alt}
           decoding="async"
-          className="h-auto max-h-full w-auto max-w-full object-contain"
+          className="m-auto h-auto max-h-full w-auto max-w-full object-contain max-sm:portrait:h-full max-sm:portrait:max-w-none max-sm:portrait:shrink-0"
         />
       </div>
       {/* The page behind is inert while this is open, so the words come along. */}

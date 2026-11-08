@@ -118,7 +118,10 @@ export function ComicPanels({
                   ref={isLast ? last : undefined}
                   tabIndex={isLast ? -1 : undefined}
                   aria-labelledby={isLast && i !== hidden ? captionId : undefined}
-                  className="focus-visible:outline-none"
+                  // Scrolled to on a reveal: it stops below the sticky header
+                  // (on a phone, html's scroll padding adds Amr's space too),
+                  // so the speech at the top of the panel isn't under it.
+                  className="scroll-mt-[calc(var(--header-h,56px)+0.5rem)] focus-visible:outline-none"
                 >
                   {i === hidden ? (
                     <div className="panel relative block w-full overflow-hidden">
