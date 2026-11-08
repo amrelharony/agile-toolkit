@@ -19,7 +19,11 @@ import {
   Link2,
 } from "lucide-react";
 import { getToolByPath } from "@/lib/constants/tools";
-import { shareSnapshotLink } from "@/components/share/share-link-button";
+import {
+  SHARE_LINK_COPIED,
+  SHARE_LINK_SHORT_NOTE,
+  shareSnapshotLink,
+} from "@/components/share/share-link-button";
 import {
   exportToCSV,
   exportToJSON,
@@ -88,7 +92,7 @@ export function ExportButton({
       markdown,
       state: shareState,
     }).then((ok) => {
-      if (ok) flash("Share link copied", "copied");
+      if (ok) flash(SHARE_LINK_COPIED, "copied");
     });
   };
 
@@ -153,9 +157,12 @@ export function ExportButton({
               Download Markdown (.md)
             </DropdownMenuItem>
             {tool && (
-              <DropdownMenuItem onClick={handleShare} className="gap-2 cursor-pointer">
-                <Link2 className="w-4 h-4" aria-hidden="true" />
-                Copy share link
+              <DropdownMenuItem onClick={handleShare} className="gap-2 cursor-pointer items-start">
+                <Link2 className="w-4 h-4 mt-0.5" aria-hidden="true" />
+                <span className="flex flex-col">
+                  Copy share link
+                  <span className="text-xs text-sub">{SHARE_LINK_SHORT_NOTE}</span>
+                </span>
               </DropdownMenuItem>
             )}
           </>

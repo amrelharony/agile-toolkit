@@ -60,10 +60,11 @@ describe("sendHandoffBatch", () => {
     );
     expect(sent).toHaveLength(2);
     expect(undo.last?.label).toBe("Sent 2 risks to the Risk Register");
-    // Sending destroys nothing: a success with Undo and a stable id.
+    // Sending destroys nothing: a success with Undo, and an id of its own so
+    // it never merges with another send.
     expect(undo.last).toMatchObject({
       kind: "success",
-      id: "handoff:risk:payments outage|vendor late",
+      id: expect.stringMatching(/^handoff:risk:\d+$/),
     });
     expect(useWorkspaceStore.getState().risks.map((r) => r.title)).toEqual(
       expect.arrayContaining(["Payments outage", "Vendor late"])

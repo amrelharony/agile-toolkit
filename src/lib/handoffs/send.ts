@@ -26,6 +26,15 @@ function shortName(name: string, max = 40): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
+/**
+ * A fresh toast id for each send. A hand-off is a success (it destroys
+ * nothing) that keeps its Undo, and an id of its own keeps two sends apart:
+ * one built from the title would merge two items that share a name ("Fix
+ * CI" twice) into one toast whose Undo takes back only the second.
+ */
+let handoffToastSeq = 0;
+const nextHandoffToastId = (routeId: HandoffRouteId) => `handoff:${routeId}:${++handoffToastSeq}`;
+
 /** Whether `route` can take `src` now: a title, and nothing the route's own check refuses. */
 const sendable = (route: HandoffRoute, src: HandoffSource): boolean =>
   Boolean(src.title.trim()) && !route.problem?.(src);
@@ -50,7 +59,7 @@ export function sendHandoff(
     description: `“${shortName(src.title)}”`,
     // Sending makes something new and destroys nothing: a success, with Undo.
     kind: "success",
-    id: `handoff:${routeId}:${src.title.trim().toLowerCase()}`,
+    id: nextHandoffToastId(routeId),
     apply: () => {
       const link: HandoffLink = {
         route: routeId,
@@ -116,7 +125,7 @@ export function sendHandoffBatch(
     label: label ?? route.doneLabel,
     description: todo.length === 1 ? `“${shortName(todo[0].src.title)}”` : `${todo.length} items`,
     kind: "success",
-    id: `handoff:${routeId}:${todo.map((item) => item.src.title.trim().toLowerCase()).join("|")}`,
+    id: nextHandoffToastId(routeId),
     apply: () => {
       try {
         todo.forEach((item, i) => {

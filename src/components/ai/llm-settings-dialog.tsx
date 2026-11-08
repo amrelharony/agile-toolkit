@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Sparkles,
   Eye,
@@ -307,16 +307,22 @@ function ProviderPanel({
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<"ok" | "fail" | null>(null);
   const [status, setStatus] = useState<PanelStatus>(null);
+  // What this panel just wrote to the store (see `storedSig`). The re-sync
+  // below runs after our own Save / Clear too, and must not wipe the status
+  // line that confirms it.
+  const wroteSig = useRef<string | null>(null);
 
   // Re-sync local state when the user flips to this tab and there's a
   // different stored value (e.g., after saving on another tab).
   useEffect(() => {
+    const ownWrite = wroteSig.current !== null && wroteSig.current === storedSig(existing);
+    wroteSig.current = null;
     const stored = existing?.model ?? DEFAULT_MODEL_BY_PROVIDER[providerId];
     setApiKey(existing?.apiKey ?? "");
     setModel(stored);
     setCustomMode(!!existing?.model && !isExistingModelInList(existing.model));
     setTestResult(null);
-    setStatus(null);
+    if (!ownWrite) setStatus(null);
     // existing.apiKey + .model already cover what we need; isExistingModelInList
     // is a stable function of `models` which is per-tab and constant.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -349,6 +355,7 @@ function ProviderPanel({
       setStatus({ tone: "error", text: "Paste a key first." });
       return;
     }
+    wroteSig.current = storedSig({ apiKey: apiKey.trim(), model });
     onSave(apiKey.trim(), model);
     setStatus({ tone: "ok", text: `Saved. ${meta.name} is now your active AI.` });
   };
@@ -361,6 +368,7 @@ function ProviderPanel({
   const handleClear = () => {
     setApiKey("");
     setTestResult(null);
+    wroteSig.current = storedSig(undefined);
     onClear();
     setStatus({ tone: "ok", text: `${meta.name} key cleared.` });
   };
@@ -527,6 +535,14 @@ function ProviderPanel({
       </p>
     </div>
   );
+}
+
+/** A stored provider entry as one comparable string ("" when there is none). */
+function storedSig(entry: { apiKey: string; model: string } | undefined): string {
+  return entry
+    ? `${entry.apiKey}
+${entry.model}`
+    : "";
 }
 
 function describeError(err: unknown): string {

@@ -58,6 +58,51 @@ function titles(text: string): { helper: string; title: string }[] {
   }));
 }
 
+/** A success/info/message/plain toast call (not error/warning/loading). */
+const NON_ERROR_CALL = /\btoast(?:\.(success|info|message))?\(/g;
+
+/** The first argument of each non-error toast call, as source text. */
+function firstArgs(text: string): { helper: string; arg: string }[] {
+  const out: { helper: string; arg: string }[] = [];
+  for (const m of allMatches(NON_ERROR_CALL, text)) {
+    let depth = 0;
+    let quote: string | null = null;
+    const start = m.index + m[0].length;
+    let i = start;
+    for (; i < text.length; i++) {
+      const c = text[i];
+      if (quote) {
+        if (c === "\\") i++;
+        else if (c === quote) quote = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") quote = c;
+      else if (c === "(" || c === "[" || c === "{") depth++;
+      else if (c === ")" || c === "]" || c === "}") {
+        if (depth === 0) break;
+        depth--;
+      } else if (c === "," && depth === 0) break;
+    }
+    out.push({ helper: m[1] ?? "plain", arg: text.slice(start, i).trim() });
+  }
+  return out;
+}
+
+/**
+ * Whether a toast's first argument echoes a copy, export or download: the
+ * text itself (literals, concatenation, template parts, a helper's
+ * arguments), or, for a bare name, a string the same file assigns to it.
+ */
+function echoes(arg: string, fileText: string): boolean {
+  if (ECHO.test(arg)) return true;
+  if (/^[A-Za-z_$][\w$]*$/.test(arg)) {
+    const name = arg.replace(/\$/g, "\\$");
+    const assigned = new RegExp(`\\b${name}\\s*=\\s*(["'\`])([^"'\`]*)\\1`);
+    return allMatches(assigned, fileText).some((m) => ECHO.test(m[2]));
+  }
+  return false;
+}
+
 function counts(): Record<Helper, number> {
   const out: Record<Helper, number> = {
     plain: 0,
@@ -93,6 +138,9 @@ describe("toast inventory", () => {
       for (const { helper, title } of titles(text)) {
         if (ECHO.test(title)) offenders.push(`${rel}: toast.${helper}("${title}")`);
       }
+      for (const { helper, arg } of firstArgs(text)) {
+        if (echoes(arg, text)) offenders.push(`${rel}: toast.${helper}(${arg})`);
+      }
     }
     expect(offenders).toEqual([]);
   });
@@ -108,6 +156,26 @@ describe("toast inventory", () => {
     expect(titles(sample).filter(({ title }) => ECHO.test(title))).toHaveLength(5);
     // Failures stay toasts.
     expect(titles('toast.error("Couldn\'t copy the link");')).toHaveLength(0);
+  });
+
+  it("catches echo toasts built from names, concatenation or helpers", () => {
+    const sample = [
+      'const msg = "Copied";',
+      "toast.success(msg);",
+      'toast.success(label + " copied");',
+      "toast.info(`${label} exported`, { id: 'x' });",
+      'toast(format("Downloaded"), { kind: "success" });',
+      'toast.success(saved, { id: "a" });',
+    ].join("\n");
+    const hits = firstArgs(sample).filter(({ arg }) => echoes(arg, sample));
+    expect(hits.map((hit) => hit.arg)).toEqual([
+      "msg",
+      'label + " copied"',
+      "`${label} exported`",
+      'format("Downloaded")',
+    ]);
+    // Failures stay toasts.
+    expect(firstArgs('toast.error(label + " copy failed");')).toHaveLength(0);
   });
 
   it("never grows the number of non-error toasts", () => {
@@ -137,10 +205,23 @@ describe("toast inventory", () => {
       "src/components/collab/vote-room/vote-join-room.tsx",
       "src/components/data/your-data-dialog.tsx",
     ];
+    const action =
+      /\b(?:copyToClipboard|exportTo\w*|downloadFile|downloadBlob|shareSnapshotLink)\(/;
+    const nonErrorToast = /\btoast(?:\.(?:success|info|message))?\(/;
     for (const site of sites) {
       const file = FILES.find((f) => f.rel === site);
       expect(file, site).toBeDefined();
       expect(/useFlash\(|<CopyButton\b/.test(file!.text), site).toBe(true);
+      // And the old confirmation is gone: no success/info toast right after
+      // the copy, export or download it confirmed.
+      const lines = file!.text.split("\n");
+      lines.forEach((line, i) => {
+        if (!action.test(line)) return;
+        const near = lines.slice(i, i + 6).join("\n");
+        expect(nonErrorToast.test(near), `${site}:${i + 1} toasts after: ${line.trim()}`).toBe(
+          false
+        );
+      });
     }
   });
 });

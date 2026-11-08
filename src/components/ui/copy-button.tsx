@@ -51,9 +51,14 @@ export const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
   ) => {
     const { flash, isFlashing } = useFlash(confirmMs);
     const [busy, setBusy] = React.useState(false);
+    // A ref guards a second click while copying: a native `disabled` on the
+    // focused button would drop keyboard focus to <body>.
+    const busyRef = React.useRef(false);
     const copied = isFlashing();
 
     const onClick = async () => {
+      if (busyRef.current) return;
+      busyRef.current = true;
       setBusy(true);
       try {
         const value = typeof text === "function" ? await text() : text;
@@ -66,6 +71,7 @@ export const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
       } catch {
         toast.error(errorMessage);
       } finally {
+        busyRef.current = false;
         setBusy(false);
       }
     };
@@ -76,7 +82,8 @@ export const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
         type="button"
         variant={variant}
         size={size}
-        disabled={disabled || busy}
+        disabled={disabled}
+        aria-disabled={busy || undefined}
         data-copied={copied ? "true" : undefined}
         onClick={() => void onClick()}
         {...props}

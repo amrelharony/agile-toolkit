@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Check, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFlash } from "@/hooks/use-flash";
@@ -45,6 +45,15 @@ export async function buildSnapshotUrl(
 /** What a share link promises, for the button's tooltip. */
 export const SHARE_LINK_NOTE =
   "Anyone with the link sees a read-only copy. The content travels inside the link and isn't stored anywhere.";
+
+/** The short form, shown under the Export menu item. */
+export const SHARE_LINK_SHORT_NOTE = "Anyone with it sees a read-only copy.";
+
+/**
+ * What a successful copy announces (and the pop-up says, for users who want
+ * confirmations as pop-ups): touch users never see the tooltip.
+ */
+export const SHARE_LINK_COPIED = `Share link copied. ${SHARE_LINK_SHORT_NOTE}`;
 
 /**
  * Create a snapshot link for a tool's content and copy it. Returns true when
@@ -109,12 +118,18 @@ export function ShareLinkButton({
   className?: string;
 }) {
   const [busy, setBusy] = useState(false);
+  // A ref guards a second click: a native `disabled` on the focused button
+  // would drop keyboard focus to <body>.
+  const busyRef = useRef(false);
   const { flash, isFlashing } = useFlash();
   const share = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     try {
-      if (await shareSnapshotLink({ toolId, title, markdown, state })) flash("Share link copied");
+      if (await shareSnapshotLink({ toolId, title, markdown, state })) flash(SHARE_LINK_COPIED);
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
@@ -126,7 +141,7 @@ export function ShareLinkButton({
       variant="outline"
       size="sm"
       onClick={share}
-      disabled={busy}
+      aria-disabled={busy || undefined}
       className={className}
       title={SHARE_LINK_NOTE}
     >
