@@ -209,18 +209,22 @@ export function ChartCard({
     >
       <CardHeader className={cn((hasActions || summary) && "pb-2")}>
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          <CardTitle className="text-sm flex items-center gap-2 min-w-0 flex-1">
+          {/* On a phone the title never squeezes to "Bur…": it claims its own
+              width before the buttons do (they wrap below instead), wraps
+              rather than truncating, and the badge drops to the next line
+              when it doesn't fit beside it. From sm up the row is unchanged. */}
+          <CardTitle className="text-sm flex items-center gap-2 min-w-0 flex-1 max-sm:flex-wrap max-sm:basis-auto">
             {Icon && <Icon className="w-4 h-4 text-accent shrink-0" aria-hidden="true" />}
-            <span id={alt.titleId} className="min-w-0 truncate">
+            <span id={alt.titleId} className="min-w-0 break-words sm:truncate">
               {title}
             </span>
             {badge &&
               (typeof badge === "string" ? (
-                <Badge variant="outline" className="ml-2 font-sans text-xs">
+                <Badge variant="outline" className="sm:ml-2 whitespace-nowrap font-sans text-xs">
                   {badge}
                 </Badge>
               ) : (
-                <span className="ml-2 font-sans">{badge}</span>
+                <span className="sm:ml-2 font-sans">{badge}</span>
               ))}
           </CardTitle>
           {hasActions && (

@@ -146,7 +146,8 @@ export function MiniBurndown({
       title="Burndown"
       icon={TrendingDown}
       badge={
-        <span className="rounded-md border border-border px-1.5 py-0.5 text-xs font-medium text-sub">
+        // One unbroken pill (an inline span split over lines on a phone).
+        <span className="inline-block whitespace-nowrap rounded-md border border-border px-1.5 py-0.5 text-xs font-medium text-sub">
           {board
             ? "From the sprint board"
             : source === "log"

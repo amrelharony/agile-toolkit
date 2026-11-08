@@ -26,10 +26,14 @@ export function offLabel(day: Pick<BurnDay, "off" | "date">): string | null {
   return day.off === "holiday" ? "Holiday" : weekdayShort(day.date) || "Weekend";
 }
 
-/** The source as a small badge (a chart card's, or the bar's when there's nothing to switch). */
+/**
+ * The source as a small badge (a chart card's, or the bar's when there's
+ * nothing to switch). One unbroken pill: inline, it split over two or three
+ * lines on a phone and its border broke open on each.
+ */
 export function SourceBadge({ source }: { source: BurnSeries["source"] }) {
   return (
-    <span className="rounded-md border border-border px-1.5 py-0.5 text-xs font-medium text-sub">
+    <span className="inline-block whitespace-nowrap rounded-md border border-border px-1.5 py-0.5 text-xs font-medium text-sub">
       {sourceLine(source)}
     </span>
   );

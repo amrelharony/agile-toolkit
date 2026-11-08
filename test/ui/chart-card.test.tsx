@@ -133,6 +133,30 @@ describe("ChartCard", () => {
     expect(screen.queryByRole("button", { name: "View as table" })).not.toBeInTheDocument();
   });
 
+  it("on a phone, lets the title wrap and take its width, with the badge as one pill", () => {
+    render(
+      <ChartCard
+        title="Burndown chart"
+        icon={BarChart3}
+        badge="From the sprint board"
+        table={TABLE}
+        headerExtras={<button type="button">Export</button>}
+      >
+        <Plot />
+      </ChartCard>
+    );
+    const heading = screen.getByRole("heading", { level: 3 });
+    // Below sm the title row wraps (the badge drops a line when it doesn't
+    // fit) and sizes to its content, so the buttons wrap below rather than
+    // squeezing the title to "Bur…". From sm up it is the old row.
+    expect(heading).toHaveClass("max-sm:flex-wrap", "max-sm:basis-auto", "flex-1", "min-w-0");
+    const title = within(heading).getByText("Burndown chart");
+    expect(title).toHaveClass("sm:truncate", "break-words");
+    expect(title).not.toHaveClass("truncate");
+    // The badge never splits over lines (its border broke open on each).
+    expect(within(heading).getByText("From the sprint board")).toHaveClass("whitespace-nowrap");
+  });
+
   it("without the new props, renders the old card markup apart from the figure", () => {
     const extras = <button type="button">Export</button>;
     const footer = <p>Footer</p>;
@@ -253,20 +277,22 @@ function LegacyChartCard({
   footer?: ReactNode;
   children: ReactNode;
 }) {
+  // The header classes are today's (the 2026-11 phone fix: the title wraps
+  // and the badge stays one pill below sm); the structure is the old card's.
   return (
     <Card className={cn(className)}>
       <CardHeader className={cn(headerExtras && "pb-2")}>
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          <CardTitle className="text-sm flex items-center gap-2 min-w-0 flex-1">
+          <CardTitle className="text-sm flex items-center gap-2 min-w-0 flex-1 max-sm:flex-wrap max-sm:basis-auto">
             {Icon && <Icon className="w-4 h-4 text-accent shrink-0" aria-hidden="true" />}
-            <span className="min-w-0 truncate">{title}</span>
+            <span className="min-w-0 break-words sm:truncate">{title}</span>
             {badge &&
               (typeof badge === "string" ? (
-                <Badge variant="outline" className="ml-2 font-sans text-xs">
+                <Badge variant="outline" className="sm:ml-2 whitespace-nowrap font-sans text-xs">
                   {badge}
                 </Badge>
               ) : (
-                <span className="ml-2 font-sans">{badge}</span>
+                <span className="sm:ml-2 font-sans">{badge}</span>
               ))}
           </CardTitle>
           {headerExtras && (
