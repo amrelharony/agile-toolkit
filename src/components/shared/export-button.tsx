@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { usePathname } from "next/navigation";
 import {
+  Check,
   Download,
   Copy,
   FileJson,
@@ -18,7 +20,11 @@ import {
   Link2,
 } from "lucide-react";
 import { getToolByPath } from "@/lib/constants/tools";
-import { shareSnapshotLink } from "@/components/share/share-link-button";
+import {
+  SHARE_LINK_COPIED,
+  SHARE_LINK_SHORT_NOTE,
+  shareSnapshotLink,
+} from "@/components/share/share-link-button";
 import {
   exportToCSV,
   exportToJSON,
@@ -27,6 +33,9 @@ import {
   copyToClipboard,
 } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
+
+type MenuAlign = "start" | "center" | "end";
 
 interface ExportButtonProps {
   filename: string;
@@ -40,6 +49,22 @@ interface ExportButtonProps {
    *  "Copy into my browser" (tools listed in lib/share/snapshot-import). */
   shareState?: unknown;
   targetRef?: React.RefObject<HTMLElement | null>;
+  /** Which edge of the button the menu lines up with. Left out, it follows
+   *  the button (see menuAlignFor). */
+  align?: MenuAlign;
+}
+
+/**
+ * The menu opens inward, toward the middle of the screen: lined up with the
+ * button's start edge when the button sits in the left half (a phone, where
+ * a tool's actions wrap to the left), with its end edge in the right half (the
+ * right-aligned action rows on wider screens, which always used "end").
+ */
+export function menuAlignFor(
+  button: Pick<DOMRect, "left" | "width">,
+  viewportWidth: number
+): "start" | "end" {
+  return button.left + button.width / 2 < viewportWidth / 2 ? "start" : "end";
 }
 
 export function ExportButton({
@@ -50,14 +75,30 @@ export function ExportButton({
   markdown,
   shareState,
   targetRef,
+  align,
 }: ExportButtonProps) {
   const pathname = usePathname();
   const tool = pathname ? getToolByPath(pathname) : undefined;
+  // The menu closes on click, so the trigger itself confirms: "Copied ✓" /
+  // "Exported ✓" for a moment, no toast. Failures still get a toast.
+  const { flash, flashing } = useFlash();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [autoAlign, setAutoAlign] = useState<"start" | "end">("end");
+
+  // Controlled so the alignment is worked out in the same update that opens
+  // the menu; the first frame already sits on the right side.
+  const handleOpenChange = (next: boolean) => {
+    if (next && !align && triggerRef.current) {
+      setAutoAlign(menuAlignFor(triggerRef.current.getBoundingClientRect(), window.innerWidth));
+    }
+    setOpen(next);
+  };
 
   const handleCopy = async () => {
     if (clipboardText) {
       const success = await copyToClipboard(clipboardText);
-      if (success) toast.success("Copied to clipboard");
+      if (success) flash("Copied to clipboard", "copied");
       else toast.error("Failed to copy");
     }
   };
@@ -65,31 +106,38 @@ export function ExportButton({
   const handleCSV = () => {
     if (csvData) {
       exportToCSV(csvData.headers, csvData.rows, filename);
-      toast.success("CSV exported");
+      flash("CSV exported", "exported");
     }
   };
 
   const handleCopyMarkdown = async () => {
     if (!markdown) return;
-    if (await copyToClipboard(markdown)) toast.success("Copied as Markdown");
+    if (await copyToClipboard(markdown)) flash("Copied as Markdown", "copied");
     else toast.error("Failed to copy");
   };
 
   const handleShare = () => {
     if (!markdown || !tool) return;
-    void shareSnapshotLink({ toolId: tool.id, title: filename, markdown, state: shareState });
+    void shareSnapshotLink({
+      toolId: tool.id,
+      title: filename,
+      markdown,
+      state: shareState,
+    }).then((ok) => {
+      if (ok) flash(SHARE_LINK_COPIED, "copied");
+    });
   };
 
   const handleMarkdown = () => {
     if (!markdown) return;
     exportToMarkdown(markdown, filename);
-    toast.success("Markdown exported");
+    flash("Markdown exported", "exported");
   };
 
   const handleJSON = () => {
     if (jsonData) {
       exportToJSON(jsonData, filename);
-      toast.success("JSON exported");
+      flash("JSON exported", "exported");
     }
   };
 
@@ -101,25 +149,29 @@ export function ExportButton({
     }
     try {
       await exportToPNG(el, filename);
-      toast.success("PNG exported");
+      flash("PNG exported", "exported");
     } catch {
       toast.error("Failed to export PNG");
     }
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+      <DropdownMenuTrigger asChild ref={triggerRef}>
         <Button
           variant="outline"
           size="sm"
           className="gap-2 border-border hover:border-accent/30 hover:bg-accent/5 text-sub hover:text-text"
         >
-          <Download className="w-4 h-4" />
-          Export
+          {flashing ? (
+            <Check className="w-4 h-4" aria-hidden="true" />
+          ) : (
+            <Download className="w-4 h-4" aria-hidden="true" />
+          )}
+          {flashing === "copied" ? "Copied" : flashing === "exported" ? "Exported" : "Export"}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="bg-surface border-border">
+      <DropdownMenuContent align={align ?? autoAlign} className="bg-surface border-border">
         {clipboardText && (
           <DropdownMenuItem onClick={handleCopy} className="gap-2 cursor-pointer">
             <Copy className="w-4 h-4" />
@@ -137,9 +189,12 @@ export function ExportButton({
               Download Markdown (.md)
             </DropdownMenuItem>
             {tool && (
-              <DropdownMenuItem onClick={handleShare} className="gap-2 cursor-pointer">
-                <Link2 className="w-4 h-4" aria-hidden="true" />
-                Copy share link
+              <DropdownMenuItem onClick={handleShare} className="gap-2 cursor-pointer items-start">
+                <Link2 className="w-4 h-4 mt-0.5" aria-hidden="true" />
+                <span className="flex flex-col">
+                  Copy share link
+                  <span className="text-xs text-sub">{SHARE_LINK_SHORT_NOTE}</span>
+                </span>
               </DropdownMenuItem>
             )}
           </>

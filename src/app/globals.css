@@ -46,7 +46,11 @@
     --surface-deep: #0e1117;
     --surface-hover: #272d3b;
     --sidebar-w: 260px;
-    --header-h: 56px;
+    /* The header (components/layout/header): a 56 px row (3.5rem, so it follows
+       the reader's font size like the row's h-14 did) under the top safe area,
+       which is non-zero only when the page draws under the status bar. Amr's top
+       corner on phones hangs from it. */
+    --header-h: calc(3.5rem + env(safe-area-inset-top, 0px));
 
     /* Line weights. Tailwind's plain `border` reads --line-w (colour tokens can't
        set a width); panels, the framed things with a shadow, read --panel-w.
@@ -686,6 +690,33 @@ html[data-intro] [data-sonner-toaster] {
   visibility: hidden;
 }
 
+/* The toast stack sits above the header (100) and the sidebar drawer but below
+   modals (1000), instead of sonner's own 999999999 that covered everything. */
+html [data-sonner-toaster] {
+  z-index: theme("zIndex.toast");
+}
+/* Over an open dialog or sheet, toasts (errors, mostly: the policy holds the
+   rest) are raised above it so they stay visible: above z-modal (1000) and
+   the hand-built z-[9999] card-detail modal. Same selectors as
+   lib/notify/dialog-open.ts; a popover (role="dialog" inside the Radix popper
+   wrapper) is not a modal and doesn't lift it. */
+body:has([role="dialog"][data-state="open"]:not([data-radix-popper-content-wrapper] *))
+  [data-sonner-toaster],
+body:has([role="alertdialog"][data-state="open"]) [data-sonner-toaster],
+body:has([role="dialog"][aria-modal="true"]) [data-sonner-toaster],
+body:has([role="alertdialog"][aria-modal="true"]) [data-sonner-toaster],
+body:has(dialog[open]) [data-sonner-toaster] {
+  z-index: 10000;
+}
+/* Touch screens: the small close button gets a 44 px hit area. */
+@media (pointer: coarse) {
+  [data-sonner-toast] [data-close-button]::after {
+    content: "";
+    position: absolute;
+    inset: -12px;
+  }
+}
+
 .intro-overlay {
   position: fixed;
   inset: 0;
@@ -897,14 +928,20 @@ html[data-intro] [data-sonner-toaster] {
     --holiday-glow: transparent;
   }
 
-  /* Kill iOS auto-zoom on input focus — any input < 16px triggers it */
-  @media (max-width: 768px) {
+  /* Kill iOS auto-zoom on input focus — any input < 16px triggers it.
+     Keyed to touch as well as width: a landscape iPhone is 812–932px wide,
+     past the old max-width guard, and zoomed on every focus. */
+  @media (pointer: coarse), (max-width: 768px) {
     /* `!important` because these base-layer selectors lose to utility
        classes: 78 textareas/inputs with `text-xs`/`text-sm` stayed at
        12–14px and iOS zoomed the page on every focus. */
-    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
-    textarea,
-    select {
+    /* `data-own-font` = the element sets its own size of 16px or more (the
+       canvas inline editor), so the guard has nothing to prevent. */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not(
+        [data-own-font]
+      ),
+    textarea:not([data-own-font]),
+    select:not([data-own-font]) {
       font-size: max(16px, 1rem) !important;
     }
   }
@@ -945,6 +982,54 @@ html[data-intro] [data-sonner-toaster] {
 
   .overscroll-contain-strict {
     overscroll-behavior: contain;
+  }
+
+  /*
+   * Touch-target minimums. In the utilities layer, emitted after Tailwind's
+   * own utilities, so they win over a component's `min-h-*`/`min-w-*` on the
+   * same element (Button `sm` is `min-h-[36px]`): in @layer components the
+   * utility won and `min-touch-coarse` on a small Button did nothing on
+   * touch. A `md:`/`pointer-fine:` variant on the element still overrides
+   * them. For a minimum above 44 px, use `min-w-*` plus
+   * `pointer-coarse:min-h-11` instead: these would cap it at 44 px.
+   */
+
+  /**
+   * .min-touch
+   * Enforces the WCAG 2.2 minimum interactive target (44×44 CSS px) on
+   * mobile, then relaxes on pointer-fine devices (mouse, trackpad) where
+   * 36×36 is acceptable for density.
+   */
+  .min-touch {
+    min-inline-size: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .min-touch {
+      min-inline-size: 2.25rem;
+      min-block-size: 2.25rem;
+    }
+  }
+
+  /**
+   * .min-touch-coarse
+   * Mobile-only variant: enforces the 44×44 minimum on coarse-pointer
+   * devices (touch) but imposes NO minimum on fine pointers, so the
+   * element's own `h-* w-*` decides the desktop visual size.
+   *
+   * Use this for icon buttons inside dense rows where 28–32 px is the
+   * intentional desktop density (refinement criteria, impediment rows,
+   * ceremony-timer trash buttons). The tap area expands on touch devices
+   * via the `min-*` properties without changing the rendered glyph.
+   */
+  .min-touch-coarse {
+    /* No minimum on fine-pointer / unknown devices — explicit size wins. */
+  }
+  @media (pointer: coarse) {
+    .min-touch-coarse {
+      min-inline-size: 2.75rem;
+      min-block-size: 2.75rem;
+    }
   }
 
   /* Active-press state — only on touch devices where no hover exists */
@@ -1057,43 +1142,8 @@ html[data-intro] [data-sonner-toaster] {
     }
   }
 
-  /**
-   * .min-touch
-   * Enforces the WCAG 2.2 minimum interactive target (44×44 CSS px) on
-   * mobile, then relaxes on pointer-fine devices (mouse, trackpad) where
-   * 36×36 is acceptable for density.
-   */
-  .min-touch {
-    min-inline-size: 2.75rem;
-    min-block-size: 2.75rem;
-  }
-  @media (hover: hover) and (pointer: fine) {
-    .min-touch {
-      min-inline-size: 2.25rem;
-      min-block-size: 2.25rem;
-    }
-  }
-
-  /**
-   * .min-touch-coarse
-   * Mobile-only variant: enforces the 44×44 minimum on coarse-pointer
-   * devices (touch) but imposes NO minimum on fine pointers, so the
-   * element's own `h-* w-*` decides the desktop visual size.
-   *
-   * Use this for icon buttons inside dense rows where 28–32 px is the
-   * intentional desktop density (refinement criteria, impediment rows,
-   * ceremony-timer trash buttons). The tap area expands on touch devices
-   * via the `min-*` properties without changing the rendered glyph.
-   */
-  .min-touch-coarse {
-    /* No minimum on fine-pointer / unknown devices — explicit size wins. */
-  }
-  @media (pointer: coarse) {
-    .min-touch-coarse {
-      min-inline-size: 2.75rem;
-      min-block-size: 2.75rem;
-    }
-  }
+  /* .min-touch and .min-touch-coarse live in @layer utilities (MOBILE
+     FOUNDATION, above): here a Button's `min-h-[36px]` beat them. */
 
   /**
    * .btn-danger-ghost

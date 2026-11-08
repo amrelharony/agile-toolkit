@@ -216,7 +216,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
 
   let body: React.ReactNode;
   if (!hydrated) {
-    body = <LoadingSprints />;
+    body = <LoadingSprints tall />;
   } else if (example) {
     body = (
       <ExampleCockpit

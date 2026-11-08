@@ -169,7 +169,7 @@ export function GuestKudosClient({ role, profile, roomKey }: Props) {
   };
 
   return (
-    <div className="min-h-screen px-4 py-4">
+    <div className="min-h-screen-dvh px-4 py-4">
       <div className="mx-auto max-w-6xl space-y-3">
         <header className="flex flex-wrap items-center justify-between gap-3 text-xs">
           <Link

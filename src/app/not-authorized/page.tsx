@@ -26,7 +26,7 @@ export default function NotAuthorizedPage({
   const config = searchParams?.reason === "config";
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-6 py-16">
+    <main className="min-h-screen-dvh flex items-center justify-center px-6 py-16">
       <div className="max-w-md w-full text-center space-y-6">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-destructive/10 text-destructive text-2xl">
           ⊘

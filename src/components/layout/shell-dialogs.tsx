@@ -40,7 +40,8 @@ interface ShellDialogsProps {
   searchOpen: boolean;
   setSearchOpen: Dispatch<SetStateAction<boolean>>;
   trophyOpen: boolean;
-  setTrophyOpen: Dispatch<SetStateAction<boolean>>;
+  /** The trophy case lives in the Activity UI store, so a plain setter. */
+  setTrophyOpen: (open: boolean) => void;
 }
 
 /**

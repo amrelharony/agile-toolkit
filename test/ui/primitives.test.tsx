@@ -17,6 +17,40 @@ describe("IconButton", () => {
     );
     expect(screen.getByRole("button", { name: "Delete row" })).toBeInTheDocument();
   });
+
+  // tailwind-merge keeps the last class of a group: a plain `min-h-6` floor
+  // dropped the icon size's `min-h-[44px]`, and every IconButton was 24×24 on
+  // phones (mobile audit #2).
+  it("keeps the 44 px touch minimum, with the 24 px floor only for a mouse on md+", () => {
+    render(
+      <TooltipProvider>
+        <IconButton label="Delete row" icon={<Trash2 aria-hidden="true" />} />
+      </TooltipProvider>
+    );
+    const classes = screen.getByRole("button", { name: "Delete row" }).className.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(["min-h-[44px]", "min-w-[44px]"]));
+    expect(classes).toEqual(expect.arrayContaining(["md-fine:min-h-6", "md-fine:min-w-6"]));
+    expect(classes).not.toContain("min-h-6");
+    expect(classes).not.toContain("min-w-6");
+    // The floor replaces the size's own md-fine:min-h-0, not the touch minimum.
+    expect(classes).not.toContain("md-fine:min-h-0");
+  });
+
+  it("keeps the touch minimum when a call site makes it smaller on md+", () => {
+    render(
+      <TooltipProvider>
+        <IconButton
+          label="Remove story"
+          icon={<Trash2 aria-hidden="true" />}
+          className="h-7 w-7 md:h-7 md:w-7"
+        />
+      </TooltipProvider>
+    );
+    const classes = screen.getByRole("button", { name: "Remove story" }).className.split(/\s+/);
+    expect(classes).toEqual(
+      expect.arrayContaining(["min-h-[44px]", "min-w-[44px]", "md:h-7", "md:w-7"])
+    );
+  });
 });
 
 describe("ToggleGroup", () => {
@@ -42,6 +76,24 @@ describe("ToggleGroup", () => {
     );
     fireEvent.keyDown(screen.getByRole("radio", { name: "Medium" }), { key: "ArrowRight" });
     expect(onValueChange).toHaveBeenCalledWith(2);
+  });
+
+  it.each(["sm", "md"] as const)("is 44 px tall on touch screens at size %s", (size) => {
+    render(
+      <ToggleGroup
+        label="Impact"
+        options={options}
+        value={1}
+        onValueChange={() => {}}
+        size={size}
+      />
+    );
+    for (const radio of screen.getAllByRole("radio")) {
+      const classes = radio.className.split(/\s+/);
+      expect(classes).toContain("pointer-coarse:min-h-11");
+      // The mouse size stays as it was.
+      expect(classes).toContain(size === "sm" ? "min-h-8" : "min-h-9");
+    }
   });
 });
 

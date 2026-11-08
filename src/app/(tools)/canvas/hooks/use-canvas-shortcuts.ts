@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, type RefObject, type MutableRefObject } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+  type RefObject,
+  type MutableRefObject,
+} from "react";
 import {
   CANVAS_ZOOM_CHORDS,
   defaultCanvasShortcuts,
   makeShortcutHandler,
+  type CanvasShortcutActions,
 } from "@/lib/whiteboard/keyboard";
 import {
   copyObjects,
@@ -29,6 +37,62 @@ import {
 type LogFn = ReturnType<typeof useHistoryLogger>["log"];
 
 type MarqueeStateLike = { initialSelection: string[] } | null;
+
+/**
+ * The board's object actions as plain calls, for the controls a phone
+ * needs because it has no keyboard: Delete / Duplicate on the selection
+ * bar, Undo / Redo by the zoom bar, and the long-press menu. Each one IS
+ * the handler its shortcut runs (Delete, Cmd+D, Cmd+C, Cmd+], Cmd+[,
+ * Cmd+L, Cmd+Z, Cmd+Shift+Z), with the same read-only and mid-gesture
+ * guards, so a button and its key can't drift apart.
+ */
+export interface CanvasObjectActions {
+  deleteSelected: () => void;
+  duplicate: () => void;
+  copy: () => void;
+  bringToFront: () => void;
+  sendToBack: () => void;
+  toggleLock: () => void;
+  undo: () => void;
+  redo: () => void;
+}
+
+/** Every keymap action this hook owns (the zoom chords come from the caller). */
+type BoardHandlers = Omit<
+  CanvasShortcutActions,
+  "setTool" | "zoomIn" | "zoomOut" | "resetZoom" | "fitToContent"
+>;
+
+// The open, editable board's actions, for controls rendered outside
+// WhiteboardCanvas (the zoom bar is a sibling in canvas-client and the
+// guest page). One board is open at a time; like use-undo-stack's
+// `openBoards`, the newest mount wins and only it can clear the slot.
+let openActions: CanvasObjectActions | null = null;
+const openActionsListeners = new Set<() => void>();
+
+function setOpenActions(next: CanvasObjectActions | null) {
+  openActions = next;
+  openActionsListeners.forEach((listener) => listener());
+}
+
+function subscribeOpenActions(listener: () => void) {
+  openActionsListeners.add(listener);
+  return () => {
+    openActionsListeners.delete(listener);
+  };
+}
+
+/**
+ * The open board's object actions, or null while no board is open or it
+ * is read-only (viewer / commenter) — then there is nothing to undo.
+ */
+export function useOpenCanvasActions(): CanvasObjectActions | null {
+  return useSyncExternalStore(
+    subscribeOpenActions,
+    () => openActions,
+    () => null
+  );
+}
 
 /**
  * The big keyboard-shortcut handler.
@@ -61,6 +125,10 @@ type MarqueeStateLike = { initialSelection: string[] } | null;
  * `viewportRef` (WCAG 2.1.4 — see `makeShortcutHandler`'s `scope`). So do
  * the zoom chords (Cmd/Ctrl + = / - / 0 / 1): on the board they drive
  * `zoomActions`, elsewhere they stay the browser's page zoom.
+ *
+ * Returns the object actions (`CanvasObjectActions`) for the phone
+ * buttons and the long-press menu: stable functions that call the very
+ * handlers the keymap runs, read at call time.
  */
 export function useCanvasShortcuts(params: {
   // Refs into live state (read at call time, not bind time)
@@ -150,7 +218,9 @@ export function useCanvasShortcuts(params: {
     zoomActions,
   } = params;
 
-  useEffect(() => {
+  // Every board action, rebuilt when what it reads changes. The keymap
+  // below and the returned object actions both call THESE functions.
+  const handlers = useMemo<BoardHandlers>(() => {
     const bringForward = (step: number) => {
       const liveObjects = objectsRef.current ?? [];
       const sel = liveObjects.filter((o) => selection.includes(o.id));
@@ -246,162 +316,153 @@ export function useCanvasShortcuts(params: {
       (...args: Args) => {
         if (!readOnly) fn(...args);
       };
-    const handler = makeShortcutHandler(
-      defaultCanvasShortcuts({
-        setTool: (t) => setTool(t as CanvasTool),
-        deleteSelected: guardMut(() => {
-          if (selection.length === 0) return;
-          // A live board goes with its cards; a card of a board that stays
-          // can't go (the board would rebuild it), so say where to change it.
-          const { ids, kept, keptFrom } = liveDeletion(selection, objectsRef.current ?? []);
-          if (kept > 0) toast.info(keptLiveNote(keptFrom));
-          if (ids.length === 0) return;
-          pushSnapshot();
-          // Capture types BEFORE the remove for a sane activity summary.
-          const summary =
-            ids.length === 1
-              ? `Deleted ${objectsByIdRef.current?.get(ids[0])?.type ?? "object"}`
-              : `Deleted ${ids.length} objects`;
-          removeMany(ids);
-          log(CANVAS_ACTIONS.OBJECT_REMOVED, { count: ids.length, ids });
-          logActivity("deleted", summary);
-          clearSelection();
-        }),
-        selectAll: () => setSelection((objectsRef.current ?? []).map((o) => o.id)),
-        // A copied live board leaves its cards out: the pasted board
-        // builds its own from the sprint or map, so copies would double up.
-        // A live card copied without its board pastes as a plain card.
-        copy: () => {
-          const all = objectsRef.current ?? [];
-          const sel = all.filter((o) => selection.includes(o.id));
-          if (sel.length > 0) void copyObjects(withoutLiveChildren(sel, all));
-        },
-        cut: guardMut(() => {
-          const all = objectsRef.current ?? [];
-          const { ids, kept, keptFrom } = liveDeletion(selection, all);
-          if (kept > 0) toast.info(keptLiveNote(keptFrom));
-          const cutIds = new Set(ids);
-          const sel = all.filter((o) => cutIds.has(o.id));
-          if (sel.length === 0) return;
-          pushSnapshot();
-          void copyObjects(withoutLiveChildren(sel, all));
-          removeMany(ids);
-          log(CANVAS_ACTIONS.OBJECT_REMOVED, {
-            count: ids.length,
-            ids,
-            action: "cut",
-          });
-          logActivity("cut", sel.length === 1 ? `Cut ${sel[0].type}` : `Cut ${sel.length} objects`);
-          clearSelection();
-        }),
-        paste: guardMut(() => {
-          void (async () => {
-            const pasted = await readClipboardObjects(boardId);
-            if (pasted.length === 0) return;
-            pushSnapshot();
-            // O(1) read via cached topZRef instead of scanning the
-            // entire object list.
-            const topZ = topZRef.current ?? 0;
-            const repositioned = pasted.map((p, i) => ({ ...p, z: topZ + i + 1 }));
-            upsertMany(repositioned);
-            log(CANVAS_ACTIONS.OBJECTS_PASTED, { count: repositioned.length });
-            setSelection(repositioned.map((p) => p.id));
-          })();
-        }),
-        duplicate: guardMut(() => {
-          const all = objectsRef.current ?? [];
-          const sel = withoutLiveChildren(
-            all.filter((o) => selection.includes(o.id)),
-            all
-          );
-          if (sel.length === 0) return;
-          pushSnapshot();
-          const dup = duplicateObjects(sel, boardId);
-          const topZ = topZRef.current ?? 0;
-          const repositioned = dup.map((p, i) => ({ ...p, z: topZ + i + 1 }));
-          upsertMany(repositioned);
-          log(CANVAS_ACTIONS.OBJECTS_PASTED, { count: repositioned.length, action: "duplicate" });
-          setSelection(repositioned.map((p) => p.id));
-        }),
-        bringForward: guardMut(() => bringForward(1)),
-        sendBackward: guardMut(() => bringForward(-1)),
-        toggleLock: guardMut(toggleLock),
-        groupSelection: guardMut(groupSelection),
-        ungroupSelection: guardMut(ungroupSelection),
-        // Guard undo/redo against mid-interaction triggers AND against
-        // readOnly mode (undo can't restore a state the local user
-        // can't write back). If a drag / resize / marquee / drawing is
-        // in flight, the canvas store has ephemeral state pointing at
-        // the *current* object state, and applying an undo snapshot
-        // would leave drag.initialRects referring to ids that may no
-        // longer exist or have mismatched sizes — the rest of the
-        // gesture would corrupt the board. Cancel the in-flight
-        // interaction first; user can hit undo a second time to
-        // actually step back.
-        undo: guardMut(() => {
-          if (drag || resize || rotation || marquee || drawing) return;
-          undo();
-        }),
-        redo: guardMut(() => {
-          if (drag || resize || rotation || marquee || drawing) return;
-          redo();
-        }),
-        cancel: () => {
-          // Single Esc: end whatever interaction is in progress; if none,
-          // clear selection. Keeps the gesture chain predictable.
-          if (drawing) {
-            setDrawing(null);
-            // Clear the wet-ink preview too — without this, Esc mid-
-            // stylus-stroke leaves the half-drawn ink painted on the
-            // overlay canvas (screen-space, so it also stops tracking
-            // pan/zoom) until the next completed stroke resets it.
-            wetInkApiRef.current?.reset();
-            return;
-          }
-          if (pendingConnectorFromId) {
-            setPendingConnectorFromId(null);
-            return;
-          }
-          if (drag) {
-            setDrag(null);
-            return;
-          }
-          if (resize) {
-            setResize(null);
-            return;
-          }
-          if (rotation) {
-            setRotation(null);
-            return;
-          }
-          if (marquee) {
-            if (lassoRafRef.current != null) {
-              cancelAnimationFrame(lassoRafRef.current);
-              lassoRafRef.current = null;
-            }
-            lassoPointsRef.current = null;
-            lastLassoWorldRef.current = null;
-            setSelection([...marquee.initialSelection]);
-            setMarquee(null);
-            return;
-          }
-          if (selection.length > 0) clearSelection();
-        },
-        // Camera only — no guardMut, viewers can zoom too.
-        ...zoomActions,
+    return {
+      deleteSelected: guardMut(() => {
+        if (selection.length === 0) return;
+        // A live board goes with its cards; a card of a board that stays
+        // can't go (the board would rebuild it), so say where to change it.
+        const { ids, kept, keptFrom } = liveDeletion(selection, objectsRef.current ?? []);
+        if (kept > 0) toast.info(keptLiveNote(keptFrom));
+        if (ids.length === 0) return;
+        pushSnapshot();
+        // Capture types BEFORE the remove for a sane activity summary.
+        const summary =
+          ids.length === 1
+            ? `Deleted ${objectsByIdRef.current?.get(ids[0])?.type ?? "object"}`
+            : `Deleted ${ids.length} objects`;
+        removeMany(ids);
+        log(CANVAS_ACTIONS.OBJECT_REMOVED, { count: ids.length, ids });
+        logActivity("deleted", summary);
+        clearSelection();
       }),
-      { scope: () => viewportRef.current, scopedChords: CANVAS_ZOOM_CHORDS }
-    );
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+      selectAll: () => setSelection((objectsRef.current ?? []).map((o) => o.id)),
+      // A copied live board leaves its cards out: the pasted board
+      // builds its own from the sprint or map, so copies would double up.
+      // A live card copied without its board pastes as a plain card.
+      copy: () => {
+        const all = objectsRef.current ?? [];
+        const sel = all.filter((o) => selection.includes(o.id));
+        if (sel.length > 0) void copyObjects(withoutLiveChildren(sel, all));
+      },
+      cut: guardMut(() => {
+        const all = objectsRef.current ?? [];
+        const { ids, kept, keptFrom } = liveDeletion(selection, all);
+        if (kept > 0) toast.info(keptLiveNote(keptFrom));
+        const cutIds = new Set(ids);
+        const sel = all.filter((o) => cutIds.has(o.id));
+        if (sel.length === 0) return;
+        pushSnapshot();
+        void copyObjects(withoutLiveChildren(sel, all));
+        removeMany(ids);
+        log(CANVAS_ACTIONS.OBJECT_REMOVED, {
+          count: ids.length,
+          ids,
+          action: "cut",
+        });
+        logActivity("cut", sel.length === 1 ? `Cut ${sel[0].type}` : `Cut ${sel.length} objects`);
+        clearSelection();
+      }),
+      paste: guardMut(() => {
+        void (async () => {
+          const pasted = await readClipboardObjects(boardId);
+          if (pasted.length === 0) return;
+          pushSnapshot();
+          // O(1) read via cached topZRef instead of scanning the
+          // entire object list.
+          const topZ = topZRef.current ?? 0;
+          const repositioned = pasted.map((p, i) => ({ ...p, z: topZ + i + 1 }));
+          upsertMany(repositioned);
+          log(CANVAS_ACTIONS.OBJECTS_PASTED, { count: repositioned.length });
+          setSelection(repositioned.map((p) => p.id));
+        })();
+      }),
+      duplicate: guardMut(() => {
+        const all = objectsRef.current ?? [];
+        const sel = withoutLiveChildren(
+          all.filter((o) => selection.includes(o.id)),
+          all
+        );
+        if (sel.length === 0) return;
+        pushSnapshot();
+        const dup = duplicateObjects(sel, boardId);
+        const topZ = topZRef.current ?? 0;
+        const repositioned = dup.map((p, i) => ({ ...p, z: topZ + i + 1 }));
+        upsertMany(repositioned);
+        log(CANVAS_ACTIONS.OBJECTS_PASTED, { count: repositioned.length, action: "duplicate" });
+        setSelection(repositioned.map((p) => p.id));
+      }),
+      bringForward: guardMut(() => bringForward(1)),
+      sendBackward: guardMut(() => bringForward(-1)),
+      toggleLock: guardMut(toggleLock),
+      groupSelection: guardMut(groupSelection),
+      ungroupSelection: guardMut(ungroupSelection),
+      // Guard undo/redo against mid-interaction triggers AND against
+      // readOnly mode (undo can't restore a state the local user
+      // can't write back). If a drag / resize / marquee / drawing is
+      // in flight, the canvas store has ephemeral state pointing at
+      // the *current* object state, and applying an undo snapshot
+      // would leave drag.initialRects referring to ids that may no
+      // longer exist or have mismatched sizes — the rest of the
+      // gesture would corrupt the board. Cancel the in-flight
+      // interaction first; user can hit undo a second time to
+      // actually step back.
+      undo: guardMut(() => {
+        if (drag || resize || rotation || marquee || drawing) return;
+        undo();
+      }),
+      redo: guardMut(() => {
+        if (drag || resize || rotation || marquee || drawing) return;
+        redo();
+      }),
+      cancel: () => {
+        // Single Esc: end whatever interaction is in progress; if none,
+        // clear selection. Keeps the gesture chain predictable.
+        if (drawing) {
+          setDrawing(null);
+          // Clear the wet-ink preview too — without this, Esc mid-
+          // stylus-stroke leaves the half-drawn ink painted on the
+          // overlay canvas (screen-space, so it also stops tracking
+          // pan/zoom) until the next completed stroke resets it.
+          wetInkApiRef.current?.reset();
+          return;
+        }
+        if (pendingConnectorFromId) {
+          setPendingConnectorFromId(null);
+          return;
+        }
+        if (drag) {
+          setDrag(null);
+          return;
+        }
+        if (resize) {
+          setResize(null);
+          return;
+        }
+        if (rotation) {
+          setRotation(null);
+          return;
+        }
+        if (marquee) {
+          if (lassoRafRef.current != null) {
+            cancelAnimationFrame(lassoRafRef.current);
+            lassoRafRef.current = null;
+          }
+          lassoPointsRef.current = null;
+          lastLassoWorldRef.current = null;
+          setSelection([...marquee.initialSelection]);
+          setMarquee(null);
+          return;
+        }
+        if (selection.length > 0) clearSelection();
+      },
+    };
     // Refs (objectsRef, objectsByIdRef, topZRef, lassoRafRef,
-    // lassoPointsRef, lastLassoWorldRef, viewportRef) are deliberately omitted —
-    // they are stable identities and reading them at call time is the
-    // whole point. Adding them to the dep array would change nothing
-    // behaviourally but would clutter the warning surface.
+    // lassoPointsRef, lastLassoWorldRef, wetInkApiRef) are deliberately
+    // omitted — they are stable identities and reading them at call time
+    // is the whole point. Adding them to the dep array would change
+    // nothing behaviourally but would clutter the warning surface.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    setTool,
     selection,
     removeMany,
     upsertMany,
@@ -426,6 +487,50 @@ export function useCanvasShortcuts(params: {
     undo,
     redo,
     readOnly,
-    zoomActions,
   ]);
+
+  useEffect(() => {
+    const handler = makeShortcutHandler(
+      defaultCanvasShortcuts({
+        setTool: (t) => setTool(t as CanvasTool),
+        ...handlers,
+        // Camera only — no guardMut, viewers can zoom too.
+        ...zoomActions,
+      }),
+      { scope: () => viewportRef.current, scopedChords: CANVAS_ZOOM_CHORDS }
+    );
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handlers, setTool, zoomActions, viewportRef]);
+
+  // Stable wrappers that call the CURRENT handlers, so the buttons and
+  // the menu (PropertyPanel is memoised) don't re-render on every
+  // selection or gesture change just because the handlers were rebuilt.
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+  const actions = useMemo<CanvasObjectActions>(
+    () => ({
+      deleteSelected: () => handlersRef.current.deleteSelected(),
+      duplicate: () => handlersRef.current.duplicate(),
+      copy: () => handlersRef.current.copy(),
+      bringToFront: () => handlersRef.current.bringForward(),
+      sendToBack: () => handlersRef.current.sendBackward(),
+      toggleLock: () => handlersRef.current.toggleLock(),
+      undo: () => handlersRef.current.undo(),
+      redo: () => handlersRef.current.redo(),
+    }),
+    []
+  );
+
+  // Publish them for the zoom bar's Undo / Redo while this board is open
+  // and editable.
+  useEffect(() => {
+    if (readOnly) return;
+    setOpenActions(actions);
+    return () => {
+      if (openActions === actions) setOpenActions(null);
+    };
+  }, [actions, readOnly]);
+
+  return actions;
 }

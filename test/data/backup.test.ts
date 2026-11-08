@@ -22,6 +22,15 @@ describe("toolkit backup", () => {
     expect(isBackupKey("someone-else:key")).toBe(false);
   });
 
+  it("keeps the Activity inbox out, so a restore can't bring back stale unread rows", () => {
+    expect(isBackupKey("agile-toolkit:activity")).toBe(false);
+    // Moments still waiting for Amr belong to this browser too.
+    expect(isBackupKey("agile-toolkit:moments")).toBe(false);
+    // Notification preferences and the gamification profile do travel.
+    expect(isBackupKey("agile-toolkit:notification-prefs")).toBe(true);
+    expect(isBackupKey("agile-toolkit:vdna")).toBe(true);
+  });
+
   it("keeps the comics count marks out of a backup, in both directions", () => {
     const mark = "agile-toolkit:comics:entry:poster:12:3";
     expect(isBackupKey(mark)).toBe(false);

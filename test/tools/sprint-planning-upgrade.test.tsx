@@ -60,6 +60,7 @@ import {
   validateStory,
 } from "@/app/(tools)/sprint-planning/view";
 import { planToMarkdown } from "@/app/(tools)/sprint-planning/markdown";
+import { StoryList } from "@/app/(tools)/sprint-planning/story-list";
 import { buildExample } from "@/app/(tools)/sprint-planning/example";
 import {
   createExampleStore,
@@ -1008,5 +1009,201 @@ describe("story sources", () => {
     expect(link).toHaveAttribute("href", "/jtbd-mapper");
     // Stories with no source show no link.
     expect(screen.getAllByRole("link", { name: /^From / })).toHaveLength(1);
+  });
+});
+
+/* ── Touch targets (mobile audit, findings 13 and 54) ───────────────── */
+
+describe("story rows on a touch screen", () => {
+  const classesOf = (el: Element | null) => (el?.getAttribute("class") ?? "").split(/\s+/);
+  const backlogRow = (title: string) =>
+    within(screen.getByRole("list", { name: "Backlog" }))
+      .getByText(title)
+      .closest("li")!;
+
+  it("pads the sprint box out to a 44px label on touch, laid out as the 16px box", () => {
+    renderPlanning();
+    const box = screen.getByLabelText("Add to sprint: Remove a saved card");
+    const label = box.closest("label");
+    expect(label).not.toBeNull();
+    // The box is all the label holds: its name stays the box's own.
+    expect(label?.textContent).toBe("");
+    expect(box).toHaveAccessibleName("Add to sprint: Remove a saved card");
+    // 12 + 16 + 16 across and 12 + 4 + 16 + 12 down, given back by margins
+    // except 4 px on the right: the row's gap is 12 px, so -mr-4 would leave
+    // the label's last 4 px under the title, which paints later and takes
+    // the tap. With -mr-3 the padding ends where the title starts.
+    expect(classesOf(label)).toEqual(
+      expect.arrayContaining([
+        "pointer-coarse:pl-3",
+        "pointer-coarse:pr-4",
+        "pointer-coarse:py-3",
+        "pointer-coarse:-ml-3",
+        "pointer-coarse:-mr-3",
+        "pointer-coarse:-my-3",
+      ])
+    );
+    expect(classesOf(label)).not.toContain("pointer-coarse:-mr-4");
+    // A mouse gets the same 16px box as before: nothing unscoped pads it.
+    expect(classesOf(label).filter((c) => /^-?[mp][xytblr]?-/.test(c))).toEqual([]);
+    expect(classesOf(box)).toEqual(expect.arrayContaining(["h-4", "w-4"]));
+  });
+
+  it("ticks a story in or out of the sprint from the box's label", () => {
+    renderPlanning();
+    const label = screen.getByLabelText("Add to sprint: Remove a saved card").closest("label")!;
+    fireEvent.click(label);
+    expect(story("b1")?.sprintId).toBe("s2");
+
+    const out = screen.getByLabelText("Remove from sprint: Remove a saved card").closest("label")!;
+    fireEvent.click(out);
+    expect(story("b1")?.sprintId).toBeUndefined();
+  });
+
+  it("doesn't move a done story when its label is tapped", () => {
+    renderPlanning();
+    const done = screen.getByLabelText("Done, stays in the sprint: Receipts");
+    expect(done).toBeDisabled();
+    fireEvent.click(done.closest("label")!);
+    expect(story("in-done")?.sprintId).toBe("s2");
+  });
+
+  it("keeps the points field 44px tall on touch and narrower on a phone", () => {
+    renderPlanning();
+    const points = classesOf(screen.getByLabelText("Points for Remove a saved card"));
+    // Input's own 44px phone height and 36px md height now apply (h-8 cut it
+    // to 32px on phones), and md:pointer-coarse: keeps 44px on a touch
+    // screen that is md-wide; a bare pointer-coarse: would lose to md:h-9.
+    expect(points).toEqual(expect.arrayContaining(["h-11", "md:pointer-coarse:h-11"]));
+    // Input's md height: md:h-9, or pointer-fine:md:h-9 once Input only shrinks for a mouse.
+    expect(points.some((c: string) => /(^|:)md:h-9$/.test(c))).toBe(true);
+    expect(points).not.toContain("h-8");
+    // 56px below sm gives the title back 24px; 80px from sm up, as before.
+    expect(points).toEqual(expect.arrayContaining(["w-14", "sm:w-20", "px-2", "sm:px-3"]));
+    expect(points).not.toContain("w-20");
+  });
+
+  it("gives the Not refined link a 44px touch height and keeps the chip inside it", () => {
+    renderPlanning();
+    const link = within(backlogRow("Remove a saved card")).getByRole("link", {
+      name: "Not refined: refine “Remove a saved card”",
+    });
+    expect(link).toHaveAttribute("href", "/refinement");
+    expect(classesOf(link)).toContain("pointer-coarse:min-h-11");
+    // The chip is drawn by the inner span, so the taller link doesn't stretch it.
+    expect(classesOf(link)).not.toContain("border");
+    const chip = link.firstElementChild;
+    expect(classesOf(chip)).toEqual(expect.arrayContaining(["border", "border-border", "px-1.5"]));
+    expect(classesOf(chip)).toContain("group-focus-visible:ring-2");
+  });
+
+  it("gives the edit button 44px on touch at any width without widening its place", () => {
+    renderPlanning();
+    const edit = within(backlogRow("Remove a saved card")).getByRole("button", {
+      name: "Edit Remove a saved card",
+    });
+    const cls = classesOf(edit);
+    expect(cls).toEqual(
+      expect.arrayContaining([
+        "h-7",
+        "w-7",
+        "pointer-coarse:min-h-11",
+        "pointer-coarse:min-w-11",
+        // Button size="icon" sets md:min-h-0, which a bare pointer-coarse: loses to.
+        "md:pointer-coarse:min-h-11",
+        "md:pointer-coarse:min-w-11",
+        // 44 - 2 × 8 = the 28px it takes up today, so the title keeps its width.
+        "pointer-coarse:-mx-2",
+        "pointer-coarse:-mt-2",
+      ])
+    );
+  });
+});
+
+/* ── Phone layout (mobile audit, finding 54) ────────────────────────── */
+
+describe("story rows on a phone", () => {
+  const classesOf = (el: Element | null) => (el?.getAttribute("class") ?? "").split(/\s+/);
+  // Any grid placement that isn't scoped to phones would move a cell on desktop.
+  const unscopedPlacement = (el: Element | null) =>
+    classesOf(el).filter((c) => /^(?:col|row)-/.test(c) || c === "grid" || c === "contents");
+  const backlogRow = (title: string) =>
+    within(screen.getByRole("list", { name: "Backlog" }))
+      .getByText(title)
+      .closest("li")!;
+
+  it("gives the title the row's width and puts the points beside the meta line", () => {
+    renderPlanning();
+    const row = backlogRow("Remove a saved card");
+    const layout = row.firstElementChild!;
+    // A flex row from sm up, as before; a three-column grid below sm.
+    expect(classesOf(layout)).toEqual(
+      expect.arrayContaining([
+        "flex",
+        "gap-3",
+        "max-sm:grid",
+        "max-sm:grid-cols-[auto_minmax(0,1fr)_auto]",
+      ])
+    );
+    const titleLine = within(row).getByRole("button", {
+      name: "Edit Remove a saved card",
+    }).parentElement!;
+    // The title spans the middle and points columns of the first line.
+    expect(classesOf(titleLine)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-2", "max-sm:col-end-4", "max-sm:row-start-1"])
+    );
+    // Its wrapper keeps its flex-1 column from sm up and drops out below.
+    const column = titleLine.parentElement!;
+    expect(classesOf(column)).toEqual(
+      expect.arrayContaining(["min-w-0", "flex-1", "max-sm:contents"])
+    );
+    const metaLine = within(row).getByText("Ann").closest("p")!;
+    expect(classesOf(metaLine)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-2", "max-sm:row-start-2"])
+    );
+    const points = within(row).getByLabelText("Points for Remove a saved card");
+    expect(classesOf(points)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-3", "max-sm:row-start-2"])
+    );
+    for (const el of [layout, titleLine, column, metaLine, points]) {
+      expect(unscopedPlacement(el)).toEqual([]);
+    }
+  });
+
+  it("gives the title editor the same cell", () => {
+    renderPlanning();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Remove a saved card" }));
+    const editor = screen.getByRole("group", { name: "Edit Remove a saved card" });
+    expect(classesOf(editor)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-2", "max-sm:col-end-4", "max-sm:row-start-1"])
+    );
+    expect(unscopedPlacement(editor)).toEqual([]);
+  });
+
+  it("keeps the points on the title's line when the row has no meta line", () => {
+    render(
+      <TooltipProvider>
+        <StoryList
+          stories={[{ id: "d1", title: "Shipped", status: "done", sprintId: "s2", points: 3 }]}
+          checked
+          onToggle={() => {}}
+          onPoints={() => {}}
+          onRename={() => {}}
+          label="Sprint"
+          listKey="sprint"
+        />
+      </TooltipProvider>
+    );
+    const row = screen.getByText("Shipped").closest("li")!;
+    expect(row.querySelector("p")).toBeNull();
+    const titleLine = within(row).getByRole("button", { name: "Edit Shipped" }).parentElement!;
+    expect(classesOf(titleLine)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-2", "max-sm:row-start-1"])
+    );
+    expect(classesOf(titleLine)).not.toContain("max-sm:col-end-4");
+    const points = within(row).getByLabelText("Points for Shipped");
+    expect(classesOf(points)).toEqual(
+      expect.arrayContaining(["max-sm:col-start-3", "max-sm:row-start-1"])
+    );
   });
 });

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 export default function SignInPage() {
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center px-6 py-12 gap-10">
+    <main className="min-h-screen-dvh flex flex-col items-center justify-center px-6 py-12 gap-10">
       {/* Brand: logo + title above the card. text-text gets the theme's
           primary foreground; the AT.svg is dark-mode optimised but still
           legible against the light/HC themes thanks to its rounded white-

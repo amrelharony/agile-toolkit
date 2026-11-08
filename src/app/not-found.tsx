@@ -46,7 +46,9 @@ export default function NotFound() {
           (<kbd className="font-mono text-xs">⌘K</kbd> on a Mac), or pick one of these:
         </p>
 
-        <ul className="mt-6 grid gap-2 sm:grid-cols-2">
+        {/* grid-cols-1 (a minmax(0,1fr) track) so the truncated descriptions
+            clip on phones; an implicit auto track grew to their full width. */}
+        <ul className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {tools.map((tool) => (
             <li key={tool.id}>
               <Link

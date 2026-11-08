@@ -601,7 +601,7 @@ export function TechRadarClient() {
                               variant="ghost"
                               size="icon"
                               onClick={() => removeBlip(b.id)}
-                              className="sm:min-h-0 sm:min-w-0 sm:h-7 sm:w-7 p-0 text-sub hover:text-danger"
+                              className="p-0 text-sub hover:text-danger"
                               aria-label={`Remove ${b.name}`}
                             >
                               <Trash2 className="w-4 h-4 sm:w-3 sm:h-3" />
