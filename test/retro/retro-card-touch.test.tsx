@@ -71,6 +71,11 @@ function renderCard(
 
 /** Any utility min-height/min-width (min-h-6, md:min-h-0, …) outranks min-touch-coarse. */
 const UTILITY_MIN = /(?:^|\s)(?:[\w-]+:)*min-[hw]-/;
+/**
+ * A hover tint any pointer gets. Phones keep :hover after a tap, so on the
+ * 44×44 box it would stay as a big tinted square: tints are pointer-fine only.
+ */
+const UNGUARDED_HOVER_BG = /(?:^|\s)hover:bg-/;
 
 function expectTouchSized(button: HTMLElement) {
   expect(button).toHaveClass(
@@ -81,6 +86,7 @@ function expectTouchSized(button: HTMLElement) {
     "justify-center"
   );
   expect(button.className).not.toMatch(UTILITY_MIN);
+  expect(button.className).not.toMatch(UNGUARDED_HOVER_BG);
 }
 
 describe("Retro card controls: touch sizing", () => {
@@ -89,8 +95,8 @@ describe("Retro card controls: touch sizing", () => {
     renderCard("vote", { onVote });
     const vote = screen.getByRole("button", { name: /vote for this card/ });
     expectTouchSized(vote);
-    // The visible pill keeps its desktop padding.
-    expect(vote).toHaveClass("px-1.5", "py-0.5");
+    // The visible pill keeps its desktop padding and, with a mouse, its tint.
+    expect(vote).toHaveClass("px-1.5", "py-0.5", "pointer-fine:hover:bg-accent-magenta/10");
     fireEvent.click(vote);
     expect(onVote).toHaveBeenCalledWith("a");
   });
@@ -109,7 +115,7 @@ describe("Retro card controls: touch sizing", () => {
     renderCard("discuss");
     const edit = screen.getByRole("button", { name: "Edit card" });
     expectTouchSized(edit);
-    expect(edit).toHaveClass("h-6", "w-6", "relative", "z-10");
+    expect(edit).toHaveClass("h-6", "w-6", "relative", "z-10", "pointer-fine:hover:bg-accent/10");
     // Still sounds and ticks like the ghost Button it was (sonification + haptics routers).
     expect(edit).toHaveAttribute("data-variant", "ghost");
     expect(edit).toHaveAttribute("data-haptic", "tick");

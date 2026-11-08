@@ -58,7 +58,9 @@ export const RETRO_ACTION_ROUTES = ["impediment", "kanban"] as const;
  * height to the card's padding, so the row doesn't get taller. Fine pointers
  * keep the small desktop size. These are plain buttons on purpose: a utility
  * min-height (IconButton's min-h-6, Button's md:min-h-0) would outrank the
- * coarse minimum.
+ * coarse minimum. A hover tint on one of them is pointer-fine only: phones
+ * keep :hover after a tap, and on the 44×44 box it would linger as a big
+ * tinted square around a small glyph.
  */
 const CARD_ICON_TOUCH =
   "min-touch-coarse pointer-coarse:-my-3 inline-flex items-center justify-center";
@@ -231,7 +233,7 @@ export function RetroCardItem({
               // The ghost Button's sound and haptic tick, which it had as an IconButton.
               data-variant="ghost"
               data-haptic="tick"
-              className={`relative z-10 ${CARD_ICON_TOUCH} h-6 w-6 p-1 rounded-md text-sub transition-colors active-press hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100`}
+              className={`relative z-10 ${CARD_ICON_TOUCH} h-6 w-6 p-1 rounded-md text-sub transition-colors active-press pointer-fine:hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100`}
             >
               <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
@@ -260,7 +262,7 @@ export function RetroCardItem({
               aria-label={`${votesLabel}, vote for this card`}
               className={`relative z-10 ${CARD_ICON_TOUCH} gap-1 px-1.5 py-0.5 rounded text-xs transition-all ${
                 phase === "vote" && canVote
-                  ? "text-sub hover:text-accent-magenta hover:bg-accent-magenta/10 cursor-pointer"
+                  ? "text-sub hover:text-accent-magenta pointer-fine:hover:bg-accent-magenta/10 cursor-pointer"
                   : phase === "vote" && !canVote
                     ? "text-sub cursor-not-allowed opacity-50"
                     : "text-sub cursor-default"
