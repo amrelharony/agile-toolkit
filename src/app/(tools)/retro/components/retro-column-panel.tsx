@@ -301,7 +301,7 @@ export function RetroColumnPanel({
                   }}
                   placeholder="Add a card…"
                   maxLength={maxCardLength}
-                  className="md:h-8 md:text-xs bg-cardH border-border text-text placeholder:text-sub focus:border-accent-cyan/50"
+                  className="pointer-fine:md:h-8 pointer-fine:md:text-xs bg-cardH border-border text-text placeholder:text-sub focus:border-accent-cyan/50"
                 />
               )}
             </Field>

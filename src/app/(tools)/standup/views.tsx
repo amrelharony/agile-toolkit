@@ -228,7 +228,7 @@ export function HistoryView({
   const dayExportId = useId();
   const weekExportId = useId();
   const select =
-    "h-11 max-w-full rounded-md border border-border bg-surface-deep px-3 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent md:h-9";
+    "h-11 max-w-full rounded-md border border-border bg-surface-deep px-3 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent pointer-fine:md:h-9";
 
   return (
     <div className="space-y-4">
