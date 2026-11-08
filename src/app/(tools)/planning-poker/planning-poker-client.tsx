@@ -52,6 +52,7 @@ import { loggedQueueStoryIds, planBacklogSave, planSize, savedCount } from "./ba
 import { useCardReferences } from "./use-card-references";
 import { toMarkdown } from "./markdown";
 import { generateRoomCode } from "./room-code";
+import { signalGamification } from "@/lib/gamification/signal";
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -180,6 +181,7 @@ export function PlanningPokerClient() {
     setVisitorRoom({ code, identity });
     setPendingInitial(initial);
     setActiveRoomCode(code);
+    signalGamification("invite-created", { toolId: "planning-poker" });
   };
 
   // The room never connected (or the visitor changed their mind): back to
@@ -366,6 +368,7 @@ export function PlanningPokerClient() {
     };
     setPendingInitial(initial);
     setActiveRoomCode(code);
+    signalGamification("invite-created", { toolId: "planning-poker" });
   };
 
   const handleLeave = () => {

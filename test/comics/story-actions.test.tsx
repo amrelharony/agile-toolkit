@@ -8,11 +8,18 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 const h = vi.hoisted(() => ({
   dispatched: [] as { name: string; meta?: Record<string, unknown> }[],
+  outcomes: [] as { id: string; opts?: Record<string, unknown> }[],
   hydrated: true,
 }));
 
 vi.mock("@/lib/gamification/engine", () => ({
   dispatch: (event: { name: string; meta?: Record<string, unknown> }) => h.dispatched.push(event),
+}));
+vi.mock("@/lib/gamification/ledger", () => ({
+  recordOutcome: (id: string, opts?: Record<string, unknown>) => {
+    h.outcomes.push({ id, opts });
+    return { awarded: true, xp: 15, reason: "awarded" };
+  },
 }));
 vi.mock("@/lib/team/use-team-roster", () => ({ useWorkspaceHydrated: () => h.hydrated }));
 
@@ -58,6 +65,7 @@ function setVisibility(state: DocumentVisibilityState) {
 beforeEach(() => {
   localStorage.clear();
   h.dispatched = [];
+  h.outcomes = [];
   h.hydrated = true;
   useWorkspaceStore.setState({ retroBoards: [] });
   vi.stubGlobal("IntersectionObserver", FakeObserver);
@@ -169,6 +177,8 @@ describe("reading a story", () => {
     expect(h.dispatched).toEqual([
       { name: "tool:comics:completed", meta: { ep: 30, total: 1, weekStreak: 1 } },
     ]);
+    // XP comes from the ledger, once per story.
+    expect(h.outcomes).toEqual([{ id: "story-read", opts: { key: "story:30", meta: { ep: 30 } } }]);
     expect(useMascotStore.getState().reactionQueue).toEqual(["excited"]);
   });
 
@@ -192,6 +202,7 @@ describe("reading a story", () => {
     act(() => show(true));
     act(() => vi.advanceTimersByTime(READ_DWELL_MS));
     expect(h.dispatched.filter((e) => e.name === "tool:comics:completed")).toHaveLength(1);
+    expect(h.outcomes).toHaveLength(1);
   });
 
   it("goes by where the end is now when one callback brings several changes", () => {

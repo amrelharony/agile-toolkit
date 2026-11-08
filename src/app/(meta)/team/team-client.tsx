@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { SectionCard } from "@/components/shared/section-card";
 import { EmptyState } from "@/components/shared/empty-state";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { getToolById } from "@/lib/constants/tools";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TeamMember } from "@/lib/stores/workspace-types";
@@ -416,9 +417,11 @@ export function TeamClient() {
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         {!hydrated ? (
-          <p className="p-4 text-sm text-sub" aria-busy="true">
+          // Capped near the empty state's height (~285 px on phones): a full
+          // 60svh pulled "Where the team list is used" up into view on hydration.
+          <WorkspaceLoading className="max-md:min-h-[min(60svh,20rem)]">
             Loading your team…
-          </p>
+          </WorkspaceLoading>
         ) : showEmpty ? (
           <EmptyState
             icon={Users}

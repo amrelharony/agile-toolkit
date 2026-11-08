@@ -46,6 +46,116 @@ describe("undoable", () => {
   });
 });
 
+describe("undoable — toast contract (characterization)", () => {
+  it("shows the label through the plain toast with an 8 s default and the description", () => {
+    toastSpy.mockReturnValueOnce("t1");
+    const id = undoable({
+      label: "Item deleted",
+      description: "From the backlog",
+      apply: () => {},
+      revert: () => {},
+    });
+    expect(id).toBe("t1");
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+    const [label, opts] = toastSpy.mock.calls[0];
+    expect(label).toBe("Item deleted");
+    expect(opts).toMatchObject({ description: "From the backlog", duration: 8000 });
+    // The toast policy's undo kind: always shown, close button, never merged.
+    expect(opts.kind).toBe("undo");
+    expect(typeof opts.onDismiss).toBe("function");
+    expect(typeof opts.onAutoClose).toBe("function");
+  });
+
+  it("is an undo toast with no id by default", () => {
+    undoable({ label: "Deleted", apply: () => {}, revert: () => {} });
+    const opts = toastSpy.mock.calls[0][1];
+    expect(opts.kind).toBe("undo");
+    expect("id" in opts).toBe(false);
+  });
+
+  it("a change that destroys nothing is a success that keeps its Undo, 8 s and id", () => {
+    let undone = false;
+    undoable({
+      label: "Added “x” to the backlog",
+      kind: "success",
+      id: "backlog:b1",
+      apply: () => {},
+      revert: () => (undone = true),
+    });
+    const [label, opts] = toastSpy.mock.calls[0];
+    expect(label).toBe("Added “x” to the backlog");
+    expect(opts).toMatchObject({ kind: "success", id: "backlog:b1", duration: 8000 });
+    opts.action.onClick();
+    expect(undone).toBe(true);
+  });
+
+  it("every Undo toast has a close button, whatever its kind", () => {
+    undoable({ label: "Deleted", apply: () => {}, revert: () => {} });
+    undoable({ label: "Sent", kind: "success", id: "c:1", apply: () => {}, revert: () => {} });
+    expect(toastSpy.mock.calls[0][1].closeButton).toBe(true);
+    expect(toastSpy.mock.calls[1][1].closeButton).toBe(true);
+  });
+
+  it("a toast id reused while open chains the reverts, newest first", () => {
+    const log: string[] = [];
+    const run = (n: number) =>
+      undoable({
+        label: "Updated “x” in the backlog",
+        kind: "success",
+        id: "chain:a",
+        apply: () => log.push(`apply${n}`),
+        revert: () => log.push(`revert${n}`),
+      });
+    run(1);
+    run(2);
+    // The second call updated the first toast in place: its Undo covers both.
+    toastSpy.mock.calls[1][1].action.onClick();
+    expect(log).toEqual(["apply1", "apply2", "revert2", "revert1"]);
+  });
+
+  it("a closed or undone toast starts a fresh chain", () => {
+    const log: string[] = [];
+    const run = (n: number) =>
+      undoable({
+        label: "Sent",
+        kind: "success",
+        id: "chain:b",
+        apply: () => {},
+        revert: () => log.push(`revert${n}`),
+      });
+    run(1);
+    toastSpy.mock.calls[0][1].onAutoClose();
+    run(2);
+    toastSpy.mock.calls[1][1].action.onClick();
+    expect(log).toEqual(["revert2"]);
+    run(3);
+    toastSpy.mock.calls[2][1].action.onClick();
+    expect(log).toEqual(["revert2", "revert3"]);
+  });
+
+  it("honours a custom duration", () => {
+    undoable({ label: "Cleared", apply: () => {}, revert: () => {}, durationMs: 12_000 });
+    expect(toastSpy.mock.calls[0][1].duration).toBe(12_000);
+  });
+
+  it("applies before the toast appears, and a manual dismiss forgets the toast", () => {
+    // Clear toasts earlier tests left open in the module-level set.
+    dismissUndoToasts();
+    toastSpy.dismiss.mockReset();
+    const order: string[] = [];
+    toastSpy.mockImplementationOnce(() => {
+      order.push("toast");
+      return "t9";
+    });
+    undoable({ label: "Deleted", apply: () => order.push("apply"), revert: () => {} });
+    expect(order).toEqual(["apply", "toast"]);
+
+    toastSpy.mock.calls[0][1].onDismiss();
+    dismissUndoToasts();
+    expect(toastSpy.dismiss).not.toHaveBeenCalled();
+  });
+});
+
 describe("removeWithUndo", () => {
   /** A functional setter over a plain variable, like a useState setter. */
   function listState<T>(initial: T[]) {

@@ -41,6 +41,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Calculator, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { signalGamification } from "@/lib/gamification/signal";
 import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
 import {
   clearVisitorIdentity,
@@ -385,6 +386,7 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
           setConsentOpen(false);
           setTally(false);
           setLive({ code, identity, startedAt: Date.now() });
+          signalGamification("invite-created", { toolId: tool });
         }}
       />
     </div>

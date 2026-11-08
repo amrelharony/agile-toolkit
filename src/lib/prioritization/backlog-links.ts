@@ -41,6 +41,12 @@ function shortName(name: string, max = 40): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
+/**
+ * A write to the backlog destroys nothing, so its toast is a success (with
+ * Undo), one per backlog item: dragging a row a few times updates one toast.
+ */
+const writeToast = (itemId: string) => ({ kind: "success" as const, id: `backlog:${itemId}` });
+
 const normalize = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
 
 const findBacklogItem = (id: string) => (ws().backlogItems ?? []).find((b) => b.id === id);
@@ -214,6 +220,7 @@ export function linkNewRow(
     const baseline = undoBaseline(item);
     undoable({
       label: `Updated “${shortName(item.name)}” in the backlog`,
+      ...writeToast(item.id),
       apply: () => {
         written = applyInputs(item, changes);
       },
@@ -282,6 +289,7 @@ export function saveMethodRow(
   const baseline = undoBaseline(item);
   undoable({
     label: opts.label ?? `Updated “${shortName(item.name)}” in the backlog`,
+    ...writeToast(item.id),
     apply: () => {
       ws().upsertPrioritization(nextRow);
       written = applyInputs(item, changes, rowId);
@@ -324,6 +332,7 @@ export function addRowToBacklog(row: PrioritizationItem): string {
     const baseline = undoBaseline(existing);
     undoable({
       label: `Linked “${shortName(row.title)}” to the backlog`,
+      ...writeToast(existing.id),
       apply: () => {
         written = applyInputs(existing, changes);
         linkRow(existing.id);
@@ -339,6 +348,7 @@ export function addRowToBacklog(row: PrioritizationItem): string {
   const item = createBacklogItem(row.title, patch);
   undoable({
     label: `Added “${shortName(row.title)}” to the backlog`,
+    ...writeToast(item.id),
     apply: () => {
       ws().upsertBacklogItem(item);
       linkRow(item.id);

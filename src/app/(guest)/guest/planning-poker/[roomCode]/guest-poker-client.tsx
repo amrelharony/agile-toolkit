@@ -58,7 +58,7 @@ function GuestPokerInner({ roomCode, role, profile }: Props) {
 
   if (!session) {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center gap-4">
+      <main className="min-h-screen-dvh flex flex-col items-center justify-center gap-4">
         <div className="flex items-center gap-2 text-sub text-sm">
           <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
           Waiting for the host to start the session…
@@ -83,7 +83,7 @@ function GuestPokerInner({ roomCode, role, profile }: Props) {
   }
 
   return (
-    <div className="min-h-screen px-4 py-4">
+    <div className="min-h-screen-dvh px-4 py-4">
       <div className="mx-auto max-w-6xl space-y-3">
         <header className="flex flex-wrap items-center justify-between gap-3 text-xs">
           <Link

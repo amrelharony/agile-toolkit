@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { SectionCard } from "@/components/shared/section-card";
 import { ChartFigure } from "@/components/shared/chart-card";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import {
   ExampleNotice,
@@ -420,14 +421,7 @@ export function RetroActionsTracker() {
   };
 
   if (!hydrated) {
-    return (
-      <p
-        role="status"
-        className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
-      >
-        Loading retro actions…
-      </p>
-    );
+    return <WorkspaceLoading>Loading retro actions…</WorkspaceLoading>;
   }
 
   return (

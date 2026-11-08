@@ -8,11 +8,18 @@ import type {
   HapticPatternName,
 } from "./types";
 import { isEssential } from "./patterns";
+import { installAttention, msSinceEdit, msSinceScroll } from "@/lib/notify/attention";
 
 /**
- * All the gating logic for firing a haptic: enable toggles, mode, reduced-motion,
- * battery, scroll/input suppression windows, per-element + global cooldowns,
- * rolling rate-limit. Priority patterns bypass cooldown/rate-limit/suppression.
+ * All the gating logic for firing a haptic: enable toggles, mode, reduced
+ * motion, quiet hours / Focus, battery, scroll/input suppression windows,
+ * per-element + global cooldowns, rolling rate-limit.
+ *
+ * Priority patterns bypass the cooldowns and the rate limit only; the scroll
+ * and typing windows still apply to them. Under reduced motion (when
+ * respected), quiet hours or Focus only `timer-end` passes, and it alone
+ * also ignores the suppression windows: a timer running out is the one
+ * signal that must always reach the user.
  */
 
 export interface GateContext {
@@ -22,6 +29,8 @@ export interface GateContext {
   perCategory: PerCategoryOverrides;
   batteryGuardEnabled: boolean;
   reducedMotion: boolean;
+  /** Quiet hours or Focus is on (Settings › Notifications). */
+  quiet?: boolean;
   batterySnapshot: { level: number; charging: boolean } | null;
   now: number;
   patternName: HapticPatternName;
@@ -34,45 +43,35 @@ export type GateDecision = "fire" | "suppress" | "downgrade";
 
 // Module-scope state — kept outside the store for fast, synchronous reads
 let lastFireAt = 0;
-let scrollingUntil = 0;
-let typingUntil = 0;
 const perElementLast = new WeakMap<Element, number>();
 const rollingWindow: number[] = []; // timestamps within the last 1000ms
 const ROLLING_WINDOW_MS = 1000;
 const ROLLING_MAX = 8;
 const GLOBAL_COOLDOWN = 40;
 const PER_ELEMENT_COOLDOWN = 50;
+/** No haptics for this long after a scroll. */
+const SCROLL_SUPPRESS_MS = 250;
+/** No non-keystroke haptics for this long after an input event. */
+const TYPING_SUPPRESS_MS = 150;
 
 /**
- * Register global scroll + input listeners so subsequent haptics can suppress
- * themselves. Safe to call multiple times (idempotent via a flag).
+ * Scroll and input suppression read the shared passive timestamps in
+ * lib/notify/attention.ts, which owns the only global listeners. Haptics
+ * holds one ref-counted lease on them. Safe to call multiple times.
  */
-// R9: hold the handler refs so they can be removed. Previously the
-// listeners were inline arrow functions → impossible to removeEventListener
-// → leak forever on HMR / SPA navigation.
-let listenersRegistered = false;
-const onScroll = () => {
-  scrollingUntil = performance.now() + 250;
-};
-const onInput = () => {
-  typingUntil = performance.now() + 150;
-};
+let attentionLease: (() => void) | null = null;
 
 export function registerSuppressionListeners() {
-  if (typeof window === "undefined" || listenersRegistered) return;
-  listenersRegistered = true;
-  window.addEventListener("scroll", onScroll, { passive: true, capture: true });
-  window.addEventListener("input", onInput, { passive: true, capture: true });
+  if (typeof window === "undefined" || attentionLease) return;
+  attentionLease = installAttention();
 }
 
-// R9: callable detach API so the haptics provider can clean up on
-// unmount. Without this every HMR cycle in dev (and every cold-load
-// after a sign-out/sign-in in prod) doubled-up the global listeners.
+// Callable detach API so the haptics provider can clean up on unmount.
+// Releases only haptics' own lease; another owner keeps attention running.
 export function unregisterSuppressionListeners() {
-  if (typeof window === "undefined" || !listenersRegistered) return;
-  listenersRegistered = false;
-  window.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
-  window.removeEventListener("input", onInput, { capture: true } as EventListenerOptions);
+  if (!attentionLease) return;
+  attentionLease();
+  attentionLease = null;
 }
 
 export function shouldFire(ctx: GateContext): GateDecision {
@@ -86,9 +85,11 @@ export function shouldFire(ctx: GateContext): GateDecision {
   // Essential mode drops everything except high-signal patterns
   if (ctx.mode === "essential" && !isEssential(patternName)) return "suppress";
 
-  // Reduced-motion: suppress unless pattern is error or timer-end (critical signals)
-  if (ctx.respectReducedMotion && ctx.reducedMotion) {
-    if (!(patternName === "error" || patternName === "timer-end")) return "suppress";
+  // Reduced motion, quiet hours, Focus: only a timer running out vibrates.
+  // (An error toast still shows; it just doesn't buzz.)
+  const isTimerEnd = patternName === "timer-end";
+  if ((ctx.respectReducedMotion && ctx.reducedMotion) || ctx.quiet) {
+    if (!isTimerEnd) return "suppress";
   }
 
   // Per-category override
@@ -121,10 +122,6 @@ export function shouldFire(ctx: GateContext): GateDecision {
       const last = perElementLast.get(targetEl) ?? 0;
       if (now - last < PER_ELEMENT_COOLDOWN) return "suppress";
     }
-    // Scroll suppression always applies — keystrokes shouldn't fire mid-scroll.
-    if (now < scrollingUntil) return "suppress";
-    // Typing suppression: applies to non-keystroke patterns only.
-    if (!isKeystroke && now < typingUntil) return "suppress";
     // Rolling rate limit: bypassed for keystrokes (cooldowns above are enough).
     if (!isKeystroke) {
       while (rollingWindow.length && now - rollingWindow[0] > ROLLING_WINDOW_MS) {
@@ -132,6 +129,13 @@ export function shouldFire(ctx: GateContext): GateDecision {
       }
       if (rollingWindow.length >= ROLLING_MAX) return "suppress";
     }
+  }
+
+  if (!isTimerEnd) {
+    // Scroll suppression always applies — keystrokes shouldn't fire mid-scroll.
+    if (msSinceScroll(now) < SCROLL_SUPPRESS_MS) return "suppress";
+    // Typing suppression: applies to non-keystroke patterns only.
+    if (!isKeystroke && msSinceEdit(now) < TYPING_SUPPRESS_MS) return "suppress";
   }
 
   return downgrade ? "downgrade" : "fire";

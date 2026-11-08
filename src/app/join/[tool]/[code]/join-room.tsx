@@ -52,7 +52,7 @@ const VoteJoinRoom = dynamic(
 
 function RoomLoading() {
   return (
-    <main className="min-h-screen flex items-center justify-center px-4">
+    <main className="min-h-screen-dvh flex items-center justify-center px-4">
       <p role="status" className="text-sm text-sub">
         Opening the room…
       </p>
@@ -147,7 +147,7 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
 
   if (stage.kind === "consent") {
     return (
-      <main className="min-h-screen flex items-center justify-center px-4">
+      <main className="min-h-screen-dvh flex items-center justify-center px-4">
         <p className="flex items-center gap-2 text-sm text-sub">
           <Radio className="h-4 w-4 text-accent" aria-hidden="true" />
           Joining a live {toolName} room
@@ -198,7 +198,7 @@ function OutsideRoom({
     headingRef.current?.focus();
   }, [title]);
   return (
-    <main className="min-h-screen flex items-center justify-center px-4">
+    <main className="min-h-screen-dvh flex items-center justify-center px-4">
       <section className="w-full max-w-md rounded-xl border border-border bg-surface p-6 flex flex-col gap-4">
         <h1 ref={headingRef} tabIndex={-1} className="text-lg font-semibold text-text outline-none">
           {title}

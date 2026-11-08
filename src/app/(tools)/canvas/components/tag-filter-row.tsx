@@ -62,7 +62,14 @@ function TagFilterRowImpl({ objects }: Props) {
         WebkitMaskImage:
           "linear-gradient(to right, black 0%, black calc(100% - 24px), transparent 100%)",
       }}
-      className="absolute top-14 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-surface/95 border border-border rounded-lg px-2 py-1 shadow-md backdrop-blur-sm z-10 max-w-[80vw] overflow-x-auto"
+      // Below the board toolbar, which is 54 px tall on touch (44 px
+      // controls): it ends at 62 px below `sm` (top-2) and 66 px from
+      // `sm` up (top-3), so this row (later in the DOM, same z) would
+      // cover the bottom of its controls at top-14. Below `sm` the row
+      // shares the tool rail's band (4.25rem) and starts right of the
+      // rail instead of centring over it. Mouse layouts from `sm` up keep
+      // top-14 (a 38 px toolbar ends at 50 px).
+      className="absolute top-[4.25rem] left-[4.25rem] max-w-[calc(100%-4.75rem)] sm:top-14 sm:pointer-coarse:top-[4.5rem] sm:left-1/2 sm:-translate-x-1/2 sm:max-w-[80vw] flex items-center gap-1 bg-surface/95 border border-border rounded-lg px-2 py-1 shadow-md backdrop-blur-sm z-10 overflow-x-auto"
       aria-label="Filter objects by tag"
     >
       <Tag className="w-3 h-3 text-sub flex-shrink-0" aria-hidden="true" />

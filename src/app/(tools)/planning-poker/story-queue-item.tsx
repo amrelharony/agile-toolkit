@@ -22,6 +22,16 @@ import { cn } from "@/lib/utils";
 import type { Story } from "./types";
 import { STORY_DESCRIPTION_MAX, STORY_TITLE_MAX } from "./stories";
 
+/**
+ * Small icon buttons in Planning Poker rows (the queue's Edit and Delete,
+ * Remove player) keep their dense size for a mouse but take a 44px tap area
+ * on any touch screen. The `md:` copy is needed because the icon size's
+ * `md:min-h-0 md:min-w-0` come later in the stylesheet than a plain
+ * `pointer-coarse:` rule, so a landscape phone or tablet would lose it.
+ */
+export const ICON_TOUCH_TARGET =
+  "pointer-coarse:min-h-11 pointer-coarse:min-w-11 md:pointer-coarse:min-h-11 md:pointer-coarse:min-w-11";
+
 export function StoryQueueItem({
   story,
   current,
@@ -96,14 +106,18 @@ export function StoryQueueItem({
         ) : null}
       </button>
       {isHost && (
-        <div className="flex shrink-0 items-center gap-0.5 py-1 pr-1">
+        // On touch the 44px buttons fill the row's height themselves.
+        <div className="flex shrink-0 items-center gap-0.5 py-1 pr-1 pointer-coarse:py-0">
           <IconButton
             ref={edit.triggerRef}
             label={`Edit ${story.title}`}
             icon={<Pencil aria-hidden="true" />}
             tooltip={false}
             onClick={edit.start}
-            className="h-7 w-7 md:h-7 md:w-7 text-sub hover:text-text [&_svg]:size-3.5"
+            className={cn(
+              "h-7 w-7 md:h-7 md:w-7 text-sub hover:text-text [&_svg]:size-3.5",
+              ICON_TOUCH_TARGET
+            )}
           />
           <IconButton
             label={`Delete ${story.title}`}
@@ -111,7 +125,7 @@ export function StoryQueueItem({
             tooltip={false}
             variant="danger-ghost"
             onClick={onDelete}
-            className="h-7 w-7 md:h-7 md:w-7 [&_svg]:size-3.5"
+            className={cn("h-7 w-7 md:h-7 md:w-7 [&_svg]:size-3.5", ICON_TOUCH_TARGET)}
           />
         </div>
       )}

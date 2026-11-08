@@ -191,7 +191,7 @@ export function InlineItemEditor({
           onChange={(e) => setDescriptionDraft(e.target.value)}
           onKeyDown={onDescriptionKey}
           onBlur={onBlur}
-          className="min-h-0 resize-none overflow-hidden border-border bg-surface px-2 py-1.5 text-xs leading-snug text-text md:text-xs focus-visible:ring-accent/40"
+          className="min-h-0 resize-none overflow-hidden border-border bg-surface px-2 py-1.5 text-xs leading-snug text-text pointer-fine:md:text-xs focus-visible:ring-accent/40"
         />
       )}
       <div className="flex justify-end gap-1.5">

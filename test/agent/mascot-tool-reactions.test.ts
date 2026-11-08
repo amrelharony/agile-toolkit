@@ -8,6 +8,11 @@ import { useHistoryStore } from "@/lib/history/history-store";
 import type { HistoryEvent } from "@/lib/history/types";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import {
+  RECENT_TOOL_REACTION_MS,
+  __resetCelebrationReactionsForTests,
+  reactToMoment,
+} from "@/lib/agent/mascot/use-celebration-reactions";
+import {
   installToolReactions,
   reactionForAction,
   sceneForAction,
@@ -102,6 +107,30 @@ describe("installToolReactions", () => {
     useMascotStore.getState().setReady(false);
     useHistoryStore.getState().addEvent(event("sprint_completed"));
     expect(queue()).toEqual([]);
+  });
+
+  describe("with moments (use-celebration-reactions)", () => {
+    beforeEach(() => __resetCelebrationReactionsForTests());
+
+    it("skips an action that lands just after a cheer", () => {
+      expect(reactToMoment({ rarity: "rare" })).toBe("cheer");
+      useMascotStore.getState().dequeueReaction();
+      useHistoryStore.getState().addEvent(event("sprint_completed"));
+      expect(queue()).toEqual([]);
+      vi.setSystemTime(Date.now() + 5000);
+      useHistoryStore.getState().addEvent(event("sprint_completed"));
+      expect(queue()).toEqual(["clap"]);
+    });
+
+    it("a moment right after he answered the action adds no cheer", () => {
+      useHistoryStore.getState().addEvent(event("sprint_completed"));
+      expect(queue()).toEqual(["clap"]);
+      useMascotStore.getState().dequeueReaction();
+      expect(reactToMoment({ rarity: "epic" })).toBeNull();
+      expect(queue()).toEqual([]);
+      vi.setSystemTime(Date.now() + RECENT_TOOL_REACTION_MS);
+      expect(reactToMoment({ rarity: "legendary" })).toBe("dance");
+    });
   });
 });
 

@@ -26,17 +26,14 @@ const TUMMY = 180;
 
 describe("taps", () => {
   let played: MascotReaction[];
-  let xp: number;
   let clicks: ReturnType<typeof createClickInteraction>;
 
   beforeEach(() => {
     vi.useFakeTimers();
     played = [];
-    xp = 0;
     clicks = createClickInteraction({
       playNow: (r) => played.push(r),
       sound: () => {},
-      addXp: (n) => (xp += n),
     });
   });
   afterEach(() => {
@@ -51,7 +48,6 @@ describe("taps", () => {
     vi.advanceTimersByTime(1100);
     clicks.onClick("head", "right");
     expect(played).toEqual(["poke", "patLeft", "patRight"]);
-    expect(xp).toBe(3);
   });
 
   it("tickles at three quick taps and makes him dizzy at seven", () => {
@@ -61,7 +57,6 @@ describe("taps", () => {
     }
     expect(played).toEqual(["poke", "tickle", "dizzy"]);
     expect(TICKLE_TAPS).toBe(3);
-    expect(xp).toBe(1 + 5);
   });
 
   it("starts the count again after a pause", () => {

@@ -15,6 +15,7 @@ import { parseCsv, rowsToTable } from "@/lib/whiteboard/csv-to-table";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { signalGamification } from "@/lib/gamification/signal";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 
 interface Props {
@@ -262,6 +263,8 @@ export function ImportModal({ boardId, onClose }: Props) {
     const offset: WhiteboardObject[] = seeded.map((o) => ({ ...o, z: o.z + zBase }));
     upsertMany(offset);
     log(CANVAS_ACTIONS.IMPORT_PERFORMED, { source: kind, count: offset.length });
+    // "Data Migrator": workspace data (stories, risks, OKRs) imported.
+    signalGamification("workspace-import", { source: kind });
     emitSignal({
       kind: "whiteboard.crossToolImport",
       at: new Date().toISOString(),

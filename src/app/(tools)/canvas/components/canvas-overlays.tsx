@@ -218,22 +218,43 @@ export function ConnectorBanner(props: {
   );
 }
 
+/** How a touch screen moves around the board (use-canvas-touch-gestures). */
+export const TOUCH_NAV_HINT = "Pinch to zoom · drag with two fingers to pan";
+
+/**
+ * Where the hint sits on a touch screen: just above the zoom controls,
+ * which move to the bottom-left there (ZOOM_CONTROLS_TOUCH_LEFT), and
+ * left-aligned with them so it clears the tool rail and Amr's corner.
+ * Phones stack the touch row (Undo / Redo, full screen) on the zoom bar:
+ * 12 + 54 + 8 + 54 = 128 px, so the hint starts at 136 px. From sm up
+ * that row goes beside the zoom bar (12 + 54 = 66 px): 76 px.
+ */
+export const EMPTY_HINT_TOUCH_PLACE =
+  "pointer-coarse:bottom-[8.5rem] sm:pointer-coarse:bottom-[4.75rem] pointer-coarse:left-[4.5rem] pointer-coarse:right-3 pointer-coarse:translate-x-0 pointer-coarse:text-left";
+
 /**
  * Bottom-edge hint for empty boards. The centred CTA card ("Start
  * your board" with Templates / Import buttons) lives in
  * canvas-client.tsx — this hint sits at the bottom edge so it doesn't
  * fight that CTA visually and stays useful the moment the user picks
  * a tool to dismiss the CTA.
+ *
+ * Keys and a wheel mean nothing on a touch screen, so there it gives
+ * the touch gestures instead, and moves up off the zoom bar, which it
+ * used to sit under (the bar's translucent fill garbled both).
  */
 export function EmptyCanvasHint(props: { objectCount: number }) {
   if (props.objectCount !== 0) return null;
   return (
     <div
-      className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none text-xs text-sub font-mono text-center"
+      className={`absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none text-xs text-sub font-mono text-center ${EMPTY_HINT_TOUCH_PLACE}`}
       data-canvas-export-ignore="true"
     >
-      Hold <kbd className="px-1 bg-surface/70 border border-border rounded text-xs">Space</kbd> +
-      drag to pan · scroll to zoom
+      <span className="pointer-coarse:hidden">
+        Hold <kbd className="px-1 bg-surface/70 border border-border rounded text-xs">Space</kbd> +
+        drag to pan · scroll to zoom
+      </span>
+      <span className="hidden pointer-coarse:inline">{TOUCH_NAV_HINT}</span>
     </div>
   );
 }
