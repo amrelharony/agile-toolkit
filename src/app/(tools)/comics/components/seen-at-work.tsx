@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SEEN_OPTIONS, SHOW_SHARES_AT } from "@/lib/comics/guess";
 import { markSeen, seenFor } from "@/lib/comics/reading";
 import { readTaps, sendTap, type TapResult } from "@/lib/comics/taps-client";
+import { useCounting } from "./use-counting";
 
 const SIZE = SEEN_OPTIONS.length;
 
@@ -14,8 +15,10 @@ const SIZE = SEEN_OPTIONS.length;
  * device (the reading record) and anonymously (/api/comics/taps). The answer
  * area is a live region that's always in the page, so the result is announced
  * when it arrives, and focus moves to it because the buttons pressed are gone.
+ * The signed-in owner's answer is never counted, only shown.
  */
 export function SeenAtWork({ ep }: { ep: number }) {
+  const counting = useCounting();
   const [answer, setAnswer] = useState<number | null>(null);
   const [result, setResult] = useState<TapResult | null>(null);
   const status = useRef<HTMLParagraphElement>(null);
@@ -46,7 +49,9 @@ export function SeenAtWork({ ep }: { ep: number }) {
     const first = seenFor(ep) === null;
     setAnswer(choice);
     markSeen(ep, choice);
-    void (first ? sendTap(ep, "seen", choice, SIZE) : readTaps(ep, "seen", SIZE)).then(setResult);
+    void (first && counting ? sendTap(ep, "seen", choice, SIZE) : readTaps(ep, "seen", SIZE)).then(
+      setResult
+    );
   };
 
   const total = result ? result.counts[0] + result.counts[1] : 0;
