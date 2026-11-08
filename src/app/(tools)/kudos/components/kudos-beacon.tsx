@@ -103,7 +103,11 @@ export function KudosBeacon() {
       // Use viewport-anchored insets that respect iOS home-indicator
       // safe-area. Without this, the beacon sits ON TOP of the home bar
       // on a notched device and the tap-area is partially occluded.
-      className="fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[calc(max(1rem,env(safe-area-inset-bottom))+var(--amr-band-bottom,0px))] z-modal pointer-events-auto"
+      // Phones lift it above Amr's band (--amr-band-bottom). From sm up Amr
+      // stands in the bottom-right corner with no band, so the beacon sits
+      // 9rem to his left: Amr (z-50, outside the page's stacking context)
+      // would otherwise cover it and take its clicks.
+      className="fixed right-[max(1rem,env(safe-area-inset-right))] sm:right-[calc(max(1rem,env(safe-area-inset-right))+9rem)] bottom-[calc(max(1rem,env(safe-area-inset-bottom))+var(--amr-band-bottom,0px))] z-modal pointer-events-auto"
     >
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
