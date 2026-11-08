@@ -29,13 +29,6 @@ interface Reading {
   viewed: Record<string, string>;
   /** Story number → when it was loved (ISO). Taking the love back removes it. */
   loved: Record<string, string>;
-  /**
-   * Story number → when the server counted this browser's love (ISO). Kept
-   * apart from `loved`: only a love the server holds is ever taken back from
-   * its count, so a love that was never counted (the owner's, one sent while
-   * offline) can't cancel another reader's.
-   */
-  counted: Record<string, string>;
   /** Story number → seconds of active reading, all visits added up. */
   seconds: Record<string, number>;
 }
@@ -51,7 +44,6 @@ const empty = (): Reading => ({
   seen: {},
   viewed: {},
   loved: {},
-  counted: {},
   seconds: {},
 });
 
@@ -107,7 +99,6 @@ function load(): Reading {
       seen: choices(parsed.seen, 0),
       viewed: dates(isRecord(parsed.viewed) ? parsed.viewed : {}),
       loved: dates(isRecord(parsed.loved) ? parsed.loved : {}),
-      counted: dates(isRecord(parsed.counted) ? parsed.counted : {}),
       seconds: durations(parsed.seconds),
     };
   } catch {
@@ -275,18 +266,41 @@ export function setLoved(
   return save(reading) ? "changed" : "unavailable";
 }
 
-/** Whether the server counted this browser's love for story `ep`. */
-export function isLoveCounted(ep: number): boolean {
-  return Object.prototype.hasOwnProperty.call(load().counted, String(ep));
+/**
+ * Which loves the server counted from this device: story number → when (ISO).
+ * Kept apart from the reading record, and out of backups (lib/data/backup):
+ * only a love the server holds is ever taken back from its count, so a love it
+ * never counted (the owner's, one that failed to send) can't cancel another
+ * reader's, and a love restored onto a second device can't be taken back twice.
+ */
+export const COUNTED_KEY = "agile-toolkit:comics:counted";
+
+function loadCounted(): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(COUNTED_KEY) ?? "{}");
+    return isRecord(parsed) ? dates(parsed) : {};
+  } catch {
+    return {};
+  }
 }
 
-/** Note that the server now holds (or no longer holds) this browser's love. */
+/** Whether the server counted this device's love for story `ep`. */
+export function isLoveCounted(ep: number): boolean {
+  return Object.prototype.hasOwnProperty.call(loadCounted(), String(ep));
+}
+
+/** Note that the server now holds (or no longer holds) this device's love. */
 export function setLoveCounted(ep: number, on: boolean, now = new Date()): boolean {
-  const reading = load();
+  const counted = loadCounted();
   const key = String(ep);
-  if (on) reading.counted[key] = now.toISOString();
-  else delete reading.counted[key];
-  return save(reading);
+  if (on) counted[key] = now.toISOString();
+  else delete counted[key];
+  try {
+    localStorage.setItem(COUNTED_KEY, JSON.stringify(counted));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Every story this browser loves, most recent first. */
