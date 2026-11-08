@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { AuthContextValue } from "@/lib/auth/types";
 
 /**
- * The /canvas stage on phones (mobile audit #23): its 440 / 520 px floor
- * beat its 100dvh height on short screens, so a landscape phone got a
- * board taller than the screen with its zoom controls below the fold. The
- * floor now gives way to a cap at the visible height, and touch screens
- * get a full-screen board toggle.
+ * The /canvas stage on phones (mobile audit #23, #68).
+ *
+ * - #23: the stage's 440 / 520 px floor beat its 100dvh height on short
+ *   screens, so a landscape phone got a board taller than the screen with
+ *   its zoom controls below the fold. The floor now gives way to a cap at
+ *   the visible height, and touch screens get a full-screen board toggle.
+ * - #68: the empty-board card took every tap in the middle of the board,
+ *   so an armed Sticky tool placed nothing there. Only its buttons do now.
  */
 
 const h = vi.hoisted(() => ({
@@ -153,5 +156,52 @@ describe("CanvasClient stage height", () => {
     const last = h.zoomProps.at(-1)!;
     expect(typeof last.onFit).toBe("function");
     expect(last.fillScreen).toMatchObject({ on: false, toggle: expect.any(Function) });
+  });
+});
+
+describe("CanvasClient empty-board card", () => {
+  async function findCard() {
+    const heading = await screen.findByRole("heading", { name: "Start your board" });
+    return heading.parentElement as HTMLElement;
+  }
+
+  it("lets taps through to the board except on its buttons", async () => {
+    render(<CanvasClient />);
+    const card = await findCard();
+    // The card inherits pointer-events: none from its full-board wrapper.
+    expect(card).not.toHaveClass("pointer-events-auto");
+    expect(card.parentElement).toHaveClass("absolute", "inset-0", "pointer-events-none");
+    const templates = within(card).getByRole("button", { name: "Templates" });
+    const imp = within(card).getByRole("button", { name: "Import" });
+    for (const b of [templates, imp]) expect(b).toHaveClass("pointer-events-auto");
+    // The buttons still work.
+    fireEvent.click(templates);
+    expect(screen.getByRole("dialog", { name: "Templates" })).toBeInTheDocument();
+  });
+
+  it("speaks touch on a touch screen, keys with a keyboard", async () => {
+    render(<CanvasClient />);
+    const card = await findCard();
+    const kbd = within(card).getByText("N");
+    expect(kbd.tagName).toBe("KBD");
+    expect(kbd.parentElement).toHaveClass("pointer-coarse:hidden");
+    const touch = within(card).getByText(/or tap a tool, then the board\./);
+    expect(touch).toHaveClass("hidden", "pointer-coarse:inline");
+    // The desktop sentence reads as before.
+    expect(kbd.parentElement!.parentElement!.textContent).toContain(
+      "Pick a template or import — or press N for a sticky."
+    );
+  });
+
+  it("keeps clear of the board toolbar and the zoom controls on touch", async () => {
+    render(<CanvasClient />);
+    const card = await findCard();
+    expect(card.parentElement).toHaveClass(
+      "pointer-coarse:pt-[4.5rem]",
+      "pointer-coarse:pb-[11rem]",
+      "sm:pointer-coarse:pb-[6.25rem]"
+    );
+    // Its decorative icon goes on touch, to fit a landscape board.
+    expect(card.querySelector("svg")).toHaveClass("pointer-coarse:hidden");
   });
 });

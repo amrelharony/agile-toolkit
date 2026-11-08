@@ -76,6 +76,16 @@ import { cn } from "@/lib/utils";
 const STAGE_HEIGHT =
   "h-[calc(100dvh-220px)] min-h-[min(440px,var(--board-max-h))] sm:min-h-[min(520px,var(--board-max-h))] max-h-[var(--board-max-h)]";
 
+/**
+ * The empty-board card on a touch screen keeps clear of the board
+ * toolbar (top, ends by 68 px) and of the bottom-left zoom controls with
+ * the hint above them (EMPTY_HINT_TOUCH_PLACE): 136 px + two hint lines
+ * + a gap on phones, 76 px + one line + a gap from sm up. It loses its
+ * decorative icon there, and some padding on short (landscape) screens.
+ */
+const EMPTY_CARD_TOUCH_ROOM =
+  "pointer-coarse:pt-[4.5rem] pointer-coarse:pb-[11rem] sm:pointer-coarse:pb-[6.25rem]";
+
 /** Per-board access mode. Resolved from the URL with `?share=<token>`
  * winning over `?view=<role>` — the token's role is the source of
  * truth (it's signed-into-localStorage and validated). The `?view=`
@@ -1038,30 +1048,47 @@ export function CanvasClient() {
             keyboard-shortcut hint sits inline next to a sticky icon so
             the user can still see "I can also just press N". Hidden in
             read-only and commenter modes since those viewers can't
-            create objects anyway. */}
+            create objects anyway.
+            Only its two buttons take touches: the rest of the card lets a
+            tap through to the board, so an armed tool (Sticky, say) still
+            places its object under the card's middle. */}
         {!readOnly && activeBoardId && objects.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
+          <div
+            className={cn(
+              "absolute inset-0 flex items-center justify-center pointer-events-none z-[5]",
+              EMPTY_CARD_TOUCH_ROOM
+            )}
+          >
             <div
-              className="pointer-events-auto text-center w-[min(360px,calc(100%-2rem))] px-5 py-5 rounded-xl bg-surface/90 border border-border backdrop-blur-md shadow-xl"
+              className="text-center w-[min(360px,calc(100%-2rem))] px-5 py-5 rounded-xl bg-surface/90 border border-border backdrop-blur-md shadow-xl pointer-coarse:w-[min(420px,calc(100%-2rem))] pointer-coarse:[@media(max-height:480px)]:py-3"
               data-canvas-export-ignore="true"
             >
               <Sparkles
-                className="w-7 h-7 text-accent mx-auto mb-2 opacity-70"
+                className="w-7 h-7 text-accent mx-auto mb-2 opacity-70 pointer-coarse:hidden"
                 aria-hidden="true"
               />
               <h3 className="text-sm font-semibold text-text mb-1">Start your board</h3>
               <p className="text-xs text-sub mb-3">
-                Pick a template or import — or press{" "}
-                <kbd className="font-mono text-xs bg-surface-deep border border-border rounded px-1 py-0.5">
-                  N
-                </kbd>{" "}
-                for a sticky.
+                Pick a template or import
+                <span className="pointer-coarse:hidden">
+                  {" "}
+                  — or press{" "}
+                  <kbd className="font-mono text-xs bg-surface-deep border border-border rounded px-1 py-0.5">
+                    N
+                  </kbd>{" "}
+                  for a sticky.
+                </span>
+                {/* No N key on a touch screen. */}
+                <span className="hidden pointer-coarse:inline">
+                  {" "}
+                  — or tap a tool, then the board.
+                </span>
               </p>
               <div className="flex items-center justify-center gap-2">
                 <Button
                   size="sm"
                   onClick={() => setShowTemplates(true)}
-                  className="gap-1.5 bg-accent text-bg hover:bg-accent/90 font-semibold"
+                  className="pointer-events-auto gap-1.5 bg-accent text-bg hover:bg-accent/90 font-semibold"
                 >
                   <LayoutTemplate className="w-3.5 h-3.5" />
                   Templates
@@ -1070,7 +1097,7 @@ export function CanvasClient() {
                   variant="outline"
                   size="sm"
                   onClick={() => setShowImport(true)}
-                  className="gap-1.5"
+                  className="pointer-events-auto gap-1.5"
                 >
                   <FileInput className="w-3.5 h-3.5" />
                   Import
