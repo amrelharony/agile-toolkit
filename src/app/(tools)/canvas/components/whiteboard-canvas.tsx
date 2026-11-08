@@ -70,6 +70,7 @@ import { useMindMapStructural } from "../hooks/use-mind-map-structural";
 import { useInputClass } from "../hooks/use-input-class";
 import { WetInkLayer, type WetInkApi } from "./wet-ink-layer";
 import { useCanvasTouchGestures } from "../hooks/use-canvas-touch-gestures";
+import { useBoardPinchGuard } from "../hooks/use-board-pinch-guard";
 import { CanvasObjectMenu } from "./canvas-object-menu";
 import { CanvasTouchTips } from "./canvas-touch-tips";
 
@@ -561,6 +562,9 @@ export function WhiteboardCanvas({
     presentationFrameIndex,
     anyPenActiveRef: inputClass.anyPenActiveRef,
   });
+  // The page itself can zoom now (no viewport lock on /canvas); a pinch
+  // that starts on the board stays the board's.
+  useBoardPinchGuard(viewportRef);
 
   // Convert client pointer event to world coords.
   //
@@ -1272,6 +1276,12 @@ export function WhiteboardCanvas({
       // keyboard shortcut routes through it); without a visible focus
       // ring, keyboard-only users couldn't tell when focus had landed
       // here vs nested element vs lost (WCAG 2.4.7).
+      // touch-none: one finger draws / drags / marquees and two fingers
+      // pinch or pan the board, so a touch here never scrolls or zooms
+      // the page. That is also what keeps the page's own pinch-zoom (no
+      // longer locked on /canvas) off the board. The stage is capped
+      // below the screen's height (canvas-client), so there is always
+      // page around it to scroll from.
       className="relative h-full w-full overflow-hidden bg-bg select-none touch-none focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:[outline-offset:-2px]"
       // R8: wheel handler is attached natively via useEffect (passive:false)
       // so we can call preventDefault. React's synthetic onWheel is passive.

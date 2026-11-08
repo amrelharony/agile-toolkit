@@ -34,7 +34,8 @@ import type { WhiteboardObject } from "@/lib/stores/workspace-types";
  *
  * `eventOptions: { passive: false }` is required so the recognizers can
  * preventDefault and stop the OS from scrolling / page-pinching the
- * canvas page (the per-route viewport.ts also disables OS pinch).
+ * board (useBoardPinchGuard does the same for Safari's own pinch events;
+ * the rest of the page keeps browser zoom).
  */
 const DOUBLE_TAP_MS = 300; // max gap between two taps to count as double
 const DOUBLE_TAP_PX = 24; // max screen-space distance between two taps
