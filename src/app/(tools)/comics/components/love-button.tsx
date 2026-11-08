@@ -1,7 +1,7 @@
 "use client";
 
 import { Heart } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { isLoveCounted, isLoved, setLoveCounted, setLoved } from "@/lib/comics/reading";
 import { SHOW_READERS_AT } from "@/lib/comics/stats";
@@ -29,6 +29,15 @@ export function readersLabel(count: number): string | null {
   return count >= SHOW_READERS_AT ? `Read by ${count} readers` : null;
 }
 
+/**
+ * The whole line beside the heart: the count, and whether this reader's heart,
+ * when it's on, is among it. Shown, and announced after a press.
+ */
+export function heartLine(count: number, own = false, pressed = own): string {
+  const line = lovesLabel(count, own, pressed);
+  return pressed && !own && count > 0 ? `${line} (yours isn't counted)` : line;
+}
+
 /** Runs `task` with this story's heart to itself across the browser's tabs, where it can. */
 function exclusive(ep: number, task: () => Promise<void>): Promise<void> {
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
@@ -48,9 +57,11 @@ function exclusive(ep: number, task: () => Promise<void>): Promise<void> {
  * cancel another reader's love. One send at a time for the story across the
  * browser's tabs (Web Locks, where there are any): each sends what the reader
  * wants now if the server doesn't hold it already, so quick taps, or taps in a
- * second tab, never send a love twice. A press the server didn't count leaves
- * the count as the server has it and says so; it isn't sent again by itself,
- * since the owner's presses must never be. When the browser can't keep the
+ * second tab, never send a love twice; a tab that finds another sent its press
+ * catches its count up. A press the server didn't count (or that isn't sent:
+ * the owner's, one before sign-in settles) leaves the count as the server has
+ * it, and the line says the reader's heart isn't counted; it isn't sent again
+ * by itself, since the owner's presses must never be. When the browser can't keep the
  * heart (storage blocked or full) it works for the visit but sends nothing:
  * with no record, every visit could add another love.
  *
@@ -70,12 +81,18 @@ export function LoveButton({
 }) {
   const counting = useCounting();
   const [loved, setLovedState] = useState(false);
-  // The server's counts as last heard, and whether it holds this browser's love.
-  const [server, setServer] = useState({
+  // The server's count as last heard, and whether it holds this browser's love,
+  // with a ref for reading it outside a render.
+  const [server, setServerState] = useState({
     loves: initialLoves,
     readers: initialReaders,
     held: false,
   });
+  const serverNow = useRef(server);
+  const setServer = useCallback((next: typeof server) => {
+    serverNow.current = next;
+    setServerState(next);
+  }, []);
   const [sending, setSending] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   // Once the browser couldn't keep the heart, this visit works from memory.
@@ -84,8 +101,19 @@ export function LoveButton({
 
   useEffect(() => {
     setLovedState(isLoved(ep));
-    setServer((s) => ({ ...s, held: isLoveCounted(ep) }));
-  }, [ep]);
+    setServer({ ...serverNow.current, held: isLoveCounted(ep) });
+  }, [ep, setServer]);
+
+  // Another tab sent (or took back) this browser's love: count it in as the
+  // server now has it. The new state, or null when nothing changed.
+  const catchUp = () => {
+    const s = serverNow.current;
+    const held = isLoveCounted(ep);
+    if (held === s.held) return null;
+    const next = { ...s, held, loves: Math.max(0, s.loves + (held ? 1 : -1)) };
+    setServer(next);
+    return next;
+  };
 
   // Send what the reader wants until the server holds it, or a send fails.
   const sync = () => {
@@ -106,8 +134,13 @@ export function LoveButton({
           return;
         }
         if (!setLoveCounted(ep, want)) memoryOnly.current = true;
-        setServer({ loves: answer.loves, readers: answer.readers, held: want });
-        outcome = lovesLabel(answer.loves, want);
+        setServer({
+          ...serverNow.current,
+          loves: answer.loves,
+          readers: answer.readers,
+          held: want,
+        });
+        outcome = heartLine(answer.loves, want);
       }
     })
       .catch(() => {
@@ -116,9 +149,11 @@ export function LoveButton({
       .finally(() => {
         inFlight.current = false;
         setSending(false);
-        // Another tab may have sent it meanwhile.
-        setServer((s) => ({ ...s, held: isLoveCounted(ep) }));
-        if (outcome) setAnnouncement(outcome);
+        // Another tab may have sent this press meanwhile. With nothing sent,
+        // say what the line now says.
+        const s = (memoryOnly.current ? null : catchUp()) ?? serverNow.current;
+        const now = isLoved(ep);
+        setAnnouncement(outcome || heartLine(s.loves, now && s.held, now));
         // A press that came in as the lock was let go.
         if (!failed && !memoryOnly.current && isLoved(ep) !== isLoveCounted(ep)) sync();
       });
@@ -129,12 +164,21 @@ export function LoveButton({
     const kept = memoryOnly.current ? "unavailable" : setLoved(ep, next);
     // Another tab got there first: this button only catches up.
     if (kept === "unchanged") {
-      setLovedState(isLoved(ep));
+      const now = isLoved(ep);
+      setLovedState(now);
+      const s = catchUp() ?? serverNow.current;
+      setAnnouncement(heartLine(s.loves, now && s.held, now));
       return;
     }
     if (kept === "unavailable") memoryOnly.current = true;
     setLovedState(next);
-    if (counting) sync();
+    if (counting && !memoryOnly.current) {
+      sync();
+      return;
+    }
+    // Not sent: say what the line now says.
+    const s = serverNow.current;
+    setAnnouncement(heartLine(s.loves, next && s.held, next));
   };
 
   // While a press is being sent the count follows the heart; otherwise it's
@@ -158,7 +202,7 @@ export function LoveButton({
         Love this
       </Button>
       <p className="text-sm text-sub">
-        {lovesLabel(shown, own, loved)}
+        {heartLine(shown, own, loved)}
         {readersLine ? ` · ${readersLine}` : null}
       </p>
       <p role="status" className="sr-only">
