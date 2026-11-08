@@ -629,6 +629,29 @@ describe("a story's guess, Seen this at work and Try it this week", () => {
     expect(document.activeElement).toHaveAccessibleName(/Amr shrugs by the printer/);
   });
 
+  it("scrolls the revealed panel in clear of the sticky header", async () => {
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    try {
+      render(await ComicStoryPage(params(30)));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Waits for Friday" }));
+      });
+      const figure = document.activeElement as HTMLElement;
+      expect(figure.tagName).toBe("FIGURE");
+      expect(scrolled).toEqual([figure]);
+      // The header's height plus a gap; on a phone html's scroll padding adds Amr's space.
+      expect(figure.className.split(/\s+/)).toContain(
+        "scroll-mt-[calc(var(--header-h,56px)+0.5rem)]"
+      );
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
   it("shows how readers picked once there are enough of them", async () => {
     reply = { counts: [6, 30, 4], shares: [15, 75, 10] };
     render(await ComicStoryPage(params(30)));
