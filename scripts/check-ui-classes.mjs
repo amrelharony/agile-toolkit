@@ -183,10 +183,6 @@ const TOUCH_PRIMITIVES = new Set([
   "src/components/ui/textarea.tsx",
   "src/components/ui/toggle-group.tsx",
 ]);
-// Shrinks already on master that another fix moves to a pointer variant.
-// Input belongs to the form-fields fix (claude/mobile-form-fields): drop the
-// entry when it lands. Anything new in these files still fails.
-const PENDING_SHRINKS = new Map([["src/components/ui/input.tsx", new Set(["md:h-9"])]]);
 // A size utility (h, w, min-h, min-w, size) with a number, px, or an
 // arbitrary value, behind a chain of variants that includes a width
 // breakpoint. A chain that also says pointer-fine is scoped to a mouse.
@@ -196,12 +192,10 @@ const SCREEN_VARIANT = /(?:^|:)(?:xs|sm|md|lg|xl|2xl|3xl):/;
 
 function widthShrinks(line, file) {
   if (!file || !TOUCH_PRIMITIVES.has(file)) return [];
-  const pending = PENDING_SHRINKS.get(file);
   const found = [];
   for (const m of line.matchAll(WIDTH_SHRINK_RE)) {
     const chain = `:${m[1]}`;
     if (!SCREEN_VARIANT.test(chain) || /(?:^|:)pointer-fine:/.test(chain)) continue;
-    if (pending?.has(m[0])) continue;
     found.push(m[0]);
   }
   return found;
