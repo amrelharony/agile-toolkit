@@ -41,6 +41,7 @@ vi.mock("@/lib/agent/client", () => ({
 import { ConversationList, DELETE_UNDO_MS } from "@/components/agent/conversation-list";
 import { AgentConversation } from "@/components/agent/agent-conversation";
 import { useAgentStore } from "@/lib/agent/store";
+import { listConversations } from "@/lib/agent/persist";
 
 const meta = (id: string, title: string): ConversationMeta => ({
   id,
@@ -159,6 +160,69 @@ describe("ConversationList on touch", () => {
     expect(screen.queryByText("Backlog grooming notes")).toBeNull();
     // The deleted thread is not reopened.
     expect(useAgentStore.getState().activeConversationId).toBeNull();
+  });
+
+  it("shows the thread again when Supabase kept it", async () => {
+    // supabase-js reports a refused delete as { error } rather than throwing,
+    // so deleteConversation resolves and the thread is still there.
+    h.deleteConversation.mockImplementationOnce(async () => {});
+    await renderList();
+    vi.useFakeTimers();
+
+    fireEvent.click(
+      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+    );
+    expect(screen.queryByText("Backlog grooming notes")).toBeNull();
+    act(() => vi.advanceTimersByTime(DELETE_UNDO_MS));
+    expect(h.deleteConversation).toHaveBeenCalledWith("c2");
+    vi.useRealTimers();
+
+    expect(await screen.findByText("Backlog grooming notes")).toBeInTheDocument();
+  });
+
+  it("stays gone after a delete that went through", async () => {
+    await renderList();
+    const reads = vi.mocked(listConversations).mock.calls.length;
+    vi.useFakeTimers();
+
+    fireEvent.click(
+      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+    );
+    act(() => vi.advanceTimersByTime(DELETE_UNDO_MS));
+    vi.useRealTimers();
+
+    // The list re-reads once the delete has landed, and the thread isn't in it.
+    await waitFor(() =>
+      expect(vi.mocked(listConversations).mock.calls.length).toBeGreaterThan(reads)
+    );
+    await act(async () => {});
+    expect(screen.getByText("Sprint 42 retro prep")).toBeInTheDocument();
+    expect(screen.queryByText("Backlog grooming notes")).toBeNull();
+  });
+
+  it("deletes at once and closes the Undo toast when the page is hidden", async () => {
+    await renderList();
+    vi.useFakeTimers();
+
+    fireEvent.click(
+      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+    );
+    // Phones fire visibilitychange before swiping an app away or killing the
+    // tab, often with no pagehide after it.
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    try {
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+    } finally {
+      visibility.mockRestore();
+    }
+
+    expect(h.toast.dismiss).toHaveBeenCalledWith("toast-1");
+    expect(h.deleteConversation).toHaveBeenCalledWith("c2");
+    // Coming back to the page doesn't delete it twice.
+    act(() => vi.advanceTimersByTime(DELETE_UNDO_MS));
+    expect(h.deleteConversation).toHaveBeenCalledTimes(1);
   });
 
   it("Undo puts the thread back in its place and never deletes it", async () => {

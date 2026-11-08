@@ -41,7 +41,7 @@ interface PendingDelete {
  */
 const pendingDeletes = new Map<string, PendingDelete | "deleting">();
 
-/** Mounted lists, told to re-read when an Undo brings a thread back. */
+/** Mounted lists, told to re-read when a thread may have come back. */
 const listListeners = new Set<() => void>();
 
 async function commitDelete(id: string): Promise<void> {
@@ -58,6 +58,9 @@ async function commitDelete(id: string): Promise<void> {
   } finally {
     // Only now: a refetch while the request is in flight still hides it.
     pendingDeletes.delete(id);
+    // deleteConversation doesn't throw when Supabase refuses the delete, so
+    // re-read: a thread that is still there shows again.
+    listListeners.forEach((fn) => fn());
   }
 }
 
@@ -70,13 +73,17 @@ function cancelDelete(id: string): boolean {
   return true;
 }
 
-// Leaving the page inside the Undo window still deletes (best-effort).
+// Leaving the page inside the Undo window deletes at once (best-effort), and
+// closes the Undo toast with it. Phones often skip pagehide when the app is
+// swiped away or the tab is killed, but fire visibilitychange first.
 let flushOnHide = false;
 function flushPendingOnPageHide(): void {
   if (flushOnHide || typeof window === "undefined") return;
   flushOnHide = true;
-  window.addEventListener("pagehide", () => {
-    pendingDeletes.forEach((_, id) => void commitDelete(id));
+  const flush = () => pendingDeletes.forEach((_, id) => void commitDelete(id));
+  window.addEventListener("pagehide", flush);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flush();
   });
 }
 
@@ -170,7 +177,7 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
   };
 
   // Delete hides the row at once and offers Undo; the thread is deleted in
-  // Supabase only when the Undo window closes (or the page is left), and the
+  // Supabase only when the Undo window closes (or the page is hidden), and the
   // Undo toast closes with it. A stray tap on a phone used to erase a thread
   // for good.
   const remove = (meta: ConversationMeta) => {
