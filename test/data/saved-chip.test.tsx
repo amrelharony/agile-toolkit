@@ -49,6 +49,15 @@ describe("SavedChip", () => {
     }
   );
 
+  it("is 32 px with a mouse and 44 px on touch, and grows instead of clipping", () => {
+    render(<SavedChip />);
+    const classes = screen
+      .getByRole("button", { name: /Saved in this browser/ })
+      .className.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(["min-h-8", "pointer-coarse:min-h-11"]));
+    expect(classes).not.toContain("h-8");
+  });
+
   it("warns when the browser has stopped saving", () => {
     useStorageHealth.setState({ writeFailed: true });
     render(<SavedChip />);
@@ -84,7 +93,8 @@ describe("SavedChip before auth settles", () => {
     const { container, rerender } = render(<SavedChip className="ml-1" />);
     const placeholder = container.querySelector("[data-saved-chip-placeholder]")!;
     const placeholderSizing = sizing(placeholder);
-    expect(placeholderSizing).toContain("h-8");
+    expect(placeholderSizing).toContain("min-h-8");
+    expect(placeholder).toHaveClass("pointer-coarse:min-h-11");
     expect(placeholder).toHaveClass("ml-1");
 
     owner.settled = true;

@@ -36,6 +36,12 @@ import { clearLocalWorkspaceData } from "@/lib/utils/clear-local-data";
 import { toast } from "@/lib/utils/toast";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
 import { SCRUM_ROLE_LABEL, type SignOutResult } from "@/lib/auth/types";
+import { ActivityDot, useVisibleUnreadCount } from "@/components/notify/activity-dot";
+import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
+import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
+import { areCelebrationsPaused } from "@/lib/notify/prefs";
+import { useVDnaStore } from "@/lib/stores/vdna-store";
+import { computeLevel } from "@/lib/gamification/xp-curve";
 import {
   BookImage,
   LogOut,
@@ -48,6 +54,10 @@ import {
   BarChart3,
   Eraser,
   HardDrive,
+  Bell,
+  BellOff,
+  Trophy,
+  SlidersHorizontal,
 } from "lucide-react";
 
 // Loaded on first open: backup/restore isn't needed until someone asks.
@@ -144,6 +154,7 @@ function VisitorMenu({
   const [clearOpen, setClearOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
+  const unread = useVisibleUnreadCount();
 
   const signInHref = `/auth/sign-in?next=${encodeURIComponent(pathname || "/")}`;
   const title = sessionUnverified
@@ -159,7 +170,7 @@ function VisitorMenu({
           <button
             type="button"
             className="relative min-touch-coarse w-9 h-9 rounded-full flex items-center justify-center text-sub ring-1 ring-border hover:text-accent hover:ring-accent/40 transition-all duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            aria-label={sessionUnverified ? "Account menu" : "Visitor menu"}
+            aria-label={withUnread(sessionUnverified ? "Account menu" : "Visitor menu", unread)}
             title={title}
           >
             <UserCircle className="w-5 h-5" aria-hidden="true" />
@@ -171,6 +182,9 @@ function VisitorMenu({
                 aria-hidden="true"
               />
             )}
+            {/* Something new in Activity. Bottom corner, so it never sits on
+                the sign-in hint above. */}
+            <ActivityDot className="top-auto bottom-0" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
@@ -186,6 +200,7 @@ function VisitorMenu({
             </div>
           )}
           <DropdownMenuSeparator />
+          <ProgressMenuSection />
           <DropdownMenuItem
             onSelect={(e) => {
               e.preventDefault();
@@ -305,6 +320,7 @@ function OwnerMenu() {
   const openAiSettings = useLlmUiStore((s) => s.openSettings);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
+  const unread = useVisibleUnreadCount();
 
   const displayName = profile?.display_name || user?.email || "Account";
   const initials = getInitials(profile?.display_name, user?.email ?? "");
@@ -316,8 +332,8 @@ function OwnerMenu() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="min-touch-coarse w-9 h-9 rounded-full ring-1 ring-border hover:ring-accent/40 transition-all duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent overflow-hidden"
-            aria-label={`Account menu for ${displayName}`}
+            className="relative min-touch-coarse w-9 h-9 rounded-full ring-1 ring-border hover:ring-accent/40 transition-all duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            aria-label={withUnread(`Account menu for ${displayName}`, unread)}
           >
             <Avatar className="w-9 h-9">
               {profile?.avatar_url && <AvatarImage src={profile.avatar_url} alt={displayName} />}
@@ -325,6 +341,7 @@ function OwnerMenu() {
                 {initials}
               </AvatarFallback>
             </Avatar>
+            <ActivityDot />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
@@ -338,8 +355,9 @@ function OwnerMenu() {
             )}
           </div>
           <DropdownMenuSeparator />
+          <ProgressMenuSection />
           <DropdownMenuLabel className="text-xs uppercase tracking-wide text-sub">
-            Activity
+            Your work
           </DropdownMenuLabel>
           <DropdownMenuItem asChild>
             <Link href="/history" className="cursor-pointer">
@@ -558,5 +576,72 @@ function SoundMenuItem() {
     >
       Interface sounds
     </DropdownMenuCheckboxItem>
+  );
+}
+
+/** The avatar's accessible name, with the unread count (its dot is decorative). */
+function withUnread(label: string, unread: number): string {
+  return unread > 0 ? `${label}, ${unread} new in Activity` : label;
+}
+
+const PAUSE_CELEBRATIONS_MS = 60 * 60 * 1000;
+
+/**
+ * Progress, Activity, Trophies, Notifications and "Pause celebrations" rows.
+ * The header's XP bar is hidden on phones, so this is where every visitor
+ * reaches them.
+ */
+function ProgressMenuSection() {
+  const gamificationEnabled = useNotificationPrefsStore((s) => s.gamificationEnabled);
+  const pausedUntil = useNotificationPrefsStore((s) => s.celebrationsPausedUntil);
+  const pause = useNotificationPrefsStore((s) => s.pauseCelebrations);
+  const resume = useNotificationPrefsStore((s) => s.resumeCelebrations);
+  const openActivity = useActivityUiStore((s) => s.openActivity);
+  const openTrophies = useActivityUiStore((s) => s.openTrophies);
+  const unread = useVisibleUnreadCount();
+  const xp = useVDnaStore((s) => s.xp);
+  const prestigeCount = useVDnaStore((s) => s.prestige);
+  const info = computeLevel(xp, prestigeCount);
+  const paused = areCelebrationsPaused({ celebrationsPausedUntil: pausedUntil }, Date.now());
+  const toNext = Math.max(0, info.xpNeededForLevel - info.xpIntoLevel);
+
+  return (
+    <>
+      {gamificationEnabled && (
+        <div className="px-2 py-1.5 text-xs text-sub" data-testid="menu-progress">
+          <span className="font-medium text-text">Level {info.level}</span>
+          {info.atMax ? " · Top level" : ` · ${toNext} XP to Level ${info.level + 1}`}
+        </div>
+      )}
+      <DropdownMenuItem onSelect={() => openActivity()} className="cursor-pointer">
+        <Bell className="w-4 h-4" aria-hidden="true" />
+        <span className="flex-1">Activity</span>
+        {unread > 0 && (
+          <Badge variant="secondary" className="text-xs">
+            {unread > 99 ? "99+" : unread} <span className="sr-only">unread</span>
+          </Badge>
+        )}
+      </DropdownMenuItem>
+      {gamificationEnabled && (
+        <DropdownMenuItem onSelect={() => openTrophies()} className="cursor-pointer">
+          <Trophy className="w-4 h-4" aria-hidden="true" />
+          <span>Trophies &amp; challenges</span>
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem asChild>
+        <Link href="/settings/notifications" className="cursor-pointer">
+          <SlidersHorizontal className="w-4 h-4" aria-hidden="true" />
+          <span>Notifications</span>
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onSelect={() => (paused ? resume() : pause(PAUSE_CELEBRATIONS_MS))}
+        className="cursor-pointer"
+      >
+        <BellOff className="w-4 h-4" aria-hidden="true" />
+        <span>{paused ? "Resume celebrations" : "Pause celebrations · 1 h"}</span>
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+    </>
   );
 }

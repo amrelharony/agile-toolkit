@@ -215,7 +215,9 @@ function List({ items, ordered, depth }: { items: ListItem[]; ordered: boolean; 
               {it.checked ? "☑" : "☐"}
             </span>
           )}
-          <span>
+          {/* min-w-0: in a checklist row this span is a flex item, which
+              otherwise refuses to shrink below a long URL's width. */}
+          <span className="min-w-0">
             {it.checked !== undefined && (
               <span className="sr-only">{it.checked ? "Done: " : "To do: "}</span>
             )}
@@ -232,8 +234,11 @@ function List({ items, ordered, depth }: { items: ListItem[]; ordered: boolean; 
 
 export function MarkdownView({ markdown }: { markdown: string }) {
   const blocks = parseMarkdown(markdown);
+  // break-words: a long unbroken token (a Docs/Drive ID, a hash, a bare URL)
+  // in a shared board wraps instead of widening the page on a phone, the way
+  // the tools' own card text does. Tables reset it below and keep scrolling.
   return (
-    <div className="space-y-4 text-sm leading-relaxed text-text">
+    <div className="min-w-0 space-y-4 break-words text-sm leading-relaxed text-text">
       {blocks.map((b, idx) => {
         switch (b.type) {
           case "heading": {
@@ -264,7 +269,10 @@ export function MarkdownView({ markdown }: { markdown: string }) {
             return <List key={idx} items={b.items} ordered={b.ordered} depth={0} />;
           case "table":
             return (
-              <div key={idx} className="overflow-x-auto rounded-lg border border-border">
+              <div
+                key={idx}
+                className="overflow-x-auto break-normal rounded-lg border border-border"
+              >
                 <table className="w-full text-left text-sm">
                   <thead className="bg-surface text-xs text-sub">
                     <tr>

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { Link2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Check, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useFlash } from "@/hooks/use-flash";
 import {
   SNAPSHOT_WARN_CHARS,
   SnapshotError,
@@ -41,9 +42,24 @@ export async function buildSnapshotUrl(
   }
 }
 
+/** What a share link promises, for the button's tooltip. */
+export const SHARE_LINK_NOTE =
+  "Anyone with the link sees a read-only copy. The content travels inside the link and isn't stored anywhere.";
+
+/** The short form, shown under the Export menu item. */
+export const SHARE_LINK_SHORT_NOTE = "Anyone with it sees a read-only copy.";
+
 /**
- * Create a snapshot link for a tool's content and copy it, with toasts for
- * the outcome. Used by ShareLinkButton and the Export menu.
+ * What a successful copy announces (and the pop-up says, for users who want
+ * confirmations as pop-ups): touch users never see the tooltip.
+ */
+export const SHARE_LINK_COPIED = `Share link copied. ${SHARE_LINK_SHORT_NOTE}`;
+
+/**
+ * Create a snapshot link for a tool's content and copy it. Returns true when
+ * the link is on the clipboard: the caller confirms that inline ("Link
+ * copied ✓"). Failures, and a link long enough that chat apps may cut it,
+ * get a toast. Used by ShareLinkButton and the Export menu.
  */
 export async function shareSnapshotLink({
   toolId,
@@ -55,12 +71,12 @@ export async function shareSnapshotLink({
   title?: string;
   markdown: string;
   state?: unknown;
-}): Promise<void> {
+}): Promise<boolean> {
   if (!snapshotsSupported()) {
     toast.error("This browser can't create share links", {
       description: "Use Export → Copy as Markdown instead.",
     });
-    return;
+    return false;
   }
   try {
     const { url } = await buildSnapshotUrl(window.location.origin, toolId, title, {
@@ -69,16 +85,17 @@ export async function shareSnapshotLink({
     });
     if (!(await copyToClipboard(url))) {
       toast.error("Couldn't copy the link");
-      return;
+      return false;
     }
-    toast.success("Share link copied", {
-      description:
-        url.length > SNAPSHOT_WARN_CHARS
-          ? "It's a long link; some chat apps cut long links, so check it opens. The content travels inside the link and isn't stored anywhere."
-          : "Anyone with the link sees a read-only copy. The content travels inside the link and isn't stored anywhere.",
-    });
+    if (url.length > SNAPSHOT_WARN_CHARS) {
+      toast.warning("Link copied, but it's long", {
+        description: "Some chat apps cut long links, so check it opens.",
+      });
+    }
+    return true;
   } catch (err) {
     toast.error(err instanceof SnapshotError ? err.message : "Couldn't create the link");
+    return false;
   }
 }
 
@@ -101,14 +118,22 @@ export function ShareLinkButton({
   className?: string;
 }) {
   const [busy, setBusy] = useState(false);
+  // A ref guards a second click: a native `disabled` on the focused button
+  // would drop keyboard focus to <body>.
+  const busyRef = useRef(false);
+  const { flash, isFlashing } = useFlash();
   const share = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     try {
-      await shareSnapshotLink({ toolId, title, markdown, state });
+      if (await shareSnapshotLink({ toolId, title, markdown, state })) flash(SHARE_LINK_COPIED);
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
+  const copied = isFlashing();
 
   return (
     <Button
@@ -116,11 +141,12 @@ export function ShareLinkButton({
       variant="outline"
       size="sm"
       onClick={share}
-      disabled={busy}
+      aria-disabled={busy || undefined}
       className={className}
+      title={SHARE_LINK_NOTE}
     >
-      <Link2 aria-hidden="true" />
-      Share link
+      {copied ? <Check aria-hidden="true" /> : <Link2 aria-hidden="true" />}
+      {copied ? "Link copied" : "Share link"}
     </Button>
   );
 }

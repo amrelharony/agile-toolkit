@@ -52,6 +52,9 @@ export function AcceptEstimate({
         <ToggleGroup
           label="Estimate to accept"
           size="sm"
+          // A mouse keeps the compact chips; on a touch screen each card is a
+          // 44px target with the default size's padding and 14px text.
+          className="pointer-coarse:[&>button]:min-h-11 pointer-coarse:[&>button]:min-w-11 pointer-coarse:[&>button]:px-3 pointer-coarse:[&>button]:text-sm"
           options={cards.map((c) => ({
             value: c,
             label: c,
@@ -65,7 +68,12 @@ export function AcceptEstimate({
         />
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <Button type="button" size="sm" onClick={accept} className="gap-1.5">
+        <Button
+          type="button"
+          size="sm"
+          onClick={accept}
+          className="gap-1.5 pointer-coarse:min-h-11"
+        >
           <Check aria-hidden="true" />
           {pick === null ? "Accept" : `Accept ${pick}`}
         </Button>

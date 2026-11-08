@@ -71,7 +71,7 @@ export function AddStoryForm({
             onPaste={onPaste}
             maxLength={STORY_TITLE_MAX}
             placeholder="Story title…"
-            className="h-9 text-sm bg-surface-deep border-border text-text"
+            className="h-9 pointer-coarse:min-h-11 text-sm bg-surface-deep border-border text-text"
           />
         )}
       </Field>
@@ -91,7 +91,7 @@ export function AddStoryForm({
         aria-label="New story description"
       />
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" size="sm" className="gap-1.5">
+        <Button type="submit" size="sm" className="gap-1.5 pointer-coarse:min-h-11">
           <Plus aria-hidden="true" />
           Add story
         </Button>

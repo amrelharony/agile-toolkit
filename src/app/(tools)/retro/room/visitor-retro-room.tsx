@@ -24,7 +24,7 @@
  */
 
 import { useEffect, useRef, useState, type JSX } from "react";
-import { Download } from "lucide-react";
+import { Check, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
@@ -38,6 +38,7 @@ import {
 import { exportToMarkdown } from "@/lib/utils/export";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 import { MAX_VOTES, PHASES } from "../types";
 import { toMarkdown } from "../markdown";
 import { PhaseIndicator } from "../components/phase-indicator";
@@ -71,7 +72,7 @@ export function VisitorRetroRoom(props: {
 }): JSX.Element {
   if (!visitorRoomsEnabled()) {
     return (
-      <main className="mx-auto min-h-screen w-full max-w-3xl px-4 py-6">
+      <main className="mx-auto min-h-screen-dvh w-full max-w-3xl px-4 py-6">
         <ClosedPanel
           title="Live rooms are off"
           body="This site isn't running live rooms right now."
@@ -240,7 +241,6 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
   const downloadMarkdown = () => {
     if (!board || board.cards.length === 0) return;
     exportToMarkdown(toMarkdown(board), `retro-${board.format.id}-${todayLocalISO()}`);
-    toast.success("Downloaded a copy as Markdown.");
   };
 
   const hosting = isHost && active;
@@ -252,7 +252,7 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
   const phaseIndex = PHASES.findIndex((p) => p.key === phase);
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-6xl space-y-5 px-4 py-6">
+    <main className="mx-auto min-h-screen-dvh w-full max-w-6xl space-y-5 px-4 py-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-xl font-bold text-text">
@@ -419,16 +419,30 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
 
 /** "Download Markdown": the board as this person last saw it, as a file. */
 function DownloadButton({ onDownload }: { onDownload?: () => void }) {
+  // Confirmed in place, not with a toast: the file is the confirmation.
+  const { flash, isFlashing } = useFlash();
+  const done = isFlashing();
   return (
     <Button
       type="button"
       variant="outline"
       className="gap-1.5"
-      onClick={onDownload}
+      onClick={
+        onDownload
+          ? () => {
+              onDownload();
+              flash("Downloaded a copy as Markdown.");
+            }
+          : undefined
+      }
       disabled={!onDownload}
     >
-      <Download className="w-4 h-4" aria-hidden="true" />
-      Download Markdown
+      {done ? (
+        <Check className="w-4 h-4" aria-hidden="true" />
+      ) : (
+        <Download className="w-4 h-4" aria-hidden="true" />
+      )}
+      {done ? "Downloaded" : "Download Markdown"}
     </Button>
   );
 }

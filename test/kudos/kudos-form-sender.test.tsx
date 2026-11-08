@@ -97,6 +97,26 @@ describe("KudosForm for a visitor", () => {
     expect(screen.getByLabelText("To")).toHaveValue("Sam");
     expect(screen.getByLabelText("Thank you for")).toHaveFocus();
   });
+
+  it("makes the whole Keep a copy row a 44 px target on touch screens", () => {
+    // The checkbox itself is 16 px; its label is the target (mobile audit #28).
+    render(
+      <KudosForm
+        defaultFromName="Ada"
+        recipients={recipients}
+        plainRecipient
+        delivery="link"
+        onSubmit={() => {}}
+        onDownload={() => {}}
+      />
+    );
+    const checkbox = screen.getByRole("checkbox", { name: "Keep a copy on this device" });
+    const label = checkbox.closest("label");
+    expect(label).not.toBeNull();
+    expect(label!.className.split(/\s+/)).toContain("pointer-coarse:min-h-11");
+    fireEvent.click(label!);
+    expect(checkbox).toBeChecked();
+  });
 });
 
 describe("KudosCard", () => {

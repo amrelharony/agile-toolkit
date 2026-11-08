@@ -9,6 +9,17 @@
         "allow": ["warn", "error"]
       }
     ],
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "sonner",
+            "message": "Import { toast } from \"@/lib/utils/toast\" so the notification policy (lib/notify/policy.ts) applies."
+          }
+        ]
+      }
+    ],
     "jsx-a11y/click-events-have-key-events": "error",
     "jsx-a11y/no-static-element-interactions": "error",
     "jsx-a11y/no-noninteractive-element-interactions": "error",
@@ -69,7 +80,14 @@
     {
       "files": ["**/__tests__/**/*", "**/*.test.ts", "**/*.test.tsx"],
       "rules": {
-        "no-console": "off"
+        "no-console": "off",
+        "no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": ["src/components/ui/sonner.tsx", "src/lib/notify/**/*"],
+      "rules": {
+        "no-restricted-imports": "off"
       }
     }
   ],

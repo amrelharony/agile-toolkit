@@ -42,7 +42,7 @@ export default function JoinRoomPage({ params }: { params: Params }) {
 
 function LiveRoomsOff() {
   return (
-    <main className="min-h-screen flex items-center justify-center px-4">
+    <main className="min-h-screen-dvh flex items-center justify-center px-4">
       <section className="w-full max-w-md rounded-xl border border-border bg-surface p-6 flex flex-col gap-4">
         <h1 className="flex items-center gap-2 text-lg font-semibold text-text">
           <Radio className="h-5 w-5 text-sub" aria-hidden="true" />

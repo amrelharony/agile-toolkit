@@ -63,6 +63,9 @@ const FlyingCardPortal = dynamic(
   { ssr: false }
 );
 import { TrophyCase } from "@/components/gamification/trophy-case";
+import { ActivityPanel } from "@/components/notify/activity-panel";
+import { MomentChip } from "@/components/notify/moment-chip";
+import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 
 // Routes that bypass the full app chrome (sidebar/header/providers).
@@ -103,7 +106,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 function FullAppShell({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
-  const [trophyOpen, setTrophyOpen] = useState(false);
+  // The trophy case and the Activity panel open from the XP bar, the user
+  // menu and each other, so their state lives in a small shared store.
+  const trophyOpen = useActivityUiStore((s) => s.trophyOpen);
+  const setTrophyOpen = useActivityUiStore((s) => s.setTrophyOpen);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
@@ -185,11 +191,14 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                                 <Header
                                   onOpenSearch={() => setSearchOpen(true)}
                                   onOpenSidebar={() => setSidebarOpen(true)}
-                                  onOpenTrophyCase={() => setTrophyOpen(true)}
                                 />
+                                {/* Side safe areas: the right one at every width (md
+                                    covers every landscape iPhone, notch and all); the
+                                    left one only below md, where no rail sits there
+                                    (the rail keeps it from md: sidebar). */}
                                 <main
                                   id="main-content"
-                                  className="flex-1 pb-[calc(8rem+env(safe-area-inset-bottom))] md:pb-28 pl-safe pr-safe md:pl-0 md:pr-0"
+                                  className="flex-1 pb-[calc(8rem+env(safe-area-inset-bottom))] md:pb-28 pl-safe pr-safe md:pl-0"
                                 >
                                   {children}
                                 </main>
@@ -197,6 +206,8 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                               <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
                             </div>
                             <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
+                            <ActivityPanel />
+                            <MomentChip />
                             <Suspense fallback={null}>
                               <HolidayEngine />
                             </Suspense>

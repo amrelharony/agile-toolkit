@@ -20,7 +20,9 @@ const SAVED_LABEL = "Saved in this browser";
  * The chip's box. The placeholder below shares it, so the two are always the
  * same size: change the chip's size here, not on the button.
  */
-const CHIP_BOX = "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs";
+// 32 px with a mouse, 44 px on touch screens; min-h so it grows instead of clipping.
+const CHIP_BOX =
+  "inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-xs pointer-coarse:min-h-11";
 
 /**
  * "Saved in this browser" next to a tool's title, for visitors.
