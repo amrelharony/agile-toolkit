@@ -50,9 +50,9 @@ export const MAX_STAT_EVENTS = 6;
  *
  * A balance, tunable here. An office or a phone network behind one address
  * shares these, so opens and finishes allow a crowd. Loves sit below
- * FAVOURITES_MIN_LOVES, so one connection needs more than an hour to put a
- * story in Readers' favourites on its own, or to take back more than a few
- * loves; the price is that a team behind one address counts at most 3 hearts
+ * FAVOURITES_MIN_LOVES, so a connection reaching one instance needs more than
+ * an hour to put a story in Readers' favourites on its own, or to take back
+ * more than a few loves; the price is that a team behind one address counts at most 3 hearts
  * (and 3 take-backs) a story an hour. A love over the limit simply isn't
  * counted: that reader's heart stays theirs, and the heart says it wasn't
  * counted. Views and time bands fall under the route's overall limit.
