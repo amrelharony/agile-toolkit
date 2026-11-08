@@ -64,7 +64,7 @@ function addXp(n: number): void {
 }
 
 /** Which corner the mascot is parked in (drag-to-reposition). */
-type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+export type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
 /** Inset of the float button from its corner. */
 /** Which toolkit scenes exist yet (their sheets shipped). Stable, for the hook. */
@@ -200,12 +200,27 @@ function hitBox(box: { w: number; h: number }): CSSProperties {
   };
 }
 
+/** The panel's height, as its class sets it (h-[min(68vh,560px)]). */
+const PANEL_HEIGHT_CSS = "min(68vh, 560px)";
+/** On a short screen the panel gets shorter, down to this: its title row, a few lines, the input. */
+const PANEL_MIN_H = 160;
+/** Room kept between the panel and the header, or the screen's far edge. */
+const PANEL_MARGIN = 8;
+
 /**
  * Chat-panel style for a corner — hugs Amr's silhouette, not his box. `boxH` is
  * the rendered box height (the figure's rows scale with it); with the launcher
- * showing, the panel clears the launcher instead.
+ * showing, the panel clears the launcher instead. `lift` is how far he has
+ * stepped off his edge for a control, and the panel goes with him.
+ *
+ * It always stays between the header and the screen's far edge, whatever the
+ * lift: first it gets shorter (its body scrolls); only when even PANEL_MIN_H
+ * won't fit past him (a landscape phone, him stepped up) does it stop short of
+ * following him and keep that much. `100%` is the visible screen (a fixed box's
+ * containing block), not 100vh, which on phones counts the hidden URL bar.
+ * Exported for tests.
  */
-function panelPos(
+export function panelPos(
   c: Corner,
   figure: boolean,
   boxH: number,
@@ -217,15 +232,24 @@ function panelPos(
   const bottom = figure ? FIGURE_BOTTOM * scale : LAUNCHER_SIZE;
   const height = figure ? boxH : LAUNCHER_SIZE;
   const inset = edgeInset(c, figure, boxH) + lift;
-  const px = c.startsWith("top")
+  const atTop = c.startsWith("top");
+  const px = atTop
     ? // Parked up top: clear his feet.
       inset + bottom + PANEL_GAP
     : // Parked at the bottom: clear its head.
       inset + (height - top) + PANEL_GAP;
-  const offset = edgeOffset(c, px, phone);
+  const raw = edgeOffset(c, px, phone);
+  const offset = typeof raw === "number" ? `${raw}px` : raw;
+  // From the edge it's anchored to across to where it must stop: the header for a
+  // bottom corner, the bottom of the screen (past the home indicator) for a top one.
+  const room = atTop
+    ? `100% - ${PANEL_MARGIN}px - env(safe-area-inset-bottom, 0px)`
+    : `100% - var(--header-h, 56px) - ${PANEL_MARGIN}px`;
+  const anchor = `min(${offset}, calc(${room} - min(${PANEL_HEIGHT_CSS}, ${PANEL_MIN_H}px)))`;
   return {
-    ...(c.startsWith("top") ? { top: offset } : { bottom: offset }),
+    ...(atTop ? { top: anchor } : { bottom: anchor }),
     ...sideOffset(c, 16),
+    maxHeight: `max(${PANEL_MIN_H}px, calc(${room} - ${offset}))`,
   };
 }
 
