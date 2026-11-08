@@ -63,6 +63,11 @@ const DialogContent = React.forwardRef<
     >
       <div
         data-dialog-body=""
+        // A click on plain text focuses the nearest focusable ancestor. Without
+        // this that is the box, which doesn't scroll, so PageDown, Space and
+        // the arrows did nothing after a click. -1 keeps it out of the Tab
+        // order and out of Radix's first-focus pick.
+        tabIndex={-1}
         className={cn(
           // `minmax(0,1fr)` bounds the single track to the body's width: an
           // auto track grows to its widest child (a nowrap tab list, a long
@@ -72,7 +77,7 @@ const DialogContent = React.forwardRef<
           // containing block of absolutely positioned children (sr-only text,
           // hidden file inputs), so they scroll and clip with it instead of
           // stretching the box into a second scroller.
-          "relative grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto overscroll-contain p-4 sm:p-6",
+          "relative grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto overscroll-contain p-4 outline-none sm:p-6",
           bodyClassName
         )}
       >

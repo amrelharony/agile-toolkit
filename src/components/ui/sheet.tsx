@@ -83,10 +83,13 @@ const SheetContent = React.forwardRef<
       </SheetPrimitive.Close>
       <div
         data-sheet-body=""
+        // As in DialogContent: a click on plain text focuses the body, which
+        // scrolls, so the keyboard can scroll it; -1 keeps it out of Tab order.
+        tabIndex={-1}
         className={cn(
           // `relative`: absolutely positioned children (sr-only text, hidden
           // inputs) scroll and clip with the body instead of the panel.
-          "relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-4 sm:p-6",
+          "relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-4 outline-none sm:p-6",
           bodyClassName
         )}
       >

@@ -69,6 +69,14 @@ describe("DialogContent", () => {
     expect(classesOf(body)).toContain("relative");
   });
 
+  it("lets a click focus the body so the keyboard can scroll it, without a Tab stop", () => {
+    const { dialog, body } = renderDialog();
+    expect(body).toHaveAttribute("tabindex", "-1");
+    expect(classesOf(body)).toContain("outline-none");
+    // Radix still focuses the first control, not the body.
+    expect(within(dialog).getByLabelText("API key")).toHaveFocus();
+  });
+
   it("bounds the grid track so wide children can't widen the dialog", () => {
     const { body } = renderDialog();
     expect(classesOf(body)).toEqual(expect.arrayContaining(["grid", "grid-cols-[minmax(0,1fr)]"]));
@@ -122,6 +130,7 @@ describe("SheetContent", () => {
       expect.arrayContaining(["relative", "min-h-0", "flex-1", "overflow-y-auto", "p-0"])
     );
     expect(classesOf(body)).not.toContain("p-4");
+    expect(body).toHaveAttribute("tabindex", "-1");
     expect(body!.contains(close)).toBe(false);
     expect(close.parentElement).toBe(panel);
     // Above positioned content scrolling under it.
