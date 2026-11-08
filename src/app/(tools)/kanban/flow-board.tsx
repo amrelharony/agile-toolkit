@@ -728,13 +728,14 @@ function FlowCard({
               <BlockedToggle blocked={blocked} itemTitle={c.title} onToggle={onToggleBlocked} />
             )}
           </div>
-          {/* Card controls. Stacked on mobile (one per row) so each select
-              is a comfortable touch target; a row on wider screens. */}
+          {/* Card controls. Stacked below 375 px (one per row), a row from
+              there up. The selects stay 36 px tall below sm and on any touch
+              screen: Move is the way to move a card without dragging. */}
           <div className="flex flex-col xs:flex-row xs:items-center gap-1.5">
             <Select value={c.column} onValueChange={(v) => onMove(v as KanbanColumnId)}>
               <SelectTrigger
                 ref={moveRef}
-                className="h-9 xs:h-7 text-xs bg-surface border-border xs:w-28 w-full"
+                className="h-9 sm:h-7 pointer-coarse:min-h-9 text-xs bg-surface border-border xs:w-28 w-full"
                 aria-label={`Move ${c.title}`}
               >
                 <SelectValue />
@@ -750,7 +751,7 @@ function FlowCard({
             <div className="flex items-center gap-1.5 flex-1">
               <Select value={c.class} onValueChange={(v) => onClass(v as KanbanClassOfService)}>
                 <SelectTrigger
-                  className="h-9 xs:h-7 text-xs bg-surface border-border flex-1"
+                  className="h-9 sm:h-7 pointer-coarse:min-h-9 text-xs bg-surface border-border flex-1"
                   aria-label={`Class of service for ${c.title}`}
                 >
                   <SelectValue />
