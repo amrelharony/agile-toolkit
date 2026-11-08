@@ -20,7 +20,6 @@ import {
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { useMediaQuery } from "@/hooks/use-media-query";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { generateCanvasPrompts } from "@/lib/ai-prompts/canvas";
@@ -579,14 +578,6 @@ export function CanvasClient() {
       y: viewportSize.h > 0 ? camera.y + viewportSize.h / 2 / camera.zoom : camera.y + 300,
     };
   }, [viewportSize.w, viewportSize.h]);
-  // Below `sm` the board toolbar spans the stage, so a corner mic would
-  // sit on its right end (over "Show AI insights panel"); there the mic
-  // rides inside the toolbar instead. One instance either way.
-  const voiceInToolbar = !useMediaQuery("(min-width: 640px)");
-  const voiceButton =
-    !readOnly && activeBoardId ? (
-      <VoiceInputButton boardId={activeBoardId} worldCenter={voiceWorldCenter} />
-    ) : null;
 
   // ─── Template / Import / Export wiring ───────────────────────────────
   const [showTemplates, setShowTemplates] = useState(false);
@@ -967,17 +958,20 @@ export function CanvasClient() {
           </div>
         )}
         {!readOnly && <ToolbarLeft clearBoardBar />}
-        {!readOnly && <ToolbarTop trailing={voiceInToolbar ? voiceButton : undefined} />}
+        {!readOnly && <ToolbarTop />}
         {!readOnly && <TagFilterRow objects={objects} />}
         {/* Voice input button — pinned to top-right next to ZoomControls
             so it stays one click away during retros / standups.
-            Phase 33. Below `sm` it is the board toolbar's last item. */}
-        {voiceButton && !voiceInToolbar && (
+            Phase 33. Below `sm` it lines up with the board toolbar
+            (top-2), which stops short of it there. It keeps this one
+            place in the tree at every width: a remount (rotating a
+            phone across a breakpoint) would abort a dictation. */}
+        {!readOnly && activeBoardId && (
           <div
-            className="absolute top-3 right-3 z-20 bg-surface/95 border border-border rounded-lg p-0.5 shadow-md backdrop-blur-sm"
+            className="absolute top-2 right-2 sm:top-3 sm:right-3 z-20 bg-surface/95 border border-border rounded-lg p-0.5 shadow-md backdrop-blur-sm"
             data-canvas-export-ignore="true"
           >
-            {voiceButton}
+            <VoiceInputButton boardId={activeBoardId} worldCenter={voiceWorldCenter} />
           </div>
         )}
         <ZoomControls onFit={onFit} viewportSize={viewportSize} />

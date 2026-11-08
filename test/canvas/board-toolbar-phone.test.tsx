@@ -3,9 +3,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { setScroll } from "./scroll-metrics";
 
 /**
- * The board toolbar on phones (mobile audit #19, #20, #66, #71). From
- * `sm` up it keeps clear of the tool rail and the corner mic; below `sm`
- * it can carry the mic as a pinned last item; its board picker controls
+ * The board toolbar on phones (mobile audit #19, #20, #66, #71). It keeps
+ * clear of the corner mic at every width and of the tool rail from `sm`
+ * up (below `sm` the rail starts under it); its board picker controls
  * are 44 px on touch with a pencil for rename; its strip fades at the end
  * that still hides controls.
  */
@@ -39,27 +39,25 @@ const strip = () =>
 const bar = () => strip().parentElement as HTMLElement;
 
 describe("ToolbarTop layout", () => {
-  it("keeps clear of the rail and the corner mic from sm up, centred without a transform", () => {
+  it("stops short of the corner mic below sm, from the stage's left edge", () => {
     render(<ToolbarTop />);
-    expect(bar()).toHaveClass(
-      "inset-x-0",
-      "mx-auto",
-      "w-max",
-      "max-w-[calc(100%-1rem)]",
-      "sm:max-w-[calc(100%-9rem)]"
-    );
-    // A transform would trap the mic's fixed "Listening" pill in the bar.
-    expect(bar().className).not.toMatch(/translate/);
-    // Nothing pinned at the end without a trailing item.
-    expect(bar().children).toHaveLength(1);
+    // The mic's corner (top-2 right-2, up to 50 px wide on touch) stays
+    // clear; the rail starts under the bar, so it can start at left-2.
+    expect(bar()).toHaveClass("left-2", "top-2", "w-max", "max-w-[calc(100%-4.5rem)]");
+    expect(bar()).not.toHaveClass("inset-x-0", "mx-auto");
   });
 
-  it("pins a trailing item (the phone mic) outside the scroll strip", () => {
-    render(<ToolbarTop trailing={<button type="button">Start voice input</button>} />);
-    const mic = screen.getByRole("button", { name: "Start voice input" });
-    expect(bar().contains(mic)).toBe(true);
-    expect(strip().contains(mic)).toBe(false);
-    expect(bar().lastElementChild?.contains(mic)).toBe(true);
+  it("keeps clear of the rail and the corner mic from sm up, centred as before", () => {
+    render(<ToolbarTop />);
+    expect(bar()).toHaveClass(
+      "sm:inset-x-0",
+      "sm:mx-auto",
+      "sm:top-3",
+      "sm:max-w-[calc(100%-9rem)]"
+    );
+    // The controls are the bar's only content: the mic is never inside it.
+    expect(bar().children).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /voice input/i })).toBeNull();
   });
 });
 

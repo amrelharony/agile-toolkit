@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Trash2, Sparkles, Map, Magnet, Grid3X3, PlayCircle, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -17,14 +17,7 @@ import {
   useScrollEdges,
 } from "../hooks/use-scroll-edges";
 
-interface ToolbarTopProps {
-  /** Pinned at the bar's right end, outside its scroll strip, so it is
-   * always in view. /canvas puts the voice button here on phones, where
-   * a separate corner button would sit on top of the bar. */
-  trailing?: ReactNode;
-}
-
-export function ToolbarTop({ trailing }: ToolbarTopProps = {}) {
+export function ToolbarTop() {
   const boards = useWorkspaceStore((s) => s.whiteboards ?? []);
   const activeBoardId = useCanvasStore((s) => s.activeBoardId);
   const setActiveBoard = useCanvasStore((s) => s.setActiveBoard);
@@ -153,20 +146,20 @@ export function ToolbarTop({ trailing }: ToolbarTopProps = {}) {
       // and "+ New" gets its own breathing room before the view toggles.
       //
       // Layout:
-      //   - Centred with `inset-x-0 mx-auto w-max` (not a translate: a
-      //     transform would trap the voice button's fixed "Listening"
-      //     pill inside the bar).
-      //   - Below `sm` it may span the stage (`calc(100%-1rem)`); the
-      //     tool rail starts under it (ToolbarLeft `clearBoardBar`) and
-      //     the voice button rides inside it (`trailing`).
-      //   - From `sm` up it keeps 4.5rem clear on each side, so it never
-      //     reaches the tool rail (left) or the corner voice button
-      //     (right). The centre is unchanged, so a desktop bar that fits
-      //     sits exactly where it did.
+      //   - Below `sm` it starts at the stage's left edge and stops
+      //     4.5rem short of the right one, where the corner voice button
+      //     sits (/canvas, `top-2 right-2`; room for a 44 px touch mic
+      //     plus a gap). The tool rail starts under it there (ToolbarLeft
+      //     `clearBoardBar`), so the bar never covers Select.
+      //   - From `sm` up it is centred (`inset-x-0 mx-auto w-max`) and
+      //     keeps 4.5rem clear on each side, so it never reaches the tool
+      //     rail (left) or the corner voice button (right). The centre is
+      //     unchanged, so a desktop bar that fits sits exactly where it
+      //     did.
       //   - The controls scroll sideways in an inner strip when they
       //     don't fit; `flex-wrap` would split groups across rows,
       //     which looks worse than a horizontal scroll — keep it nowrap.
-      className="absolute inset-x-0 mx-auto top-2 sm:top-3 w-max max-w-[calc(100%-1rem)] sm:max-w-[calc(100%-9rem)] flex items-center bg-surface/95 border border-border rounded-lg shadow-lg backdrop-blur-sm z-10"
+      className="absolute left-2 top-2 w-max max-w-[calc(100%-4.5rem)] sm:inset-x-0 sm:mx-auto sm:top-3 sm:max-w-[calc(100%-9rem)] flex items-center bg-surface/95 border border-border rounded-lg shadow-lg backdrop-blur-sm z-10"
       // PNG export filters out anything carrying this attribute.
       data-canvas-export-ignore="true"
     >
@@ -351,14 +344,6 @@ export function ToolbarTop({ trailing }: ToolbarTopProps = {}) {
           </button>
         </div>
       </div>
-
-      {/* Pinned end — outside the scroll strip, so it stays in view. */}
-      {trailing && (
-        <div className="flex shrink-0 items-center gap-1.5 py-1 pr-2">
-          <div className="w-px h-5 bg-border shrink-0" aria-hidden="true" />
-          {trailing}
-        </div>
-      )}
     </div>
   );
 }
