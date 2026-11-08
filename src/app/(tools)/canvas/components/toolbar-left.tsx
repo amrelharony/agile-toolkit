@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   MousePointer2,
   StickyNote,
@@ -28,6 +29,12 @@ import { DiagramShapePicker } from "./diagram-shape-picker";
 import { cn } from "@/lib/utils";
 import { keepBoardFocus } from "@/lib/whiteboard/keyboard";
 import { useCanvasStore, type CanvasTool } from "../use-canvas-store";
+import {
+  COARSE_SCROLL_FADE,
+  scrollFadeMask,
+  scrollFadeStyle,
+  useScrollEdges,
+} from "../hooks/use-scroll-edges";
 
 interface ToolDef {
   id: CanvasTool;
@@ -89,7 +96,24 @@ const TOOL_GROUPS: ToolDef[][] = [
   ],
 ];
 
-export function ToolbarLeft() {
+/**
+ * Rail top below `sm` when the board toolbar (ToolbarTop) shares the
+ * stage: that bar spans the stage at `top-2` and is 54 px tall on touch
+ * (44 px controls + padding + border), so the rail starts under it
+ * (8 + 54 + a 6 px gap = 68 px = 4.25rem). From `sm` up the board
+ * toolbar is narrowed to clear the rail, and both sit at `top-3`.
+ */
+export const RAIL_TOP_UNDER_BOARD_BAR = "top-[4.25rem] sm:top-3";
+const RAIL_TOP_ALONE = "top-2 sm:top-3";
+
+interface ToolbarLeftProps {
+  /** The board toolbar shares the stage (the /canvas page; the guest
+   * board has none). Below `sm` the rail then starts under it, so that
+   * bar never covers Select. */
+  clearBoardBar?: boolean;
+}
+
+export function ToolbarLeft({ clearBoardBar = false }: ToolbarLeftProps = {}) {
   const tool = useCanvasStore((s) => s.tool);
   const setTool = useCanvasStore((s) => s.setTool);
   // Diagram picker — anchored on the Diagrams button. We capture the
@@ -97,9 +121,15 @@ export function ToolbarLeft() {
   // (rather than at a fixed viewport position).
   const [pickerAnchor, setPickerAnchor] = useState<DOMRect | null>(null);
   const diagramBtnRef = useRef<HTMLButtonElement | null>(null);
+  // The 22-tool rail scrolls on phones (about 8 tools fit at 360x640)
+  // and touch browsers hide its scrollbar, so a faded end shows there
+  // is more above / below.
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const fadeMask = scrollFadeMask("y", useScrollEdges(railRef, "y"));
 
   return (
     <div
+      ref={railRef}
       // Responsive layout:
       //   - Top-anchored with a max-height ceiling (was top:50% +
       //     -translate-y-50%) so the 18-tool column never overflows
@@ -116,7 +146,13 @@ export function ToolbarLeft() {
       // Also: 32x32 buttons on narrow viewports (<sm) and 36x36 on
       // larger so touch users get a 44px-class hit area when you
       // include the toolbar padding.
-      className="absolute left-2 sm:left-3 top-2 sm:top-3 bottom-2 sm:bottom-auto sm:max-h-[calc(100%-1.5rem)] flex flex-col gap-0.5 bg-surface/95 border border-border rounded-lg p-1 shadow-lg backdrop-blur-sm z-10 overflow-y-auto overscroll-contain [scrollbar-width:thin]"
+      className={cn(
+        "absolute left-2 sm:left-3 bottom-2 sm:bottom-auto sm:max-h-[calc(100%-1.5rem)] flex flex-col gap-0.5 bg-surface/95 border border-border rounded-lg p-1 shadow-lg backdrop-blur-sm z-10 overflow-y-auto overscroll-contain [scrollbar-width:thin]",
+        clearBoardBar ? RAIL_TOP_UNDER_BOARD_BAR : RAIL_TOP_ALONE,
+        COARSE_SCROLL_FADE
+      )}
+      // Faded ends (touch only) while there is more to scroll that way.
+      style={scrollFadeStyle(fadeMask)}
       role="toolbar"
       aria-label="Canvas tools"
       // PNG export filters out anything carrying this attribute so the
@@ -187,9 +223,15 @@ export function ToolbarLeft() {
       >
         <Boxes className="w-4 h-4" aria-hidden="true" />
       </button>
-      {pickerAnchor && (
-        <DiagramShapePicker anchorRect={pickerAnchor} onClose={() => setPickerAnchor(null)} />
-      )}
+      {/* Portalled to <body>: the picker is position:fixed beside the
+          rail, and inside the rail it would be cut off by the rail's
+          scroll box, its touch fade mask and its backdrop-filter (which
+          makes the rail the containing block for fixed children). */}
+      {pickerAnchor &&
+        createPortal(
+          <DiagramShapePicker anchorRect={pickerAnchor} onClose={() => setPickerAnchor(null)} />,
+          document.body
+        )}
     </div>
   );
 }
