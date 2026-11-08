@@ -188,6 +188,27 @@ describe("the bar's title on a page that isn't a tool", () => {
     expect(currentPages(container)).toEqual([]);
   });
 
+  it.each(["/insights", "/more-tools", "/planning-poker"])(
+    "%s: every box from the clipping wrapper down to the title can shrink, so it ends in an ellipsis",
+    (pathname) => {
+      // With 44 px touch buttons a 360 px bar leaves the title about 54 px.
+      // A nav without min-w-0 kept the title's full width and the wrapper's
+      // overflow-hidden cut it mid-letter instead of letting truncate work.
+      h.pathname = pathname;
+      const { container } = render(<Header onOpenSearch={() => {}} />);
+      const nav = container.querySelector("nav[aria-label='breadcrumb']");
+      expect(classesOf(nav?.parentElement ?? null)).toEqual(
+        expect.arrayContaining(["min-w-0", "overflow-hidden"])
+      );
+      const [page] = currentPages(container);
+      expect(page).toBeDefined();
+      expect(classesOf(page)).toContain("truncate");
+      for (let el = page.parentElement; el && el !== nav?.parentElement; el = el.parentElement) {
+        expect(classesOf(el)).toContain("min-w-0");
+      }
+    }
+  );
+
   it("still names a tool by itself", () => {
     const retro = getToolById("retro")!;
     h.pathname = retro.path;

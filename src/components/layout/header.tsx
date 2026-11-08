@@ -204,10 +204,13 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
           overflow defensively — without it, when the search pill +
           XpBar + right cluster squeeze the breadcrumb below its content
           size, the inner flex-nowrap items spill out and collide with
-          the search pill. `min-w-0` on the list lets the inner flex
-          chain shrink so the tool-name truncate can engage. */}
+          the search pill. `min-w-0` on the nav and the list lets the
+          inner flex chain shrink so the title's truncate can engage:
+          without it on the nav (a flex item of this wrapper) the nav
+          kept the title's full width and the wrapper cut it mid-letter
+          ("Planning Poke") instead of ending it with an ellipsis. */}
       <div className="flex items-center gap-3 min-w-0 flex-1 overflow-hidden">
-        <Breadcrumb>
+        <Breadcrumb className="min-w-0">
           <BreadcrumbList className="flex-nowrap min-w-0">
             {/* "Home" + separator only at lg+. Below that the tool name
                 stands alone — Home is reachable via the sidebar / logo
