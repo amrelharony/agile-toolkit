@@ -22,7 +22,9 @@ export function JoinClient({ initialCode, nextUrl }: Props) {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const trimmedCode = code.trim();
+    // Codes are base64url, so any whitespace came from a paste that wrapped
+    // or picked up a space; the server compares the exact 32 characters.
+    const trimmedCode = code.replace(/\s+/g, "");
     const trimmedName = displayName.trim();
     if (!trimmedCode || !trimmedName) {
       setError("Code and display name are required.");
@@ -93,11 +95,17 @@ export function JoinClient({ initialCode, nextUrl }: Props) {
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="Paste your invite code"
+              // The code is case-sensitive: iOS would capitalise the first
+              // letter and the server would say it isn't valid.
               autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
               spellCheck={false}
-              // h-11 on phones (44 px tap floor); shrink to 36 px on md+.
-              // text-base also kills iOS auto-zoom on focus.
-              className="w-full h-11 md:h-9 bg-surface border border-border rounded px-3 text-base md:text-sm text-text font-mono focus:outline-none focus:border-accent"
+              inputMode="text"
+              // 44 px tall with 16 px text on touch at any width (iOS zooms
+              // on a focused field under 16 px, and a landscape phone is
+              // wider than md); 36 px / 14 px only for a mouse at md+.
+              className="w-full h-11 pointer-fine:md:h-9 bg-surface border border-border rounded px-3 text-base pointer-fine:md:text-sm text-text font-mono focus:outline-none focus:border-accent"
             />
           </label>
 
@@ -109,7 +117,7 @@ export function JoinClient({ initialCode, nextUrl }: Props) {
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="How others will see you"
               maxLength={60}
-              className="w-full h-11 md:h-9 bg-surface border border-border rounded px-3 text-base md:text-sm text-text focus:outline-none focus:border-accent"
+              className="w-full h-11 pointer-fine:md:h-9 bg-surface border border-border rounded px-3 text-base pointer-fine:md:text-sm text-text focus:outline-none focus:border-accent"
             />
           </label>
 
