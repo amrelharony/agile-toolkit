@@ -398,7 +398,9 @@ export function SessionScreen({
     onUpdateSession((s) => appendStories(s, added));
     announce(`Added ${added.length} stories.`);
     if (pasted.dropped > 0) {
+      // One toast: a second paste updates it in place.
       toast.info(`Added ${added.length} stories.`, {
+        id: "poker-paste",
         description: `${leftOutMessage(pasted.dropped)} ${
           cap < PASTE_LINE_CAP ? QUEUE_FULL : `One paste adds up to ${PASTE_LINE_CAP}.`
         }`,

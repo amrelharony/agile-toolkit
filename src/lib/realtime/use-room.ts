@@ -5,6 +5,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabaseClient, isRealtimeAvailable } from "./supabase-client";
 import { nanoid } from "nanoid";
 import { emitRtEvent } from "@/lib/sonification/emit";
+import { signalGamification } from "@/lib/gamification/signal";
 import { usePresenceIdentityOverride } from "./presence-identity";
 import { useRealtimeAllowed } from "./use-realtime-allowed";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
@@ -368,6 +369,8 @@ export function useRoom<T>(
     /** Wire up `channel`, subscribe, and return its teardown. */
     const joinChannel = (channel: RealtimeChannel): (() => void) => {
       let memberCount = 0;
+      let joinSignalled = false;
+      let partySignalled = false;
       // Capture into a local that the cleanup closure can use safely —
       // satisfies react-hooks/exhaustive-deps' ref-mutation check.
       const boundEvents = boundEventsRef.current;
@@ -384,6 +387,20 @@ export function useRoom<T>(
         if (memberCount > 0) {
           if (allMembers.length > memberCount) emitRtEvent("member-join");
           else if (allMembers.length < memberCount) emitRtEvent("member-leave");
+        }
+        // "Teammate": the first time this channel holds someone besides us
+        // (a second tab of our own carries the same id, so it doesn't count).
+        // Auto-joined rooms opened alone (the owner's kudos room, a host
+        // waiting for the first guest) and reconnects don't count.
+        if (!joinSignalled && allMembers.some((m) => m.id !== me.id)) {
+          joinSignalled = true;
+          signalGamification("room-joined", { toolId });
+        }
+        // "Party of Four": once per channel, when the room first holds 4 or
+        // more people.
+        if (!partySignalled && allMembers.length >= 4) {
+          partySignalled = true;
+          signalGamification("room-members", { memberCount: allMembers.length });
         }
         memberCount = allMembers.length;
         setMembers(allMembers);

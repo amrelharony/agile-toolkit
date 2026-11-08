@@ -1,10 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Characterization of the `@/lib/utils/toast` wrapper. Its API is imported by
- * ~73 modules and must stay exactly as it is through the notification
- * redesign: every helper forwards to sonner unchanged and returns sonner's id,
- * and each one sonifies through a UI event that can never throw out of it.
+ * The `@/lib/utils/toast` wrapper. Its API is imported by ~73 modules and
+ * stays exactly as it was: every helper still renders through sonner and
+ * returns the toast's id. Since the notification policy, each helper sends
+ * its toast through lib/notify (kind → duration, close button, sound,
+ * haptic), and feedback goes out only through `emitFeedback` (never the
+ * gamification engine) and can never throw out of a helper.
+ * The `NEXT_PUBLIC_NOTIFY_POLICY=legacy` kill switch is gone.
  */
 
 const h = vi.hoisted(() => {
@@ -21,62 +24,133 @@ const h = vi.hoisted(() => {
       dismiss: vi.fn(),
     }
   );
-  return { sonner, emitUiEvent: vi.fn() as ReturnType<typeof vi.fn> };
+  return { sonner, emitFeedback: vi.fn() as ReturnType<typeof vi.fn> };
 });
 
 vi.mock("sonner", () => ({ toast: h.sonner }));
-vi.mock("@/lib/sonification/emit", () => ({ emitUiEvent: h.emitUiEvent }));
+vi.mock("@/lib/sonification/emit", () => ({ emitFeedback: h.emitFeedback }));
 
 import { toast } from "@/lib/utils/toast";
+import { __resetNotifyForTests, __setPolicyContextForTests } from "@/lib/notify/notify";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.emitUiEvent.mockImplementation(() => undefined);
+  __resetNotifyForTests();
+  __setPolicyContextForTests({
+    quiet: { quiet: false, reason: null },
+    dialogOpen: false,
+    typing: false,
+    phone: false,
+    touch: false,
+  });
+  h.emitFeedback.mockImplementation(() => undefined);
 });
 
-describe("toast wrapper", () => {
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+/** The options a sonner helper was called with. */
+function optsOf(fn: { mock: { calls: unknown[][] } }, i = 0): Record<string, unknown> {
+  return (fn.mock.calls[i] as unknown[])[1] as Record<string, unknown>;
+}
+
+describe("toast wrapper (policy)", () => {
   it.each([
-    ["plain", (m: string, o?: object) => toast(m, o), h.sonner, "toast-info", "id-plain"],
-    ["success", toast.success, h.sonner.success, "toast-success", "id-success"],
-    ["error", toast.error, h.sonner.error, "toast-error", "id-error"],
-    ["info", toast.info, h.sonner.info, "toast-info", "id-info"],
-    ["warning", toast.warning, h.sonner.warning, "toast-warning", "id-warning"],
-    ["message", toast.message, h.sonner.message, "toast-info", "id-message"],
-  ] as const)("%s forwards to sonner, returns its id and emits %s", (_n, fn, target, ev, id) => {
-    const opts = { description: "d", id: "k1", duration: 1234 };
-    expect(fn("Hello", opts)).toBe(id);
-    expect(target).toHaveBeenCalledWith("Hello", opts);
-    expect(h.emitUiEvent).toHaveBeenCalledTimes(1);
-    expect(h.emitUiEvent).toHaveBeenCalledWith(ev);
+    ["plain", (m: string, o?: object) => toast(m, o), h.sonner, 4000],
+    ["success", toast.success, h.sonner.success, 2500],
+    ["error", toast.error, h.sonner.error, 7000],
+    ["info", toast.info, h.sonner.info, 4000],
+    ["warning", toast.warning, h.sonner.warning, 5000],
+    ["message", toast.message, h.sonner.message, 4000],
+  ] as const)(
+    "%s renders through its sonner helper with the kind's duration",
+    (_n, fn, target, ms) => {
+      const id = fn("Hello", { description: "d" });
+      expect(target).toHaveBeenCalledTimes(1);
+      const [msg, opts] = target.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      expect(msg).toBe("Hello");
+      expect(opts).toMatchObject({ description: "d", duration: ms, id });
+    }
+  );
+
+  it("keeps the caller's id and duration", () => {
+    expect(toast.success("Saved", { id: "k1", duration: 1234 })).toBe("k1");
+    expect(optsOf(h.sonner.success)).toMatchObject({ id: "k1", duration: 1234 });
   });
 
-  it("loading forwards and emits toast-info", () => {
-    expect(toast.loading("Saving…")).toBe("id-loading");
-    expect(h.sonner.loading).toHaveBeenCalledWith("Saving…", undefined);
-    expect(h.emitUiEvent).toHaveBeenCalledWith("toast-info");
+  it.each([
+    ["error", toast.error, "toast-error", { sound: true, haptics: true }],
+    ["warning", toast.warning, "toast-warning", { sound: true, haptics: true }],
+    [
+      "success",
+      toast.success,
+      "toast-success",
+      { sound: true, haptics: false, soundFullModeOnly: true },
+    ],
+  ] as const)("%s plays %s through emitFeedback", (_n, fn, ev, fb) => {
+    fn("Hello");
+    expect(h.emitFeedback).toHaveBeenCalledTimes(1);
+    expect(h.emitFeedback).toHaveBeenCalledWith("ui", ev, undefined, expect.objectContaining(fb));
   });
 
-  it("dismiss and promise pass straight through without sonifying", () => {
+  it("info, message, plain and loading are silent", () => {
+    toast("a");
+    toast.info("b");
+    toast.message("c");
+    toast.loading("d");
+    expect(h.emitFeedback).not.toHaveBeenCalled();
+  });
+
+  it("loading is progress: shown until settled", () => {
+    const id = toast.loading("Saving…");
+    expect(optsOf(h.sonner.loading)).toMatchObject({
+      id,
+      duration: Number.POSITIVE_INFINITY,
+    });
+  });
+
+  it("an explicit kind overrides the helper's", () => {
+    toast("Deleted", { kind: "undo", action: { label: "Undo", onClick: () => {} } });
+    const opts = optsOf(h.sonner);
+    expect(opts).toMatchObject({ duration: 8000, closeButton: true });
+    expect(opts).not.toHaveProperty("kind");
+  });
+
+  it("dismiss passes straight through without a sound event", () => {
     toast.dismiss("t1");
     expect(h.sonner.dismiss).toHaveBeenCalledWith("t1");
+    expect(h.emitFeedback).not.toHaveBeenCalled();
+  });
+
+  it("promise passes straight through without a sound event", () => {
     const p = Promise.resolve(1);
     toast.promise(p, { loading: "…", success: "ok", error: "no" });
     expect(h.sonner.promise).toHaveBeenCalledWith(p, { loading: "…", success: "ok", error: "no" });
-    expect(h.emitUiEvent).not.toHaveBeenCalled();
+    expect(h.emitFeedback).not.toHaveBeenCalled();
   });
 
   it("still shows the toast when sonifying throws", () => {
-    h.emitUiEvent.mockImplementation(() => {
+    h.emitFeedback.mockImplementation(() => {
       throw new Error("audio blocked");
     });
-    expect(toast.error("Couldn't save")).toBe("id-error");
-    expect(h.sonner.error).toHaveBeenCalledWith("Couldn't save", undefined);
+    const id = toast.error("Couldn't save");
+    expect(h.sonner.error).toHaveBeenCalledWith("Couldn't save", expect.objectContaining({ id }));
   });
 
   it("attaches a catch to an async sonify result", () => {
     const thenable = { then: vi.fn(), catch: vi.fn() };
-    h.emitUiEvent.mockImplementation(() => thenable);
-    expect(toast.success("Saved")).toBe("id-success");
+    h.emitFeedback.mockImplementation(() => thenable);
+    toast.error("Couldn't save");
     expect(thenable.catch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("toast wrapper (no legacy kill switch)", () => {
+  it("ignores NEXT_PUBLIC_NOTIFY_POLICY=legacy: toasts still go through the policy", () => {
+    vi.stubEnv("NEXT_PUBLIC_NOTIFY_POLICY", "legacy");
+    toast.info("Saved for later");
+    expect(optsOf(h.sonner.info)).toMatchObject({ duration: 4000 });
+    expect(h.emitFeedback).not.toHaveBeenCalled();
   });
 });

@@ -478,16 +478,17 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
     };
   }, [isAsync, entries, rosterNames]);
 
-  const copyDigest = async (digest: string) => {
+  /** Copies the digest; the button confirms inline when it returns true. */
+  const copyDigest = async (digest: string): Promise<boolean> => {
     const ok = await copyToClipboard(digest);
-    if (ok) toast.success("Digest copied to clipboard");
-    else toast.error("Failed to copy digest");
+    if (!ok) toast.error("Failed to copy digest");
     const day = entries.filter((e) => e.date === today);
     log(ASYNC_STANDUP_ACTIONS.DIGEST_GENERATED, {
       date: today,
       updateCount: day.length,
       blockerCount: day.filter(hasBlocker).length,
     });
+    return ok;
   };
 
   // ── Cross-tool signal: blockers raised in the Impediments tool ────────

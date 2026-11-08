@@ -30,6 +30,7 @@ import { SonificationToggle } from "@/components/shared/sonification-toggle";
 import { LlmStatusChip } from "@/components/ai/llm-status-chip";
 import { useAgentStore } from "@/lib/agent/store";
 import { XpBar } from "@/components/gamification/xp-bar";
+import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 import { WeatherWidget } from "@/lib/weather/widget";
 import { UserMenu } from "@/components/auth/user-menu";
 import { VisitorDataMergeDialog } from "@/components/auth/visitor-data-merge-dialog";
@@ -57,10 +58,9 @@ const THEME_LABEL: Record<AppliedTheme, string> = {
 interface HeaderProps {
   onOpenSearch: () => void;
   onOpenSidebar?: () => void;
-  onOpenTrophyCase?: () => void;
 }
 
-export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: HeaderProps) {
+export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
   const pathname = usePathname();
   const pathTool = getToolByPath(pathname);
   // A VIP tool's address may be showing a lock panel, and this bar can't know: the
@@ -76,6 +76,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
   // read (skipHydration), so SSR and the first client render both see
   // the `true` default and the gate can't cause a hydration mismatch.
   const beaconHeader = useKudosSettingsStore((s) => s.beaconHeader);
+  const showXpBar = useNotificationPrefsStore((s) => s.showXpBar && s.gamificationEnabled);
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
   // Theme quick-switch: comic → night → high contrast → comic. The full
@@ -241,9 +242,13 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
           on iPhone-mini-class viewports; bumping to `sm` keeps it
           legible while keeping the trophy case reachable via user menu. */}
       <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
-        <div className="hidden sm:flex items-center gap-0.5 sm:gap-1">
-          <XpBar onOpenTrophyCase={onOpenTrophyCase} />
-        </div>
+        {/* Settings › Notifications can hide the bar (or all progress):
+            drop its slot too, so the cluster keeps even spacing. */}
+        {showXpBar && (
+          <div className="hidden sm:flex items-center gap-0.5 sm:gap-1">
+            <XpBar />
+          </div>
+        )}
         <div className="hidden sm:flex items-center">
           <SonificationToggle />
         </div>
