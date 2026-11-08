@@ -3,19 +3,20 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Share2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { COMICS_ROUTE, FIRST_WEEKLY_EP, comicHref } from "@/lib/comics/entry";
 import { beaconStats } from "@/lib/comics/stats-client";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 import { useCounting } from "./use-counting";
 
 /**
  * Share the address only: never where the visit came from, never a file. True
  * when it went: shared, or the link copied.
  */
-async function shareStory(ep: number, title: string): Promise<boolean> {
+async function shareStory(ep: number, title: string, onCopied: () => void): Promise<boolean> {
   const url = `${window.location.origin}${comicHref(ep)}`;
   if (typeof navigator.share === "function") {
     try {
@@ -27,7 +28,7 @@ async function shareStory(ep: number, title: string): Promise<boolean> {
     }
   }
   if (await copyToClipboard(url)) {
-    toast.success("Link copied");
+    onCopied();
     return true;
   }
   toast.error("Couldn't copy the link");
@@ -53,12 +54,13 @@ interface StoryNavProps {
 /** Previous, next and share under a story. The arrow keys do the same. */
 export function StoryNav({ ep, title, prevEp, nextEp }: StoryNavProps) {
   const router = useRouter();
+  const { flash, isFlashing } = useFlash();
+  const copied = isFlashing();
   const counting = useCounting();
 
   const share = async () => {
-    if ((await shareStory(ep, title)) && counting && ep >= FIRST_WEEKLY_EP) {
-      beaconStats(ep, ["share"]);
-    }
+    const went = await shareStory(ep, title, () => flash("Link copied"));
+    if (went && counting && ep >= FIRST_WEEKLY_EP) beaconStats(ep, ["share"]);
   };
 
   useEffect(() => {
@@ -96,8 +98,8 @@ export function StoryNav({ ep, title, prevEp, nextEp }: StoryNavProps) {
         </Link>
       </Button>
       <Button type="button" variant="ghost" onClick={() => void share()}>
-        <Share2 aria-hidden="true" />
-        Share a link
+        {copied ? <Check aria-hidden="true" /> : <Share2 aria-hidden="true" />}
+        {copied ? "Link copied" : "Share a link"}
       </Button>
     </nav>
   );

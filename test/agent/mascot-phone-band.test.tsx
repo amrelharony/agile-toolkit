@@ -18,7 +18,7 @@ vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
   default: () => <div data-testid="mascot-sprite" />,
 }));
 
-import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
+import { MascotAssistant, phoneBandVars } from "@/components/agent/mascot/mascot-assistant";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 
@@ -69,5 +69,20 @@ describe("Amr's space on phones", () => {
     const { container } = render(<MascotAssistant />);
     expect(container.querySelector("[data-amr-band]")).toBeNull();
     expect(document.documentElement.style.getPropertyValue("--amr-band-bottom")).toBe("");
+  });
+});
+
+describe("phone band variables", () => {
+  it("a top band publishes its height and its edge below the header", () => {
+    expect(phoneBandVars("top", 120)).toEqual({
+      "--amr-band-top": "120px",
+      "--amr-band-top-edge": "calc(var(--header-h, 56px) + 120px)",
+    });
+  });
+
+  it("a bottom band includes the home-indicator inset", () => {
+    expect(phoneBandVars("bottom", 120)).toEqual({
+      "--amr-band-bottom": "calc(120px + env(safe-area-inset-bottom, 0px))",
+    });
   });
 });

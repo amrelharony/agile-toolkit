@@ -16,9 +16,62 @@ import { mergePersisted } from "./persist-migrate";
 /**
  * Persisted schema version of `agile-toolkit:vdna`.
  * v0: original shape. v1: XP ledger fields (`xpDay`, `claims`, `onceKeys`),
- * secrets seeded as paid, `level` recomputed (lib/gamification/vdna-migrate.ts).
+ * secrets seeded as paid, `level` recomputed. v2: `silentMode` dropped and
+ * the input-only counters stripped (lib/gamification/vdna-migrate.ts).
  */
 export const VDNA_PERSIST_VERSION = VDNA_SCHEMA_VERSION;
+
+/**
+ * v2 drops `silentMode`, but an older payload's silent mode still has to be
+ * mapped onto the celebration level once (notification-prefs-store's
+ * `adoptSilentMode`). The persist hooks note it here before the field goes,
+ * and the provider reads it once both stores have loaded. persist writes the
+ * migrated payload (without `silentMode`) straight back, so the note is also
+ * kept in a small storage flag until the provider has adopted it: a page
+ * that closes, or whose prefs store fails to load, retries on the next load.
+ */
+const LEGACY_SILENT_KEY = "agile-toolkit:legacy-silent";
+let legacySilentModeSeen = false;
+
+function noteLegacySilentMode(persisted: unknown): void {
+  if (
+    persisted &&
+    typeof persisted === "object" &&
+    (persisted as { silentMode?: unknown }).silentMode === true
+  ) {
+    legacySilentModeSeen = true;
+    try {
+      localStorage.setItem(LEGACY_SILENT_KEY, "1");
+    } catch {
+      // Storage unavailable: the in-page note still covers this load.
+    }
+  }
+}
+
+/** True when a stored profile still had the old silent mode on and it hasn't been adopted yet. */
+export function hadLegacySilentMode(): boolean {
+  if (legacySilentModeSeen) return true;
+  try {
+    return localStorage.getItem(LEGACY_SILENT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Call once the old silent mode has been mapped onto the celebration level. */
+export function clearLegacySilentMode(): void {
+  legacySilentModeSeen = false;
+  try {
+    localStorage.removeItem(LEGACY_SILENT_KEY);
+  } catch {
+    // Nothing to clear.
+  }
+}
+
+/** Tests only. */
+export function __resetLegacySilentModeForTests(): void {
+  clearLegacySilentMode();
+}
 
 /**
  * Generate a fresh visitor id. The id is stored INSIDE the persisted payload
@@ -49,7 +102,6 @@ const initial: VDna = {
   weeklyChallenges: [],
   recentEvents: [],
   shareOnLeaderboard: false,
-  silentMode: false,
   counters: {},
   xpDay: EMPTY_XP_DAY,
   claims: {},
@@ -80,7 +132,6 @@ interface VDnaActions {
   /** Settings toggles. */
   setDisplayName: (name: string | undefined) => void;
   setShareOnLeaderboard: (v: boolean) => void;
-  setSilentMode: (v: boolean) => void;
 }
 
 export const useVDnaStore = create<VDna & VDnaActions>()(
@@ -138,7 +189,6 @@ export const useVDnaStore = create<VDna & VDnaActions>()(
         })),
       setDisplayName: (name) => set({ displayName: name }),
       setShareOnLeaderboard: (v) => set({ shareOnLeaderboard: v }),
-      setSilentMode: (v) => set({ silentMode: v }),
     }),
     {
       name: "agile-toolkit:vdna",
@@ -146,15 +196,21 @@ export const useVDnaStore = create<VDna & VDnaActions>()(
       skipHydration: true,
       // Rollback safety. zustand's persist drops a stored payload whose
       // version differs from `version` unless `migrate` is given. migrateVDna
-      // brings older payloads up to v1 and passes newer ones through whole
-      // (unknown fields included). A build without v1 (PR A) re-stamps what
-      // it writes as v0, so the v0 → v1 step detects shape rather than
+      // brings older payloads up to v2 and passes newer ones through whole
+      // (unknown fields included). Older builds re-stamp what they write
+      // with their own version, so every step detects shape rather than
       // trusting the version: idempotent, fill-if-absent, keeps unknown fields.
       version: VDNA_PERSIST_VERSION,
-      migrate: migrateVDna,
+      migrate: (persisted, version) => {
+        noteLegacySilentMode(persisted);
+        return migrateVDna(persisted, version);
+      },
       // An unstamped legacy payload never reaches `migrate`; upgrade it here
-      // by shape (a no-op for payloads already in v1 shape).
-      merge: (persisted, current) => mergePersisted(ensureVDnaShape(persisted), current),
+      // by shape (a no-op for payloads already in v2 shape).
+      merge: (persisted, current) => {
+        noteLegacySilentMode(persisted);
+        return mergePersisted(ensureVDnaShape(persisted), current);
+      },
       onRehydrateStorage: () => (state) => {
         // Seed the visitor id once at rehydrate time if it's missing or
         // still the "pending" sentinel. On first-ever visit the persisted
@@ -186,7 +242,6 @@ export function getVDnaSnapshot(): VDna {
     weeklyChallenges: s.weeklyChallenges,
     recentEvents: s.recentEvents,
     shareOnLeaderboard: s.shareOnLeaderboard,
-    silentMode: s.silentMode,
     counters: s.counters,
     xpDay: s.xpDay,
     claims: s.claims,

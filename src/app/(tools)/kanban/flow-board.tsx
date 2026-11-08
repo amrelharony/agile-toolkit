@@ -231,7 +231,9 @@ export function FlowBoard({
     const added = insertCards(pasted.lines.map((title) => ({ title })));
     announce(`Added ${added.length} cards to Backlog.`);
     if (pasted.dropped > 0) {
+      // One toast per board: a second paste updates it in place.
       toast.info(`Added ${added.length} cards.`, {
+        id: "kanban-paste",
         description: `${leftOutMessage(pasted.dropped)} One paste adds up to ${PASTE_LINE_CAP}.`,
       });
     }

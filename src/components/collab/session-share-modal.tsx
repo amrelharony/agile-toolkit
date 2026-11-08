@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Users, Plus, Trash2, AlertTriangle, X, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 import { signalGamification } from "@/lib/gamification/signal";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 
@@ -89,7 +90,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
   // omits `expires_at` when no ttlDays is sent.
   const [ttlDays, setTtlDays] = useState<number | null>(7);
   const [submitting, setSubmitting] = useState(false);
-  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
+  const { flash, isFlashing } = useFlash();
 
   const load = useCallback(
     async (cancelledRef: { current: boolean }) => {
@@ -227,9 +228,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
     }
     try {
       await navigator.clipboard.writeText(url);
-      setCopiedInviteId(invite.id);
-      setTimeout(() => setCopiedInviteId((cur) => (cur === invite.id ? null : cur)), 2000);
-      toast.success("Copied");
+      flash("Guest link copied", invite.id);
     } catch {
       toast.error("Couldn't copy to clipboard");
     }
@@ -392,7 +391,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                           aria-label={`Copy guest link for ${i.profile?.displayName ?? "anyone in squad"}`}
                           className="min-touch-coarse -m-1 p-1 text-sub hover:text-accent"
                         >
-                          {copiedInviteId === i.id ? (
+                          {isFlashing(i.id) ? (
                             <Check className="w-3.5 h-3.5" />
                           ) : (
                             <Copy className="w-3.5 h-3.5" />

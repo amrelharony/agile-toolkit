@@ -130,8 +130,6 @@ export interface VDna {
   recentEvents: XpEvent[];
   /** Opt-in for leaderboard sync. */
   shareOnLeaderboard: boolean;
-  /** Muted UI (disable level-up toasts etc.). */
-  silentMode: boolean;
   /** Counters (generic, used by achievement rules). */
   counters: Record<string, number>;
   /** Today's outcome XP, for the daily caps (schema v1). */

@@ -112,6 +112,9 @@ export interface MascotDrag {
   at: number;
 }
 
+/** The corner Amr is parked in (he can be dragged to any of the four). */
+export type MascotCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+
 interface MascotState {
   /** True once the sprite sheet has loaded and Amr is on screen. */
   ready: boolean;
@@ -139,6 +142,8 @@ interface MascotState {
    * ask for permission; see engine/interactions/sensors.ts).
    */
   feelPhone: boolean | null;
+  /** Where he's parked, so things shown beside him (the moment chip) can follow. */
+  corner: MascotCorner;
 }
 
 interface MascotActions {
@@ -164,6 +169,8 @@ interface MascotActions {
   setAuraColor(hex: string | null): void;
   /** Let him feel the phone's motion, or stop; persisted. */
   setFeelPhone(on: boolean): void;
+  /** Report the corner he's parked in (the assistant calls it). */
+  setCorner(c: MascotCorner): void;
   /** Load the persisted aura and motion choice from localStorage. */
   hydrateAppearance(): void;
   reset(): void;
@@ -181,6 +188,7 @@ const INITIAL: MascotState = {
   microQueue: [],
   auraColor: null,
   feelPhone: null,
+  corner: "bottomRight",
 };
 
 const APPEARANCE_KEY = "mascot_appearance";
@@ -240,6 +248,7 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
     set({ feelPhone: on });
     saveAppearance({ auraColor: get().auraColor, feelPhone: on });
   },
+  setCorner: (corner) => set((s) => (s.corner === corner ? s : { corner })),
   hydrateAppearance: () => {
     try {
       const raw = localStorage.getItem(APPEARANCE_KEY);

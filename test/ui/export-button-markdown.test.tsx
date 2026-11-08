@@ -17,7 +17,8 @@ vi.mock("@/lib/sonification/emit", () => ({ emitUiEvent: () => {} }));
 import { ExportButton } from "@/components/shared/export-button";
 
 function openMenu() {
-  const trigger = screen.getByRole("button", { name: /Export/ });
+  // After a copy or download the trigger confirms in place ("Copied").
+  const trigger = screen.getByRole("button", { name: /Export|Copied/ });
   fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: "mouse" });
 }
 
@@ -29,10 +30,13 @@ describe("ExportButton Markdown", () => {
     openMenu();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Copy as Markdown" }));
     await waitFor(() => expect(exportMock.copyToClipboard).toHaveBeenCalledWith(md));
+    // Confirmed inline on the trigger, not with a toast.
+    await screen.findByRole("button", { name: "Copied" });
 
     openMenu();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Download Markdown (.md)" }));
     expect(exportMock.exportToMarkdown).toHaveBeenCalledWith(md, "retro");
+    await screen.findByRole("button", { name: "Exported" });
   });
 
   it("offers no Markdown items when the tool has none", async () => {

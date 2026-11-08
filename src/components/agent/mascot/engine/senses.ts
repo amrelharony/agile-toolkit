@@ -17,6 +17,7 @@ import { installPageSenses } from "./interactions/page";
 import { fetchVisitorWeather } from "@/lib/agent/mascot/context/weather";
 import { visitorWeekend } from "@/lib/agent/mascot/context/moments";
 import { canFeelPhone, feelsPhone, installMotionSenses } from "./interactions/sensors";
+import { isPhoneViewport } from "@/lib/layout/breakpoints";
 
 export interface SensesOptions {
   reducedMotion: boolean;
@@ -31,7 +32,7 @@ const INPUTS = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart", 
 export function installSenses(opts: SensesOptions): () => void {
   const mascot = () => useMascotStore.getState();
   const director = createDirector();
-  const isPhone = () => window.matchMedia?.("(max-width: 639px)").matches === true;
+  const isPhone = isPhoneViewport;
   const parkedTop = () => {
     const r = opts.figure()?.getBoundingClientRect();
     return !!r && r.top + r.height / 2 < window.innerHeight / 2;

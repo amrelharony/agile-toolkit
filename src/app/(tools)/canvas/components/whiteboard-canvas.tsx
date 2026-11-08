@@ -951,17 +951,25 @@ export function WhiteboardCanvas({
       return;
     }
     // Lazy import so the toast bundle isn't pulled into desktop sessions.
-    void import("sonner").then(({ toast }) => {
+    // Through the app's wrapper as a system nudge: the policy holds it while
+    // the user types, a dialog is open or it's quiet, instead of sonner
+    // showing it straight away. "Seen" is recorded only once it's shown, and
+    // the fixed id keeps a re-run from queueing a second copy.
+    void import("@/lib/utils/toast").then(({ toast }) => {
       toast.message("Tablet tips", {
+        kind: "system",
+        id: "canvas-touch-gesture-hint",
         description: "Pinch to zoom · Two-finger drag to pan · Long-press for actions",
         duration: 7000,
+        onShow: () => {
+          try {
+            window.localStorage.setItem(KEY, "1");
+          } catch {
+            // Ignore storage errors (private mode, quota); the hint just
+            // shows again next visit, which is harmless.
+          }
+        },
       });
-      try {
-        window.localStorage.setItem(KEY, "1");
-      } catch {
-        // Ignore storage errors (private mode, quota); the hint just
-        // shows again next visit, which is harmless.
-      }
     });
   }, [inputClass.isCoarse]);
 

@@ -124,7 +124,7 @@ describe("emitFeedback", () => {
 });
 
 describe("toasts are feedback only", () => {
-  it("toast helpers play their haptic and never reach the engine", async () => {
+  it("toast helpers never reach the engine; only error and warning vibrate", async () => {
     toast("a");
     toast.success("b");
     toast.error("c");
@@ -134,9 +134,10 @@ describe("toasts are feedback only", () => {
     toast.loading("g");
     await settle();
     expect(h.ingestEvent).not.toHaveBeenCalled();
-    expect(h.fireFromEvent).toHaveBeenCalledWith("ui", "toast-success", null);
+    // The toast policy (lib/notify/policy.ts): a success plays its chord but
+    // no haptic, info and progress are silent.
     expect(h.fireFromEvent).toHaveBeenCalledWith("ui", "toast-error", null);
     expect(h.fireFromEvent).toHaveBeenCalledWith("ui", "toast-warning", null);
-    expect(h.fireFromEvent).toHaveBeenCalledTimes(7);
+    expect(h.fireFromEvent).toHaveBeenCalledTimes(2);
   });
 });
