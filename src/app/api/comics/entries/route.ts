@@ -12,15 +12,12 @@ import {
   type EntryCountRow,
   type VisitCountRow,
 } from "@/lib/comics/entries-summary";
-import { answer, ownerRoute, refuse } from "../_owner";
+import { allRows, answer, ownerRoute, refuse } from "../_owner";
 
 export const dynamic = "force-dynamic";
 
 const DEFAULT_MONTHS = 12;
 const MAX_MONTHS = 60;
-/** PostgREST answers 1000 rows at most, whatever the query asks for. */
-const PAGE_SIZE = 1000;
-const MAX_ROWS = 100_000;
 
 /** The first day of the month `back` months before this one, in UTC. */
 function monthStart(back: number): string {
@@ -28,26 +25,6 @@ function monthStart(back: number): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1))
     .toISOString()
     .slice(0, 10);
-}
-
-/**
- * Every row of a query, a page at a time, once each. The pages are read while
- * scans keep arriving: a new row for this month moves the rows after it down
- * one, so a page can repeat the last row of the one before. Keeping each row
- * once by its key means it's never counted twice.
- */
-async function allRows<T>(
-  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
-  keyOf: (row: T) => string
-): Promise<T[] | null> {
-  const rows = new Map<string, T>();
-  for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
-    const { data, error } = await page(offset, offset + PAGE_SIZE - 1);
-    if (error || !data) return null;
-    for (const row of data) rows.set(keyOf(row), row);
-    if (data.length < PAGE_SIZE) break;
-  }
-  return Array.from(rows.values());
 }
 
 export const GET = ownerRoute(async ({ req, admin }) => {

@@ -109,6 +109,7 @@ function NothingHere() {
 }
 
 function EarlyStory({ story, guess }: { story: Story; guess: StoryGuessExtras }) {
+  const readable = story.panels.length > 0;
   return (
     <ToolPageWrapper
       title={story.title}
@@ -117,7 +118,7 @@ function EarlyStory({ story, guess }: { story: Story; guess: StoryGuessExtras })
       <div className="space-y-4">
         <ComicPanels panels={story.panels} title={story.title} ep={story.ep} guess={guess.guess} />
         <EpisodeNotes lesson={story.lesson} question={story.squadQuestion} />
-        {story.panels.length > 0 ? <SeenAtWork ep={story.ep} /> : null}
+        {readable ? <SeenAtWork ep={story.ep} /> : null}
         {guess.tryAction ? (
           <section aria-labelledby="try-heading" className="space-y-1">
             <h2 id="try-heading" className="font-display font-semibold text-text">
