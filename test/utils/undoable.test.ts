@@ -66,6 +66,29 @@ describe("undoable — toast contract (characterization)", () => {
     expect(typeof opts.onAutoClose).toBe("function");
   });
 
+  it("is an undo toast with no id by default", () => {
+    undoable({ label: "Deleted", apply: () => {}, revert: () => {} });
+    const opts = toastSpy.mock.calls[0][1];
+    expect(opts.kind).toBe("undo");
+    expect("id" in opts).toBe(false);
+  });
+
+  it("a change that destroys nothing is a success that keeps its Undo, 8 s and id", () => {
+    let undone = false;
+    undoable({
+      label: "Added “x” to the backlog",
+      kind: "success",
+      id: "backlog:b1",
+      apply: () => {},
+      revert: () => (undone = true),
+    });
+    const [label, opts] = toastSpy.mock.calls[0];
+    expect(label).toBe("Added “x” to the backlog");
+    expect(opts).toMatchObject({ kind: "success", id: "backlog:b1", duration: 8000 });
+    opts.action.onClick();
+    expect(undone).toBe(true);
+  });
+
   it("honours a custom duration", () => {
     undoable({ label: "Cleared", apply: () => {}, revert: () => {}, durationMs: 12_000 });
     expect(toastSpy.mock.calls[0][1].duration).toBe(12_000);

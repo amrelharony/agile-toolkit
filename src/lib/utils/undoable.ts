@@ -10,10 +10,23 @@ export interface UndoableAction {
   revert: () => void;
   /** How long the Undo button stays available (default 8 s). */
   durationMs?: number;
+  /**
+   * `"undo"` (default) for a destructive change: always shown, never merged.
+   * `"success"` for a change that destroys nothing (a write to another
+   * tool, a hand-off): it follows the success policy (waits for a dialog to
+   * close or typing to stop) and keeps its Undo button.
+   */
+  kind?: "undo" | "success";
+  /**
+   * Toast id. With `kind: "success"`, a repeat with the same id within 10 s
+   * updates the toast on screen (its Undo then takes back the latest change).
+   */
+  id?: string;
 }
 
 /**
- * Run a destructive change and offer Undo in a toast.
+ * Run a change and offer Undo in a toast (`kind: "success"` for one that
+ * destroys nothing).
  *
  * Most deletes in the tools were instant and permanent, and only three tools
  * had any undo. Capture whatever `revert` needs before calling (the deleted
@@ -27,13 +40,25 @@ export interface UndoableAction {
  *     revert: () => restoreCard(card),
  *   });
  */
-export function undoable({ label, description, apply, revert, durationMs = 8000 }: UndoableAction) {
+export function undoable({
+  label,
+  description,
+  apply,
+  revert,
+  durationMs = 8000,
+  kind = "undo",
+  id: toastId,
+}: UndoableAction) {
   apply();
   let undone = false;
+  // Always the plain helper: the kind (not the helper) decides the policy,
+  // and every Undo toast looks the same.
   const id = toast(label, {
     // Undo toasts always show (even in a ceremony or Focus), stay 8 s, have
-    // a close button and are never merged with another Undo.
-    kind: "undo",
+    // a close button and are never merged with another Undo. A success
+    // keeps the Undo button and the 8 s, and follows the success policy.
+    kind,
+    ...(toastId !== undefined ? { id: toastId } : {}),
     description,
     duration: durationMs,
     onDismiss: () => openUndoToasts.delete(id),

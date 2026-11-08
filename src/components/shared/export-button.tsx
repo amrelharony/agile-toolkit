@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { usePathname } from "next/navigation";
 import {
+  Check,
   Download,
   Copy,
   FileJson,
@@ -27,6 +28,7 @@ import {
   copyToClipboard,
 } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 
 interface ExportButtonProps {
   filename: string;
@@ -53,11 +55,14 @@ export function ExportButton({
 }: ExportButtonProps) {
   const pathname = usePathname();
   const tool = pathname ? getToolByPath(pathname) : undefined;
+  // The menu closes on click, so the trigger itself confirms: "Copied ✓" /
+  // "Exported ✓" for a moment, no toast. Failures still get a toast.
+  const { flash, flashing } = useFlash();
 
   const handleCopy = async () => {
     if (clipboardText) {
       const success = await copyToClipboard(clipboardText);
-      if (success) toast.success("Copied to clipboard");
+      if (success) flash("Copied to clipboard", "copied");
       else toast.error("Failed to copy");
     }
   };
@@ -65,31 +70,38 @@ export function ExportButton({
   const handleCSV = () => {
     if (csvData) {
       exportToCSV(csvData.headers, csvData.rows, filename);
-      toast.success("CSV exported");
+      flash("CSV exported", "exported");
     }
   };
 
   const handleCopyMarkdown = async () => {
     if (!markdown) return;
-    if (await copyToClipboard(markdown)) toast.success("Copied as Markdown");
+    if (await copyToClipboard(markdown)) flash("Copied as Markdown", "copied");
     else toast.error("Failed to copy");
   };
 
   const handleShare = () => {
     if (!markdown || !tool) return;
-    void shareSnapshotLink({ toolId: tool.id, title: filename, markdown, state: shareState });
+    void shareSnapshotLink({
+      toolId: tool.id,
+      title: filename,
+      markdown,
+      state: shareState,
+    }).then((ok) => {
+      if (ok) flash("Share link copied", "copied");
+    });
   };
 
   const handleMarkdown = () => {
     if (!markdown) return;
     exportToMarkdown(markdown, filename);
-    toast.success("Markdown exported");
+    flash("Markdown exported", "exported");
   };
 
   const handleJSON = () => {
     if (jsonData) {
       exportToJSON(jsonData, filename);
-      toast.success("JSON exported");
+      flash("JSON exported", "exported");
     }
   };
 
@@ -101,7 +113,7 @@ export function ExportButton({
     }
     try {
       await exportToPNG(el, filename);
-      toast.success("PNG exported");
+      flash("PNG exported", "exported");
     } catch {
       toast.error("Failed to export PNG");
     }
@@ -115,8 +127,12 @@ export function ExportButton({
           size="sm"
           className="gap-2 border-border hover:border-accent/30 hover:bg-accent/5 text-sub hover:text-text"
         >
-          <Download className="w-4 h-4" />
-          Export
+          {flashing ? (
+            <Check className="w-4 h-4" aria-hidden="true" />
+          ) : (
+            <Download className="w-4 h-4" aria-hidden="true" />
+          )}
+          {flashing === "copied" ? "Copied" : flashing === "exported" ? "Exported" : "Export"}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="bg-surface border-border">

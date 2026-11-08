@@ -48,6 +48,9 @@ export function sendHandoff(
   undoable({
     label: route.doneLabel,
     description: `“${shortName(src.title)}”`,
+    // Sending makes something new and destroys nothing: a success, with Undo.
+    kind: "success",
+    id: `handoff:${routeId}:${src.title.trim().toLowerCase()}`,
     apply: () => {
       const link: HandoffLink = {
         route: routeId,
@@ -112,6 +115,8 @@ export function sendHandoffBatch(
   undoable({
     label: label ?? route.doneLabel,
     description: todo.length === 1 ? `“${shortName(todo[0].src.title)}”` : `${todo.length} items`,
+    kind: "success",
+    id: `handoff:${routeId}:${todo.map((item) => item.src.title.trim().toLowerCase()).join("|")}`,
     apply: () => {
       try {
         todo.forEach((item, i) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import dynamic from "next/dynamic";
 import { Sparkles, Copy, Check, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/compo
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 import type { ToolPromptConfig } from "@/lib/ai-prompts/types";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
 
@@ -35,16 +36,10 @@ function PromptCard({
   prompt: string;
   toolName: string;
 }) {
-  const [copied, setCopied] = useState(false);
+  const { flash, isFlashing } = useFlash();
+  const copied = isFlashing();
   const [showRun, setShowRun] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { isReady } = useActiveLlm();
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, []);
 
   // If the user disables their AI between opening the drawer and clicking
   // Run, fold the panel away so they aren't staring at a dead control.
@@ -55,10 +50,7 @@ function PromptCard({
   const handleCopy = async () => {
     const ok = await copyToClipboard(prompt);
     if (ok) {
-      setCopied(true);
-      toast.success("Prompt copied — paste into your AI assistant");
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => setCopied(false), 2000);
+      flash("Prompt copied. Paste it into your AI assistant.");
     } else {
       toast.error("Failed to copy prompt");
     }

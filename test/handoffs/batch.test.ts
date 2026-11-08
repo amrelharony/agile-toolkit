@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const undo: { last: { revert: () => void; label: string } | null } = { last: null };
+type Undo = { revert: () => void; label: string; kind?: string; id?: string };
+const undo: { last: Undo | null } = { last: null };
 vi.mock("@/lib/utils/undoable", () => ({
-  undoable: (a: { apply: () => void; revert: () => void; label: string }) => {
+  undoable: (a: Undo & { apply: () => void }) => {
     a.apply();
-    undo.last = { revert: a.revert, label: a.label };
+    undo.last = { revert: a.revert, label: a.label, kind: a.kind, id: a.id };
   },
 }));
 
@@ -59,6 +60,11 @@ describe("sendHandoffBatch", () => {
     );
     expect(sent).toHaveLength(2);
     expect(undo.last?.label).toBe("Sent 2 risks to the Risk Register");
+    // Sending destroys nothing: a success with Undo and a stable id.
+    expect(undo.last).toMatchObject({
+      kind: "success",
+      id: "handoff:risk:payments outage|vendor late",
+    });
     expect(useWorkspaceStore.getState().risks.map((r) => r.title)).toEqual(
       expect.arrayContaining(["Payments outage", "Vendor late"])
     );

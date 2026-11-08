@@ -3,14 +3,15 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Share2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { COMICS_ROUTE, comicHref } from "@/lib/comics/entry";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 
 /** Share the address only: never where the visit came from, never a file. */
-async function shareStory(ep: number, title: string): Promise<void> {
+async function shareStory(ep: number, title: string, onCopied: () => void): Promise<void> {
   const url = `${window.location.origin}${comicHref(ep)}`;
   if (typeof navigator.share === "function") {
     try {
@@ -20,7 +21,7 @@ async function shareStory(ep: number, title: string): Promise<void> {
     }
     return;
   }
-  if (await copyToClipboard(url)) toast.success("Link copied");
+  if (await copyToClipboard(url)) onCopied();
   else toast.error("Couldn't copy the link");
 }
 
@@ -43,6 +44,8 @@ interface StoryNavProps {
 /** Previous, next and share under a story. The arrow keys do the same. */
 export function StoryNav({ ep, title, prevEp, nextEp }: StoryNavProps) {
   const router = useRouter();
+  const { flash, isFlashing } = useFlash();
+  const copied = isFlashing();
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -78,9 +81,13 @@ export function StoryNav({ ep, title, prevEp, nextEp }: StoryNavProps) {
           All comics
         </Link>
       </Button>
-      <Button type="button" variant="ghost" onClick={() => void shareStory(ep, title)}>
-        <Share2 aria-hidden="true" />
-        Share a link
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => void shareStory(ep, title, () => flash("Link copied"))}
+      >
+        {copied ? <Check aria-hidden="true" /> : <Share2 aria-hidden="true" />}
+        {copied ? "Link copied" : "Share a link"}
       </Button>
     </nav>
   );
