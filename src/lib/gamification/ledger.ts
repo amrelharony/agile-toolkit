@@ -39,7 +39,12 @@ export type OutcomeReason =
   /** Today's 300 outcome XP are used up: 0 XP, still dispatched. */
   | "global-cap"
   /** No such outcome. */
-  | "unknown";
+  | "unknown"
+  /**
+   * The profile hasn't been read from storage yet. Writing now would save
+   * the empty in-memory profile over the stored one, so nothing happens.
+   */
+  | "not-ready";
 
 export interface OutcomeResult {
   awarded: boolean;
@@ -80,6 +85,37 @@ function toDate(at: RecordOptions["at"]): Date {
   if (at === undefined) return new Date();
   const d = at instanceof Date ? at : new Date(at);
   return Number.isFinite(d.getTime()) ? d : new Date();
+}
+
+/**
+ * Once-ever keys that must never be evicted: a secret (100 XP), a first tool
+ * visit and a story read. They are few and bounded by the catalog, while
+ * entity keys (risks, sprints…) can grow with use.
+ */
+const PROTECTED_ONCE_PREFIXES = ["secret:", "logo-whispered", "tool:", "story:"];
+
+function isProtectedOnceKey(key: string): boolean {
+  return PROTECTED_ONCE_PREFIXES.some((p) => key.startsWith(p));
+}
+
+/**
+ * Append `key` and keep the list within `ONCE_KEYS_CAP`, evicting the oldest
+ * unprotected keys first so a busy user never re-earns a secret.
+ */
+export function appendOnceKey(keys: readonly string[], key: string): string[] {
+  const next = [...keys, key];
+  let excess = next.length - ONCE_KEYS_CAP;
+  if (excess <= 0) return next;
+  const kept: string[] = [];
+  for (const k of next) {
+    if (excess > 0 && !isProtectedOnceKey(k)) {
+      excess--;
+      continue;
+    }
+    kept.push(k);
+  }
+  // Only protected keys left and still too many: drop the oldest of those.
+  return excess > 0 ? kept.slice(excess) : kept;
 }
 
 function pruneClaims(claims: Record<string, number>, today: number): Record<string, number> {
@@ -139,7 +175,7 @@ export function planOutcome(
   let claims = state.claims;
   let onceKeys = state.onceKeys;
   if (key && def.once) {
-    onceKeys = [...state.onceKeys, key].slice(-ONCE_KEYS_CAP);
+    onceKeys = appendOnceKey(state.onceKeys, key);
   } else if (key) {
     claims = { ...pruneClaims(state.claims, today), [key]: today };
   }
@@ -182,11 +218,36 @@ function primitiveMeta(
   return out;
 }
 
+/**
+ * Run `fn` once the profile has been read from storage, reading it first
+ * when no GamificationProvider has (a bare /guest route). Lets code outside
+ * the provider tree record an outcome without saving an empty profile over
+ * the real one.
+ */
+export function withProfile(fn: () => void): void {
+  if (typeof window === "undefined") return;
+  if (useVDnaStore.persist.hasHydrated()) {
+    fn();
+    return;
+  }
+  void Promise.resolve(useVDnaStore.persist.rehydrate())
+    .then(() => {
+      if (useVDnaStore.persist.hasHydrated()) fn();
+    })
+    .catch(() => {});
+}
+
 /** Record a finished outcome: XP within the caps, once per key, then `outcome:<id>`. */
 export function recordOutcome(id: OutcomeId | string, opts: RecordOptions = {}): OutcomeResult {
   const def = getOutcome(id);
   if (!def || typeof window === "undefined") {
     return { awarded: false, xp: 0, reason: "unknown" };
+  }
+  // zustand's persist writes on every setState, hydrated or not: recording
+  // before the profile is loaded (a bare /guest route mounts no provider)
+  // would save an empty profile over the stored one.
+  if (!useVDnaStore.persist.hasHydrated()) {
+    return { awarded: false, xp: 0, reason: "not-ready" };
   }
 
   // Decide inside the functional update so two outcomes in one tick can't
@@ -194,7 +255,8 @@ export function recordOutcome(id: OutcomeId | string, opts: RecordOptions = {}):
   let plan: OutcomePlan | null = null;
   useVDnaStore.setState((s) => {
     plan = planOutcome({ xpDay: s.xpDay, claims: s.claims, onceKeys: s.onceKeys }, def, opts);
-    return plan.next ?? {};
+    // Returning the same state lets zustand skip the notify and the write.
+    return plan.next ?? s;
   });
   const done = plan as OutcomePlan | null;
   if (!done || !done.next) return done?.result ?? { awarded: false, xp: 0, reason: "unknown" };

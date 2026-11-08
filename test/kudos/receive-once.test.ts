@@ -19,6 +19,7 @@ vi.mock("@/lib/sonification/emit", () => ({
 }));
 vi.mock("@/lib/emotion/engine", () => ({ pushMoodSignal: () => h.moods++ }));
 vi.mock("@/lib/gamification/ledger", () => ({
+  withProfile: (fn: () => void) => fn(),
   recordOutcome: (id: string, opts?: { key?: string }) => {
     h.outcomes.push({ id, key: opts?.key });
     return { awarded: true, xp: 10, reason: "awarded" };

@@ -5,6 +5,11 @@ import { achievements } from "@/lib/gamification/achievements";
 import { todaySeedKey, weekSeedKey } from "@/lib/gamification/challenges";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 
+// The engine and the ledger do nothing until the profile is read from storage.
+beforeAll(async () => {
+  await useVDnaStore.persist.rehydrate();
+});
+
 /**
  * What earns XP, end to end through the real engine and ledger. XP comes
  * only from outcomes (plus achievement and challenge rewards, which are

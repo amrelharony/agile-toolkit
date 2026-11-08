@@ -151,13 +151,17 @@ export const OUTCOMES: readonly OutcomeDef[] = [
     label: "Finished a retro",
     xp: 40,
     capPerDay: 2,
-    // The board's payload has no board id; one run of the board is one retro.
+    // The board logs a stable `retroId` (its sprint, else its first card);
+    // older events without one fall back to the run of the board.
     history: [
       {
         toolId: "retro",
         action: "phase_advanced",
         where: (p) => p.to === "actions",
-        key: (e) => `retro:${str((e.payload as Payload).boardId) ?? e.toolRunId}`,
+        key: (e) => {
+          const p = e.payload as Payload;
+          return `retro:${str(p.retroId) ?? str(p.boardId) ?? e.toolRunId}`;
+        },
       },
     ],
   },
@@ -166,14 +170,16 @@ export const OUTCOMES: readonly OutcomeDef[] = [
     label: "Ran a ceremony to time",
     xp: 25,
     capPerDay: 3,
-    event: ["tool:ceremony-timer:finish"],
+    // Once per run when its last segment ends, not each segment's time-up.
+    event: ["tool:ceremony-timer:complete"],
   },
   {
     id: "estimate-committed",
     label: "Committed an estimate",
     xp: 10,
     capPerDay: 10,
-    once: true,
+    // A 45-day claim, not once-ever: story ids are unique, and a busy poker
+    // room would otherwise fill `onceKeys` with estimate keys.
     history: [
       {
         toolId: "planning-poker",
@@ -279,10 +285,11 @@ export const OUTCOMES: readonly OutcomeDef[] = [
     xp: 5,
     history: [
       daily("standup", "entry_added"),
-      daily("async-standup", "entry_added"),
+      daily("async-standup", "update_posted"),
       daily("mood-tracker", "mood_logged"),
       daily("burndown", "day_logged"),
       daily("burnup", "day_logged"),
+      daily("sprint", "day_logged"),
       daily("okrs", "progress_updated"),
       daily("okrs", "check_in_recorded"),
     ],
@@ -373,6 +380,7 @@ export const ZERO_XP_EVENTS: readonly string[] = [
   "tool:burndown:scope-change",
   "tool:burnup:day-logged",
   "tool:burnup:scope-increase",
+  "tool:ceremony-timer:finish",
   "tool:ceremony-timer:minute-mark",
   "tool:ceremony-timer:rotate",
   "tool:ceremony-timer:start",

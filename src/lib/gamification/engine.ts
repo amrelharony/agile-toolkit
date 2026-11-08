@@ -480,6 +480,10 @@ function evaluateAchievements(eventName: string, meta: Record<string, unknown> |
 /** Main entry point — dispatch a gamification event with optional meta. */
 export function dispatch(event: GamificationEvent) {
   if (typeof window === "undefined") return;
+  // persist writes on every setState, hydrated or not. Until the profile is
+  // read from storage (a bare /guest route mounts no GamificationProvider),
+  // a counter bump would save the empty in-memory profile over it.
+  if (!useVDnaStore.persist.hasHydrated()) return;
   if (emitDepth >= MAX_EMIT_DEPTH) return;
   emitDepth++;
   try {

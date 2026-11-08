@@ -83,7 +83,16 @@ export function installOutcomeBridge(): () => void {
   };
 
   const unsub = useHistoryStore.subscribe((s, prev) => {
-    if (s.events !== prev.events) onEvents(s.events);
+    if (s.events === prev.events) return;
+    // persist writes the stored log with `set()` before its finish-hydration
+    // listeners run, so a rehydrate (a backup restore, another tab) reaches
+    // this subscriber first. Those events are the past too.
+    const persist = useHistoryStore.persist;
+    if (persist && !persist.hasHydrated()) {
+      markAll(s.events);
+      return;
+    }
+    onEvents(s.events);
   });
 
   detach = () => {

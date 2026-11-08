@@ -25,7 +25,7 @@
 import { subscribeSignals, type Signal } from "@/lib/signals/signal-bus";
 import { emit } from "@/lib/sonification/emit";
 import { pushMoodSignal } from "@/lib/emotion/engine";
-import { recordOutcome } from "@/lib/gamification/ledger";
+import { recordOutcome, withProfile } from "@/lib/gamification/ledger";
 
 let installed = false;
 let unsubscribe: (() => void) | null = null;
@@ -51,14 +51,19 @@ export function onKudosReceived(id: unknown): boolean {
       if (oldest !== undefined) handled.delete(oldest);
     }
   }
-  // Sonification + haptics + the engine's `tool:kudos:received` counter all
-  // hang off the canonical event name. The event itself pays no XP.
-  emit("kudos", "received");
   // Mood lift — playful for 30 s. Uses the `activity` source because
   // it sits at the bottom of the priority ladder; it'll surface
   // when nothing else is overriding, which is the common case.
   pushMoodSignal("activity", "Playful", { ttlMs: MOOD_LIFT_TTL_MS, confidence: 0.7 });
-  if (kudosId) recordOutcome("kudos-received", { key: `kudos-in:${kudosId}` });
+  // On a bare /guest route nothing has read the profile yet (no provider);
+  // read it first so the counter and the XP land in the real profile
+  // instead of an empty one being saved over it.
+  withProfile(() => {
+    // Sonification + haptics + the engine's `tool:kudos:received` counter
+    // all hang off the canonical event name. The event itself pays no XP.
+    emit("kudos", "received");
+    if (kudosId) recordOutcome("kudos-received", { key: `kudos-in:${kudosId}` });
+  });
   return true;
 }
 

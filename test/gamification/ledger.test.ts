@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * The XP ledger: caps, idempotency and the local-midnight rollover. The
@@ -32,6 +32,11 @@ import {
 import { GLOBAL_DAILY_XP_CAP, getOutcome } from "@/lib/gamification/outcomes";
 import { ONCE_KEYS_CAP } from "@/lib/gamification/vdna-migrate";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
+
+// The engine and the ledger do nothing until the profile is read from storage.
+beforeAll(async () => {
+  await useVDnaStore.persist.rehydrate();
+});
 
 const RealDate = Date;
 let nowMs = new RealDate(2026, 10, 8, 14, 0).getTime();
@@ -125,6 +130,32 @@ describe("planOutcome (pure)", () => {
     expect(plan.next?.onceKeys).toHaveLength(ONCE_KEYS_CAP);
     expect(plan.next?.onceKeys.at(-1)).toBe("tool:new");
     expect(plan.next?.onceKeys[0]).toBe("k1");
+  });
+
+  it("never evicts a secret, first-tool or story key, however many entity keys follow", () => {
+    let state: LedgerState = {
+      ...empty(),
+      onceKeys: ["secret:konami", "logo-whispered", "tool:retro", "story:12"],
+    };
+    for (let i = 0; i < ONCE_KEYS_CAP + 50; i++) {
+      state = planOutcome(state, getOutcome("risk-closed"), { key: `risk:${i}` }).next ?? state;
+    }
+    expect(state.onceKeys).toHaveLength(ONCE_KEYS_CAP);
+    for (const key of ["secret:konami", "logo-whispered", "tool:retro", "story:12"]) {
+      expect(state.onceKeys, key).toContain(key);
+    }
+    expect(state.onceKeys).not.toContain("risk:0");
+    expect(state.onceKeys.at(-1)).toBe(`risk:${ONCE_KEYS_CAP + 49}`);
+    // So a secret found long ago still doesn't pay again.
+    expect(planOutcome(state, getOutcome("secret"), { key: "secret:konami" }).result.reason).toBe(
+      "duplicate"
+    );
+  });
+
+  it("keeps committed estimates out of onceKeys (45-day claims)", () => {
+    const plan = planOutcome(empty(), getOutcome("estimate-committed"), { key: "estimate:s1" });
+    expect(plan.next?.onceKeys).toEqual([]);
+    expect(Object.keys(plan.next?.claims ?? {})).toEqual(["estimate:s1"]);
   });
 });
 

@@ -1,6 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { installSecretDetector } from "@/lib/gamification/secrets";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
+
+// The engine and the ledger do nothing until the profile is read from storage.
+beforeAll(async () => {
+  await useVDnaStore.persist.rehydrate();
+});
 
 /**
  * Secrets pay 100 outcome XP once ever, and words typed into a field never

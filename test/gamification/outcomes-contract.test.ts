@@ -27,6 +27,30 @@ const catalogActions = new Set(
     .filter((v): v is string => typeof v === "string")
 );
 
+/** The history catalog each tool logs from (its `useHistoryLogger` actions). */
+const TOOL_CATALOGS: Record<string, Readonly<Record<string, string>>> = {
+  retro: ACTIONS.RETRO_ACTIONS,
+  "planning-poker": ACTIONS.PLANNING_POKER_ACTIONS,
+  sprint: ACTIONS.SPRINT_COCKPIT_ACTIONS,
+  velocity: ACTIONS.VELOCITY_ACTIONS,
+  "sprint-metrics": ACTIONS.SPRINT_METRICS_ACTIONS,
+  "risk-register": ACTIONS.RISK_ACTIONS,
+  impediments: ACTIONS.IMPEDIMENT_ACTIONS,
+  "tech-debt": ACTIONS.TECH_DEBT_ACTIONS,
+  "incident-commander": ACTIONS.INCIDENT_ACTIONS,
+  "vuln-burndown": ACTIONS.VULN_ACTIONS,
+  "a11y-tracker": ACTIONS.A11Y_ACTIONS,
+  "ai-red-team": ACTIONS.AI_RED_TEAM_ACTIONS,
+  "hallucination-log": ACTIONS.HALLUCINATION_ACTIONS,
+  "retro-actions": ACTIONS.RETRO_ACTIONS_ACTIONS,
+  standup: ACTIONS.STANDUP_ACTIONS,
+  "async-standup": ACTIONS.ASYNC_STANDUP_ACTIONS,
+  "mood-tracker": ACTIONS.MOOD_ACTIONS,
+  burndown: ACTIONS.BURNDOWN_ACTIONS,
+  burnup: ACTIONS.BURNUP_ACTIONS,
+  okrs: ACTIONS.OKR_ACTIONS,
+};
+
 function historyEvent(patch: Partial<HistoryEvent>): HistoryEvent {
   return {
     id: "ev1",
@@ -87,6 +111,19 @@ describe("outcome table", () => {
     }
   });
 
+  it("takes every history action from that tool's own catalog", () => {
+    // An action string living in some other tool's catalog never matches:
+    // the async standup logs `update_posted`, not the sync page's `entry_added`.
+    for (const o of OUTCOMES) {
+      for (const m of o.history ?? []) {
+        const pair = `${m.toolId}:${m.action}`;
+        const catalog = TOOL_CATALOGS[m.toolId];
+        expect(catalog, `no catalog mapped for ${m.toolId}`).toBeDefined();
+        expect(Object.values(catalog ?? {}), pair).toContain(m.action);
+      }
+    }
+  });
+
   it("pays every secret, keyed like the v1 migration's seeded onceKeys", () => {
     for (const key of Object.values(SECRET_ONCE_KEYS)) {
       expect(SECRET_EVENTS).toContain(key);
@@ -97,6 +134,9 @@ describe("outcome table", () => {
   it("gives keyless event outcomes no idempotency key (the daily cap carries them)", () => {
     expect(matchEventOutcome("tool:kanban:card-done")).toEqual({ id: "card-done", key: undefined });
     expect(matchEventOutcome("tool:retro:card-add")).toBeNull();
+    // A ceremony pays when its run ends, not on each segment's time-up.
+    expect(matchEventOutcome("tool:ceremony-timer:complete")?.id).toBe("ceremony-finished");
+    expect(matchEventOutcome("tool:ceremony-timer:finish")).toBeNull();
   });
 });
 
@@ -111,6 +151,15 @@ describe("matchHistoryOutcome", () => {
       "a retro board id when the payload has one",
       { toolId: "retro", action: "phase_advanced", payload: { to: "actions", boardId: "b1" } },
       { id: "retro-finished", key: "retro:b1" },
+    ],
+    [
+      "a retro by the stable id the board logs",
+      {
+        toolId: "retro",
+        action: "phase_advanced",
+        payload: { from: "discuss", to: "actions", retroId: "sprint:sp4", boardId: "b1" },
+      },
+      { id: "retro-finished", key: "retro:sprint:sp4" },
     ],
     [
       "an estimate by story",
@@ -156,6 +205,16 @@ describe("matchHistoryOutcome", () => {
       "a standup entry, once per tool per day",
       { toolId: "standup", action: "entry_added", payload: {} },
       { id: "daily-log", key: "daily-log:standup:2026-11-08" },
+    ],
+    [
+      "an async standup update, once per day",
+      { toolId: "async-standup", action: "update_posted", payload: {} },
+      { id: "daily-log", key: "daily-log:async-standup:2026-11-08" },
+    ],
+    [
+      "a burndown day logged in the Sprint Cockpit",
+      { toolId: "sprint", action: "day_logged", payload: { sprintId: "sp1", day: 3 } },
+      { id: "daily-log", key: "daily-log:sprint:2026-11-08" },
     ],
     [
       "an OKR check-in, once per tool per day",

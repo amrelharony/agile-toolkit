@@ -1,8 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatch, awardXp } from "@/lib/gamification/engine";
 import { todaySeedKey, weekSeedKey } from "@/lib/gamification/challenges";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import type { ChallengeKind, ChallengeProgress } from "@/lib/gamification/types";
+
+// The engine and the ledger do nothing until the profile is read from storage.
+beforeAll(async () => {
+  await useVDnaStore.persist.rehydrate();
+});
 
 /**
  * Regression: six daily/weekly challenges keyed on synthetic trigger names

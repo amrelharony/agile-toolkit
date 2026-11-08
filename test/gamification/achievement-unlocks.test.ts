@@ -1,6 +1,11 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { dispatch } from "@/lib/gamification/engine";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
+
+// The engine and the ledger do nothing until the profile is read from storage.
+beforeAll(async () => {
+  await useVDnaStore.persist.rehydrate();
+});
 
 /**
  * Regression: several achievements could never unlock.

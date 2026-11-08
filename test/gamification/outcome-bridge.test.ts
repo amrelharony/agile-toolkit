@@ -116,6 +116,25 @@ describe("installOutcomeBridge", () => {
     expect(h.recorded).toEqual([]);
   });
 
+  it("never pays for fresh events that arrive by rehydration", async () => {
+    // Another tab (or a restore) wrote a fresh, own, closed risk to storage.
+    const stored = event({ payload: { riskId: "r-rehydrated", to: "closed" } });
+    window.localStorage.setItem(
+      "agile-toolkit:history",
+      JSON.stringify({ state: { events: [stored], clientId: OWN }, version: 1 })
+    );
+    try {
+      await useHistoryStore.persist.rehydrate();
+      expect(useHistoryStore.getState().events.map((e) => e.id)).toContain(stored.id);
+      expect(h.recorded).toEqual([]);
+      // The bridge still pays for new work afterwards.
+      useHistoryStore.getState().addEvent(event({ payload: { riskId: "r-new", to: "closed" } }));
+      expect(h.recorded.map((r) => r.opts.key)).toEqual(["risk:r-new"]);
+    } finally {
+      window.localStorage.removeItem("agile-toolkit:history");
+    }
+  });
+
   it("handles each event once, even when the store changes again", () => {
     useHistoryStore.getState().addEvent(event());
     useHistoryStore.getState().markSynced([], new Date().toISOString());
