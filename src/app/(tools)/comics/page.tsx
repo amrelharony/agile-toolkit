@@ -9,12 +9,14 @@ import { ComicsGallery } from "./components/comics-gallery";
 import { BookIntro } from "./components/intro/book-intro";
 
 /**
- * Static, refreshed about every 10 minutes, which is also how a Sunday's story
- * goes live with no scheduler. A /comics address with a valid number never gets
+ * Static, refreshed once a day, and at once by the release-hour cron or an owner
+ * save (lib/comics/revalidate). Every 10 minutes ran to ~680K ISR write units in
+ * its first week and paused the site on Hobby (Nov 2026). A /comics address with
+ * a valid number never gets
  * here: the middleware rewrites it to ep/[n]. Everything else, the book's and
  * open kudos cards' QR codes included, lands here.
  */
-export const revalidate = 600;
+export const revalidate = 86400;
 
 export const metadata: Metadata = comicMetadata({
   title: "Agile at Work — workplace comics",

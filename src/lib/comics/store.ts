@@ -337,13 +337,15 @@ export const EARLY_WINDOW_DAYS = 28;
 const DAY_MS = 86_400_000;
 
 /**
- * How long a book reader keeps a weekly story here after it comes out. No refresh
- * runs at release_at, so for up to this long the public page can still be the
- * cached "coming soon", and sending a reader there would lose the story. It's the
- * `revalidate` of the public comic pages, which Next needs written there as a plain
- * number: test/vip/early-comics.test.tsx keeps the two equal.
+ * How long a book reader keeps a weekly story here after it comes out. The
+ * release-hour cron (api/cron/comics-release) refreshes the public pages within
+ * the hour, but if it's late, missing or unconfigured, the public page can still
+ * be the cached "coming soon" for up to this long, and sending a reader there
+ * would lose the story. It's the `revalidate` of the public comic pages, which
+ * Next needs written there as a plain number: test/vip/early-comics.test.tsx
+ * keeps them equal.
  */
-export const EARLY_RELEASE_GRACE_SECONDS = 600;
+export const EARLY_RELEASE_GRACE_SECONDS = 86_400;
 
 function earlyUntil(now: string): string {
   return new Date(Date.parse(now) + EARLY_WINDOW_DAYS * DAY_MS).toISOString();

@@ -50,8 +50,12 @@ import { TakeItToYourTeam } from "../../components/take-it-to-your-team";
  *
  * Every book episode is prerendered, so an outage can't break a printed link:
  * a read that throws keeps the copy from the build or the last good refresh.
+ *
+ * Refreshed once a day, and at once by the release-hour cron or an owner save
+ * (lib/comics/revalidate). The love and reader counts it starts from can be up
+ * to a day old; the button adds this reader's own.
  */
-export const revalidate = 600;
+export const revalidate = 86400;
 
 /** The poster's QR leads here, so show what's new under it, as its page did. */
 const LATEST_COUNT = 3;

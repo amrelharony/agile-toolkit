@@ -208,7 +208,16 @@ describe("the moment a story comes out", () => {
 
   it("waits as long as the public pages can stay cached", () => {
     const src = (file: string) => readFileSync(path.join(process.cwd(), "src", file), "utf8");
-    for (const file of ["app/(tools)/comics/ep/[n]/page.tsx", "app/(tools)/comics/page.tsx"]) {
+    // Every page that shows released stories: a story still "coming soon" on any
+    // of them must still be readable here.
+    for (const file of [
+      "app/(tools)/comics/ep/[n]/page.tsx",
+      "app/(tools)/comics/page.tsx",
+      "app/(tools)/comics/flashcards/page.tsx",
+      "app/(tools)/comics/feed.xml/route.ts",
+      "app/(tools)/comics/sitemap.ts",
+      "app/page.tsx",
+    ]) {
       expect(src(file), file).toContain(
         `export const revalidate = ${EARLY_RELEASE_GRACE_SECONDS};`
       );
