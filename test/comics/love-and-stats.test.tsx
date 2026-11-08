@@ -23,6 +23,7 @@ import {
   NOT_COUNTED,
   heartLine,
   lovesLabel,
+  readersLabel,
 } from "@/app/(tools)/comics/components/love-button";
 import { StoryStats } from "@/app/(tools)/comics/components/story-stats";
 import { COUNTED_KEY, isLoveCounted, isLoved, markRead, totalSeconds } from "@/lib/comics/reading";
@@ -50,7 +51,7 @@ beforeEach(() => {
   localStorage.clear();
   fetchMock.mockReset();
   fetchMock.mockResolvedValue(
-    new Response(JSON.stringify({ loves: 25, readers: 40 }), { status: 200 })
+    new Response(JSON.stringify({ loves: 25, readers: 4 }), { status: 200 })
   );
   vi.stubGlobal("fetch", fetchMock);
   beacon.mockClear();
@@ -66,7 +67,7 @@ afterEach(() => {
 
 describe("LoveButton", () => {
   const answer = (loves: number) =>
-    new Response(JSON.stringify({ loves, readers: 40 }), { status: 200 });
+    new Response(JSON.stringify({ loves, readers: 4 }), { status: 200 });
   const sentBodies = () => fetchMock.mock.calls.map((c) => JSON.parse(c[1].body).events[0]);
   const heart = () => screen.getByRole("button", { name: "Love this" });
   // The line beside the heart, which is read, not announced.
@@ -300,6 +301,18 @@ describe("LoveButton", () => {
     expect(sentBodies()).toEqual(["love"]);
     expect(isLoveCounted(30)).toBe(true);
     expect(line()).toBe("10 readers love this");
+  });
+
+  it("says how many have read it, from ten readers", async () => {
+    expect(readersLabel(9)).toBeNull();
+    expect(readersLabel(10)).toBe("Read by 10 readers");
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ loves: 3, readers: 40 }), { status: 200 })
+    );
+    render(<LoveButton ep={30} initialLoves={2} initialReaders={9} />);
+    expect(line()).toBe("2 readers love this");
+    await act(async () => fireEvent.click(heart()));
+    expect(line()).toBe("3 readers love this · Read by 40 readers");
   });
 
   it("takes back a love pressed away while it was being sent", async () => {

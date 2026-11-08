@@ -188,7 +188,9 @@ function WeeklyStoryPage({
       <VisitRecorder path="/comics" />
       <div className="space-y-4">
         <ComicPanels panels={story.panels} title={title} ep={ep} guess={guess.guess} />
-        {readable ? <LoveButton ep={ep} initialLoves={totals.loves} /> : null}
+        {readable ? (
+          <LoveButton ep={ep} initialLoves={totals.loves} initialReaders={totals.readers} />
+        ) : null}
         <EpisodeNotes lesson={story.lesson} question={story.squadQuestion} />
         {readable ? <SeenAtWork ep={ep} /> : null}
         <TakeItToYourTeam
