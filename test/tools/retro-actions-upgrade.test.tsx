@@ -1168,3 +1168,68 @@ describe("follow-through on the page", () => {
     expect(md).toContain("## Follow-through by retro");
   });
 });
+
+describe("on a phone", () => {
+  /** The classes as a list, so one check doesn't match inside another class. */
+  const classes = (el: Element | null) => (el?.getAttribute("class") ?? "").split(/\s+/);
+  /** Size, margin and padding classes without a variant: what a mouse gets. */
+  const boxModel = (el: Element | null) => classes(el).filter((c) => /^-?[hwmp][trblxy]?-/.test(c));
+
+  it("ticks Done through a 44 px label around the box on touch; a mouse keeps the 16 px box", () => {
+    renderPage();
+    const box = screen.getByLabelText("Done: Pair on the flaky tests");
+    const label = box.closest("label") as HTMLLabelElement;
+    expect(label).not.toBeNull();
+    expect(label.querySelectorAll("input")).toHaveLength(1);
+    // Touch: a 44 px target pulled back by its margin; the box grows to 20 px.
+    expect(classes(label)).toEqual(
+      expect.arrayContaining(["pointer-coarse:h-11", "pointer-coarse:w-11", "pointer-coarse:-m-3"])
+    );
+    expect(classes(box)).toEqual(
+      expect.arrayContaining(["pointer-coarse:h-5", "pointer-coarse:w-5"])
+    );
+    // Mouse: the label is the box's own size, where the box used to sit.
+    expect(boxModel(label)).toEqual(["mt-1"]);
+    expect(boxModel(box)).toEqual(["h-4", "w-4"]);
+
+    // A tap on the label (beside the box) ticks it, with Undo as before, and unticks it.
+    fireEvent.click(label);
+    expect(box).toBeChecked();
+    expect(cardOf(LAST.id, "l1")).toMatchObject({ done: true });
+    expect(toastLabels()).toContain("Done: “Pair on the flaky tests”");
+    fireEvent.click(label);
+    expect(box).not.toBeChecked();
+    expect(cardOf(LAST.id, "l1")?.done).toBeFalsy();
+  });
+
+  it("keeps an action closed by the linked tool locked, label and all", () => {
+    seed(
+      [
+        board(RETRO_CURRENT_ID, [
+          card("c9", "Unblock the build", {
+            sentTo: [{ route: "impediment", targetId: "imp-9", at: "2026-10-20" }],
+          }),
+        ]),
+      ],
+      {
+        impediments: [
+          {
+            id: "imp-9",
+            title: "Build",
+            severity: "high",
+            raisedAt: "2026-10-20",
+            resolvedAt: "2026-10-21",
+          },
+        ],
+      }
+    );
+    renderPage();
+    fireEvent.click(filterButton(/^All/));
+    const box = screen.getByLabelText("Done: Unblock the build");
+    expect(box).toBeDisabled();
+    expect(box).toBeChecked();
+    fireEvent.click(box.closest("label") as HTMLLabelElement);
+    expect(box).toBeChecked();
+    expect(cardOf(RETRO_CURRENT_ID, "c9")?.done).toBeUndefined();
+  });
+});
