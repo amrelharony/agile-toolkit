@@ -77,6 +77,31 @@ function isBoardControl(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(BOARD_CONTROL_SELECTOR) !== null;
 }
 
+/** The synthetic `contextmenu` events a touch long-press dispatched. */
+const longPressEvents = new WeakSet<Event>();
+
+/**
+ * True for the `contextmenu` this hook dispatches for a touch long-press;
+ * false for a mouse right-click, which keeps the browser's own menu (so
+ * desktop behaviour is unchanged).
+ */
+export function isCanvasLongPress(e: Event): boolean {
+  return longPressEvents.has(e);
+}
+
+/** Dispatch the long-press `contextmenu` on `target` at a screen point. */
+export function dispatchCanvasLongPress(target: EventTarget, clientX: number, clientY: number) {
+  const ev = new MouseEvent("contextmenu", {
+    bubbles: true,
+    cancelable: true,
+    clientX,
+    clientY,
+    button: 2,
+  });
+  longPressEvents.add(ev);
+  target.dispatchEvent(ev);
+}
+
 export function useCanvasTouchGestures(params: {
   viewportRef: RefObject<HTMLDivElement | null>;
   viewportRectRef: RefObject<DOMRect | null>;
@@ -224,22 +249,19 @@ export function useCanvasTouchGestures(params: {
         return;
       }
       pressOrigin = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
+      const pressTarget = e.target;
       longPressTimer = window.setTimeout(() => {
-        // Dispatch a synthetic contextmenu MouseEvent at the touch
-        // position so the existing right-click handlers on objects fire.
-        // React's delegated event system catches the bubbled event.
-        const target = document.elementFromPoint(e.clientX, e.clientY);
-        if (target) {
-          target.dispatchEvent(
-            new MouseEvent("contextmenu", {
-              bubbles: true,
-              cancelable: true,
-              clientX: e.clientX,
-              clientY: e.clientY,
-              button: 2,
-            })
-          );
-        }
+        // Dispatch a marked contextmenu at the touch position. It bubbles
+        // to the viewport, where the board's long-press menu
+        // (CanvasObjectMenu) opens for the selection the press made. Only
+        // a target inside the board: anything else would never reach it.
+        const hit =
+          typeof document.elementFromPoint === "function"
+            ? document.elementFromPoint(e.clientX, e.clientY)
+            : null;
+        const inBoard = (t: EventTarget | null): t is Node => t instanceof Node && el.contains(t);
+        const target = inBoard(hit) ? hit : inBoard(pressTarget) ? pressTarget : el;
+        dispatchCanvasLongPress(target, e.clientX, e.clientY);
         clearLongPress();
         lastTap = null;
       }, LONG_PRESS_MS);
@@ -307,7 +329,7 @@ export function useCanvasTouchGestures(params: {
   // Belt-and-braces: even with `touch-action: none` on the viewport,
   // browsers vary on whether they suppress the system context-menu
   // (long-press) by default. Force it off — our manual long-press
-  // synthesises the right contextmenu event at the right position.
+  // dispatches its own marked contextmenu at the right position.
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;

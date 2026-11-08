@@ -70,6 +70,7 @@ import { useMindMapStructural } from "../hooks/use-mind-map-structural";
 import { useInputClass } from "../hooks/use-input-class";
 import { WetInkLayer, type WetInkApi } from "./wet-ink-layer";
 import { useCanvasTouchGestures } from "../hooks/use-canvas-touch-gestures";
+import { CanvasObjectMenu } from "./canvas-object-menu";
 
 interface WhiteboardCanvasProps {
   boardId: string;
@@ -1081,6 +1082,33 @@ export function WhiteboardCanvas({
     zoomActions,
   });
 
+  // Long-press menu gate, read when the hold completes. The press itself
+  // selected the object (the pointer machine), so an empty selection
+  // means it landed on bare board — no menu there.
+  const canOpenObjectMenu = useCallback(() => {
+    const s = useCanvasStore.getState();
+    return (
+      !readOnly &&
+      presentationFrameIndex === null &&
+      editingObjectId === null &&
+      s.tool === "select" &&
+      s.selection.length > 0 &&
+      !s.marquee &&
+      !s.resize &&
+      !s.rotation &&
+      !s.drawing
+    );
+  }, [readOnly, presentationFrameIndex, editingObjectId]);
+  // The press that opened the menu also started a drag; end it (as Esc
+  // does) so the object doesn't follow the finger under the open menu.
+  const onObjectMenuOpen = useCallback(() => {
+    if (useCanvasStore.getState().drag) setDrag(null);
+  }, [setDrag]);
+  const selectionAllLocked = useMemo(
+    () => selection.length > 0 && selection.every((id) => objectsById.get(id)?.locked),
+    [selection, objectsById]
+  );
+
   const { onAlign, onDistribute } = useAlignDistribute({
     selection,
     objectsById,
@@ -1388,6 +1416,17 @@ export function WhiteboardCanvas({
             objectActions={readOnly ? undefined : objectActions}
           />
         )}
+
+      {/* Touch long-press menu for the selection (editors only). */}
+      {!readOnly && (
+        <CanvasObjectMenu
+          viewportRef={viewportRef}
+          actions={objectActions}
+          canOpen={canOpenObjectMenu}
+          allLocked={selectionAllLocked}
+          onOpen={onObjectMenuOpen}
+        />
+      )}
 
       {/* Marquee — only renders while a marquee drag is in progress. */}
       {marquee && <Marquee marquee={marquee} camera={camera} />}
