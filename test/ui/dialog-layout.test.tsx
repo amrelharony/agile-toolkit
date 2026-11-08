@@ -61,6 +61,14 @@ describe("DialogContent", () => {
     );
   });
 
+  it("makes the body the containing block of its out-of-flow children", () => {
+    // Without `relative`, sr-only text and hidden inputs inside the body hang
+    // off the fixed box: they don't scroll with the body and stretch the box
+    // into a second scroller that can carry the close button away.
+    const { body } = renderDialog();
+    expect(classesOf(body)).toContain("relative");
+  });
+
   it("bounds the grid track so wide children can't widen the dialog", () => {
     const { body } = renderDialog();
     expect(classesOf(body)).toEqual(expect.arrayContaining(["grid", "grid-cols-[minmax(0,1fr)]"]));
@@ -111,7 +119,7 @@ describe("SheetContent", () => {
     expect(classesOf(panel)).toEqual(expect.arrayContaining(["overflow-hidden", "sm:max-w-md"]));
     expect(classesOf(panel)).not.toContain("overflow-y-auto");
     expect(classesOf(body)).toEqual(
-      expect.arrayContaining(["min-h-0", "flex-1", "overflow-y-auto", "p-0"])
+      expect.arrayContaining(["relative", "min-h-0", "flex-1", "overflow-y-auto", "p-0"])
     );
     expect(classesOf(body)).not.toContain("p-4");
     expect(body!.contains(close)).toBe(false);

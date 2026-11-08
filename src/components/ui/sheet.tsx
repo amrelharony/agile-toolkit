@@ -84,7 +84,9 @@ const SheetContent = React.forwardRef<
       <div
         data-sheet-body=""
         className={cn(
-          "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-4 sm:p-6",
+          // `relative`: absolutely positioned children (sr-only text, hidden
+          // inputs) scroll and clip with the body instead of the panel.
+          "relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-4 sm:p-6",
           bodyClassName
         )}
       >

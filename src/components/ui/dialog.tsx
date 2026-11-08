@@ -68,8 +68,11 @@ const DialogContent = React.forwardRef<
           // auto track grows to its widest child (a nowrap tab list, a long
           // select value) and pushes everything past the dialog's right edge.
           // `min-h-0 flex-1` lets the body shrink to the box's height cap and
-          // scroll; tighter padding on phones.
-          "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto overscroll-contain p-4 sm:p-6",
+          // scroll; tighter padding on phones. `relative` makes the body the
+          // containing block of absolutely positioned children (sr-only text,
+          // hidden file inputs), so they scroll and clip with it instead of
+          // stretching the box into a second scroller.
+          "relative grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto overscroll-contain p-4 sm:p-6",
           bodyClassName
         )}
       >
