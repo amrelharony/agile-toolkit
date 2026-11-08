@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story, TeamMember } from "@/lib/stores/workspace-types";
+import { TOUCH_ROW, TOUCH_ROW_LINK } from "@/components/ui/touch-target";
 
 /**
  * Team page: one roster for every tool. Add, edit and remove members, with
@@ -54,6 +55,17 @@ describe("Team page — empty state", () => {
       "href",
       "/ceremony-timer"
     );
+  });
+
+  it("makes each tool row a 44px touch target that opens the tool", () => {
+    render(<TeamClient />);
+    const link = screen.getByRole("link", { name: "Standup Tracker" });
+    // On touch the link's ::after stretches over its row; the row is the
+    // positioned box and at least 44px tall. Nothing changes with a mouse.
+    expect(link).toHaveClass(...TOUCH_ROW_LINK.split(" "), "hover:underline");
+    const row = link.closest("li")!;
+    expect(row).toHaveClass(...TOUCH_ROW.split(" "), "flex", "items-start");
+    expect(row).toHaveTextContent(/^Standup Tracker.+/);
   });
 });
 
