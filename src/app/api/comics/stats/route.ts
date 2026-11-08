@@ -10,8 +10,8 @@
  * cap, an allowlist of events, per-story limits for each connection on the
  * events that matter (EVENT_LIMITS_PER_HOUR: an event over its limit is dropped,
  * the rest still count), and a story that's out. Nothing about the reader is
- * stored: no IP address, no user agent, no cookie, no device id; the limits'
- * addresses live in memory only (../_guard). The browser's own record
+ * stored: no IP address, no user agent, no cookie, no device id; the limits
+ * key on a salted hash of the address, in memory only (../_guard). The browser's own record
  * (lib/comics/reading) is what keeps an honest reader to one first view, finish
  * or love. Most calls are beacons, so going over the rate limit is a quiet 204,
  * as at /api/comics/hit, and so is a request whose events were all dropped.

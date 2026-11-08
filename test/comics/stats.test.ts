@@ -228,13 +228,14 @@ describe("migration 0036", () => {
 
   it("takes a story's first weeks from the Sunday of its release week, never before", () => {
     // The release week starts on the Sunday (UTC) on or before the release.
+    // Each line whole, so a shifted bound ("- 7", "* 70", "or true") fails.
     expect(sql).toMatch(
-      /\(c\.release_at at time zone 'utc'\)::date\s+- extract\(dow from \(c\.release_at at time zone 'utc'\)\)::int as release_week/
+      /^\s*select \(c\.release_at at time zone 'utc'\)::date\s+- extract\(dow from \(c\.release_at at time zone 'utc'\)\)::int as release_week$/m
     );
-    expect(sql).toMatch(/where c\.release_at is not null/);
+    expect(sql).toMatch(/^\s*where c\.release_at is not null$/m);
     // Weeks before the release week are left out, and so is the fifth week.
-    expect(sql).toMatch(/and s\.week >= r\.release_week/);
-    expect(sql).toMatch(/and s\.week < r\.release_week \+ p_first_weeks \* 7/);
+    expect(sql).toMatch(/^\s*and s\.week >= r\.release_week$/m);
+    expect(sql).toMatch(/^\s*and s\.week < r\.release_week \+ p_first_weeks \* 7$/m);
   });
 
   it("adds the owner's print shortlist", () => {

@@ -44,15 +44,18 @@ export const MAX_STAT_EVENTS = 6;
 /**
  * How many of each event one connection (its address, only ever a salted hash
  * in memory: api/comics/_guard) may add to one story in an hour. A browser
- * sends each first only once; these stop a loop from inflating the counts.
+ * sends each first only once; these slow a loop down. They can't stop a
+ * patient one: each window is an hour from its first event, and each server
+ * instance keeps its own.
  *
- * A balance: an office or a phone network behind one address shares these, so
- * opens and finishes allow a crowd, while loves sit below FAVOURITES_MIN_LOVES
- * so no single connection can put a story in Readers' favourites, or take more
- * than a few loves back, within the hour. Loves are rarer than finishes, so a
- * busy office still counts most of its hearts; one over the limit simply isn't
- * counted, and that reader's heart stays theirs. Views and time bands fall
- * under the route's overall limit.
+ * A balance, tunable here. An office or a phone network behind one address
+ * shares these, so opens and finishes allow a crowd. Loves sit below
+ * FAVOURITES_MIN_LOVES, so one connection needs more than an hour to put a
+ * story in Readers' favourites on its own, or to take back more than a few
+ * loves; the price is that a team behind one address counts at most 3 hearts
+ * (and 3 take-backs) a story an hour. A love over the limit simply isn't
+ * counted: that reader's heart stays theirs, and the heart says it wasn't
+ * counted. Views and time bands fall under the route's overall limit.
  */
 export const EVENT_LIMITS_PER_HOUR: Readonly<Partial<Record<StatMetric, number>>> = {
   visitor: 30,

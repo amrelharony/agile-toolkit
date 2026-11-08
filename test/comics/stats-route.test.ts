@@ -120,7 +120,7 @@ describe("POST /api/comics/stats", () => {
   it("drops a connection's events over their hourly limit on one story, keeping the rest", async () => {
     ip += 1; // An address no other test has used.
     const loves = EVENT_LIMITS_PER_HOUR.love ?? 0;
-    // One connection alone can't put a story in Readers' favourites.
+    // Within the hour, one connection alone can't put a story in Readers' favourites.
     expect(loves).toBeLessThan(FAVOURITES_MIN_LOVES);
     for (let i = 0; i < loves; i += 1) await post({ ep: 40, events: ["love"] }, {}, true);
     expect(h.rpc).toHaveBeenCalledTimes(loves);
