@@ -50,8 +50,22 @@ describe("ZoomControls on touch", () => {
     // The divider goes on touch (mouse keeps it).
     const fit = within(bar).getByRole("button", { name: "Fit to content" });
     expect(fit.previousElementSibling).toHaveClass("w-px", "pointer-coarse:hidden");
-    // Fit stays the bar's last control (same order for every pointer).
+    // Fit stays the bar's last control in the DOM (and for a mouse)...
     expect(bar.lastElementChild).toBe(fit);
+  });
+
+  it("leads the touch bar with Fit, the control Amr covered", () => {
+    // The bar is rem-sized and Amr isn't: with a larger root font its
+    // right end grows toward him at 360 px, so Fit goes furthest away.
+    render(<ZoomControls onFit={() => {}} />);
+    const bar = screen.getByRole("toolbar", { name: "Zoom controls" });
+    const fit = within(bar).getByRole("button", { name: "Fit to content" });
+    expect(fit).toHaveClass("pointer-coarse:order-first");
+    // Only Fit moves; a mouse keeps the old order.
+    for (const el of Array.from(bar.children)) {
+      if (el !== fit) expect(el.className).not.toMatch(/(^|\s)(\S+:)?order-/);
+    }
+    expect(fit.className).not.toMatch(/(^|\s)order-/);
   });
 
   it("offers the full-screen board in the touch row when the page has one", () => {

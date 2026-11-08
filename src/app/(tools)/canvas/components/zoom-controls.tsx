@@ -14,8 +14,8 @@ import { useOpenCanvasActions } from "../hooks/use-canvas-shortcuts";
  * move to the bottom-LEFT, just past the tool rail (which ends 59 px in
  * from the stage edge at every width). The zoom bar is also tightened
  * there (no divider, 2 px gaps) so even at 360 px wide its last button
- * (Fit to content) stops short of Amr's figure. With a mouse the bars
- * stay bottom-right, as before.
+ * stops short of Amr's figure, and Fit to content, the control he used to
+ * cover, comes first. With a mouse the bars stay bottom-right, as before.
  */
 export const ZOOM_CONTROLS_TOUCH_LEFT = "pointer-coarse:right-auto pointer-coarse:left-[4.5rem]";
 
@@ -147,13 +147,17 @@ export function ZoomControls({ onFit, viewportSize, fillScreen }: ZoomControlsPr
         {/* Dropped on touch, where the bar is tightened (see above). */}
         <div className="w-px h-5 bg-border mx-1 pointer-coarse:hidden" />
         {onFit && (
+          // On touch Fit leads the bar, as far from Amr's corner as it
+          // can be: the bar is rem-sized and Amr is not, so with a larger
+          // root font (a browser text-size setting) the bar's right end
+          // grows toward him at 360 px. Fit was the control he covered.
           <button
             type="button"
             onClick={onFit}
             onMouseDown={keepBoardFocus}
             aria-label="Fit to content"
             title="Fit to content (Cmd+1)"
-            className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep min-touch-coarse"
+            className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep min-touch-coarse pointer-coarse:order-first"
           >
             <Maximize2 className="w-4 h-4" aria-hidden="true" />
           </button>
