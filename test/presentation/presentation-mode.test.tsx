@@ -29,6 +29,21 @@ describe("presentation mode", () => {
     expect(screen.queryByRole("button", { name: /Exit presentation/ })).toBeNull();
   });
 
+  it("on phones Exit is a 44px icon that keeps its name, in a strip clear of the title", () => {
+    const { container } = render(<PresentationController />);
+    expect(container.querySelector("[data-exit-strip]")).toBeNull();
+    act(() => usePresentation.getState().set(true));
+
+    const exit = screen.getByRole("button", { name: "Exit presentation (Escape)" });
+    expect(exit).toHaveClass("fixed", "max-sm:size-11", "max-sm:px-0");
+    // The visible label hides below sm only; screen readers always hear it.
+    expect(screen.getByText("Exit presentation")).toHaveClass("max-sm:sr-only");
+
+    const strip = container.querySelector("[data-exit-strip]");
+    expect(strip).toHaveAttribute("aria-hidden", "true");
+    expect(strip).toHaveClass("h-14", "sm:hidden");
+  });
+
   it("ends from the Exit button", () => {
     render(<PresentationController />);
     act(() => usePresentation.getState().set(true));
