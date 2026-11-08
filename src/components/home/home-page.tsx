@@ -19,7 +19,7 @@ import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 // load in chunks of their own once the page is up, off home's first download.
 const SprintCockpit = dynamic(
   () => import("@/app/(tools)/sprint/cockpit").then((m) => m.SprintCockpit),
-  { ssr: false, loading: () => <LoadingSprints /> }
+  { ssr: false, loading: () => <LoadingSprints tall /> }
 );
 const InsightsEngine = dynamic(
   () => import("@/components/shared/insights-engine").then((m) => m.InsightsEngine),
