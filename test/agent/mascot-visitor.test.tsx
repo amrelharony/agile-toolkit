@@ -166,6 +166,22 @@ describe("MascotAssistant — owner gating", () => {
     );
   });
 
+  it("gives the owner's New chat and History buttons a 44 px target on touch", async () => {
+    h.auth = OWNER;
+    render(<MascotAssistant />);
+
+    const panel = screen.getByRole("dialog", { name: "Amr assistant" });
+    for (const name of ["New chat", "Conversation history", "Close assistant"]) {
+      expect(within(panel).getByRole("button", { name })).toHaveClass(
+        "min-touch-coarse",
+        "inline-flex",
+        "items-center",
+        "justify-center"
+      );
+    }
+    expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
+  });
+
   it("gives the owner the full chat panel", async () => {
     h.auth = OWNER;
     render(<MascotAssistant />);
