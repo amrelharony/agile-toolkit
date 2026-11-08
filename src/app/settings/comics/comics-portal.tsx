@@ -15,6 +15,7 @@ import {
 } from "@/lib/comics/draft-store";
 import type { OwnerStory } from "@/lib/comics/story-input";
 import { EntriesView } from "./entries-view";
+import { InsightsView } from "./insights-view";
 import { ExtrasEditor } from "./extras-editor";
 import { GuessEditor } from "./guess-editor";
 import { GuestbookView } from "./guestbook-view";
@@ -24,7 +25,7 @@ import { ReviewView, reviewQueue } from "./review-view";
 import { StoriesView } from "./stories-view";
 import { LEAVE_WHILE_UPLOADING, StoryEditor } from "./story-editor";
 
-type View = "stories" | "editor" | "review" | "entries" | "licence" | "guestbook";
+type View = "stories" | "editor" | "review" | "entries" | "insights" | "licence" | "guestbook";
 
 export const PORTAL_SIGN_IN_HREF = `/auth/sign-in?next=${encodeURIComponent("/settings/comics")}`;
 
@@ -233,6 +234,9 @@ export function ComicsPortal() {
         <ViewButton active={view === "entries"} onClick={() => setView("entries")}>
           Entries
         </ViewButton>
+        <ViewButton active={view === "insights"} onClick={() => setView("insights")}>
+          Insights
+        </ViewButton>
         <ViewButton active={view === "licence"} onClick={() => setView("licence")}>
           Licence requests
           {unhandled > 0 ? (
@@ -311,6 +315,7 @@ export function ComicsPortal() {
         />
       ) : null}
       {view === "entries" ? <EntriesView enabled={isOwner} /> : null}
+      {view === "insights" ? <InsightsView enabled={isOwner} /> : null}
       {view === "licence" ? (
         <LicenceView requests={requests} loadError={requestsError} onChanged={refreshRequests} />
       ) : null}
