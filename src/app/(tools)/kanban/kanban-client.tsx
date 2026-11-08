@@ -220,7 +220,7 @@ export function KanbanClient() {
 
   let body: ReactNode;
   if (!hydrated) {
-    body = <WorkspaceLoading>Loading the board…</WorkspaceLoading>;
+    body = <WorkspaceLoading tall>Loading the board…</WorkspaceLoading>;
   } else if (view === "flow") {
     body = <FlowBoard state={board} setState={setBoard} />;
   } else if (exampleStore && exampleWriter) {

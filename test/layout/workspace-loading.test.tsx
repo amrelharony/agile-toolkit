@@ -30,7 +30,11 @@ vi.stubGlobal(
   }
 );
 
-import { WORKSPACE_LOADING_RESERVE, WorkspaceLoading } from "@/components/shared/workspace-loading";
+import {
+  WORKSPACE_LOADING_RESERVE,
+  WORKSPACE_LOADING_RESERVE_TALL,
+  WorkspaceLoading,
+} from "@/components/shared/workspace-loading";
 import { LoadingSprints } from "@/components/sprints/start";
 import { SprintCockpit } from "@/app/(tools)/sprint/cockpit";
 import { CapacityPlannerClient } from "@/app/(tools)/capacity-planner/capacity-planner-client";
@@ -62,6 +66,15 @@ describe("WorkspaceLoading", () => {
     expect(minHeights).toEqual(["max-md:min-h-[60svh]"]);
   });
 
+  it("adds a full screen from md up for tall tools only", () => {
+    render(<WorkspaceLoading tall>Loading the board…</WorkspaceLoading>);
+    expect(WORKSPACE_LOADING_RESERVE_TALL).toBe("md:min-h-[100svh]");
+    const minHeights = Array.from(screen.getByRole("status").classList).filter((c) =>
+      c.includes("min-h-")
+    );
+    expect(minHeights).toEqual(["max-md:min-h-[60svh]", "md:min-h-[100svh]"]);
+  });
+
   it("keeps the reserve when a caller adds its own classes", () => {
     render(<WorkspaceLoading className="mt-4">Loading…</WorkspaceLoading>);
     expect(screen.getByRole("status")).toHaveClass(WORKSPACE_LOADING_RESERVE, "mt-4");
@@ -73,26 +86,28 @@ describe("pre-hydration placeholders reserve the tool's room", () => {
     const status = serverStatus(<LoadingSprints />);
     expect(status).toHaveTextContent("Loading sprints…");
     expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
+    // Short sprint tools (Sprint Planning, Burndown) keep the phone-only reserve.
+    expect(status).not.toHaveClass(WORKSPACE_LOADING_RESERVE_TALL);
   });
 
   it("the Sprint Cockpit (the /sprint page and the home card)", () => {
     for (const ui of [<SprintCockpit key="full" />, <SprintCockpit key="compact" compact />]) {
       const status = serverStatus(ui);
       expect(status).toHaveTextContent("Loading sprints…");
-      expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
+      expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE, WORKSPACE_LOADING_RESERVE_TALL);
     }
   });
 
   it("the Capacity Planner", () => {
     const status = serverStatus(<CapacityPlannerClient />);
     expect(status).toHaveTextContent("Loading the capacity plan…");
-    expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
+    expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE, WORKSPACE_LOADING_RESERVE_TALL);
   });
 
   it("the Kanban board", () => {
     const status = serverStatus(<KanbanClient />);
     expect(status).toHaveTextContent("Loading the board…");
-    expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
+    expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE, WORKSPACE_LOADING_RESERVE_TALL);
   });
 
   it("Retro Actions", () => {
