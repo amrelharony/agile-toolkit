@@ -18,7 +18,12 @@ vi.mock("@/lib/auth/use-is-owner", () => ({
   }),
 }));
 
-import { LoveButton, NOT_COUNTED, lovesLabel } from "@/app/(tools)/comics/components/love-button";
+import {
+  LoveButton,
+  NOT_COUNTED,
+  heartLine,
+  lovesLabel,
+} from "@/app/(tools)/comics/components/love-button";
 import { StoryStats } from "@/app/(tools)/comics/components/story-stats";
 import { COUNTED_KEY, isLoveCounted, isLoved, markRead, totalSeconds } from "@/lib/comics/reading";
 
@@ -84,6 +89,10 @@ describe("LoveButton", () => {
     // A heart that's on but wasn't counted never says "Be the first".
     expect(lovesLabel(0, false, true)).toBe("No loves counted yet");
     expect(lovesLabel(1, false, true)).toBe("1 reader loves this");
+    // The whole line says when a heart that's on isn't among the count.
+    expect(heartLine(3, false, true)).toBe("3 readers love this (yours isn't counted)");
+    expect(heartLine(3, true)).toBe("3 readers love this");
+    expect(heartLine(0, false, true)).toBe("No loves counted yet");
   });
 
   it("loves, shows the server's fresh count, and takes it back", async () => {
@@ -111,7 +120,7 @@ describe("LoveButton", () => {
     expect(isLoved(30)).toBe(true);
     expect(isLoveCounted(30)).toBe(false);
     // The press's +1 goes again: the server holds 4. And it says so.
-    expect(line()).toBe("4 readers love this");
+    expect(line()).toBe("4 readers love this (yours isn't counted)");
     expect(announced()).toBe(NOT_COUNTED);
     await act(async () => fireEvent.click(heart()));
     expect(sentBodies()).toEqual(["love"]);
@@ -168,6 +177,41 @@ describe("LoveButton", () => {
     expect(sentBodies()).toEqual(["love"]);
     expect(isLoveCounted(30)).toBe(true);
     expect(new Set(names)).toEqual(new Set(["agile-toolkit:comics:love:30"]));
+    // The tab that waited counts in the love the first tab sent for it.
+    const secondLine = second.container.querySelector("p:not([role])")?.textContent;
+    expect(secondLine).toBe("10 readers love this");
+    expect(within(second.container).getByRole("status").textContent).toBe("10 readers love this");
+  });
+
+  it("counts in a love another tab already sent when this tab catches up", async () => {
+    render(<LoveButton ep={30} initialLoves={0} />);
+    // Another tab loved it and the server counted it.
+    localStorage.setItem(
+      "agile-toolkit:comics:reading",
+      JSON.stringify({ loved: { 30: "2026-11-08T08:00:00Z" } })
+    );
+    localStorage.setItem(COUNTED_KEY, JSON.stringify({ 30: "2026-11-08T08:00:01Z" }));
+    await act(async () => fireEvent.click(heart()));
+    expect(heart().getAttribute("aria-pressed")).toBe("true");
+    expect(line()).toBe("You love this");
+    expect(announced()).toBe("You love this");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("clears the announcement while a press is sent, so the same outcome is said again", async () => {
+    const release = held();
+    fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
+    render(<LoveButton ep={30} initialLoves={5} />);
+    await act(async () => fireEvent.click(heart()));
+    expect(announced()).toBe("");
+    await release(new Response(null, { status: 503 }));
+    expect(announced()).toBe(NOT_COUNTED);
+    // Taken back unsent (the server holds nothing), then loved again: fails again.
+    await act(async () => fireEvent.click(heart()));
+    expect(announced()).toBe("5 readers love this");
+    await act(async () => fireEvent.click(heart()));
+    expect(announced()).toBe(NOT_COUNTED);
+    expect(sentBodies()).toEqual(["love", "love"]);
   });
 
   it("doesn't take back the owner's uncounted love when that browser is later a visitor", async () => {
@@ -175,8 +219,10 @@ describe("LoveButton", () => {
     const first = render(<LoveButton ep={30} initialLoves={1} />);
     await act(async () => fireEvent.click(heart()));
     expect(fetchMock).not.toHaveBeenCalled();
-    // The one love is another reader's, so it isn't "You love this".
-    expect(line()).toBe("1 reader loves this");
+    // The one love is another reader's, so it isn't "You love this", and the
+    // line (announced too) says the owner's heart isn't counted.
+    expect(line()).toBe("1 reader loves this (yours isn't counted)");
+    expect(announced()).toBe("1 reader loves this (yours isn't counted)");
     first.unmount();
 
     h.owner = false;
@@ -252,7 +298,7 @@ describe("LoveButton", () => {
       render(<LoveButton ep={30} initialLoves={2} />);
       await act(async () => fireEvent.click(heart()));
       expect(heart().getAttribute("aria-pressed")).toBe("true");
-      expect(line()).toBe("2 readers love this");
+      expect(line()).toBe("2 readers love this (yours isn't counted)");
       await act(async () => fireEvent.click(heart()));
       expect(heart().getAttribute("aria-pressed")).toBe("false");
       // With no record, every visit could add another love.
