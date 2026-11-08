@@ -64,6 +64,14 @@ const BLANK_PANEL = "#F2EFE8";
 /** "Agile at Work" and the site's address, in the print's teal. */
 const BRAND = "#12676B";
 
+/**
+ * The id the form's live preview carries until it has one of its own. A
+ * random id made while rendering differs between the server's render and the
+ * browser's, so the form sets the real one after mount; until then the card
+ * leaves data-kudos-id off.
+ */
+export const PENDING_KUDOS_ID = "kud_pending";
+
 const FACE =
   "flex w-full max-w-[300px] min-h-[423px] flex-col overflow-hidden rounded-lg shadow-md";
 const FACE_STYLE: CSSProperties = { background: PAPER, border: `1px solid ${EDGE}` };
@@ -344,6 +352,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
 ) {
   const design = designFor(kudos);
   const reminds = remindsOf(kudos);
+  const kudosId = kudos.id === PENDING_KUDOS_ID ? undefined : kudos.id;
 
   const grouped = groupReactions(kudos.reactions, viewerProfileId);
   // Hide the reply chevron when this card IS a reply (depth-1 cap).
@@ -375,7 +384,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
     return (
       <div
         ref={ref}
-        data-kudos-id={kudos.id}
+        data-kudos-id={kudosId}
         className="@container w-full"
         style={{ color: BODY_INK }}
       >
@@ -391,7 +400,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
   return (
     <div
       ref={ref}
-      data-kudos-id={kudos.id}
+      data-kudos-id={kudosId}
       className="w-full overflow-hidden rounded-lg shadow-md"
       style={{ ...FACE_STYLE, color: BODY_INK }}
     >

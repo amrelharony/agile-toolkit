@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
-import { KudosCard } from "@/app/(tools)/kudos/components/kudos-card";
+import { KudosCard, PENDING_KUDOS_ID } from "@/app/(tools)/kudos/components/kudos-card";
 import { CARD_PANEL_PATHS } from "@/lib/kudos/card-panels";
 import type { Kudos } from "@/lib/stores/workspace-types";
 
@@ -268,6 +268,22 @@ describe("the card's interactive parts", () => {
     render(<KudosCard kudos={{ ...reacted, replyTo: "kud_0" }} compact {...handlers} />);
     expect(screen.queryByRole("button", { name: "Reply to this kudos" })).toBeNull();
     expect(screen.getByRole("button", { name: "Add a reaction" })).toBeInTheDocument();
+  });
+});
+
+describe("the card's id", () => {
+  it("is on the card, but left off while the form's preview has only the placeholder", () => {
+    for (const compact of [false, true]) {
+      const { container, rerender, unmount } = render(
+        <KudosCard kudos={EP7} compact={compact} excludeInteractive />
+      );
+      expect(container.firstElementChild).toHaveAttribute("data-kudos-id", "kud_7");
+      rerender(
+        <KudosCard kudos={{ ...EP7, id: PENDING_KUDOS_ID }} compact={compact} excludeInteractive />
+      );
+      expect(container.firstElementChild).not.toHaveAttribute("data-kudos-id");
+      unmount();
+    }
   });
 });
 

@@ -56,7 +56,7 @@ import { cardDesign, designFor, episodeDesign, type CardDesignKey } from "@/lib/
 import { KUDOS_WORD_LIMITS, countWords } from "../types";
 import { RECIPIENT_MAX, validateKudosDraft } from "../form";
 import { CardPicker } from "./card-picker";
-import { KudosCard } from "./kudos-card";
+import { KudosCard, PENDING_KUDOS_ID } from "./kudos-card";
 import { KudosSent } from "./kudos-sent";
 import { analyseSentiment } from "@/lib/kudos/llm/sentiment";
 import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
@@ -309,13 +309,19 @@ export function KudosForm({
   const fromOk = countWords(defaultFromName) <= KUDOS_WORD_LIMITS.from;
 
   // Build the live-preview Kudos. Used by both the inline preview and
-  // the PNG-export path; `id` and `sentAt` are stable across renders
-  // by reusing the same nanoid, so the preview ID matches the saved
-  // record exactly — important when the parent dedupes broadcasts.
-  const previewIdRef = useRef<string>(newKudosId());
+  // the PNG-export path; `id` is stable across renders, so the preview ID
+  // matches the saved record exactly — important when the parent dedupes
+  // broadcasts. The id is made after mount: a random one made while
+  // rendering differs between the server's render and the browser's (a
+  // hydration mismatch on data-kudos-id), so the first render carries the
+  // placeholder, which the card leaves off.
+  const [previewId, setPreviewId] = useState<string>(PENDING_KUDOS_ID);
+  useEffect(() => {
+    setPreviewId(newKudosId());
+  }, []);
   const preview: Kudos = useMemo(
     () => ({
-      id: previewIdRef.current,
+      id: previewId,
       theme,
       toName: selectedRecipient?.displayName.trim() || "Recipient's Name",
       toProfileId: selectedRecipient?.profileId,
@@ -328,7 +334,7 @@ export function KudosForm({
       // shows today's date so the user sees what the card will say.
       sentAt: new Date().toISOString(),
     }),
-    [theme, episode, selectedRecipient, defaultFromName, defaultFromProfileId, message]
+    [previewId, theme, episode, selectedRecipient, defaultFromName, defaultFromProfileId, message]
   );
 
   const send = async () => {
@@ -342,6 +348,8 @@ export function KudosForm({
     try {
       const finalised: Kudos = {
         ...preview,
+        // The placeholder never leaves the form, even if Send beat the mount effect.
+        id: preview.id === PENDING_KUDOS_ID ? newKudosId() : preview.id,
         toName: checked.values.to,
         message: checked.values.message,
         sentAt: new Date().toISOString(),
@@ -356,7 +364,7 @@ export function KudosForm({
       setRecipientId("");
       setFreeRecipient("");
       setAttempt(0);
-      previewIdRef.current = newKudosId();
+      setPreviewId(newKudosId());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't send kudos");
       // Regenerate the preview id on failure too. Without this, a
@@ -365,7 +373,7 @@ export function KudosForm({
       // received the partial first broadcast keeps the OLD message
       // because dedup-by-id replaces in place. Fresh id forces a new
       // append on every retry.
-      previewIdRef.current = newKudosId();
+      setPreviewId(newKudosId());
     } finally {
       setSubmitting(false);
     }
