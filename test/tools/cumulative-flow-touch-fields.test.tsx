@@ -37,7 +37,10 @@ describe("Cumulative Flow's typed snapshot fields", () => {
     ];
     expect(fields.length).toBeGreaterThanOrEqual(3);
     for (const field of fields) {
-      expect(field).toHaveClass("pointer-coarse:min-h-11", "h-8", "md:h-9");
+      expect(field).toHaveClass("pointer-coarse:min-h-11", "h-8");
+      // Input's desktop height (md:h-9, or pointer-fine:md:h-9 once Input only
+      // shrinks for a mouse) is left alone.
+      expect(Array.from(field.classList).some((c) => /(^|:)md:h-9$/.test(c))).toBe(true);
     }
   });
 
