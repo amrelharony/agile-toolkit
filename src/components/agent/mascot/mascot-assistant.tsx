@@ -69,7 +69,7 @@ const sceneShipped = (scene: string) => shippedScene(scene) !== undefined;
 const BUTTON_INSET = 4;
 /** Size of Amr's box inside that button: one sheet cell at an exact 12:13. */
 const MASCOT_BOX = { w: 132, h: 143 };
-/** Phones get a smaller figure, standing in a strip of his own (phoneBandHeight). */
+/** Phones get a smaller figure, with space kept for him (phoneBandHeight). */
 const MASCOT_BOX_PHONE = { w: 96, h: 104 };
 /** The round launcher shown until the figure is ready (or if the sheet can't load). */
 const LAUNCHER_SIZE = 48;
@@ -124,11 +124,12 @@ function edgeInset(c: Corner, figure: boolean, boxH: number): number {
 }
 
 /**
- * On a phone the page has no spare margin for him to stand in, so he gets a strip
- * of his own, the way a phone app has a bottom bar: at the bottom of the screen,
- * or just under the header when he's been dragged up there. The page scrolls
- * behind it and main's bottom padding lets everything clear it. This is how tall
- * the strip has to be to hold him, in px, past any safe area.
+ * On a phone the page has no spare margin for him to stand in, so space is kept
+ * for him: at the bottom of the screen, or just under the header when he's been
+ * dragged up there. Nothing is drawn there; he stands over the page with nothing
+ * behind him, the page scrolls behind him, and main's padding lets everything
+ * clear him. This is how tall that space has to be to hold him, in px, past any
+ * safe area.
  */
 function phoneBandHeight(c: Corner, figure: boolean, boxH: number): number {
   if (!figure) return LAUNCHER_SIZE + 2 * BUTTON_INSET;
@@ -203,9 +204,10 @@ function useIsPhone(): boolean {
 }
 
 /**
- * Reserve Amr's strip on phones: publishes its height as CSS variables, for main's
+ * Keep space for Amr on phones: publishes its height as CSS variables, for main's
  * top padding, scroll padding, and the few things pinned to the bottom of the
- * screen. Zero (removed) on larger screens, where he stands in the corner.
+ * screen, so they stop clear of him. Nothing is drawn there: the page shows behind
+ * him. Zero (removed) on larger screens, where he stands in the corner.
  */
 function usePhoneBand(band: { side: "top" | "bottom"; height: number } | null) {
   const side = band?.side;
@@ -728,24 +730,6 @@ export function MascotAssistant() {
             />
           )}
         </div>
-      )}
-
-      {/* The strip he stands in on phones. Opaque, so the page passes behind it
-          rather than behind him, and below every overlay. */}
-      {band && (
-        <div
-          aria-hidden="true"
-          data-amr-band={band.side}
-          className={cn(
-            "fixed inset-x-0 z-30 bg-bg border-border",
-            band.side === "top" ? "border-b" : "border-t"
-          )}
-          style={
-            band.side === "top"
-              ? { top: "var(--header-h)", height: band.height }
-              : { bottom: 0, height: "var(--amr-band-bottom)" }
-          }
-        />
       )}
 
       {/* Floating mascot — click to toggle the chat. */}
