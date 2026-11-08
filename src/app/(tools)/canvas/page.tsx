@@ -1,4 +1,4 @@
-import type { Metadata, Viewport } from "next";
+import type { Metadata } from "next";
 import { CanvasClient } from "./canvas-client";
 
 export const metadata: Metadata = {
@@ -7,20 +7,16 @@ export const metadata: Metadata = {
     "Infinite whiteboard with stickies, shapes, free-hand drawing, smart connectors and AI cluster analysis.",
 };
 
-// Per-route viewport override. The app-wide viewport (app/layout.tsx)
-// leaves pinch-zoom on so screen-reader / low-vision users can pinch the
-// rest of the app. On the canvas we own the pinch gesture ourselves
-// (zoom-to-pinch-centre via @use-gesture/react in useCanvasTouchGestures),
-// so the OS pinch must be locked out — otherwise the page zoom fights
-// the canvas zoom and the user gets a doubled effect that desyncs the
-// world transform.
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  viewportFit: "cover",
-};
+// No per-route viewport: the app-wide one (app/layout.tsx) leaves browser
+// zoom on, so low-vision users can pinch the page's text here too (WCAG
+// 1.4.4). The board still owns a pinch that starts on it: its viewport is
+// `touch-action: none` (whiteboard-canvas.tsx) and useBoardPinchGuard
+// cancels the page pinch there for browsers that don't honour it, so the
+// page zoom never fights the canvas zoom over the board. This route used
+// to lock zoom for the whole page (maximum-scale=1, user-scalable=no).
+// That lock also kept iOS from zooming in on a small text field on a
+// landscape phone; canvas-client floors the board's fields at 16 px on
+// touch instead (TOUCH_INPUT_FONT_FLOOR).
 
 export default function Page() {
   return <CanvasClient />;
