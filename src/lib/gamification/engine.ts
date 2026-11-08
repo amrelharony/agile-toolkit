@@ -3,6 +3,7 @@
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 import { isFocusActive } from "@/lib/notify/prefs";
+import { isGamificationEnabled } from "./enabled";
 import { achievements, getAchievement } from "./achievements";
 import {
   findDaily,
@@ -149,9 +150,9 @@ const rules: Partial<Record<string, Rule>> = {
   // (lib/gamification/signal.ts).
   "room-join": (evt) => evt === "room-joined",
   "room-host": (evt) => evt === "invite-created",
-  // emitRtEvent("sync-remote") reaches the engine as the bare name: rt
-  // events lose their surface prefix in emit(), so `rt:sync-remote` never
-  // matched.
+  // emitRtEvent("sync-remote") reaches the engine as the bare name. It is
+  // the only rt event emit() still forwards (sonification/emit.ts
+  // GAMIFIED_RT_EVENTS); `rt:sync-remote` never matched.
   "sync-first": (evt) => evt === "sync-remote",
   "party-of-four": (evt, m) =>
     evt === "room-members" && typeof m?.memberCount === "number" && m.memberCount >= 4,
@@ -431,6 +432,8 @@ function touchDailyActivity() {
     streak: newStreak,
     longestStreak: longest,
   });
+  // Gamification off keeps the streak alive but moves no challenge.
+  if (!isGamificationEnabled()) return;
   // Wire w-streak-7 ("use the toolkit every day this week"): one tick the
   // first time we register activity on a given local day. The early-return
   // above guarantees this fires at most once per day.
@@ -478,6 +481,7 @@ function awardXp(
   meta?: Record<string, string | number | boolean>
 ) {
   if (amount <= 0) return;
+  if (!isGamificationEnabled()) return; // paused in Settings › Notifications
   if (emitDepth >= MAX_EMIT_DEPTH) return; // re-entrant circuit breaker
   emitDepth++;
   try {
@@ -574,10 +578,13 @@ export function dispatch(event: GamificationEvent) {
   // read from storage (a bare /guest route mounts no GamificationProvider),
   // a counter bump would save the empty in-memory profile over it.
   if (!useVDnaStore.persist.hasHydrated()) return;
-  // The day streak ticks on any interaction, a click on the home page
-  // included: it returns at once when today is already counted, so it costs
-  // nothing on the hot path. Everything else only looks at relevant events.
-  if (!isRelevantEvent(name)) {
+  // The day streak ticks on any event that reaches here, relevant or not —
+  // every route change sends `app-active` (event-bridge trackPathVisit), so
+  // opening the home page counts. It returns at once when today is already
+  // counted, so it costs nothing on the hot path. Everything else only looks at relevant events.
+  // Gamification off (Settings › Notifications): only the day streak moves.
+  // No counter, challenge, badge or XP; totals stay as they are.
+  if (!isRelevantEvent(name) || !isGamificationEnabled()) {
     if (emitDepth < MAX_EMIT_DEPTH && useVDnaStore.getState().lastActiveDate !== todaySeedKey()) {
       emitDepth++;
       try {

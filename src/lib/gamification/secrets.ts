@@ -1,6 +1,5 @@
 "use client";
 
-import { dispatch } from "./engine";
 import { ingestEvent } from "./ledger";
 
 /**
@@ -115,7 +114,6 @@ export function installSecretDetector(): () => void {
     if (now - lastLogoHoverTs < 400) return; // debounce same-hover
     lastLogoHoverTs = now;
     logoHoverCount++;
-    dispatch({ name: "logo-hover", meta: { count: logoHoverCount } });
     if (logoHoverCount >= 10) {
       logoHoverCount = 0;
       found("logo-whispered");

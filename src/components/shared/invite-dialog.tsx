@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link2, Copy, Check, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 import { nanoid } from "nanoid";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import { signalGamification } from "@/lib/gamification/signal";
@@ -27,20 +28,12 @@ interface InviteDialogProps {
 export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: InviteDialogProps) {
   const [roomId, setRoomId] = useState(currentRoomId ?? "");
   const [url, setUrl] = useState("");
-  const [copied, setCopied] = useState(false);
+  const { flash, isFlashing } = useFlash();
+  const copied = isFlashing();
   const [available, setAvailable] = useState(false);
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setAvailable(isRealtimeAvailable());
-  }, []);
-
-  // Clear any pending "Copied!" reset timer on unmount so we don't
-  // setState on an unmounted component (dev warning + tiny mem leak).
-  useEffect(() => {
-    return () => {
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-    };
   }, []);
 
   useEffect(() => {
@@ -73,12 +66,8 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
   const handleCopy = async () => {
     if (!url) return;
     const ok = await copyToClipboard(url);
-    if (ok) {
-      setCopied(true);
-      toast.success("Invite link copied");
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
-    }
+    if (ok) flash("Invite link copied");
+    else toast.error("Couldn't copy the link. Select it and copy it by hand.");
   };
 
   return (
