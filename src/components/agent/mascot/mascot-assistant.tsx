@@ -37,9 +37,10 @@ import { X, Plus, History, Sparkles, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
-import { useMascotStore } from "@/lib/agent/mascot/store";
+import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
+import { useMascotCelebrationReactions } from "@/lib/agent/mascot/use-celebration-reactions";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { createTouchInteraction, zoneAt, type TouchPoint } from "./engine/interactions/touch";
 import {
@@ -55,7 +56,7 @@ import { VisitorGuide } from "./visitor-guide";
 import styles from "./mascot-assistant.module.css";
 
 /** Which corner the mascot is parked in (drag-to-reposition). */
-type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+type Corner = MascotCorner;
 
 /** Inset of the float button from its corner. */
 /** Which toolkit scenes exist yet (their sheets shipped). Stable, for the hook. */
@@ -391,6 +392,10 @@ export function MascotAssistant() {
   // Drag-to-reposition: free-drag past a threshold, then snap to the nearest
   // corner (the chat panel follows via the corner state). Source initDragDrop.
   const [corner, setCorner] = useState<Corner>("bottomRight");
+  // The moment chip stands beside him, wherever he's parked.
+  useEffect(() => {
+    useMascotStore.getState().setCorner(corner);
+  }, [corner]);
   // Always the figure's height unless it can't load, so the strip doesn't jump
   // when the launcher gives way to him a moment after the page settles.
   const [savesData, setSavesData] = useState(false);
@@ -598,6 +603,8 @@ export function MascotAssistant() {
   useMascotChatReactions();
   // React to finished tool actions, for visitors and the owner alike.
   useMascotToolReactions(sceneShipped);
+  // Cheer once when a rare moment plays (lib/notify/moment-scheduler.ts).
+  useMascotCelebrationReactions();
 
   // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
   // Skip when typing in an editable element so it can't steal focus mid-edit.

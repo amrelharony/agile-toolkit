@@ -16,6 +16,7 @@ import type { XpEvent } from "./types";
 import { isQuietRoute } from "./quiet";
 import { useInboxStore } from "@/lib/notify/inbox-store";
 import { installCelebrations, isLegacyCelebrations, seedCarriedOver } from "./celebrations";
+import { installMomentScheduler, setMomentPathname } from "@/lib/notify/moment-scheduler";
 
 /**
  * Must sit under <AuthProvider>: the leaderboard upsert to Supabase is
@@ -96,6 +97,19 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
     if (!mounted || isLegacyCelebrations()) return;
     return installCelebrations();
   }, [mounted]);
+
+  // Rare items also get a short moment with Amr at a calm time
+  // (lib/notify/moment-scheduler.ts). It hears the route to know when a
+  // ceremony ends and to name what a held item waited through.
+  useEffect(() => {
+    if (!mounted || isLegacyCelebrations()) return;
+    return installMomentScheduler();
+  }, [mounted]);
+
+  useEffect(() => {
+    if (!mounted || isLegacyCelebrations()) return;
+    setMomentPathname(pathname);
+  }, [mounted, pathname]);
 
   // NEXT_PUBLIC_CELEBRATIONS=legacy: the old celebration toasts (kill switch,
   // removed in PR K). Still quiet in ceremonies, presenting and silent mode.

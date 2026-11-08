@@ -96,3 +96,72 @@ export function progressLine(
   const head = atMax ? "Top level reached" : `${xpToNext} XP to Level ${nextLevel}`;
   return `${head} · Today ${Math.min(todayXp, dailyCap)}/${dailyCap}`;
 }
+
+// ---------------------------------------------------------------------------
+// Moments and recaps (moment-scheduler.ts, moment-chip.tsx)
+// ---------------------------------------------------------------------------
+
+/** "Level 8 · tap to see": the chip beside Amr. */
+export function momentChipText(title: string): string {
+  return `${title} · tap to see`;
+}
+
+/** What a held item waited through, for the recap row's title. */
+export interface RecapContext {
+  reason: string;
+  /** The tool's name, for a ceremony route ("Retro Board"). */
+  label?: string;
+}
+
+export const SINCE_LAST_TIME_TITLE = "Since last time…";
+
+/** "While you were in Retro Board", "While you were presenting", … */
+export function recapTitle(context: RecapContext | null | undefined): string {
+  switch (context?.reason) {
+    case "ceremony":
+      return context.label ? `While you were in ${context.label}` : "While you were in a ceremony";
+    case "presenting":
+      return "While you were presenting";
+    case "focus":
+      return "While you were in Focus";
+    case "quiet-hours":
+      return "During quiet hours";
+    case "paused":
+      return "While celebrations were paused";
+    case "intro":
+      return "While the intro played";
+    default:
+      return "While you were busy";
+  }
+}
+
+/** One held item, as the recap body counts it. */
+export interface RecapEntry {
+  title: string;
+  kind: string;
+  /** How many items the row stands for (a grouped challenge row). */
+  count?: number;
+}
+
+/**
+ * "Retro Regular, +1 challenge": up to two named items, then challenges and
+ * anything else as counts.
+ */
+export function recapBody(entries: readonly RecapEntry[]): string {
+  const named: string[] = [];
+  let challenges = 0;
+  let more = 0;
+  for (const e of entries) {
+    if (e.kind === "challenge") {
+      challenges += Math.max(1, e.count ?? 1);
+    } else if (named.length < 2) {
+      named.push(e.title);
+    } else {
+      more += 1;
+    }
+  }
+  const parts = [...named];
+  if (challenges > 0) parts.push(`+${challenges} ${challenges === 1 ? "challenge" : "challenges"}`);
+  if (more > 0) parts.push(`+${more} more`);
+  return parts.join(", ");
+}

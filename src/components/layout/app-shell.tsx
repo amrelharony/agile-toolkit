@@ -64,6 +64,7 @@ const FlyingCardPortal = dynamic(
 );
 import { TrophyCase } from "@/components/gamification/trophy-case";
 import { ActivityPanel } from "@/components/notify/activity-panel";
+import { MomentChip } from "@/components/notify/moment-chip";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 
@@ -202,6 +203,7 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                             </div>
                             <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
                             <ActivityPanel />
+                            <MomentChip />
                             <Suspense fallback={null}>
                               <HolidayEngine />
                             </Suspense>

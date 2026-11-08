@@ -30,6 +30,7 @@ const EXCLUDED_KEYS = new Set([
   "agile-toolkit:weather:cairo", // cache
   "agile-toolkit:canvas:last-catchup", // cache
   "agile-toolkit:activity", // Activity inbox: a restore must not bring back stale unread rows
+  "agile-toolkit:moments", // moments waiting for Amr: this browser's own, like the inbox
 ]);
 const EXCLUDED_PREFIXES = [
   "agile-toolkit:sync:",
