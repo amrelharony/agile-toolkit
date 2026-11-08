@@ -17,7 +17,9 @@ import {
   timeBand,
   timeEvent,
 } from "@/lib/comics/stats";
+import { isBackupKey } from "@/lib/data/backup";
 import {
+  COUNTED_KEY,
   READING_KEY,
   addSeconds,
   isLoveCounted,
@@ -140,6 +142,16 @@ describe("the reading record's views, loves and time", () => {
     expect(isLoveCounted(30)).toBe(false);
   });
 
+  it("keeps the counted mark on this device: out of the reading record and of backups", () => {
+    setLoved(30, true);
+    setLoveCounted(30, true);
+    expect(localStorage.getItem(READING_KEY)).not.toContain("counted");
+    expect(localStorage.getItem(COUNTED_KEY)).toContain('"30"');
+    // Restored on a second device, one love could be taken back twice.
+    expect(isBackupKey(COUNTED_KEY)).toBe(false);
+    expect(isBackupKey(READING_KEY)).toBe(true);
+  });
+
   it("adds up active reading time", () => {
     addSeconds(30, 42.4);
     addSeconds(30, 20);
@@ -212,7 +224,17 @@ describe("migration 0036", () => {
   it("sums totals for one story or all, and Insights' rows, in the database", () => {
     expect(sql).toMatch(/drop function if exists public\.comic_story_totals\(\);/);
     expect(sql).toMatch(/where p_ep is null or s\.ep = p_ep/);
-    expect(sql).toMatch(/s\.week < r\.release_week \+ p_first_weeks \* 7/);
+  });
+
+  it("takes a story's first weeks from the Sunday of its release week, never before", () => {
+    // The release week starts on the Sunday (UTC) on or before the release.
+    expect(sql).toMatch(
+      /\(c\.release_at at time zone 'utc'\)::date\s+- extract\(dow from \(c\.release_at at time zone 'utc'\)\)::int as release_week/
+    );
+    expect(sql).toMatch(/where c\.release_at is not null/);
+    // Weeks before the release week are left out, and so is the fifth week.
+    expect(sql).toMatch(/and s\.week >= r\.release_week/);
+    expect(sql).toMatch(/and s\.week < r\.release_week \+ p_first_weeks \* 7/);
   });
 
   it("adds the owner's print shortlist", () => {
