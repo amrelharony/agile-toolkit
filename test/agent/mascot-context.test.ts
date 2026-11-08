@@ -11,6 +11,7 @@ import {
 import { fetchVisitorWeather, type WeatherNow } from "@/lib/agent/mascot/context/weather";
 import { sceneForAction } from "@/lib/agent/mascot/use-tool-reactions";
 import { SCENES } from "@/components/agent/mascot/engine/scenes";
+import { PACKS } from "@/components/agent/mascot/mascot-packs";
 import { clip, clipFrames, s as step, type FrameRef } from "@/components/agent/mascot/engine/clips";
 import {
   actClip,
@@ -27,6 +28,10 @@ import {
 } from "@/components/agent/mascot/engine/interactions/context";
 
 const specFrames = new Set(spec.sheets.flatMap((s) => s.slots.map((slot) => slot.id)));
+/** Sheets drawn and built into packs so far; the tool sheets (S65 on) arrive in batches. */
+const builtSheets = spec.sheets.filter((s) => s.pack in PACKS);
+const builtFrames = new Set(builtSheets.flatMap((s) => s.slots.map((slot) => slot.id)));
+const sheetNumber = (s: { sheet: string }) => Number(s.sheet.slice(1));
 
 describe("the scenes and their sheets", () => {
   it("draws every scene from frames the context sheets ask for", () => {
@@ -37,9 +42,15 @@ describe("the scenes and their sheets", () => {
     }
   });
 
-  it("puts every pose that's asked for into some scene", () => {
+  it("puts every pose that's been built into some scene", () => {
     const used = new Set(Object.values(SCENES).flatMap(clipFrames));
-    expect(Array.from(specFrames).filter((f) => !used.has(f as never))).toEqual([]);
+    expect(Array.from(builtFrames).filter((f) => !used.has(f as never))).toEqual([]);
+  });
+
+  it("has built every context sheet, S11 to S64", () => {
+    const context = spec.sheets.filter((s) => sheetNumber(s) <= 64);
+    expect(context).toHaveLength(54);
+    expect(context.filter((s) => !(s.pack in PACKS)).map((s) => s.sheet)).toEqual([]);
   });
 
   it("names only scenes that exist, wherever they're asked for", () => {
@@ -87,14 +98,25 @@ describe("the scenes and their sheets", () => {
   });
 
   it("gives each sheet one pack, eight frames with its stance, and frame ids named after it", () => {
-    expect(spec.sheets).toHaveLength(54);
+    const n = spec.sheets.length;
+    // Numbered S11 on, with no gaps: S01–S10 are the live sheets.
+    expect(spec.sheets.map(sheetNumber)).toEqual(Array.from({ length: n }, (_, i) => i + 11));
     const packs = new Set(spec.sheets.map((s) => s.pack));
-    expect(packs.size).toBe(54);
+    expect(packs.size).toBe(n);
     for (const s of spec.sheets) {
       expect(s.slots).toHaveLength(7);
       for (const slot of s.slots) expect(slot.id.startsWith(`${s.pack}.`)).toBe(true);
     }
-    expect(specFrames.size).toBe(54 * 7);
+    expect(specFrames.size).toBe(n * 7);
+  });
+
+  it("puts each sheet in one group and one round, ten tool sheets to a batch", () => {
+    const groups = new Set(spec.groups.map((g) => g.id));
+    for (const s of spec.sheets) expect(groups.has(s.group), s.sheet).toBe(true);
+    const inRounds = spec.rounds.flatMap((r) => r.sheets);
+    expect([...inRounds].sort()).toEqual(spec.sheets.map((s) => s.sheet).sort());
+    const tools = spec.rounds.filter((r) => r.title.startsWith("Tools"));
+    expect(tools.map((r) => r.sheets.length)).toEqual([10, 10, 10, 10, 10]);
   });
 });
 
@@ -111,7 +133,7 @@ const shotFor = (reaction: MascotReaction, ready: (pack: string) => boolean = ()
   });
 
 describe("a scene whose sheet has shipped", () => {
-  it("is every scene: all 54 sheets are in the manifest", () => {
+  it("is every scene: each scene's sheet is in the manifest", () => {
     for (const name of Object.keys(SCENES)) expect(shippedScene(name), name).toBeDefined();
   });
 
@@ -302,6 +324,24 @@ describe("installContextSenses", () => {
     // The flag is marked for today, so the next moment greets.
     expect(acted).toEqual(["scene:rain"]);
     again.dispose();
+  });
+
+  it("loads a tool's packs as soon as its page opens", () => {
+    let path = "/planning-poker";
+    const c = install({ path: () => path });
+    expect(wanted).toEqual([["poker"]]);
+    path = "/retro";
+    c.check();
+    expect(wanted[1]).toEqual(expect.arrayContaining(["sticky", "kudos"]));
+    // A tool sheet's own pack (S74, Impediments).
+    path = "/impediments";
+    c.check();
+    expect(wanted[2]).toEqual(["blocker"]);
+    // A page with no tool loads nothing more.
+    path = "/comics";
+    c.check();
+    expect(wanted).toHaveLength(3);
+    c.dispose();
   });
 
   it("does nothing at all until a sheet has shipped", async () => {
