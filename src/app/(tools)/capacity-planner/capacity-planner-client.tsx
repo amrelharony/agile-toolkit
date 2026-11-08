@@ -463,19 +463,25 @@ function PlanEditor({
   // the example never takes someone's row away.
   const [starterIds] = useState(() => new Set(plan.members.filter(isBlankMember).map((m) => m.id)));
   const isStarter = (m: CapacityMember) => starterIds.has(m.id) && isBlankMember(m);
-  // A plan that opens with no team puts Team Members first: adding someone is
-  // the first thing to do, and on a phone the form sat four screens down,
-  // under the totals, the breakdown, the forecast and the settings (all zero
-  // or waiting for a team). Settled once per plan, like the starter rows, so
-  // the card doesn't jump away from under the person typing in it when the
-  // first member lands; the next visit has the usual order.
-  const [teamFirst] = useState(() => plan.members.every(isBlankMember));
+  // A plan with no team puts Team Members first: adding someone is the first
+  // thing to do, and on a phone the form sat four screens down, under the
+  // totals, the breakdown, the forecast and the settings (all zero or waiting
+  // for a team). Until someone works in this editor the order follows the
+  // team, so a team that arrives from elsewhere (the synced plan landing on a
+  // new device, an agent, another tab) gets the usual order. From the first
+  // edit or focus here it holds for the rest of the visit: the card doesn't
+  // jump away from under the person typing in it when the first member lands,
+  // and the next visit has the usual order.
+  const [heldOrder, setHeldOrder] = useState<boolean | null>(null);
+  const teamFirst = heldOrder ?? members.every(isBlankMember);
+  const holdOrder = () => setHeldOrder((held) => held ?? teamFirst);
 
   /** The plan as stored now; the unsaved default before the first edit. */
   const current = () => readPlan(plan.id) ?? plan;
   const write = (change: (p: CapacityPlan) => CapacityPlan) => savePlan(change(current()));
 
   const addMember = (values: Omit<CapacityMember, "id">) => {
+    holdOrder();
     const member: CapacityMember = { id: crypto.randomUUID(), ...values };
     write((p) => ({ ...p, members: [...p.members, member] }));
     log(CAPACITY_ACTIONS.MEMBER_ADDED, { memberId: member.id, name: member.name });
@@ -491,6 +497,7 @@ function PlanEditor({
     });
 
   const removeMember = (id: string) => {
+    holdOrder();
     const list = current().members;
     const index = list.findIndex((m) => m.id === id);
     const member = list[index];
@@ -507,27 +514,33 @@ function PlanEditor({
     });
   };
 
-  const updateMember = (id: string, updates: Partial<CapacityMember>) =>
+  const updateMember = (id: string, updates: Partial<CapacityMember>) => {
+    holdOrder();
     write((p) => ({
       ...p,
       members: p.members.map((m) => (m.id === id ? withUpdates(m, updates) : m)),
     }));
+  };
 
   // Config changes (length, events, focus, hours) also go to the history drawer.
   const updateConfig = (updates: Partial<CapacityPlan["config"]>) => {
+    holdOrder();
     write((p) => ({ ...p, config: { ...p.config, ...updates } }));
     log(CAPACITY_ACTIONS.CONFIG_UPDATED, updates as Record<string, unknown>);
   };
 
   const hasMembers = members.some((m) => !isStarter(m));
 
-  const loadExample = () =>
+  const loadExample = () => {
+    holdOrder();
     write((p) => ({
       ...p,
       members: [...buildExampleMembers(), ...p.members.filter((m) => !isStarter(m))],
     }));
+  };
 
   const clearExample = () => {
+    holdOrder();
     const prev = current();
     // "Load an example" on a sprint with no plan made this plan. With nothing
     // of the user's in it (no one else, settings as they started), clearing
@@ -551,6 +564,7 @@ function PlanEditor({
   // matched by teamMemberId or name. Never removes a row; a second run is a
   // no-op. One Undo takes back the whole sync (see revertRosterSync).
   const syncFromTeam = () => {
+    holdOrder();
     const before = current();
     const result = syncFromRoster(before.members, useWorkspaceStore.getState().teamMembers ?? []);
     if (result.added.length === 0 && result.changed.length === 0) {
@@ -694,6 +708,7 @@ function PlanEditor({
             confirmLabel="Reset plan"
             doneLabel="Reset the capacity plan"
             onReset={() => {
+              holdOrder();
               resetSnapshot.current = current();
               savePlan(emptyPlan(sprint?.id, length.workingDays));
               log(CAPACITY_ACTIONS.CAPACITY_RESET, sprint ? { sprintId: sprint.id } : {});
@@ -797,7 +812,9 @@ function PlanEditor({
   );
 
   return (
-    <div className="space-y-6">
+    // Focus anywhere in the editor holds the order (see teamFirst): a half-typed
+    // name in the add form stays put when a team arrives from elsewhere.
+    <div className="space-y-6" onFocusCapture={holdOrder}>
       {hasExampleItems(members) && <ExampleNotice onClear={clearExample} />}
       <div ref={exportRef} className="space-y-6">
         {teamFirst && team}

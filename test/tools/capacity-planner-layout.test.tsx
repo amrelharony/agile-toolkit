@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { CapacityConfig } from "@/lib/stores/workspace-types";
+import type { CapacityConfig, CapacityPlan } from "@/lib/stores/workspace-types";
 
 /**
- * Capacity Planner on a phone: a plan that opens with no team shows Team
- * Members first (adding someone is the first thing to do; the form used to
- * sit about four screens down), a plan with a team keeps the usual order,
- * and the summary tiles sit two to a row.
+ * Capacity Planner on a phone: a plan with no team shows Team Members first
+ * (adding someone is the first thing to do; the form used to sit about four
+ * screens down), a plan with a team keeps the usual order (also when the team
+ * arrives from elsewhere while the page is open), the order holds once
+ * someone works in the editor, and the summary tiles sit two to a row.
  */
 
 vi.mock("@/lib/utils/undoable", () => ({
@@ -44,6 +45,20 @@ const before = (a: Element, b: Element) =>
   Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 const team = () => heading("Team Members");
 const totals = () => screen.getByText("Total Capacity");
+
+const PLAN_WITH_LEE: CapacityPlan = {
+  id: CP_ID,
+  members: [{ id: "m1", name: "Lee", role: "Dev", availability: 100, daysOff: 0 }],
+  config: CONFIG,
+};
+
+/** Totals, forecast and settings first; the team and its breakdown after them. */
+function expectUsualOrder() {
+  expect(before(totals(), team())).toBe(true);
+  expect(before(heading("Points forecast"), team())).toBe(true);
+  expect(before(heading("Sprint Configuration"), team())).toBe(true);
+  expect(before(team(), heading("Per-Person Breakdown"))).toBe(true);
+}
 
 beforeEach(() => {
   useWorkspaceStore.setState({ capacityPlans: [] });
@@ -87,20 +102,39 @@ describe("Capacity Planner order", () => {
   });
 
   it("keeps the usual order for a plan with a team", () => {
-    useWorkspaceStore.setState({
-      capacityPlans: [
-        {
-          id: CP_ID,
-          members: [{ id: "m1", name: "Lee", role: "Dev", availability: 100, daysOff: 0 }],
-          config: CONFIG,
-        },
-      ],
-    });
+    useWorkspaceStore.setState({ capacityPlans: [PLAN_WITH_LEE] });
     render(<CapacityPlannerClient />);
-    expect(before(totals(), team())).toBe(true);
-    expect(before(heading("Points forecast"), team())).toBe(true);
-    expect(before(heading("Sprint Configuration"), team())).toBe(true);
-    expect(before(team(), heading("Per-Person Breakdown"))).toBe(true);
+    expectUsualOrder();
+  });
+
+  it("gives a team that arrives from elsewhere the usual order", () => {
+    // A new device: the editor opens on the empty default, then the synced
+    // plan (or an agent's write, or another tab's) lands under the same id.
+    render(<CapacityPlannerClient />);
+    expect(before(team(), totals())).toBe(true);
+
+    act(() => useWorkspaceStore.setState({ capacityPlans: [PLAN_WITH_LEE] }));
+    expectUsualOrder();
+  });
+
+  it("puts Team Members first when the team is emptied elsewhere", () => {
+    useWorkspaceStore.setState({ capacityPlans: [PLAN_WITH_LEE] });
+    render(<CapacityPlannerClient />);
+    act(() => useWorkspaceStore.setState({ capacityPlans: [] }));
+    expect(before(team(), totals())).toBe(true);
+  });
+
+  it("holds the order once someone works in the editor", () => {
+    render(<CapacityPlannerClient />);
+    const name = () => screen.getByRole("combobox", { name: /New member/ });
+    act(() => name().focus());
+    fireEvent.change(name(), { target: { value: "Le" } });
+
+    act(() => useWorkspaceStore.setState({ capacityPlans: [PLAN_WITH_LEE] }));
+    // The card stayed where the person is typing, and so did the half-typed name.
+    expect(before(team(), totals())).toBe(true);
+    expect(before(team(), heading("Points forecast"))).toBe(true);
+    expect(name()).toHaveValue("Le");
   });
 });
 
