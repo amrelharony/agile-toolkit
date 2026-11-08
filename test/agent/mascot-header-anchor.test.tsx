@@ -65,7 +65,8 @@ describe("Amr in a top corner on a phone", () => {
     });
 
     const placed = screen.getByRole("button", { name: "Open assistant" });
-    expect(placed.style.top).toContain("var(--header-h)");
+    // With or without the 56px fallback the Amr placement fix adds.
+    expect(placed.style.top).toMatch(/var\(--header-h(?:,\s*56px)?\)/);
     expect(placed.style.bottom).toBe("");
   });
 });
