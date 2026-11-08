@@ -65,6 +65,17 @@ export function pinchCamera(start: PinchStart, focal: Vec2, scale: number): Came
 }
 
 /**
+ * A pinch made with fingers: touch pointer events, or touch events where
+ * @use-gesture falls back to them. Ctrl+wheel and trackpad pinches arrive
+ * as wheel or gesture events and don't count.
+ */
+function isTouchPinch(event: unknown): boolean {
+  if (!event || typeof event !== "object") return false;
+  if ((event as PointerEvent).pointerType === "touch") return true;
+  return "touches" in event;
+}
+
+/**
  * Controls that sit on the board (the selection bar, buttons inside
  * widgets, text fields). A press on one is the control's, not a board
  * gesture: two quick taps on Duplicate must not also fit the board, and
@@ -163,7 +174,16 @@ export function useCanvasTouchGestures(params: {
         // factor, pan by how far the centre has travelled.
         const start: PinchStart =
           first || !memo ? { camera: cameraRef.current, focal } : (memo as PinchStart);
-        throttledSetCamera(pinchCamera(start, focal, scale));
+        // Only fingers pan. @use-gesture also reports Ctrl+wheel and
+        // trackpad pinches (wheel / Safari gesture events, no
+        // pointerType) with the cursor as the origin: those keep zooming
+        // about the cursor where it is now, as before, so a cursor that
+        // drifts mid-zoom doesn't drag the board along with it.
+        if (isTouchPinch(event)) {
+          throttledSetCamera(pinchCamera(start, focal, scale));
+        } else {
+          throttledSetCamera(zoomAt(cameraRef.current, focal, start.camera.zoom * scale));
+        }
         return start;
       },
       // Fallback only: while two fingers are down @use-gesture reports

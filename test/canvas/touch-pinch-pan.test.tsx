@@ -99,6 +99,25 @@ describe("useCanvasTouchGestures: two-finger pan", () => {
     expect(throttledSetCamera).toHaveBeenLastCalledWith({ x: 50, y: 50, zoom: 2 });
   });
 
+  it("keeps Ctrl+wheel and trackpad zoom about the cursor, without panning", () => {
+    const throttledSetCamera = vi.fn();
+    render(
+      <GestureHarness camera={{ x: 0, y: 0, zoom: 1 }} throttledSetCamera={throttledSetCamera} />
+    );
+    const onPinch = gesture.handlers!.onPinch;
+    const wheel = new WheelEvent("wheel", { ctrlKey: true });
+    // Client (110, 120) is board (100, 100); the cursor then drifts 60 px.
+    const memo = onPinch({ origin: [110, 120], offset: [1, 0], event: wheel, first: true });
+    vi.mocked(panBy).mockClear();
+    onPinch({ origin: [170, 120], offset: [1, 0], event: wheel, first: false, memo });
+    // Same zoom, so nothing moves: the board doesn't follow the cursor.
+    expect(panBy).not.toHaveBeenCalled();
+    expect(throttledSetCamera).toHaveBeenLastCalledWith({ x: 0, y: 0, zoom: 1 });
+    // And it still zooms about where the cursor is now.
+    onPinch({ origin: [170, 120], offset: [2, 0], event: wheel, first: false, memo });
+    expect(throttledSetCamera).toHaveBeenLastCalledWith({ x: 80, y: 50, zoom: 2 });
+  });
+
   it("leaves mouse and pen pinches alone", () => {
     const throttledSetCamera = vi.fn();
     render(<GestureHarness throttledSetCamera={throttledSetCamera} />);
