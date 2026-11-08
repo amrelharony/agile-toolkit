@@ -904,9 +904,13 @@ html[data-intro] [data-sonner-toaster] {
     /* `!important` because these base-layer selectors lose to utility
        classes: 78 textareas/inputs with `text-xs`/`text-sm` stayed at
        12–14px and iOS zoomed the page on every focus. */
-    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
-    textarea,
-    select {
+    /* `data-own-font` = the element sets its own size of 16px or more (the
+       canvas inline editor), so the guard has nothing to prevent. */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not(
+        [data-own-font]
+      ),
+    textarea:not([data-own-font]),
+    select:not([data-own-font]) {
       font-size: max(16px, 1rem) !important;
     }
   }

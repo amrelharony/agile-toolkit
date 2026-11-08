@@ -91,6 +91,12 @@ describe("iOS no-zoom guard", () => {
     expect(query).toContain("(max-width: 768px)");
     expect(guard![2]).toContain("font-size: max(16px, 1rem) !important");
   });
+
+  it("lets a field that sets its own 16px+ size opt out (canvas inline editor)", () => {
+    expect(css).toContain("textarea:not([data-own-font])");
+    expect(css).toContain("select:not([data-own-font])");
+    expect(css).toMatch(/:not\(\s*\[data-own-font\]\s*\)/);
+  });
 });
 
 describe("native selects styled to match <Input>", () => {
