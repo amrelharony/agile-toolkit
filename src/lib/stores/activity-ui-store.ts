@@ -13,6 +13,8 @@ interface ActivityUiState {
   setActivityOpen: (open: boolean) => void;
   setTrophyOpen: (open: boolean) => void;
   openActivity: () => void;
+  /** Open Activity, or close it if open (the XP bar). */
+  toggleActivity: () => void;
   /** Close Activity (if open) and open the trophy case. */
   openTrophies: () => void;
 }
@@ -23,5 +25,6 @@ export const useActivityUiStore = create<ActivityUiState>()((set) => ({
   setActivityOpen: (open) => set({ activityOpen: open }),
   setTrophyOpen: (open) => set({ trophyOpen: open }),
   openActivity: () => set({ activityOpen: true }),
+  toggleActivity: () => set((s) => ({ activityOpen: !s.activityOpen })),
   openTrophies: () => set({ activityOpen: false, trophyOpen: true }),
 }));

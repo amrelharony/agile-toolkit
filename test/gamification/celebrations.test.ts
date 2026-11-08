@@ -212,6 +212,28 @@ describe("listeners and install", () => {
     detach();
     expect(rows().some((r) => r.title === "Level 2")).toBe(true);
   });
+
+  it("writes the pending window when the page is hidden or unloads", () => {
+    const detach = installCelebrations();
+    handleEffect({ kind: "level-up", payload: { level: 3 } });
+    expect(rows().some((r) => r.title === "Level 3")).toBe(false);
+    window.dispatchEvent(new Event("pagehide"));
+    expect(rows().some((r) => r.title === "Level 3")).toBe(true);
+    const stored = localStorage.getItem("agile-toolkit:activity") ?? "";
+    expect(stored).toContain("Level 3");
+
+    handleEffect({ kind: "level-up", payload: { level: 4 } });
+    const vis = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    vis.mockRestore();
+    expect(rows().some((r) => r.title === "Level 4")).toBe(true);
+
+    detach();
+    handleEffect({ kind: "level-up", payload: { level: 5 } });
+    window.dispatchEvent(new Event("pagehide"));
+    expect(rows().some((r) => r.title === "Level 5")).toBe(false);
+    flushCelebrations();
+  });
 });
 
 describe("progress carried over", () => {

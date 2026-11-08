@@ -153,6 +153,7 @@ function VisitorMenu({
   const [clearOpen, setClearOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
+  const unread = useVisibleUnreadCount();
 
   const signInHref = `/auth/sign-in?next=${encodeURIComponent(pathname || "/")}`;
   const title = sessionUnverified
@@ -168,7 +169,7 @@ function VisitorMenu({
           <button
             type="button"
             className="relative min-touch-coarse w-9 h-9 rounded-full flex items-center justify-center text-sub ring-1 ring-border hover:text-accent hover:ring-accent/40 transition-all duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            aria-label={sessionUnverified ? "Account menu" : "Visitor menu"}
+            aria-label={withUnread(sessionUnverified ? "Account menu" : "Visitor menu", unread)}
             title={title}
           >
             <UserCircle className="w-5 h-5" aria-hidden="true" />
@@ -318,6 +319,7 @@ function OwnerMenu() {
   const openAiSettings = useLlmUiStore((s) => s.openSettings);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
+  const unread = useVisibleUnreadCount();
 
   const displayName = profile?.display_name || user?.email || "Account";
   const initials = getInitials(profile?.display_name, user?.email ?? "");
@@ -330,7 +332,7 @@ function OwnerMenu() {
           <button
             type="button"
             className="relative min-touch-coarse w-9 h-9 rounded-full ring-1 ring-border hover:ring-accent/40 transition-all duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            aria-label={`Account menu for ${displayName}`}
+            aria-label={withUnread(`Account menu for ${displayName}`, unread)}
           >
             <Avatar className="w-9 h-9">
               {profile?.avatar_url && <AvatarImage src={profile.avatar_url} alt={displayName} />}
@@ -576,6 +578,11 @@ function SoundMenuItem() {
   );
 }
 
+/** The avatar's accessible name, with the unread count (its dot is decorative). */
+function withUnread(label: string, unread: number): string {
+  return unread > 0 ? `${label}, ${unread} new in Activity` : label;
+}
+
 const PAUSE_CELEBRATIONS_MS = 60 * 60 * 1000;
 
 /**
@@ -608,8 +615,8 @@ function ProgressMenuSection() {
         <Bell className="w-4 h-4" aria-hidden="true" />
         <span className="flex-1">Activity</span>
         {unread > 0 && (
-          <Badge variant="secondary" className="text-xs" aria-label={`${unread} unread`}>
-            {unread > 99 ? "99+" : unread}
+          <Badge variant="secondary" className="text-xs">
+            {unread > 99 ? "99+" : unread} <span className="sr-only">unread</span>
           </Badge>
         )}
       </DropdownMenuItem>

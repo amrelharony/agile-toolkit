@@ -8,12 +8,12 @@ import { Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
-import { ActivityDot } from "@/components/notify/activity-dot";
+import { ActivityDot, useVisibleUnreadCount } from "@/components/notify/activity-dot";
 
 const ACTIVE_IDS: ReadonlySet<string> = new Set(activeAchievements.map((a) => a.id));
 
 interface XpBarProps {
-  /** Overrides what a click does (default: open the Activity panel). */
+  /** Overrides what a click does (default: open or close the Activity panel). */
   onOpen?: () => void;
 }
 
@@ -36,7 +36,8 @@ interface XpBarProps {
  */
 export function XpBar({ onOpen }: XpBarProps) {
   const [mounted, setMounted] = useState(false);
-  const openActivity = useActivityUiStore((s) => s.openActivity);
+  const toggleActivity = useActivityUiStore((s) => s.toggleActivity);
+  const unread = useVisibleUnreadCount();
   const shown = useNotificationPrefsStore((s) => s.showXpBar && s.gamificationEnabled);
   const xp = useVDnaStore((s) => s.xp);
   const prestige = useVDnaStore((s) => s.prestige);
@@ -56,9 +57,10 @@ export function XpBar({ onOpen }: XpBarProps) {
   return (
     <button
       type="button"
-      onClick={onOpen ?? openActivity}
+      onClick={onOpen ?? toggleActivity}
+      data-activity-trigger=""
       data-no-sound="true"
-      aria-label={`Level ${info.level}, ${pct}% to next level. ${unlockedCount} achievements. Open Activity.`}
+      aria-label={`Level ${info.level}, ${pct}% to next level. ${unlockedCount} achievements.${unread > 0 ? ` ${unread} new in Activity.` : ""} Open Activity.`}
       title="Open Activity"
       className={cn(
         "relative min-touch-coarse flex items-center gap-2 h-8 rounded-md",

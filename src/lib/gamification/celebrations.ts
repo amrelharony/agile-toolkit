@@ -305,9 +305,24 @@ export function seedCarriedOver(): void {
 export function installCelebrations(): () => void {
   const offEffects = subscribe(handleEffect);
   const offOutcomes = subscribeOutcomes(handleOutcome);
+  // A reload, tab close or full navigation inside the 1.5 s window must not
+  // lose the row: write it as the page goes away (a synchronous storage set).
+  const onHide = () => flushCelebrations();
+  const onVisibility = () => {
+    if (document.visibilityState === "hidden") flushCelebrations();
+  };
+  const hasWindow = typeof window !== "undefined";
+  if (hasWindow) {
+    window.addEventListener("pagehide", onHide);
+    document.addEventListener("visibilitychange", onVisibility);
+  }
   return () => {
     offEffects();
     offOutcomes();
+    if (hasWindow) {
+      window.removeEventListener("pagehide", onHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+    }
     // Don't lose what the window collected.
     flushCelebrations();
   };

@@ -135,9 +135,12 @@ describe("ActivityPanel", () => {
     render(<ActivityPanel />);
     openPanel();
     const sheet = screen.getByTestId("activity-sheet");
-    expect(sheet.style.bottom).toBe("var(--amr-band-bottom, 0px)");
-    expect(screen.getByTestId("activity-overlay").style.bottom).toBe("var(--amr-band-bottom, 0px)");
-    expect(sheet.className).toContain("max-h-[80dvh]");
+    const bottom = "var(--amr-band-bottom, env(safe-area-inset-bottom, 0px))";
+    expect(sheet.style.bottom).toBe(bottom);
+    expect(screen.getByTestId("activity-overlay").style.bottom).toBe(bottom);
+    expect(sheet.className).toContain(
+      "max-h-[min(80dvh,calc(100dvh-var(--amr-band-top,0px)-var(--amr-band-bottom,0px)-1rem))]"
+    );
     fireEvent.click(screen.getByRole("button", { name: "Close Activity" }));
     expect(useInboxStore.getState().items[0].read).toBe(true);
   });
@@ -148,6 +151,48 @@ describe("ActivityPanel", () => {
     openPanel();
     expect(useInboxStore.getState().items[0].read).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: /Mark all read/ }));
+    expect(useInboxStore.getState().items[0].read).toBe(true);
+  });
+
+  it("Mark all read covers only the rows shown when gamification is off", () => {
+    add({ title: "Badge row", gamification: true });
+    act(() => useNotificationPrefsStore.getState().setGamificationEnabled(false));
+    render(<ActivityPanel />);
+    openPanel();
+    expect(screen.getByRole("button", { name: /Mark all read/ })).toBeDisabled();
+    add({ title: "Plain note", kind: "note" });
+    fireEvent.click(screen.getByRole("button", { name: /Mark all read/ }));
+    const byTitle = Object.fromEntries(
+      useInboxStore.getState().items.map((i) => [i.title, i.read])
+    );
+    expect(byTitle).toEqual({ "Badge row": false, "Plain note": true });
+  });
+
+  it("following a row link marks what it showed as read", () => {
+    add({ title: "Kudos", kind: "kudos", href: "/kudos" });
+    add({ title: "B" });
+    render(<ActivityPanel />);
+    openPanel();
+    fireEvent.click(screen.getByRole("link", { name: /Kudos/ }));
+    expect(useActivityUiStore.getState().activityOpen).toBe(false);
+    expect(useInboxStore.getState().items.every((i) => i.read)).toBe(true);
+  });
+
+  it("the XP bar closes the panel it opened (desktop)", () => {
+    add({ title: "A" });
+    render(
+      <>
+        <XpBar />
+        <ActivityPanel />
+      </>
+    );
+    const bar = screen.getByRole("button", { name: /Open Activity/ });
+    fireEvent.click(bar);
+    expect(screen.getByTestId("activity-popover")).toBeInTheDocument();
+    fireEvent.pointerDown(bar);
+    expect(useActivityUiStore.getState().activityOpen).toBe(true);
+    fireEvent.click(bar);
+    expect(useActivityUiStore.getState().activityOpen).toBe(false);
     expect(useInboxStore.getState().items[0].read).toBe(true);
   });
 
@@ -162,11 +207,13 @@ describe("ActivityPanel", () => {
     expect(screen.queryByRole("region", { name: "Your progress" })).not.toBeInTheDocument();
   });
 
-  it("the Trophies footer swaps the panel for the trophy case", () => {
+  it("the Trophies footer swaps the panel for the trophy case, marking rows read", () => {
+    add({ title: "A" });
     render(<ActivityPanel />);
     openPanel();
     fireEvent.click(screen.getByRole("button", { name: /Trophies & challenges/ }));
     expect(useActivityUiStore.getState()).toMatchObject({ activityOpen: false, trophyOpen: true });
+    expect(useInboxStore.getState().items[0].read).toBe(true);
   });
 });
 
@@ -189,8 +236,10 @@ describe("ActivityDot", () => {
 });
 
 describe("entry points", () => {
-  it("the XP bar opens Activity", () => {
+  it("the XP bar opens Activity and names the unread count", () => {
+    add({ title: "A", gamification: true });
     render(<XpBar />);
+    expect(screen.getByRole("button", { name: /1 new in Activity/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Open Activity/ }));
     expect(useActivityUiStore.getState().activityOpen).toBe(true);
   });
@@ -199,11 +248,11 @@ describe("entry points", () => {
     add({ title: "A" });
     add({ title: "B" });
     render(<UserMenu />);
-    const trigger = screen.getByRole("button", { name: "Visitor menu" });
+    const trigger = screen.getByRole("button", { name: "Visitor menu, 2 new in Activity" });
     expect(within(trigger).getByTestId("activity-dot")).toBeInTheDocument();
     fireEvent.keyDown(trigger, { key: "Enter" });
     expect(screen.getByTestId("menu-progress")).toHaveTextContent("Level 1");
-    expect(screen.getByLabelText("2 unread")).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Activity\s*2 unread/ })).toBeInTheDocument();
     fireEvent.click(screen.getByText("Activity"));
     expect(useActivityUiStore.getState().activityOpen).toBe(true);
 

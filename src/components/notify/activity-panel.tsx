@@ -31,6 +31,13 @@ import { findDaily } from "@/lib/gamification/challenges";
 import { cn } from "@/lib/utils";
 import { visibleInboxItems } from "./activity-dot";
 
+/**
+ * Phones: the sheet and overlay stop at Amr's bottom band. The band variable
+ * already includes the home-indicator inset; without it (Amr not loaded yet,
+ * Save-Data, docked at the top) fall back to the inset alone.
+ */
+const SHEET_BOTTOM = "var(--amr-band-bottom, env(safe-area-inset-bottom, 0px))";
+
 const GROUP_LABEL: Record<InboxGroup, string> = {
   today: "Today",
   week: "This week",
@@ -68,7 +75,8 @@ function timeLabel(at: string, now: Date): string {
  * and, on larger screens, the XP bar.
  *
  * - Phones: a bottom sheet whose bottom edge and overlay stop at Amr's band
- *   (`--amr-band-bottom`), so he stays visible. 80 dvh max, 44 px rows.
+ *   (`--amr-band-bottom`), so he stays visible, and its height leaves his
+ *   top band clear too. 80 dvh max, 44 px rows.
  * - Larger screens: a 22 rem popover under the header's right cluster.
  *
  * Everything shown is marked read when the panel closes.
@@ -94,15 +102,22 @@ export function ActivityPanel() {
     if (open) useInboxStore.getState().prune();
   }, [open]);
 
-  const onOpenChange = (next: boolean) => {
-    if (!next) {
+  // Mark read on the open-to-closed change itself, however it closes:
+  // Escape, a click outside, the close button, a row link or the Trophies
+  // footer (the last two set the store directly).
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !open) {
       useInboxStore.getState().markRead(shownRef.current);
       shownRef.current = [];
     }
-    setOpen(next);
-  };
+    wasOpen.current = open;
+  }, [open]);
+
+  const onOpenChange = (next: boolean) => setOpen(next);
 
   const body = <ActivityBody items={visible} showProgress={gamificationEnabled} />;
+  const visibleUnreadIds = visible.filter((i) => !i.read).map((i) => i.id);
 
   if (phone) {
     return (
@@ -111,19 +126,19 @@ export function ActivityPanel() {
           <DialogPrimitive.Overlay
             data-testid="activity-overlay"
             className="fixed inset-x-0 top-0 z-modal bg-black/60 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
-            style={{ bottom: "var(--amr-band-bottom, 0px)" }}
+            style={{ bottom: SHEET_BOTTOM }}
           />
           <DialogPrimitive.Content
             data-testid="activity-sheet"
             aria-describedby={undefined}
-            className="fixed inset-x-0 z-modal flex max-h-[80dvh] flex-col rounded-t-xl border-t border-border bg-bg shadow-lg outline-none pl-safe pr-safe data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom motion-reduce:animate-none"
-            style={{ bottom: "var(--amr-band-bottom, 0px)" }}
+            className="fixed inset-x-0 z-modal flex max-h-[min(80dvh,calc(100dvh-var(--amr-band-top,0px)-var(--amr-band-bottom,0px)-1rem))] flex-col rounded-t-xl border-t border-border bg-bg shadow-lg outline-none pl-safe pr-safe data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom motion-reduce:animate-none"
+            style={{ bottom: SHEET_BOTTOM }}
           >
             <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border">
               <DialogPrimitive.Title className="text-base font-semibold text-text flex-1">
                 Activity
               </DialogPrimitive.Title>
-              <MarkAllRead />
+              <MarkAllRead unreadIds={visibleUnreadIds} />
               <DialogPrimitive.Close
                 aria-label="Close Activity"
                 className="min-touch-coarse inline-flex h-9 w-9 items-center justify-center rounded-md text-sub hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -156,11 +171,19 @@ export function ActivityPanel() {
         // trigger: that must not count as leaving the panel. A click
         // outside or Escape still closes it.
         onFocusOutside={(e) => e.preventDefault()}
+        // The XP bar toggles the panel itself; a pointerdown on it must not
+        // close the panel first (the click would only reopen it).
+        onInteractOutside={(e) => {
+          const target = e.target;
+          if (target instanceof Element && target.closest("[data-activity-trigger]")) {
+            e.preventDefault();
+          }
+        }}
         className="w-[22rem] max-w-[min(22rem,calc(100vw-1rem))] p-0 max-h-[min(36rem,var(--radix-popover-content-available-height))] flex flex-col"
       >
         <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border">
           <h2 className="text-sm font-semibold text-text flex-1">Activity</h2>
-          <MarkAllRead />
+          <MarkAllRead unreadIds={visibleUnreadIds} />
         </div>
         <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-3">{body}</div>
       </PopoverContent>
@@ -168,14 +191,13 @@ export function ActivityPanel() {
   );
 }
 
-function MarkAllRead() {
-  const hasUnread = useInboxStore((s) => s.items.some((i) => !i.read));
-  const markAllRead = useInboxStore((s) => s.markAllRead);
+/** Marks the rows the panel shows read (hidden gamification rows stay as they are). */
+function MarkAllRead({ unreadIds }: { unreadIds: string[] }) {
   return (
     <button
       type="button"
-      onClick={markAllRead}
-      disabled={!hasUnread}
+      onClick={() => useInboxStore.getState().markRead(unreadIds)}
+      disabled={unreadIds.length === 0}
       className="min-touch-coarse inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs text-sub hover:text-text disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >
       <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />
