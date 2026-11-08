@@ -104,6 +104,17 @@ export function weekStreak(readAt: readonly string[], now: Date): number {
   return streak;
 }
 
+/** Every story this browser has read and when, oldest first. */
+export function readStories(): { ep: number; at: string }[] {
+  return Object.entries(load().read)
+    .map(([ep, at]) => ({ ep: Number(ep), at }))
+    .filter((r) => Number.isInteger(r.ep) && !Number.isNaN(Date.parse(r.at)))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.ep - b.ep);
+}
+
+/** Sent on window after a story first counts as read, so the page's streak can update. */
+export const READ_EVENT = "agile-toolkit:comics:read";
+
 export function hasRead(ep: number): boolean {
   return Object.prototype.hasOwnProperty.call(load().read, String(ep));
 }
