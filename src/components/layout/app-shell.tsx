@@ -63,6 +63,8 @@ const FlyingCardPortal = dynamic(
   { ssr: false }
 );
 import { TrophyCase } from "@/components/gamification/trophy-case";
+import { ActivityPanel } from "@/components/notify/activity-panel";
+import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 
 // Routes that bypass the full app chrome (sidebar/header/providers).
@@ -103,7 +105,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 function FullAppShell({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
-  const [trophyOpen, setTrophyOpen] = useState(false);
+  // The trophy case and the Activity panel open from the XP bar, the user
+  // menu and each other, so their state lives in a small shared store.
+  const trophyOpen = useActivityUiStore((s) => s.trophyOpen);
+  const setTrophyOpen = useActivityUiStore((s) => s.setTrophyOpen);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
@@ -185,7 +190,6 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                                 <Header
                                   onOpenSearch={() => setSearchOpen(true)}
                                   onOpenSidebar={() => setSidebarOpen(true)}
-                                  onOpenTrophyCase={() => setTrophyOpen(true)}
                                 />
                                 <main
                                   id="main-content"
@@ -197,6 +201,7 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                               <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
                             </div>
                             <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
+                            <ActivityPanel />
                             <Suspense fallback={null}>
                               <HolidayEngine />
                             </Suspense>

@@ -2,16 +2,17 @@ import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Characterization of how GamificationProvider turns engine effects into
- * celebration toasts TODAY (before the notification redesign). The redesign
- * moves celebrations to the Activity inbox and Amr moments (PR H/I); when it
- * does, this file is updated deliberately. Rows marked "today:" pin current
- * behaviour the plan calls out as wrong, so a change to them is visible.
+ * How GamificationProvider turns engine effects into celebrations. Since the
+ * Activity inbox (PR H) they never toast: every level, badge, challenge and
+ * prestige lands silently in the inbox and nothing is dropped: not on a
+ * ceremony route, not while presenting, not in silent mode, not by a
+ * throttle. `NEXT_PUBLIC_CELEBRATIONS=legacy` brings the old toasts back.
  */
 
 const h = vi.hoisted(() => ({
   pathname: "/" as string | null,
-  subscriber: null as ((effect: { kind: string; payload: unknown }) => void) | null,
+  // Several provider effects subscribe (the XP log, the celebrations).
+  subscribers: new Set<(effect: { kind: string; payload: unknown }) => void>(),
   appendXpEvent: vi.fn(),
   trackPathVisit: vi.fn(),
   toast: Object.assign(vi.fn(), {
@@ -33,9 +34,9 @@ vi.mock("@/lib/gamification/supabase-sync", () => ({
 }));
 vi.mock("@/lib/gamification/engine", () => ({
   subscribe: (fn: (effect: { kind: string; payload: unknown }) => void) => {
-    h.subscriber = fn;
+    h.subscribers.add(fn);
     return () => {
-      if (h.subscriber === fn) h.subscriber = null;
+      h.subscribers.delete(fn);
     };
   },
   installWindowBridge: () => {},
@@ -51,19 +52,24 @@ vi.mock("@/lib/utils/toast", () => ({ toast: h.toast }));
 import { GamificationProvider } from "@/lib/gamification/provider";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
+import { useInboxStore } from "@/lib/notify/inbox-store";
+import { __resetCelebrationsForTests, flushCelebrations } from "@/lib/gamification/celebrations";
 
 const LEVEL_UP = { kind: "level-up", payload: { level: 8 } };
 const ACHIEVEMENT = {
   kind: "achievement",
   payload: { id: "retro-one", title: "Retro Regular", xp: 50 },
 };
-const CHALLENGE = { kind: "challenge-complete", payload: { xp: 30 } };
+const CHALLENGE = {
+  kind: "challenge-complete",
+  payload: { id: "d-kudos", kind: "daily", xp: 30 },
+};
 const PRESTIGE = { kind: "prestige", payload: {} };
 const XP = { kind: "xp", payload: { amount: 5, source: "tool:retro", at: "2026-11-08T09:00:00Z" } };
 
 function emit(effect: { kind: string; payload: unknown }) {
   act(() => {
-    h.subscriber?.(effect);
+    h.subscribers.forEach((fn) => fn(effect));
   });
 }
 
@@ -77,103 +83,204 @@ function mount() {
   return render(<GamificationProvider>{null}</GamificationProvider>);
 }
 
+/** Close the 1.5 s same-action window now, then wait for the inbox write. */
+async function settle(count: number) {
+  act(() => flushCelebrations());
+  await waitFor(() => expect(useInboxStore.getState().items).toHaveLength(count));
+  return useInboxStore.getState().items;
+}
+
+async function tick() {
+  await act(() => new Promise((r) => setTimeout(r, 0)));
+}
+
 beforeEach(() => {
   localStorage.clear();
   h.pathname = "/";
-  h.subscriber = null;
+  h.subscribers.clear();
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  __resetCelebrationsForTests();
   delete document.documentElement.dataset.presenting;
   act(() => {
     useVDnaStore.setState({ silentMode: false, visitorId: "v-1" });
+    useInboxStore.setState({ items: [], seeded: true });
   });
 });
 
 afterEach(() => {
   delete document.documentElement.dataset.presenting;
+  vi.unstubAllEnvs();
 });
 
-describe("GamificationProvider celebration gating (characterization)", () => {
-  it("shows a level-up toast on a normal route", () => {
+describe("GamificationProvider silent celebrations", () => {
+  it("a level-up lands in the inbox, not in a toast", async () => {
     mount();
     emit(LEVEL_UP);
-    expect(h.toast.success).toHaveBeenCalledWith("Level 8!", {
-      description: "New milestone unlocked.",
-    });
+    const [row] = await settle(1);
+    expect(row).toMatchObject({ kind: "level-up", title: "Level 8", read: false });
+    expect(row.body).toMatch(/got you here\.$/);
+    expect(shownCount()).toBe(0);
   });
 
-  it("shows an achievement toast with its XP and description", () => {
+  it("an achievement row carries its XP and description", async () => {
     mount();
     emit(ACHIEVEMENT);
-    expect(h.toast.success).toHaveBeenCalledTimes(1);
-    const [title, opts] = h.toast.success.mock.calls[0];
-    expect(title).toBe("Achievement: Retro Regular");
-    expect(opts.description).toMatch(/^\+50 XP/);
+    const [row] = await settle(1);
+    expect(row).toMatchObject({ kind: "achievement", title: "Retro Regular", xp: 50 });
+    expect(row.body).toBeTruthy();
+    expect(shownCount()).toBe(0);
   });
 
-  it("shows a challenge toast through toast.info", () => {
+  it("a challenge lands in the day's challenge row", async () => {
     mount();
     emit(CHALLENGE);
-    expect(h.toast.info).toHaveBeenCalledWith("Challenge complete!", { description: "+30 XP" });
+    const [row] = await settle(1);
+    expect(row.kind).toBe("challenge");
+    expect(row.title).toMatch(/^Challenge done/);
+    expect(row.mergeKey).toMatch(/^challenge:\d{4}-\d{2}-\d{2}$/);
+    expect(shownCount()).toBe(0);
   });
 
-  it("records XP to the OPFS log with the visitor id and never toasts for it", () => {
+  it("records XP to the OPFS log with the visitor id; XP is neither a toast nor a row", async () => {
     mount();
     emit(XP);
     expect(h.appendXpEvent).toHaveBeenCalledWith(expect.objectContaining({ amount: 5 }));
     expect(h.appendXpEvent.mock.calls[0][0].visitorId).toBeTruthy();
+    act(() => flushCelebrations());
+    await tick();
+    expect(useInboxStore.getState().items).toHaveLength(0);
     expect(shownCount()).toBe(0);
   });
 
-  it("silent mode suppresses every celebration, prestige included", () => {
+  it("silent mode no longer drops anything: rows still land, quietly", async () => {
     mount();
     act(() => {
       useVDnaStore.setState({ silentMode: true });
     });
-    emit(LEVEL_UP);
-    emit(ACHIEVEMENT);
-    emit(CHALLENGE);
     emit(PRESTIGE);
+    emit(CHALLENGE);
+    const rows = await settle(2);
+    expect(rows.map((r) => r.kind).sort()).toEqual(["challenge", "prestige"]);
     expect(shownCount()).toBe(0);
   });
 
-  it("today: a celebration on a quiet (ceremony) route is dropped, not held", () => {
+  it("on a ceremony route a celebration is held in the inbox, not dropped", async () => {
     h.pathname = "/retro";
     const view = mount();
     emit(LEVEL_UP);
-    expect(shownCount()).toBe(0);
-
-    // Leaving the ceremony does not bring it back.
+    const [row] = await settle(1);
+    expect(row.title).toBe("Level 8");
     h.pathname = "/";
     view.rerender(<GamificationProvider>{null}</GamificationProvider>);
     expect(shownCount()).toBe(0);
+    expect(useInboxStore.getState().items).toHaveLength(1);
   });
 
-  it("today: presenting mode drops celebrations", () => {
+  it("presenting mode keeps celebrations in the inbox", async () => {
     document.documentElement.dataset.presenting = "true";
     mount();
     emit(LEVEL_UP);
     emit(ACHIEVEMENT);
+    const [row] = await settle(1);
+    expect(row.children?.length).toBe(1);
     expect(shownCount()).toBe(0);
   });
 
-  it("today: celebrations share one throttle and the loser is dropped", () => {
+  it("no throttle: one action's level and badge share a row, the challenge gets its own", async () => {
     mount();
     emit(LEVEL_UP);
     emit(ACHIEVEMENT);
     emit(CHALLENGE);
-    expect(h.toast.success).toHaveBeenCalledTimes(1);
-    expect(h.toast.success.mock.calls[0][0]).toBe("Level 8!");
-    expect(h.toast.info).not.toHaveBeenCalled();
+    const rows = await settle(2);
+    const merged = rows.find((r) => r.kind !== "challenge")!;
+    // The level-up (rare) leads; the 50 XP badge rides along.
+    expect(merged.title).toBe("Level 8");
+    expect(merged.children?.map((c) => c.title)).toEqual(["Retro Regular"]);
+    expect(merged.xp).toBe(50);
+    expect(rows.some((r) => r.kind === "challenge")).toBe(true);
   });
 
-  it("today: prestige ignores quiet routes, presenting and the throttle", () => {
+  it("prestige follows the same rules: a legendary row, no toast", async () => {
     h.pathname = "/retro";
     document.documentElement.dataset.presenting = "true";
     mount();
     emit(PRESTIGE);
+    const [row] = await settle(1);
+    expect(row).toMatchObject({ kind: "prestige", rarity: "legendary" });
+    expect(shownCount()).toBe(0);
+  });
+
+  it("gives an existing profile one 'progress carried over' row, once", async () => {
+    act(() => {
+      useInboxStore.setState({ items: [], seeded: false });
+      useVDnaStore.setState({ xp: 900, level: 4, unlocked: ["retro-one", "first-win"] });
+    });
+    try {
+      const first = mount();
+      await waitFor(() => expect(useInboxStore.getState().seeded).toBe(true));
+      expect(useInboxStore.getState().items).toHaveLength(1);
+      expect(useInboxStore.getState().items[0]).toMatchObject({
+        kind: "carried-over",
+        body: "Level 4, 2 badges",
+      });
+      first.unmount();
+      mount();
+      await tick();
+      expect(useInboxStore.getState().items).toHaveLength(1);
+    } finally {
+      act(() => {
+        useVDnaStore.setState({ xp: 0, level: 1, unlocked: [] });
+      });
+    }
+  });
+
+  it("a brand-new profile gets no carried-over row", async () => {
+    act(() => {
+      useInboxStore.setState({ items: [], seeded: false });
+      useVDnaStore.setState({ xp: 0, level: 1, unlocked: [] });
+    });
+    mount();
+    await waitFor(() => expect(useInboxStore.getState().seeded).toBe(true));
+    expect(useInboxStore.getState().items).toHaveLength(0);
+  });
+});
+
+describe("GamificationProvider NEXT_PUBLIC_CELEBRATIONS=legacy", () => {
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_CELEBRATIONS", "legacy");
+  });
+
+  it("shows the old toasts and writes no inbox rows", async () => {
+    mount();
+    emit(LEVEL_UP);
+    emit(ACHIEVEMENT);
+    emit(CHALLENGE);
+    expect(h.toast.success).toHaveBeenCalledWith("Level 8!", {
+      description: "New milestone unlocked.",
+    });
+    expect(h.toast.success.mock.calls[1][0]).toBe("Achievement: Retro Regular");
+    expect(h.toast.info).toHaveBeenCalledWith("Challenge complete!", { description: "+30 XP" });
+    act(() => flushCelebrations());
+    await tick();
+    expect(useInboxStore.getState().items).toHaveLength(0);
+  });
+
+  it("stays quiet on ceremony routes, while presenting and in silent mode (prestige too)", () => {
+    h.pathname = "/retro";
+    const view = mount();
     emit(PRESTIGE);
-    expect(h.toast.success).toHaveBeenCalledTimes(2);
-    expect(h.toast.success.mock.calls[0][0]).toBe("Prestige!");
+    emit(LEVEL_UP);
+    h.pathname = "/";
+    document.documentElement.dataset.presenting = "true";
+    view.rerender(<GamificationProvider>{null}</GamificationProvider>);
+    emit(PRESTIGE);
+    delete document.documentElement.dataset.presenting;
+    act(() => {
+      useVDnaStore.setState({ silentMode: true });
+    });
+    emit(PRESTIGE);
+    expect(shownCount()).toBe(0);
   });
 });
 
@@ -215,7 +322,7 @@ describe("GamificationProvider silent-mode adoption", () => {
     // Wait until the provider has actually asked to adopt (after both
     // stores rehydrated), so the check below can't pass by running early.
     await waitFor(() => expect(spy).toHaveBeenCalledWith(true));
-    await act(() => new Promise((r) => setTimeout(r, 0)));
+    await tick();
     expect(useNotificationPrefsStore.getState()).toMatchObject({
       silentModeAdopted: true,
       celebrationLevel: "lively",

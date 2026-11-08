@@ -57,10 +57,9 @@ const THEME_LABEL: Record<AppliedTheme, string> = {
 interface HeaderProps {
   onOpenSearch: () => void;
   onOpenSidebar?: () => void;
-  onOpenTrophyCase?: () => void;
 }
 
-export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: HeaderProps) {
+export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
   const pathname = usePathname();
   const pathTool = getToolByPath(pathname);
   // A VIP tool's address may be showing a lock panel, and this bar can't know: the
@@ -242,7 +241,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
           legible while keeping the trophy case reachable via user menu. */}
       <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
         <div className="hidden sm:flex items-center gap-0.5 sm:gap-1">
-          <XpBar onOpenTrophyCase={onOpenTrophyCase} />
+          <XpBar />
         </div>
         <div className="hidden sm:flex items-center">
           <SonificationToggle />

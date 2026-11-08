@@ -46,6 +46,7 @@ import { isTyping } from "./attention";
 import { isDialogOpen } from "./dialog-open";
 import { MUTABLE_KINDS, decide } from "./policy";
 import { defaultQuietDom, getQuietState } from "./quiet-state";
+import { useInboxStore, withInbox } from "./inbox-store";
 import type { NotifyDecision, NotifyKind, NotifyRequest, PolicyContext } from "./types";
 
 export type ToastInput = Parameters<typeof sonnerToast>[0];
@@ -538,11 +539,29 @@ export function notify(
       return id;
     }
     default:
-      // inline: the control confirms it itself; inbox: celebrations (Activity);
-      // drop: not shown. The caller still gets an id it may dismiss.
+      // inline: the control confirms it itself; inbox: celebrations go to
+      // the Activity inbox; drop: not shown. The caller still gets an id it
+      // may dismiss.
+      if (d.channel === "inbox") sendToInbox(message, opts);
       if (callerGaveId) closeStale(id, kind);
       return id;
   }
+}
+
+/** A `kind: "celebration"` toast becomes a quiet Activity row instead. */
+function sendToInbox(message: ToastInput, opts: ExternalToast): void {
+  const title = titleText(message);
+  if (!title) return;
+  const body = typeof opts.description === "string" ? opts.description : undefined;
+  withInbox(() => {
+    useInboxStore.getState().add({
+      kind: "note",
+      title,
+      ...(body ? { body } : {}),
+      icon: "Sparkles",
+      rarity: "common",
+    });
+  });
 }
 
 /** Close a toast (or all), including one still held in the queue. */

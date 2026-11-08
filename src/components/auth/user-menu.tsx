@@ -36,6 +36,12 @@ import { clearLocalWorkspaceData } from "@/lib/utils/clear-local-data";
 import { toast } from "@/lib/utils/toast";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
 import { SCRUM_ROLE_LABEL, type SignOutResult } from "@/lib/auth/types";
+import { ActivityDot, useVisibleUnreadCount } from "@/components/notify/activity-dot";
+import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
+import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
+import { areCelebrationsPaused } from "@/lib/notify/prefs";
+import { useVDnaStore } from "@/lib/stores/vdna-store";
+import { computeLevel } from "@/lib/gamification/xp-curve";
 import {
   BookImage,
   LogOut,
@@ -48,6 +54,9 @@ import {
   BarChart3,
   Eraser,
   HardDrive,
+  Bell,
+  BellOff,
+  Trophy,
 } from "lucide-react";
 
 // Loaded on first open: backup/restore isn't needed until someone asks.
@@ -171,6 +180,9 @@ function VisitorMenu({
                 aria-hidden="true"
               />
             )}
+            {/* Something new in Activity. Bottom corner, so it never sits on
+                the sign-in hint above. */}
+            <ActivityDot className="top-auto bottom-0" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
@@ -186,6 +198,7 @@ function VisitorMenu({
             </div>
           )}
           <DropdownMenuSeparator />
+          <ProgressMenuSection />
           <DropdownMenuItem
             onSelect={(e) => {
               e.preventDefault();
@@ -316,7 +329,7 @@ function OwnerMenu() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="min-touch-coarse w-9 h-9 rounded-full ring-1 ring-border hover:ring-accent/40 transition-all duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent overflow-hidden"
+            className="relative min-touch-coarse w-9 h-9 rounded-full ring-1 ring-border hover:ring-accent/40 transition-all duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             aria-label={`Account menu for ${displayName}`}
           >
             <Avatar className="w-9 h-9">
@@ -325,6 +338,7 @@ function OwnerMenu() {
                 {initials}
               </AvatarFallback>
             </Avatar>
+            <ActivityDot />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
@@ -338,8 +352,9 @@ function OwnerMenu() {
             )}
           </div>
           <DropdownMenuSeparator />
+          <ProgressMenuSection />
           <DropdownMenuLabel className="text-xs uppercase tracking-wide text-sub">
-            Activity
+            Your work
           </DropdownMenuLabel>
           <DropdownMenuItem asChild>
             <Link href="/history" className="cursor-pointer">
@@ -558,5 +573,60 @@ function SoundMenuItem() {
     >
       Interface sounds
     </DropdownMenuCheckboxItem>
+  );
+}
+
+const PAUSE_CELEBRATIONS_MS = 60 * 60 * 1000;
+
+/**
+ * Progress, Activity, Trophies and "Pause celebrations" rows. The header's XP
+ * bar is hidden on phones, so this is where every visitor reaches them.
+ */
+function ProgressMenuSection() {
+  const gamificationEnabled = useNotificationPrefsStore((s) => s.gamificationEnabled);
+  const pausedUntil = useNotificationPrefsStore((s) => s.celebrationsPausedUntil);
+  const pause = useNotificationPrefsStore((s) => s.pauseCelebrations);
+  const resume = useNotificationPrefsStore((s) => s.resumeCelebrations);
+  const openActivity = useActivityUiStore((s) => s.openActivity);
+  const openTrophies = useActivityUiStore((s) => s.openTrophies);
+  const unread = useVisibleUnreadCount();
+  const xp = useVDnaStore((s) => s.xp);
+  const prestigeCount = useVDnaStore((s) => s.prestige);
+  const info = computeLevel(xp, prestigeCount);
+  const paused = areCelebrationsPaused({ celebrationsPausedUntil: pausedUntil }, Date.now());
+  const toNext = Math.max(0, info.xpNeededForLevel - info.xpIntoLevel);
+
+  return (
+    <>
+      {gamificationEnabled && (
+        <div className="px-2 py-1.5 text-xs text-sub" data-testid="menu-progress">
+          <span className="font-medium text-text">Level {info.level}</span>
+          {info.atMax ? " · Top level" : ` · ${toNext} XP to Level ${info.level + 1}`}
+        </div>
+      )}
+      <DropdownMenuItem onSelect={() => openActivity()} className="cursor-pointer">
+        <Bell className="w-4 h-4" aria-hidden="true" />
+        <span className="flex-1">Activity</span>
+        {unread > 0 && (
+          <Badge variant="secondary" className="text-xs" aria-label={`${unread} unread`}>
+            {unread > 99 ? "99+" : unread}
+          </Badge>
+        )}
+      </DropdownMenuItem>
+      {gamificationEnabled && (
+        <DropdownMenuItem onSelect={() => openTrophies()} className="cursor-pointer">
+          <Trophy className="w-4 h-4" aria-hidden="true" />
+          <span>Trophies &amp; challenges</span>
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem
+        onSelect={() => (paused ? resume() : pause(PAUSE_CELEBRATIONS_MS))}
+        className="cursor-pointer"
+      >
+        <BellOff className="w-4 h-4" aria-hidden="true" />
+        <span>{paused ? "Resume celebrations" : "Pause celebrations · 1 h"}</span>
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+    </>
   );
 }
