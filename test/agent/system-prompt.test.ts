@@ -4,7 +4,7 @@
  * the prompt now carries today's date and an instruction to compute from it.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { formatToday, buildSystemPrompt } from "@/lib/agent/system-prompt";
 
 describe("formatToday", () => {
@@ -45,5 +45,56 @@ describe("buildSystemPrompt formatting guidance", () => {
     expect(p).toContain("**bold**");
     expect(p).toContain("*italic*");
     expect(p).toMatch(/emoji/i);
+  });
+});
+
+describe("buildSystemPrompt grounding", () => {
+  const GROUNDING =
+    "About the tool the user has open (use this to explain or coach):\nCurrent tool: Retrospective (/retro)";
+
+  it("includes the grounding block in the current context", () => {
+    const p = buildSystemPrompt({ toolId: "retro", grounding: GROUNDING });
+    expect(p).toContain(GROUNDING);
+    // After the context line, before the safety rules.
+    expect(p.indexOf(GROUNDING)).toBeGreaterThan(p.indexOf("Current context:"));
+    expect(p.indexOf(GROUNDING)).toBeLessThan(p.indexOf("Safety:"));
+  });
+
+  it("is unchanged without grounding", () => {
+    // Pin "now" (a Date subclass, not fake timers) so the prompts built below
+    // can't straddle midnight and differ only in today's date.
+    const FIXED = new Date(2026, 5, 3, 12).getTime();
+    const RealDate = Date;
+    vi.stubGlobal(
+      "Date",
+      class extends RealDate {
+        constructor(...args: ConstructorParameters<typeof Date>) {
+          super(...((args.length ? args : [FIXED]) as [number]));
+        }
+        static now() {
+          return FIXED;
+        }
+      }
+    );
+    try {
+      const plain = buildSystemPrompt({ toolId: "retro" });
+      expect(buildSystemPrompt({ toolId: "retro", grounding: "" })).toBe(plain);
+      expect(buildSystemPrompt({ toolId: "retro", grounding: "   " })).toBe(plain);
+      expect(buildSystemPrompt({ toolId: "retro", grounding: null })).toBe(plain);
+      expect(plain).not.toContain("About the tool the user has open");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("tells the model to link toolkit pages and never make up a path", () => {
+    const p = buildSystemPrompt();
+    expect(p).toContain("[Name](/path)");
+    expect(p).toMatch(/never a made-up one/);
+  });
+
+  it("no longer claims every action is offered on every turn", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/Each turn offers the ones that fit/);
   });
 });

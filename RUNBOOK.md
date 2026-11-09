@@ -35,13 +35,15 @@ AUTHORIZED_EMAILS=a.elharony@gmail.com   # comma-separated; missing = deny all
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...    # KEEP SECRET — never expose to client
-ZAI_API_KEY=<id>.<segment>                  # GLM/z.ai key from z.ai/manage-apikey
-ZAI_AGENT_MODEL=glm-4.5-flash               # free tier; bump to glm-4.5 / glm-4.6 after topping up
+OPENCLAW_API_KEY=...                        # the OpenClaw gateway's bearer key (GLM-5.3)
 ```
 
-The agent runs on GLM (z.ai, OpenAI-compatible) by default. If `ZAI_API_KEY`
-is unset, the agent falls back to the client BYOK path — configure a GLM
-provider in the in-app AI Settings dialog and the chat sidebar picks it up.
+The agent's server backend is the first of these that is set (see the
+"In-app chat agent" block in `.env.example`): `OPENCLAW_API_KEY` (the OpenClaw
+gateway, which holds the GLM key itself), `GLM_API_KEY` (open.bigmodel.cn) or
+`ZAI_API_KEY` (api.z.ai; the two GLM keys are not interchangeable). With none
+set, the agent falls back to the client BYOK path — configure a GLM provider
+in the in-app AI Settings dialog and the chat sidebar picks it up.
 
 Restart `npm run dev` so the new env loads.
 
@@ -150,7 +152,7 @@ If any of those steps fails, check:
 | Sign-in lands on "Owner sign-in unavailable"    | `AUTHORIZED_EMAILS` empty on that deployment                | Set it (e.g. Vercel → Preview env); no session was created, nothing to undo                       |
 | Header says "Cloud sync is paused"              | Signed-out work in this browser awaits merge/discard        | Click **Review** in the notice, then **Merge** or **Discard**                                     |
 | `/auth/sign-in` works but bounces back unauth'd | Google redirect URI mismatch                                | Add `http://localhost:3000` to Supabase Auth → URL config                                         |
-| Agent sheet won't open / says "no GLM key"      | Neither `ZAI_API_KEY` set nor BYOK configured               | Set the server key, or click avatar → **AI settings (BYOK)** and paste a GLM key                  |
+| Agent sheet won't open / says "no GLM key"      | No server agent key set and no BYOK key configured          | Set `OPENCLAW_API_KEY`, or click avatar → **AI settings (BYOK)** and paste a GLM key              |
 | Agent returns "Insufficient balance"            | z.ai account has no credit AND you picked a paid model      | Top up at z.ai/manage-pricing OR set `ZAI_AGENT_MODEL=glm-4.5-flash` (free tier)                  |
 | MCP returns 401                                 | PAT typo, revoked, or `SUPABASE_SERVICE_ROLE_KEY` missing   | Verify token in `/settings/access-tokens`; verify env on server                                   |
 | `tools/list` returns empty over MCP             | Action registry didn't load on the API route runtime        | Restart dev server; check `src/app/api/mcp/route.ts` still imports `register-all`                 |

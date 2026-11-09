@@ -2,62 +2,71 @@ import type { NextRequest } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
 import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
+import {
+  IDLE_TIMEOUT_MS,
+  buildUpstreamBody,
+  fetchWithFirstByteTimeout,
+  idleTimeoutStream,
+  resolveOwnerBackend,
+  upstreamHeaders,
+} from "@/lib/agent/upstream";
 
 /**
- * Agent streaming proxy — OpenClaw (preferred) or GLM, both OpenAI-compatible.
+ * Agent streaming proxy for the signed-in owner. OpenAI-compatible chat
+ * completions, streamed back to the browser as raw SSE.
  *
- * Preferred backend is the user's OpenClaw gateway (chat.amrelharony.com),
- * which holds the GLM key server-side — so the toolkit needs NO separate
- * GLM/ZAI key once OPENCLAW_API_KEY is set. Falls back to a direct GLM key
- * (GLM_API_KEY / legacy ZAI_API_KEY) for back-compat.
+ * Backend (see `resolveOwnerBackend` in lib/agent/upstream.ts):
+ *   1. OpenClaw, the owner's gateway (OPENCLAW_API_KEY, OPENCLAW_URL,
+ *      OPENCLAW_MODEL). It holds the GLM key on the VPS, so the toolkit needs
+ *      no GLM key of its own once this is set.
+ *   2. GLM_API_KEY → open.bigmodel.cn (GLM_AGENT_MODEL, optional GLM_BASE_URL).
+ *   3. ZAI_API_KEY → api.z.ai (ZAI_AGENT_MODEL, optional ZAI_BASE_URL).
+ * With none of them set, GET and POST answer `{"mode":"client"}` and the
+ * browser uses its own BYOK GLM key from the AI Settings dialog.
  *
- * Runtime: Edge. GLM responses with function-calling routinely take
- * 5-20s per turn; 10s Node serverless cap on Vercel Hobby would cut
- * many off. Edge extends to 25s and supports streaming responses
- * natively via Web Streams. The tool-use loop itself happens in the
- * browser — multi-turn work isn't bounded by the per-turn cap.
+ * Runtime: Edge. A GLM turn with function calling routinely takes 5-20s, and
+ * longer with reasoning; the 10s Node serverless cap on Vercel Hobby would cut
+ * many off, while Edge streams responses natively via Web Streams. The
+ * tool-use loop itself runs in the browser, so multi-round work isn't bounded
+ * by the per-turn cap.
+ *
+ * Timeouts: no response headers from the upstream within 20s → 504 (Vercel
+ * Edge must start a response within 25s, or the platform's own 504 fires
+ * first, without this route's body or X-RateLimit-* headers); once streaming,
+ * no new chunk for 30s → the stream errors and the upstream request is
+ * aborted (as on amrelharony.com).
  *
  * Edge-safe imports only: `requireAuthorizedUser` uses `next/headers`
- * cookies + `@supabase/ssr` createServerClient, both Edge-compatible.
+ * cookies + `@supabase/ssr` createServerClient, both Edge-compatible, and
+ * lib/agent/upstream.ts uses Web APIs only.
  *
- * POST body shape (OpenAI / GLM chat completions):
+ * POST body shape (OpenAI chat completions; `buildUpstreamBody` decides what
+ * is actually forwarded):
  *   {
- *     model: string,
  *     messages: Array<OpenAIMessage>,
  *     tools?: Array<{type:"function", function:{...}}>,
- *     tool_choice?: "auto" | "none" | {type:"function", function:{name}},
  *     stream: true,
- *     max_tokens?: number,
+ *     max_tokens?: number,          // clamped to 64..8192
+ *     temperature?: number,         // clamped to 0..2
+ *     reasoning_effort?: "low" | "high" | "max", // OpenClaw and Z.AI only
  *   }
+ * The model always comes from the server env, `tool_choice` is "auto"
+ * whenever tools are sent, and usage reporting is always requested.
  *
- * If ZAI_API_KEY is set in the server env, we proxy directly to
- * api.z.ai/api/paas/v4/chat/completions and stream the raw SSE back.
- *
- * If ZAI_API_KEY is NOT set, we return 200 with `{"mode":"client"}`
- * so the browser falls back to its BYOK key (configured via the
- * AI Settings dialog as a GLM provider).
- *
- * GET returns the mode + the default model the server is using, so
- * the client doesn't have to guess.
+ * GET returns the mode, provider and model the server is using, so the client
+ * doesn't have to guess.
  */
 
 export const runtime = "edge";
 
-// OpenClaw (the user's own OpenAI-compatible gateway) is the preferred backend;
-// it proxies to GLM with the GLM key held server-side. Configure via
-// OPENCLAW_API_KEY (+ optional OPENCLAW_URL / OPENCLAW_MODEL). When absent we
-// fall back to a direct GLM key (open.bigmodel.cn) for back-compat; the legacy
-// ZAI_* env names are still honoured.
-const OPENCLAW_ENDPOINT =
-  process.env.OPENCLAW_URL ?? "https://chat.amrelharony.com/v1/chat/completions";
-const GLM_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
-
-interface Backend {
-  key: string;
-  endpoint: string;
-  model: string;
-  provider: "openclaw" | "glm";
-}
+/**
+ * Most tool definitions forwarded per request, besides those the history's
+ * tool_calls call (always kept: cutting one makes the upstream reject the
+ * turn). The browser sends at most 64 plus any the conversation already used;
+ * this only stops a runaway client from shipping the whole registry (~830
+ * tools, ~590 KB) to the gateway.
+ */
+const MAX_FORWARDED_TOOLS = 256;
 
 interface RateLimit {
   allowed: boolean;
@@ -97,31 +106,6 @@ async function checkRate(supabase: SupabaseClient): Promise<RateLimit | null> {
   }
 }
 
-/** Resolve the active server backend, preferring OpenClaw. null ⇒ BYOK client. */
-function backend(): Backend | null {
-  const oc = process.env.OPENCLAW_API_KEY;
-  if (oc) {
-    return {
-      key: oc,
-      endpoint: OPENCLAW_ENDPOINT,
-      // OpenClaw exposes openclaw / openclaw-fast / openclaw-flash (it maps to
-      // z.ai GLM-5 server-side). NOT the raw "zai glm-5.1" model id.
-      model: process.env.OPENCLAW_MODEL ?? "openclaw",
-      provider: "openclaw",
-    };
-  }
-  const glm = process.env.GLM_API_KEY ?? process.env.ZAI_API_KEY;
-  if (glm) {
-    return {
-      key: glm,
-      endpoint: GLM_ENDPOINT,
-      model: process.env.GLM_AGENT_MODEL ?? process.env.ZAI_AGENT_MODEL ?? "glm-4.5-flash",
-      provider: "glm",
-    };
-  }
-  return null;
-}
-
 export async function GET() {
   try {
     await requireAuthorizedUser();
@@ -129,11 +113,11 @@ export async function GET() {
     if (resp instanceof Response) return resp;
     throw resp;
   }
-  const b = backend();
+  const b = resolveOwnerBackend();
   return Response.json({
     mode: b ? "server" : "client",
     model: b?.model ?? null,
-    provider: b?.provider ?? "openclaw",
+    provider: b?.provider ?? null,
   });
 }
 
@@ -146,9 +130,9 @@ export async function POST(req: NextRequest) {
     throw resp;
   }
 
-  const be = backend();
+  const be = resolveOwnerBackend();
   if (!be) {
-    return Response.json({ mode: "client", provider: "openclaw" }, { status: 200 });
+    return Response.json({ mode: "client", provider: null }, { status: 200 });
   }
 
   let body: unknown;
@@ -198,80 +182,43 @@ export async function POST(req: NextRequest) {
       );
     }
   }
+  // checkRate already recorded this turn before the upstream call, so every
+  // response below carries the X-RateLimit-* headers — otherwise a failed
+  // turn (e.g. an OpenClaw 413) would consume quota without the bar showing it.
+  const limitHeaders = rate ? rateHeaders(rate) : undefined;
 
-  // Whitelist fields we forward — drop anything the client tried to
-  // slip in (custom headers, model override beyond our env, etc.).
-  // BUG-G12: don't forward `tools` from the client verbatim. A
-  // compromised authenticated client could inject fake tool definitions
-  // to influence the model's output. The agent's tool execution is
-  // client-side and only resolves against the local registry, so the
-  // upstream gets nothing useful from a server-built tools list either
-  // — but at minimum we validate the shape strictly.
-  const b = body as Record<string, unknown>;
-  const forward: Record<string, unknown> = {
-    model: be.model,
-    stream: true,
-    // BUG-H3: ask the upstream for the trailing usage chunk. The whitelist
-    // previously dropped the client's `stream_options`, so strictly OpenAI-
-    // compatible backends (OpenClaw) never emitted usage and token metering
-    // (record_chat_usage / lastTurnTokens) was a silent no-op in server
-    // mode. Hardcoded server-side — never copied from the client, matching
-    // the BUG-G12 posture.
-    stream_options: { include_usage: true },
-    // GLM defaults to 1024 if omitted — bump for tool-use chains.
-    // Number.isFinite rejects NaN/±Infinity (which `typeof === "number"`
-    // alone lets through, forwarding `null` to the gateway).
-    max_tokens: Number.isFinite(b.max_tokens)
-      ? Math.min(8192, Math.max(64, Math.floor(b.max_tokens as number)))
-      : 4096,
-  };
-  // BUG-H3 (follow-on): generateTitle sends temperature 0.2 for stable
-  // titles; the whitelist silently discarded it. Forward validated + clamped
-  // to the OpenAI-compatible [0, 2] range.
-  if (typeof b.temperature === "number" && Number.isFinite(b.temperature)) {
-    forward.temperature = Math.min(2, Math.max(0, b.temperature));
-  }
-  if (Array.isArray(b.messages)) forward.messages = b.messages;
-  if (Array.isArray(b.tools)) {
-    // Defensive shape check: each entry must be {type:"function", function:{name:string,...}}.
-    const safe = b.tools.filter((t) => {
-      if (!t || typeof t !== "object") return false;
-      const tt = t as Record<string, unknown>;
-      if (tt.type !== "function") return false;
-      const fn = tt.function as Record<string, unknown> | undefined;
-      return !!fn && typeof fn.name === "string" && fn.name.length > 0 && fn.name.length <= 128;
-    });
-    if (safe.length > 0) forward.tools = safe;
-  }
-  if (
-    b.tool_choice === "auto" ||
-    b.tool_choice === "none" ||
-    b.tool_choice === "required" ||
-    (typeof b.tool_choice === "object" && b.tool_choice !== null)
-  ) {
-    forward.tool_choice = b.tool_choice;
-  }
-  // GLM-specific: enable thinking trace. Validate the shape (boolean or
-  // object) so the client can't pass arbitrary upstream parameters.
-  // (BUG-G13)
-  if (typeof b.thinking === "boolean") {
-    forward.thinking = b.thinking;
-  } else if (b.thinking && typeof b.thinking === "object" && !Array.isArray(b.thinking)) {
-    forward.thinking = b.thinking;
-  }
-
-  // Propagate the client abort signal: if the browser tab closes mid-stream
-  // we want to stop billing GLM for tokens the client will never read.
-  const upstream = await fetch(be.endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${be.key}`,
-    },
-    body: JSON.stringify(forward),
-    signal: req.signal,
+  // Whitelist the fields we forward: drop anything the client tried to slip
+  // in (custom headers, a model override, arbitrary upstream parameters).
+  // BUG-G12: tools are shape-checked, never forwarded verbatim as a list.
+  const forward = buildUpstreamBody(body as Record<string, unknown>, be, {
+    maxTools: MAX_FORWARDED_TOOLS,
   });
 
+  // One controller for the whole upstream call: the browser closing the tab
+  // aborts it (we stop paying for tokens nobody reads), and so do both
+  // timeouts.
+  const upstreamAbort = new AbortController();
+  if (req.signal?.aborted) upstreamAbort.abort();
+  else req.signal?.addEventListener("abort", () => upstreamAbort.abort(), { once: true });
+
+  const result = await fetchWithFirstByteTimeout(
+    be.url,
+    { method: "POST", headers: upstreamHeaders(be), body: JSON.stringify(forward) },
+    { controller: upstreamAbort }
+  );
+
+  if (!result.ok) {
+    if (result.reason === "timeout") {
+      return Response.json({ error: "upstream_timeout" }, { status: 504, headers: limitHeaders });
+    }
+    if (result.reason === "aborted") {
+      // The browser went away; nobody reads this.
+      return new Response(null, { status: 499 });
+    }
+    return Response.json({ error: "upstream_unreachable" }, { status: 502, headers: limitHeaders });
+  }
+
+  const upstream = result.response;
   if (!upstream.ok || !upstream.body) {
     let detail = "";
     try {
@@ -281,21 +228,23 @@ export async function POST(req: NextRequest) {
     }
     return Response.json(
       { error: "upstream", status: upstream.status, detail },
-      // checkRate already recorded this turn's usage row before the upstream
-      // fetch, so surface the X-RateLimit-* headers here too — otherwise a
-      // failed turn (e.g. an OpenClaw 413) silently consumes quota without the
-      // bar ever reflecting it.
-      { status: upstream.status, headers: rate ? rateHeaders(rate) : undefined }
+      { status: upstream.status, headers: limitHeaders }
     );
   }
 
-  return new Response(upstream.body, {
+  // Pass the SSE through untouched, but end it if the gateway stalls. The idle
+  // timer also stops when the browser cancels the body or the upstream errors;
+  // req.signal is a second hook for a disconnect, where Edge fires it.
+  const idle = idleTimeoutStream(upstream.body, IDLE_TIMEOUT_MS, () => upstreamAbort.abort());
+  req.signal?.addEventListener("abort", idle.stop, { once: true });
+
+  return new Response(idle.stream, {
     status: 200,
     headers: {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
       "x-accel-buffering": "no",
-      ...(rate ? rateHeaders(rate) : {}),
+      ...(limitHeaders ?? {}),
     },
   });
 }

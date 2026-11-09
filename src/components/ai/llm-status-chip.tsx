@@ -7,7 +7,12 @@ import { useAgentBackend } from "@/lib/agent/use-agent-backend";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { cn } from "@/lib/utils";
 
-const SERVER_PROVIDER_NAME: Record<string, string> = { openclaw: "OpenClaw", glm: "GLM" };
+/** How the header names the server agent's backend (the route's GET `provider`). */
+const SERVER_PROVIDER_NAME: Record<string, string> = {
+  openclaw: "OpenClaw · GLM-5.3",
+  glm: "GLM",
+  zai: "Z.AI",
+};
 
 /**
  * Header status chip mirroring `SonificationToggle` ergonomics — same
