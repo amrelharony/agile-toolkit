@@ -192,9 +192,13 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                                   onOpenSearch={() => setSearchOpen(true)}
                                   onOpenSidebar={() => setSidebarOpen(true)}
                                 />
+                                {/* Side safe areas: the right one at every width (md
+                                    covers every landscape iPhone, notch and all); the
+                                    left one only below md, where no rail sits there
+                                    (the rail keeps it from md: sidebar). */}
                                 <main
                                   id="main-content"
-                                  className="flex-1 pb-[calc(8rem+env(safe-area-inset-bottom))] md:pb-28 pl-safe pr-safe md:pl-0 md:pr-0"
+                                  className="flex-1 pb-[calc(8rem+env(safe-area-inset-bottom))] md:pb-28 pl-safe pr-safe md:pl-0"
                                 >
                                   {children}
                                 </main>
