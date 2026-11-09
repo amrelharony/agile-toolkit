@@ -20,7 +20,8 @@ interface ExecuteOptions {
   /**
    * Only the tools offered this turn may run (the visitor chat). A name this
    * returns false for gets "Tool not available" before it is even looked up,
-   * so a model can't reach an action it was never given.
+   * so a model can't reach an action it was never given. It is asked again
+   * after a confirmation, since the answer can change while the card waits.
    */
   isAllowed?: (name: string) => boolean;
 }
@@ -151,6 +152,16 @@ export async function executeToolUse(
         type: "tool_result",
         tool_use_id: block.id,
         content: `User denied execution of ${action.id}.`,
+        is_error: true,
+      };
+    }
+    // The card can wait a long time, and what may run can change meanwhile
+    // (a visitor opens a live room). Ask again before running.
+    if (opts.isAllowed && !opts.isAllowed(block.name)) {
+      return {
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: `Tool not available: ${block.name}`,
         is_error: true,
       };
     }

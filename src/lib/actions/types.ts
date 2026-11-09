@@ -36,8 +36,10 @@ export interface ToolAction<P = unknown, R = unknown> {
    * Whether Amr may offer this action to a signed-out visitor's chat
    * (visitor AI). Defaults to true: an action runs in the visitor's own tab on
    * their own browser data, and every non-read one asks first. Set false for
-   * actions with effects beyond that tab, such as the canvas actions, which
-   * broadcast to the people in a live room.
+   * actions whose effects go beyond that tab on their own, such as the canvas
+   * actions, which broadcast to the people in a live room. A visitor live room
+   * is handled separately: while this browser has one open, in any tab, the
+   * visitor chat offers no actions at all (lib/realtime/live-visitor-room.ts).
    */
   visitor?: boolean;
   handler: (params: P, ctx: ActionContext) => Promise<R>;

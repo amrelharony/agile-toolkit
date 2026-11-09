@@ -21,12 +21,19 @@
  * A plain question ("what is WSJF?", "how do I run a retro?") gets no tools at
  * all (only the history's, when it has any), so Amr just answers.
  *
- * Actions marked `visitor: false` (the canvas ones, which broadcast to live
- * room peers) are never offered, not even from history.
+ * Two rules come before all of that:
+ *
+ *  - Actions marked `visitor: false` (the canvas ones, which broadcast to live
+ *    room peers) are never offered, not even from history.
+ *  - While this browser has a visitor live room open, in this tab or another
+ *    (lib/realtime/live-visitor-room.ts), no action is offered at all, not even
+ *    the history's. It is all or nothing, never by name or group: Amr still
+ *    answers questions.
  */
 
 import { registry, claudeNameFromId, zodToJsonSchema } from "@/lib/actions/registry";
 import type { AnyToolAction } from "@/lib/actions/types";
+import { inLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { VISITOR_LIMITS, type VisitorWireTool } from "@/lib/visitor-ai/contract";
 import { getRegistryKbIndex, matchKb } from "./mascot/kb";
 import { CORE_WORKSPACE_GROUPS, pageActionGroups, toolNamesInHistory } from "./tool-selection";
@@ -171,13 +178,15 @@ function wireTool(a: AnyToolAction): VisitorWireTool {
  * recent user text (recentUserText); `messages` is the history being sent,
  * whose last user message decides whether this is a plain question; `toolId`
  * is the open page's tool (an id, a path or a slug). Only the chosen actions'
- * schemas are built.
+ * schemas are built. None at all while a visitor live room is open in this
+ * browser.
  */
 export function buildVisitorTurnTools(
   rankText: string,
   messages: ChatMessage[],
   toolId: string | null | undefined
 ): VisitorWireTool[] {
+  if (inLiveVisitorRoom()) return [];
   const actions = registry.list();
   const plainQuestion = isPlainQuestion(latestUserText(messages));
   const historyIds = toolNamesInHistory(messages).map((name) => registry.resolve(name)?.id ?? name);

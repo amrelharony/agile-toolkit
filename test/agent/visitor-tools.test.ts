@@ -9,10 +9,12 @@
  *    nothing at all);
  *  - every tool the history already called, even when ranking and the page
  *    fill the list (the request replays those calls);
- *  - nothing new for a plain question.
+ *  - nothing new for a plain question;
+ *  - nothing at all while the browser has a visitor live room open, in this
+ *    tab or another, the history's tools included.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import "@/lib/actions/register-all";
 import { registry, claudeNameFromId } from "@/lib/actions/registry";
 import { rankActionIds } from "@/lib/agent/mascot/kb";
@@ -23,6 +25,11 @@ import {
   isVisitorAction,
   selectVisitorToolIds,
 } from "@/lib/agent/visitor-tools";
+import {
+  LIVE_ROOM_KEY_PREFIX,
+  enterLiveVisitorRoom,
+  inLiveVisitorRoom,
+} from "@/lib/realtime/live-visitor-room";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import type { ChatMessage } from "@/lib/agent/types";
 
@@ -166,6 +173,93 @@ describe("buildVisitorTurnTools on the real registry", () => {
       toolResult("call_a1"),
     ];
     expect(names("What is WSJF?", null, history)).toEqual([]);
+  });
+});
+
+describe("buildVisitorTurnTools in a visitor live room", () => {
+  let leaveRoom: (() => void) | null = null;
+  const goLive = () => {
+    leaveRoom = enterLiveVisitorRoom();
+  };
+  const leave = () => {
+    leaveRoom?.();
+    leaveRoom = null;
+  };
+  afterEach(() => {
+    leave();
+    expect(inLiveVisitorRoom()).toBe(false);
+  });
+
+  const obscure = "tool.token_cost_tracker.list_state";
+  const history = [
+    user("how much did we spend on tokens", "u0"),
+    assistantCall(claudeNameFromId(obscure)),
+    toolResult("call_a1"),
+  ];
+
+  it("offers nothing while the room is open, whatever the words or the page", () => {
+    expect(names("add a card 'flaky CI'", "retro")).toContain("tool_retro_add_card");
+    goLive();
+    expect(names("add a card 'flaky CI'", "retro")).toEqual([]);
+    expect(names("add a card 'flaky CI'", null)).toEqual([]);
+    expect(names("read my retro board", "retro")).toEqual([]);
+    expect(names("What is WSJF?", "retro")).toEqual([]);
+  });
+
+  it("offers nothing from the history either", () => {
+    expect(names("What is WSJF?", "retro", history)).toEqual([claudeNameFromId(obscure)]);
+    goLive();
+    expect(names("What is WSJF?", "retro", history)).toEqual([]);
+    expect(names("add a card 'flaky CI'", "retro", history)).toEqual([]);
+  });
+
+  it("offers the tools again once the room has closed", () => {
+    goLive();
+    expect(names("add a card 'flaky CI'", "retro", history)).toEqual([]);
+    leave();
+    const offered = names("add a card 'flaky CI'", "retro", history);
+    expect(offered).toContain("tool_retro_add_card");
+    expect(offered).toContain(claudeNameFromId(obscure));
+  });
+
+  it("stays empty until the last of two rooms has closed", () => {
+    const first = enterLiveVisitorRoom();
+    goLive();
+    first();
+    expect(names("add a card 'flaky CI'", "retro")).toEqual([]);
+    leave();
+    expect(names("add a card 'flaky CI'", "retro")).toContain("tool_retro_add_card");
+  });
+
+  // The board is in localStorage, which a second tab reads too. That tab has
+  // no room of its own, only the stamp the room's tab keeps.
+  it("offers nothing while the room is open in another tab of this browser", () => {
+    const key = `${LIVE_ROOM_KEY_PREFIX}another-tab`;
+    expect(names("add a card 'flaky CI'", "retro")).toContain("tool_retro_add_card");
+    window.localStorage.setItem(key, String(Date.now()));
+    try {
+      expect(names("add a card 'flaky CI'", "retro")).toEqual([]);
+      expect(names("read my retro board", "retro")).toEqual([]);
+      expect(names("What is WSJF?", "retro", history)).toEqual([]);
+    } finally {
+      window.localStorage.removeItem(key);
+    }
+    // The other tab closed its room: the tools are back.
+    expect(names("add a card 'flaky CI'", "retro")).toContain("tool_retro_add_card");
+  });
+
+  it("leaves selectVisitorToolIds alone: it reads its arguments only", () => {
+    const pick = () =>
+      selectVisitorToolIds({
+        actions: registry.list(),
+        rankedIds: rankActionIds("add a card 'flaky CI'"),
+        toolId: "retro",
+        historyIds: [obscure],
+      });
+    const before = pick();
+    expect(before).toContain("tool.retro.add_card");
+    goLive();
+    expect(pick()).toEqual(before);
   });
 });
 

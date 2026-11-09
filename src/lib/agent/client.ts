@@ -28,6 +28,7 @@ import {
 import { parseRateLimitHeaders, parseVisitorQuota } from "./rate-limit";
 import { executeToolUse } from "./execute-tool";
 import { buildVisitorTurnTools } from "./visitor-tools";
+import { inLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { appendMessages, recordChatUsage } from "./persist";
 import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "./types";
 
@@ -692,6 +693,12 @@ function visitorEndNote(assistantId: string, finishReason: string | null): strin
   return finishReason === "length" ? "Amr's answer was cut short. Ask him to go on." : null;
 }
 
+/**
+ * Shown when this browser has a visitor live room open and Amr asks for a
+ * tool, or a room opened while he was using them.
+ */
+const LIVE_ROOM_NOTE = "Amr uses no tools while you're in a live room.";
+
 /** The tool id a visitor's request names: a released tool's, never a VIP one. */
 function visitorContextToolId(toolId: string | null | undefined): string | undefined {
   const tool = resolvePageTool(toolId);
@@ -715,6 +722,11 @@ function visitorContextToolId(toolId: string | null | undefined): string | undef
  *    action asks first: autoApprove is never used.
  *  - The history sent is trimVisitorHistory's, and tool results are cut.
  *  - A round that ends with no reply, or a reply cut off, says so.
+ *  - While a visitor live room is open in this browser, in this tab or
+ *    another (lib/realtime/live-visitor-room.ts), no tools are offered and
+ *    none runs: not one offered before the room opened, and not one whose
+ *    confirmation was still waiting. The turn stops there with
+ *    LIVE_ROOM_NOTE. Amr still answers questions.
  */
 async function runVisitorLoop(opts: StreamOptions): Promise<void> {
   const toolId = resolvePageTool(opts.toolId)?.id ?? null;
@@ -758,21 +770,28 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
     // BUG-H1, as for the owner: never run a `_partial` tool_use. And never run
     // a call the next request couldn't carry back: one not offered (invented,
     // or a canvas action), past the per-message count, or with arguments over
-    // the limit. Those leave the history unrun (dropUnrunnableCalls).
-    const toolUses = runnableVisitorCalls(lastAssistant, offered);
+    // the limit. Those leave the history unrun (dropUnrunnableCalls). The same
+    // goes for every call of a reply that arrives once the tab is in a live
+    // room, whatever was offered when the request went out.
+    const live = inLiveVisitorRoom();
+    const toolUses = live ? [] : runnableVisitorCalls(lastAssistant, offered);
     dropUnrunnableCalls(lastAssistant, toolUses);
     if (toolUses.length === 0) {
       // Nothing to run, so nothing to send back: another request would end on
       // the visitor's message and count as a new one. Stop here instead.
       useAgentStore
         .getState()
-        .setError("Amr tried something he can't do here. Try asking another way.");
+        .setError(
+          live ? LIVE_ROOM_NOTE : "Amr tried something he can't do here. Try asking another way."
+        );
       return;
     }
 
     // Either wire form of a name (dotted or underscored) maps to the offered
-    // one. Every call here passes; executeToolUse checks again anyway.
-    const isAllowed = (name: string) => offered.has(claudeNameFromId(name));
+    // one. Every call here passes unless the tab enters a live room meanwhile:
+    // executeToolUse asks again before it runs a call, and once more after a
+    // confirmation, so the answer is the one that holds at that moment.
+    const isAllowed = (name: string) => !inLiveVisitorRoom() && offered.has(claudeNameFromId(name));
     const results: ToolResultBlock[] = [];
     for (const tu of toolUses) {
       const result = await executeToolUse(tu, {
@@ -801,6 +820,14 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
     // Stopped mid-round: every call now has its result (above), so the chat
     // can carry on from here; just don't open another round.
     if (opts.signal?.aborted) return;
+
+    // The tab entered a live room during this round. The next request would
+    // offer no tools, so it would leave this round's calls out and end on the
+    // visitor's message, which counts as a new one. Stop and say why instead.
+    if (inLiveVisitorRoom()) {
+      useAgentStore.getState().setError(LIVE_ROOM_NOTE);
+      return;
+    }
 
     let wedged = false;
     errorRepeats.forEach((n) => {

@@ -19,8 +19,11 @@ import path from "node:path";
  *  - two pure modules of the vote rooms' wire format (validators and
  *    constants, no connection).
  *
- * Canvas actions broadcast to live room peers through the board's store, so
- * they are closed to visitors (`visitor: false`, checked here too).
+ * `visitor: false` is for actions whose effects go beyond the tab on their own.
+ * The canvas actions broadcast to live room peers through the board's store,
+ * so they are closed to visitors (checked here too). A visitor live room is
+ * handled separately: while this browser has one open, in any tab, the
+ * visitor chat offers no actions at all (lib/realtime/live-visitor-room.ts).
  *
  * The scan covers the action folders, define-crud.ts (which builds about 120
  * of the workspace actions) and context.ts, and then one level further: every

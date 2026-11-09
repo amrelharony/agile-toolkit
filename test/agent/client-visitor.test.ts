@@ -14,6 +14,9 @@
  *    and a turn stops after VISITOR_LIMITS.maxToolRounds requests.
  *  - A call runs only when the next request can carry it back; the others
  *    leave the history unrun, so they are never offered through it either.
+ *  - While the browser has a visitor live room open, in this tab or another,
+ *    no tools are sent and no call runs, not even one offered or approved
+ *    just before the room opened.
  *  - Every body the browser posts is one the route accepts: each is run
  *    through the server's own parseVisitorBody (see afterEach).
  *
@@ -38,6 +41,8 @@ const h = vi.hoisted(() => ({
   added: [] as string[],
   wiped: 0,
   bigRead: false,
+  /** Runs when the zorblax read does. */
+  onRead: null as (() => void) | null,
 }));
 
 vi.mock("@/lib/agent/persist", async (importOriginal) => ({
@@ -56,6 +61,11 @@ import {
   sendUserMessage,
   trimVisitorHistory,
 } from "@/lib/agent/client";
+import {
+  LIVE_ROOM_KEY_PREFIX,
+  enterLiveVisitorRoom,
+  inLiveVisitorRoom,
+} from "@/lib/realtime/live-visitor-room";
 import { parseVisitorBody } from "@/lib/visitor-ai/request";
 import { parseVisitorQuota } from "@/lib/agent/rate-limit";
 import { useAgentStore } from "@/lib/agent/store";
@@ -76,7 +86,10 @@ registry.register({
   category: "read",
   description: "Read the zorblax board and its cards.",
   paramsSchema: z.object({}),
-  handler: async () => (h.bigRead ? "x".repeat(20_000) : { cards: h.added }),
+  handler: async () => {
+    h.onRead?.();
+    return h.bigRead ? "x".repeat(20_000) : { cards: h.added };
+  },
 });
 registry.register({
   id: "tool.zorblax.add_card",
@@ -202,6 +215,7 @@ beforeEach(() => {
   h.added = [];
   h.wiped = 0;
   h.bigRead = false;
+  h.onRead = null;
   Object.values(h.persist).forEach((fn) => fn.mockClear());
   h.getAuthBrowserClient.mockClear();
   useAgentStore.getState().reset();
@@ -784,6 +798,270 @@ describe("the visitor's tool calls", () => {
     expect(JSON.stringify(last?.content)).toContain(
       `I used all ${VISITOR_LIMITS.maxToolRounds} tool rounds`
     );
+  });
+});
+
+describe("in a visitor live room", () => {
+  const LIVE_ROOM_NOTE = "Amr uses no tools while you're in a live room.";
+
+  let leaveRoom: (() => void) | null = null;
+  /** What use-room.ts does when a visitor room opens in this tab. */
+  const goLive = () => {
+    if (!leaveRoom) leaveRoom = enterLiveVisitorRoom();
+  };
+  const leave = () => {
+    leaveRoom?.();
+    leaveRoom = null;
+  };
+
+  afterEach(() => {
+    leave();
+    expect(inLiveVisitorRoom()).toBe(false);
+  });
+
+  /** The room opens while the next request is on its way. */
+  function goLiveDuringNextRequest() {
+    const answer = vi.mocked(fetch).getMockImplementation();
+    if (!answer) throw new Error("fetch is not stubbed");
+    vi.mocked(fetch).mockImplementationOnce(async (...args) => {
+      const res = await answer(...args);
+      goLive();
+      return res;
+    });
+  }
+
+  it("sends no tools while the room is open, and Amr still answers", async () => {
+    goLive();
+    queue.push(textTurn("Open the board and type your card."));
+    await askVisitor("add a zorblax card saying hi");
+
+    const body = posts()[0];
+    expect(body.tools).toBeUndefined();
+    expect(Object.keys(body).sort()).toEqual(["context", "messages"]);
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(s.error).toBeNull();
+
+    // The same words bring the tools back once the room has closed.
+    leave();
+    queue.push(textTurn("ok"));
+    await askVisitor("add a zorblax card saying hi");
+    expect(posts()[1].tools?.map((t) => t.function.name)).toContain("tool_zorblax_add_card");
+  });
+
+  // A second tab of the same browser reads the same saved board. It has no
+  // room of its own, only the stamp the room's tab keeps in localStorage.
+  it("sends no tools and runs no call while the room is open in another tab", async () => {
+    const key = `${LIVE_ROOM_KEY_PREFIX}another-tab`;
+    window.localStorage.setItem(key, String(Date.now()));
+    try {
+      queue.push(toolTurn("c1", "tool_zorblax_add_card", { text: "hi" }));
+      await askVisitor("add a zorblax card saying hi");
+
+      expect(posts()[0].tools).toBeUndefined();
+      expect(h.added).toEqual([]);
+      expect(calls).toHaveLength(1);
+      const s = useAgentStore.getState();
+      expect(s.pendingToolUse).toBeNull();
+      expect(s.error).toBe(LIVE_ROOM_NOTE);
+    } finally {
+      window.localStorage.removeItem(key);
+    }
+
+    // The other tab closed its room: the same words bring the tools back.
+    queue.push(textTurn("ok"));
+    await askVisitor("add a zorblax card saying hi");
+    expect(posts()[1].tools?.map((t) => t.function.name)).toContain("tool_zorblax_add_card");
+  });
+
+  it("never runs a call the model makes anyway, and sends nothing more", async () => {
+    goLive();
+    queue.push(toolTurn("c1", "tool_zorblax_add_card", { text: "hi" }));
+    await askVisitor("add a zorblax card saying hi");
+
+    expect(h.added).toEqual([]);
+    expect(calls).toHaveLength(1);
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(s.pendingToolUse).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(s.error).toBe(LIVE_ROOM_NOTE);
+  });
+
+  it("never runs a call offered before the room opened when the reply arrives after", async () => {
+    const read = vi.fn();
+    h.onRead = read;
+    goLiveDuringNextRequest();
+    queue.push(
+      toolsTurn(
+        [
+          { id: "c1", name: "tool_zorblax_read_state" },
+          { id: "c2", name: "tool_zorblax_add_card", args: { text: "hi" } },
+        ],
+        "Let me look."
+      )
+    );
+    await askVisitor("add a zorblax card saying hi");
+
+    // The request went out with its tools: the room was not open yet.
+    expect(
+      posts()[0]
+        .tools?.map((t) => t.function.name)
+        .sort()
+    ).toEqual(["tool_zorblax_add_card", "tool_zorblax_read_state"]);
+    // Neither the read nor the change ran, and no card asks for the change.
+    expect(read).not.toHaveBeenCalled();
+    expect(h.added).toEqual([]);
+    expect(calls).toHaveLength(1);
+    const s = useAgentStore.getState();
+    expect(s.pendingToolUse).toBeNull();
+    expect(s.error).toBe(LIVE_ROOM_NOTE);
+    // The reply's text stays; its calls are gone, so none waits for a result.
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(s.messages.at(-1)?.content).toEqual([{ type: "text", text: "Let me look." }]);
+
+    queue.push(textTurn("A retro looks back at the sprint."));
+    await askVisitor("What is a retro?");
+    expect(posts()[1].tools).toBeUndefined();
+    expect(posts()[1].messages).toEqual([
+      { role: "user", content: "add a zorblax card saying hi" },
+      { role: "assistant", content: "Let me look." },
+      { role: "user", content: "What is a retro?" },
+    ]);
+  });
+
+  it("never runs a change approved after the room opened, nor a later call of that round", async () => {
+    queue.push(
+      toolsTurn([
+        { id: "c1", name: "tool_zorblax_add_card", args: { text: "flaky CI" } },
+        { id: "c2", name: "tool_zorblax_add_card", args: { text: "slow builds" } },
+      ])
+    );
+    const turn = askVisitor("add a zorblax card saying flaky CI");
+    const card = await confirmation();
+    goLive();
+    card.resolve(true);
+    await turn;
+
+    expect(h.added).toEqual([]);
+    expect(calls).toHaveLength(1);
+    const s = useAgentStore.getState();
+    // The second call never asked.
+    expect(s.pendingToolUse).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(s.error).toBe(LIVE_ROOM_NOTE);
+    // Each call has its result, so the chat can carry on from here.
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
+    expect(s.messages.at(-1)?.content).toEqual([
+      {
+        type: "tool_result",
+        tool_use_id: "c1",
+        content: "Tool not available: tool_zorblax_add_card",
+        is_error: true,
+      },
+      {
+        type: "tool_result",
+        tool_use_id: "c2",
+        content: "Tool not available: tool_zorblax_add_card",
+        is_error: true,
+      },
+    ]);
+
+    // In the room the round is left out of the next request.
+    queue.push(textTurn("A retro looks back at the sprint."));
+    await askVisitor("What is a retro?");
+    expect(posts()[1].tools).toBeUndefined();
+    expect(posts()[1].messages.map((m) => m.role)).toEqual(["user", "user"]);
+
+    // After it the round goes back whole: both calls, both results.
+    leave();
+    queue.push(textTurn("ok"));
+    await askVisitor("thanks");
+    expect(posts()[2].messages.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "tool",
+      "tool",
+      "user",
+      "assistant",
+      "user",
+    ]);
+    expect(h.added).toEqual([]);
+  });
+
+  it("opens no further round when the room opened while a read ran", async () => {
+    h.onRead = goLive;
+    queue.push(toolTurn("c1", "tool_zorblax_read_state"));
+    await askVisitor("read my zorblax board");
+
+    // The read had started and can't be taken back; nothing follows it.
+    expect(calls).toHaveLength(1);
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
+    expect(s.streaming).toBe(false);
+    expect(s.error).toBe(LIVE_ROOM_NOTE);
+  });
+
+  it("sends a body the route takes when earlier turns used tools", async () => {
+    // A call alone, then a call with text beside it, both before the room.
+    queue.push(toolTurn("c1", "tool_zorblax_read_state"), textTurn("Your board is empty."));
+    await askVisitor("read my zorblax board");
+    queue.push(
+      toolsTurn(
+        [{ id: "c2", name: "tool_zorblax_add_card", args: { text: "flaky CI" } }],
+        "Adding it now."
+      ),
+      textTurn("Added it.")
+    );
+    const turn = askVisitor("add a zorblax card saying flaky CI");
+    (await confirmation()).resolve(true);
+    await turn;
+    expect(h.added).toEqual(["flaky CI"]);
+    expect(calls).toHaveLength(4);
+
+    goLive();
+    queue.push(textTurn("A retro looks back at the sprint."));
+    await askVisitor("What is a retro?");
+
+    // One request, no tools, no calls and no results: only what was said.
+    expect(calls).toHaveLength(5);
+    const body = posts()[4];
+    expect(body.tools).toBeUndefined();
+    expect(body.messages).toEqual([
+      { role: "user", content: "read my zorblax board" },
+      { role: "assistant", content: "Your board is empty." },
+      { role: "user", content: "add a zorblax card saying flaky CI" },
+      { role: "assistant", content: "Adding it now." },
+      { role: "assistant", content: "Added it." },
+      { role: "user", content: "What is a retro?" },
+    ]);
+    let s = useAgentStore.getState();
+    expect(s.error).toBeNull();
+    expect(s.messages.at(-1)?.content).toEqual([
+      { type: "text", text: "A retro looks back at the sprint." },
+    ]);
+
+    // Words that would act get no tools either.
+    queue.push(textTurn("Not while the room is open."));
+    await askVisitor("read my zorblax board again");
+    expect(calls).toHaveLength(6);
+    expect(posts()[5].tools).toBeUndefined();
+    expect(posts()[5].messages.every((m) => m.role !== "tool" && !("tool_calls" in m))).toBe(true);
+    s = useAgentStore.getState();
+    expect(s.error).toBeNull();
+
+    // The chat kept its calls and results: they go back once the room has closed.
+    leave();
+    queue.push(textTurn("ok"));
+    await askVisitor("thanks");
+    const after = posts()[6];
+    expect(after.tools?.map((t) => t.function.name)).toEqual(
+      expect.arrayContaining(["tool_zorblax_add_card", "tool_zorblax_read_state"])
+    );
+    expect(after.messages.flatMap((m) => (m.role === "tool" ? [m.tool_call_id] : []))).toEqual([
+      "c1",
+      "c2",
+    ]);
   });
 });
 

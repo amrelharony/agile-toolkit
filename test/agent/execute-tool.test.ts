@@ -335,4 +335,122 @@ describe("executeToolUse — isAllowed (only the tools offered this turn)", () =
     expect(res.is_error).toBeUndefined();
     expect(res.content).toContain('"data":"ok"');
   });
+
+  // The visitor chat's answer can change while a card waits: the visitor opens
+  // a live room, then approves. So isAllowed is asked again after the card.
+  describe("asked again after a confirmation", () => {
+    const handler = vi.fn(async (params: { value: string }) => ({ stored: params.value }));
+    const NAME = "__agentexec_slow_confirm";
+
+    beforeEach(() => {
+      handler.mockClear();
+      registry.register({
+        id: "__agentexec.slow_confirm",
+        toolId: "__agentexec",
+        name: "slow_confirm",
+        category: "write",
+        description: "A write whose confirmation waits.",
+        paramsSchema: z.object({ value: z.string() }),
+        handler,
+      });
+    });
+
+    afterEach(() => {
+      registry.unregister("__agentexec.slow_confirm");
+    });
+
+    it("does not run a write that stopped being allowed while its confirmation waited", async () => {
+      let allowed = true;
+      const isAllowed = vi.fn(() => allowed);
+      const confirm = vi.fn(async () => {
+        allowed = false;
+        return true;
+      });
+      const res = await executeToolUse(block(NAME, { value: "x" }), {
+        userId: TEST_USER,
+        confirm,
+        autoApprove: false,
+        forceConfirmWrites: true,
+        isAllowed,
+      });
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(isAllowed).toHaveBeenCalledTimes(2);
+      expect(res).toEqual({
+        type: "tool_result",
+        tool_use_id: "tu_test",
+        content: `Tool not available: ${NAME}`,
+        is_error: true,
+      });
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("runs an approved write that is still allowed, having asked twice", async () => {
+      const isAllowed = vi.fn(() => true);
+      const res = await executeToolUse(block(NAME, { value: "x" }), {
+        userId: TEST_USER,
+        confirm: vi.fn().mockResolvedValue(true),
+        autoApprove: false,
+        forceConfirmWrites: true,
+        isAllowed,
+      });
+      expect(isAllowed).toHaveBeenCalledTimes(2);
+      expect(isAllowed).toHaveBeenLastCalledWith(NAME);
+      expect(res.is_error).toBeUndefined();
+      expect(res.content).toContain('"stored":"x"');
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("still reports a denial as a denial, whatever is allowed by then", async () => {
+      let allowed = true;
+      const isAllowed = vi.fn(() => allowed);
+      const confirm = vi.fn(async () => {
+        allowed = false;
+        return false;
+      });
+      const res = await executeToolUse(block(NAME, { value: "x" }), {
+        userId: TEST_USER,
+        confirm,
+        autoApprove: false,
+        isAllowed,
+      });
+      expect(res.is_error).toBe(true);
+      expect(res.content).toContain("User denied");
+      expect(isAllowed).toHaveBeenCalledTimes(1);
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("asks once when no confirmation was shown", async () => {
+      const isAllowed = vi.fn(() => true);
+      const confirm = vi.fn().mockResolvedValue(true);
+      await executeToolUse(block("__agentexec_read_only"), {
+        userId: TEST_USER,
+        confirm,
+        autoApprove: false,
+        forceConfirmWrites: true,
+        isAllowed,
+      });
+      await executeToolUse(block(NAME, { value: "x" }), {
+        userId: TEST_USER,
+        confirm,
+        autoApprove: true,
+        isAllowed,
+      });
+      expect(confirm).not.toHaveBeenCalled();
+      expect(isAllowed).toHaveBeenCalledTimes(2);
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("changes nothing without isAllowed (the owner's chat): an approved write runs", async () => {
+      const confirm = vi.fn().mockResolvedValue(true);
+      const res = await executeToolUse(block(NAME, { value: "x" }), {
+        userId: TEST_USER,
+        confirm,
+        autoApprove: false,
+      });
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(res.is_error).toBeUndefined();
+      expect(res.content).toContain('"stored":"x"');
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+  });
 });
