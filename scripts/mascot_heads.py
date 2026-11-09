@@ -49,41 +49,61 @@ def erode(m: np.ndarray, r: int) -> np.ndarray:
 
 
 def components(m: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
-    """(ys, xs) of each 4-connected component of m, biggest first."""
-    H, W = m.shape
-    seen = np.zeros_like(m)
-    out = []
-    for y0, x0 in zip(*np.nonzero(m)):
-        if seen[y0, x0]:
-            continue
-        seen[y0, x0] = True
-        stack, ys, xs = [(y0, x0)], [], []
-        while stack:
-            y, x = stack.pop()
-            ys.append(y)
-            xs.append(x)
-            for yy, xx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
-                if 0 <= yy < H and 0 <= xx < W and m[yy, xx] and not seen[yy, xx]:
-                    seen[yy, xx] = True
-                    stack.append((yy, xx))
-        out.append((np.array(ys), np.array(xs)))
+    """(ys, xs) of each 4-connected component of m, biggest first.
+
+    Works on each row's runs, not on single pixels: runs that overlap from one row
+    to the next are joined (union-find), which is a few thousand steps for a cell
+    where a pixel-by-pixel fill is a few hundred thousand."""
+    H = m.shape[0]
+    d = np.diff(np.pad(m.astype(np.int8), ((0, 0), (1, 1))), axis=1)
+    rs, cs = np.nonzero(d == 1)  # each run's row and first column, row by row
+    ce = np.nonzero(d == -1)[1]  # and the column after its last
+    n = len(rs)
+    if n == 0:
+        return []
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    first = np.searchsorted(rs, np.arange(H + 1)).tolist()  # each row's first run
+    start, end = cs.tolist(), ce.tolist()
+    for r in range(1, H):
+        i, i_end, j, j_end = first[r - 1], first[r], first[r], first[r + 1]
+        while i < i_end and j < j_end:
+            if start[i] < end[j] and start[j] < end[i]:
+                a, b = find(i), find(j)
+                if a != b:
+                    parent[b] = a
+            if end[i] < end[j]:
+                i += 1
+            else:
+                j += 1
+    roots = np.array([find(i) for i in range(n)])
+    lens = ce - cs
+    total = int(lens.sum())
+    ys = np.repeat(rs, lens)
+    xs = np.repeat(cs, lens) + (np.arange(total) - np.repeat(np.cumsum(lens) - lens, lens))
+    root = np.repeat(roots, lens)
+    order = np.argsort(root, kind="stable")
+    ys, xs, root = ys[order], xs[order], root[order]
+    cuts = np.nonzero(np.diff(root))[0] + 1
+    out = list(zip(np.split(ys, cuts), np.split(xs, cuts)))
     out.sort(key=lambda c: -len(c[0]))
     return out
 
 
 def fill_holes(m: np.ndarray) -> np.ndarray:
-    pad = np.pad(~m, 1, constant_values=True)
-    H, W = pad.shape
-    reach = np.zeros_like(pad)
-    reach[0, 0] = True
-    stack = [(0, 0)]
-    while stack:
-        y, x = stack.pop()
-        for yy, xx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
-            if 0 <= yy < H and 0 <= xx < W and pad[yy, xx] and not reach[yy, xx]:
-                reach[yy, xx] = True
-                stack.append((yy, xx))
-    return ~reach[1:-1, 1:-1]
+    """m with every hole filled: the clear patches that don't reach the edge."""
+    H, W = m.shape
+    out = m.copy()
+    for ys, xs in components(~m):
+        if ys.min() > 0 and xs.min() > 0 and ys.max() < H - 1 and xs.max() < W - 1:
+            out[ys, xs] = True
+    return out
 
 
 def _mask(comp, shape) -> np.ndarray:
@@ -302,8 +322,9 @@ def skin_weights(cell: Image.Image, face_lab, seg: dict | None = None) -> np.nda
     return np.where(keep, 1.0, w * loose)
 
 
-def shift_skin(img: Image.Image, weights: np.ndarray, delta) -> Image.Image:
-    """img with its skin moved by `delta` (in Lab), each pixel by its weight."""
+def shift_lab(img: Image.Image, weights: np.ndarray, delta) -> Image.Image:
+    """img with its colour moved by `delta` (in Lab), each pixel by its weight: his
+    skin, his hair or a garment, whichever the weights pick out."""
     a = np.array(img.convert("RGBA")).astype(np.float64)
     if weights.shape != a.shape[:2]:  # a 1x image takes the 2x weights, averaged
         h, w = a.shape[:2]
@@ -312,6 +333,189 @@ def shift_skin(img: Image.Image, weights: np.ndarray, delta) -> Image.Image:
     lab += weights[..., None] * np.asarray(delta, float)
     a[..., :3] = np.where(weights[..., None] > 0, lab_to_srgb(lab), a[..., :3])
     return Image.fromarray(np.clip(a + 0.5, 0, 255).astype(np.uint8), "RGBA")
+
+
+# ---------- his clothes ----------
+# The generated sheets grade his clothes as they graded his skin: next to the live
+# sprite his shirt is about 13 points darker and yellower, his trousers 8 darker
+# and pinker, his shoes grey rather than near-black. Each is found by its colour
+# and by where it sits on him, so the plant he holds and the box at his feet stay
+# as drawn.
+
+GARMENTS = ("shirt", "trousers", "shoes")
+# The fewest pixels (at 2x) that count as the garment showing.
+GARMENT_MIN = {"shirt": 1500, "trousers": 1500, "shoes": 250}
+
+
+def _similar(lab: np.ndarray, comps, first: int, least: int, da: float, db: float) -> np.ndarray:
+    """The biggest component (`comps[first]`) and every other one coloured like it:
+    a sleeve cut off by a prop, the second leg."""
+    out = np.zeros(lab.shape[:2], bool)
+    if len(comps) <= first:
+        return out
+    ys, xs = comps[first]
+    med = np.median(lab[ys, xs], 0)
+    out[ys, xs] = True
+    for ys, xs in comps[first + 1:]:
+        if len(ys) < least:
+            break  # biggest first: the rest are smaller still
+        m = np.median(lab[ys, xs], 0)
+        if abs(m[1] - med[1]) < da and abs(m[2] - med[2]) < db:
+            out[ys, xs] = True
+    return out
+
+
+# His skin's a and b once the builder has matched it to the live sprite: what the
+# khaki of his trousers is told apart from.
+SKIN_AB = (21.0, 35.6)
+
+
+def garments(cell: Image.Image, skin: np.ndarray | None = None) -> dict:
+    """His shirt, trousers and shoes in a 2x cell: {name: mask}, each left out when
+    it doesn't show (too few pixels). `skin` is a mask of what is known to be his
+    skin (the builder's skin weights): it is never taken for his trousers."""
+    a = np.array(cell.convert("RGBA")).astype(np.float64)
+    rgb, al = a[..., :3], a[..., 3]
+    fig = al > 128
+    if not fig.any():
+        return {}
+    if skin is not None:
+        fig = fig & ~skin
+    lab = srgb_to_lab(rgb)
+    L, A, B = lab[..., 0], lab[..., 1], lab[..., 2]
+    out = {}
+
+    # Shirt: yellow-green, lit or in a fold. A bush, a watering can or a leaf held
+    # against it is a bluer green (a under -25 where the shirt's is about -14): left
+    # in, a bush bigger than the shirt showing round it was taken for the shirt.
+    # What's left of a prop joins the shirt's patch as specks, so each pixel must
+    # be near the shirt's own colour too.
+    green = fig & (A < -5) & (A > -25) & (B > 20) & (L > 25)
+    comps = components(erode(green, 1))
+    shirt = dilate(_similar(lab, comps, 0, 300, 8, 12), 1) & green
+    if shirt.any():
+        med = np.median(lab[shirt], 0)
+        shirt &= (np.abs(A - med[1]) < 13) & (np.abs(B - med[2]) < 20)
+    if shirt.sum() >= GARMENT_MIN["shirt"]:
+        out["shirt"] = shirt
+    shirt_row = float(np.nonzero(shirt)[0].mean()) if shirt.any() else None
+
+    # Trousers: khaki, below his chest (a loaf or a box held up there is the same
+    # colour). Some sheets draw them nearly as pink as his skin, and his hands rest
+    # in his pockets, so the khaki is read off his shins first, where no skin
+    # shows, and a pixel is trousers when it is nearer that than his skin.
+    rows = np.nonzero(fig.any(1))[0]
+    top, bot = int(rows[0]), int(rows[-1])
+    dark = _dark(a)
+    warm = fig & ~dark & (L > 45) & (A > -4) & (A < 24) & (B > 6) & (B < 46)
+    shins = warm.copy()
+    shins[:int(top + 0.72 * (bot - top))] = False
+    centre = np.median(lab[shins], 0) if shins.sum() >= 400 else None
+    if centre is None or not (55 < centre[0] < 92 and -2 < centre[1] < 19 and 12 < centre[2] < 42):
+        centre = np.array([79.0, 9.0, 28.0])  # the sheets' usual khaki
+    to_khaki = np.hypot(A - centre[1], B - centre[2])
+    to_skin = np.hypot(A - SKIN_AB[0], B - SKIN_AB[1])
+    khaki = warm & (L > 50) & (to_khaki < to_skin) & (to_khaki < 11)
+    comps = [c for c in components(erode(khaki, 1))
+             if len(c[0]) >= 300 and (shirt_row is None or c[0].mean() > shirt_row)]
+    trousers = dilate(_similar(lab, comps, 0, 300, 5, 8), 1) & khaki
+    if trousers.any():
+        # Its folds are darker and redder than the rule allows and would be left
+        # behind as specks: take in what lies in or right beside the patch and is
+        # nearer the khaki than his skin.
+        med = np.median(lab[trousers], 0)
+        to_khaki = np.hypot(A - med[1], B - med[2])
+        to_skin = np.hypot(A - SKIN_AB[0], B - SKIN_AB[1])
+        fold = fig & (L > 36) & (A > -4) & (A < 20) & (B > 6) & (B < 46) & (to_khaki < to_skin)
+        trousers |= fold & (dilate(trousers, 3) | fill_holes(trousers))
+    if trousers.sum() >= GARMENT_MIN["trousers"]:
+        out["trousers"] = trousers
+        # Shoes: the near-black at the end of each leg. His belt touches his
+        # trousers too, but from above.
+        t_rows = np.nonzero(trousers)[0]
+        low = float(np.percentile(t_rows, 70))
+        near = dilate(trousers, 4)
+        shoes = np.zeros_like(fig)
+        for ys, xs in components(dilate(erode(dark, 1), 1) & dark):
+            n = len(ys)
+            if n < 120:
+                break
+            if n <= 6000 and ys.mean() > low and near[ys, xs].any():
+                shoes[ys, xs] = True
+        if shoes.sum() >= GARMENT_MIN["shoes"]:
+            out["shoes"] = shoes
+    return out
+
+
+def garment_lab(cell: Image.Image, mask: np.ndarray):
+    """A garment's median Lab, away from its outline."""
+    lab = srgb_to_lab(np.array(cell.convert("RGBA")).astype(np.float64)[..., :3])
+    inner = erode(mask, 1)
+    m = inner if inner.sum() >= 150 else mask
+    return np.median(lab[m], 0)
+
+
+def garment_weights(cell: Image.Image, mask: np.ndarray, name: str) -> np.ndarray:
+    """How much each pixel of a 2x cell is that garment (0..1): the mask, with a soft
+    edge that only reaches pixels of the garment's own colour family, so his hands,
+    his lanyard and the outline between them stay put."""
+    a = np.array(cell.convert("RGBA")).astype(np.float64)
+    rgb, al = a[..., :3], a[..., 3]
+    lab = srgb_to_lab(rgb)
+    if name == "shirt":
+        loose = (lab[..., 1] < 0) & (lab[..., 2] > 12)
+    elif name == "trousers":
+        loose = (lab[..., 0] > 40) & (lab[..., 1] > -4) & (lab[..., 1] < 17) & (lab[..., 2] > 8)
+    else:
+        loose = _dark(a) | ((rgb.max(-1) < 110) & (rgb.max(-1) - rgb.min(-1) < 50))
+    w = mask.astype(np.float64)
+    for _ in range(2):
+        p = np.pad(w, 1, mode="edge")
+        w = sum(p[1 + dy:1 + dy + w.shape[0], 1 + dx:1 + dx + w.shape[1]] for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9
+    return np.where(mask, 1.0, w * (loose & (al > 0)))
+
+
+# ---------- how sharp he is ----------
+
+def detail(cell: Image.Image) -> float | None:
+    """How much fine detail a cell carries: the mean |Laplacian| of its lightness,
+    well inside the figure (the outline against the page isn't detail). Compare two
+    cells drawn at the same size only."""
+    a = np.array(cell.convert("RGBA")).astype(np.float64)
+    L = srgb_to_lab(a[..., :3])[..., 0]
+    inner = erode(a[..., 3] > 200, 3)
+    if inner.sum() < 400:
+        return None
+    lap = np.abs(4 * L[1:-1, 1:-1] - L[:-2, 1:-1] - L[2:, 1:-1] - L[1:-1, :-2] - L[1:-1, 2:])
+    return float(lap[inner[1:-1, 1:-1]].mean())
+
+
+def sharpen(cell: Image.Image, amount: float, radius: float = 1.0) -> Image.Image:
+    """cell with an unsharp mask of `amount` on its colour. The figure's colour is
+    first carried a few pixels out past its outline, so the blur never mixes in the
+    black under the transparent pixels and no halo grows at his edge; alpha is kept."""
+    if amount <= 0:
+        return cell
+    from PIL import ImageFilter
+
+    a = np.array(cell.convert("RGBA")).astype(np.float64)
+    rgb, al = a[..., :3].copy(), a[..., 3]
+    known = al > 0
+    for _ in range(int(np.ceil(radius * 3)) + 1):  # bleed the edge colours outward
+        p = np.pad(rgb * known[..., None], ((1, 1), (1, 1), (0, 0)))
+        k = np.pad(known.astype(np.float64), 1)
+        H, W = known.shape
+        s = sum(p[1 + dy:1 + dy + H, 1 + dx:1 + dx + W] for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+        n = sum(k[1 + dy:1 + dy + H, 1 + dx:1 + dx + W] for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+        grow = ~known & (n > 0)
+        rgb[grow] = s[grow] / n[grow][:, None]
+        known = known | grow
+    flat = Image.fromarray(np.clip(rgb + 0.5, 0, 255).astype(np.uint8), "RGB")
+    blur = np.array(flat.filter(ImageFilter.GaussianBlur(radius))).astype(np.float64)
+    out = a.copy()
+    out[..., :3] = np.clip(rgb + amount * (rgb - blur), 0, 255)
+    out[al == 0] = 0
+    return Image.fromarray(np.clip(out + 0.5, 0, 255).astype(np.uint8), "RGBA")
 
 
 # ---------- shaping the hair ----------

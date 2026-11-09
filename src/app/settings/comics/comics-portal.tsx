@@ -15,7 +15,9 @@ import {
 } from "@/lib/comics/draft-store";
 import type { OwnerStory } from "@/lib/comics/story-input";
 import { EntriesView } from "./entries-view";
+import { InsightsView } from "./insights-view";
 import { ExtrasEditor } from "./extras-editor";
+import { GuessEditor } from "./guess-editor";
 import { GuestbookView } from "./guestbook-view";
 import { LicenceView } from "./licence-view";
 import { errorMessage, portalApi, type GuestbookNoteRow, type LicenceRequest } from "./portal-api";
@@ -23,7 +25,7 @@ import { ReviewView, reviewQueue } from "./review-view";
 import { StoriesView } from "./stories-view";
 import { LEAVE_WHILE_UPLOADING, StoryEditor } from "./story-editor";
 
-type View = "stories" | "editor" | "review" | "entries" | "licence" | "guestbook";
+type View = "stories" | "editor" | "review" | "entries" | "insights" | "licence" | "guestbook";
 
 export const PORTAL_SIGN_IN_HREF = `/auth/sign-in?next=${encodeURIComponent("/settings/comics")}`;
 
@@ -90,6 +92,9 @@ export function ComicsPortal() {
   const [notes, setNotes] = useState<GuestbookNoteRow[] | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
   const [unsaved, setUnsaved] = useState<DraftKey[]>([]);
+  // Bumped when a guess is saved: the quiz-and-tool form reloads (approving a
+  // draft can set the tool) and the story list rereads which drafts still wait.
+  const [guessRound, setGuessRound] = useState(0);
   /** The open form has pictures in hand, which stop if it closes. */
   const uploading = useRef(false);
   const setUploading = useCallback((active: boolean) => {
@@ -229,6 +234,9 @@ export function ComicsPortal() {
         <ViewButton active={view === "entries"} onClick={() => setView("entries")}>
           Entries
         </ViewButton>
+        <ViewButton active={view === "insights"} onClick={() => setView("insights")}>
+          Insights
+        </ViewButton>
         <ViewButton active={view === "licence"} onClick={() => setView("licence")}>
           Licence requests
           {unhandled > 0 ? (
@@ -262,6 +270,7 @@ export function ComicsPortal() {
           onEdit={openEditor}
           onStories={setStories}
           onRetry={refreshStories}
+          guessRound={guessRound}
         />
       </div>
       {/* Hidden, not unmounted: visiting another view can't lose what's typed. */}
@@ -281,7 +290,19 @@ export function ComicsPortal() {
           />
           {/* Outside the story's form, and only once it has a number to save under. */}
           {editing.ep !== null ? (
-            <ExtrasEditor key={editing.ep} ep={editing.ep} verified={isOwner} />
+            <>
+              <GuessEditor
+                key={`guess-${editing.ep}`}
+                ep={editing.ep}
+                verified={isOwner}
+                onSaved={() => setGuessRound((round) => round + 1)}
+              />
+              <ExtrasEditor
+                key={`extras-${editing.ep}-${guessRound}`}
+                ep={editing.ep}
+                verified={isOwner}
+              />
+            </>
           ) : null}
         </div>
       ) : null}
@@ -294,6 +315,7 @@ export function ComicsPortal() {
         />
       ) : null}
       {view === "entries" ? <EntriesView enabled={isOwner} /> : null}
+      {view === "insights" ? <InsightsView enabled={isOwner} /> : null}
       {view === "licence" ? (
         <LicenceView requests={requests} loadError={requestsError} onChanged={refreshRequests} />
       ) : null}

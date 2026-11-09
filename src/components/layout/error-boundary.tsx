@@ -1,6 +1,8 @@
 "use client";
 
 import { Component, type ReactNode } from "react";
+import { InkArt } from "@/components/ink/ink-art";
+import { ERROR_SCENE } from "@/lib/ink/drawings/scenes/error";
 
 interface Props {
   /** Human-readable name shown in dev when the boundary catches. */
@@ -50,9 +52,14 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div
           role="alert"
-          className="min-h-screen flex items-center justify-center p-6 bg-bg text-text"
+          className="min-h-screen-dvh flex items-center justify-center p-6 bg-bg text-text"
         >
           <div className="max-w-md text-center space-y-3">
+            <InkArt
+              drawing={ERROR_SCENE}
+              pace={1300}
+              className="mx-auto aspect-[16/10] w-full max-w-[16rem]"
+            />
             <h1 className="text-xl font-display font-bold">Something went wrong</h1>
             <p className="text-sm text-sub">
               The page hit an unexpected error. Your data is saved locally; nothing was lost.

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import type { StudyCard } from "@/lib/comics/types";
+import { useSwipe } from "../components/use-swipe";
 
 /** A fresh order, without touching the one it came from. */
 function shuffled<T>(items: readonly T[]): T[] {
@@ -20,7 +21,8 @@ function shuffled<T>(items: readonly T[]): T[] {
 /**
  * The stories as flashcards: the title first, then the lesson and the question
  * to ask the team. One at a time, turned with a button, so it reads the same to
- * a screen reader as to everyone else. Nothing is kept.
+ * a screen reader as to everyone else. On a touch screen a sideways swipe on
+ * the card moves too. Nothing is kept.
  */
 export function FlashcardDeck({ cards }: { cards: readonly StudyCard[] }) {
   const [deck, setDeck] = useState<readonly StudyCard[]>(cards);
@@ -39,18 +41,32 @@ export function FlashcardDeck({ cards }: { cards: readonly StudyCard[] }) {
     if (was === "previous" && at === 0) next.current?.focus();
   }, [at, deck.length]);
 
-  const card = deck[at];
-  if (!card) return null;
-
   const go = (to: number, by?: "previous" | "next") => {
     pressed.current = by ?? null;
     setAt(to);
     setTurned(false);
   };
 
+  // A swipe on the card is a shortcut for a touch screen; the buttons below stay
+  // the way for everyone, so focus isn't moved, unless it's on a button the
+  // swipe is about to disable (a tapped button keeps focus on Android): then it
+  // goes to the other one, as a press would hand it.
+  const swipe = useSwipe((step) => {
+    const to = at + step;
+    if (to < 0 || to >= deck.length) return;
+    const focused = document.activeElement;
+    go(
+      to,
+      focused === next.current ? "next" : focused === previous.current ? "previous" : undefined
+    );
+  });
+
+  const card = deck[at];
+  if (!card) return null;
+
   return (
     <section aria-label="Flashcards" className="max-w-2xl space-y-4">
-      <Card>
+      <Card {...swipe}>
         <CardContent className="min-h-56 space-y-3 p-6 sm:p-8">
           <Eyebrow>
             Card {at + 1} of {deck.length} · Episode {card.ep}
@@ -75,8 +91,15 @@ export function FlashcardDeck({ cards }: { cards: readonly StudyCard[] }) {
           </div>
         </CardContent>
       </Card>
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="toolkit" onClick={() => setTurned((t) => !t)}>
+      {/* On a phone a wrapping row split Previous from Next: there the turn
+          button and Shuffle take a row each, with the pair side by side between. */}
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        <Button
+          type="button"
+          variant="toolkit"
+          className="col-span-2"
+          onClick={() => setTurned((t) => !t)}
+        >
           <RotateCcw aria-hidden="true" />
           {turned ? "Back to the title" : "Show the lesson"}
         </Button>
@@ -103,6 +126,7 @@ export function FlashcardDeck({ cards }: { cards: readonly StudyCard[] }) {
         <Button
           type="button"
           variant="ghost"
+          className="col-span-2"
           onClick={() => {
             setDeck(shuffled(cards));
             go(0);

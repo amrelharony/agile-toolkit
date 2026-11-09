@@ -77,7 +77,7 @@ import {
   restoreStory,
   type StoryDraft,
 } from "./stories";
-import { StoryQueueItem } from "./story-queue-item";
+import { ICON_TOUCH_TARGET, StoryQueueItem } from "./story-queue-item";
 
 interface Props {
   session: Session;
@@ -398,7 +398,9 @@ export function SessionScreen({
     onUpdateSession((s) => appendStories(s, added));
     announce(`Added ${added.length} stories.`);
     if (pasted.dropped > 0) {
+      // One toast: a second paste updates it in place.
       toast.info(`Added ${added.length} stories.`, {
+        id: "poker-paste",
         description: `${leftOutMessage(pasted.dropped)} ${
           cap < PASTE_LINE_CAP ? QUEUE_FULL : `One paste adds up to ${PASTE_LINE_CAP}.`
         }`,
@@ -668,7 +670,10 @@ export function SessionScreen({
         />
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
+      {/* minmax(0,…) on the phone column too: an implicit auto track grows to
+          the widest nowrap text (a long participant name), pushing every
+          session card past the screen edge instead of letting it truncate. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
         <div className="flex flex-col gap-5">
           {currentStory ? (
             <Card className="border-border bg-surface">
@@ -1127,7 +1132,7 @@ export function SessionScreen({
                     tooltip={false}
                     variant="danger-ghost"
                     onClick={() => removeTeamPlayer(p)}
-                    className="-my-1 h-7 w-7 shrink-0"
+                    className={`-my-1 h-7 w-7 shrink-0 ${ICON_TOUCH_TARGET}`}
                   />
                 )}
                 {!facilitating &&
@@ -1141,7 +1146,7 @@ export function SessionScreen({
                       tooltip={false}
                       variant="danger-ghost"
                       onClick={() => setRemoveTarget(p)}
-                      className="-my-1 h-7 w-7 shrink-0"
+                      className={`-my-1 h-7 w-7 shrink-0 ${ICON_TOUCH_TARGET}`}
                     />
                   )}
               </div>

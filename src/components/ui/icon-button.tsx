@@ -18,10 +18,18 @@ export interface IconButtonProps extends Omit<ButtonProps, "children" | "aria-la
 }
 
 /**
+ * The WCAG 2.5.8 floor (24×24 px), only where the base sizes shrink: md+ with
+ * a mouse. A plain `min-h-6` would make tailwind-merge drop the `icon` size's
+ * `min-h-[44px]`, leaving every icon button 24×24 on phones.
+ */
+const FLOOR = "md-fine:min-h-6 md-fine:min-w-6";
+
+/**
  * Icon-only button with a required accessible name.
  *
- * At least 24×24 px everywhere (WCAG 2.5.8) and 44×44 px on touch screens
- * via the base Button's `icon` size.
+ * 44×44 px on touch screens and below md (the base Button's `icon` size), and
+ * at least 24×24 px with a mouse on md+ (WCAG 2.5.8), however small a call
+ * site's `md:h-*` makes it.
  */
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
   ({ label, icon, tooltip = true, variant = "ghost", size = "icon", className, ...props }, ref) => {
@@ -32,7 +40,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         variant={variant}
         size={size}
         aria-label={label}
-        className={cn("min-h-6 min-w-6", className)}
+        className={cn(FLOOR, className)}
         {...props}
       >
         {icon}

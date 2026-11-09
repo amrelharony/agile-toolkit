@@ -6,6 +6,8 @@
 
 import type { MonthSummary } from "@/lib/comics/entries-summary";
 import type { StoryExtras } from "@/lib/comics/extras";
+import type { GuessDraft, StoryGuess } from "@/lib/comics/guess";
+import type { InsightStory, TapRow, TotalRow, WeekRow } from "@/lib/comics/insights";
 import type { ScheduledRelease } from "@/lib/comics/queue";
 import type { OwnerStory, StoredPanel, StoryFields } from "@/lib/comics/story-input";
 import {
@@ -43,6 +45,10 @@ const MESSAGES: Readonly<Record<string, string>> = {
   not_found: "That's gone. Reload the page to see the latest.",
   extras_unavailable:
     "Quizzes and a story's own tool need migration 0033, which hasn't been applied yet.",
+  guess_unavailable:
+    "The guess and Try it this week need migration 0035, which hasn't been applied yet.",
+  insights_unavailable:
+    "Insights and the print shortlist need migration 0036, which hasn't been applied yet.",
 };
 
 async function call<T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> {
@@ -83,6 +89,19 @@ const stories = "/api/comics/stories";
 
 export type StoryBody = Partial<StoryFields> & { ep?: number };
 
+export interface GuessResponse {
+  guess: StoryGuess | null;
+  tryAction: string | null;
+  draft: GuessDraft | null;
+}
+
+export interface GuessSave {
+  guess: StoryGuess | null;
+  tryAction: string | null;
+  /** Only when approving a draft that suggested a tool. */
+  tryTool?: string | null;
+}
+
 export const portalApi = {
   listStories: () => call<{ stories: OwnerStory[] }>(stories),
   createStory: (json: StoryBody) => call<{ story: OwnerStory }>(stories, { method: "POST", json }),
@@ -110,11 +129,26 @@ export const portalApi = {
     }),
   entries: (months: number) =>
     call<{ months: number; summary: MonthSummary[] }>(`/api/comics/entries?months=${months}`),
+  insights: () =>
+    call<{ stories: InsightStory[]; totals: TotalRow[]; weeks: WeekRow[]; taps: TapRow[] }>(
+      "/api/comics/insights"
+    ),
+  setShortlist: (ep: number, on: boolean) =>
+    call<{ ep: number; shortlisted: boolean }>(`${stories}/${ep}/shortlist`, {
+      method: "PUT",
+      json: { on },
+    }),
   licenceRequests: () =>
     call<{ requests: LicenceRequest[]; unhandled: number }>("/api/comics/licence-requests"),
   markHandled: (id: string, handled: boolean) =>
     call(`/api/comics/licence-requests/${id}`, { method: "PATCH", json: { handled } }),
   deleteRequest: (id: string) => call(`/api/comics/licence-requests/${id}`, { method: "DELETE" }),
+  storyGuess: (ep: number) => call<GuessResponse>(`${stories}/${ep}/guess`),
+  saveGuess: (ep: number, json: GuessSave) =>
+    call<GuessResponse>(`${stories}/${ep}/guess`, { method: "PUT", json }),
+  guessDrafts: () => call<{ eps: number[] }>("/api/comics/guess-drafts"),
+  leaveGuessDraft: (ep: number, json: GuessDraft) =>
+    call<{ saved: boolean }>(`${stories}/${ep}/guess`, { method: "POST", json }),
   storyExtras: (ep: number) => call<{ extras: StoryExtras }>(`${stories}/${ep}/extras`),
   saveExtras: (ep: number, json: StoryExtras) =>
     call<{ extras: StoryExtras }>(`${stories}/${ep}/extras`, { method: "PUT", json }),

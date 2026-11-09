@@ -8,7 +8,7 @@ import { everReleased, publishProblems, unreviewedPanels, type OwnerStory } from
 const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
 const RELEASE_HOUR_UTC = 7;
-const MONDAY = 1;
+const SUNDAY = 0;
 
 /** Episodes that go out together on launch day. */
 export const LAUNCH_EPS = [27, 28, 29, 30] as const;
@@ -26,13 +26,13 @@ export function releaseSlot(date: string): Date | null {
   return slot.getUTCMonth() === month - 1 && slot.getUTCDate() === day ? slot : null;
 }
 
-/** The first Monday 07:00 UTC strictly after `after`. */
-export function nextMondaySlot(after: Date): Date {
+/** The first Sunday 07:00 UTC strictly after `after`. */
+export function nextSundaySlot(after: Date): Date {
   const slot = new Date(
     Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate(), RELEASE_HOUR_UTC)
   );
-  const toMonday = (MONDAY - slot.getUTCDay() + 7) % 7;
-  slot.setUTCDate(slot.getUTCDate() + toMonday);
+  const toSunday = (SUNDAY - slot.getUTCDay() + 7) % 7;
+  slot.setUTCDate(slot.getUTCDate() + toSunday);
   if (slot.getTime() <= after.getTime()) slot.setUTCDate(slot.getUTCDate() + 7);
   return slot;
 }
@@ -43,7 +43,7 @@ export interface ScheduledRelease {
 }
 
 /**
- * Launch-day episodes get that date, then one per Monday in number order. Null
+ * Launch-day episodes get that date, then one per Sunday in number order. Null
  * if the date isn't a real one. Numbers are sorted here, so the caller's order
  * can't put a later story ahead of an earlier one.
  */
@@ -61,7 +61,7 @@ export function scheduleQueue(
       plan.push({ ep, releaseAt: launch.toISOString() });
       continue;
     }
-    last = nextMondaySlot(last);
+    last = nextSundaySlot(last);
     plan.push({ ep, releaseAt: last.toISOString() });
   }
   return plan;

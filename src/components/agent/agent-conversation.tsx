@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAgentStore } from "@/lib/agent/store";
+import { toolIdForPath } from "@/lib/agent/page-tool";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { sendUserMessage, abortInFlight, generateTitle } from "@/lib/agent/client";
 import {
@@ -113,7 +114,8 @@ export function AgentConversation() {
       return;
     }
     setInput("");
-    const toolId = inferToolId(pathname);
+    // The registry's id for this page's tool (a sub-page counts), or null.
+    const toolId = toolIdForPath(pathname);
     // Ensure a persisted conversation exists so the thread survives reload.
     let convId = useAgentStore.getState().activeConversationId;
     if (!convId) {
@@ -232,7 +234,9 @@ export function AgentConversation() {
         </form>
         {voice.error && <p className="mt-1.5 text-xs text-destructive">{voice.error}</p>}
         <p className="text-xs text-sub mt-1.5">
-          Enter to send · Shift+Enter for newline · Write actions ask for confirmation
+          {/* Key hints mean nothing on a touch screen; the safety note stays. */}
+          <span className="pointer-coarse:hidden">Enter to send · Shift+Enter for newline · </span>
+          Write actions ask for confirmation
         </p>
       </div>
     </div>
@@ -296,11 +300,4 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       </div>
     </div>
   );
-}
-
-function inferToolId(pathname: string | null): string | null {
-  if (!pathname) return null;
-  // /planning-poker → "planning-poker"; / → null
-  const m = pathname.match(/^\/([a-z0-9-]+)(?:\/|$)/);
-  return m ? m[1] : null;
 }

@@ -19,7 +19,11 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background data-[placeholder]:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+      // On touch the trigger is at least 44 px tall. A min-height, not h-11:
+      // call sites shrink it with responsive heights (xs:h-7, sm:h-7) that
+      // Tailwind emits after the pointer variant, and a min-height outlasts
+      // any height. Desktop keeps h-9 and every caller's own height.
+      "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background data-[placeholder]:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:min-h-11 [&>span]:line-clamp-1",
       className
     )}
     {...props}
@@ -68,9 +72,15 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        "relative z-modal max-h-[--radix-select-content-available-height] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-select-content-transform-origin]",
+        // Never wider than the screen: without a cap the list grows to its
+        // longest option (443 px for the comics Theme filter on a 360 px
+        // phone) and Radix can only push it off the right edge. Capped, the
+        // options wrap instead (SelectItem).
+        "relative z-modal max-h-[--radix-select-content-available-height] min-w-[8rem] max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-select-content-transform-origin]",
+        // The popper also knows the room left beside its collision padding;
+        // the fallback caps the first measure, before Radix has set it.
         position === "popper" &&
-          "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+          "max-w-[min(var(--radix-select-content-available-width,100vw),calc(100vw-1rem))] data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className
       )}
       position={position}
@@ -111,7 +121,11 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent/10 focus:text-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      // A long label wraps inside the capped list (SelectContent) rather than
+      // running off it. Radix drops className on ItemText, so the item styles
+      // its text span: [&>span]:min-w-0 lets it shrink, break-words inherits.
+      // Touch rows are 44 px, the same as DropdownMenuItem; desktop keeps py-1.5.
+      "relative flex w-full cursor-default select-none items-center break-words rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent/10 focus:text-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-50 pointer-coarse:min-h-11 pointer-coarse:py-2.5 [&>span]:min-w-0",
       className
     )}
     {...props}

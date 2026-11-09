@@ -5,6 +5,9 @@ import Link from "next/link";
 import { ArrowRight, Star } from "lucide-react";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
 import { cn } from "@/lib/utils";
+import { InkArt } from "@/components/ink/ink-art";
+import { seedFrom } from "@/lib/ink/rng";
+import { TONE_VAR, type InkDrawing, type InkTone } from "@/lib/ink/types";
 
 interface ToolCardProps {
   href: string;
@@ -13,8 +16,23 @@ interface ToolCardProps {
   description: string;
   tags?: string[];
   accentColor?: string;
+  /**
+   * The section's watercolour (lib/ink/drawings/sections SECTION_TONE): the
+   * icon sits on a wash of it, in its colour, instead of the plain tile.
+   */
+  tone?: InkTone;
   /** When provided, a star toggle renders in the top-right corner. */
   toolId?: string;
+}
+
+/** The wash under a card's icon: its own blob per card, drawn still. */
+function tileWash(tone: InkTone, key: string): InkDrawing {
+  return {
+    name: "tile-wash",
+    viewBox: "0 0 48 48",
+    washes: [{ cx: 24, cy: 25, rx: 21, ry: 18, seed: seedFrom(key), tone }],
+    strokes: [],
+  };
 }
 
 /**
@@ -36,6 +54,7 @@ export function ToolCard({
   description,
   tags,
   accentColor,
+  tone,
   toolId,
 }: ToolCardProps) {
   const { isFavorite, toggleFavorite } = useToolPrefs();
@@ -65,17 +84,32 @@ export function ToolCard({
       {/* Content — above the stretched link so the star stays clickable;
           everything else in the row lets clicks fall through to the link. */}
       <div className="pointer-events-none relative z-[2] flex items-start justify-between">
-        <div
-          aria-hidden="true"
-          className="
-            w-11 h-11 rounded-lg
-            bg-accent/10 border border-border
-            flex items-center justify-center
-            text-accent text-lg
-          "
-        >
-          {icon}
-        </div>
+        {tone ? (
+          <div
+            aria-hidden="true"
+            className="relative flex h-11 w-11 items-center justify-center text-lg"
+            style={{ color: TONE_VAR[tone] }}
+          >
+            <InkArt
+              drawing={tileWash(tone, toolId ?? href)}
+              still
+              className="absolute -left-1.5 -top-1.5 h-[calc(100%+0.75rem)] w-[calc(100%+0.75rem)]"
+            />
+            <span className="relative">{icon}</span>
+          </div>
+        ) : (
+          <div
+            aria-hidden="true"
+            className="
+              w-11 h-11 rounded-lg
+              bg-accent/10 border border-border
+              flex items-center justify-center
+              text-accent text-lg
+            "
+          >
+            {icon}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           {toolId && (
             <button

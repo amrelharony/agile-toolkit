@@ -29,9 +29,9 @@ import { NAME_MAX, TEXT_MAX, TITLE_MAX } from "../constants";
 import { dayLabel, daysText } from "../helpers";
 import { earliestDay, type ImpedimentDraft, type ImpedimentField } from "../form";
 
-/** Matches <Input>: 44 px on phones, 36 px from md. */
+/** Matches <Input>: 44 px / 16 px on touch, 36 px / 14 px for a mouse at md+. */
 const SELECT_CLASS =
-  "flex h-11 md:h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-base md:text-sm text-text shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  "flex h-11 pointer-fine:md:h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-base pointer-fine:md:text-sm text-text shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 /** The same meanings as the tool's guide (lib/tools/guides/ceremonies.ts). */
 const SEVERITY_MEANING: Record<ImpedimentSeverity, string> = {

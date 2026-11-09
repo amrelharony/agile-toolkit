@@ -7,7 +7,9 @@ import {
   type ImportDeps,
 } from "@/lib/comics/import-runner";
 import {
+  MAX_IMPORT_STORIES,
   PANEL_KEYS,
+  PDF_STORIES_FILE,
   STORY_KEYS,
   WEEKLY_SCRIPT_FILE,
   cleanDescription,
@@ -86,8 +88,11 @@ describe("the field whitelist", () => {
       "episode_id",
       "art_files",
       "panels",
+      "guess",
+      "try_action",
+      "try_tool",
     ]);
-    expect([...PANEL_KEYS]).toEqual(["panel", "visual", "dialogue", "embedded_text"]);
+    expect([...PANEL_KEYS]).toEqual(["panel", "visual", "dialogue", "embedded_text", "alt"]);
   });
 
   it("keeps nothing private out of the planned stories", () => {
@@ -119,6 +124,7 @@ describe("the field whitelist", () => {
         dialogue: [{ speaker: "Amr", line: `Line ${panel}` }],
         embeddedText: ["WELCOME"],
       })),
+      draft: null,
     });
   });
 
@@ -229,10 +235,25 @@ describe("planning the weekly batch", () => {
     if (plan.ok) expect(plan.stories[0].panels[0].file.path).toBe("Batch/art/P01_P01.png");
   });
 
-  it("refuses anything but 100 stories", () => {
-    const plan = planWeeklyImport(scripts(99), weeklyFolder());
-    expect(plan.ok).toBe(false);
-    if (!plan.ok) expect(plan.problems.join(" ")).toContain("99");
+  it("takes any number of stories, from one to the limit", () => {
+    const five = planWeeklyImport(scripts(5), weeklyFolder(5));
+    expect(five.ok && five.stories.map((s) => s.ep)).toEqual([27, 28, 29, 30, 31]);
+    const all = planWeeklyImport(scripts(330), weeklyFolder(330));
+    expect(all.ok && all.stories.at(-1)?.ep).toBe(356);
+    expect(planWeeklyImport({ episodes: [] }, weeklyFolder(1)).ok).toBe(false);
+    const tooMany = planWeeklyImport(scripts(MAX_IMPORT_STORIES + 1), weeklyFolder(1));
+    expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok) expect(tooMany.problems.join(" ")).toContain(`1 to ${MAX_IMPORT_STORIES}`);
+  });
+
+  it("refuses a story with no panels, or a number past the last the site allows", () => {
+    const empty = scripts(2);
+    empty.episodes[1].panels = [];
+    empty.episodes[1].art_files = [];
+    expect(planWeeklyImport(empty, weeklyFolder(2)).ok).toBe(false);
+    const late = scripts(1);
+    late.episodes[0].production_number = 974;
+    expect(planWeeklyImport(late, weeklyFolder(1)).ok).toBe(false);
   });
 
   it("refuses a missing art file, naming it", () => {
@@ -250,6 +271,14 @@ describe("planning the weekly batch", () => {
 
   it("refuses a file with no episodes", () => {
     expect(planWeeklyImport({}, weeklyFolder()).ok).toBe(false);
+  });
+
+  it("prefers the PDF extract's stories file, then the production file", () => {
+    const old = { path: `Batch/editorial/${WEEKLY_SCRIPT_FILE}` };
+    const extract = { path: `Out/editorial/${PDF_STORIES_FILE}` };
+    expect(findWeeklyScriptFile([old, extract])).toBe(extract);
+    expect(findWeeklyScriptFile([old])).toBe(old);
+    expect(findWeeklyScriptFile([{ path: "Out/stories.json" }])).toBeNull();
   });
 
   it("finds only the exact script file, ignoring its look-alikes", () => {
@@ -342,6 +371,78 @@ function fakeDeps(start: OwnerStory[] = []) {
   };
   return { deps, stories };
 }
+
+describe("a folder cut from the PDFs, with Claude's drafts", () => {
+  const G = {
+    question: "What happens next?",
+    options: ["She asks the team", "He decides alone", "They wait a week"],
+    happened: 0,
+  };
+  /** What extract-weekly-pdf.py writes for one story, drafts merged. */
+  const extracted = (n: number, extra: Record<string, unknown> = {}) => ({
+    episode_id: `AAW-N${String(n).padStart(3, "0")}`,
+    production_number: n,
+    working_title: `Story ${n}`,
+    lesson: "A lesson.",
+    squad_question: "A question?",
+    cast_names: ["HiPPO", "Retrospective Turtle"],
+    theme_ids: [],
+    art_files: [1, 2, 3, 4].map((p) => `art/N${String(n).padStart(3, "0")}_P0${p}.jpg`),
+    panels: [1, 2, 3, 4].map((panel) => ({
+      panel,
+      visual: "",
+      dialogue: [{ speaker: "HiPPO", line: `Line ${panel}` }],
+      embedded_text: [],
+      alt: `Panel ${panel}: HiPPO and Turtle at a laptop.`,
+    })),
+    ...extra,
+  });
+  const extractFolder = (count: number) =>
+    folder([
+      `Out/editorial/${PDF_STORIES_FILE}`,
+      ...Array.from({ length: count }, (_, i) =>
+        [1, 2, 3, 4].map((p) => `Out/art/N${String(i + 1).padStart(3, "0")}_P0${p}.jpg`)
+      ).flat(),
+    ]);
+
+  it("uses the drafted descriptions and lines, still marked for review", () => {
+    const plan = planWeeklyImport({ episodes: [extracted(1)] }, extractFolder(1));
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const [first] = plan.stories[0].panels;
+    expect(first.text.alt).toBe("Panel 1: HiPPO and Turtle at a laptop.");
+    expect(first.text.dialogue).toEqual([{ speaker: "HiPPO", line: "Line 1" }]);
+    expect(first.text.needsReview).toBe(true);
+    expect(first.file.path).toBe("Out/art/N001_P01.jpg");
+  });
+
+  it("carries the guess, the line and the tool as a draft, keeping only what passes", () => {
+    const plan = planWeeklyImport(
+      {
+        episodes: [
+          extracted(1, { guess: G, try_action: "Ask one person first.", try_tool: "retro" }),
+          extracted(2, { guess: { ...G, happened: 9 }, try_tool: "ai-red-team" }),
+          extracted(3),
+        ],
+      },
+      extractFolder(3)
+    );
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.stories.map((s) => s.draft)).toEqual([
+      { guess: G, tryAction: "Ask one person first.", tryTool: "retro" },
+      null,
+      null,
+    ]);
+  });
+
+  it("never sends the draft with the story itself", () => {
+    const plan = planWeeklyImport({ episodes: [extracted(1, { guess: G })] }, extractFolder(1));
+    if (!plan.ok) throw new Error("planned");
+    const text = JSON.stringify(plan.stories[0].panels.map((p) => p.text));
+    expect(text).not.toContain("What happens next?");
+  });
+});
 
 describe("running an import", () => {
   let convert: ReturnType<typeof fakeDeps>;
@@ -468,6 +569,48 @@ describe("running an import", () => {
     });
     expect(result.panelsDone).toBe(1);
     expect(deps.createStory).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a story's draft before any of its art, and only once its art has started", async () => {
+    const order: string[] = [];
+    const { deps } = convert;
+    deps.saveDraft = vi.fn(async (ep: number) => {
+      order.push(`draft ${ep}`);
+    });
+    vi.mocked(deps.convertAndUpload).mockImplementation(async (file) => {
+      order.push(`art ${String(file)}`);
+      return { pathFull: "f", pathSmall: "s", sharePath: "sh", width: 10, height: 10 };
+    });
+    const draft = { guess: null, tryAction: "Ask first.", tryTool: null };
+    await runImport({ plan: [{ ...planned(27, "AAW-N001"), draft }], existing: [], deps });
+    expect(order[0]).toBe("draft 27");
+    expect(order.filter((o) => o.startsWith("art"))).toHaveLength(2);
+    expect(deps.saveDraft).toHaveBeenCalledWith(27, draft);
+  });
+
+  it("uploads none of a story's art when its draft didn't save, and tries again next run", async () => {
+    const { deps, stories } = convert;
+    deps.saveDraft = vi.fn().mockRejectedValueOnce(new Error("guess_unavailable"));
+    const draft = { guess: null, tryAction: "Ask first.", tryTool: null };
+    const plan = [{ ...planned(27, "AAW-N001"), draft }];
+    const first = await runImport({ plan, existing: [], deps });
+    expect(first.failures).toHaveLength(1);
+    expect(deps.convertAndUpload).not.toHaveBeenCalled();
+    const second = await runImport({ plan, existing: Array.from(stories.values()), deps });
+    expect(second.failures).toEqual([]);
+    expect(deps.saveDraft).toHaveBeenCalledTimes(2);
+  });
+
+  it("doesn't leave the draft again on a story whose art has started", async () => {
+    const partial = serverStory(27, "AAW-N001", {
+      panels: [withArt(), panel()],
+      sharePath: "share.jpg",
+    });
+    const { deps } = fakeDeps([partial]);
+    deps.saveDraft = vi.fn(async () => {});
+    const draft = { guess: null, tryAction: "Ask first.", tryTool: null };
+    await runImport({ plan: [{ ...planned(27, "AAW-N001"), draft }], existing: [partial], deps });
+    expect(deps.saveDraft).not.toHaveBeenCalled();
   });
 
   it("spots a number already held by another story, but not its own", () => {

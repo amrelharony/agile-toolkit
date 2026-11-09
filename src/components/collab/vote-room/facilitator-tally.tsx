@@ -32,6 +32,7 @@ import {
   type Questionnaire,
   type VoteRoomTool,
 } from "@/lib/realtime/vote-room/protocol";
+import { announceToolMoment } from "@/lib/agent/mascot/tool-moments";
 import { useSaveRound, type SaveVoteRound } from "./save-round";
 import { VoteResults } from "./vote-results";
 
@@ -166,6 +167,7 @@ export function FacilitatorTally({
         source: "facilitator",
       })
     );
+    announceToolMoment(tool, "round_revealed");
   };
 
   const startOver = () => {

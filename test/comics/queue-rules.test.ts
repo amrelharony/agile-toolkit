@@ -4,7 +4,7 @@ import { REPORT_SOURCES, summariseVisits } from "@/lib/comics/entries-summary";
 import { PRINT_SOURCES } from "@/lib/comics/entry";
 import {
   checkReorder,
-  nextMondaySlot,
+  nextSundaySlot,
   queueWeeksLeft,
   releaseSlot,
   scheduleQueue,
@@ -57,7 +57,7 @@ function story(ep: number, releaseAt: string | null = null, alt = "Shown."): Own
 const NOW = Date.parse("2026-11-02T12:00:00Z");
 
 describe("schedule dates", () => {
-  it("gives 27 to 30 the launch date, then one per Monday at 07:00 UTC in number order", () => {
+  it("gives 27 to 30 the launch date, then one per Sunday at 07:00 UTC in number order", () => {
     // 12 Nov 2026 is a Thursday.
     const plan = scheduleQueue([33, 27, 28, 29, 30, 31, 32], "2026-11-12");
     expect(plan).toEqual([
@@ -65,28 +65,28 @@ describe("schedule dates", () => {
       { ep: 28, releaseAt: "2026-11-12T07:00:00.000Z" },
       { ep: 29, releaseAt: "2026-11-12T07:00:00.000Z" },
       { ep: 30, releaseAt: "2026-11-12T07:00:00.000Z" },
-      { ep: 31, releaseAt: "2026-11-16T07:00:00.000Z" },
-      { ep: 32, releaseAt: "2026-11-23T07:00:00.000Z" },
-      { ep: 33, releaseAt: "2026-11-30T07:00:00.000Z" },
+      { ep: 31, releaseAt: "2026-11-15T07:00:00.000Z" },
+      { ep: 32, releaseAt: "2026-11-22T07:00:00.000Z" },
+      { ep: 33, releaseAt: "2026-11-29T07:00:00.000Z" },
     ]);
   });
 
-  it("leaves a full week after a launch on a Monday", () => {
-    const plan = scheduleQueue([30, 31], "2026-11-16")!;
-    expect(plan[1].releaseAt).toBe("2026-11-23T07:00:00.000Z");
+  it("leaves a full week after a launch on a Sunday", () => {
+    const plan = scheduleQueue([30, 31], "2026-11-15")!;
+    expect(plan[1].releaseAt).toBe("2026-11-22T07:00:00.000Z");
   });
 
-  it("every date after launch is a Monday, across a month and a year end", () => {
+  it("every date after launch is a Sunday, across a month and a year end", () => {
     const eps = Array.from({ length: 100 }, (_, i) => 27 + i);
     const plan = scheduleQueue(eps, "2026-12-30")!;
     expect(plan).toHaveLength(100);
     for (const item of plan.slice(4)) {
       const date = new Date(item.releaseAt);
-      expect(date.getUTCDay()).toBe(1);
+      expect(date.getUTCDay()).toBe(0);
       expect(date.getUTCHours()).toBe(7);
     }
     const last = plan[99].releaseAt;
-    expect(last).toBe("2028-10-30T07:00:00.000Z");
+    expect(last).toBe("2028-10-29T07:00:00.000Z");
   });
 
   it.each(["", "2026-13-01", "2026-02-30", "next week"])("refuses %j", (date) => {
@@ -95,10 +95,12 @@ describe("schedule dates", () => {
   });
 
   it("finds the next slot strictly after a moment", () => {
-    const monday0659 = new Date("2026-11-02T06:59:00Z");
-    expect(nextMondaySlot(monday0659).toISOString()).toBe("2026-11-02T07:00:00.000Z");
-    const monday0700 = new Date("2026-11-02T07:00:00Z");
-    expect(nextMondaySlot(monday0700).toISOString()).toBe("2026-11-09T07:00:00.000Z");
+    const sunday0659 = new Date("2026-11-01T06:59:00Z");
+    expect(nextSundaySlot(sunday0659).toISOString()).toBe("2026-11-01T07:00:00.000Z");
+    const sunday0700 = new Date("2026-11-01T07:00:00Z");
+    expect(nextSundaySlot(sunday0700).toISOString()).toBe("2026-11-08T07:00:00.000Z");
+    const saturday = new Date("2026-11-07T23:00:00Z");
+    expect(nextSundaySlot(saturday).toISOString()).toBe("2026-11-08T07:00:00.000Z");
   });
 });
 

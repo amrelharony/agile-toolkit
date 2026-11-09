@@ -1,5 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import { AmrStill } from "@/components/shared/amr-still";
+import { InkArt } from "@/components/ink/ink-art";
+import { PUDDLE } from "@/lib/ink/drawings/marks";
 import { cn } from "@/lib/utils";
 
 interface EmptyStateProps {
@@ -53,7 +55,14 @@ export function EmptyState({
 }: EmptyStateProps) {
   return (
     <div className={cn("flex flex-wrap items-end gap-x-4 gap-y-2", className)}>
-      <AmrStill />
+      {/* Amr stands on a little watercolour wash, so he's on the page, not floating. */}
+      <span className="relative block shrink-0">
+        <InkArt
+          drawing={PUDDLE}
+          className="absolute -bottom-1.5 left-1/2 h-4 w-24 -translate-x-1/2"
+        />
+        <AmrStill />
+      </span>
       <div
         className={cn("balloon min-w-0 grow basis-48 text-center font-display", PADDING[padding])}
       >

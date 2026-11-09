@@ -67,6 +67,8 @@ const CHECKED = [
   "/api/comics/licence",
   "/api/comics/guestbook",
   "/api/comics/guestbook-notes",
+  "/api/comics/taps",
+  "/api/comics/stats",
   "/comics/guestbook",
   "/api/foo.json",
   "/api/kudos",

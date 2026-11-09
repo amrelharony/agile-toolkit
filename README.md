@@ -126,7 +126,9 @@ Environment variables for production (set in the Vercel dashboard):
 Vercel Authentication ("Require Log In" under Deployment Protection)
 must be **off** for the production domain — the site is public and the
 owner-only surface is enforced by the in-app middleware. Keep it **on** for
-Preview deployments (see the checklist below).
+Preview deployments (see the checklist below). Only `master` and `preview/*`
+branches deploy at all (`git.deploymentEnabled` in `vercel.json`); see
+[RUNBOOK.md, "Vercel builds and cost"](RUNBOOK.md#vercel-builds-and-cost).
 
 ### Owner checklist — before deploying
 

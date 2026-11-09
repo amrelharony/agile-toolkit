@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { StoryExtras } from "@/lib/comics/extras";
+import type { StoryGuessExtras } from "@/lib/comics/guess";
 import type { Story, StorySummary } from "@/lib/comics/types";
 
 const h = vi.hoisted(() => ({
@@ -11,6 +12,10 @@ const h = vi.hoisted(() => ({
   push: vi.fn(),
   extras: { quiz: null, tryTool: null } as StoryExtras,
   extrasCalls: [] as number[],
+  guess: { guess: null, tryAction: null } as StoryGuessExtras,
+  totals: { views: 0, visitors: 0, readers: 0, loves: 0, shares: 0, retros: 0, tools: 0 },
+  totalsMap: new Map<number, { loves: number }>(),
+  owner: false,
 }));
 
 vi.mock("server-only", () => ({}));
@@ -20,11 +25,19 @@ vi.mock("@/lib/comics/store", () => ({
     h.extrasCalls.push(ep);
     return h.extras;
   },
+  getStoryGuess: async () => h.guess,
+  getStoryTotals: async () => h.totals,
+  listStoryTotals: async () => h.totalsMap,
   listReleasedWeekly: async (limit?: number) => (limit ? h.summaries.slice(0, limit) : h.summaries),
   listReleasedEps: async () => {
     if (h.listThrows) throw new Error("down");
     return h.released;
   },
+}));
+// No AuthProvider here, so everyone is a visitor unless a test says otherwise.
+vi.mock("@/lib/auth/use-is-owner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/use-is-owner")>()),
+  useIsOwner: () => h.owner,
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: h.push }),
@@ -101,6 +114,10 @@ beforeEach(() => {
   h.push.mockClear();
   h.extras = { quiz: null, tryTool: null };
   h.extrasCalls = [];
+  h.guess = { guess: null, tryAction: null };
+  h.totals = { views: 0, visitors: 0, readers: 0, loves: 0, shares: 0, retros: 0, tools: 0 };
+  h.totalsMap = new Map();
+  h.owner = false;
   localStorage.clear();
   window.history.replaceState(null, "", "/comics");
   vi.stubGlobal("sendBeacon", undefined);
@@ -258,7 +275,7 @@ describe("a number that isn't released", () => {
     const meta = await storyMetadata(params(31));
     expect(meta.title).toBe("Coming soon — Agile at Work");
     expect(meta.robots).toEqual({ index: false, follow: true });
-    // The book's share image, which says nothing about next Monday's story.
+    // The book's share image, which says nothing about next Sunday's story.
     expect(meta.openGraph?.images).toEqual([`https://agile.amrelharony.com${BOOK_SHARE_URL}`]);
     expect(meta.alternates?.canonical).toBeUndefined();
   });
@@ -270,16 +287,25 @@ describe("the story reader", () => {
     h.released = [27, 30, 33];
   });
 
-  it("loads the 768 file lazily at its real size, with no srcset", async () => {
+  it("loads the 768 file at its real size, with no srcset", async () => {
     render(await ComicStoryPage(params(30)));
     const img = screen.getByAltText("Dina holds a thick folder at her desk.");
     expect(img.getAttribute("src")).toBe(
       "https://ref.supabase.co/storage/v1/object/public/comic-panels/stories/30/one-768.webp"
     );
-    expect(img.getAttribute("loading")).toBe("lazy");
     expect(img.getAttribute("width")).toBe("1536");
     expect(img.getAttribute("height")).toBe("1024");
     expect(img.hasAttribute("srcset")).toBe(false);
+  });
+
+  it("opens on the first panel at high priority and leaves the rest lazy", async () => {
+    render(await ComicStoryPage(params(30)));
+    const first = screen.getByAltText("Dina holds a thick folder at her desk.");
+    expect(first.getAttribute("loading")).toBe("eager");
+    expect(first.getAttribute("fetchpriority")).toBe("high");
+    const second = screen.getByAltText("Amr shrugs by the printer.");
+    expect(second.getAttribute("loading")).toBe("lazy");
+    expect(second.hasAttribute("fetchpriority")).toBe(false);
   });
 
   it("keeps dialogue and descriptions in the page with the transcript closed", async () => {
@@ -381,6 +407,83 @@ describe("the story reader", () => {
     expect(scroller.style.touchAction).toBe("pan-x pan-y pinch-zoom");
   });
 
+  it("fills the height on an upright phone, panning from the panel's left edge", async () => {
+    render(await ComicStoryPage(params(30)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 1 of 2 full screen" }));
+    const img = within(screen.getByRole("dialog")).getByRole("img");
+    const classes = img.className.split(/\s+/);
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        "m-auto",
+        "max-sm:portrait:h-full",
+        "max-sm:portrait:max-w-none",
+        "max-sm:portrait:shrink-0",
+      ])
+    );
+    // Elsewhere it still fits the screen, as before.
+    expect(classes).toEqual(expect.arrayContaining(["max-h-full", "max-w-full", "object-contain"]));
+    // Centring the row would cut a wider panel's left edge off; m-auto doesn't.
+    expect(img.parentElement!.className).not.toMatch(/justify-center|items-center/);
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+
+  it("swipes between panels, but not while the page is pinch-zoomed", async () => {
+    render(await ComicStoryPage(params(30)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 1 of 2 full screen" }));
+    const dialog = screen.getByRole("dialog");
+    const src = () => within(dialog).getByRole("img").getAttribute("src");
+    const scroller = within(dialog).getByRole("img").parentElement!;
+    const swipe = (dx: number) => {
+      fireEvent.touchStart(scroller, { touches: [{ clientX: 300, clientY: 300 }] });
+      fireEvent.touchEnd(scroller, {
+        touches: [],
+        changedTouches: [{ clientX: 300 + dx, clientY: 300 }],
+      });
+    };
+
+    swipe(-20);
+    expect(src()).toContain("one-1536.webp");
+    swipe(-120);
+    expect(src()).toContain("two-1536.webp");
+    swipe(-120);
+    expect(src()).toContain("two-1536.webp");
+
+    vi.stubGlobal("visualViewport", { scale: 2.5 });
+    swipe(120);
+    expect(src()).toContain("two-1536.webp");
+    vi.stubGlobal("visualViewport", { scale: 1 });
+    swipe(120);
+    expect(src()).toContain("one-1536.webp");
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+
+  it("pans a wide panel to its edge before a swipe moves on, and starts the next at its beginning", async () => {
+    render(await ComicStoryPage(params(30)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 1 of 2 full screen" }));
+    const dialog = screen.getByRole("dialog");
+    const src = () => within(dialog).getByRole("img").getAttribute("src");
+    const scroller = within(dialog).getByRole("img").parentElement!;
+    // A height-filled panel on an upright phone: 900 px wide in a 360 px screen.
+    Object.defineProperty(scroller, "scrollWidth", { configurable: true, value: 900 });
+    Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 360 });
+    Object.defineProperty(scroller, "scrollLeft", { configurable: true, writable: true, value: 0 });
+    const swipeLeft = () => {
+      fireEvent.touchStart(scroller, { touches: [{ clientX: 300, clientY: 300 }] });
+      fireEvent.touchEnd(scroller, {
+        touches: [],
+        changedTouches: [{ clientX: 100, clientY: 300 }],
+      });
+    };
+
+    swipeLeft();
+    expect(src()).toContain("one-1536.webp");
+    scroller.scrollLeft = 540;
+    swipeLeft();
+    expect(src()).toContain("two-1536.webp");
+    expect(scroller.scrollLeft).toBe(0);
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+
   it("moves between released stories, by link and by arrow key", async () => {
     render(await ComicStoryPage(params(30)));
     expect(screen.getByRole("link", { name: "Previous story" }).getAttribute("href")).toBe(
@@ -429,7 +532,17 @@ describe("the story reader", () => {
     expect(screen.getByRole("link", { name: "Read the licence" }).getAttribute("href")).toBe(
       "/comics/license"
     );
-    expect(screen.getByText(/one anonymous count when you arrive/)).toBeTruthy();
+    // A weekly story counts its reading too, and says so.
+    expect(screen.getByText(/anonymous counts: that you arrived/)).toBeTruthy();
+    expect(screen.queryByText(/one anonymous count when you arrive/)).toBeNull();
+  });
+
+  it("puts a heart with the readers' count under the panels", async () => {
+    h.totals = { ...h.totals, loves: 24 };
+    render(await ComicStoryPage(params(30)));
+    const heart = screen.getByRole("button", { name: "Love this" });
+    expect(heart.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("24 readers love this")).toBeTruthy();
   });
 
   it("names the licence and credit in structured data, using the small files", async () => {
@@ -527,6 +640,185 @@ describe("a story's quiz and its own tool", () => {
   });
 });
 
+describe("a story's guess, Seen this at work and Try it this week", () => {
+  const GUESS = {
+    question: "What does Amr do next?",
+    options: ["Asks Dina where she saved them", "Prints them again", "Waits for Friday"],
+    happened: 1,
+    note: "Printing again fixed today, not next time.",
+  };
+
+  type Call = { url: string; init?: RequestInit };
+  let calls: Call[];
+  let reply: { counts: number[]; shares: number[] | null };
+
+  beforeEach(() => {
+    h.story = STORY;
+    h.released = [30];
+    h.guess = { guess: GUESS, tryAction: "Ask who else keeps notes only on paper." };
+    calls = [];
+    reply = { counts: [1, 0, 0], shares: null };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init });
+        if (String(url).startsWith("/api/comics/taps")) return Response.json(reply);
+        return new Response(null, { status: 204 });
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const taps = (method: string) =>
+    calls.filter(
+      (c) => c.url.startsWith("/api/comics/taps") && (c.init?.method ?? "GET") === method
+    );
+
+  it("hides the last panel, its description and its transcript until the reader guesses", async () => {
+    render(await ComicStoryPage(params(30)));
+    expect(screen.getByRole("img", { name: /Panel 2 is hidden until you guess/ })).toBeTruthy();
+    expect(screen.queryByAltText("Amr shrugs by the printer.")).toBeNull();
+    expect(screen.queryByText("Amr shrugs by the printer.")).toBeNull();
+    expect(screen.queryByText("I thought you had them.")).toBeNull();
+    // The picture still loads behind the cover, so the reveal doesn't wait.
+    const covered = document.querySelectorAll("img[src*='two-768']");
+    expect(covered).toHaveLength(1);
+    expect(covered[0].getAttribute("loading")).toBe("lazy");
+    // Only the panels already read open full screen.
+    expect(screen.getAllByRole("button", { name: /Open panel \d of 2 full screen/ })).toHaveLength(
+      1
+    );
+    const question = screen.getByRole("region", { name: GUESS.question });
+    expect(within(question).getAllByRole("button")).toHaveLength(4);
+  });
+
+  it("reveals the panel on a pick, counts it once, and shows what happened", async () => {
+    render(await ComicStoryPage(params(30)));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Waits for Friday" }));
+    });
+    expect(screen.getByAltText("Amr shrugs by the printer.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open panel 2 of 2 full screen" })).toBeTruthy();
+    expect(taps("POST")).toHaveLength(1);
+    expect(JSON.parse(String(taps("POST")[0].init?.body))).toEqual({
+      ep: 30,
+      kind: "guess",
+      choice: 2,
+    });
+    const results = screen.getByRole("region", { name: GUESS.question });
+    expect(within(results).getByText("What happened").closest("li")).toHaveTextContent(
+      "Prints them again"
+    );
+    expect(within(results).getByText("Your guess").closest("li")).toHaveTextContent(
+      "Waits for Friday"
+    );
+    expect(within(results).getByText(/You're the first to guess/)).toBeTruthy();
+    expect(within(results).getByText(GUESS.note)).toBeTruthy();
+    // Focus goes to the panel that just appeared, which carries its own description.
+    expect(document.activeElement?.tagName).toBe("FIGURE");
+    expect(document.activeElement).toHaveAccessibleName(/Amr shrugs by the printer/);
+  });
+
+  it("scrolls the revealed panel in clear of the sticky header", async () => {
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    try {
+      render(await ComicStoryPage(params(30)));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Waits for Friday" }));
+      });
+      const figure = document.activeElement as HTMLElement;
+      expect(figure.tagName).toBe("FIGURE");
+      expect(scrolled).toEqual([figure]);
+      // The header's height plus a gap; on a phone html's scroll padding adds Amr's space.
+      expect(figure.className.split(/\s+/)).toContain(
+        "scroll-mt-[calc(var(--header-h,56px)+0.5rem)]"
+      );
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("shows how readers picked once there are enough of them", async () => {
+    reply = { counts: [6, 30, 4], shares: [15, 75, 10] };
+    render(await ComicStoryPage(params(30)));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Prints them again" }));
+    });
+    const results = screen.getByRole("region", { name: "What readers picked" });
+    expect(within(results).getByText("75%")).toBeTruthy();
+    expect(within(results).getByText("15%")).toBeTruthy();
+  });
+
+  it("lets a reader skip the guess without counting anything", async () => {
+    render(await ComicStoryPage(params(30)));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Just show me" }));
+    });
+    expect(screen.getByAltText("Amr shrugs by the printer.")).toBeTruthy();
+    expect(taps("POST")).toHaveLength(0);
+    expect(taps("GET")).toHaveLength(1);
+    expect(screen.queryByText("Your guess")).toBeNull();
+  });
+
+  it("remembers the guess on this device: no second count, no cover", async () => {
+    localStorage.setItem(
+      "agile-toolkit:comics:reading",
+      JSON.stringify({ read: {}, sent: {}, asked: {}, guessed: { 30: 0 }, seen: {} })
+    );
+    await act(async () => {
+      render(await ComicStoryPage(params(30)));
+    });
+    expect(screen.getByAltText("Amr shrugs by the printer.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Just show me" })).toBeNull();
+    expect(taps("POST")).toHaveLength(0);
+    expect(taps("GET")[0].url).toBe("/api/comics/taps?ep=30&kind=guess");
+    expect(screen.getByText("Your guess").closest("li")).toHaveTextContent(
+      "Asks Dina where she saved them"
+    );
+  });
+
+  it("keeps the whole story as before when there's no guess", async () => {
+    h.guess = { guess: null, tryAction: null };
+    render(await ComicStoryPage(params(30)));
+    expect(screen.getByAltText("Amr shrugs by the printer.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Just show me" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Try it this week" })).toBeNull();
+  });
+
+  it("asks once whether the reader has seen this at work, then says how many have", async () => {
+    reply = { counts: [21, 4], shares: [84, 16] };
+    render(await ComicStoryPage(params(30)));
+    const seen = screen.getByRole("region", { name: "Seen this at work?" });
+    await act(async () => {
+      fireEvent.click(within(seen).getByRole("button", { name: "Yes, I've seen this" }));
+    });
+    expect(within(seen).queryByRole("button")).toBeNull();
+    expect(within(seen).getByRole("status")).toHaveTextContent(
+      "Thanks. 84% of readers have seen this at work."
+    );
+    expect(document.activeElement).toBe(within(seen).getByRole("status"));
+    expect(JSON.parse(String(taps("POST")[0].init?.body))).toEqual({
+      ep: 30,
+      kind: "seen",
+      choice: 0,
+    });
+  });
+
+  it("puts Try it this week above the team's tool", async () => {
+    render(await ComicStoryPage(params(30)));
+    const team = screen.getByRole("region", { name: "Take it to your team" });
+    expect(within(team).getByRole("heading", { name: "Try it this week" })).toBeTruthy();
+    expect(within(team).getByText("Ask who else keeps notes only on paper.")).toBeTruthy();
+  });
+});
+
 describe("static generation", () => {
   it("prerenders every book episode, so an outage can't lose a printed link", async () => {
     h.released = [27, 28];
@@ -572,15 +864,44 @@ describe("the gallery", () => {
     expect(cards).toHaveLength(2);
   });
 
-  it("loads card images lazily and small", async () => {
+  it("shows readers' favourites once a story has five loves", async () => {
+    h.totalsMap = new Map([
+      [29, { loves: 12 }],
+      [28, { loves: 3 }],
+    ]);
+    render(await ComicsPage());
+    const favourites = screen.getByRole("region", { name: "Readers' favourites" });
+    const cards = within(favourites).getAllByRole("listitem");
+    expect(cards).toHaveLength(1);
+    expect(cards[0].textContent).toContain("Handover story");
+    expect(cards[0].textContent).toContain("Loved by 12 readers");
+  });
+
+  it("leaves favourites out until a story has enough loves", async () => {
+    h.totalsMap = new Map([[29, { loves: 4 }]]);
+    render(await ComicsPage());
+    expect(screen.queryByRole("region", { name: "Readers' favourites" })).toBeNull();
+  });
+
+  it("opens on this week's cover at high priority and loads the other cards lazily, all small", async () => {
+    h.totalsMap = new Map([[29, { loves: 12 }]]);
     render(await ComicsPage());
     // The book intro's cover is its own test's business (intro-book).
-    const cards = Array.from(document.querySelectorAll("img")).filter(
+    const art = Array.from(document.querySelectorAll("img")).filter(
       (img) => !img.closest("[data-intro-overlay]")
     );
-    expect(cards.length).toBeGreaterThan(0);
+    const thisWeek = within(screen.getByRole("region", { name: "Newest story" })).getByRole(
+      "presentation"
+    );
+    const cards = art.filter((img) => img !== thisWeek);
+    expect(thisWeek.getAttribute("loading")).toBe("eager");
+    expect(thisWeek.getAttribute("fetchpriority")).toBe("high");
+    expect(thisWeek.getAttribute("src")).toContain("-768.webp");
+    // Readers' favourites and the weekly list.
+    expect(cards.length).toBe(3);
     for (const img of cards) {
       expect(img.getAttribute("loading")).toBe("lazy");
+      expect(img.hasAttribute("fetchpriority")).toBe(false);
       expect(img.getAttribute("src")).toContain("-768.webp");
     }
   });
@@ -622,6 +943,40 @@ describe("the gallery", () => {
   it("discloses the anonymous count", async () => {
     render(await ComicsPage());
     expect(screen.getByText(/one anonymous count when you arrive/)).toBeTruthy();
+  });
+
+  it("gives About the book a touch-sized target", async () => {
+    render(await ComicsPage());
+    const classes = screen.getByRole("link", { name: "About the book" }).className.split(/\s+/);
+    expect(classes).toEqual(
+      expect.arrayContaining(["inline-flex", "items-center", "pointer-coarse:min-h-11"])
+    );
+  });
+
+  it("shows visitors no portal link, in a row that already holds its space", async () => {
+    render(await ComicsPage());
+    expect(screen.queryByRole("link", { name: "Comics portal" })).toBeNull();
+    const row = screen.getByRole("link", { name: /Read this story/ }).parentElement!;
+    expect(row.className.split(/\s+/)).toContain("pointer-coarse:min-h-11");
+  });
+
+  it("puts the owner's portal link beside this week's story, touch-sized, moving nothing", async () => {
+    h.owner = true;
+    render(await ComicsPage());
+    const portal = screen.getByRole("link", { name: "Comics portal" });
+    expect(portal.getAttribute("href")).toBe("/settings/comics");
+    expect(portal.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(["inline-flex", "items-center", "pointer-coarse:min-h-11"])
+    );
+    // Not a line of its own above the story, which pushed the page down as it appeared.
+    const read = screen.getByRole("link", { name: /Read this story/ });
+    expect(portal.parentElement).toBe(read.parentElement);
+    // Nor a second line where the row is narrow: the row never wraps, and the
+    // link gives way, cut short, while the story's button keeps its size.
+    expect(read.parentElement!.className.split(/\s+/)).toContain("flex-nowrap");
+    expect(read.className.split(/\s+/)).toContain("shrink-0");
+    expect(portal.className.split(/\s+/)).toContain("min-w-0");
+    expect(within(portal).getByText("Comics portal").className.split(/\s+/)).toContain("truncate");
   });
 });
 

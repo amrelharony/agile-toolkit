@@ -3,7 +3,7 @@ import { HomePage } from "@/components/home/home-page";
 import { listReleasedWeekly } from "@/lib/comics/store";
 import type { StorySummary } from "@/lib/comics/types";
 
-/** About every 10 minutes, like /comics, so a Monday's story reaches home too. */
+/** About every 10 minutes, like /comics, so a Sunday's story reaches home too. */
 export const revalidate = 600;
 
 /**

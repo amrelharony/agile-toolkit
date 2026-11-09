@@ -11,6 +11,7 @@ import {
   WHICH_COLLEAGUE_GAME,
 } from "@/lib/vip/which-colleague-questions";
 import { WhichColleagueLoader } from "./loader";
+import { balloonArt } from "@/lib/ink/drawings/pages/balloon";
 
 // Reads the access cookie, so it can never be prerendered or cached.
 export const dynamic = "force-dynamic";
@@ -29,7 +30,11 @@ export default async function WhichColleaguePage() {
   if (!(await hasVipAccess())) return <VipLockPanel />;
   if (!WHICH_COLLEAGUE_APPROVED) {
     return (
-      <ToolPageWrapper title="Coming soon" description="For readers of the printed book.">
+      <ToolPageWrapper
+        art={balloonArt}
+        title="Coming soon"
+        description="For readers of the printed book."
+      >
         <EmptyState icon={Smile} padding="xl">
           <p className="font-semibold text-text">This one is coming soon</p>
         </EmptyState>

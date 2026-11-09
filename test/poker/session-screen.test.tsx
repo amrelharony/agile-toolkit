@@ -7,7 +7,8 @@ import type { Session } from "@/app/(tools)/planning-poker/types";
  * SessionScreen behaviour shared by the owner and guest clients: any card
  * on the deck can be accepted as the estimate (not just numbers, and not
  * only the ones voted), leaving a session with stories asks first, and the
- * voting deck is a keyboard-operable radiogroup.
+ * voting deck is a keyboard-operable radiogroup. Its small controls are
+ * 44px tap targets on touch screens.
  */
 
 vi.mock("@/lib/history/use-history-logger", () => ({
@@ -244,5 +245,114 @@ describe("voting deck", () => {
     expect(screen.getByRole("button", { name: "Previous story" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next story" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add story" })).toBeInTheDocument();
+  });
+});
+
+describe("phone layout", () => {
+  // Every grid between the session root and a long participant name must cap
+  // its single phone column (grid-cols-N, or an arbitrary template starting at
+  // minmax(0,…)). An implicit auto track grows to the nowrap name's full width,
+  // so at 360px every session card ran 26px past the screen edge.
+  const capsItsColumn = (el: Element) =>
+    Array.from(el.classList).some(
+      (c) => /^grid-cols-\d+$/.test(c) || c.startsWith("grid-cols-[minmax(0,")
+    );
+
+  it("lets a long participant name truncate instead of widening the session", () => {
+    const longName = "Omar Abdelrahman Mahmoud Elsayed";
+    render(
+      <Harness
+        initial={makeSession({
+          participants: [
+            { id: HOST, name: "Scrum Master", vote: null },
+            { id: "p2", name: "Priya", vote: null },
+            { id: "p3", name: longName, vote: null },
+          ],
+        })}
+      />
+    );
+
+    // The Votes card and the Participants list both show the name.
+    const names = screen.getAllByText(longName);
+    expect(names.length).toBeGreaterThanOrEqual(2);
+    const grids = new Set<HTMLElement>();
+    for (const name of names) {
+      expect(name).toHaveClass("truncate");
+      for (let el = name.parentElement; el; el = el.parentElement) {
+        if (!el.classList.contains("grid")) continue;
+        grids.add(el);
+        expect(capsItsColumn(el), `uncapped grid: ${el.className}`).toBe(true);
+      }
+    }
+    // The session's two-column grid is on the path, so the check ran, and the
+    // desktop side column keeps its 260px.
+    const session = Array.from(grids).find((g) =>
+      g.classList.contains("lg:grid-cols-[minmax(0,1fr)_260px]")
+    );
+    expect(session).toBeDefined();
+  });
+});
+
+describe("touch targets", () => {
+  // jsdom has no layout, so check the classes: a 44px coarse-pointer minimum,
+  // repeated at md: where the icon size's md:min-h-0 / md:min-w-0 would
+  // otherwise win (md: rules come later in the stylesheet).
+  const expectTouchTarget = (el: Element, axes: readonly ("h" | "w")[] = ["h", "w"]) => {
+    const classes = Array.from(el.classList);
+    for (const axis of axes) {
+      expect(classes, el.className).toContain(`pointer-coarse:min-${axis}-11`);
+      if (classes.some((c) => c.startsWith(`md:min-${axis}-`))) {
+        expect(classes, el.className).toContain(`md:pointer-coarse:min-${axis}-11`);
+      }
+    }
+  };
+  const players = [
+    { id: HOST, name: "Scrum Master", vote: null },
+    { id: "p2", name: "Priya", vote: null },
+  ];
+
+  it("gives Remove from the room a 44px tap area on touch, keeping the dense size for a mouse", () => {
+    render(
+      <SessionScreen
+        session={makeSession({ participants: players })}
+        onUpdateSession={() => {}}
+        localParticipantId={HOST}
+        isHost
+        onLeave={() => {}}
+        onRemoveParticipant={() => {}}
+      />
+    );
+    const remove = screen.getByRole("button", { name: "Remove Priya from the room" });
+    expectTouchTarget(remove);
+    expect(remove).toHaveClass("h-7", "w-7");
+  });
+
+  it("does the same for the facilitator's Remove player, the player field and Add player", () => {
+    render(
+      <SessionScreen
+        session={makeSession({ participants: players })}
+        onUpdateSession={() => {}}
+        localParticipantId={HOST}
+        isHost
+        onLeave={() => {}}
+        facilitator
+      />
+    );
+    const remove = screen.getByRole("button", { name: "Remove Priya" });
+    expectTouchTarget(remove);
+    expect(remove).toHaveClass("h-7", "w-7");
+
+    const name = screen.getByRole("textbox", { name: "Player name" });
+    expectTouchTarget(name, ["h"]);
+    expect(name).toHaveClass("h-9");
+    const add = screen.getByRole("button", { name: "Add player" });
+    expectTouchTarget(add, ["h"]);
+    expect(add).toHaveClass("h-9");
+  });
+
+  it("covers the story queue's Edit and Delete in the session", () => {
+    render(<Harness initial={makeSession()} />);
+    expectTouchTarget(screen.getByRole("button", { name: "Edit Login page" }));
+    expectTouchTarget(screen.getByRole("button", { name: "Delete Login page" }));
   });
 });

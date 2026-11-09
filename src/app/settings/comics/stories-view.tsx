@@ -126,7 +126,7 @@ function ScheduleQueue({
       </summary>
       <div className="mt-2 space-y-3">
         <p className="text-sm text-sub">
-          Episodes 27 to 30 go out on the launch date, then one every Monday at 07:00 UTC in number
+          Episodes 27 to 30 go out on the launch date, then one every Sunday at 07:00 UTC in number
           order. You can still change any story&apos;s date afterwards.
         </p>
         {notReady > 0 ? (
@@ -287,16 +287,55 @@ function UnusedArt() {
   );
 }
 
+/** How many draft buttons to show before "and N more": an import can bring in hundreds. */
+const DRAFTS_SHOWN = 12;
+
+/**
+ * Stories an import left a guess draft on, still waiting for the owner. Shows
+ * nothing until migration 0035 runs or when the read fails: it's a reminder,
+ * and every story card says the same.
+ */
+function GuessDrafts({ eps, onEdit }: { eps: readonly number[]; onEdit: (ep: number) => void }) {
+  if (eps.length === 0) return null;
+  const shown = eps.slice(0, DRAFTS_SHOWN);
+  return (
+    <section
+      aria-labelledby="guess-drafts-heading"
+      className="space-y-2 rounded-lg border border-border p-3"
+    >
+      <h2 id="guess-drafts-heading" className="font-semibold text-text">
+        Guesses to approve ({eps.length})
+      </h2>
+      <p className="text-sm text-sub">
+        These came in with an import. Readers see none of them until you open the story, check the
+        guess and Try it this week, and save.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {shown.map((ep) => (
+          <Button key={ep} type="button" variant="outline" onClick={() => onEdit(ep)}>
+            Episode {ep}
+          </Button>
+        ))}
+      </div>
+      {eps.length > shown.length ? (
+        <p className="text-sm text-sub">and {eps.length - shown.length} more.</p>
+      ) : null}
+    </section>
+  );
+}
+
 function StoryCard({
   story,
   now,
   unsaved,
+  guessDraft,
   onEdit,
   onMove,
 }: {
   story: OwnerStory;
   now: number;
   unsaved: boolean;
+  guessDraft: boolean;
   onEdit: () => void;
   onMove?: (step: -1 | 1) => void;
 }) {
@@ -321,6 +360,7 @@ function StoryCard({
           {reviewing > 0 ? (
             <p className="text-sm text-sub">{reviewing} panels need review.</p>
           ) : null}
+          {guessDraft ? <p className="text-sm text-sub">Guess draft to approve.</p> : null}
           {story.firstReleasedAt && state === "draft" ? (
             <p className="text-sm text-sub">Unpublished. It has been out, so its number stays.</p>
           ) : null}
@@ -367,6 +407,8 @@ interface StoriesViewProps {
   onEdit: (ep: number | null) => void;
   onStories: (stories: OwnerStory[]) => void;
   onRetry: () => void;
+  /** Changes when a guess is saved, so the drafts still waiting are read again. */
+  guessRound?: number;
 }
 
 export function StoriesView({
@@ -377,13 +419,33 @@ export function StoriesView({
   onEdit,
   onStories,
   onRetry,
+  guessRound = 0,
 }: StoriesViewProps) {
   const [now, setNow] = useState(0);
+  const [guessDrafts, setGuessDrafts] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
 
   // Read in an effect: the server's clock would disagree with the browser's on hydration.
   useEffect(() => setNow(Date.now()), [stories]);
+
+  const loaded = stories !== null;
+  useEffect(() => {
+    if (!loaded) return;
+    let live = true;
+    portalApi
+      .guessDrafts()
+      .then(({ eps }) => {
+        if (live) setGuessDrafts(Array.isArray(eps) ? eps.filter(Number.isInteger) : []);
+      })
+      .catch(() => {
+        // Before migration 0035, or a passing failure: the reminder just doesn't show.
+        if (live) setGuessDrafts([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [loaded, stories, guessRound]);
 
   const queue = useMemo(() => unreleasedWeekly(stories ?? [], now), [stories, now]);
   const queueEps = queue.map((s) => s.ep);
@@ -419,6 +481,7 @@ export function StoriesView({
         story={story}
         now={now}
         unsaved={unsavedEps.has(story.ep)}
+        guessDraft={guessDrafts.includes(story.ep)}
         onEdit={() => onEdit(story.ep)}
         onMove={
           story.collection === "weekly" && queueEps.includes(story.ep)
@@ -464,6 +527,7 @@ export function StoriesView({
       ) : (
         <>
           <QueueNotice stories={stories} now={now} />
+          <GuessDrafts eps={guessDrafts} onEdit={onEdit} />
           <ScheduleQueue stories={stories} now={now} onStories={onStories} />
 
           <section aria-labelledby="scheduled-heading" className="space-y-2">

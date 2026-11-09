@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { BookOpen, ChevronDown } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { BookOpen, ChevronDown, ChevronUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { getGuide, hasGuide, type ToolGuide } from "@/lib/tools/guides";
 
 /**
@@ -12,10 +13,24 @@ import { getGuide, hasGuide, type ToolGuide } from "@/lib/tools/guides";
  * tool has a guide is known without loading it), and the guide text loads
  * on demand, so nothing below the panel moves when it arrives. It starts
  * collapsed: opening it by itself pushed the whole tool down after load.
+ *
+ * On a phone the open guide is one long column (about 1,300 px), so it ends
+ * with a "Hide guide" button: closing it there doesn't mean scrolling back up
+ * to the header. Focus goes back to the header, which brings it into view
+ * with the tool right under it. The header's scroll margin keeps it clear of
+ * the sticky app bar: Firefox scrolls a focused element to the nearest edge,
+ * not the centre, so without it the header would land under the bar.
  */
 export function HowItWorks({ toolId }: { toolId: string }) {
   const [guide, setGuide] = useState<ToolGuide | null>(null);
   const exists = hasGuide(toolId);
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const summaryRef = useRef<HTMLElement>(null);
+
+  const hideGuide = () => {
+    if (detailsRef.current) detailsRef.current.open = false;
+    summaryRef.current?.focus();
+  };
 
   useEffect(() => {
     if (!exists) return;
@@ -31,8 +46,14 @@ export function HowItWorks({ toolId }: { toolId: string }) {
   if (!exists) return null;
 
   return (
-    <details className="group mb-4 rounded-lg border border-border bg-card sm:mb-6">
-      <summary className="flex cursor-pointer select-none list-none items-center gap-2 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
+    <details
+      ref={detailsRef}
+      className="group mb-4 rounded-lg border border-border bg-card sm:mb-6"
+    >
+      <summary
+        ref={summaryRef}
+        className="flex scroll-mt-20 cursor-pointer select-none list-none items-center gap-2 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden"
+      >
         <BookOpen className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
         <h2 className="text-sm font-medium text-text">How this works</h2>
         <span className="hidden min-w-0 flex-1 truncate text-sub sm:inline sm:group-open:hidden">
@@ -101,6 +122,23 @@ export function HowItWorks({ toolId }: { toolId: string }) {
                 </ul>
               </div>
             )}
+          </div>
+          {/* Desktop (lg up) keeps its look: the guide is two short columns
+              there and closes from the header as before. Button shrinks to
+              36 px from md, but a landscape phone or a tablet is md and still
+              touch, so it keeps 44 px there. The md is in the variant on
+              purpose: a bare pointer-coarse: rule is emitted before md: rules
+              and would lose to Button's md:min-h-9. */}
+          <div className="flex justify-end md:col-span-2 lg:hidden">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto pointer-coarse:md:min-h-11"
+              onClick={hideGuide}
+            >
+              <ChevronUp aria-hidden="true" />
+              Hide guide
+            </Button>
           </div>
         </div>
       )}

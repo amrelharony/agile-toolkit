@@ -70,6 +70,9 @@ import { useMindMapStructural } from "../hooks/use-mind-map-structural";
 import { useInputClass } from "../hooks/use-input-class";
 import { WetInkLayer, type WetInkApi } from "./wet-ink-layer";
 import { useCanvasTouchGestures } from "../hooks/use-canvas-touch-gestures";
+import { useBoardPinchGuard } from "../hooks/use-board-pinch-guard";
+import { CanvasObjectMenu } from "./canvas-object-menu";
+import { CanvasTouchTips } from "./canvas-touch-tips";
 
 interface WhiteboardCanvasProps {
   boardId: string;
@@ -540,7 +543,7 @@ export function WhiteboardCanvas({
   // Declared up here because the touch-gesture hook below needs the pen
   // counter to gate pinch / pan during stylus inking; consumers further
   // down (selection-handles hit area, palm rejection in pointer machine,
-  // first-run toast) also read from this same instance.
+  // first-visit touch tips) also read from this same instance.
   const inputClass = useInputClass();
 
   // Touch gestures (pinch zoom, two-finger pan, double-tap fit, long-press
@@ -559,6 +562,9 @@ export function WhiteboardCanvas({
     presentationFrameIndex,
     anyPenActiveRef: inputClass.anyPenActiveRef,
   });
+  // The page itself can zoom now (no viewport lock on /canvas); a pinch
+  // that starts on the board stays the board's.
+  useBoardPinchGuard(viewportRef);
 
   // Convert client pointer event to world coords.
   //
@@ -938,33 +944,6 @@ export function WhiteboardCanvas({
   // ref to push live samples at < 1 frame latency.
   const wetInkApiRef = useRef<WetInkApi | null>(null);
 
-  // One-time gesture hint for touch users so they discover the new
-  // pinch / two-finger pan / long-press affordances on first visit.
-  // Persisted in localStorage so it only fires once per device.
-  useEffect(() => {
-    if (!inputClass.isCoarse) return;
-    if (typeof window === "undefined") return;
-    const KEY = "canvas:touchGestureHintSeen:v1";
-    try {
-      if (window.localStorage.getItem(KEY) === "1") return;
-    } catch {
-      return;
-    }
-    // Lazy import so the toast bundle isn't pulled into desktop sessions.
-    void import("sonner").then(({ toast }) => {
-      toast.message("Tablet tips", {
-        description: "Pinch to zoom · Two-finger drag to pan · Long-press for actions",
-        duration: 7000,
-      });
-      try {
-        window.localStorage.setItem(KEY, "1");
-      } catch {
-        // Ignore storage errors (private mode, quota); the hint just
-        // shows again next visit, which is harmless.
-      }
-    });
-  }, [inputClass.isCoarse]);
-
   // The canvas pointer state machine owns the three viewport pointer
   // handlers + every ref they share (pan latches, lasso fast-path,
   // drag-create origin, snap index). Returns the refs that the
@@ -978,6 +957,7 @@ export function WhiteboardCanvas({
     lassoRafRef,
     lassoPointsRef,
     lastLassoWorldRef,
+    multiTouchRef,
   } = useCanvasPointerMachine({
     boardId,
     readOnly,
@@ -1041,8 +1021,10 @@ export function WhiteboardCanvas({
   // Keyboard shortcuts wired AFTER the pointer machine so the Esc-cancel
   // path can tear down an in-flight lasso via the refs the machine
   // owns. The shortcuts also reference the same drag/resize/etc.
-  // ephemeral state so they can self-suppress mid-gesture.
-  useCanvasShortcuts({
+  // ephemeral state so they can self-suppress mid-gesture. The returned
+  // actions are those same handlers, for the phone buttons and the
+  // long-press menu (a phone has no Delete key or Cmd+Z).
+  const objectActions = useCanvasShortcuts({
     objectsRef,
     objectsByIdRef,
     topZRef,
@@ -1079,6 +1061,33 @@ export function WhiteboardCanvas({
     zoomActions,
   });
 
+  // Long-press menu gate, read when the hold completes. The press itself
+  // selected the object (the pointer machine), so an empty selection
+  // means it landed on bare board — no menu there.
+  const canOpenObjectMenu = useCallback(() => {
+    const s = useCanvasStore.getState();
+    return (
+      !readOnly &&
+      presentationFrameIndex === null &&
+      editingObjectId === null &&
+      s.tool === "select" &&
+      s.selection.length > 0 &&
+      !s.marquee &&
+      !s.resize &&
+      !s.rotation &&
+      !s.drawing
+    );
+  }, [readOnly, presentationFrameIndex, editingObjectId]);
+  // The press that opened the menu also started a drag; end it (as Esc
+  // does) so the object doesn't follow the finger under the open menu.
+  const onObjectMenuOpen = useCallback(() => {
+    if (useCanvasStore.getState().drag) setDrag(null);
+  }, [setDrag]);
+  const selectionAllLocked = useMemo(
+    () => selection.length > 0 && selection.every((id) => objectsById.get(id)?.locked),
+    [selection, objectsById]
+  );
+
   const { onAlign, onDistribute } = useAlignDistribute({
     selection,
     objectsById,
@@ -1103,7 +1112,7 @@ export function WhiteboardCanvas({
   });
 
   const {
-    onObjectPointerDown,
+    onObjectPointerDown: onObjectPress,
     onObjectDoubleClick,
     onCommitObjectEdit,
     onPatchStyles,
@@ -1139,6 +1148,20 @@ export function WhiteboardCanvas({
     logActivity,
     readOnly,
   });
+
+  // A second finger landing on an object belongs to the pinch (see the
+  // pointer machine's multi-touch latch): it must not select the object
+  // or start dragging it by the gap between the fingers.
+  const onObjectPointerDown = useCallback(
+    (e: React.PointerEvent, id: string) => {
+      if (e.pointerType === "touch" && multiTouchRef.current) {
+        e.stopPropagation();
+        return;
+      }
+      onObjectPress(e, id);
+    },
+    [onObjectPress, multiTouchRef]
+  );
 
   // Mind-map Tab/Enter/Shift+Tab routing — wired through every
   // mind-map node's inline editor. Owns layout + selection +
@@ -1253,6 +1276,12 @@ export function WhiteboardCanvas({
       // keyboard shortcut routes through it); without a visible focus
       // ring, keyboard-only users couldn't tell when focus had landed
       // here vs nested element vs lost (WCAG 2.4.7).
+      // touch-none: one finger draws / drags / marquees and two fingers
+      // pinch or pan the board, so a touch here never scrolls or zooms
+      // the page. That is also what keeps the page's own pinch-zoom (no
+      // longer locked on /canvas) off the board. The stage is capped
+      // below the screen's height (canvas-client), so there is always
+      // page around it to scroll from.
       className="relative h-full w-full overflow-hidden bg-bg select-none touch-none focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:[outline-offset:-2px]"
       // R8: wheel handler is attached natively via useEffect (passive:false)
       // so we can call preventDefault. React's synthetic onWheel is passive.
@@ -1381,10 +1410,24 @@ export function WhiteboardCanvas({
             selectionBbox={selectionBbox}
             camera={camera}
             viewportHeight={size.h}
+            viewportWidth={size.w}
             onPatch={onPatchStyles}
             onOpenCardDetail={setCardDetailId}
+            objectActions={readOnly ? undefined : objectActions}
+            isCoarse={inputClass.isCoarse}
           />
         )}
+
+      {/* Touch long-press menu for the selection (editors only). */}
+      {!readOnly && (
+        <CanvasObjectMenu
+          viewportRef={viewportRef}
+          actions={objectActions}
+          canOpen={canOpenObjectMenu}
+          allLocked={selectionAllLocked}
+          onOpen={onObjectMenuOpen}
+        />
+      )}
 
       {/* Marquee — only renders while a marquee drag is in progress. */}
       {marquee && <Marquee marquee={marquee} camera={camera} />}
@@ -1492,6 +1535,14 @@ export function WhiteboardCanvas({
       <ConnectorBanner tool={tool} pendingConnectorFromId={pendingConnectorFromId} />
 
       <EmptyCanvasHint objectCount={objects.length} />
+
+      {/* First-visit touch tips, inside the board (was a bottom toast
+          over the tool rail and Amr). They wait for the board's first
+          object: an empty board shows the "Start your board" card
+          (canvas-client), which sits in the tips' band on a phone or a
+          short landscape board, and its hint (EmptyCanvasHint) already
+          gives the pinch and two-finger pan. Back to empty, they go. */}
+      {objects.length > 0 && <CanvasTouchTips enabled={inputClass.isCoarse} readOnly={readOnly} />}
     </div>
   );
 }

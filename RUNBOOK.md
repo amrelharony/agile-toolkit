@@ -35,13 +35,15 @@ AUTHORIZED_EMAILS=a.elharony@gmail.com   # comma-separated; missing = deny all
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...    # KEEP SECRET — never expose to client
-ZAI_API_KEY=<id>.<segment>                  # GLM/z.ai key from z.ai/manage-apikey
-ZAI_AGENT_MODEL=glm-4.5-flash               # free tier; bump to glm-4.5 / glm-4.6 after topping up
+OPENCLAW_API_KEY=...                        # the OpenClaw gateway's bearer key (GLM-5.3)
 ```
 
-The agent runs on GLM (z.ai, OpenAI-compatible) by default. If `ZAI_API_KEY`
-is unset, the agent falls back to the client BYOK path — configure a GLM
-provider in the in-app AI Settings dialog and the chat sidebar picks it up.
+The agent's server backend is the first of these that is set (see the
+"In-app chat agent" block in `.env.example`): `OPENCLAW_API_KEY` (the OpenClaw
+gateway, which holds the GLM key itself), `GLM_API_KEY` (open.bigmodel.cn) or
+`ZAI_API_KEY` (api.z.ai; the two GLM keys are not interchangeable). With none
+set, the agent falls back to the client BYOK path — configure a GLM provider
+in the in-app AI Settings dialog and the chat sidebar picks it up.
 
 Restart `npm run dev` so the new env loads.
 
@@ -150,7 +152,7 @@ If any of those steps fails, check:
 | Sign-in lands on "Owner sign-in unavailable"    | `AUTHORIZED_EMAILS` empty on that deployment                | Set it (e.g. Vercel → Preview env); no session was created, nothing to undo                       |
 | Header says "Cloud sync is paused"              | Signed-out work in this browser awaits merge/discard        | Click **Review** in the notice, then **Merge** or **Discard**                                     |
 | `/auth/sign-in` works but bounces back unauth'd | Google redirect URI mismatch                                | Add `http://localhost:3000` to Supabase Auth → URL config                                         |
-| Agent sheet won't open / says "no GLM key"      | Neither `ZAI_API_KEY` set nor BYOK configured               | Set the server key, or click avatar → **AI settings (BYOK)** and paste a GLM key                  |
+| Agent sheet won't open / says "no GLM key"      | No server agent key set and no BYOK key configured          | Set `OPENCLAW_API_KEY`, or click avatar → **AI settings (BYOK)** and paste a GLM key              |
 | Agent returns "Insufficient balance"            | z.ai account has no credit AND you picked a paid model      | Top up at z.ai/manage-pricing OR set `ZAI_AGENT_MODEL=glm-4.5-flash` (free tier)                  |
 | MCP returns 401                                 | PAT typo, revoked, or `SUPABASE_SERVICE_ROLE_KEY` missing   | Verify token in `/settings/access-tokens`; verify env on server                                   |
 | `tools/list` returns empty over MCP             | Action registry didn't load on the API route runtime        | Restart dev server; check `src/app/api/mcp/route.ts` still imports `register-all`                 |
@@ -178,6 +180,19 @@ Production checklist:
 - [ ] Smoke walkthrough (step 4) repeats green
 - [ ] [Before going public](#before-going-public-owner-checklist) done
 
+### Vercel builds and cost
+
+On Vercel Pro, Build CPU is billed at $0.0035 per CPU-minute: the machine's cores times the build time, rounded up to a whole minute. That includes the build-cache upload after the deploy is Ready. On 2026-11-08, the night of the Hobby → Pro upgrade, Vercel's "Elastic" machine moved this project to an 8-core machine. One evening of stacked-PR pushes and merges then cost $11 (90 builds at about $0.12 each). Three things keep that from happening again:
+
+- **Only `master` and `preview/*` branches deploy.** `vercel.json` sets `git.deploymentEnabled` to `{"**": false, "master": true, "preview/**": true}`. Patterns are minimatch globs, and a branch deploys if any matching rule is `true`. `claude/*` agent branches therefore create no deployment at all. CI already runs a full `next build` on every PR to master and every push to master, so those previews added little. They also had no env vars (all of them are Production-only), so sign-in and the API failed closed there anyway. Need a preview? Push the commit to a `preview/<name>` branch. Or build it on this machine and upload only the output, which uses no Vercel build time: `vercel pull --environment=preview`, then `vercel build`, then `vercel deploy --prebuilt`.
+- **Project settings (Vercel → agile-toolkit → Settings → Build and Deployment):**
+  - **Build Machine: Standard, fixed (not Elastic).** On Pro, Standard builds in the team's first concurrent build slot aren't billed. They are billed only when Elastic or On-Demand Concurrent Builds is on.
+  - **On-Demand Concurrent Builds: off**, and **Prioritize Production Builds: on**. Builds then wait in one queue. When several commits land on the same branch, the running build finishes and only the newest queued commit builds; the ones in between are skipped. Merging a stack of 24 PRs one by one then costs about 2 production builds, not 24.
+  - **Ignored Build Step:** while old branches still carry the previous `vercel.json`, use `if [ "$VERCEL_ENV" = production ]; then exit 1; fi; case "$VERCEL_GIT_COMMIT_REF" in master|preview/*) exit 1;; *) exit 0;; esac` (exit 1 builds, exit 0 skips). Production builds always run, including `vercel --prod` and Redeploy, which have no branch. Once those branches have been merged or rebased, it can go.
+- **Team → Settings → Billing → Spend Management:** an On-Demand Budget alerts at 50/75/100% of the amount you set, beyond the $20 monthly credit. With **Pause Production Deployments** it takes **every** project on the team offline when the budget is reached, and each project has to be resumed by hand. The billing cycle runs from the 8th, 08:00 UTC.
+
+Check the bill per project with `vercel usage --from <YYYY-MM-DD> --to <YYYY-MM-DD> --group-by project` (it needs explicit dates). Read a project's machine and queue settings with `MSYS_NO_PATHCONV=1 vercel api /v9/projects/agile-toolkit` (in Git Bash, without `MSYS_NO_PATHCONV=1` the path gets rewritten).
+
 ---
 
 ## Before going public (owner checklist)
@@ -187,7 +202,7 @@ Every tool page is public, and so is the **Owner sign in** button. Anyone can st
 1. **Supabase → Authentication → Sign In / Providers → Allow new users to sign up: off.** Your owner account must already exist (sign in once first). Strangers then get `signup_disabled` and land on "Not the owner account" instead of getting an `auth.users` + `profiles` row.
 2. **Supabase → Authentication → Sign In / Providers → Allow anonymous sign-ins: off.** Turn off the Email provider too if you only use Google.
 3. **Supabase → Authentication → Users:** delete every user that isn't the owner (stray sign-ins from while sign-ups were on).
-4. **Vercel → Settings → Deployment Protection:** turn on protection for **Preview** deployments (Vercel Authentication). Every push builds a preview, previews use the production Supabase project, and without protection they are public. Keep it **off** for the production domain.
+4. **Vercel → Settings → Deployment Protection:** turn on protection for **Preview** deployments (Vercel Authentication). Only `master` and `preview/*` branches deploy (see [Vercel builds and cost](#vercel-builds-and-cost)), but any preview that does build would otherwise be public. Keep it **off** for the production domain.
 5. Verify on the production URL from a signed-out window: `/` → 200, `/api/kudos` → 401 JSON, `/settings/access-tokens` → redirect to sign-in, `/robots.txt` and `/sitemap.xml` → 200.
 
 Known behaviour worth knowing:
@@ -440,7 +455,13 @@ Burndown, Burnup, Velocity, Sprint Comparison and Sprint Metrics share one list 
 The comics live at `/comics` and every story is `/comics?ep=NN`: book episodes are 1-26, weekly stories continue from 27. The print campaign's QR codes add which printed piece they're on as `src` (posters and kudos cards on `/comics`, the wall sign and guide on `/kudos`; see `PRINT_SOURCES` in `src/lib/comics/entry.ts`), so `/comics`, `/kudos`, `ep` and `src` can never be renamed. The middleware rewrites a valid number to the static episode page, whatever else the address says. The building posters' old `&b=NN` no longer picks a page; with no `src` beside it, it still counts as a poster.
 
 - **Stories** are rows in `comic_stories`, with art in the `comic-panels` bucket. Both are closed to the public API; pages read through `src/lib/comics/store.ts`.
-- **Release:** a story shows once its `release_at` has passed, within about 10 minutes (`revalidate = 600`). A number that isn't released shows "coming soon" with no content.
+- **Release:** a story shows once its `release_at` has passed, within about 10 minutes (`revalidate = 600`). The portal's queue gives one story each Sunday at 07:00 UTC (`src/lib/comics/queue.ts`), and the reading streak counts Sunday-to-Saturday weeks to match. A number that isn't released shows "coming soon" with no content.
+- **Guess and Try it this week** (migration 0035): a weekly story can have a `guess` (readers see panels 1 to 3, pick what happens next, then the last panel shows) and a `try_action` line. An import's drafts of both, and a suggested tool, wait in `extras_draft`, which no page reads: they show only once the owner opens the story in the portal and saves "Guess and Try it this week", which is approving. The portal's story list names the stories still waiting. The shapes and wording rules are in `src/lib/comics/guess.ts`.
+- **Guess and Seen this at work counts** are anonymous running totals in `comic_story_taps` (migration 0035), one row per story, kind and choice, written only through `comic_story_tap` by `/api/comics/taps` (public, same-site, rate-limited, only released stories or the VIP window). The browser remembers its own answers in the reading record, which is all that stops a second tap; shares show once 20 readers have answered. No IP address, user agent or time is stored.
+- **Story engagement counts** (migration 0036) are anonymous weekly totals in `comic_story_stats`, per weekly story, release week (the Sunday, UTC) and metric: `view`, `visitor` (a browser's first view), `reader` (its first finish, the 8-second rule), `love`/`unlove` (net loves = love − unlove), `share`, `retro`, `tool`, and `time` in six active-reading bands (under 10 s to 5 min or more; a tab that's hidden or idle for a minute stops the clock, ten minutes at most a view). Written only through `comic_story_stat` by `/api/comics/stats` (public, same-site, rate-limited, released stories only: the VIP read-ahead page sends nothing, since a story in its window can still move in a reorder). Each connection may add only a few firsts and loves to one story an hour (`EVENT_LIMITS_PER_HOUR`; loves stay below the favourites threshold), keyed in memory by a salted hash of the address, never the address; and `comic_story_stat` only takes back a love the story has. `comic_story_totals(p_ep)` sums them for the heart's count, "Read by N readers" and Readers' favourites; `comic_story_insight_totals` and `comic_story_weekly_totals` for the owner's Insights. The reading record decides firsts; which loves the server counted is kept per device (`agile-toolkit:comics:counted`, left out of backups), so a love is never taken back twice. Nothing identifies a reader, and the signed-in owner is never counted.
+- **Insights** (Settings › Comics › Insights, owner only): per-story visitors, readers, finishing rate, typical reading time, loves per 100 readers, actions per 100 readers, guessed right and seen-at-work shares, all time or each story's first four weeks from its release week (taps keep no dates, so those stay all time); rolled up by theme and character; a print score (0–100, the average percentile of love rate, finishing rate, seen-yes share and actions per reader among stories with 20+ readers); and the print shortlist (☆, `comic_stories.print_shortlist`, CSV download). Read through `GET /api/comics/insights` from sums the database works out (`comic_story_insight_totals`, `comic_story_weekly_totals`, a few rows a story however many weeks pass); the figures are worked out in the browser (`lib/comics/insights`). The owner's own reading, loves, guesses and answers are never counted while signed in.
+- **Your reading** on `/comics` (weeks in a row, and the cast met, linked to the story where each was first met) and the streak line under each story are worked out in the browser from the reading record. Only the colleagues' names come from the cast file; the rest of each card stays on the VIP pages.
+- **Adding stories from the comic's PDFs:** check them with `python scripts/extract-weekly-pdf.py --check <PDFs>`, then cut them into a folder outside the repository with `python scripts/extract-weekly-pdf.py <folder> <PDFs>` (add `--drafts <file>` to merge Claude's drafts: one file for all the stories, since drafts for stories outside the run are left out; `--range 1-5` for a few). On a computer, Settings > Comics > Import a batch, choose that folder. Stories arrive as drafts numbered 26 more than their N number (N001 is episode 27); "Schedule the queue" dates them. The art is the owner's: never commit the folder.
 - **If Supabase is down** the read throws, the ISR refresh fails and pages keep their last good copy. The 26 book episodes are prerendered at build and read nothing from Supabase but the latest weekly stories, so printed links keep working.
 - **Free-tier download allowance:** pages load the 768 px file, and the 1536 px file only when a panel opens full screen. Don't add `srcset`: a 3x phone would pick the larger file.
 - **The book's episodes are never put online.** Their pages show what the poster and kudos card print: title, theme, lesson, question and book page, from `src/lib/comics/print-campaign.json`, the campaign's data file (the VIP link is left out of it, as the key must never be committed). Change the wording there, never in the code.

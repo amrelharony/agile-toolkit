@@ -45,6 +45,10 @@ interface AgentActions {
   setActiveConversation(meta: ConversationMeta | null, messages: ChatMessage[]): void;
   appendMessage(msg: ChatMessage): void;
   patchLastAssistant(content: ChatMessage["content"]): void;
+  /** Replace one message's content, by id (no-op when it's gone). */
+  patchMessage(id: string, content: ChatMessage["content"]): void;
+  /** Drop one message, by id (no-op when it's gone). */
+  removeMessage(id: string): void;
   setStreaming(v: boolean): void;
   setPendingToolUse(p: PendingToolUse | null): void;
   setError(e: string | null): void;
@@ -122,6 +126,11 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
       next[realIdx] = { ...next[realIdx], content };
       return { messages: next };
     }),
+
+  patchMessage: (id, content) =>
+    set((s) => ({ messages: s.messages.map((m) => (m.id === id ? { ...m, content } : m)) })),
+
+  removeMessage: (id) => set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
 
   setStreaming: (v) => set({ streaming: v }),
   // If a new pending replaces a still-unsettled old one (shouldn't happen

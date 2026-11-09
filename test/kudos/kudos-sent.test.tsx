@@ -80,6 +80,42 @@ describe("KudosSent", () => {
     );
   });
 
+  it("puts the link and Copy link / Share above the card on touch screens, and below it with a mouse from sm up", async () => {
+    // jsdom does no layout, so this reads the order: on a phone the actions
+    // come first in the page (which a screen reader follows too), and the
+    // group's pointer-fine:sm:order-last puts the card back first only with a
+    // mouse or trackpad. A landscape phone (812x375) and a tablet are wider
+    // than sm but still touch, and the card would push the actions off them.
+    const { container } = render(<KudosSent kudos={EP7} kept onDone={() => {}} />);
+    const linkBox = await screen.findByLabelText("Link to this card");
+    const copy = screen.getByRole("button", { name: /copy link/i });
+    const share = screen.getByRole("button", { name: /share/i });
+    const card = container.querySelector("[data-kudos-id]")!;
+    expect(card).toHaveTextContent("Sara");
+    for (const el of [linkBox, copy, share]) {
+      expect(el.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+
+    const actions = copy.closest('[class~="pointer-fine:sm:order-last"]')!;
+    expect(actions).not.toBeNull();
+    // Not by width alone: that puts the card first on a landscape phone.
+    for (const byWidth of ["sm:order-last", "md:order-last", "lg:order-last"]) {
+      expect(actions).not.toHaveClass(byWidth);
+    }
+    expect(actions).toContainElement(linkBox);
+    expect(actions).toContainElement(share);
+    expect(actions.contains(card)).toBe(false);
+    // The group and the card sit side by side in the panel's column, so the
+    // order class reorders exactly these two, under the heading and status.
+    const section = screen.getByRole("region", { name: /your kudos for sara is ready/i });
+    expect(actions.parentElement).toBe(section);
+    expect(section).toHaveClass("flex", "flex-col");
+    expect(section.lastElementChild).toContainElement(card as HTMLElement);
+    expect(screen.getByRole("status").compareDocumentPosition(actions)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+  });
+
   it("downloads an image that waited the usual time", async () => {
     render(<KudosSent kudos={EP7} kept onDone={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /download/i }));

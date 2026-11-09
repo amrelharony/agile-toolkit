@@ -56,9 +56,18 @@ export function CadenceForm({
         <legend id={weekdaysId} className="text-sm font-medium text-text">
           Daily Scrum on
         </legend>
-        <div className="mt-2 flex flex-wrap gap-3" role="group" aria-labelledby={weekdaysId}>
+        {/* On touch each day's label (box and name) is a 44px target; the
+            rows close up so the list grows only by the taller labels. */}
+        <div
+          className="mt-2 flex flex-wrap gap-3 pointer-coarse:mt-0 pointer-coarse:gap-y-0"
+          role="group"
+          aria-labelledby={weekdaysId}
+        >
           {WEEK_ORDER.map((day) => (
-            <label key={day} className="inline-flex items-center gap-1.5 text-sm text-text">
+            <label
+              key={day}
+              className="inline-flex items-center gap-1.5 text-sm text-text pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+            >
               <input
                 type="checkbox"
                 className="h-4 w-4 accent-[var(--accent)]"

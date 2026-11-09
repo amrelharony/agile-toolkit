@@ -9,25 +9,34 @@ import { jsonLdScript, storyJsonLd } from "@/lib/comics/rights";
 import {
   getReleasedStory,
   getStoryExtras,
+  getStoryGuess,
+  getStoryTotals,
   listReleasedEps,
   listReleasedWeekly,
 } from "@/lib/comics/store";
+import type { StoryTotals } from "@/lib/comics/stats";
 import type { StoryExtras } from "@/lib/comics/extras";
+import type { StoryGuessExtras } from "@/lib/comics/guess";
 import type { Story, StorySummary } from "@/lib/comics/types";
 import { NOT_FOUND_METADATA, comicMetadata } from "../../comic-metadata";
 import { LatestComics } from "../../components/comic-card";
 import { ComicPanels } from "../../components/comic-panels";
 import { ComingSoon } from "../../components/coming-soon";
 import { EpisodeNotes } from "../../components/episode-notes";
+import { LoveButton } from "../../components/love-button";
 import { PosterIntro } from "../../components/intro/poster-intro";
 import { ReplayIntro } from "../../components/intro/replay-intro";
 import { PrintThemeChip } from "../../components/print-theme-chip";
 import { ReadAheadLink } from "../../components/read-ahead-link";
 import { RightsNotice } from "../../components/rights-notice";
+import { SeenAtWork } from "../../components/seen-at-work";
+import { StreakNote } from "../../components/reader-progress";
 import { ReadTracker } from "../../components/story-actions";
 import { StoryNav } from "../../components/story-nav";
 import { StoryQuiz } from "../../components/story-quiz";
+import { StoryStats } from "../../components/story-stats";
 import { TakeItToYourTeam } from "../../components/take-it-to-your-team";
+import { comicsArt } from "@/lib/ink/drawings/pages/comics";
 
 /**
  * An episode, behind /comics?ep=N (the middleware rewrites to here and sends
@@ -88,7 +97,7 @@ export async function generateMetadata({ params }: StoryPageProps): Promise<Meta
       image: story.sharePath ? panelImageUrl(story.sharePath) : null,
     });
   }
-  // Says nothing about the story: this number may be next Monday's.
+  // Says nothing about the story: this number may be next Sunday's.
   return comicMetadata({
     title: "Coming soon — Agile at Work",
     description: "This comic is coming soon.",
@@ -110,7 +119,7 @@ function BookEpisodePage({
       {/* Beside the wrapper, not in it: its entrance leaves a transform behind,
           and the intro's fixed overlay would cover the wrapper, not the screen. */}
       <PosterIntro ep={ep} title={title} panels={[]} />
-      <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>
+      <ToolPageWrapper art={comicsArt} title={title} description={`Episode ${ep}, by Amr Elharony`}>
         <VisitRecorder path="/comics" />
         <div className="space-y-4">
           <p className="text-sm text-sub">
@@ -159,36 +168,48 @@ function WeeklyStoryPage({
   prevEp,
   nextEp,
   extras,
+  guess,
+  totals,
 }: {
   story: Story;
   prevEp: number | null;
   nextEp: number | null;
   extras: StoryExtras;
+  guess: StoryGuessExtras;
+  totals: StoryTotals;
 }) {
   const { ep, title } = story;
+  const readable = story.panels.length > 0;
   return (
-    <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>
+    <ToolPageWrapper art={comicsArt} title={title} description={`Episode ${ep}, by Amr Elharony`}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdScript(storyJsonLd(story)) }}
       />
       <VisitRecorder path="/comics" />
       <div className="space-y-4">
-        <ComicPanels panels={story.panels} title={title} />
+        <ComicPanels panels={story.panels} title={title} ep={ep} guess={guess.guess} />
+        {readable ? (
+          <LoveButton ep={ep} initialLoves={totals.loves} initialReaders={totals.readers} />
+        ) : null}
         <EpisodeNotes lesson={story.lesson} question={story.squadQuestion} />
+        {readable ? <SeenAtWork ep={ep} /> : null}
         <TakeItToYourTeam
           ep={ep}
           question={story.squadQuestion}
           themes={story.themes}
           tryTool={extras.tryTool}
+          tryAction={guess.tryAction}
         />
         {extras.quiz ? <StoryQuiz ep={ep} quiz={extras.quiz} /> : null}
         <StoryNav ep={ep} title={title} prevEp={prevEp} nextEp={nextEp} />
         {/* Only a story with its art can be read to the end. */}
-        {story.panels.length > 0 ? <ReadTracker ep={ep} /> : null}
+        {readable ? <ReadTracker ep={ep} /> : null}
+        {readable ? <StoryStats ep={ep} /> : null}
+        {readable ? <StreakNote /> : null}
         <RightsNotice />
         <ReadAheadLink />
-        <CountDisclosure />
+        <CountDisclosure story={readable} />
       </div>
     </ToolPageWrapper>
   );
@@ -211,9 +232,20 @@ export default async function ComicStoryPage({ params }: StoryPageProps) {
         <ComingSoon />
       </>
     );
-  const [{ prevEp, nextEp }, extras] = await Promise.all([
+  const [{ prevEp, nextEp }, extras, guess, totals] = await Promise.all([
     weeklyNeighbours(ep),
     getStoryExtras(ep),
+    getStoryGuess(ep),
+    getStoryTotals(ep),
   ]);
-  return <WeeklyStoryPage story={story} prevEp={prevEp} nextEp={nextEp} extras={extras} />;
+  return (
+    <WeeklyStoryPage
+      story={story}
+      prevEp={prevEp}
+      nextEp={nextEp}
+      extras={extras}
+      guess={guess}
+      totals={totals}
+    />
+  );
 }

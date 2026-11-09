@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 
 /**
  * A theme colour backed by a CSS custom property that still honours
@@ -31,6 +32,23 @@ function themeColor(cssVar: string): string {
   return resolve as unknown as string;
 }
 
+const INK_TONE_NAMES = [
+  "ink",
+  "sub",
+  "paper",
+  "accent",
+  "accent2",
+  "accent3",
+  "success",
+  "warning",
+  "danger",
+  "info",
+  "moss",
+  "wood",
+  "plum",
+];
+const INK_SAFELIST = INK_TONE_NAMES.flatMap((t) => [`ink-tone-${t}`, `ink-fill-${t}`]);
+
 const config: Config = {
   darkMode: ["class"],
   content: [
@@ -47,6 +65,12 @@ const config: Config = {
     // and landed in flow position on top of the header.
     "./src/lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  // Ink graphics (components/ink) build their tone classes from a drawing's
+  // data (`ink-tone-${tone}`, `ink-fill-${tone}`), which the content scan
+  // can't see, so without this their rules in globals.css were purged and
+  // every fill rendered black. Keep the list equal to INK_TONES in
+  // lib/ink/types.ts (test/design/ink-css.test.ts checks it).
+  safelist: INK_SAFELIST,
   theme: {
     // ── Breakpoint system ──
     // Default Tailwind breakpoints + two additions:
@@ -297,10 +321,11 @@ const config: Config = {
           to: { opacity: "1", transform: "translateY(0)" },
         },
         // Translate-only entrance: content is visible from the first frame
-        // (no opacity ramp), so it also reads fine before JS hydrates.
+        // (no opacity ramp), so it also reads fine before JS hydrates. It
+        // ends at `none` and fills `backwards` only (see `animation.rise`).
         rise: {
           from: { transform: "translateY(8px)" },
-          to: { transform: "translateY(0)" },
+          to: { transform: "none" },
         },
         "scale-in": {
           from: { opacity: "0", transform: "scale(0.95)" },
@@ -348,7 +373,12 @@ const config: Config = {
       animation: {
         "fade-in": "fade-in 0.4s ease-out forwards",
         "slide-up": "slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards",
-        rise: "rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) both",
+        // `backwards`, not `both`: a transform left on the element after the
+        // entrance, even translateY(0), makes it the containing block for
+        // every position:fixed descendant, so a tool page's drag overlays and
+        // fixed popups drew a scroll's height off-screen. There's no delay,
+        // so the first frame is the same as before.
+        rise: "rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards",
         "scale-in": "scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards",
         shimmer: "shimmer 0.8s ease forwards",
         skeleton: "skeleton-shimmer 1.5s ease-in-out infinite",
@@ -377,6 +407,10 @@ const config: Config = {
         component: "10",
         nav: "50",
         header: "100",
+        // Toasts: above the header (100) and the sidebar drawer, below modals.
+        // globals.css lifts them (to 10000) over an open dialog so errors stay
+        // visible.
+        toast: "990",
         modal: "1000",
         overlay: "9999",
       },
@@ -400,6 +434,33 @@ const config: Config = {
     // when the sidebar collapse changes available content width without
     // crossing a viewport breakpoint.
     require("@tailwindcss/container-queries"),
+    // Input-type variants. `pointer-coarse:` styles touch screens (phones,
+    // tablets) and `pointer-fine:` mouse and trackpad, independent of width:
+    // a landscape phone is wider than `md` but still needs 44 px targets, and
+    // a narrow desktop window doesn't. Prefer these over raw
+    // `[@media(pointer:coarse)]:` arbitrary variants.
+    plugin(({ addVariant }) => {
+      addVariant("pointer-coarse", "@media (pointer: coarse)");
+      addVariant("pointer-fine", "@media (pointer: fine)");
+      // Desktop density: `md-fine:` is `md:` for a mouse only, for the
+      // primitives that shrink from 44 px to 36 px on md+ (Button sizes).
+      // One variant, not `md:pointer-fine:`, on purpose: custom variants
+      // sort before the screen variants, so a call site's own `md:h-7` or
+      // `md:h-auto` still overrides the shrink, as it did when it was `md:`.
+      // A stacked `md:pointer-fine:` would sort after them and win.
+      addVariant("md-fine", "@media (min-width: 768px) and (pointer: fine)");
+    }),
+    // `min-h-screen` is 100vh, which on a phone is the height with the
+    // browser bars hidden: a card centred in it sits 40-80px low and the page
+    // scrolls for nothing. `min-h-screen-dvh` uses the visible height, with
+    // 100vh first for browsers that don't know dvh (iOS Safari < 15.4), the
+    // same cascade as `body` in globals.css. Tailwind's own `min-h-dvh` has
+    // no fallback, so old browsers would drop it and get no minimum at all.
+    plugin(({ addUtilities }) => {
+      addUtilities({
+        ".min-h-screen-dvh": { minHeight: ["100vh", "100dvh"] },
+      });
+    }),
   ],
   /* eslint-enable @typescript-eslint/no-require-imports */
 };

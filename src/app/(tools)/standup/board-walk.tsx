@@ -375,7 +375,7 @@ export function BoardWalk({
                   onChange={(e) =>
                     setPickedTurn(e.target.value === "auto" ? "auto" : Number(e.target.value))
                   }
-                  className="h-11 rounded-md border border-border bg-surface-deep px-2 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent md:h-9"
+                  className="h-11 rounded-md border border-border bg-surface-deep px-2 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent pointer-fine:md:h-9"
                 >
                   <option value="auto">Auto ({turnClock(autoSeconds)})</option>
                   {TURN_OPTIONS.map((s) => (

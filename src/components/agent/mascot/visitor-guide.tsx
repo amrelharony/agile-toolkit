@@ -78,6 +78,51 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
       data-testid="mascot-visitor-guide"
       className="flex h-full flex-col gap-4 overflow-y-auto px-4 py-3"
     >
+      {/* The search comes first. A phone shows about 360 px of this panel, and
+          the current tool's "How to run it" list alone is longer than that, so
+          the search used to sit two to four screens down. Results show right
+          under the field; the common jobs follow the tool's own card. */}
+      <section className="flex flex-col gap-2">
+        <label htmlFor="mascot-tool-search" className="text-sm font-medium text-text">
+          What do you need to do?
+        </label>
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sub"
+            aria-hidden="true"
+          />
+          <Input
+            id="mascot-tool-search"
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="e.g. run a retro, prioritize a backlog"
+            className="pl-9"
+            autoComplete="off"
+          />
+        </div>
+        {trimmed &&
+          (results.length > 0 ? (
+            <ul className="flex flex-col gap-1" aria-label="Matching tools">
+              {results.map((tool) => (
+                <li key={tool.id}>
+                  <ToolLink
+                    href={tool.path}
+                    title={tool.name}
+                    subtitle={tool.description}
+                    onNavigate={chose}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-sub" role="status">
+              No tools match “{trimmed}”. Try a task like “retro” or “estimate”, or a method like
+              “OKR” or “WSJF”.
+            </p>
+          ))}
+      </section>
+
       {current && (
         <section
           aria-label="This tool"
@@ -101,47 +146,15 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
         </section>
       )}
 
-      <section className="flex flex-col gap-2">
-        <label htmlFor="mascot-tool-search" className="text-sm font-medium text-text">
-          What do you need to do?
-        </label>
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sub"
-            aria-hidden="true"
-          />
-          <Input
-            id="mascot-tool-search"
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g. run a retro, prioritize a backlog"
-            className="pl-9"
-            autoComplete="off"
-          />
-        </div>
-        {trimmed ? (
-          results.length > 0 ? (
-            <ul className="flex flex-col gap-1" aria-label="Matching tools">
-              {results.map((tool) => (
-                <li key={tool.id}>
-                  <ToolLink
-                    href={tool.path}
-                    title={tool.name}
-                    subtitle={tool.description}
-                    onNavigate={chose}
-                  />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-sub" role="status">
-              No tools match “{trimmed}”. Try a task like “retro” or “estimate”, or a method like
-              “OKR” or “WSJF”.
-            </p>
-          )
-        ) : (
-          <ul className="flex flex-col gap-1" aria-label="Popular tasks">
+      {!trimmed && (
+        <section className="flex flex-col gap-1">
+          <p
+            id="mascot-popular-tasks"
+            className="text-xs font-semibold uppercase tracking-wide text-sub"
+          >
+            Popular tasks
+          </p>
+          <ul className="flex flex-col gap-1" aria-labelledby="mascot-popular-tasks">
             {STARTERS.map((s) => {
               const tool = getToolById(s.toolId);
               if (!tool) return null;
@@ -157,8 +170,8 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
               );
             })}
           </ul>
-        )}
-      </section>
+        </section>
+      )}
 
       <section className="mt-auto flex flex-col gap-2 border-t border-border pt-3">
         <p className="text-xs text-sub">
@@ -169,6 +182,7 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
             type="button"
             variant="toolkit"
             size="sm"
+            className="pointer-coarse:min-h-11"
             onClick={() => {
               onNavigate?.();
               openSettings();
@@ -180,7 +194,7 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
           <Link
             href={signInHref}
             onClick={onNavigate}
-            className="text-xs text-sub underline-offset-2 hover:text-text hover:underline"
+            className="min-touch-coarse inline-flex items-center justify-end text-xs text-sub underline-offset-2 hover:text-text hover:underline"
           >
             Owner sign in
           </Link>

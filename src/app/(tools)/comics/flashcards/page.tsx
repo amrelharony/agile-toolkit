@@ -6,8 +6,9 @@ import { listStudyCards } from "@/lib/comics/store";
 import type { StudyCard } from "@/lib/comics/types";
 import { comicMetadata } from "../comic-metadata";
 import { FlashcardDeck } from "./flashcard-deck";
+import { cardsArt } from "@/lib/ink/drawings/pages/cards";
 
-/** Refreshed about every 10 minutes, like the gallery, so a Monday's story joins the deck. */
+/** Refreshed about every 10 minutes, like the gallery, so a Sunday's story joins the deck. */
 export const revalidate = 600;
 
 // Out of search, like the book's episodes: their lessons are all here together.
@@ -33,6 +34,7 @@ export default async function FlashcardsPage() {
   const cards = [...book, ...(await listStudyCards())];
   return (
     <ToolPageWrapper
+      art={cardsArt}
       title="Flashcards"
       description="Each story's lesson and question, one card at a time"
     >

@@ -20,7 +20,7 @@
  */
 
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { CheckCircle2, Download, ShieldAlert } from "lucide-react";
+import { Check, CheckCircle2, Download, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
@@ -38,7 +38,7 @@ import {
 } from "@/lib/realtime/vote-room/use-vote-room";
 import { exportToMarkdown } from "@/lib/utils/export";
 import { todayLocalISO } from "@/lib/utils/formatters";
-import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 import {
   LiveRoundResults,
   RoundAnswerForm,
@@ -79,7 +79,7 @@ export function VoteJoinRoom(props: VoteJoinRoomProps): JSX.Element {
 
   if (!visitorRoomsEnabled()) {
     return (
-      <main className="mx-auto min-h-screen w-full max-w-3xl px-4 py-6">
+      <main className="mx-auto min-h-screen-dvh w-full max-w-3xl px-4 py-6">
         <ClosedPanel
           title="Live rooms are off"
           body="This site isn't running live rooms right now."
@@ -91,7 +91,7 @@ export function VoteJoinRoom(props: VoteJoinRoomProps): JSX.Element {
   }
   if (fingerprint === undefined) {
     return (
-      <main className="mx-auto min-h-screen w-full max-w-3xl px-4 py-6">
+      <main className="mx-auto min-h-screen-dvh w-full max-w-3xl px-4 py-6">
         <p role="status" className="text-sm text-sub">
           Opening the room…
         </p>
@@ -100,7 +100,7 @@ export function VoteJoinRoom(props: VoteJoinRoomProps): JSX.Element {
   }
   if (fingerprint === null) {
     return (
-      <main className="mx-auto min-h-screen w-full max-w-3xl px-4 py-6">
+      <main className="mx-auto min-h-screen-dvh w-full max-w-3xl px-4 py-6">
         <IncompleteLinkPanel onLeave={props.onLeave} />
       </main>
     );
@@ -207,13 +207,12 @@ function ParticipantVoteRoom({
   const download = () => {
     if (!result) return;
     exportToMarkdown(roundMarkdown(result), `${tool}-round-${todayLocalISO()}`);
-    toast.success("Downloaded the results as Markdown.");
   };
 
   const copy = active ? null : closedCopy(status, room.endReason, result !== null);
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-3xl space-y-5 px-4 py-6">
+    <main className="mx-auto min-h-screen-dvh w-full max-w-3xl space-y-5 px-4 py-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-xl font-bold text-text">{title ?? "Live round"}</h1>
@@ -349,16 +348,30 @@ function SentPanel({ counted, children }: { counted: boolean; children: ReactNod
 
 /** "Download Markdown": the revealed totals, as a file. */
 function DownloadButton({ onDownload }: { onDownload?: () => void }) {
+  // Confirmed in place, not with a toast: the file is the confirmation.
+  const { flash, isFlashing } = useFlash();
+  const done = isFlashing();
   return (
     <Button
       type="button"
       variant="outline"
       className="gap-1.5"
-      onClick={onDownload}
+      onClick={
+        onDownload
+          ? () => {
+              onDownload();
+              flash("Downloaded the results as Markdown.");
+            }
+          : undefined
+      }
       disabled={!onDownload}
     >
-      <Download className="h-4 w-4" aria-hidden="true" />
-      Download Markdown
+      {done ? (
+        <Check className="h-4 w-4" aria-hidden="true" />
+      ) : (
+        <Download className="h-4 w-4" aria-hidden="true" />
+      )}
+      {done ? "Downloaded" : "Download Markdown"}
     </Button>
   );
 }

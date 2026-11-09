@@ -134,6 +134,10 @@ export function InlineEditor({
       // on the underlying div.
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
+      // Text at 16px or more can't trigger iOS focus zoom, so it opts out of
+      // the touch-screen 16px guard in globals.css and keeps its own size
+      // (a large shape's 60px label). Smaller text stays guarded.
+      data-own-font={fontSize !== undefined && fontSize >= 16 ? "" : undefined}
       // The textarea fills the parent. `resize: none` so users don't
       // accidentally resize the textarea separately from the object's
       // resize handles.

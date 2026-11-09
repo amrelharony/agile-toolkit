@@ -3,25 +3,36 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Share2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { COMICS_ROUTE, comicHref } from "@/lib/comics/entry";
+import { COMICS_ROUTE, FIRST_WEEKLY_EP, comicHref } from "@/lib/comics/entry";
+import { beaconStats } from "@/lib/comics/stats-client";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
+import { useCounting } from "./use-counting";
 
-/** Share the address only: never where the visit came from, never a file. */
-async function shareStory(ep: number, title: string): Promise<void> {
+/**
+ * Share the address only: never where the visit came from, never a file. True
+ * when it went: shared, or the link copied.
+ */
+async function shareStory(ep: number, title: string, onCopied: () => void): Promise<boolean> {
   const url = `${window.location.origin}${comicHref(ep)}`;
   if (typeof navigator.share === "function") {
     try {
       await navigator.share({ title, url });
+      return true;
     } catch {
       // Dismissing the share sheet is a choice, not a failure.
+      return false;
     }
-    return;
   }
-  if (await copyToClipboard(url)) toast.success("Link copied");
-  else toast.error("Couldn't copy the link");
+  if (await copyToClipboard(url)) {
+    onCopied();
+    return true;
+  }
+  toast.error("Couldn't copy the link");
+  return false;
 }
 
 /** Arrow keys belong to whatever is open or being typed in, not to the story. */
@@ -43,6 +54,14 @@ interface StoryNavProps {
 /** Previous, next and share under a story. The arrow keys do the same. */
 export function StoryNav({ ep, title, prevEp, nextEp }: StoryNavProps) {
   const router = useRouter();
+  const { flash, isFlashing } = useFlash();
+  const copied = isFlashing();
+  const counting = useCounting();
+
+  const share = async () => {
+    const went = await shareStory(ep, title, () => flash("Link copied"));
+    if (went && counting && ep >= FIRST_WEEKLY_EP) beaconStats(ep, ["share"]);
+  };
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -78,9 +97,9 @@ export function StoryNav({ ep, title, prevEp, nextEp }: StoryNavProps) {
           All comics
         </Link>
       </Button>
-      <Button type="button" variant="ghost" onClick={() => void shareStory(ep, title)}>
-        <Share2 aria-hidden="true" />
-        Share a link
+      <Button type="button" variant="ghost" onClick={() => void share()}>
+        {copied ? <Check aria-hidden="true" /> : <Share2 aria-hidden="true" />}
+        {copied ? "Link copied" : "Share a link"}
       </Button>
     </nav>
   );

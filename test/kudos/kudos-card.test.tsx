@@ -6,8 +6,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
 import { render, screen, within } from "@testing-library/react";
-import { KudosCard } from "@/app/(tools)/kudos/components/kudos-card";
+import { KudosCard, PENDING_KUDOS_ID } from "@/app/(tools)/kudos/components/kudos-card";
 import { CARD_PANEL_PATHS } from "@/lib/kudos/card-panels";
 import type { Kudos } from "@/lib/stores/workspace-types";
 
@@ -93,6 +96,58 @@ describe("an episode's card at full size", () => {
       "agile.amrelharony.com/comics"
     );
     expect(screen.queryByText("Which episode does this remind you of?")).toBeNull();
+  });
+
+  it("moves the Date down a line rather than splitting the From name mid-word", () => {
+    // jsdom does no layout, so this reads the classes. With min-w-0 the From
+    // item could shrink below its longest word next to the Date, and the name
+    // broke mid-word on a phone ("Workspac / e owner"), in the image too.
+    render(<KudosCard kudos={{ ...EP7, teamName: undefined, fromName: "Workspace owner" }} />);
+    const from = screen.getByText("From:").parentElement!;
+    expect(from).toHaveClass("flex-1", "max-w-full");
+    expect(from).not.toHaveClass("min-w-0");
+    // A single token longer than the whole row still breaks inside the line.
+    expect(screen.getByText("Workspace owner")).toHaveClass("min-w-0", "break-words");
+    const row = from.parentElement!;
+    expect(row).toHaveClass("flex-wrap");
+    expect(screen.getByText("Date:").parentElement).toHaveClass("shrink-0");
+  });
+
+  it("takes the browser's date when the server's day differs, without failing the hydration", async () => {
+    // The form's preview is dated "now": the server (UTC) and a visitor east
+    // of it are a day apart near midnight. Two dates days apart stand in for
+    // that, whatever time zone the test runs in.
+    const server = { ...EP7, sentAt: "2026-11-08T12:00:00.000Z" };
+    const browser = { ...EP7, sentAt: "2026-11-10T12:00:00.000Z" };
+    const serverLabel = new Date(server.sentAt).toLocaleDateString("en-US");
+    const browserLabel = new Date(browser.sentAt).toLocaleDateString("en-US");
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<KudosCard kudos={server} excludeInteractive />);
+    document.body.appendChild(container);
+    expect(container).toHaveTextContent(serverLabel);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const recoverable = vi.fn();
+
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, <KudosCard kudos={browser} excludeInteractive />, {
+          onRecoverableError: recoverable,
+        });
+      });
+
+      expect(recoverable).not.toHaveBeenCalled();
+      const mismatches = errors.mock.calls
+        .map((args) => args.map(String).join(" "))
+        .filter((line) => /did not match|hydrat/i.test(line));
+      expect(mismatches).toEqual([]);
+      expect(within(container).getByText("Date:").parentElement).toHaveTextContent(browserLabel);
+    } finally {
+      // Off the page even on a failure, so the next tests' queries don't find it.
+      act(() => root?.unmount());
+      container.remove();
+      errors.mockRestore();
+    }
   });
 
   it("says a date it can't read as a dash", () => {
@@ -253,6 +308,22 @@ describe("the card's interactive parts", () => {
     render(<KudosCard kudos={{ ...reacted, replyTo: "kud_0" }} compact {...handlers} />);
     expect(screen.queryByRole("button", { name: "Reply to this kudos" })).toBeNull();
     expect(screen.getByRole("button", { name: "Add a reaction" })).toBeInTheDocument();
+  });
+});
+
+describe("the card's id", () => {
+  it("is on the card, but left off while the form's preview has only the placeholder", () => {
+    for (const compact of [false, true]) {
+      const { container, rerender, unmount } = render(
+        <KudosCard kudos={EP7} compact={compact} excludeInteractive />
+      );
+      expect(container.firstElementChild).toHaveAttribute("data-kudos-id", "kud_7");
+      rerender(
+        <KudosCard kudos={{ ...EP7, id: PENDING_KUDOS_ID }} compact={compact} excludeInteractive />
+      );
+      expect(container.firstElementChild).not.toHaveAttribute("data-kudos-id");
+      unmount();
+    }
   });
 });
 

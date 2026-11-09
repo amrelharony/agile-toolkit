@@ -5,7 +5,7 @@ import { Field } from "@/components/ui/field";
 import { currentQuarter, dashQuarter, quarterIndex, quarterOptions } from "@/lib/roadmap/quarters";
 
 const SELECT_CLASS =
-  "flex h-11 w-full min-w-0 rounded-md border border-input bg-transparent px-3 font-data text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm";
+  "flex h-11 w-full min-w-0 rounded-md border border-input bg-transparent px-3 font-data text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-fine:md:h-9 pointer-fine:md:text-sm";
 
 /** How the quarters are written: the roadmap's "2026 Q3" or the DORA Scorecard's "2026-Q3". */
 export type QuarterFormat = "space" | "dash";

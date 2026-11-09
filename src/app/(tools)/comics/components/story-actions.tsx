@@ -5,14 +5,18 @@ import Link from "next/link";
 import { Check, MessagesSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMascotStore } from "@/lib/agent/mascot/store";
-import { markAsked, markRead, sentLinks, setSentLinks } from "@/lib/comics/reading";
+import { FIRST_WEEKLY_EP } from "@/lib/comics/entry";
+import { READ_EVENT, markAsked, markRead, sentLinks, setSentLinks } from "@/lib/comics/reading";
+import { beaconStats } from "@/lib/comics/stats-client";
 import { dispatch } from "@/lib/gamification/engine";
+import { recordOutcome } from "@/lib/gamification/ledger";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { sendHandoff } from "@/lib/handoffs/send";
 import { RETRO_BOARD_ID } from "@/lib/handoffs/targets/retro-board";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { useCounting } from "./use-counting";
 
 /** How long the page has to be open before reaching its end counts as reading it. */
 export const READ_DWELL_MS = 8_000;
@@ -30,6 +34,7 @@ export const READ_DWELL_MS = 8_000;
  */
 export function DiscussInRetro({ ep, question }: { ep: number; question: string }) {
   const hydrated = useWorkspaceHydrated();
+  const counting = useCounting();
   // Subscribed, so a card removed elsewhere (another tab, sync) frees the button.
   const board = useWorkspaceStore((s) =>
     (s.retroBoards ?? []).find((b) => b.id === RETRO_BOARD_ID)
@@ -103,7 +108,10 @@ export function DiscussInRetro({ ep, question }: { ep: number; question: string 
       }
     );
     // The trophy counts the first question a story sends, not each send and Undo.
-    if (link && markAsked(ep)) dispatch({ name: "tool:comics:retro-question", meta: { ep } });
+    if (link && markAsked(ep)) {
+      dispatch({ name: "tool:comics:retro-question", meta: { ep } });
+      if (counting && ep >= FIRST_WEEKLY_EP) beaconStats(ep, ["retro"]);
+    }
   };
 
   return (
@@ -130,18 +138,23 @@ export function DiscussInRetro({ ep, question }: { ep: number; question: string 
  */
 export function ReadTracker({ ep }: { ep: number }) {
   const end = useRef<HTMLDivElement>(null);
+  const counting = useCounting();
 
   const finish = useCallback(() => {
     const first = markRead(ep);
     if (!first) return;
+    if (counting && ep >= FIRST_WEEKLY_EP) beaconStats(ep, ["reader"]);
+    window.dispatchEvent(new CustomEvent(READ_EVENT, { detail: first }));
     dispatch({
       name: "tool:comics:completed",
       meta: { ep, total: first.total, weekStreak: first.weekStreak },
     });
+    // Reading pays once per story, at most two a day.
+    recordOutcome("story-read", { key: `story:${ep}`, meta: { ep } });
     const mascot = useMascotStore.getState();
     // Nobody plays the queue while he isn't on screen.
     if (mascot.ready) mascot.queueReaction("excited");
-  }, [ep]);
+  }, [ep, counting]);
 
   useEffect(() => {
     const node = end.current;

@@ -297,6 +297,130 @@ describe("a story's quiz and tool", () => {
   });
 });
 
+describe("a story's guess and Try it this week", () => {
+  const G = {
+    question: "What happens next?",
+    options: ["She asks the team", "He decides alone", "They wait a week"],
+    happened: 1,
+  };
+
+  function serve(extra: (url: string, init?: RequestInit) => unknown) {
+    fetchSpy.mockImplementation(async (url: string, init?: RequestInit) => {
+      const answered = extra(url, init);
+      if (answered) return answered;
+      if (url === "/api/comics/stories/41/extras") {
+        return respond({ extras: { quiz: null, tryTool: null } });
+      }
+      if (url === "/api/comics/stories") return respond({ stories: listed });
+      if (url === "/api/comics/licence-requests") return respond({ requests: [] });
+      return respond({}, 404);
+    });
+  }
+
+  it("lists the stories whose import draft waits, and approves one with its tool", async () => {
+    h.auth = owner;
+    listed = [story({ ep: 41 })];
+    let drafts = [41];
+    serve((url, init) => {
+      if (url === "/api/comics/guess-drafts") return respond({ eps: drafts });
+      if (url === "/api/comics/stories/41/guess" && init?.method === "PUT") {
+        drafts = [];
+        const body = JSON.parse(String(init.body));
+        return respond({ guess: body.guess, tryAction: body.tryAction, draft: null });
+      }
+      if (url === "/api/comics/stories/41/guess") {
+        return respond({
+          guess: null,
+          tryAction: null,
+          draft: { guess: G, tryAction: "Ask one person first.", tryTool: "retro" },
+        });
+      }
+      return null;
+    });
+    render(<ComicsPortal />);
+    expect(await screen.findByRole("heading", { name: "Guesses to approve (1)" })).toBeVisible();
+    expect(screen.getByText("Guess draft to approve.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Episode 41" }));
+    expect(await screen.findByText("A draft is waiting for you")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Option 2" })).toHaveValue("He decides alone");
+    expect(screen.getByRole("radio", { name: "The last panel shows option 2" })).toBeChecked();
+    fireEvent.change(screen.getByRole("textbox", { name: "Option 3" }), {
+      target: { value: "They wait until Friday" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save and approve" }));
+    expect(await screen.findByText(/Approved\. The story's page shows it now/)).toBeInTheDocument();
+    const put = fetchSpy.mock.calls.find(
+      ([url, init]) => url === "/api/comics/stories/41/guess" && init?.method === "PUT"
+    );
+    expect(JSON.parse(String(put![1]!.body))).toEqual({
+      guess: { ...G, options: ["She asks the team", "He decides alone", "They wait until Friday"] },
+      tryAction: "Ask one person first.",
+      tryTool: "retro",
+    });
+    expect(screen.getByRole("button", { name: "Save guess and action" })).toBeInTheDocument();
+  });
+
+  it("leaves the story's tool alone when the owner unticks the suggestion", async () => {
+    h.auth = owner;
+    listed = [story({ ep: 41 })];
+    serve((url, init) => {
+      if (url === "/api/comics/stories/41/guess" && init?.method === "PUT") {
+        return respond({ guess: G, tryAction: null, draft: null });
+      }
+      if (url === "/api/comics/stories/41/guess") {
+        return respond({ guess: null, tryAction: null, draft: { guess: G, tryTool: "retro" } });
+      }
+      return null;
+    });
+    render(<ComicsPortal />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Edit" }))[0]);
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Use the suggested tool/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save and approve" }));
+    await screen.findByText(/Approved/);
+    const put = fetchSpy.mock.calls.find(
+      ([url, init]) => url === "/api/comics/stories/41/guess" && init?.method === "PUT"
+    );
+    expect(JSON.parse(String(put![1]!.body))).not.toHaveProperty("tryTool");
+  });
+
+  it("refuses a guess with a blank option before sending it", async () => {
+    h.auth = owner;
+    listed = [story({ ep: 41 })];
+    serve((url) =>
+      url === "/api/comics/stories/41/guess"
+        ? respond({ guess: null, tryAction: null, draft: null })
+        : null
+    );
+    render(<ComicsPortal />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Edit" }))[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Add a guess" }));
+    expect(screen.getByRole("textbox", { name: "Guess question" })).toHaveValue(
+      "What happens next?"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save guess and action" }));
+    expect(await screen.findByText(/The guess needs its question/)).toBeInTheDocument();
+    expect(
+      fetchSpy.mock.calls.some(
+        ([url, init]) => url === "/api/comics/stories/41/guess" && init?.method === "PUT"
+      )
+    ).toBe(false);
+  });
+
+  it("say they need migration 0035 until it has run, and the list shows no drafts", async () => {
+    h.auth = owner;
+    listed = [story({ ep: 41 })];
+    serve((url) =>
+      url === "/api/comics/stories/41/guess" || url === "/api/comics/guess-drafts"
+        ? respond({ error: "guess_unavailable" }, 503)
+        : null
+    );
+    render(<ComicsPortal />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Edit" }))[0]);
+    expect(await screen.findByText(/need migration 0035/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Guesses to approve/ })).toBeNull();
+  });
+});
+
 describe("owner-only page metadata", () => {
   it("keeps both pages out of search indexes", async () => {
     const portal = await import("@/app/settings/comics/page");
@@ -568,7 +692,11 @@ describe("the import page", () => {
     fireEvent.change(screen.getAllByLabelText("Choose the folder")[0], {
       target: { files: [file] },
     });
-    expect(await screen.findByText(/No editorial\/Agile_At_Work_Batch_1_100/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /No editorial\/stories\.json \(or the older editorial\/Agile_At_Work_Batch_1_100/
+      )
+    ).toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalledWith(
       "/api/comics/stories",
       expect.objectContaining({ method: "POST" })
@@ -647,6 +775,8 @@ describe("the service-role boundary", () => {
       "/api/comics/guestbook",
       "/api/comics/hit",
       "/api/comics/licence",
+      "/api/comics/stats",
+      "/api/comics/taps",
     ]);
   });
 

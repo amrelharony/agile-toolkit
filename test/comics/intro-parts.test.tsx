@@ -185,6 +185,14 @@ describe("ReplayIntro", () => {
     expect(root.hasAttribute(INTRO_ATTR)).toBe(false);
   });
 
+  it("stays 44 px tall on touch screens of any width, text height with a mouse on md+", () => {
+    // A landscape phone is md+: a plain md:min-h-0 left it 20 px tall there.
+    render(<ReplayIntro kind="book" />);
+    const classes = screen.getByRole("button", { name: "Replay intro" }).className.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(["min-h-11", "md-fine:min-h-0"]));
+    expect(classes).not.toContain("md:min-h-0");
+  });
+
   it("ends a replay by itself if the animation never reports its end", () => {
     vi.useFakeTimers();
     render(<BookOverlay />);

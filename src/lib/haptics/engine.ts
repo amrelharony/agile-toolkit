@@ -1,15 +1,12 @@
 "use client";
 
 import { useHapticsStore } from "@/lib/stores/haptics-store";
+import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
+import { isFocusActive, isWithinQuietHours } from "@/lib/notify/prefs";
 import { getPattern, downgradePattern } from "./patterns";
 import { getHapticEntry } from "./palette";
 import { shouldFire, recordFire, registerSuppressionListeners } from "./gate";
-import type {
-  HapticPatternName,
-  HapticPatternSpec,
-  FireOptions,
-  HapticSupport,
-} from "./types";
+import type { HapticPatternName, HapticPatternSpec, FireOptions, HapticSupport } from "./types";
 
 // ---------------------------------------------------------------------------
 // Capability detection
@@ -25,6 +22,17 @@ export function detectSupport(): HapticSupport {
   const hasVibrate = typeof (navigator as Navigator).vibrate === "function";
   cachedSupport = hasVibrate ? "vibrate" : "visual-only";
   return cachedSupport;
+}
+
+/** Quiet hours or Focus is on right now (Settings › Notifications). */
+function isQuietTime(): boolean {
+  try {
+    const prefs = useNotificationPrefsStore.getState();
+    const now = Date.now();
+    return isFocusActive(prefs, now) || isWithinQuietHours(prefs.quietHours, new Date(now));
+  } catch {
+    return false;
+  }
 }
 
 function prefersReducedMotion(): boolean {
@@ -53,7 +61,8 @@ async function initBattery() {
   if (batteryInit) return;
   batteryInit = true;
   if (typeof navigator === "undefined") return;
-  const getBattery = (navigator as Navigator & { getBattery?: () => Promise<BatteryLike> }).getBattery;
+  const getBattery = (navigator as Navigator & { getBattery?: () => Promise<BatteryLike> })
+    .getBattery;
   if (!getBattery) return;
   try {
     const b = await getBattery.call(navigator);
@@ -118,6 +127,7 @@ export function fire(name: HapticPatternName, opts: FireOptions = {}): boolean {
     perCategory: store.perCategory,
     batteryGuardEnabled: store.batteryGuardEnabled,
     reducedMotion: prefersReducedMotion(),
+    quiet: isQuietTime(),
     batterySnapshot,
     now,
     patternName: name,
@@ -162,11 +172,7 @@ export function fire(name: HapticPatternName, opts: FireOptions = {}): boolean {
 }
 
 /** Imperative helper used by the sonification emit.ts graft. */
-export function fireFromEvent(
-  toolId: string,
-  eventName: string,
-  targetEl?: HTMLElement | null,
-) {
+export function fireFromEvent(toolId: string, eventName: string, targetEl?: HTMLElement | null) {
   const name = getHapticEntry(toolId, eventName);
   if (!name) return;
   fire(name, { targetEl });

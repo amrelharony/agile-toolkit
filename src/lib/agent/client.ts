@@ -2,10 +2,20 @@
 
 import { registry, claudeNameFromId } from "@/lib/actions/registry";
 import { getActiveConfig } from "@/lib/stores/llm-store";
+import type { ToolDefinition } from "@/lib/constants/tools";
+import { getGuide } from "@/lib/tools/guides";
+import { searchTools } from "@/lib/search/tool-search";
 import { useAgentStore } from "./store";
 import { buildSystemPrompt } from "./system-prompt";
+import { composeGrounding } from "./grounding";
+import { resolvePageTool } from "./page-tool";
 import { relevantActions as relevantActionsForQuery, rankActionIds } from "./mascot/kb";
-import { recentUserText, toolNamesInHistory } from "./tool-selection";
+import {
+  MAX_TOOLS_PER_TURN,
+  recentUserText,
+  selectTurnToolIds,
+  toolNamesInHistory,
+} from "./tool-selection";
 import { parseRateLimitHeaders } from "./rate-limit";
 import { executeToolUse } from "./execute-tool";
 import { appendMessages, recordChatUsage } from "./persist";
@@ -22,8 +32,10 @@ function lastUserText(messages: ChatMessage[]): string {
 }
 
 /**
- * Agent client — drives the tool-use loop against GLM (z.ai) via the
- * OpenAI-compatible chat completions API.
+ * Agent client — drives the tool-use loop over the OpenAI-compatible chat
+ * completions API: through /api/agent/stream to the server's backend
+ * (OpenClaw → GLM-5.3, or a direct GLM / Z.AI key), or straight to
+ * open.bigmodel.cn with the user's own BYOK GLM key.
  *
  * Internal message shape stays Anthropic-flavoured (TextBlock /
  * ToolUseBlock / ToolResultBlock) so the UI, store, and Supabase
@@ -45,6 +57,23 @@ function lastUserText(messages: ChatMessage[]): string {
 const GLM_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 const DEFAULT_MODEL = "glm-4.5-flash";
 const MAX_TOOL_USE_ROUNDS = 10;
+/**
+ * Owner turns. GLM-5.3 always reasons before it answers, and the reasoning
+ * counts against max_tokens, so leave it room on top of the reply (the route
+ * clamps at 8192).
+ */
+const OWNER_MAX_TOKENS = 8192;
+/**
+ * The round-limit wrap-up: a short summary, plus low-effort reasoning. High
+ * effort over a ten-round history could spend the whole budget thinking and
+ * end on "length" with no text.
+ */
+const WRAP_UP_MAX_TOKENS = 4096;
+/** generateTitle: a 3-6 word title, plus low-effort reasoning. */
+const TITLE_MAX_TOKENS = 1024;
+/** Told to the model on the wrap-up turn, after the round budget is spent. */
+const WRAP_UP_INSTRUCTION =
+  "IMPORTANT: You have used every tool-use round for this turn. You cannot call any more tools — a tool call now is ignored. Answer the user now, in plain text: summarise what you accomplished, what failed, and what remains.";
 /** Guard against schema-violation wedges: if the same action returns
  *  is_error twice in a row with the same arg-shape, stop retrying. */
 const MAX_SAME_ERROR_REPEATS = 2;
@@ -135,52 +164,101 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
   }
 }
 
-/** Max tool schemas sent to the model per turn when the KB can focus the ask. */
-const MAX_TOOLS_PER_TURN = 64;
-/** Fewer ranked hits than this ⇒ the ask is too vague to trust; send them all. */
-const MIN_RANKED_TO_TRIM = 4;
+type OpenAiTool = ReturnType<typeof registry.toOpenAiTools>[number];
 
 /**
- * Build the tool list for a turn. When the KB can rank the recent user context,
- * return just those top tools (capped at MAX_TOOLS_PER_TURN); otherwise return
- * the full registry so a vague request still has everything available.
+ * Pick the tool schemas for one request (see selectTurnToolIds for the order:
+ * tools the chat already used, the open tool's actions, the KB's ranked
+ * matches, the cross-tool intents — at most MAX_TOOLS_PER_TURN plus history).
  *
- * Two invariants beyond "rank the latest line":
- *  - `rankText` is the recent user context (last couple of messages), so a
- *    follow-up like "rename it" still ranks against the prior turn's nouns.
- *  - The offered set is UNIONED with every tool the transcript already
- *    references. An OpenAI-compatible endpoint rejects a request whose message
- *    history contains an assistant tool_call not present in `tools`, so trimming
- *    one away on a later turn would make the body invalid.
+ * The whole registry is never sent. It used to be, whenever fewer than four
+ * actions ranked or there was no user text: 831 actions, ~590 KB of JSON
+ * (~150k tokens), which added ~30s of model latency and blew past the
+ * gateway's body limit.
+ *
+ * Two invariants:
+ *  - `rankedIds` come from the recent user context (last couple of messages),
+ *    so a follow-up like "rename it" still ranks against the prior turn's nouns.
+ *  - Every tool the transcript already references stays in the set. An
+ *    OpenAI-compatible endpoint rejects a request whose history contains an
+ *    assistant tool_call not present in `tools`, so trimming one away on a
+ *    later turn (or round) would make the body invalid.
+ *
+ * The result keeps selectTurnToolIds' order, history first: the route caps
+ * the list it forwards (MAX_FORWARDED_TOOLS), so in registry order a long
+ * conversation could lose a tool its history names off the end.
  */
-function buildTurnTools(rankText: string, messages: ChatMessage[]) {
-  const all = registry.toOpenAiTools();
-  const rankedIds = rankText ? rankActionIds(rankText, MAX_TOOLS_PER_TURN) : [];
-  if (rankedIds.length < MIN_RANKED_TO_TRIM) return all;
-  const wantedNames = new Set(rankedIds.map((id) => claudeNameFromId(id)));
-  // Keep every tool the conversation already references (normalise to the claude
-  // name, since the model may have emitted dotted or underscored forms).
-  for (const name of toolNamesInHistory(messages)) {
-    wantedNames.add(claudeNameFromId(registry.resolve(name)?.id ?? name));
+function pickTurnTools(
+  byName: ReadonlyMap<string, OpenAiTool>,
+  opts: { toolId: string | null; rankedIds: string[]; messages: ChatMessage[] }
+): OpenAiTool[] {
+  // Normalise history names to dotted ids: the model may have emitted dotted
+  // or underscored forms.
+  const historyIds = toolNamesInHistory(opts.messages).map(
+    (name) => registry.resolve(name)?.id ?? name
+  );
+  const ids = selectTurnToolIds({
+    actions: registry.list(),
+    toolId: opts.toolId,
+    rankedIds: opts.rankedIds,
+    historyIds,
+  });
+  return ids.flatMap((id) => byName.get(claudeNameFromId(id)) ?? []);
+}
+
+/** Offer `tools` with tool_choice "auto" (the only value GLM-5.3 documents), or neither. */
+function withTools(body: Record<string, unknown>, tools: OpenAiTool[]): Record<string, unknown> {
+  if (tools.length === 0) return body;
+  return { ...body, tools, tool_choice: "auto" };
+}
+
+/**
+ * What the agent should know about the site this turn: the open tool's guide
+ * and up to three related tools for the user's words. Best-effort, part by
+ * part — a guide that fails to load just leaves the prompt without it (the
+ * tool's one-line description still goes in), and nothing here can stop the
+ * turn from being sent.
+ */
+async function ownerGrounding(
+  tool: ToolDefinition | undefined,
+  latestUserText: string
+): Promise<string> {
+  try {
+    const guide = tool ? await getGuide(tool.id).catch(() => undefined) : undefined;
+    let related: ReturnType<typeof searchTools> = [];
+    try {
+      related = latestUserText ? searchTools(latestUserText, 3) : [];
+    } catch {
+      /* no related tools this turn */
+    }
+    return composeGrounding({ tool, guide, related });
+  } catch {
+    return "";
   }
-  const trimmed = all.filter((t) => wantedNames.has(t.function.name));
-  return trimmed.length >= MIN_RANKED_TO_TRIM ? trimmed : all;
 }
 
 async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   const { mode, serverModel } = await detectMode();
+  const model = pickModel(mode, serverModel);
+  // One canonical id for the prompt, the grounding and the tool selection: a
+  // path or slug (as older conversations stored it) resolves to the tool's id.
+  const pageTool = resolvePageTool(opts.toolId);
+  const toolId = pageTool?.id ?? opts.toolId ?? null;
   // KB help (RAG-lite): focus the model on the actions most relevant to the
   // latest user message, picked from the registry index.
   const latestUserText = lastUserText(useAgentStore.getState().messages);
   const relevantActions = latestUserText ? relevantActionsForQuery(latestUserText) : [];
-  const system = buildSystemPrompt({ toolId: opts.toolId ?? null, relevantActions });
-  // PERF: ship only the tools relevant to this turn, not all ~620 schemas.
-  // Sending the whole registry every turn added ~30s of model latency on the
-  // free tier (and bloats the request toward the gateway's body limit). Rank
-  // against the recent user context so follow-ups keep their referents; vague
-  // asks fall back to the full set; execution still uses the full registry.
-  const turnMessages = useAgentStore.getState().messages;
-  const tools = buildTurnTools(recentUserText(turnMessages), turnMessages);
+  const grounding = await ownerGrounding(pageTool, latestUserText);
+  const system = buildSystemPrompt({ toolId, relevantActions, grounding });
+  // PERF: ship only the tools relevant to this turn (see pickTurnTools).
+  // Ranking happens once per turn; the set is re-picked each round only so a
+  // tool the model just called stays offered. Execution still resolves against
+  // the full registry.
+  const toolsByName = new Map(registry.toOpenAiTools().map((t) => [t.function.name, t]));
+  const rankText = recentUserText(useAgentStore.getState().messages);
+  const rankedIds = rankText ? rankActionIds(rankText, MAX_TOOLS_PER_TURN) : [];
+  const toolsFor = (messages: ChatMessage[]) =>
+    pickTurnTools(toolsByName, { toolId, rankedIds, messages });
   // BUG-G11: wedge guard. Track (actionId → consecutive-error-count) so a
   // model that keeps retrying the same broken tool_use call doesn't burn
   // every round in the budget.
@@ -188,25 +266,29 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
 
   // Token usage accumulates across the turn's rounds; record_chat_usage SETS the
   // (turn's) row to the running total, so the last write carries the full turn.
+  // A round whose stream carried no usage adds nothing (and records nothing).
   let turnTokens = 0;
   const onUsage = (t: number) => {
     turnTokens += t;
     useAgentStore.getState().setLastTurnTokens(turnTokens);
-    void recordChatUsage(turnTokens);
+    void recordChatUsage(turnTokens, model);
   };
 
   for (let round = 0; round < MAX_TOOL_USE_ROUNDS; round++) {
-    const messages = wireMessages(useAgentStore.getState().messages, system);
-    const body = {
-      model: pickModel(mode, serverModel),
-      stream: true,
-      max_tokens: 4096,
-      // Ask the upstream to emit a usage chunk so we can record real token spend.
-      stream_options: { include_usage: true },
-      tools,
-      tool_choice: "auto",
-      messages,
-    };
+    const history = useAgentStore.getState().messages;
+    const messages = wireMessages(history, system);
+    const body = withTools(
+      {
+        model,
+        stream: true,
+        max_tokens: OWNER_MAX_TOKENS,
+        // Ask the upstream to emit a usage chunk so we can record real token spend.
+        stream_options: { include_usage: true },
+        reasoning_effort: "high",
+        messages,
+      },
+      toolsFor(history)
+    );
 
     // Meter only the first round: a turn's later tool-use rounds are
     // continuations of an already-allowed turn (see the route's x-agent-new-turn).
@@ -295,42 +377,120 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     }
   }
 
-  // Round budget exhausted — one final no-tools turn so the model can
-  // summarise instead of leaving the conversation mid-stream on a tool
-  // result. Capped via tool_choice=none so the model can't loop again.
+  // Round budget exhausted — one final turn so the model can summarise
+  // instead of leaving the conversation mid-stream on a tool result.
+  //
+  // BUG-H5: the history necessarily references this turn's tool_calls, and an
+  // OpenAI-compatible endpoint rejects a body whose history names a function
+  // absent from `tools` (the pickTurnTools invariant), so the tools stay in
+  // the body. They used to be gated with tool_choice "none", but GLM-5.3
+  // documents only "auto" (the route now always sends "auto"), so the
+  // instruction carries the rule instead, and any tool call the model makes
+  // anyway is dropped from this message (ignoreToolCalls) — its text is kept.
+  // The instruction rides in the system message rather than a trailing one:
+  // the route meters a request whose last message isn't a tool result as a
+  // new turn, and this is still the same turn. (Sending no tools would need
+  // the history's tool_calls rewritten as plain text, which ends the body on
+  // a non-tool message and meters it as a new turn.)
+  //
+  // The model can still answer with only a tool call, or spend its budget
+  // reasoning; then the wrap-up has no text and a local note (roundLimitNote)
+  // stands in, so the turn never ends on an empty reply.
+  let wrapUpId: string | null = null;
   try {
-    const messages = wireMessages(
-      useAgentStore.getState().messages,
-      `${system}\n\nIMPORTANT: You have exhausted the tool-use round budget for this turn. Summarise what you accomplished, what failed, and what remains — do NOT request more tools.`
-    );
+    const history = useAgentStore.getState().messages;
+    const messages = wireMessages(history, `${system}\n\n${WRAP_UP_INSTRUCTION}`);
     const wrapUp = await openOneTurn(
       mode,
-      {
-        model: pickModel(mode, serverModel),
-        stream: true,
-        max_tokens: 1024,
-        stream_options: { include_usage: true },
-        // BUG-H5: the history necessarily references this turn's tool_calls,
-        // and an OpenAI-compatible endpoint rejects a body whose history
-        // names a function absent from `tools` (the buildTurnTools
-        // invariant). Omitting `tools` made this summary turn 400 every
-        // time — swallowed by the catch below, so the promised wrap-up
-        // never appeared. Re-offer the same list, gated by tool_choice:none.
-        tools,
-        tool_choice: "none",
-        messages,
-      },
+      withTools(
+        {
+          model,
+          stream: true,
+          max_tokens: WRAP_UP_MAX_TOKENS,
+          stream_options: { include_usage: true },
+          reasoning_effort: "low",
+          messages,
+        },
+        toolsFor(history)
+      ),
       opts.signal,
       false,
-      onUsage
+      onUsage,
+      { ignoreToolCalls: true }
     );
-    persistAssistant(opts.conversationId, wrapUp.assistantId);
+    wrapUpId = wrapUp.assistantId;
   } catch {
-    /* best-effort wrap-up */
+    /* best-effort wrap-up; the note below stands in for it */
   }
+  // Panel closed: nobody reads a note, so keep only what the model wrote.
+  if (!opts.signal?.aborted) wrapUpId = withWrapUpText(wrapUpId);
+  persistAssistant(opts.conversationId, wrapUpId);
   useAgentStore
     .getState()
     .setError("Reached tool-use round limit (10). Send a follow-up if more is needed.");
+}
+
+/**
+ * The note shown when a round-limit turn's wrap-up wrote no text: how many
+ * tool calls this turn ran and which actions failed, read from the transcript
+ * since the last user message. Exported for tests.
+ */
+export function roundLimitNote(messages: ChatMessage[]): string {
+  const turn = messages.slice(messages.map((m) => m.role).lastIndexOf("user") + 1);
+  const actionOf = new Map<string, string>();
+  for (const m of turn) {
+    if (m.role !== "assistant") continue;
+    for (const c of m.content) {
+      if (c.type === "tool_use") actionOf.set(c.id, registry.resolve(c.name)?.id ?? c.name);
+    }
+  }
+  let ran = 0;
+  let failed = 0;
+  const failedActions = new Set<string>();
+  for (const m of turn) {
+    if (m.role !== "tool") continue;
+    for (const c of m.content) {
+      if (c.type !== "tool_result") continue;
+      ran++;
+      if (c.is_error) {
+        failed++;
+        failedActions.add(actionOf.get(c.tool_use_id) ?? "unknown action");
+      }
+    }
+  }
+  const calls = `${ran} tool call${ran === 1 ? "" : "s"}`;
+  const failures =
+    failed === 0
+      ? "none failed"
+      : `${failed} failed (${Array.from(failedActions)
+          .map((a) => `\`${a}\``)
+          .join(", ")})`;
+  return `I used all ${MAX_TOOL_USE_ROUNDS} tool rounds for this request before I could write a summary. This turn ran ${calls}; ${failures}. Send a follow-up and I'll carry on from there.`;
+}
+
+/**
+ * The wrap-up's message id, made to carry text: its own when the model wrote
+ * some, otherwise roundLimitNote — in the wrap-up's message if it is still
+ * there, or in a new assistant message when the wrap-up never made one (it
+ * failed, or settleAssistant removed it as empty).
+ */
+function withWrapUpText(assistantId: string | null): string {
+  const store = useAgentStore.getState();
+  const msg = assistantId ? store.messages.find((m) => m.id === assistantId) : undefined;
+  if (msg?.content.some((c) => c.type === "text" && c.text.trim().length > 0)) return msg.id;
+  const note: ContentBlock[] = [{ type: "text", text: roundLimitNote(store.messages) }];
+  if (msg) {
+    store.patchMessage(msg.id, note);
+    return msg.id;
+  }
+  const id = msgId();
+  store.appendMessage({
+    id,
+    role: "assistant",
+    content: note,
+    createdAt: new Date().toISOString(),
+  });
+  return id;
 }
 
 /** Outcome of one streaming round. `assistantId` is the id of the assistant
@@ -349,13 +509,18 @@ interface TurnOutcome {
  * Open one chat-completion turn over SSE, accumulate text + tool_calls
  * into an assistant message in the store, and return our internal
  * stop_reason ("tool_use" or "end_turn") plus that message's id.
+ *
+ * `ignoreToolCalls` (the wrap-up turn) keeps only the text: tool-call deltas
+ * are dropped and the turn always ends, so no tool_call is left in the
+ * transcript without a result.
  */
 async function openOneTurn(
   mode: AgentMode,
   body: Record<string, unknown>,
   signal: AbortSignal | undefined,
   newTurn = false,
-  onUsage?: (totalTokens: number) => void
+  onUsage?: (totalTokens: number) => void,
+  turnOpts: { ignoreToolCalls?: boolean } = {}
 ): Promise<TurnOutcome> {
   const response = await openStream(mode, body, signal, newTurn);
 
@@ -412,7 +577,11 @@ async function openOneTurn(
 
   /** Text accumulates as a single content block (OpenAI emits one
    *  content stream, not multiple addressable blocks like Anthropic). */
-  const wip: WipState = { textParts: [], toolCalls: new Map() };
+  const wip: WipState = {
+    textParts: [],
+    toolCalls: new Map(),
+    ignoreToolCalls: turnOpts.ignoreToolCalls === true,
+  };
 
   // BUG-G8: release the body's reader lock in finally so the stream
   // doesn't sit half-locked until GC after we return.
@@ -452,8 +621,16 @@ async function openOneTurn(
       if (sr) stopReason = sr;
     }
     flushAssistant(wip);
-    if (wip.usage) onUsage?.(wip.usage);
+    // Usage is optional: a backend that never sends it just records nothing.
+    if (wip.usage !== undefined && wip.usage > 0) onUsage?.(wip.usage);
+    if (wip.ignoreToolCalls) stopReason = "end_turn";
+    settleAssistant(assistantMsg.id, stopReason === "tool_use");
     return { stopReason, assistantId: assistantMsg.id };
+  } catch (err) {
+    // The stream failed mid-way (network error, the route's idle timeout, an
+    // abort while reading): whatever tool call it carried never gets a result.
+    settleAssistant(assistantMsg.id, false);
+    throw err;
   } finally {
     try {
       reader.releaseLock();
@@ -475,8 +652,27 @@ interface WipState {
    *  tool_calls in sparse order — each chunk targets an index that
    *  refers back to the same call as previous chunks. */
   toolCalls: Map<number, WipToolCall>;
-  /** total_tokens from the stream's usage chunk (stream_options.include_usage). */
+  /** Total tokens from the stream's usage, if any chunk carried it. */
   usage?: number;
+  /** Drop tool-call deltas (the wrap-up turn keeps only text). */
+  ignoreToolCalls?: boolean;
+}
+
+/**
+ * Total tokens from an OpenAI-style `usage` object, or null when it carries no
+ * usable count. Prefers `total_tokens`; falls back to prompt + completion for
+ * backends that leave the total out.
+ */
+export function usageTotal(usage: unknown): number | null {
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
+  const total = num(u.total_tokens);
+  if (total !== null) return total;
+  const prompt = num(u.prompt_tokens);
+  const completion = num(u.completion_tokens);
+  if (prompt === null && completion === null) return null;
+  return (prompt ?? 0) + (completion ?? 0);
 }
 
 /**
@@ -506,10 +702,12 @@ function handleSseChunk(raw: string, wip: WipState): string | null {
     return null;
   }
 
-  // Usage chunk (stream_options.include_usage) — typically a trailing chunk with
-  // empty choices, so capture it before the choices guard below.
-  const usage = payload.usage as { total_tokens?: number } | null | undefined;
-  if (usage && typeof usage.total_tokens === "number") wip.usage = usage.total_tokens;
+  // Usage (stream_options.include_usage) is optional and may ride on any
+  // chunk: OpenAI sends a trailing chunk with empty choices (and `usage: null`
+  // before it), GLM puts it on the finish chunk, some proxies repeat a running
+  // count. Capture it before the choices guard below; the last count wins.
+  const usage = usageTotal(payload.usage);
+  if (usage !== null) wip.usage = usage;
 
   const choices = payload.choices as
     | Array<{
@@ -537,7 +735,7 @@ function handleSseChunk(raw: string, wip: WipState): string | null {
 
   // Tool-call deltas. Each entry refers to a specific call by index;
   // we accumulate `id`, `name`, and a JSON string for `arguments`.
-  if (Array.isArray(delta.tool_calls)) {
+  if (Array.isArray(delta.tool_calls) && !wip.ignoreToolCalls) {
     for (const tc of delta.tool_calls) {
       const existing = wip.toolCalls.get(tc.index) ?? {
         id: "",
@@ -587,6 +785,28 @@ function isWireValidAssistant(m: ChatMessage): boolean {
     if (c.type === "tool_use" && !isPartialInput(c.input)) return true;
   }
   return false;
+}
+
+/**
+ * Settle a round's assistant message once its stream is over. Its tool calls
+ * survive only when the round ends in "tool_use", the one ending whose calls
+ * get results. Any other ending — an error or abort mid-stream, a stream that
+ * closed before its finish_reason, a "stop" that still carried a call, the
+ * wrap-up — drops them: otherwise the next request would replay a tool_call
+ * with no tool message after it, and the endpoint rejects that with a 400
+ * until the page is reloaded. A message left with nothing to show is removed,
+ * so the chat doesn't draw an empty bubble (persistAssistant then skips it).
+ */
+function settleAssistant(id: string, keepToolCalls: boolean): void {
+  const store = useAgentStore.getState();
+  const msg = store.messages.find((m) => m.id === id);
+  if (!msg) return;
+  const content = keepToolCalls ? msg.content : msg.content.filter((c) => c.type !== "tool_use");
+  const showsSomething = content.some(
+    (c) => (c.type === "text" && c.text.length > 0) || c.type === "tool_use"
+  );
+  if (!showsSomething) store.removeMessage(id);
+  else if (content.length !== msg.content.length) store.patchMessage(id, content);
 }
 
 function flushAssistant(wip: WipState): void {
@@ -648,13 +868,17 @@ async function openStream(
   // (open.bigmodel.cn). The settings dialog's "Test" button validates
   // against this same endpoint, so a key the user tested successfully
   // there will also work here.
+  // `reasoning_effort` is for the server's GLM-5.3 backends; the BYOK request
+  // goes out exactly as it did before that field existed.
+  const byokBody: Record<string, unknown> = { ...body, model: cfg.model || DEFAULT_MODEL };
+  delete byokBody.reasoning_effort;
   return fetch(GLM_ENDPOINT, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${cfg.apiKey}`,
     },
-    body: JSON.stringify({ ...body, model: cfg.model || DEFAULT_MODEL }),
+    body: JSON.stringify(byokBody),
     signal,
   });
 }
@@ -912,11 +1136,12 @@ export async function generateTitle(
     const body = {
       model: pickModel(mode, serverModel),
       stream: true,
-      // GLM "flash" is a thinking model: it streams its chain-of-thought as
-      // reasoning_content (which we ignore) and the title only lands in `content`
-      // afterward. Too small a budget is spent entirely on reasoning and never
-      // emits the title — give it room to finish thinking, then answer.
-      max_tokens: 320,
+      // GLM-5.3 always thinks first: it streams its chain-of-thought as
+      // reasoning_content (which we ignore) and the title only lands in
+      // `content` afterward. Ask for little reasoning, and leave enough budget
+      // that the reasoning can't use it all up before the title is written.
+      max_tokens: TITLE_MAX_TOKENS,
+      reasoning_effort: "low",
       temperature: 0.2,
       messages: [
         {

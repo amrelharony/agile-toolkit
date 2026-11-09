@@ -7,12 +7,14 @@ import { chartTheme } from "@/components/charts/chart-theme";
 import { ChartCard } from "@/components/shared/chart-card";
 import { SectionCard } from "@/components/shared/section-card";
 import { Activity, Sparkles, Trophy, Flame, Target, Calendar } from "lucide-react";
+import { InkArt } from "@/components/ink/ink-art";
 import { useHistory } from "@/lib/history/use-history";
 import { tools as ALL_TOOLS } from "@/lib/constants/tools";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateHistoryInsightPrompts } from "@/lib/ai-prompts/history-insights";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/utils";
+import { lightbulbArt } from "@/lib/ink/drawings/pages/lightbulb";
 
 const HEATMAP_DAYS = 35;
 const ACCENT = "var(--chart-1)";
@@ -113,11 +115,9 @@ export default function InsightsPage() {
       className="container-meta"
     >
       {/* Header */}
-      <div className="panel mb-6 flex items-start justify-between gap-3 flex-wrap px-4 py-4 sm:px-6 sm:py-5">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/30 flex items-center justify-center shrink-0">
-            <Activity className="w-5 h-5 text-accent" aria-hidden="true" />
-          </div>
+      <div className="panel ink-host mb-6 flex items-start justify-between gap-3 flex-wrap px-4 py-4 sm:px-6 sm:py-5">
+        <div className="flex items-start gap-3 sm:gap-4">
+          <InkArt drawing={lightbulbArt} boil className="h-11 w-11 shrink-0 sm:h-16 sm:w-16" />
           <div>
             <h1 className="text-fluid-h2 font-display font-bold text-text leading-tight">
               {greeting} activity

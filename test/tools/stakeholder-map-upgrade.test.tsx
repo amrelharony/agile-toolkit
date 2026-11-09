@@ -98,10 +98,11 @@ const renderPage = () =>
 
 /**
  * Text of the compact StatCard whose label is `label` (its label is a
- * span.truncate; quadrant names also appear on the map and in pickers).
+ * span.line-clamp-2; quadrant names also appear on the map and in pickers).
  */
 const card = (label: string) =>
-  screen.getByText(label, { selector: "span.truncate" }).parentElement!.parentElement!.textContent;
+  screen.getByText(label, { selector: "span.line-clamp-2" }).parentElement!.parentElement!
+    .textContent;
 const map = () => screen.getByRole("group", { name: "Interest × Authority map" });
 const updates = () => logs.filter((l) => l.action === "stakeholder_updated");
 

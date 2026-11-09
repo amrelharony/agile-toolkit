@@ -1,10 +1,11 @@
 /**
- * conversationTitle derives a thread title from the first user message.
+ * conversationTitle derives a thread title from the first user message;
+ * generateTitle upgrades it with a short model-written one.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { conversationTitle, conversationToMarkdown, titleSlug } from "@/lib/agent/persist";
-import { cleanTitle } from "@/lib/agent/client";
+import { cleanTitle, generateTitle } from "@/lib/agent/client";
 import type { ChatMessage } from "@/lib/agent/types";
 
 describe("conversationTitle", () => {
@@ -60,5 +61,50 @@ describe("conversationToMarkdown", () => {
     expect(md).toContain("hi there");
     expect(md).toContain("**Amr:**");
     expect(md).toContain("**Hello!**");
+  });
+});
+
+describe("generateTitle", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("asks for low reasoning with room to finish it, and reads the title from content", async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    const stream = [
+      { choices: [{ delta: { reasoning_content: "Let me think of a title…" } }] },
+      { choices: [{ delta: { content: '"Sprint Planning Chat"' } }] },
+      { choices: [{ delta: {}, finish_reason: "stop" }] },
+    ]
+      .map(
+        (e) => `data: ${JSON.stringify(e)}
+
+`
+      )
+      .join("");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (!init || init.method === "GET") {
+          return Response.json({ mode: "server", model: "openclaw", provider: "openclaw" });
+        }
+        posts.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return new Response(
+          `${stream}data: [DONE]
+
+`,
+          { status: 200 }
+        );
+      })
+    );
+
+    const title = await generateTitle("Help me plan sprint 47", "Sure, let's plan it.");
+    expect(title).toBe("Sprint Planning Chat");
+    expect(posts).toHaveLength(1);
+    expect(posts[0].reasoning_effort).toBe("low");
+    // Reasoning counts against max_tokens: 320 used to run out before the title.
+    expect(posts[0].max_tokens).toBeGreaterThanOrEqual(1024);
+    expect(posts[0]).not.toHaveProperty("tools");
+    expect(posts[0]).not.toHaveProperty("tool_choice");
   });
 });
