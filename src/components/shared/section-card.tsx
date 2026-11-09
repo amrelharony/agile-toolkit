@@ -103,7 +103,13 @@ export function SectionCard({
             as="h2"
             className={cn(
               titleSizeClass,
-              "font-display text-text flex items-center gap-2 min-w-0 flex-1"
+              // `flex-auto` (1 1 auto), not `flex-1` (1 1 0%): with a zero
+              // basis the row never wrapped, so the title shrank to "Te…"
+              // beside two buttons on a phone. Sized to its text, the title
+              // keeps its line and the actions wrap below it once both don't
+              // fit; when they do fit, nothing changes. `min-w-0` still lets
+              // a title longer than the whole card truncate on its own line.
+              "font-display text-text flex items-center gap-2 min-w-0 flex-auto"
             )}
           >
             {Icon && (

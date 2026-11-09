@@ -101,9 +101,13 @@ export function StatCard({
     return (
       <Card className={cn(cardToneClass, className)}>
         <CardContent className="p-3 sm:p-4">
-          <div className="text-xs text-sub mb-1 flex items-center gap-1 min-w-0">
-            {Icon && <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
-            <span className="truncate">{label}</span>
+          {/* The label wraps to a second line instead of truncating: in a
+              2-up row on a phone "To commit (P85)" lost its "(P85)". The icon
+              sits on the first line (`items-start`, and `mt-px` centres the
+              14 px icon on the 16 px line, as `items-center` did). */}
+          <div className="text-xs text-sub mb-1 flex items-start gap-1 min-w-0">
+            {Icon && <Icon className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden="true" />}
+            <span className="min-w-0 line-clamp-2 break-words">{label}</span>
           </div>
           <div
             className={cn(

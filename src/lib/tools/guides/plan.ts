@@ -126,7 +126,7 @@ export const GUIDES: ToolGuide[] = [
       "Set Expected scope change for work not found yet (negative for planned cuts). Scope to forecast shows the total.",
       "Under Velocity, use From completed sprints, or Type them: points per sprint, oldest first.",
       "Under Dates, check the Start and the Sprint length (from the team's cadence unless you type one), and add a Target date (optional) if stakeholders have one.",
-      "Read the Forecast: the verdict, Coin flip (P50), To commit (P85), the chart of sprints needed, and the dates at 50%, 75%, 85% and 95% confidence.",
+      "Read the Forecast: the verdict, Coin flip (P50), Commit (P85), the chart of sprints needed, and the dates at 50%, 75%, 85% and 95% confidence.",
       "With a target date, read the Probability of finishing by then and the Scope we can deliver by then.",
       "Re-run it every sprint as the remaining scope and the velocity change.",
     ],
