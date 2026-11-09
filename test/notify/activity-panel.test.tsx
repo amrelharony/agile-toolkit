@@ -92,7 +92,12 @@ describe("ActivityPanel", () => {
   it("shows an empty state and the progress card", () => {
     render(<ActivityPanel />);
     openPanel();
-    expect(screen.getByText(/Nothing yet/)).toBeInTheDocument();
+    const empty = screen.getByText(/Nothing yet/);
+    expect(empty).toBeInTheDocument();
+    // The quiet bell beside it: decorative ink, hidden from assistive tech.
+    const bell = empty.parentElement!.querySelector('svg[data-ink="bell"]');
+    expect(bell).not.toBeNull();
+    expect(bell!.getAttribute("aria-hidden")).toBe("true");
     const progress = screen.getByRole("region", { name: "Your progress" });
     expect(within(progress).getByText("Level 1")).toBeInTheDocument();
     expect(within(progress).getByText(/XP to Level 2 · Today 0\/300/)).toBeInTheDocument();
