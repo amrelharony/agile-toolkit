@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowRight, KeyRound, Search } from "lucide-react";
+import { ArrowRight, KeyRound, MessageCircle, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getToolById, getToolByPath } from "@/lib/constants/tools";
@@ -46,8 +46,20 @@ function useToolGuide(toolId: string | undefined): ToolGuide | null {
  * to run the current tool's method (its guide), and the bring-your-own-key AI
  * settings that power every tool's built-in prompts. It makes no network
  * requests.
+ *
+ * With visitor AI on, VisitorPanel passes `onAskAmr`: the guide then offers to
+ * hand the search to Amr's AI ("Ask Amr about '…'", under the results and when
+ * nothing matches) and a "Chat with Amr" link. Those only call back; the guide
+ * itself still sends nothing.
  */
-export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
+export function VisitorGuide({
+  onNavigate,
+  onAskAmr,
+}: {
+  onNavigate?: () => void;
+  /** Ask Amr's AI instead (visitor AI on); `query` may be empty. */
+  onAskAmr?: (query: string) => void;
+}) {
   const pathname = usePathname();
   const vip = useVipHint();
   const onPath = pathname ? getToolByPath(pathname) : undefined;
@@ -122,23 +134,29 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
         </div>
         {trimmed ? (
           results.length > 0 ? (
-            <ul className="flex flex-col gap-1" aria-label="Matching tools">
-              {results.map((tool) => (
-                <li key={tool.id}>
-                  <ToolLink
-                    href={tool.path}
-                    title={tool.name}
-                    subtitle={tool.description}
-                    onNavigate={chose}
-                  />
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="flex flex-col gap-1" aria-label="Matching tools">
+                {results.map((tool) => (
+                  <li key={tool.id}>
+                    <ToolLink
+                      href={tool.path}
+                      title={tool.name}
+                      subtitle={tool.description}
+                      onNavigate={chose}
+                    />
+                  </li>
+                ))}
+              </ul>
+              {onAskAmr && <AskAmrButton query={trimmed} onAskAmr={onAskAmr} />}
+            </>
           ) : (
-            <p className="text-sm text-sub" role="status">
-              No tools match “{trimmed}”. Try a task like “retro” or “estimate”, or a method like
-              “OKR” or “WSJF”.
-            </p>
+            <>
+              <p className="text-sm text-sub" role="status">
+                No tools match “{trimmed}”. Try a task like “retro” or “estimate”, or a method like
+                “OKR” or “WSJF”.
+              </p>
+              {onAskAmr && <AskAmrButton query={trimmed} onAskAmr={onAskAmr} />}
+            </>
           )
         ) : (
           <ul className="flex flex-col gap-1" aria-label="Popular tasks">
@@ -161,6 +179,16 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
       </section>
 
       <section className="mt-auto flex flex-col gap-2 border-t border-border pt-3">
+        {onAskAmr && (
+          <button
+            type="button"
+            onClick={() => onAskAmr("")}
+            className="flex items-center gap-1.5 self-start text-sm font-medium text-accent underline-offset-2 hover:underline"
+          >
+            <MessageCircle className="h-4 w-4" aria-hidden="true" />
+            Chat with Amr
+          </button>
+        )}
         <p className="text-xs text-sub">
           Each tool&apos;s AI prompts can run with your own API key. The key stays in this browser.
         </p>
@@ -187,6 +215,22 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </section>
     </div>
+  );
+}
+
+/** Hand the visitor's search to Amr's AI. */
+function AskAmrButton({ query, onAskAmr }: { query: string; onAskAmr: (query: string) => void }) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="self-start"
+      onClick={() => onAskAmr(query)}
+    >
+      <MessageCircle aria-hidden="true" />
+      Ask Amr about “{query.length > 40 ? `${query.slice(0, 39)}…` : query}”
+    </Button>
   );
 }
 

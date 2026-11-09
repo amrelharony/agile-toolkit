@@ -1,9 +1,96 @@
 /**
- * Safe markdown subset parser for agent replies.
+ * Safe markdown subset parser for agent replies, and how <Markdown> renders
+ * links: the site's own pages in the same tab, anything else in a new one.
  */
 
-import { describe, it, expect } from "vitest";
+import { createElement } from "react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+
+/** The props each next/link got: the real Link still renders. */
+const linkProps = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+vi.mock("next/link", async (importOriginal) => {
+  const real = (await importOriginal<{ default: unknown }>()).default as Parameters<
+    typeof createElement
+  >[0];
+  return {
+    default: (props: Record<string, unknown>) => {
+      linkProps.push(props);
+      return createElement(real, props);
+    },
+  };
+});
 import { tokenizeInline, parseBlocks } from "@/lib/agent/markdown";
+import { Markdown } from "@/components/agent/markdown";
+
+/** Every token is plain text, and the text round-trips unchanged. */
+function expectLiteral(src: string) {
+  const toks = tokenizeInline(src);
+  expect(toks.every((t) => t.type === "text")).toBe(true);
+  expect(toks.map((t) => (t.type === "text" ? t.value : "")).join("")).toBe(src);
+}
+
+describe("tokenizeInline — the site's own pages", () => {
+  it("allows a link to one of the site's pages, marked internal", () => {
+    expect(tokenizeInline("[Retro](/retro)")).toEqual([
+      { type: "link", value: "Retro", href: "/retro", internal: true },
+    ]);
+    expect(tokenizeInline("see [the board](/retro/abc?tab=actions#top) now")).toEqual([
+      { type: "text", value: "see " },
+      { type: "link", value: "the board", href: "/retro/abc?tab=actions#top", internal: true },
+      { type: "text", value: " now" },
+    ]);
+  });
+
+  it("refuses a protocol-relative link to another host (//evil.com)", () => {
+    expectLiteral("[x](//evil.com)");
+    expectLiteral("[x](//evil.com/retro)");
+  });
+
+  it("refuses a slash-backslash link, which browsers read as another host (/\\evil)", () => {
+    expectLiteral("[x](/\\evil)");
+    expectLiteral("[x](/\\\\evil.com)");
+  });
+
+  it("still degrades javascript: and other schemes", () => {
+    expectLiteral("[x](javascript:alert(1))");
+    expectLiteral("[x](data:text/html,hi)");
+    expectLiteral("[x](retro)");
+  });
+});
+
+describe("<Markdown> links", () => {
+  it("opens the site's own page in the same tab", () => {
+    render(createElement(Markdown, { source: "Try [Retro](/retro)." }));
+    const link = screen.getByRole("link", { name: "Retro" });
+    expect(link).toHaveAttribute("href", "/retro");
+    expect(link).not.toHaveAttribute("target");
+    expect(link).not.toHaveAttribute("rel");
+  });
+
+  it("never prefetches a page the model linked: nothing is fetched until a click", () => {
+    linkProps.length = 0;
+    render(createElement(Markdown, { source: "See [Retro](/retro) and [Kudos](/kudos)." }));
+    expect(linkProps.map((p) => [p.href, p.prefetch])).toEqual([
+      ["/retro", false],
+      ["/kudos", false],
+    ]);
+  });
+
+  it("opens an external link in a new tab, without an opener", () => {
+    render(createElement(Markdown, { source: "Read [this](https://example.com)." }));
+    const link = screen.getByRole("link", { name: "this" });
+    expect(link).toHaveAttribute("href", "https://example.com");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("renders a refused link as text", () => {
+    render(createElement(Markdown, { source: "[x](//evil.com)" }));
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText("[x](//evil.com)")).toBeInTheDocument();
+  });
+});
 
 describe("tokenizeInline", () => {
   it("parses bold / italic / code", () => {

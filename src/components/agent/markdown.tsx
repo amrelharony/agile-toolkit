@@ -6,6 +6,7 @@
  */
 
 import { Fragment } from "react";
+import Link from "next/link";
 import { parseBlocks, tokenizeInline } from "@/lib/agent/markdown";
 
 function Inline({ text }: { text: string }) {
@@ -24,6 +25,22 @@ function Inline({ text }: { text: string }) {
               </code>
             );
           case "link":
+            // The site's own pages open here, in the same tab (the chat stays
+            // open across the navigation); anything else opens a new tab.
+            // No prefetch: the model writes these paths (and tool results or
+            // pasted text can steer it), so nothing is fetched until a click.
+            if (t.internal) {
+              return (
+                <Link
+                  key={i}
+                  href={t.href}
+                  prefetch={false}
+                  className="text-accent underline underline-offset-2"
+                >
+                  {t.value}
+                </Link>
+              );
+            }
             return (
               <a
                 key={i}

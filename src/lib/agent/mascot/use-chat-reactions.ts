@@ -7,7 +7,8 @@
  *   • shifts mood to the reply's sentiment when the turn ends (and beams at a
  *     warm reply),
  *   • nods on a successful tool result, head-shakes on a tool error,
- *   • looks concerned when the turn fails or the rate limit is reached,
+ *   • looks concerned when the turn fails or a limit is reached (the owner's
+ *     rate limit, or a visitor's daily allowance / the visitor AI's fallback),
  *   • bows when he's thanked.
  *
  * Pure UI glue — the sentiment scoring it relies on is unit-tested separately
@@ -33,7 +34,10 @@ export function useMascotChatReactions(): void {
   const streaming = useAgentStore((s) => s.streaming);
   const messages = useAgentStore((s) => s.messages);
   const error = useAgentStore((s) => s.error);
-  const limited = useAgentStore((s) => s.rateLimit?.limited === true);
+  const limited = useAgentStore(
+    (s) =>
+      s.rateLimit?.limited === true || s.visitorFallback !== null || s.visitorQuota?.remaining === 0
+  );
   const wasStreaming = useRef(false);
   const toolCount = useRef(0);
   const userCount = useRef(0);

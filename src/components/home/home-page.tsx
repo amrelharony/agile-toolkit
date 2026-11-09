@@ -37,7 +37,7 @@ export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
         <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1 sm:mb-6 sm:px-4 sm:py-1.5">
           <ShieldCheck className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
           <span className="text-xs font-medium text-accent">
-            Free · No sign-up · Your data stays in your browser
+            Free · No sign-up · Saved only in your browser
           </span>
         </div>
         <PageHeader

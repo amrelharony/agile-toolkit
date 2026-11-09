@@ -6,8 +6,9 @@
  * Pure (returns plain data, no React) so it's unit-testable; the <Markdown>
  * component maps the output to React elements. Because rendering never uses
  * dangerouslySetInnerHTML, any embedded HTML is shown as literal text (XSS-safe);
- * the only injection vector — a link href — is restricted to http(s)/mailto here,
- * with anything else degraded to plain text.
+ * the only injection vector — a link href — is restricted to http(s)/mailto and
+ * the site's own pages ("/retro") here, with anything else degraded to plain
+ * text.
  */
 
 export type InlineToken =
@@ -15,7 +16,7 @@ export type InlineToken =
   | { type: "bold"; value: string }
   | { type: "italic"; value: string }
   | { type: "code"; value: string }
-  | { type: "link"; value: string; href: string };
+  | { type: "link"; value: string; href: string; internal?: true };
 
 export type Block =
   | { type: "p"; text: string }
@@ -25,6 +26,12 @@ export type Block =
   | { type: "ol"; items: string[] };
 
 const SAFE_HREF = /^(https?:|mailto:)/i;
+/**
+ * A path on this site ("/retro", "/retro/abc?x=1"): one leading slash, never
+ * two ("//evil.com" is another host) and never a slash then a backslash
+ * ("/\evil.com", which browsers read as "//evil.com").
+ */
+const INTERNAL_HREF = /^\/(?![/\\])/;
 
 // Order matters: code first so `**` inside a code span isn't treated as bold.
 // Underscore italics are gated to word boundaries (CommonMark forbids
@@ -54,7 +61,9 @@ export function tokenizeInline(text: string): InlineToken[] {
       out.push({ type: "italic", value: tok.slice(1, -1) });
     } else {
       const lm = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(tok);
-      if (lm && SAFE_HREF.test(lm[2])) {
+      if (lm && INTERNAL_HREF.test(lm[2])) {
+        out.push({ type: "link", value: lm[1], href: lm[2], internal: true });
+      } else if (lm && SAFE_HREF.test(lm[2])) {
         out.push({ type: "link", value: lm[1], href: lm[2] });
       } else {
         out.push({ type: "text", value: tok }); // unsafe / malformed → literal

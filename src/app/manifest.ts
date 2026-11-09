@@ -11,7 +11,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Agile Toolkit",
     short_name: "Agile Toolkit",
-    description: `${defaultToolCount()} free tools for agile teams: retros, planning poker, estimation, metrics and more. Your data stays in your browser.`,
+    description: `${defaultToolCount()} free tools for agile teams: retros, planning poker, estimation, metrics and more. Your work is saved in your browser.`,
     start_url: "/",
     scope: "/",
     display: "standalone",
