@@ -17,6 +17,7 @@
 
 import { useEffect, useRef } from "react";
 import { useAgentStore } from "@/lib/agent/store";
+import { feel } from "./mind";
 import { useMascotStore } from "./store";
 import { analyzeSentiment } from "./sentiment";
 
@@ -56,6 +57,7 @@ export function useMascotChatReactions(): void {
         .map((c) => (c.type === "text" ? c.text : ""))
         .join("");
       if (text.trim()) {
+        feel("chatted");
         const s = analyzeSentiment(text);
         // Dampen the reply's valence swing (the source uses ×0.3) so the mascot
         // drifts mood gently rather than lurching message to message.
@@ -95,7 +97,10 @@ export function useMascotChatReactions(): void {
       const text = userMsgs[userMsgs.length - 1].content
         .map((c) => (c.type === "text" ? c.text : ""))
         .join("");
-      if (isThanks(text)) useMascotStore.getState().queueReaction("bow");
+      if (isThanks(text)) {
+        feel("thanked");
+        useMascotStore.getState().queueReaction("bow");
+      }
     }
     userCount.current = userMsgs.length;
   }, [messages]);

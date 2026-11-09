@@ -1,6 +1,7 @@
 import { ComicBanner } from "@/components/home/comic-banner";
 import { HomePage } from "@/components/home/home-page";
 import { listReleasedWeekly } from "@/lib/comics/store";
+import { SECTION_ART } from "@/lib/ink/drawings/sections";
 import type { StorySummary } from "@/lib/comics/types";
 
 /** About every 10 minutes, like /comics, so a Sunday's story reaches home too. */
@@ -19,6 +20,12 @@ async function latestStory(): Promise<StorySummary | null> {
   }
 }
 
+/**
+ * The section drawings go down as props, so they reach the browser in the page's
+ * data and its HTML rather than in home's JavaScript.
+ */
 export default async function Home() {
-  return <HomePage comicBanner={<ComicBanner latest={await latestStory()} />} />;
+  return (
+    <HomePage comicBanner={<ComicBanner latest={await latestStory()} />} sectionArt={SECTION_ART} />
+  );
 }

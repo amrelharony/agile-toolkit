@@ -3,6 +3,8 @@
 import type { Ref } from "react";
 import { Flag } from "lucide-react";
 import { ChartFigure } from "@/components/shared/chart-card";
+import { InkMoment } from "@/components/ink/ink-moment";
+import { InkTick } from "@/components/ink/ink-tick";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
 import { SectionCard } from "@/components/shared/section-card";
 import type { ChartText } from "@/lib/charts/chart-text";
@@ -96,14 +98,22 @@ export function RunSummary({
   return (
     <SectionCard title="How it went" icon={Flag} titleSize="sm">
       <div className="flex flex-col gap-5">
-        <p
-          ref={verdictRef}
-          tabIndex={-1}
-          className="rounded-sm text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          role="status"
-        >
-          {runVerdict(report)}
-        </p>
+        {/* An ink moment for a finished meeting: a tick by the verdict and a
+            flourish under it, drawn once. The verdict states the result. */}
+        <div className="flex items-start gap-2">
+          {report.finished && <InkTick className="mt-px" />}
+          <div className="min-w-0 flex-1">
+            <p
+              ref={verdictRef}
+              tabIndex={-1}
+              className="rounded-sm text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              role="status"
+            >
+              {runVerdict(report)}
+            </p>
+            {report.finished && <InkMoment mark="flourish" delay={560} className="mt-1" />}
+          </div>
+        </div>
         <ChartFigure label="Planned and actual time" summary={text.summary} table={text.table}>
           <ul className="space-y-3">
             {report.segments.map((s, i) => {

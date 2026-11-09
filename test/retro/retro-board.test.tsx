@@ -209,3 +209,37 @@ describe("Past retros", () => {
     expect(within(past).getByText(/Sam/)).toBeInTheDocument();
   });
 });
+
+describe("ink moment", () => {
+  // The flourish under "N action items" is drawn only once the retro has
+  // reached its actions: the summary line says so, the ink is decorative.
+  const flourish = (c: HTMLElement) => c.querySelector('[data-ink="flourish"]');
+
+  it("draws a flourish under the actions summary in the Actions phase", () => {
+    const { container } = render(
+      <Harness
+        initial={makeBoard({
+          phase: "actions",
+          cards: [card("a", "start", { isActionItem: true }), card("b", "stop")],
+        })}
+      />
+    );
+    const mark = flourish(container)!;
+    expect(mark).not.toBeNull();
+    expect(mark).toHaveAttribute("aria-hidden", "true");
+    expect(mark.parentElement).toHaveTextContent("1 action item");
+  });
+
+  it("draws nothing before the Actions phase, or with no action items yet", () => {
+    const flagged = [card("a", "start", { isActionItem: true })];
+    for (const phase of ["write", "vote", "discuss"] as const) {
+      const { container, unmount } = render(
+        <Harness initial={makeBoard({ phase, cards: flagged })} />
+      );
+      expect(flourish(container), phase).toBeNull();
+      unmount();
+    }
+    const { container } = render(<Harness initial={makeBoard({ phase: "actions" })} />);
+    expect(flourish(container)).toBeNull();
+  });
+});

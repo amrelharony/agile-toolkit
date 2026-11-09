@@ -1,8 +1,10 @@
 /**
- * Amr's scenes: the short moments drawn on the context sheets S11–S64
+ * Amr's scenes: the short moments drawn on the context sheets S11–S114
  * (docs/mascot/context-sheets.json): the weather where the visitor is, their time
  * of day, Egyptian, Islamic, Coptic and international days, the seasons, the
- * toolkit's own moments, and play. Each scene is a clip of one sheet's frames.
+ * toolkit's own moments, play, and each tool's own (S65 on, played through
+ * lib/agent/mascot/context/tool-scenes.ts). Each scene is a clip of one sheet's
+ * frames.
  *
  * A scene plays only once its pack has been built from a returned sheet: until
  * then its frames aren't in the manifest (mascot-packs.ts), `sceneShipped` says
@@ -24,6 +26,16 @@ type Fallback = SpritePose;
 
 function scene(name: string, fallback: Fallback, steps: Step[]): [string, Clip] {
   return [name, clip(`scene:${name}`, fallback, steps)];
+}
+
+/** A tool sheet's scene (S65 on): its frames as [pose, ms], from the pack it's named after. */
+function tool(name: string, fallback: Fallback, frames: Array<[string, number]>): [string, Clip] {
+  const pack = name.split(".")[0];
+  return scene(
+    name,
+    fallback,
+    frames.map(([pose, ms]) => f(`${pack}.${pose}`, ms))
+  );
 }
 
 const LIST: Array<[string, Clip]> = [
@@ -517,6 +529,737 @@ const LIST: Array<[string, Clip]> = [
   ]),
   scene("lights.spooky", "jumping", [f("lights.spooky", 1500)]),
   scene("lights.light", "jumping", [f("lights.dazzled", 1000), f("lights.shades", 1300)]),
+  // ── The tools (S65–S114), one sheet each: the greeting first, then its moments.
+  // Plan
+  tool("capacity", "review", [
+    ["calendar", 1200],
+    ["flip", 900],
+    ["ready", 1200],
+  ]),
+  tool("capacity.count", "review", [
+    ["chips", 1400],
+    ["balance", 1300],
+  ]),
+  tool("capacity.plan", "review", [
+    ["place", 1200],
+    ["balance", 900],
+    ["ready", 1000],
+  ]),
+  tool("capacity.add", "waving", [
+    ["add", 1400],
+    ["ready", 1000],
+  ]),
+
+  tool("goal", "review", [
+    ["target", 1300],
+    ["aim", 1100],
+    ["salute", 1000],
+  ]),
+  tool("goal.think", "waiting", [
+    ["think", 1800],
+    ["aim", 900],
+  ]),
+  tool("goal.hit", "jumping", [
+    ["plant", 900],
+    ["hit", 1200],
+    ["raise", 1300],
+  ]),
+
+  tool("refine", "review", [
+    ["clipboard", 1200],
+    ["ready", 1100],
+    ["pass", 1000],
+  ]),
+  tool("refine.tick", "review", [
+    ["tick", 1100],
+    ["point", 1000],
+    ["ready", 900],
+  ]),
+  tool("refine.read", "waiting", [
+    ["read", 1400],
+    ["question", 1300],
+    ["point", 1000],
+  ]),
+
+  tool("skeleton", "review", [
+    ["hold", 1300],
+    ["wave", 1200],
+  ]),
+  tool("skeleton.wave", "waving", [
+    ["wave", 1400],
+    ["hold", 900],
+  ]),
+  tool("skeleton.build", "review", [
+    ["build", 1300],
+    ["check", 1100],
+    ["cheer", 1200],
+  ]),
+  tool("skeleton.walk", "jumping", [
+    ["walk", 1000],
+    ["walkalong", 1300],
+    ["cheer", 1100],
+  ]),
+
+  tool("forecast", "review", [
+    ["dice", 1100],
+    ["calendar", 1200],
+    ["likely", 1100],
+    ["confident", 1000],
+  ]),
+  tool("forecast.roll", "jumping", [
+    ["shake", 900],
+    ["roll", 700],
+    ["wink", 1100],
+    ["confident", 900],
+  ]),
+
+  tool("pi", "review", [
+    ["board", 1300],
+    ["connect", 1200],
+    ["step", 1000],
+  ]),
+  tool("pi.place", "review", [
+    ["cards", 1000],
+    ["place", 1100],
+    ["step", 900],
+  ]),
+  tool("pi.team", "waving", [
+    ["team", 1500],
+    ["board", 900],
+  ]),
+  tool("pi.done", "review", [
+    ["done", 1400],
+    ["step", 1000],
+  ]),
+
+  tool("roadmap", "review", [
+    ["unroll", 1000],
+    ["read", 1200],
+    ["ahead", 1300],
+    ["roll", 1000],
+  ]),
+  tool("roadmap.add", "jumping", [
+    ["car", 1100],
+    ["milestone", 1000],
+    ["add", 1300],
+  ]),
+
+  tool("radio", "review", [
+    ["hold", 1100],
+    ["talk", 1200],
+    ["over", 1000],
+  ]),
+  tool("radio.update", "review", [
+    ["listen", 1300],
+    ["nod", 1100],
+    ["over", 900],
+  ]),
+  tool("radio.alert", "failed", [
+    ["alert", 1200],
+    ["calm", 1300],
+  ]),
+
+  tool("links", "review", [
+    ["board", 1200],
+    ["trace", 1300],
+    ["aha", 1000],
+  ]),
+  tool("links.pin", "review", [
+    ["pin", 1100],
+    ["aha", 900],
+  ]),
+  tool("links.connect", "review", [
+    ["string", 1000],
+    ["connect", 1200],
+    ["tidy", 1200],
+  ]),
+
+  // Run
+  tool("blocker", "waiting", [
+    ["spot", 1300],
+    ["push", 1200],
+  ]),
+  tool("blocker.raised", "failed", [
+    ["raise", 1100],
+    ["worried", 1400],
+  ]),
+  tool("blocker.cleared", "jumping", [
+    ["lift", 1000],
+    ["relief", 1100],
+    ["clear", 1200],
+  ]),
+
+  tool("demo", "review", [
+    ["present", 1300],
+    ["point", 1200],
+  ]),
+  tool("demo.present", "review", [
+    ["point", 1100],
+    ["present", 1200],
+  ]),
+  tool("demo.feedback", "review", [
+    ["listen", 1200],
+    ["card", 1200],
+    ["collect", 1100],
+  ]),
+  tool("demo.thanks", "waving", [
+    ["bow", 1100],
+    ["thanks", 1300],
+  ]),
+
+  // Retro
+  tool("todo", "review", [
+    ["notepad", 1200],
+    ["read", 1300],
+    ["cap", 1000],
+  ]),
+  tool("todo.take", "review", [
+    ["flex", 1300],
+    ["notepad", 900],
+  ]),
+  tool("todo.done", "jumping", [
+    ["check", 1000],
+    ["done", 1200],
+    ["highfive", 1100],
+  ]),
+
+  tool("crystal", "waiting", [
+    ["gaze", 1300],
+    ["hover", 1200],
+    ["gasp", 1100],
+  ]),
+  tool("crystal.note", "waiting", [
+    ["shh", 1200],
+    ["note", 1400],
+  ]),
+  tool("crystal.send", "review", [
+    ["note", 900],
+    ["send", 1100],
+  ]),
+  tool("crystal.ready", "jumping", [["ready", 1400]]),
+
+  tool("hats", "review", [
+    ["stack", 1300],
+    ["pick", 1100],
+    ["juggle", 1100],
+  ]),
+  tool("hats.round", "review", [
+    ["pick", 900],
+    ["show", 1200],
+    ["think", 1200],
+  ]),
+  tool("hats.idea", "jumping", [
+    ["idea", 1300],
+    ["juggle", 1000],
+  ]),
+  tool("hats.done", "review", [
+    ["stack", 900],
+    ["done", 1400],
+  ]),
+
+  tool("canvas", "review", [
+    ["board", 1200],
+    ["marker", 1200],
+  ]),
+  tool("canvas.draw", "review", [
+    ["draw", 1300],
+    ["step", 1000],
+    ["erase", 1000],
+    ["arrange", 1100],
+  ]),
+  tool("canvas.tada", "jumping", [
+    ["ta-da", 1400],
+    ["marker", 1000],
+  ]),
+
+  // Delivery
+  tool("burndown", "review", [
+    ["show", 1200],
+    ["trace", 1200],
+    ["worry", 1200],
+    ["track", 1100],
+  ]),
+  tool("burndown.log", "jumping", [
+    ["log", 1000],
+    ["zero", 1000],
+    ["cheer", 1200],
+  ]),
+
+  tool("bands", "review", [
+    ["present", 1200],
+    ["follow", 1200],
+    ["widen", 1100],
+    ["smooth", 1000],
+  ]),
+  tool("bands.snapshot", "review", [
+    ["snapshot", 1300],
+    ["puzzled", 1000],
+    ["ok", 1100],
+  ]),
+
+  tool("cycle", "waiting", [
+    ["watch", 1100],
+    ["start", 800],
+    ["wait", 1200],
+    ["stop", 900],
+    ["quick", 1000],
+  ]),
+  tool("cycle.add", "review", [
+    ["card", 1100],
+    ["add", 1200],
+  ]),
+
+  tool("dora", "review", [
+    ["panel", 1200],
+    ["read", 1100],
+    ["green", 1100],
+    ["salute", 1000],
+  ]),
+  tool("dora.check", "review", [
+    ["check", 1100],
+    ["tune", 1100],
+    ["calm", 1000],
+  ]),
+
+  tool("conveyor", "review", [
+    ["show", 1200],
+    ["watch", 1200],
+  ]),
+  tool("conveyor.add", "jumping", [
+    ["load", 1100],
+    ["watch", 900],
+    ["done", 1200],
+  ]),
+  tool("conveyor.flow", "review", [
+    ["stuck", 1100],
+    ["nudge", 1000],
+    ["flow", 1200],
+  ]),
+
+  tool("toggles", "review", [
+    ["panel", 1200],
+    ["check", 1100],
+    ["tidy", 1000],
+  ]),
+  tool("toggles.flip", "review", [
+    ["flip", 1100],
+    ["check", 900],
+  ]),
+  tool("toggles.retire", "waving", [
+    ["grey", 1000],
+    ["retire", 1100],
+    ["wave", 1200],
+  ]),
+
+  // Team
+  tool("health", "review", [
+    ["light", 1200],
+    ["green", 1000],
+    ["amber", 1000],
+    ["red", 1000],
+  ]),
+  tool("health.reveal", "jumping", [
+    ["vote", 1100],
+    ["reveal", 1300],
+    ["green", 900],
+  ]),
+  tool("health.care", "review", [["care", 1500]]),
+
+  tool("shield", "review", [
+    ["hold", 1200],
+    ["offer", 1200],
+    ["safe", 1200],
+  ]),
+  tool("shield.thanks", "review", [
+    ["thanks", 1400],
+    ["strong", 1000],
+  ]),
+  tool("shield.together", "waving", [
+    ["listen", 1100],
+    ["together", 1400],
+  ]),
+
+  tool("mood", "review", [
+    ["cards", 1100],
+    ["happy", 900],
+    ["meh", 900],
+    ["sad", 900],
+    ["pick", 1100],
+  ]),
+  tool("mood.share", "review", [
+    ["share", 1300],
+    ["hug", 1300],
+  ]),
+
+  tool("charter", "review", [
+    ["unroll", 1100],
+    ["read", 1300],
+    ["agree", 1100],
+  ]),
+  tool("charter.write", "review", [
+    ["write", 1300],
+    ["sign", 1100],
+  ]),
+  tool("charter.publish", "jumping", [
+    ["publish", 1400],
+    ["roll", 1100],
+  ]),
+
+  tool("done", "review", [
+    ["stamp", 1200],
+    ["card", 1200],
+  ]),
+  tool("done.tick", "review", [
+    ["tick", 1100],
+    ["proud", 1000],
+  ]),
+  tool("done.stamp", "jumping", [
+    ["press", 1000],
+    ["check", 1000],
+    ["proud", 1100],
+    ["blow", 1100],
+  ]),
+
+  tool("skills", "review", [
+    ["box", 1100],
+    ["open", 1200],
+    ["ready", 1000],
+  ]),
+  tool("skills.add", "review", [
+    ["wrench", 1000],
+    ["brush", 1100],
+    ["juggle", 1200],
+  ]),
+  tool("skills.teach", "waving", [
+    ["teach", 1400],
+    ["ready", 900],
+  ]),
+
+  tool("raci", "review", [
+    ["fan", 1200],
+    ["sort", 1100],
+    ["shrug", 1100],
+  ]),
+  tool("raci.deal", "review", [
+    ["deal", 1100],
+    ["star", 1200],
+  ]),
+  tool("raci.place", "review", [
+    ["place", 1100],
+    ["clear", 1100],
+  ]),
+
+  tool("chat", "waving", [
+    ["cups", 1300],
+    ["sip", 1100],
+    ["listen", 1200],
+    ["laugh", 1100],
+    ["cheers", 1000],
+  ]),
+  tool("chat.note", "review", [
+    ["note", 1300],
+    ["nod", 1200],
+  ]),
+
+  tool("stakeholders", "waving", [
+    ["board", 1200],
+    ["wave", 1200],
+    ["handshake", 1200],
+  ]),
+  tool("stakeholders.place", "review", [
+    ["chip", 1000],
+    ["place", 1100],
+    ["move", 1000],
+    ["map", 1100],
+  ]),
+
+  tool("adkar", "review", [
+    ["stairs", 1200],
+    ["figure", 1100],
+    ["patient", 1200],
+  ]),
+  tool("adkar.step", "jumping", [
+    ["step", 1100],
+    ["cheer", 1000],
+    ["top", 1100],
+  ]),
+  tool("adkar.climb", "jumping", [
+    ["climb", 1300],
+    ["top", 1000],
+  ]),
+
+  // Prioritize
+  tool("rank", "review", [
+    ["stack", 1200],
+    ["order", 1100],
+    ["tower", 1100],
+  ]),
+  tool("rank.weigh", "review", [
+    ["weigh", 1300],
+    ["swap", 1100],
+    ["wobble", 1000],
+  ]),
+  tool("rank.done", "jumping", [
+    ["tower", 1000],
+    ["done", 1300],
+  ]),
+
+  tool("scale", "review", [
+    ["hold", 1200],
+    ["compare", 1200],
+    ["choose", 1100],
+  ]),
+  tool("scale.weigh", "review", [
+    ["load", 1000],
+    ["tip", 1000],
+    ["balance", 1100],
+    ["ok", 1100],
+  ]),
+
+  tool("moscow", "review", [
+    ["bins", 1200],
+    ["ball", 1000],
+    ["toss", 1000],
+    ["sorted", 1100],
+  ]),
+  tool("moscow.sort", "review", [
+    ["must", 1000],
+    ["maybe", 1000],
+    ["wont", 1000],
+    ["sorted", 900],
+  ]),
+
+  tool("hourglass", "waiting", [
+    ["hold", 1300],
+    ["coins", 1100],
+    ["drop", 1000],
+    ["save", 1000],
+  ]),
+  tool("hourglass.flip", "review", [
+    ["flip", 1000],
+    ["hurry", 1100],
+    ["now", 1100],
+  ]),
+
+  tool("effort", "review", [
+    ["board", 1200],
+    ["heavy", 1100],
+    ["easy", 1000],
+    ["thumbs", 1000],
+  ]),
+  tool("effort.place", "review", [
+    ["star", 1000],
+    ["place", 1100],
+    ["choose", 1100],
+  ]),
+
+  tool("kano", "review", [
+    ["survey", 1200],
+    ["basic", 1100],
+    ["gift", 1100],
+  ]),
+  tool("kano.ask", "review", [
+    ["ask", 1300],
+    ["survey", 900],
+  ]),
+  tool("kano.reveal", "jumping", [
+    ["reveal", 1100],
+    ["open", 1000],
+    ["wow", 1200],
+  ]),
+
+  tool("buy", "review", [
+    ["money", 1200],
+    ["count", 1100],
+    ["think", 1100],
+  ]),
+  tool("buy.pay", "review", [
+    ["pay", 1100],
+    ["broke", 1200],
+  ]),
+  tool("buy.bag", "jumping", [
+    ["bag", 1300],
+    ["splurge", 1100],
+  ]),
+
+  tool("eisenhower", "review", [
+    ["board", 1200],
+    ["calm", 1300],
+  ]),
+  tool("eisenhower.card", "review", [
+    ["card", 1300],
+    ["plan", 1100],
+  ]),
+  tool("eisenhower.sort", "review", [
+    ["urgent", 900],
+    ["delegate", 1000],
+    ["drop", 1000],
+    ["calm", 900],
+  ]),
+
+  tool("gavel", "review", [
+    ["hold", 1200],
+    ["read", 1200],
+    ["weigh", 1200],
+  ]),
+  tool("gavel.record", "review", [
+    ["record", 1300],
+    ["close", 1100],
+  ]),
+  tool("gavel.bang", "jumping", [
+    ["bang", 900],
+    ["agree", 1200],
+  ]),
+
+  tool("compass", "review", [
+    ["hold", 1200],
+    ["spin", 1100],
+    ["found", 1100],
+  ]),
+  tool("compass.think", "waiting", [
+    ["think", 1300],
+    ["chaos", 1100],
+    ["clear", 1000],
+  ]),
+  tool("compass.point", "review", [
+    ["point", 1300],
+    ["clear", 900],
+  ]),
+
+  // Outcomes
+  tool("okr", "review", [
+    ["target", 1200],
+    ["focus", 1100],
+    ["stretch", 1100],
+  ]),
+  tool("okr.checkin", "review", [
+    ["progress", 1000],
+    ["checkin", 1100],
+    ["push", 1100],
+  ]),
+  tool("okr.achieved", "jumping", [["achieved", 1500]]),
+
+  tool("nps", "review", [
+    ["card", 1200],
+    ["listen", 1200],
+    ["thanks", 1100],
+  ]),
+  tool("nps.read", "review", [
+    ["envelope", 1000],
+    ["read", 1200],
+    ["happy", 1000],
+  ]),
+  tool("nps.card", "jumping", [
+    ["stack", 1300],
+    ["thanks", 900],
+  ]),
+
+  tool("lab", "review", [
+    ["hold", 1200],
+    ["observe", 1200],
+    ["note", 1100],
+  ]),
+  tool("lab.pour", "review", [
+    ["pour", 1300],
+    ["shake", 1000],
+  ]),
+  tool("lab.yes", "jumping", [
+    ["shake", 800],
+    ["yes", 1400],
+  ]),
+  tool("lab.no", "failed", [
+    ["no", 1500],
+    ["note", 900],
+  ]),
+
+  tool("interview", "review", [
+    ["mic", 1200],
+    ["ask", 1100],
+    ["listen", 1200],
+    ["thanks", 1000],
+  ]),
+  tool("interview.note", "review", [
+    ["surprised", 1000],
+    ["note", 1200],
+  ]),
+  tool("interview.quote", "jumping", [
+    ["quote", 1400],
+    ["thanks", 900],
+  ]),
+
+  tool("tree", "review", [
+    ["hold", 1200],
+    ["water", 1200],
+    ["inspect", 1100],
+  ]),
+  tool("tree.grow", "jumping", [
+    ["water", 900],
+    ["grow", 1300],
+    ["proud", 1000],
+  ]),
+  tool("tree.share", "waving", [
+    ["pick", 1100],
+    ["share", 1300],
+  ]),
+
+  tool("assume", "review", [
+    ["magnify", 1300],
+    ["card", 1100],
+    ["inspect", 1200],
+  ]),
+  tool("assume.doubt", "waiting", [
+    ["doubt", 1500],
+    ["card", 900],
+  ]),
+  tool("assume.test", "jumping", [
+    ["test", 1100],
+    ["found", 1100],
+    ["relief", 1100],
+  ]),
+
+  // Quality
+  tool("risk", "waiting", [
+    ["sign", 1200],
+    ["spot", 1100],
+    ["careful", 1200],
+    ["safe", 1100],
+  ]),
+  tool("risk.log", "review", [
+    ["log", 1300],
+    ["handled", 1100],
+  ]),
+  tool("risk.escalate", "failed", [
+    ["escalate", 1400],
+    ["spot", 900],
+  ]),
+
+  tool("debt", "waiting", [
+    ["pile", 1300],
+    ["broom", 1100],
+  ]),
+  tool("debt.pile", "failed", [
+    ["tangle", 1200],
+    ["untangle", 1200],
+  ]),
+  tool("debt.clean", "jumping", [
+    ["sweep", 1100],
+    ["clean", 1200],
+    ["shine", 1100],
+  ]),
+
+  tool("flaky", "review", [
+    ["rack", 1200],
+    ["shake", 1100],
+  ]),
+  tool("flaky.wobble", "failed", [
+    ["wobble", 1000],
+    ["catch", 1000],
+  ]),
+  tool("flaky.fixed", "jumping", [
+    ["tape", 1100],
+    ["fixed", 1200],
+    ["wipe", 1100],
+  ]),
 ];
 
 /** Every scene, by name (`sun`, `rain.under`, `poker.reveal`, …). */

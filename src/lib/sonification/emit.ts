@@ -1,5 +1,6 @@
 "use client";
 
+import { announceToolMoment } from "@/lib/agent/mascot/tool-moments";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
 import { getEngine } from "./engine";
 import { getEntry } from "./palette";
@@ -121,6 +122,9 @@ export function emitFeedback(
  */
 export function emit(toolId: string, eventName: string, targetEl?: HTMLElement | null) {
   if (typeof window === "undefined") return;
+
+  // Amr marks a few of these (an OKR achieved, a hypothesis settled), sound or not.
+  announceToolMoment(toolId, eventName);
 
   // Forward to gamification — lazy-imported to avoid circular module dep.
   // Gamification runs even when sonification is off.

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { Progress } from "@/components/ui/progress";
+import { InkMoment } from "@/components/ink/ink-moment";
 import { ChartFigure } from "@/components/shared/chart-card";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
@@ -16,6 +17,7 @@ import {
   confidenceTrend,
   objectiveConfidence,
   objectivePercent,
+  objectiveProgress,
   okrVerdict,
   progressTrend,
   sprintGoalsFor,
@@ -114,6 +116,9 @@ export function ObjectiveCard({
 
   const measured = okr.keyResults.length > 0;
   const pct = objectivePercent(okr);
+  // Every key result at its target: the same test the verdict and the
+  // "okr-achieved" sound use, so a 99.6% that rounds to 100% gets no star.
+  const achieved = measured && objectiveProgress(okr) >= 1;
   const confidence = objectiveConfidence(okr);
   const verdict = okrVerdict(okr, now);
   const progress = useMemo(() => progressTrend(okr), [okr]);
@@ -168,9 +173,13 @@ export function ObjectiveCard({
         <div className="flex items-start gap-3">
           <Target className="mt-0.5 h-5 w-5 shrink-0 text-accent" aria-hidden="true" />
           <div className="min-w-0 flex-1">
-            <h2 id={headingId} className="break-words text-base font-semibold text-text">
-              {name}
-            </h2>
+            <div className="flex items-start gap-1.5">
+              <h2 id={headingId} className="min-w-0 break-words text-base font-semibold text-text">
+                {name}
+              </h2>
+              {/* An ink moment: a star drawn once when the objective reaches 100%. */}
+              {achieved && <InkMoment mark="star" className="mt-0.5" />}
+            </div>
             <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-sub">
               <span className="font-data">{quarterKey(okr.quarter)}</span>
               <span className="inline-flex items-center gap-1">

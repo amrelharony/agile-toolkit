@@ -117,26 +117,53 @@ const cardsApart = (n: number) => (n === 1 ? "one card" : `${n} cards`);
 const people = (n: number) => (n === 1 ? "1 person" : `${n} people`);
 
 /**
+ * The verdict in three parts: the text before the card everyone played, that
+ * card, and the text after it. `card` is null unless two or more estimates
+ * landed on the same card, so a screen can mark the agreed estimate (the
+ * poker table circles it in ink) without searching the sentence for it.
+ */
+export interface VerdictParts {
+  before: string;
+  card: string | null;
+  after: string;
+}
+
+const plain = (text: string): VerdictParts => ({ before: text, card: null, after: "" });
+
+/**
  * One sentence on what to do with the round, under the consensus label.
  * A "?" alongside agreement is worth a word: someone may not be on board.
  */
-export function consensusVerdict(c: Consensus): string {
+export function consensusVerdictParts(c: Consensus): VerdictParts {
   const unsure =
     c.abstained > 0 ? ` ${people(c.abstained)} couldn't estimate: ask what's unclear.` : "";
   if (c.level === null) {
-    return c.abstained > 0
-      ? "Nobody could estimate this one: talk through what's unclear, or split the story."
-      : "No votes yet.";
+    return plain(
+      c.abstained > 0
+        ? "Nobody could estimate this one: talk through what's unclear, or split the story."
+        : "No votes yet."
+    );
   }
   if (c.level === "agree") {
-    return c.estimates === 1
-      ? `Only one estimate: ${c.low}.${unsure}`
-      : c.abstained > 0
-        ? `Everyone who estimated played ${c.low}.${unsure}`
-        : `Everyone played ${c.low}.`;
+    if (c.estimates === 1) return plain(`Only one estimate: ${c.low}.${unsure}`);
+    return {
+      before: c.abstained > 0 ? "Everyone who estimated played " : "Everyone played ",
+      card: c.low,
+      after: `.${unsure}`,
+    };
   }
   if (c.level === "close") {
-    return `Neighbouring cards, ${c.low} and ${c.high}: settle on ${c.suggested} unless someone sees more.${unsure}`;
+    return plain(
+      `Neighbouring cards, ${c.low} and ${c.high}: settle on ${c.suggested} unless someone sees more.${unsure}`
+    );
   }
-  return `${cardsApart(c.apart ?? 0)} apart, ${c.low} to ${c.high}: hear from whoever played ${c.low} and ${c.high}, then vote again.${unsure}`;
+  return plain(
+    `${cardsApart(c.apart ?? 0)} apart, ${c.low} to ${c.high}: hear from whoever played ${c.low} and ${c.high}, then vote again.${unsure}`
+  );
+}
+
+/** The verdict as one sentence. */
+export function consensusVerdict(c: Consensus): string {
+  const { before, card, after } = consensusVerdictParts(c);
+  return `${before}${card ?? ""}${after}`;
 }

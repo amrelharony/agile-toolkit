@@ -3,8 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Download, Eye, FileInput, Link2Off } from "lucide-react";
+import { Download, Eye, FileInput } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InkArt } from "@/components/ink/ink-art";
+import { InkScribble } from "@/components/ink/ink-scribble";
+import { brokenLinkArt } from "@/lib/ink/drawings/pages/broken-link";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { MarkdownView } from "@/components/share/markdown-view";
 import type { SnapshotData } from "@/components/share/share-link-button";
@@ -83,16 +86,20 @@ export function SnapshotClient() {
 
   if (view.status === "loading") {
     return (
-      <div className="container-tool py-10 text-sm text-sub" role="status">
-        Opening the snapshot…
+      <div
+        className="container-tool flex flex-col items-start gap-2 py-10 text-sm text-sub"
+        role="status"
+      >
+        <InkScribble />
+        <span>Opening the snapshot…</span>
       </div>
     );
   }
 
   if (view.status === "empty" || view.status === "error") {
     return (
-      <div className="container-tool max-w-xl py-10">
-        <Link2Off className="mb-3 h-6 w-6 text-sub" aria-hidden="true" />
+      <div className="ink-host container-tool max-w-xl py-10">
+        <InkArt drawing={brokenLinkArt} boil className="mb-3 h-16 w-16" />
         <h1 className="font-display text-fluid-h2 font-bold text-text">
           {view.status === "empty" ? "No snapshot in this link" : "Can't open this snapshot"}
         </h1>

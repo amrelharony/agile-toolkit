@@ -11,6 +11,7 @@
 
 import { occasionsOn, OCCASION_PRIORITY, type OccasionId } from "./occasions";
 import { CAIRO, sunTimes } from "./sun";
+import { toolForPath } from "./tool-scenes";
 import { weatherMoment, type WeatherMoment, type WeatherNow } from "./weather";
 
 export interface Moment {
@@ -90,7 +91,10 @@ const WEATHER_PRIORITY: Record<WeatherMoment, number> = {
   stars: 18,
 };
 
-/** The page's own scenes. */
+/** A tool page's greeting outranks the weather (up to 36) and the hour, not the day's occasion. */
+export const TOOL_PRIORITY = 38;
+
+/** The page's own scenes (tools' pages come from tool-scenes.ts). */
 const PAGE_SCENES: Array<{ id: string; match: (path: string) => boolean; scenes: string[] }> = [
   {
     id: "comics",
@@ -210,6 +214,15 @@ export function momentsNow(input: MomentInput): Moment[] {
     if (page.match(input.path))
       out.push({ id: page.id, kind: "page", priority: 32, scenes: page.scenes });
   }
+  // A tool's page: he greets you with its props, ahead of the weather and the hour.
+  const tool = toolForPath(input.path);
+  if (tool && tool.open.length)
+    out.push({
+      id: `tool:${tool.toolId}`,
+      kind: "page",
+      priority: TOOL_PRIORITY,
+      scenes: tool.open,
+    });
 
   // The visitor's own clock.
   const weekend = input.weekend.includes(now.getDay());

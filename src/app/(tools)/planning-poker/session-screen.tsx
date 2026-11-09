@@ -35,6 +35,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { IconButton } from "@/components/ui/icon-button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { InkHighlight } from "@/components/ink/ink-highlight";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { undoable } from "@/lib/utils/undoable";
@@ -49,7 +50,8 @@ import { castVotes, isNumeric, withRound } from "./rounds";
 import {
   consensusLabel,
   consensusOf,
-  consensusVerdict,
+  consensusVerdictParts,
+  type Consensus,
   type ConsensusLevel,
 } from "@/lib/estimation/consensus";
 import { AcceptEstimate } from "./accept-estimate";
@@ -213,6 +215,34 @@ const CONSENSUS_TONES: Record<ConsensusLevel, { box: string; dot: string; text: 
   close: { box: "border-warning/30 bg-warning/10", dot: "bg-warning", text: "text-warning" },
   spread: { box: "border-danger/30 bg-danger/10", dot: "bg-danger", text: "text-danger" },
 };
+
+/**
+ * The verdict under the consensus label. When the table agrees, the card
+ * everyone played gets a hand-drawn circle: an ink moment, drawn once in
+ * place; the sentence already says it, so the ink is decorative.
+ */
+function ConsensusVerdict({ consensus, agreed }: { consensus: Consensus; agreed: boolean }) {
+  const { before, card, after } = consensusVerdictParts(consensus);
+  return (
+    <span className="text-sm text-text">
+      {before}
+      {card !== null && agreed ? (
+        // The circle reaches 0.4em past the card on each side: room for it.
+        <InkHighlight
+          mark="circle"
+          tone="success"
+          delay={300}
+          className="mx-1.5 font-data font-bold"
+        >
+          {card}
+        </InkHighlight>
+      ) : (
+        card
+      )}
+      {after}
+    </span>
+  );
+}
 
 function Avatar({ name, size = 36 }: { name: string; size?: number }) {
   return (
@@ -862,7 +892,7 @@ export function SessionScreen({
                               {consensusTag.label}
                             </span>
                           )}
-                          <span className="text-sm text-text">{consensusVerdict(consensus)}</span>
+                          <ConsensusVerdict consensus={consensus} agreed={tone === "agree"} />
                         </div>
                       </div>
                     )}
