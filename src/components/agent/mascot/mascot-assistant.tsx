@@ -42,7 +42,7 @@ import { X, Plus, History, Sparkles, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
-import { feel, getMind } from "@/lib/agent/mascot/mind";
+import { did, feel, getMind, recentlyDid } from "@/lib/agent/mascot/mind";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
@@ -56,6 +56,8 @@ import {
   requestMotionPermission,
 } from "./engine/interactions/sensors";
 import { installKonami } from "./engine/customization/commands";
+import { followUp, sceneOfShot } from "./engine/scene-taps";
+import { sceneReaction } from "./engine/scenes";
 import { MascotBubble } from "./mascot-bubble";
 import { inviteMotion } from "./motion-invite";
 import { playMascotSound } from "./engine/audio/mascot-audio";
@@ -674,7 +676,19 @@ export function MascotAssistant() {
     // Where it landed: his head gets a pat, his tummy a poke. (A keyboard press is a poke.)
     const p = e.detail > 0 ? touchPoint(e, hitRef.current) : null;
     const side = p && p.x < p.box.left + p.box.width / 2 ? "left" : "right";
-    clickRef.current?.onClick(p ? zoneAt(p) : "body", side);
+    // Tapped in the middle of one of his own scenes, he carries on with another of
+    // its family (the ball bounced, then kicked) instead of the usual giggle.
+    const shot = buttonRef.current?.querySelector<HTMLElement>("[data-amr-shot]")?.dataset.amrShot;
+    const playing = sceneOfShot(shot);
+    const next = playing ? followUp(playing, sceneShipped, recentlyDid()) : null;
+    if (next) {
+      playMascotSound("click");
+      feel("played");
+      did(next);
+      useMascotStore.getState().playNow(sceneReaction(next));
+    } else {
+      clickRef.current?.onClick(p ? zoneAt(p) : "body", side);
+    }
     // The first tap of a burst opens or closes the panel; the rest are play.
     const now = Date.now();
     const gap = now - lastTapRef.current;
