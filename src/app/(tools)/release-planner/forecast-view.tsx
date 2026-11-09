@@ -181,6 +181,9 @@ export function ForecastView({
 
         {showForecast && f && (
           <>
+            {/* Labels short enough for one line in a 2-up phone row (about
+                90 px at 360 wide): one that wrapped put its value a line
+                lower than its neighbour's. */}
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <StatCard
                 variant="compact"
@@ -191,7 +194,7 @@ export function ForecastView({
               />
               <StatCard
                 variant="compact"
-                label="To commit (P85)"
+                label="Commit (P85)"
                 icon={Calendar}
                 value={p85?.sprints ? formatDay(p85.date) : "—"}
                 hint={
@@ -201,7 +204,7 @@ export function ForecastView({
               />
               <StatCard
                 variant="compact"
-                label="Scope to forecast"
+                label="Total scope"
                 icon={BarChart3}
                 value={`${fmt(plan.effective ?? 0)} pts`}
               />

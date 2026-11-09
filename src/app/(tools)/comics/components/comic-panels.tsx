@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { StoryGuess } from "@/lib/comics/guess";
-import { panelImageUrl } from "@/lib/comics/images";
+import { artLoading, panelImageUrl } from "@/lib/comics/images";
 import type { Panel } from "@/lib/comics/types";
 import { PanelOverlay } from "./panel-overlay";
 import { PanelTranscript } from "./panel-transcript";
@@ -26,7 +26,9 @@ function prefersReducedMotion(): boolean {
 /**
  * A story's panels, stacked on a phone. Every page gets the 768 px file, and
  * there is no srcset on purpose: a 3x phone would pick the 1536 px one, and on
- * the free tier that download allowance is shared with sign-in and sync.
+ * the free tier that download allowance is shared with sign-in and sync. The
+ * first panel, what the page opens on, loads with the HTML at high priority;
+ * the rest wait until they near the screen.
  *
  * The transcript is always in the page, because the speech is baked into the
  * art and a screen reader can't get it any other way. The button only shows it
@@ -107,7 +109,8 @@ export function ComicPanels({
                 width={panel.width}
                 height={panel.height}
                 alt={i === hidden ? "" : panel.alt}
-                loading="lazy"
+                // The first panel is what the page opens on; the rest wait.
+                {...artLoading(i === 0)}
                 decoding="async"
                 className="h-auto w-full"
               />
@@ -118,7 +121,10 @@ export function ComicPanels({
                   ref={isLast ? last : undefined}
                   tabIndex={isLast ? -1 : undefined}
                   aria-labelledby={isLast && i !== hidden ? captionId : undefined}
-                  className="focus-visible:outline-none"
+                  // Scrolled to on a reveal: it stops below the sticky header
+                  // (on a phone, html's scroll padding adds Amr's space too),
+                  // so the speech at the top of the panel isn't under it.
+                  className="scroll-mt-[calc(var(--header-h,56px)+0.5rem)] focus-visible:outline-none"
                 >
                   {i === hidden ? (
                     <div className="panel relative block w-full overflow-hidden">

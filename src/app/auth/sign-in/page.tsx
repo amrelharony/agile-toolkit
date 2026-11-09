@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { defaultToolCount } from "@/lib/tools/catalog";
+import { TOUCH_LINK } from "@/components/ui/touch-target";
+import { cn } from "@/lib/utils";
 import { SignInCard } from "./sign-in-card";
 
 // The root layout's title template appends " | Agile Toolkit".
@@ -12,7 +14,7 @@ export const metadata: Metadata = {
 
 export default function SignInPage() {
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center px-6 py-12 gap-10">
+    <main className="min-h-screen-dvh flex flex-col items-center justify-center px-6 py-12 gap-10">
       {/* Brand: logo + title above the card. text-text gets the theme's
           primary foreground; the AT.svg is dark-mode optimised but still
           legible against the light/HC themes thanks to its rounded white-
@@ -42,13 +44,17 @@ export default function SignInPage() {
         <SignInCard />
       </Suspense>
 
+      {/* A footer link stands alone, so it gets the 44px touch height. */}
       <footer className="text-xs text-sub">
         built by{" "}
         <a
           href="https://amrelharony.com"
           target="_blank"
           rel="noreferrer noopener"
-          className="underline underline-offset-4 hover:text-accent transition-colors"
+          className={cn(
+            "underline underline-offset-4 hover:text-accent transition-colors",
+            TOUCH_LINK
+          )}
         >
           Amr Elharony
         </a>

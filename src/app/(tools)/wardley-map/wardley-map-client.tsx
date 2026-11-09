@@ -636,7 +636,7 @@ export function WardleyMapClient() {
                     variant="ghost"
                     size="icon"
                     onClick={() => removeComponent(c.id)}
-                    className="text-sub hover:text-danger md:min-h-0 md:min-w-0 md:h-7 md:w-7 p-0 flex-shrink-0"
+                    className="text-sub hover:text-danger md:h-7 md:w-7 p-0 flex-shrink-0"
                     aria-label={`Remove ${c.name}`}
                   >
                     <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" aria-hidden="true" />
@@ -707,7 +707,7 @@ export function WardleyMapClient() {
                       variant="ghost"
                       size="icon"
                       onClick={() => removeLink(l.id)}
-                      className="text-sub hover:text-danger md:min-h-0 md:min-w-0 md:h-6 md:w-6 p-0 ml-auto flex-shrink-0"
+                      className="text-sub hover:text-danger md:h-6 md:w-6 p-0 ml-auto flex-shrink-0"
                       aria-label={`Remove link ${componentById(l.fromId)?.name ?? ""} to ${
                         componentById(l.toId)?.name ?? ""
                       }`}

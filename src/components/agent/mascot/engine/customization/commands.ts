@@ -56,7 +56,7 @@ const KONAMI = [
  * Install the Konami-code listener. On the full sequence: spin + a rainbow aura
  * sweep + XP. Returns a cleanup fn.
  */
-export function installKonami(onActivate: () => void): () => void {
+export function installKonami(onActivate?: () => void): () => void {
   let buf: string[] = [];
   const onKey = (e: KeyboardEvent) => {
     buf.push(e.key.length === 1 ? e.key.toLowerCase() : e.key);
@@ -64,7 +64,7 @@ export function installKonami(onActivate: () => void): () => void {
     if (buf.length === KONAMI.length && KONAMI.every((k, i) => buf[i] === k)) {
       buf = [];
       konamiAction();
-      onActivate();
+      onActivate?.();
     }
   };
   window.addEventListener("keydown", onKey);

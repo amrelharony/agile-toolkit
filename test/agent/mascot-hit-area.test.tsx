@@ -65,8 +65,10 @@ describe("mascot hit area", () => {
     expect(parseFloat(hit!.style.top)).toBeGreaterThan(0);
     expect(parseFloat(hit!.style.bottom)).toBeGreaterThan(0);
     expect(parseFloat(hit!.style.left)).toBeGreaterThan(0);
-    // The empty row below his feet is past the bottom edge.
-    expect(parseFloat(button.style.bottom)).toBeLessThan(0);
+    // The empty row below his feet is past the bottom edge (plus any home
+    // indicator, which is 0 on a desktop).
+    expect(button.style.bottom).toContain("safe-area-inset-bottom");
+    expect(parseFloat(button.style.bottom.replace(/^calc\(/, ""))).toBeLessThan(0);
 
     // Clicking the figure still opens the assistant.
     fireEvent.click(hit!);

@@ -1,14 +1,32 @@
 "use client";
 
-import { InsightsEngine } from "@/components/shared/insights-engine";
+import dynamic from "next/dynamic";
 import { ToolHistoryDrawer } from "@/components/history/tool-history-drawer";
 import { UndoRedoControls } from "@/components/history/undo-redo-controls";
 import { SavedChip } from "@/components/data/saved-chip";
 import { HowItWorks } from "@/components/tool-frame/how-it-works";
 import { RelatedTools } from "@/components/tool-frame/related-tools";
-import { NextStepCard } from "@/components/tool-frame/next-step";
 import { PresentButton } from "@/components/presentation/presentation-mode";
 import { FavoriteButton } from "@/components/tool-frame/favorite-button";
+
+// Only a tool's own page (toolId) shows these. The insight and next-step
+// rules import most tools' stores between them: about 190 kB gzipped that a
+// page without a toolId (the comics, the book, VIP) used to download and parse
+// before it could respond. Both render nothing until this browser's workspace
+// has loaded, so loading them on the client only leaves the server HTML as it
+// was. "How this works" is in that HTML, so it stays static: server-rendered
+// behind next/dynamic, hydration would leave it for later, and an early context
+// update (auth settling) would swap it for an empty fallback until its chunk
+// came, moving the tool up and back down. Its own code is small; the guide
+// text already loads on demand.
+const InsightsEngine = dynamic(
+  () => import("@/components/shared/insights-engine").then((m) => m.InsightsEngine),
+  { ssr: false }
+);
+const NextStepCard = dynamic(
+  () => import("@/components/tool-frame/next-step").then((m) => m.NextStepCard),
+  { ssr: false }
+);
 
 interface ToolPageWrapperProps {
   title: string;
@@ -40,7 +58,18 @@ interface ToolPageWrapperProps {
  *     readable line lengths instead of single 200-char lines.
  *   - Entrance: a CSS translate-only rise. It used to be a framer-motion
  *     fade from `opacity: 0`, which the server rendered into the HTML, so
- *     every tool page stayed invisible until the JS bundle hydrated.
+ *     every tool page stayed invisible until the JS bundle hydrated. The
+ *     rise leaves no transform behind once it ends (fill `backwards`, see
+ *     tailwind.config.ts): a leftover transform made this div the
+ *     containing block for every `position: fixed` element inside a tool,
+ *     so on a scrolled page drag overlays drew off-screen and drops missed.
+ *     Don't add a transform, filter or `will-change` to this div for the
+ *     same reason.
+ *   - Layering: `isolate` keeps the stacking context the leftover transform
+ *     used to give this div, without making it a containing block for fixed
+ *     elements. A tool's own z-indexes (the canvas's pins, selection handles
+ *     and property panel sit at 9990-10000) stay inside the page, under the
+ *     sticky header, Amr, and dialogs and menus portalled to <body>.
  */
 export function ToolPageWrapper({
   title,
@@ -53,7 +82,7 @@ export function ToolPageWrapper({
   const showToolbar = showHistory && Boolean(toolId);
 
   return (
-    <div className="container-tool motion-safe:animate-rise">
+    <div className="container-tool isolate motion-safe:animate-rise">
       {/* Header row — title + toolbar */}
       <header className="panel mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:gap-4 gap-3 px-4 py-4 sm:px-6 sm:py-5">
         <div className="flex-1 min-w-0">

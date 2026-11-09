@@ -2,6 +2,10 @@
 
 import { getSupabaseClient, isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import { getVDnaSnapshot } from "@/lib/stores/vdna-store";
+import { activeAchievements } from "./achievements";
+
+/** Ids that count toward a badge total (retired badges don't). */
+const ACTIVE_IDS: ReadonlySet<string> = new Set(activeAchievements.map((a) => a.id));
 
 export interface LeaderboardRow {
   visitor_id: string;
@@ -65,7 +69,8 @@ async function syncProfile(): Promise<boolean> {
         xp: dna.xp,
         prestige: dna.prestige,
         lifetime_xp: dna.lifetimeXp,
-        achievements_count: dna.unlocked.length,
+        // Same x / y as the trophy case: active badges only.
+        achievements_count: dna.unlocked.filter((id) => ACTIVE_IDS.has(id)).length,
         longest_streak: dna.longestStreak,
         updated_at: new Date().toISOString(),
       },

@@ -22,6 +22,12 @@ import { useStableOrder } from "@/hooks/use-stable-order";
 import type { DataEntry, StatusColumn } from "../types";
 import { countError, dateError } from "../form";
 
+/*
+ * The cells' fields are compact on a desktop table (the Input's md:h-9) and
+ * 44 px tall on a touch screen, a phone's cards or a tablet's table alike:
+ * `pointer-coarse:min-h-11` wins over any height.
+ */
+
 /** A cell's error message, under its control. */
 function CellError({ id, error }: { id: string; error: string | null }) {
   return error ? (
@@ -59,7 +65,9 @@ function CountCell({
     if (!err) onCommit(Number(draft));
   };
   return (
-    <div>
+    // On a phone's card the counts stack: a little air keeps neighbouring
+    // fields 8 px or more apart (the card's rows sit 6 px apart).
+    <div className="max-md:py-0.5">
       <Input
         type="number"
         inputMode="numeric"
@@ -80,7 +88,7 @@ function CountCell({
         aria-label={`${column.name} on ${entry.date}`}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-error` : undefined}
-        className="h-8 w-20 bg-surface-deep border-border text-text font-data text-center md:mx-auto"
+        className="h-8 w-20 bg-surface-deep border-border text-text font-data text-center pointer-coarse:min-h-11 md:mx-auto"
       />
       <CellError id={`${id}-error`} error={error} />
     </div>
@@ -135,7 +143,7 @@ function DateCell({
         aria-label={`Date of the snapshot from ${entry.date}`}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-error` : undefined}
-        className="h-8 w-40 bg-surface-deep border-border text-text text-sm"
+        className="h-8 w-40 bg-surface-deep border-border text-text text-sm pointer-coarse:min-h-11"
       />
       <CellError id={`${id}-error`} error={error} />
     </div>
@@ -195,7 +203,7 @@ export function DataEntryTable({
           placeholder="Optional note"
           value={e.description ?? ""}
           onCommit={(v) => onUpdateNote(e, v.trim() ? v.trim() : undefined)}
-          className="h-8 min-w-[8rem] bg-surface-deep border-border text-text text-xs"
+          className="h-8 min-w-[8rem] bg-surface-deep border-border text-text text-xs pointer-coarse:min-h-11"
           aria-label={`Note for ${e.date}`}
         />
       ),

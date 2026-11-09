@@ -2,6 +2,8 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { JOBS } from "@/lib/constants/jobs";
 import { getToolById } from "@/lib/constants/tools";
+import { cn } from "@/lib/utils";
+import { TOUCH_ROW, TOUCH_ROW_LINK } from "@/components/ui/touch-target";
 
 /**
  * "What do you need to do?" — eight common jobs, each leading to the tool
@@ -41,22 +43,40 @@ export function JobLauncher() {
               </p>
               {job.alternatives.length > 0 && (
                 <details className="relative z-10 mt-auto text-xs text-sub">
-                  <summary className="cursor-pointer select-none hover:text-text">
+                  {/* The card around it is one stretched link, so a thumb that
+                      misses this 16px line opens the main tool instead. On
+                      touch the padding makes it 44px tall and the negative
+                      margin takes most of that back out of the layout; the
+                      details' z-10 keeps the whole area above the card link. */}
+                  <summary className="cursor-pointer select-none hover:text-text pointer-coarse:-my-2 pointer-coarse:py-3.5">
                     Other options
                   </summary>
-                  <ul className="mt-2 space-y-1.5">
+                  <ul className="mt-2 space-y-1.5 pointer-coarse:space-y-0">
                     {job.alternatives.map((alt) => {
                       const tool = getToolById(alt.toolId);
                       if (!tool) return null;
                       return (
-                        <li key={alt.toolId}>
-                          <Link
-                            href={tool.path}
-                            className="font-medium text-text hover:text-accent"
-                          >
-                            {tool.name}
-                          </Link>{" "}
-                          — when {alt.pickWhen}
+                        // On touch each option is a 44px row that opens the
+                        // tool anywhere on it; the sentence inside reads as before.
+                        <li
+                          key={alt.toolId}
+                          className={cn(
+                            TOUCH_ROW,
+                            "pointer-coarse:flex pointer-coarse:items-center"
+                          )}
+                        >
+                          <span>
+                            <Link
+                              href={tool.path}
+                              className={cn(
+                                "font-medium text-text hover:text-accent",
+                                TOUCH_ROW_LINK
+                              )}
+                            >
+                              {tool.name}
+                            </Link>{" "}
+                            — when {alt.pickWhen}
+                          </span>
                         </li>
                       );
                     })}

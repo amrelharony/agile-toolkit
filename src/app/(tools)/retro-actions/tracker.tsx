@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { SectionCard } from "@/components/shared/section-card";
 import { ChartFigure } from "@/components/shared/chart-card";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import {
   ExampleNotice,
@@ -420,14 +421,7 @@ export function RetroActionsTracker() {
   };
 
   if (!hydrated) {
-    return (
-      <p
-        role="status"
-        className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
-      >
-        Loading retro actions…
-      </p>
-    );
+    return <WorkspaceLoading>Loading retro actions…</WorkspaceLoading>;
   }
 
   return (
@@ -589,9 +583,11 @@ export function RetroActionsTracker() {
           </SectionCard>
 
           <p className="text-sm text-sub">
+            {/* On touch, -my-2 cancels the py-2 so the line keeps its height
+                while the tap area grows to 36 px (space-y-4 above it). */}
             <Link
               href="/retro"
-              className="inline-flex items-center gap-1 font-medium text-accent hover:underline"
+              className="inline-flex items-center gap-1 font-medium text-accent hover:underline pointer-coarse:-my-2 pointer-coarse:py-2"
             >
               Retro board
               <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />

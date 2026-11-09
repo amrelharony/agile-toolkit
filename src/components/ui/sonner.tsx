@@ -13,6 +13,19 @@ import { Toaster as Sonner } from "sonner";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
+/**
+ * Touch screens: sonner's action (Undo, View…) and cancel buttons are 24 px
+ * tall with 12 px text — and Undo is the only way back from a delete. On a
+ * coarse pointer they get a 44 px target and 14 px text; mouse and trackpad
+ * keep the compact button. Sonner's own rule for them
+ * (`[data-sonner-toast][data-styled=true] [data-button]`) is as specific as
+ * a `group-[.toast]:` class and its style tag lands after the app's CSS, so
+ * the padding and font size it sets need `!`. It sets no min-height or
+ * min-width, so those win over its `height: 24px` without it.
+ */
+const TOUCH_BUTTON =
+  "pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:!px-4 pointer-coarse:!text-sm";
+
 function detectTheme(): "dark" | "light" {
   if (typeof document === "undefined") return "light";
   const el = document.documentElement;
@@ -41,12 +54,15 @@ const Toaster = ({ ...props }: ToasterProps) => {
       theme={theme}
       className="toaster group"
       toastOptions={{
+        // The close button is shown per toast (lib/notify/policy.ts); on touch
+        // screens globals.css gives it a 44 px hit area.
+        closeButtonAriaLabel: "Dismiss",
         classNames: {
           toast:
             "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
           description: "group-[.toast]:text-muted-foreground",
-          actionButton: "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
-          cancelButton: "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+          actionButton: `group-[.toast]:bg-primary group-[.toast]:text-primary-foreground ${TOUCH_BUTTON}`,
+          cancelButton: `group-[.toast]:bg-muted group-[.toast]:text-muted-foreground ${TOUCH_BUTTON}`,
         },
       }}
       {...props}

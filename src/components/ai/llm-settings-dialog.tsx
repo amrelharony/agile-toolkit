@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Sparkles,
   Eye,
@@ -36,7 +36,6 @@ import { DEFAULT_MODEL_BY_PROVIDER, MODELS_BY_PROVIDER, PROVIDER_META } from "@/
 import { getAdapter, PROVIDER_IDS } from "@/lib/llm/registry";
 import type { ProviderId } from "@/lib/llm/types";
 import { isLlmError } from "@/lib/llm/types";
-import { toast } from "@/lib/utils/toast";
 import { cn } from "@/lib/utils";
 
 /**
@@ -85,7 +84,9 @@ export function LlmSettingsDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as ProviderId)}>
+        {/* `min-w-0`: never let the nowrap tab list widen the dialog; the list
+            scrolls sideways inside this width instead. */}
+        <Tabs value={tab} onValueChange={(v) => setTab(v as ProviderId)} className="min-w-0">
           {/*
            * `grid-cols-4` previously forced four equal columns regardless
            * of viewport — at 320 px each tab clamped to ~70 px and the
@@ -125,16 +126,9 @@ export function LlmSettingsDialog() {
                 onSave={(apiKey, model) => {
                   setProvider(id, apiKey, model);
                   setActiveProvider(id);
-                  toast.success(`${PROVIDER_META[id].name} configured`);
                 }}
-                onClear={() => {
-                  removeProvider(id);
-                  toast.success(`${PROVIDER_META[id].name} key cleared`);
-                }}
-                onMakeActive={() => {
-                  setActiveProvider(id);
-                  toast.success(`${PROVIDER_META[id].name} now active`);
-                }}
+                onClear={() => removeProvider(id)}
+                onMakeActive={() => setActiveProvider(id)}
               />
             </TabsContent>
           ))}
@@ -234,6 +228,12 @@ interface ProviderPanelProps {
 const CUSTOM_MODEL_VALUE = "__custom__";
 
 /**
+ * The panel's one status line. Each step (test, save, make active, clear)
+ * replaces it, instead of stacking a pop-up per step inside the dialog.
+ */
+type PanelStatus = { tone: "ok" | "error"; text: string } | null;
+
+/**
  * BUG-X2: Max-output-tokens input that holds a local string draft and
  * only commits to the (clamping) store on blur / Enter. Without this,
  * the store's `setMaxOutputTokens` clamp(64, 8192) fires on every
@@ -308,15 +308,23 @@ function ProviderPanel({
   const [reveal, setReveal] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<"ok" | "fail" | null>(null);
+  const [status, setStatus] = useState<PanelStatus>(null);
+  // What this panel just wrote to the store (see `storedSig`). The re-sync
+  // below runs after our own Save / Clear too, and must not wipe the status
+  // line that confirms it.
+  const wroteSig = useRef<string | null>(null);
 
   // Re-sync local state when the user flips to this tab and there's a
   // different stored value (e.g., after saving on another tab).
   useEffect(() => {
+    const ownWrite = wroteSig.current !== null && wroteSig.current === storedSig(existing);
+    wroteSig.current = null;
     const stored = existing?.model ?? DEFAULT_MODEL_BY_PROVIDER[providerId];
     setApiKey(existing?.apiKey ?? "");
     setModel(stored);
     setCustomMode(!!existing?.model && !isExistingModelInList(existing.model));
     setTestResult(null);
+    if (!ownWrite) setStatus(null);
     // existing.apiKey + .model already cover what we need; isExistingModelInList
     // is a stable function of `models` which is per-tab and constant.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -324,20 +332,21 @@ function ProviderPanel({
 
   const handleTest = async () => {
     if (!apiKey.trim()) {
-      toast.error("Paste a key first");
+      setStatus({ tone: "error", text: "Paste a key first." });
       return;
     }
     setTesting(true);
     setTestResult(null);
+    setStatus(null);
     try {
       const adapter = await getAdapter(providerId);
       await adapter.testKey({ apiKey: apiKey.trim(), model });
       setTestResult("ok");
-      toast.success(`${meta.name} key works`);
+      setStatus({ tone: "ok", text: `${meta.name} key works.` });
     } catch (err) {
       setTestResult("fail");
       const message = describeError(err);
-      toast.error(`${meta.name} test failed: ${message}`);
+      setStatus({ tone: "error", text: `${meta.name} test failed: ${message}.` });
     } finally {
       setTesting(false);
     }
@@ -345,16 +354,25 @@ function ProviderPanel({
 
   const handleSave = () => {
     if (!apiKey.trim()) {
-      toast.error("Paste a key first");
+      setStatus({ tone: "error", text: "Paste a key first." });
       return;
     }
+    wroteSig.current = storedSig({ apiKey: apiKey.trim(), model });
     onSave(apiKey.trim(), model);
+    setStatus({ tone: "ok", text: `Saved. ${meta.name} is now your active AI.` });
+  };
+
+  const handleMakeActive = () => {
+    onMakeActive();
+    setStatus({ tone: "ok", text: `${meta.name} is now your active AI.` });
   };
 
   const handleClear = () => {
     setApiKey("");
     setTestResult(null);
+    wroteSig.current = storedSig(undefined);
     onClear();
+    setStatus({ tone: "ok", text: `${meta.name} key cleared.` });
   };
 
   const keyHint =
@@ -490,7 +508,7 @@ function ProviderPanel({
           Save &amp; make active
         </Button>
         {existing && !isActive && (
-          <Button variant="outline" onClick={onMakeActive} className="border-border">
+          <Button variant="outline" onClick={handleMakeActive} className="border-border">
             Make active
           </Button>
         )}
@@ -505,8 +523,28 @@ function ProviderPanel({
           </Button>
         )}
       </div>
+      {/* Always mounted so screen readers hear each new step. */}
+      <p
+        role="status"
+        aria-live="polite"
+        data-testid={`llm-status-${providerId}`}
+        className={cn(
+          "min-h-[1.25rem] text-xs",
+          status?.tone === "error" ? "text-danger" : "text-accent"
+        )}
+      >
+        {status?.text ?? ""}
+      </p>
     </div>
   );
+}
+
+/** A stored provider entry as one comparable string ("" when there is none). */
+function storedSig(entry: { apiKey: string; model: string } | undefined): string {
+  return entry
+    ? `${entry.apiKey}
+${entry.model}`
+    : "";
 }
 
 function describeError(err: unknown): string {

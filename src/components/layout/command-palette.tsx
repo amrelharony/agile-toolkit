@@ -41,21 +41,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const { showAll, categories, toolsIn } = useToolVisibility();
   const vip = useVipHint();
 
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      // Caps Lock makes `e.key` "K" — compare against the lowercase form so
-      // the shortcut keeps working regardless of caps state. Also accept the
-      // physical key code as a fallback for layouts where the K position
-      // produces a different character.
-      const isK = e.key.toLowerCase() === "k" || e.code === "KeyK";
-      if (isK && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        onOpenChange(!open);
-      }
-    };
-    document.addEventListener("keydown", down);
-    return () => document.removeEventListener("keydown", down);
-  }, [open, onOpenChange]);
+  // Ctrl/Cmd+K is the shell's (use-command-palette-shortcut): this file loads
+  // only once the palette is first opened.
 
   // Start fresh each time the palette opens.
   useEffect(() => {

@@ -7,6 +7,13 @@ import { ToolCard } from "@/components/shared/tool-card";
 import { getShelfToolsByCategory } from "@/lib/tools/catalog";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 
+/** The id of a category's heading: the anchor the jump chips link to. */
+function shelfHeadingId(category: string): string {
+  return `shelf-${category.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+}
+
+const toolsWord = (n: number) => (n === 1 ? "tool" : "tools");
+
 /**
  * The "More tools" shelf: everything built for a neighbouring audience, by
  * registry category, with the switch that lists them in navigation and
@@ -37,16 +44,44 @@ export function MoreToolsClient() {
             Show these tools in navigation and search
           </Label>
         </div>
+        {/* Below lg the shelf is one long column (over 6,000px on a phone):
+            a row of chips, scrolling sideways, jumps to each category. */}
+        <nav aria-label="Jump to a category" className="lg:hidden">
+          {/* relative: the chips' sr-only counts are absolutely positioned, and
+              without a containing block they escape this scroller and widen
+              the page (the .scroll-x-snap lesson). */}
+          <ul className="relative -mx-1 flex gap-2 overflow-x-auto overscroll-x-contain px-1 py-1">
+            {groups.map((group) => (
+              <li key={group.category} className="shrink-0">
+                <a
+                  href={`#${shelfHeadingId(group.category)}`}
+                  className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card px-3 text-sm text-text transition-colors hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent pointer-coarse:min-h-11"
+                >
+                  {group.category}{" "}
+                  <span className="font-mono text-xs text-sub">
+                    {group.tools.length}{" "}
+                    <span className="sr-only">{toolsWord(group.tools.length)}</span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
       </header>
 
       {groups.map((group) => {
-        const headingId = `shelf-${group.category.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+        const headingId = shelfHeadingId(group.category);
         return (
           <section key={group.category} aria-labelledby={headingId} className="space-y-3">
-            <h2 id={headingId} className="font-display text-lg font-semibold text-text">
+            {/* scroll-mt keeps a jumped-to heading clear of the sticky header. */}
+            <h2
+              id={headingId}
+              className="scroll-mt-20 font-display text-lg font-semibold text-text"
+            >
               {group.category}
-              <span className="ml-2 font-mono text-xs font-normal text-sub">
-                {group.tools.length} {group.tools.length === 1 ? "tool" : "tools"}
+              {/* One unit, so a long name never leaves "tools" alone on a line. */}
+              <span className="ml-2 inline-block whitespace-nowrap font-mono text-xs font-normal text-sub">
+                {group.tools.length} {toolsWord(group.tools.length)}
               </span>
             </h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">

@@ -89,7 +89,8 @@ export function ColumnsCard({
                     onRename(col, v.trim());
                   }}
                   aria-label={`Name of column ${idx + 1}`}
-                  className="h-7 min-w-0 flex-1 bg-transparent border-none p-0 text-sm text-text focus:ring-0"
+                  // 44 px tall on a touch screen (28 px was a thin strip to tap).
+                  className="h-7 min-w-0 flex-1 bg-transparent border-none p-0 text-sm text-text focus:ring-0 pointer-coarse:min-h-11"
                 />
                 <Badge variant="outline" className="shrink-0 border-border text-xs text-sub">
                   {KIND_BADGE[kind]}

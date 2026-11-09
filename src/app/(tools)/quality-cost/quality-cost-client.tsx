@@ -467,7 +467,7 @@ export function QualityCostClient() {
                       {(props) => (
                         <select
                           {...props}
-                          className="flex h-11 w-full rounded-md border border-input bg-background px-3 font-data text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm"
+                          className="flex h-11 w-full rounded-md border border-input bg-background px-3 font-data text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-fine:md:h-9 pointer-fine:md:text-sm"
                           value={shown.id}
                           onChange={(e) => setShownId(e.target.value)}
                         >

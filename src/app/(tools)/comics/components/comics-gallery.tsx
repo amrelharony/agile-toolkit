@@ -42,16 +42,29 @@ function sortedUnique(values: readonly string[]): string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
 }
 
-/** Only the verified owner ever sees a way to the portal. */
+/** A touch target's height for every reader, so the owner's link adds none. */
+const PORTAL_ROW_HEIGHT = "pointer-coarse:min-h-11";
+
+/**
+ * Only the verified owner ever sees a way to the portal. That's known once
+ * sign-in has been checked, after the page has painted, so the link joins a
+ * row that's there for every reader and already as tall as it is: on a line of
+ * its own it pushed the whole page down as it appeared. The row never wraps,
+ * since a second line would move the page all the same; where the row is too
+ * narrow for both (a 320px phone, a tablet with the sidebar pinned open) the
+ * link gives way, cut short, and the story's button keeps its size.
+ */
 function OwnerPortalLink() {
   const isOwner = useIsOwner();
   if (!isOwner) return null;
   return (
-    <p>
-      <Link className="text-sm text-accent underline" href="/settings/comics" prefetch={false}>
-        Comics portal
-      </Link>
-    </p>
+    <Link
+      className="inline-flex min-w-0 items-center text-sm text-accent underline pointer-coarse:min-h-11"
+      href="/settings/comics"
+      prefetch={false}
+    >
+      <span className="truncate">Comics portal</span>
+    </Link>
   );
 }
 
@@ -59,19 +72,23 @@ function ThisWeek({ story }: { story: StorySummary }) {
   return (
     <section aria-labelledby="this-week-heading">
       <Card className="grid overflow-hidden md:grid-cols-2">
-        {story.cover ? <ComicCover cover={story.cover} /> : null}
+        {/* What /comics opens on, and the book intro's window shares the file. */}
+        {story.cover ? <ComicCover cover={story.cover} priority /> : null}
         <div className="space-y-3 p-4 sm:p-6">
           <Eyebrow>This week&apos;s story</Eyebrow>
           <h2 id="this-week-heading" className="font-display text-xl font-semibold text-text">
             {story.title}
           </h2>
           <p className="text-sub">{story.lesson}</p>
-          <Button asChild variant="toolkit">
-            <Link href={comicHref(story.ep)} prefetch={false}>
-              Read this story
-              <ArrowRight aria-hidden="true" />
-            </Link>
-          </Button>
+          <div className={`flex flex-nowrap items-center gap-x-4 ${PORTAL_ROW_HEIGHT}`}>
+            <Button asChild variant="toolkit" className="shrink-0">
+              <Link href={comicHref(story.ep)} prefetch={false}>
+                Read this story
+                <ArrowRight aria-hidden="true" />
+              </Link>
+            </Button>
+            <OwnerPortalLink />
+          </div>
         </div>
       </Card>
     </section>
@@ -89,7 +106,10 @@ function BookIndex({ episodes }: { episodes: readonly IndexEpisode[] }) {
         <h2 id="book-episodes-heading" className="font-display text-lg font-semibold text-text">
           The 26 episodes in the book
         </h2>
-        <Link href={BOOK_PATH} className="text-sm font-medium text-text underline">
+        <Link
+          href={BOOK_PATH}
+          className="inline-flex items-center text-sm font-medium text-text underline pointer-coarse:min-h-11"
+        >
           About the book
         </Link>
       </div>
@@ -263,11 +283,16 @@ export function ComicsGallery({
     <ToolPageWrapper title="Agile at Work" description="Workplace comics by Amr Elharony">
       <VisitRecorder path="/comics" />
       <div className="space-y-6">
-        <OwnerPortalLink />
         {latest ? (
           <ThisWeek story={latest} />
         ) : (
-          <p className="text-sub">A new story comes out every week, starting soon.</p>
+          // Before the first story: wide enough, the link sits beside the note; on
+          // a phone the note fills its line and the link still drops below it.
+          // Holding that line for everyone would leave visitors a blank one.
+          <div className={`flex flex-wrap items-center gap-x-4 gap-y-2 ${PORTAL_ROW_HEIGHT}`}>
+            <p className="text-sub">A new story comes out every week, starting soon.</p>
+            <OwnerPortalLink />
+          </div>
         )}
         {latest && cast.length > 0 ? <ReaderProgress cast={cast} stories={stories} /> : null}
         {favourites.length > 0 ? <ReadersFavourites stories={favourites} /> : null}

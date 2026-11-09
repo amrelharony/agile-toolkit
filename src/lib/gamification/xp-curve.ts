@@ -7,7 +7,7 @@ export const PRESTIGE_MULTIPLIER = 0.2; // each prestige adds 20% to XP requirem
 
 /**
  * Cumulative XP required to REACH level N (from 1 → N).  Level 1 is 0 XP.
- * Level 2 is 100 XP, level 20 is ~16k XP.  With prestige P the curve scales
+ * Level 2 is 100 XP, level 20 is ~20k XP.  With prestige P the curve scales
  * by (1 + 0.2 * P).
  */
 export function cumulativeXpForLevel(level: number, prestige = 0): number {

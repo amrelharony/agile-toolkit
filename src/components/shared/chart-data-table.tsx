@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NO_VALUE, type ChartTable } from "@/lib/charts/chart-text";
@@ -18,13 +18,61 @@ function numericColumns(table: ChartTable): boolean[] {
   );
 }
 
+/** Cell padding: tighter on a phone, so a five-column table nearly fits a card. */
+const CELL_PAD = "px-2 py-2 sm:px-3";
+/**
+ * The first column stays put while the rest scroll under it, so each row keeps
+ * its name ("Day 3") in view. The card's colour hides what slides beneath.
+ */
+const STICKY_COL = "sticky left-0 z-[1] bg-card";
+/**
+ * Row dividers live on the cells, not the rows: in the collapsed border model
+ * the table paints a row's border, and the pinned cells' card-coloured
+ * background (a layer above the table) covered it, so the first column lost
+ * its dividers. In the separate model (see the table) each cell, pinned ones
+ * included, draws its own.
+ */
+const DIVIDER = "border-b border-border";
+
+/**
+ * Whether the region has more to show to its right, and how tall its caption
+ * is (the fade starts below it, so the caption's words aren't faded).
+ */
+function useMoreToTheRight(table: ChartTable) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const captionRef = useRef<HTMLTableCaptionElement>(null);
+  const [more, setMore] = useState(false);
+  const [captionHeight, setCaptionHeight] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => {
+      // A pixel of slack: scrollLeft is fractional on high-density screens.
+      setMore(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
+      setCaptionHeight(captionRef.current?.offsetHeight ?? 0);
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(el);
+    if (el.firstElementChild) observer?.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", update);
+      observer?.disconnect();
+    };
+  }, [table]);
+  return { scrollRef, captionRef, more, captionHeight };
+}
+
 /**
  * A chart's data as a real table: a caption, a header row of `<th scope="col">`,
  * and each row named by its first cell (`<th scope="row">`), so a screen reader
  * announces "Day 3, Remaining, 27" as it moves through the cells.
  *
  * The wrapper scrolls sideways on a narrow screen. It's a labelled, focusable
- * region so a keyboard user can scroll it too.
+ * region so a keyboard user can scroll it too. While columns are hidden to the
+ * right, its right edge fades out (the cue that it scrolls), and the row names
+ * stay pinned on the left.
  */
 export function ChartDataTable({
   table,
@@ -42,57 +90,94 @@ export function ChartDataTable({
   const captionId = useId();
   const numeric = numericColumns(table);
   const align = (c: number) => (numeric[c] ? "text-right" : "text-left");
+  const { scrollRef, captionRef, more, captionHeight } = useMoreToTheRight(table);
   return (
-    <div
-      id={id}
-      role="region"
-      aria-labelledby={captionId}
-      // Focusable so the keyboard can scroll a table wider than the screen.
-      tabIndex={0}
-      className={cn(
-        "overflow-x-auto rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
-        className
-      )}
-    >
-      <table className="w-full text-sm">
-        <caption id={captionId} className="pb-2 text-left text-xs text-sub">
-          {table.caption ?? fallbackCaption}
-        </caption>
-        <thead>
-          <tr className="border-b border-border text-xs text-sub">
-            {table.columns.map((col, c) => (
-              <th
-                key={c}
-                scope="col"
-                className={cn("whitespace-nowrap px-3 py-2 font-medium", align(c))}
-              >
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {table.rows.map((row, r) => (
-            <tr key={r} className="border-b border-border last:border-0">
-              {row.map((value, c) =>
-                c === 0 ? (
-                  <th
-                    key={c}
-                    scope="row"
-                    className="whitespace-nowrap px-3 py-2 text-left font-medium text-text"
-                  >
-                    {value}
-                  </th>
-                ) : (
-                  <td key={c} className={cn("px-3 py-2 font-data text-text", align(c))}>
-                    {value}
-                  </td>
-                )
-              )}
+    // `isolate` keeps the pinned column's, the fade's and the ring's z-index inside the table.
+    <div className={cn("relative isolate", className)}>
+      <div
+        ref={scrollRef}
+        id={id}
+        role="region"
+        aria-labelledby={captionId}
+        // Focusable so the keyboard can scroll a table wider than the screen.
+        // The overlay below draws its focus ring: an inset ring on this box
+        // paints under its cells, and the pinned column hid the left side.
+        tabIndex={0}
+        className="peer overflow-x-auto rounded-md focus-visible:outline-none"
+      >
+        <table className="w-full border-separate border-spacing-0 text-sm">
+          <caption ref={captionRef} id={captionId} className="pb-2 text-left text-xs text-sub">
+            {table.caption ?? fallbackCaption}
+          </caption>
+          <thead>
+            <tr className="text-xs text-sub">
+              {table.columns.map((col, c) => (
+                <th
+                  key={c}
+                  scope="col"
+                  className={cn(
+                    "whitespace-nowrap font-medium",
+                    CELL_PAD,
+                    DIVIDER,
+                    align(c),
+                    c === 0 && STICKY_COL
+                  )}
+                >
+                  {col}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {table.rows.map((row, r) => {
+              // Every row but the last is divided from the next.
+              const divider = r < table.rows.length - 1 && DIVIDER;
+              return (
+                <tr key={r}>
+                  {row.map((value, c) =>
+                    c === 0 ? (
+                      <th
+                        key={c}
+                        scope="row"
+                        className={cn(
+                          "whitespace-nowrap text-left font-medium text-text",
+                          CELL_PAD,
+                          divider,
+                          STICKY_COL
+                        )}
+                      >
+                        {value}
+                      </th>
+                    ) : (
+                      <td
+                        key={c}
+                        className={cn("font-data text-text", CELL_PAD, divider, align(c))}
+                      >
+                        {value}
+                      </td>
+                    )
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {more && (
+        <div
+          aria-hidden="true"
+          data-scroll-fade=""
+          className="pointer-events-none absolute bottom-0 right-0 z-[2] w-8 rounded-r-md bg-gradient-to-l from-card"
+          style={{ top: captionHeight }}
+        />
+      )}
+      {/* The region's focus ring, drawn above the pinned column and the fade
+          so all four sides show. */}
+      <div
+        aria-hidden="true"
+        data-focus-ring=""
+        className="pointer-events-none absolute inset-0 z-[3] rounded-md peer-focus-visible:ring-1 peer-focus-visible:ring-inset peer-focus-visible:ring-ring"
+      />
     </div>
   );
 }

@@ -70,7 +70,7 @@ import { usePremortems } from "./use-premortems";
 import { premortemVerdict, quoteCause } from "./verdict";
 
 const SELECT_CLASS =
-  "flex h-11 w-full min-w-0 rounded-md border border-input bg-transparent px-3 text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm";
+  "flex h-11 w-full min-w-0 rounded-md border border-input bg-transparent px-3 text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-fine:md:h-9 pointer-fine:md:text-sm";
 
 export function PremortemClient() {
   const { state, update, selected, select } = usePremortems();

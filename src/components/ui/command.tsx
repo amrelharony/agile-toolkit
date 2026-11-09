@@ -32,6 +32,47 @@ interface CommandDialogProps extends DialogProps {
   commandProps?: React.ComponentPropsWithoutRef<typeof CommandPrimitive>;
 }
 
+interface VisibleArea {
+  height: number;
+  offsetTop: number;
+}
+
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
+
+/**
+ * The part of the page the visitor can see, tracked while `active`. An
+ * on-screen keyboard on iOS Safari, and on Chrome Android (which resizes only
+ * the visual viewport by default), shrinks this but never `100dvh`, so a
+ * dialog centred and capped by CSS alone stays half under the keyboard. Null
+ * where the browser has no `visualViewport`, so the CSS applies there.
+ */
+function useVisibleArea(active: boolean): VisibleArea | null {
+  const [area, setArea] = React.useState<VisibleArea | null>(null);
+  // A layout effect, so an opening palette is placed from a fresh reading
+  // before it paints, never from where the keyboard was last time.
+  useIsomorphicLayoutEffect(() => {
+    const vv = active ? window.visualViewport : null;
+    if (!vv) return;
+    const read = () =>
+      setArea((prev) =>
+        prev?.height === vv.height && prev.offsetTop === vv.offsetTop
+          ? prev
+          : { height: vv.height, offsetTop: vv.offsetTop }
+      );
+    read();
+    vv.addEventListener("resize", read);
+    vv.addEventListener("scroll", read);
+    // Keeps the last reading: a closing palette fades out where it was
+    // instead of jumping back to the CSS position mid-animation.
+    return () => {
+      vv.removeEventListener("resize", read);
+      vv.removeEventListener("scroll", read);
+    };
+  }, [active]);
+  return area;
+}
+
 const CommandDialog = ({
   children,
   title = "Command menu",
@@ -39,17 +80,39 @@ const CommandDialog = ({
   commandProps,
   ...props
 }: CommandDialogProps) => {
+  // Uncontrolled palettes (no `open` prop) listen for as long as they're
+  // mounted; the app's palette is controlled and listens only while open.
+  const visible = useVisibleArea(props.open ?? true);
   return (
     <Dialog {...props}>
       <DialogContent
-        className="overflow-hidden p-0"
+        // The list scrolls, not the dialog body: a flex column lets the
+        // Command root and its list shrink when the dialog meets its height
+        // cap (landscape phones, an open keyboard), so the last results stay
+        // reachable. Only the phone padding goes; `sm:p-6` stays as before.
+        bodyClassName="flex flex-col overflow-hidden p-0"
+        // The X sits over the input row, which nothing scrolls under, and
+        // whose fill (popover) differs from the box's: keep it see-through.
+        closeClassName="bg-transparent"
+        // Centre on and cap to the visible area, so with a keyboard open the
+        // list shrinks above it instead of running underneath. Without a
+        // keyboard this equals the CSS (`top-[50%]`, `100dvh - 2rem`), so
+        // desktop doesn't move.
+        style={
+          visible
+            ? {
+                top: `${visible.offsetTop + visible.height / 2}px`,
+                maxHeight: `calc(${visible.height}px - 2rem)`,
+              }
+            : undefined
+        }
         {...(description ? {} : { "aria-describedby": undefined })}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         {description && <DialogDescription className="sr-only">{description}</DialogDescription>}
         <Command
           {...commandProps}
-          className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5"
+          className="min-h-0 flex-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5"
         >
           {children}
         </Command>
@@ -64,9 +127,14 @@ const CommandInput = React.forwardRef<
 >(({ className, ...props }, ref) => (
   // `mx-1 mt-1` gives the focused input's 2px+2px outline-offset ring room
   // to render — without it the top + side portions of the ring get clipped
-  // by DialogContent's `overflow-hidden` because CommandInput sits flush
-  // with the dialog's edge (the wrapping DialogContent uses `p-0`).
-  <div className="flex items-center border-b px-3 mx-1 mt-1" cmdk-input-wrapper="">
+  // by the Command root's `overflow-hidden` because CommandInput sits flush
+  // with the dialog's edge (CommandDialog's body uses `p-0` on phones).
+  // `pr-12` keeps the input clear of the dialog's close button, which sits
+  // over this row's right end; touch makes that button 44px, so `pr-14`.
+  <div
+    className="mx-1 mt-1 flex items-center border-b pl-3 pr-12 pointer-coarse:pr-14"
+    cmdk-input-wrapper=""
+  >
     <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
     <CommandPrimitive.Input
       ref={ref}
@@ -87,7 +155,9 @@ const CommandList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CommandPrimitive.List
     ref={ref}
-    className={cn("max-h-[300px] overflow-y-auto overflow-x-hidden", className)}
+    // `min-h-0 flex-1`: below 300px of room (CommandDialog at its height cap)
+    // the list shrinks and scrolls instead of running past the dialog's edge.
+    className={cn("max-h-[300px] min-h-0 flex-1 overflow-y-auto overflow-x-hidden", className)}
     {...props}
   />
 ));

@@ -70,7 +70,7 @@ describe("Release Planner stat cards", () => {
   it("shows the 85% forecast as a date and sprints, like the 50% card", () => {
     render(<ReleasePlannerClient />);
     const p50 = card("Coin flip (P50)");
-    const p85 = card("To commit (P85)");
+    const p85 = card("Commit (P85)");
     expect(p50.value).toMatch(DATE);
     expect(p85.value).toMatch(DATE);
     expect(p50.sub).toMatch(/^\d+ sprints?$/);
@@ -78,9 +78,22 @@ describe("Release Planner stat cards", () => {
     expect(`${p85.value} ${p85.sub}`).not.toMatch(/MC|Boot|P85/);
   });
 
+  it("keeps the four forecast labels short enough for one line in a 2-up phone row", () => {
+    render(<ReleasePlannerClient />);
+    // About 90 px of label at 360 wide: "To commit (P85)" (94 px) and "Scope to
+    // forecast" (100 px) wrapped and put their value a line below the
+    // neighbouring card's; "Coin flip (P50)" (81 px) and "Velocity" fit.
+    const grid = screen.getByText("Commit (P85)").closest(".grid")!;
+    expect(grid).toHaveClass("grid-cols-2");
+    const shown = Array.from(grid.children).map(
+      (c) => c.querySelector(".line-clamp-2")?.textContent
+    );
+    expect(shown).toEqual(["Coin flip (P50)", "Commit (P85)", "Total scope", "Velocity"]);
+  });
+
   it("loads an old buffer and adjustment as one expected scope change", () => {
     render(<ReleasePlannerClient />);
-    expect(card("Scope to forecast").value).toBe("132 pts");
+    expect(card("Total scope").value).toBe("132 pts");
     expect(screen.getByLabelText("Expected scope change")).toHaveValue("32");
     expect(screen.getByText(/^Scope to forecast:/).textContent).toBe(
       "Scope to forecast: 132 points (100 with a +32% change)."

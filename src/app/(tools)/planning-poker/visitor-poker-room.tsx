@@ -16,11 +16,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Download, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { exportToMarkdown } from "@/lib/utils/export";
-import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 import { VISITOR_LIMITS, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
 import { SessionScreen } from "./session-screen";
 import { usePokerSession, type VisitorLeaveReason } from "./use-poker-session";
@@ -103,7 +103,7 @@ export function VisitorPokerRoom({ code, identity, onLeave }: VisitorPokerRoomPr
 
   if (!session) {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
+      <main className="min-h-screen-dvh flex flex-col items-center justify-center gap-4 px-4 text-center">
         <div className="flex items-center gap-2 text-sub text-sm" role="status">
           <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
           {isConnected ? "Waiting for the host to share the session…" : "Connecting to the room…"}
@@ -122,7 +122,7 @@ export function VisitorPokerRoom({ code, identity, onLeave }: VisitorPokerRoomPr
   }
 
   return (
-    <div className="min-h-screen px-4 py-4">
+    <div className="min-h-screen-dvh px-4 py-4">
       <div className="mx-auto max-w-6xl space-y-3">
         <PokerRoomBar
           code={code}
@@ -154,7 +154,9 @@ export function VisitorPokerRoom({ code, identity, onLeave }: VisitorPokerRoomPr
 /** Download what this person saw of the session, as Markdown. */
 function SaveCopyButton({ session, code }: { session: Session | null; code: string }) {
   const markdown = useMemo(() => toMarkdown(session), [session]);
+  const { flash, isFlashing } = useFlash();
   if (!session) return null;
+  const done = isFlashing();
   return (
     <Button
       type="button"
@@ -163,11 +165,15 @@ function SaveCopyButton({ session, code }: { session: Session | null; code: stri
       className="gap-1.5 text-xs h-8"
       onClick={() => {
         exportToMarkdown(markdown, `planning-poker-${code}`);
-        toast.success("Saved a copy as Markdown");
+        flash("Saved a copy as Markdown");
       }}
     >
-      <Download className="w-3.5 h-3.5" aria-hidden="true" />
-      Save a copy
+      {done ? (
+        <Check className="w-3.5 h-3.5" aria-hidden="true" />
+      ) : (
+        <Download className="w-3.5 h-3.5" aria-hidden="true" />
+      )}
+      {done ? "Saved" : "Save a copy"}
     </Button>
   );
 }
@@ -239,7 +245,7 @@ function RoomNotice({
     announce(announcement);
   }, [announcement, announce]);
   return (
-    <main className="min-h-screen flex items-center justify-center px-4">
+    <main className="min-h-screen-dvh flex items-center justify-center px-4">
       <section className="w-full max-w-md rounded-xl border border-border bg-surface p-6 flex flex-col gap-4">
         <h1
           ref={headingRef}

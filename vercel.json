@@ -2,7 +2,14 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "buildCommand": "npm run build",
-  "installCommand": "npm install",
+  "installCommand": "npm install --no-audit --no-fund",
   "regions": ["fra1"],
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "master": true,
+      "preview/**": true
+    }
+  },
   "crons": [{ "path": "/api/cron/comics-release", "schedule": "0 7 * * *" }]
 }
