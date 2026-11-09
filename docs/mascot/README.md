@@ -11,8 +11,8 @@ Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.web
 | `docs/mascot/AMR-HAIR-ROUND-2.md`, `reference/ref-hair-fix.png`   | The second hair round: the sides, the colour and the last curls                   |
 | `docs/mascot/AMR-HAIR-ROUND-3.md`, `reference/ref-hair-fix-3.png` | The third hair round: S01's haircut for the other 53 sheets, in five zips         |
 | `scripts/build-mascot-packs.py`                                   | Slices, cleans and registers the sheets, writes the packs and their manifest      |
-| `scripts/mascot_heads.py`                                         | Measures his head, hair and skin in a cell; the builder and the audit share it    |
-| `scripts/audit-mascot-heads.py`                                   | Checks the shipped packs' head size, skin and hair against the live sprite        |
+| `scripts/mascot_heads.py`                                         | Measures his head, hair, skin, clothes and detail; the builder and audit share it |
+| `scripts/audit-mascot-heads.py`                                   | Checks the packs against the live sprite: head, skin, clothes, hair, detail       |
 | `public/mascot/amr-<pack>[@2x].<hash>.webp`                       | The packs: 192 × 224 cells, eight to a row, and 384 × 448 twins for sharp screens |
 | `src/components/agent/mascot/mascot-packs.ts`                     | The generated manifest: each pack's files and each frame's cell                   |
 | `src/components/agent/mascot/engine/clips.ts`                     | Every reaction and held pose, frame by frame                                      |
@@ -54,7 +54,20 @@ New or corrected sheets: put all 64 in one folder, then
 python -I scripts/build-mascot-packs.py <sheets folder> --preview <scratch folder>
 ```
 
-With `--keep-missing`, a context sheet that isn't in the folder keeps the pack it ships with now (its files and frames, unchanged) instead of being left out. That is how the five covered sheets are built today: a folder of the other 59, plus `--keep-missing`.
+With `--keep-missing`, a context sheet that isn't in the folder keeps the pack it ships with now (its files and frames, unchanged) instead of being left out. That is how the five covered sheets are built today: a folder of the other 59, plus `--keep-missing`. A kept pack whose clothes aren't the live sprite's colours yet is regraded once, from its shipped 2x cells (a note says so); after that it is kept byte for byte.
+
+What the builder corrects, sheet by sheet, so that he looks the same in a clip as in the idle pose it takes over from:
+
+| What            | How                                                                                                                                                         |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Head size       | Each head is scaled to the live idle's, measured frame by frame                                                                                             |
+| Skin            | One Lab shift per sheet to the live idle's colour, so shading and a blush stay                                                                              |
+| Clothes         | The same for his shirt, trousers and shoes, then the rest of the way for a frame still off; a prop of the same colour stays as drawn                        |
+| Hair colour     | A frame's hair more than 3 from the live idle's moves to within 3, keeping its highlights                                                                   |
+| Side hair       | Sides clearly thinner than the live idle's are stretched in to its thickness                                                                                |
+| Sharpness at 1x | Each sheet's 1x cells are made from its finished 2x cells and sharpened until its stance carries the live idle's fine detail (an unsharp mask of at most 1) |
+
+Before the clothes were matched his shirt came out darker and yellower than the live sprite's in every frame, his trousers darker and pinker and his shoes grey, so he changed colour each time a clip took over from the idle pose; and on an ordinary screen the clips carried about three quarters of the idle's detail.
 
 It replaces every `amr-*.webp` pack it builds, rewrites `mascot-packs.ts`, and writes contact sheets and the talking composites to the preview folder for a visual check. `hair@2x.png` there puts every frame's head under the live sprite's head from eight angles (the same angles as `reference/ref-hair.png`), so a haircut that drifts shows at a glance. `test/agent/mascot-asset.test.ts` checks that each pack's name matches its bytes.
 
@@ -64,7 +77,7 @@ Then check the packs against the live sprite:
 python -I scripts/audit-mascot-heads.py --check
 ```
 
-It prints each pack's skin difference from the live idle (CIEDE2000, where about 1 is just visible side by side) and its head size, with the live sheet's own spread as the yardstick, and fails when a pack's skin is more than 3 from live or its head more than 5% off. It also prints two hair numbers against the live idle's, for reading rather than for the check: how thick the hair down his sides is, and how much of his head the hair covers (a dome on top shows as more).
+It prints, pack by pack and against the live idle frame, how far his skin, shirt, trousers and shoes are from the live sprite's (CIEDE2000, where about 1 is just visible side by side), how far his hair's colour is, how big his head is and how much fine detail the 1x cells carry, with the live sheet's own spread as the yardstick. With `--check` it fails when a pack's median is off: skin by more than 3, a garment by more than 2.5, hair by more than 4, the head by more than 5% (over at least three heads it can measure); when a standing frame's feet are more than a pixel off the floor row; or when the detail over all frames is outside 90–110% of the live idle's. A pack's own detail is printed but not checked, since a scene full of flat-coloured props reads soft however sharp he is. It also prints two hair numbers for reading rather than for the check: how thick the hair down his sides is, and how much of his head the hair covers.
 
 Then the review page:
 
@@ -200,6 +213,7 @@ Tapping him in the middle of one of his own scenes carries on with another of it
 
 ## Decisions
 
+- The live sheet has no 2x twin, so on a sharp screen the idle and look poses are drawn enlarged while the packs have 2x cells. Its rows exist about four times larger in the pet pack (`decoded/*.png`), and a 2x sheet was tried from them. It isn't shipped: at that size the live art is a crisp inked cartoon with a dark outline, while the generated frames are a softer render with no outline and a rounder face, so a sharp idle made every clip look out of place. At today's size the two are close. Closing the gap for good is an art job (the 73 live cells redrawn in the packs' style, or the packs from the large reference), not a build step.
 - Generated heads go against the companion kit's pinned-head rule. The review page puts them beside the live idle for an identity check. If they drift, the strict-mode fallback in Appendix B of the brief still applies.
 - His hair comes from the live sprite: short, smooth and close-cropped. The first round of sheets copied the curly hair of `ref-2-detail.png`, which the brief had pointed to; [the hair edits](AMR-HAIR-EDITS.md) fix those sheets without redrawing anything else.
 - The bow was meant for hiding him, but Amr is never hidden, so he bows when he's thanked in the chat.
