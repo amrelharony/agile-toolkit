@@ -61,6 +61,7 @@ import {
   roomResult,
   spreadNote,
 } from "./round-views";
+import { announceToolMoment } from "@/lib/agent/mascot/tool-moments";
 import { useSaveRound, type SaveRound } from "./save-round";
 import { VoteLiveCount } from "./vote-live-count";
 
@@ -195,8 +196,9 @@ export function HostVoteRoom({
     lastPhase.current = phase;
     if (prev === "open" && phase === "revealed") {
       announce(`Results revealed: ${people(room.ballots)} answered.`);
+      announceToolMoment(tool, "round_revealed");
     }
-  }, [phase, room.ballots, announce]);
+  }, [phase, room.ballots, announce, tool]);
 
   // The host's own answers are in: the form and its button are gone.
   useEffect(() => {

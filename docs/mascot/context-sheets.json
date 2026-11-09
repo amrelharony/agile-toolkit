@@ -1,5 +1,5 @@
 {
-  "about": "Amr's context sheets S11-S64: the weather where the visitor is, the time of day, Egyptian, Islamic, Coptic and international days, the seasons, the toolkit's own moments and play. One source for the ChatGPT prompts (scripts/build-mascot-context-brief.mjs), the pack builder (scripts/build-mascot-packs.py) and the scene tests. Slot 1 of every sheet is the standard stance; `slots` are slots 2-8. A slot's `kind` is how the builder lines it up (feet unless it says hip).",
+  "about": "Amr's context sheets S11-S114: the weather where the visitor is, the time of day, Egyptian, Islamic, Coptic and international days, the seasons, the toolkit's own moments, play, and one sheet each for 50 of the website's tools (S65-S114, the tools-* groups). One source for the ChatGPT prompts (scripts/build-mascot-context-brief.mjs), the pack builder (scripts/build-mascot-packs.py) and the scene tests. Slot 1 of every sheet is the standard stance; `slots` are slots 2-8. A slot's `kind` is how the builder lines it up (feet unless it says hip).",
   "addendum": "CONTEXT SHEETS (S11 and later). These sheets give Amr a prop or a moment from the weather, the time of day, a holiday, a season or his work.\n- The sheet text describes each prop once. Draw that same prop, the same size and colours, in every slot that uses it. Props are simple, solid, slightly toy-like objects with clean shapes and bold colours, big enough to read when he is 100 pixels tall. A prop stays inside his slot and never hides his face unless a slot says so.\n- His clothes never change: no coats, jackets, costumes or hats unless a slot asks for one, and then it goes over his usual clothes. Wherever his hair shows, it is exactly the haircut in ref-hair.\n- Draw no weather and no effects: no rain, raindrops, puddles, snow, snowflakes, wind lines, sun rays, steam, smoke, sparks, sparkles, confetti, fireworks, light beams or musical notes. The website adds those. Act the weather and the moment with his body and face.\n- No writing, letters or numbers on any prop. No other people and no animals; a toy only where a slot asks for one.\n- Food and drink are always held in his hand, never floating, unless a slot says it was just tossed.",
   "rounds": [
     {
@@ -61,6 +61,31 @@
       "title": "The toolkit and play",
       "note": "Any time: cards, votes, timers, kudos, releases, and what he does when the visitor is idle.",
       "sheets": ["S54", "S55", "S56", "S57", "S58", "S59", "S60", "S61", "S62", "S63", "S64"]
+    },
+    {
+      "title": "Tools, batch A: planning, and impediments",
+      "note": "Opened most often: sprint capacity and goals, refinement, forecasts, roadmaps, cross-team syncs and blockers.",
+      "sheets": ["S65", "S66", "S67", "S68", "S69", "S70", "S71", "S72", "S73", "S74"]
+    },
+    {
+      "title": "Tools, batch B: review, retro and delivery",
+      "note": "Sprint review, retro actions, premortem, six hats, canvas, and the delivery charts.",
+      "sheets": ["S75", "S76", "S77", "S78", "S79", "S80", "S81", "S82", "S83", "S84"]
+    },
+    {
+      "title": "Tools, batch C: team and people",
+      "note": "Feature flags, health checks, safety, mood, agreements, Definition of Done, skills, roles, one-on-ones and stakeholders.",
+      "sheets": ["S85", "S86", "S87", "S88", "S89", "S90", "S91", "S92", "S93", "S94"]
+    },
+    {
+      "title": "Tools, batch D: prioritize and decide",
+      "note": "Change, ranking, WSJF, MoSCoW, cost of delay, value and effort, Kano, buy-a-feature, Eisenhower and decisions.",
+      "sheets": ["S95", "S96", "S97", "S98", "S99", "S100", "S101", "S102", "S103", "S104"]
+    },
+    {
+      "title": "Tools, batch E: outcomes and quality",
+      "note": "Cynefin, OKRs, NPS, hypotheses, interviews, the opportunity tree, assumptions, risks, tech debt and flaky tests.",
+      "sheets": ["S105", "S106", "S107", "S108", "S109", "S110", "S111", "S112", "S113", "S114"]
     }
   ],
   "groups": [
@@ -73,7 +98,15 @@
     { "id": "world", "title": "International days" },
     { "id": "season", "title": "Seasons" },
     { "id": "agile", "title": "Toolkit moments" },
-    { "id": "play", "title": "Play and the device" }
+    { "id": "play", "title": "Play and the device" },
+    { "id": "tools-plan", "title": "Tools: plan the sprint" },
+    { "id": "tools-run", "title": "Tools: run the sprint" },
+    { "id": "tools-retro", "title": "Tools: retrospect and improve" },
+    { "id": "tools-delivery", "title": "Tools: track delivery" },
+    { "id": "tools-team", "title": "Tools: team and people" },
+    { "id": "tools-prioritize", "title": "Tools: prioritize and decide" },
+    { "id": "tools-outcomes", "title": "Tools: outcomes and discovery" },
+    { "id": "tools-quality", "title": "Tools: quality and risk" }
   ],
   "sheets": [
     {
@@ -1776,6 +1809,1737 @@
         },
         { "id": "lights.ok", "pose": "A thumbs-up, the flashlight in his other hand, cheerful." }
       ]
+    },
+    {
+      "sheet": "S65",
+      "pack": "capacity",
+      "group": "tools-plan",
+      "title": "Sprint capacity",
+      "when": "Capacity Planner: opening it, a plan started, a team member added",
+      "props": "Props: a small desk calendar with plain coloured squares and no numbers; three round team chips in blue, orange and green.",
+      "slots": [
+        {
+          "id": "capacity.calendar",
+          "pose": "Holding the desk calendar in both hands, looking at it with a thoughtful smile."
+        },
+        {
+          "id": "capacity.flip",
+          "pose": "Flipping a page of the calendar with one finger, eyebrows raised."
+        },
+        {
+          "id": "capacity.chips",
+          "pose": "Holding the three team chips fanned out in one open palm, counting them with the other hand."
+        },
+        {
+          "id": "capacity.place",
+          "pose": "Placing the blue chip onto the calendar, concentrating."
+        },
+        {
+          "id": "capacity.add",
+          "pose": "Holding up the green chip between finger and thumb toward us, welcoming, as if adding a new teammate."
+        },
+        {
+          "id": "capacity.balance",
+          "pose": "Balancing the calendar flat on one palm with the three chips on it, pleased."
+        },
+        {
+          "id": "capacity.ready",
+          "pose": "The calendar tucked under one arm, a confident thumbs-up with the other hand."
+        }
+      ]
+    },
+    {
+      "sheet": "S66",
+      "pack": "goal",
+      "group": "tools-plan",
+      "title": "Sprint goal",
+      "when": "Sprint Goal Builder: opening it, a goal saved",
+      "props": "Props: a small red-and-white target board on a short stick; a little triangular yellow flag on a thin pole.",
+      "slots": [
+        {
+          "id": "goal.target",
+          "pose": "Holding the target board up beside his face by its stick, smiling at us."
+        },
+        {
+          "id": "goal.aim",
+          "pose": "Squinting one eye and pointing at the centre of the target with his index finger, focused."
+        },
+        {
+          "id": "goal.think",
+          "pose": "Holding the yellow flag against his chin like a pencil, thinking, eyes up."
+        },
+        {
+          "id": "goal.plant",
+          "pose": "Bending a little to plant the yellow flag into the top edge of the target board, careful."
+        },
+        {
+          "id": "goal.hit",
+          "pose": "Holding the target with the flag planted in its centre, grinning proudly at us."
+        },
+        {
+          "id": "goal.raise",
+          "pose": "Raising the yellow flag high above his head with one arm, triumphant."
+        },
+        {
+          "id": "goal.salute",
+          "pose": "Holding the flag at his side and giving a small, cheerful salute."
+        }
+      ]
+    },
+    {
+      "sheet": "S67",
+      "pack": "refine",
+      "group": "tools-plan",
+      "title": "Refinement",
+      "when": "Refinement Checklist: opening it, a story updated against the Definition of Ready",
+      "props": "Props: a brown clipboard with a plain white sheet showing three grey lines and three small empty tick boxes; a short pencil.",
+      "slots": [
+        {
+          "id": "refine.clipboard",
+          "pose": "Holding the clipboard against his chest, a friendly ready smile."
+        },
+        {
+          "id": "refine.read",
+          "pose": "Reading the clipboard held up in front of him, the pencil behind his ear."
+        },
+        {
+          "id": "refine.tick",
+          "pose": "Ticking a box on the clipboard with the pencil, concentrating."
+        },
+        {
+          "id": "refine.question",
+          "pose": "Tapping the pencil against his temple, the clipboard lowered, a puzzled look."
+        },
+        {
+          "id": "refine.point",
+          "pose": "Pointing the pencil at one line on the clipboard and nodding, as if it is clear now."
+        },
+        {
+          "id": "refine.ready",
+          "pose": "Holding the clipboard out toward us, all boxes ticked, a big smile."
+        },
+        {
+          "id": "refine.pass",
+          "pose": "Passing the clipboard to the viewer's right with both hands, as if handing it on to the next step."
+        }
+      ]
+    },
+    {
+      "sheet": "S68",
+      "pack": "skeleton",
+      "group": "tools-plan",
+      "title": "Walking skeleton",
+      "when": "Walking Skeleton Builder: opening it, a step added",
+      "props": "Props: a small friendly toy skeleton figure about the size of his forearm, white and rounded, smiling, with simple joints.",
+      "slots": [
+        {
+          "id": "skeleton.hold",
+          "pose": "Holding the toy skeleton up in one hand, showing it to us with a grin."
+        },
+        {
+          "id": "skeleton.wave",
+          "pose": "Making the toy skeleton wave its little arm at us, amused."
+        },
+        {
+          "id": "skeleton.walk",
+          "pose": "Holding the skeleton by its shoulders and making it take a walking step along an invisible table at chest height."
+        },
+        {
+          "id": "skeleton.build",
+          "pose": "Fitting the skeleton's little arm onto its shoulder, focused, tongue slightly out."
+        },
+        {
+          "id": "skeleton.check",
+          "pose": "Holding the skeleton at arm's length, inspecting it with one eye closed."
+        },
+        {
+          "id": "skeleton.cheer",
+          "pose": "Holding the skeleton up high with both hands, both of them cheering."
+        },
+        {
+          "id": "skeleton.walkalong",
+          "pose": "Walking along beside the skeleton held at his hip, one foot lifted mid-stride, cheerful.",
+          "kind": "hip"
+        }
+      ]
+    },
+    {
+      "sheet": "S69",
+      "pack": "forecast",
+      "group": "tools-plan",
+      "title": "Release forecast",
+      "when": "Release Planner: opening it, a forecast run",
+      "props": "Props: two large white dice with black dots; a small desk calendar with plain coloured squares and no numbers.",
+      "slots": [
+        {
+          "id": "forecast.dice",
+          "pose": "Holding the two dice in an open palm, looking at them with curiosity."
+        },
+        {
+          "id": "forecast.shake",
+          "pose": "Shaking the dice in his cupped hands beside his ear, eyes closed, smiling."
+        },
+        {
+          "id": "forecast.roll",
+          "pose": "Rolling the dice forward from one hand, the dice just leaving his fingers."
+        },
+        {
+          "id": "forecast.calendar",
+          "pose": "Holding up the calendar and circling a square with his finger, thinking."
+        },
+        {
+          "id": "forecast.likely",
+          "pose": "Holding the calendar in one hand and giving a so-so wobble of the other flat hand, a 'probably' face."
+        },
+        {
+          "id": "forecast.confident",
+          "pose": "Holding the calendar up beside his face with a confident, happy nod."
+        },
+        {
+          "id": "forecast.wink",
+          "pose": "Tossing a single die up a little and winking at us, the die just above his hand."
+        }
+      ]
+    },
+    {
+      "sheet": "S70",
+      "pack": "pi",
+      "group": "tools-plan",
+      "title": "PI planning",
+      "when": "PI Planning Board: opening it, an item assigned to a team and iteration",
+      "props": "Props: a small grid board on a stand, like a little easel, with a pale grid of empty squares; a stack of small coloured cards in blue, orange and green with no writing.",
+      "slots": [
+        {
+          "id": "pi.board",
+          "pose": "Standing beside the little grid board, one hand resting on its top edge, welcoming us."
+        },
+        {
+          "id": "pi.cards",
+          "pose": "Holding the stack of coloured cards, sorting through them with his thumb."
+        },
+        {
+          "id": "pi.place",
+          "pose": "Pressing an orange card onto a square of the grid board, concentrating."
+        },
+        {
+          "id": "pi.step",
+          "pose": "Stepping back from the grid board with his hands on his hips, looking at it, satisfied."
+        },
+        {
+          "id": "pi.connect",
+          "pose": "Pointing at two squares on the grid board, one with each hand, linking them, thoughtful."
+        },
+        {
+          "id": "pi.team",
+          "pose": "Arms open wide to his sides, a big inviting smile, as if gathering all the teams."
+        },
+        { "id": "pi.done", "pose": "Dusting off his hands beside the full grid board, proud." }
+      ]
+    },
+    {
+      "sheet": "S71",
+      "pack": "roadmap",
+      "group": "tools-plan",
+      "title": "Epic roadmap",
+      "when": "Epic Roadmap: opening it, an epic added to the timeline",
+      "props": "Props: a small rolled paper map, cream with a curvy road drawn in grey and three small round milestone dots in red, yellow and green, no writing; a tiny toy car, red.",
+      "slots": [
+        {
+          "id": "roadmap.unroll",
+          "pose": "Unrolling the map with both hands at chest height, curious."
+        },
+        {
+          "id": "roadmap.read",
+          "pose": "Holding the unrolled map up, following the road with one finger, smiling."
+        },
+        {
+          "id": "roadmap.car",
+          "pose": "Driving the little red car along the road on the map, playful."
+        },
+        {
+          "id": "roadmap.milestone",
+          "pose": "Tapping the green milestone dot on the map and nodding, pleased."
+        },
+        {
+          "id": "roadmap.ahead",
+          "pose": "Holding the rolled map like a spyglass to one eye, looking far ahead."
+        },
+        {
+          "id": "roadmap.add",
+          "pose": "Holding the car up and showing it to us proudly, the map tucked under his arm."
+        },
+        { "id": "roadmap.roll", "pose": "Rolling the map back up neatly, content." }
+      ]
+    },
+    {
+      "sheet": "S72",
+      "pack": "radio",
+      "group": "tools-plan",
+      "title": "Scrum of scrums",
+      "when": "Scrum of Scrums Tracker: opening it, a team update added, a cross-team blocker raised",
+      "props": "Props: a chunky toy walkie-talkie, bright yellow with a short black antenna.",
+      "slots": [
+        {
+          "id": "radio.hold",
+          "pose": "Holding the walkie-talkie up near his mouth, a friendly smile, about to speak."
+        },
+        {
+          "id": "radio.talk",
+          "pose": "Speaking into the walkie-talkie, his other hand gesturing, animated."
+        },
+        {
+          "id": "radio.listen",
+          "pose": "Holding the walkie-talkie against his ear, listening carefully, eyes to one side."
+        },
+        {
+          "id": "radio.nod",
+          "pose": "Nodding into the walkie-talkie, the other hand giving an OK sign."
+        },
+        {
+          "id": "radio.alert",
+          "pose": "Holding the walkie-talkie at arm's length, surprised, eyebrows up, as if hearing about a blocker."
+        },
+        {
+          "id": "radio.calm",
+          "pose": "Lowering the walkie-talkie and raising his other palm, a calm 'we've got this' face."
+        },
+        {
+          "id": "radio.over",
+          "pose": "Clipping the walkie-talkie to his belt and giving a thumbs-up."
+        }
+      ]
+    },
+    {
+      "sheet": "S73",
+      "pack": "links",
+      "group": "tools-plan",
+      "title": "Dependency map",
+      "when": "Dependency Map: opening it, a dependency linked",
+      "props": "Props: a small cork board with three coloured pins in red, blue and green; a length of red string.",
+      "slots": [
+        {
+          "id": "links.board",
+          "pose": "Holding the small cork board in front of his chest, looking at it, curious."
+        },
+        { "id": "links.pin", "pose": "Pushing a blue pin into the cork board with his thumb." },
+        {
+          "id": "links.string",
+          "pose": "Stretching the red string between his two hands at chest height, measuring."
+        },
+        {
+          "id": "links.connect",
+          "pose": "Tying the red string from one pin to another on the cork board, concentrating."
+        },
+        {
+          "id": "links.trace",
+          "pose": "Following the string across the board with his finger, eyes narrowed, figuring out the chain."
+        },
+        {
+          "id": "links.aha",
+          "pose": "Pointing at the board with an 'aha!' face, index finger up, mouth open."
+        },
+        {
+          "id": "links.tidy",
+          "pose": "Holding up the board with the neat red string linking all three pins, proud."
+        }
+      ]
+    },
+    {
+      "sheet": "S74",
+      "pack": "blocker",
+      "group": "tools-run",
+      "title": "Impediments",
+      "when": "Impediment Tracker: opening it, an impediment raised, an impediment resolved",
+      "props": "Props: a small red-and-white striped road barrier on two short legs, about the width of his shoulders; a small red flag.",
+      "slots": [
+        {
+          "id": "blocker.spot",
+          "pose": "Standing beside the barrier, one hand on it, looking at it with a determined face."
+        },
+        {
+          "id": "blocker.raise",
+          "pose": "Raising the small red flag high in one hand, alert, eyebrows up, as if calling out a blocker."
+        },
+        {
+          "id": "blocker.worried",
+          "pose": "Hands on his cheeks, looking down at the barrier in front of him, worried."
+        },
+        {
+          "id": "blocker.push",
+          "pose": "Pushing the barrier aside with both hands, leaning into it, straining."
+        },
+        {
+          "id": "blocker.lift",
+          "pose": "Lifting the barrier above his head with both arms, triumphant."
+        },
+        {
+          "id": "blocker.relief",
+          "pose": "Wiping his forehead with the back of his hand, the barrier set down beside him, relieved."
+        },
+        {
+          "id": "blocker.clear",
+          "pose": "The barrier gone, arms out to the sides, palms up, a big 'all clear!' smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S75",
+      "pack": "demo",
+      "group": "tools-run",
+      "title": "Sprint review",
+      "when": "Sprint Review Kit: opening it, feedback added",
+      "props": "Props: a small laptop, silver, with a plain light blue screen and no writing; three small coloured feedback cards in yellow, pink and green with no writing.",
+      "slots": [
+        {
+          "id": "demo.present",
+          "pose": "Holding the open laptop out toward us with its screen facing us, presenting proudly."
+        },
+        {
+          "id": "demo.point",
+          "pose": "Holding the laptop on one forearm and pointing at its screen, explaining, animated."
+        },
+        {
+          "id": "demo.listen",
+          "pose": "The laptop under one arm, one hand cupped behind his ear, listening to feedback, curious."
+        },
+        {
+          "id": "demo.card",
+          "pose": "Reading a yellow feedback card held up in front of him, thoughtful."
+        },
+        {
+          "id": "demo.collect",
+          "pose": "Fanning out the three feedback cards in one hand, smiling, grateful."
+        },
+        { "id": "demo.bow", "pose": "A small bow with the laptop held against his chest." },
+        {
+          "id": "demo.thanks",
+          "pose": "Hand on his heart, the laptop under the other arm, a warm thank-you smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S76",
+      "pack": "todo",
+      "group": "tools-retro",
+      "title": "Retro actions",
+      "when": "Retro Actions: opening it, an action done",
+      "props": "Props: a small spiral notepad, white, showing three short grey lines with empty round check boxes; a green marker.",
+      "slots": [
+        {
+          "id": "todo.notepad",
+          "pose": "Holding the notepad up in one hand, showing it to us, ready to work."
+        },
+        {
+          "id": "todo.read",
+          "pose": "Reading the notepad closely, the green marker against his chin."
+        },
+        {
+          "id": "todo.check",
+          "pose": "Ticking a box on the notepad with the green marker, a satisfied little smile."
+        },
+        {
+          "id": "todo.flex",
+          "pose": "Notepad in one hand, flexing the other arm, determined, as if taking an action on."
+        },
+        { "id": "todo.done", "pose": "Holding the notepad up with all boxes ticked, delighted." },
+        {
+          "id": "todo.cap",
+          "pose": "Clicking the cap onto the green marker, content, the notepad under his arm."
+        },
+        {
+          "id": "todo.highfive",
+          "pose": "Holding up one open hand for a high five toward us, grinning, the notepad in the other."
+        }
+      ]
+    },
+    {
+      "sheet": "S77",
+      "pack": "crystal",
+      "group": "tools-retro",
+      "title": "Premortem",
+      "when": "Premortem Facilitator: opening it, a cause written, risks sent to the register",
+      "props": "Props: a clear crystal ball on a small dark wooden stand, softly blue inside; a small notepad.",
+      "slots": [
+        {
+          "id": "crystal.gaze",
+          "pose": "Gazing into the crystal ball held in both hands, eyes wide, mysterious."
+        },
+        {
+          "id": "crystal.hover",
+          "pose": "Hands hovering on both sides of the crystal ball on its stand, concentrating, eyes half closed."
+        },
+        {
+          "id": "crystal.gasp",
+          "pose": "Leaning back from the crystal ball, a dramatic gasp, one hand up."
+        },
+        {
+          "id": "crystal.note",
+          "pose": "Writing in the small notepad, the crystal ball beside him on its stand, serious."
+        },
+        {
+          "id": "crystal.shh",
+          "pose": "Finger to his lips, the crystal ball in his other hand: a quiet 'silent writing' moment."
+        },
+        {
+          "id": "crystal.send",
+          "pose": "Tossing a folded note gently to the viewer's right, the note just leaving his hand."
+        },
+        {
+          "id": "crystal.ready",
+          "pose": "Holding the crystal ball under his arm, a confident thumbs-up: 'we're ready for it'."
+        }
+      ]
+    },
+    {
+      "sheet": "S78",
+      "pack": "hats",
+      "group": "tools-retro",
+      "title": "Six thinking hats",
+      "when": "Six Thinking Hats: opening it, a hat round started, the session closed, time's up",
+      "props": "Props: six small round brimmed hats in white, red, black, yellow, green and blue, stacked in a neat tower. He holds them; he never wears one.",
+      "slots": [
+        {
+          "id": "hats.stack",
+          "pose": "Holding the tower of six hats against his chest, smiling at us."
+        },
+        {
+          "id": "hats.pick",
+          "pose": "Taking the yellow hat off the top of the stack, curious, the stack in his other arm."
+        },
+        {
+          "id": "hats.show",
+          "pose": "Holding up the red hat beside his face, an expressive, feeling face."
+        },
+        {
+          "id": "hats.think",
+          "pose": "Holding the black hat in front of him, frowning thoughtfully, careful."
+        },
+        {
+          "id": "hats.idea",
+          "pose": "Holding up the green hat with an excited 'idea!' face, index finger up."
+        },
+        {
+          "id": "hats.juggle",
+          "pose": "Tossing the blue hat up from one hand, catching it, playful, the hat just above his hand."
+        },
+        {
+          "id": "hats.done",
+          "pose": "Tipping the stack of hats toward us like a bow, the session over, pleased."
+        }
+      ]
+    },
+    {
+      "sheet": "S79",
+      "pack": "canvas",
+      "group": "tools-retro",
+      "title": "Canvas",
+      "when": "Canvas: opening it, an object added, a template applied",
+      "props": "Props: a small whiteboard on a little stand with a few simple coloured shapes (a blue circle, an orange square, a green arrow) and no writing; a black whiteboard marker.",
+      "slots": [
+        {
+          "id": "canvas.board",
+          "pose": "Standing beside the little whiteboard, marker in hand, welcoming."
+        },
+        {
+          "id": "canvas.draw",
+          "pose": "Drawing on the whiteboard with the marker, focused, his back slightly turned toward the board."
+        },
+        {
+          "id": "canvas.step",
+          "pose": "Stepping back from the whiteboard, tilting his head, admiring it."
+        },
+        {
+          "id": "canvas.erase",
+          "pose": "Wiping one shape with the side of his fist, a sheepish smile."
+        },
+        {
+          "id": "canvas.arrange",
+          "pose": "Moving an invisible shape across the board with two fingers, arranging, thoughtful."
+        },
+        {
+          "id": "canvas.ta-da",
+          "pose": "Arms open toward the finished whiteboard, a proud 'ta-da!'."
+        },
+        {
+          "id": "canvas.marker",
+          "pose": "Twirling the marker in his fingers, the board beside him, a happy creative face."
+        }
+      ]
+    },
+    {
+      "sheet": "S80",
+      "pack": "burndown",
+      "group": "tools-delivery",
+      "title": "Burndown",
+      "when": "Burndown Generator: opening it, a day logged (also Burnup)",
+      "props": "Props: a small chart board on a stand showing a plain dark line going down from left to right over a pale grid, no numbers; a short pointer stick.",
+      "slots": [
+        {
+          "id": "burndown.show",
+          "pose": "Standing beside the chart board, pointing at it with the pointer, smiling."
+        },
+        {
+          "id": "burndown.trace",
+          "pose": "Tracing the line down the chart with the pointer, following it with his eyes."
+        },
+        {
+          "id": "burndown.log",
+          "pose": "Ticking the top of the chart board with the pointer, as if logging a day, nodding."
+        },
+        {
+          "id": "burndown.worry",
+          "pose": "Scratching his head with the pointer, looking at the chart, mildly worried."
+        },
+        {
+          "id": "burndown.track",
+          "pose": "Hands on hips, looking at the chart, a satisfied 'on track' nod."
+        },
+        {
+          "id": "burndown.zero",
+          "pose": "Pointing to the bottom right corner of the chart, delighted, mouth open."
+        },
+        { "id": "burndown.cheer", "pose": "Holding the pointer up high like a baton, cheering." }
+      ]
+    },
+    {
+      "sheet": "S81",
+      "pack": "bands",
+      "group": "tools-delivery",
+      "title": "Cumulative flow",
+      "when": "Cumulative Flow Diagram: opening it, a snapshot logged",
+      "props": "Props: a small chart board on a stand showing three smooth coloured bands stacked on top of each other (blue, orange, green) rising from left to right, no numbers.",
+      "slots": [
+        {
+          "id": "bands.present",
+          "pose": "Standing beside the chart board, one hand open toward it, presenting."
+        },
+        {
+          "id": "bands.follow",
+          "pose": "Running his hand along the top band, following the flow, curious."
+        },
+        {
+          "id": "bands.widen",
+          "pose": "Holding his two hands apart vertically in front of the chart, measuring a band, thinking."
+        },
+        {
+          "id": "bands.snapshot",
+          "pose": "Framing the chart with his fingers like a camera, one eye closed."
+        },
+        {
+          "id": "bands.smooth",
+          "pose": "A calm flat-hand wave toward the chart, pleased, as if the flow is smooth."
+        },
+        {
+          "id": "bands.puzzled",
+          "pose": "Hand on his chin, looking at the chart, a little puzzled."
+        },
+        { "id": "bands.ok", "pose": "An OK sign beside the chart board, smiling." }
+      ]
+    },
+    {
+      "sheet": "S82",
+      "pack": "cycle",
+      "group": "tools-delivery",
+      "title": "Cycle time",
+      "when": "Cycle Time Analyzer: opening it, an item added",
+      "props": "Props: a large silver stopwatch with a plain white face and no numbers; a small blue card.",
+      "slots": [
+        {
+          "id": "cycle.watch",
+          "pose": "Holding the stopwatch up in front of him, looking at it, curious."
+        },
+        {
+          "id": "cycle.start",
+          "pose": "Clicking the stopwatch's button with his thumb, a ready face."
+        },
+        {
+          "id": "cycle.card",
+          "pose": "Holding the blue card in one hand and the stopwatch in the other, comparing them."
+        },
+        {
+          "id": "cycle.wait",
+          "pose": "Tapping his foot with the stopwatch held out, patient, eyebrows raised.",
+          "kind": "hip"
+        },
+        {
+          "id": "cycle.stop",
+          "pose": "Clicking the stopwatch again and looking at it, satisfied."
+        },
+        {
+          "id": "cycle.quick",
+          "pose": "Holding up the stopwatch with an impressed, wide-eyed smile: that was fast."
+        },
+        {
+          "id": "cycle.add",
+          "pose": "Popping the blue card into his shirt pocket area and giving a thumbs-up."
+        }
+      ]
+    },
+    {
+      "sheet": "S83",
+      "pack": "dora",
+      "group": "tools-delivery",
+      "title": "DORA scorecard",
+      "when": "DORA Scorecard: opening it, a sample logged",
+      "props": "Props: a small dashboard panel he holds like a tablet, showing four round gauges with needles in green, green, yellow and green, no numbers.",
+      "slots": [
+        {
+          "id": "dora.panel",
+          "pose": "Holding the gauge panel in front of his chest, looking at it, smiling."
+        },
+        {
+          "id": "dora.check",
+          "pose": "Tapping one gauge on the panel with his finger, checking it, focused."
+        },
+        {
+          "id": "dora.read",
+          "pose": "Holding the panel up close to his face, reading, eyebrows raised."
+        },
+        {
+          "id": "dora.tune",
+          "pose": "Turning an invisible dial at the side of the panel with his fingers, careful."
+        },
+        {
+          "id": "dora.green",
+          "pose": "Holding the panel out toward us, delighted, as if all is green."
+        },
+        {
+          "id": "dora.calm",
+          "pose": "Holding the panel at his side and giving a calm, reassuring palm-down gesture."
+        },
+        {
+          "id": "dora.salute",
+          "pose": "Tucking the panel under his arm and giving a crisp little salute."
+        }
+      ]
+    },
+    {
+      "sheet": "S84",
+      "pack": "conveyor",
+      "group": "tools-delivery",
+      "title": "Value stream",
+      "when": "Value Stream Map: opening it, a stage added",
+      "props": "Props: a small toy conveyor belt on short legs, grey, about the length of his forearm, carrying two small boxes, one blue and one orange.",
+      "slots": [
+        {
+          "id": "conveyor.show",
+          "pose": "Standing behind the little conveyor belt held in front of him, smiling."
+        },
+        { "id": "conveyor.load", "pose": "Placing the blue box onto the conveyor, careful." },
+        {
+          "id": "conveyor.watch",
+          "pose": "Watching the boxes on the conveyor, following them with his eyes."
+        },
+        {
+          "id": "conveyor.stuck",
+          "pose": "Pointing at the orange box with a puzzled 'why is it waiting here?' face."
+        },
+        {
+          "id": "conveyor.nudge",
+          "pose": "Nudging the orange box along the belt with one finger, helpful."
+        },
+        {
+          "id": "conveyor.flow",
+          "pose": "Making a smooth flowing wave with his flat hand above the conveyor, pleased."
+        },
+        {
+          "id": "conveyor.done",
+          "pose": "Lifting a box off the end of the belt, holding it up, triumphant."
+        }
+      ]
+    },
+    {
+      "sheet": "S85",
+      "pack": "toggles",
+      "group": "tools-delivery",
+      "title": "Feature flags",
+      "when": "Feature Flag Tracker: opening it, a stale flag retired",
+      "props": "Props: a small panel with three chunky toggle switches, two green and one grey; a small cardboard box.",
+      "slots": [
+        {
+          "id": "toggles.panel",
+          "pose": "Holding the switch panel in front of him, looking at it, curious."
+        },
+        {
+          "id": "toggles.flip",
+          "pose": "Flipping a switch on the panel with one finger, concentrating."
+        },
+        {
+          "id": "toggles.check",
+          "pose": "Holding the panel up beside his face, one eyebrow raised, checking which are on."
+        },
+        {
+          "id": "toggles.grey",
+          "pose": "Pointing at the grey switch with a 'this one is old' look."
+        },
+        {
+          "id": "toggles.retire",
+          "pose": "Dropping a small switch into the cardboard box held in his other hand, decisive."
+        },
+        {
+          "id": "toggles.tidy",
+          "pose": "Holding up the panel with the two green switches, happy and tidy."
+        },
+        {
+          "id": "toggles.wave",
+          "pose": "Waving goodbye toward the cardboard box at his feet, smiling."
+        }
+      ]
+    },
+    {
+      "sheet": "S86",
+      "pack": "health",
+      "group": "tools-team",
+      "title": "Squad health check",
+      "when": "Squad Health Check: opening it, a check saved, a vote round revealed (also Maturity)",
+      "props": "Props: a small traffic light on a short stick, with round red, amber and green lights.",
+      "slots": [
+        {
+          "id": "health.light",
+          "pose": "Holding the traffic light up beside his face, a friendly smile."
+        },
+        { "id": "health.green", "pose": "Pointing at the green light, beaming." },
+        { "id": "health.amber", "pose": "Pointing at the amber light, a thoughtful 'hmm' face." },
+        {
+          "id": "health.red",
+          "pose": "Pointing at the red light, concerned but kind, eyebrows together."
+        },
+        {
+          "id": "health.vote",
+          "pose": "Holding the traffic light behind his back and looking at us with a mysterious smile, as if waiting for the reveal."
+        },
+        {
+          "id": "health.reveal",
+          "pose": "Swinging the traffic light out in front of him dramatically, eyes wide, revealing."
+        },
+        {
+          "id": "health.care",
+          "pose": "Hand on his heart, the traffic light lowered, a warm, caring smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S87",
+      "pack": "shield",
+      "group": "tools-team",
+      "title": "Psychological safety",
+      "when": "Psychological Safety Assessment: opening it, an assessment saved",
+      "props": "Props: a small round blue shield with a simple white heart shape in the centre.",
+      "slots": [
+        {
+          "id": "shield.hold",
+          "pose": "Holding the shield in front of his chest with both hands, a warm smile."
+        },
+        { "id": "shield.offer", "pose": "Holding the shield out toward us, offering it, gentle." },
+        {
+          "id": "shield.listen",
+          "pose": "The shield lowered at his side, leaning forward slightly, listening kindly."
+        },
+        {
+          "id": "shield.safe",
+          "pose": "Hugging the shield to his chest, eyes closed, calm and content."
+        },
+        {
+          "id": "shield.together",
+          "pose": "Arms open wide in a welcoming gesture, the shield in one hand, inviting everyone in."
+        },
+        {
+          "id": "shield.thanks",
+          "pose": "Hand on his heart, the shield in the other hand, a thankful smile."
+        },
+        {
+          "id": "shield.strong",
+          "pose": "Holding the shield up proudly beside his face, standing tall."
+        }
+      ]
+    },
+    {
+      "sheet": "S88",
+      "pack": "mood",
+      "group": "tools-team",
+      "title": "Team mood",
+      "when": "Team Mood Tracker: opening it, a mood logged (the mood picks the reaction)",
+      "props": "Props: three round mood cards on sticks, each a simple drawn face with no writing: a yellow smiling face, a grey neutral face, a blue sad face.",
+      "slots": [
+        {
+          "id": "mood.cards",
+          "pose": "Holding the three mood cards fanned out in one hand, curious, smiling."
+        },
+        {
+          "id": "mood.happy",
+          "pose": "Holding the yellow smiling card beside his face, copying its big smile."
+        },
+        {
+          "id": "mood.meh",
+          "pose": "Holding the grey neutral card beside his face, copying its flat, neutral look."
+        },
+        {
+          "id": "mood.sad",
+          "pose": "Holding the blue sad card beside his face, copying its sad look, kind eyes."
+        },
+        {
+          "id": "mood.pick",
+          "pose": "Looking at the cards with one finger on his chin, choosing."
+        },
+        { "id": "mood.share", "pose": "Holding out the yellow card toward us, encouraging, warm." },
+        {
+          "id": "mood.hug",
+          "pose": "Hugging the three cards to his chest, eyes closed, a gentle smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S89",
+      "pack": "charter",
+      "group": "tools-team",
+      "title": "Working agreement",
+      "when": "Working Agreement Builder: opening it, a rule added, the charter published",
+      "props": "Props: a cream paper scroll with three grey lines and no writing; a blue fountain pen.",
+      "slots": [
+        {
+          "id": "charter.unroll",
+          "pose": "Unrolling the scroll in front of him with both hands, curious."
+        },
+        { "id": "charter.read", "pose": "Reading the scroll held up, nodding slowly." },
+        {
+          "id": "charter.write",
+          "pose": "Writing on the scroll held against his forearm with the blue pen, careful."
+        },
+        {
+          "id": "charter.sign",
+          "pose": "Signing the bottom of the scroll with a flourish of the pen, pleased."
+        },
+        {
+          "id": "charter.agree",
+          "pose": "Holding the scroll and giving a firm nod with his other hand on his heart."
+        },
+        {
+          "id": "charter.publish",
+          "pose": "Holding the unrolled scroll up high above his head with both hands, proud, as if announcing it."
+        },
+        {
+          "id": "charter.roll",
+          "pose": "Rolling up the scroll neatly and tucking the pen into his pocket area, content."
+        }
+      ]
+    },
+    {
+      "sheet": "S90",
+      "pack": "done",
+      "group": "tools-team",
+      "title": "Definition of Done",
+      "when": "Definition of Done Builder: opening it, a criterion ticked",
+      "props": "Props: a chunky green rubber stamp with a wooden handle; a small white card with three empty tick boxes and no writing.",
+      "slots": [
+        { "id": "done.stamp", "pose": "Holding up the green stamp, showing it to us with a grin." },
+        {
+          "id": "done.card",
+          "pose": "Holding the white card up, reading it, the stamp in his other hand."
+        },
+        { "id": "done.tick", "pose": "Ticking a box on the card with his finger, nodding." },
+        {
+          "id": "done.press",
+          "pose": "Pressing the stamp down firmly onto the card held flat on his other palm, decisive."
+        },
+        {
+          "id": "done.check",
+          "pose": "Holding the stamped card out at arm's length, checking it, one eye closed."
+        },
+        { "id": "done.proud", "pose": "Holding up the stamped card toward us, proud." },
+        {
+          "id": "done.blow",
+          "pose": "Blowing playfully on the end of the stamp like a hero, a cheeky smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S91",
+      "pack": "skills",
+      "group": "tools-team",
+      "title": "Skills matrix",
+      "when": "Team Skills Matrix: opening it, a skill added",
+      "props": "Props: a small red toolbox with a handle; a wrench, a paintbrush and a small hammer, simple and toy-like.",
+      "slots": [
+        {
+          "id": "skills.box",
+          "pose": "Holding the toolbox by its handle at his side, a ready smile."
+        },
+        { "id": "skills.open", "pose": "Opening the toolbox lid, peering inside, curious." },
+        { "id": "skills.wrench", "pose": "Holding up the wrench, examining it, impressed." },
+        {
+          "id": "skills.brush",
+          "pose": "Holding up the paintbrush with a playful painter's flourish."
+        },
+        {
+          "id": "skills.juggle",
+          "pose": "Holding the wrench, brush and hammer fanned out in one hand, as if counting the team's skills."
+        },
+        {
+          "id": "skills.teach",
+          "pose": "Handing the hammer toward the viewer's right, encouraging, as if teaching someone."
+        },
+        {
+          "id": "skills.ready",
+          "pose": "Toolbox in one hand, a confident thumbs-up with the other."
+        }
+      ]
+    },
+    {
+      "sheet": "S92",
+      "pack": "raci",
+      "group": "tools-team",
+      "title": "RACI",
+      "when": "RACI Matrix Builder: opening it, a role assigned",
+      "props": "Props: four large square cards in red, blue, yellow and green, each with a single simple white shape (a star, a circle, a triangle, a square) and no letters.",
+      "slots": [
+        { "id": "raci.fan", "pose": "Holding the four cards fanned out in one hand, smiling." },
+        {
+          "id": "raci.deal",
+          "pose": "Dealing a card toward the viewer's right, the card just leaving his fingers."
+        },
+        {
+          "id": "raci.star",
+          "pose": "Holding up the red star card beside his face, pointing at himself with his thumb, proud."
+        },
+        { "id": "raci.sort", "pose": "Holding a card in each hand, comparing them, thinking." },
+        {
+          "id": "raci.place",
+          "pose": "Placing the blue card onto an invisible table at chest height, careful."
+        },
+        {
+          "id": "raci.clear",
+          "pose": "Holding all four cards squared up neatly, a satisfied nod."
+        },
+        {
+          "id": "raci.shrug",
+          "pose": "A friendly shrug with a card in each hand, eyebrows up, 'who owns this one?'"
+        }
+      ]
+    },
+    {
+      "sheet": "S93",
+      "pack": "chat",
+      "group": "tools-team",
+      "title": "One-on-one",
+      "when": "1:1 Meeting Tracker: opening it, a meeting logged",
+      "props": "Props: two white coffee cups with saucers; a small notepad.",
+      "slots": [
+        {
+          "id": "chat.cups",
+          "pose": "Holding a coffee cup in each hand, offering one toward us, warm and friendly."
+        },
+        { "id": "chat.sip", "pose": "Sipping from one cup, eyes closed, relaxed." },
+        {
+          "id": "chat.listen",
+          "pose": "Leaning forward a little with the cup held at his chest, listening attentively, kind eyes."
+        },
+        {
+          "id": "chat.laugh",
+          "pose": "Laughing warmly with the cup in one hand, the other hand on his belly."
+        },
+        {
+          "id": "chat.note",
+          "pose": "Writing in the small notepad, the cup set on the notepad's edge in his hand, focused."
+        },
+        {
+          "id": "chat.nod",
+          "pose": "Nodding with his hand on his heart, the cup in the other hand, understanding."
+        },
+        { "id": "chat.cheers", "pose": "Raising the cup toward us in a friendly cheers." }
+      ]
+    },
+    {
+      "sheet": "S94",
+      "pack": "stakeholders",
+      "group": "tools-team",
+      "title": "Stakeholder map",
+      "when": "Stakeholder Map: opening it, a stakeholder placed on the grid",
+      "props": "Props: a small square board split into four plain coloured quarters (pale blue, pale green, pale yellow, pale pink); four small round chips in matching colours.",
+      "slots": [
+        {
+          "id": "stakeholders.board",
+          "pose": "Holding the four-quarter board in front of his chest, looking at it."
+        },
+        {
+          "id": "stakeholders.chip",
+          "pose": "Holding up a small chip between finger and thumb, studying it."
+        },
+        {
+          "id": "stakeholders.place",
+          "pose": "Placing the chip onto the top right quarter of the board, careful."
+        },
+        {
+          "id": "stakeholders.move",
+          "pose": "Sliding a chip across the board with one finger, rethinking."
+        },
+        {
+          "id": "stakeholders.wave",
+          "pose": "Waving warmly toward the viewer's left, as if greeting a stakeholder, the board under his arm."
+        },
+        {
+          "id": "stakeholders.handshake",
+          "pose": "Reaching out his right hand for a handshake toward us, friendly."
+        },
+        {
+          "id": "stakeholders.map",
+          "pose": "Holding up the board with chips in all four quarters, proud."
+        }
+      ]
+    },
+    {
+      "sheet": "S95",
+      "pack": "adkar",
+      "group": "tools-team",
+      "title": "ADKAR change",
+      "when": "ADKAR Change Tracker: opening it, a stage advanced",
+      "props": "Props: a small set of five wooden toy stairs, each step a different colour (blue, green, yellow, orange, red); a tiny toy figure, white.",
+      "slots": [
+        {
+          "id": "adkar.stairs",
+          "pose": "Holding the little staircase in front of him with both hands, smiling."
+        },
+        { "id": "adkar.figure", "pose": "Holding up the tiny white figure, showing it to us." },
+        {
+          "id": "adkar.step",
+          "pose": "Moving the tiny figure up one step of the staircase, encouraging."
+        },
+        {
+          "id": "adkar.cheer",
+          "pose": "Cheering the little figure on with a raised fist, the staircase held in his other arm."
+        },
+        {
+          "id": "adkar.patient",
+          "pose": "Holding the staircase and nodding patiently, a gentle 'one step at a time' face."
+        },
+        { "id": "adkar.top", "pose": "Holding the figure at the top step, delighted." },
+        {
+          "id": "adkar.climb",
+          "pose": "Taking a big climbing step up into the air himself, one knee raised high, cheerful.",
+          "kind": "hip"
+        }
+      ]
+    },
+    {
+      "sheet": "S96",
+      "pack": "rank",
+      "group": "tools-prioritize",
+      "title": "Backlog prioritizer",
+      "when": "Backlog Prioritizer: opening it, an order saved (also RICE and ICE)",
+      "props": "Props: a stack of five small coloured blocks in red, orange, yellow, green and blue, like toy bricks with no letters.",
+      "slots": [
+        { "id": "rank.stack", "pose": "Holding the stack of blocks against his chest, curious." },
+        {
+          "id": "rank.weigh",
+          "pose": "Holding one block in each hand, weighing them up and down, thinking."
+        },
+        { "id": "rank.order", "pose": "Placing the red block on top of the stack, decisive." },
+        { "id": "rank.swap", "pose": "Swapping two blocks between his hands, eyebrows raised." },
+        { "id": "rank.tower", "pose": "Holding up the neat, ordered tower of blocks, proud." },
+        {
+          "id": "rank.wobble",
+          "pose": "Steadying a wobbling tower with both hands, surprised, eyes wide."
+        },
+        {
+          "id": "rank.done",
+          "pose": "Dusting off his hands beside an invisible table, the tower set down out of sight, satisfied."
+        }
+      ]
+    },
+    {
+      "sheet": "S97",
+      "pack": "scale",
+      "group": "tools-prioritize",
+      "title": "WSJF",
+      "when": "WSJF: opening it, an item scored",
+      "props": "Props: a small brass balance scale with two pans; two small boxes, one big blue and one little orange.",
+      "slots": [
+        {
+          "id": "scale.hold",
+          "pose": "Holding the balance scale up by its top, looking at it, curious."
+        },
+        { "id": "scale.load", "pose": "Placing the little orange box onto one pan, careful." },
+        {
+          "id": "scale.tip",
+          "pose": "Watching the scale tip to one side, eyebrows raised, mouth open in surprise."
+        },
+        {
+          "id": "scale.compare",
+          "pose": "Holding a box in each hand at the same height, comparing, thinking."
+        },
+        {
+          "id": "scale.balance",
+          "pose": "Adjusting one pan with a finger until the scale is level, focused."
+        },
+        {
+          "id": "scale.choose",
+          "pose": "Holding up the orange box toward us with a knowing smile: small but valuable."
+        },
+        { "id": "scale.ok", "pose": "Holding the level scale and giving an OK sign, pleased." }
+      ]
+    },
+    {
+      "sheet": "S98",
+      "pack": "moscow",
+      "group": "tools-prioritize",
+      "title": "MoSCoW",
+      "when": "MoSCoW: opening it, an item added",
+      "props": "Props: four small open bins in a row of colours, red, orange, yellow and grey, each the size of a shoebox; a small blue ball.",
+      "slots": [
+        {
+          "id": "moscow.bins",
+          "pose": "Standing behind the four bins lined up in front of him at chest height, welcoming."
+        },
+        { "id": "moscow.ball", "pose": "Holding up the blue ball, looking at it, deciding." },
+        { "id": "moscow.must", "pose": "Dropping the ball into the red bin, firm and decisive." },
+        {
+          "id": "moscow.maybe",
+          "pose": "Holding the ball over the yellow bin, hesitating, eyebrows raised."
+        },
+        {
+          "id": "moscow.wont",
+          "pose": "Pushing the grey bin aside with one hand, a polite 'not this time' face."
+        },
+        {
+          "id": "moscow.toss",
+          "pose": "Tossing the ball up gently, playful, the ball just above his hand."
+        },
+        {
+          "id": "moscow.sorted",
+          "pose": "Arms open toward the bins, a satisfied 'all sorted' smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S99",
+      "pack": "hourglass",
+      "group": "tools-prioritize",
+      "title": "Cost of delay",
+      "when": "Cost of Delay: opening it, an item scored",
+      "props": "Props: a wooden hourglass with golden sand; three gold coins.",
+      "slots": [
+        {
+          "id": "hourglass.hold",
+          "pose": "Holding the hourglass up in front of him, watching the sand fall."
+        },
+        {
+          "id": "hourglass.flip",
+          "pose": "Flipping the hourglass over with both hands, a determined face."
+        },
+        {
+          "id": "hourglass.coins",
+          "pose": "Holding the three coins fanned out in one palm, counting them."
+        },
+        {
+          "id": "hourglass.drop",
+          "pose": "Letting a coin drop from his fingers, worried, eyebrows up, as if money is slipping away."
+        },
+        {
+          "id": "hourglass.hurry",
+          "pose": "Holding the hourglass and making a 'hurry!' beckoning wave, urgent but cheerful."
+        },
+        { "id": "hourglass.save", "pose": "Catching the coins in his cupped hands, relieved." },
+        {
+          "id": "hourglass.now",
+          "pose": "Pointing at the hourglass with a confident 'now is the time' smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S100",
+      "pack": "effort",
+      "group": "tools-prioritize",
+      "title": "Value and effort",
+      "when": "Value vs Effort Matrix: opening it, an item moved",
+      "props": "Props: a small square board split into four quarters, the top left quarter bright green and the others pale grey; a small gold star token.",
+      "slots": [
+        {
+          "id": "effort.board",
+          "pose": "Holding the four-quarter board in front of him, looking at it."
+        },
+        {
+          "id": "effort.star",
+          "pose": "Holding up the gold star token between finger and thumb, studying it."
+        },
+        {
+          "id": "effort.place",
+          "pose": "Placing the star on the green top left quarter, delighted."
+        },
+        {
+          "id": "effort.heavy",
+          "pose": "Pretending to lift something very heavy with both arms, straining, a joke about effort."
+        },
+        {
+          "id": "effort.easy",
+          "pose": "Lifting an invisible feather-light thing with one finger, a playful easy smile."
+        },
+        {
+          "id": "effort.choose",
+          "pose": "Pointing at the green quarter with a knowing nod: quick win."
+        },
+        { "id": "effort.thumbs", "pose": "Board under his arm, a thumbs-up." }
+      ]
+    },
+    {
+      "sheet": "S101",
+      "pack": "kano",
+      "group": "tools-prioritize",
+      "title": "Kano model",
+      "when": "Kano Model Builder: opening it, a survey round revealed",
+      "props": "Props: a light blue clipboard with a plain white sheet and two rows of empty round answer bubbles, no writing; a gift box, red with a gold bow.",
+      "slots": [
+        {
+          "id": "kano.survey",
+          "pose": "Holding the clipboard up, a friendly 'quick question' face."
+        },
+        {
+          "id": "kano.ask",
+          "pose": "Holding the clipboard and pointing at us with the pencil-like tip of his finger, curious."
+        },
+        {
+          "id": "kano.gift",
+          "pose": "Holding up the gift box with a delighted surprised face: a delighter."
+        },
+        {
+          "id": "kano.basic",
+          "pose": "Holding the clipboard flat and giving a calm 'must have' nod."
+        },
+        { "id": "kano.open", "pose": "Lifting the lid of the gift box, peeking inside, excited." },
+        {
+          "id": "kano.reveal",
+          "pose": "Turning the clipboard toward us dramatically, eyes wide, revealing the result."
+        },
+        { "id": "kano.wow", "pose": "Hugging the gift box, eyes closed, delighted." }
+      ]
+    },
+    {
+      "sheet": "S102",
+      "pack": "buy",
+      "group": "tools-prioritize",
+      "title": "Buy a feature",
+      "when": "Buy-a-Feature Game: opening it, a purchase recorded, a round revealed (also the $100 Test)",
+      "props": "Props: a small stack of green toy banknotes with no numbers or writing; a little brown paper shopping bag.",
+      "slots": [
+        { "id": "buy.money", "pose": "Fanning out the toy banknotes in one hand, grinning." },
+        {
+          "id": "buy.count",
+          "pose": "Counting the banknotes from one hand to the other, focused."
+        },
+        {
+          "id": "buy.think",
+          "pose": "Holding the banknotes against his chin, eyes up, deciding what to buy."
+        },
+        {
+          "id": "buy.pay",
+          "pose": "Handing a banknote toward the viewer's right, a cheerful shopper."
+        },
+        { "id": "buy.bag", "pose": "Holding up the shopping bag, pleased with his purchase." },
+        {
+          "id": "buy.splurge",
+          "pose": "Tossing a few banknotes up in the air from one hand, playful, the notes just above his hand."
+        },
+        {
+          "id": "buy.broke",
+          "pose": "Turning out his empty palms with a funny 'all spent!' shrug."
+        }
+      ]
+    },
+    {
+      "sheet": "S103",
+      "pack": "eisenhower",
+      "group": "tools-prioritize",
+      "title": "Eisenhower matrix",
+      "when": "Eisenhower Matrix: opening it, a task moved",
+      "props": "Props: a small square board split into four quarters in red, blue, yellow and grey; a small white task card.",
+      "slots": [
+        {
+          "id": "eisenhower.board",
+          "pose": "Holding the four-quarter board in front of his chest, looking at it."
+        },
+        { "id": "eisenhower.card", "pose": "Holding up the white task card, reading it, curious." },
+        {
+          "id": "eisenhower.urgent",
+          "pose": "Slapping the card onto the red quarter, urgent, eyes wide."
+        },
+        {
+          "id": "eisenhower.plan",
+          "pose": "Placing the card on the blue quarter calmly, a 'later, properly' nod."
+        },
+        {
+          "id": "eisenhower.delegate",
+          "pose": "Handing the card toward the viewer's right with a friendly smile."
+        },
+        {
+          "id": "eisenhower.drop",
+          "pose": "Flicking the card away from his fingers, cheerful, letting it go."
+        },
+        {
+          "id": "eisenhower.calm",
+          "pose": "Holding the board under his arm, arms crossed, calm and in control."
+        }
+      ]
+    },
+    {
+      "sheet": "S104",
+      "pack": "gavel",
+      "group": "tools-prioritize",
+      "title": "Decision log",
+      "when": "Decision Log: opening it, a decision made (also DACI and RAPID)",
+      "props": "Props: a small wooden gavel; a cream notebook with a dark brown cover and no writing.",
+      "slots": [
+        { "id": "gavel.hold", "pose": "Holding the gavel up, a playful, serious judge's face." },
+        {
+          "id": "gavel.read",
+          "pose": "Reading the open notebook, the gavel tucked under his arm, thoughtful."
+        },
+        {
+          "id": "gavel.weigh",
+          "pose": "Holding his two hands out flat like a scale, weighing options, thinking."
+        },
+        {
+          "id": "gavel.bang",
+          "pose": "Banging the gavel down onto the notebook held flat on his other palm, decisive."
+        },
+        { "id": "gavel.record", "pose": "Writing in the notebook, careful." },
+        {
+          "id": "gavel.agree",
+          "pose": "Holding the gavel up and nodding firmly, a settled, confident face."
+        },
+        {
+          "id": "gavel.close",
+          "pose": "Closing the notebook with a satisfied smile, the gavel in his other hand."
+        }
+      ]
+    },
+    {
+      "sheet": "S105",
+      "pack": "compass",
+      "group": "tools-prioritize",
+      "title": "Cynefin",
+      "when": "Cynefin Decision Picker: opening it, a situation classified",
+      "props": "Props: a large brass compass with a red needle and no letters.",
+      "slots": [
+        {
+          "id": "compass.hold",
+          "pose": "Holding the compass flat in his palm, looking down at it, curious."
+        },
+        {
+          "id": "compass.spin",
+          "pose": "Watching the needle spin, eyes following it, a funny dizzy look."
+        },
+        {
+          "id": "compass.point",
+          "pose": "Holding the compass and pointing confidently in one direction with his other hand."
+        },
+        { "id": "compass.think", "pose": "Holding the compass against his chin, thinking hard." },
+        {
+          "id": "compass.clear",
+          "pose": "A clear, confident nod, the compass held out toward us."
+        },
+        {
+          "id": "compass.chaos",
+          "pose": "Hands up beside his head in mock alarm, the compass in one hand, as if things are chaotic."
+        },
+        {
+          "id": "compass.found",
+          "pose": "Tucking the compass into his shirt pocket area, smiling, 'found our way'."
+        }
+      ]
+    },
+    {
+      "sheet": "S106",
+      "pack": "okr",
+      "group": "tools-outcomes",
+      "title": "OKRs",
+      "when": "OKR Tracker: opening it, a check-in recorded, a key result achieved",
+      "props": "Props: a small red-and-white target board on a short stick; a slim progress bar on a stick, half filled with green, no numbers.",
+      "slots": [
+        {
+          "id": "okr.target",
+          "pose": "Holding the target board up beside his face, a determined smile."
+        },
+        { "id": "okr.progress", "pose": "Holding up the progress bar, looking at it, encouraged." },
+        {
+          "id": "okr.checkin",
+          "pose": "Tapping the progress bar with his finger and nodding, like a check-in."
+        },
+        {
+          "id": "okr.stretch",
+          "pose": "Reaching up high with one arm, stretching for a goal, the target in the other hand."
+        },
+        {
+          "id": "okr.push",
+          "pose": "Pushing the progress bar's green part along with his thumb, effort on his face."
+        },
+        {
+          "id": "okr.achieved",
+          "pose": "Holding the target high above his head with both hands, celebrating."
+        },
+        {
+          "id": "okr.focus",
+          "pose": "Pointing at the centre of the target with a calm, focused face."
+        }
+      ]
+    },
+    {
+      "sheet": "S107",
+      "pack": "nps",
+      "group": "tools-outcomes",
+      "title": "NPS and CSAT",
+      "when": "NPS / CSAT Tracker: opening it, responses logged or imported",
+      "props": "Props: a white survey card with a row of small round faces from sad to happy in red, yellow and green, no numbers; a small envelope, light blue.",
+      "slots": [
+        {
+          "id": "nps.card",
+          "pose": "Holding the survey card up, a friendly 'how did we do?' face."
+        },
+        { "id": "nps.envelope", "pose": "Opening the light blue envelope, curious, excited." },
+        { "id": "nps.read", "pose": "Reading the survey card closely, eyebrows raised." },
+        { "id": "nps.happy", "pose": "Pointing at the green happy face on the card, beaming." },
+        { "id": "nps.listen", "pose": "Holding the card to his chest, a humble, listening face." },
+        {
+          "id": "nps.stack",
+          "pose": "Holding a small fan of envelopes in one hand, delighted, as many replies came in."
+        },
+        {
+          "id": "nps.thanks",
+          "pose": "Hand on his heart, the card in the other hand, a grateful smile."
+        }
+      ]
+    },
+    {
+      "sheet": "S108",
+      "pack": "lab",
+      "group": "tools-outcomes",
+      "title": "Hypothesis tracker",
+      "when": "Hypothesis Tracker: opening it, a hypothesis validated or invalidated",
+      "props": "Props: a clear glass test tube with bright green liquid; a small round-bottomed flask with blue liquid.",
+      "slots": [
+        {
+          "id": "lab.hold",
+          "pose": "Holding up the test tube between finger and thumb, a curious scientist's grin."
+        },
+        {
+          "id": "lab.pour",
+          "pose": "Carefully pouring from the flask into the test tube, focused, tongue slightly out."
+        },
+        { "id": "lab.shake", "pose": "Gently shaking the test tube, watching it, eyes wide." },
+        {
+          "id": "lab.observe",
+          "pose": "Holding the test tube up to the light, one eye closed, observing."
+        },
+        {
+          "id": "lab.yes",
+          "pose": "Holding the test tube up triumphantly, an excited 'it works!' face."
+        },
+        {
+          "id": "lab.no",
+          "pose": "Looking at the test tube with a good-natured 'oh well, we learned something' shrug."
+        },
+        {
+          "id": "lab.note",
+          "pose": "Writing on the back of his hand with a finger, the test tube in his other hand, thoughtful."
+        }
+      ]
+    },
+    {
+      "sheet": "S109",
+      "pack": "interview",
+      "group": "tools-outcomes",
+      "title": "User interviews",
+      "when": "User Interview Log: opening it, an interview added, a quote tagged",
+      "props": "Props: a small black handheld microphone; a small yellow sticky note with no writing.",
+      "slots": [
+        {
+          "id": "interview.mic",
+          "pose": "Holding the microphone out toward us, a friendly interviewer's smile."
+        },
+        {
+          "id": "interview.listen",
+          "pose": "Holding the microphone out to the viewer's right and listening intently, nodding."
+        },
+        {
+          "id": "interview.ask",
+          "pose": "Asking a question into the microphone, his other hand open, curious."
+        },
+        {
+          "id": "interview.surprised",
+          "pose": "Pulling the microphone back with a surprised, delighted face, as if hearing a great answer."
+        },
+        {
+          "id": "interview.note",
+          "pose": "Sticking the yellow note onto the back of his other hand, pleased."
+        },
+        {
+          "id": "interview.quote",
+          "pose": "Holding up the yellow note between two fingers, proud: a great quote."
+        },
+        {
+          "id": "interview.thanks",
+          "pose": "A small grateful bow with the microphone held at his chest."
+        }
+      ]
+    },
+    {
+      "sheet": "S110",
+      "pack": "tree",
+      "group": "tools-outcomes",
+      "title": "Opportunity tree",
+      "when": "Opportunity Solution Tree: opening it, a node added, an experiment sent",
+      "props": "Props: a small potted tree with a round green crown and a few small coloured fruits (red, yellow, blue); a little green watering can.",
+      "slots": [
+        {
+          "id": "tree.hold",
+          "pose": "Holding the potted tree in front of him with both hands, smiling at it."
+        },
+        { "id": "tree.water", "pose": "Watering the little tree with the watering can, gentle." },
+        {
+          "id": "tree.inspect",
+          "pose": "Looking closely at a branch of the tree, curious, one eye squinting."
+        },
+        { "id": "tree.pick", "pose": "Picking a red fruit off the tree, delighted." },
+        {
+          "id": "tree.grow",
+          "pose": "Making a 'growing!' gesture, hand rising beside the tree, eyes wide."
+        },
+        { "id": "tree.share", "pose": "Holding the picked red fruit out toward us, offering it." },
+        {
+          "id": "tree.proud",
+          "pose": "The tree tucked in one arm, a proud thumbs-up with the other."
+        }
+      ]
+    },
+    {
+      "sheet": "S111",
+      "pack": "assume",
+      "group": "tools-outcomes",
+      "title": "Riskiest assumption",
+      "when": "Riskiest Assumption Canvas: opening it, a test created",
+      "props": "Props: a large magnifying glass with a gold rim; a small white card with a dark question mark shape drawn on it (a question mark is allowed here).",
+      "slots": [
+        {
+          "id": "assume.magnify",
+          "pose": "Looking at us through the magnifying glass, one big curious eye."
+        },
+        { "id": "assume.card", "pose": "Holding up the question-mark card, a puzzled face." },
+        {
+          "id": "assume.inspect",
+          "pose": "Examining the question-mark card through the magnifying glass, focused."
+        },
+        {
+          "id": "assume.doubt",
+          "pose": "Hand on his chin, the magnifier lowered, a skeptical 'are we sure?' look."
+        },
+        {
+          "id": "assume.test",
+          "pose": "Pointing at the card with determination, ready to test it."
+        },
+        {
+          "id": "assume.found",
+          "pose": "Holding up the magnifier with an excited 'found it!' face."
+        },
+        {
+          "id": "assume.relief",
+          "pose": "Tossing the question-mark card away over his shoulder, relieved and smiling."
+        }
+      ]
+    },
+    {
+      "sheet": "S112",
+      "pack": "risk",
+      "group": "tools-quality",
+      "title": "Risk register",
+      "when": "Risk Register: opening it, a risk added, a risk escalated",
+      "props": "Props: a small yellow triangular warning sign on a short stick, with a black exclamation mark shape (allowed here); a small red flag.",
+      "slots": [
+        {
+          "id": "risk.sign",
+          "pose": "Holding the warning sign up beside his face, a careful, alert smile."
+        },
+        {
+          "id": "risk.spot",
+          "pose": "Pointing ahead with a 'watch out!' face, eyebrows up, the sign in his other hand."
+        },
+        {
+          "id": "risk.log",
+          "pose": "Holding the sign under his arm and writing on an invisible board, focused."
+        },
+        { "id": "risk.escalate", "pose": "Waving the red flag high above his head, urgent." },
+        {
+          "id": "risk.careful",
+          "pose": "Tiptoeing carefully, one foot raised, holding the sign, a cautious face.",
+          "kind": "hip"
+        },
+        { "id": "risk.handled", "pose": "Lowering the sign with a calm 'handled' nod, palm down." },
+        { "id": "risk.safe", "pose": "Hugging the sign, relieved, eyes closed." }
+      ]
+    },
+    {
+      "sheet": "S113",
+      "pack": "debt",
+      "group": "tools-quality",
+      "title": "Technical debt",
+      "when": "Technical Debt Tracker: opening it, debt resolved",
+      "props": "Props: a small broom with a wooden handle and yellow bristles; a small grey dust pile shaped like a little heap of tangled wires (no smoke, no dust clouds).",
+      "slots": [
+        {
+          "id": "debt.pile",
+          "pose": "Looking down at the little heap of tangled wires at his feet, hands on his hips, rueful."
+        },
+        { "id": "debt.broom", "pose": "Holding the broom upright beside him like a tool, ready." },
+        { "id": "debt.sweep", "pose": "Sweeping the heap with the broom, focused." },
+        {
+          "id": "debt.tangle",
+          "pose": "Holding up a tangled wire between two fingers, a funny grimace."
+        },
+        {
+          "id": "debt.untangle",
+          "pose": "Pulling the wire straight between his hands, determined."
+        },
+        {
+          "id": "debt.clean",
+          "pose": "Leaning on the broom, wiping his forehead, the floor clean, satisfied."
+        },
+        {
+          "id": "debt.shine",
+          "pose": "Holding the broom like a guitar, a happy little celebration."
+        }
+      ]
+    },
+    {
+      "sheet": "S114",
+      "pack": "flaky",
+      "group": "tools-quality",
+      "title": "Flaky tests",
+      "when": "Flaky Test Scoreboard: opening it, a flaky test fixed",
+      "props": "Props: a small wooden rack holding three test tubes, one with green liquid, one with red liquid and one with yellow liquid that leans crookedly; a small roll of tape.",
+      "slots": [
+        {
+          "id": "flaky.rack",
+          "pose": "Holding the test tube rack in front of him, looking at it, curious."
+        },
+        {
+          "id": "flaky.wobble",
+          "pose": "Watching the yellow tube wobble in the rack, alarmed, eyes wide."
+        },
+        {
+          "id": "flaky.catch",
+          "pose": "Catching the yellow tube as it tips out of the rack, quick, mouth open."
+        },
+        {
+          "id": "flaky.tape",
+          "pose": "Taping the yellow tube upright in the rack with the roll of tape, focused."
+        },
+        {
+          "id": "flaky.shake",
+          "pose": "Shaking the rack gently to test it, listening, eyebrows raised."
+        },
+        { "id": "flaky.fixed", "pose": "Holding the steady rack up toward us, triumphant." },
+        {
+          "id": "flaky.wipe",
+          "pose": "Wiping his forehead with the back of his hand, the rack set down out of sight, relieved."
+        }
+      ]
     }
-  ]
+  ],
+  "tools_addendum": "TOOL SHEETS (S65 and later). Each sheet gives Amr the props of one tool on the website.\n- REFERENCES IN THIS ROUND: ref-1 is his standard stance. ref-current shows him as he is today: his face, his haircut from the front, turned and looking down, and the smooth way he is rendered; use it wherever the master block says ref-hair or ref-2. ref-hair-fix-3 shows the haircut to match (TARGET) and the hair to avoid (NOT THIS). ref-3 shows poses he already has. ref-4 is the approved S01 sheet: match its face and haircut exactly.\n- HAIR (this overrides any other hair description): exactly the haircut in ref-4 and in the TARGET row of ref-hair-fix-3. Short all over and close to the shape of his skull, with no dome, helmet or volume on top; a little more length at the front, brushed slightly up and back; a thin, even layer of hair down each side to the top of his ears, which show just past it. Very dark brown-black with soft highlights on top: never flat black and never brown. A fine, smooth texture with no curls, coils, waves or bumpy outline. The same haircut in all 8 slots.\n- RENDERING: smooth, soft, even shading on his face, skin and shirt, exactly like ref-4 and ref-current. No angular, faceted, patchy or painterly shading, and no extra wrinkles.\n- PROPS: only the props the sheet names, each drawn the same in every slot that uses it: simple, solid, slightly toy-like, with clean shapes and bold colours, big enough to read when he is 100 pixels tall. Charts, boards and screens show plain shapes and colours only: no text, letters, numbers or logos anywhere, unless the sheet allows a single symbol. Props never hide his face."
 }
