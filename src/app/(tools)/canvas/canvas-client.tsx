@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   LayoutTemplate,
@@ -54,7 +62,57 @@ import { ActivityStream } from "./components/activity-stream";
 import { TagFilterRow } from "./components/tag-filter-row";
 import { VoiceInputButton } from "./components/voice-input-button";
 import { useLiveBoards } from "./hooks/use-live-boards";
+import {
+  BOARD_FILL_H,
+  BOARD_MAX_H,
+  BOARD_VH,
+  useBoardFillScreen,
+} from "./hooks/use-board-fill-screen";
 import { liveContainerOf } from "./lib/live-board-ids";
+import { cn } from "@/lib/utils";
+
+/**
+ * The board stage's height. It used to be a 100dvh calc with a 440 /
+ * 520 px floor, and the floor won on short screens: a landscape phone
+ * (812x375) got a 520 px board, taller than the screen, with its zoom
+ * controls below the fold. The floor now gives way to BOARD_MAX_H, so
+ * the board never outgrows the screen (desktop heights are unchanged).
+ */
+const STAGE_HEIGHT =
+  "h-[calc(100dvh-220px)] min-h-[min(440px,var(--board-max-h))] sm:min-h-[min(520px,var(--board-max-h))] max-h-[var(--board-max-h)]";
+
+/**
+ * iOS Safari zooms the page in when a text field under 16 px takes focus,
+ * and leaves it zoomed. globals.css floors fields at 16 px up to 768 px
+ * wide; /canvas also had maximum-scale=1, which stopped that zoom on a
+ * landscape phone (812-932 px) or a tablet too. With that lock gone the
+ * board's fields (a sticky being edited, Find, comments, card details)
+ * and its dialogs get the same floor on every touch screen, or a zoom
+ * there would stick: the board is touch-none and keeps a pinch for
+ * itself, so the page can't be pinched back out over it.
+ *
+ * A field marked data-own-font already sets 16 px or more itself (a large
+ * shape's label while it's edited), so it keeps its own size.
+ */
+const TOUCH_INPUT_FONT_FLOOR =
+  "pointer-coarse:[&_:is(textarea,select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color])):not([data-own-font])]:![font-size:max(16px,1rem)]";
+
+/**
+ * The empty-board card on a touch screen keeps clear of the board
+ * toolbar (top, ends by 68 px) and of the bottom-left zoom controls with
+ * the hint above them (EMPTY_HINT_TOUCH_PLACE): 136 px + two hint lines
+ * + a gap on phones, 76 px + one line + a gap from sm up. It loses its
+ * decorative icon there, and some padding on short (landscape) screens.
+ *
+ * From sm up the mini-map (mini-map.tsx: right-3 bottom-14, 200x140)
+ * shows too, and on a short board it reaches up beside the card: at
+ * 812x375 it covered the end of the card's sentence. There the card
+ * centres between the tool rail (ends 59 px in) and the map (216 px with
+ * its margin and a gap), narrowing and wrapping as it needs to. Taller
+ * boards keep the card centred, well above the map.
+ */
+const EMPTY_CARD_TOUCH_ROOM =
+  "pointer-coarse:pt-[4.5rem] pointer-coarse:pb-[11rem] sm:pointer-coarse:pb-[6.25rem] sm:pointer-coarse:[@media(max-height:600px)]:pl-[4.5rem] sm:pointer-coarse:[@media(max-height:600px)]:pr-[13.5rem]";
 
 /** Per-board access mode. Resolved from the URL with `?share=<token>`
  * winning over `?view=<role>` — the token's role is the source of
@@ -588,6 +646,8 @@ export function CanvasClient() {
   const [showShare, setShowShare] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
+  // Touch only (the toggle sits in the touch row of ZoomControls).
+  const fillScreen = useBoardFillScreen(canvasViewportRef);
 
   // Selection setter pulled from canvas store so the find-bar can
   // select an object after panning to it.
@@ -942,8 +1002,26 @@ export function CanvasClient() {
         //     via min-h.
         //   - min-h falls from 520px (desktop) to 440px (small) so the
         //     board stays usable on a 667px-tall portrait phone where
-        //     220px of chrome leaves only 447px for the canvas.
-        className="relative h-[calc(100dvh-220px)] min-h-[440px] sm:min-h-[520px] w-full rounded-lg border border-border overflow-hidden bg-bg board-stage"
+        //     220px of chrome leaves only 447px for the canvas — but
+        //     never past BOARD_MAX_H (see STAGE_HEIGHT), so the board
+        //     always fits the screen and the page around it scrolls.
+        //   - Full screen (touch): BOARD_FILL_H, everything under the
+        //     app header (useBoardFillScreen).
+        //   - BOARD_VH gives both heights 100vh where 100dvh is unknown,
+        //     so the board can't collapse there.
+        className={cn(
+          "relative w-full rounded-lg border border-border overflow-hidden bg-bg board-stage",
+          BOARD_VH,
+          TOUCH_INPUT_FONT_FLOOR,
+          !fillScreen.on && STAGE_HEIGHT
+        )}
+        style={
+          {
+            "--board-max-h": BOARD_MAX_H,
+            ...(fillScreen.on ? { height: BOARD_FILL_H } : null),
+          } as CSSProperties
+        }
+        data-fill-screen={fillScreen.on ? "true" : undefined}
       >
         {activeBoardId ? (
           <WhiteboardCanvas
@@ -974,7 +1052,7 @@ export function CanvasClient() {
             <VoiceInputButton boardId={activeBoardId} worldCenter={voiceWorldCenter} />
           </div>
         )}
-        <ZoomControls onFit={onFit} viewportSize={viewportSize} />
+        <ZoomControls onFit={onFit} viewportSize={viewportSize} fillScreen={fillScreen} />
         {readOnly && (
           <div
             data-canvas-export-ignore="true"
@@ -1002,30 +1080,47 @@ export function CanvasClient() {
             keyboard-shortcut hint sits inline next to a sticky icon so
             the user can still see "I can also just press N". Hidden in
             read-only and commenter modes since those viewers can't
-            create objects anyway. */}
+            create objects anyway.
+            Only its two buttons take touches: the rest of the card lets a
+            tap through to the board, so an armed tool (Sticky, say) still
+            places its object under the card's middle. */}
         {!readOnly && activeBoardId && objects.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
+          <div
+            className={cn(
+              "absolute inset-0 flex items-center justify-center pointer-events-none z-[5]",
+              EMPTY_CARD_TOUCH_ROOM
+            )}
+          >
             <div
-              className="pointer-events-auto text-center w-[min(360px,calc(100%-2rem))] px-5 py-5 rounded-xl bg-surface/90 border border-border backdrop-blur-md shadow-xl"
+              className="text-center w-[min(360px,calc(100%-2rem))] px-5 py-5 rounded-xl bg-surface/90 border border-border backdrop-blur-md shadow-xl pointer-coarse:w-[min(420px,calc(100%-2rem))] pointer-coarse:[@media(max-height:480px)]:py-3"
               data-canvas-export-ignore="true"
             >
               <Sparkles
-                className="w-7 h-7 text-accent mx-auto mb-2 opacity-70"
+                className="w-7 h-7 text-accent mx-auto mb-2 opacity-70 pointer-coarse:hidden"
                 aria-hidden="true"
               />
               <h3 className="text-sm font-semibold text-text mb-1">Start your board</h3>
               <p className="text-xs text-sub mb-3">
-                Pick a template or import — or press{" "}
-                <kbd className="font-mono text-xs bg-surface-deep border border-border rounded px-1 py-0.5">
-                  N
-                </kbd>{" "}
-                for a sticky.
+                Pick a template or import
+                <span className="pointer-coarse:hidden">
+                  {" "}
+                  — or press{" "}
+                  <kbd className="font-mono text-xs bg-surface-deep border border-border rounded px-1 py-0.5">
+                    N
+                  </kbd>{" "}
+                  for a sticky.
+                </span>
+                {/* No N key on a touch screen. */}
+                <span className="hidden pointer-coarse:inline">
+                  {" "}
+                  — or tap a tool, then the board.
+                </span>
               </p>
               <div className="flex items-center justify-center gap-2">
                 <Button
                   size="sm"
                   onClick={() => setShowTemplates(true)}
-                  className="gap-1.5 bg-accent text-bg hover:bg-accent/90 font-semibold"
+                  className="pointer-events-auto gap-1.5 bg-accent text-bg hover:bg-accent/90 font-semibold"
                 >
                   <LayoutTemplate className="w-3.5 h-3.5" />
                   Templates
@@ -1034,7 +1129,7 @@ export function CanvasClient() {
                   variant="outline"
                   size="sm"
                   onClick={() => setShowImport(true)}
-                  className="gap-1.5"
+                  className="pointer-events-auto gap-1.5"
                 >
                   <FileInput className="w-3.5 h-3.5" />
                   Import
@@ -1078,29 +1173,33 @@ export function CanvasClient() {
         </div>
       )}
 
-      {showTemplates && activeBoardId && (
-        <TemplateGallery
-          boardId={activeBoardId}
-          onClose={() => setShowTemplates(false)}
-          onApplied={(rect) => {
-            const camera = fitToRects([rect], viewportSize.w, viewportSize.h, 0.1);
-            if (camera) setCamera(camera);
-          }}
-        />
-      )}
-      {showImport && activeBoardId && (
-        <ImportModal boardId={activeBoardId} onClose={() => setShowImport(false)} />
-      )}
-      {showShare && activeBoardId && activeBoard && (
-        <ShareModal
-          boardId={activeBoardId}
-          boardName={activeBoard.name}
-          onClose={() => setShowShare(false)}
-        />
-      )}
-      {showActivity && activeBoardId && (
-        <ActivityStream boardId={activeBoardId} onClose={() => setShowActivity(false)} />
-      )}
+      {/* No box of its own (the dialogs are fixed overlays); it only
+          carries the touch input-size floor to their fields. */}
+      <div className={cn("contents", TOUCH_INPUT_FONT_FLOOR)}>
+        {showTemplates && activeBoardId && (
+          <TemplateGallery
+            boardId={activeBoardId}
+            onClose={() => setShowTemplates(false)}
+            onApplied={(rect) => {
+              const camera = fitToRects([rect], viewportSize.w, viewportSize.h, 0.1);
+              if (camera) setCamera(camera);
+            }}
+          />
+        )}
+        {showImport && activeBoardId && (
+          <ImportModal boardId={activeBoardId} onClose={() => setShowImport(false)} />
+        )}
+        {showShare && activeBoardId && activeBoard && (
+          <ShareModal
+            boardId={activeBoardId}
+            boardName={activeBoard.name}
+            onClose={() => setShowShare(false)}
+          />
+        )}
+        {showActivity && activeBoardId && (
+          <ActivityStream boardId={activeBoardId} onClose={() => setShowActivity(false)} />
+        )}
+      </div>
     </ToolPageWrapper>
   );
 }

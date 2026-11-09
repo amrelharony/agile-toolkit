@@ -147,4 +147,17 @@ describe("CanvasTouchTips", () => {
     expect(src).not.toContain("Tablet tips");
     expect(src).toContain("<CanvasTouchTips");
   });
+
+  it("waits for the board's first object, clear of the empty-board card", () => {
+    // The "Start your board" card sits in the tips' band (top-[7.5rem])
+    // on a phone or a short landscape board, and the tips (z-[6], 95%
+    // opaque) would hide its heading and Templates / Import buttons. The
+    // empty board's own hint already gives the pinch and two-finger pan.
+    const src = readFileSync(
+      join(process.cwd(), "src/app/(tools)/canvas/components/whiteboard-canvas.tsx"),
+      "utf8"
+    );
+    expect(src.match(/<CanvasTouchTips\b/g)).toHaveLength(1);
+    expect(src).toMatch(/\{objects\.length > 0 && \(?\s*<CanvasTouchTips\b/);
+  });
 });
