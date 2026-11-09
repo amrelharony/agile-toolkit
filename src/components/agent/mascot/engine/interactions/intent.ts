@@ -2,8 +2,8 @@
  * What Amr gathers about how the visit is going, from signs anyone watching
  * would read:
  *
- *   • stuck: the same spot tapped again and again where nothing answers, or a
- *     form refusing what's typed into it, twice. He looks concerned and offers a
+ *   • stuck: the same spot tapped again and again with a finger where nothing
+ *     answers, or a form refusing what's typed into it, twice. He looks concerned and offers a
  *     hand, once per page per visit; tapping the offer opens his panel.
  *   • reading: the page scrolled steadily for a while. He keeps to himself (the
  *     director's gap grows, as it does while the visitor types).
@@ -178,7 +178,8 @@ export function installIntentSenses(hooks: IntentHooks): IntentSenses {
   };
 
   const onPointerDown = (e: PointerEvent) => {
-    if (e.button !== 0 && e.pointerType === "mouse") return;
+    // A finger or a pen only: three quick clicks of a mouse select a paragraph.
+    if (e.pointerType === "mouse") return;
     if (hooks.isControl(e.target)) {
       rage.reset();
       return;

@@ -178,6 +178,22 @@ describe("installIntentSenses", () => {
     expect(offers).toBe(2);
   });
 
+  it("doesn't take a mouse's triple-click, which selects a paragraph, for someone stuck", () => {
+    install();
+    for (let i = 0; i < 3; i++) {
+      t += 150;
+      document.body.dispatchEvent(
+        Object.assign(
+          new MouseEvent("pointerdown", { bubbles: true, clientX: 100, clientY: 100 }),
+          {
+            pointerType: "mouse",
+          }
+        )
+      );
+    }
+    expect(acts).toEqual([]);
+  });
+
   it("leaves taps on a control alone: those answer for themselves", () => {
     install();
     const button = document.createElement("button");
