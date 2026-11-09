@@ -30,6 +30,8 @@ import { computeLevel } from "@/lib/gamification/xp-curve";
 import { GLOBAL_DAILY_XP_CAP, localDateOf } from "@/lib/gamification/outcomes";
 import { findDaily } from "@/lib/gamification/challenges";
 import { cn } from "@/lib/utils";
+import { InkArt } from "@/components/ink/ink-art";
+import { bellArt } from "@/lib/ink/drawings/pages/bell";
 import { visibleInboxItems } from "./activity-dot";
 
 /**
@@ -235,7 +237,11 @@ function ActivityBody({ items, showProgress }: { items: InboxItem[]; showProgres
       {showProgress && <TodayChallenges now={now} />}
       <section aria-label="Activity items" className="flex flex-col gap-3">
         {groups.length === 0 ? (
-          <p className="text-sm text-sub">Nothing yet. Finished work shows up here.</p>
+          <p className="flex items-center gap-2 text-sm text-sub">
+            {/* The quiet bell: nothing has rung yet. */}
+            <InkArt drawing={bellArt} pace={700} className="-my-1.5 h-8 w-8 shrink-0" />
+            <span>Nothing yet. Finished work shows up here.</span>
+          </p>
         ) : (
           groups.map((g) => (
             <div key={g.group}>
