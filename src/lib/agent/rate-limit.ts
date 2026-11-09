@@ -1,4 +1,5 @@
-import type { RateLimitInfo } from "./store";
+import { VISITOR_HEADERS } from "@/lib/visitor-ai/contract";
+import type { RateLimitInfo, VisitorQuota } from "./store";
 
 /**
  * Parse the stream route's `X-RateLimit-*` response headers into a usage
@@ -28,5 +29,38 @@ export function parseRateLimitHeaders(headers: Headers, limited = false): RateLi
     monthlyUsed: num("x-ratelimit-monthly"),
     monthlyMax: num("x-ratelimit-monthly-max"),
     limited,
+  };
+}
+
+/**
+ * Parse the visitor route's x-visitor-ai-* headers into the visitor's
+ * allowance. Returns null when the daily pair is missing or unreadable (a
+ * refusal that came before the meter, such as a 403 or 413), so the caller
+ * keeps the quota it last showed. The per-window limit is kept whenever the
+ * route sends it (it always does), so a note outside the window can name the
+ * configured number; what's left in the window and when it ends only while
+ * the route says the window is on. `now` stamps when the answer came.
+ */
+export function parseVisitorQuota(headers: Headers, now: number = Date.now()): VisitorQuota | null {
+  const count = (key: string): number | null => {
+    const raw = headers.get(key);
+    if (raw == null || raw.trim() === "") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+  };
+  const remaining = count(VISITOR_HEADERS.remaining);
+  const limit = count(VISITOR_HEADERS.limit);
+  if (remaining === null || limit === null) return null;
+  const peak = headers.get(VISITOR_HEADERS.peak) === "1";
+  const endsRaw = peak ? headers.get(VISITOR_HEADERS.peakEnds) : null;
+  const endsAt = endsRaw && Number.isFinite(Date.parse(endsRaw)) ? endsRaw : null;
+  return {
+    remaining,
+    limit,
+    peak,
+    peakRemaining: peak ? count(VISITOR_HEADERS.peakRemaining) : null,
+    peakLimit: count(VISITOR_HEADERS.peakLimit),
+    peakEndsAt: endsAt,
+    receivedAt: now,
   };
 }

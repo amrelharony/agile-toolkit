@@ -11,6 +11,18 @@ interface ExecuteOptions {
   /** Turn abort signal — closing the panel cancels an in-flight handler so the
    *  loop doesn't stay parked (and `streaming`) for up to the 30s timeout. */
   signal?: AbortSignal;
+  /**
+   * Ask before EVERY non-read action, even one whose `requiresConfirmation`
+   * is false, and ignore `autoApprove`. The visitor chat sets it: a visitor
+   * approves each change Amr makes to their tools.
+   */
+  forceConfirmWrites?: boolean;
+  /**
+   * Only the tools offered this turn may run (the visitor chat). A name this
+   * returns false for gets "Tool not available" before it is even looked up,
+   * so a model can't reach an action it was never given.
+   */
+  isAllowed?: (name: string) => boolean;
 }
 
 /**
@@ -68,6 +80,14 @@ export async function executeToolUse(
   if (opts.signal?.aborted) {
     return { type: "tool_result", tool_use_id: block.id, content: "Cancelled.", is_error: true };
   }
+  if (opts.isAllowed && !opts.isAllowed(block.name)) {
+    return {
+      type: "tool_result",
+      tool_use_id: block.id,
+      content: `Tool not available: ${block.name}`,
+      is_error: true,
+    };
+  }
   const action = registry.resolve(block.name);
   if (!action) {
     return {
@@ -116,9 +136,14 @@ export async function executeToolUse(
     };
   }
 
-  // Confirmation gate for write / intent.
-  const needsConfirm = action.requiresConfirmation ?? action.category !== "read";
-  if (needsConfirm && !opts.autoApprove) {
+  // Confirmation gate for write / intent. forceConfirmWrites (visitors) asks
+  // for every non-read action whatever it declares, and "approve all" can't
+  // switch that off.
+  const writes = action.category !== "read";
+  const needsConfirm =
+    (action.requiresConfirmation ?? writes) || (opts.forceConfirmWrites === true && writes);
+  const skipConfirm = opts.autoApprove && opts.forceConfirmWrites !== true;
+  if (needsConfirm && !skipConfirm) {
     const summary = describeAction(action.id, parsed.data as Record<string, unknown>);
     const ok = await opts.confirm(summary);
     if (!ok) {

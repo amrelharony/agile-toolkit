@@ -32,6 +32,14 @@ export interface ToolAction<P = unknown, R = unknown> {
   /** When true, the in-app agent UI prompts for confirmation before
    *  executing. `write` and `intent` default to true; `read` to false. */
   requiresConfirmation?: boolean;
+  /**
+   * Whether Amr may offer this action to a signed-out visitor's chat
+   * (visitor AI). Defaults to true: an action runs in the visitor's own tab on
+   * their own browser data, and every non-read one asks first. Set false for
+   * actions with effects beyond that tab, such as the canvas actions, which
+   * broadcast to the people in a live room.
+   */
+  visitor?: boolean;
   handler: (params: P, ctx: ActionContext) => Promise<R>;
   /**
    * Optional server-only handler used when `ctx.source === "mcp"`. MCP

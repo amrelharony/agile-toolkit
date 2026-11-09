@@ -217,3 +217,122 @@ describe("executeToolUse — abort", () => {
     }
   });
 });
+
+describe("executeToolUse — forceConfirmWrites (visitor chat)", () => {
+  const SILENT_WRITE = "__agentexec.silent_write";
+  beforeEach(() => {
+    // A write that normally runs without asking.
+    registry.register({
+      id: SILENT_WRITE,
+      toolId: "__agentexec",
+      name: "silent_write",
+      category: "write",
+      requiresConfirmation: false,
+      description: "Write stub that doesn't ask.",
+      paramsSchema: z.object({}),
+      handler: async () => ({ wrote: true }),
+    });
+  });
+  afterEach(() => registry.unregister(SILENT_WRITE));
+
+  it("without it, a write marked requiresConfirmation:false runs unasked", async () => {
+    const confirm = vi.fn().mockResolvedValue(true);
+    const res = await executeToolUse(block(SILENT_WRITE), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: false,
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(res.content).toContain('"wrote":true');
+  });
+
+  it("asks before that write, and a denial stops it", async () => {
+    const confirm = vi.fn().mockResolvedValue(false);
+    const res = await executeToolUse(block(SILENT_WRITE), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: false,
+      forceConfirmWrites: true,
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(res.is_error).toBe(true);
+    expect(res.content).toContain(`User denied execution of ${SILENT_WRITE}`);
+  });
+
+  it("still asks when autoApprove is on", async () => {
+    const confirm = vi.fn().mockResolvedValue(true);
+    const res = await executeToolUse(block("__agentexec.do_write", { value: "v" }), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: true,
+      forceConfirmWrites: true,
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(res.content).toContain('"stored":"v"');
+  });
+
+  it("never asks for a read", async () => {
+    const confirm = vi.fn().mockResolvedValue(true);
+    const res = await executeToolUse(block("__agentexec.read_only"), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: false,
+      forceConfirmWrites: true,
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(res.content).toContain('"data":"ok"');
+  });
+});
+
+describe("executeToolUse — isAllowed (only the tools offered this turn)", () => {
+  it("refuses a tool not offered before looking it up, validating or asking", async () => {
+    const confirm = vi.fn().mockResolvedValue(true);
+    const handler = vi.fn(async () => ({ ran: true }));
+    registry.register({
+      id: "__agentexec.not_offered",
+      toolId: "__agentexec",
+      name: "not_offered",
+      category: "write",
+      description: "Never offered.",
+      paramsSchema: z.object({ n: z.number() }),
+      handler,
+    });
+    try {
+      const isAllowed = vi.fn((name: string) => name === "__agentexec_read_only");
+      const res = await executeToolUse(block("__agentexec.not_offered", { n: "bad input" }), {
+        userId: TEST_USER,
+        confirm,
+        autoApprove: true,
+        isAllowed,
+      });
+      expect(isAllowed).toHaveBeenCalledWith("__agentexec.not_offered");
+      expect(res.is_error).toBe(true);
+      expect(res.content).toBe("Tool not available: __agentexec.not_offered");
+      expect(confirm).not.toHaveBeenCalled();
+      expect(handler).not.toHaveBeenCalled();
+    } finally {
+      registry.unregister("__agentexec.not_offered");
+    }
+  });
+
+  it("answers an unknown name the same way, giving nothing away about the registry", async () => {
+    const res = await executeToolUse(block("not_a_real_tool"), {
+      userId: TEST_USER,
+      confirm: vi.fn(),
+      autoApprove: false,
+      isAllowed: () => false,
+    });
+    expect(res.content).toBe("Tool not available: not_a_real_tool");
+  });
+
+  it("runs a tool that was offered", async () => {
+    const res = await executeToolUse(block("__agentexec_read_only"), {
+      userId: TEST_USER,
+      confirm: vi.fn(),
+      autoApprove: false,
+      isAllowed: (name) => name === "__agentexec_read_only",
+    });
+    expect(res.is_error).toBeUndefined();
+    expect(res.content).toContain('"data":"ok"');
+  });
+});
