@@ -14,6 +14,7 @@ import type { StorySummary } from "@/lib/comics/types";
 import { getVipTools } from "@/lib/tools/catalog";
 import { VIP_TITLE } from "@/lib/vip/constants";
 import { readVipHint, setVipHint } from "@/lib/vip/hint";
+import { vipArt } from "@/lib/ink/drawings/sections/vip";
 
 export type VipAccess = "unlocked" | "locked" | "invalid-link";
 
@@ -38,6 +39,7 @@ export function VipClient({
     <>
       {unlocked ? <VipIntro tools={getVipTools()} earlyComics={earlyComics} /> : null}
       <ToolPageWrapper
+        art={vipArt}
         title={VIP_TITLE}
         description={
           unlocked

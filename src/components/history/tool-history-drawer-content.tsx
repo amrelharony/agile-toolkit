@@ -169,7 +169,7 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
   };
 
   return (
-    <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col">
+    <SheetContent side="right" className="w-full sm:max-w-md" bodyClassName="p-0">
       <SheetHeader className="p-4 sm:p-5 border-b border-border">
         <SheetTitle className="flex items-center gap-2">
           <History className="w-4 h-4 text-accent" aria-hidden="true" />

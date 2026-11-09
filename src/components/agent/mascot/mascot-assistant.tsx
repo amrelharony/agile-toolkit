@@ -15,6 +15,8 @@
  * collar — he dangles and swings, and lands where he's dropped or thrown
  * (engine/interactions/clicks.ts, touch.ts). On phones the panel header has a
  * switch that lets him feel the phone's motion (engine/interactions/sensors.ts).
+ * On touch screens he steps aside (up, or to the other side) when his figure
+ * would sit on one of the page's controls (mascot-nudge.ts).
  *
  * The owner's agent is owner-only. Visitors keep the mascot (clicks, Konami,
  * Cmd/Ctrl+J) but the panel shows <VisitorGuide/> — a tool finder — instead
@@ -37,6 +39,7 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
 import { X, Plus, History, Sparkles, Smartphone } from "lucide-react";
@@ -44,9 +47,10 @@ import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { visitorAiEnabled } from "@/lib/visitor-ai/contract";
-import { useMascotStore } from "@/lib/agent/mascot/store";
+import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
+import { useMascotCelebrationReactions } from "@/lib/agent/mascot/use-celebration-reactions";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { createTouchInteraction, zoneAt, type TouchPoint } from "./engine/interactions/touch";
 import {
@@ -60,15 +64,20 @@ import { playMascotSound } from "./engine/audio/mascot-audio";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./engine/sprite-poses";
 import { VisitorGuide } from "./visitor-guide";
 import { VisitorPanel } from "./visitor-panel";
+import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
+import {
+  HOME,
+  chooseNudge,
+  otherSideLeft,
+  sameNudge,
+  type Nudge,
+  type Rect,
+  type SideInsets,
+} from "./mascot-nudge";
 import styles from "./mascot-assistant.module.css";
 
-/** Award XP via the gamification window bridge (no-op if unavailable). */
-function addXp(n: number): void {
-  (window as unknown as { VDna?: { addXp?: (x: number) => void } }).VDna?.addXp?.(n);
-}
-
 /** Which corner the mascot is parked in (drag-to-reposition). */
-type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+export type Corner = MascotCorner;
 
 /** Inset of the float button from its corner. */
 /** Which toolkit scenes exist yet (their sheets shipped). Stable, for the hook. */
@@ -147,19 +156,49 @@ function phoneBandHeight(c: Corner, figure: boolean, boxH: number): number {
   return Math.ceil(inset + reach) + BUTTON_INSET;
 }
 
-/** What his corner's offset is measured from: the screen, or a phone's strip. */
+/**
+ * What his corner's offset is measured from on a phone: the header's bottom (the
+ * header publishes its height, top safe area included, as --header-h), or the
+ * home indicator.
+ */
 function phoneEdge(c: Corner): string {
-  return c.startsWith("top") ? "var(--header-h)" : "env(safe-area-inset-bottom, 0px)";
+  return c.startsWith("top") ? "var(--header-h, 56px)" : "env(safe-area-inset-bottom, 0px)";
 }
 
-/** Fixed-position style for the float button at a corner (default ≈ bottom-1 right-2). */
-function buttonPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSSProperties {
-  const inset = edgeInset(c, figure, boxH);
-  const offset = phone ? `calc(${inset}px + ${phoneEdge(c)})` : inset;
+/** The same edge, the other side of the screen (where he steps aside to). */
+function otherSide(c: Corner): Corner {
+  return `${c.startsWith("top") ? "top" : "bottom"}${c.endsWith("Left") ? "Right" : "Left"}` as Corner;
+}
+
+/** Offset from his edge: a phone's strip, or the screen clear of the home indicator. */
+function edgeOffset(c: Corner, px: number, phone: boolean): string | number {
+  if (phone) return `calc(${px}px + ${phoneEdge(c)})`;
+  return c.startsWith("top") ? px : `calc(${px}px + env(safe-area-inset-bottom, 0px))`;
+}
+
+/** Offset from his side, clear of a landscape iPhone's notch and rounded corners. */
+function sideOffset(c: Corner, px: number): CSSProperties {
+  return c.endsWith("Left")
+    ? { left: `calc(${px}px + env(safe-area-inset-left, 0px))` }
+    : { right: `calc(${px}px + env(safe-area-inset-right, 0px))` };
+}
+
+/**
+ * Fixed-position style for the float button at a corner (default ≈ bottom-1
+ * right-2). `lift` moves him off his edge when he steps aside for a control.
+ */
+function buttonPos(
+  c: Corner,
+  figure: boolean,
+  boxH: number,
+  phone: boolean,
+  lift = 0
+): CSSProperties {
+  const offset = edgeOffset(c, edgeInset(c, figure, boxH) + lift, phone);
   return {
     position: "fixed",
     ...(c.startsWith("top") ? { top: offset } : { bottom: offset }),
-    ...(c.endsWith("Left") ? { left: 8 } : { right: 8 }),
+    ...sideOffset(c, 8),
   };
 }
 
@@ -174,41 +213,94 @@ function hitBox(box: { w: number; h: number }): CSSProperties {
   };
 }
 
+/** The panel's height, as its class sets it (h-[min(68vh,560px)]). */
+const PANEL_HEIGHT_CSS = "min(68vh, 560px)";
+/** On a short screen the panel gets shorter, down to this: its title row, a few lines, the input. */
+const PANEL_MIN_H = 160;
+/** Room kept between the panel and the header, or the screen's far edge. */
+const PANEL_MARGIN = 8;
+
 /**
  * Chat-panel style for a corner — hugs Amr's silhouette, not his box. `boxH` is
  * the rendered box height (the figure's rows scale with it); with the launcher
- * showing, the panel clears the launcher instead.
+ * showing, the panel clears the launcher instead. `lift` is how far he has
+ * stepped off his edge for a control, and the panel goes with him.
+ *
+ * It always stays between the header and the screen's far edge, whatever the
+ * lift: first it gets shorter (its body scrolls); only when even PANEL_MIN_H
+ * won't fit past him (a landscape phone, him stepped up) does it stop short of
+ * following him and keep that much. `100%` is the visible screen (a fixed box's
+ * containing block), not 100vh, which on phones counts the hidden URL bar.
+ * Exported for tests.
  */
-function panelPos(c: Corner, figure: boolean, boxH: number, phone: boolean): CSSProperties {
+export function panelPos(
+  c: Corner,
+  figure: boolean,
+  boxH: number,
+  phone: boolean,
+  lift = 0
+): CSSProperties {
   const scale = boxH / SHEET.cellH;
   const top = figure ? FIGURE_TOP * scale : 0;
   const bottom = figure ? FIGURE_BOTTOM * scale : LAUNCHER_SIZE;
   const height = figure ? boxH : LAUNCHER_SIZE;
-  const inset = edgeInset(c, figure, boxH);
-  const px = c.startsWith("top")
+  const inset = edgeInset(c, figure, boxH) + lift;
+  const atTop = c.startsWith("top");
+  const px = atTop
     ? // Parked up top: clear his feet.
       inset + bottom + PANEL_GAP
     : // Parked at the bottom: clear its head.
       inset + (height - top) + PANEL_GAP;
-  const offset = phone ? `calc(${px}px + ${phoneEdge(c)})` : px;
+  const raw = edgeOffset(c, px, phone);
+  const offset = typeof raw === "number" ? `${raw}px` : raw;
+  // From the edge it's anchored to across to where it must stop: the header for a
+  // bottom corner, the bottom of the screen (past the home indicator) for a top one.
+  const room = atTop
+    ? `100% - ${PANEL_MARGIN}px - env(safe-area-inset-bottom, 0px)`
+    : `100% - var(--header-h, 56px) - ${PANEL_MARGIN}px`;
+  const anchor = `min(${offset}, calc(${room} - min(${PANEL_HEIGHT_CSS}, ${PANEL_MIN_H}px)))`;
   return {
-    ...(c.startsWith("top") ? { top: offset } : { bottom: offset }),
-    ...(c.endsWith("Left") ? { left: 16 } : { right: 16 }),
+    ...(atTop ? { top: anchor } : { bottom: anchor }),
+    ...sideOffset(c, 16),
+    maxHeight: `max(${PANEL_MIN_H}px, calc(${room} - ${offset}))`,
   };
 }
 
-/** True below the `sm` breakpoint (640px). */
-function useIsPhone(): boolean {
-  const [isPhone, setIsPhone] = useState(false);
+/** Whether a media query matches, kept up to date (false on the server). */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
   useEffect(() => {
-    const mq = window.matchMedia?.("(max-width: 639px)");
+    const mq = window.matchMedia?.(query);
     if (!mq) return;
-    const update = () => setIsPhone(mq.matches);
+    const update = () => setMatches(mq.matches);
     update();
     mq.addEventListener?.("change", update);
     return () => mq.removeEventListener?.("change", update);
-  }, []);
-  return isPhone;
+  }, [query]);
+  return matches;
+}
+
+/** True at phone width (`PHONE_MAX_PX`, below Tailwind's `sm`). */
+function useIsPhone(): boolean {
+  return useMediaQuery(PHONE_MEDIA_QUERY);
+}
+
+/**
+ * The CSS variables that keep space for Amr on phones, for a band on `side` of
+ * `height` px. `--amr-band-top` / `--amr-band-bottom` are the band's own height
+ * (the bottom one includes the home-indicator inset; the top one is measured
+ * from the header's bottom edge, since a top-docked Amr stands below the
+ * header). `--amr-band-top-edge` is where the top band ends, measured from the
+ * top of the viewport, for things positioned against the viewport (the phone
+ * trophy sheet) rather than against the header.
+ */
+export function phoneBandVars(side: "top" | "bottom", height: number): Record<string, string> {
+  return side === "top"
+    ? {
+        "--amr-band-top": `${height}px`,
+        "--amr-band-top-edge": `calc(var(--header-h, 56px) + ${height}px)`,
+      }
+    : { "--amr-band-bottom": `calc(${height}px + env(safe-area-inset-bottom, 0px))` };
 }
 
 /**
@@ -223,13 +315,10 @@ function usePhoneBand(band: { side: "top" | "bottom"; height: number } | null) {
   useEffect(() => {
     if (!side || height === undefined) return;
     const root = document.documentElement;
-    const name = side === "top" ? "--amr-band-top" : "--amr-band-bottom";
-    root.style.setProperty(
-      name,
-      side === "top" ? `${height}px` : `calc(${height}px + env(safe-area-inset-bottom, 0px))`
-    );
+    const vars = phoneBandVars(side, height);
+    for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
     return () => {
-      root.style.removeProperty(name);
+      for (const name of Object.keys(vars)) root.style.removeProperty(name);
     };
   }, [side, height]);
 }
@@ -237,18 +326,24 @@ function usePhoneBand(band: { side: "top" | "bottom"; height: number } | null) {
 /** Start the figure this long after load if nobody has interacted yet. */
 const MASCOT_DELAY_MS = 2000;
 
+/** True when the visitor asked the browser to save data (Data Saver, Lite mode). */
+function savesData(): boolean {
+  const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
+  return Boolean(nav.connection?.saveData);
+}
+
 /**
  * Defer the figure (its chunk and the sprite sheet) until the visitor first
  * interacts (pointer, key, scroll) or a moment after the page has loaded,
  * whichever comes first, then wait for an idle moment, so it never competes with
- * the page's own content. The launcher shows until then. Skipped entirely when
- * the visitor asked to save data.
+ * the page's own content. The launcher shows until then. When the visitor asked
+ * to save data, only an interaction starts him: the sheet is fetched for someone
+ * using the page, and he still shows for everyone.
  */
 function useDeferredFigure(): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => {
-    const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
-    if (nav.connection?.saveData) return;
+    const interactionOnly = savesData();
     const w = window as Window & {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
       cancelIdleCallback?: (id: number) => void;
@@ -270,8 +365,11 @@ function useDeferredFigure(): boolean {
     const arm = () => {
       timer = window.setTimeout(start, MASCOT_DELAY_MS);
     };
-    if (document.readyState === "complete") arm();
-    else window.addEventListener("load", arm, { once: true });
+    // Saving data: no timer, only the first interaction starts him.
+    if (!interactionOnly) {
+      if (document.readyState === "complete") arm();
+      else window.addEventListener("load", arm, { once: true });
+    }
     return () => {
       events.forEach((e) => window.removeEventListener(e, start));
       window.removeEventListener("load", arm);
@@ -318,6 +416,188 @@ function useTypingOnPhone(isPhone: boolean): boolean {
   return typing;
 }
 
+/** How long the page must be still (no scroll, resize, tap or change) before he looks under him. */
+const NUDGE_SETTLE_MS = 250;
+/** After he's placed (the figure arriving, a drop, the panel closing): once he has landed. */
+const NUDGE_PLACED_MS = 700;
+
+/**
+ * The screen's side safe areas (a landscape phone's notch or camera cutout, often
+ * on one side only), read off a hidden probe padded by them. 0 where there are none.
+ */
+function readSideInsets(probe: HTMLElement | null): SideInsets {
+  if (!probe) return { left: 0, right: 0 };
+  const cs = window.getComputedStyle(probe);
+  const px = (v: string) => Math.max(0, parseFloat(v) || 0);
+  return { left: px(cs.paddingLeft), right: px(cs.paddingRight) };
+}
+
+/**
+ * His hit box (or the launcher) at HOME, in viewport px, from the layout: the
+ * button's used position, not its painted one, so his float, a stroll or a
+ * landing in progress doesn't skew it. Null when there's no layout to read.
+ */
+function homeHitRect(
+  button: HTMLElement,
+  hit: HTMLElement | null,
+  n: Nudge,
+  edge: "top" | "bottom",
+  vw: number,
+  vh: number,
+  insets: SideInsets
+): Rect | null {
+  const cs = window.getComputedStyle(button);
+  const w = button.offsetWidth;
+  const h = button.offsetHeight;
+  let top = parseFloat(cs.top);
+  let left = parseFloat(cs.left);
+  if (!Number.isFinite(top)) top = vh - parseFloat(cs.bottom) - h;
+  if (!Number.isFinite(left)) left = vw - parseFloat(cs.right) - w;
+  if (!w || !h || !Number.isFinite(top) || !Number.isFinite(left)) return null;
+  // Undo where he has stepped to.
+  if (n.flip) left = otherSideLeft(left, w, vw, insets);
+  top += edge === "bottom" ? n.lift : -n.lift;
+  if (!hit) return { left, top, width: w, height: h };
+  return {
+    left: left + hit.offsetLeft,
+    top: top + hit.offsetTop,
+    width: hit.offsetWidth,
+    height: hit.offsetHeight,
+  };
+}
+
+/**
+ * On touch screens he steps aside when his figure sits on one of the page's
+ * controls (mascot-nudge.ts): up from his edge, or to the other side. He looks
+ * once he's placed and whenever the page settles after a scroll, resize, tap or
+ * change, never mid-scroll, so he doesn't jitter, and he slides to the new spot.
+ * Frozen while his panel is open or he's carried. A new corner (or box size) is a
+ * new home; `reset` sends him home at once (a drop). `figure` says whether the
+ * figure or the launcher is showing: he looks again when one gives way to the other.
+ */
+function useStepAside({
+  active,
+  frozen,
+  edge,
+  placeKey,
+  figure,
+  allowFlip,
+  buttonRef,
+  hitRef,
+  insetProbeRef,
+}: {
+  active: boolean;
+  frozen: boolean;
+  edge: "top" | "bottom";
+  placeKey: string;
+  figure: boolean;
+  allowFlip: boolean;
+  buttonRef: RefObject<HTMLButtonElement | null>;
+  hitRef: RefObject<HTMLSpanElement | null>;
+  insetProbeRef: RefObject<HTMLSpanElement | null>;
+}): { nudge: Nudge; reset: () => void } {
+  const [state, setState] = useState<{ key: string; nudge: Nudge }>({ key: "", nudge: HOME });
+  const nudge = state.key === placeKey ? state.nudge : HOME;
+  // The check runs from timers and listeners: it reads the latest values here.
+  const latest = useRef({ nudge, edge, placeKey, allowFlip });
+  latest.current = { nudge, edge, placeKey, allowFlip };
+  const fromRef = useRef<DOMRect | null>(null);
+
+  useEffect(() => {
+    if (!active || frozen) return;
+    let timer: number | undefined;
+    let pressed = false;
+    const own = (node: Node) =>
+      !!buttonRef.current?.contains(node) ||
+      (node instanceof Element && !!node.closest("[data-agent-sheet-root]"));
+    const check = () => {
+      timer = undefined;
+      if (pressed) return; // looked at again when the finger lifts
+      const button = buttonRef.current;
+      if (!button || typeof document.elementsFromPoint !== "function") return;
+      const { nudge: current, edge: side, placeKey: key, allowFlip: flip } = latest.current;
+      const vw = document.documentElement.clientWidth || window.innerWidth;
+      const vh = window.innerHeight;
+      const insets = readSideInsets(insetProbeRef.current);
+      const home = homeHitRect(button, hitRef.current, current, side, vw, vh, insets);
+      if (!home) return;
+      const header = document.querySelector("[data-chrome='header']")?.getBoundingClientRect();
+      const next = chooseNudge({
+        home,
+        current,
+        edge: side,
+        allowFlip: flip,
+        viewport: { width: vw, height: vh, minTop: Math.max(0, header?.bottom ?? 0) },
+        insets,
+        elementsFromPoint: (x, y) => document.elementsFromPoint(x, y),
+        ignore: own,
+        // The sticky header stacks above him (a top corner tucks him under it).
+        above: (el) => !!el.closest("[data-chrome='header']"),
+      });
+      if (sameNudge(next, current)) return;
+      fromRef.current = button.getBoundingClientRect();
+      setState({ key, nudge: next });
+    };
+    // Scrolling and resizing push the look back until they stop; page changes
+    // only make sure one is coming (a ticking timer can't put it off forever).
+    const settle = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(check, NUDGE_SETTLE_MS);
+    };
+    const soon = () => {
+      if (timer === undefined) timer = window.setTimeout(check, NUDGE_SETTLE_MS);
+    };
+    const down = () => {
+      pressed = true;
+    };
+    const up = () => {
+      pressed = false;
+      settle();
+    };
+    const observer =
+      typeof MutationObserver === "function"
+        ? new MutationObserver((records) => {
+            if (records.some((r) => !own(r.target))) soon();
+          })
+        : null;
+    observer?.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("scroll", settle, { passive: true, capture: true });
+    window.addEventListener("resize", settle);
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("pointerup", up, true);
+    document.addEventListener("pointercancel", up, true);
+    timer = window.setTimeout(check, NUDGE_PLACED_MS);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("scroll", settle, { capture: true });
+      window.removeEventListener("resize", settle);
+      document.removeEventListener("pointerdown", down, true);
+      document.removeEventListener("pointerup", up, true);
+      document.removeEventListener("pointercancel", up, true);
+      window.clearTimeout(timer);
+    };
+  }, [active, frozen, placeKey, figure, buttonRef, hitRef, insetProbeRef]);
+
+  // He slides to where he stepped, rather than jumping there.
+  useIsomorphicLayoutEffect(() => {
+    const from = fromRef.current;
+    fromRef.current = null;
+    const el = buttonRef.current;
+    if (!from || !el || typeof el.animate !== "function" || prefersReducedMotion()) return;
+    const to = el.getBoundingClientRect();
+    const dx = from.left - to.left;
+    const dy = from.top - to.top;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 2) return;
+    el.animate([{ translate: `${dx.toFixed(1)}px ${dy.toFixed(1)}px` }, { translate: "0px 0px" }], {
+      duration: Math.min(450, 200 + dist * 0.8),
+      easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+    });
+  }, [nudge.flip, nudge.lift, buttonRef]);
+
+  return { nudge, reset: () => setState({ key: "", nudge: HOME }) };
+}
+
 const MascotSprite = dynamic(() => import("./mascot-sprite"), { ssr: false });
 const OwnerAgentPanel = dynamic(() => import("./owner-agent-panel"), {
   ssr: false,
@@ -335,6 +615,9 @@ export function MascotAssistant() {
   // Amr's AI for visitors: a confirmed visitor only, and only in a build that has it on.
   const visitorAi = visitor && visitorAiEnabled();
   const isPhone = useIsPhone();
+  // Touch screens of any width (a landscape phone, a tablet): his figure there is
+  // where a finger lands, so he steps aside for the page's controls.
+  const coarsePointer = useMediaQuery("(pointer: coarse)");
   const typingOnPhone = useTypingOnPhone(isPhone);
   const hideFigure = typingOnPhone;
   const box = isPhone ? MASCOT_BOX_PHONE : MASCOT_BOX;
@@ -378,7 +661,6 @@ export function MascotAssistant() {
     clickRef.current = createClickInteraction({
       playNow: (r) => useMascotStore.getState().playNow(r),
       sound: () => playMascotSound("click"),
-      addXp,
     });
   }
   const touchRef = useRef<ReturnType<typeof createTouchInteraction> | null>(null);
@@ -391,6 +673,7 @@ export function MascotAssistant() {
   }
   const buttonRef = useRef<HTMLButtonElement>(null);
   const hitRef = useRef<HTMLSpanElement>(null);
+  const insetProbeRef = useRef<HTMLSpanElement>(null);
   const lastTapRef = useRef(0);
   const draggedRef = useRef(false);
   const onMascotClick = (e: ReactMouseEvent<HTMLButtonElement>) => {
@@ -416,23 +699,43 @@ export function MascotAssistant() {
   // Drag-to-reposition: free-drag past a threshold, then snap to the nearest
   // corner (the chat panel follows via the corner state). Source initDragDrop.
   const [corner, setCorner] = useState<Corner>("bottomRight");
-  // Always the figure's height unless it can't load, so the strip doesn't jump
-  // when the launcher gives way to him a moment after the page settles.
-  const [savesData, setSavesData] = useState(false);
+  // The moment chip stands beside him, wherever he's parked.
   useEffect(() => {
-    const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
-    setSavesData(Boolean(nav.connection?.saveData));
-  }, []);
+    useMascotStore.getState().setCorner(corner);
+  }, [corner]);
+  // Always the figure's height unless it can't load, so the strip doesn't jump
+  // when the launcher gives way to him a moment after the page settles. That
+  // includes Data Saver: he arrives there too, on the first interaction.
   const bandSide = corner.startsWith("top") ? ("top" as const) : ("bottom" as const);
   const band =
     isPhone && !hideFigure
       ? {
           side: bandSide,
-          height: phoneBandHeight(corner, !figureFailed && !savesData, box.h),
+          height: phoneBandHeight(corner, !figureFailed, box.h),
         }
       : null;
   usePhoneBand(band);
   const [dragPos, setDragPos] = useState<{ left: number; top: number } | null>(null);
+
+  // Stepping aside for a control under him. Only once he's settled: the figure,
+  // or a launcher that stays (the figure failed, or Data Saver is waiting for the
+  // first interaction), not the launcher of the first seconds after load.
+  const [dataSaver, setDataSaver] = useState(false);
+  useEffect(() => setDataSaver(savesData()), []);
+  // Once the visitor has put him on a side, he only steps up or down from it.
+  const [sideChosen, setSideChosen] = useState(false);
+  const { nudge, reset: resetNudge } = useStepAside({
+    active: (isPhone || coarsePointer) && !hideFigure && (showFigure || figureFailed || dataSaver),
+    frozen: open || dragPos !== null,
+    edge: bandSide,
+    placeKey: `${corner}:${box.h}`,
+    figure: showFigure,
+    allowFlip: !sideChosen,
+    buttonRef,
+    hitRef,
+    insetProbeRef,
+  });
+  const placed = nudge.flip ? otherSide(corner) : corner;
   // Removes the active drag's document listeners (called on pointerup, on a new
   // drag, or on unmount) so they never leak past an in-progress drag.
   const dragCleanupRef = useRef<(() => void) | null>(null);
@@ -553,6 +856,10 @@ export function MascotAssistant() {
           cx < window.innerWidth / 2 ? "Left" : "Right"
         }` as Corner;
         setCorner(next);
+        // Dropped where the visitor wants him: that corner, not where he'd
+        // stepped aside to, and he keeps to that side from now on.
+        resetNudge();
+        setSideChosen(true);
         // Suppress the click that fires right after a drag-release.
         draggedRef.current = true;
         setTimeout(() => (draggedRef.current = false), 60);
@@ -577,10 +884,11 @@ export function MascotAssistant() {
     };
   };
 
-  // Konami easter egg (spin + rainbow + XP) + restore the persisted aura.
+  // Konami easter egg (spin + rainbow) + restore the persisted aura. Its XP
+  // is the `secret:konami` outcome, paid once ever (lib/gamification/secrets).
   useEffect(() => {
     useMascotStore.getState().hydrateAppearance();
-    return installKonami(() => addXp(10));
+    return installKonami();
   }, []);
 
   // When the panel opens he points at it ("here it is"), now and then.
@@ -622,6 +930,8 @@ export function MascotAssistant() {
   useMascotChatReactions();
   // React to finished tool actions, for visitors and the owner alike.
   useMascotToolReactions(sceneShipped);
+  // Cheer once when a rare moment plays (lib/notify/moment-scheduler.ts).
+  useMascotCelebrationReactions();
 
   // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
   // Skip when typing in an editable element so it can't steal focus mid-edit.
@@ -671,7 +981,7 @@ export function MascotAssistant() {
           role="dialog"
           aria-label="Amr assistant"
           aria-modal={false}
-          style={panelPos(corner, showFigure, box.h, isPhone)}
+          style={panelPos(placed, showFigure, box.h, isPhone, nudge.lift)}
           className="fixed z-50 flex h-[min(68vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden panel bg-surface-deep shadow-xl"
         >
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
@@ -679,11 +989,12 @@ export function MascotAssistant() {
               <p className="text-sm font-semibold text-text">✦ Amr</p>
               <p className="text-xs text-sub">
                 {isOwner
-                  ? "Drive every tool · "
+                  ? "Drive every tool"
                   : visitorAi
-                    ? "Find a tool or ask · "
-                    : "Find the right tool · "}
-                Cmd/Ctrl+J
+                    ? "Find a tool or ask"
+                    : "Find the right tool"}
+                {/* A keyboard shortcut means nothing on a touch screen. */}
+                <span className="pointer-coarse:hidden"> · Cmd/Ctrl+J</span>
               </p>
             </div>
             <div className="flex items-center gap-0.5">
@@ -697,7 +1008,7 @@ export function MascotAssistant() {
                     }}
                     aria-label="New chat"
                     title="New chat"
-                    className="rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
+                    className="min-touch-coarse inline-flex items-center justify-center rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
                   >
                     <Plus className="h-4 w-4" aria-hidden="true" />
                   </button>
@@ -707,7 +1018,7 @@ export function MascotAssistant() {
                     aria-label="Conversation history"
                     title="History"
                     aria-pressed={showHistory}
-                    className={`rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
+                    className={`min-touch-coarse inline-flex items-center justify-center rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
                       showHistory ? "text-accent" : "text-sub"
                     }`}
                   >
@@ -726,7 +1037,7 @@ export function MascotAssistant() {
                       : "Let Amr feel your phone's tilt and shakes"
                   }
                   aria-pressed={feelsMotion}
-                  className={`min-touch-coarse rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
+                  className={`min-touch-coarse inline-flex items-center justify-center rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
                     feelsMotion ? "text-accent" : "text-sub"
                   }`}
                 >
@@ -737,7 +1048,7 @@ export function MascotAssistant() {
                 type="button"
                 onClick={closeSheet}
                 aria-label="Close assistant"
-                className="min-touch-coarse rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
+                className="min-touch-coarse inline-flex items-center justify-center rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -761,6 +1072,18 @@ export function MascotAssistant() {
         </div>
       )}
 
+      {/* The screen's side safe areas, for stepping aside to the other side (readSideInsets). */}
+      <span
+        ref={insetProbeRef}
+        aria-hidden="true"
+        data-amr-inset-probe
+        className="pointer-events-none invisible fixed left-0 top-0 h-0 w-0"
+        style={{
+          paddingLeft: "env(safe-area-inset-left, 0px)",
+          paddingRight: "env(safe-area-inset-right, 0px)",
+        }}
+      />
+
       {/* Floating mascot — click to toggle the chat. */}
       {!hideFigure && (
         <button
@@ -774,7 +1097,7 @@ export function MascotAssistant() {
           style={
             dragPos
               ? { position: "fixed", left: dragPos.left, top: dragPos.top }
-              : buttonPos(corner, showFigure, box.h, isPhone)
+              : buttonPos(placed, showFigure, box.h, isPhone, nudge.lift)
           }
           className={cn(
             "z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",

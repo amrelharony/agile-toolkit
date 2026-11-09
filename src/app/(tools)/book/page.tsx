@@ -17,6 +17,7 @@ import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
 import { COMICS_ROUTE } from "@/lib/comics/entry";
 import { SITE_URL, jsonLdScript } from "@/lib/comics/rights";
 import { comicMetadata } from "../comics/comic-metadata";
+import { bookArt } from "@/lib/ink/drawings/pages/book";
 
 export const metadata: Metadata = comicMetadata({
   title: `${BOOK.title} — the book`,
@@ -33,7 +34,11 @@ export const metadata: Metadata = comicMetadata({
  */
 export default function BookPage() {
   return (
-    <ToolPageWrapper title={BOOK.title} description={`${BOOK.subtitle}, by ${BOOK.author}`}>
+    <ToolPageWrapper
+      art={bookArt}
+      title={BOOK.title}
+      description={`${BOOK.subtitle}, by ${BOOK.author}`}
+    >
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdScript(bookJsonLd()) }}

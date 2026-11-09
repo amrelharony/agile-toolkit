@@ -1,4 +1,6 @@
 import { ComicsPortal } from "./comics-portal";
+import { SettingsHeader } from "@/components/settings/settings-header";
+import { comicsArt } from "@/lib/ink/drawings/pages/comics";
 
 export const metadata = {
   title: "Comics portal",
@@ -10,12 +12,9 @@ export const metadata = {
 export default function ComicsPortalPage() {
   return (
     <div className="container-tool py-8">
-      <header className="mb-6 space-y-2">
-        <h1 className="text-fluid-h2 font-semibold text-text">Comics portal</h1>
-        <p className="text-sub max-w-2xl">
-          Upload and schedule stories, check what comes next, and answer licence requests.
-        </p>
-      </header>
+      <SettingsHeader title="Comics portal" art={comicsArt}>
+        Upload and schedule stories, check what comes next, and answer licence requests.
+      </SettingsHeader>
       <ComicsPortal />
     </div>
   );

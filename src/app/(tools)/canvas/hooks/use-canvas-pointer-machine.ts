@@ -91,6 +91,10 @@ export type PointerMachineRefs = {
   lassoRafRef: MutableRefObject<number | null>;
   lassoPointsRef: MutableRefObject<number[] | null>;
   lastLassoWorldRef: MutableRefObject<{ x: number; y: number } | null>;
+  // True from the moment a second finger joins a touch until a fresh
+  // first finger starts a new one: the pinch owns the gesture, so
+  // object presses made by touch in between must be ignored too.
+  multiTouchRef: RefObject<boolean>;
 };
 
 /**
@@ -270,6 +274,94 @@ export function useCanvasPointerMachine(params: {
   const lassoRafRef = useRef<number | null>(null);
   const lastLassoWorldRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Two fingers are the pinch's (use-canvas-touch-gestures): it zooms
+  // and pans the board. Each finger still reaches this machine as its own
+  // pointer, so the first finger's one-finger gesture kept running under
+  // the pinch: a two-finger pan cleared the selection and marquee-
+  // selected what lay between the fingers, dragged an object by the gap
+  // between them, or (hand tool) panned by the jumps between fingers over
+  // the pinch's camera. So when a second touch lands, the first finger's
+  // gesture is cancelled the way Esc cancels it, the selection goes back
+  // to what it was when that finger landed, and touches are ignored here
+  // until a fresh first finger starts a new touch.
+  const touchIdsRef = useRef<Set<number>>(new Set());
+  const multiTouchRef = useRef(false);
+  const touchStartSelectionRef = useRef<string[] | null>(null);
+
+  const cancelForPinch = useCallback(() => {
+    const s = useCanvasStore.getState();
+    if (s.drag) setDrag(null);
+    if (s.resize) setResize(null);
+    if (s.rotation) setRotation(null);
+    if (s.marquee) {
+      if (lassoRafRef.current != null) {
+        cancelAnimationFrame(lassoRafRef.current);
+        lassoRafRef.current = null;
+      }
+      lassoPointsRef.current = null;
+      lastLassoWorldRef.current = null;
+      setMarquee(null);
+    }
+    if (s.drawing) {
+      setDrawing(null);
+      wetInkApiRef.current?.reset();
+    }
+    createStartRef.current = null;
+    dragSnapIndexRef.current = null;
+    isPanningRef.current = false;
+    if ((dragGuidesRef.current?.length ?? 0) > 0) setDragGuides([]);
+    const before = touchStartSelectionRef.current;
+    const now = useCanvasStore.getState().selection;
+    if (before && (before.length !== now.length || before.some((id, i) => now[i] !== id))) {
+      setSelection([...before]);
+    }
+  }, [
+    setDrag,
+    setResize,
+    setRotation,
+    setMarquee,
+    setDrawing,
+    setDragGuides,
+    setSelection,
+    dragGuidesRef,
+    wetInkApiRef,
+  ]);
+
+  // Native listeners: on the viewport, a pointerdown reaches them before
+  // React's delegated handlers (below, and the object presses), so the
+  // cancel runs first and those handlers already see the latch. Lifts
+  // are tracked on the window, where they arrive wherever the finger is.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const ids = touchIdsRef.current;
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      if (e.isPrimary || ids.size === 0) {
+        // A fresh first finger: a new touch.
+        ids.clear();
+        multiTouchRef.current = false;
+        touchStartSelectionRef.current = [...useCanvasStore.getState().selection];
+      }
+      ids.add(e.pointerId);
+      if (ids.size >= 2 && !multiTouchRef.current) {
+        multiTouchRef.current = true;
+        cancelForPinch();
+      }
+    };
+    const onEnd = (e: PointerEvent) => {
+      if (e.pointerType === "touch") ids.delete(e.pointerId);
+    };
+    el.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointerup", onEnd, true);
+    window.addEventListener("pointercancel", onEnd, true);
+    return () => {
+      el.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointerup", onEnd, true);
+      window.removeEventListener("pointercancel", onEnd, true);
+    };
+  }, [viewportRef, cancelForPinch]);
+
   // Board-switch cleanup. Any in-flight gesture on the previous board
   // would otherwise leak into the new one.
   useEffect(() => {
@@ -377,6 +469,8 @@ export function useCanvasPointerMachine(params: {
   // ─── Pointer down on empty canvas ────────────────────────────────────
   const onCanvasPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      // A second finger: the pinch's, not a new one-finger gesture.
+      if (e.pointerType === "touch" && multiTouchRef.current) return;
       // Palm rejection: if a pen is in contact (tracked at window level
       // by useInputClass), single-finger touch is almost always the
       // user's hand resting on the screen. Drop it before any
@@ -660,6 +754,13 @@ export function useCanvasPointerMachine(params: {
   // ─── Pointer move — pan, marquee, drag, resize, rotation, drawing ───
   const onCanvasPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      // Fingers of a pinch move the camera there, not anything here. The
+      // cancel is a no-op once done; it also ends anything a touch began
+      // after the latch (state read live, not from this render).
+      if (e.pointerType === "touch" && multiTouchRef.current) {
+        cancelForPinch();
+        return;
+      }
       // Capture latest pointer position BEFORE any early returns so the
       // chat composer + emoji reactions can still spawn at cursor.
       const prev = lastPointerRef.current;
@@ -1054,6 +1155,7 @@ export function useCanvasPointerMachine(params: {
       }
     },
     [
+      cancelForPinch,
       camera,
       throttledSetCamera,
       marquee,
@@ -1086,6 +1188,16 @@ export function useCanvasPointerMachine(params: {
     (e: React.PointerEvent<HTMLDivElement>) => {
       isPanningRef.current = false;
       lastPointerRef.current = null;
+      // A pinch's finger lifting commits nothing: its gesture was
+      // cancelled when the second finger landed (this render's state may
+      // not show that yet, so don't read it).
+      if (e.pointerType === "touch" && multiTouchRef.current) {
+        cancelForPinch();
+        if (viewportRef.current?.hasPointerCapture?.(e.pointerId)) {
+          viewportRef.current.releasePointerCapture(e.pointerId);
+        }
+        return;
+      }
       if (marquee) {
         if (lassoRafRef.current != null) {
           cancelAnimationFrame(lassoRafRef.current);
@@ -1434,6 +1546,7 @@ export function useCanvasPointerMachine(params: {
       }
     },
     [
+      cancelForPinch,
       marquee,
       drag,
       resize,
@@ -1473,5 +1586,6 @@ export function useCanvasPointerMachine(params: {
     lassoRafRef,
     lassoPointsRef,
     lastLassoWorldRef,
+    multiTouchRef,
   };
 }

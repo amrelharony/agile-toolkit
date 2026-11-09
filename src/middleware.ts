@@ -130,7 +130,8 @@ export async function probeSession(supabase: SessionVerifier): Promise<SessionPr
  *   /api/agent/visitor — Amr's AI for visitors; same-site, rate-limited and
  *                     metered by its handler, reads no session
  *   /api/comics/hit, /api/comics/licence, /api/comics/guestbook,
- *   /api/comics/taps  — public reads and writes, gated by their handlers
+ *   /api/comics/taps, /api/comics/stats — public reads and writes, gated by
+ *                       their handlers
  *   /api/mascot/weather — the visitor's weather for Amr; reads no session
  *   /guest/*, /api/guest/* — invite-cookie flows, gated by their handlers
  *   /_next/*          — Next.js static + image optimisation
@@ -317,6 +318,7 @@ function isBypassPath(pathname: string): boolean {
     pathname === "/api/comics/licence" ||
     pathname === "/api/comics/guestbook" ||
     pathname === "/api/comics/taps" ||
+    pathname === "/api/comics/stats" ||
     pathname === "/api/mascot/weather" ||
     isGuestPath(pathname)
   );

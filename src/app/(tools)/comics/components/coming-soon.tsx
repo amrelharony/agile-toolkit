@@ -6,6 +6,7 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { COMICS_ROUTE } from "@/lib/comics/entry";
+import { comicsArt } from "@/lib/ink/drawings/pages/comics";
 
 /**
  * A number that isn't released, or doesn't exist. It takes no story on purpose,
@@ -13,7 +14,11 @@ import { COMICS_ROUTE } from "@/lib/comics/entry";
  */
 export function ComingSoon() {
   return (
-    <ToolPageWrapper title="Agile at Work" description="Workplace comics by Amr Elharony">
+    <ToolPageWrapper
+      art={comicsArt}
+      title="Agile at Work"
+      description="Workplace comics by Amr Elharony"
+    >
       <EmptyState
         icon={BookImage}
         padding="lg"

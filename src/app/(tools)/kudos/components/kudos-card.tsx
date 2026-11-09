@@ -64,6 +64,14 @@ const BLANK_PANEL = "#F2EFE8";
 /** "Agile at Work" and the site's address, in the print's teal. */
 const BRAND = "#12676B";
 
+/**
+ * The id the form's live preview carries until it has one of its own. A
+ * random id made while rendering differs between the server's render and the
+ * browser's, so the form sets the real one after mount; until then the card
+ * leaves data-kudos-id off.
+ */
+export const PENDING_KUDOS_ID = "kud_pending";
+
 const FACE =
   "flex w-full max-w-[300px] min-h-[423px] flex-col overflow-hidden rounded-lg shadow-md";
 const FACE_STYLE: CSSProperties = { background: PAPER, border: `1px solid ${EDGE}` };
@@ -293,13 +301,21 @@ function Back({ kudos, design, reminds, chevron }: BackProps) {
           {kudos.replyTo ? null : <p className="font-bold">Thank you for:</p>}
           <p className="min-h-[3.75rem] whitespace-pre-wrap break-words">{kudos.message}</p>
         </div>
+        {/* No min-w-0 on From: its narrowest is its longest word, so a short
+            row moves the Date to a line of its own instead of splitting the
+            name mid-word ("Workspac / e owner"). max-w-full still lets a
+            single token too long for the whole row break inside it. */}
         <div className="flex flex-wrap gap-x-4 gap-y-1 py-2" style={RULED}>
-          <p className="flex min-w-0 flex-1 gap-1.5">
+          <p className="flex max-w-full flex-1 gap-1.5">
             <span className="shrink-0 font-bold">From:</span>{" "}
             <span className="min-w-0 break-words">{senderOf(kudos)}</span>
           </p>
           <p className="flex shrink-0 gap-1.5">
-            <span className="font-bold">Date:</span> <span>{dateLabelOf(kudos.sentAt)}</span>
+            <span className="font-bold">Date:</span>{" "}
+            {/* The preview's date is today's, and the server's today (UTC) can
+                be a day off the visitor's near midnight: React then takes the
+                browser's text instead of failing the hydration. */}
+            <span suppressHydrationWarning>{dateLabelOf(kudos.sentAt)}</span>
           </p>
         </div>
       </div>
@@ -340,6 +356,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
 ) {
   const design = designFor(kudos);
   const reminds = remindsOf(kudos);
+  const kudosId = kudos.id === PENDING_KUDOS_ID ? undefined : kudos.id;
 
   const grouped = groupReactions(kudos.reactions, viewerProfileId);
   // Hide the reply chevron when this card IS a reply (depth-1 cap).
@@ -371,7 +388,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
     return (
       <div
         ref={ref}
-        data-kudos-id={kudos.id}
+        data-kudos-id={kudosId}
         className="@container w-full"
         style={{ color: BODY_INK }}
       >
@@ -387,7 +404,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
   return (
     <div
       ref={ref}
-      data-kudos-id={kudos.id}
+      data-kudos-id={kudosId}
       className="w-full overflow-hidden rounded-lg shadow-md"
       style={{ ...FACE_STYLE, color: BODY_INK }}
     >

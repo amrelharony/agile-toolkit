@@ -25,6 +25,7 @@ import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { ResetButton } from "@/components/shared/reset-button";
 import { SectionCard } from "@/components/shared/section-card";
 import { SmartInput } from "@/components/shared/smart-input";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -161,12 +162,7 @@ export function CapacityPlannerClient() {
       {hydrated ? (
         <CapacityPlanner />
       ) : (
-        <p
-          role="status"
-          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
-        >
-          Loading the capacity plan…
-        </p>
+        <WorkspaceLoading tall>Loading the capacity plan…</WorkspaceLoading>
       )}
     </ToolPageWrapper>
   );
@@ -418,17 +414,20 @@ function SummaryCard({
   unit?: string;
   icon: ElementType;
 }) {
+  // Two to a row on a phone (about 150 px each): a little less padding, the
+  // label free to wrap ("Avg / Availability") and the unit free to drop under
+  // a long value. From `sm` up the tile is as it was.
   return (
     <Card className="border-border bg-surface">
-      <CardContent className="p-5">
-        <div className="mb-3 flex items-center gap-3">
-          <div className="rounded-lg bg-accent/10 p-2">
+      <CardContent className="p-4 sm:p-5">
+        <div className="mb-3 flex items-center gap-2 sm:gap-3">
+          <div className="shrink-0 rounded-lg bg-accent/10 p-2">
             <Icon className="h-5 w-5 text-accent" aria-hidden="true" />
           </div>
-          <span className="text-sm text-sub">{label}</span>
+          <span className="min-w-0 break-words text-sm text-sub">{label}</span>
         </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="font-data text-3xl font-bold text-text">{value}</span>
+        <div className="flex flex-wrap items-baseline gap-x-1.5">
+          <span className="font-data text-2xl font-bold text-text sm:text-3xl">{value}</span>
           {unit && <span className="text-sm text-sub">{unit}</span>}
         </div>
       </CardContent>
@@ -464,12 +463,25 @@ function PlanEditor({
   // the example never takes someone's row away.
   const [starterIds] = useState(() => new Set(plan.members.filter(isBlankMember).map((m) => m.id)));
   const isStarter = (m: CapacityMember) => starterIds.has(m.id) && isBlankMember(m);
+  // A plan with no team puts Team Members first: adding someone is the first
+  // thing to do, and on a phone the form sat four screens down, under the
+  // totals, the breakdown, the forecast and the settings (all zero or waiting
+  // for a team). Until someone works in this editor the order follows the
+  // team, so a team that arrives from elsewhere (the synced plan landing on a
+  // new device, an agent, another tab) gets the usual order. From the first
+  // edit or focus here it holds for the rest of the visit: the card doesn't
+  // jump away from under the person typing in it when the first member lands,
+  // and the next visit has the usual order.
+  const [heldOrder, setHeldOrder] = useState<boolean | null>(null);
+  const teamFirst = heldOrder ?? members.every(isBlankMember);
+  const holdOrder = () => setHeldOrder((held) => held ?? teamFirst);
 
   /** The plan as stored now; the unsaved default before the first edit. */
   const current = () => readPlan(plan.id) ?? plan;
   const write = (change: (p: CapacityPlan) => CapacityPlan) => savePlan(change(current()));
 
   const addMember = (values: Omit<CapacityMember, "id">) => {
+    holdOrder();
     const member: CapacityMember = { id: crypto.randomUUID(), ...values };
     write((p) => ({ ...p, members: [...p.members, member] }));
     log(CAPACITY_ACTIONS.MEMBER_ADDED, { memberId: member.id, name: member.name });
@@ -485,6 +497,7 @@ function PlanEditor({
     });
 
   const removeMember = (id: string) => {
+    holdOrder();
     const list = current().members;
     const index = list.findIndex((m) => m.id === id);
     const member = list[index];
@@ -501,27 +514,33 @@ function PlanEditor({
     });
   };
 
-  const updateMember = (id: string, updates: Partial<CapacityMember>) =>
+  const updateMember = (id: string, updates: Partial<CapacityMember>) => {
+    holdOrder();
     write((p) => ({
       ...p,
       members: p.members.map((m) => (m.id === id ? withUpdates(m, updates) : m)),
     }));
+  };
 
   // Config changes (length, events, focus, hours) also go to the history drawer.
   const updateConfig = (updates: Partial<CapacityPlan["config"]>) => {
+    holdOrder();
     write((p) => ({ ...p, config: { ...p.config, ...updates } }));
     log(CAPACITY_ACTIONS.CONFIG_UPDATED, updates as Record<string, unknown>);
   };
 
   const hasMembers = members.some((m) => !isStarter(m));
 
-  const loadExample = () =>
+  const loadExample = () => {
+    holdOrder();
     write((p) => ({
       ...p,
       members: [...buildExampleMembers(), ...p.members.filter((m) => !isStarter(m))],
     }));
+  };
 
   const clearExample = () => {
+    holdOrder();
     const prev = current();
     // "Load an example" on a sprint with no plan made this plan. With nothing
     // of the user's in it (no one else, settings as they started), clearing
@@ -545,6 +564,7 @@ function PlanEditor({
   // matched by teamMemberId or name. Never removes a row; a second run is a
   // no-op. One Undo takes back the whole sync (see revertRosterSync).
   const syncFromTeam = () => {
+    holdOrder();
     const before = current();
     const result = syncFromRoster(before.members, useWorkspaceStore.getState().teamMembers ?? []);
     if (result.added.length === 0 && result.changed.length === 0) {
@@ -653,12 +673,155 @@ function PlanEditor({
     [members, config]
   );
 
+  // Team Members and the per-person breakdown: after the settings, or first
+  // while the plan has no team (see teamFirst).
+  const team = (
+    <>
+      {/* ---- Team members ---- */}
+      <SectionCard
+        title="Team Members"
+        icon={Users}
+        titleSize="lg"
+        headerClassName="pb-4"
+        contentClassName="space-y-4"
+        actions={
+          <>
+            <AiPromptGenerator config={promptConfig} />
+            <ExportButton
+              filename={sprint ? `sprint-capacity-${sprint.name}` : "sprint-capacity"}
+              clipboardText={clipboardText}
+              csvData={csvData}
+              jsonData={jsonData}
+              markdown={markdown}
+              targetRef={exportRef}
+            />
+          </>
+        }
+      >
+        {/* In the body, not the card's header: several buttons in a row don't fit a phone. */}
+        <div className="flex flex-wrap gap-2">
+          <SyncButton roster={roster} onSync={syncFromTeam} />
+          <ResetButton
+            variant="danger-ghost"
+            title="Reset the capacity plan?"
+            description={`All ${members.length} team member${members.length === 1 ? " is" : "s are"} removed and the sprint settings go back to their defaults.`}
+            confirmLabel="Reset plan"
+            doneLabel="Reset the capacity plan"
+            onReset={() => {
+              holdOrder();
+              resetSnapshot.current = current();
+              savePlan(emptyPlan(sprint?.id, length.workingDays));
+              log(CAPACITY_ACTIONS.CAPACITY_RESET, sprint ? { sprintId: sprint.id } : {});
+            }}
+            onUndo={() => {
+              if (resetSnapshot.current) savePlan(resetSnapshot.current);
+            }}
+          />
+        </div>
+
+        {!hasMembers && (
+          <EmptyState padding="md" action={<LoadExampleButton onLoad={loadExample} />}>
+            No team yet. Add each member&apos;s availability and days off to see the sprint&apos;s
+            real capacity.
+          </EmptyState>
+        )}
+
+        {members.map((m) => (
+          <MemberRow
+            key={m.id}
+            member={m}
+            effectiveHours={hoursOf(m)}
+            counted={!isBlankMember(m)}
+            sprintDays={config.sprintDays}
+            roster={roster}
+            onUpdate={(updates) => updateMember(m.id, updates)}
+            onRemove={() => removeMember(m.id)}
+          />
+        ))}
+
+        <MemberAddForm sprintDays={config.sprintDays} roster={roster} onAdd={addMember} />
+
+        <div className="flex items-center justify-between border-t border-border px-1 pt-4">
+          <span className="text-sm font-medium text-sub">Sprint Total</span>
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-data text-2xl font-bold text-accent">
+              {fmt(summary.totalHours)}
+            </span>
+            <span className="text-sm text-sub">hours</span>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* ---- Per-person breakdown ---- */}
+      {members.some((m) => m.name) && (
+        <div>
+          <h2 className="mb-4 font-display text-lg font-semibold text-text">
+            Per-Person Breakdown
+          </h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {members
+              .filter((m) => m.name)
+              .map((m) => {
+                const hours = hoursOf(m);
+                // Share of what a fully available person with no days off gets.
+                const pct = fullMemberHours > 0 ? (hours / fullMemberHours) * 100 : 0;
+                return (
+                  <Card key={m.id} className="border-border bg-surface">
+                    <CardContent className="p-4">
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-text">{m.name}</p>
+                          {m.role && <p className="text-xs text-sub">{m.role}</p>}
+                          {m.description && (
+                            <p className="mb-0.5 mt-0.5 whitespace-pre-wrap break-words text-xs text-sub">
+                              {m.description}
+                            </p>
+                          )}
+                        </div>
+                        <span className="shrink-0 font-data text-xl font-bold text-accent">
+                          {fmt(hours)}h
+                        </span>
+                      </div>
+                      <div
+                        className="h-2 w-full overflow-hidden rounded-full bg-card"
+                        role="progressbar"
+                        aria-label={`${m.name}: share of a full sprint`}
+                        aria-valuenow={Math.round(Math.min(pct, 100))}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                      >
+                        <div
+                          className="h-full rounded-full bg-accent transition-all duration-300"
+                          style={{ width: `${Math.min(pct, 100)}%` }}
+                        />
+                      </div>
+                      <div className="mt-1.5 flex items-center justify-between text-xs text-sub">
+                        <span>{m.availability}% avail</span>
+                        <span>
+                          {m.daysOff} day{m.daysOff !== 1 ? "s" : ""} off
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   return (
-    <div className="space-y-6">
+    // Focus anywhere in the editor holds the order (see teamFirst): a half-typed
+    // name in the add form stays put when a team arrives from elsewhere.
+    <div className="space-y-6" onFocusCapture={holdOrder}>
       {hasExampleItems(members) && <ExampleNotice onClear={clearExample} />}
       <div ref={exportRef} className="space-y-6">
+        {teamFirst && team}
+
         {/* ---- Summary ---- */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Two to a row on a phone: one column stacked four tiles, 855 px. */}
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           <SummaryCard
             label="Total Capacity"
             value={fmt(summary.totalHours)}
@@ -769,136 +932,7 @@ function PlanEditor({
           )}
         </SectionCard>
 
-        {/* ---- Team members ---- */}
-        <SectionCard
-          title="Team Members"
-          icon={Users}
-          titleSize="lg"
-          headerClassName="pb-4"
-          contentClassName="space-y-4"
-          actions={
-            <>
-              <AiPromptGenerator config={promptConfig} />
-              <ExportButton
-                filename={sprint ? `sprint-capacity-${sprint.name}` : "sprint-capacity"}
-                clipboardText={clipboardText}
-                csvData={csvData}
-                jsonData={jsonData}
-                markdown={markdown}
-                targetRef={exportRef}
-              />
-            </>
-          }
-        >
-          {/* In the body, not the card's header: several buttons in a row don't fit a phone. */}
-          <div className="flex flex-wrap gap-2">
-            <SyncButton roster={roster} onSync={syncFromTeam} />
-            <ResetButton
-              variant="danger-ghost"
-              title="Reset the capacity plan?"
-              description={`All ${members.length} team member${members.length === 1 ? " is" : "s are"} removed and the sprint settings go back to their defaults.`}
-              confirmLabel="Reset plan"
-              doneLabel="Reset the capacity plan"
-              onReset={() => {
-                resetSnapshot.current = current();
-                savePlan(emptyPlan(sprint?.id, length.workingDays));
-                log(CAPACITY_ACTIONS.CAPACITY_RESET, sprint ? { sprintId: sprint.id } : {});
-              }}
-              onUndo={() => {
-                if (resetSnapshot.current) savePlan(resetSnapshot.current);
-              }}
-            />
-          </div>
-
-          {!hasMembers && (
-            <EmptyState padding="md" action={<LoadExampleButton onLoad={loadExample} />}>
-              No team yet. Add each member&apos;s availability and days off to see the sprint&apos;s
-              real capacity.
-            </EmptyState>
-          )}
-
-          {members.map((m) => (
-            <MemberRow
-              key={m.id}
-              member={m}
-              effectiveHours={hoursOf(m)}
-              counted={!isBlankMember(m)}
-              sprintDays={config.sprintDays}
-              roster={roster}
-              onUpdate={(updates) => updateMember(m.id, updates)}
-              onRemove={() => removeMember(m.id)}
-            />
-          ))}
-
-          <MemberAddForm sprintDays={config.sprintDays} roster={roster} onAdd={addMember} />
-
-          <div className="flex items-center justify-between border-t border-border px-1 pt-4">
-            <span className="text-sm font-medium text-sub">Sprint Total</span>
-            <div className="flex items-baseline gap-1.5">
-              <span className="font-data text-2xl font-bold text-accent">
-                {fmt(summary.totalHours)}
-              </span>
-              <span className="text-sm text-sub">hours</span>
-            </div>
-          </div>
-        </SectionCard>
-
-        {/* ---- Per-person breakdown ---- */}
-        {members.some((m) => m.name) && (
-          <div>
-            <h2 className="mb-4 font-display text-lg font-semibold text-text">
-              Per-Person Breakdown
-            </h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {members
-                .filter((m) => m.name)
-                .map((m) => {
-                  const hours = hoursOf(m);
-                  // Share of what a fully available person with no days off gets.
-                  const pct = fullMemberHours > 0 ? (hours / fullMemberHours) * 100 : 0;
-                  return (
-                    <Card key={m.id} className="border-border bg-surface">
-                      <CardContent className="p-4">
-                        <div className="mb-2 flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-text">{m.name}</p>
-                            {m.role && <p className="text-xs text-sub">{m.role}</p>}
-                            {m.description && (
-                              <p className="mb-0.5 mt-0.5 whitespace-pre-wrap break-words text-xs text-sub">
-                                {m.description}
-                              </p>
-                            )}
-                          </div>
-                          <span className="shrink-0 font-data text-xl font-bold text-accent">
-                            {fmt(hours)}h
-                          </span>
-                        </div>
-                        <div
-                          className="h-2 w-full overflow-hidden rounded-full bg-card"
-                          role="progressbar"
-                          aria-label={`${m.name}: share of a full sprint`}
-                          aria-valuenow={Math.round(Math.min(pct, 100))}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                        >
-                          <div
-                            className="h-full rounded-full bg-accent transition-all duration-300"
-                            style={{ width: `${Math.min(pct, 100)}%` }}
-                          />
-                        </div>
-                        <div className="mt-1.5 flex items-center justify-between text-xs text-sub">
-                          <span>{m.availability}% avail</span>
-                          <span>
-                            {m.daysOff} day{m.daysOff !== 1 ? "s" : ""} off
-                          </span>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-            </div>
-          </div>
-        )}
+        {!teamFirst && team}
       </div>
     </div>
   );
@@ -1055,7 +1089,7 @@ function ForecastCard({
       )}
       <Link
         href={sprintHref("/sprint-planning", sprint?.id)}
-        className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+        className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline pointer-coarse:min-h-11"
       >
         {sprint ? `Plan ${sprint.name} in Sprint Planning` : "Open Sprint Planning"}
         <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />

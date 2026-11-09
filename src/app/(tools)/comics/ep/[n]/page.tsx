@@ -10,9 +10,11 @@ import {
   getReleasedStory,
   getStoryExtras,
   getStoryGuess,
+  getStoryTotals,
   listReleasedEps,
   listReleasedWeekly,
 } from "@/lib/comics/store";
+import type { StoryTotals } from "@/lib/comics/stats";
 import type { StoryExtras } from "@/lib/comics/extras";
 import type { StoryGuessExtras } from "@/lib/comics/guess";
 import type { Story, StorySummary } from "@/lib/comics/types";
@@ -21,6 +23,7 @@ import { LatestComics } from "../../components/comic-card";
 import { ComicPanels } from "../../components/comic-panels";
 import { ComingSoon } from "../../components/coming-soon";
 import { EpisodeNotes } from "../../components/episode-notes";
+import { LoveButton } from "../../components/love-button";
 import { PosterIntro } from "../../components/intro/poster-intro";
 import { ReplayIntro } from "../../components/intro/replay-intro";
 import { PrintThemeChip } from "../../components/print-theme-chip";
@@ -31,7 +34,9 @@ import { StreakNote } from "../../components/reader-progress";
 import { ReadTracker } from "../../components/story-actions";
 import { StoryNav } from "../../components/story-nav";
 import { StoryQuiz } from "../../components/story-quiz";
+import { StoryStats } from "../../components/story-stats";
 import { TakeItToYourTeam } from "../../components/take-it-to-your-team";
+import { comicsArt } from "@/lib/ink/drawings/pages/comics";
 
 /**
  * An episode, behind /comics?ep=N (the middleware rewrites to here and sends
@@ -114,7 +119,7 @@ function BookEpisodePage({
       {/* Beside the wrapper, not in it: its entrance leaves a transform behind,
           and the intro's fixed overlay would cover the wrapper, not the screen. */}
       <PosterIntro ep={ep} title={title} panels={[]} />
-      <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>
+      <ToolPageWrapper art={comicsArt} title={title} description={`Episode ${ep}, by Amr Elharony`}>
         <VisitRecorder path="/comics" />
         <div className="space-y-4">
           <p className="text-sm text-sub">
@@ -164,16 +169,19 @@ function WeeklyStoryPage({
   nextEp,
   extras,
   guess,
+  totals,
 }: {
   story: Story;
   prevEp: number | null;
   nextEp: number | null;
   extras: StoryExtras;
   guess: StoryGuessExtras;
+  totals: StoryTotals;
 }) {
   const { ep, title } = story;
+  const readable = story.panels.length > 0;
   return (
-    <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>
+    <ToolPageWrapper art={comicsArt} title={title} description={`Episode ${ep}, by Amr Elharony`}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdScript(storyJsonLd(story)) }}
@@ -181,8 +189,11 @@ function WeeklyStoryPage({
       <VisitRecorder path="/comics" />
       <div className="space-y-4">
         <ComicPanels panels={story.panels} title={title} ep={ep} guess={guess.guess} />
+        {readable ? (
+          <LoveButton ep={ep} initialLoves={totals.loves} initialReaders={totals.readers} />
+        ) : null}
         <EpisodeNotes lesson={story.lesson} question={story.squadQuestion} />
-        {story.panels.length > 0 ? <SeenAtWork ep={ep} /> : null}
+        {readable ? <SeenAtWork ep={ep} /> : null}
         <TakeItToYourTeam
           ep={ep}
           question={story.squadQuestion}
@@ -193,11 +204,12 @@ function WeeklyStoryPage({
         {extras.quiz ? <StoryQuiz ep={ep} quiz={extras.quiz} /> : null}
         <StoryNav ep={ep} title={title} prevEp={prevEp} nextEp={nextEp} />
         {/* Only a story with its art can be read to the end. */}
-        {story.panels.length > 0 ? <ReadTracker ep={ep} /> : null}
-        {story.panels.length > 0 ? <StreakNote /> : null}
+        {readable ? <ReadTracker ep={ep} /> : null}
+        {readable ? <StoryStats ep={ep} /> : null}
+        {readable ? <StreakNote /> : null}
         <RightsNotice />
         <ReadAheadLink />
-        <CountDisclosure />
+        <CountDisclosure story={readable} />
       </div>
     </ToolPageWrapper>
   );
@@ -220,12 +232,20 @@ export default async function ComicStoryPage({ params }: StoryPageProps) {
         <ComingSoon />
       </>
     );
-  const [{ prevEp, nextEp }, extras, guess] = await Promise.all([
+  const [{ prevEp, nextEp }, extras, guess, totals] = await Promise.all([
     weeklyNeighbours(ep),
     getStoryExtras(ep),
     getStoryGuess(ep),
+    getStoryTotals(ep),
   ]);
   return (
-    <WeeklyStoryPage story={story} prevEp={prevEp} nextEp={nextEp} extras={extras} guess={guess} />
+    <WeeklyStoryPage
+      story={story}
+      prevEp={prevEp}
+      nextEp={nextEp}
+      extras={extras}
+      guess={guess}
+      totals={totals}
+    />
   );
 }

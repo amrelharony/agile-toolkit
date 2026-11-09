@@ -234,7 +234,9 @@ export function AgentConversation() {
         </form>
         {voice.error && <p className="mt-1.5 text-xs text-destructive">{voice.error}</p>}
         <p className="text-xs text-sub mt-1.5">
-          Enter to send · Shift+Enter for newline · Write actions ask for confirmation
+          {/* Key hints mean nothing on a touch screen; the safety note stays. */}
+          <span className="pointer-coarse:hidden">Enter to send · Shift+Enter for newline · </span>
+          Write actions ask for confirmation
         </p>
       </div>
     </div>

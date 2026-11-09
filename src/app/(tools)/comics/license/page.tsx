@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LICENSE_PATH } from "@/lib/comics/rights";
 import { comicMetadata } from "../comic-metadata";
 import { LicenceForm } from "./licence-form";
+import { scrollArt } from "@/lib/ink/drawings/pages/scroll";
 
 export const metadata: Metadata = comicMetadata({
   title: "Comic licence — Agile at Work",
@@ -34,7 +35,11 @@ const TERMS = [
 
 export default function ComicLicensePage() {
   return (
-    <ToolPageWrapper title="Comic licence" description="How you can use the Agile at Work comics">
+    <ToolPageWrapper
+      art={scrollArt}
+      title="Comic licence"
+      description="How you can use the Agile at Work comics"
+    >
       <div className="max-w-2xl space-y-6">
         <Card>
           <CardContent className="space-y-3 p-4 sm:p-6">

@@ -90,29 +90,10 @@ export function VisitorGuide({
       data-testid="mascot-visitor-guide"
       className="flex h-full flex-col gap-4 overflow-y-auto px-4 py-3"
     >
-      {current && (
-        <section
-          aria-label="This tool"
-          className="rounded-lg border border-border bg-card px-3 py-2.5"
-        >
-          <p className="text-xs text-sub">You&apos;re in</p>
-          <p className="text-sm font-semibold text-text">{current.name}</p>
-          <p className="mt-0.5 text-sm text-sub">{guide?.summary ?? current.description}</p>
-          {guide && (
-            <>
-              <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-sub">
-                How to run it
-              </p>
-              <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-text">
-                {guide.steps.map((step) => (
-                  <li key={step}>{step}</li>
-                ))}
-              </ol>
-            </>
-          )}
-        </section>
-      )}
-
+      {/* The search comes first. A phone shows about 360 px of this panel, and
+          the current tool's "How to run it" list alone is longer than that, so
+          the search used to sit two to four screens down. Results show right
+          under the field; the common jobs follow the tool's own card. */}
       <section className="flex flex-col gap-2">
         <label htmlFor="mascot-tool-search" className="text-sm font-medium text-text">
           What do you need to do?
@@ -132,8 +113,8 @@ export function VisitorGuide({
             autoComplete="off"
           />
         </div>
-        {trimmed ? (
-          results.length > 0 ? (
+        {trimmed &&
+          (results.length > 0 ? (
             <>
               <ul className="flex flex-col gap-1" aria-label="Matching tools">
                 {results.map((tool) => (
@@ -157,9 +138,41 @@ export function VisitorGuide({
               </p>
               {onAskAmr && <AskAmrButton query={trimmed} onAskAmr={onAskAmr} />}
             </>
-          )
-        ) : (
-          <ul className="flex flex-col gap-1" aria-label="Popular tasks">
+          ))}
+      </section>
+
+      {current && (
+        <section
+          aria-label="This tool"
+          className="rounded-lg border border-border bg-card px-3 py-2.5"
+        >
+          <p className="text-xs text-sub">You&apos;re in</p>
+          <p className="text-sm font-semibold text-text">{current.name}</p>
+          <p className="mt-0.5 text-sm text-sub">{guide?.summary ?? current.description}</p>
+          {guide && (
+            <>
+              <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-sub">
+                How to run it
+              </p>
+              <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-text">
+                {guide.steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            </>
+          )}
+        </section>
+      )}
+
+      {!trimmed && (
+        <section className="flex flex-col gap-1">
+          <p
+            id="mascot-popular-tasks"
+            className="text-xs font-semibold uppercase tracking-wide text-sub"
+          >
+            Popular tasks
+          </p>
+          <ul className="flex flex-col gap-1" aria-labelledby="mascot-popular-tasks">
             {STARTERS.map((s) => {
               const tool = getToolById(s.toolId);
               if (!tool) return null;
@@ -175,8 +188,8 @@ export function VisitorGuide({
               );
             })}
           </ul>
-        )}
-      </section>
+        </section>
+      )}
 
       <section className="mt-auto flex flex-col gap-2 border-t border-border pt-3">
         {onAskAmr && (
@@ -197,6 +210,7 @@ export function VisitorGuide({
             type="button"
             variant="toolkit"
             size="sm"
+            className="pointer-coarse:min-h-11"
             onClick={() => {
               onNavigate?.();
               openSettings();
@@ -208,7 +222,7 @@ export function VisitorGuide({
           <Link
             href={signInHref}
             onClick={onNavigate}
-            className="text-xs text-sub underline-offset-2 hover:text-text hover:underline"
+            className="min-touch-coarse inline-flex items-center justify-end text-xs text-sub underline-offset-2 hover:text-text hover:underline"
           >
             Owner sign in
           </Link>

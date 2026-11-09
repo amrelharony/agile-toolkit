@@ -1,4 +1,6 @@
 import { AppearanceClient } from "./appearance-client";
+import { SettingsHeader } from "@/components/settings/settings-header";
+import { paletteArt } from "@/lib/ink/drawings/pages/palette";
 
 export const metadata = {
   title: "Appearance",
@@ -8,14 +10,11 @@ export const metadata = {
 export default function AppearancePage() {
   return (
     <div className="container-tool py-8">
-      <header className="mb-6 space-y-2">
-        <h1 className="text-fluid-h2 font-semibold text-text">Appearance</h1>
-        <p className="text-sub max-w-2xl">
-          Choose a colour theme, and control the holiday decorations: on Egyptian holidays (Eid,
-          Ramadan, Coptic Easter, national days and a few global ones) the toolkit shifts colours
-          and adds light particle animations.
-        </p>
-      </header>
+      <SettingsHeader title="Appearance" art={paletteArt}>
+        Choose a colour theme, and control the holiday decorations: on Egyptian holidays (Eid,
+        Ramadan, Coptic Easter, national days and a few global ones) the toolkit shifts colours and
+        adds light particle animations.
+      </SettingsHeader>
       <AppearanceClient />
     </div>
   );

@@ -11,7 +11,7 @@ import { PresentationController } from "@/components/presentation/presentation-m
 import { StorageHealthBanner } from "@/components/data/storage-health-banner";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
-import { CommandPalette } from "./command-palette";
+import { ShellDialogs } from "./shell-dialogs";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useLlmStore } from "@/lib/stores/llm-store";
 import { dismissUndoToasts } from "@/lib/utils/undoable";
@@ -25,13 +25,13 @@ import { LegacyToolMigrations } from "@/components/data/legacy-tool-migrations";
 // (components/agent/mascot/owner-agent-panel) when it loads — only the
 // agent reads it client-side, so visitors never download it.
 
-// Settings dialog is dynamic-imported so its body (tabs, model lists, the
-// tested provider import) never lands in the eager bundle — only loads
-// when the user actually clicks the header chip or UserMenu entry.
-const LlmSettingsDialog = dynamic(
-  () => import("@/components/ai/llm-settings-dialog").then((m) => m.LlmSettingsDialog),
-  { ssr: false }
-);
+// The holiday engine (its Hijri and Coptic calendars) renders nothing until
+// a theme applies after hydration, so it loads right after the page is up
+// instead of in every page's first download. The tool finder, the trophy case
+// and the BYOK settings dialog load when first opened (see ShellDialogs).
+const HolidayEngine = dynamic(() => import("@/lib/holiday/engine").then((m) => m.HolidayEngine), {
+  ssr: false,
+});
 
 // Floating 3D mascot + agent chat — dynamic-imported (ssr:false) so the WebGL
 // mascot + agent runtime (SSE parser, tool-execution machinery) only load
@@ -43,7 +43,6 @@ const MascotAssistant = dynamic(
 import { SonificationProvider } from "@/lib/sonification/provider";
 import { GamificationProvider } from "@/lib/gamification/provider";
 import { HapticsProvider } from "@/lib/haptics/provider";
-import { HolidayEngine } from "@/lib/holiday/engine";
 import { EmotionProvider } from "@/lib/emotion/provider";
 import { WeatherProvider } from "@/lib/weather/provider";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
@@ -62,7 +61,9 @@ const FlyingCardPortal = dynamic(
   () => import("@/lib/kudos/beacon/flying-card").then((m) => m.FlyingCardPortal),
   { ssr: false }
 );
-import { TrophyCase } from "@/components/gamification/trophy-case";
+import { ActivityPanel } from "@/components/notify/activity-panel";
+import { MomentChip } from "@/components/notify/moment-chip";
+import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 
 // Routes that bypass the full app chrome (sidebar/header/providers).
@@ -103,7 +104,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 function FullAppShell({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
-  const [trophyOpen, setTrophyOpen] = useState(false);
+  // The trophy case and the Activity panel open from the XP bar, the user
+  // menu and each other, so their state lives in a small shared store.
+  const trophyOpen = useActivityUiStore((s) => s.trophyOpen);
+  const setTrophyOpen = useActivityUiStore((s) => s.setTrophyOpen);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
@@ -185,25 +189,35 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                                 <Header
                                   onOpenSearch={() => setSearchOpen(true)}
                                   onOpenSidebar={() => setSidebarOpen(true)}
-                                  onOpenTrophyCase={() => setTrophyOpen(true)}
                                 />
+                                {/* Side safe areas: the right one at every width (md
+                                    covers every landscape iPhone, notch and all); the
+                                    left one only below md, where no rail sits there
+                                    (the rail keeps it from md: sidebar). */}
                                 <main
                                   id="main-content"
-                                  className="flex-1 pb-[calc(8rem+env(safe-area-inset-bottom))] md:pb-28 pl-safe pr-safe md:pl-0 md:pr-0"
+                                  className="flex-1 pb-[calc(8rem+env(safe-area-inset-bottom))] md:pb-28 pl-safe pr-safe md:pl-0"
                                 >
                                   {children}
                                 </main>
                               </div>
-                              <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
                             </div>
-                            <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
-                            <Suspense fallback={null}>
-                              <HolidayEngine />
-                            </Suspense>
-                            {/* BYOK settings dialog — open/close state lives in llm-ui-store,
-            so this single mount serves both header-chip and UserMenu
-            entry points. Dynamic-imported so non-AI users never load it. */}
-                            <LlmSettingsDialog />
+                            {/* The tool finder (and Ctrl/Cmd+K), the trophy case and the BYOK
+                                settings dialog: each one's code loads when it first opens. */}
+                            <ShellDialogs
+                              searchOpen={searchOpen}
+                              setSearchOpen={setSearchOpen}
+                              trophyOpen={trophyOpen}
+                              setTrophyOpen={setTrophyOpen}
+                            />
+                            <ActivityPanel />
+                            <MomentChip />
+                            {/* Cosmetic: if its code can't load, the page carries on without it. */}
+                            <ErrorBoundary name="HolidayEngine" fallback={() => null}>
+                              <Suspense fallback={null}>
+                                <HolidayEngine />
+                              </Suspense>
+                            </ErrorBoundary>
                             <MascotAssistant />
                           </HistorySyncProvider>
                         </CloudSyncProvider>

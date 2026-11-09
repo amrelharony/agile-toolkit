@@ -447,7 +447,7 @@ export function FlakyTestsClient() {
                 {(props) => (
                   <select
                     {...props}
-                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:h-9 md:text-sm"
+                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-base text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-fine:md:h-9 pointer-fine:md:text-sm"
                     value={sortKey}
                     onChange={(e) => setSortKey(e.target.value as SortKey)}
                   >

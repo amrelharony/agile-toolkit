@@ -5,7 +5,7 @@ import { type ReactNode } from "react";
 interface PageHeaderProps {
   label?: string;
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   actions?: ReactNode;
 }
 

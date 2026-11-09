@@ -20,6 +20,80 @@ import {
   titleSlug,
 } from "@/lib/agent/persist";
 import type { ConversationMeta } from "@/lib/agent/types";
+import { toast } from "@/lib/utils/toast";
+import { undoable } from "@/lib/utils/undoable";
+
+/** How long a deleted thread can still come back with Undo. */
+export const DELETE_UNDO_MS = 8000;
+
+interface PendingDelete {
+  /** Deletes the thread for good once Undo is no longer offered. */
+  timer: ReturnType<typeof setTimeout>;
+  /** The toast offering Undo, closed the moment the delete goes out. */
+  toastId?: string | number;
+}
+
+/**
+ * Threads deleted in the last few seconds. Until the delete goes out the row
+ * is only hidden, so Undo needs nothing rebuilt. Module-level so a list closed
+ * and reopened in that window keeps the thread hidden, and the delete still
+ * lands after the list has unmounted.
+ */
+const pendingDeletes = new Map<string, PendingDelete | "deleting">();
+
+/** Mounted lists, told to re-read when a thread may have come back. */
+const listListeners = new Set<() => void>();
+
+async function commitDelete(id: string): Promise<void> {
+  const pending = pendingDeletes.get(id);
+  if (pending === undefined || pending === "deleting") return;
+  clearTimeout(pending.timer);
+  pendingDeletes.set(id, "deleting");
+  // Undo must not outlive the delete. Sonner pauses its toast's clock while
+  // the toaster is hovered or tapped and while the tab is hidden, so the toast
+  // can still be up when this timer fires: close it before anything is sent.
+  if (pending.toastId !== undefined) toast.dismiss(pending.toastId);
+  try {
+    await deleteConversation(id);
+  } finally {
+    // Only now: a refetch while the request is in flight still hides it.
+    pendingDeletes.delete(id);
+    // deleteConversation doesn't throw when Supabase refuses the delete, so
+    // re-read: a thread that is still there shows again.
+    listListeners.forEach((fn) => fn());
+  }
+}
+
+/** Cancel a delete still inside its Undo window. False once it has gone out. */
+function cancelDelete(id: string): boolean {
+  const pending = pendingDeletes.get(id);
+  if (pending === undefined || pending === "deleting") return false;
+  clearTimeout(pending.timer);
+  pendingDeletes.delete(id);
+  return true;
+}
+
+// Leaving the page inside the Undo window deletes at once (best-effort), and
+// closes the Undo toast with it. Phones often skip pagehide when the app is
+// swiped away or the tab is killed, but fire visibilitychange first.
+let flushOnHide = false;
+function flushPendingOnPageHide(): void {
+  if (flushOnHide || typeof window === "undefined") return;
+  flushOnHide = true;
+  const flush = () => pendingDeletes.forEach((_, id) => void commitDelete(id));
+  window.addEventListener("pagehide", flush);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flush();
+  });
+}
+
+/**
+ * A row's Export / Rename / Delete. With a mouse they appear on hover (or when
+ * the row has keyboard focus). A touch screen has no hover, and tapping the
+ * row opens the thread, so there they always show, at 44 px.
+ */
+const ROW_ACTION =
+  "min-touch-coarse inline-flex items-center justify-center p-1 text-sub opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100";
 
 function downloadText(filename: string, text: string): void {
   const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
@@ -52,9 +126,17 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
 
   const refresh = useCallback(() => {
-    void listConversations().then(setItems);
+    void listConversations().then((list) =>
+      setItems(list.filter((c) => !pendingDeletes.has(c.id)))
+    );
   }, []);
   useEffect(() => refresh(), [refresh]);
+  useEffect(() => {
+    listListeners.add(refresh);
+    return () => {
+      listListeners.delete(refresh);
+    };
+  }, [refresh]);
 
   // Multi-tab/device live sync: re-fetch when agent_conversations changes
   // (insert/rename/delete from another tab), plus on tab focus as a fallback
@@ -94,10 +176,50 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
     onClose();
   };
 
-  const remove = async (id: string) => {
-    await deleteConversation(id);
-    if (useAgentStore.getState().activeConversationId === id) useAgentStore.getState().reset();
-    refresh();
+  // Delete hides the row at once and offers Undo; the thread is deleted in
+  // Supabase only when the Undo window closes (or the page is hidden), and the
+  // Undo toast closes with it. A stray tap on a phone used to erase a thread
+  // for good.
+  const remove = (meta: ConversationMeta) => {
+    const store = useAgentStore.getState();
+    const wasActive = store.activeConversationId === meta.id;
+    // What Undo puts back if this was the open thread.
+    const openMessages = wasActive ? store.messages : [];
+    const index = (items ?? []).findIndex((c) => c.id === meta.id);
+    const toastId = undoable({
+      label: `Deleted “${meta.title}”`,
+      durationMs: DELETE_UNDO_MS,
+      apply: () => {
+        pendingDeletes.set(meta.id, {
+          timer: setTimeout(() => void commitDelete(meta.id), DELETE_UNDO_MS),
+        });
+        flushPendingOnPageHide();
+        setItems((list) => list && list.filter((c) => c.id !== meta.id));
+        if (wasActive) useAgentStore.getState().reset();
+      },
+      revert: () => {
+        // Undo tapped as the delete went out: say so rather than do nothing.
+        if (!cancelDelete(meta.id)) {
+          toast.error("Too late to undo: the conversation was already deleted");
+          return;
+        }
+        setItems((list) => {
+          if (!list || list.some((c) => c.id === meta.id)) return list;
+          const next = [...list];
+          next.splice(index < 0 ? next.length : Math.min(index, next.length), 0, meta);
+          return next;
+        });
+        // Reopen it, unless another chat has started since.
+        const s = useAgentStore.getState();
+        if (wasActive && !s.activeConversationId && s.messages.length === 0) {
+          s.setActiveConversation(meta, openMessages);
+        }
+        // A list reopened since the delete re-reads to show it again.
+        listListeners.forEach((fn) => fn());
+      },
+    });
+    const pending = pendingDeletes.get(meta.id);
+    if (pending && pending !== "deleting") pending.toastId = toastId;
   };
 
   const commitRename = async (id: string) => {
@@ -162,14 +284,14 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
                     if (e.key === "Enter") void commitRename(c.id);
                     if (e.key === "Escape") setEditing(null);
                   }}
-                  className="min-w-0 flex-1 rounded border border-border bg-surface-deep px-1.5 py-0.5 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                  className="min-w-0 flex-1 rounded border border-border bg-surface-deep px-1.5 py-0.5 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent pointer-coarse:text-base"
                   aria-label="Rename conversation"
                 />
                 <button
                   type="button"
                   onClick={() => void commitRename(c.id)}
                   aria-label="Save name"
-                  className="p-1 text-sub hover:text-text"
+                  className="min-touch-coarse inline-flex items-center justify-center p-1 text-sub hover:text-text"
                 >
                   <Check className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
@@ -177,7 +299,7 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
                   type="button"
                   onClick={() => setEditing(null)}
                   aria-label="Cancel rename"
-                  className="p-1 text-sub hover:text-text"
+                  className="min-touch-coarse inline-flex items-center justify-center p-1 text-sub hover:text-text"
                 >
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
@@ -187,7 +309,7 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
                 <button
                   type="button"
                   onClick={() => void openThread(c)}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left pointer-coarse:min-h-11"
                   title={c.title}
                 >
                   <MessageSquare className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -200,7 +322,7 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
                   type="button"
                   onClick={() => void exportThread(c)}
                   aria-label="Export conversation"
-                  className="p-1 text-sub opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
+                  className={`${ROW_ACTION} hover:text-text`}
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
@@ -211,15 +333,15 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
                     setDraft(c.title);
                   }}
                   aria-label="Rename conversation"
-                  className="p-1 text-sub opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
+                  className={`${ROW_ACTION} hover:text-text`}
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
-                  onClick={() => void remove(c.id)}
+                  onClick={() => remove(c)}
                   aria-label="Delete conversation"
-                  className="p-1 text-sub opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                  className={`${ROW_ACTION} hover:text-destructive`}
                 >
                   <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>

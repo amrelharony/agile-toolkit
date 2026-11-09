@@ -320,6 +320,9 @@ export function CeremonyTimerClient() {
     );
     setNow(t);
     if (next.finished) {
+      // Once per run, when the ceremony ends (each segment's time-up is
+      // `finish`): this is what pays ceremony-finished XP.
+      sonify("complete");
       announce(runVerdict(runReport(next, agenda, t)));
     } else {
       sonify("rotate");

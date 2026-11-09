@@ -113,54 +113,64 @@ export function KudosSent({ kudos, kept, onDone }: Props) {
           ? "A copy is kept on this device. Send the link or the image to pass it on."
           : "Nothing was saved. Send the link or the image to pass it on."}
       </p>
+      {/* On a touch screen the link and Copy link / Share come first, right
+          under the heading: the card is at least a face tall (423 px) and both
+          faces stack below 640 px of panel, so they sat a screen or more below
+          it. That holds for a landscape phone and a tablet too, which are
+          wider than sm, so the card comes first again only with a mouse or
+          trackpad from sm up (desktop as before). The card has nothing to
+          focus, so the Tab order is the same either way, and a screen reader
+          on a phone reaches the actions in the order it sees. */}
+      <div className="flex flex-col gap-4 pointer-fine:sm:order-last">
+        {link ? (
+          <div className="flex flex-col gap-1">
+            <label htmlFor="kudos-link" className="text-sm font-medium text-sub">
+              Link to this card
+            </label>
+            <input
+              id="kudos-link"
+              readOnly
+              value={link}
+              onFocus={(e) => e.currentTarget.select()}
+              className="h-10 w-full min-w-0 rounded-md border border-border bg-surface-deep px-3 text-sm text-text"
+            />
+            <p className="text-xs text-sub">
+              Anyone with the link can see the card, so send it only to the person you&apos;re
+              thanking.
+            </p>
+          </div>
+        ) : null}
+        {problem ? (
+          <p role="alert" className="text-sm text-danger">
+            {problem}
+          </p>
+        ) : null}
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <Button type="button" onClick={copy} disabled={!link} className="gap-2">
+            {copied ? (
+              <Check className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Copy className="h-4 w-4" aria-hidden="true" />
+            )}
+            {copied ? "Link copied" : "Copy link"}
+          </Button>
+          {shareable ? (
+            <Button type="button" variant="outline" onClick={share} className="gap-2">
+              <Share2 className="h-4 w-4" aria-hidden="true" />
+              Share
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={download} className="gap-2">
+            <Download className="h-4 w-4" aria-hidden="true" />
+            Download image
+          </Button>
+          <Button type="button" variant="ghost" onClick={onDone}>
+            Write another
+          </Button>
+        </div>
+      </div>
       <div className="flex justify-center">
         <KudosCard ref={cardRef} kudos={kudos} excludeInteractive />
-      </div>
-      {link ? (
-        <div className="flex flex-col gap-1">
-          <label htmlFor="kudos-link" className="text-sm font-medium text-sub">
-            Link to this card
-          </label>
-          <input
-            id="kudos-link"
-            readOnly
-            value={link}
-            onFocus={(e) => e.currentTarget.select()}
-            className="h-10 w-full min-w-0 rounded-md border border-border bg-surface-deep px-3 text-sm text-text"
-          />
-          <p className="text-xs text-sub">
-            Anyone with the link can see the card, so send it only to the person you&apos;re
-            thanking.
-          </p>
-        </div>
-      ) : null}
-      {problem ? (
-        <p role="alert" className="text-sm text-danger">
-          {problem}
-        </p>
-      ) : null}
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        <Button type="button" onClick={copy} disabled={!link} className="gap-2">
-          {copied ? (
-            <Check className="h-4 w-4" aria-hidden="true" />
-          ) : (
-            <Copy className="h-4 w-4" aria-hidden="true" />
-          )}
-          {copied ? "Link copied" : "Copy link"}
-        </Button>
-        {shareable ? (
-          <Button type="button" variant="outline" onClick={share} className="gap-2">
-            <Share2 className="h-4 w-4" aria-hidden="true" />
-            Share
-          </Button>
-        ) : null}
-        <Button type="button" variant="outline" onClick={download} className="gap-2">
-          <Download className="h-4 w-4" aria-hidden="true" />
-          Download image
-        </Button>
-        <Button type="button" variant="ghost" onClick={onDone}>
-          Write another
-        </Button>
       </div>
     </section>
   );

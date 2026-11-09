@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { SECTIONS } from "@/lib/constants/sections";
+import { SECTION_TONE } from "@/lib/ink/drawings/section-tone";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import type { ToolDefinition } from "@/lib/constants/tools";
 import { ToolCard } from "@/components/shared/tool-card";
@@ -96,6 +97,7 @@ function SectionGroup({
                 title={tool.name}
                 description={tool.description}
                 tags={tool.badge ? [tool.badge] : undefined}
+                tone={SECTION_TONE[section.id]}
               />
             );
           })}

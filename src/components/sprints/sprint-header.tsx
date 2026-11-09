@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import type { Sprint } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
+import { InkHighlight } from "@/components/ink/ink-highlight";
 import { dayForDate, hasSyntheticDates, sprintLengthDays } from "@/lib/sprints/series";
 import { STATUS_LABEL, fmt, sprintDates, sprintDayLine } from "@/lib/sprints/hub-view";
 
@@ -124,7 +125,10 @@ export function SprintHeader({
             {goal ? (
               <>
                 <span className="text-sub">Goal: </span>
-                <span className="text-text">{goal}</span>
+                {/* The one sentence the sprint is for, underlined by hand. */}
+                <InkHighlight delay={700} className="text-text">
+                  {goal}
+                </InkHighlight>
               </>
             ) : (
               <span className="text-sub">No sprint goal yet.</span>

@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { TOUCH_LINK } from "@/components/ui/touch-target";
+import { cn } from "@/lib/utils";
 import { getAuthBrowserClient } from "@/lib/auth/supabase-browser";
 import { isOwnerOnlyPage } from "@/lib/auth/owner-routes";
 import { ArrowLeft, LogIn, Users } from "lucide-react";
@@ -114,7 +116,7 @@ export function SignInCard() {
 
       <Link
         href="/guest/join"
-        className="inline-flex items-center justify-center w-full gap-2 rounded-md border border-border bg-transparent px-4 py-2 text-sm text-sub hover:text-accent hover:border-accent/30 transition-colors"
+        className="inline-flex items-center justify-center w-full gap-2 rounded-md border border-border bg-transparent px-4 py-2 text-sm text-sub hover:text-accent hover:border-accent/30 transition-colors pointer-coarse:min-h-11"
       >
         <Users className="w-4 h-4 opacity-60" aria-hidden="true" />
         Join with a squad invite code
@@ -123,7 +125,10 @@ export function SignInCard() {
 
       <Link
         href={backHref}
-        className="inline-flex items-center gap-1.5 pt-2 text-sm text-sub hover:text-accent transition-colors"
+        className={cn(
+          "inline-flex items-center gap-1.5 pt-2 text-sm text-sub hover:text-accent transition-colors",
+          TOUCH_LINK
+        )}
       >
         <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
         Back to the toolkit

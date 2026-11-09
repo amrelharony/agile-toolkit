@@ -87,6 +87,9 @@ export function QuickAddForm({
               {...props}
               value={draft.text}
               maxLength={RETRO_CARD_MAX}
+              // Enter adds the action. On a phone the keyboard hides the
+              // Add action button below, so its return key says so.
+              enterKeyHint="done"
               onChange={(e) => update({ text: e.target.value })}
               placeholder="e.g. Pair on the flaky checkout tests"
             />

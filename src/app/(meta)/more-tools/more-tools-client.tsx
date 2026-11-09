@@ -4,8 +4,19 @@ import { useId } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ToolCard } from "@/components/shared/tool-card";
+import { InkArt } from "@/components/ink/ink-art";
+import { SECTION_TONE } from "@/lib/ink/drawings/section-tone";
+import { getSectionForTool } from "@/lib/constants/sections";
 import { getShelfToolsByCategory } from "@/lib/tools/catalog";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
+import { toolboxArt } from "@/lib/ink/drawings/pages/toolbox";
+
+/** The id of a category's heading: the anchor the jump chips link to. */
+function shelfHeadingId(category: string): string {
+  return `shelf-${category.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+}
+
+const toolsWord = (n: number) => (n === 1 ? "tool" : "tools");
 
 /**
  * The "More tools" shelf: everything built for a neighbouring audience, by
@@ -21,15 +32,20 @@ export function MoreToolsClient() {
   return (
     <div className="container-tool space-y-8 py-8">
       <header className="space-y-4">
-        <div className="space-y-2">
-          <h1 className="text-fluid-h2 font-semibold text-text">More tools</h1>
-          <p className="max-w-2xl text-sub">
-            The toolkit is built for Scrum masters and agile teams, so these {shelfCount} tools for
-            neighbouring work — AI product management, security, reliability and incident response,
-            developer-experience surveys and strategy frameworks — stay off the home page, the
-            sidebar and search results. Every one still works and keeps its guide; open it from
-            here, or show them all.
-          </p>
+        <div className="panel ink-host flex items-start gap-3 px-4 py-4 sm:gap-4 sm:px-6 sm:py-5">
+          <InkArt drawing={toolboxArt} boil className="h-11 w-11 shrink-0 sm:h-16 sm:w-16" />
+          <div className="min-w-0 space-y-2">
+            <h1 className="text-fluid-h2 font-display font-bold leading-tight text-text">
+              More tools
+            </h1>
+            <p className="max-w-2xl text-sub">
+              The toolkit is built for Scrum masters and agile teams, so these {shelfCount} tools
+              for neighbouring work — AI product management, security, reliability and incident
+              response, developer-experience surveys and strategy frameworks — stay off the home
+              page, the sidebar and search results. Every one still works and keeps its guide; open
+              it from here, or show them all.
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-4">
           <Switch id={switchId} checked={showAll} onCheckedChange={setShowAll} />
@@ -37,16 +53,44 @@ export function MoreToolsClient() {
             Show these tools in navigation and search
           </Label>
         </div>
+        {/* Below lg the shelf is one long column (over 6,000px on a phone):
+            a row of chips, scrolling sideways, jumps to each category. */}
+        <nav aria-label="Jump to a category" className="lg:hidden">
+          {/* relative: the chips' sr-only counts are absolutely positioned, and
+              without a containing block they escape this scroller and widen
+              the page (the .scroll-x-snap lesson). */}
+          <ul className="relative -mx-1 flex gap-2 overflow-x-auto overscroll-x-contain px-1 py-1">
+            {groups.map((group) => (
+              <li key={group.category} className="shrink-0">
+                <a
+                  href={`#${shelfHeadingId(group.category)}`}
+                  className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card px-3 text-sm text-text transition-colors hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent pointer-coarse:min-h-11"
+                >
+                  {group.category}{" "}
+                  <span className="font-mono text-xs text-sub">
+                    {group.tools.length}{" "}
+                    <span className="sr-only">{toolsWord(group.tools.length)}</span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
       </header>
 
       {groups.map((group) => {
-        const headingId = `shelf-${group.category.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+        const headingId = shelfHeadingId(group.category);
         return (
           <section key={group.category} aria-labelledby={headingId} className="space-y-3">
-            <h2 id={headingId} className="font-display text-lg font-semibold text-text">
+            {/* scroll-mt keeps a jumped-to heading clear of the sticky header. */}
+            <h2
+              id={headingId}
+              className="scroll-mt-20 font-display text-lg font-semibold text-text"
+            >
               {group.category}
-              <span className="ml-2 font-mono text-xs font-normal text-sub">
-                {group.tools.length} {group.tools.length === 1 ? "tool" : "tools"}
+              {/* One unit, so a long name never leaves "tools" alone on a line. */}
+              <span className="ml-2 inline-block whitespace-nowrap font-mono text-xs font-normal text-sub">
+                {group.tools.length} {toolsWord(group.tools.length)}
               </span>
             </h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
@@ -61,6 +105,7 @@ export function MoreToolsClient() {
                     title={tool.name}
                     description={tool.description}
                     tags={tool.badge ? [tool.badge] : undefined}
+                    tone={SECTION_TONE[getSectionForTool(tool.id)?.id ?? ""]}
                   />
                 );
               })}

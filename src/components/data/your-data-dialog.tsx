@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { saveAs } from "file-saver";
-import { Download, HardDrive, ShieldCheck, Upload } from "lucide-react";
+import { Check, Download, HardDrive, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -23,6 +25,7 @@ import {
 import { announceRestored, readLastBackupAt, recordBackup } from "@/lib/data/backup-meta";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { toast } from "@/lib/utils/toast";
+import { useFlash } from "@/hooks/use-flash";
 
 interface StorageInfo {
   usedBytes: number | null;
@@ -61,6 +64,9 @@ export function YourDataDialog({
   const fileRef = useRef<HTMLInputElement>(null);
   const [info, setInfo] = useState<StorageInfo>({ usedBytes: null, persisted: null });
   const [lastBackup, setLastBackup] = useState<string | null>(null);
+  // The download and "Last backup" confirm it in place; no toast.
+  const { flash, isFlashing } = useFlash();
+  const downloaded = isFlashing();
   const [pending, setPending] = useState<BackupFileV1 | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,9 +90,7 @@ export function YourDataDialog({
     saveAs(blob, backupFilename());
     recordBackup();
     setLastBackup(readLastBackupAt());
-    toast.success("Backup downloaded", {
-      description: `${Object.keys(backup.keys).length} items saved to ${backupFilename()}.`,
-    });
+    flash(`Backup downloaded: ${Object.keys(backup.keys).length} items saved.`);
   };
 
   const pickFile = async (file: File) => {
@@ -125,7 +129,7 @@ export function YourDataDialog({
             <DialogDescription>
               {isOwner
                 ? "Your work syncs to your account and is also kept in this browser."
-                : "Everything you make in the toolkit is saved in this browser only, and none of it is sent to our servers. The comics and kudos pages do send one anonymous count when you arrive, saying only which printed piece brought you there, if any, and the episode."}
+                : "Everything you make in the toolkit is saved in this browser only, and none of it is sent to our servers. The comics and kudos pages do send anonymous counts: which printed piece brought you there, if any, and on a weekly story whether you opened and finished it, roughly how long you read, and your answers, love, share, retro hand-off or click on its tool. None of it says who you are."}
             </DialogDescription>
           </DialogHeader>
 
@@ -149,8 +153,8 @@ export function YourDataDialog({
               included.
             </p>
             <Button type="button" onClick={download} className="gap-2">
-              <Download aria-hidden="true" />
-              Download backup
+              {downloaded ? <Check aria-hidden="true" /> : <Download aria-hidden="true" />}
+              {downloaded ? "Backup downloaded" : "Download backup"}
             </Button>
           </section>
 
@@ -208,6 +212,16 @@ export function YourDataDialog({
               </>
             )}
           </section>
+
+          {/* A way out where the reading ends, as AI settings has: on a phone
+              this dialog scrolls, and the X sits in the far top corner. */}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Done
+              </Button>
+            </DialogClose>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

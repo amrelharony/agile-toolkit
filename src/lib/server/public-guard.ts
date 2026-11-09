@@ -5,15 +5,26 @@
  *
  * In memory, like the guest routes (api/guest/_rate-limit.ts): the real ceiling
  * is limit x instances, which is enough to stop a script hammering one route
- * and worth no extra dependency. The IP is only a key in this map, for the
- * length of the window. It is never written anywhere.
+ * and worth no extra dependency. The address itself is never kept, not even
+ * here: the map's keys hold a hash of it with a salt that lives and dies with
+ * the instance, and an entry is swept within a minute of its window ending.
+ * Nothing is written anywhere.
  */
 
 import "server-only";
+import { createHash, randomBytes } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 const MAX_ENTRIES = 2_000;
+const SWEEP_EVERY_MS = 60_000;
+const SALT = randomBytes(16).toString("hex");
 const buckets = new Map<string, { count: number; expiresAt: number }>();
+let lastSweep = 0;
+
+/** A stand-in for the address (or its bucket) that can't be turned back into it. */
+function anonymous(ip: string): string {
+  return createHash("sha256").update(SALT).update(ip).digest("base64url").slice(0, 22);
+}
 
 /**
  * The caller's address, or null when the request carries none. x-real-ip is
@@ -48,13 +59,15 @@ export function withinRateLimit(
   bucketOf?: (ip: string) => string | null
 ): boolean {
   const now = Date.now();
-  if (buckets.size > MAX_ENTRIES) {
+  if (buckets.size > MAX_ENTRIES || now - lastSweep >= SWEEP_EVERY_MS) {
+    lastSweep = now;
     buckets.forEach((entry, key) => {
       if (now >= entry.expiresAt) buckets.delete(key);
     });
   }
   const ip = clientIp(req);
-  const key = `${route}:${(bucketOf && ip !== "unknown" ? bucketOf(ip) : null) ?? ip}`;
+  const bucket = (bucketOf && ip !== "unknown" ? bucketOf(ip) : null) ?? ip;
+  const key = `${route}:${anonymous(bucket)}`;
   const entry = buckets.get(key);
   if (!entry || now >= entry.expiresAt) {
     buckets.set(key, { count: 1, expiresAt: now + windowMs });

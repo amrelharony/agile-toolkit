@@ -1,4 +1,6 @@
 import { SquadsClient } from "./squads-client";
+import { SettingsHeader } from "@/components/settings/settings-header";
+import { squadArt } from "@/lib/ink/drawings/pages/squad";
 
 export const metadata = {
   title: "Squads",
@@ -10,15 +12,12 @@ export const metadata = {
 export default function SquadsPage() {
   return (
     <div className="container-tool py-8">
-      <header className="mb-6 space-y-2">
-        <h1 className="text-fluid-h2 font-semibold text-text">Squads</h1>
-        <p className="text-sub max-w-2xl">
-          Invite squad members to join collaborative tool sessions as guests. Create a squad, share
-          the code, and members join at <code className="font-mono text-text">/guest/join</code>.
-          Each member picks a display name + color on first redeem and resumes the same identity on
-          later visits.
-        </p>
-      </header>
+      <SettingsHeader title="Squads" art={squadArt}>
+        Invite squad members to join collaborative tool sessions as guests. Create a squad, share
+        the code, and members join at <code className="font-mono text-text">/guest/join</code>. Each
+        member picks a display name + color on first redeem and resumes the same identity on later
+        visits.
+      </SettingsHeader>
       <SquadsClient />
     </div>
   );

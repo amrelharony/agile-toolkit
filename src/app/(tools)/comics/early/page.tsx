@@ -24,6 +24,7 @@ import { EpisodeNotes } from "../components/episode-notes";
 import { RightsNotice } from "../components/rights-notice";
 import { SeenAtWork } from "../components/seen-at-work";
 import { releaseDayLabel } from "./release-day";
+import { earlyArt } from "@/lib/ink/drawings/pages/early";
 
 /**
  * /comics/early?ep=NN: the next four weeks of weekly stories, for book readers.
@@ -89,7 +90,11 @@ async function attempt<T>(read: () => Promise<T>): Promise<T | null> {
 
 function CantLoad() {
   return (
-    <ToolPageWrapper title="Read ahead" description="For readers of the printed book.">
+    <ToolPageWrapper
+      art={earlyArt}
+      title="Read ahead"
+      description="For readers of the printed book."
+    >
       <EmptyState icon={BookImage} padding="lg" action={<SeeAllComics />}>
         <p className="font-semibold text-text">The early comics can&apos;t load just now</p>
         <p className="mt-1">Please try again in a few minutes.</p>
@@ -100,7 +105,11 @@ function CantLoad() {
 
 function NothingHere() {
   return (
-    <ToolPageWrapper title="Read ahead" description="For readers of the printed book.">
+    <ToolPageWrapper
+      art={earlyArt}
+      title="Read ahead"
+      description="For readers of the printed book."
+    >
       <EmptyState icon={BookImage} padding="lg" action={<BackToEarly />}>
         <p className="font-semibold text-text">This comic isn&apos;t ready to read ahead</p>
       </EmptyState>
@@ -109,15 +118,17 @@ function NothingHere() {
 }
 
 function EarlyStory({ story, guess }: { story: Story; guess: StoryGuessExtras }) {
+  const readable = story.panels.length > 0;
   return (
     <ToolPageWrapper
+      art={earlyArt}
       title={story.title}
       description={`Episode ${story.ep}, by Amr Elharony. ${releaseDayLabel(story.releaseAt)}`}
     >
       <div className="space-y-4">
         <ComicPanels panels={story.panels} title={story.title} ep={story.ep} guess={guess.guess} />
         <EpisodeNotes lesson={story.lesson} question={story.squadQuestion} />
-        {story.panels.length > 0 ? <SeenAtWork ep={story.ep} /> : null}
+        {readable ? <SeenAtWork ep={story.ep} /> : null}
         {guess.tryAction ? (
           <section aria-labelledby="try-heading" className="space-y-1">
             <h2 id="try-heading" className="font-display font-semibold text-text">
@@ -152,6 +163,7 @@ export default async function EarlyComicsPage({ searchParams }: EarlyPageProps) 
   if (!stories) return <CantLoad />;
   return (
     <ToolPageWrapper
+      art={earlyArt}
       title="Read ahead"
       description="The next four weeks of Agile at Work, before everyone else. Thanks for reading the book."
     >

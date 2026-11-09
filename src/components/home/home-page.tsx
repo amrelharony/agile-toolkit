@@ -2,25 +2,42 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Compass, ShieldCheck, TrendingUp } from "lucide-react";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { PageHeader } from "@/components/shared/page-header";
-import { InsightsEngine } from "@/components/shared/insights-engine";
+import { InkArt } from "@/components/ink/ink-art";
+import { InkHighlight } from "@/components/ink/ink-highlight";
+import { HOME_HERO } from "@/lib/ink/drawings/scenes/home-hero";
 import { HomeSearch } from "@/components/home/home-search";
 import { JobLauncher } from "@/components/home/job-launcher";
 import { ContinueSection } from "@/components/home/continue-section";
 import { ToolSections } from "@/components/home/tool-sections";
-import { SprintCockpit } from "@/app/(tools)/sprint/cockpit";
+import { LoadingSprints } from "@/components/sprints/start";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { cn } from "@/lib/utils";
+
+// Both need this browser's workspace, so neither is in the server HTML: the
+// cockpit (the sprint tools' code) and the insight rules (most tools' stores)
+// load in chunks of their own once the page is up, off home's first download.
+const SprintCockpit = dynamic(
+  () => import("@/app/(tools)/sprint/cockpit").then((m) => m.SprintCockpit),
+  { ssr: false, loading: () => <LoadingSprints tall /> }
+);
+const InsightsEngine = dynamic(
+  () => import("@/components/shared/insights-engine").then((m) => m.InsightsEngine),
+  { ssr: false }
+);
 
 /**
  * Home: say what this is, then the team's sprint — the cockpit once a sprint
  * exists, the three-step start before that — then the common jobs, what they
- * used last, the comic, and the full index. The server renders the page without
- * the sprint block (it needs this browser's data), which appears once the
- * workspace has loaded. The comic's card comes from the server page (app/page),
- * since only the server can read the stories.
+ * used last, the comic, and the full index. The sprint block needs this
+ * browser's data, so the server renders it as a placeholder of about its size
+ * and the cockpit fills it once the workspace has loaded. The comic's card
+ * comes from the server page (app/page), since only the server can read the
+ * stories.
  */
 export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
   const { tools: visibleTools, shelfCount, showAll } = useToolVisibility();
@@ -32,19 +49,39 @@ export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
 
   return (
     <div className="mx-auto max-w-[1200px] space-y-10 px-4 py-6 sm:space-y-12 sm:px-6 sm:py-8 md:p-8">
-      {/* Hero */}
-      <div className="animate-slide-up pt-6 sm:pt-10">
-        <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1 sm:mb-6 sm:px-4 sm:py-1.5">
+      {/* Hero: the words on the left, the team's board inked on the right. On
+          a phone the board sits small beside the trust line, so the sprint
+          below doesn't move down; from md it stands beside the title panel, and
+          the search row keeps the full width. The box keeps the scene's 16:10
+          shape, so nothing shifts as it inks in. */}
+      <div className="ink-host animate-slide-up grid grid-cols-[minmax(0,1fr)_8.5rem] items-end gap-x-3 pt-6 sm:grid-cols-[minmax(0,1fr)_11rem] sm:pt-10 md:grid-cols-[minmax(0,1fr)_19rem] md:gap-x-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="col-start-1 row-start-1 mb-4 inline-flex items-center gap-2 self-end justify-self-start rounded-md border border-border bg-card px-3 py-1 sm:mb-6 sm:px-4 sm:py-1.5">
           <ShieldCheck className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
           <span className="text-xs font-medium text-accent">
             Free · No sign-up · Saved only in your browser
           </span>
         </div>
-        <PageHeader
-          title="Agile Toolkit"
-          subtitle={`${toolCount} interactive tools for Scrum masters and agile teams. Plan the sprint, run the daily and the retro, estimate together, track delivery and keep the team healthy.`}
+        <InkArt
+          drawing={HOME_HERO}
+          boil
+          pace={1600}
+          className="col-start-2 row-start-1 mb-3 aspect-[16/10] w-full self-end md:row-span-2 md:mb-6 md:self-center"
         />
-        <div className="mt-4 flex flex-col gap-3 sm:mt-2 sm:flex-row sm:items-start">
+        <div className="col-span-2 md:col-span-1">
+          <PageHeader
+            title="Agile Toolkit"
+            subtitle={
+              <>
+                <InkHighlight mark="double-underline" delay={1100}>
+                  {toolCount} interactive tools
+                </InkHighlight>{" "}
+                for Scrum masters and agile teams. Plan the sprint, run the daily and the retro,
+                estimate together, track delivery and keep the team healthy.
+              </>
+            }
+          />
+        </div>
+        <div className="col-span-2 mt-4 flex flex-col gap-3 sm:mt-2 sm:flex-row sm:items-start">
           <HomeSearch />
           {hydrated && hasSprints ? (
             <Link
@@ -66,14 +103,22 @@ export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
         </div>
       </div>
 
-      {hydrated && (
-        <section aria-labelledby="your-sprint-heading" className="space-y-4">
-          <h2 id="your-sprint-heading" className="font-display text-lg font-semibold text-text">
-            {hasSprints ? "Your sprint" : "Start your sprint"}
-          </h2>
-          <SprintCockpit compact />
-        </section>
-      )}
+      {/* Rendered on the server too: until the workspace loads, the cockpit is
+          its "Loading sprints…" placeholder, which holds the block's room on
+          phones. Inserting the whole block after hydration pushed the job
+          cards down under the reader's thumb. Until then nobody knows whether
+          the reader has a sprint, so the heading keeps its line but stays
+          hidden, with a neutral name for the region: "Start your sprint"
+          used to flash above a returning team's sprint on every load. */}
+      <section aria-labelledby="your-sprint-heading" className="space-y-4">
+        <h2
+          id="your-sprint-heading"
+          className={cn("font-display text-lg font-semibold text-text", !hydrated && "invisible")}
+        >
+          {!hydrated ? "Sprint" : hasSprints ? "Your sprint" : "Start your sprint"}
+        </h2>
+        <SprintCockpit compact />
+      </section>
 
       <JobLauncher />
 

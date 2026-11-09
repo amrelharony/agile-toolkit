@@ -3,10 +3,12 @@
 // Recharts lives here so the burndown page (and the Sprint cockpit's mini
 // burndown, and Burnup's advanced section) load it only when a chart
 // mounts. Import this module through next/dynamic, never statically.
+import { useMemo } from "react";
 import {
   Area,
   CartesianGrid,
   ComposedChart,
+  DefaultLegendContent,
   Legend,
   Line,
   ReferenceArea,
@@ -15,6 +17,11 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  useChartWidth,
+  usePlotArea,
+  useXAxisScale,
+  type DefaultLegendContentProps,
+  type LegendPayload,
 } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
 
@@ -51,14 +58,18 @@ function PointsTooltip({
   active,
   payload,
   label,
+  scope,
 }: {
   active?: boolean;
   payload?: Array<{ name: string; value: number | number[]; color: string }>;
   label?: string | number;
+  /** Scope labels kept off their lines (a narrow chart), by day: shown here instead. */
+  scope?: ReadonlyMap<number, ScopeMark>;
 }) {
   if (!active || !payload?.length) return null;
   const show = (v: number | number[] | null | undefined) =>
     v == null ? "—" : Array.isArray(v) ? `${v[0]}–${v[1]} pts` : `${v} pts`;
+  const mark = scope?.get(Number(label));
   return (
     <div style={chartTheme.tooltipStyle} className="min-w-[140px] px-3 py-2">
       <p className="mb-1.5 font-semibold text-text">Day {label}</p>
@@ -68,6 +79,14 @@ function PointsTooltip({
           <span className="font-data font-semibold text-text">{show(p.value)}</span>
         </div>
       ))}
+      {mark && (
+        <div className="flex items-center justify-between gap-3 text-xs">
+          <span style={{ color: mark.color }}>Scope</span>
+          <span className="font-data font-semibold text-text">
+            {mark.label === SCOPE_FLAG ? "changed" : mark.label}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -129,6 +148,7 @@ function pointsAxis() {
   );
 }
 
+/** "Today" is the only label above the plot, so nothing else can print over it. */
 function todayLine(todayDay: number | null, color: string) {
   return todayDay === null ? null : (
     <ReferenceLine
@@ -141,13 +161,28 @@ function todayLine(todayDay: number | null, color: string) {
   );
 }
 
-/** Markers where scope joined (+) or left (−) the sprint, or a day the log flags. */
-export function scopeMarkers(
+/* -------------------------------------------------------------------------- */
+/*  Scope markers                                                              */
+/* -------------------------------------------------------------------------- */
+
+/** A dashed line where scope joined (+) or left (−) the sprint, or a day the log flags. */
+export interface ScopeMark {
+  day: number;
+  /** "+8", "−5", "+3 −2", or SCOPE_FLAG for a flagged day. */
+  label: string;
+  color: string;
+}
+
+/** The label of a day the log flags as a scope change (no amounts known). */
+const SCOPE_FLAG = "Scope";
+
+/** The scope markers for the moves (with amounts), or else the flagged days. */
+export function scopeMarks(
   moves: readonly ScopeMove[] | undefined,
   flaggedDays: readonly number[]
-) {
+): ScopeMark[] {
   const fmt = (n: number) => String(Math.round(n * 10) / 10);
-  const marks = moves?.length
+  return moves?.length
     ? moves.map((m) => ({
         day: m.day,
         label: [m.added > 0 ? `+${fmt(m.added)}` : "", m.removed > 0 ? `−${fmt(m.removed)}` : ""]
@@ -155,8 +190,142 @@ export function scopeMarkers(
           .join(" "),
         color: m.added > 0 ? colors.amber : colors.purple,
       }))
-    : flaggedDays.map((day) => ({ day, label: "Scope", color: colors.amber }));
-  return marks.map((m) => (
+    : flaggedDays.map((day) => ({ day, label: SCOPE_FLAG, color: colors.amber }));
+}
+
+/**
+ * Below this many pixels between days (a 2-week sprint on a phone is about
+ * 15), the scope amounts leave their lines for the tooltip and the legend:
+ * "+8" on day 3, "−5" on day 4 and "Today" on day 5 printed as "+8−5Today".
+ */
+export const MIN_DAY_PX_FOR_SCOPE_LABELS = 25;
+
+/** Where a scope label sits: its row under the plot's top edge, and which side of its line. */
+export interface ScopeLabelSpot {
+  row: number;
+  side: "right" | "left";
+}
+
+// 12 px Inter: a digit or sign is about 6.7 px wide.
+const LABEL_CHAR_PX = 7;
+// Recharts' default label offset from the line.
+const LABEL_OFFSET = 5;
+const LABEL_GAP = 4;
+const LABEL_ROW_PX = 14;
+
+/**
+ * Lays the scope labels out inside the plot's top edge, each beside its line
+ * (to the right, or to the left where the right would run off the chart),
+ * dropping a label to the next row when it would touch one already placed.
+ * A label that fits in no row, or every label on a chart narrower than
+ * MIN_DAY_PX_FOR_SCOPE_LABELS per day, gets null: its line stays, unlabelled,
+ * and the burndown's tooltip and legend carry it instead. Pure, for tests.
+ */
+export function placeScopeLabels(
+  marks: readonly { x: number; label: string }[],
+  {
+    dayPx,
+    maxX,
+    rows = 2,
+  }: {
+    /** Pixels between neighbouring days. */
+    dayPx: number;
+    /** The right edge labels may reach (the chart's width). */
+    maxX: number;
+    rows?: number;
+  }
+): (ScopeLabelSpot | null)[] {
+  const spots: (ScopeLabelSpot | null)[] = marks.map(() => null);
+  if (!(dayPx >= MIN_DAY_PX_FOR_SCOPE_LABELS)) return spots;
+  const taken: [number, number][][] = Array.from({ length: rows }, () => []);
+  const order = marks.map((_, i) => i).sort((a, b) => marks[a].x - marks[b].x);
+  for (const i of order) {
+    const { x, label } = marks[i];
+    const width = label.length * LABEL_CHAR_PX;
+    const side = x + LABEL_OFFSET + width <= maxX ? "right" : "left";
+    const span: [number, number] =
+      side === "right"
+        ? [x + LABEL_OFFSET, x + LABEL_OFFSET + width]
+        : [x - LABEL_OFFSET - width, x - LABEL_OFFSET];
+    const row = taken.findIndex((spans) =>
+      spans.every(([a, b]) => span[1] + LABEL_GAP <= a || span[0] >= b + LABEL_GAP)
+    );
+    if (row === -1) continue;
+    taken[row].push(span);
+    spots[i] = { row, side };
+  }
+  return spots;
+}
+
+/**
+ * Where the marks' labels go on this chart, from its x scale: null until the
+ * chart is laid out (the lines draw bare for that first frame).
+ */
+function useScopeLabelSpots(
+  marks: readonly ScopeMark[],
+  /** The chart's first two days, to measure the spacing between days. */
+  firstDays: readonly number[]
+): (ScopeLabelSpot | null)[] | null {
+  const xOf = useXAxisScale();
+  const plot = usePlotArea();
+  const chartWidth = useChartWidth();
+  const [d0, d1] = firstDays;
+  return useMemo(() => {
+    if (!xOf || !plot || !chartWidth || marks.length === 0) return null;
+    const at = (day: number) => xOf(day, { position: "middle" });
+    const x0 = d0 === undefined ? undefined : at(d0);
+    const x1 = d1 === undefined ? undefined : at(d1);
+    // One day on the axis: nothing beside it to collide with.
+    const dayPx = x0 !== undefined && x1 !== undefined ? Math.abs(x1 - x0) : Infinity;
+    const placed = marks.map((m) => ({ x: at(m.day) ?? plot.x, label: m.label }));
+    return placeScopeLabels(placed, { dayPx, maxX: chartWidth });
+  }, [xOf, plot, chartWidth, marks, d0, d1]);
+}
+
+/** The dashed scope lines, each labelled where `spots` puts it (or bare). */
+function scopeLines(marks: readonly ScopeMark[], spots: readonly (ScopeLabelSpot | null)[] | null) {
+  return marks.map((m, i) => {
+    const spot = spots?.[i] ?? null;
+    return (
+      <ReferenceLine
+        key={`scope-${m.day}`}
+        x={m.day}
+        stroke={m.color}
+        strokeDasharray="3 3"
+        strokeWidth={1.5}
+        label={
+          spot
+            ? {
+                value: m.label,
+                position: spot.side === "right" ? "insideTopLeft" : "insideTopRight",
+                dy: spot.row * LABEL_ROW_PX,
+                fill: m.color,
+                fontSize: 12,
+                // A halo in the card's colour keeps the label legible where
+                // it crosses a line or the grid.
+                stroke: "var(--card, #fffcf5)",
+                strokeWidth: 3,
+                paintOrder: "stroke",
+              }
+            : undefined
+        }
+      />
+    );
+  });
+}
+
+/**
+ * Burnup's markers where scope joined (+) or left (−) the sprint, or a day
+ * the log flags, each labelled above the plot. Burnup keeps the layout it
+ * had: inside the plot its labels would cut gaps in the scope line along the
+ * top edge, and it has no tooltip or legend entry to carry a label laid off
+ * its line, so every amount stays printed.
+ */
+export function scopeMarkers(
+  moves: readonly ScopeMove[] | undefined,
+  flaggedDays: readonly number[]
+) {
+  return scopeMarks(moves, flaggedDays).map((m) => (
     <ReferenceLine
       key={`scope-${m.day}`}
       x={m.day}
@@ -166,6 +335,71 @@ export function scopeMarkers(
       label={{ value: m.label, position: "top", fill: m.color, fontSize: 12 }}
     />
   ));
+}
+
+/** A legend entry per kind of unlabelled scope line, so a bare dashed line still has a name. */
+export function scopeLegendEntries(hidden: readonly ScopeMark[]): LegendPayload[] {
+  const entries: LegendPayload[] = [];
+  const add = (value: string, color: string) => {
+    if (!entries.some((e) => e.value === value)) entries.push({ value, color, type: "line" });
+  };
+  for (const m of hidden) {
+    if (m.label === SCOPE_FLAG) add("Scope change", m.color);
+    else if (m.label.startsWith("+")) add("Scope added", m.color);
+    else add("Scope removed", m.color);
+  }
+  return entries;
+}
+
+/**
+ * The burndown's tooltip, legend, scope and today markers, laid out from the
+ * plot's width: on a wide chart the scope amounts sit beside their lines; on
+ * a narrow one (or where they'd collide) they move to the tooltip, and the
+ * legend names the bare lines.
+ */
+function BurndownMarkers({
+  marks,
+  firstDays,
+  todayDay,
+}: {
+  marks: readonly ScopeMark[];
+  firstDays: readonly number[];
+  todayDay: number | null;
+}) {
+  const spots = useScopeLabelSpots(marks, firstDays);
+  const hidden = useMemo(
+    () => (spots ? marks.filter((_, i) => spots[i] === null) : []),
+    [marks, spots]
+  );
+  const offLine = useMemo(() => new Map(hidden.map((m) => [m.day, m])), [hidden]);
+  const extra = useMemo(() => scopeLegendEntries(hidden), [hidden]);
+  const legendKey = extra.map((e) => e.value).join("|");
+  // Stable between renders: Recharts renders `content` as a component.
+  const legendContent = useMemo(
+    () =>
+      extra.length === 0
+        ? undefined
+        : function BurndownLegend(props: DefaultLegendContentProps) {
+            return (
+              <DefaultLegendContent {...props} payload={[...(props.payload ?? []), ...extra]} />
+            );
+          },
+    [extra]
+  );
+  return (
+    <>
+      <Tooltip content={<PointsTooltip scope={offLine} />} />
+      <Legend
+        // Remounted when its entries change, so the chart re-measures its height.
+        key={legendKey || "series"}
+        wrapperStyle={chartTheme.legendStyle}
+        iconType="line"
+        content={legendContent}
+      />
+      {scopeLines(marks, spots)}
+      {todayLine(todayDay, colors.magenta)}
+    </>
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -200,6 +434,13 @@ export function BurndownChart({
   width,
   height,
 }: BurndownChartProps) {
+  const marks = useMemo(
+    () => scopeMarks(scopeMoves, scopeChangeDays),
+    [scopeMoves, scopeChangeDays]
+  );
+  const d0 = data[0]?.day;
+  const d1 = data[1]?.day;
+  const firstDays = useMemo(() => [d0, d1].filter((d): d is number => d !== undefined), [d0, d1]);
   return (
     <ComposedChart
       width={width}
@@ -214,10 +455,7 @@ export function BurndownChart({
       {offDayAreas(offDays)}
       {dayAxis()}
       {pointsAxis()}
-      <Tooltip content={<PointsTooltip />} />
-      <Legend wrapperStyle={chartTheme.legendStyle} iconType="line" />
-      {scopeMarkers(scopeMoves, scopeChangeDays)}
-      {todayLine(todayDay, colors.magenta)}
+      <BurndownMarkers marks={marks} firstDays={firstDays} todayDay={todayDay} />
       <Line
         type="linear"
         dataKey="ideal"

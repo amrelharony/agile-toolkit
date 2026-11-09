@@ -19,6 +19,9 @@
  * a click on the card focuses it, an Edit button opens the editor instead.
  * Without `onEdit` (a participant) the text is read-only.
  *
+ * Touch: the Edit, vote and Delete buttons get a 44×44 hit area on coarse
+ * pointers without growing the row (CARD_ICON_TOUCH); desktop is unchanged.
+ *
  * An action's owner is picked from the team roster and saved when the field
  * is left (OwnerField). A card another tool sent here (a kudos, a red health
  * check) links back to it ("From kudos"). Example cards can't be sent to
@@ -27,7 +30,6 @@
 
 import { motion } from "framer-motion";
 import { Heart, Trash2, CheckSquare, Square, Pencil } from "lucide-react";
-import { IconButton } from "@/components/ui/icon-button";
 import { SourceLink } from "@/components/handoff/source-link";
 import { isExampleId } from "@/components/tool-frame/example-data";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
@@ -48,6 +50,20 @@ import { OwnerField } from "./owner-field";
 
 /** Where a retro action can be sent. */
 export const RETRO_ACTION_ROUTES = ["impediment", "kanban"] as const;
+
+/**
+ * Touch sizing for the card's small icon buttons (Edit, vote, Delete). On a
+ * coarse pointer the button grows to 44×44 (min-touch-coarse) around a glyph
+ * that stays where it was, and the negative vertical margin hands the extra
+ * height to the card's padding, so the row doesn't get taller. Fine pointers
+ * keep the small desktop size. These are plain buttons on purpose: a utility
+ * min-height (IconButton's min-h-6, Button's md:min-h-0) would outrank the
+ * coarse minimum. A hover tint on one of them is pointer-fine only: phones
+ * keep :hover after a tap, and on the 44×44 box it would linger as a big
+ * tinted square around a small glyph.
+ */
+const CARD_ICON_TOUCH =
+  "min-touch-coarse pointer-coarse:-my-3 inline-flex items-center justify-center";
 
 /** In place of "Send to…" on an example card. */
 export function ExampleNotSent({ className }: { className?: string }) {
@@ -209,14 +225,18 @@ export function RetroCardItem({
         <div className="flex items-center gap-1 shrink-0">
           {/* Edit, in Discuss: a click on the card text focuses the card there */}
           {isDiscussClickable && onEdit && !edit.editing && (
-            <IconButton
+            <button
               ref={edit.triggerRef}
-              label="Edit card"
-              icon={<Pencil aria-hidden="true" />}
-              tooltip={false}
+              type="button"
               onClick={edit.start}
-              className="relative z-10 h-6 w-6 md:h-6 md:w-6 p-1 text-sub hover:text-accent opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100 [&_svg]:size-3.5"
-            />
+              aria-label="Edit card"
+              // The ghost Button's sound and haptic tick, which it had as an IconButton.
+              data-variant="ghost"
+              data-haptic="tick"
+              className={`relative z-10 ${CARD_ICON_TOUCH} h-6 w-6 p-1 rounded-md text-sub transition-colors active-press pointer-fine:hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100`}
+            >
+              <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
           )}
 
           {/* Vote count, read-only for participants outside the Vote phase */}
@@ -240,9 +260,9 @@ export function RetroCardItem({
               onClick={() => onVote(card.id)}
               disabled={!canVote && phase === "vote"}
               aria-label={`${votesLabel}, vote for this card`}
-              className={`relative z-10 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-all ${
+              className={`relative z-10 ${CARD_ICON_TOUCH} gap-1 px-1.5 py-0.5 rounded text-xs transition-all ${
                 phase === "vote" && canVote
-                  ? "text-sub hover:text-accent-magenta hover:bg-accent-magenta/10 cursor-pointer"
+                  ? "text-sub hover:text-accent-magenta pointer-fine:hover:bg-accent-magenta/10 cursor-pointer"
                   : phase === "vote" && !canVote
                     ? "text-sub cursor-not-allowed opacity-50"
                     : "text-sub cursor-default"
@@ -264,7 +284,7 @@ export function RetroCardItem({
               type="button"
               onClick={() => onDelete(card.id)}
               aria-label="Delete card"
-              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100 p-1 text-sub hover:text-status-red transition-all"
+              className={`${CARD_ICON_TOUCH} opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100 p-1 text-sub hover:text-status-red transition-all`}
             >
               <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
             </button>

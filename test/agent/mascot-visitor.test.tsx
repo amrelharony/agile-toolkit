@@ -147,6 +147,70 @@ describe("MascotAssistant — owner gating", () => {
     expect(within(tool).getByText(/WSJF = cost of delay ÷ job size/)).toBeInTheDocument();
   });
 
+  it("puts the tool search before the current tool's guide", async () => {
+    h.auth = { status: "anonymous", user: null };
+    h.pathname = "/wsjf";
+    render(<MascotAssistant />);
+
+    const search = screen.getByLabelText("What do you need to do?");
+    const tool = screen.getByRole("region", { name: "This tool" });
+    const howTo = await within(tool).findByText("How to run it");
+    const popular = screen.getByRole("list", { name: "Popular tasks" });
+    const follows = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    // Search first (a phone shows ~360 px of the panel), then the tool's
+    // card, then the common jobs.
+    expect(follows(search, howTo)).toBe(true);
+    expect(follows(tool, popular)).toBe(true);
+
+    // Results show right under the field, above the tool's card.
+    fireEvent.change(search, { target: { value: "retrospective" } });
+    const results = screen.getByRole("list", { name: "Matching tools" });
+    expect(follows(search, results)).toBe(true);
+    expect(follows(results, tool)).toBe(true);
+    expect(screen.queryByRole("list", { name: "Popular tasks" })).toBeNull();
+  });
+
+  it("gives the footer controls a 44 px target on touch", () => {
+    h.auth = { status: "anonymous", user: null };
+    render(<MascotAssistant />);
+
+    expect(screen.getByRole("button", { name: "AI settings" })).toHaveClass(
+      "pointer-coarse:min-h-11"
+    );
+    expect(screen.getByRole("link", { name: "Owner sign in" })).toHaveClass(
+      "min-touch-coarse",
+      "inline-flex",
+      "items-center"
+    );
+  });
+
+  it("hides the Cmd/Ctrl+J hint on touch screens", () => {
+    h.auth = { status: "anonymous", user: null };
+    render(<MascotAssistant />);
+
+    const hint = screen.getByText(/Cmd\/Ctrl\+J/);
+    expect(hint).toHaveClass("pointer-coarse:hidden");
+    expect(screen.getByText("Find the right tool")).not.toHaveClass("pointer-coarse:hidden");
+  });
+
+  it("gives the owner's New chat and History buttons a 44 px target on touch", async () => {
+    h.auth = OWNER;
+    render(<MascotAssistant />);
+
+    const panel = screen.getByRole("dialog", { name: "Amr assistant" });
+    for (const name of ["New chat", "Conversation history", "Close assistant"]) {
+      expect(within(panel).getByRole("button", { name })).toHaveClass(
+        "min-touch-coarse",
+        "inline-flex",
+        "items-center",
+        "justify-center"
+      );
+    }
+    expect(screen.getByText(/Cmd\/Ctrl\+J/)).toHaveClass("pointer-coarse:hidden");
+    expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
+  });
+
   it("gives the owner the full chat panel", async () => {
     h.auth = OWNER;
     render(<MascotAssistant />);

@@ -56,7 +56,10 @@ export function KanbanCardText({
         type="button"
         onClick={edit.start}
         title="Click to edit"
-        className="block w-full rounded-sm text-left font-medium text-text break-words cursor-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        // On touch a one-line title is a 36 px target, like the card's
+        // selects, not a 16 px strip of text. It still fits beside the 44 px
+        // grip, so a card without a description doesn't grow.
+        className="block w-full rounded-sm text-left font-medium text-text break-words cursor-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:py-2.5"
       >
         {title}
       </button>
