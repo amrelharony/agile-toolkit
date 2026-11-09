@@ -10,11 +10,12 @@
  * He asks once, ever (store.motionAsked): not again after an answer, and not
  * again if the bubble was left alone. The switch in his panel stays for a change
  * of mind. Never under reduced motion, and never where the phone sends motion
- * without asking (there he feels it from the start).
+ * without asking (there he feels it from the start). On Quiet, in Focus and in
+ * the quiet hours he holds the question for another time (lib/agent/mascot/say.ts).
  */
 
-import { useBubbleStore } from "@/lib/agent/mascot/bubble";
 import { MOTION_INVITE } from "@/lib/agent/mascot/lines";
+import { say } from "@/lib/agent/mascot/say";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import {
   canFeelPhone,
@@ -56,9 +57,7 @@ export async function allowMotion(): Promise<boolean> {
 /** Show the offer if this is the moment for it. True when it was shown. */
 export function inviteMotion(): boolean {
   if (!shouldInviteMotion()) return false;
-  useMascotStore.getState().setMotionAsked();
-  const bubble = useBubbleStore.getState();
-  bubble.show({
+  const asked = say("ask", {
     id: MOTION_INVITE_ID,
     text: MOTION_INVITE.text,
     actions: [
@@ -66,5 +65,6 @@ export function inviteMotion(): boolean {
       { label: MOTION_INVITE.decline, run: () => useMascotStore.getState().setFeelPhone(false) },
     ],
   });
-  return true;
+  if (asked) useMascotStore.getState().setMotionAsked();
+  return asked;
 }

@@ -28,6 +28,8 @@ export interface IdleHooks {
   want(packs: PackId[]): void;
   /** Pass the time with a scene; true if one plays. */
   play?: () => boolean;
+  /** How soon he tires, by his temperament: under 1 is sooner (brain/state.ts PACE). */
+  pace?: () => number;
   now?: () => number;
   hour?: () => number;
   random?: () => number;
@@ -100,7 +102,7 @@ export function createIdleLadder(hooks: IdleHooks): IdleLadder {
       return;
     }
     const idle = now() - lastInput;
-    const f = (late() ? LATE_FACTOR : 1) * (hurried ? HURRY_FACTOR : 1);
+    const f = (late() ? LATE_FACTOR : 1) * (hurried ? HURRY_FACTOR : 1) * (hooks.pace?.() ?? 1);
     if (!wanted.rest && idle > YAWN_MS * f - 15_000) {
       wanted = { ...wanted, rest: true };
       hooks.want(["rest"]);
