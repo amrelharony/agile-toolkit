@@ -2,18 +2,30 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Compass, ShieldCheck, TrendingUp } from "lucide-react";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { PageHeader } from "@/components/shared/page-header";
-import { InsightsEngine } from "@/components/shared/insights-engine";
 import { HomeSearch } from "@/components/home/home-search";
 import { JobLauncher } from "@/components/home/job-launcher";
 import { ContinueSection } from "@/components/home/continue-section";
 import { ToolSections } from "@/components/home/tool-sections";
-import { SprintCockpit } from "@/app/(tools)/sprint/cockpit";
+import { LoadingSprints } from "@/components/sprints/start";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { cn } from "@/lib/utils";
+
+// Both need this browser's workspace, so neither is in the server HTML: the
+// cockpit (the sprint tools' code) and the insight rules (most tools' stores)
+// load in chunks of their own once the page is up, off home's first download.
+const SprintCockpit = dynamic(
+  () => import("@/app/(tools)/sprint/cockpit").then((m) => m.SprintCockpit),
+  { ssr: false, loading: () => <LoadingSprints tall /> }
+);
+const InsightsEngine = dynamic(
+  () => import("@/components/shared/insights-engine").then((m) => m.InsightsEngine),
+  { ssr: false }
+);
 
 /**
  * Home: say what this is, then the team's sprint — the cockpit once a sprint

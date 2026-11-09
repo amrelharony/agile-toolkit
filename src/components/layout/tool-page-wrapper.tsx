@@ -1,14 +1,32 @@
 "use client";
 
-import { InsightsEngine } from "@/components/shared/insights-engine";
+import dynamic from "next/dynamic";
 import { ToolHistoryDrawer } from "@/components/history/tool-history-drawer";
 import { UndoRedoControls } from "@/components/history/undo-redo-controls";
 import { SavedChip } from "@/components/data/saved-chip";
 import { HowItWorks } from "@/components/tool-frame/how-it-works";
 import { RelatedTools } from "@/components/tool-frame/related-tools";
-import { NextStepCard } from "@/components/tool-frame/next-step";
 import { PresentButton } from "@/components/presentation/presentation-mode";
 import { FavoriteButton } from "@/components/tool-frame/favorite-button";
+
+// Only a tool's own page (toolId) shows these. The insight and next-step
+// rules import most tools' stores between them: about 190 kB gzipped that a
+// page without a toolId (the comics, the book, VIP) used to download and parse
+// before it could respond. Both render nothing until this browser's workspace
+// has loaded, so loading them on the client only leaves the server HTML as it
+// was. "How this works" is in that HTML, so it stays static: server-rendered
+// behind next/dynamic, hydration would leave it for later, and an early context
+// update (auth settling) would swap it for an empty fallback until its chunk
+// came, moving the tool up and back down. Its own code is small; the guide
+// text already loads on demand.
+const InsightsEngine = dynamic(
+  () => import("@/components/shared/insights-engine").then((m) => m.InsightsEngine),
+  { ssr: false }
+);
+const NextStepCard = dynamic(
+  () => import("@/components/tool-frame/next-step").then((m) => m.NextStepCard),
+  { ssr: false }
+);
 
 interface ToolPageWrapperProps {
   title: string;

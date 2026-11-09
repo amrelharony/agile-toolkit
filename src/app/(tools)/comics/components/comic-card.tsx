@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { COMICS_ROUTE, comicHref } from "@/lib/comics/entry";
-import { panelImageUrl } from "@/lib/comics/images";
+import { artLoading, panelImageUrl } from "@/lib/comics/images";
 import type { StoryCover, StorySummary } from "@/lib/comics/types";
 
 /**
- * A story's first panel at 768 px, loaded only when it nears the screen. The
- * card's title names the link, so the picture itself has no text alternative.
+ * A story's first panel at 768 px, the size every page uses: on a phone that is
+ * already about the slot's width in device pixels. Loaded when it nears the
+ * screen, unless it's what the page opens on (`priority`). The card's title
+ * names the link, so the picture itself has no text alternative.
  */
-export function ComicCover({ cover }: { cover: StoryCover }) {
+export function ComicCover({ cover, priority = false }: { cover: StoryCover; priority?: boolean }) {
   return (
     // Plain <img>: the art is already sized, and the optimiser would add a
     // second copy of every panel to the download bill.
@@ -18,7 +20,7 @@ export function ComicCover({ cover }: { cover: StoryCover }) {
       width={cover.width}
       height={cover.height}
       alt=""
-      loading="lazy"
+      {...artLoading(priority)}
       decoding="async"
       className="h-auto w-full bg-surface"
     />

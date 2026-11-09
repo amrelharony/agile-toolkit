@@ -43,11 +43,12 @@ afterEach(() => {
 });
 
 describe("sprint-first home", () => {
-  it("shows the start flow before any sprint exists", () => {
+  it("shows the start flow before any sprint exists", async () => {
     useWorkspaceStore.setState({ sprints: [] });
     render(<Home />);
     expect(screen.getByRole("heading", { name: "Start your sprint" })).toBeInTheDocument();
-    expect(screen.getByTestId("cockpit")).toHaveTextContent("compact");
+    // The cockpit's code loads once the page is up (off home's first download).
+    expect(await screen.findByTestId("cockpit")).toHaveTextContent("compact");
     expect(screen.getByRole("link", { name: /Team dashboard/ })).toHaveAttribute(
       "href",
       "/health-dashboard"

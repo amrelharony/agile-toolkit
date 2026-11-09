@@ -287,16 +287,25 @@ describe("the story reader", () => {
     h.released = [27, 30, 33];
   });
 
-  it("loads the 768 file lazily at its real size, with no srcset", async () => {
+  it("loads the 768 file at its real size, with no srcset", async () => {
     render(await ComicStoryPage(params(30)));
     const img = screen.getByAltText("Dina holds a thick folder at her desk.");
     expect(img.getAttribute("src")).toBe(
       "https://ref.supabase.co/storage/v1/object/public/comic-panels/stories/30/one-768.webp"
     );
-    expect(img.getAttribute("loading")).toBe("lazy");
     expect(img.getAttribute("width")).toBe("1536");
     expect(img.getAttribute("height")).toBe("1024");
     expect(img.hasAttribute("srcset")).toBe(false);
+  });
+
+  it("opens on the first panel at high priority and leaves the rest lazy", async () => {
+    render(await ComicStoryPage(params(30)));
+    const first = screen.getByAltText("Dina holds a thick folder at her desk.");
+    expect(first.getAttribute("loading")).toBe("eager");
+    expect(first.getAttribute("fetchpriority")).toBe("high");
+    const second = screen.getByAltText("Amr shrugs by the printer.");
+    expect(second.getAttribute("loading")).toBe("lazy");
+    expect(second.hasAttribute("fetchpriority")).toBe(false);
   });
 
   it("keeps dialogue and descriptions in the page with the transcript closed", async () => {
@@ -874,15 +883,25 @@ describe("the gallery", () => {
     expect(screen.queryByRole("region", { name: "Readers' favourites" })).toBeNull();
   });
 
-  it("loads card images lazily and small", async () => {
+  it("opens on this week's cover at high priority and loads the other cards lazily, all small", async () => {
+    h.totalsMap = new Map([[29, { loves: 12 }]]);
     render(await ComicsPage());
     // The book intro's cover is its own test's business (intro-book).
-    const cards = Array.from(document.querySelectorAll("img")).filter(
+    const art = Array.from(document.querySelectorAll("img")).filter(
       (img) => !img.closest("[data-intro-overlay]")
     );
-    expect(cards.length).toBeGreaterThan(0);
+    const thisWeek = within(screen.getByRole("region", { name: "Newest story" })).getByRole(
+      "presentation"
+    );
+    const cards = art.filter((img) => img !== thisWeek);
+    expect(thisWeek.getAttribute("loading")).toBe("eager");
+    expect(thisWeek.getAttribute("fetchpriority")).toBe("high");
+    expect(thisWeek.getAttribute("src")).toContain("-768.webp");
+    // Readers' favourites and the weekly list.
+    expect(cards.length).toBe(3);
     for (const img of cards) {
       expect(img.getAttribute("loading")).toBe("lazy");
+      expect(img.hasAttribute("fetchpriority")).toBe(false);
       expect(img.getAttribute("src")).toContain("-768.webp");
     }
   });
