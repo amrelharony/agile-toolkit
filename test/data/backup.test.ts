@@ -8,6 +8,11 @@ import {
   serializeBackup,
 } from "@/lib/data/backup";
 import { INTRO_KINDS, introMarkKey } from "@/lib/comics/intro";
+import {
+  VISITOR_AI_CONSENT_KEY,
+  VISITOR_AI_CONSENT_VERSION,
+} from "@/components/agent/mascot/visitor-ai-consent";
+import { LIVE_ROOM_KEY_PREFIX } from "@/lib/realtime/live-visitor-room";
 
 beforeEach(() => localStorage.clear());
 
@@ -54,6 +59,88 @@ describe("toolkit backup", () => {
     if (!parsed.ok) throw new Error(parsed.error);
     restoreBackup(parsed.backup, localStorage);
     expect(localStorage.getItem(mark)).toBeNull();
+  });
+
+  describe("visitor AI consent: each browser is asked for itself", () => {
+    it("excludes the same key the consent card writes", () => {
+      // backup.ts names the key as a literal. If the card's key changes, this fails.
+      expect(VISITOR_AI_CONSENT_KEY).toBe("agile-toolkit:amr-ai-consent");
+      expect(isBackupKey(VISITOR_AI_CONSENT_KEY)).toBe(false);
+    });
+
+    it("leaves the consent out of an export", () => {
+      localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+      localStorage.setItem("agile-toolkit:retro", "{}");
+      const backup = collectBackup(localStorage);
+      expect(Object.keys(backup.keys)).toEqual(["agile-toolkit:retro"]);
+      expect(serializeBackup(backup)).not.toContain(VISITOR_AI_CONSENT_KEY);
+    });
+
+    it("drops the consent from a file on restore, so the card still shows", () => {
+      const parsed = parseBackup(
+        JSON.stringify({
+          format: "agile-toolkit-backup",
+          version: 1,
+          createdAt: "",
+          keys: {
+            [VISITOR_AI_CONSENT_KEY]: VISITOR_AI_CONSENT_VERSION,
+            "agile-toolkit:retro": "{}",
+          },
+        })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      expect(Object.keys(parsed.backup.keys)).toEqual(["agile-toolkit:retro"]);
+      restoreBackup(parsed.backup, localStorage);
+      expect(localStorage.getItem(VISITOR_AI_CONSENT_KEY)).toBeNull();
+      expect(localStorage.getItem("agile-toolkit:retro")).toBe("{}");
+    });
+
+    it("keeps this browser's own consent through a restore", () => {
+      localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+      const parsed = parseBackup(
+        JSON.stringify({ format: "agile-toolkit-backup", version: 1, createdAt: "", keys: {} })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      restoreBackup(parsed.backup, localStorage);
+      expect(localStorage.getItem(VISITOR_AI_CONSENT_KEY)).toBe(VISITOR_AI_CONSENT_VERSION);
+    });
+  });
+
+  describe("a tab's live room stamp: true for a few minutes, in this browser only", () => {
+    const stamp = `${LIVE_ROOM_KEY_PREFIX}some-tab`;
+
+    it("excludes the same prefix the room's tab writes", () => {
+      // backup.ts names the prefix as a literal. If the stamp's key changes, this fails.
+      expect(LIVE_ROOM_KEY_PREFIX).toBe("agile-toolkit:live-room:");
+      expect(isBackupKey(stamp)).toBe(false);
+    });
+
+    it("leaves the stamp out of an export and drops it from a file", () => {
+      localStorage.setItem(stamp, "1");
+      localStorage.setItem("agile-toolkit:retro", "{}");
+      expect(Object.keys(collectBackup(localStorage).keys)).toEqual(["agile-toolkit:retro"]);
+
+      const parsed = parseBackup(
+        JSON.stringify({
+          format: "agile-toolkit-backup",
+          version: 1,
+          createdAt: "",
+          keys: { [`${LIVE_ROOM_KEY_PREFIX}old-tab`]: "1", "agile-toolkit:retro": "{}" },
+        })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      expect(Object.keys(parsed.backup.keys)).toEqual(["agile-toolkit:retro"]);
+    });
+
+    it("keeps another tab's stamp through a restore, so Amr stays without tools", () => {
+      localStorage.setItem(stamp, "1");
+      const parsed = parseBackup(
+        JSON.stringify({ format: "agile-toolkit-backup", version: 1, createdAt: "", keys: {} })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      restoreBackup(parsed.backup, localStorage);
+      expect(localStorage.getItem(stamp)).toBe("1");
+    });
   });
 
   it("round-trips the toolkit's data through a file", () => {
