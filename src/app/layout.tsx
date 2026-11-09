@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/app-shell";
 import { AppToaster } from "@/components/layout/app-toaster";
 import { NotifyProvider } from "@/lib/notify/provider";
+import { InkDefs } from "@/components/ink/ink-defs";
 import { ThemeRestore } from "@/components/layout/theme-restore";
 import { ServiceWorker } from "@/components/pwa/service-worker";
 import { INTRO_BOOT_SCRIPT } from "@/lib/comics/intro";
@@ -87,6 +88,8 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: INTRO_BOOT_SCRIPT }} />
       </head>
       <body className="font-sans antialiased touch-manipulation">
+        {/* The filters ink graphics share (line boil, watercolour bleed). */}
+        <InkDefs />
         <TooltipProvider>
           <AppShell>{children}</AppShell>
           <AppToaster />
