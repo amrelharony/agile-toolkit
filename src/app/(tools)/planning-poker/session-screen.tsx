@@ -227,7 +227,13 @@ function ConsensusVerdict({ consensus, agreed }: { consensus: Consensus; agreed:
     <span className="text-sm text-text">
       {before}
       {card !== null && agreed ? (
-        <InkHighlight mark="circle" tone="success" delay={300} className="font-data font-bold">
+        // The circle reaches 0.4em past the card on each side: room for it.
+        <InkHighlight
+          mark="circle"
+          tone="success"
+          delay={300}
+          className="mx-1.5 font-data font-bold"
+        >
           {card}
         </InkHighlight>
       ) : (
