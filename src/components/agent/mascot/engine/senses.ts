@@ -5,15 +5,21 @@
  * the hour (interactions/context.ts) and the idle ladder (idle.ts), all speaking
  * to the store and all sharing one director, so the unprompted ones stay rare.
  * Paused while the tab is hidden.
+ *
+ * His mind (lib/agent/mascot/mind.ts) ticks along here too: his temperament sets
+ * how often he does something unprompted and how soon he tires, his mood reaches
+ * the sprite, someone he knows gets a wave, and he remembers what he's played.
  */
 
 import { useAgentStore } from "@/lib/agent/store";
-import { useMascotStore } from "@/lib/agent/mascot/store";
+import { did, feel, getMind, recentlyDid, takeArrival } from "@/lib/agent/mascot/mind";
+import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
 import type { PackId } from "../mascot-packs";
 import { createDirector } from "./director";
 import { createIdleLadder, firstMorningVisit, type IdleLadder } from "./idle";
 import { installContextSenses } from "./interactions/context";
 import { installPageSenses } from "./interactions/page";
+import { moodFor } from "./mood";
 import { fetchVisitorWeather } from "@/lib/agent/mascot/context/weather";
 import { visitorWeekend } from "@/lib/agent/mascot/context/moments";
 import {
@@ -35,10 +41,27 @@ export interface SensesOptions {
 }
 
 const INPUTS = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart", "scroll"] as const;
+/** Keys this recently mean the visitor is typing: he keeps to himself. */
+const TYPING_MS = 8000;
+/** He greets someone he knows this long after arriving. */
+const HELLO_MS = 1600;
+
+/** How he greets someone he knows: a wave, or a cheer on the third and seventh day running. */
+export function helloFor(arrival: ReturnType<typeof takeArrival>): MascotReaction | null {
+  if (arrival.kind === "back") return "wave";
+  if (arrival.kind !== "next-day") return null;
+  return arrival.streak === 3 || arrival.streak === 7 ? "cheer" : "wave";
+}
 
 export function installSenses(opts: SensesOptions): () => void {
   const mascot = () => useMascotStore.getState();
-  const director = createDirector();
+  const mind = getMind();
+  let lastKeyAt = -Infinity;
+  const typing = () => Date.now() - lastKeyAt < TYPING_MS;
+  const director = createDirector(
+    () => Date.now(),
+    () => mind.brain.gapMs(typing())
+  );
   const isPhone = isPhoneViewport;
   const parkedTop = () => {
     const r = opts.figure()?.getBoundingClientRect();
@@ -68,7 +91,12 @@ export function installSenses(opts: SensesOptions): () => void {
       disposeMotion = installMotionSenses({
         hold,
         act: (r) => mascot().queueReaction(r),
-        playNow: (r) => mascot().playNow(r),
+        playNow: (r) => {
+          if (r === "dizzy") feel("shaken");
+          else if (r === "land") feel("thrown");
+          else if (r === "startle") feel("startled");
+          mascot().playNow(r);
+        },
         frame: opts.motion,
         // Put down, he tires sooner; picked up, that's someone here.
         rest: (resting) => {
@@ -100,6 +128,8 @@ export function installSenses(opts: SensesOptions): () => void {
     path: () => window.location.pathname,
     weather: () => fetchVisitorWeather(),
     weekend: visitorWeekend,
+    recent: recentlyDid,
+    played: did,
   });
 
   // Nobody around → pass the time, yawn, sit, doze. Any input wakes him.
@@ -109,7 +139,12 @@ export function installSenses(opts: SensesOptions): () => void {
     hold,
     allow: director.allow,
     busy,
-    play: () => context.play(),
+    play: () => {
+      const playing = context.play();
+      if (playing) feel("played");
+      return playing;
+    },
+    pace: () => mind.brain.pace(),
     canStroll: () =>
       !opts.reducedMotion &&
       !isPhone() &&
@@ -120,6 +155,20 @@ export function installSenses(opts: SensesOptions): () => void {
   const idle = ladder;
   const onInput = () => idle.input();
   INPUTS.forEach((e) => window.addEventListener(e, onInput, { passive: true }));
+  const onKey = () => {
+    lastKeyAt = Date.now();
+  };
+  window.addEventListener("keydown", onKey, { passive: true });
+
+  // His mood reaches the sprite when it changes enough to show (its speed, the drone).
+  let moodName = moodFor(mascot().mood.valence, mascot().mood.energy);
+  const publishMood = () => {
+    const mood = mind.brain.mood();
+    const name = moodFor(mood.valence, mood.energy);
+    if (name === moodName) return;
+    moodName = name;
+    mascot().setMood(mood);
+  };
   let ticker: ReturnType<typeof setInterval> | undefined;
   const run = () => {
     clearInterval(ticker);
@@ -127,6 +176,8 @@ export function installSenses(opts: SensesOptions): () => void {
     if (document.hidden) return;
     idle.input(); // back from a hidden tab counts as being here
     ticker = setInterval(() => {
+      mind.brain.tick();
+      publishMood();
       idle.tick();
       context.check();
     }, 1000);
@@ -143,8 +194,20 @@ export function installSenses(opts: SensesOptions): () => void {
       }, 2500)
     : undefined;
 
+  // Someone he knows: a wave when they're back, a cheer on a run of days.
+  const hello = helloFor(takeArrival());
+  const helloTimer = hello
+    ? setTimeout(() => {
+        if (!director.allow("hello", 60_000, true)) return;
+        feel("greeted");
+        mascot().queueReaction(hello);
+      }, HELLO_MS)
+    : undefined;
+
   return () => {
     disposePage();
+    clearTimeout(helloTimer);
+    window.removeEventListener("keydown", onKey);
     context.dispose();
     unsubMotion();
     disposeMotion?.();

@@ -42,6 +42,7 @@ import { X, Plus, History, Sparkles, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { feel, getMind } from "@/lib/agent/mascot/mind";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
@@ -645,13 +646,20 @@ export function MascotAssistant() {
   if (!clickRef.current) {
     clickRef.current = createClickInteraction({
       playNow: (r) => useMascotStore.getState().playNow(r),
+      hold: (h, on) => useMascotStore.getState().setHold(h, on),
       sound: () => playMascotSound("click"),
+      temperament: () => getMind().brain.temperament(),
+      feel,
     });
   }
   const touchRef = useRef<ReturnType<typeof createTouchInteraction> | null>(null);
   if (!touchRef.current) {
     touchRef.current = createTouchInteraction({
-      playNow: (r) => useMascotStore.getState().playNow(r),
+      playNow: (r) => {
+        if (r === "highFive") feel("highFive");
+        else if (r === "patLeft" || r === "patRight") feel("pat");
+        useMascotStore.getState().playNow(r);
+      },
       hold: (h, on) => useMascotStore.getState().setHold(h, on),
       sound: () => playMascotSound("click"),
     });
@@ -791,6 +799,7 @@ export function MascotAssistant() {
       if (!moved && Math.abs(ev.clientX - start.x) + Math.abs(ev.clientY - start.y) > 8) {
         moved = true;
         touch?.dragStart();
+        feel("carried");
       }
       if (!moved) {
         const q = touchPoint(ev, hitRef.current);
@@ -830,6 +839,7 @@ export function MascotAssistant() {
         }
         if (!prefersReducedMotion()) {
           const thrown = speed > THROW_SPEED;
+          if (thrown) feel("thrown");
           flightRef.current = { left: last.left, top: last.top, thrown };
           useMascotStore.getState().setHold(thrown ? "flying" : "falling", true);
         }
