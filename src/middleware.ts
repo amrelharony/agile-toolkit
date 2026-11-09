@@ -127,6 +127,8 @@ export async function probeSession(supabase: SessionVerifier): Promise<SessionPr
  *   /not-authorized   — the denied page itself
  *   /api/health       — uptime probes
  *   /api/mcp, /api/agent/stream — bearer-token / self-gated endpoints
+ *   /api/agent/visitor — Amr's AI for visitors; same-site, rate-limited and
+ *                     metered by its handler, reads no session
  *   /api/comics/hit, /api/comics/licence, /api/comics/guestbook,
  *   /api/comics/taps  — public reads and writes, gated by their handlers
  *   /api/mascot/weather — the visitor's weather for Amr; reads no session
@@ -307,6 +309,8 @@ function isBypassPath(pathname: string): boolean {
     pathname === "/api/mcp" ||
     pathname.startsWith("/api/mcp/") ||
     pathname === "/api/agent/stream" ||
+    // Exact match: anything under it stays owner-only.
+    pathname === "/api/agent/visitor" ||
     // Exact matches, never a prefix: a future /api/comics/* route stays
     // owner-only until it is listed here on purpose.
     pathname === "/api/comics/hit" ||
