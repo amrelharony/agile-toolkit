@@ -142,6 +142,8 @@ interface MascotState {
    * ask for permission; see engine/interactions/sensors.ts).
    */
   feelPhone: boolean | null;
+  /** He has offered to feel the phone once (the bubble beside him); he doesn't ask twice. */
+  motionAsked: boolean;
   /** Where he's parked, so things shown beside him (the moment chip) can follow. */
   corner: MascotCorner;
 }
@@ -169,6 +171,8 @@ interface MascotActions {
   setAuraColor(hex: string | null): void;
   /** Let him feel the phone's motion, or stop; persisted. */
   setFeelPhone(on: boolean): void;
+  /** Note that he has offered to feel the phone; persisted. */
+  setMotionAsked(): void;
   /** Report the corner he's parked in (the assistant calls it). */
   setCorner(c: MascotCorner): void;
   /** Load the persisted aura and motion choice from localStorage. */
@@ -188,12 +192,19 @@ const INITIAL: MascotState = {
   microQueue: [],
   auraColor: null,
   feelPhone: null,
+  motionAsked: false,
   corner: "bottomRight",
 };
 
 const APPEARANCE_KEY = "mascot_appearance";
 
-function saveAppearance(data: { auraColor: string | null; feelPhone: boolean | null }): void {
+interface Appearance {
+  auraColor: string | null;
+  feelPhone: boolean | null;
+  motionAsked: boolean;
+}
+
+function saveAppearance(data: Appearance): void {
   try {
     localStorage.setItem(APPEARANCE_KEY, JSON.stringify(data));
   } catch {
@@ -242,21 +253,27 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
   },
   setAuraColor: (hex) => {
     set({ auraColor: hex });
-    saveAppearance({ auraColor: hex, feelPhone: get().feelPhone });
+    saveAppearance(appearance(get()));
   },
   setFeelPhone: (on) => {
     set({ feelPhone: on });
-    saveAppearance({ auraColor: get().auraColor, feelPhone: on });
+    saveAppearance(appearance(get()));
+  },
+  setMotionAsked: () => {
+    if (get().motionAsked) return;
+    set({ motionAsked: true });
+    saveAppearance(appearance(get()));
   },
   setCorner: (corner) => set((s) => (s.corner === corner ? s : { corner })),
   hydrateAppearance: () => {
     try {
       const raw = localStorage.getItem(APPEARANCE_KEY);
       if (!raw) return;
-      const data = JSON.parse(raw) as { auraColor?: string | null; feelPhone?: boolean | null };
+      const data = JSON.parse(raw) as Partial<Appearance>;
       set({
         auraColor: data.auraColor ?? null,
         feelPhone: typeof data.feelPhone === "boolean" ? data.feelPhone : null,
+        motionAsked: data.motionAsked === true,
       });
     } catch {
       /* ignore */
@@ -264,6 +281,10 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
   },
   reset: () => set({ ...INITIAL }),
 }));
+
+function appearance(s: MascotState): Appearance {
+  return { auraColor: s.auraColor, feelPhone: s.feelPhone, motionAsked: s.motionAsked };
+}
 
 function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0.5;

@@ -78,6 +78,18 @@ export function lookIndex(dx: number, dy: number): number | null {
   return Math.round((deg + 360) / LOOK_STEP_DEG) % 16;
 }
 
+/** A degree of tilt looks as far as a cursor this many px from his face. */
+const LOOK_PX_PER_DEG = 8;
+
+/**
+ * Which look pose follows the phone's tilt: toward the low side, up when it's
+ * leaned back and down when it's brought upright. Null near level (6°), like a
+ * cursor on top of him.
+ */
+export function tiltLook(roll: number, pitch: number): number | null {
+  return lookIndex(roll * LOOK_PX_PER_DEG, -pitch * LOOK_PX_PER_DEG);
+}
+
 type Pointing =
   | "pointUp"
   | "pointUpRight"

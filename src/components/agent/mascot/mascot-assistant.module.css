@@ -46,6 +46,12 @@
   will-change: transform;
 }
 
+/* The phone's tilt: he leans against it from his feet (its transform-origin is
+   set inline at his floor row), so he stays upright as the ground tips. */
+.lean {
+  will-change: transform;
+}
+
 .clip {
   position: absolute;
   left: 0;

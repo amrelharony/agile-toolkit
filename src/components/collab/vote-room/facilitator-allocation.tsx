@@ -54,6 +54,7 @@ import {
 } from "@/lib/realtime/vote-room/allocation";
 import { VOTE_LIMITS, type AllocationRoomTool } from "@/lib/realtime/vote-room/protocol";
 import { AllocationResults } from "./allocation-results";
+import { announceToolMoment } from "@/lib/agent/mascot/tool-moments";
 import { useSaveRound, type SaveAllocationRound } from "./save-round";
 
 export interface FacilitatorAllocationProps {
@@ -290,6 +291,7 @@ export function FacilitatorAllocation({
     }
     setFormError(null);
     setResult(next);
+    announceToolMoment(tool, "round_revealed");
   };
 
   /** Totals only: why these totals can't come from `n` valid splits (on an item, or overall), or null. */

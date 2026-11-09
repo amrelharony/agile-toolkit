@@ -34,6 +34,7 @@ import {
 } from "@/lib/realtime/vote-room/pair";
 import { VOTE_LIMITS, type PairRoomTool } from "@/lib/realtime/vote-room/protocol";
 import { PairResults } from "./pair-results";
+import { announceToolMoment } from "@/lib/agent/mascot/tool-moments";
 import { useSaveRound, type SavePairRound } from "./save-round";
 
 export interface FacilitatorPairProps {
@@ -178,6 +179,7 @@ export function FacilitatorPair({
         source: "facilitator",
       })
     );
+    announceToolMoment(tool, "round_revealed");
   };
 
   const startOver = () => {

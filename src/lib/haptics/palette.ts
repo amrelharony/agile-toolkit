@@ -36,6 +36,17 @@ export const HAPTIC_PALETTE: Record<string, Record<string, HapticPatternName>> =
     "keystroke-space": "keystroke-space",
     "keystroke-backspace": "keystroke-backspace",
   },
+  // Amr: a touch on him is felt in the hand (the sprite emits each reaction's
+  // name as he starts it; the ones nobody caused aren't listed, so they stay still).
+  mascot: {
+    click: "tick",
+    poke: "tick",
+    tickle: "triple-tick",
+    patLeft: "soft-pulse",
+    patRight: "soft-pulse",
+    highFive: "impact-medium",
+    land: "impact-light",
+  },
   // Realtime surface
   rt: {
     "member-join": "double-tick",
@@ -108,7 +119,11 @@ export const HAPTIC_PALETTE: Record<string, Record<string, HapticPatternName>> =
   // Ice breaker
   icebreaker: { shuffle: "reveal", pick: "vote-cast" },
   // Gamification
-  gamification: { "xp-gain": "soft-pulse", "level-up": "achievement", "trophy-unlock": "milestone" },
+  gamification: {
+    "xp-gain": "soft-pulse",
+    "level-up": "achievement",
+    "trophy-unlock": "milestone",
+  },
 };
 
 export function getHapticEntry(toolId: string, eventName: string): HapticPatternName | null {
