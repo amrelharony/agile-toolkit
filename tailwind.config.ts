@@ -32,6 +32,23 @@ function themeColor(cssVar: string): string {
   return resolve as unknown as string;
 }
 
+const INK_TONE_NAMES = [
+  "ink",
+  "sub",
+  "paper",
+  "accent",
+  "accent2",
+  "accent3",
+  "success",
+  "warning",
+  "danger",
+  "info",
+  "moss",
+  "wood",
+  "plum",
+];
+const INK_SAFELIST = INK_TONE_NAMES.flatMap((t) => [`ink-tone-${t}`, `ink-fill-${t}`]);
+
 const config: Config = {
   darkMode: ["class"],
   content: [
@@ -48,6 +65,12 @@ const config: Config = {
     // and landed in flow position on top of the header.
     "./src/lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  // Ink graphics (components/ink) build their tone classes from a drawing's
+  // data (`ink-tone-${tone}`, `ink-fill-${tone}`), which the content scan
+  // can't see, so without this their rules in globals.css were purged and
+  // every fill rendered black. Keep the list equal to INK_TONES in
+  // lib/ink/types.ts (test/design/ink-css.test.ts checks it).
+  safelist: INK_SAFELIST,
   theme: {
     // ── Breakpoint system ──
     // Default Tailwind breakpoints + two additions:

@@ -9,6 +9,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { castAnchor, filterCast, type CastCard } from "@/lib/vip/cast";
 import { CastCardView, castHeadingId } from "./cast-card";
+import { squadArt } from "@/lib/ink/drawings/pages/squad";
 
 /**
  * The cast as cards: what each colleague wants, does well and overdoes, and who
@@ -35,6 +36,7 @@ export function MeetTheCastClient({ cast }: { cast: readonly CastCard[] }) {
 
   return (
     <ToolPageWrapper
+      art={squadArt}
       title="Meet the Cast"
       description="Capable colleagues and familiar habits: what each of them wants, does well and sometimes overdoes, and how they get along."
     >

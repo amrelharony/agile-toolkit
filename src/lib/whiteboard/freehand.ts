@@ -107,7 +107,7 @@ function avg(a: number[], b: number[]): [number, number] {
  * approach from the library docs — it produces a smooth ink-like contour
  * without explicit Bezier control point math.
  */
-function svgPathFromStroke(stroke: number[][]): string {
+export function svgPathFromStroke(stroke: number[][]): string {
   if (stroke.length < 2) return "";
   const first = stroke[0];
   const second = stroke[1];

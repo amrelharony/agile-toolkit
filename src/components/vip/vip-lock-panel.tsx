@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { BOOK_PATH } from "@/lib/book/book";
 import { VIP_TITLE } from "@/lib/vip/constants";
+import { vipArt } from "@/lib/ink/drawings/sections/vip";
 
 /**
  * What a VIP address shows without access. It takes no props on purpose, so it
@@ -13,7 +14,7 @@ import { VIP_TITLE } from "@/lib/vip/constants";
  */
 export function VipLockPanel() {
   return (
-    <ToolPageWrapper title={VIP_TITLE} description="For readers of the printed book.">
+    <ToolPageWrapper art={vipArt} title={VIP_TITLE} description="For readers of the printed book.">
       <VipLockedMessage />
     </ToolPageWrapper>
   );

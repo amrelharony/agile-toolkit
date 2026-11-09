@@ -8,6 +8,10 @@ import { HowItWorks } from "@/components/tool-frame/how-it-works";
 import { RelatedTools } from "@/components/tool-frame/related-tools";
 import { PresentButton } from "@/components/presentation/presentation-mode";
 import { FavoriteButton } from "@/components/tool-frame/favorite-button";
+import { InkArt } from "@/components/ink/ink-art";
+import { getSectionForTool } from "@/lib/constants/sections";
+import { SECTION_ART } from "@/lib/ink/drawings/sections";
+import type { InkDrawing } from "@/lib/ink/types";
 
 // Only a tool's own page (toolId) shows these. The insight and next-step
 // rules import most tools' stores between them: about 190 kB gzipped that a
@@ -36,6 +40,12 @@ interface ToolPageWrapperProps {
   showInsights?: boolean;
   /** Hide the per-tool history drawer (defaults to on when toolId is set). */
   showHistory?: boolean;
+  /**
+   * The header's spot drawing (lib/ink/drawings). Defaults to the art of the
+   * tool's section; a page without a toolId (the comic, the book, VIP) passes
+   * its own. `null` leaves the header without one.
+   */
+  art?: InkDrawing | null;
   children: React.ReactNode;
 }
 
@@ -65,6 +75,10 @@ interface ToolPageWrapperProps {
  *     so on a scrolled page drag overlays drew off-screen and drops missed.
  *     Don't add a transform, filter or `will-change` to this div for the
  *     same reason.
+ *   - Art: a hand-inked spot drawing (components/ink) beside the title, in a
+ *     fixed box (44 → 64 → 80 px) that's in the server HTML, so nothing moves
+ *     when it inks itself in. The header is its `.ink-host`: hovering it with
+ *     a mouse makes the line boil.
  *   - Layering: `isolate` keeps the stacking context the leftover transform
  *     used to give this div, without making it a containing block for fixed
  *     elements. A tool's own z-indexes (the canvas's pins, selection handles
@@ -77,19 +91,35 @@ export function ToolPageWrapper({
   toolId,
   showInsights = true,
   showHistory = true,
+  art,
   children,
 }: ToolPageWrapperProps) {
   const showToolbar = showHistory && Boolean(toolId);
+  const drawing =
+    art === undefined
+      ? toolId
+        ? SECTION_ART[getSectionForTool(toolId)?.id ?? ""]
+        : undefined
+      : (art ?? undefined);
 
   return (
     <div className="container-tool isolate motion-safe:animate-rise">
       {/* Header row — title + toolbar */}
-      <header className="panel mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:gap-4 gap-3 px-4 py-4 sm:px-6 sm:py-5">
-        <div className="flex-1 min-w-0">
-          <h1 className="font-display font-bold text-text leading-tight text-fluid-h2 mb-1 sm:mb-2">
-            {title}
-          </h1>
-          <p className="text-fluid-body text-sub max-w-prose">{description}</p>
+      <header className="panel ink-host mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:gap-4 gap-3 px-4 py-4 sm:px-6 sm:py-5">
+        <div className="flex flex-1 min-w-0 items-start gap-3 sm:gap-4">
+          {drawing && (
+            <InkArt
+              drawing={drawing}
+              boil
+              className="h-11 w-11 shrink-0 sm:h-16 sm:w-16 lg:h-20 lg:w-20"
+            />
+          )}
+          <div className="flex-1 min-w-0">
+            <h1 className="font-display font-bold text-text leading-tight text-fluid-h2 mb-1 sm:mb-2">
+              {title}
+            </h1>
+            <p className="text-fluid-body text-sub max-w-prose">{description}</p>
+          </div>
         </div>
         {toolId && (
           <div data-chrome="tool-toolbar" className="shrink-0 flex items-center gap-2 flex-wrap">

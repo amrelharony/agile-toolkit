@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Search, Download, Filter, History as HistoryIcon, Sparkles, Calendar } from "lucide-react";
+import { Search, Download, Filter, Sparkles, Calendar } from "lucide-react";
+import { InkArt } from "@/components/ink/ink-art";
 import { useHistory } from "@/lib/history/use-history";
 import { useHistoryStore } from "@/lib/history/history-store";
 import { useAuth } from "@/lib/auth/auth-provider";
@@ -27,6 +28,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { HistoryEvent } from "@/lib/history/types";
+import { hourglassArt } from "@/lib/ink/drawings/pages/hourglass";
 
 const RANGE_PRESETS = [
   { id: "7d", label: "7 days", days: 7 },
@@ -105,11 +107,9 @@ export default function HistoryPage() {
       className="container-meta"
     >
       {/* Header */}
-      <div className="panel mb-4 sm:mb-6 flex items-start justify-between gap-3 flex-wrap px-4 py-4 sm:px-6 sm:py-5">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/30 flex items-center justify-center shrink-0">
-            <HistoryIcon className="w-5 h-5 text-accent" aria-hidden="true" />
-          </div>
+      <div className="panel ink-host mb-4 sm:mb-6 flex items-start justify-between gap-3 flex-wrap px-4 py-4 sm:px-6 sm:py-5">
+        <div className="flex items-start gap-3 sm:gap-4">
+          <InkArt drawing={hourglassArt} boil className="h-11 w-11 shrink-0 sm:h-16 sm:w-16" />
           <div>
             <h1 className="text-fluid-h2 font-display font-bold text-text leading-tight">
               History

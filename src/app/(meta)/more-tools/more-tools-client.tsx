@@ -4,8 +4,12 @@ import { useId } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ToolCard } from "@/components/shared/tool-card";
+import { InkArt } from "@/components/ink/ink-art";
+import { SECTION_TONE } from "@/lib/ink/drawings/section-tone";
+import { getSectionForTool } from "@/lib/constants/sections";
 import { getShelfToolsByCategory } from "@/lib/tools/catalog";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
+import { toolboxArt } from "@/lib/ink/drawings/pages/toolbox";
 
 /** The id of a category's heading: the anchor the jump chips link to. */
 function shelfHeadingId(category: string): string {
@@ -28,15 +32,20 @@ export function MoreToolsClient() {
   return (
     <div className="container-tool space-y-8 py-8">
       <header className="space-y-4">
-        <div className="space-y-2">
-          <h1 className="text-fluid-h2 font-semibold text-text">More tools</h1>
-          <p className="max-w-2xl text-sub">
-            The toolkit is built for Scrum masters and agile teams, so these {shelfCount} tools for
-            neighbouring work — AI product management, security, reliability and incident response,
-            developer-experience surveys and strategy frameworks — stay off the home page, the
-            sidebar and search results. Every one still works and keeps its guide; open it from
-            here, or show them all.
-          </p>
+        <div className="panel ink-host flex items-start gap-3 px-4 py-4 sm:gap-4 sm:px-6 sm:py-5">
+          <InkArt drawing={toolboxArt} boil className="h-11 w-11 shrink-0 sm:h-16 sm:w-16" />
+          <div className="min-w-0 space-y-2">
+            <h1 className="text-fluid-h2 font-display font-bold leading-tight text-text">
+              More tools
+            </h1>
+            <p className="max-w-2xl text-sub">
+              The toolkit is built for Scrum masters and agile teams, so these {shelfCount} tools
+              for neighbouring work — AI product management, security, reliability and incident
+              response, developer-experience surveys and strategy frameworks — stay off the home
+              page, the sidebar and search results. Every one still works and keeps its guide; open
+              it from here, or show them all.
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-4">
           <Switch id={switchId} checked={showAll} onCheckedChange={setShowAll} />
@@ -96,6 +105,7 @@ export function MoreToolsClient() {
                     title={tool.name}
                     description={tool.description}
                     tags={tool.badge ? [tool.badge] : undefined}
+                    tone={SECTION_TONE[getSectionForTool(tool.id)?.id ?? ""]}
                   />
                 );
               })}
