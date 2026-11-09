@@ -6,7 +6,11 @@
 import type { Incident } from "./types";
 
 export function formatDuration(ms: number): string {
-  if (ms < 0) return "—";
+  // Guard NaN as well as negative: a malformed `openedAt`/`resolvedAt`
+  // (e.g. from a hand-edited JSON import) yields NaN ms, and `NaN < 0` is
+  // false — without this the card rendered the literal "NaNh NaNm".
+  // Mirrors the Number.isFinite guard in mttrHours below.
+  if (!Number.isFinite(ms) || ms < 0) return "—";
   const totalMin = Math.floor(ms / 60000);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;

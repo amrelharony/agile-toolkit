@@ -11,6 +11,7 @@
 
 import type { NextRequest } from "next/server";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
+import { inviteAuditKeys } from "@/lib/squads/audit-keys";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOOL_ID_RE = /^[a-z0-9_-]{1,64}$/;
@@ -246,6 +247,12 @@ export async function POST(req: NextRequest) {
   // roll back the invite (the invite is the source of truth; the log
   // row is reconstructable from squad_profiles/session_invites if
   // needed). Owner-authored (squad_profile_id = NULL).
+  //
+  // client_event_id / tool_run_id are capped at 32 chars by the
+  // history_events CHECK constraints (0002_auth_history.sql); a full
+  // 36-char UUID overflows them. inviteAuditKeys() derives a short,
+  // unique key that fits.
+  const auditKeys = inviteAuditKeys(inviteRow.id, "create");
   void supabase
     .from("history_events")
     .insert({
@@ -262,8 +269,8 @@ export async function POST(req: NextRequest) {
       },
       is_milestone: false,
       client_id: "server",
-      client_event_id: `invite_create_${inviteRow.id}`,
-      tool_run_id: `invite_${inviteRow.id}`,
+      client_event_id: auditKeys.clientEventId,
+      tool_run_id: auditKeys.toolRunId,
       occurred_at: new Date().toISOString(),
     })
     .then(({ error: auditErr }) => {

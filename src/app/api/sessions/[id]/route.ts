@@ -7,6 +7,7 @@
 
 import type { NextRequest } from "next/server";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
+import { inviteAuditKeys } from "@/lib/squads/audit-keys";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -59,7 +60,11 @@ export async function DELETE(_req: NextRequest, ctx: { params: { id: string } })
 
   // Audit-log the revocation (one row per actually-revoked invite).
   // Owner-authored, best-effort — same pattern as the create-side log.
+  // inviteAuditKeys keeps client_event_id / tool_run_id under the 32-char
+  // history_events CHECK constraints (a full UUID overflows them); the
+  // `inv_r_` prefix keeps it distinct from the create-side `inv_c_` row.
   const revoked = updated[0];
+  const auditKeys = inviteAuditKeys(revoked.id, "revoke");
   void supabase
     .from("history_events")
     .insert({
@@ -76,8 +81,8 @@ export async function DELETE(_req: NextRequest, ctx: { params: { id: string } })
       },
       is_milestone: false,
       client_id: "server",
-      client_event_id: `invite_revoke_${revoked.id}`,
-      tool_run_id: `invite_${revoked.id}`,
+      client_event_id: auditKeys.clientEventId,
+      tool_run_id: auditKeys.toolRunId,
       occurred_at: new Date().toISOString(),
     })
     .then(({ error: auditErr }) => {
