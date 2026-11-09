@@ -7,6 +7,7 @@ import { Pencil, Share2, Trash2, UserPlus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
+import { TOUCH_ROW, TOUCH_ROW_LINK } from "@/components/ui/touch-target";
 import { SectionCard } from "@/components/shared/section-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { WorkspaceLoading } from "@/components/shared/workspace-loading";
@@ -15,6 +16,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TeamMember } from "@/lib/stores/workspace-types";
 import { nameKey, useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { undoable } from "@/lib/utils/undoable";
+import { cn } from "@/lib/utils";
 import { ROSTER_TOOLS } from "./roster-tools";
 import { TeamCharter } from "./charter";
 
@@ -504,12 +506,17 @@ export function TeamClient() {
               if (!tool) return null;
               const Icon = tool.icon;
               return (
-                <li key={toolId} className="flex items-start gap-2.5">
+                // On touch the whole row (name and what it uses the list
+                // for) opens the tool, at least 44px tall.
+                <li key={toolId} className={cn("flex items-start gap-2.5", TOUCH_ROW)}>
                   <Icon className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
                   <div className="min-w-0">
                     <Link
                       href={tool.path}
-                      className="text-sm font-medium text-text underline-offset-4 hover:text-accent hover:underline"
+                      className={cn(
+                        "text-sm font-medium text-text underline-offset-4 hover:text-accent hover:underline",
+                        TOUCH_ROW_LINK
+                      )}
                     >
                       {tool.name}
                     </Link>

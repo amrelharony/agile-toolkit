@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, Check, Circle, CircleDot } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TOUCH_LINK } from "@/components/ui/touch-target";
 import type { FlowCard, FlowState } from "../view";
 
 const STATE_ICON = { todo: Circle, doing: CircleDot, done: Check } as const;
@@ -50,7 +51,10 @@ export function FlowStrip({ cards }: { cards: FlowCard[] }) {
             <p className="text-sm text-text">{card.line}</p>
             <Link
               href={card.href}
-              className="mt-auto inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+              className={cn(
+                "mt-auto inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline",
+                TOUCH_LINK
+              )}
             >
               {card.cta}
               <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />

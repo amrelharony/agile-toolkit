@@ -17,6 +17,8 @@ import type { CeremonyCadence } from "@/lib/sprints/cadence";
 import { undoable } from "@/lib/utils/undoable";
 import type { Validation } from "@/lib/utils/form";
 import { CadenceForm } from "@/components/sprints/cadence-form";
+import { TOUCH_LINK } from "@/components/ui/touch-target";
+import { cn } from "@/lib/utils";
 
 function Step({
   n,
@@ -249,13 +251,21 @@ export function StartFlow({
           </Step>
         </ol>
 
-        <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-border pt-4">
-          <Link href="/#all-tools" className="text-sm font-medium text-sub hover:text-accent">
+        {/* Two standalone links: 44px tall on touch, the row's top padding
+            trimmed there so the text keeps its distance from the rule. */}
+        <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-border pt-4 pointer-coarse:pt-1">
+          <Link
+            href="/#all-tools"
+            className={cn("text-sm font-medium text-sub hover:text-accent", TOUCH_LINK)}
+          >
             Just browse the tools
           </Link>
           <Link
             href="/team"
-            className="ml-auto inline-flex items-center gap-1 text-sm font-medium text-sub hover:text-accent"
+            className={cn(
+              "ml-auto inline-flex items-center gap-1 text-sm font-medium text-sub hover:text-accent",
+              TOUCH_LINK
+            )}
           >
             <Users className="h-4 w-4" aria-hidden="true" />
             Team page
