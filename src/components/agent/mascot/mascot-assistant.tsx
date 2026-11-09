@@ -14,7 +14,9 @@
  * stroking his head gets a shy smile or a pat, and dragging picks him up by the
  * collar — he dangles and swings, and lands where he's dropped or thrown
  * (engine/interactions/clicks.ts, touch.ts). On phones the panel header has a
- * switch that lets him feel the phone's motion (engine/interactions/sensors.ts).
+ * switch that lets him feel the phone's motion (engine/interactions/sensors.ts);
+ * where the browser asks before it sends motion, he offers once himself, in a
+ * bubble beside him, the first time his panel closes (motion-invite.ts).
  * On touch screens he steps aside (up, or to the other side) when his figure
  * would sit on one of the page's controls (mascot-nudge.ts).
  *
@@ -53,6 +55,8 @@ import {
   requestMotionPermission,
 } from "./engine/interactions/sensors";
 import { installKonami } from "./engine/customization/commands";
+import { MascotBubble } from "./mascot-bubble";
+import { inviteMotion } from "./motion-invite";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./engine/sprite-poses";
 import { VisitorGuide } from "./visitor-guide";
@@ -906,6 +910,17 @@ export function MascotAssistant() {
     if (granted) mascot.playNow("startle");
   };
 
+  // Where the browser asks before it sends motion, he offers to feel the phone:
+  // once, the first time his panel closes (the visitor has met him by then).
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    const was = wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (!was || open) return;
+    const id = setTimeout(inviteMotion, 700);
+    return () => clearTimeout(id);
+  }, [open]);
+
   // Drive the mascot from the conversation: talk while streaming, think on send,
   // react to tool results, shift mood to the reply's sentiment.
   useMascotChatReactions();
@@ -1043,6 +1058,9 @@ export function MascotAssistant() {
           )}
         </div>
       )}
+
+      {/* What he says beside himself, outside the chat. */}
+      {!hideFigure && <MascotBubble />}
 
       {/* The screen's side safe areas, for stepping aside to the other side (readSideInsets). */}
       <span

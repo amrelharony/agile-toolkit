@@ -1,0 +1,70 @@
+/**
+ * Amr's offer to feel the phone.
+ *
+ * iPhones, and browsers that follow them, send tilt and shake readings only
+ * after the visitor says yes to the browser's own prompt, and that prompt may
+ * only be raised from a tap. So on those phones he asks first, in a bubble beside
+ * him: "Tilt your phone, I'll feel it", Allow or No thanks. Allow raises the
+ * browser's prompt from that very tap.
+ *
+ * He asks once, ever (store.motionAsked): not again after an answer, and not
+ * again if the bubble was left alone. The switch in his panel stays for a change
+ * of mind. Never under reduced motion, and never where the phone sends motion
+ * without asking (there he feels it from the start).
+ */
+
+import { useBubbleStore } from "@/lib/agent/mascot/bubble";
+import { MOTION_INVITE } from "@/lib/agent/mascot/lines";
+import { useMascotStore } from "@/lib/agent/mascot/store";
+import {
+  canFeelPhone,
+  motionNeedsPermission,
+  requestMotionPermission,
+} from "./engine/interactions/sensors";
+
+export const MOTION_INVITE_ID = "motion-invite";
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+  );
+}
+
+/** Whether this is the moment to ask: a phone that needs asking, and he hasn't yet. */
+export function shouldInviteMotion(): boolean {
+  const m = useMascotStore.getState();
+  return (
+    m.ready &&
+    m.feelPhone === null &&
+    !m.motionAsked &&
+    canFeelPhone() &&
+    motionNeedsPermission() &&
+    !prefersReducedMotion()
+  );
+}
+
+/** Raise the browser's prompt (call from the tap) and keep the answer. */
+export async function allowMotion(): Promise<boolean> {
+  const granted = await requestMotionPermission();
+  const mascot = useMascotStore.getState();
+  mascot.setFeelPhone(granted);
+  if (granted) mascot.playNow("startle");
+  return granted;
+}
+
+/** Show the offer if this is the moment for it. True when it was shown. */
+export function inviteMotion(): boolean {
+  if (!shouldInviteMotion()) return false;
+  useMascotStore.getState().setMotionAsked();
+  const bubble = useBubbleStore.getState();
+  bubble.show({
+    id: MOTION_INVITE_ID,
+    text: MOTION_INVITE.text,
+    actions: [
+      { label: MOTION_INVITE.allow, run: () => void allowMotion() },
+      { label: MOTION_INVITE.decline, run: () => useMascotStore.getState().setFeelPhone(false) },
+    ],
+  });
+  return true;
+}
