@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode, type Ref } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight, KeyRound, MessageCircle, Search } from "lucide-react";
@@ -55,10 +55,19 @@ function useToolGuide(toolId: string | undefined): ToolGuide | null {
 export function VisitorGuide({
   onNavigate,
   onAskAmr,
+  guideRef,
+  note,
 }: {
   onNavigate?: () => void;
   /** Ask Amr's AI instead (visitor AI on); `query` may be empty. */
   onAskAmr?: (query: string) => void;
+  /** The guide's wrapper, so VisitorPanel can move focus to it. */
+  guideRef?: Ref<HTMLDivElement>;
+  /**
+   * Shown above the search, inside the guide's own scroll area: in a short
+   * panel it scrolls away with the guide and takes no height from it.
+   */
+  note?: ReactNode;
 }) {
   const pathname = usePathname();
   const vip = useVipHint();
@@ -86,10 +95,16 @@ export function VisitorGuide({
   };
 
   return (
+    // Focusable from code only (tabIndex -1): coming back from the consent
+    // card or the chat, focus lands here, not on the search box, which would
+    // open a phone's keyboard.
     <div
+      ref={guideRef}
+      tabIndex={-1}
       data-testid="mascot-visitor-guide"
-      className="flex h-full flex-col gap-4 overflow-y-auto px-4 py-3"
+      className="flex h-full flex-col gap-4 overflow-y-auto px-4 py-3 focus:outline-none"
     >
+      {note}
       {/* The search comes first. A phone shows about 360 px of this panel, and
           the current tool's "How to run it" list alone is longer than that, so
           the search used to sit two to four screens down. Results show right
@@ -196,7 +211,7 @@ export function VisitorGuide({
           <button
             type="button"
             onClick={() => onAskAmr("")}
-            className="flex items-center gap-1.5 self-start text-sm font-medium text-accent underline-offset-2 hover:underline"
+            className="min-touch-coarse flex items-center gap-1.5 self-start text-sm font-medium text-accent underline-offset-2 hover:underline"
           >
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
             Chat with Amr
@@ -239,7 +254,10 @@ function AskAmrButton({ query, onAskAmr }: { query: string; onAskAmr: (query: st
       type="button"
       variant="outline"
       size="sm"
-      className="self-start"
+      // The label holds up to 40 characters of the search, wider than the
+      // panel on one line: it wraps inside the button instead. Size "sm"
+      // still gives it 44 px on touch.
+      className="h-auto max-w-full self-start whitespace-normal py-1.5 text-left [overflow-wrap:anywhere] md-fine:h-auto"
       onClick={() => onAskAmr(query)}
     >
       <MessageCircle aria-hidden="true" />

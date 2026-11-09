@@ -10,6 +10,7 @@
  * imports nothing of the agent runtime.
  */
 
+import { useEffect, useRef } from "react";
 import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -57,11 +58,20 @@ export function VisitorAiConsent({
   onAgree: () => void;
   onDecline: () => void;
 }) {
+  // Focus moves to the card when it appears: the card, not "Agree and ask",
+  // so a screen reader reads what it says before the buttons.
+  const cardRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    cardRef.current?.focus();
+  }, []);
+
   return (
     <div className="flex h-full flex-col overflow-y-auto px-4 py-3">
       <section
+        ref={cardRef}
+        tabIndex={-1}
         aria-labelledby="amr-ai-consent-title"
-        className="rounded-lg border border-border bg-card px-3 py-3"
+        className="rounded-lg border border-border bg-card px-3 py-3 focus:outline-none"
       >
         <p
           id="amr-ai-consent-title"

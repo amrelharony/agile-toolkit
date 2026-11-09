@@ -3,7 +3,7 @@
 /**
  * A visitor's chat with Amr's AI (visitor AI), loaded on demand.
  *
- * VisitorPanel mounts this chunk with next/dynamic only after the visitor
+ * VisitorPanel imports this chunk (React.lazy) only after the visitor
  * agreed to the consent card, and this chunk loads the agent runtime
  * (lib/agent/visitor-runtime: the action registry and the streaming client)
  * only on the first message, with a dynamic import.
@@ -12,12 +12,13 @@
  * panel, or going back to the offline guide, stops any answer in progress.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { AlertTriangle, BookOpen, Eraser, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
 import { toolIdForPath } from "@/lib/agent/page-tool";
+import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import { formatPeakTime, peakWindow } from "@/lib/visitor-ai/peak";
 import { ConfirmAction } from "../confirm-action";
@@ -113,6 +114,8 @@ export default function VisitorAgentPanel({
   const [loading, setLoading] = useState(false);
   const pathname = usePathname();
   const now = useNow(CLOCK_TICK_MS);
+  // In a visitor live room Amr gets no tools; the footer says so.
+  const inLiveRoom = useSyncExternalStore(subscribeLiveVisitorRoom, inLiveVisitorRoom, () => false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const mountedRef = useRef(false);
@@ -167,24 +170,35 @@ export default function VisitorAgentPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuestion]);
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo?.({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages.length, streaming]);
-
   const busy = streaming || loading;
+  useEffect(() => {
+    const log = scrollRef.current;
+    if (!log) return;
+    log.scrollTo?.({ top: log.scrollHeight, behavior: "smooth" });
+    // In a short panel the root scrolls too, and the message box's focus
+    // leaves the log above the view: bring the log back when there is
+    // something new in it. In a tall panel the log is in view, so this moves
+    // nothing. An empty chat stays on the message box.
+    if (messages.length > 0 || busy) log.scrollIntoView?.({ block: "nearest" });
+  }, [messages.length, streaming, busy]);
+
   // "Thinking…" until the reply's first words arrive (or between tool rounds).
   const last = messages[messages.length - 1];
   const awaiting = busy && (!last || last.role !== "assistant" || last.content.length === 0);
   const peak = peakNote(quota, now);
 
   return (
-    <div className="flex h-full min-h-0 flex-col px-3 py-2">
+    // The panel can be as short as 160 px (a landscape phone). The log keeps a
+    // floor and the footer keeps its height, so in a short panel this root
+    // scrolls and the composer and buttons stay in reach. In a tall panel
+    // nothing overflows here: the log takes the rest and scrolls inside itself.
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto px-3 py-2">
       <div
         ref={scrollRef}
         role="log"
         aria-live="polite"
         aria-label="Conversation"
-        className="flex-1 space-y-3 overflow-y-auto px-1 py-2"
+        className="min-h-[6rem] flex-1 space-y-3 overflow-y-auto px-1 py-2"
       >
         {messages.length === 0 && !busy && (
           <div className="space-y-2 py-10 text-center text-sm text-sub">
@@ -192,7 +206,12 @@ export default function VisitorAgentPanel({
             <ul className="space-y-1 text-xs">
               <li>&quot;How do I run a good retro?&quot;</li>
               <li>&quot;Which tool helps me prioritize a backlog?&quot;</li>
-              <li>&quot;Add a card &lsquo;flaky CI&rsquo; to my retro.&quot;</li>
+              {/* In a live room Amr changes nothing, so the third example is a question. */}
+              {inLiveRoom ? (
+                <li>&quot;What makes a good sprint goal?&quot;</li>
+              ) : (
+                <li>&quot;Add a card &lsquo;flaky CI&rsquo; to my retro.&quot;</li>
+              )}
             </ul>
           </div>
         )}
@@ -218,7 +237,7 @@ export default function VisitorAgentPanel({
         )}
       </div>
 
-      <div className="mt-2 border-t border-border pt-3">
+      <div className="mt-2 shrink-0 border-t border-border pt-3">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -240,7 +259,9 @@ export default function VisitorAgentPanel({
             placeholder="Ask Amr…"
             rows={2}
             className="flex-1 resize-none rounded-md border border-border bg-[var(--card)] px-3 py-2 text-sm text-text placeholder:text-sub focus:outline-none focus:ring-1 focus:ring-accent"
-            disabled={busy}
+            // Read-only while Amr answers, not disabled: a disabled box drops
+            // the focus it took when the chat opened, and never gets it back.
+            readOnly={busy}
             aria-label="Message"
           />
           {streaming ? (
@@ -265,9 +286,15 @@ export default function VisitorAgentPanel({
           {quota
             ? `${quota.remaining} of ${quota.limit} left today`
             : `${VISITOR_AI_DAILY_MESSAGES} messages a day`}
-          {" · Amr asks before changing anything · Not saved"}
+          {inLiveRoom ? " · Not saved" : " · Amr asks before changing anything · Not saved"}
         </p>
         {peak && <p className="mt-1 text-xs text-sub">{peak}</p>}
+        {inLiveRoom && (
+          <p className="mt-1 text-xs text-sub" data-testid="visitor-ai-live-room">
+            You&apos;re in a live room, so Amr only answers questions here: he won&apos;t read or
+            change your tools.
+          </p>
+        )}
         <div className="mt-2 flex items-center justify-between gap-2">
           <Button type="button" variant="outline" size="sm" onClick={onOfflineGuide}>
             <BookOpen aria-hidden="true" />

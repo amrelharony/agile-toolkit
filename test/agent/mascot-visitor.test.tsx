@@ -53,6 +53,7 @@ import { peakNote } from "@/components/agent/mascot/visitor-agent-panel";
 import { VISITOR_FALLBACK_CODES } from "@/lib/visitor-ai/contract";
 import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
+import { LIVE_ROOM_KEY_PREFIX, enterLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { OWNER_UNVERIFIED } from "@/lib/auth/owner-check";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 
@@ -431,6 +432,141 @@ describe("MascotAssistant — visitor AI", () => {
     render(<MascotAssistant />);
     expect(await screen.findByLabelText("Message")).toBeInTheDocument();
     expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
+  });
+
+  it("gives Chat with Amr a 44 px target on touch, like the rest of the footer", () => {
+    render(<MascotAssistant />);
+    expect(screen.getByRole("button", { name: "Chat with Amr" })).toHaveClass(
+      "min-touch-coarse",
+      "flex",
+      "items-center"
+    );
+  });
+
+  // jsdom has no layout, so this checks the classes, not the wrapped text.
+  it("gives Ask Amr the classes that let a long search wrap, and keeps 44 px on touch", () => {
+    render(<MascotAssistant />);
+    fireEvent.change(screen.getByLabelText("What do you need to do?"), {
+      target: { value: "how do I stop my team from skipping the retro" },
+    });
+    const ask = screen.getByRole("button", { name: /^Ask Amr about/ });
+    expect(ask).toHaveClass("h-auto", "max-w-full", "whitespace-normal", "text-left");
+    // Size "sm" still sets the touch height; its one-line rules are gone.
+    expect(ask).toHaveClass("pointer-coarse:min-h-11");
+    expect(ask).not.toHaveClass("whitespace-nowrap");
+    expect(ask).not.toHaveClass("md-fine:h-8");
+  });
+
+  // jsdom has no layout, so this checks the classes, not the scrolling itself.
+  it("gives the chat the classes that keep the composer in reach in a short panel", async () => {
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    render(<MascotAssistant />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    const log = await screen.findByRole("log", { name: "Conversation" });
+    // The log has a floor, and still takes the rest and scrolls inside itself.
+    expect(log).toHaveClass("min-h-[6rem]", "flex-1", "overflow-y-auto");
+    // The chat scrolls as a whole when the floor and the footer don't fit.
+    expect(log.parentElement).toHaveClass("h-full", "min-h-0", "flex-col", "overflow-y-auto");
+    // The footer keeps its height.
+    const footer = screen.getByLabelText("Message").closest("form")?.parentElement;
+    expect(footer).toHaveClass("shrink-0");
+  });
+
+  // jsdom has no layout and no scrollIntoView, so this checks the call. In a
+  // short panel the chat's root scrolls, and the log is above the message box.
+  it("brings the log into view when there is something new in it, not for an empty chat", async () => {
+    const scrollIntoView = vi.fn();
+    const proto = Element.prototype as { scrollIntoView?: unknown };
+    const before = Object.getOwnPropertyDescriptor(proto, "scrollIntoView");
+    proto.scrollIntoView = scrollIntoView;
+    try {
+      window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+      render(<MascotAssistant />);
+      fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+      const log = await screen.findByRole("log", { name: "Conversation" });
+      // An empty chat stays on the message box.
+      expect(scrollIntoView).not.toHaveBeenCalled();
+
+      act(() => {
+        useAgentStore.getState().appendMessage({
+          id: "a1",
+          role: "assistant",
+          content: [{ type: "text", text: "Start with what went well." }],
+          createdAt: "2026-11-09T08:00:01Z",
+        });
+      });
+      // "nearest" moves only as far as needed, so a tall panel does not move.
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+      expect(scrollIntoView.mock.instances.at(-1)).toBe(log);
+    } finally {
+      if (before) Object.defineProperty(proto, "scrollIntoView", before);
+      else delete proto.scrollIntoView;
+    }
+  });
+
+  it("says Amr only answers questions while the visitor is in a live room", async () => {
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    render(<MascotAssistant />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await screen.findByRole("button", { name: "Offline guide" });
+    expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
+    // Out of a room the chat offers a change and says Amr asks first.
+    expect(screen.getByText(/Add a card/)).toBeInTheDocument();
+    expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent(
+      "Amr asks before changing anything"
+    );
+
+    let leave = () => {};
+    act(() => {
+      leave = enterLiveVisitorRoom();
+    });
+    try {
+      expect(screen.getByTestId("visitor-ai-live-room")).toHaveTextContent(
+        "You're in a live room, so Amr only answers questions here: he won't read or change your tools."
+      );
+      // Nothing else in the chat promises a change the room rules out.
+      expect(screen.queryByText(/Add a card/)).toBeNull();
+      expect(screen.getByText(/What makes a good sprint goal\?/)).toBeInTheDocument();
+      const quota = screen.getByTestId("visitor-ai-quota");
+      expect(quota).not.toHaveTextContent("Amr asks before changing anything");
+      expect(quota).toHaveTextContent("Not saved");
+    } finally {
+      act(() => leave());
+    }
+    expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
+    expect(screen.getByText(/Add a card/)).toBeInTheDocument();
+    expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent(
+      "Amr asks before changing anything"
+    );
+  });
+
+  it("says the same when the live room is open in another tab of this browser", async () => {
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    render(<MascotAssistant />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await screen.findByRole("button", { name: "Offline guide" });
+    expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
+
+    // What the tab with the room does: it writes its stamp, and this tab gets
+    // a storage event for it.
+    const key = `${LIVE_ROOM_KEY_PREFIX}another-tab`;
+    try {
+      act(() => {
+        window.localStorage.setItem(key, String(Date.now()));
+        window.dispatchEvent(new StorageEvent("storage", { key }));
+      });
+      expect(screen.getByTestId("visitor-ai-live-room")).toBeInTheDocument();
+      expect(screen.queryByText(/Add a card/)).toBeNull();
+
+      // The room closes there: the stamp goes and the line with it.
+      act(() => {
+        window.localStorage.removeItem(key);
+        window.dispatchEvent(new StorageEvent("storage", { key }));
+      });
+      expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
+    } finally {
+      window.localStorage.removeItem(key);
+    }
   });
 
   describe("the visitor's chat", () => {
