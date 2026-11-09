@@ -5,9 +5,8 @@ import Link from "next/link";
 import { ArrowRight, Star } from "lucide-react";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
 import { cn } from "@/lib/utils";
-import { InkArt } from "@/components/ink/ink-art";
-import { seedFrom } from "@/lib/ink/rng";
-import { TONE_VAR, type InkDrawing, type InkTone } from "@/lib/ink/types";
+import { ToneIcon } from "@/components/ink/tone-icon";
+import type { InkTone } from "@/lib/ink/types";
 
 interface ToolCardProps {
   href: string;
@@ -23,16 +22,6 @@ interface ToolCardProps {
   tone?: InkTone;
   /** When provided, a star toggle renders in the top-right corner. */
   toolId?: string;
-}
-
-/** The wash under a card's icon: its own blob per card, drawn still. */
-function tileWash(tone: InkTone, key: string): InkDrawing {
-  return {
-    name: "tile-wash",
-    viewBox: "0 0 48 48",
-    washes: [{ cx: 24, cy: 25, rx: 21, ry: 18, seed: seedFrom(key), tone }],
-    strokes: [],
-  };
 }
 
 /**
@@ -85,18 +74,9 @@ export function ToolCard({
           everything else in the row lets clicks fall through to the link. */}
       <div className="pointer-events-none relative z-[2] flex items-start justify-between">
         {tone ? (
-          <div
-            aria-hidden="true"
-            className="relative flex h-11 w-11 items-center justify-center text-lg"
-            style={{ color: TONE_VAR[tone] }}
-          >
-            <InkArt
-              drawing={tileWash(tone, toolId ?? href)}
-              still
-              className="absolute -left-1.5 -top-1.5 h-[calc(100%+0.75rem)] w-[calc(100%+0.75rem)]"
-            />
-            <span className="relative">{icon}</span>
-          </div>
+          <ToneIcon tone={tone} seedKey={toolId ?? href}>
+            {icon}
+          </ToneIcon>
         ) : (
           <div
             aria-hidden="true"

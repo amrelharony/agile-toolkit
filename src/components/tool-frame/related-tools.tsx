@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { getSectionForTool } from "@/lib/constants/sections";
 import { getToolById } from "@/lib/constants/tools";
+import { SECTION_TONE } from "@/lib/ink/drawings/section-tone";
 import { getVisibleTools, isShelved, isVipOnly } from "@/lib/tools/catalog";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
+import { ToneIcon } from "@/components/ink/tone-icon";
 
 const MAX_RELATED = 4;
 
@@ -16,7 +18,8 @@ const MAX_RELATED = 4;
  * pages different suggestions instead of the same first four. Tools on the
  * "More tools" shelf are skipped — unless the current tool is shelved too,
  * because then its neighbours are what the visitor came for. VIP tools are
- * never suggested here and don't suggest anything themselves.
+ * never suggested here and don't suggest anything themselves. Each icon sits on
+ * the section's wash, as on the home cards.
  */
 export function RelatedTools({ toolId }: { toolId: string }) {
   const { byId: visible } = useToolVisibility();
@@ -34,6 +37,7 @@ export function RelatedTools({ toolId }: { toolId: string }) {
     .filter((tool) => !isVipOnly(tool))
     .slice(0, MAX_RELATED);
   if (related.length === 0) return null;
+  const tone = SECTION_TONE[section.id];
 
   return (
     <nav
@@ -53,7 +57,13 @@ export function RelatedTools({ toolId }: { toolId: string }) {
                 href={tool.path}
                 className="flex h-full items-start gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
-                <Icon className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+                {tone ? (
+                  <ToneIcon tone={tone} seedKey={tool.id} className="-mt-0.5 h-6 w-6">
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                  </ToneIcon>
+                ) : (
+                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+                )}
                 <span className="min-w-0">
                   <span className="block text-sm font-medium text-text">{tool.name}</span>
                   <span className="mt-0.5 line-clamp-2 block text-xs text-sub">
