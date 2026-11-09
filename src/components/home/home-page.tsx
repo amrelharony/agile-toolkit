@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { InkArt } from "@/components/ink/ink-art";
 import { InkHighlight } from "@/components/ink/ink-highlight";
 import { HOME_HERO } from "@/lib/ink/drawings/scenes/home-hero";
+import type { InkDrawing } from "@/lib/ink/types";
 import { HomeSearch } from "@/components/home/home-search";
 import { JobLauncher } from "@/components/home/job-launcher";
 import { ContinueSection } from "@/components/home/continue-section";
@@ -37,9 +38,16 @@ const InsightsEngine = dynamic(
  * browser's data, so the server renders it as a placeholder of about its size
  * and the cockpit fills it once the workspace has loaded. The comic's card
  * comes from the server page (app/page), since only the server can read the
- * stories.
+ * stories; so do the section drawings, as data, to stay out of home's bundle.
  */
-export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
+export function HomePage({
+  comicBanner,
+  sectionArt,
+}: {
+  comicBanner?: ReactNode;
+  /** SECTION_ART, keyed by section id, for the rows of the full index. */
+  sectionArt?: Record<string, InkDrawing>;
+}) {
   const { tools: visibleTools, shelfCount, showAll } = useToolVisibility();
   const hydrated = useWorkspaceHydrated();
   const hasSprints = useWorkspaceStore((s) => (s.sprints?.length ?? 0) > 0);
@@ -136,7 +144,7 @@ export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
         <h2 id="all-tools-heading" className="font-display text-lg font-semibold text-text">
           All {toolCount} tools, by job
         </h2>
-        <ToolSections />
+        <ToolSections sectionArt={sectionArt} />
         {!showAll && shelfCount > 0 && (
           <p className="text-sm text-sub">
             <Link href="/more-tools" className="font-medium text-text hover:text-accent">
