@@ -165,6 +165,8 @@ Where the browser asks before it sends motion (iPhones, and browsers that follow
 
 To try it without a phone, send the page `deviceorientation` and `devicemotion` events from the console.
 
+One sheet of his own is specified for it and not drawn yet: S115 in `context-sheets.json` (a hard lean each way, a slide each way, braced at the edge, hanging on, relief), with its prompt in `AMR-CONTEXT-BRIEF.md`. Until it comes back and is built, the balance and carried poses stand in; then the tips, the skid and hanging on take its frames, and its scenes go into `scenes.ts` like any other sheet's.
+
 ## His mind
 
 He has a little inner state (`src/lib/agent/mascot/brain/state.ts`): five drives between 0 and 1 (energy, affection, playfulness, a jolt of arousal, annoyance) that what happens to him pushes about and time lets settle. They add up to a temperament: sleepy, calm, playful, affectionate, shy or grumpy. It colours what he already does, nothing more:
