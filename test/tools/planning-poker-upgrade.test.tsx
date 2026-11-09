@@ -81,6 +81,7 @@ import {
   consensusLabel,
   consensusOf,
   consensusVerdict,
+  consensusVerdictParts,
   estimateCards,
   isEstimateCard,
 } from "@/lib/estimation/consensus";
@@ -261,6 +262,26 @@ describe("consensus, counted in cards on the deck", () => {
     expect(consensusVerdict(consensusOf(["?", "∞"], FIB))).toBe(
       "Nobody could estimate this one: talk through what's unclear, or split the story."
     );
+  });
+
+  it("splits the sentence around the card a table agreed on, and only that card", () => {
+    // The poker screen circles that card in ink; the sentence reads the same.
+    expect(consensusVerdictParts(consensusOf(["5", "5"], FIB))).toEqual({
+      before: "Everyone played ",
+      card: "5",
+      after: ".",
+    });
+    expect(consensusVerdictParts(consensusOf(["5", "5", "?"], FIB))).toEqual({
+      before: "Everyone who estimated played ",
+      card: "5",
+      after: ". 1 person couldn't estimate: ask what's unclear.",
+    });
+    for (const votes of [["5"], ["13", "21"], ["3", "13"], ["?", "∞"]]) {
+      const parts = consensusVerdictParts(consensusOf(votes, FIB));
+      expect(parts.card, votes.join()).toBeNull();
+      expect(parts.before).toBe(consensusVerdict(consensusOf(votes, FIB)));
+      expect(parts.after).toBe("");
+    }
   });
 });
 
