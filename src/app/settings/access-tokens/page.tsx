@@ -1,4 +1,6 @@
 import { AccessTokensClient } from "./access-tokens-client";
+import { SettingsHeader } from "@/components/settings/settings-header";
+import { keyArt } from "@/lib/ink/drawings/pages/key";
 
 export const metadata = {
   title: "Access Tokens",
@@ -10,14 +12,11 @@ export const metadata = {
 export default function AccessTokensPage() {
   return (
     <div className="container-tool py-8">
-      <header className="mb-6 space-y-2">
-        <h1 className="text-fluid-h2 font-semibold text-text">Access tokens</h1>
-        <p className="text-sub max-w-2xl">
-          Generate personal access tokens (PATs) to authenticate the MCP server. External agents
-          (Claude Desktop, Claude Code) use these to drive the toolkit over HTTP. Each token shows
-          its raw value <strong>once</strong> at creation — copy it then. Revoke unused tokens.
-        </p>
-      </header>
+      <SettingsHeader title="Access tokens" art={keyArt}>
+        Generate personal access tokens (PATs) to authenticate the MCP server. External agents
+        (Claude Desktop, Claude Code) use these to drive the toolkit over HTTP. Each token shows its
+        raw value <strong>once</strong> at creation — copy it then. Revoke unused tokens.
+      </SettingsHeader>
       <AccessTokensClient />
     </div>
   );
