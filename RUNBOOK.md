@@ -417,6 +417,112 @@ If abuse shows up, the planned next step is short-lived room tokens minted by a 
 
 ---
 
+## Visitor AI
+
+Signed-out visitors can chat with Amr's AI from the mascot panel: questions about agile, Scrum and the toolkit, and changes in their own tools (which run in their browser, on their own data, and ask before each change). The browser posts the conversation to `POST /api/agent/visitor` (`src/app/api/agent/visitor/route.ts`), which adds the server's own system prompt (`src/lib/visitor-ai/prompt.ts`), meters the request and forwards it to the OpenClaw gateway on `VISITOR_AI_MODEL`. The browser never picks the model, the prompt, `max_tokens` or the reasoning effort. The feature is **off** until both flags below are `1`.
+
+### Before turning it on (VPS prerequisites)
+
+The gateway must pass all five checks of `node scripts/probe-openclaw.mjs` (streaming, a tool-call round trip, reasoning deltas, usage, a 60 KB body) with these in place on the VPS:
+
+- `openclaw-flash` on `openclaw-sandbox-api` is a plain pass-through to `glm-5.3-flash`: no agent prompt, memory, shell, browser or SSH tools. Visitors' text must never reach the main OpenClaw agent.
+- The gateway forwards OpenAI `tools` and returns native `tool_calls` (and forwards `reasoning_effort` if it can).
+- nginx on the `chat-sandbox` vhost: `client_max_body_size 512k` on `/v1/chat/completions`, and `limit_req` zones keyed on the `X-Caller` header. The owner's agent sends `X-Caller: agile-toolkit` (about 120 requests a minute, burst 40); the visitor route sends `X-Caller: agile-toolkit-visitor`, which needs its own, smaller zone (for example 60 a minute, burst 20), so a burst of visitors can never use up the owner's budget. One way, with a `map` so each caller only meets its own zone:
+
+  ```nginx
+  map $http_x_caller $toolkit_owner   { "agile-toolkit" "owner"; default ""; }
+  map $http_x_caller $toolkit_visitor { "agile-toolkit-visitor" "visitor"; default ""; }
+  limit_req_zone $toolkit_owner   zone=toolkit_owner:1m   rate=120r/m;
+  limit_req_zone $toolkit_visitor zone=toolkit_visitor:1m rate=60r/m;
+  # in the location: limit_req zone=toolkit_owner burst=40; limit_req zone=toolkit_visitor burst=20;
+  ```
+
+  (An empty key is never limited, so each zone counts only its own caller.) Stronger still: a second gateway key that can only reach `openclaw-flash`, for the visitor route alone.
+
+- The gateway key has been rotated since it was published as the widget token.
+
+### Variables (Vercel; you set them, nobody pastes values into chat)
+
+| Variable                    | What it does                                                                                                                                         |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENCLAW_API_KEY`          | The gateway's bearer key (shared with the owner's agent).                                                                                            |
+| `VISITOR_AI_MODEL`          | Optional; default `openclaw-flash`.                                                                                                                  |
+| `VISITOR_AI_HASH_SECRET`    | Random, at least 16 characters (`openssl rand -base64 32`). Makes the daily visitor code. Without it every request is refused (`meter_unavailable`). |
+| `SUPABASE_SERVICE_ROLE_KEY` | Already set for the guest routes; the meter needs it. Without it every request is refused.                                                           |
+| `VISITOR_AI_ENABLED`        | `1` lets the route answer. Anything else: `503 disabled`, no meter, no gateway call.                                                                 |
+| `NEXT_PUBLIC_VISITOR_AI`    | `1` shows the chat in the panel. Inlined at build time, so redeploy after changing it.                                                               |
+
+Set the two `1` flags last. Migration `0037_visitor_ai_usage.sql` must be pushed first, or the meter fails and every request is refused.
+
+### The brake
+
+Stops the next message for everyone, no redeploy:
+
+```sql
+update public.visitor_ai_config set enabled = false;
+```
+
+`enabled = true` turns it back on. For a full stop, also set `VISITOR_AI_ENABLED` to anything but `1` and redeploy. With the brake on, old rows still go on time (see "Watching usage").
+
+### Limits and the peak window
+
+Everything lives in the one `visitor_ai_config` row and applies from the next request:
+
+| Column                                           | Default                                 | Meaning                                                                                                                                                          |
+| ------------------------------------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `turns_per_visitor`                              | 100                                     | Messages per visitor per Cairo day                                                                                                                               |
+| `peak_turns_per_visitor`                         | 25                                      | …of which in the peak window                                                                                                                                     |
+| `turns_per_day`                                  | 20000                                   | Messages per Cairo day, site-wide                                                                                                                                |
+| `peak_turns_per_day`                             | 2000                                    | …of which in the peak window                                                                                                                                     |
+| `calls_per_visitor`                              | 300                                     | Model calls per visitor per day (a message with tool rounds is several calls)                                                                                    |
+| `calls_per_day`                                  | 60000                                   | Model calls per day, site-wide                                                                                                                                   |
+| `calls_per_5h`                                   | 6000                                    | Model calls in the last 5 hours, site-wide (counted by UTC hour, so between 5 and 6 hours, never less): keeps room on the Coding Plan for Claude Code and Hermes |
+| `reasoning_effort`                               | `high`                                  | `low`, `high` or `max`                                                                                                                                           |
+| `peak_tz`, `peak_days`, `peak_start`, `peak_end` | `Asia/Singapore`, `{1,2,3,4,5}`, 14, 18 | Z.AI's peak window: ISO weekdays (1 = Monday), hours `[start, end)` in `peak_tz`. That is 08:00–12:00 Cairo in winter, 09:00–13:00 in summer.                    |
+
+```sql
+update public.visitor_ai_config set turns_per_visitor = 60, peak_turns_per_visitor = 15;
+update public.visitor_ai_config set reasoning_effort = 'low';
+-- Try the peak note: make the window cover now (then put it back).
+update public.visitor_ai_config set peak_days = '{1,2,3,4,5,6,7}', peak_start = 0, peak_end = 24;
+update public.visitor_ai_config set peak_days = '{1,2,3,4,5}', peak_start = 14, peak_end = 18;
+```
+
+A limit answers 429 with its code (`visitor_limit`, `visitor_peak_limit`, `site_limit`, `site_peak_limit`, `site_busy`) and the panel falls back to the offline guide. A gateway 429 or 5xx is `503 upstream_busy`, never counted as a limit.
+
+### Watching usage
+
+```sql
+select * from public.visitor_ai_daily order by day desc;          -- per Cairo day, kept 30 days
+select * from public.visitor_ai_hourly order by hour desc;        -- calls per UTC hour, kept 6 hours
+select count(*), max(turns), max(calls) from public.visitor_ai_usage
+  where day = (now() at time zone 'Africa/Cairo')::date;          -- today's visitors
+```
+
+`visitor_ai_usage` holds one row per daily visitor code, for today only: the next Cairo day, yesterday's rows are deleted. The code is an HMAC of the address (its /64 for IPv6), the Cairo date and the secret: it changes every day and can't be turned back into an address. No IP address, message text or user agent is stored, and the route logs status codes only. Rows are only ever written through `visitor_ai_meter`, which only the service role may call.
+
+Old rows are deleted by `public.visitor_ai_housekeeping()`: visitor rows from before today, hourly rows after 6 hours, daily rows after 30 days. The meter runs it on every request, the brake included, and pg_cron runs it every hour (job `visitor_ai_housekeeping_hourly`) where the extension is installed. Without pg_cron, a quiet spell (or `VISITOR_AI_ENABLED` off, when the meter is never called) leaves the last rows until the next request; to clear them by hand:
+
+```sql
+select public.visitor_ai_housekeeping();
+select cron.schedule('visitor_ai_housekeeping_hourly', '7 * * * *', 'select public.visitor_ai_housekeeping()');  -- once pg_cron is on
+```
+
+### Abuse
+
+- The burst brake is 30 requests a minute per address and server instance; a whole IPv6 /64 counts as one address, as in the meter, so a host can't dodge it by switching addresses inside its /64.
+- A refused request (over a limit) is answered without taking the site-wide lock, so a flood of refused requests doesn't slow everyone else down.
+- Someone with many /64s (a routed /48 is common on VPS hosts) still gets one budget per /64, enough to use up `calls_per_5h` and `calls_per_day` and so switch the AI off for everyone until the window rolls on. If that happens, lower those caps or use the brake. The next step, if it's ever needed, is a Cloudflare Turnstile check before the chat opens.
+
+### Rotating the secret
+
+1. Generate a new `VISITOR_AI_HASH_SECRET` and set it in Vercel; redeploy.
+2. Every visitor gets a new code, so today's per-visitor counts start again from zero (the site-wide counts carry on). Do it at a quiet hour if that matters.
+
+To rotate the gateway key, see "Deploy hardening" below: update `OPENCLAW_API_KEY` in Vercel and redeploy, then invalidate the old key on the gateway.
+
+---
+
 ## Shared sprints (the one-time data move)
 
 Burndown, Burnup, Velocity, Sprint Comparison and Sprint Metrics share one list of sprints: the workspace `sprints`, plus `sprintSeries`, one row per sprint holding its daily log and ratings. These tools used to keep their own data in four browser keys. The first time the app loads after this change, it moves that data into the shared sprints, in each browser that has it, and shows one toast ("Moved N sprints from … into shared sprints").
