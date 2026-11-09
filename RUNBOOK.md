@@ -178,6 +178,19 @@ Production checklist:
 - [ ] Smoke walkthrough (step 4) repeats green
 - [ ] [Before going public](#before-going-public-owner-checklist) done
 
+### Vercel builds and cost
+
+On Vercel Pro, Build CPU is billed at $0.0035 per CPU-minute: the machine's cores times the build time, rounded up to a whole minute. That includes the build-cache upload after the deploy is Ready. On 2026-11-08, the night of the Hobby → Pro upgrade, Vercel's "Elastic" machine moved this project to an 8-core machine. One evening of stacked-PR pushes and merges then cost $11 (90 builds at about $0.12 each). Three things keep that from happening again:
+
+- **Only `master` and `preview/*` branches deploy.** `vercel.json` sets `git.deploymentEnabled` to `{"**": false, "master": true, "preview/**": true}`. Patterns are minimatch globs, and a branch deploys if any matching rule is `true`. `claude/*` agent branches therefore create no deployment at all. CI already runs a full `next build` on every PR to master and every push to master, so those previews added little. They also had no env vars (all of them are Production-only), so sign-in and the API failed closed there anyway. Need a preview? Push the commit to a `preview/<name>` branch. Or build it on this machine and upload only the output, which uses no Vercel build time: `vercel pull --environment=preview`, then `vercel build`, then `vercel deploy --prebuilt`.
+- **Project settings (Vercel → agile-toolkit → Settings → Build and Deployment):**
+  - **Build Machine: Standard, fixed (not Elastic).** On Pro, Standard builds in the team's first concurrent build slot aren't billed. They are billed only when Elastic or On-Demand Concurrent Builds is on.
+  - **On-Demand Concurrent Builds: off**, and **Prioritize Production Builds: on**. Builds then wait in one queue. When several commits land on the same branch, the running build finishes and only the newest queued commit builds; the ones in between are skipped. Merging a stack of 24 PRs one by one then costs about 2 production builds, not 24.
+  - **Ignored Build Step:** while old branches still carry the previous `vercel.json`, use `if [ "$VERCEL_ENV" = production ]; then exit 1; fi; case "$VERCEL_GIT_COMMIT_REF" in master|preview/*) exit 1;; *) exit 0;; esac` (exit 1 builds, exit 0 skips). Production builds always run, including `vercel --prod` and Redeploy, which have no branch. Once those branches have been merged or rebased, it can go.
+- **Team → Settings → Billing → Spend Management:** an On-Demand Budget alerts at 50/75/100% of the amount you set, beyond the $20 monthly credit. With **Pause Production Deployments** it takes **every** project on the team offline when the budget is reached, and each project has to be resumed by hand. The billing cycle runs from the 8th, 08:00 UTC.
+
+Check the bill per project with `vercel usage --from <YYYY-MM-DD> --to <YYYY-MM-DD> --group-by project` (it needs explicit dates). Read a project's machine and queue settings with `MSYS_NO_PATHCONV=1 vercel api /v9/projects/agile-toolkit` (in Git Bash, without `MSYS_NO_PATHCONV=1` the path gets rewritten).
+
 ---
 
 ## Before going public (owner checklist)
@@ -187,7 +200,7 @@ Every tool page is public, and so is the **Owner sign in** button. Anyone can st
 1. **Supabase → Authentication → Sign In / Providers → Allow new users to sign up: off.** Your owner account must already exist (sign in once first). Strangers then get `signup_disabled` and land on "Not the owner account" instead of getting an `auth.users` + `profiles` row.
 2. **Supabase → Authentication → Sign In / Providers → Allow anonymous sign-ins: off.** Turn off the Email provider too if you only use Google.
 3. **Supabase → Authentication → Users:** delete every user that isn't the owner (stray sign-ins from while sign-ups were on).
-4. **Vercel → Settings → Deployment Protection:** turn on protection for **Preview** deployments (Vercel Authentication). Every push builds a preview, previews use the production Supabase project, and without protection they are public. Keep it **off** for the production domain.
+4. **Vercel → Settings → Deployment Protection:** turn on protection for **Preview** deployments (Vercel Authentication). Only `master` and `preview/*` branches deploy (see [Vercel builds and cost](#vercel-builds-and-cost)), but any preview that does build would otherwise be public. Keep it **off** for the production domain.
 5. Verify on the production URL from a signed-out window: `/` → 200, `/api/kudos` → 401 JSON, `/settings/access-tokens` → redirect to sign-in, `/robots.txt` and `/sitemap.xml` → 200.
 
 Known behaviour worth knowing:
