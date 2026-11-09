@@ -66,8 +66,12 @@ describe("ink graphics CSS", () => {
     expect(block.replace(hover, "")).not.toMatch(/animation:\s*ink-boil/);
   });
 
-  it("keeps high contrast plain: no washes or fills, ink in the text colour, no boil", () => {
-    expect(block).toMatch(/\.hc \.ink-wash-group,\s*\.hc \.ink-fill\s*\{\s*display:\s*none/);
+  it("keeps high contrast plain: no washes or colour fills, ink in the text colour, no boil", () => {
+    // Paper fills stay (the card colour), so a shape in front still hides
+    // the lines behind it.
+    expect(block).toMatch(
+      /\.hc \.ink-wash-group,\s*\.hc \.ink-fill:not\(\.ink-fill-paper\)\s*\{\s*display:\s*none/
+    );
     expect(block).toMatch(
       /\.hc \.ink-art \.ink-line:not\(\.ink-hl-pen\)\s*\{\s*stroke:\s*var\(--text\)/
     );
