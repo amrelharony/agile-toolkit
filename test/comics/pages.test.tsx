@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   guess: { guess: null, tryAction: null } as StoryGuessExtras,
   totals: { views: 0, visitors: 0, readers: 0, loves: 0, shares: 0, retros: 0, tools: 0 },
   totalsMap: new Map<number, { loves: number }>(),
+  owner: false,
 }));
 
 vi.mock("server-only", () => ({}));
@@ -32,6 +33,11 @@ vi.mock("@/lib/comics/store", () => ({
     if (h.listThrows) throw new Error("down");
     return h.released;
   },
+}));
+// No AuthProvider here, so everyone is a visitor unless a test says otherwise.
+vi.mock("@/lib/auth/use-is-owner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/use-is-owner")>()),
+  useIsOwner: () => h.owner,
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: h.push }),
@@ -111,6 +117,7 @@ beforeEach(() => {
   h.guess = { guess: null, tryAction: null };
   h.totals = { views: 0, visitors: 0, readers: 0, loves: 0, shares: 0, retros: 0, tools: 0 };
   h.totalsMap = new Map();
+  h.owner = false;
   localStorage.clear();
   window.history.replaceState(null, "", "/comics");
   vi.stubGlobal("sendBeacon", undefined);
@@ -391,6 +398,83 @@ describe("the story reader", () => {
     expect(scroller.style.touchAction).toBe("pan-x pan-y pinch-zoom");
   });
 
+  it("fills the height on an upright phone, panning from the panel's left edge", async () => {
+    render(await ComicStoryPage(params(30)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 1 of 2 full screen" }));
+    const img = within(screen.getByRole("dialog")).getByRole("img");
+    const classes = img.className.split(/\s+/);
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        "m-auto",
+        "max-sm:portrait:h-full",
+        "max-sm:portrait:max-w-none",
+        "max-sm:portrait:shrink-0",
+      ])
+    );
+    // Elsewhere it still fits the screen, as before.
+    expect(classes).toEqual(expect.arrayContaining(["max-h-full", "max-w-full", "object-contain"]));
+    // Centring the row would cut a wider panel's left edge off; m-auto doesn't.
+    expect(img.parentElement!.className).not.toMatch(/justify-center|items-center/);
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+
+  it("swipes between panels, but not while the page is pinch-zoomed", async () => {
+    render(await ComicStoryPage(params(30)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 1 of 2 full screen" }));
+    const dialog = screen.getByRole("dialog");
+    const src = () => within(dialog).getByRole("img").getAttribute("src");
+    const scroller = within(dialog).getByRole("img").parentElement!;
+    const swipe = (dx: number) => {
+      fireEvent.touchStart(scroller, { touches: [{ clientX: 300, clientY: 300 }] });
+      fireEvent.touchEnd(scroller, {
+        touches: [],
+        changedTouches: [{ clientX: 300 + dx, clientY: 300 }],
+      });
+    };
+
+    swipe(-20);
+    expect(src()).toContain("one-1536.webp");
+    swipe(-120);
+    expect(src()).toContain("two-1536.webp");
+    swipe(-120);
+    expect(src()).toContain("two-1536.webp");
+
+    vi.stubGlobal("visualViewport", { scale: 2.5 });
+    swipe(120);
+    expect(src()).toContain("two-1536.webp");
+    vi.stubGlobal("visualViewport", { scale: 1 });
+    swipe(120);
+    expect(src()).toContain("one-1536.webp");
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+
+  it("pans a wide panel to its edge before a swipe moves on, and starts the next at its beginning", async () => {
+    render(await ComicStoryPage(params(30)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 1 of 2 full screen" }));
+    const dialog = screen.getByRole("dialog");
+    const src = () => within(dialog).getByRole("img").getAttribute("src");
+    const scroller = within(dialog).getByRole("img").parentElement!;
+    // A height-filled panel on an upright phone: 900 px wide in a 360 px screen.
+    Object.defineProperty(scroller, "scrollWidth", { configurable: true, value: 900 });
+    Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 360 });
+    Object.defineProperty(scroller, "scrollLeft", { configurable: true, writable: true, value: 0 });
+    const swipeLeft = () => {
+      fireEvent.touchStart(scroller, { touches: [{ clientX: 300, clientY: 300 }] });
+      fireEvent.touchEnd(scroller, {
+        touches: [],
+        changedTouches: [{ clientX: 100, clientY: 300 }],
+      });
+    };
+
+    swipeLeft();
+    expect(src()).toContain("one-1536.webp");
+    scroller.scrollLeft = 540;
+    swipeLeft();
+    expect(src()).toContain("two-1536.webp");
+    expect(scroller.scrollLeft).toBe(0);
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+
   it("moves between released stories, by link and by arrow key", async () => {
     render(await ComicStoryPage(params(30)));
     expect(screen.getByRole("link", { name: "Previous story" }).getAttribute("href")).toBe(
@@ -629,6 +713,29 @@ describe("a story's guess, Seen this at work and Try it this week", () => {
     expect(document.activeElement).toHaveAccessibleName(/Amr shrugs by the printer/);
   });
 
+  it("scrolls the revealed panel in clear of the sticky header", async () => {
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    try {
+      render(await ComicStoryPage(params(30)));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Waits for Friday" }));
+      });
+      const figure = document.activeElement as HTMLElement;
+      expect(figure.tagName).toBe("FIGURE");
+      expect(scrolled).toEqual([figure]);
+      // The header's height plus a gap; on a phone html's scroll padding adds Amr's space.
+      expect(figure.className.split(/\s+/)).toContain(
+        "scroll-mt-[calc(var(--header-h,56px)+0.5rem)]"
+      );
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
   it("shows how readers picked once there are enough of them", async () => {
     reply = { counts: [6, 30, 4], shares: [15, 75, 10] };
     render(await ComicStoryPage(params(30)));
@@ -817,6 +924,40 @@ describe("the gallery", () => {
   it("discloses the anonymous count", async () => {
     render(await ComicsPage());
     expect(screen.getByText(/one anonymous count when you arrive/)).toBeTruthy();
+  });
+
+  it("gives About the book a touch-sized target", async () => {
+    render(await ComicsPage());
+    const classes = screen.getByRole("link", { name: "About the book" }).className.split(/\s+/);
+    expect(classes).toEqual(
+      expect.arrayContaining(["inline-flex", "items-center", "pointer-coarse:min-h-11"])
+    );
+  });
+
+  it("shows visitors no portal link, in a row that already holds its space", async () => {
+    render(await ComicsPage());
+    expect(screen.queryByRole("link", { name: "Comics portal" })).toBeNull();
+    const row = screen.getByRole("link", { name: /Read this story/ }).parentElement!;
+    expect(row.className.split(/\s+/)).toContain("pointer-coarse:min-h-11");
+  });
+
+  it("puts the owner's portal link beside this week's story, touch-sized, moving nothing", async () => {
+    h.owner = true;
+    render(await ComicsPage());
+    const portal = screen.getByRole("link", { name: "Comics portal" });
+    expect(portal.getAttribute("href")).toBe("/settings/comics");
+    expect(portal.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(["inline-flex", "items-center", "pointer-coarse:min-h-11"])
+    );
+    // Not a line of its own above the story, which pushed the page down as it appeared.
+    const read = screen.getByRole("link", { name: /Read this story/ });
+    expect(portal.parentElement).toBe(read.parentElement);
+    // Nor a second line where the row is narrow: the row never wraps, and the
+    // link gives way, cut short, while the story's button keeps its size.
+    expect(read.parentElement!.className.split(/\s+/)).toContain("flex-nowrap");
+    expect(read.className.split(/\s+/)).toContain("shrink-0");
+    expect(portal.className.split(/\s+/)).toContain("min-w-0");
+    expect(within(portal).getByText("Comics portal").className.split(/\s+/)).toContain("truncate");
   });
 });
 
