@@ -79,7 +79,7 @@ describe("the tool table", () => {
   });
 
   it("covers the 50 tool sheets, each sheet's pack in some row", () => {
-    const toolSheets = spec.sheets.filter((s) => Number(s.sheet.slice(1)) >= 65);
+    const toolSheets = spec.sheets.filter((s) => s.group.startsWith("tools-"));
     expect(toolSheets).toHaveLength(50);
     const used = new Set(
       TOOL_SCENES.flatMap((t) => [...t.open, ...Object.values(t.actions).flat()]).map(packOf)
@@ -114,7 +114,7 @@ describe("the tool table", () => {
   });
 
   it("gives each tool sheet's tool a greeting with its own props", () => {
-    for (const s of spec.sheets.filter((x) => Number(x.sheet.slice(1)) >= 65)) {
+    for (const s of spec.sheets.filter((x) => x.group.startsWith("tools-"))) {
       const row = TOOL_SCENES.find((t) => t.open.some((o) => packOf(o) === s.pack));
       expect(row, `${s.sheet} (${s.pack})`).toBeDefined();
     }

@@ -34,6 +34,10 @@ export interface ContextHooks {
   weekend(): readonly number[];
   /** Whether a scene's sheet has shipped. */
   shipped?: (scene: string) => boolean;
+  /** The last things he did (lib/agent/mascot/mind.ts): pastimes among them step back. */
+  recent?: () => readonly string[];
+  /** He's about to play this scene. */
+  played?: (scene: string) => void;
   now?: () => Date;
   random?: () => number;
   storage?: Pick<Storage, "getItem" | "setItem"> | null;
@@ -84,19 +88,26 @@ export function pickGreeting(
   return null;
 }
 
-/** A scene to pass the time: the day's own twice as likely as a game. */
+/**
+ * A scene to pass the time: the day's own twice as likely as a game, never the
+ * one he just played, and the ones he hasn't played lately (`recent`) before the
+ * ones he has.
+ */
 export function pickPastime(
   moments: readonly Moment[],
   shipped: (scene: string) => boolean,
   random: () => number,
-  last: string | null
+  last: string | null,
+  recent: readonly string[] = []
 ): string | null {
   const pool: string[] = [];
   for (const m of moments) for (const s of m.scenes) if (shipped(s)) pool.push(s, s);
   for (const s of PLAY_SCENES) if (shipped(s)) pool.push(s);
   const choices = pool.filter((s) => s !== last);
   if (!choices.length) return null;
-  return choices[Math.floor(random() * choices.length) % choices.length];
+  const fresh = choices.filter((s) => !recent.includes(s));
+  const from = fresh.length ? fresh : choices;
+  return from[Math.floor(random() * from.length) % from.length];
 }
 
 /** Within the last ten minutes, this many keys is a stretch of real work. */
@@ -126,6 +137,7 @@ export function installContextSenses(hooks: ContextHooks): ContextSenses {
   /** Load the scene's pack, then play it. */
   const stage = (scene: string, delay = LOAD_MS) => {
     hooks.want(packsOf(scene));
+    hooks.played?.(scene);
     after(delay, () => hooks.act(sceneReaction(scene)));
   };
 
@@ -239,7 +251,7 @@ export function installContextSenses(hooks: ContextHooks): ContextSenses {
   return {
     play() {
       if (hooks.busy()) return false;
-      const scene = pickPastime(moments(), shipped, random, lastPastime);
+      const scene = pickPastime(moments(), shipped, random, lastPastime, hooks.recent?.() ?? []);
       if (!scene || !hooks.allow("pastime", 2 * 60_000)) return false;
       lastPastime = scene;
       stage(scene, 600);

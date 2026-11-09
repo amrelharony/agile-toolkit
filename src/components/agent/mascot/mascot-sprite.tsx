@@ -22,6 +22,11 @@
  * weather or fireworks scene also sets the air around him (mascot-fx.tsx). His
  * senses (engine/senses.ts) start once he's on screen.
  *
+ * On a phone that lets him feel it (engine/interactions/sensors.ts) the tilt is
+ * read here every tick: he leans against it from his feet, skids a little toward
+ * the low side (his button moves, so a tap still finds him), looks where the
+ * phone tips, and the rain falls the way gravity points.
+ *
  * Reduced motion shows a still frame of the current pose: no frame steps, no
  * springs, no cursor tracking, no entrance, no sensors or stroll.
  *
@@ -44,18 +49,22 @@ import {
   type Clip,
   type FrameRef,
 } from "./engine/clips";
+import { createAttention, scrollLook } from "./engine/attention";
 import { createGestureTracker } from "./engine/interactions/gestures";
+import { leanFor, restingFrame, skidFor } from "./engine/interactions/sensors";
 import { MOOD_DRONE, MOOD_SPEED, moodFor, type MoodName } from "./engine/mood";
 import { createPackLoader, wantsSharp } from "./engine/packs";
 import { createProceduralAnim } from "./engine/procedural-anim";
 import { createReactionFx, type MicroName } from "./engine/reactions";
 import { installSenses } from "./engine/senses";
 import {
+  FIGURE_BOTTOM,
   FIGURE_TOP,
   SHEET,
   chooseShot,
   lookIndex,
   reactionSeconds,
+  tiltLook,
   type Shot,
   type SpritePose,
 } from "./engine/sprite-poses";
@@ -80,6 +89,8 @@ interface MascotSpriteProps {
 const TICK_S = 1 / 32;
 /** How long Amr keeps looking after the cursor stops moving. */
 const LOOK_HOLD_MS = 1800;
+/** How long he keeps looking where a tilt, a finger or a field drew his eye, once it's gone. */
+const LOOK_LINGER_MS = 400;
 /** Where his face sits in the box, for aiming the look poses. */
 const FACE_ROW = 0.25;
 /** The springs work in model units; the old model was this many units tall. */
@@ -96,6 +107,12 @@ const SWING_V = 140;
 const FLAIL_V = 1400;
 /** A drag report older than this means the pointer has stopped. */
 const DRAG_STALE_MS = 150;
+/** A tilt reading older than this means the phone has stopped sending them. */
+const MOTION_STALE_MS = 700;
+/** The clear space each side of him in his box, as a share of its width: a skid may use it. */
+const SKID_SPARE = 0.28;
+/** The rain slants with the tilt up to this many degrees. */
+const SLANT_MAX_DEG = 35;
 
 const IDLE_SHOT = chooseShot({
   drag: null,
@@ -138,6 +155,7 @@ export default function MascotSprite({
   moveRef,
 }: MascotSpriteProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const leanRef = useRef<HTMLDivElement>(null);
   const swingRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const clipRef = useRef<HTMLDivElement>(null);
@@ -183,6 +201,21 @@ export default function MascotSprite({
     let shownSwing = "";
     let lastPointer: { x: number; y: number; t: number } | null = null;
     let lastStartle = -Infinity;
+    let lastMouseAt = -Infinity;
+
+    // What has his eye when no cursor does: a finger, a field, the scroll.
+    const attention = createAttention();
+    let lastScrollY = window.scrollY;
+    let lastScrollLook = -Infinity;
+
+    // The phone's pose, written by his senses and read in the tick below.
+    const motion = restingFrame();
+    const lean = { angle: 0, vel: 0 };
+    let shownLean = "";
+    const skid = { x: 0, vel: 0 };
+    let skidPx = 0;
+    let skidRoom: { left: number; right: number; at: number } | null = null;
+    let shownSlant = 0;
 
     const nowS = () => performance.now() / 1000;
 
@@ -240,14 +273,42 @@ export default function MascotSprite({
       el.style.backgroundPosition = `${-(index % PACK_COLUMNS) * w}px ${-Math.floor(index / PACK_COLUMNS) * cellH}px`;
     };
 
+    /** Put his button where the stroll and the skid have taken him. */
+    const place = () => {
+      const el = latestRef.current.moveRef?.current;
+      if (!el) return;
+      const px = (movedX * latestRef.current.width) / SHEET.cellW + skidPx;
+      el.style.translate = Math.abs(px) < 0.05 ? "" : `${px.toFixed(1)}px 0`;
+    };
+
     /** Slide him (the stroll) by `x` sheet px; 0 puts him back. */
     const moveBy = (x: number) => {
       if (x === movedX) return;
       movedX = x;
+      place();
+    };
+
+    /** Slide him (the tilt's skid) by `px` css px; 0 puts him back. */
+    const skidBy = (px: number) => {
+      if (px === skidPx) return;
+      skidPx = px;
+      place();
+    };
+
+    /** How far he can skid each way before his figure would leave the screen (css px). */
+    const roomToSkid = (now: number) => {
+      if (skidRoom && now - skidRoom.at < 1000) return skidRoom;
       const el = latestRef.current.moveRef?.current;
-      if (!el) return;
-      const px = (x * latestRef.current.width) / SHEET.cellW;
-      el.style.translate = x === 0 ? "" : `${px.toFixed(1)}px 0`;
+      const w = latestRef.current.width;
+      if (!el) return (skidRoom = { left: 0, right: 0, at: now });
+      const r = el.getBoundingClientRect();
+      const moved = (movedX * w) / SHEET.cellW + skidPx;
+      skidRoom = {
+        left: Math.max(0, r.left - moved + w * SKID_SPARE),
+        right: Math.max(0, window.innerWidth - (r.right - moved) + w * SKID_SPARE),
+        at: now,
+      };
+      return skidRoom;
     };
 
     /** The carried frame for the drag's current speed. */
@@ -371,6 +432,7 @@ export default function MascotSprite({
       look = lookIndex(e.clientX - cx, e.clientY - (rect.top + rect.height * FACE_ROW));
       const t = performance.now();
       lastMoveAt = t;
+      lastMouseAt = t;
       // A pointer whizzing past close by startles him.
       if (lastPointer && t > lastPointer.t) {
         const v =
@@ -384,6 +446,35 @@ export default function MascotSprite({
       }
       lastPointer = { x: e.clientX, y: e.clientY, t };
       refresh();
+    };
+
+    /** Where his face is on screen: what a look is aimed from. */
+    const faceAt = () => {
+      const rect = container.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height * FACE_ROW };
+    };
+    const onTouch = (e: TouchEvent) => {
+      const finger = e.touches[0];
+      if (finger) attention.see("touch", finger.clientX, finger.clientY, performance.now());
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target as HTMLElement | null;
+      // A field in his own panel is him being talked to, not something to glance at.
+      if (!el?.getBoundingClientRect || el.closest?.("[data-agent-sheet-root]")) return;
+      const r = el.getBoundingClientRect();
+      if (!r.width && !r.height) return;
+      attention.see("focus", r.left + r.width / 2, r.top + r.height / 2, performance.now());
+    };
+    const onScrollLook = () => {
+      const t = performance.now();
+      const y = window.scrollY;
+      const dy = y - lastScrollY;
+      lastScrollY = y;
+      if (t - lastScrollLook < 120) return;
+      const toward = scrollLook(faceAt(), dy);
+      if (!toward) return;
+      lastScrollLook = t;
+      attention.see("scroll", toward.x, toward.y, t);
     };
 
     // Hovering or pressing him: get the packs his touch reactions need.
@@ -431,6 +522,58 @@ export default function MascotSprite({
         swingRef.current.style.transform = rot;
       }
 
+      // The phone's tilt. He leans against it from his feet to stay upright...
+      const tilted = motion.live && Date.now() - motion.at < MOTION_STALE_MS;
+      const roll = tilted ? motion.roll : 0;
+      const leanTo = drag ? 0 : leanFor(roll);
+      lean.vel += ((leanTo - lean.angle) * 60 - lean.vel * 9) * dt;
+      lean.angle += lean.vel * dt;
+      const leaning = Math.abs(lean.angle) < 0.05 ? "" : `rotate(${lean.angle.toFixed(2)}deg)`;
+      if (leaning !== shownLean && leanRef.current) {
+        shownLean = leaning;
+        leanRef.current.style.transform = leaning;
+      }
+      // ...skids a little toward the low side, as far as the screen lets him...
+      let skidTo = 0;
+      const share = skidFor(roll);
+      if (
+        share !== 0 &&
+        !drag &&
+        !isOpen &&
+        reaction !== "stroll" &&
+        !store.holds.includes("flying") &&
+        !store.holds.includes("falling")
+      ) {
+        const room = roomToSkid(now);
+        skidTo = Math.max(-room.left, Math.min(room.right, share * latestRef.current.width));
+      }
+      skid.vel += ((skidTo - skid.x) * 40 - skid.vel * 10) * dt;
+      skid.x += skid.vel * dt;
+      skidBy(Math.abs(skid.x) < 0.3 ? 0 : Math.round(skid.x * 2) / 2);
+      // ...and looks where it tips. A cursor has his eye first, then a finger on
+      // the screen, then the tilt, then a field just entered or the page scrolling by.
+      if (now - lastMouseAt > LOOK_HOLD_MS) {
+        const seen = attention.target(now);
+        let toward =
+          tilted && seen?.source !== "touch" ? tiltLook(motion.roll, motion.pitch) : null;
+        if (toward === null && seen) {
+          const face = faceAt();
+          toward = lookIndex(seen.x - face.x, seen.y - face.y);
+        }
+        if (toward !== null) {
+          look = toward;
+          // Not a cursor that may come back: once it's gone he faces the visitor again.
+          lastMoveAt = now - (LOOK_HOLD_MS - LOOK_LINGER_MS);
+        }
+      }
+      // The rain falls the way gravity points (mascot-fx.module.css reads these).
+      const slant = Math.round(Math.max(-SLANT_MAX_DEG, Math.min(SLANT_MAX_DEG, roll)));
+      if (slant !== shownSlant) {
+        shownSlant = slant;
+        container.style.setProperty("--amr-roll", `${slant}deg`);
+        container.style.setProperty("--amr-slant", Math.tan((slant * Math.PI) / 180).toFixed(3));
+      }
+
       const pa = procedural.update({
         dt,
         activeReaction: !!reaction,
@@ -469,6 +612,10 @@ export default function MascotSprite({
       playMascotSound("open"); // entrance chime (source plays 'open')
       if (!reducedMotion) {
         window.addEventListener("mousemove", onMouseMove, { passive: true });
+        window.addEventListener("touchstart", onTouch, { passive: true });
+        window.addEventListener("touchmove", onTouch, { passive: true });
+        window.addEventListener("scroll", onScrollLook, { passive: true });
+        document.addEventListener("focusin", onFocusIn);
         raf = requestAnimationFrame(tick);
       }
       window.addEventListener("pointerover", onPointerOver, { passive: true });
@@ -476,6 +623,7 @@ export default function MascotSprite({
         reducedMotion,
         figure: () => containerRef.current,
         want: (packs) => loader.ensure(packs),
+        motion,
       });
       whenIdle(() => loader.ensure(CORE_PACKS));
       laterTimer = setTimeout(() => {
@@ -496,13 +644,19 @@ export default function MascotSprite({
       clearTimeout(reactionTimer);
       clearTimeout(laterTimer);
       window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("touchstart", onTouch);
+      window.removeEventListener("touchmove", onTouch);
+      window.removeEventListener("scroll", onScrollLook);
+      document.removeEventListener("focusin", onFocusIn);
       window.removeEventListener("pointerover", onPointerOver);
       disposeSenses?.();
       gestureTracker.dispose();
       unsub();
       drone.dispose();
       loader.dispose();
-      moveBy(0);
+      skidPx = 0;
+      movedX = 0;
+      place();
       sheet.onload = null;
       sheet.onerror = null;
       useMascotStore.getState().setReady(false);
@@ -547,21 +701,28 @@ export default function MascotSprite({
     >
       {fx && <MascotFx kind={fx.kind} leaving={fx.leaving} width={width} height={height} />}
       <div
-        ref={swingRef}
-        className={styles.swing}
-        style={{
-          transformOrigin: `50% ${((FIGURE_TOP / SHEET.cellH) * 100).toFixed(1)}%`,
-          ...(auraColor ? { filter: `drop-shadow(0 0 10px ${auraColor})` } : {}),
-        }}
+        ref={leanRef}
+        className={styles.lean}
+        data-amr-lean
+        style={{ transformOrigin: `50% ${((FIGURE_BOTTOM / SHEET.cellH) * 100).toFixed(1)}%` }}
       >
-        <div ref={bodyRef} className={styles.body}>
-          <div className={cn(styles.sheet, animClass(shot, take))} style={sheetStyle} />
-          <div
-            ref={clipRef}
-            className={styles.clip}
-            data-amr-clip
-            style={{ width, visibility: isClip ? undefined : "hidden" }}
-          />
+        <div
+          ref={swingRef}
+          className={styles.swing}
+          style={{
+            transformOrigin: `50% ${((FIGURE_TOP / SHEET.cellH) * 100).toFixed(1)}%`,
+            ...(auraColor ? { filter: `drop-shadow(0 0 10px ${auraColor})` } : {}),
+          }}
+        >
+          <div ref={bodyRef} className={styles.body}>
+            <div className={cn(styles.sheet, animClass(shot, take))} style={sheetStyle} />
+            <div
+              ref={clipRef}
+              className={styles.clip}
+              data-amr-clip
+              style={{ width, visibility: isClip ? undefined : "hidden" }}
+            />
+          </div>
         </div>
       </div>
       {dozing && (

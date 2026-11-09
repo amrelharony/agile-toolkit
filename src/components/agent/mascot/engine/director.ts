@@ -4,6 +4,10 @@
  * these don't. At most one every 20 s, never the same one twice running (unless
  * a minute has passed), and each has its own cooldown on top. Urgent ones (gone
  * offline) skip the shared gap but keep their own cooldown.
+ *
+ * The 20 s is his usual pace: `gap` lets it follow his temperament and what the
+ * visitor is doing (lib/agent/mascot/brain/state.ts), sooner when he's playful,
+ * much later while they type.
  */
 
 export interface Director {
@@ -15,7 +19,10 @@ const GAP_MS = 20_000;
 const SAME_AGAIN_MS = 60_000;
 const DEFAULT_COOLDOWN_MS = 60_000;
 
-export function createDirector(now: () => number = () => Date.now()): Director {
+export function createDirector(
+  now: () => number = () => Date.now(),
+  gap: () => number = () => GAP_MS
+): Director {
   let lastAt = -Infinity;
   let lastName = "";
   const lastBy = new Map<string, number>();
@@ -26,7 +33,7 @@ export function createDirector(now: () => number = () => Date.now()): Director {
       const prev = lastBy.get(name);
       if (prev !== undefined && t - prev < cooldownMs) return false;
       if (!urgent) {
-        if (t - lastAt < GAP_MS) return false;
+        if (t - lastAt < gap()) return false;
         if (name === lastName && t - lastAt < SAME_AGAIN_MS) return false;
       }
       lastAt = t;

@@ -14,7 +14,9 @@
 import { useEffect } from "react";
 import { useHistoryStore } from "@/lib/history/history-store";
 import type { HistoryEvent } from "@/lib/history/types";
+import { RUN_LENGTH, RUN_WINDOW_MS, WORK_REACTIONS, pickFresh, remember } from "./brain/choose";
 import { EMITTED, toolActionScenes } from "./context/tool-scenes";
+import { feel } from "./mind";
 import { useMascotStore, type MascotReaction } from "./store";
 import { installTimerWatch } from "./timer-watch";
 import { onToolMoment } from "./tool-moments";
@@ -170,6 +172,31 @@ export function installToolReactions(
 ): () => void {
   let lastAt = -Infinity;
   let pending: { reaction: MascotReaction; rank: number } | null = null;
+  let lately: MascotReaction[] = [];
+  let finishes: number[] = [];
+
+  /**
+   * The same nod for every saved note gets old: ordinary work gets one of a few
+   * small answers, never the same twice running, and a run of finishes close
+   * together earns a dance instead of a third round of applause.
+   */
+  const vary = (pose: MascotReaction): MascotReaction => {
+    if (pose === "nod") {
+      const pick = pickFresh(WORK_REACTIONS, lately, random) ?? pose;
+      lately = remember(lately, pick, 2);
+      return pick;
+    }
+    if (pose === "clap") {
+      const t = Date.now();
+      finishes = [...finishes.filter((at) => t - at < RUN_WINDOW_MS), t];
+      if (finishes.length >= RUN_LENGTH) {
+        finishes = [];
+        return "dance";
+      }
+    }
+    return pose;
+  };
+  // Varied only once it's sure to play, so an answer lost in a burst isn't "used".
 
   const flush = () => {
     const p = pending;
@@ -184,7 +211,7 @@ export function installToolReactions(
     if (!mascot.ready) return;
     lastAt = now;
     noteToolReaction(now);
-    mascot.queueReaction(p.reaction);
+    mascot.queueReaction(p.rank === RANK.pose ? vary(p.reaction) : p.reaction);
   };
   // A check-in that also achieves its OKR logs and announces in the same tick:
   // wait for the tick to end and play the most telling of them.
@@ -201,6 +228,7 @@ export function installToolReactions(
     const scene = sceneForEvent(toolId, action, shipped, random);
     if (scene) return offer(`scene:${scene}`, RANK.scene);
     const pose = reactionForAction(action);
+    if (pose === "clap") feel("finished");
     if (pose) offer(pose, RANK.pose);
   };
   const onMoment = (toolId: string, name: string) => {

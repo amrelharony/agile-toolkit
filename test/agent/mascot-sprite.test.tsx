@@ -283,11 +283,43 @@ describe("<MascotSprite />", () => {
     expect(useMascotStore.getState().reactionQueue).toEqual([]);
   });
 
+  it("leans against the phone's tilt, from his feet, and looks where it tips", () => {
+    // A touch screen that sends its tilt without asking.
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("pointer: coarse"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    vi.stubGlobal("DeviceOrientationEvent", class {});
+    const images = stubImage();
+    const { container } = render(<MascotSprite />);
+    act(() => images[0].onload?.());
+    const lean = container.querySelector<HTMLElement>("[data-amr-lean]")!;
+    expect(lean.style.transformOrigin).toMatch(/^50% 97\./); // his floor row
+    expect(lean.style.transform).toBe("");
+
+    act(() => {
+      for (let i = 0; i < 30; i++) {
+        window.dispatchEvent(
+          Object.assign(new Event("deviceorientation"), { beta: 0, gamma: i === 0 ? 0 : 12 })
+        );
+        vi.advanceTimersByTime(34);
+      }
+    });
+    // Right side down: he leans left to stay upright, about half the tilt.
+    expect(lean.style.transform).toMatch(/^rotate\(-[3-6]\./);
+    expect(shotOf(container)).toBe("look-4");
+    expect(
+      container.querySelector<HTMLElement>("[data-amr-shot]")!.style.getPropertyValue("--amr-roll")
+    ).toMatch(/^(9|10|11)deg$/);
+  });
+
   it("shows the aura only when one is set", () => {
     const images = stubImage();
     const { container } = render(<MascotSprite />);
     act(() => images[0].onload?.());
-    const body = container.querySelector<HTMLElement>("[data-amr-shot] > div")!;
+    const body = container.querySelector<HTMLElement>("[data-amr-lean] > div")!;
     expect(body.style.filter).toBe("");
     act(() => useMascotStore.getState().setAuraColor("#ff8800"));
     expect(body.style.filter).toContain("#ff8800");

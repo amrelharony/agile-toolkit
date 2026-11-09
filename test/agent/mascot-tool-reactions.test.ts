@@ -81,7 +81,11 @@ describe("installToolReactions", () => {
     useMascotStore.getState().reset();
     useMascotStore.getState().setReady(true);
     __resetCelebrationReactionsForTests();
-    uninstall = installToolReactions();
+    // Chance pinned: his answers to ordinary work vary (brain/choose.ts).
+    uninstall = installToolReactions(
+      () => false,
+      () => 0
+    );
   });
 
   afterEach(() => {
@@ -114,7 +118,32 @@ describe("installToolReactions", () => {
     vi.advanceTimersByTime(4001);
     useHistoryStore.getState().addEvent(event("card_added"));
     await settle();
-    expect(queue()).toEqual(["nod", "nod"]);
+    expect(queue()).toEqual(["nod", "thumbsUp"]);
+  });
+
+  it("answers ordinary work a different way each time, never the same twice running", async () => {
+    for (let i = 0; i < 4; i++) {
+      useHistoryStore.getState().addEvent(event("card_added"));
+      await settle();
+      vi.advanceTimersByTime(4001);
+    }
+    const answers = queue();
+    expect(answers).toHaveLength(4);
+    for (let i = 1; i < answers.length; i++) expect(answers[i]).not.toBe(answers[i - 1]);
+    expect(new Set(answers).size).toBeGreaterThan(1);
+  });
+
+  it("dances for a run of three finishes close together", async () => {
+    for (let i = 0; i < 3; i++) {
+      useHistoryStore.getState().addEvent(event("sprint_completed"));
+      await settle();
+      vi.advanceTimersByTime(4001);
+    }
+    expect(queue()).toEqual(["clap", "clap", "dance"]);
+    // The run starts over: the next finish is applause again.
+    useHistoryStore.getState().addEvent(event("sprint_completed"));
+    await settle();
+    expect(queue().at(-1)).toBe("clap");
   });
 
   it("ignores old events arriving from the cloud or storage", async () => {
