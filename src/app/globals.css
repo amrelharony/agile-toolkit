@@ -822,9 +822,11 @@
     height: calc(100% + 0.7em);
   }
 
-  /* High contrast: plain line art, no washes, no fills, no wobble. */
+  /* High contrast: plain line art, no washes, no colour fills, no wobble. A
+     paper fill stays: it's the card colour (black here), and it still hides
+     the lines of whatever sits behind a shape in front. */
   .hc .ink-wash-group,
-  .hc .ink-fill {
+  .hc .ink-fill:not(.ink-fill-paper) {
     display: none;
   }
   .hc .ink-art .ink-line:not(.ink-hl-pen) {
