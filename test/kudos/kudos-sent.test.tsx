@@ -28,8 +28,12 @@ vi.mock("@/lib/kudos/card-image", async (importOriginal) => ({
 vi.mock("@/lib/kudos/card-link", () => ({
   cardLink: async () => "https://toolkit.example/kudos#k=s1.abc",
 }));
+vi.mock("@/lib/kudos/llm/sentiment", () => ({
+  analyseSentiment: vi.fn(async () => null),
+}));
 
 import { KudosSent } from "@/app/(tools)/kudos/components/kudos-sent";
+import { KudosForm } from "@/app/(tools)/kudos/components/kudos-form";
 import { SHARE_IMAGE_OPTIONS } from "@/lib/kudos/card-image";
 
 const EP7: Kudos = {
@@ -121,5 +125,39 @@ describe("KudosSent", () => {
     fireEvent.click(screen.getByRole("button", { name: /download/i }));
     await waitFor(() => expect(h.downloadBlob).toHaveBeenCalledWith(BLOB, "kudos-to-sara.png"));
     expect(h.cardImage).toHaveBeenCalledWith(expect.any(HTMLElement), undefined);
+  });
+});
+
+describe("ink moment", () => {
+  // A heart drawn once by the heading of the sent panel, never while the
+  // kudos is still being written, and never on the card the image is made of.
+  const heart = (c: ParentNode) => c.querySelector('[data-ink="heart"]');
+
+  it("draws a heart by the heading, outside the card the image is made from", () => {
+    const { container } = render(<KudosSent kudos={EP7} kept onDone={() => {}} />);
+    const mark = heart(container)!;
+    expect(mark).not.toBeNull();
+    expect(mark).toHaveAttribute("aria-hidden", "true");
+    expect(mark.parentElement).toContainElement(screen.getByRole("heading", { name: /sara/i }));
+    expect(container.querySelector("[data-kudos-id]")!.contains(mark)).toBe(false);
+  });
+
+  it("draws no heart while writing, and one once it's sent", async () => {
+    const { container } = render(
+      <KudosForm
+        defaultFromName="Ada"
+        recipients={[{ id: "team:1", displayName: "Sam", source: "team" }]}
+        delivery="link"
+        onSubmit={() => {}}
+        onDownload={() => {}}
+      />
+    );
+    expect(heart(container)).toBeNull();
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "team:1" } });
+    fireEvent.change(screen.getByLabelText("Thank you for"), { target: { value: "Thanks!" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: /send kudos/i })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /send kudos/i }));
+    await screen.findByRole("heading", { name: /your kudos for sam is ready/i });
+    expect(heart(container)).not.toBeNull();
   });
 });

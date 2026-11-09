@@ -356,3 +356,44 @@ describe("touch targets", () => {
     expectTouchTarget(screen.getByRole("button", { name: "Delete Login page" }));
   });
 });
+
+describe("ink moment", () => {
+  // Full consensus circles the card everyone played, by hand; the verdict
+  // already says it, so the circle is decorative.
+  const circle = (c: HTMLElement) => c.querySelector('[data-ink="highlight-circle"]');
+  const revealed = (votes: (string | null)[]) =>
+    makeSession({
+      revealed: true,
+      participants: votes.map((vote, i) => ({
+        id: i === 0 ? HOST : `p${i}`,
+        name: i === 0 ? "Scrum Master" : `Dev ${i}`,
+        vote,
+      })),
+    });
+
+  it("circles the agreed estimate when everyone played the same card", () => {
+    const { container } = render(<Harness initial={revealed(["5", "5", "5"])} />);
+    expect(screen.getByText("Full consensus")).toBeInTheDocument();
+    const mark = circle(container)!;
+    expect(mark).not.toBeNull();
+    expect(mark).toHaveAttribute("aria-hidden", "true");
+    // The circle sits on the card in the sentence, which still reads whole.
+    expect(mark.parentElement).toHaveTextContent(/^5$/);
+    expect(mark.closest("span.text-sm")).toHaveTextContent("Everyone played 5.");
+  });
+
+  it("circles nothing before the reveal, for near consensus, or when too few agree", () => {
+    const cases: [string, Session][] = [
+      ["not revealed", makeSession({ participants: [{ id: HOST, name: "SM", vote: "5" }] })],
+      ["near consensus", revealed(["5", "8", "5"])],
+      ["discussion needed", revealed(["2", "13"])],
+      ["one estimate", revealed(["5", null])],
+      ["many unsure", revealed(["5", "5", "?", "?"])],
+    ];
+    for (const [label, session] of cases) {
+      const { container, unmount } = render(<Harness initial={session} />);
+      expect(circle(container), label).toBeNull();
+      unmount();
+    }
+  });
+});

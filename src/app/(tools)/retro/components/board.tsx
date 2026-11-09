@@ -25,6 +25,7 @@ import { useShallow } from "zustand/react/shallow";
 import { RotateCcw, Eraser } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { InkMoment } from "@/components/ink/ink-moment";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { ExportButton } from "@/components/shared/export-button";
@@ -685,8 +686,12 @@ export function Board({
                 </span>
               )}
               {state.phase === "actions" && actionCount > 0 && (
-                <span className="text-accent-green font-semibold">
-                  {actionCount} action item{actionCount !== 1 ? "s" : ""}
+                <span className="inline-flex flex-col items-start">
+                  <span className="text-accent-green font-semibold">
+                    {actionCount} action item{actionCount !== 1 ? "s" : ""}
+                  </span>
+                  {/* An ink moment: the retro reached its actions. */}
+                  <InkMoment mark="flourish" />
                 </span>
               )}
             </div>
