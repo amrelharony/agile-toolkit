@@ -278,7 +278,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                   setSelectedSquadId(e.target.value);
                   setSelectedProfileId("");
                 }}
-                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-11 pointer-fine:md:h-9 bg-surface-deep border border-border rounded px-2 text-base pointer-fine:md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
               >
                 {squads.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -292,7 +292,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
               <select
                 value={selectedProfileId}
                 onChange={(e) => setSelectedProfileId(e.target.value)}
-                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-11 pointer-fine:md:h-9 bg-surface-deep border border-border rounded px-2 text-base pointer-fine:md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value="">Anyone in squad</option>
                 {profilesForSelected.map((p) => (
@@ -309,7 +309,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as "editor" | "viewer" | "commenter")}
-                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-11 pointer-fine:md:h-9 bg-surface-deep border border-border rounded px-2 text-base pointer-fine:md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value="editor">Editor (full collaboration)</option>
                 <option value="commenter">Commenter (read + comments)</option>
@@ -324,7 +324,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                   const v = e.target.value;
                   setTtlDays(v === "never" ? null : Number(v));
                 }}
-                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-11 pointer-fine:md:h-9 bg-surface-deep border border-border rounded px-2 text-base pointer-fine:md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value="1">1 day</option>
                 <option value="7">7 days</option>

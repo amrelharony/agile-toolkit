@@ -40,6 +40,30 @@ describe("check-ui-classes guard", () => {
     ]);
   });
 
+  it("flags 100vh centring wrappers and page mains", () => {
+    const flagged = [
+      '<main className="min-h-screen flex items-center justify-center px-4">',
+      '<div className="min-h-screen grid place-items-center">',
+      '<main className="mx-auto min-h-screen w-full max-w-3xl px-4 py-6">',
+      '<section className="md:min-h-screen flex flex-col justify-center">',
+    ].join("\n");
+    expect(findViolations(flagged)).toEqual([
+      expect.objectContaining({ line: 1, rule: "min-h-screen-wrapper", match: "min-h-screen" }),
+      expect.objectContaining({ line: 2, rule: "min-h-screen-wrapper", match: "min-h-screen" }),
+      expect.objectContaining({ line: 3, rule: "min-h-screen-wrapper", match: "min-h-screen" }),
+      expect.objectContaining({ line: 4, rule: "min-h-screen-wrapper", match: "md:min-h-screen" }),
+    ]);
+
+    const ok = [
+      '<main className="min-h-screen-dvh flex items-center justify-center px-4">',
+      '<main className="mx-auto min-h-screen-dvh w-full max-w-3xl">',
+      // The app shell's row is not a centring wrapper.
+      '<div className="flex min-h-screen">',
+      '// a comment: <main className="min-h-screen flex items-center">',
+    ].join("\n");
+    expect(findViolations(ok)).toEqual([]);
+  });
+
   it("caps own-colour text on its own tint at /20", () => {
     const flagged = [
       '<b className="bg-accent/15 hover:bg-accent/25 text-accent">x</b>',
@@ -150,10 +174,10 @@ describe("check-ui-classes guard", () => {
       expect(findViolations('<Button className="md:h-7 md:w-7" />')).toEqual([]);
     });
 
-    it("tolerates only Input's existing md:h-9, which the form-fields fix moves", () => {
+    it("flags Input's bare md:h-9 too, now that Input shrinks for a mouse only", () => {
       const input = "src/components/ui/input.tsx";
-      expect(findViolations('"flex h-11 md:h-9 w-full"', input)).toEqual([]);
-      expect(findViolations('"flex h-11 md:h-9 w-full"', BUTTON)).toHaveLength(1);
+      expect(findViolations('"flex h-11 md:h-9 w-full"', input)).toHaveLength(1);
+      expect(findViolations('"flex h-11 pointer-fine:md:h-9 w-full"', input)).toEqual([]);
     });
   });
 });

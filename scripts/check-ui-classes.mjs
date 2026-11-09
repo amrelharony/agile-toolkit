@@ -14,6 +14,10 @@
  *   with hover:bg-accent/10.
  * - Opacity modifiers on border-border (border-border/40): --border is
  *   already translucent and the base layer paints every border with it.
+ * - min-h-screen (100vh) on a centring wrapper or a page's <main>: on a phone
+ *   100vh is the height with the browser bars hidden, so the card sat 40-80px
+ *   low and the page scrolled for nothing. Use min-h-screen-dvh (the visible
+ *   height, with a 100vh fallback for old iOS).
  * - Own-colour text on a tint of itself stronger than 20% (bg-accent/25 with
  *   text-accent on the same line, hover and other variants included): the
  *   three themes' tokens keep 4.5:1 only up to /20
@@ -68,6 +72,17 @@ function walk(dir, out = []) {
 
 // Solid status dots (bg-[#22c55e] with no opacity) read fine in every theme.
 const ALLOWED = /^(?:[a-z0-9-]+:)*bg-\[#(?:22c55e|ef4444|eab308)\]$/i;
+
+// `min-h-screen` but not `min-h-screen-dvh`, on a line that centres its
+// content or opens a <main>. The app shell's plain `flex min-h-screen` row is
+// neither.
+const SCREEN_RE = /(?<![\w-])(?:[a-z0-9-]+:)*min-h-screen(?![\w-])/g;
+const WRAPPER_RE =
+  /(?<![\w-])(?:[a-z0-9-]+:)*(?:items-center|justify-center|place-items-center|place-content-center)(?![\w-])|<main(?![\w-])/;
+
+function screenWrappers(line) {
+  return WRAPPER_RE.test(line) ? [...line.matchAll(SCREEN_RE)].map((m) => m[0]) : [];
+}
 
 // Colours used as text on tints of themselves. Up to 60% counts as a tint;
 // above that the fill is near-solid and own-colour text is a different bug.
@@ -168,10 +183,6 @@ const TOUCH_PRIMITIVES = new Set([
   "src/components/ui/textarea.tsx",
   "src/components/ui/toggle-group.tsx",
 ]);
-// Shrinks already on master that another fix moves to a pointer variant.
-// Input belongs to the form-fields fix (claude/mobile-form-fields): drop the
-// entry when it lands. Anything new in these files still fails.
-const PENDING_SHRINKS = new Map([["src/components/ui/input.tsx", new Set(["md:h-9"])]]);
 // A size utility (h, w, min-h, min-w, size) with a number, px, or an
 // arbitrary value, behind a chain of variants that includes a width
 // breakpoint. A chain that also says pointer-fine is scoped to a mouse.
@@ -181,12 +192,10 @@ const SCREEN_VARIANT = /(?:^|:)(?:xs|sm|md|lg|xl|2xl|3xl):/;
 
 function widthShrinks(line, file) {
   if (!file || !TOUCH_PRIMITIVES.has(file)) return [];
-  const pending = PENDING_SHRINKS.get(file);
   const found = [];
   for (const m of line.matchAll(WIDTH_SHRINK_RE)) {
     const chain = `:${m[1]}`;
     if (!SCREEN_VARIANT.test(chain) || /(?:^|:)pointer-fine:/.test(chain)) continue;
-    if (pending?.has(m[0])) continue;
     found.push(m[0]);
   }
   return found;
@@ -223,6 +232,14 @@ export function findViolations(source, file) {
         rule: "strong-own-tint",
         match,
         hint: `tint at most /${MAX_OWN_TINT} under its own text colour, or use text-text`,
+      });
+    }
+    for (const match of screenWrappers(line)) {
+      found.push({
+        line: i + 1,
+        rule: "min-h-screen-wrapper",
+        match,
+        hint: "use min-h-screen-dvh: 100vh is taller than a phone's visible area",
       });
     }
   });

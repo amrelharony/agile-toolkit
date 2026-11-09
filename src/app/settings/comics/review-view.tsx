@@ -179,7 +179,7 @@ function ReviewPanel({
                   {...props}
                   value={corner}
                   onChange={(e) => setCorner(e.target.value as CreditCorner)}
-                  className="h-11 w-full rounded-md border border-input bg-transparent px-3 text-base md:h-9 md:text-sm"
+                  className="h-11 w-full rounded-md border border-input bg-transparent px-3 text-base pointer-fine:md:h-9 pointer-fine:md:text-sm"
                 >
                   {CREDIT_CORNERS.map((c) => (
                     <option key={c} value={c}>
