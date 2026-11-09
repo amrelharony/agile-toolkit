@@ -11,12 +11,17 @@ import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import type { PackId } from "../mascot-packs";
 import { createDirector } from "./director";
-import { createIdleLadder, firstMorningVisit } from "./idle";
+import { createIdleLadder, firstMorningVisit, type IdleLadder } from "./idle";
 import { installContextSenses } from "./interactions/context";
 import { installPageSenses } from "./interactions/page";
 import { fetchVisitorWeather } from "@/lib/agent/mascot/context/weather";
 import { visitorWeekend } from "@/lib/agent/mascot/context/moments";
-import { canFeelPhone, feelsPhone, installMotionSenses } from "./interactions/sensors";
+import {
+  canFeelPhone,
+  feelsPhone,
+  installMotionSenses,
+  type MotionFrame,
+} from "./interactions/sensors";
 import { isPhoneViewport } from "@/lib/layout/breakpoints";
 
 export interface SensesOptions {
@@ -25,6 +30,8 @@ export interface SensesOptions {
   figure: () => HTMLElement | null;
   /** Load packs ahead of need. */
   want(packs: PackId[]): void;
+  /** Where the phone's pose is kept for the sprite's tick (see sensors.ts). */
+  motion?: MotionFrame;
 }
 
 const INPUTS = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart", "scroll"] as const;
@@ -51,15 +58,23 @@ export function installSenses(opts: SensesOptions): () => void {
   });
 
   // Phone motion: follows the visitor's choice as it changes.
+  let ladder: IdleLadder | null = null;
   let disposeMotion: (() => void) | null = null;
   const syncMotion = () => {
     const on = !opts.reducedMotion && canFeelPhone() && feelsPhone(mascot().feelPhone);
     if (on && !disposeMotion) {
-      opts.want(["balance"]);
+      // Tips and windmills, being tossed and hanging on, a glad face when it's turned back over.
+      opts.want(["balance", "lifted", "social"]);
       disposeMotion = installMotionSenses({
         hold,
         act: (r) => mascot().queueReaction(r),
         playNow: (r) => mascot().playNow(r),
+        frame: opts.motion,
+        // Put down, he tires sooner; picked up, that's someone here.
+        rest: (resting) => {
+          ladder?.hurry(resting);
+          if (!resting) ladder?.input();
+        },
       });
     } else if (!on && disposeMotion) {
       disposeMotion();
@@ -88,7 +103,7 @@ export function installSenses(opts: SensesOptions): () => void {
   });
 
   // Nobody around → pass the time, yawn, sit, doze. Any input wakes him.
-  const ladder = createIdleLadder({
+  ladder = createIdleLadder({
     act: (r) => mascot().queueReaction(r),
     playNow: (r) => mascot().playNow(r),
     hold,
@@ -102,16 +117,17 @@ export function installSenses(opts: SensesOptions): () => void {
       !parkedTop(),
     want: opts.want,
   });
-  const onInput = () => ladder.input();
+  const idle = ladder;
+  const onInput = () => idle.input();
   INPUTS.forEach((e) => window.addEventListener(e, onInput, { passive: true }));
   let ticker: ReturnType<typeof setInterval> | undefined;
   const run = () => {
     clearInterval(ticker);
     ticker = undefined;
     if (document.hidden) return;
-    ladder.input(); // back from a hidden tab counts as being here
+    idle.input(); // back from a hidden tab counts as being here
     ticker = setInterval(() => {
-      ladder.tick();
+      idle.tick();
       context.check();
     }, 1000);
   };

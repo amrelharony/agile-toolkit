@@ -2,7 +2,8 @@
  * When nobody's around, Amr gets sleepy (docs/mascot/AMR-ART-BRIEF.md, S07): a
  * yawn after 45 s, he sits down after 2 min, dozes off after 4. Any input wakes
  * him: startled if he was dozing, standing up if he was sitting. Late at night
- * (23:00–05:00) he tires sooner; on the first visit of a morning he stretches.
+ * (23:00–05:00) he tires sooner, and sooner still when the phone has been laid flat
+ * and left alone (`hurry`); on the first visit of a morning he stretches.
  * On desktop, idle for half a minute or so, he may take a short stroll along the
  * bottom of the screen; anywhere, he may pass the time with a scene of the day
  * or a game first (`play`, engine/interactions/context.ts).
@@ -37,6 +38,8 @@ export const SIT_MS = 2 * 60_000;
 export const DOZE_MS = 4 * 60_000;
 /** Late at night everything comes sooner. */
 const LATE_FACTOR = 0.6;
+/** So it does when the phone is lying on the table: nobody's holding him. */
+export const HURRY_FACTOR = 0.4;
 
 export type Rest = "awake" | "sitting" | "dozing";
 
@@ -45,6 +48,8 @@ export interface IdleLadder {
   input(): void;
   /** Call about once a second. */
   tick(): void;
+  /** Tire sooner (the phone has been put down), or back to his usual pace. */
+  hurry(on: boolean): void;
   rest(): Rest;
 }
 
@@ -60,6 +65,7 @@ export function createIdleLadder(hooks: IdleHooks): IdleLadder {
   let played = false;
   let playAt = 15_000 + random() * 15_000;
   let wanted = { rest: false, stroll: false };
+  let hurried = false;
 
   const late = () => {
     const h = hour();
@@ -94,7 +100,7 @@ export function createIdleLadder(hooks: IdleHooks): IdleLadder {
       return;
     }
     const idle = now() - lastInput;
-    const f = late() ? LATE_FACTOR : 1;
+    const f = (late() ? LATE_FACTOR : 1) * (hurried ? HURRY_FACTOR : 1);
     if (!wanted.rest && idle > YAWN_MS * f - 15_000) {
       wanted = { ...wanted, rest: true };
       hooks.want(["rest"]);
@@ -127,7 +133,14 @@ export function createIdleLadder(hooks: IdleHooks): IdleLadder {
     }
   }
 
-  return { input, tick, rest: () => rest };
+  return {
+    input,
+    tick,
+    hurry: (on) => {
+      hurried = on;
+    },
+    rest: () => rest,
+  };
 }
 
 const DAY_KEY = "mascot_last_day";
