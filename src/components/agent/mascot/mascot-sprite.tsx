@@ -49,6 +49,7 @@ import {
   type Clip,
   type FrameRef,
 } from "./engine/clips";
+import { createAttention, scrollLook } from "./engine/attention";
 import { createGestureTracker } from "./engine/interactions/gestures";
 import { leanFor, restingFrame, skidFor } from "./engine/interactions/sensors";
 import { MOOD_DRONE, MOOD_SPEED, moodFor, type MoodName } from "./engine/mood";
@@ -88,6 +89,8 @@ interface MascotSpriteProps {
 const TICK_S = 1 / 32;
 /** How long Amr keeps looking after the cursor stops moving. */
 const LOOK_HOLD_MS = 1800;
+/** How long he keeps looking where a tilt, a finger or a field drew his eye, once it's gone. */
+const LOOK_LINGER_MS = 400;
 /** Where his face sits in the box, for aiming the look poses. */
 const FACE_ROW = 0.25;
 /** The springs work in model units; the old model was this many units tall. */
@@ -199,6 +202,11 @@ export default function MascotSprite({
     let lastPointer: { x: number; y: number; t: number } | null = null;
     let lastStartle = -Infinity;
     let lastMouseAt = -Infinity;
+
+    // What has his eye when no cursor does: a finger, a field, the scroll.
+    const attention = createAttention();
+    let lastScrollY = window.scrollY;
+    let lastScrollLook = -Infinity;
 
     // The phone's pose, written by his senses and read in the tick below.
     const motion = restingFrame();
@@ -440,6 +448,35 @@ export default function MascotSprite({
       refresh();
     };
 
+    /** Where his face is on screen: what a look is aimed from. */
+    const faceAt = () => {
+      const rect = container.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height * FACE_ROW };
+    };
+    const onTouch = (e: TouchEvent) => {
+      const finger = e.touches[0];
+      if (finger) attention.see("touch", finger.clientX, finger.clientY, performance.now());
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target as HTMLElement | null;
+      // A field in his own panel is him being talked to, not something to glance at.
+      if (!el?.getBoundingClientRect || el.closest?.("[data-agent-sheet-root]")) return;
+      const r = el.getBoundingClientRect();
+      if (!r.width && !r.height) return;
+      attention.see("focus", r.left + r.width / 2, r.top + r.height / 2, performance.now());
+    };
+    const onScrollLook = () => {
+      const t = performance.now();
+      const y = window.scrollY;
+      const dy = y - lastScrollY;
+      lastScrollY = y;
+      if (t - lastScrollLook < 120) return;
+      const toward = scrollLook(faceAt(), dy);
+      if (!toward) return;
+      lastScrollLook = t;
+      attention.see("scroll", toward.x, toward.y, t);
+    };
+
     // Hovering or pressing him: get the packs his touch reactions need.
     const onPointerOver = (e: PointerEvent) => {
       const t = e.target as HTMLElement | null;
@@ -513,12 +550,20 @@ export default function MascotSprite({
       skid.vel += ((skidTo - skid.x) * 40 - skid.vel * 10) * dt;
       skid.x += skid.vel * dt;
       skidBy(Math.abs(skid.x) < 0.3 ? 0 : Math.round(skid.x * 2) / 2);
-      // ...and looks where it tips, unless a mouse has his eye.
-      if (tilted && now - lastMouseAt > LOOK_HOLD_MS) {
-        const toward = tiltLook(motion.roll, motion.pitch);
+      // ...and looks where it tips. A cursor has his eye first, then a finger on
+      // the screen, then the tilt, then a field just entered or the page scrolling by.
+      if (now - lastMouseAt > LOOK_HOLD_MS) {
+        const seen = attention.target(now);
+        let toward =
+          tilted && seen?.source !== "touch" ? tiltLook(motion.roll, motion.pitch) : null;
+        if (toward === null && seen) {
+          const face = faceAt();
+          toward = lookIndex(seen.x - face.x, seen.y - face.y);
+        }
         if (toward !== null) {
           look = toward;
-          lastMoveAt = now;
+          // Not a cursor that may come back: once it's gone he faces the visitor again.
+          lastMoveAt = now - (LOOK_HOLD_MS - LOOK_LINGER_MS);
         }
       }
       // The rain falls the way gravity points (mascot-fx.module.css reads these).
@@ -567,6 +612,10 @@ export default function MascotSprite({
       playMascotSound("open"); // entrance chime (source plays 'open')
       if (!reducedMotion) {
         window.addEventListener("mousemove", onMouseMove, { passive: true });
+        window.addEventListener("touchstart", onTouch, { passive: true });
+        window.addEventListener("touchmove", onTouch, { passive: true });
+        window.addEventListener("scroll", onScrollLook, { passive: true });
+        document.addEventListener("focusin", onFocusIn);
         raf = requestAnimationFrame(tick);
       }
       window.addEventListener("pointerover", onPointerOver, { passive: true });
@@ -595,6 +644,10 @@ export default function MascotSprite({
       clearTimeout(reactionTimer);
       clearTimeout(laterTimer);
       window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("touchstart", onTouch);
+      window.removeEventListener("touchmove", onTouch);
+      window.removeEventListener("scroll", onScrollLook);
+      document.removeEventListener("focusin", onFocusIn);
       window.removeEventListener("pointerover", onPointerOver);
       disposeSenses?.();
       gestureTracker.dispose();

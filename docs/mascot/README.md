@@ -37,6 +37,9 @@ Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.web
 | `src/components/agent/mascot/engine/interactions/sensors.ts`      | The phone's motion: its pose all the time, and tosses, flips, twists and knocks   |
 | `src/components/agent/mascot/mascot-bubble.tsx`                   | What he says beside himself; `motion-invite.ts` is his offer to feel the phone    |
 | `src/lib/agent/mascot/bubble.ts`, `lines.ts`                      | The line showing beside him, and every line he can say                            |
+| `src/lib/agent/mascot/brain/`                                     | His inner state and temperament (`state.ts`), how he varies answers (`choose.ts`) |
+| `src/lib/agent/mascot/memory.ts`, `mind.ts`                       | What he remembers between visits (this browser only), and his mind for the tab    |
+| `src/components/agent/mascot/engine/attention.ts`                 | What has his eye when no cursor does: a finger, a field, the scroll               |
 
 The source sheets (`S01-faces.png` … `S10-stroll.png`, about 19 MB, and `S11-sun.png` … `S64-lights.png`, about 100 MB) are not committed. Keep the zips they came in. Twelve of them (S01, S05, S12, S14, S23, S25, S30, S33, S36, S44, S47 and S55) are now the versions from [hair round 2](AMR-HAIR-ROUND-2.md), which replace the earlier ones. 52 more are the versions from [hair round 3](AMR-HAIR-ROUND-3.md) (`AMR_Hair_Round_3_{A..E}_Reviewed.zip`). S06, S41 and S62 keep their round-1 versions, and S01, S05, S23 and S25 their round-2 ones. The five sheets where a hat or an umbrella hides his hair (S16–S18, S45 and S50) no longer have source PNGs on hand: the zip of the context sheets is gone, so rebuilds keep their shipped packs (below).
 
@@ -158,6 +161,21 @@ At moments, each from frames already drawn:
 Where the browser asks before it sends motion (iPhones, and browsers that follow them), he asks first: a bubble beside him the first time his panel closes, "Tilt your phone, I'll feel it", with Allow and No thanks. He asks once, ever; the phone icon in his panel stays for a change of mind. Nothing here runs under reduced motion.
 
 To try it without a phone, send the page `deviceorientation` and `devicemotion` events from the console.
+
+## His mind
+
+He has a little inner state (`src/lib/agent/mascot/brain/state.ts`): five drives between 0 and 1 (energy, affection, playfulness, a jolt of arousal, annoyance) that what happens to him pushes about and time lets settle. They add up to a temperament: sleepy, calm, playful, affectionate, shy or grumpy. It colours what he already does, nothing more:
+
+- how often he does something unprompted: the director's 20 s gap is 12 s when he's playful, 30 s when he's sleepy, and 60 s while the visitor types;
+- how soon he tires when nobody's around;
+- which answer he picks (`brain/choose.ts`): ordinary work in a tool gets a nod, a thumbs-up or a fist pump, never the same twice running; three finishes within five minutes get a dance; pastimes he hasn't played lately come first;
+- being poked wears thin: a giggle, then a shy look, a shrug, and then he hides his eyes until he's left alone for a minute. A pat never wears thin.
+
+The mood the sprite plays at follows it too, but the hour alone never slows him down.
+
+What he remembers between visits (`memory.ts`) is one small entry in this browser's localStorage, `mascot_memory`: the first and latest day, how many days and how many running, a few counters and the last thirty things he did. It is never sent anywhere. Someone back after a day or more gets a wave; a third or seventh day running, a cheer.
+
+On a touch screen he had nothing to look at, since his eyes followed the cursor. Now (`engine/attention.ts`) a finger on the screen has his eye, then the phone's tilt, then a field the visitor steps into, then the way the page is scrolled.
 
 ## Decisions
 
