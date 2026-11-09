@@ -4,10 +4,12 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { SECTIONS } from "@/lib/constants/sections";
 import { SECTION_TONE } from "@/lib/ink/drawings/section-tone";
+import type { InkDrawing } from "@/lib/ink/types";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import type { ToolDefinition } from "@/lib/constants/tools";
 import { ToolCard } from "@/components/shared/tool-card";
 import { MoodReveal } from "@/components/shared/mood-reveal";
+import { InkArt } from "@/components/ink/ink-art";
 import { cn } from "@/lib/utils";
 
 /** "3 tools", or "1 title" for a section that only holds reading material. */
@@ -23,8 +25,12 @@ function countLabel(list: ToolDefinition[]): string {
  * has been opened — a hundred animated cards on first paint cost more than
  * the whole rest of the page. A section whose tools are all on the "More
  * tools" shelf is left out.
+ *
+ * Each row carries its section's drawing (`sectionArt`, SECTION_ART), handed
+ * down from the server page as data: importing the set here would put all of
+ * it in home's JavaScript. Without it a row shows the section's icon.
  */
-export function ToolSections() {
+export function ToolSections({ sectionArt }: { sectionArt?: Record<string, InkDrawing> }) {
   const { byId: visible } = useToolVisibility();
   const sections = SECTIONS.map((s) => ({
     ...s,
@@ -34,7 +40,7 @@ export function ToolSections() {
   return (
     <div className="space-y-3 sm:space-y-4">
       {sections.map((section) => (
-        <SectionGroup key={section.id} section={section} />
+        <SectionGroup key={section.id} section={section} art={sectionArt?.[section.id]} />
       ))}
     </div>
   );
@@ -42,7 +48,9 @@ export function ToolSections() {
 
 function SectionGroup({
   section,
+  art,
 }: {
+  art?: InkDrawing;
   section: {
     id: string;
     label: string;
@@ -71,7 +79,14 @@ function SectionGroup({
             className="h-4 w-4 shrink-0 text-sub transition-transform duration-200 group-open:rotate-180"
             aria-hidden="true"
           />
-          <Icon className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+          {/* 32 px of art in a 20 px line: the negative margin keeps the row
+              the height it had with the 16 px icon. Still, since eleven of
+              them stack down the page. */}
+          {art ? (
+            <InkArt drawing={art} still className="-my-1.5 h-8 w-8 shrink-0" />
+          ) : (
+            <Icon className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+          )}
           <span className="truncate font-display text-sm text-text sm:text-base">
             {section.label}
           </span>

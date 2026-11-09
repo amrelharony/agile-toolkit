@@ -15,7 +15,9 @@
  * announcer and reduced-motion config the shell would otherwise provide.
  *
  * The rooms (and the Realtime client they bring) load only after consent,
- * and only the one this link is for: the page itself stays small.
+ * and only the one this link is for: the page itself stays small. There's no
+ * Amr here either, so the ink carries the page: a pen scribbling while a room
+ * loads, and a picture over each "outside the room" card.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -24,6 +26,11 @@ import Link from "next/link";
 import { MotionConfig } from "framer-motion";
 import { Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InkArt } from "@/components/ink/ink-art";
+import { InkScribble } from "@/components/ink/ink-scribble";
+import { brokenLinkArt } from "@/lib/ink/drawings/pages/broken-link";
+import { doorArt } from "@/lib/ink/drawings/pages/door";
+import type { InkDrawing } from "@/lib/ink/types";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
 import {
@@ -53,8 +60,9 @@ const VoteJoinRoom = dynamic(
 function RoomLoading() {
   return (
     <main className="min-h-screen-dvh flex items-center justify-center px-4">
-      <p role="status" className="text-sm text-sub">
-        Opening the room…
+      <p role="status" className="flex flex-col items-center gap-2 text-sm text-sub">
+        <InkScribble />
+        <span>Opening the room…</span>
       </p>
     </main>
   );
@@ -124,6 +132,7 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
     if (linkKey === null) {
       return (
         <OutsideRoom
+          art={brokenLinkArt}
           title="This link is incomplete"
           body="The link is missing the part that proves the questions come from the host, so nothing has connected. Ask the host to send it again with Copy link."
         />
@@ -181,13 +190,18 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
   );
 }
 
-/** Outside the room: a heading that takes focus, maybe one way back in, one way home. */
+/**
+ * Outside the room: a heading that takes focus, maybe one way back in, one way
+ * home. Its picture is a door unless the link itself is the problem.
+ */
 function OutsideRoom({
+  art = doorArt,
   title,
   body,
   actionLabel,
   onAction,
 }: {
+  art?: InkDrawing;
   title: string;
   body: string;
   actionLabel?: string;
@@ -199,7 +213,8 @@ function OutsideRoom({
   }, [title]);
   return (
     <main className="min-h-screen-dvh flex items-center justify-center px-4">
-      <section className="w-full max-w-md rounded-xl border border-border bg-surface p-6 flex flex-col gap-4">
+      <section className="ink-host w-full max-w-md rounded-xl border border-border bg-surface p-6 flex flex-col gap-4">
+        <InkArt drawing={art} boil className="h-16 w-16" />
         <h1 ref={headingRef} tabIndex={-1} className="text-lg font-semibold text-text outline-none">
           {title}
         </h1>

@@ -22,6 +22,7 @@ import { cardsArt } from "./cards";
 import { guestbookArt } from "./guestbook";
 import { scrollArt } from "./scroll";
 import { earlyArt } from "./early";
+import { brokenLinkArt } from "./broken-link";
 import type { InkDrawing } from "../../types";
 
 export const PAGE_ART = {
@@ -40,6 +41,7 @@ export const PAGE_ART = {
   guestbook: guestbookArt,
   scroll: scrollArt,
   early: earlyArt,
+  "broken-link": brokenLinkArt,
 } satisfies Record<string, InkDrawing>;
 
 export type PageArtName = keyof typeof PAGE_ART;

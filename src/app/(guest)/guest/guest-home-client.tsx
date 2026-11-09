@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { IDENTITY_INK } from "@/lib/squads/colors";
-import { LogOut, Sparkles, ArrowRight } from "lucide-react";
+import { LogOut, ArrowRight } from "lucide-react";
+import { InkArt } from "@/components/ink/ink-art";
+import { hourglassArt } from "@/lib/ink/drawings/pages/hourglass";
 
 interface Session {
   id: string;
@@ -116,7 +118,8 @@ export function GuestHomeClient({ profile }: Props) {
           <div className="text-sub text-sm">Loading sessions…</div>
         ) : sessions.length === 0 ? (
           <section className="border border-dashed border-border rounded-lg p-8 text-center bg-surface/40">
-            <Sparkles className="w-8 h-8 mx-auto mb-3 text-accent/40" aria-hidden="true" />
+            {/* Waiting on the owner: the hourglass, as on History. */}
+            <InkArt drawing={hourglassArt} className="mx-auto mb-3 h-14 w-14" />
             <h2 className="text-sm font-semibold text-text mb-1">No sessions yet</h2>
             <p className="text-xs text-sub max-w-sm mx-auto">
               When the owner shares a tool session with your squad, it&apos;ll appear here. Leave

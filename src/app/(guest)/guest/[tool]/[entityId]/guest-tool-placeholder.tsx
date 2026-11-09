@@ -14,6 +14,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Send, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InkArt } from "@/components/ink/ink-art";
+import { toolboxArt } from "@/lib/ink/drawings/pages/toolbox";
 import { useCollaborativeSession } from "@/lib/collab/use-collaborative-session";
 
 interface Props {
@@ -65,8 +67,12 @@ export function GuestToolPlaceholder({ toolId, entityId, role, profile }: Props)
           </span>
         </header>
 
-        <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
-          <h1 className="text-base font-semibold text-text">{formatToolName(toolId)}</h1>
+        <div className="ink-host bg-surface border border-border rounded-lg p-4 space-y-3">
+          <div className="flex items-center gap-3">
+            {/* The toolbox: this tool's own view isn't built for guests yet. */}
+            <InkArt drawing={toolboxArt} boil className="h-12 w-12 shrink-0" />
+            <h1 className="text-base font-semibold text-text">{formatToolName(toolId)}</h1>
+          </div>
           <p className="text-xs text-sub">
             Session id: <code className="font-mono text-text">{entityId}</code>
           </p>
