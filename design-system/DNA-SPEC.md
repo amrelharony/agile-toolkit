@@ -136,7 +136,7 @@ The pictures are drawn the way the comic is: with a pen. Spot art is hand-inked 
 | Watercolour wash | A seeded blob with a darker rim; the three big scenes bleed theirs through `ink-bleed` | Behind spot art, tool-card icons, under Amr in empty states |
 | Line boil | Three displacement filters stepped about eight times a second | Header and scene art, while a mouse hovers the `.ink-host` |
 | Scribble | A pen writing, resting and lifting off, on a loop | Loading placeholders |
-| Inked tick | One stroke | Moments for something finished |
+| Ink moments | A small mark drawn once, in place, when something gets finished (`InkMoment`, `InkTick`, a circle `InkHighlight`): a Done stamp, a heart, a flourish, a star, a tick | Sprint closed, retro at its actions, poker consensus, ceremony timer finished, kudos sent, an OKR at 100%, sprint start steps, achievement chips |
 
 Rules:
 
@@ -147,5 +147,6 @@ Rules:
 - A tool's icon sits on its section's wash through `ToneIcon` (tool cards, job cards, "More in"); a client component that shows several section or page drawings gets them as props from its server page (home's section rows), never by importing `SECTION_ART` or `PAGE_ART`.
 - The art is decorative: `aria-hidden`, never focusable, click-through, inside a panel or the page flow, never fixed or full-screen, and never over Amr.
 - Its box has a fixed size in the server HTML, so inking in moves nothing.
+- Ink moments sit beside the text that states the fact, so they're `aria-hidden`; they ink in when they appear and stay still. Never fixed or full-screen, no sound, no extra XP or toast. A still mark in place interrupts nothing, so they're allowed on quiet routes (ceremonies, presenting, Focus). Amr stays the only celebration that moves.
 - Motion: the ink-in plays once; boil only on a mouse hover; the scribble only while loading. Reduced motion shows the finished drawing, still. High contrast drops washes, colour fills and boil and inks every line in `--text`; paper fills stay, so a shape in front still hides what's behind it. Print leaves the art out.
 - New pictures follow the same pen: draw them as strokes in `lib/ink/drawings`, never as raster images or icon fonts.

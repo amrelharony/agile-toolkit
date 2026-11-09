@@ -18,6 +18,7 @@ import { undoable } from "@/lib/utils/undoable";
 import type { Validation } from "@/lib/utils/form";
 import { CadenceForm } from "@/components/sprints/cadence-form";
 import { TOUCH_LINK } from "@/components/ui/touch-target";
+import { InkTick } from "@/components/ink/ink-tick";
 import { cn } from "@/lib/utils";
 
 function Step({
@@ -41,7 +42,8 @@ function Step({
             : "mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border text-xs font-semibold text-sub"
         }
       >
-        {n}
+        {/* An ink moment: a done step's number becomes a tick, drawn once. */}
+        {done ? <InkTick className="h-4 w-4" /> : n}
       </span>
       <div className="min-w-0 flex-1 space-y-2">
         <h3 className="text-sm font-semibold text-text">

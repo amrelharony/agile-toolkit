@@ -15,6 +15,7 @@ import {
 import type { Sprint } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
 import { InkHighlight } from "@/components/ink/ink-highlight";
+import { InkMoment } from "@/components/ink/ink-moment";
 import { dayForDate, hasSyntheticDates, sprintLengthDays } from "@/lib/sprints/series";
 import { STATUS_LABEL, fmt, sprintDates, sprintDayLine } from "@/lib/sprints/hub-view";
 
@@ -111,6 +112,8 @@ export function SprintHeader({
               {sprint.name}
             </h2>
             <StatusBadge status={sprint.status} />
+            {/* An ink moment: stamped Done once it's closed. The badge says so. */}
+            {sprint.status === "completed" && <InkMoment mark="stamp" />}
           </div>
           <p className="mt-1 text-sm text-sub">
             {dates ? (
