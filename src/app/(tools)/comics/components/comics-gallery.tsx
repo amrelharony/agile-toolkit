@@ -28,6 +28,7 @@ import { ComicCard, ComicCover } from "./comic-card";
 import { PrintThemeChip } from "./print-theme-chip";
 import { ReplayIntro } from "./intro/replay-intro";
 import { ReaderProgress } from "./reader-progress";
+import { comicsArt } from "@/lib/ink/drawings/pages/comics";
 
 const ALL = "all";
 
@@ -280,7 +281,11 @@ export function ComicsGallery({
   };
 
   return (
-    <ToolPageWrapper title="Agile at Work" description="Workplace comics by Amr Elharony">
+    <ToolPageWrapper
+      art={comicsArt}
+      title="Agile at Work"
+      description="Workplace comics by Amr Elharony"
+    >
       <VisitRecorder path="/comics" />
       <div className="space-y-6">
         {latest ? (

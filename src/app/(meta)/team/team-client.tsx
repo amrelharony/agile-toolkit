@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import Link from "next/link";
 import { Pencil, Share2, Trash2, UserPlus, Users } from "lucide-react";
+import { InkArt } from "@/components/ink/ink-art";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
@@ -19,6 +20,7 @@ import { undoable } from "@/lib/utils/undoable";
 import { cn } from "@/lib/utils";
 import { ROSTER_TOOLS } from "./roster-tools";
 import { TeamCharter } from "./charter";
+import { teamArt } from "@/lib/ink/drawings/sections/team";
 
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                   */
@@ -403,10 +405,8 @@ export function TeamClient() {
 
   return (
     <div className="container-meta">
-      <div className="panel mb-4 flex items-start gap-3 px-4 py-4 sm:mb-6 sm:px-6 sm:py-5">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-accent/30 bg-accent/10">
-          <Users className="h-5 w-5 text-accent" aria-hidden="true" />
-        </div>
+      <div className="panel ink-host mb-4 flex items-start gap-3 px-4 py-4 sm:mb-6 sm:gap-4 sm:px-6 sm:py-5">
+        <InkArt drawing={teamArt} boil className="h-11 w-11 shrink-0 sm:h-16 sm:w-16" />
         <div>
           <h1 className="text-fluid-h2 font-display font-bold leading-tight text-text">Team</h1>
           <p className="mt-1 text-fluid-body text-sub">

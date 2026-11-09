@@ -13,6 +13,7 @@ import {
   type WhichColleagueGame,
 } from "@/lib/vip/which-colleague";
 import { CastCardView } from "../meet-the-cast/cast-card";
+import { balloonArt } from "@/lib/ink/drawings/pages/balloon";
 
 /**
  * A short game for a team: answer about this week, see the colleague your answers
@@ -65,6 +66,7 @@ export function WhichColleagueClient({
 
   return (
     <ToolPageWrapper
+      art={balloonArt}
       title="Which Colleague Are You?"
       description="A short team game that starts a conversation about everyday work habits."
     >

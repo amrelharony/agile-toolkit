@@ -36,6 +36,7 @@ import { StoryNav } from "../../components/story-nav";
 import { StoryQuiz } from "../../components/story-quiz";
 import { StoryStats } from "../../components/story-stats";
 import { TakeItToYourTeam } from "../../components/take-it-to-your-team";
+import { comicsArt } from "@/lib/ink/drawings/pages/comics";
 
 /**
  * An episode, behind /comics?ep=N (the middleware rewrites to here and sends
@@ -118,7 +119,7 @@ function BookEpisodePage({
       {/* Beside the wrapper, not in it: its entrance leaves a transform behind,
           and the intro's fixed overlay would cover the wrapper, not the screen. */}
       <PosterIntro ep={ep} title={title} panels={[]} />
-      <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>
+      <ToolPageWrapper art={comicsArt} title={title} description={`Episode ${ep}, by Amr Elharony`}>
         <VisitRecorder path="/comics" />
         <div className="space-y-4">
           <p className="text-sm text-sub">
@@ -180,7 +181,7 @@ function WeeklyStoryPage({
   const { ep, title } = story;
   const readable = story.panels.length > 0;
   return (
-    <ToolPageWrapper title={title} description={`Episode ${ep}, by Amr Elharony`}>
+    <ToolPageWrapper art={comicsArt} title={title} description={`Episode ${ep}, by Amr Elharony`}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdScript(storyJsonLd(story)) }}
