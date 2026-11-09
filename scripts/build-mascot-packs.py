@@ -10,7 +10,8 @@ It may also hold any of the context sheets S11-sun.png … S64-lights.png
 ones not drawn yet are left out, so they can come back a few at a time. With
 --keep-missing, a context sheet missing from the folder keeps the pack it ships
 with now instead (its files and its frames, as they are), so a folder only needs
-the sheets that changed since that pack was built.
+the sheets that changed since that pack was built. (A kept pack whose clothes
+aren't the live sprite's colours yet is regraded once, from its shipped cells.)
 Each slot is cleaned, registered to the live sheet (public/mascot/amr.*.webp) —
 same height, same floor row, centred on its anchor — and packed into small WebP
 sheets under public/mascot, named after their bytes. A pack's cells are the live
@@ -23,8 +24,12 @@ Corrections bring the generated art to the live sprite (scripts/mascot_heads.py
 measures them; scripts/audit-mascot-heads.py checks the result):
   head size  every head is scaled to the live idle's, measured frame by frame
   skin       each sheet's skin is moved to the live idle's colour, keeping its shading
-  hair       on the tool sheets, a frame's hair far from the live idle's colour is
-             moved toward it, keeping its highlights
+  clothes    each sheet's shirt, trousers and shoes are moved to the live idle's
+             colours the same way; props of the same colour stay as drawn
+  hair       a frame's hair far from the live idle's colour is moved toward it,
+             keeping its highlights
+  sharpness  the 1x cells are sharpened, sheet by sheet, until the stance carries
+             the fine detail the live idle does
 
 Needs Pillow and numpy. The source PNGs never ship; only the packs do.
 """
@@ -512,26 +517,10 @@ def hair_blob(img: Image.Image) -> tuple[float, int] | None:
         return None
     top, bot = rows[0], rows[-1]
     dark[int(top + 0.6 * (bot - top)):] = False  # belt, shoes
-    seen = np.zeros(dark.shape, bool)
-    best = None
-    H, W = dark.shape
-    for y0, x0 in zip(*np.nonzero(dark)):
-        if seen[y0, x0]:
-            continue
-        seen[y0, x0] = True
-        stack, pts = [(y0, x0)], []
-        while stack:
-            y, x = stack.pop()
-            pts.append((y, x))
-            for yy, xx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
-                if 0 <= yy < H and 0 <= xx < W and dark[yy, xx] and not seen[yy, xx]:
-                    seen[yy, xx] = True
-                    stack.append((yy, xx))
-        if best is None or len(pts) > len(best):
-            best = pts
-    if best is None or len(best) < 200:
+    comps = heads.components(dark)
+    if not comps or len(comps[0][0]) < 200:
         return None
-    ys, xs = np.array(best).T
+    ys, xs = comps[0]
     return float(np.median(xs)), int(ys.min())
 
 
@@ -643,8 +632,9 @@ def shrink_heads(frames, stances, scales, ref) -> list[str]:
 # moved by one Lab shift to the live idle's median: lit and shaded skin keep their
 # difference, and a blush drawn on purpose stays a blush.
 
-def match_skin(frames, ref) -> tuple[list[str], dict]:
-    """Returns the notes, and each sheet's shift (for the previews' stances)."""
+def sheet_groups() -> dict[str, list[str]]:
+    """Every shipped frame by the sheet it was drawn on: one generated image, so one
+    colour grade. The talking frames, built from two sheets, are "talk"."""
     pack_of = {}
     for stem, (pack, _, ids) in SHEETS.items():
         for e in ids:
@@ -654,8 +644,13 @@ def match_skin(frames, ref) -> tuple[list[str], dict]:
     for fids in PACKS.values():
         for fid in fids:
             groups.setdefault(pack_of.get(fid, "talk"), []).append(fid)
+    return groups
+
+
+def match_skin(frames, ref) -> tuple[list[str], dict]:
+    """Returns the notes, and each sheet's shift (for the previews' stances)."""
     notes, deltas = [], {}
-    for sheet, fids in groups.items():
+    for sheet, fids in sheet_groups().items():
         segs = {f: heads.segment(frames[f][2]) for f in fids}
         labs = [lab for lab in (heads.skin_lab(segs[f], ref) for f in fids) if lab is not None]
         if not labs:
@@ -667,16 +662,175 @@ def match_skin(frames, ref) -> tuple[list[str], dict]:
                      f" (was {heads.de2000(ref['lab'], sheet_lab):.1f} from live)")
         for f in fids:
             w = heads.skin_weights(frames[f][2], sheet_lab, segs[f])
-            frames[f] = {k: heads.shift_skin(frames[f][k], w, delta) for k in SCALES}
+            frames[f] = {k: heads.shift_lab(frames[f][k], w, delta) for k in SCALES}
     return notes, deltas
 
 
-# Hair colour, on the tool sheets only (S65 on). Their hair edits came back a shade
-# lighter or browner than the slots ChatGPT left alone, so his hair would change
-# shade between two frames of one scene. A frame whose hair is more than HAIR_DE
-# from the live idle's moves toward it by one Lab shift, so its highlights keep
-# their difference, until it is HAIR_DE away. The other sheets were matched in the
-# hair rounds and stay as they ship.
+# Clothes. The sheets grade his clothes as they grade his skin, and nothing matched
+# them: against the live sprite his shirt came out about 13 points darker and
+# yellower, his trousers 8 darker and pinker, his shoes grey rather than near-black,
+# in every frame. So each time he left the idle pose for a clip his clothes changed
+# colour. Each sheet's shirt, trousers and shoes move by one Lab shift each to the
+# live idle's, as the skin does: folds and highlights keep their difference.
+CLOTHES_OFF = 30.0  # this far from live's (in Lab) and it isn't that garment: a costume
+CLOTHES_OWN = 12.0  # a frame this far from its sheet's garment wears something else
+CLOTHES_NEAR = 1.5  # dE2000: close enough already, left alone
+CLOTHES_FRAME = 2.0  # dE2000: a frame still this far off after its sheet's shift gets its own
+CLOTHES_STEP = 9.0  # ...if the rest of the way is no further than this (in Lab)
+CLOTHES_KEPT = 2.5  # dE2000: a kept pack further off than this is regraded
+
+
+def live_clothes() -> dict:
+    """The live idle's shirt, trousers and shoes: {garment: Lab}."""
+    idle = live_idle2x()
+    return {g: heads.garment_lab(idle, m) for g, m in heads.garments(idle).items()}
+
+
+def regrade_kept(kept: dict, frames) -> tuple[dict, list[str]]:
+    """A kept pack (--keep-missing) has no sheet to rebuild from, so its clothes
+    would stay as they shipped. Where they are off, its shipped 2x cells come back
+    in as frames, to be matched and written like the rest; a pack already matched
+    stays byte for byte, so this happens once. Returns {pack: its frame ids}."""
+    target = live_clothes()
+    out, notes = {}, []
+    w, h = CELL_W * 2, PACK_H * 2
+    for pack, (entry, fids) in kept.items():
+        sheet = Image.open(PUBLIC / Path(entry["src2x"]).name).convert("RGBA")
+        cells = [Image.fromarray(clean(np.array(sheet.crop(((i % COLUMNS) * w, (i // COLUMNS) * h,
+                                                            (i % COLUMNS + 1) * w, (i // COLUMNS + 1) * h)))))
+                 for i in range(len(fids))]
+        labs: dict[str, list] = {}
+        for c in cells:
+            for g, m in heads.garments(c).items():
+                labs.setdefault(g, []).append(heads.garment_lab(c, m))
+        off = max((heads.de2000(target[g], np.median(v, 0)) for g, v in labs.items() if g in target), default=0.0)
+        if off < CLOTHES_KEPT:
+            continue
+        for fid, c in zip(fids, cells):
+            frames[fid] = {2: c, 1: small(c)}
+        out[pack] = list(fids)
+        notes.append(f"clothes: kept pack {pack} is {off:.1f} from live's; regraded from its shipped cells")
+    return out, notes
+
+
+def match_clothes(frames, ref, groups: dict[str, list[str]]) -> tuple[list[str], dict]:
+    """Returns the notes, and each sheet's shifts {sheet: {garment: delta}} (for the
+    previews' stances). `groups` is the frames by sheet (sheet_groups, plus any
+    regraded pack as a sheet of its own)."""
+    target = live_clothes()
+    notes, deltas = [], {}
+    for sheet, fids in groups.items():
+        found, skins = {}, {}
+        for f in fids:
+            # What match_skin took for his skin is never his trousers.
+            skins[f] = heads.skin_weights(frames[f][2], ref["lab"], heads.segment(frames[f][2])) > 0.5
+            found[f] = heads.garments(frames[f][2], skins[f])
+        moved, plan = [], {}
+        for g in heads.GARMENTS:
+            labs = {f: heads.garment_lab(frames[f][2], found[f][g]) for f in fids if g in found[f]}
+            if not labs or g not in target:
+                continue
+            sheet_lab = np.median(list(labs.values()), 0)
+            delta = target[g] - sheet_lab
+            if float(np.linalg.norm(delta)) > CLOTHES_OFF:
+                notes.append(f"clothes: {sheet}'s {g} reads {np.linalg.norm(delta):.0f} from live's; left as drawn")
+                continue
+            off = heads.de2000(target[g], sheet_lab)
+            if off < CLOTHES_NEAR:
+                continue
+            odd = [f for f, own in labs.items() if float(np.linalg.norm(own - sheet_lab)) > CLOTHES_OWN]
+            if odd:
+                notes.append(f"clothes: {g} left as drawn where it isn't its sheet's colour: {', '.join(odd)}")
+            plan[g] = (delta, [f for f in labs if f not in odd])
+            moved.append(f"{g} L {delta[0]:+.1f} a {delta[1]:+.1f} b {delta[2]:+.1f} (was {off:.1f})")
+        if not plan:
+            continue
+        deltas[sheet] = {g: d for g, (d, _) in plan.items()}
+        notes.append(f"clothes: {sheet} moved " + "; ".join(moved))
+        for f in fids:
+            # Every weight from the frame as drawn, then the shifts one after another.
+            todo = [(plan[g][0], heads.garment_weights(frames[f][2], found[f][g], g))
+                    for g in plan if f in plan[g][1]]
+            for delta, w in todo:
+                frames[f] = {k: heads.shift_lab(frames[f][k], w, delta) for k in SCALES}
+        # One shift per sheet brings most frames home. But a sheet isn't always one
+        # grade: three poses of S04 came back with a darker shirt than the rest. A
+        # frame whose garment still reads off gets the rest of its own way, when
+        # that is a small step (a big one means it isn't the same garment).
+        own_way = []
+        for f in fids:
+            after = heads.garments(frames[f][2], skins[f])
+            for g in plan:
+                if f not in plan[g][1] or g not in after:
+                    continue
+                lab = heads.garment_lab(frames[f][2], after[g])
+                rest = target[g] - lab
+                if heads.de2000(target[g], lab) <= CLOTHES_FRAME or float(np.linalg.norm(rest)) > CLOTHES_STEP:
+                    continue
+                w = heads.garment_weights(frames[f][2], after[g], g)
+                frames[f] = {k: heads.shift_lab(frames[f][k], w, rest) for k in SCALES}
+                own_way.append(f"{f} {g}")
+        if own_way:
+            notes.append(f"clothes: {sheet}, the rest of the way frame by frame: {', '.join(own_way)}")
+    return notes, deltas
+
+
+# Sharpness. On an ordinary screen the packs' 1x cells carry about three quarters
+# of the fine detail the live sheet does, sheet by sheet (some as little as 60%):
+# he went soft whenever a clip took over from the idle pose. So each sheet's 1x
+# cells get an unsharp mask, as strong as it takes for the sheet's stance (drawn in
+# the live idle's pose) to carry the live idle's detail. The 2x cells stay as they
+# are: drawn smaller on a sharp screen, they already match.
+SHARP_RADIUS = 0.8
+SHARP_MAX = 1.0  # past this an unsharp mask starts to ring
+
+
+def small(img2: Image.Image) -> Image.Image:
+    """A 2x cell reduced to 1x."""
+    return img2.convert("RGBa").resize((CELL_W, PACK_H), Image.LANCZOS).convert("RGBA")
+
+
+def sharp_amount(cell1: Image.Image, goal: float) -> float:
+    """How strong an unsharp mask brings a 1x cell's fine detail up to `goal`."""
+    d = heads.detail(cell1)
+    if d is None or d >= goal:
+        return 0.0
+    if heads.detail(heads.sharpen(cell1, SHARP_MAX, SHARP_RADIUS)) < goal:
+        return SHARP_MAX
+    lo, hi = 0.0, SHARP_MAX
+    for _ in range(7):
+        mid = (lo + hi) / 2
+        if heads.detail(heads.sharpen(cell1, mid, SHARP_RADIUS)) < goal:
+            lo = mid
+        else:
+            hi = mid
+    return round((lo + hi) / 2, 2)
+
+
+def sharpen_small(frames, stances, groups: dict[str, list[str]]) -> tuple[list[str], dict]:
+    """Every frame's 1x cell, made from its finished 2x cell and sharpened by its
+    sheet's amount. Returns the notes and the amounts (for the previews' stances)."""
+    live = Image.open(next(PUBLIC.glob("amr.*.webp"))).convert("RGBA")
+    goal = heads.detail(live_cell(live))
+    amounts = {sheet: sharp_amount(small(st[2]), goal) for sheet, st in stances.items()}
+    usual = float(np.median(list(amounts.values())))
+    for sheet, fids in groups.items():
+        if sheet == "talk":  # an S01 head on an S02 body
+            amounts[sheet] = round((amounts["faces"] + amounts["explain"]) / 2, 2)
+        amount = amounts.setdefault(sheet, usual)  # a regraded pack has no stance
+        for f in fids:
+            frames[f] = {2: frames[f][2], 1: heads.sharpen(small(frames[f][2]), amount, SHARP_RADIUS)}
+    by = sorted(amounts.items(), key=lambda kv: -kv[1])
+    notes = ["sharpness: 1x unsharp amount by sheet (0 = as sharp as live already): "
+             + ", ".join(f"{s} {a:.2f}" for s, a in by)]
+    return notes, amounts
+
+
+# Hair colour. Edited heads came back a shade lighter or browner than the heads
+# ChatGPT left alone, so his hair would change shade between two frames of one
+# scene, or between a clip and the idle pose. A frame whose hair is more than
+# HAIR_DE from the live idle's moves toward it by one Lab shift, so its highlights
+# keep their difference, until it is HAIR_DE away.
 HAIR_DE = 3.0
 
 
@@ -704,16 +858,13 @@ def hair_weights(cell: Image.Image, seg: dict) -> np.ndarray:
     return np.where(hair, 1.0, w * heads._dark(a))
 
 
-def match_hair(frames) -> list[str]:
+def match_hair(frames, groups: dict[str, list[str]]) -> list[str]:
     live = hair_lab(live_idle2x())
     notes = []
-    for stem, (_, _, ids, group) in context_sheets().items():
-        if stem not in SHEETS or not group.startswith("tools-"):
-            continue
+    for stem, fids in groups.items():
         moved = []
-        for e in ids:
-            fid = e[0] if e else None
-            if fid not in frames or heads.covered(fid):
+        for fid in fids:
+            if heads.covered(fid):
                 continue
             seg = heads.segment(frames[fid][2])
             lab = hair_lab(frames[fid][2], seg)
@@ -725,8 +876,8 @@ def match_hair(frames) -> list[str]:
                 continue
             delta = d * (1 - HAIR_DE / off)
             w = hair_weights(frames[fid][2], seg)
-            frames[fid] = {k: heads.shift_skin(frames[fid][k], w, delta) for k in SCALES}
-            moved.append(f"{fid.split('.', 1)[1]} {off:.1f}")
+            frames[fid] = {k: heads.shift_lab(frames[fid][k], w, delta) for k in SCALES}
+            moved.append(f"{fid} {off:.1f}")
         if moved:
             notes.append(f"hair: {stem} moved to within {HAIR_DE:g} of live's colour: {', '.join(moved)}")
     return notes
@@ -852,7 +1003,12 @@ def main() -> None:
     notes += shrink_heads(frames, stances, scales, ref)
     skin_notes, deltas = match_skin(frames, ref)
     notes += skin_notes
-    notes += match_hair(frames)
+    groups = sheet_groups()
+    regraded, kept_notes = regrade_kept(kept, frames)
+    notes += kept_notes
+    clothes_notes, clothes = match_clothes(frames, ref, {**groups, **regraded})
+    notes += clothes_notes
+    notes += match_hair(frames, groups)
     for pack, st in stances.items():  # for the previews, like the frames
         if scales[pack] != 1.0:
             top, neck, h, w = head_box(st[2])
@@ -861,11 +1017,21 @@ def main() -> None:
             stances[pack] = shrunk(st[2], (cols[0] + cols[-1] + 1) / 2, (top + neck) / 2, max(h, w) / 2, scales[pack])
         if pack in deltas:
             w = heads.skin_weights(stances[pack][2], np.asarray(ref["lab"]) - deltas[pack])
-            stances[pack] = {k: heads.shift_skin(stances[pack][k], w, deltas[pack]) for k in SCALES}
+            stances[pack] = {k: heads.shift_lab(stances[pack][k], w, deltas[pack]) for k in SCALES}
+        if pack in clothes:
+            masks = heads.garments(stances[pack][2])
+            todo = [(d, heads.garment_weights(stances[pack][2], masks[g], g))
+                    for g, d in clothes[pack].items() if g in masks]
+            for d, w in todo:
+                stances[pack] = {k: heads.shift_lab(stances[pack][k], w, d) for k in SCALES}
+    sharp_notes, amounts = sharpen_small(frames, stances, {**groups, **regraded})
+    notes += sharp_notes
+    for pack, st in stances.items():
+        stances[pack] = {2: st[2], 1: heads.sharpen(small(st[2]), amounts[pack], SHARP_RADIUS)}
     for n in notes:
         print("note:", n)
     add_kept(kept)
-    manifest = write_packs(frames, kept)
+    manifest = write_packs(frames, {p: v for p, v in kept.items() if p not in regraded})
     write_manifest(manifest)
     for pack, e in manifest.items():
         print(f"{pack:8} {e['frames']:2} frames  {e['bytes'] // 1024:4} KB  2x {e['bytes2x'] // 1024:4} KB")
