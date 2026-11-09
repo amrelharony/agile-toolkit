@@ -25,6 +25,7 @@ import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { ResetButton } from "@/components/shared/reset-button";
 import { SectionCard } from "@/components/shared/section-card";
 import { SmartInput } from "@/components/shared/smart-input";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -161,12 +162,7 @@ export function CapacityPlannerClient() {
       {hydrated ? (
         <CapacityPlanner />
       ) : (
-        <p
-          role="status"
-          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
-        >
-          Loading the capacity plan…
-        </p>
+        <WorkspaceLoading tall>Loading the capacity plan…</WorkspaceLoading>
       )}
     </ToolPageWrapper>
   );

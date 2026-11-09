@@ -6,6 +6,7 @@
       "startServerReadyTimeout": 60000,
       "url": [
         "http://localhost:3000/",
+        "http://localhost:3000/sprint",
         "http://localhost:3000/retro",
         "http://localhost:3000/capacity-planner",
         "http://localhost:3000/burndown",
