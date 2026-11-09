@@ -4,6 +4,8 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InkArt } from "@/components/ink/ink-art";
+import { ERROR_SCENE } from "@/lib/ink/drawings/scenes/error";
 
 /**
  * Error boundary for a single tool route.
@@ -27,6 +29,8 @@ export default function ToolError({
   return (
     <div className="container-tool py-12 sm:py-16" role="alert">
       <div className="max-w-xl">
+        {/* A knocked-over ink bottle: something spilled, nothing's lost. */}
+        <InkArt drawing={ERROR_SCENE} pace={1300} className="mb-6 aspect-[16/10] w-full max-w-xs" />
         <h1 className="font-display text-fluid-h3 font-bold text-text">This tool hit a problem</h1>
         <p className="mt-3 text-fluid-body text-sub">
           Your work is still saved in this browser. Try loading the tool again; if it keeps

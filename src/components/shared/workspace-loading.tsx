@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { InkScribble } from "@/components/ink/ink-scribble";
 
 /**
  * Below tablet width (phones) the placeholder holds about a phone screen's
@@ -31,8 +32,9 @@ export const WORKSPACE_LOADING_RESERVE = "max-md:min-h-[60svh]";
 export const WORKSPACE_LOADING_RESERVE_TALL = "md:min-h-[100svh]";
 
 /**
- * "Loading …" while this browser's saved workspace loads: one line in a card,
- * announced as a status, that reserves the tool's room on phones (see
+ * "Loading …" while this browser's saved workspace loads: one line in a card
+ * under a pen that writes, rests and lifts off (InkScribble), announced as a
+ * status, that reserves the tool's room on phones (see
  * WORKSPACE_LOADING_RESERVE). Server-safe, so it is in the first HTML.
  */
 export function WorkspaceLoading({
@@ -49,13 +51,14 @@ export function WorkspaceLoading({
     <p
       role="status"
       className={cn(
-        "flex items-center justify-center rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub",
+        "flex flex-col items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub",
         WORKSPACE_LOADING_RESERVE,
         tall && WORKSPACE_LOADING_RESERVE_TALL,
         className
       )}
     >
-      {children}
+      <InkScribble />
+      <span>{children}</span>
     </p>
   );
 }

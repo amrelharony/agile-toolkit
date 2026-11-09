@@ -1,8 +1,9 @@
 "use client";
 
-import { BarChart3 } from "lucide-react";
 import { needMore, type SampleKind } from "@/lib/analytics/min-sample";
 import { cn } from "@/lib/utils";
+import { InkArt } from "@/components/ink/ink-art";
+import { NO_DATA } from "@/lib/ink/drawings/marks";
 
 /**
  * In place of a chart or statistic that needs more data:
@@ -34,11 +35,12 @@ export function NotEnoughData({
     <p
       role="status"
       className={cn(
-        "flex items-start gap-2 rounded-lg border border-dashed border-border px-3 py-2.5 text-sm text-sub",
+        "flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2.5 text-sm text-sub",
         className
       )}
     >
-      <BarChart3 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+      {/* An empty chart with a pencil about to plot its next point. */}
+      <InkArt drawing={NO_DATA} className="-my-1.5 h-8 w-8 shrink-0" pace={700} />
       <span>
         {action} {more} more {more === 1 ? unit[0] : unit[1]} to see {what}.
       </span>
