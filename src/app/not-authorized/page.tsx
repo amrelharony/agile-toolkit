@@ -49,7 +49,7 @@ export default function NotAuthorizedPage({
             <h1 className="text-2xl font-semibold text-text">Not the owner account</h1>
             <p className="text-sub leading-relaxed">
               This Google account isn&apos;t the workspace owner. Every tool still works without
-              signing in — your work stays in this browser.
+              signing in, and your work is saved only in this browser.
             </p>
           </>
         )}

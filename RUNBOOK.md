@@ -2,7 +2,7 @@
 
 Everything required to bring the toolkit online, in roughly the order you'll touch each system. Five steps, ~30 min start-to-finish if you've never used Supabase before; ~10 min if you have.
 
-**Access model in one paragraph.** The site is public: every tool page works without signing in, and a visitor's data stays in their browser. Only the owner — a Google account listed in `AUTHORIZED_EMAILS`, with a verified email — gets cloud and history sync, the agent's server path, MCP, personal access tokens, the kudos/squads/sessions APIs and realtime multiplayer (the one exception is the opt-in [visitor live rooms](#visitor-live-rooms), off unless `NEXT_PUBLIC_VISITOR_ROOMS=1`). The middleware lets pages through and answers every non-bypassed `/api/*` request without an owner session with JSON (`401 unauthenticated`, `403 not_authorized | wrong_provider | email_unverified`, `503 auth_unavailable | auth_unreachable`), never a redirect. The owner-only pages (`OWNER_ONLY_PAGES` in `src/lib/auth/owner-routes.ts`: `/settings/access-tokens`, `/settings/squads`) redirect to `/auth/sign-in` or `/not-authorized`. The browser asks `GET /api/auth/owner` before starting anything owner-only.
+**Access model in one paragraph.** The site is public: every tool page works without signing in, and a visitor's data is saved only in their browser. Only the owner — a Google account listed in `AUTHORIZED_EMAILS`, with a verified email — gets cloud and history sync, the agent's server path, MCP, personal access tokens, the kudos/squads/sessions APIs and realtime multiplayer (the two exceptions are opt-in: the [visitor live rooms](#visitor-live-rooms), off unless `NEXT_PUBLIC_VISITOR_ROOMS=1`, and [visitor AI](#visitor-ai), off unless `VISITOR_AI_ENABLED=1` and `NEXT_PUBLIC_VISITOR_AI=1`). The middleware lets pages through and answers every non-bypassed `/api/*` request without an owner session with JSON (`401 unauthenticated`, `403 not_authorized | wrong_provider | email_unverified`, `503 auth_unavailable | auth_unreachable`), never a redirect. The owner-only pages (`OWNER_ONLY_PAGES` in `src/lib/auth/owner-routes.ts`: `/settings/access-tokens`, `/settings/squads`) redirect to `/auth/sign-in` or `/not-authorized`. The browser asks `GET /api/auth/owner` before starting anything owner-only.
 
 ---
 
@@ -433,6 +433,16 @@ If abuse shows up, the planned next step is short-lived room tokens minted by a 
 ## Visitor AI
 
 Signed-out visitors can chat with Amr's AI from the mascot panel: questions about agile, Scrum and the toolkit, and changes in their own tools (which run in their browser, on their own data, and ask before each change). The browser posts the conversation to `POST /api/agent/visitor` (`src/app/api/agent/visitor/route.ts`), which adds the server's own system prompt (`src/lib/visitor-ai/prompt.ts`), meters the request and forwards it to the OpenClaw gateway on `VISITOR_AI_MODEL`. The browser never picks the model, the prompt, `max_tokens` or the reasoning effort. The feature is **off** until both flags below are `1`.
+
+### In a live room Amr uses no tools
+
+While the visitor's browser has a [visitor live room](#visitor-live-rooms) open (hosting or joining a retro, a planning poker session or a vote round), the chat offers Amr no actions, so nothing from the board goes to the AI provider and Amr changes nothing the room would see. He still answers questions, and the chat says so. The people in a room agreed to the room notice, which says nothing about an AI.
+
+- **Every tab of that browser.** The host's board is saved in localStorage, which all tabs of the site share, so the mark is shared too. The tab with the room keeps a time stamp there (`agile-toolkit:live-room:<tab>`, renewed every 20 seconds, left out of backups) and the other tabs read it. A stamp that is no longer renewed stops counting after 150 seconds, so a tab that crashed, or that the browser froze, does not hold the mark for good. If the browser blocks storage, only the tab's own room counts, and the tabs then share no board either. The mark does not reach another browser or device.
+- **Only while the room is open.** When the room ends, the mark goes. The participants' retro cards stay on the host's own board (see [How the rooms behave](#how-the-rooms-behave)), and from then on Amr can read them when the host asks, like the rest of the host's work. The room notice does not say this.
+- **Owner and squad-guest rooms are not marked.** The visitor chat can't be open in one: those rooms open only for the signed-in owner, who has the owner's chat, and for invited guests, whose pages (`/guest/…`) don't show Amr.
+
+Code: `src/lib/realtime/live-visitor-room.ts` (set by `src/lib/realtime/use-room.ts`; read by `src/lib/agent/visitor-tools.ts` and the visitor loop in `src/lib/agent/client.ts`).
 
 ### Before turning it on (VPS prerequisites)
 
