@@ -9,8 +9,7 @@ import { RelatedTools } from "@/components/tool-frame/related-tools";
 import { PresentButton } from "@/components/presentation/presentation-mode";
 import { FavoriteButton } from "@/components/tool-frame/favorite-button";
 import { InkArt } from "@/components/ink/ink-art";
-import { getSectionForTool } from "@/lib/constants/sections";
-import { SECTION_ART } from "@/lib/ink/drawings/sections";
+import { useToolArt } from "@/components/ink/tool-art-context";
 import type { InkDrawing } from "@/lib/ink/types";
 
 // Only a tool's own page (toolId) shows these. The insight and next-step
@@ -41,9 +40,10 @@ interface ToolPageWrapperProps {
   /** Hide the per-tool history drawer (defaults to on when toolId is set). */
   showHistory?: boolean;
   /**
-   * The header's spot drawing (lib/ink/drawings). Defaults to the art of the
-   * tool's section; a page without a toolId (the comic, the book, VIP) passes
-   * its own. `null` leaves the header without one.
+   * The header's spot drawing (lib/ink/drawings). Defaults to the tool's own
+   * drawing, which its route layout provides (components/ink/tool-art.tsx); a
+   * page outside a tool's route (the comic, the book, VIP) passes its own.
+   * `null` leaves the header without one.
    */
   art?: InkDrawing | null;
   children: React.ReactNode;
@@ -95,12 +95,8 @@ export function ToolPageWrapper({
   children,
 }: ToolPageWrapperProps) {
   const showToolbar = showHistory && Boolean(toolId);
-  const drawing =
-    art === undefined
-      ? toolId
-        ? SECTION_ART[getSectionForTool(toolId)?.id ?? ""]
-        : undefined
-      : (art ?? undefined);
+  const toolArt = useToolArt();
+  const drawing = art === undefined ? toolArt : (art ?? undefined);
 
   return (
     <div className="container-tool isolate motion-safe:animate-rise">
