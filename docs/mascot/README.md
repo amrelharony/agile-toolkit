@@ -34,6 +34,9 @@ Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.web
 | `src/components/agent/mascot/engine/interactions/context.ts`      | When he greets, passes the time, reaches for a torch or frets about the battery   |
 | `src/components/agent/mascot/mascot-fx.tsx`, `engine/scene-fx.ts` | The air the site draws behind him in a weather or fireworks scene                 |
 | `src/app/api/mascot/weather/route.ts`                             | The visitor's weather, from their rough place                                     |
+| `src/components/agent/mascot/engine/interactions/sensors.ts`      | The phone's motion: its pose all the time, and tosses, flips, twists and knocks   |
+| `src/components/agent/mascot/mascot-bubble.tsx`                   | What he says beside himself; `motion-invite.ts` is his offer to feel the phone    |
+| `src/lib/agent/mascot/bubble.ts`, `lines.ts`                      | The line showing beside him, and every line he can say                            |
 
 The source sheets (`S01-faces.png` … `S10-stroll.png`, about 19 MB, and `S11-sun.png` … `S64-lights.png`, about 100 MB) are not committed. Keep the zips they came in. Twelve of them (S01, S05, S12, S14, S23, S25, S30, S33, S36, S44, S47 and S55) are now the versions from [hair round 2](AMR-HAIR-ROUND-2.md), which replace the earlier ones. 52 more are the versions from [hair round 3](AMR-HAIR-ROUND-3.md) (`AMR_Hair_Round_3_{A..E}_Reviewed.zip`). S06, S41 and S62 keep their round-1 versions, and S01, S05, S23 and S25 their round-2 ones. The five sheets where a hat or an umbrella hides his hair (S16–S18, S45 and S50) no longer have source PNGs on hand: the zip of the context sheets is gone, so rebuilds keep their shipped packs (below).
 
@@ -128,9 +131,37 @@ The S01 faces share one body: each face goes onto `face.default`'s body, with it
 
 Talking composites put the S01 heads (the smile and three mouths) on the S02 gestures. The cut is feathered at the neck, so one head stays on every talking frame. The gestures' own heads are cut away under the new one, and first go to 96% of the live size, so the S01 head always covers them: a body head any bigger peeks out as a ring round the new head or a notch at the jaw.
 
+## The phone's motion
+
+On a touch screen that reports its tilt (`engine/interactions/sensors.ts`), he feels the phone in two ways.
+
+All the time, read by the sprite every tick from one small object, so a reading never touches the store:
+
+- he leans against the tilt from his feet, about half of it, up to 10°;
+- past 8° he skids toward the low side, up to a third of his width and never off the screen (his button moves, so a tap still finds him);
+- he looks where the phone tips, through the 16 look poses;
+- rain falls the way gravity points.
+
+At moments, each from frames already drawn:
+
+| The phone is                             | He                                       |
+| ---------------------------------------- | ---------------------------------------- |
+| tilted past 15°, past 35°, then level    | tips, windmills, steadies (as before)    |
+| shaken                                   | is dizzy (as before)                     |
+| tossed and caught                        | flails, then lands                       |
+| turned upside down                       | hangs on, and steadies when it's righted |
+| laid face down, then turned back over    | is glad to see you                       |
+| twisted like a wheel                     | spins                                    |
+| knocked once                             | jumps                                    |
+| laid flat and left alone, then picked up | tires sooner, then looks about           |
+
+Where the browser asks before it sends motion (iPhones, and browsers that follow them), he asks first: a bubble beside him the first time his panel closes, "Tilt your phone, I'll feel it", with Allow and No thanks. He asks once, ever; the phone icon in his panel stays for a change of mind. Nothing here runs under reduced motion.
+
+To try it without a phone, send the page `deviceorientation` and `devicemotion` events from the console.
+
 ## Decisions
 
 - Generated heads go against the companion kit's pinned-head rule. The review page puts them beside the live idle for an identity check. If they drift, the strict-mode fallback in Appendix B of the brief still applies.
 - His hair comes from the live sprite: short, smooth and close-cropped. The first round of sheets copied the curly hair of `ref-2-detail.png`, which the brief had pointed to; [the hair edits](AMR-HAIR-EDITS.md) fix those sheets without redrawing anything else.
 - The bow was meant for hiding him, but Amr is never hidden, so he bows when he's thanked in the chat.
-- Phone motion waits for the "Let Amr feel your phone" switch wherever the browser asks for permission: iOS, and current Chrome. Elsewhere it's on until it's switched off.
+- Where the browser asks for permission (iOS, and current Chrome), phone motion waits for the visitor's yes: Amr offers once, in a bubble beside him, and the "Let Amr feel your phone" switch in his panel stays. Elsewhere it's on until it's switched off.
