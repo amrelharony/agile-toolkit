@@ -1400,6 +1400,7 @@ export function WhiteboardCanvas({
             selectionBbox={selectionBbox}
             camera={camera}
             viewportHeight={size.h}
+            viewportWidth={size.w}
             onPatch={onPatchStyles}
             onOpenCardDetail={setCardDetailId}
             objectActions={readOnly ? undefined : objectActions}

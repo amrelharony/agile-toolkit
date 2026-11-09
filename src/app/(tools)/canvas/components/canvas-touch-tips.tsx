@@ -96,11 +96,13 @@ export function CanvasTouchTips({ enabled, readOnly }: { enabled: boolean; readO
       role="note"
       aria-label="Touch tips"
       data-canvas-export-ignore="true"
-      // top-24 starts below the board toolbar and the tag filter row
-      // (top-14, shown on tagged boards), so neither covers the card or
-      // its dismiss button. Below sm the tool rail runs down the left
-      // edge, so start past it.
-      className="pointer-events-none absolute top-24 left-[4.5rem] right-3 z-[6] flex justify-center sm:left-3"
+      // 7.5rem starts below the board toolbar and the tag filter row
+      // (shown on tagged boards), so neither covers the card or its
+      // dismiss button. On touch that row starts at 68-72 px and is up
+      // to 46 px tall (its 44 px clear-filter button), so it ends by
+      // 118 px. Below sm the tool rail runs down the left edge, so start
+      // past it.
+      className="pointer-events-none absolute top-[7.5rem] left-[4.5rem] right-3 z-[6] flex justify-center sm:left-3"
     >
       <div
         ref={cardRef}
