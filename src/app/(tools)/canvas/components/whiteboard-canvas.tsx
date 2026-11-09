@@ -70,6 +70,8 @@ import { useMindMapStructural } from "../hooks/use-mind-map-structural";
 import { useInputClass } from "../hooks/use-input-class";
 import { WetInkLayer, type WetInkApi } from "./wet-ink-layer";
 import { useCanvasTouchGestures } from "../hooks/use-canvas-touch-gestures";
+import { CanvasObjectMenu } from "./canvas-object-menu";
+import { CanvasTouchTips } from "./canvas-touch-tips";
 
 interface WhiteboardCanvasProps {
   boardId: string;
@@ -540,7 +542,7 @@ export function WhiteboardCanvas({
   // Declared up here because the touch-gesture hook below needs the pen
   // counter to gate pinch / pan during stylus inking; consumers further
   // down (selection-handles hit area, palm rejection in pointer machine,
-  // first-run toast) also read from this same instance.
+  // first-visit touch tips) also read from this same instance.
   const inputClass = useInputClass();
 
   // Touch gestures (pinch zoom, two-finger pan, double-tap fit, long-press
@@ -938,41 +940,6 @@ export function WhiteboardCanvas({
   // ref to push live samples at < 1 frame latency.
   const wetInkApiRef = useRef<WetInkApi | null>(null);
 
-  // One-time gesture hint for touch users so they discover the new
-  // pinch / two-finger pan / long-press affordances on first visit.
-  // Persisted in localStorage so it only fires once per device.
-  useEffect(() => {
-    if (!inputClass.isCoarse) return;
-    if (typeof window === "undefined") return;
-    const KEY = "canvas:touchGestureHintSeen:v1";
-    try {
-      if (window.localStorage.getItem(KEY) === "1") return;
-    } catch {
-      return;
-    }
-    // Lazy import so the toast bundle isn't pulled into desktop sessions.
-    // Through the app's wrapper as a system nudge: the policy holds it while
-    // the user types, a dialog is open or it's quiet, instead of sonner
-    // showing it straight away. "Seen" is recorded only once it's shown, and
-    // the fixed id keeps a re-run from queueing a second copy.
-    void import("@/lib/utils/toast").then(({ toast }) => {
-      toast.message("Tablet tips", {
-        kind: "system",
-        id: "canvas-touch-gesture-hint",
-        description: "Pinch to zoom · Two-finger drag to pan · Long-press for actions",
-        duration: 7000,
-        onShow: () => {
-          try {
-            window.localStorage.setItem(KEY, "1");
-          } catch {
-            // Ignore storage errors (private mode, quota); the hint just
-            // shows again next visit, which is harmless.
-          }
-        },
-      });
-    });
-  }, [inputClass.isCoarse]);
-
   // The canvas pointer state machine owns the three viewport pointer
   // handlers + every ref they share (pan latches, lasso fast-path,
   // drag-create origin, snap index). Returns the refs that the
@@ -986,6 +953,7 @@ export function WhiteboardCanvas({
     lassoRafRef,
     lassoPointsRef,
     lastLassoWorldRef,
+    multiTouchRef,
   } = useCanvasPointerMachine({
     boardId,
     readOnly,
@@ -1049,8 +1017,10 @@ export function WhiteboardCanvas({
   // Keyboard shortcuts wired AFTER the pointer machine so the Esc-cancel
   // path can tear down an in-flight lasso via the refs the machine
   // owns. The shortcuts also reference the same drag/resize/etc.
-  // ephemeral state so they can self-suppress mid-gesture.
-  useCanvasShortcuts({
+  // ephemeral state so they can self-suppress mid-gesture. The returned
+  // actions are those same handlers, for the phone buttons and the
+  // long-press menu (a phone has no Delete key or Cmd+Z).
+  const objectActions = useCanvasShortcuts({
     objectsRef,
     objectsByIdRef,
     topZRef,
@@ -1087,6 +1057,33 @@ export function WhiteboardCanvas({
     zoomActions,
   });
 
+  // Long-press menu gate, read when the hold completes. The press itself
+  // selected the object (the pointer machine), so an empty selection
+  // means it landed on bare board — no menu there.
+  const canOpenObjectMenu = useCallback(() => {
+    const s = useCanvasStore.getState();
+    return (
+      !readOnly &&
+      presentationFrameIndex === null &&
+      editingObjectId === null &&
+      s.tool === "select" &&
+      s.selection.length > 0 &&
+      !s.marquee &&
+      !s.resize &&
+      !s.rotation &&
+      !s.drawing
+    );
+  }, [readOnly, presentationFrameIndex, editingObjectId]);
+  // The press that opened the menu also started a drag; end it (as Esc
+  // does) so the object doesn't follow the finger under the open menu.
+  const onObjectMenuOpen = useCallback(() => {
+    if (useCanvasStore.getState().drag) setDrag(null);
+  }, [setDrag]);
+  const selectionAllLocked = useMemo(
+    () => selection.length > 0 && selection.every((id) => objectsById.get(id)?.locked),
+    [selection, objectsById]
+  );
+
   const { onAlign, onDistribute } = useAlignDistribute({
     selection,
     objectsById,
@@ -1111,7 +1108,7 @@ export function WhiteboardCanvas({
   });
 
   const {
-    onObjectPointerDown,
+    onObjectPointerDown: onObjectPress,
     onObjectDoubleClick,
     onCommitObjectEdit,
     onPatchStyles,
@@ -1147,6 +1144,20 @@ export function WhiteboardCanvas({
     logActivity,
     readOnly,
   });
+
+  // A second finger landing on an object belongs to the pinch (see the
+  // pointer machine's multi-touch latch): it must not select the object
+  // or start dragging it by the gap between the fingers.
+  const onObjectPointerDown = useCallback(
+    (e: React.PointerEvent, id: string) => {
+      if (e.pointerType === "touch" && multiTouchRef.current) {
+        e.stopPropagation();
+        return;
+      }
+      onObjectPress(e, id);
+    },
+    [onObjectPress, multiTouchRef]
+  );
 
   // Mind-map Tab/Enter/Shift+Tab routing — wired through every
   // mind-map node's inline editor. Owns layout + selection +
@@ -1391,8 +1402,21 @@ export function WhiteboardCanvas({
             viewportHeight={size.h}
             onPatch={onPatchStyles}
             onOpenCardDetail={setCardDetailId}
+            objectActions={readOnly ? undefined : objectActions}
+            isCoarse={inputClass.isCoarse}
           />
         )}
+
+      {/* Touch long-press menu for the selection (editors only). */}
+      {!readOnly && (
+        <CanvasObjectMenu
+          viewportRef={viewportRef}
+          actions={objectActions}
+          canOpen={canOpenObjectMenu}
+          allLocked={selectionAllLocked}
+          onOpen={onObjectMenuOpen}
+        />
+      )}
 
       {/* Marquee — only renders while a marquee drag is in progress. */}
       {marquee && <Marquee marquee={marquee} camera={camera} />}
@@ -1500,6 +1524,10 @@ export function WhiteboardCanvas({
       <ConnectorBanner tool={tool} pendingConnectorFromId={pendingConnectorFromId} />
 
       <EmptyCanvasHint objectCount={objects.length} />
+
+      {/* First-visit touch tips, inside the board (was a bottom toast
+          over the tool rail and Amr). */}
+      <CanvasTouchTips enabled={inputClass.isCoarse} readOnly={readOnly} />
     </div>
   );
 }
