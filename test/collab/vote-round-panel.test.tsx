@@ -255,6 +255,21 @@ describe("VoteRoundPanel: a live round", () => {
     );
   });
 
+  it("names both ways to share the keyed link: Copy link and Show QR code", async () => {
+    await startRound();
+    expect(
+      await screen.findByText(
+        "Share it with Copy link or Show QR code: both carry the key that shows the questions come from you. Only the totals are kept, and only if you save them."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show QR code" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Live round started. Share it with your team: Copy link or Show QR code."
+      )
+    );
+  });
+
   it("keeps Reveal off until minN, announces the count politely, and saves once with totals only", async () => {
     const { ch, crypto, onSave } = await startRound();
     const reveal = await screen.findByRole("button", { name: "Reveal results" });

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import type { HistoryLogger } from "@/lib/history/use-history-logger";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
@@ -192,6 +193,24 @@ describe("Everyone on their own device, on the Retro board", () => {
     expect(fakeRealtime.last().name).toMatch(/^visitor:retro:[23456789A-HJKMNP-Z]{12}$/);
     expect(screen.getByText("Live room")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: GO_LIVE })).toBeNull();
+  });
+
+  it("says how to share the room once it is live: Copy link or Show QR code", async () => {
+    render(
+      <LiveAnnouncerProvider>
+        <Harness initial={makeBoard()} />
+      </LiveAnnouncerProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
+    consentAs("Hana");
+    act(() => fakeRealtime.last().connect());
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show QR code" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Live room started. Share it with your team: Copy link or Show QR code."
+      )
+    );
   });
 
   it("ends the room on request and keeps the board", () => {

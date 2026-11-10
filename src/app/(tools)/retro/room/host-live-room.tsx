@@ -210,7 +210,7 @@ function HostLiveRoom({
 
   useEffect(() => {
     if (status === "live") {
-      announce("Live room started. Copy the link and share it with your team.");
+      announce("Live room started. Share it with your team: Copy link or Show QR code.");
       return;
     }
     if (status === "connecting") return;

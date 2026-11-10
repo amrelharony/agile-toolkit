@@ -167,7 +167,7 @@ export function HostVoteRoom({
     lastStatus.current = status;
     if (prev === status) return;
     if (status === "live") {
-      announce("Live round started. Copy the link and share it with your team.");
+      announce("Live round started. Share it with your team: Copy link or Show QR code.");
       return;
     }
     if (LIVE.has(status)) return;
@@ -254,8 +254,8 @@ export function HostVoteRoom({
             linkFragment={fingerprint ? `#k=${fingerprint}` : undefined}
           />
           <p className="text-xs text-sub">
-            Share it with Copy link: the link carries the key that shows the questions come from
-            you. Only the totals are kept, and only if you save them.
+            Share it with Copy link or Show QR code: both carry the key that shows the questions
+            come from you. Only the totals are kept, and only if you save them.
           </p>
         </div>
       )}
