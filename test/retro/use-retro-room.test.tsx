@@ -207,6 +207,35 @@ describe("useRetroRoom: a participant trusts only the host", () => {
     expect(result.current.board?.cards).toHaveLength(2);
   });
 
+  it("says when the host's state is of another version, and still never applies it", () => {
+    const { result } = participant();
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    // A version 1 host (a tab on an older build): refused on its version.
+    act(() => ch.deliver("retro:state", { ...snap(HOST.id), v: 1 }));
+    expect(result.current.status).toBe("connecting");
+    expect(result.current.board).toBeNull();
+    expect(result.current.otherVersion).toBe(true);
+    // Once the host is on this version too, the room opens.
+    act(() => ch.deliver("retro:state", snap(HOST.id)));
+    expect(result.current.status).toBe("live");
+    expect(result.current.otherVersion).toBe(false);
+  });
+
+  it("ignores another version's message from someone not in the room", () => {
+    const { result } = participant();
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    act(() => ch.deliver("retro:state", { ...snap(SPOOF.id), v: 1 }));
+    expect(result.current.otherVersion).toBe(false);
+  });
+
   it("holds a first snapshot until its sender shows up in presence", () => {
     const { result } = participant();
     const ch = fakeRealtime.last();

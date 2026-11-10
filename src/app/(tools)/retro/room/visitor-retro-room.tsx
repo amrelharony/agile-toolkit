@@ -349,7 +349,9 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
       {!board && active && (
         <div className="space-y-3">
           <p role="status" className="text-sm text-sub">
-            Connecting to the room…
+            {room.otherVersion
+              ? "This room runs on a different version of the Agile Toolkit, so its board can't open here. Ask the host to reload their page, then reload this one."
+              : "Connecting to the room…"}
           </p>
           <Button type="button" variant="outline" onClick={handleLeave}>
             Leave

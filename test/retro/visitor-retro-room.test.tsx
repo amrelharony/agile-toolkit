@@ -573,6 +573,20 @@ describe("VisitorRetroRoom (participant)", () => {
     expect(useWorkspaceStore.getState().retroBoards).toEqual([]);
   });
 
+  it("says so when the host runs another version of the toolkit", () => {
+    render(<VisitorRetroRoom code={CODE} identity={identity} onLeave={() => {}} />);
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    act(() => ch.deliver("retro:state", { ...hostSnapshot(makeBoard()), v: 1 }));
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "This room runs on a different version of the Agile Toolkit, so its board can't open here. Ask the host to reload their page, then reload this one."
+    );
+    expect(screen.queryByText("Card a")).toBeNull();
+  });
+
   it("ignores end and kick from the host while it is missing from presence", () => {
     render(<VisitorRetroRoom code={CODE} identity={identity} onLeave={() => {}} />);
     const ch = fakeRealtime.last();

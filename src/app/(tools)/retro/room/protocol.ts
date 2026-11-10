@@ -171,6 +171,17 @@ export function isIntentId(v: unknown): v is string {
   return typeof v === "string" && IID_RE.test(v);
 }
 
+/**
+ * The member id of a peer whose message is of another protocol version (a
+ * tab on an older or newer build), or null. Only the version and sender are
+ * read: nothing else in such a message is looked at.
+ */
+export function otherVersionSender(raw: unknown): string | null {
+  const m = obj(raw);
+  if (!m || typeof m.v !== "number" || m.v === RETRO_ROOM_PROTOCOL_VERSION) return null;
+  return isVisitorMemberId(m.by) ? m.by : null;
+}
+
 /** A well-formed intent envelope, or null. Text is still raw: the reducer cleans it. */
 export function readIntentEnv(raw: unknown): IntentEnv | null {
   const env = obj(raw);

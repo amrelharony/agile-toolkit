@@ -14,6 +14,7 @@ import {
   BOARD_CARD_CAP,
   MAX_VOTES_PER_PERSON,
   cardsHidden,
+  otherVersionSender,
   type RoomSnapshot,
 } from "@/app/(tools)/retro/room/protocol";
 import { MAX_VOTES, type BoardState, type RetroCard } from "@/app/(tools)/retro/types";
@@ -302,6 +303,17 @@ describe("readRoomSnapshot", () => {
       { ...hidden, counts: [] },
     ];
     for (const v of variants) expect(readRoomSnapshot(v)).toBeNull();
+  });
+
+  it("names the sender of a message from another version, reading nothing else", () => {
+    const v1 = { ...(wire(toRoomSnapshot(hostBoard(), meta())) as RoomSnapshot), v: 1 };
+    expect(readRoomSnapshot(v1)).toBeNull();
+    expect(otherVersionSender(v1)).toBe(HOST);
+    expect(otherVersionSender({ v: 3, by: PAT })).toBe(PAT);
+    expect(otherVersionSender(toRoomSnapshot(hostBoard(), meta()))).toBeNull();
+    expect(otherVersionSender({ v: 1, by: "not-a-member" })).toBeNull();
+    expect(otherVersionSender({ v: "1", by: HOST })).toBeNull();
+    expect(otherVersionSender(null)).toBeNull();
   });
 
   it("keeps the card being discussed", () => {

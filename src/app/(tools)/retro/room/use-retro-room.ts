@@ -81,6 +81,7 @@ import {
   readEndMessage,
   readIntentEnv,
   readKickMessage,
+  otherVersionSender,
   type IntentEnv,
   type RetroIntent,
   type RoomMember,
@@ -213,6 +214,11 @@ export interface RetroRoom {
   myVotes: Readonly<Record<string, number>>;
   /** The host left during Write while cards were hidden, so the cards written so far were lost. */
   cardsLost: boolean;
+  /**
+   * Participant, still connecting: the host's state came in another protocol
+   * version (one of the two tabs runs an older build), so it can't be read.
+   */
+  otherVersion: boolean;
   /** Participant: its cards from before the host left, to add again. */
   unsharedCards: OwnCard[];
   /** Participant and promoted host: the countdown. Null for the host (its board has the timer). */
@@ -341,6 +347,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const [myVoteList, setMyVoteListState] = useState<string[]>([]);
   const [unsharedCards, setUnsharedState] = useState<OwnCard[]>([]);
   const [cardsLost, setCardsLost] = useState(false);
+  /** Participant: the host's state is of another protocol version (a tab on another build). */
+  const [otherVersion, setOtherVersion] = useState(false);
 
   const active = !TERMINAL.has(status);
   const isHost = role === "host" || promoted;
@@ -618,6 +626,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       setView(next);
       setHostId(snap.hostId);
       setPendingVotes(0);
+      setOtherVersion(false);
       if (prev && prev.hostId !== snap.hostId) {
         // A new host knows nothing of who added or voted on what before it.
         // If cards were hidden, it never had them either: keep this tab's
@@ -696,7 +705,21 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       // The host's own board is the only truth: inbound state is never applied.
       if (isHostRef.current || !activeRef.current) return;
       const snap = readRoomSnapshot(raw);
-      if (!snap || snap.by === selfId) return;
+      if (!snap) {
+        // Refused on its version, once per message: say why the board never comes,
+        // while this tab still waits for a host and the sender is in the room.
+        const by = otherVersionSender(raw);
+        if (
+          by !== null &&
+          by !== selfId &&
+          trustedRef.current === null &&
+          roomRef.current.members.some((m) => m.id === by)
+        ) {
+          setOtherVersion(true);
+        }
+        return;
+      }
+      if (snap.by === selfId) return;
       if (!trusts(snap.by)) {
         if (trustedRef.current === null) pendingSnapRef.current = snap;
         return;
@@ -1266,6 +1289,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     myVotes,
     cardsLost,
     unsharedCards,
+    otherVersion,
     timer: role === "host" ? null : (view?.timer ?? null),
     members: room.members,
     removedIds,
