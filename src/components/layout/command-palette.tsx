@@ -66,11 +66,20 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   // Ctrl/Cmd+K is the shell's (use-command-palette-shortcut): this file loads
   // only once the palette is first opened.
 
-  // Start fresh each time the palette opens.
+  // Start fresh each time the palette opens. The query and highlight reset
+  // while rendering, not in an effect: cmdk highlights the first row only
+  // when its value is empty as the rows mount, and this component stays
+  // mounted between opens, so a highlight kept from last time would win.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setQuery("");
+      setActive("");
+    }
+  }
   useEffect(() => {
-    if (!open) return;
-    setQuery("");
-    prefetched.current = new Set();
+    if (open) prefetched.current = new Set();
   }, [open]);
 
   // Load the highlighted tool ahead, once per path while the palette is open.

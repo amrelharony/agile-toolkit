@@ -175,12 +175,56 @@ describe("loading the highlighted tool ahead", () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
-  it("prefetches nothing while closed", async () => {
+  it("prefetches nothing once closed, even for a row highlighted just before", async () => {
     vi.useFakeTimers();
-    render(<CommandPalette open={false} onOpenChange={() => {}} />);
+    const { rerender } = render(<CommandPalette open onOpenChange={() => {}} />);
+    await act(async () => {});
+    // Highlighted, then closed before the delay is up.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    rerender(<CommandPalette open={false} onOpenChange={() => {}} />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
     expect(nav.router.prefetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("reopening the finder", () => {
+  it("highlights the first row again, not the one left highlighted", async () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<CommandPalette open onOpenChange={() => {}} />);
+    await act(async () => {});
+    const options = () => screen.getAllByRole("option");
+    expect(options()[0]).toHaveAttribute("aria-selected", "true");
+    const first = highlightedPath();
+    const box = screen.getByRole("combobox");
+    for (let i = 0; i < 3; i++) fireEvent.keyDown(box, { key: "ArrowDown" });
+    const left = highlightedPath();
+    expect(left).not.toBe(first);
+
+    rerender(<CommandPalette open={false} onOpenChange={() => {}} />);
+    await act(async () => {});
+    vi.mocked(nav.router.prefetch!).mockClear();
+    rerender(<CommandPalette open onOpenChange={() => {}} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+
+    expect(options()[0]).toHaveAttribute("aria-selected", "true");
+    expect(highlightedPath()).toBe(first);
+    // Only the first row loads ahead; the old row is not fetched again.
+    expect(vi.mocked(nav.router.prefetch!).mock.calls).toEqual([[first, { kind: "auto" }]]);
+  });
+
+  it("clears the query too", async () => {
+    const { rerender } = render(<CommandPalette open onOpenChange={() => {}} />);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "daily scrum" } });
+    rerender(<CommandPalette open={false} onOpenChange={() => {}} />);
+    rerender(<CommandPalette open onOpenChange={() => {}} />);
+    await act(async () => {});
+    expect(screen.getByRole("combobox")).toHaveValue("");
+    expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
   });
 });
