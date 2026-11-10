@@ -165,27 +165,59 @@ describe("a core Scrum tool's title", () => {
 });
 
 describe("searchTitle", () => {
-  it("leaves the site name to the layout's template when the title fits", () => {
+  /**
+   * The title a page shows for a search name, once the root layout's template
+   * has run: the root layout, a tool's layout (it sets no title) and the page.
+   */
+  async function shown(searchName: string): Promise<string | undefined> {
+    const resolved = await accumulateMetadata(
+      [
+        [SITE_METADATA, null, null],
+        [{}, null, null],
+        [{ title: searchTitle(searchName) }, null, null],
+      ],
+      { pathname: "/", trailingSlash: false, isStandaloneMode: false }
+    );
+    return resolved.title?.absolute;
+  }
+
+  it("leaves the site name to the layout's template when the title fits", async () => {
     expect(SITE_TITLE_SUFFIX).toBe(" | Agile Toolkit");
     expect(TITLE_MAX).toBe(60);
     expect(searchTitle("Retro board online")).toBe("Retro board online: free, no sign-up");
+    expect(await shown("Retro board online")).toBe(
+      "Retro board online: free, no sign-up | Agile Toolkit"
+    );
   });
 
-  it("fits a title of exactly 60 characters whole", () => {
+  it("fits a title of exactly 60 characters whole", async () => {
     const name = "Definition of Done builder";
     expect(`${name}${TITLE_OFFER}${SITE_TITLE_SUFFIX}`).toHaveLength(60);
     expect(searchTitle(name)).toBe(`${name}${TITLE_OFFER}`);
+    expect(await shown(name)).toBe(`${name}${TITLE_OFFER}${SITE_TITLE_SUFFIX}`);
   });
 
-  it("keeps the template off a title one character too long, so the site name goes", () => {
+  it("keeps the template off a title one character too long, so the site name goes", async () => {
     const name = "Definition of Done builders";
     expect(searchTitle(name)).toEqual({ absolute: `${name}${TITLE_OFFER}` });
+    expect(await shown(name)).toBe(`${name}${TITLE_OFFER}`);
   });
 
-  it("lets a name too long even for that stand alone", () => {
+  it("lets a name too long even for that stand alone, with no site name put back", async () => {
+    // 50 characters: the offer would make it 68, and the site name alone 66.
     const name = "A search name far too long to sit beside the offer";
-    expect(`${name}${TITLE_OFFER}`.length).toBeGreaterThan(60);
-    expect(searchTitle(name)).toBe(name);
+    expect(name).toHaveLength(50);
+    expect(searchTitle(name)).toEqual({ absolute: name });
+    expect(await shown(name)).toBe(name);
+  });
+
+  it("never shows a title over 60 characters for a name that fits in 60 itself", async () => {
+    for (let length = 1; length <= TITLE_MAX; length++) {
+      const name = "N".repeat(length);
+      const title = await shown(name);
+      expect(title, `${length} characters`).toContain(name);
+      expect(title!.length, `${length} characters`).toBeLessThanOrEqual(TITLE_MAX);
+    }
   });
 });
 

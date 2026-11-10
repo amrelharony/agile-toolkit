@@ -23,13 +23,14 @@ function siteTitleSuffix(): string {
  * "<name>: free, no sign-up | Agile Toolkit", in 60 characters at most. The
  * root layout's template adds the site name, so a title that fits is returned
  * without it. One that doesn't fit drops the site name first (`absolute` keeps
- * the template off), and a name too long even for that stands alone.
+ * the template off), and a name too long even for that stands alone: the offer
+ * goes too, and the template stays off, or it would put the site name back.
  */
 export function searchTitle(searchName: string): string | { absolute: string } {
   const offer = `${searchName}${TITLE_OFFER}`;
   if (offer.length + SITE_TITLE_SUFFIX.length <= TITLE_MAX) return offer;
   if (offer.length <= TITLE_MAX) return { absolute: offer };
-  return searchName;
+  return { absolute: searchName };
 }
 
 /**
