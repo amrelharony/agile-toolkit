@@ -139,6 +139,51 @@ function vtReducedMotion(css) {
   );
 }
 
+/** A rule that sets the -webkit- mask image and then the plain one, to the same value. */
+function maskPaired(css) {
+  return rules(css).some((r) => {
+    const decls = r.body.split(";");
+    const at = (name) => decls.findIndex((d) => d.startsWith(`${name}:`));
+    const prefixed = at("-webkit-mask-image");
+    const plain = at("mask-image");
+    return (
+      prefixed !== -1 &&
+      plain > prefixed &&
+      decls[plain].slice("mask-image:".length) ===
+        decls[prefixed].slice("-webkit-mask-image:".length)
+    );
+  });
+}
+
+/** The book's grain is shown only inside @supports for either mask name. */
+function grainShownWithMasks(css) {
+  return blocks(css, "@supports").some(
+    (b) =>
+      b.params.includes("(mask-image:none)") &&
+      b.params.includes("(-webkit-mask-image:none)") &&
+      rules(b.body).some((r) => r.body.split(";").includes("display:block"))
+  );
+}
+
+/** globals.css BOOK LOOK: every look part hidden in high contrast. */
+function bookLookHidden(css) {
+  return rules(css).some((r) => {
+    const selectors = r.selectors.map((s) => s.replace(/["']/g, ""));
+    return (
+      selectors.includes(".hc[data-look]") &&
+      selectors.includes("[data-theme=hc][data-look]") &&
+      r.body.split(";").includes("display:none!important")
+    );
+  });
+}
+
+/** The book title's bowed wipe: clip-path shape() inside @supports for it. */
+function bowedWipe(css) {
+  return blocks(css, "@supports").some(
+    (b) => b.params.includes("(clip-path:shape(") && b.body.includes("clip-path:shape(")
+  );
+}
+
 /** Markers by PR id. Each `test` gets one file's CSS with all whitespace removed. */
 export const MARKERS = {
   F1: [
@@ -179,6 +224,24 @@ export const MARKERS = {
     {
       name: "reduced motion: animation:none!important on the transition pseudo-elements, in the same block",
       test: vtReducedMotion,
+    },
+  ],
+  I1: [
+    {
+      name: "book grain: -webkit-mask-image, then mask-image with the same value, in one rule",
+      test: maskPaired,
+    },
+    {
+      name: "book grain: shown (display:block) only in @supports (mask-image:none) or (-webkit-mask-image:none)",
+      test: grainShownWithMasks,
+    },
+    {
+      name: "BOOK LOOK: .hc [data-look] and [data-theme=hc] [data-look] get display:none!important",
+      test: bookLookHidden,
+    },
+    {
+      name: "book title: the bowed wipe's clip-path:shape() inside @supports (clip-path:shape(...))",
+      test: bowedWipe,
     },
   ],
 };
