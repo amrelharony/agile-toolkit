@@ -469,6 +469,8 @@ describe("loading ahead", () => {
       <ToolCard href="/kanban" icon={null} title="Kanban" description="Flow" />,
       "Kanban"
     );
+    // Something to compare: two empty lists would pass and check nothing.
+    expect(plain.length).toBeGreaterThan(0);
     expect(framed).toEqual(plain);
     // next/link's own touch prefetch reuses its in-view copy: kind auto, never full.
     for (const [, options] of framed) expect(options).toEqual({ kind: "auto" });
