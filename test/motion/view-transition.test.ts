@@ -160,6 +160,7 @@ afterEach(() => {
   skipViewTransition();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  delete (globalThis as { reportError?: unknown }).reportError;
   delete (document as { startViewTransition?: unknown }).startViewTransition;
   delete (document as { visibilityState?: unknown }).visibilityState;
   root.style.removeProperty("--vt-ready");
@@ -276,29 +277,43 @@ describe("a transition that runs", () => {
 });
 
 describe("the wait cap", () => {
-  it("skips an update still pending at capMs, and the page swaps plainly when it arrives", async () => {
+  it("skips an update still pending at capMs and settles 'capped' then; the page swaps plainly when it arrives", async () => {
     vi.useFakeTimers();
     const { made } = installBrowser();
     const arrival = deferred();
-    const update = vi.fn(() => arrival.promise);
-    let settled = false;
+    const arrived = vi.fn();
+    const update = vi.fn(() => arrival.promise.then(arrived));
+    let settled: string | null = null;
     const result = withViewTransition("page", update, { capMs: CAP });
-    void result.then(() => (settled = true));
+    void result.then((outcome) => (settled = outcome));
 
     await vi.advanceTimersByTimeAsync(CAP - 1);
     expect(made[0].skipTransition).not.toHaveBeenCalled();
     expect(root.getAttribute(VT_ATTR)).toBe("page");
+    expect(settled).toBeNull();
 
     await vi.advanceTimersByTimeAsync(1);
     expect(made[0].skipTransition).toHaveBeenCalledTimes(1);
-    // The screen is released at once: no names, nothing running.
+    // The screen is released at once: no names, nothing running, and the
+    // caller hears now, not when (or if) the update arrives.
     expect(root.hasAttribute(VT_ATTR)).toBe(false);
     expect(isViewTransitionRunning()).toBe(false);
-    expect(settled).toBe(false);
+    expect(settled).toBe("capped");
+    expect(arrived).not.toHaveBeenCalled();
 
     arrival.resolve();
-    await expect(result).resolves.toBe("capped");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(arrived).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledTimes(1);
+    expect(root.hasAttribute(VT_ATTR)).toBe(false);
+  });
+
+  it("settles 'capped' at the cap even when the update never arrives", async () => {
+    vi.useFakeTimers();
+    installBrowser();
+    const result = withViewTransition("page", () => new Promise<void>(() => {}), { capMs: CAP });
+    await vi.advanceTimersByTimeAsync(CAP);
+    await expect(result).resolves.toBe("capped");
     expect(root.hasAttribute(VT_ATTR)).toBe(false);
   });
 
@@ -312,25 +327,81 @@ describe("the wait cap", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(made[0].skipTransition).toHaveBeenCalledTimes(1);
       expect(root.hasAttribute(VT_ATTR)).toBe(false);
-      arrival.resolve();
       await expect(result).resolves.toBe("capped");
+      arrival.resolve();
     }
   );
+
+  it("passes an update that fails after the cap to onLateError", async () => {
+    vi.useFakeTimers();
+    installBrowser();
+    const arrival = deferred();
+    const onLateError = vi.fn();
+    const result = withViewTransition("page", () => arrival.promise, { capMs: CAP, onLateError });
+    await vi.advanceTimersByTimeAsync(CAP);
+    await expect(result).resolves.toBe("capped");
+    expect(onLateError).not.toHaveBeenCalled();
+    const error = new Error("offline");
+    arrival.reject(error);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onLateError).toHaveBeenCalledTimes(1);
+    expect(onLateError).toHaveBeenCalledWith(error);
+  });
+
+  it("passes an update that throws when the browser calls it after the cap to onLateError", async () => {
+    vi.useFakeTimers();
+    installBrowser({ captureMs: CAP + 50 });
+    const onLateError = vi.fn();
+    const error = new Error("push failed");
+    const result = withViewTransition(
+      "page",
+      () => {
+        throw error;
+      },
+      { capMs: CAP, onLateError }
+    );
+    await vi.advanceTimersToNextTimerAsync();
+    await expect(result).resolves.toBe("capped");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onLateError).toHaveBeenCalledWith(error);
+  });
+
+  it("reports a late failure like an uncaught error when there is no onLateError", async () => {
+    vi.useFakeTimers();
+    const reportError = vi.fn();
+    // jsdom has none; removed again in afterEach.
+    Object.defineProperty(globalThis, "reportError", {
+      configurable: true,
+      writable: true,
+      value: reportError,
+    });
+    installBrowser();
+    const arrival = deferred();
+    const result = withViewTransition("page", () => arrival.promise, { capMs: CAP });
+    await vi.advanceTimersByTimeAsync(CAP);
+    await expect(result).resolves.toBe("capped");
+    const error = new Error("offline");
+    arrival.reject(error);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reportError).toHaveBeenCalledWith(error);
+  });
 });
 
 describe("html[data-vt] is always removed", () => {
   it("after an update that throws, and the error reaches the caller", async () => {
     installBrowser();
+    const onLateError = vi.fn();
     const result = withViewTransition(
       "page",
       () => {
         throw new Error("push failed");
       },
-      { capMs: CAP }
+      { capMs: CAP, onLateError }
     );
     await expect(result).rejects.toThrow("push failed");
     expect(root.hasAttribute(VT_ATTR)).toBe(false);
     expect(isViewTransitionRunning()).toBe(false);
+    expect(onLateError).not.toHaveBeenCalled();
   });
 
   it("after an update that rejects later", async () => {
@@ -348,12 +419,11 @@ describe("html[data-vt] is always removed", () => {
     const { made } = installBrowser({ duplicateInOld: true });
     const arrival = deferred();
     const result = withViewTransition("page", () => arrival.promise, { capMs: 10_000 });
-    await flush();
+    await expect(result).resolves.toBe("skipped");
     expect(root.hasAttribute(VT_ATTR)).toBe(false);
     expect(isViewTransitionRunning()).toBe(false);
-    arrival.resolve();
-    await expect(result).resolves.toBe("skipped");
     expect(made[0].vtAtCapture).toBe("page");
+    arrival.resolve();
   });
 
   it("when ready is rejected after the update (a duplicate in the new picture)", async () => {
@@ -363,18 +433,22 @@ describe("html[data-vt] is always removed", () => {
     expect(root.hasAttribute(VT_ATTR)).toBe(false);
   });
 
-  it("after skipViewTransition(); the update still finishes", async () => {
+  it("after skipViewTransition(), at once; the update still finishes", async () => {
     const { made } = installBrowser();
     const arrival = deferred();
-    const update = vi.fn(() => arrival.promise);
+    const arrived = vi.fn();
+    const update = vi.fn(() => arrival.promise.then(arrived));
     const result = withViewTransition("turn", update, { capMs: 10_000 });
     expect(root.getAttribute(VT_ATTR)).toBe("turn");
     skipViewTransition();
     expect(made[0].skipTransition).toHaveBeenCalledTimes(1);
     expect(root.hasAttribute(VT_ATTR)).toBe(false);
-    arrival.resolve();
     await expect(result).resolves.toBe("skipped");
+    expect(arrived).not.toHaveBeenCalled();
+    arrival.resolve();
+    await flush();
     expect(update).toHaveBeenCalledTimes(1);
+    expect(arrived).toHaveBeenCalledTimes(1);
   });
 });
 

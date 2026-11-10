@@ -5,8 +5,8 @@
  *
  * - The browser holds the old picture on screen while the update is pending,
  *   so the wait is capped: an update still pending at `capMs` skips the
- *   transition. The page comes back to life at once and the update finishes
- *   as a plain swap.
+ *   transition, and the call settles "capped" then. The page comes back to
+ *   life at once and the update finishes as a plain swap.
  * - `html[data-vt]` carries the running kind ("page", "turn", ...). The
  *   VIEW TRANSITIONS block in globals.css names the held layers (Amr, his
  *   bubble and chat panel, the docked timer, the top bar) only under it, so
@@ -32,14 +32,20 @@ export type ViewTransitionOutcome =
   | "plain"
   /** The transition ran to its end. */
   | "ran"
-  /** The update was still pending at `capMs`: skipped, and the update finished plainly. */
+  /** The update was still pending at `capMs`: skipped then, and the update finishes plainly. */
   | "capped"
-  /** Skipped by something else: a newer call, skipViewTransition() or the browser. */
+  /** Skipped by something else (a newer call, skipViewTransition() or the browser); any pending update finishes plainly. */
   | "skipped";
 
 export interface ViewTransitionOptions {
   /** The longest the old picture may stay on screen while the update is pending, in ms. */
   capMs: number;
+  /**
+   * Gets the update's error when it fails after the call has already settled
+   * ("capped" or "skipped"), so a caller can still fall back. Without it the
+   * error is reported like an uncaught one.
+   */
+  onLateError?: (error: unknown) => void;
 }
 
 /** The change itself. While a returned promise is pending, the old picture stays (up to the cap). */
@@ -156,16 +162,18 @@ function plain(update: ViewTransitionUpdate): Promise<ViewTransitionOutcome> {
 
 /**
  * Run `update` inside a view transition of `kind` when one may start, or as a
- * plain swap otherwise. Settles once everything is over and `data-vt` is
- * gone: after the animation when it ran, as soon as the update settles when
- * it was skipped or plain. Rejects with the update's own error when the update
- * fails, so a caller can fall back. An update that never settles is released
- * at the cap, but its promise never settles either.
+ * plain swap otherwise. Settles as soon as the screen is free and `data-vt`
+ * is gone: "ran" after the animation; "capped" at the cap and "skipped" at a
+ * skip, at once, while a pending update goes on and finishes as a plain swap
+ * (so an update that never arrives cannot leave the caller waiting); "plain"
+ * once a plain update settles. Rejects with the update's own error when it
+ * fails before that, so a caller can fall back; a failure after that goes to
+ * `onLateError`.
  */
 export function withViewTransition(
   kind: string,
   update: ViewTransitionUpdate,
-  { capMs }: ViewTransitionOptions
+  { capMs, onLateError }: ViewTransitionOptions
 ): Promise<ViewTransitionOutcome> {
   if (running) {
     running.skip("skipped");
@@ -176,7 +184,13 @@ export function withViewTransition(
   if (unstarted || !canStartViewTransition()) return plain(update);
 
   const root = document.documentElement;
-  let outcome: ViewTransitionOutcome = "ran";
+  let settled = false;
+  let resolveCall!: (outcome: ViewTransitionOutcome) => void;
+  let rejectCall!: (error: unknown) => void;
+  const result = new Promise<ViewTransitionOutcome>((resolve, reject) => {
+    resolveCall = resolve;
+    rejectCall = reject;
+  });
   let updateSettled = false;
   let transition: Transition | null = null;
   let begun = false;
@@ -187,18 +201,37 @@ export function withViewTransition(
     kind,
     skip: (why) => {
       if (running !== self) return;
-      outcome = why;
-      release();
+      settle(why);
       transition?.skipTransition();
     },
   };
 
-  // Idempotent: the first of finish, skip or failure takes the names away.
+  // Idempotent: the first of finish, cap, skip or failure takes the names away.
   function release() {
     clearTimeout(capTimer);
     if (running !== self) return;
     running = null;
     root.removeAttribute(VT_ATTR);
+  }
+
+  function settle(outcome: ViewTransitionOutcome) {
+    release();
+    if (settled) return;
+    settled = true;
+    resolveCall(outcome);
+  }
+
+  function fail(error: unknown) {
+    release();
+    if (!settled) {
+      settled = true;
+      rejectCall(error);
+    } else if (onLateError) {
+      onLateError(error);
+    } else if (typeof globalThis.reportError === "function") {
+      // Seen like any uncaught error, without an unhandled rejection.
+      globalThis.reportError(error);
+    }
   }
 
   // The clock starts with the call: the old picture is held from the next
@@ -219,6 +252,10 @@ export function withViewTransition(
       markBegun();
       try {
         await update();
+      } catch (error) {
+        fail(error);
+        // Thrown on, so the browser skips the transition too.
+        throw error;
       } finally {
         updateSettled = true;
         clearTimeout(capTimer);
@@ -236,17 +273,11 @@ export function withViewTransition(
   // A rejected ready means the browser skipped it: a duplicate name, a hidden
   // tab, a skip, a failed update. The names go now, not after the update.
   transition.ready.catch(() => self.skip("skipped"));
-  // The update's error reaches the caller through `finished`.
+  // A failed update was handled in the wrapper; these only repeat its error.
   transition.updateCallbackDone?.catch(() => {});
-
-  return transition.finished.then(
-    () => {
-      release();
-      return outcome;
-    },
-    (error: unknown) => {
-      release();
-      throw error;
-    }
+  void transition.finished.then(
+    () => settle("ran"),
+    () => settle("skipped")
   );
+  return result;
 }
