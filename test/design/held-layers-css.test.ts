@@ -162,6 +162,9 @@ describe("the VIEW TRANSITIONS block", () => {
     tree.walkDecls("view-transition-name", (d) => {
       const r = d.parent as Rule;
       expect(inScreenBlock(r), `${r.selector} sits in the screen block`).toBe(true);
+      // The one name that is not a held layer: a card's frame, which moves
+      // (test/design/page-transition-css.test.ts holds its rule).
+      if (d.value === "tool-frame") return;
       expect(r.selectors).toEqual([`html[data-vt] [data-vt-hold="${d.value}"]`]);
       named.push(d.value);
     });
