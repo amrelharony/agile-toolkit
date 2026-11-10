@@ -392,10 +392,11 @@ export function jiraImportLabel(p: Pick<JiraImportPreview, "add" | "update">): s
   return "Import";
 }
 
-/** "PAY-12 “Pay with a saved card”: 3 to 5 points" */
+/** "PAY-12 “Pay with a saved card”: 3 to 5 points", or "…: gets 5 points" when it had none. */
 export function pointsChangeText(c: JiraPointsChange): string {
-  const from = c.from === undefined ? "not sized" : fmt(c.from);
-  return `${c.key} “${c.title}”: ${from} to ${fmt(c.to)} ${c.to === 1 ? "point" : "points"}`;
+  const points = `${fmt(c.to)} ${c.to === 1 ? "point" : "points"}`;
+  const change = c.from === undefined ? `gets ${points}` : `${fmt(c.from)} to ${points}`;
+  return `${c.key} “${c.title}”: ${change}`;
 }
 
 /** The Undo toast after an import of `added` new stories and `updated` points changes. */

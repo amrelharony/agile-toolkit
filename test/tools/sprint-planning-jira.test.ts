@@ -241,7 +241,9 @@ describe("previewJiraImport: importing again", () => {
       site: null,
     });
     expect(p.update).toEqual([{ line: 2, key: "PAY-12", storyId: "s12", title: "Pay", to: 8 }]);
-    expect(pointsChangeText(p.update[0])).toBe("PAY-12 “Pay”: not sized to 8 points");
+    expect(pointsChangeText(p.update[0])).toBe("PAY-12 “Pay”: gets 8 points");
+    expect(pointsChangeText({ ...p.update[0], from: 3 })).toBe("PAY-12 “Pay”: 3 to 8 points");
+    expect(pointsChangeText({ ...p.update[0], from: 2, to: 1 })).toBe("PAY-12 “Pay”: 2 to 1 point");
     expect(p.add.map((r) => r.key)).toEqual(["PAY-16"]);
     expect(jiraImportLabel(p)).toBe("Import 1 story, update 1");
     expect(jiraImportSummary(p)).toBe(
