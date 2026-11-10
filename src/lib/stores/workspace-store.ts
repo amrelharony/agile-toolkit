@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { stampStoryMembership, withStorySprint } from "@/lib/sprints/story-status";
+import { cleanStoryFields } from "@/lib/stories/fields";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { reportStorageWriteFailure } from "./storage-health";
 import type {
@@ -554,12 +555,14 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       // Every local write of a story records when it was created and any
       // change of its sprint (lib/sprints/story-status.ts); synced rows from
       // other devices arrive through setEntities and keep their own stamps.
+      // Its notes, acceptance criteria, link and ticket key are cleaned and
+      // capped here too (lib/stories/fields.ts), whichever page wrote them.
       upsertStory: (s) =>
         set((_st) => ({
           stories: replaceById(
             _st.stories,
             stampStoryMembership(
-              s,
+              cleanStoryFields(s),
               _st.stories.find((x) => x.id === s.id)
             )
           ),
@@ -773,7 +776,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         // BUG-W46: functional updater — non-functional read-then-set
         // races concurrent sync-engine writes and silently drops the
         // loser.
-        set((_st) => ({ stories: batchUpsertById(_st.stories, items) })),
+        set((_st) => ({ stories: batchUpsertById(_st.stories, items.map(cleanStoryFields)) })),
       // Phase 19 — AI/LLM PM
       upsertLLMEval: (x) => set((_st) => ({ llmEvals: replaceById(_st.llmEvals ?? [], x) })),
       // R11-fix: canvas sourceRef cascade. Audit A6 H6 flagged 16

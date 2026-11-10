@@ -151,6 +151,19 @@ export interface Story {
    * descending.
    */
   backlogRank?: number;
+  /*
+   * What the story is about, beyond its title. All four are optional, and
+   * cleaned and capped on every write (lib/stories/fields.ts). They stay out
+   * of share links, which are capped at 32 KB.
+   */
+  /** Free notes: context, a description that came with it (at most 2,000 characters). */
+  notes?: string;
+  /** How the team will know it is done right (at most 2,000 characters). */
+  acceptanceCriteria?: string;
+  /** Its issue in the team's tracker: an http or https address (at most 500 characters). */
+  link?: string;
+  /** Its key in the team's tracker, such as "PAY-12" (at most 50 characters). */
+  ticketKey?: string;
 }
 
 /**
