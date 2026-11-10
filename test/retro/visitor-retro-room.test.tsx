@@ -116,6 +116,8 @@ function hostSnapshot(b: BoardState, seq = 1): RoomSnapshot {
         votesUsed: {},
         timer: { running: false, remaining: b.timerSeconds },
         now: Date.now(),
+        hideWhileWriting: false,
+        votesPerPerson: 3,
       })
     )
   ) as RoomSnapshot;
@@ -297,7 +299,7 @@ describe("VisitorRetroRoom (participant)", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(ch.sent("retro:intent")).toEqual([
       {
-        v: 1,
+        v: 2,
         by: ME.id,
         intent: expect.objectContaining({
           t: "card:add",
@@ -315,7 +317,7 @@ describe("VisitorRetroRoom (participant)", () => {
     expect(screen.queryByRole("textbox", { name: "New card for Start" })).toBeNull();
     fireEvent.click(screen.getAllByRole("button", { name: /vote for this card/i })[0]);
     expect(ch.sent("retro:intent").at(-1)).toEqual({
-      v: 1,
+      v: 2,
       by: ME.id,
       intent: expect.objectContaining({ t: "vote", cardId: "a" }),
     });

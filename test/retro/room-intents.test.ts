@@ -5,6 +5,10 @@ import {
   applyIntent,
   applyPatch,
   createIntentLedger,
+  ownerOfCard,
+  resetAllowances,
+  retireIds,
+  votesOnCard,
   type IntentContext,
   type IntentLedger,
 } from "@/app/(tools)/retro/room/intents";
@@ -12,6 +16,9 @@ import {
   BOARD_CARD_CAP,
   INTENT_ID_RING,
   MEMBER_CARD_CAP,
+  MEMBER_UNDO_CAP,
+  RETIRED_ID_RING,
+  RETRO_ROOM_PROTOCOL_VERSION,
   type RetroIntent,
 } from "@/app/(tools)/retro/room/protocol";
 import { MAX_VOTES, type BoardState, type RetroCard } from "@/app/(tools)/retro/types";
@@ -19,11 +26,14 @@ import { MAX_VOTES, type BoardState, type RetroCard } from "@/app/(tools)/retro/
 /**
  * The host's intent reducer for the Retro visitor room: every participant
  * message is untrusted, so the reducer alone decides what reaches the board.
+ * Who added a card and who voted on it is the host's record, in the ledger
+ * only: it never reaches the board.
  */
 
 const ALICE = "alice_0000000000";
 const BOB = "bob_000000000000";
 const MALLORY = "mallory_00000000";
+const V = RETRO_ROOM_PROTOCOL_VERSION;
 
 const format = retroFormats[0]; // Start / Stop / Continue
 
@@ -54,12 +64,10 @@ function board(overrides: Partial<BoardState> = {}): BoardState {
   };
 }
 
-let ids = 0;
 function ctx(overrides: Partial<IntentContext> = {}): IntentContext {
   return {
     admitted: new Set([ALICE, BOB]),
     removed: new Set(),
-    newCardId: () => `host-card-${++ids}`,
     ...overrides,
   };
 }
@@ -69,18 +77,33 @@ const nextIid = () => `iid${++iids}`;
 
 function add(by: string, columnKey: string, text: string, iid = nextIid()) {
   const intent: RetroIntent = { t: "card:add", iid, columnKey, text };
-  return { v: 1, by, intent };
+  return { v: V, by, intent };
+}
+
+function del(by: string, cardId: string, iid = nextIid()) {
+  const intent: RetroIntent = { t: "card:delete", iid, cardId };
+  return { v: V, by, intent };
 }
 
 function vote(by: string, cardId: string, iid = nextIid()) {
   const intent: RetroIntent = { t: "vote", iid, cardId };
-  return { v: 1, by, intent };
+  return { v: V, by, intent };
+}
+
+function unvote(by: string, cardId: string, iid = nextIid()) {
+  const intent: RetroIntent = { t: "vote:undo", iid, cardId };
+  return { v: V, by, intent };
 }
 
 /** Apply a list of envelopes in order, threading board and ledger. */
-function run(start: BoardState, envs: unknown[], c: IntentContext = ctx()) {
+function run(
+  start: BoardState,
+  envs: unknown[],
+  c: IntentContext = ctx(),
+  first: IntentLedger = createIntentLedger()
+) {
   let b = start;
-  let ledger: IntentLedger = createIntentLedger();
+  let ledger = first;
   const reasons: string[] = [];
   for (const env of envs) {
     const res = applyIntent(b, ledger, env, c);
@@ -96,19 +119,20 @@ function run(start: BoardState, envs: unknown[], c: IntentContext = ctx()) {
 }
 
 describe("applyIntent: adding cards", () => {
-  it("adds a cleaned card with a host-made id and counts it for the sender", () => {
+  it("adds a cleaned card under its request's id, counts it and records the sender host-side", () => {
     const start = board();
     const res = applyIntent(
       start,
       createIntentLedger(),
-      add(ALICE, "stop", "  Too   many\nmeetings  "),
-      ctx({ newCardId: () => "host-id" })
+      add(ALICE, "stop", "  Too   many\nmeetings  ", "aliceCard01"),
+      ctx()
     );
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const added = res.board.cards.at(-1);
+    // No author on the card: who added it is the ledger's record only.
     expect(added).toEqual({
-      id: "host-id",
+      id: "aliceCard01",
       columnKey: "stop",
       text: "Too many meetings",
       votes: 0,
@@ -118,6 +142,8 @@ describe("applyIntent: adding cards", () => {
       discussing: false,
     });
     expect(res.ledger.cardsBy[ALICE]).toBe(1);
+    expect(ownerOfCard(res.ledger, "aliceCard01")).toBe(ALICE);
+    expect(JSON.stringify(res.board)).not.toContain(ALICE);
     expect(res.patch).toEqual({ t: "card:add", card: added });
     // Pure: the inputs are untouched.
     expect(start.cards).toHaveLength(2);
@@ -186,10 +212,81 @@ describe("applyIntent: adding cards", () => {
     expect(b.cards).toHaveLength(MEMBER_CARD_CAP + 1);
   });
 
+  it("refuses an id already on the board, or one that left it", () => {
+    const onBoard = applyIntent(
+      board(),
+      createIntentLedger(),
+      add(ALICE, "start", "Hi", "c1"),
+      ctx()
+    );
+    expect(onBoard).toEqual({ ok: false, reason: "id-taken" });
+    const retired = retireIds(createIntentLedger(), ["gone1"]);
+    const left = applyIntent(board(), retired, add(ALICE, "start", "Hi", "gone1"), ctx());
+    expect(left).toEqual({ ok: false, reason: "id-taken" });
+  });
+
   it(`caps the board at ${BOARD_CARD_CAP} cards, the host's own included`, () => {
     const full = board({ cards: Array.from({ length: BOARD_CARD_CAP }, (_, i) => card(`h${i}`)) });
     const res = applyIntent(full, createIntentLedger(), add(ALICE, "start", "One more"), ctx());
     expect(res).toEqual({ ok: false, reason: "board-card-cap" });
+  });
+});
+
+describe("applyIntent: deleting my card", () => {
+  it("deletes the sender's own card in Write, and no one else's", () => {
+    const {
+      board: b,
+      ledger,
+      reasons,
+    } = run(board(), [
+      add(ALICE, "start", "Mine", "aliceA"),
+      add(BOB, "start", "Bob's", "bobB"),
+      del(BOB, "aliceA"), // not Bob's
+      del(ALICE, "c1"), // the host's own card: no one's through the room
+      del(ALICE, "aliceA"),
+      del(ALICE, "aliceA"), // gone already
+    ]);
+    expect(reasons).toEqual(["ok", "ok", "not-yours", "not-yours", "ok", "unknown-card"]);
+    expect(b.cards.map((c) => c.id)).toEqual(["c1", "c2", "bobB"]);
+    expect(ownerOfCard(ledger, "aliceA")).toBeNull();
+    expect(ownerOfCard(ledger, "bobB")).toBe(BOB);
+    // Deleting doesn't give the allowance back, and the id can't come back.
+    expect(ledger.cardsBy[ALICE]).toBe(1);
+    expect(ledger.retired).toContain("aliceA");
+    const again = applyIntent(b, ledger, add(BOB, "start", "Again", "aliceA"), ctx());
+    expect(again).toEqual({ ok: false, reason: "id-taken" });
+  });
+
+  it("only deletes in the Write phase", () => {
+    const added = run(board(), [add(ALICE, "start", "Mine", "aliceW")]);
+    for (const phase of ["vote", "discuss", "actions"] as const) {
+      const res = applyIntent({ ...added.board, phase }, added.ledger, del(ALICE, "aliceW"), ctx());
+      expect(res).toEqual({ ok: false, reason: "wrong-phase" });
+    }
+  });
+
+  it("leaves the cards grouped under it standing on their own", () => {
+    const added = run(board(), [add(ALICE, "start", "Parent", "parent1")]);
+    const grouped = {
+      ...added.board,
+      cards: [...added.board.cards, card("child", { groupedWith: "parent1" })],
+    };
+    const res = applyIntent(grouped, added.ledger, del(ALICE, "parent1"), ctx());
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.board.cards.find((c) => c.id === "child")).toMatchObject({ groupedWith: null });
+    expect(res.patch).toEqual({ t: "card:delete", cardId: "parent1" });
+  });
+
+  it("refuses a removed sender's delete", () => {
+    const added = run(board(), [add(ALICE, "start", "Mine", "aliceR")]);
+    const res = applyIntent(
+      added.board,
+      added.ledger,
+      del(ALICE, "aliceR"),
+      ctx({ removed: new Set([ALICE]) })
+    );
+    expect(res).toEqual({ ok: false, reason: "removed" });
   });
 });
 
@@ -214,6 +311,20 @@ describe("applyIntent: votes", () => {
     expect(ledger.votesUsed).toEqual({ [ALICE]: MAX_VOTES, [BOB]: 1 });
     expect(b.cards.find((c) => c.id === "c1")?.votes).toBe(2);
     expect(b.cards.find((c) => c.id === "c2")?.votes).toBe(2);
+    // Who voted where stays in the ledger, never on the board.
+    expect(votesOnCard(ledger, ALICE, "c1")).toBe(2);
+    expect(votesOnCard(ledger, ALICE, "c2")).toBe(1);
+    expect(votesOnCard(ledger, BOB, "c2")).toBe(1);
+    expect(JSON.stringify(b)).not.toContain(ALICE);
+  });
+
+  it("uses the board's votes per person when the host gives one", () => {
+    const { reasons } = run(
+      board({ phase: "vote" }),
+      [vote(ALICE, "c1"), vote(ALICE, "c1")],
+      ctx({ votesPerPerson: 1 })
+    );
+    expect(reasons).toEqual(["ok", "vote-budget"]);
   });
 
   it("refuses a vote for a card that isn't on the board", () => {
@@ -231,6 +342,59 @@ describe("applyIntent: votes", () => {
     expect(ledger.votesUsed[BOB]).toBe(MAX_VOTES);
     const res = applyIntent(board({ phase: "vote" }), ledger, vote(ALICE, "c1"), ctx());
     expect(res).toEqual({ ok: false, reason: "vote-budget" });
+  });
+});
+
+describe("applyIntent: taking a vote back", () => {
+  it("takes back the sender's own vote and gives it back to spend again", () => {
+    const {
+      board: b,
+      ledger,
+      reasons,
+    } = run(board({ phase: "vote" }), [
+      vote(ALICE, "c1"),
+      vote(ALICE, "c1"),
+      vote(BOB, "c2"),
+      unvote(ALICE, "c2"), // Alice has no vote there
+      unvote(ALICE, "c1"),
+      vote(ALICE, "c2"),
+      vote(ALICE, "c2"), // back to her budget of 3
+      vote(ALICE, "c2"),
+    ]);
+    expect(reasons).toEqual(["ok", "ok", "ok", "not-yours", "ok", "ok", "ok", "vote-budget"]);
+    expect(b.cards.map((c) => c.votes)).toEqual([1, 3]);
+    expect(ledger.votesUsed[ALICE]).toBe(MAX_VOTES);
+    expect(votesOnCard(ledger, ALICE, "c1")).toBe(1);
+    expect(votesOnCard(ledger, ALICE, "c2")).toBe(2);
+    expect(votesOnCard(ledger, BOB, "c2")).toBe(1);
+  });
+
+  it("only takes votes back in the Vote phase, from a card on the board", () => {
+    const voted = run(board({ phase: "vote" }), [vote(ALICE, "c1")]);
+    const later = applyIntent(
+      { ...voted.board, phase: "discuss" },
+      voted.ledger,
+      unvote(ALICE, "c1"),
+      ctx()
+    );
+    expect(later).toEqual({ ok: false, reason: "wrong-phase" });
+    const gone = applyIntent(voted.board, voted.ledger, unvote(ALICE, "nope"), ctx());
+    expect(gone).toEqual({ ok: false, reason: "unknown-card" });
+  });
+
+  it("refuses a vote no one cast, e.g. one cast before a new host took over", () => {
+    const ledger = createIntentLedger({ votesUsed: { [ALICE]: 2 } });
+    const res = applyIntent(board({ phase: "vote" }), ledger, unvote(ALICE, "c1"), ctx());
+    expect(res).toEqual({ ok: false, reason: "not-yours" });
+  });
+
+  it(`caps each member at ${MEMBER_UNDO_CAP} take-backs`, () => {
+    const envs: unknown[] = [];
+    for (let i = 0; i <= MEMBER_UNDO_CAP; i++) envs.push(vote(ALICE, "c1"), unvote(ALICE, "c1"));
+    const { reasons, ledger } = run(board({ phase: "vote" }), envs);
+    expect(reasons.filter((r) => r === "undo-cap")).toEqual(["undo-cap"]);
+    expect(reasons.at(-1)).toBe("undo-cap");
+    expect(ledger.undosBy[ALICE]).toBe(MEMBER_UNDO_CAP);
   });
 });
 
@@ -271,10 +435,11 @@ describe("applyIntent: senders and duplicates", () => {
     const { reasons, board: b } = run(board(), [
       add(ALICE, "start", "Once", "same"),
       add(ALICE, "start", "Once", "same"),
-      add(BOB, "start", "Bob may reuse it", "same"),
+      // Not a duplicate for Bob, but the card id is Alice's now.
+      add(BOB, "start", "Bob's", "same"),
     ]);
-    expect(reasons).toEqual(["ok", "duplicate", "ok"]);
-    expect(b.cards).toHaveLength(4);
+    expect(reasons).toEqual(["ok", "duplicate", "id-taken"]);
+    expect(b.cards).toHaveLength(3);
   });
 
   it(`remembers the last ${INTENT_ID_RING} intent ids`, () => {
@@ -300,17 +465,24 @@ describe("applyIntent: senders and duplicates", () => {
     const bad: unknown[] = [
       null,
       "card",
-      { v: 2, by: ALICE, intent: { t: "vote", iid: "a", cardId: "c1" } },
-      { v: 1, by: "short", intent: { t: "vote", iid: "a", cardId: "c1" } },
-      { v: 1, by: ALICE, intent: { t: "delete", iid: "a", cardId: "c1" } },
+      // Version 1 tabs, and anything newer than this one.
+      { v: 1, by: ALICE, intent: { t: "vote", iid: "a", cardId: "c1" } },
+      { v: 3, by: ALICE, intent: { t: "vote", iid: "a", cardId: "c1" } },
+      { v: V, by: "short", intent: { t: "vote", iid: "a", cardId: "c1" } },
+      { v: V, by: ALICE, intent: { t: "delete", iid: "a", cardId: "c1" } },
+      { v: V, by: ALICE, intent: { t: "unvote", iid: "a", cardId: "c1" } },
       {
-        v: 1,
+        v: V,
         by: ALICE,
         intent: { t: "card:add", iid: "has space", columnKey: "start", text: "x" },
       },
-      { v: 1, by: ALICE, intent: { t: "card:add", iid: "a", columnKey: "", text: "x" } },
-      { v: 1, by: ALICE, intent: { t: "card:add", iid: "a", columnKey: "start", text: 42 } },
-      { v: 1, by: ALICE, intent: { t: "vote", iid: "a", cardId: "x".repeat(65) } },
+      { v: V, by: ALICE, intent: { t: "card:add", iid: "a", columnKey: "", text: "x" } },
+      { v: V, by: ALICE, intent: { t: "card:add", iid: "a", columnKey: "start", text: 42 } },
+      { v: V, by: ALICE, intent: { t: "vote", iid: "a", cardId: "x".repeat(65) } },
+      { v: V, by: ALICE, intent: { t: "vote:undo", iid: "a", cardId: "" } },
+      // A card added through the room has an intent id for its id.
+      { v: V, by: ALICE, intent: { t: "card:delete", iid: "a", cardId: "not an id" } },
+      { v: V, by: ALICE, intent: { t: "card:delete", iid: "a" } },
     ];
     for (const env of bad) {
       expect(applyIntent(board({ phase: "vote" }), createIntentLedger(), env, ctx())).toEqual({
@@ -318,6 +490,35 @@ describe("applyIntent: senders and duplicates", () => {
         reason: "bad-shape",
       });
     }
+  });
+});
+
+describe("the ledger", () => {
+  it(`remembers the last ${RETIRED_ID_RING} cards that left the board, once each`, () => {
+    let ledger = retireIds(createIntentLedger(), ["a", "a", "b"]);
+    expect(ledger.retired).toEqual(["a", "b"]);
+    ledger = retireIds(
+      ledger,
+      Array.from({ length: RETIRED_ID_RING }, (_, i) => `x${i}`)
+    );
+    expect(ledger.retired).toHaveLength(RETIRED_ID_RING);
+    expect(ledger.retired).not.toContain("a");
+    // Nothing new: the same ledger back.
+    expect(retireIds(ledger, ["x5"])).toBe(ledger);
+  });
+
+  it("starts everyone's allowances again after a clear, and keeps who added what", () => {
+    const { ledger } = run(board(), [add(ALICE, "start", "Mine", "keep1")]);
+    const voted = run(
+      board({ phase: "vote" }),
+      [vote(BOB, "c1"), unvote(BOB, "c1")],
+      ctx(),
+      ledger
+    );
+    const cleared = resetAllowances(voted.ledger);
+    expect(cleared).toMatchObject({ votesUsed: {}, cardsBy: {}, undosBy: {}, votesOn: {} });
+    expect(ownerOfCard(cleared, "keep1")).toBe(ALICE);
+    expect(cleared.recent).toEqual(voted.ledger.recent);
   });
 });
 
@@ -331,5 +532,18 @@ describe("applyPatch", () => {
     const v = { t: "vote" as const, cardId: "c1" };
     expect(applyPatch(board({ phase: "discuss" }), v).cards[0].votes).toBe(0);
     expect(applyPatch(board({ phase: "vote" }), v).cards[0].votes).toBe(1);
+
+    const d = { t: "card:delete" as const, cardId: "c1" };
+    const deleted = applyPatch(board(), d);
+    expect(deleted.cards.map((c) => c.id)).toEqual(["c2"]);
+    expect(applyPatch(deleted, d)).toBe(deleted);
+    expect(applyPatch(board({ phase: "vote" }), d).cards).toHaveLength(2);
+
+    const u = { t: "vote:undo" as const, cardId: "c1" };
+    const voted = board({ phase: "vote", cards: [card("c1", { votes: 1 })] });
+    expect(applyPatch(voted, u).cards[0].votes).toBe(0);
+    // Never below zero, and not outside Vote.
+    expect(applyPatch(applyPatch(voted, u), u).cards[0].votes).toBe(0);
+    expect(applyPatch({ ...voted, phase: "discuss" }, u).cards[0].votes).toBe(1);
   });
 });

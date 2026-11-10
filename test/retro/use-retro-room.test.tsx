@@ -76,13 +76,15 @@ function snap(
         votesUsed: extra.votesUsed ?? {},
         timer: { running: b.timerRunning, remaining: b.timerSeconds },
         now: Date.now(),
+        hideWhileWriting: false,
+        votesPerPerson: 3,
       })
     )
   ) as RoomSnapshot;
 }
 
 function addIntent(by: string, text: string, iid: string, columnKey = "start") {
-  return { v: 1, by, intent: { t: "card:add", iid, columnKey, text } };
+  return { v: 2, by, intent: { t: "card:add", iid, columnKey, text } };
 }
 
 function participant(identity: FakeMember = ME) {

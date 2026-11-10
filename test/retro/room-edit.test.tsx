@@ -67,6 +67,8 @@ function snap(by: string): RoomSnapshot {
         votesUsed: {},
         timer: { running: false, remaining: 300 },
         now: Date.now(),
+        hideWhileWriting: false,
+        votesPerPerson: 3,
       })
     )
   ) as RoomSnapshot;

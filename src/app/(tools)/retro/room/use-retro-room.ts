@@ -47,7 +47,6 @@ import { cleanText, isWithinJsonSize } from "@/lib/realtime/sanitize";
 import { VISITOR_LIMITS, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
 import { toast } from "@/lib/utils/toast";
 import { MAX_VOTES, type BoardPhase, type BoardState } from "../types";
-import { makeId } from "../helpers";
 import {
   applyIntent,
   applyPatch,
@@ -61,6 +60,7 @@ import {
   IDLE_GRACE_MS,
   MEMBER_CARD_CAP,
   RETRO_ROOM_EVENTS,
+  RETRO_ROOM_PROTOCOL_VERSION,
   SNAPSHOT_THROTTLE_MS,
   readEndMessage,
   readIntentEnv,
@@ -339,6 +339,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       votesUsed: ledgerRef.current.votesUsed,
       timer,
       now,
+      hideWhileWriting: false,
+      votesPerPerson: MAX_VOTES,
     });
     // Participants refuse anything bigger, so don't spend the quota sending it.
     if (
@@ -463,7 +465,6 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       const res = applyIntent(board, ledgerRef.current, env, {
         admitted,
         removed: blockedRef.current,
-        newCardId: makeId,
       });
       if (!res.ok) return;
       ledgerRef.current = res.ledger;
@@ -664,11 +665,10 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     (intent: RetroIntent) => {
       const board = hostedBoard();
       if (!board) return { ok: false as const, reason: "bad-shape" as IntentRejection };
-      const env: IntentEnv = { v: 1, by: selfId, intent };
+      const env: IntentEnv = { v: RETRO_ROOM_PROTOCOL_VERSION, by: selfId, intent };
       const res = applyIntent(board, ledgerRef.current, env, {
         admitted: new Set([selfId]),
         removed: new Set(),
-        newCardId: makeId,
       });
       if (res.ok) {
         ledgerRef.current = res.ledger;
@@ -697,7 +697,11 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (v.board.phase !== "write") return "wrong-phase";
       if (sentCardsRef.current >= MEMBER_CARD_CAP) return "member-cap";
       if (v.board.cards.length >= BOARD_CARD_CAP) return "board-full";
-      roomRef.current.broadcast(RETRO_ROOM_EVENTS.intent, { v: 1, by: selfId, intent });
+      roomRef.current.broadcast(RETRO_ROOM_EVENTS.intent, {
+        v: RETRO_ROOM_PROTOCOL_VERSION,
+        by: selfId,
+        intent,
+      });
       sentCardsRef.current += 1;
       return "sent";
     },
@@ -715,7 +719,11 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (!v.board.cards.some((c) => c.id === cardId)) return false;
       const used = (v.votesUsed[selfId] ?? 0) + pendingVotes;
       if (used >= MAX_VOTES) return false;
-      roomRef.current.broadcast(RETRO_ROOM_EVENTS.intent, { v: 1, by: selfId, intent });
+      roomRef.current.broadcast(RETRO_ROOM_EVENTS.intent, {
+        v: RETRO_ROOM_PROTOCOL_VERSION,
+        by: selfId,
+        intent,
+      });
       setPendingVotes((n) => n + 1);
       return true;
     },
