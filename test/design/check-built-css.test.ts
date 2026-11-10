@@ -18,6 +18,8 @@ const globals = source("src/app/globals.css");
 const INTRO = "src/app/(tools)/comics/components/intro";
 const look = source(`${INTRO}/intro-look.module.css`);
 const book = source(`${INTRO}/book-intro.module.css`);
+const poster = source(`${INTRO}/poster-intro.module.css`);
+const vip = source(`${INTRO}/vip-intro.module.css`);
 
 const TILE = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E")`;
 const FALLBACK =
@@ -52,6 +54,16 @@ const BOWED =
   "@supports (clip-path:shape(from 0 0,line to 100% 0)){.c_x{animation:b-ink .4s both}@keyframes b-ink{0%{clip-path:shape(from 0 0,line to 0 0)}to{clip-path:shape(from 0 0,line to 100% 0)}}}";
 const BOOK = MASK + SHOWN + HIDE + BOWED;
 
+/** I2's bowed twins for the poster's sheet and the VIP opening ink, minified (names hashed). */
+const SHAPE_IF = "@supports (clip-path:shape(from 0 0,line to 100% 0))";
+const POSTER_INK =
+  "@keyframes p-ink{0%{clip-path:shape(from 0 0,line to 0 0,curve to 0 0 with 0 0,close)}to{clip-path:shape(from 0 0,line to calc(200% + 2rem) 0,curve to 0 calc(200% + 2rem) with calc(100% + 1rem) calc(100% + 1rem),close)}}";
+const POSTER_BOWED = `${SHAPE_IF}{.p_x{animation:p-ink .42s both}${POSTER_INK}}`;
+const VIP_INK =
+  "@keyframes v-ink{0%,12%{clip-path:shape(from -30% 100%,curve to 0 0 with -15% 50%,line to 130% 0,line to 130% 100%,close)}to{clip-path:shape(from 100% 100%,curve to 130% 0 with 115% 50%,line to 130% 0,line to 130% 100%,close)}}";
+const VIP_BOWED = `${SHAPE_IF}{.v_x{animation:v-ink .9s both}${VIP_INK}}`;
+const SCENES_BOWED = POSTER_BOWED + VIP_BOWED;
+
 const F2_HELD = MARKERS.F2[0].name;
 const F2_READY = MARKERS.F2[1].name;
 const F2_CALM = MARKERS.F2[3].name;
@@ -61,48 +73,51 @@ function failing(...sheets: string[]): string[] {
     .filter((r: { ok: boolean }) => !r.ok)
     .map((r: { name: string }) => r.name);
 }
+/** The same, for a describe that narrows `failing` to its own PR's markers. */
+const failingAll = failing;
 
 describe("check-built-css", () => {
   it("lists each PR's markers", () => {
-    expect(Object.keys(MARKERS)).toEqual(["F1", "F2", "I1"]);
+    expect(Object.keys(MARKERS)).toEqual(["F1", "F2", "I1", "I2"]);
     expect(MARKERS.F1).toHaveLength(5);
     expect(MARKERS.F2).toHaveLength(4);
     expect(MARKERS.I1).toHaveLength(4);
+    expect(MARKERS.I2).toHaveLength(2);
   });
 
   it("finds every marker in the source stylesheets as written", () => {
-    expect(failing(globals, look, book)).toEqual([]);
+    expect(failing(globals, look, book, poster, vip)).toEqual([]);
   });
 
   it("finds every marker in a minified sheet that keeps them", () => {
-    expect(failing(FALLBACK + LINEAR + GRAIN + OFF + VT + BOOK)).toEqual([]);
+    expect(failing(FALLBACK + LINEAR + GRAIN + OFF + VT + BOOK + SCENES_BOWED)).toEqual([]);
   });
 
   it("flags linear() that comes before its fallback, or outside @supports", () => {
-    expect(failing(LINEAR + FALLBACK + GRAIN + OFF + VT + BOOK)).toHaveLength(2);
+    expect(failing(LINEAR + FALLBACK + GRAIN + OFF + VT + BOOK + SCENES_BOWED)).toHaveLength(2);
     const unguarded = ":root{--ease-settle:linear(0,1.08,1);--ease-pop:linear(0,1.16,1)}";
-    expect(failing(FALLBACK + unguarded + GRAIN + OFF + VT + BOOK)).toHaveLength(2);
-    expect(failing(LINEAR + GRAIN + OFF + VT + BOOK)).toHaveLength(2);
+    expect(failing(FALLBACK + unguarded + GRAIN + OFF + VT + BOOK + SCENES_BOWED)).toHaveLength(2);
+    expect(failing(LINEAR + GRAIN + OFF + VT + BOOK + SCENES_BOWED)).toHaveLength(2);
   });
 
   it("flags a grain rule that lost a layer or its selector, and a missing removal", () => {
     const oneLayer = `html.light body{background-image:${TILE}}html.dark body{background-image:${TILE},${TILE}}`;
-    expect(failing(FALLBACK + LINEAR + oneLayer + OFF + VT + BOOK)).toEqual([
+    expect(failing(FALLBACK + LINEAR + oneLayer + OFF + VT + BOOK + SCENES_BOWED)).toEqual([
       "paper grain: two url(data:image/svg+xml) layers on html.light body",
     ]);
-    expect(failing(FALLBACK + LINEAR + GRAIN + VT + BOOK)).toEqual([
+    expect(failing(FALLBACK + LINEAR + GRAIN + VT + BOOK + SCENES_BOWED)).toEqual([
       "paper grain: removed for print, forced colours and more contrast",
     ]);
   });
 
   it("passes a marker found in any one of several files", () => {
-    expect(failing(FALLBACK + LINEAR, GRAIN + OFF, VT, BOOK)).toEqual([]);
+    expect(failing(FALLBACK + LINEAR, GRAIN + OFF, VT, BOOK, POSTER_BOWED, VIP_BOWED)).toEqual([]);
   });
 });
 
 describe("check-built-css: F2's held layers", () => {
   // Every other PR's markers, so only F2's can be missing.
-  const F1 = FALLBACK + LINEAR + GRAIN + OFF + BOOK;
+  const F1 = FALLBACK + LINEAR + GRAIN + OFF + BOOK + SCENES_BOWED;
 
   it("lists every F2 marker as missing without the VIEW TRANSITIONS block", () => {
     expect(failing(F1)).toEqual(MARKERS.F2.map((m: { name: string }) => m.name));
@@ -146,6 +161,11 @@ describe("check-built-css: F2's held layers", () => {
 describe("check-built-css: I1's book look", () => {
   const OTHERS = FALLBACK + LINEAR + GRAIN + OFF + VT;
   const [PAIRED, SUPPORTS, HIDDEN, SHAPE] = MARKERS.I1.map((m: { name: string }) => m.name);
+  // I1's own markers only. I2's pass only with its twins in the sheet, and
+  // those are shape() wipes in @supports too, which would pass I1's book
+  // title marker in every case below.
+  const failing = (...sheets: string[]) =>
+    failingAll(...sheets).filter((name) => [PAIRED, SUPPORTS, HIDDEN, SHAPE].includes(name));
 
   it("lists every I1 marker as missing without the book look", () => {
     expect(failing(OTHERS)).toEqual([PAIRED, SUPPORTS, HIDDEN, SHAPE]);
@@ -203,5 +223,43 @@ describe("check-built-css: I1's book look", () => {
     const bare =
       ".c_x{animation:b-ink .4s both}@keyframes b-ink{to{clip-path:shape(from 0 0,line to 100% 0)}}";
     expect(failing(OTHERS + MASK + SHOWN + HIDE + bare)).toEqual([SHAPE]);
+  });
+});
+
+describe("check-built-css: I2's bowed poster and VIP inks", () => {
+  // Every other PR's markers, the book's own bowed title included.
+  const OTHERS = FALLBACK + LINEAR + GRAIN + OFF + VT + BOOK;
+  const [POSTER, VIP] = MARKERS.I2.map((m: { name: string }) => m.name);
+
+  it("lists both as missing without the scenes' twins, whatever the book's title does", () => {
+    expect(failing(OTHERS)).toEqual([POSTER, VIP]);
+  });
+
+  it("finds each scene's twin by what it draws, not by the other's", () => {
+    expect(failing(OTHERS + VIP_BOWED)).toEqual([POSTER]);
+    expect(failing(OTHERS + POSTER_BOWED)).toEqual([VIP]);
+    expect(failing(OTHERS, POSTER_BOWED, VIP_BOWED)).toEqual([]);
+  });
+
+  it("flags a twin that left its @supports", () => {
+    const bare = `.p_x{animation:p-ink .42s both}${POSTER_INK}`;
+    expect(failing(OTHERS + bare + VIP_BOWED)).toEqual([POSTER]);
+    const elsewhere = `@supports (display:grid){.v_x{animation:v-ink .9s both}${VIP_INK}}`;
+    expect(failing(OTHERS + POSTER_BOWED + elsewhere)).toEqual([VIP]);
+  });
+
+  it("flags a twin that no rule in its block runs", () => {
+    const unused = POSTER_BOWED.replace("animation:p-ink", "animation:other-ink");
+    expect(unused).not.toBe(POSTER_BOWED);
+    expect(failing(OTHERS + unused + VIP_BOWED)).toEqual([POSTER]);
+  });
+
+  it("never takes a straight polygon for the bowed edge", () => {
+    const straight =
+      "@keyframes p-ink{0%{clip-path:polygon(0 0,0 0,0 0)}to{clip-path:polygon(0 0,calc(200% + 2rem) 0,0 calc(200% + 2rem))}}";
+    expect(failing(OTHERS + `${SHAPE_IF}{.p_x{animation:p-ink .42s both}${straight}}`)).toEqual([
+      POSTER,
+      VIP,
+    ]);
   });
 });

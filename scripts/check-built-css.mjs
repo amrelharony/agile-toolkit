@@ -201,6 +201,25 @@ function bowedWipe(css) {
   );
 }
 
+/**
+ * A scene's own bowed ink: inside @supports (clip-path:shape(...)), a
+ * @keyframes whose clip-path:shape() frames hold `mark`, run by a rule in that
+ * same block. Found by what the wipe draws, not by its hashed name.
+ */
+function bowedTwin(mark) {
+  return (css) =>
+    blocks(css, "@supports").some(
+      (b) =>
+        b.params.includes("(clip-path:shape(") &&
+        blocks(b.body, "@keyframes").some(
+          (k) =>
+            k.body.includes("clip-path:shape(") &&
+            k.body.includes(mark) &&
+            b.body.includes(`animation:${k.params}`)
+        )
+    );
+}
+
 /** Markers by PR id. Each `test` gets one file's CSS with all whitespace removed. */
 export const MARKERS = {
   F1: [
@@ -259,6 +278,16 @@ export const MARKERS = {
     {
       name: "book title: the bowed wipe's clip-path:shape() inside @supports (clip-path:shape(...))",
       test: bowedWipe,
+    },
+  ],
+  I2: [
+    {
+      name: "poster sheet: the bowed ink's clip-path:shape() (to calc(200%+2rem)) in a @keyframes inside @supports (clip-path:shape(...)), run by a rule there",
+      test: bowedTwin("calc(200%+2rem)"),
+    },
+    {
+      name: "VIP opening ink: the bowed wipe's clip-path:shape(from-30%100%...) in a @keyframes inside @supports (clip-path:shape(...)), run by a rule there",
+      test: bowedTwin("clip-path:shape(from-30%100%"),
     },
   ],
 };
