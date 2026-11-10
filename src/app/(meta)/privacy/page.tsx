@@ -4,7 +4,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { keyArt } from "@/lib/ink/drawings/pages/key";
-import { CSP_HOSTS } from "@/lib/site/csp.mjs";
 import { TOOLS_STAY_FREE } from "@/lib/site/disclosures";
 import { CONTACT_EMAIL, PRIVACY_TITLE, SITE_OWNER } from "@/lib/site/owner";
 import {
@@ -16,6 +15,7 @@ import {
   privacyRows,
   processors,
   securityChecks,
+  securityHosts,
   type PrivacyItem,
 } from "@/lib/site/privacy";
 
@@ -261,7 +261,7 @@ export default function PrivacyPage() {
                 </tr>
               </thead>
               <tbody role="rowgroup" className={TBODY}>
-                {CSP_HOSTS.map((host) => (
+                {securityHosts().map((host) => (
                   <tr key={host.source} role="row" data-host={host.source} className={TR}>
                     <th role="rowheader" scope="row" className={TH_ROW}>
                       <span className="break-all font-mono text-xs">{host.source}</span>

@@ -128,8 +128,10 @@ describe("the list of outside hosts", () => {
   it("says whose each host is and when it is used, in plain sentences", () => {
     for (const host of CSP_HOSTS) {
       expect(host.who.trim(), host.source).not.toBe("");
-      expect(host.when, host.source).toMatch(/^[A-Z].*\.$/);
-      expect(host.when, host.source).not.toMatch(/[—–]/);
+      for (const when of [host.when, host.whenRooms ?? host.when]) {
+        expect(when, host.source).toMatch(/^[A-Z].*\.$/);
+        expect(when, host.source).not.toMatch(/[—–]/);
+      }
       expect(["visitor", "choice", "owner", "unused"], host.source).toContain(host.reach);
     }
   });

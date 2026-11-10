@@ -16,7 +16,7 @@ import { EMPTY_LICENCE_DRAFT } from "@/lib/comics/licence";
 import { getToolById } from "@/lib/constants/tools";
 import { PROVIDER_IDS, PROVIDER_META } from "@/lib/llm/registry";
 import { VISITOR_LIMITS, VISITOR_TOOLS } from "@/lib/realtime/visitor-rooms";
-import { cspDirective } from "@/lib/site/csp.mjs";
+import { CSP_HOSTS, cspDirective } from "@/lib/site/csp.mjs";
 import {
   COUNT_DISCLOSURE,
   GUESTBOOK_FORM_NOTE,
@@ -41,6 +41,7 @@ import {
   privacyRows,
   processors,
   securityChecks,
+  securityHosts,
   type PrivacyRow,
 } from "@/lib/site/privacy";
 import { VIP_COOKIE_MAX_AGE } from "@/lib/vip/book-access";
@@ -348,6 +349,19 @@ describe("who processes what, and where", () => {
     expect(supabase.does).not.toMatch(/region|Frankfurt|Ireland|Europe|\b[a-z]{2}-[a-z]+-\d\b/i);
   });
 
+  it("names live rooms among what Supabase carries only while live rooms are on", () => {
+    expect(processors()[1].does).toContain("the realtime channels live rooms pass through.");
+    flags(false, true);
+    expect(processors()[1].does).not.toMatch(/live room|vote round/i);
+    expect(processors()[1].does).toContain(
+      "the realtime channels the owner's devices and invited squad guests sync over."
+    );
+    // Without the flag only the owner and a squad guest may open a channel.
+    expect(read("src/lib/realtime/use-realtime-allowed.ts")).toContain(
+      "if (isOwner || guest !== null) return true;"
+    );
+  });
+
   it("names the AI message counts among what Supabase holds only while Amr's AI is on", () => {
     expect(processors()[1].does).toContain("the daily message counts for Amr's AI");
     expect(read("supabase/migrations/0037_visitor_ai_usage.sql")).toContain("visitor_ai_usage");
@@ -465,6 +479,33 @@ describe("for your security team", () => {
     expect(securityChecks()[0].text).toContain(
       "three cases only: the owner signing in, the link printed in the book, and a squad invite code"
     );
+  });
+
+  it("lists the policy's hosts as the header has them, with live-room wording only while rooms are on", () => {
+    const strip = ({ source, directives, who, reach }: (typeof CSP_HOSTS)[number]) => ({
+      source,
+      directives,
+      who,
+      reach,
+    });
+    expect(securityHosts().map(strip)).toEqual(CSP_HOSTS.map(strip));
+    const roomy = /live room|vote round/i;
+    // Rooms on: a host with live-room wording shows it.
+    const withRooms = securityHosts();
+    CSP_HOSTS.forEach((host, i) => {
+      expect(withRooms[i].when, host.source).toBe(host.whenRooms ?? host.when);
+      // The wording that is always shown never names a feature that can be off.
+      expect(host.when, host.source).not.toMatch(roomy);
+      expect(host.when, host.source).not.toContain("Amr's AI");
+      expect(host.whenRooms ?? "", host.source).not.toContain("Amr's AI");
+    });
+    expect(withRooms.filter((host) => roomy.test(host.when)).map((host) => host.source)).toEqual([
+      "https://*.supabase.co",
+      "wss://*.supabase.co",
+    ]);
+    flags(false, false);
+    expect(securityHosts().map((host) => host.when)).toEqual(CSP_HOSTS.map((host) => host.when));
+    expect(securityHosts().some((host) => roomy.test(host.when))).toBe(false);
   });
 
   it("is right that the weather request is the one Amr makes, and that it has no body", () => {

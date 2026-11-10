@@ -28,7 +28,7 @@ import {
   visitorRoomsEnabled,
   type VisitorRoomKind,
 } from "@/lib/realtime/visitor-rooms";
-import { cspDirective } from "@/lib/site/csp.mjs";
+import { CSP_HOSTS, cspDirective } from "@/lib/site/csp.mjs";
 import {
   COUNT_DISCLOSURE,
   GUESTBOOK_FORM_NOTE,
@@ -315,6 +315,10 @@ export function processors(): Processor[] {
   const { code, place } = hostingRegion();
   const where = place ? `${place} (Vercel region ${code})` : `Vercel region ${code}`;
   const aiCounts = visitorAiEnabled() ? ", the daily message counts for Amr's AI" : "";
+  // Without live rooms, only the owner's devices and invited squad guests use realtime.
+  const realtime = visitorRoomsEnabled()
+    ? "the realtime channels live rooms pass through"
+    : "the realtime channels the owner's devices and invited squad guests sync over";
   return [
     {
       name: "Vercel",
@@ -322,7 +326,7 @@ export function processors(): Processor[] {
     },
     {
       name: "Supabase",
-      does: `Holds the database (the anonymous counts${aiCounts}, licence requests, guestbook notes and the owner's own work), the storage the comics' pictures load from, and the realtime channels live rooms pass through.`,
+      does: `Holds the database (the anonymous counts${aiCounts}, licence requests, guestbook notes and the owner's own work), the storage the comics' pictures load from, and ${realtime}.`,
     },
   ];
 }
@@ -399,3 +403,28 @@ export const REACH_LABEL = {
   owner: "Owner only",
   unused: "Not used",
 } as const;
+
+/** One outside host the security policy allows, as the page lists it. */
+export interface SecurityHost {
+  source: string;
+  directives: readonly string[];
+  who: string;
+  reach: keyof typeof REACH_LABEL;
+  when: string;
+}
+
+/**
+ * Every outside host the Content-Security-Policy allows, in header order, from
+ * the list the header is built from (lib/site/csp.mjs). A host's live-room
+ * wording shows only while this build has live rooms on.
+ */
+export function securityHosts(): SecurityHost[] {
+  const rooms = visitorRoomsEnabled();
+  return CSP_HOSTS.map((host) => ({
+    source: host.source,
+    directives: host.directives,
+    who: host.who,
+    reach: host.reach,
+    when: rooms && host.whenRooms ? host.whenRooms : host.when,
+  }));
+}

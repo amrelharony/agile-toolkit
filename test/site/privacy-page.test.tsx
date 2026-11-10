@@ -36,6 +36,7 @@ import {
   privacyRows,
   processors,
   securityChecks,
+  securityHosts,
 } from "@/lib/site/privacy";
 
 const source = readFileSync(path.join(process.cwd(), "src/app/(meta)/privacy/page.tsx"), "utf8");
@@ -169,6 +170,31 @@ describe("the table of parts", () => {
     expect(container.textContent).not.toContain("Z.AI for his AI");
   });
 
+  // Not only the rows: who processes what and the list of hosts say nothing
+  // of a feature this build has off either.
+  it("names live rooms and Amr's AI nowhere on the page when both are off", () => {
+    flags(false, false);
+    const { container } = render(<PrivacyPage />);
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/live room|vote round/i);
+    expect(text).not.toContain("Amr's AI");
+    // Supabase still gets its row in both places, for what it does without them.
+    expect(text).toContain("the realtime channels the owner's devices and invited squad guests");
+    expect(hostsTable().querySelector('[data-host="wss://*.supabase.co"]')).not.toBeNull();
+  });
+
+  it("names live rooms when only they are on, and Amr's AI when only it is", () => {
+    flags(true, false);
+    const rooms = render(<PrivacyPage />).container.textContent ?? "";
+    expect(rooms).toMatch(/live room/i);
+    expect(rooms).not.toContain("Amr's AI");
+    cleanup();
+    flags(false, true);
+    const ai = render(<PrivacyPage />).container.textContent ?? "";
+    expect(ai).toContain("Amr's AI");
+    expect(ai).not.toMatch(/live room|vote round/i);
+  });
+
   it("names each column above its cell for the stacked rows, without saying it twice aloud", () => {
     render(<PrivacyPage />);
     const tr = partsTable().querySelector<HTMLElement>('[data-row="tools"]')!;
@@ -261,7 +287,7 @@ describe("for your security team", () => {
         .map((th) => th.textContent)
     ).toEqual(["Host", "Whose it is", "When it is used"]);
     expect(rowHeaders(table)).toEqual(CSP_HOSTS.map((host) => host.source));
-    for (const host of CSP_HOSTS) {
+    for (const host of securityHosts()) {
       const tr = table.querySelector<HTMLElement>(`[data-host="${host.source}"]`)!;
       expect(within(tr).getByRole("rowheader").textContent, host.source).toBe(
         `${host.source}${host.directives.join(", ")}`
@@ -269,7 +295,7 @@ describe("for your security team", () => {
       const [whose, when] = within(tr).getAllByRole("cell");
       expect(whose.textContent, host.source).toContain(host.who);
       expect(whose.textContent, host.source).toContain(REACH_LABEL[host.reach]);
-      expect(when.textContent, host.source).toContain(host.when);
+      expect(when.textContent, host.source).toBe(`When it is used${host.when}`);
     }
   });
 
@@ -307,7 +333,10 @@ describe("for your security team", () => {
     expect(
       screen.getByText(/This list is\s+built from the same file as the header/)
     ).toBeInTheDocument();
-    expect(source).toContain('import { CSP_HOSTS } from "@/lib/site/csp.mjs";');
+    expect(source).toContain("{securityHosts().map((host) => (");
+    expect(readFileSync(path.join(process.cwd(), "src/lib/site/privacy.ts"), "utf8")).toContain(
+      'import { CSP_HOSTS, cspDirective } from "@/lib/site/csp.mjs";'
+    );
     expect(readFileSync(path.join(process.cwd(), "next.config.mjs"), "utf8")).toContain(
       'import { contentSecurityPolicy } from "./src/lib/site/csp.mjs";'
     );

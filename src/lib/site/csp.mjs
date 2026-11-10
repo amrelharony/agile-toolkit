@@ -41,6 +41,10 @@
  * @property {string} who             Whose host it is, in plain words.
  * @property {CspReach} reach         Who can meet it.
  * @property {string} when            When a browser contacts it. Shown on /privacy.
+ *                                    True whichever features this build has on.
+ * @property {string} [whenRooms]     What /privacy shows in place of `when` while
+ *                                    live rooms are on (NEXT_PUBLIC_VISITOR_ROOMS).
+ *                                    The header itself is the same either way.
  */
 
 /**
@@ -68,14 +72,18 @@ export const CSP_HOSTS = [
     directives: ["img-src", "connect-src"],
     who: "Supabase",
     reach: "visitor",
-    when: "Pictures: the comics, the comic banner on the home page and kudos cards load from the site's storage there. Connections: a live room or vote round you chose to join, and the owner's own sign-in and sync.",
+    when: "Pictures: the comics, the comic banner on the home page and kudos cards load from the site's storage there. Connections: the owner's own sign-in and sync.",
+    whenRooms:
+      "Pictures: the comics, the comic banner on the home page and kudos cards load from the site's storage there. Connections: a live room or vote round you chose to join, and the owner's own sign-in and sync.",
   },
   {
     source: "wss://*.supabase.co",
     directives: ["connect-src"],
     who: "Supabase Realtime",
     reach: "choice",
-    when: "Only while you are in a live room or vote round, after its consent step. The owner's own devices and invited squad guests sync over it too.",
+    when: "Only for the owner's own devices and invited squad guests, who sync over it.",
+    whenRooms:
+      "Only while you are in a live room or vote round, after its consent step. The owner's own devices and invited squad guests sync over it too.",
   },
   {
     source: "https://*.googleusercontent.com",
@@ -103,7 +111,7 @@ export const CSP_HOSTS = [
     directives: ["connect-src"],
     who: "Z.AI",
     reach: "unused",
-    when: "Not called from the browser today. Amr's AI reaches Z.AI from servers, never from your page.",
+    when: "Not called from the browser today. Where the site uses Z.AI, its servers call it, never your page.",
   },
   {
     source: "https://open.bigmodel.cn",
