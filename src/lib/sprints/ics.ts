@@ -28,7 +28,11 @@ import {
 import { isIsoDate, isoDayNumber, isoFromDayNumber, weekdayOf } from "./calendar";
 import { hasSyntheticDates, sprintLengthDays } from "./series";
 
-/** Minutes before a ceremony that its reminder shows. */
+/**
+ * Minutes before a ceremony that its entry asks for a reminder. Whether one
+ * shows is the calendar app's call: some drop a file's reminders on import
+ * and use their own setting, so the wording never promises one.
+ */
 export const CEREMONY_REMINDER_MINUTES = 10;
 
 /** The right-hand side of every UID. Fixed, so a preview host makes the same UIDs. */
@@ -168,7 +172,7 @@ export interface CalendarEntry {
   summary: string;
   description: string;
   url: string;
-  /** Minutes before the start that a reminder shows. Absent: no reminder. */
+  /** Minutes before the start that the entry asks for a reminder. Absent: it asks for none. */
   reminderMinutes?: number;
   /** What the reminder says. */
   reminderText?: string;

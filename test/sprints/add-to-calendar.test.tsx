@@ -49,8 +49,9 @@ describe("AddToCalendar", () => {
       <AddToCalendar sprint={SPRINT} cadence={DEFAULT_CADENCE} actions={[]} place="cockpit" />
     );
     expect(button()).toBeEnabled();
+    // The file asks for the reminder; whether one shows is up to the calendar app.
     expect(button()).toHaveAccessibleDescription(
-      "Downloads a calendar file with the 14 ceremonies of Sprint 1, each with a reminder 10 minutes before. Open the file to add them to your calendar."
+      "Downloads a calendar file with the 14 ceremonies of Sprint 1. Open the file to add them to your calendar. Each asks for a reminder 10 minutes before, though some calendars use their own setting."
     );
     fireEvent.click(button());
 

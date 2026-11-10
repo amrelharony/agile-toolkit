@@ -97,9 +97,10 @@ export function AddToCalendar({
         <p id={noteId} className="min-w-0 flex-1 basis-60 break-words text-sm text-sub">
           {ready ? (
             <>
-              Downloads a calendar file with the {ceremonies} ceremonies of {sprint.name}, each with
-              a reminder {CEREMONY_REMINDER_MINUTES} minutes before. Open the file to add them to
-              your calendar.
+              Downloads a calendar file with the {ceremonies} ceremonies of {sprint.name}. Open the
+              file to add them to your calendar. Each asks for a reminder{" "}
+              {CEREMONY_REMINDER_MINUTES} minutes before, though some calendars use their own
+              setting.
             </>
           ) : !sprint ? (
             <>
