@@ -38,10 +38,10 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "With no sprint yet, follow Set up your sprint: add your team, create the sprint and check the ceremony times. Or click See an example first.",
-      "Read the sentence under the sprint header, then the five ceremony cards. Each says where that ceremony stands and links to the tool that runs it.",
+      "Read the sentence under the sprint header and any notes under it (a goal still unanswered, how many retro actions are in the sprint), then the five ceremony cards. Each says where that ceremony stands and links to the tool that runs it.",
       "Done, Remaining and the Burndown come from the sprint board when its stories have points. Without pointed stories, type the points in Points left today under Burndown and click Log.",
       "Check Open blockers: the impediments open during the sprint, escalated and overdue ones first, and the stories Blocked on the board.",
-      "When the sprint is over, click Close sprint, check the Completed points, and choose where unfinished stories go: the next sprint, Back to the backlog, or Decide later in Sprint Planning. Undo on the message that follows puts the sprint and its stories back.",
+      "When the sprint is over, click Close sprint, check the Completed points, and choose where unfinished stories go: the next sprint, Back to the backlog, or Decide later in Sprint Planning. The last step asks Did we meet the sprint goal? when it has no answer yet, and offers Download backup. Undo on the message that follows puts the sprint, its stories and that answer back.",
       "Click Export for a Markdown status report for the Sprint Review or a stakeholder update.",
     ],
     tips: [

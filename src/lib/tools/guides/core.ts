@@ -303,7 +303,7 @@ export const CORE_GUIDES: ToolGuide[] = [
       "No sprints yet? Click Create your first sprint, or Load an example: four finished sprints and one running, never saved.",
       "Under Sprint data, each row is a shared sprint, oldest first by end date. Edit its name, goal and Committed points in place, or click Add sprint. The bin removes a sprint from every sprint tool, with Undo.",
       "Type the Completed points when the work is counted. That only saves the points: a sprint counts once it is done, and when it has ended the row asks to close it.",
-      "Click Close sprint (or Mark done) and check the Completed points, suggested from the sprint board or the daily log. Choose where the unfinished stories go: into the next sprint, Back to the backlog or Decide later in Sprint Planning. Undo puts the sprint and its stories back.",
+      "Click Close sprint (or Mark done) and check the Completed points, suggested from the sprint board or the daily log. Choose where the unfinished stories go: into the next sprint, Back to the backlog or Decide later in Sprint Planning. The last step asks whether the sprint met its goal and offers Download backup. Undo puts it all back.",
       "Read the sentence and the tiles: Velocity, Met the commitment (90–110%), Per person-day and Spread. On the Velocity chart each Completed bar is coloured by its grade; View as table shows the numbers.",
       "Under Plan next sprint, type the Points to commit or leave it blank to use the velocity, and click Commit. Check the name and dates in New sprint, then click Create sprint.",
       "Export gives the summary and every sprint as Markdown, or a CSV or PNG.",
