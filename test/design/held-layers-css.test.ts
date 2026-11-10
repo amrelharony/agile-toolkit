@@ -106,6 +106,29 @@ function openingTag(src: string, marker: string | RegExp): string {
 const holds = (tag: string, value: string) =>
   new RegExp(`\\sdata-vt-hold="${value}"(?=[\\s/>])`).test(tag);
 
+/**
+ * Every data-vt-hold value in src, with the files that use it, and the files
+ * that set one from a variable. Read once at load, as guards.test.ts does,
+ * so the walk does not count against a test's timeout on a slow runner.
+ */
+const holdValues: Record<string, string[]> = {};
+const holdFromVariable: string[] = [];
+(function walk(dir: string): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walk(full);
+    else if (/\.(tsx|ts|jsx|js)$/.test(entry.name)) {
+      const text = readFileSync(full, "utf8");
+      if (!text.includes("data-vt-hold")) continue;
+      const file = path.relative(ROOT, full).split(path.sep).join("/");
+      for (const m of Array.from(text.matchAll(/data-vt-hold=["']([^"']*)["']/g))) {
+        (holdValues[m[1]] ??= []).push(file);
+      }
+      if (/data-vt-hold=\{/.test(text)) holdFromVariable.push(file);
+    }
+  }
+})(path.join(ROOT, "src"));
+
 describe("the VIEW TRANSITIONS block", () => {
   it("sits after REDUCED MOTION and before MOBILE FOUNDATION", () => {
     const reduced = /^ {3}REDUCED MOTION$/m.exec(css)!.index;
@@ -244,26 +267,10 @@ describe("the held elements", () => {
   });
 
   it("gives each held name to one element in the app, and no other values", () => {
-    const found: Record<string, string[]> = {};
-    const walk = (dir: string): void => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) walk(full);
-        else if (/\.(tsx|ts|jsx|js)$/.test(entry.name)) {
-          const text = readFileSync(full, "utf8");
-          for (const m of Array.from(text.matchAll(/data-vt-hold=["']([^"']*)["']/g))) {
-            (found[m[1]] ??= []).push(path.relative(ROOT, full).split(path.sep).join("/"));
-          }
-        }
-      }
-    };
-    walk(path.join(ROOT, "src"));
-    expect(Object.keys(found).sort()).toEqual(NAMES);
-    for (const name of NAMES) expect(found[name], name).toHaveLength(1);
+    expect(Object.keys(holdValues).sort()).toEqual(NAMES);
+    for (const name of NAMES) expect(holdValues[name], name).toHaveLength(1);
     // No element gets one from a variable either.
-    for (const file of Object.values(found).flat()) {
-      expect(read(file)).not.toMatch(/data-vt-hold=\{/);
-    }
+    expect(holdFromVariable).toEqual([]);
   });
 
   it("leaves Amr's phone band to its own variables, and renders him after the page", () => {
