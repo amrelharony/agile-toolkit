@@ -261,15 +261,15 @@ export function privacyRows(): PrivacyRow[] {
     {
       id: "squad-invite",
       part: "A squad invite from Amr",
-      when: "Only with his invite code",
+      when: "Only with Amr's invite code",
       leaves: [
         {
-          text: "The name and colour you pick, and what you add to the tools he shared with you.",
+          text: "The name and colour you pick, and what you add to the tools Amr shared with you.",
         },
       ],
       kept: [
         {
-          text: "Those are saved in his workspace at Supabase, as his team's work. One cookie keeps you joined for up to a year.",
+          text: "Those are saved in Amr's workspace at Supabase, as the squad's work. One cookie keeps you joined for up to a year.",
         },
       ],
     }
@@ -333,7 +333,7 @@ export function processors(): Processor[] {
 
 /** The others, who take part only where a row of the table says so. */
 export function otherProcessors(): string {
-  const ai = visitorAiEnabled() ? ", Amr's own AI server and Z.AI for his AI" : "";
+  const ai = visitorAiEnabled() ? ", Amr's own AI server and Z.AI, which answer Amr's AI" : "";
   return `Others take part only where the table above says so: Open-Meteo for the weather${ai}, and the AI provider whose key you add.`;
 }
 

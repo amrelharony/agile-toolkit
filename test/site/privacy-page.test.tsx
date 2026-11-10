@@ -167,7 +167,7 @@ describe("the table of parts", () => {
     expect(parts).toHaveLength(8);
     expect(container.textContent).not.toContain(VISITOR_ROOM_CONSENT_TEXT);
     expect(container.textContent).not.toContain(VISITOR_AI_SENT);
-    expect(container.textContent).not.toContain("Z.AI for his AI");
+    expect(container.textContent).not.toContain("Z.AI, which answer Amr's AI");
   });
 
   // Not only the rows: who processes what and the list of hosts say nothing
