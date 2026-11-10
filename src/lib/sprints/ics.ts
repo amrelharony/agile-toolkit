@@ -211,16 +211,26 @@ export interface CalendarAction {
 }
 
 /**
+ * Whether an all-day entry can sit on `iso`: a date that exists, with a next
+ * day that is still a four-digit year. The entry ends on that next day, and
+ * the DATE value has room for four digits only, so 9999-12-31 can't be one.
+ */
+function fitsAllDay(iso: string): boolean {
+  return isIsoDate(iso) && iso.slice(0, 10) < "9999-12-31";
+}
+
+/**
  * The actions that can go on a calendar: still open, with a due date that
- * exists. One per card id, the first in the list (`collectRetroActions` puts
- * the current retro's first): an entry's UID is its card id, and two boards
- * can hold the same id (a retro share link imported twice keeps the ids), so
- * a second one would put two entries with one UID in the file.
+ * exists (and that an all-day entry can hold, `fitsAllDay`). One per card
+ * id, the first in the list (`collectRetroActions` puts the current retro's
+ * first): an entry's UID is its card id, and two boards can hold the same id
+ * (a retro share link imported twice keeps the ids), so a second one would
+ * put two entries with one UID in the file.
  */
 export function calendarActions<T extends CalendarAction>(actions: readonly T[]): T[] {
   const seen = new Set<string>();
   return actions.filter((a) => {
-    if (a.done || typeof a.dueDate !== "string" || !isIsoDate(a.dueDate)) return false;
+    if (a.done || typeof a.dueDate !== "string" || !fitsAllDay(a.dueDate)) return false;
     if (seen.has(a.id)) return false;
     seen.add(a.id);
     return true;
@@ -229,12 +239,15 @@ export function calendarActions<T extends CalendarAction>(actions: readonly T[])
 
 /**
  * The day the weekly story's entry starts, "YYYY-MM-DD": the first Sunday on
- * or after the sprint's first day. Null when the sprint has no start date.
+ * or after the sprint's first day. Null when the sprint has no start date,
+ * or when that Sunday is past what an all-day entry can hold (`fitsAllDay`).
  */
 export function weeklyStoryStart(sprint: Pick<Sprint, "startDate">): string | null {
   const day = isoDayNumber(sprint.startDate);
   const weekday = weekdayOf(sprint.startDate);
-  return day === null || weekday === null ? null : isoFromDayNumber(day + ((7 - weekday) % 7));
+  if (day === null || weekday === null) return null;
+  const sunday = isoFromDayNumber(day + ((7 - weekday) % 7));
+  return fitsAllDay(sunday) ? sunday : null;
 }
 
 export interface SprintCalendarInput {

@@ -598,10 +598,29 @@ describe("open retro actions in the calendar", () => {
     { id: "done", text: "Already done", dueDate: "2026-10-27", done: true },
     { id: "undated", text: "No due date" },
     { id: "impossible", text: "No such day", dueDate: "2026-02-30" },
+    // Its entry would end on a day with a five-digit year.
+    { id: "last-day", text: "The very last day", dueDate: "9999-12-31" },
   ];
 
   it("keeps the open ones with a due date that exists", () => {
     expect(calendarActions(ACTIONS).map((a) => a.id)).toEqual(["late", "soon"]);
+  });
+
+  it("leaves out a due date whose next day has no four-digit year, so every date in the file is valid", () => {
+    const calendar = build({
+      actions: [
+        { id: "last-day", text: "The very last day", dueDate: "9999-12-31" },
+        { id: "day-before", text: "The day before", dueDate: "9999-12-30" },
+      ],
+    });
+    expect(calendar.actions).toBe(1);
+    expect(uids(calendar.ics)).not.toContain("retro-action-last-day@agile.amrelharony.com");
+    const kept = byUid(calendar.ics, "retro-action-day-before@agile.amrelharony.com");
+    expect(kept).toContain("DTSTART;VALUE=DATE:99991230");
+    expect(kept).toContain("DTEND;VALUE=DATE:99991231");
+    for (const line of unfold(calendar.ics).filter((l) => /^DT(START|END);VALUE=DATE:/.test(l))) {
+      expect(line).toMatch(/:\d{8}$/);
+    }
   });
 
   it("adds each as an all-day entry on its due date, after the ceremonies, soonest first", () => {
@@ -713,5 +732,8 @@ describe("the weekly Agile at Work story in the calendar", () => {
     // Into the next month and year.
     expect(weeklyStoryStart({ startDate: "2026-12-28" })).toBe("2027-01-03");
     expect(weeklyStoryStart({ startDate: "" })).toBeNull();
+    // Sunday 26 Dec 9999 still fits; the Sunday after Monday 27 Dec 9999 is in the year 10000.
+    expect(weeklyStoryStart({ startDate: "9999-12-26" })).toBe("9999-12-26");
+    expect(weeklyStoryStart({ startDate: "9999-12-27" })).toBeNull();
   });
 });
