@@ -369,7 +369,7 @@ export const CORE_GUIDES: ToolGuide[] = [
     steps: [
       "Under Current check, pick the Sprint this check is for, or type a Check name. Change Taken on to enter an earlier check.",
       "Talk each dimension through and press Green, Yellow or Red. Type what the team said in its note.",
-      "To vote anonymously, press Run a live round under Vote anonymously, give your name, tick the consent, then share the link with Copy link. People answer on their phones; you see only how many have. Press Reveal results once 3 have answered, then Save round: the votes set each light, which you can still change.",
+      "To vote anonymously, press Run a live round under Vote anonymously, give your name, tick the consent, then share the link with Copy link or Show QR code. People answer on their phones; you see only how many have. Press Reveal results once 3 have answered, then Save round: the votes set each light, which you can still change.",
       "Counting hands or paper instead? Press Enter counts instead (where live rounds aren't available, the count boxes show on their own), type how many picked each light, then Show totals and Save round.",
       "Each row's trend, Up, Same or Down, comes from the previous saved check. Health over time charts the saved checks from 2.",
       "Press Save check. It saves once every dimension is rated, and names any still missing.",

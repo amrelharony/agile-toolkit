@@ -105,7 +105,8 @@ const KIT = source(
   "src/components/collab/vote-room/vote-round-panel.tsx",
   "src/components/collab/vote-room/host-vote-room.tsx",
   "src/components/collab/vote-room/facilitator-pair.tsx",
-  "src/components/collab/vote-room/facilitator-allocation.tsx"
+  "src/components/collab/vote-room/facilitator-allocation.tsx",
+  "src/components/collab/visitor-room-chip.tsx"
 );
 
 describe("the Prioritize & decide guides describe the pages as they are now", () => {
@@ -232,7 +233,7 @@ describe("the hub and the scoring methods quote their scales", () => {
 });
 
 describe("the survey and vote tools run their rounds as the kit does", () => {
-  const LIVE = ["Run a live round", "Copy link", "Reveal results", "Save round"];
+  const LIVE = ["Run a live round", "Copy link", "Show QR code", "Reveal results", "Save round"];
 
   it.each([...LIVE, "Enter counts instead", "Show totals"])("the kit labels a button %j", (l) => {
     expect(KIT).toContain(l);
@@ -242,13 +243,11 @@ describe("the survey and vote tools run their rounds as the kit does", () => {
     "%s walks through the live round and the count entry",
     (id) => {
       const text = allText(guide(id));
-      for (const label of ["Run a live round", "Reveal results", "Save round"]) {
-        expect(text).toContain(label);
-      }
+      // The link is shared by Copy link or by the room chip's QR code.
+      for (const label of LIVE) expect(text).toContain(label);
       expect(text).toContain("Enter counts instead");
       expect(text).toContain(`once ${MIN_SAMPLE.anonymous} have answered`);
       expect(text).toMatch(/never (anyone's split|who answered)/);
-      expect(text).not.toMatch(/\bQR\b/);
     }
   );
 
