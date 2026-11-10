@@ -6,9 +6,9 @@
  * testable and shareable between the board and its export path.
  */
 
-import type { RetroFormat } from "@/lib/constants/retro-formats";
+import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
 import { retroVotes } from "@/lib/retro/board";
-import { isCustomFormatId, slug } from "@/lib/retro/custom-format";
+import { slug } from "@/lib/retro/custom-format";
 import type { BoardState, RetroCard } from "./types";
 
 export function makeId() {
@@ -147,13 +147,17 @@ export function restoreRemovedCards(
 }
 
 /**
- * The start of an export's file name: "retro-" and the format's id, or for
- * a custom format its name in lower case with dashes ("retro-team-pulse"),
- * not its random id.
+ * The start of an export's file name: "retro-" and a built-in format's id,
+ * or for any other format (a custom one, or the one a live room's
+ * participant draws from the host's columns) its name in lower case with
+ * dashes ("retro-team-pulse"), not its id, so the host and everyone in the
+ * room save the same name. "retro-custom" when the name gives nothing.
  */
 export function retroFileStem(format: Pick<RetroFormat, "id" | "name">): string {
-  if (!isCustomFormatId(format.id)) return `retro-${format.id}`;
-  return `retro-${slug(format.name) || "custom"}`;
+  if (retroFormats.some((f) => f.id === format.id)) return `retro-${format.id}`;
+  const name = slug(format.name);
+  // A room format without a name from the host is called "Retro".
+  return `retro-${name && name !== "retro" ? name : "custom"}`;
 }
 
 export function buildExportJson(state: Pick<BoardState, "format" | "cards" | "votesPerPerson">) {

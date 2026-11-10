@@ -33,7 +33,7 @@ import {
   retroFormats,
   type RetroFormat,
 } from "@/lib/constants/retro-formats";
-import { retroVotes } from "@/lib/retro/board";
+import { isRetroVotes, retroVotes } from "@/lib/retro/board";
 import { readRetro } from "@/lib/share/snapshot-import";
 import { cleanName, cleanText, isWithinJsonSize, shareableText } from "@/lib/realtime/sanitize";
 import { VISITOR_LIMITS, isVisitorMemberId } from "@/lib/realtime/visitor-rooms";
@@ -442,6 +442,8 @@ function flattenGroups(cards: RetroCard[]): RetroCard[] {
  * An in-memory board for a participant (never stored). Cards outside the
  * resolved format's columns are dropped. Timer fields are as of receipt.
  * While cards are hidden the board has none: the hook adds the tab's own.
+ * It keeps the host's Votes each when it is one of the board's choices, so
+ * "Save a copy" stores it with the cards.
  */
 export function boardFromSnapshot(snap: RoomSnapshot): BoardState {
   const format = resolveRoomFormat(snap.formatId, snap.columns, snap.cards, snap.formatName);
@@ -457,5 +459,6 @@ export function boardFromSnapshot(snap: RoomSnapshot): BoardState {
     timerSeconds: snap.timer.remaining,
     timerRunning: snap.timer.running,
     discussingIndex: 0,
+    ...(isRetroVotes(snap.votesPerPerson) ? { votesPerPerson: snap.votesPerPerson } : {}),
   };
 }

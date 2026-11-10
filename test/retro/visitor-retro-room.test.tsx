@@ -551,6 +551,17 @@ describe("VisitorRetroRoom (participant)", () => {
     }
     expect(screen.getByText("8 votes left")).toBeInTheDocument();
     expect(screen.getByText(/Vote on cards \(8 votes each\)/)).toBeInTheDocument();
+
+    // The file is named after the format, as the host's own export is.
+    fireEvent.click(screen.getByRole("button", { name: "Download Markdown" }));
+    const [, filename] = vi.mocked(exportToMarkdown).mock.calls[0];
+    expect(filename).toMatch(/^retro-team-pulse-\d{4}-\d{2}-\d{2}$/);
+    // A copy keeps the columns and the votes each.
+    fireEvent.click(screen.getByRole("button", { name: "Save a copy" }));
+    const [copy] = useWorkspaceStore.getState().retroBoards ?? [];
+    expect(copy.format.name).toBe("Team pulse");
+    expect(copy.format.columns.map((c) => c.label)).toEqual(["Wins", "Worries", "Ideas"]);
+    expect(copy.votesPerPerson).toBe(8);
   });
 
   it("takes my vote back", () => {

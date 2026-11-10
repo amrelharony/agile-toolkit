@@ -49,7 +49,7 @@ import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
 import { useFlash } from "@/hooks/use-flash";
 import { PHASES, phaseDescription, type BoardState } from "../types";
-import { shortText } from "../helpers";
+import { retroFileStem, shortText } from "../helpers";
 import { toMarkdown } from "../markdown";
 import { PhaseIndicator } from "../components/phase-indicator";
 import { TimerWidget } from "../components/timer-widget";
@@ -300,7 +300,11 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
 
   const saveCopy = () => {
     if (!board || board.cards.length === 0) return;
-    const undo = SNAPSHOT_IMPORTERS.retro.importState({ format: board.format, cards: board.cards });
+    const undo = SNAPSHOT_IMPORTERS.retro.importState({
+      format: board.format,
+      cards: board.cards,
+      votesPerPerson: board.votesPerPerson,
+    });
     if (!undo) {
       toast.error("Couldn't save a copy of this board.");
       return;
@@ -319,7 +323,7 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
 
   const downloadMarkdown = () => {
     if (!board || board.cards.length === 0) return;
-    exportToMarkdown(toMarkdown(board), `retro-${board.format.id}-${todayLocalISO()}`);
+    exportToMarkdown(toMarkdown(board), `${retroFileStem(board.format)}-${todayLocalISO()}`);
   };
 
   const hosting = isHost && active;

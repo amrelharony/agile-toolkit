@@ -91,6 +91,9 @@ describe("exports", () => {
     expect(retroFileStem(pulse)).toBe("retro-team-pulse");
     expect(retroFileStem({ id: "custom-x", name: "😀" })).toBe("retro-custom");
     expect(retroFileStem(retroFormats[0])).toBe("retro-start-stop-continue");
+    // A live room's participant draws a custom format under the room's id: same name.
+    expect(retroFileStem({ id: "room", name: "Team pulse" })).toBe("retro-team-pulse");
+    expect(retroFileStem({ id: "room", name: "Retro" })).toBe("retro-custom");
     const json = buildExportJson(customBoard());
     expect(json).toMatchObject({ format: "Team pulse", votesPerPerson: 5 });
     expect(json.columns.map((c) => c.label)).toEqual(["Wins", "Worries", "Ideas"]);

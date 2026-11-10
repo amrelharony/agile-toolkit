@@ -505,6 +505,17 @@ describe("a custom format and its votes each, in the room", () => {
     expect(board.cards.map((c) => c.id)).toEqual(["w1"]);
   });
 
+  it("keeps the host's Votes each on the participant's board when it is a board choice", () => {
+    const read = (votesPerPerson: number) =>
+      boardFromSnapshot(
+        readRoomSnapshot(wire(toRoomSnapshot(customBoard(), meta({ votesPerPerson }))))!
+      );
+    expect(read(8).votesPerPerson).toBe(8);
+    expect(read(5).votesPerPerson).toBe(5);
+    // A budget the board can't hold (the room allows 1 to 20) isn't kept.
+    expect("votesPerPerson" in read(4)).toBe(false);
+  });
+
   it("reads a snapshot without a format name (an earlier build), and refuses an unclean one", () => {
     const sent = wire(toRoomSnapshot(customBoard(), meta())) as RoomSnapshot;
     const { formatName, ...withoutName } = sent;
