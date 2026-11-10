@@ -20,6 +20,7 @@ import { edgeStatus, isOverdue, validEdges } from "@/lib/dependencies/edges";
 import { findCapacityPlan, pointsForecast } from "@/lib/sprints/capacity";
 import { velocity } from "@/lib/sprints/metrics";
 import { carryOver } from "@/lib/sprints/progress";
+import { JIRA_SOURCE_TOOL } from "@/lib/jira/csv-export";
 import { todayIso } from "@/lib/sprints/series";
 import { pickDefaultSprint, sprintHref } from "@/lib/sprints/use-selected-sprint";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
@@ -1321,6 +1322,18 @@ const RULES: Record<string, NextStepRule<object>> = {
             href: sprintHref("/sprint", sprint.id),
           });
         }
+      }
+      // A Jira export often comes without points: size those before planning them in.
+      const unsizedImports = all.filter(
+        (s) => fromTool(s, JIRA_SOURCE_TOOL) && inBacklog(s) && unestimated(s)
+      );
+      if (unsizedImports.length > 0) {
+        steps.push({
+          id: "planning-refine-imported",
+          label: "Refine the stories imported from Jira",
+          detail: `${plural(unsizedImports.length, "story", "stories")} imported from the Jira CSV ${be(unsizedImports.length)} in the backlog with no points. Check them against the Definition of Ready and size them before planning.`,
+          href: "/refinement",
+        });
       }
       return steps;
     },

@@ -124,6 +124,19 @@ describe("cleaning the four fields", () => {
     expect(cleanStoryFields(full)).toBe(full);
   });
 
+  it("caps without cutting a character in half", () => {
+    // "😀" is two UTF-16 units; each of these puts one across the cap.
+    const out = cleanStoryFields(
+      story({
+        notes: `${"n".repeat(STORY_NOTES_MAX - 1)}😀`,
+        ticketKey: `${"k".repeat(STORY_TICKET_KEY_MAX - 1)}😀`,
+      })
+    );
+    expect(out.notes).toBe("n".repeat(STORY_NOTES_MAX - 1));
+    expect(out.ticketKey).toBe("k".repeat(STORY_TICKET_KEY_MAX - 1));
+    expect(JSON.stringify(out)).not.toMatch(/\\ud8/i);
+  });
+
   it("keeps a description that arrived with a story as notes, capped", () => {
     expect(storyNotes("  Refunds within 30 days\r\nNo partial refunds  ")).toBe(
       "Refunds within 30 days\nNo partial refunds"

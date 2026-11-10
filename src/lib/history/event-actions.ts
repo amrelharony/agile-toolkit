@@ -355,6 +355,11 @@ export const SPRINT_PLANNING_ACTIONS = {
   STORIES_IMPORTED: "stories_imported",
   /** A pasted list added as stories, one per line. Payload: `count`, `intoSprint`. */
   STORIES_PASTED: "stories_pasted",
+  /**
+   * A Jira Cloud CSV export imported as backlog stories. Payload: `added`
+   * (new stories), `updated` (stories already here whose points changed).
+   */
+  JIRA_IMPORTED: "jira_imported",
   FILLED_TO_CAPACITY: "filled_to_capacity",
   /** A closed sprint's unfinished stories moved into this sprint. */
   STORIES_CARRIED_OVER: "stories_carried_over",

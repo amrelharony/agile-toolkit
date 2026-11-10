@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowRight,
   ClipboardPaste,
+  FileUp,
   History,
   ListChecks,
   Plus,
@@ -89,6 +90,8 @@ import {
 import { planToMarkdown } from "./markdown";
 import { ImprovementsPanel } from "./improvements";
 import { PasteStories } from "./paste-stories";
+import { JiraImport } from "./jira-import";
+import { jiraImportToast, jiraStories, type JiraImportPreview } from "./jira";
 import { StoryList, focusAfterMove, type FocusTarget } from "./story-list";
 import { placeStory, restoreStories, type PlanningWriter } from "./writer";
 
@@ -390,6 +393,59 @@ export function PlanningBoard({
       count: created.length,
       intoSprint: inSprintNow,
     });
+  };
+
+  /* ── Import from Jira (CSV) ───────────────────────────────────────────── */
+
+  const [jiraOpen, setJiraOpen] = useState(false);
+  const jiraButton = useRef<HTMLButtonElement>(null);
+  const closeJira = () => {
+    setJiraOpen(false);
+    jiraButton.current?.focus();
+  };
+
+  /**
+   * The export's new issues become backlog stories, and the stories already
+   * here (matched by ticket key) take its points, in one write with one
+   * Undo for the lot. Undo removes the new stories and puts each changed
+   * story's points back as they were, leaving anything else done to it since.
+   */
+  const importJira = (preview: JiraImportPreview) => {
+    const created = jiraStories(preview.add, () => `story_${nanoid(8)}`);
+    // Read now: a story the preview matched may have changed or gone since.
+    const stored = new Map(writer.stories().map((s) => [s.id, s]));
+    const changes = preview.update.filter((c) => stored.has(c.storyId));
+    const changed = changes.flatMap((c) => {
+      const story = stored.get(c.storyId);
+      return story ? [{ ...story, points: c.to }] : [];
+    });
+    if (created.length + changed.length === 0) return;
+    const { label, description } = jiraImportToast(created.length, changed.length);
+    undoable({
+      label,
+      description,
+      // One write each way, however long the export.
+      apply: () => writer.upsertStories([...created, ...changed]),
+      revert: () => {
+        if (created.length > 0) writer.removeStories(created.map((s) => s.id));
+        const now = new Map(writer.stories().map((s) => [s.id, s]));
+        const back = changes.flatMap((c) => {
+          const story = now.get(c.storyId);
+          if (!story) return [];
+          const next: Story = { ...story };
+          if (c.from === undefined) delete next.points;
+          else next.points = c.from;
+          return [next];
+        });
+        if (back.length > 0) writer.upsertStories(back);
+      },
+    });
+    log(SPRINT_PLANNING_ACTIONS.JIRA_IMPORTED, {
+      sprintId: sprint.id,
+      added: created.length,
+      updated: changed.length,
+    });
+    closeJira();
   };
 
   const form = useItemForm<StoryDraft, StoryValues, StoryField>({
@@ -831,6 +887,17 @@ export function PlanningBoard({
               <ClipboardPaste className="mr-1 h-4 w-4" aria-hidden="true" />
               Paste stories
             </Button>
+            <Button
+              ref={jiraButton}
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-expanded={jiraOpen}
+              onClick={() => (jiraOpen ? closeJira() : setJiraOpen(true))}
+            >
+              <FileUp className="mr-1 h-4 w-4" aria-hidden="true" />
+              Import from Jira (CSV)
+            </Button>
           </div>
           {pasting && (
             <PasteStories
@@ -840,6 +907,14 @@ export function PlanningBoard({
               sprintName={closed ? undefined : sprint.name}
               onAdd={addPasted}
               onClose={closePaste}
+            />
+          )}
+          {jiraOpen && (
+            <JiraImport
+              stories={stories}
+              storageUsed={writer.storageUsed}
+              onImport={importJira}
+              onClose={closeJira}
             />
           )}
           <div>
