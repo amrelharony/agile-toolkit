@@ -8,7 +8,9 @@
 
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import {
+  CALLER_NAME,
   FIRST_BYTE_TIMEOUT_MS,
+  VISITOR_CALLER_NAME,
   buildUpstreamBody,
   chatCompletionsUrl,
   fetchWithFirstByteTimeout,
@@ -245,6 +247,18 @@ describe("upstreamHeaders", () => {
       const h = upstreamHeaders({ provider, key: "k2" });
       expect(h).toEqual({ "content-type": "application/json", authorization: "Bearer k2" });
     }
+  });
+
+  it("names the visitor route as its own caller, so nginx limits it apart from the owner", () => {
+    expect(VISITOR_CALLER_NAME).not.toBe(CALLER_NAME);
+    expect(upstreamHeaders({ provider: "openclaw", key: "k1" }, VISITOR_CALLER_NAME)).toEqual({
+      "content-type": "application/json",
+      authorization: "Bearer k1",
+      "X-Caller": "agile-toolkit-visitor",
+    });
+    expect(upstreamHeaders({ provider: "zai", key: "k2" }, VISITOR_CALLER_NAME)).not.toHaveProperty(
+      "X-Caller"
+    );
   });
 });
 

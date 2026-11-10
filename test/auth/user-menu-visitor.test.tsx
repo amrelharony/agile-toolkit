@@ -71,7 +71,9 @@ describe("UserMenu for visitors", () => {
     render(<UserMenu />);
     openMenu("Visitor menu");
 
-    expect(screen.getByText(/Your work stays in this browser/)).toBeInTheDocument();
+    // Not "stays in this browser": a live room or a chat with Amr's AI sends text out.
+    expect(screen.getByText(/Your work is saved only in this browser/)).toBeInTheDocument();
+    expect(screen.queryByText(/stays in this browser/)).not.toBeInTheDocument();
     expect(screen.getByText("AI settings (bring your own key)")).toBeInTheDocument();
     expect(screen.getByText("Appearance")).toBeInTheDocument();
     expect(screen.getByText("My history")).toBeInTheDocument();
@@ -135,7 +137,7 @@ describe("UserMenu while the owner check is unanswered", () => {
     openMenu("Account menu");
 
     expect(screen.getByText(/Checking owner access/)).toBeInTheDocument();
-    expect(screen.queryByText(/Your work stays in this browser/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Your work is saved only in this browser/)).not.toBeInTheDocument();
     expect(screen.queryByText("Sign in to sync")).not.toBeInTheDocument();
     expect(screen.queryByText("Owner sign in")).not.toBeInTheDocument();
 

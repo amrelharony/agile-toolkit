@@ -7,8 +7,12 @@
  *   • shifts mood to the reply's sentiment when the turn ends (and beams at a
  *     warm reply),
  *   • nods on a successful tool result, head-shakes on a tool error,
- *   • looks concerned when the turn fails or the rate limit is reached,
+ *   • looks concerned when the turn fails or a limit is reached (the owner's
+ *     rate limit, or a visitor's daily allowance / the visitor AI's fallback),
  *   • bows when he's thanked.
+ *
+ * A reply and a thank-you also move his mood. The owner's are counted in what he
+ * remembers between visits; a visitor's are not (see feelChat).
  *
  * Pure UI glue — the sentiment scoring it relies on is unit-tested separately
  * (sentiment.ts). Call once from the mascot assistant.
@@ -16,7 +20,7 @@
 
 import { useEffect, useRef } from "react";
 import { useAgentStore } from "@/lib/agent/store";
-import { feel } from "./mind";
+import { feel, getMind } from "./mind";
 import { useMascotStore } from "./store";
 import { analyzeSentiment } from "./sentiment";
 
@@ -24,6 +28,15 @@ import { analyzeSentiment } from "./sentiment";
 const WARM_REPLY = 0.75;
 /** A message that thanks him. */
 const THANKS = /\b(thanks|thank you|thx|ty|cheers|shukran)\b/i;
+
+/**
+ * A chat moment moves his mood. The owner's is also counted in what he remembers.
+ * A visitor's AI chat says "Not saved", so it leaves no count in this browser.
+ */
+function feelChat(event: "chatted" | "thanked"): void {
+  if (useAgentStore.getState().chatProfile === "visitor") getMind().brain.note(event);
+  else feel(event);
+}
 
 /** Whether a chat message thanks Amr. */
 export function isThanks(text: string): boolean {
@@ -34,7 +47,10 @@ export function useMascotChatReactions(): void {
   const streaming = useAgentStore((s) => s.streaming);
   const messages = useAgentStore((s) => s.messages);
   const error = useAgentStore((s) => s.error);
-  const limited = useAgentStore((s) => s.rateLimit?.limited === true);
+  const limited = useAgentStore(
+    (s) =>
+      s.rateLimit?.limited === true || s.visitorFallback !== null || s.visitorQuota?.remaining === 0
+  );
   const wasStreaming = useRef(false);
   const toolCount = useRef(0);
   const userCount = useRef(0);
@@ -53,7 +69,7 @@ export function useMascotChatReactions(): void {
         .map((c) => (c.type === "text" ? c.text : ""))
         .join("");
       if (text.trim()) {
-        feel("chatted");
+        feelChat("chatted");
         const s = analyzeSentiment(text);
         // Dampen the reply's valence swing (the source uses ×0.3) so the mascot
         // drifts mood gently rather than lurching message to message.
@@ -94,7 +110,7 @@ export function useMascotChatReactions(): void {
         .map((c) => (c.type === "text" ? c.text : ""))
         .join("");
       if (isThanks(text)) {
-        feel("thanked");
+        feelChat("thanked");
         useMascotStore.getState().queueReaction("bow");
       }
     }

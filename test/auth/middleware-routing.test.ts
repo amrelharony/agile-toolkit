@@ -406,6 +406,7 @@ describe("bypass paths", () => {
     "/api/mcp",
     "/api/mcp/x",
     "/api/agent/stream",
+    "/api/agent/visitor",
     "/api/guest/redeem",
     "/api/comics/hit",
     "/api/comics/licence",
@@ -444,6 +445,10 @@ describe("bypass paths", () => {
     "/api/comics/stats/x",
     "/api/mascot/weather/x",
     "/api/mascot",
+    // Amr's AI for visitors is one exact path, never a prefix.
+    "/api/agent/visitor/x",
+    "/api/agent/visitors",
+    "/api/agent",
   ]) {
     it(`${path} is checked like any other API route`, async () => {
       signedInAs(STRANGER);

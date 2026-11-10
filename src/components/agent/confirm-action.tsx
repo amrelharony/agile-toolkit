@@ -14,8 +14,11 @@ import { useAgentStore } from "@/lib/agent/store";
  * which made concurrent confirmations race). Approve-all flips the
  * `autoApprove` flag for the rest of this session (BUG-G1: cleared
  * on sheet close).
+ *
+ * `allowApproveAll={false}` (the visitor chat) leaves Approve all out: a
+ * visitor approves every change one at a time.
  */
-export function ConfirmAction() {
+export function ConfirmAction({ allowApproveAll = true }: { allowApproveAll?: boolean } = {}) {
   const pending = useAgentStore((s) => s.pendingToolUse);
   const setAutoApprove = useAgentStore((s) => s.setAutoApprove);
 
@@ -46,16 +49,18 @@ export function ConfirmAction() {
           <Check className="w-3.5 h-3.5" aria-hidden="true" />
           Approve
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            setAutoApprove(true);
-            pending.resolve(true);
-          }}
-        >
-          Approve all this session
-        </Button>
+        {allowApproveAll && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setAutoApprove(true);
+              pending.resolve(true);
+            }}
+          >
+            Approve all this session
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"

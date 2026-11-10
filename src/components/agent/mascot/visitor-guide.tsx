@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode, type Ref } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowRight, KeyRound, Search } from "lucide-react";
+import { ArrowRight, KeyRound, MessageCircle, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getToolById, getToolByPath } from "@/lib/constants/tools";
@@ -46,8 +46,29 @@ function useToolGuide(toolId: string | undefined): ToolGuide | null {
  * to run the current tool's method (its guide), and the bring-your-own-key AI
  * settings that power every tool's built-in prompts. It makes no network
  * requests.
+ *
+ * With visitor AI on, VisitorPanel passes `onAskAmr`: the guide then offers to
+ * hand the search to Amr's AI ("Ask Amr about '…'", under the results and when
+ * nothing matches) and a "Chat with Amr" link. Those only call back; the guide
+ * itself still sends nothing.
  */
-export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
+export function VisitorGuide({
+  onNavigate,
+  onAskAmr,
+  guideRef,
+  note,
+}: {
+  onNavigate?: () => void;
+  /** Ask Amr's AI instead (visitor AI on); `query` may be empty. */
+  onAskAmr?: (query: string) => void;
+  /** The guide's wrapper, so VisitorPanel can move focus to it. */
+  guideRef?: Ref<HTMLDivElement>;
+  /**
+   * Shown above the search, inside the guide's own scroll area: in a short
+   * panel it scrolls away with the guide and takes no height from it.
+   */
+  note?: ReactNode;
+}) {
   const pathname = usePathname();
   const vip = useVipHint();
   const onPath = pathname ? getToolByPath(pathname) : undefined;
@@ -74,10 +95,16 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   return (
+    // Focusable from code only (tabIndex -1): coming back from the consent
+    // card or the chat, focus lands here, not on the search box, which would
+    // open a phone's keyboard.
     <div
+      ref={guideRef}
+      tabIndex={-1}
       data-testid="mascot-visitor-guide"
-      className="flex h-full flex-col gap-4 overflow-y-auto px-4 py-3"
+      className="flex h-full flex-col gap-4 overflow-y-auto px-4 py-3 focus:outline-none"
     >
+      {note}
       {/* The search comes first. A phone shows about 360 px of this panel, and
           the current tool's "How to run it" list alone is longer than that, so
           the search used to sit two to four screens down. Results show right
@@ -103,23 +130,29 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
         </div>
         {trimmed &&
           (results.length > 0 ? (
-            <ul className="flex flex-col gap-1" aria-label="Matching tools">
-              {results.map((tool) => (
-                <li key={tool.id}>
-                  <ToolLink
-                    href={tool.path}
-                    title={tool.name}
-                    subtitle={tool.description}
-                    onNavigate={chose}
-                  />
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="flex flex-col gap-1" aria-label="Matching tools">
+                {results.map((tool) => (
+                  <li key={tool.id}>
+                    <ToolLink
+                      href={tool.path}
+                      title={tool.name}
+                      subtitle={tool.description}
+                      onNavigate={chose}
+                    />
+                  </li>
+                ))}
+              </ul>
+              {onAskAmr && <AskAmrButton query={trimmed} onAskAmr={onAskAmr} />}
+            </>
           ) : (
-            <p className="text-sm text-sub" role="status">
-              No tools match “{trimmed}”. Try a task like “retro” or “estimate”, or a method like
-              “OKR” or “WSJF”.
-            </p>
+            <>
+              <p className="text-sm text-sub" role="status">
+                No tools match “{trimmed}”. Try a task like “retro” or “estimate”, or a method like
+                “OKR” or “WSJF”.
+              </p>
+              {onAskAmr && <AskAmrButton query={trimmed} onAskAmr={onAskAmr} />}
+            </>
           ))}
       </section>
 
@@ -174,6 +207,16 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
       )}
 
       <section className="mt-auto flex flex-col gap-2 border-t border-border pt-3">
+        {onAskAmr && (
+          <button
+            type="button"
+            onClick={() => onAskAmr("")}
+            className="min-touch-coarse flex items-center gap-1.5 self-start text-sm font-medium text-accent underline-offset-2 hover:underline"
+          >
+            <MessageCircle className="h-4 w-4" aria-hidden="true" />
+            Chat with Amr
+          </button>
+        )}
         <p className="text-xs text-sub">
           Each tool&apos;s AI prompts can run with your own API key. The key stays in this browser.
         </p>
@@ -201,6 +244,25 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </section>
     </div>
+  );
+}
+
+/** Hand the visitor's search to Amr's AI. */
+function AskAmrButton({ query, onAskAmr }: { query: string; onAskAmr: (query: string) => void }) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      // The label holds up to 40 characters of the search, wider than the
+      // panel on one line: it wraps inside the button instead. Size "sm"
+      // still gives it 44 px on touch.
+      className="h-auto max-w-full self-start whitespace-normal py-1.5 text-left [overflow-wrap:anywhere] md-fine:h-auto"
+      onClick={() => onAskAmr(query)}
+    >
+      <MessageCircle aria-hidden="true" />
+      Ask Amr about “{query.length > 40 ? `${query.slice(0, 39)}…` : query}”
+    </Button>
   );
 }
 

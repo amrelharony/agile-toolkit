@@ -9,7 +9,8 @@
  *   1. OpenClaw, the owner's own gateway (OPENCLAW_API_KEY). It holds the GLM
  *      key on the VPS and maps `openclaw` → GLM-5.3, `openclaw-flash` →
  *      GLM-5.3-Flash. Requests carry `X-Caller: agile-toolkit` so nginx can
- *      give the toolkit its own rate-limit zone.
+ *      give the toolkit its own rate-limit zone (the visitor route's say
+ *      `agile-toolkit-visitor`, so visitors get a bucket of their own).
  *   2. A direct Zhipu key (GLM_API_KEY) on open.bigmodel.cn.
  *   3. A direct Z.AI key (ZAI_API_KEY) on api.z.ai. The two keys are not
  *      interchangeable: a bigmodel key 401s on api.z.ai and the other way round.
@@ -41,6 +42,12 @@ export const VISITOR_DEFAULT_MODEL = "openclaw-flash";
 /** Sent on every OpenClaw request so the gateway's nginx can tell the toolkit apart. */
 export const CALLER_HEADER = "X-Caller";
 export const CALLER_NAME = "agile-toolkit";
+/**
+ * The visitor route's X-Caller: its own value, so nginx keeps visitors in a
+ * rate-limit bucket of their own and a burst of visitor traffic can never use
+ * up the owner's (RUNBOOK.md, "Visitor AI").
+ */
+export const VISITOR_CALLER_NAME = "agile-toolkit-visitor";
 
 /**
  * No response headers within this long ⇒ give up with a 504. Vercel Edge
@@ -140,15 +147,20 @@ export function resolveVisitorBackend(e: Env = process.env): UpstreamBackend | n
   };
 }
 
-/** Request headers for a backend: JSON, the bearer key, and X-Caller for OpenClaw. */
+/**
+ * Request headers for a backend: JSON, the bearer key, and X-Caller for
+ * OpenClaw (`caller`: CALLER_NAME for the owner, VISITOR_CALLER_NAME for the
+ * visitor route).
+ */
 export function upstreamHeaders(
-  b: Pick<UpstreamBackend, "provider" | "key">
+  b: Pick<UpstreamBackend, "provider" | "key">,
+  caller: string = CALLER_NAME
 ): Record<string, string> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     authorization: `Bearer ${b.key}`,
   };
-  if (b.provider === "openclaw") headers[CALLER_HEADER] = CALLER_NAME;
+  if (b.provider === "openclaw") headers[CALLER_HEADER] = caller;
   return headers;
 }
 

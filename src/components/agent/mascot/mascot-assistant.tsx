@@ -20,11 +20,17 @@
  * On touch screens he steps aside (up, or to the other side) when his figure
  * would sit on one of the page's controls (mascot-nudge.ts).
  *
- * The agent itself is owner-only. Visitors keep the mascot (clicks, Konami,
+ * The owner's agent is owner-only. Visitors keep the mascot (clicks, Konami,
  * Cmd/Ctrl+J) but the panel shows <VisitorGuide/> — a tool finder — instead
- * of the chat, so their panel never touches /api/agent/* or the agent tables
- * in Supabase. The chat (and the action registry it needs) is a separate
- * dynamic chunk, owner-agent-panel, so visitors never download it either.
+ * of the chat, so their panel never touches /api/agent/stream or the agent
+ * tables in Supabase. The chat (and the action registry it needs) is a
+ * separate dynamic chunk, owner-agent-panel, so visitors never download it
+ * either.
+ *
+ * With visitor AI on (visitorAiEnabled), a confirmed visitor gets
+ * <VisitorPanel/> instead: the same guide first, then, after a consent card,
+ * Amr's AI through /api/agent/visitor (its own chunks, loaded on demand). An
+ * unverified owner session (owner check unanswered) keeps the plain guide.
  */
 
 import {
@@ -42,6 +48,7 @@ import { X, Plus, History, Sparkles, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { visitorAiEnabled } from "@/lib/visitor-ai/contract";
 import { did, feel, getMind, recentlyDid } from "@/lib/agent/mascot/mind";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
@@ -63,6 +70,7 @@ import { inviteMotion } from "./motion-invite";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./engine/sprite-poses";
 import { VisitorGuide } from "./visitor-guide";
+import { VisitorPanel } from "./visitor-panel";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import {
   HOME,
@@ -610,7 +618,9 @@ export function MascotAssistant() {
   const [showHistory, setShowHistory] = useState(false);
   // `settled` keeps the owner from seeing the visitor notice flash while
   // auth is still loading; no chat component mounts until it's settled.
-  const { isOwner, settled } = useOwnerState();
+  const { isOwner, settled, visitor } = useOwnerState();
+  // Amr's AI for visitors: a confirmed visitor only, and only in a build that has it on.
+  const visitorAi = visitor && visitorAiEnabled();
   const isPhone = useIsPhone();
   // Touch screens of any width (a landscape phone, a tablet): his figure there is
   // where a finger lands, so he steps aside for the page's controls.
@@ -630,10 +640,19 @@ export function MascotAssistant() {
 
   // Owner signed out mid-session: drop the conversation from memory. (The
   // chat panel unmounts at the same moment, which aborts any in-flight turn.)
+  // The other way round, a visitor's chat (memory only) never carries over
+  // into the owner's: it goes, with the visitor's allowance, when they turn
+  // out to be the owner (the visitor panel unmounting stops its turn).
   const wasOwnerRef = useRef(false);
   useEffect(() => {
     if (isOwner) {
       wasOwnerRef.current = true;
+      const agent = useAgentStore.getState();
+      if (agent.chatProfile === "visitor") {
+        agent.reset();
+        agent.setChatProfile("owner");
+        agent.setVisitorQuota(null);
+      }
       return;
     }
     if (!wasOwnerRef.current) return;
@@ -1008,7 +1027,11 @@ export function MascotAssistant() {
             <div>
               <p className="text-sm font-semibold text-text">✦ Amr</p>
               <p className="text-xs text-sub">
-                {isOwner ? "Drive every tool" : "Find the right tool"}
+                {isOwner
+                  ? "Drive every tool"
+                  : visitorAi
+                    ? "Find a tool or ask"
+                    : "Find the right tool"}
                 {/* A keyboard shortcut means nothing on a touch screen. */}
                 <span className="pointer-coarse:hidden"> · Cmd/Ctrl+J</span>
               </p>
@@ -1072,7 +1095,12 @@ export function MascotAssistant() {
           </div>
           {!isOwner ? (
             <div className="min-h-0 flex-1" aria-busy={!settled}>
-              {settled && <VisitorGuide onNavigate={closeSheet} />}
+              {settled &&
+                (visitorAi ? (
+                  <VisitorPanel onNavigate={closeSheet} />
+                ) : (
+                  <VisitorGuide onNavigate={closeSheet} />
+                ))}
             </div>
           ) : (
             <OwnerAgentPanel
