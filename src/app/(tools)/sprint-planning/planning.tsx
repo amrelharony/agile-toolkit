@@ -11,7 +11,15 @@ import { nextSprintName } from "@/components/sprints/sprint-picker";
 import { NewSprintDialog } from "@/components/sprints/new-sprint-dialog";
 import { LoadingSprints } from "@/components/sprints/start";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { BacklogItem, CapacityPlan, Sprint, Story } from "@/lib/stores/workspace-types";
+import type {
+  BacklogItem,
+  CapacityPlan,
+  Impediment,
+  RetroBoard,
+  Sprint,
+  Story,
+} from "@/lib/stores/workspace-types";
+import { isExampleId } from "@/lib/utils/example-id";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
@@ -27,12 +35,15 @@ export const TOOL_ID = "sprint-planning";
 const NO_STORIES: Story[] = [];
 const NO_ITEMS: BacklogItem[] = [];
 const NO_PLANS: CapacityPlan[] = [];
+const NO_BOARDS: RetroBoard[] = [];
+const NO_IMPEDIMENTS: Impediment[] = [];
 const noLog = () => {};
 
 /**
  * Sprint Planning: one page, top to bottom — the sprint, the team's
  * capacity and recent velocity, the goal, the stories (from the backlog,
- * left over from the last sprint, or typed), then the commitment.
+ * left over from the last sprint, from the last retro's actions and the
+ * open impediments, or typed), then the commitment.
  * Everything it writes goes to the shared sprint and stories, so the
  * cockpit, Burndown and the agent see the same plan. With no sprint yet it
  * offers to create one, or to look around an example plan held in memory.
@@ -43,6 +54,16 @@ export function SprintPlanning() {
   const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
   const backlogItems = useWorkspaceStore((s) => s.backlogItems) ?? NO_ITEMS;
   const capacityPlans = useWorkspaceStore((s) => s.capacityPlans) ?? NO_PLANS;
+  // What the last retro and the impediments log leave to plan in. The Flow
+  // board is read for actions sent there (a card in Done closes its action).
+  const retroBoards = useWorkspaceStore((s) => s.retroBoards) ?? NO_BOARDS;
+  const allImpediments = useWorkspaceStore((s) => s.impediments) ?? NO_IMPEDIMENTS;
+  const kanbanBoards = useWorkspaceStore((s) => s.kanbanBoards);
+  // An example loaded into Impediments is not the team's to plan.
+  const impediments = useMemo(
+    () => allImpediments.filter((i) => !isExampleId(i.id)),
+    [allImpediments]
+  );
   const [cadence] = useCeremonyCadence();
   // "A normal sprint" for the capacity forecast: the team's usual length.
   const usualDays = useMemo(() => usualSprintDays(cadence), [cadence]);
@@ -114,7 +135,17 @@ export function SprintPlanning() {
       <PlanningBoard
         // A typed target belongs to one sprint: switching starts afresh.
         key={selected.id}
-        data={{ sprints, sprint: selected, stories, backlogItems, capacityPlans, usualDays }}
+        data={{
+          sprints,
+          sprint: selected,
+          stories,
+          backlogItems,
+          capacityPlans,
+          usualDays,
+          retroBoards,
+          impediments,
+          kanbanBoards,
+        }}
         writer={liveWriter}
         onSelect={select}
         onNewSprint={() => setCreating(true)}
@@ -146,6 +177,7 @@ function ExamplePlan({
   const writer = useMemo(() => exampleWriter(store), [store]);
   const rawSprints = useStore(store, (s) => s.sprints);
   const stories = useStore(store, (s) => s.stories);
+  const retroBoards = useStore(store, (s) => s.retroBoards);
   const sprints = useMemo(() => sprintsNewestFirst(rawSprints), [rawSprints]);
   const [selectedId, setSelectedId] = useState(example.planning.id);
   const sprint = sprints.find((s) => s.id === selectedId) ?? sprints[0];
@@ -165,6 +197,8 @@ function ExamplePlan({
           backlogItems: NO_ITEMS,
           capacityPlans: example.capacityPlans,
           usualDays,
+          retroBoards,
+          impediments: example.impediments,
         }}
         writer={writer}
         example

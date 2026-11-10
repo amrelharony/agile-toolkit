@@ -61,7 +61,7 @@ import {
 } from "../helpers";
 import { factLines } from "../facts-text";
 import { kudosCards, kudosOnBoard, type SprintKudos } from "../kudos";
-import { THEME_MIN_CARDS, keywordThemes, themeCardCount, themesForPrompt } from "../themes";
+import { THEME_MIN_CARDS, boardThemes, themeCardCount, themesForPrompt } from "../themes";
 import { useBoardFacts } from "../use-board-facts";
 import { retroVerdict } from "../verdict";
 import { PhaseIndicator } from "./phase-indicator";
@@ -540,10 +540,7 @@ export function Board({
   // Only from THEME_MIN_CARDS cards (a group counts once): on a small board
   // every shared word is a coincidence.
   const themeCards = useMemo(() => themeCardCount(state.cards), [state.cards]);
-  const themes = useMemo(
-    () => (enoughData(themeCards, THEME_MIN_CARDS) ? keywordThemes(state.cards) : []),
-    [state.cards, themeCards]
-  );
+  const themes = useMemo(() => boardThemes(state.cards), [state.cards]);
   const [highlight, setHighlight] = useState<string | null>(null);
   const highlighted = themes.find((t) => t.keyword === highlight) ?? null;
   const highlightIds = useMemo(

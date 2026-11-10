@@ -2382,7 +2382,7 @@ export interface RetroCard {
   isActionItem: boolean;
   assignee: string;
   discussing: boolean;
-  /** Where this action was sent (an impediment, a Kanban card). */
+  /** Where this action was sent (an impediment, a Kanban card, a story). */
   sentTo?: HandoffLink[];
   /** Id of the previous retro's card this action was carried over from. */
   carriedFrom?: string;

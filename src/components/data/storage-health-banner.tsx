@@ -1,11 +1,9 @@
 "use client";
 
-import { saveAs } from "file-saver";
 import { AlertTriangle, Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStorageHealth } from "@/lib/stores/storage-health";
-import { backupFilename, collectBackup, serializeBackup } from "@/lib/data/backup";
-import { recordBackup } from "@/lib/data/backup-meta";
+import { downloadBackup } from "@/lib/data/download-backup";
 
 /**
  * Shown when the browser stops saving (storage full or blocked). The work
@@ -22,9 +20,7 @@ export function StorageHealthBanner() {
   if (!writeFailed || dismissed) return null;
 
   const download = () => {
-    const blob = new Blob([serializeBackup(collectBackup())], { type: "application/json" });
-    saveAs(blob, backupFilename());
-    recordBackup();
+    downloadBackup();
   };
 
   return (

@@ -1496,6 +1496,12 @@ describe("the cockpit page", () => {
       movedTo: "s3",
     });
 
+    // The dialog ends on its finished step instead of closing; Done shuts it.
+    const closedStep = screen.getByRole("dialog", { name: "Sprint 2 is closed" });
+    expect(closedStep).toHaveTextContent("13 points done of 30 committed.");
+    fireEvent.click(within(closedStep).getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
     // The cockpit stays on the closed sprint and reads what was recorded,
     // not the board its unfinished stories just left (13 of 13 "done").
     expect(container.querySelector("[data-cockpit-verdict]")).toHaveTextContent(
@@ -1520,6 +1526,31 @@ describe("the cockpit page", () => {
         .stories.filter((s) => s.sprintId === "s2")
         .map((s) => s.id)
     ).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  it("asks the goal question as the sprint closes, and one Undo takes back the close and the answer", () => {
+    seed({ sprintGoals: [] });
+    render(<SprintCockpit />);
+    fireEvent.click(screen.getByRole("button", { name: "Close sprint" }));
+    const dlg = screen.getByRole("dialog");
+    fireEvent.click(within(dlg).getByRole("radio", { name: "Decide later in Sprint Planning" }));
+    fireEvent.click(within(dlg).getByRole("button", { name: "Close sprint" }));
+
+    const step = screen.getByRole("dialog", { name: "Sprint 2 is closed" });
+    expect(step).toHaveTextContent("“Checkout works end to end”");
+    fireEvent.click(within(step).getByRole("radio", { name: "Partly met" }));
+    fireEvent.click(within(step).getByRole("button", { name: "Save answer and close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    const answer = () => state().sprintGoals?.find((g) => g.sprintId === "s2")?.outcome;
+    expect(answer()).toMatchObject({ met: "partly" });
+    // Still the close's own toast, and no other.
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+    expect(lastUndo().label).toBe("Closed Sprint 2 with 13 points done");
+
+    lastUndo().undo();
+    expect(state().sprints.find((s) => s.id === "s2")).toEqual(S2);
+    expect(answer()).toBeUndefined();
   });
 
   it("shows the example in memory only, with the notice and a way out", () => {

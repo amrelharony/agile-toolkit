@@ -360,6 +360,11 @@ export const SPRINT_PLANNING_ACTIONS = {
   STORIES_CARRIED_OVER: "stories_carried_over",
   /** A closed sprint's unfinished stories sent back to the backlog. */
   STORIES_RETURNED: "stories_returned",
+  /**
+   * A retro action or an open impediment added to the sprint as a story.
+   * Payload: `storyId`, `from` ("retro" or "impediments"), `sourceId`.
+   */
+  IMPROVEMENT_ADDED: "improvement_added",
   SPRINT_COMMITTED: "sprint_committed", // milestone
 } as const;
 

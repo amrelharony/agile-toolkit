@@ -10,7 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { RetroBoard, Sprint } from "@/lib/stores/workspace-types";
+import type { KanbanBoard, RetroBoard, RetroCard, Sprint } from "@/lib/stores/workspace-types";
 import { blankRetroBoard } from "@/lib/retro/board";
 import { retroFormats } from "@/lib/constants/retro-formats";
 
@@ -122,6 +122,56 @@ describe("tool.retro", () => {
       burndown: { shape: "late" },
     });
   });
+
+  it("list_state's follow-through counts an action its story, impediment or Flow card closed", async () => {
+    const action = (id: string, sentTo: NonNullable<RetroCard["sentTo"]>): RetroCard => ({
+      id,
+      columnKey: "start",
+      text: id,
+      votes: 0,
+      groupedWith: null,
+      isActionItem: true,
+      assignee: "",
+      discussing: false,
+      sentTo,
+    });
+    const previous: RetroBoard = {
+      ...blankRetroBoard(retroFormats[0]),
+      id: "retro:2026-10-09",
+      archivedAt: "2026-10-09T15:00:00Z",
+      cards: [
+        action("by-story", [{ route: "backlog-story", targetId: "st1", at: "2026-10-09" }]),
+        action("by-impediment", [{ route: "impediment", targetId: "imp1", at: "2026-10-09" }]),
+        action("by-card", [{ route: "kanban", targetId: "k1", at: "2026-10-09" }]),
+        action("open", []),
+      ],
+    };
+    useWorkspaceStore.setState({
+      retroBoards: [previous, { ...blankRetroBoard(retroFormats[0]), sprintId: "s1" }],
+      stories: [{ id: "st1", title: "by-story", status: "done", sprintId: "s1" }],
+      impediments: [
+        {
+          id: "imp1",
+          title: "VPN",
+          severity: "high",
+          raisedAt: "2026-10-09",
+          resolvedAt: "2026-10-12",
+        },
+      ],
+      kanbanBoards: [
+        {
+          id: "kanban:flow",
+          name: "Flow",
+          cards: [{ id: "k1", title: "by-card", column: "done" }],
+        } as unknown as KanbanBoard,
+      ],
+    });
+    const r = await call<{ facts: { followThrough: { agreed: number; done: number } } }>(
+      "tool.retro.list_state"
+    );
+    // As the Retro page reads it: done by a finished target, not only by a tick.
+    expect(r.facts.followThrough).toMatchObject({ agreed: 4, done: 3 });
+  });
 });
 
 describe("tool.retro_actions", () => {
@@ -200,6 +250,44 @@ describe("tool.retro_actions", () => {
     }>("tool.retro_actions.list");
     expect(r).toMatchObject({ done: 1, open: 1 });
     expect(r.followThrough).toEqual([expect.objectContaining({ agreed: 2, done: 1, rate: 0.5 })]);
+  });
+
+  it("list counts an action done when the story it became is done, and open again once that story is deleted", async () => {
+    const action = {
+      id: "a1",
+      columnKey: "start",
+      text: "Pair on deploys",
+      votes: 0,
+      groupedWith: null,
+      isActionItem: true,
+      assignee: "",
+      discussing: false,
+      sentTo: [{ route: "backlog-story" as const, targetId: "st1", at: "2026-10-09" }],
+    };
+    useWorkspaceStore.setState({
+      retroBoards: [archived([action])],
+      stories: [{ id: "st1", title: "Pair on deploys", status: "in_progress", sprintId: "s1" }],
+    });
+    type Listing = {
+      done: number;
+      open: number;
+      actions: { id: string; done: boolean; closedByTarget: boolean }[];
+    };
+    const open = await call<Listing>("tool.retro_actions.list");
+    expect(open).toMatchObject({ done: 0, open: 1 });
+
+    useWorkspaceStore.setState({
+      stories: [{ id: "st1", title: "Pair on deploys", status: "done", sprintId: "s1" }],
+    });
+    const done = await call<Listing>("tool.retro_actions.list");
+    expect(done).toMatchObject({ done: 1, open: 0 });
+    expect(done.actions[0]).toMatchObject({ id: "a1", done: true, closedByTarget: true });
+
+    // The story is deleted: its link stops counting.
+    useWorkspaceStore.setState({ stories: [] });
+    const reopened = await call<Listing>("tool.retro_actions.list");
+    expect(reopened).toMatchObject({ done: 0, open: 1 });
+    expect(reopened.actions[0]).toMatchObject({ done: false, closedByTarget: false });
   });
 });
 

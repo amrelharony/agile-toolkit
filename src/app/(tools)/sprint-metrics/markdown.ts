@@ -1,7 +1,13 @@
 import { SAY_DO_GRADE_LABEL } from "@/lib/sprints/metrics";
 import { fmt } from "@/lib/charts/chart-text";
 import type { SprintTrendSummary } from "@/lib/sprints/trends";
-import { carryOverText, scopeText, sourcesText } from "./view";
+import {
+  carryOverText,
+  followThroughText,
+  scopeText,
+  sourcesText,
+  type FollowThroughRead,
+} from "./view";
 
 /** "19 Oct 2026" */
 function mdDate(d: Date): string {
@@ -18,12 +24,17 @@ function cell(v: unknown): string {
 
 /**
  * The cross-sprint trend as Markdown, for a retro page or a quarterly
- * review: the verdict, the window's averages, then one row per finished
+ * review: the verdict, the window's averages (with the retros'
+ * follow-through beside say/do, when given), then one row per finished
  * sprint with where its carry-over and scope numbers came from.
  */
 export function toMarkdown(
   summary: SprintTrendSummary,
-  { verdict, now = new Date() }: { verdict?: string | null; now?: Date } = {}
+  {
+    verdict,
+    now = new Date(),
+    followThrough,
+  }: { verdict?: string | null; now?: Date; followThrough?: FollowThroughRead } = {}
 ): string {
   const title = `# Sprint trends — ${mdDate(now)}`;
   if (summary.rows.length === 0) {
@@ -52,6 +63,7 @@ export function toMarkdown(
         : "not enough sprints say yet"
     }`,
     `- **Scope churn:** ${churn.meanPct !== null ? `${churn.meanPct}% of the commitment` : "not enough sprints record it yet"}`,
+    ...(followThrough ? [`- **Retro follow-through:** ${followThroughText(followThrough)}`] : []),
     "",
     "## Sprints",
     "",

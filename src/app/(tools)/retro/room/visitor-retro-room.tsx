@@ -41,6 +41,7 @@ import { toast } from "@/lib/utils/toast";
 import { useFlash } from "@/hooks/use-flash";
 import { MAX_VOTES, PHASES } from "../types";
 import { toMarkdown } from "../markdown";
+import { boardThemes } from "../themes";
 import { PhaseIndicator } from "../components/phase-indicator";
 import { TimerWidget } from "../components/timer-widget";
 import { MEMBER_CARD_CAP } from "./protocol";
@@ -240,7 +241,11 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
 
   const downloadMarkdown = () => {
     if (!board || board.cards.length === 0) return;
-    exportToMarkdown(toMarkdown(board), `retro-${board.format.id}-${todayLocalISO()}`);
+    // The board's summary with its common words, as the Retro page exports it.
+    exportToMarkdown(
+      toMarkdown(board, new Date(), { themes: boardThemes(board.cards) }),
+      `retro-${board.format.id}-${todayLocalISO()}`
+    );
   };
 
   const hosting = isHost && active;

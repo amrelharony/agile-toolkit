@@ -16,7 +16,7 @@ export const GUIDES: ToolGuide[] = [
       "Tick the box when an action is done; Undo in the toast takes it back. The row stays put until you change the filter. Click the Done date under it to change the day it was done (today or earlier).",
       "Click an action's text to reword it, or its owner (No owner when nobody has it) to change who has it. Enter saves, Escape cancels. The due date saves when you leave the field, and the bin deletes the action, with Undo.",
       "Use Show (Open, Overdue, Done, All) and Filter by owner to see one person's actions, or No owner for the ones nobody has taken.",
-      "On a past retro's open action, Carry over copies it onto the current retro. Send to… raises it as an Impediment or a Kanban card; once that is resolved or reaches Done, the action counts as done.",
+      "On a past retro's open action, Carry over copies it onto the current retro. Send to… raises it as an Impediment, a Kanban card or a Backlog story (Sprint Planning can add it to a sprint); once that is resolved, reaches Done or is done, the action counts as done.",
       "Follow-through per retro shows how many of each past retro's actions were done, carried over or left open; View as table lists the numbers. Export copies or downloads it all as Markdown, or the actions as a CSV file.",
     ],
     tips: [
@@ -38,10 +38,10 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "With no sprint yet, follow Set up your sprint: add your team, create the sprint and check the ceremony times. Or click See an example first.",
-      "Read the sentence under the sprint header, then the five ceremony cards. Each says where that ceremony stands and links to the tool that runs it.",
+      "Read the sentence under the sprint header and any notes under it (a goal still unanswered, how many retro actions are in the sprint), then the five ceremony cards. Each says where that ceremony stands and links to the tool that runs it.",
       "Done, Remaining and the Burndown come from the sprint board when its stories have points. Without pointed stories, type the points in Points left today under Burndown and click Log.",
       "Check Open blockers: the impediments open during the sprint, escalated and overdue ones first, and the stories Blocked on the board.",
-      "When the sprint is over, click Close sprint, check the Completed points, and choose where unfinished stories go: the next sprint, Back to the backlog, or Decide later in Sprint Planning. Undo on the message that follows puts the sprint and its stories back.",
+      "When the sprint is over, click Close sprint, check the Completed points, and choose where unfinished stories go: the next sprint, Back to the backlog, or Decide later in Sprint Planning. The last step asks Did we meet the sprint goal? when it has no answer yet, and offers Download backup. Undo on the message that follows puts the sprint, its stories and that answer back.",
       "Click Export for a Markdown status report for the Sprint Review or a stakeholder update.",
     ],
     tips: [

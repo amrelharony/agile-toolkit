@@ -7,11 +7,21 @@
  *
  * Both writers read the stories at the moment they write (never a render's
  * copy that may be stale), as lib/sprints/store.ts does.
+ *
+ * A retro action added to the sprint keeps a link to its story on the retro
+ * card (`setActionLinks`): the live writer records it on the team's retro
+ * board, the example's on its own copy of one.
  */
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Sprint, Story, StoryStatus } from "@/lib/stores/workspace-types";
+import type {
+  HandoffLink,
+  RetroBoard,
+  Sprint,
+  Story,
+  StoryStatus,
+} from "@/lib/stores/workspace-types";
 import { setStoryStatus, updateSprint } from "@/lib/sprints/store";
 import { withStoryStatus } from "@/lib/sprints/story-status";
 import { deleteStoryKeepingUndo } from "@/lib/stories/delete";
@@ -36,6 +46,29 @@ export interface PlanningWriter {
   /** Move a story to `status`, stamping its flow times (`setStoryStatus`). */
   setStatus(id: string, status: StoryStatus): void;
   updateSprint(id: string, patch: Partial<Omit<Sprint, "id">>): void;
+  /**
+   * Change where a retro action was sent: the links on its card, on the
+   * board that holds it (the story it became in this plan, or that story's
+   * Undo). A board or card that is gone is left alone.
+   */
+  setActionLinks(
+    boardId: string,
+    cardId: string,
+    update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
+  ): void;
+}
+
+/** `board` with one card's links changed; null when the card isn't on it. */
+function withCardLinks(
+  board: RetroBoard,
+  cardId: string,
+  update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
+): RetroBoard | null {
+  if (!board.cards.some((c) => c.id === cardId)) return null;
+  return {
+    ...board,
+    cards: board.cards.map((c) => (c.id === cardId ? { ...c, sentTo: update(c.sentTo) } : c)),
+  };
 }
 
 /** The shared workspace: what the cockpit, Burndown and agents read. */
@@ -54,20 +87,31 @@ export const liveWriter: PlanningWriter = {
   updateSprint: (id, patch) => {
     updateSprint(id, patch);
   },
+  setActionLinks: (boardId, cardId, update) => {
+    const { retroBoards, upsertRetroBoard } = useWorkspaceStore.getState();
+    const board = (retroBoards ?? []).find((b) => b.id === boardId);
+    const next = board ? withCardLinks(board, cardId, update) : null;
+    if (next) upsertRetroBoard(next);
+  },
 };
 
 export interface ExamplePlanningState {
   sprints: Sprint[];
   stories: Story[];
+  /** The example's last retro, whose actions the plan can take in. */
+  retroBoards: RetroBoard[];
 }
 
 export type ExampleStore = StoreApi<ExamplePlanningState>;
 
 /** An in-memory copy of the example, alive while the preview is open. */
-export function createExampleStore(initial: ExamplePlanningState): ExampleStore {
+export function createExampleStore(
+  initial: Pick<ExamplePlanningState, "sprints" | "stories"> & { retroBoards?: RetroBoard[] }
+): ExampleStore {
   return createStore<ExamplePlanningState>(() => ({
     sprints: initial.sprints.map((s) => ({ ...s })),
     stories: initial.stories.map((s) => ({ ...s })),
+    retroBoards: (initial.retroBoards ?? []).map((b) => ({ ...b, cards: [...b.cards] })),
   }));
 }
 
@@ -107,6 +151,12 @@ export function exampleWriter(store: ExampleStore): PlanningWriter {
     updateSprint: (id, patch) =>
       store.setState((s) => ({
         sprints: s.sprints.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+      })),
+    setActionLinks: (boardId, cardId, update) =>
+      store.setState((s) => ({
+        retroBoards: s.retroBoards.map((b) =>
+          b.id === boardId ? (withCardLinks(b, cardId, update) ?? b) : b
+        ),
       })),
   };
 }

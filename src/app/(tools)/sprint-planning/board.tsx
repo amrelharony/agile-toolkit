@@ -23,11 +23,24 @@ import { SectionCard } from "@/components/shared/section-card";
 import { ExportButton } from "@/components/shared/export-button";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { SprintPicker } from "@/components/sprints/sprint-picker";
-import type { BacklogItem, CapacityPlan, Sprint, Story } from "@/lib/stores/workspace-types";
+import type {
+  BacklogItem,
+  CapacityPlan,
+  HandoffLink,
+  Impediment,
+  KanbanBoard,
+  RetroBoard,
+  Sprint,
+  Story,
+} from "@/lib/stores/workspace-types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { SPRINT_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 import { averageVelocity, completedSprints } from "@/lib/sprints/hub-view";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
+import { todayIso } from "@/lib/sprints/series";
+import { findLink, withLink, withoutLink } from "@/lib/handoffs/registry";
+import { STORY_TITLE_MAX, buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
+import { STORY_ROUTE, actionSourceRef, impedimentSourceRef } from "@/lib/retro/improvement";
 import { backlogOrderText, storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
 import {
   currentPokerLog,
@@ -46,7 +59,9 @@ import {
   carryOverLabel,
   fmt,
   forecastText,
+  hasImprovements,
   importCandidates,
+  improvementsFor,
   isClosed,
   leftoverGroups,
   planFill,
@@ -62,13 +77,17 @@ import {
   targetError,
   usesReadiness,
   validateStory,
+  addMode,
   type LeftoverGroup,
   type PasteValues,
+  type PlannedAction,
+  type PlannedImpediment,
   type StoryDraft,
   type StoryField,
   type StoryValues,
 } from "./view";
 import { planToMarkdown } from "./markdown";
+import { ImprovementsPanel } from "./improvements";
 import { PasteStories } from "./paste-stories";
 import { StoryList, focusAfterMove, type FocusTarget } from "./story-list";
 import { placeStory, restoreStories, type PlanningWriter } from "./writer";
@@ -83,7 +102,16 @@ export interface PlanningData {
   capacityPlans: CapacityPlan[];
   /** The team's usual sprint in working days (from the cadence): "a normal sprint". */
   usualDays?: number;
+  /** The retros, for the last one's open actions. Absent: none to plan in. */
+  retroBoards?: readonly RetroBoard[];
+  /** The impediments log, for the open ones. Absent: none to plan in. */
+  impediments?: readonly Impediment[];
+  /** Read for retro actions sent to the Flow board (one in Done is done). */
+  kanbanBoards?: readonly KanbanBoard[];
 }
+
+const NO_BOARDS: readonly RetroBoard[] = [];
+const NO_IMPEDIMENTS: readonly Impediment[] = [];
 
 const slug = (s: string) =>
   s
@@ -102,9 +130,10 @@ const shortTitle = (t: string, max = 40) => {
 /**
  * The plan itself, top to bottom: the sprint, the team's capacity and
  * recent velocity with the points they suggest, the goal, the stories (in
- * the sprint, left over from a closed sprint, the backlog), then the
- * commitment. It reads `data` and writes through `writer`, so the same
- * board plans the shared sprint and the in-memory example.
+ * the sprint, left over from a closed sprint, what the last retro and the
+ * impediments log leave to plan in, the backlog), then the commitment. It
+ * reads `data` and writes through `writer`, so the same board plans the
+ * shared sprint and the in-memory example.
  */
 export function PlanningBoard({
   data,
@@ -126,6 +155,10 @@ export function PlanningBoard({
   log: (action: string, payload: Record<string, unknown>) => void;
 }) {
   const { sprints, sprint, stories, backlogItems, capacityPlans, usualDays } = data;
+  const retroBoards = data.retroBoards ?? NO_BOARDS;
+  const impediments = data.impediments ?? NO_IMPEDIMENTS;
+  const kanbanBoards = data.kanbanBoards;
+  const [today] = useState(() => todayIso());
   const [target, setTarget] = useState("");
   // The number field's own verdict on the last keystroke ("3e" reads as blank).
   const [targetBad, setTargetBad] = useState(false);
@@ -157,6 +190,13 @@ export function PlanningBoard({
     () => importCandidates(backlogItems, stories),
     [backlogItems, stories]
   );
+  // The last retro's open actions and the open impediments, each with the
+  // story it became and where that story is now.
+  const improvements = useMemo(
+    () =>
+      improvementsFor({ sprint, sprints, retroBoards, impediments, stories, kanbanBoards, today }),
+    [sprint, sprints, retroBoards, impediments, stories, kanbanBoards, today]
+  );
   const typedTarget = target.trim() === "" ? null : Number(target);
   const targetProblem = targetError(target, targetBad);
   const targetPoints =
@@ -185,8 +225,18 @@ export function PlanningBoard({
         capacityRatio: capacity.ratio,
         suggestedPoints: suggestion,
         leftovers,
+        improvements,
       }),
-    [sprint, inSprint, capacity, targetPoints, velocity.average, suggestion, leftovers]
+    [
+      sprint,
+      inSprint,
+      capacity,
+      targetPoints,
+      velocity.average,
+      suggestion,
+      leftovers,
+      improvements,
+    ]
   );
 
   /* ── Stories ──────────────────────────────────────────────────────────── */
@@ -394,6 +444,114 @@ export function PlanningBoard({
       fromSprintId: group.sprint.id,
       count: before.length,
     });
+  };
+
+  /* ── From the last retro ──────────────────────────────────────────────── */
+
+  /** A row's story that waits in the backlog goes into the sprint; Undo puts it back. */
+  const planWaiting = (story: Story, description: string) => {
+    const before = fresh(story);
+    undoable({
+      label: `Added “${shortTitle(story.title)}” to ${sprint.name}`,
+      description,
+      apply: () => moveIn(before),
+      revert: () => restoreStories(writer, [before]),
+    });
+  };
+
+  const logImprovement = (storyId: string, from: "retro" | "impediments", sourceId: string) =>
+    log(SPRINT_PLANNING_ACTIONS.IMPROVEMENT_ADDED, {
+      sprintId: sprint.id,
+      storyId,
+      from,
+      sourceId,
+    });
+
+  /**
+   * "Add to this sprint" on a retro action: a story in the sprint, made the
+   * way the backlog-story hand-off makes one, with the link on the retro
+   * card that closes the action once the story is done. Undo removes the
+   * story and the link (and puts back an older link to a story since
+   * deleted). The row shows no button once it is planned; this is the guard.
+   */
+  const addAction = ({ action, place }: PlannedAction) => {
+    const mode = closed ? null : addMode(place);
+    if (mode === null) return;
+    // The undoable toast announces itself; say it once.
+    setAnnouncement("");
+    const closes = "The retro action closes when this story is done.";
+    if (mode === "move" && place.where !== "none") {
+      planWaiting(place.story, closes);
+      logImprovement(place.story.id, "retro", action.id);
+      return;
+    }
+    const story: Story = {
+      ...buildBacklogStory({
+        title: action.text,
+        // A long action is cut to a story title: its notes keep all of it.
+        description: action.text.trim().length > STORY_TITLE_MAX ? action.text : undefined,
+        owner: action.assignee || undefined,
+        sourceRef: actionSourceRef(action),
+      }),
+      status: "todo",
+      sprintId: sprint.id,
+    };
+    const link: HandoffLink = {
+      route: STORY_ROUTE,
+      targetId: story.id,
+      at: new Date().toISOString(),
+    };
+    const previous = findLink(action.sentTo, STORY_ROUTE);
+    undoable({
+      label: `Added “${shortTitle(action.text)}” to ${sprint.name}`,
+      description: closes,
+      apply: () => {
+        writer.upsertStory(story);
+        writer.setActionLinks(action.boardId, action.id, (links) => withLink(links, link));
+      },
+      revert: () => {
+        writer.removeStories([story.id]);
+        writer.setActionLinks(action.boardId, action.id, (links) => {
+          const rest = withoutLink(links, link);
+          return previous && !findLink(rest, STORY_ROUTE) ? [...rest, previous] : rest;
+        });
+      },
+    });
+    logImprovement(story.id, "retro", action.id);
+  };
+
+  /**
+   * "Add to this sprint" on an open impediment: a story in the sprint that
+   * names the impediment as where it came from. The impediment itself is
+   * left as it is: resolving it stays a decision for the Impediments page.
+   */
+  const addImpediment = ({ impediment, place }: PlannedImpediment) => {
+    const mode = closed ? null : addMode(place);
+    if (mode === null) return;
+    setAnnouncement("");
+    const stays = "The impediment stays open until you resolve it in Impediments.";
+    if (mode === "move" && place.where !== "none") {
+      planWaiting(place.story, stays);
+      logImprovement(place.story.id, "impediments", impediment.id);
+      return;
+    }
+    const story: Story = {
+      ...buildBacklogStory({
+        title: impediment.title,
+        description: impediment.description,
+        owner: impediment.owner,
+        sourceRef: impedimentSourceRef(impediment),
+      }),
+      status: "todo",
+      sprintId: sprint.id,
+    };
+    undoable({
+      label: `Added “${shortTitle(impediment.title)}” to ${sprint.name}`,
+      description: stays,
+      apply: () => writer.upsertStory(story),
+      revert: () => writer.removeStories([story.id]),
+    });
+    logImprovement(story.id, "impediments", impediment.id);
   };
 
   const fillToCapacity = () => {
@@ -794,6 +952,16 @@ export function PlanningBoard({
               />
             </LeftoverSection>
           ))}
+
+          {hasImprovements(improvements) && (
+            <ImprovementsPanel
+              improvements={improvements}
+              today={today}
+              cantAdd={cantAdd}
+              onAddAction={addAction}
+              onAddImpediment={addImpediment}
+            />
+          )}
 
           <div>
             <h3
