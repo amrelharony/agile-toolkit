@@ -15,6 +15,7 @@ import { acquireRoomAuth, roomAuthKind } from "./room-auth";
 import { createInboundLimiter } from "./rate-limit";
 import { isWithinJsonSize } from "./sanitize";
 import { enterLiveVisitorRoom } from "./live-visitor-room";
+import { holdScreenAwake } from "./screen-wake-lock";
 import {
   VISITOR_LIMITS,
   createAdmissionLedger,
@@ -541,9 +542,19 @@ export function useRoom<T>(
 
     // A visitor room marks this tab as in a live room from here until the
     // effect cleans up: meanwhile the visitor chat offers Amr no actions
-    // (live-visitor-room.ts). A room left early because it was full stays
-    // marked until then too. Owner and guest rooms never mark.
-    const markLiveRoom = (): (() => void) | null => (visitor ? enterLiveVisitorRoom() : null);
+    // (live-visitor-room.ts), and the tab asks the browser to keep the
+    // screen on (screen-wake-lock.ts), so hosting or joining asks and leaving
+    // or ending lets go. A room left early because it was full stays marked
+    // until then too. Owner and guest rooms never mark.
+    const markLiveRoom = (): (() => void) | null => {
+      if (!visitor) return null;
+      const leaveLiveRoom = enterLiveVisitorRoom();
+      const letScreenSleep = holdScreenAwake();
+      return () => {
+        letScreenSleep();
+        leaveLiveRoom();
+      };
+    };
 
     // Flag off: the public channel, opened right away as it always was.
     if (!privateRooms) {

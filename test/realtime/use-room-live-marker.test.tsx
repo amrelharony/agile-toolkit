@@ -15,6 +15,8 @@ import type { RoomAuthLease } from "@/lib/realtime/room-auth";
  *  - never marked for an owner or guest room, nor when the visitor gate
  *    refuses the room (flag off, bad code, no consented identity);
  *  - one mark per open room, also after React's mount, cleanup, mount.
+ *
+ * For the same span the tab asks for a screen wake lock (screen-wake-lock.ts).
  */
 
 type Listener = (...args: unknown[]) => void;
@@ -226,6 +228,65 @@ describe("useRoom marks a visitor live room", () => {
 
     rerender({ code: null });
     expect(inLiveVisitorRoom()).toBe(false);
+  });
+});
+
+describe("useRoom keeps the screen awake while a visitor room is open", () => {
+  const release = vi.fn(async () => {});
+  const request = vi.fn(async () => ({ released: false, release, addEventListener: () => {} }));
+
+  beforeEach(() => {
+    release.mockClear();
+    request.mockClear();
+    Object.defineProperty(navigator, "wakeLock", { configurable: true, value: { request } });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "wakeLock");
+  });
+
+  it("asks when the room opens (hosting or joining) and lets go when it closes", async () => {
+    const { rerender } = renderHook(({ code }: { code: string | null }) => useVisitorRoom(code), {
+      initialProps: { code: CODE as string | null },
+    });
+    await settle();
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith("screen");
+
+    // Leaving or ending a room drops its code.
+    rerender({ code: null });
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets go on unmount", async () => {
+    const { unmount } = renderHook(() => useVisitorRoom());
+    await settle();
+    unmount();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("never asks for an owner room, a guest room or with the flag off", async () => {
+    h.auth = { status: "authenticated", user: owner };
+    renderHook(() => useRoom<unknown>("planning-poker", "ABC123", null));
+    h.auth = null;
+    renderHook(() => useRoom<unknown>("canvas", "board-1", null), { wrapper: guestWrapper });
+    h.auth = { status: "anonymous", user: null };
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", "");
+    renderHook(() => useVisitorRoom());
+    await settle();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("opens the room as usual when the browser refuses", async () => {
+    request.mockImplementationOnce(async () => {
+      throw new DOMException("refused", "NotAllowedError");
+    });
+    const { result } = renderHook(() => useVisitorRoom());
+    await settle();
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(h.client.channel).toHaveBeenCalledTimes(1);
+    expect(result.current.authFailed).toBe(false);
+    expect(inLiveVisitorRoom()).toBe(true);
   });
 });
 
