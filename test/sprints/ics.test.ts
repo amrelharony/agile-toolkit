@@ -14,6 +14,7 @@ import {
   calendarActions,
   escapeIcsText,
   foldIcsLine,
+  icsSequence,
   icsUtc,
   sprintCalendar,
   sprintCalendarEntries,
@@ -462,11 +463,13 @@ describe("sprintCalendar", () => {
     expect(uids(first)).toContain("sprint-s1-planning-20261019@agile.amrelharony.com");
     expect(uids(first)).toContain("sprint-s1-daily-20261020@agile.amrelharony.com");
 
-    // Made at another moment on the same site, only the stamps differ.
+    // Made at another moment on the same site, only the stamps and sequence numbers differ.
     const again = unfold(build({ now: new Date(Date.UTC(2026, 9, 25, 7, 0, 0)) }).ics);
     const differing = unfold(first).filter((line, i) => line !== again[i]);
-    expect(differing.length).toBe(14);
-    expect(differing.every((l) => l.startsWith("DTSTAMP:"))).toBe(true);
+    expect(differing.length).toBe(14 * 2);
+    expect(differing.every((l) => l.startsWith("DTSTAMP:") || l.startsWith("SEQUENCE:"))).toBe(
+      true
+    );
 
     // A moved Daily Scrum keeps its UID, so a calendar can move the entry.
     const moved = build({ cadence: { ...DEFAULT_CADENCE, dailyTime: "10:15" } }).ics;
@@ -474,6 +477,48 @@ describe("sprintCalendar", () => {
     expect(prop(byUid(moved, uidOf("daily", "20261020")), "DTSTART")).toBe(
       icsUtc(localDateTime("2026-10-20", "10:15")!)
     );
+  });
+
+  it("gives a later file a higher SEQUENCE, so a calendar takes its entries as the newer ones", () => {
+    const sequences = (ics: string) => events(ics).map((e) => prop(e, "SEQUENCE"));
+    const first = build({ actions: [{ id: "a1", text: "Fix it", dueDate: "2026-10-28" }] });
+    // One number for every entry of a file, right after its DTSTAMP.
+    const numbers = sequences(first.ics);
+    expect(numbers).toHaveLength(15);
+    expect(new Set(numbers)).toEqual(new Set([String(icsSequence(NOW))]));
+    for (const event of events(first.ics)) {
+      expect(event[event.findIndex((l) => l.startsWith("DTSTAMP:")) + 1]).toMatch(/^SEQUENCE:/);
+    }
+
+    // The team moves the Daily Scrum and downloads the file again a minute later.
+    const moved = build({
+      now: new Date(NOW.getTime() + 60_000),
+      cadence: { ...DEFAULT_CADENCE, dailyTime: "10:15" },
+    }).ics;
+    expect(Number(prop(byUid(moved, uidOf("daily", "20261020")), "SEQUENCE"))).toBe(
+      Number(prop(byUid(first.ics, uidOf("daily", "20261020")), "SEQUENCE")) + 1
+    );
+    // The weekly story keeps one UID while its first Sunday moves from one sprint's file to the next.
+    const story = (ics: string) => byUid(ics, "agile-at-work-weekly-story@agile.amrelharony.com");
+    const thisSprint = build({ weeklyStory: true }).ics;
+    const nextSprint = build({
+      sprint: { ...SPRINT, id: "s2", startDate: "2026-11-02", endDate: "2026-11-13" },
+      now: new Date(Date.UTC(2026, 10, 1, 9, 0, 0)),
+      weeklyStory: true,
+    }).ics;
+    expect(Number(prop(story(nextSprint), "SEQUENCE"))).toBeGreaterThan(
+      Number(prop(story(thisSprint), "SEQUENCE"))
+    );
+  });
+
+  it("keeps SEQUENCE a whole number from 0 that fits the standard's 32-bit INTEGER", () => {
+    expect(icsSequence(new Date(Date.UTC(2026, 0, 1)))).toBe(0);
+    expect(icsSequence(new Date(Date.UTC(2026, 0, 1, 0, 2, 59)))).toBe(2);
+    expect(icsSequence(NOW)).toBe(Math.floor((NOW.getTime() - Date.UTC(2026, 0, 1)) / 60_000));
+    // A clock set before 2026 still writes a valid number.
+    expect(icsSequence(new Date(Date.UTC(2020, 5, 1)))).toBe(0);
+    // Room for about 4,000 years of files.
+    expect(icsSequence(new Date(Date.UTC(6000, 0, 1)))).toBeLessThan(2 ** 31);
   });
 
   it("keeps the UIDs of two sprints apart, whatever is in their ids", () => {

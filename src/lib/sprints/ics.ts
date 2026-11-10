@@ -11,8 +11,9 @@
  * (`cutShortBy`).
  *
  * The file is a snapshot. Every entry has a UID that stays the same from one
- * download to the next (sprint id, ceremony and date), so a calendar that
- * honours UIDs replaces an entry instead of adding a second one.
+ * download to the next (sprint id, ceremony and date) and a SEQUENCE that
+ * grows, so a calendar that honours UIDs replaces an entry instead of adding
+ * a second one.
  */
 
 import type { Sprint } from "@/lib/stores/workspace-types";
@@ -46,6 +47,21 @@ export const MAX_LINE_OCTETS = 75;
 
 /** A calendar title longer than this is cut; the whole text is in the description. */
 const SUMMARY_MAX = 120;
+
+/** Where `icsSequence` counts its minutes from: before the first file was made. */
+const SEQUENCE_EPOCH = Date.UTC(2026, 0, 1);
+
+/**
+ * Every entry's SEQUENCE in a file made at `now`: the minutes since 1 Jan
+ * 2026 UTC. A revision of an entry needs a higher number than the copy a
+ * calendar already holds (RFC 5545 §3.8.7.4), or an app that compares them
+ * on import keeps the old time. A file made later always has a higher one,
+ * so a moved ceremony replaces its entry. It stays inside the standard's
+ * 32-bit INTEGER for thousands of years, and is never below 0.
+ */
+export function icsSequence(now: Date): number {
+  return Math.max(0, Math.floor((now.getTime() - SEQUENCE_EPOCH) / 60_000));
+}
 
 /* ── Text ─────────────────────────────────────────────────────────────── */
 
@@ -371,8 +387,13 @@ export function sprintCalendarEntries(input: SprintCalendarInput): SprintCalenda
 
 /* ── The file ─────────────────────────────────────────────────────────── */
 
-function entryLines(entry: CalendarEntry, stamp: string): string[] {
-  const lines = ["BEGIN:VEVENT", `UID:${escapeIcsText(entry.uid)}`, `DTSTAMP:${stamp}`];
+function entryLines(entry: CalendarEntry, stamp: string, sequence: number): string[] {
+  const lines = [
+    "BEGIN:VEVENT",
+    `UID:${escapeIcsText(entry.uid)}`,
+    `DTSTAMP:${stamp}`,
+    `SEQUENCE:${sequence}`,
+  ];
   if (entry.when.type === "timed") {
     lines.push(`DTSTART:${icsUtc(entry.when.start)}`, `DTEND:${icsUtc(entry.when.end)}`);
   } else {
@@ -408,15 +429,17 @@ function entryLines(entry: CalendarEntry, stamp: string): string[] {
  * The entries as one iCalendar object: CRLF line endings, lines folded at 75
  * octets, text escaped. No METHOD: the file carries a snapshot, not an
  * invitation (RFC 5545 §3.7.2), and DTSTAMP then says when it was made.
+ * SEQUENCE grows from one file to the next (`icsSequence`).
  */
 export function icsFile(entries: readonly CalendarEntry[], now: Date): string {
   const stamp = icsUtc(now);
+  const sequence = icsSequence(now);
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     `PRODID:${PRODID}`,
     "CALSCALE:GREGORIAN",
-    ...entries.flatMap((e) => entryLines(e, stamp)),
+    ...entries.flatMap((e) => entryLines(e, stamp, sequence)),
     "END:VCALENDAR",
   ];
   return lines.map(foldIcsLine).join("\r\n") + "\r\n";
