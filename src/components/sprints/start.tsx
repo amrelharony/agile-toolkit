@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { CalendarRange, Eye, FlaskConical, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { WorkspaceLoading } from "@/components/shared/workspace-loading";
@@ -71,7 +71,17 @@ export function ExampleBanner({ onStart, onExit }: { onStart: () => void; onExit
  * it holds the room the sprint tool will take, so the cockpit or start flow
  * that replaces it doesn't push the page down (home, Sprint Cockpit, Sprint
  * Planning, Burndown and the other sprint tools).
+ *
+ * `about` is one sentence on what the page does, for a page whose first HTML
+ * would otherwise say only "Loading sprints…" (see WorkspaceLoading).
  */
-export function LoadingSprints({ tall = false }: { tall?: boolean } = {}) {
-  return <WorkspaceLoading tall={tall}>Loading sprints…</WorkspaceLoading>;
+export function LoadingSprints({
+  tall = false,
+  about,
+}: { tall?: boolean; about?: ReactNode } = {}) {
+  return (
+    <WorkspaceLoading tall={tall} about={about}>
+      Loading sprints…
+    </WorkspaceLoading>
+  );
 }
