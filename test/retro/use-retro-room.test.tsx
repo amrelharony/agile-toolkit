@@ -577,6 +577,34 @@ describe("useRetroRoom: a participant's own cards and votes", () => {
     expect(result.current.votesLeft).toBe(3);
   });
 
+  it("adds a card undone before its delete settled again, even when that delete emptied the board", () => {
+    const { result, ch } = joined(snap(HOST.id, board({ cards: [] }), { hide: true }));
+    act(() => {
+      result.current.addCard("start", "My only card");
+    });
+    const id = (ch.sent("retro:intent") as Intent[])[0].intent.iid;
+    const onlyMine = board({ cards: [card(id, { text: "My only card" })] });
+    act(() => ch.deliver("retro:state", snap(HOST.id, onlyMine, { hide: true, seq: 2 })));
+    act(() => {
+      result.current.deleteCard(id);
+    });
+    act(() => {
+      result.current.undoDelete({ id, columnKey: "start", text: "My only card" });
+    });
+    // The delete landed and emptied the board: that is no clear by the host.
+    act(() =>
+      ch.deliver("retro:state", snap(HOST.id, board({ cards: [] }), { hide: true, seq: 3 }))
+    );
+    const before = ch.sent("retro:intent").length;
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    act(() =>
+      ch.deliver("retro:state", snap(HOST.id, board({ cards: [] }), { hide: true, seq: 4 }))
+    );
+    const readded = (ch.sent("retro:intent") as Intent[]).slice(before);
+    expect(readded.map((s) => [s.intent.t, s.intent.iid === id])).toEqual([["card:add", false]]);
+    expect(result.current.shownCards?.map((c) => c.text)).toEqual(["My only card"]);
+  });
+
   it("keeps its card allowance when its own deletes empty the board, not when the host clears it", () => {
     const { result, ch } = joined(snap(HOST.id, board({ cards: [] }), { hide: true }));
     for (let i = 0; i < MEMBER_CARD_CAP; i++) {

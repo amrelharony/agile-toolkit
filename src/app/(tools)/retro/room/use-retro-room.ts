@@ -462,6 +462,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const intentDeletedRef = useRef<Set<string>>(new Set());
   /** Participant: "Delete my card" requests sent since the last snapshot. */
   const deletesSinceSnapRef = useRef(0);
+  /** Participant: the host cleared the board since the last settled snapshot. */
+  const clearedRef = useRef(false);
 
   // Each memory list has a ref (read by handlers) and state (renders); set both together.
   const setOwnCards = useCallback((next: HeldCard[]) => {
@@ -637,10 +639,16 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       const hidden = cardsHidden(snap);
       const total = snap.cards.length + sumCounts(snap.counts);
       const settled = Date.now() - lastIntentAtRef.current >= SETTLE_MS;
-      if (total === 0 && before > ownDeletes) sentCardsRef.current = 0;
+      if (total === 0 && before > ownDeletes) {
+        sentCardsRef.current = 0;
+        clearedRef.current = true;
+      } else if (total > 0) {
+        clearedRef.current = false;
+      }
       if (!settled) return;
-      if (total === 0) {
+      if (clearedRef.current) {
         // Cleared: nothing of this tab's is left, and nothing comes back.
+        clearedRef.current = false;
         if (ownCardsRef.current.length > 0) setOwnCards([]);
         if (deletingRef.current.length > 0) setDeleting([]);
         if (myVotesRef.current.length > 0) setMyVotes([]);
@@ -725,6 +733,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
         setDeleting([]);
         setMyVotes([]);
         sentCardsRef.current = 0;
+        clearedRef.current = false;
       } else {
         reconcile(snap, before, ownDeletes);
       }
