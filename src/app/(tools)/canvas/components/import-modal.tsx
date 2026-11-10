@@ -118,11 +118,12 @@ export function ImportModal({ boardId, onClose }: Props) {
     [boardId, stories, risks, okrs, boardObjects]
   );
 
-  // Jira CSV paste import (Phase 30). The user pastes the export from
-  // Jira's Issues navigator → CSV. We parse it client-side (no API key
-  // required) and convert each issue into a Card laid out on a Kanban
-  // frame. Each card carries sourceRef = { tool: "jira", entityId: key }
-  // so future sync can push back updates when the Jira API client lands.
+  // Jira CSV paste import (Phase 30). The user pastes a Jira Cloud CSV
+  // export. It is read in the browser by the one Jira reader
+  // (lib/jira/csv-export.ts, which Sprint Planning's import reads too) and
+  // each issue becomes a Card laid out on a Kanban frame. Each card carries
+  // sourceRef = { tool: "jira", entityId: key }, so pasting the export again
+  // updates those cards instead of adding copies.
   const [jiraCsv, setJiraCsv] = useState("");
   const [jiraPreview, setJiraPreview] = useState<number | null>(null);
   const onJiraCsvChange = (text: string) => {
@@ -350,8 +351,8 @@ export function ImportModal({ boardId, onClose }: Props) {
             </span>
           </div>
           <div id={`${uid}-jira-hint`} className="text-xs text-sub mb-2">
-            Paste the output of Jira&apos;s Issues navigator → Export CSV. Each issue becomes a card
-            on a kanban frame (To Do / In Progress / Done).
+            Paste a Jira Cloud CSV export, header row first. Each issue becomes a card on a kanban
+            frame (To Do / In Progress / Done). Files from other trackers may work, untested.
           </div>
           <textarea
             id={`${uid}-jira`}
