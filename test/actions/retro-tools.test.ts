@@ -12,7 +12,7 @@ import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RetroBoard, Sprint } from "@/lib/stores/workspace-types";
 import { blankRetroBoard } from "@/lib/retro/board";
-import { retroFormats } from "@/lib/constants/retro-formats";
+import { RETRO_COLUMN_PALETTE, retroFormats } from "@/lib/constants/retro-formats";
 import { goalDocId } from "@/lib/sprints/goal-doc";
 
 import "@/lib/actions/tools/retro";
@@ -58,6 +58,9 @@ describe("tool.retro", () => {
       started: true,
       id: "retro:current",
       sprintId: "s1",
+      formatId: retroFormats[0].id,
+      columns: retroFormats[0].columns.map(({ key, label }) => ({ key, label })),
+      votesPerPerson: 3,
     });
     expect(current()).toMatchObject({
       format: { id: retroFormats[0].id },
@@ -80,6 +83,87 @@ describe("tool.retro", () => {
       started: false,
       reason: "unknown_sprint",
     });
+  });
+
+  it("start makes a board in the agent's own columns, with the votes each asked for", async () => {
+    const r = await call<Record<string, unknown>>("tool.retro.start", {
+      name: "Team pulse",
+      columns: [" Wins ", "Worries", "Glad"],
+      votesPerPerson: 5,
+    });
+    expect(r).toMatchObject({
+      started: true,
+      id: "retro:current",
+      sprintId: "s1",
+      columns: [
+        { key: "wins", label: "Wins" },
+        { key: "worries", label: "Worries" },
+        { key: "glad", label: "Glad" },
+      ],
+      votesPerPerson: 5,
+    });
+    expect(r.formatId).toMatch(/^custom-/);
+    expect(current()).toMatchObject({
+      format: { id: r.formatId, name: "Team pulse" },
+      votesPerPerson: 5,
+    });
+    expect(current()!.format.columns.map((c) => c.color)).toEqual(RETRO_COLUMN_PALETTE.slice(0, 3));
+
+    // Its columns take cards, and list_state reads them back.
+    expect(
+      await call("tool.retro.add_card", { columnKey: "worries", text: "Flaky CI" })
+    ).toMatchObject({ added: true });
+    expect(await call("tool.retro.list_state")).toMatchObject({
+      formatId: r.formatId,
+      formatName: "Team pulse",
+      columns: [
+        { key: "wins", label: "Wins" },
+        { key: "worries", label: "Worries" },
+        { key: "glad", label: "Glad" },
+      ],
+      votesPerPerson: 5,
+      byColumn: [{ columnKey: "worries", count: 1 }],
+    });
+  });
+
+  it("start names a custom format Custom by default, and refuses bad columns or both kinds", async () => {
+    expect(await call("tool.retro.start", { formatId: "sailboat", columns: ["A", "B"] })).toEqual({
+      started: false,
+      reason: "format_or_columns",
+    });
+    expect(await call("tool.retro.start", { columns: ["Only"] })).toEqual({
+      started: false,
+      reason: "invalid_columns",
+      errors: { columns: "Give it 2 to 6 columns." },
+    });
+    expect(await call("tool.retro.start", { columns: ["A", "a"] })).toMatchObject({
+      reason: "invalid_columns",
+      errors: { column1: "Give each column its own name." },
+    });
+    expect(current()).toBeUndefined();
+    expect(await call("tool.retro.start", { columns: ["A", "B"] })).toMatchObject({
+      started: true,
+      votesPerPerson: 3,
+    });
+    expect(current()?.format.name).toBe("Custom");
+    expect(current()).not.toHaveProperty("votesPerPerson");
+  });
+
+  it("set_votes changes the current board's votes each", async () => {
+    expect(await call("tool.retro.set_votes", { votesPerPerson: 8 })).toEqual({
+      updated: false,
+      reason: "no_retro",
+    });
+    useWorkspaceStore.setState({ retroBoards: [blankRetroBoard(retroFormats[0])] });
+    expect(await call("tool.retro.list_state")).toMatchObject({ votesPerPerson: 3 });
+    expect(await call("tool.retro.set_votes", { votesPerPerson: 8 })).toEqual({
+      updated: true,
+      votesPerPerson: 8,
+    });
+    expect(current()?.votesPerPerson).toBe(8);
+    expect(
+      registry.get("tool.retro.set_votes")!.paramsSchema.safeParse({ votesPerPerson: 4 }).success
+    ).toBe(false);
   });
 
   it("set_sprint tags the board; add_card checks the column and trims", async () => {

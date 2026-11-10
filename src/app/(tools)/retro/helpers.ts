@@ -6,6 +6,9 @@
  * testable and shareable between the board and its export path.
  */
 
+import type { RetroFormat } from "@/lib/constants/retro-formats";
+import { retroVotes } from "@/lib/retro/board";
+import { isCustomFormatId, slug } from "@/lib/retro/custom-format";
 import type { BoardState, RetroCard } from "./types";
 
 export function makeId() {
@@ -143,9 +146,20 @@ export function restoreRemovedCards(
   return [...out, ...current.filter((c) => live.has(c.id))];
 }
 
-export function buildExportJson(state: Pick<BoardState, "format" | "cards">) {
+/**
+ * The start of an export's file name: "retro-" and the format's id, or for
+ * a custom format its name in lower case with dashes ("retro-team-pulse"),
+ * not its random id.
+ */
+export function retroFileStem(format: Pick<RetroFormat, "id" | "name">): string {
+  if (!isCustomFormatId(format.id)) return `retro-${format.id}`;
+  return `retro-${slug(format.name) || "custom"}`;
+}
+
+export function buildExportJson(state: Pick<BoardState, "format" | "cards" | "votesPerPerson">) {
   return {
     format: state.format.name,
+    votesPerPerson: retroVotes(state),
     date: new Date().toISOString(),
     columns: state.format.columns.map((col) => ({
       label: col.label,

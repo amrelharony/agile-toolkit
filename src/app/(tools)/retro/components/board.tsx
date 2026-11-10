@@ -65,6 +65,7 @@ import {
   formatTimer,
   removeCardWithGroup,
   restoreRemovedCards,
+  retroFileStem,
   shortText,
   voterKey,
   voterNames,
@@ -723,8 +724,13 @@ export function Board({
     [state.format, state.cards, facts, lines, themes]
   );
   const exportJson = useMemo(
-    () => buildExportJson({ format: state.format, cards: state.cards }),
-    [state.format, state.cards]
+    () => buildExportJson({ format: state.format, cards: state.cards, votesPerPerson: budget }),
+    [state.format, state.cards, budget]
+  );
+  // A share link carries Votes each too, so the copy someone imports keeps it.
+  const shareState = useMemo(
+    () => ({ format: state.format, cards: state.cards, votesPerPerson: budget }),
+    [state.format, state.cards, budget]
   );
 
   // Everyone's votes go too, "Me" and each person's.
@@ -1014,9 +1020,9 @@ export function Board({
           {/* The user's LOCAL date in the filename: `toISOString()` is UTC and
               stamps "tomorrow" for users west of UTC in their evening. */}
           <ExportButton
-            filename={`retro-${state.format.id}-${todayLocalISO()}`}
+            filename={`${retroFileStem(state.format)}-${todayLocalISO()}`}
             markdown={markdown}
-            shareState={{ format: state.format, cards: state.cards }}
+            shareState={shareState}
             jsonData={exportJson}
           />
           <Button

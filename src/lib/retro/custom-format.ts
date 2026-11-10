@@ -100,7 +100,7 @@ export function isCustomFormatId(id: unknown): id is string {
 }
 
 /** "Went well!" → "went-well"; "" when no letter or digit is left. */
-function slug(label: string): string {
+export function slug(label: string): string {
   return label
     .toLowerCase()
     .normalize("NFKD")

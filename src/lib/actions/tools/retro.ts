@@ -15,11 +15,14 @@
  *                   call for (lib/retro/suggest); plus the previous retro's
  *                   action items (previousActions), with whether each was
  *                   carried over, done, and where it was sent.
- *   2. start      — start the current board in a format, looking back on a
+ *   2. start      — start the current board in a format, or in 2 to 6 columns
+ *                   of the agent's own (a custom format, lib/retro/custom-
+ *                   format), with 3, 5 or 8 votes each, looking back on a
  *                   sprint (the one whose retro window holds today when not
  *                   given), as the page's format picker does.
  *   3. set_sprint — say which sprint the current board looks back on.
- *   4. add_card   — append a card to a column (the verb an agent uses to
+ *   4. set_votes  — the current board's Votes each (3, 5 or 8).
+ *   5. add_card   — append a card to a column (the verb an agent uses to
  *                   seed a board).
  *
  * Entity kind is "workspace:retroBoard" (camelCase via kindFromToolId),
@@ -43,16 +46,26 @@ import type {
   Story,
 } from "@/lib/stores/workspace-types";
 import { MOOD_PULSE_KIND } from "@/lib/stores/workspace-types";
-import { retroFormats } from "@/lib/constants/retro-formats";
+import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
 import { todayIso } from "@/lib/sprints/series";
 import {
   RETRO_CARD_MAX,
   RETRO_CURRENT_ID,
+  RETRO_VOTE_OPTIONS,
   blankRetroBoard,
   boardSprintId,
   newestArchivedRetro,
   retroSprintFor,
+  retroVotes,
+  type RetroVotes,
 } from "@/lib/retro/board";
+import {
+  CUSTOM_COLUMNS_MAX,
+  CUSTOM_COLUMNS_MIN,
+  customFormatFrom,
+  newCustomFormatId,
+  validateCustomFormat,
+} from "@/lib/retro/custom-format";
 import { retroFacts } from "@/lib/retro/facts";
 import { suggestFormat } from "@/lib/retro/suggest";
 
@@ -120,6 +133,9 @@ function summarize(board: RetroBoard | null) {
   if (!board) {
     return {
       exists: false,
+      formatId: null,
+      columns: [] as { key: string; label: string }[],
+      votesPerPerson: null,
       phase: null,
       sprintId: null,
       totalCards: 0,
@@ -134,7 +150,10 @@ function summarize(board: RetroBoard | null) {
   for (const c of cards) counts.set(c.columnKey, (counts.get(c.columnKey) ?? 0) + 1);
   return {
     exists: true,
+    formatId: board.format?.id ?? null,
     formatName: board.format?.name,
+    columns: (board.format?.columns ?? []).map((c) => ({ key: c.key, label: c.label })),
+    votesPerPerson: retroVotes(board),
     phase: board.phase,
     sprintId: boardSprintId(board) ?? null,
     totalCards: cards.length,
@@ -212,14 +231,40 @@ async function listState(store: RetroStore, params: { sprintId?: string }) {
   };
 }
 
-async function start(store: RetroStore, params: { formatId?: string; sprintId?: string }) {
+/** The name a custom format gets when the agent gives none. */
+const CUSTOM_NAME_DEFAULT = "Custom";
+
+async function start(
+  store: RetroStore,
+  params: {
+    formatId?: string;
+    name?: string;
+    columns?: string[];
+    sprintId?: string;
+    votesPerPerson?: RetroVotes;
+  }
+) {
   const current = await store.getBoard(RETRO_CURRENT_ID);
   if (current && !current.archivedAt) {
     return { started: false, reason: "already_started" as const, id: RETRO_CURRENT_ID };
   }
-  const format = params.formatId
-    ? retroFormats.find((f) => f.id === params.formatId)
-    : retroFormats[0];
+  if (params.columns && params.formatId) {
+    return { started: false, reason: "format_or_columns" as const };
+  }
+  let format: RetroFormat | undefined;
+  if (params.columns) {
+    // Checked as the page's Custom form checks it: 2 to 6 named, distinct columns.
+    const checked = validateCustomFormat({
+      name: params.name ?? CUSTOM_NAME_DEFAULT,
+      columns: params.columns,
+    });
+    if (!checked.ok) {
+      return { started: false, reason: "invalid_columns" as const, errors: checked.errors };
+    }
+    format = customFormatFrom(checked.values, newCustomFormatId());
+  } else {
+    format = params.formatId ? retroFormats.find((f) => f.id === params.formatId) : retroFormats[0];
+  }
   if (!format) {
     return {
       started: false,
@@ -237,9 +282,24 @@ async function start(store: RetroStore, params: { formatId?: string; sprintId?: 
     blankRetroBoard(format, {
       ...(previous ? { previousRetroId: previous.id } : {}),
       ...(sprintId ? { sprintId } : {}),
+      ...(params.votesPerPerson ? { votesPerPerson: params.votesPerPerson } : {}),
     })
   );
-  return { started: true, id: RETRO_CURRENT_ID, sprintId: sprintId ?? null };
+  return {
+    started: true,
+    id: RETRO_CURRENT_ID,
+    sprintId: sprintId ?? null,
+    formatId: format.id,
+    columns: format.columns.map((c) => ({ key: c.key, label: c.label })),
+    votesPerPerson: params.votesPerPerson ?? retroVotes(null),
+  };
+}
+
+async function setVotes(store: RetroStore, params: { votesPerPerson: RetroVotes }) {
+  const board = await store.getBoard(RETRO_CURRENT_ID);
+  if (!board || board.archivedAt) return { updated: false, reason: "no_retro" as const };
+  await store.putBoard({ ...board, votesPerPerson: params.votesPerPerson });
+  return { updated: true, votesPerPerson: params.votesPerPerson };
 }
 
 async function setSprint(store: RetroStore, params: { sprintId: string | null }) {
@@ -275,6 +335,10 @@ async function addCard(store: RetroStore, params: { columnKey: string; text: str
 
 const SprintIdParam = z.string().min(1).describe("The sprint (Sprint.id) the retro looks back on.");
 
+const VotesParam = z
+  .union([z.literal(3), z.literal(5), z.literal(8)])
+  .describe("Votes each person has (the page's Votes each): 3, 5 or 8.");
+
 // ──────── tool.retro.list_state ────────
 registry.register({
   id: "tool.retro.list_state",
@@ -295,14 +359,20 @@ registry.register({
   name: "start",
   category: "write",
   requiresConfirmation: false,
-  description: `Start the current retro board, as the page's format picker does: format ${retroFormats
+  description: `Start the current retro board, as the page's format picker does: formatId ${retroFormats
     .map((f) => f.id)
     .join(
       " | "
-    )} (default the first), looking back on sprintId (default: the sprint whose retro window holds today), following the newest archived retro. Returns {started: true, id, sprintId | null}, or {started: false, reason: 'already_started' | 'unknown_format' | 'unknown_sprint'}.`,
+    )} (default the first), or columns: ${CUSTOM_COLUMNS_MIN} to ${CUSTOM_COLUMNS_MAX} names of your own (a custom format called name, default 'Custom'; each name up to 40 characters and different from the others; not added to the page's saved Custom formats), never both. votesPerPerson ${RETRO_VOTE_OPTIONS.join(" | ")} (default 3). Looks back on sprintId (default: the sprint whose retro window holds today), following the newest archived retro. Returns {started: true, id, sprintId | null, formatId, columns: {key, label}[], votesPerPerson}, or {started: false, reason: 'already_started' | 'format_or_columns' | 'invalid_columns' (with errors by field: name, columns, column0…) | 'unknown_format' | 'unknown_sprint'}.`,
   paramsSchema: z.object({
     formatId: z.string().min(1).optional(),
+    name: z.string().optional().describe("A custom format's name (with columns)."),
+    columns: z
+      .array(z.string())
+      .optional()
+      .describe("A custom format's column names, in order (instead of formatId)."),
     sprintId: SprintIdParam.optional(),
+    votesPerPerson: VotesParam.optional(),
   }),
   handler: async (params) => start(browserStore, params),
   mcpHandler: async (params, ctx) => start(serverStore(ctx.userId), params),
@@ -320,6 +390,20 @@ registry.register({
   paramsSchema: z.object({ sprintId: SprintIdParam.nullable() }),
   handler: async (params) => setSprint(browserStore, params),
   mcpHandler: async (params, ctx) => setSprint(serverStore(ctx.userId), params),
+});
+
+// ──────── tool.retro.set_votes ────────
+registry.register({
+  id: "tool.retro.set_votes",
+  toolId: "tool.retro",
+  name: "set_votes",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Set how many votes each person has on the current retro board (the page's Votes each): 3, 5 or 8. Votes already cast stay on their cards. Returns {updated: true, votesPerPerson}, or {updated: false, reason: 'no_retro'}.",
+  paramsSchema: z.object({ votesPerPerson: VotesParam }),
+  handler: async (params) => setVotes(browserStore, params),
+  mcpHandler: async (params, ctx) => setVotes(serverStore(ctx.userId), params),
 });
 
 // ──────── tool.retro.add_card ────────
