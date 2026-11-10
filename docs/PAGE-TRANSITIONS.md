@@ -141,8 +141,9 @@ Back and Forward run no view transition: Next puts the page back in its own
 popstate listener, and wrapping that would fight the browser's scroll
 restoration and the iPhone's swipe. One thing may move. After a tool, job or
 comic card opened a page, going Back from that page to the one the card sat
-on slides the card from where that page's header was into its own slot, in
-0.3 s on the glide easing, by translate alone.
+on slides the card from where that page's header was into its own slot, by
+translate alone, on the glide easing over the shared settle duration
+(`DUR.settle`, 320 ms, the token nearest the design's 0.3 s).
 
 It plays only when all of these hold:
 

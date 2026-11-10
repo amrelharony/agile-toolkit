@@ -51,7 +51,7 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { RETURN_MS } from "@/lib/motion/grow-from";
 import { BACK_WAIT_MS, readDebugSwitches } from "@/lib/motion/page-transition";
 import { skipViewTransition } from "@/lib/motion/view-transition";
-import { EASE } from "@/lib/motion/tokens";
+import { DUR, EASE } from "@/lib/motion/tokens";
 import { comicHref } from "@/lib/comics/entry";
 import type { StorySummary } from "@/lib/comics/types";
 import { flush, installViewTransitions, removeViewTransitions } from "./fake-view-transitions";
@@ -276,8 +276,9 @@ afterEach(async () => {
 });
 
 describe("on Back the tapped card slides back into its slot", () => {
-  it("from the leaving page's header, translate only, in 0.3 s on glide", () => {
-    expect(RETURN_MS).toBe(300);
+  it("from the leaving page's header, translate only, in the settle duration on glide", () => {
+    // A shared token (DNA-SPEC section 8), the one nearest the design's 0.3 s.
+    expect(RETURN_MS).toBe(DUR.settle);
     open("Kanban", "/kanban");
     step("/", home());
     // Next put the home page back inside the event: the header is gone, so it

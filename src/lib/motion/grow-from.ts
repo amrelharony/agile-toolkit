@@ -76,8 +76,11 @@ export function growFrom(element: HTMLElement, spot: CardSpot): Animation | null
   );
 }
 
-/** How long a card takes to slide back into its slot on Back (0.3 s). */
-export const RETURN_MS = 300;
+/**
+ * How long a card takes to slide back into its slot on Back: the shared
+ * settle duration (320 ms), the token nearest the 0.3 s the design asks for.
+ */
+export const RETURN_MS = DUR.settle;
 
 /**
  * Slide `element` (a card back in its slot) from `from` (viewport pixels: the
