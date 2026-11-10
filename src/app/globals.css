@@ -1353,13 +1353,14 @@ body:has(dialog[open]) [data-sonner-toaster] {
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 @supports (view-transition-name: none) {
-  /* The script starts a transition only when it reads this marker, so a
-     browser that lacks these rules never runs one with nothing held. */
-  html {
-    --vt-ready: 1;
-  }
-
   @media screen {
+    /* The script starts a transition only when it reads this marker. It sits
+       with the rules below, so wherever they do not apply (a browser without
+       them, or print) none runs with nothing held. */
+    html {
+      --vt-ready: 1;
+    }
+
     /* Named only while a transition runs, and each data-vt-hold value is on
        one element in the app, so no two elements ever share a name (a shared
        name makes the browser skip the whole transition). */

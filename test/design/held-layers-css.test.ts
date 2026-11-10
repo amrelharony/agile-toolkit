@@ -183,7 +183,7 @@ describe("the VIEW TRANSITIONS block", () => {
     expect(pointer).toHaveLength(1);
   });
 
-  it("sets the --vt-ready marker on html inside the @supports", () => {
+  it("sets the --vt-ready marker on html in the screen block, with the rules it stands for", () => {
     const marks: Rule[] = [];
     tree.walkDecls("--vt-ready", (d) => {
       expect(d.value).toBe("1");
@@ -191,9 +191,7 @@ describe("the VIEW TRANSITIONS block", () => {
     });
     expect(marks).toHaveLength(1);
     expect(marks[0].selector).toBe("html");
-    expect(
-      atRulesAround(marks[0]).some((a) => a.name === "supports" && a.params === SUPPORTS)
-    ).toBe(true);
+    expect(inScreenBlock(marks[0])).toBe(true);
   });
 
   it("switches the transition layer's animations off under reduced motion", () => {
