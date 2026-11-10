@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import look from "./intro-look.module.css";
 
@@ -7,7 +8,8 @@ import look from "./intro-look.module.css";
  * edges and a ground shadow, plus the cover's lettering. Static parts: a scene
  * moves one by passing its own animation class, so the scene's timing tests
  * read it. Not a client component, so the server page renders them into the
- * intro's static HTML.
+ * intro's static HTML. StillBook puts the same parts together, unmoving, for
+ * the /book page.
  *
  * Each part is decorative (aria-hidden) and carries data-look, which is how
  * high contrast takes them all away (globals.css BOOK LOOK). Put them inside a
@@ -90,6 +92,32 @@ export function CoverLettering({ byline = true }: { byline?: boolean }) {
           <span className={look.line}>by Amr Elharony</span>
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The book standing still, as /book shows it: the cover picture it is given,
+ * framed as the book's face under the cover's grain and a resting stripe of
+ * light, on the page block with its page edges, over a ground shadow. Nothing
+ * in it moves, and it takes no class a scene would move it by.
+ *
+ * The picture stays in the flow and sizes the book, so the page holds its
+ * layout while it loads; every other part is laid out from the book's own
+ * size. The ground and the page block come first and the face last, so the
+ * face paints over both. High contrast takes every part but the face away,
+ * which leaves the plain cover.
+ */
+export function StillBook({ children }: { children: ReactNode }) {
+  return (
+    <div className={look.still}>
+      <Ground />
+      <PageEdges className={look.stillPages} />
+      <div className={look.stillFace}>
+        {children}
+        <Grain className={look.stillOver} />
+        <Light className={look.stillOver} />
+      </div>
     </div>
   );
 }

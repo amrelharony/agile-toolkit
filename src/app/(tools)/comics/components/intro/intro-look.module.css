@@ -11,6 +11,9 @@
  * that keeps the 3D space open: a mask, a clip, opacity or isolation there
  * would flatten the book. High contrast hides them all, by their data-look
  * attribute (globals.css BOOK LOOK), since these class names are hashed.
+ *
+ * At the end, the book standing still on /book (StillBook), which puts the
+ * same parts together without a scene and so without any movement.
  */
 
 /* Each part covers the face it sits in, follows its corners, and lets taps through. */
@@ -190,4 +193,57 @@
   margin-top: auto;
   font-size: max(0.75rem, calc(var(--book-w) * 0.056));
   line-height: 1.25;
+}
+
+/* The book standing still on /book (StillBook). Its picture stays in the
+   flow and sets the book's size, so nothing shifts as it loads. The other
+   parts are laid out in percentages of the book, which is square, so they
+   sit where the intro's book has them at any width. */
+
+/* The book's box is its cover's. The page block and the ground reach past
+   its right and bottom edges, so it keeps that room clear: the block's 4%
+   offset and its 3px hard shadow, and the ground's drop to 106% of the
+   book's height. A margin's percentage is of the column, a little wider
+   than the book, so each is enough. */
+.still {
+  position: relative;
+  margin-right: calc(4% + 3px);
+  margin-bottom: 6%;
+}
+
+/* The pages under the cover, as one block offset like the hard shadow, with
+   the four page edges in that offset (the edges' own box, moved). Ruled like
+   the intro's page block. */
+.stillPages {
+  --look-edge-x: 4%;
+  --look-edge-y: 3.5%;
+  background-color: var(--card);
+  border: var(--line-w) solid var(--border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--shadow-3);
+  transform: translate(4%, 3.5%);
+}
+
+/* The cover: the picture in the ink frame every panel has. Positioned, so it
+   paints over the block and the ground drawn before it. A grid, so the
+   picture is a block with no line gap under it; clipped, so its corners
+   follow the frame's; isolated, so the grain and light paint inside it. */
+.stillFace {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  isolation: isolate;
+  background-color: var(--card);
+  border: var(--panel-w) solid var(--border);
+  border-radius: var(--panel-radius);
+}
+
+/* Over the picture, the grain and the light come off wherever the page's own
+   paper grain does (globals.css PAPER): in print, in forced colours and when
+   more contrast is asked for. Two classes, so this outranks the grain's own
+   display wherever the minifier puts the rules. */
+@media print, (forced-colors: active), (prefers-contrast: more) {
+  .stillFace > .stillOver {
+    display: none;
+  }
 }
