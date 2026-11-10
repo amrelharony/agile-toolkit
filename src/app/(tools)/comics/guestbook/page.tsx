@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { FormPrivacyNote } from "@/components/data/form-privacy-note";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { Card, CardContent } from "@/components/ui/card";
 import { COMMUNITY_URL, GUESTBOOK_ROUTE } from "@/lib/comics/guestbook";
 import { listApprovedNotes } from "@/lib/comics/guestbook-store";
+import { GUESTBOOK_FORM_NOTE } from "@/lib/site/disclosures";
 import { comicMetadata } from "../comic-metadata";
 import { GuestbookForm } from "./guestbook-form";
 import { guestbookArt } from "@/lib/ink/drawings/pages/guestbook";
@@ -39,6 +41,7 @@ export default async function GuestbookPage() {
             A story that rang true, or a question for Amr. Notes appear here once he has read them.
           </p>
           <GuestbookForm />
+          <FormPrivacyNote note={GUESTBOOK_FORM_NOTE} />
         </section>
 
         {COMMUNITY_URL ? (

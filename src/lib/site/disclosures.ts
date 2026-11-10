@@ -2,7 +2,8 @@
  * What the site tells people about their data, in the words they are shown at
  * the moment it matters: the "Your data" dialog, the consent step before a
  * live room or a vote round, the card before Amr's AI, the note under the
- * comics and kudos pages, and the AI settings dialog.
+ * comics and kudos pages, the AI settings dialog, and the line under the
+ * licence and guestbook forms.
  *
  * Each of those components shows its text from here, and so does the privacy
  * page (/privacy), which quotes them. The page is rendered on the server, and
@@ -90,3 +91,16 @@ export const OWN_KEY_DISCLOSURE =
 // ── The comic licence page (app/(tools)/comics/license/page.tsx) ──────────
 
 export const TOOLS_STAY_FREE = "The tools on this site stay free.";
+
+// ── Under the two forms that keep what people type ─────────────────────────
+// Nothing deletes either kind of row on a timer (no migration purges them),
+// so each says it stays until the person asks; the forms add a link to the
+// privacy page after it.
+
+/** Under the comic licence form (app/(tools)/comics/license/licence-form.tsx). */
+export const LICENCE_FORM_NOTE =
+  "We keep what you send so Amr can reply, until you ask us to remove it. We don't keep your IP address.";
+
+/** Under the guestbook form (app/(tools)/comics/guestbook/guestbook-form.tsx). */
+export const GUESTBOOK_FORM_NOTE =
+  "We keep your name and note until you ask us to remove them. We don't keep your IP address.";

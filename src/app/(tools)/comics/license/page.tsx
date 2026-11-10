@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import { FormPrivacyNote } from "@/components/data/form-privacy-note";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { Card, CardContent } from "@/components/ui/card";
 import { LICENSE_PATH } from "@/lib/comics/rights";
-import { TOOLS_STAY_FREE } from "@/lib/site/disclosures";
+import { LICENCE_FORM_NOTE, TOOLS_STAY_FREE } from "@/lib/site/disclosures";
 import { comicMetadata } from "../comic-metadata";
 import { LicenceForm } from "./licence-form";
 import { scrollArt } from "@/lib/ink/drawings/pages/scroll";
@@ -68,6 +69,7 @@ export default function ComicLicensePage() {
             directly.
           </p>
           <LicenceForm />
+          <FormPrivacyNote note={LICENCE_FORM_NOTE} />
         </section>
       </div>
     </ToolPageWrapper>

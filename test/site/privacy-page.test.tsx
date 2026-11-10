@@ -15,6 +15,8 @@ import PrivacyPage, { dynamic, metadata } from "@/app/(meta)/privacy/page";
 import { CSP_HOSTS } from "@/lib/site/csp.mjs";
 import {
   COUNT_DISCLOSURE,
+  GUESTBOOK_FORM_NOTE,
+  LICENCE_FORM_NOTE,
   OWN_KEY_DISCLOSURE,
   STORY_COUNT_DISCLOSURE,
   TOOLS_STAY_FREE,
@@ -149,6 +151,8 @@ describe("the table of parts", () => {
       OWN_KEY_DISCLOSURE,
       VISITOR_AI_SENT,
       VISITOR_AI_KEPT,
+      LICENCE_FORM_NOTE,
+      GUESTBOOK_FORM_NOTE,
     ]);
     for (const quote of quotes) expect(quote.says).toMatch(/:$/);
   });

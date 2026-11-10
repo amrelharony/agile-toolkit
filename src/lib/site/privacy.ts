@@ -31,6 +31,8 @@ import {
 import { cspDirective } from "@/lib/site/csp.mjs";
 import {
   COUNT_DISCLOSURE,
+  GUESTBOOK_FORM_NOTE,
+  LICENCE_FORM_NOTE,
   OWN_KEY_DISCLOSURE,
   STORY_COUNT_DISCLOSURE,
   VISITOR_AI_KEPT,
@@ -230,6 +232,7 @@ export function privacyRows(): PrivacyRow[] {
         {
           text: `Those answers and when you sent them, so Amr can reply. No IP address and nothing about your browser. ${KEPT_UNTIL_ASKED}`,
         },
+        { says: "Under the form, the site says:", text: LICENCE_FORM_NOTE },
       ],
     },
     {
@@ -241,6 +244,7 @@ export function privacyRows(): PrivacyRow[] {
         {
           text: `Both, and when you sent them. No IP address and nothing about your browser. The note shows on the guestbook once Amr has approved it. ${KEPT_UNTIL_ASKED}`,
         },
+        { says: "Under the form, the site says:", text: GUESTBOOK_FORM_NOTE },
       ],
     },
     {

@@ -19,6 +19,8 @@ import { VISITOR_LIMITS, VISITOR_TOOLS } from "@/lib/realtime/visitor-rooms";
 import { cspDirective } from "@/lib/site/csp.mjs";
 import {
   COUNT_DISCLOSURE,
+  GUESTBOOK_FORM_NOTE,
+  LICENCE_FORM_NOTE,
   OWN_KEY_DISCLOSURE,
   STORY_COUNT_DISCLOSURE,
   VISITOR_AI_KEPT,
@@ -211,6 +213,8 @@ describe("each row, against the site", () => {
       "What you type: your name, your company, your work email, how you would use the comic, your team's size and your message."
     );
     expect(said(licence)).toContain("No IP address and nothing about your browser.");
+    // The line under the form says the same, and the row quotes it.
+    expect(quoted(licence)).toEqual([LICENCE_FORM_NOTE]);
     expect(read("supabase/migrations/0029_comic_stories.sql")).toContain(
       "Licence requests from /comics/license, read only by the owner through server code. No IP address or user agent is stored."
     );
@@ -221,6 +225,7 @@ describe("each row, against the site", () => {
     expect(Object.keys(EMPTY_GUESTBOOK_DRAFT)).toEqual(["name", "message"]);
     expect(guestbook.leaves[0].text).toBe("What you type: the name and the note.");
     expect(said(guestbook)).toContain("once Amr has approved it");
+    expect(quoted(guestbook)).toEqual([GUESTBOOK_FORM_NOTE]);
     expect(read("supabase/migrations/0033_comic_guestbook_quiz.sql")).toContain(
       "shown only once the owner approves them. Read and written by server code only. No IP address or user agent is stored."
     );
@@ -260,6 +265,9 @@ describe("how long the forms' rows are kept", () => {
     for (const id of ["licence", "guestbook"]) {
       expect(said(row(id)), id).toContain("Kept until you ask for it to be removed.");
     }
+    // And so do the lines under the two forms.
+    expect(LICENCE_FORM_NOTE).toContain("until you ask us to remove it.");
+    expect(GUESTBOOK_FORM_NOTE).toContain("until you ask us to remove them.");
   });
 
   // If a purge is ever added, this fails: the page must then state the period.
