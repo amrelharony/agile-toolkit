@@ -10,20 +10,91 @@
  * ?sprint= link named, else the sprint whose retro window holds today. It is
  * shown, never applied behind the team's back, and can be changed or
  * cleared before a format is picked.
+ *
+ * Custom opens a form for the team's own columns (2 to 6 names). Starting
+ * from it saves the format in this browser (custom-formats-store), and each
+ * saved one shows as its own card after the built-in formats, with Delete
+ * and Undo.
  */
 
-import { useMemo } from "react";
-import { MessagesSquare } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { MessagesSquare, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadExampleButton } from "@/components/tool-frame/example-data";
 import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
+import {
+  customFormatFrom,
+  withSavedFormat,
+  type CustomFormatDraft,
+  type SavedCustomFormat,
+} from "@/lib/retro/custom-format";
 import { themed, tint } from "@/lib/utils/theme-color";
+import { undoable } from "@/lib/utils/undoable";
 import type { RetroBoard, Sprint } from "@/lib/stores/workspace-types";
+import { updateSavedFormats, useRetroFormatsStore, useSavedFormats } from "../custom-formats-store";
+import { CustomFormatEditor } from "./custom-format-editor";
 import { PastRetros } from "./past-retros";
 import { RetroSprintPicker } from "./retro-sprint-picker";
+
+/** One format's card: its name is a real button stretched over the card. */
+function FormatCard({
+  format,
+  onSelect,
+  action,
+}: {
+  format: RetroFormat;
+  onSelect: (format: RetroFormat) => void;
+  /** A control of its own on the card (Delete), above the stretched button. */
+  action?: ReactNode;
+}) {
+  const descId = `retro-format-${format.id}-desc`;
+  return (
+    // The format name is a real button, stretched over the card, so the
+    // picker works from the keyboard and its accessible name is exactly its
+    // visible label; the description is read as its description.
+    <div className="group relative h-full">
+      <Card className="h-full bg-card border-border group-hover:border-accent-cyan/40 transition-all duration-200">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-bold text-text group-hover:text-accent transition-colors">
+            <button
+              type="button"
+              onClick={() => onSelect(format)}
+              aria-describedby={descId}
+              className="text-left after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-accent focus-visible:after:ring-offset-2 focus-visible:after:ring-offset-bg"
+            >
+              {format.name}
+            </button>
+          </CardTitle>
+          <CardDescription id={descId} className="text-xs text-sub line-clamp-2">
+            {format.description}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-2">
+          <div className="flex flex-wrap gap-1">
+            {format.columns.map((col) => (
+              <span
+                key={col.key}
+                className="text-xs px-2 py-0.5 rounded-full border font-medium"
+                style={{
+                  color: themed(col.color),
+                  borderColor: tint(col.color, 33),
+                  backgroundColor: tint(col.color, 8),
+                }}
+              >
+                {col.icon ? `${col.icon} ` : ""}
+                {col.label}
+              </span>
+            ))}
+          </div>
+          {action && <div className="relative z-10 flex justify-end">{action}</div>}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 export function FormatSelector({
   onSelect,
@@ -50,6 +121,47 @@ export function FormatSelector({
   );
   const firstRun = Boolean(onLoadExample) && past.length === 0;
 
+  // ── Custom formats, kept in this browser ──
+  useEffect(() => {
+    const { persist } = useRetroFormatsStore;
+    void Promise.resolve(persist.hasHydrated() ? undefined : persist.rehydrate()).catch(() => {
+      /* storage blocked: the picker starts with no saved formats */
+    });
+  }, []);
+  const saved = useSavedFormats();
+  const savedFormats = useMemo(
+    () => saved.map((f) => ({ saved: f, format: customFormatFrom(f, f.id) })),
+    [saved]
+  );
+  const [customOpen, setCustomOpen] = useState(false);
+  const editorId = useId();
+
+  const startCustom = useCallback(
+    (values: CustomFormatDraft) => {
+      let id = "";
+      updateSavedFormats((list) => {
+        const next = withSavedFormat(list, values);
+        id = next.id;
+        return next.list;
+      });
+      setCustomOpen(false);
+      onSelect(customFormatFrom(values, id));
+    },
+    [onSelect]
+  );
+
+  const deleteSaved = useCallback((format: SavedCustomFormat) => {
+    undoable({
+      label: `Deleted the “${format.name}” format`,
+      apply: () => updateSavedFormats((list) => list.filter((f) => f.id !== format.id)),
+      // Back at the front: it was the last one this browser touched.
+      revert: () =>
+        updateSavedFormats((list) =>
+          list.some((f) => f.id === format.id) ? [...list] : [format, ...list]
+        ),
+    });
+  }, []);
+
   return (
     <ToolPageWrapper
       toolId="retro"
@@ -72,51 +184,59 @@ export function FormatSelector({
         <h2 className="text-lg font-display font-bold text-text">Choose a Format</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {retroFormats.map((fmt) => (
-            // The format name is a real button, stretched over the card, so
-            // the picker works from the keyboard and its accessible name is
-            // exactly its visible label; the description is read as its
-            // description.
-            <div key={fmt.id} className="group relative h-full">
-              <Card className="h-full bg-card border-border group-hover:border-accent-cyan/40 transition-all duration-200">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-bold text-text group-hover:text-accent transition-colors">
-                    <button
-                      type="button"
-                      onClick={() => onSelect(fmt)}
-                      aria-describedby={`retro-format-${fmt.id}-desc`}
-                      className="text-left after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-accent focus-visible:after:ring-offset-2 focus-visible:after:ring-offset-bg"
-                    >
-                      {fmt.name}
-                    </button>
-                  </CardTitle>
-                  <CardDescription
-                    id={`retro-format-${fmt.id}-desc`}
-                    className="text-xs text-sub line-clamp-2"
-                  >
-                    {fmt.description}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <div className="flex flex-wrap gap-1">
-                    {fmt.columns.map((col) => (
-                      <span
-                        key={col.key}
-                        className="text-xs px-2 py-0.5 rounded-full border font-medium"
-                        style={{
-                          color: themed(col.color),
-                          borderColor: tint(col.color, 33),
-                          backgroundColor: tint(col.color, 8),
-                        }}
-                      >
-                        {col.icon} {col.label}
-                      </span>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <FormatCard key={fmt.id} format={fmt} onSelect={onSelect} />
           ))}
+          {savedFormats.map(({ saved: s, format }) => (
+            <FormatCard
+              key={format.id}
+              format={format}
+              onSelect={onSelect}
+              action={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => deleteSaved(s)}
+                  aria-label={`Delete the ${s.name} format`}
+                  className="min-touch-coarse h-7 gap-1.5 px-2 text-xs text-sub hover:bg-danger/10 hover:text-danger"
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  Delete
+                </Button>
+              }
+            />
+          ))}
+          {/* Custom: a form for the team's own columns, under the grid. */}
+          <div className="group relative h-full">
+            <Card className="h-full bg-card border-dashed border-border group-hover:border-accent-cyan/40 transition-all duration-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-bold text-text group-hover:text-accent transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setCustomOpen((o) => !o)}
+                    aria-expanded={customOpen}
+                    aria-controls={customOpen ? editorId : undefined}
+                    aria-describedby="retro-format-custom-desc"
+                    className="text-left after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-accent focus-visible:after:ring-offset-2 focus-visible:after:ring-offset-bg"
+                  >
+                    Custom
+                  </button>
+                </CardTitle>
+                <CardDescription id="retro-format-custom-desc" className="text-xs text-sub">
+                  Name your own columns, 2 to 6. Saved in this browser so you can use them again.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          </div>
         </div>
+
+        {customOpen && (
+          <CustomFormatEditor
+            id={editorId}
+            onStart={startCustom}
+            onCancel={() => setCustomOpen(false)}
+          />
+        )}
 
         <div className="flex flex-wrap items-center gap-3">
           <Button

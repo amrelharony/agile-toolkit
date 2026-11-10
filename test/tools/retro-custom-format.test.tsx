@@ -1,0 +1,185 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { RETRO_COLUMN_PALETTE } from "@/lib/constants/retro-formats";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+
+/**
+ * Retro: the Custom card in the format picker. The team names 2 to 6
+ * columns, nothing starts until the draft is valid, starting saves the
+ * format in this browser, and a saved format shows as its own card next
+ * time, with Delete and Undo.
+ */
+
+const undo = vi.hoisted(() => ({
+  last: null as null | { label: string; apply: () => void; revert: () => void },
+}));
+vi.mock("@/lib/utils/undoable", () => ({
+  undoable: (a: { label: string; apply: () => void; revert: () => void }) => {
+    undo.last = a;
+    a.apply();
+  },
+}));
+vi.mock("@/components/a11y/live-announcer", () => ({ useAnnounce: () => () => {} }));
+vi.mock("@/components/layout/tool-page-wrapper", () => ({
+  ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+}));
+vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+vi.mock("@/components/shared/export-button", () => ({ ExportButton: () => null }));
+vi.mock("@/lib/sonification/emit", () => ({ emit: () => {} }));
+vi.mock("@/lib/history/use-history-logger", () => ({
+  useHistoryLogger: () => ({ log: () => {}, toolRunId: "test-run" }),
+}));
+vi.mock("framer-motion", async () => {
+  const React = await import("react");
+  const motionProps = new Set(["initial", "animate", "exit", "transition", "layout"]);
+  const strip = (props: Record<string, unknown>) =>
+    Object.fromEntries(Object.entries(props).filter(([key]) => !motionProps.has(key)));
+  const Div = React.forwardRef<HTMLDivElement, Record<string, unknown>>((props, ref) =>
+    React.createElement("div", { ...strip(props), ref })
+  );
+  Div.displayName = "MotionDiv";
+  return {
+    AnimatePresence: ({ children }: { children: ReactNode }) => children,
+    motion: new Proxy({}, { get: () => Div }),
+  };
+});
+
+import { RetroClient } from "@/app/(tools)/retro/retro-client";
+import { useRetroFormatsStore } from "@/app/(tools)/retro/custom-formats-store";
+
+const current = () =>
+  (useWorkspaceStore.getState().retroBoards ?? []).find((b) => b.id === "retro:current");
+const saved = () => useRetroFormatsStore.getState().custom;
+
+function openCustom() {
+  fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+  return screen.getByRole("region", { name: "Your own columns" });
+}
+
+beforeEach(() => {
+  undo.last = null;
+  useWorkspaceStore.setState({ retroBoards: [], sprints: [], teamMembers: [] });
+  useRetroFormatsStore.setState({ custom: [] });
+});
+
+describe("Custom format", () => {
+  it("opens a form for the team's own columns, starting with the name field", () => {
+    render(<RetroClient />);
+    const toggle = screen.getByRole("button", { name: "Custom" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const form = openCustom();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(form).getByLabelText("Format name")).toHaveFocus();
+    expect(within(form).getAllByLabelText(/^Column \d$/)).toHaveLength(3);
+
+    fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("region", { name: "Your own columns" })).toBeNull();
+    expect(current()).toBeUndefined();
+  });
+
+  it("says what's missing and starts nothing until the draft is valid", () => {
+    render(<RetroClient />);
+    const form = openCustom();
+    fireEvent.click(within(form).getByRole("button", { name: "Start retro" }));
+    expect(within(form).getByText("Name the format.")).toBeInTheDocument();
+    expect(within(form).getAllByText("Name this column.")).toHaveLength(3);
+    expect(within(form).getByLabelText("Format name")).toHaveFocus();
+    expect(current()).toBeUndefined();
+    expect(saved()).toEqual([]);
+  });
+
+  it("adds columns up to 6 and removes them down to 2", () => {
+    render(<RetroClient />);
+    const form = openCustom();
+    const add = () => within(form).queryByRole("button", { name: "Add column" });
+    fireEvent.click(add()!);
+    expect(within(form).getByLabelText("Column 4")).toHaveFocus();
+    fireEvent.click(add()!);
+    fireEvent.click(add()!);
+    expect(within(form).getAllByLabelText(/^Column \d$/)).toHaveLength(6);
+    expect(add()).toBeNull();
+
+    for (let i = 0; i < 4; i++) {
+      fireEvent.click(within(form).getAllByRole("button", { name: /^Remove column/ })[0]);
+    }
+    expect(within(form).getAllByLabelText(/^Column \d$/)).toHaveLength(2);
+    expect(within(form).queryByRole("button", { name: /^Remove column/ })).toBeNull();
+  });
+
+  it("starts a board in the team's columns and saves the format in this browser", () => {
+    render(<RetroClient />);
+    const form = openCustom();
+    fireEvent.change(within(form).getByLabelText("Format name"), {
+      target: { value: "Team pulse" },
+    });
+    fireEvent.change(within(form).getByLabelText("Column 1"), { target: { value: "Wins" } });
+    fireEvent.change(within(form).getByLabelText("Column 2"), { target: { value: "Worries" } });
+    fireEvent.change(within(form).getByLabelText("Column 3"), { target: { value: "Ideas" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Start retro" }));
+
+    const board = current()!;
+    expect(board.format.id).toMatch(/^custom-/);
+    expect(board.format.name).toBe("Team pulse");
+    expect(board.format.columns.map((c) => [c.key, c.label, c.color])).toEqual([
+      ["wins", "Wins", RETRO_COLUMN_PALETTE[0]],
+      ["worries", "Worries", RETRO_COLUMN_PALETTE[1]],
+      ["ideas", "Ideas", RETRO_COLUMN_PALETTE[2]],
+    ]);
+    expect(saved()).toEqual([
+      { id: board.format.id, name: "Team pulse", columns: ["Wins", "Worries", "Ideas"] },
+    ]);
+    // The board is drawn in those columns, empty ones included.
+    for (const label of ["New card for Wins", "New card for Worries", "New card for Ideas"]) {
+      expect(screen.getByRole("textbox", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("shows a saved format as its own card, which starts the same board", () => {
+    useRetroFormatsStore.setState({
+      custom: [{ id: "custom-saved0001", name: "Team pulse", columns: ["Wins", "Worries"] }],
+    });
+    render(<RetroClient />);
+    expect(screen.getByText("Your own columns: Wins and Worries.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Team pulse" }));
+    expect(current()?.format).toMatchObject({
+      id: "custom-saved0001",
+      name: "Team pulse",
+      columns: [
+        { key: "wins", label: "Wins" },
+        { key: "worries", label: "Worries" },
+      ],
+    });
+  });
+
+  it("deletes a saved format with Undo", () => {
+    const pulse = { id: "custom-saved0001", name: "Team pulse", columns: ["Wins", "Worries"] };
+    const other = { id: "custom-saved0002", name: "Other", columns: ["A", "B"] };
+    useRetroFormatsStore.setState({ custom: [pulse, other] });
+    render(<RetroClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete the Team pulse format" }));
+    expect(saved()).toEqual([other]);
+    expect(screen.queryByRole("button", { name: "Team pulse" })).toBeNull();
+    expect(undo.last?.label).toBe("Deleted the “Team pulse” format");
+    act(() => undo.last!.revert());
+    expect(saved()).toEqual([pulse, other]);
+    expect(screen.getByRole("button", { name: "Team pulse" })).toBeInTheDocument();
+  });
+
+  it("saves the same columns once, moving them to the front", () => {
+    const pulse = { id: "custom-saved0001", name: "Team pulse", columns: ["Wins", "Worries"] };
+    const other = { id: "custom-saved0002", name: "Other", columns: ["A", "B"] };
+    useRetroFormatsStore.setState({ custom: [other, pulse] });
+    render(<RetroClient />);
+    const form = openCustom();
+    fireEvent.click(within(form).getAllByRole("button", { name: /^Remove column/ })[2]);
+    fireEvent.change(within(form).getByLabelText("Format name"), {
+      target: { value: "team pulse" },
+    });
+    fireEvent.change(within(form).getByLabelText("Column 1"), { target: { value: "wins" } });
+    fireEvent.change(within(form).getByLabelText("Column 2"), { target: { value: "WORRIES" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Start retro" }));
+    expect(saved().map((f) => f.id)).toEqual(["custom-saved0001", "custom-saved0002"]);
+    expect(current()?.format.id).toBe("custom-saved0001");
+  });
+});
