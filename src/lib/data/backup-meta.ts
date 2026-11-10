@@ -16,6 +16,9 @@ export function readLastBackupAt(): string | null {
   }
 }
 
+/** Fired on this window when a backup is recorded: a storage event only reaches other tabs. */
+const BACKUP_RECORDED_EVENT = "agile-toolkit:backup-recorded";
+
 /** Remember a backup download (every download path calls this). */
 export function recordBackup(now = new Date()): void {
   try {
@@ -23,8 +26,59 @@ export function recordBackup(now = new Date()): void {
   } catch {
     /* storage blocked — nothing to remember */
   }
+  try {
+    window.dispatchEvent(new Event(BACKUP_RECORDED_EVENT));
+  } catch {
+    /* no window events — readers pick it up on their next render */
+  }
   // "Safe Keeper": the first backup downloaded.
   signalGamification("backup-downloaded");
+}
+
+/**
+ * Call `onChange` whenever the last backup's time changes: a download in
+ * this tab, or one in another tab (or a restore, which rewrites storage).
+ * Returns how to stop listening.
+ */
+export function subscribeLastBackup(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (e: StorageEvent) => {
+    // A null key is a whole-storage clear.
+    if (e.key === null || e.key === LAST_BACKUP_KEY) onChange();
+  };
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(BACKUP_RECORDED_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(BACKUP_RECORDED_EVENT, onChange);
+  };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+/**
+ * Whole calendar days, local, since the backup taken at `iso`: 0 for today
+ * (and for a clock that ran ahead), null for no backup or a time that can't
+ * be read.
+ */
+export function daysSinceBackup(iso: string | null, now: Date = new Date()): number | null {
+  if (!iso) return null;
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return null;
+  return Math.max(0, Math.round((startOfDay(now) - startOfDay(then)) / DAY_MS));
+}
+
+/** The longest line `lastBackupText` writes for a backup, for a control that reserves its width. */
+export const LAST_BACKUP_WIDEST = "Last backup: 0000 days ago";
+
+/** "Last backup: 3 days ago", "Last backup: today", or "No backup yet". */
+export function lastBackupText(iso: string | null, now: Date = new Date()): string {
+  const days = daysSinceBackup(iso, now);
+  if (days === null) return "No backup yet";
+  if (days === 0) return "Last backup: today";
+  if (days === 1) return "Last backup: yesterday";
+  return `Last backup: ${days} days ago`;
 }
 
 /**
