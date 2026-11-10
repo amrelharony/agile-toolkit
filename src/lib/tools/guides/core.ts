@@ -17,7 +17,7 @@ export const CORE_GUIDES: ToolGuide[] = [
       "Add cards to each column; pasting several lines adds one card per line. Click a card's text to fix it. In Write, Group with… puts a card under a similar one in its column, and the bin deletes a card, with Undo. From 10 cards, Common words rings the cards that share a word.",
       "Press Next Phase to vote. Everyone has 3 votes: on a shared screen, pick who is voting under Voting as. Previous phase goes back and keeps the votes.",
       "In Discuss the cards are sorted by votes. Click one to mark it as discussing, and timebox it: pick 5m, 10m, 15m or 30m on the timer and press Start.",
-      "In Actions, tick the cards the team will act on, pick each one's owner from the team, and use Send to… to raise it as an Impediment or a Kanban card. Retro Actions follows them up.",
+      "In Actions, tick the cards the team will act on, pick each one's owner from the team, and use Send to… to raise it as an Impediment, a Kanban card or a Backlog story for Sprint Planning. Retro Actions follows them up.",
       "Export gives the board as Markdown or JSON. New Retro moves the board to Past retros, below the format picker; Undo in the toast brings it back.",
     ],
     tips: [
