@@ -29,7 +29,9 @@ import { sprintHref } from "@/lib/sprints/use-selected-sprint";
  * folding, escaping), one entry per ceremony with holidays skipped, UIDs that
  * stay the same from one download to the next, the two optional extras, and
  * a sprint without dates. Times are compared through `localDateTime`, so the
- * tests read the same in any time zone.
+ * tests read the same in any time zone; the change from local time to UTC
+ * itself is checked against written-out values with the zone pinned
+ * (`inZone`), since on a UTC machine the two read the same.
  */
 
 // Monday 19 Oct 2026 to Friday 30 Oct 2026: planning, 9 dailies, 2 refinements, review, retro.
@@ -94,6 +96,24 @@ const byUid = (ics: string, uid: string) => {
 const uidOf = (kind: CeremonyKind, day: string, sprintId = "s1") =>
   `sprint-${sprintId}-${kind}-${day}@agile.amrelharony.com`;
 
+/** Monday 19 Oct to Monday 2 Nov 2026: two weeks, so a 4 h planning, a 2 h review and a 1 h 30 retro. */
+const TWO_WEEKS: Sprint = { ...SPRINT, endDate: "2026-11-02" };
+
+/**
+ * Run with this process's time zone set to `zone`, then put it back (as
+ * test/tools/retro-actions-upgrade does). A local time is then a known UTC
+ * instant on any machine, a UTC runner included.
+ */
+function inZone(zone: string, run: () => void): void {
+  const before = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  process.env.TZ = zone;
+  try {
+    run();
+  } finally {
+    process.env.TZ = before;
+  }
+}
+
 describe("escapeIcsText", () => {
   it("escapes backslash, semicolon and comma, and writes a line break as \\n", () => {
     expect(escapeIcsText("a,b;c\\d")).toBe("a\\,b\\;c\\\\d");
@@ -152,6 +172,85 @@ describe("icsUtc", () => {
   it("writes an instant as a UTC date-time", () => {
     expect(icsUtc(new Date(Date.UTC(2026, 9, 19, 8, 0, 0)))).toBe("20261019T080000Z");
     expect(icsUtc(new Date(Date.UTC(2027, 0, 3, 23, 59, 7)))).toBe("20270103T235907Z");
+  });
+
+  it("writes a local time as the UTC instant it is, not its own clock digits", () => {
+    inZone("America/New_York", () => {
+      // 10:00 in New York in October is 14:00 UTC; in January, 15:00.
+      expect(icsUtc(new Date(2026, 9, 19, 10, 0, 0))).toBe("20261019T140000Z");
+      expect(icsUtc(new Date(2027, 0, 4, 10, 0, 0))).toBe("20270104T150000Z");
+      // Late evening is already the next day in UTC.
+      expect(icsUtc(new Date(2026, 9, 19, 22, 30, 0))).toBe("20261020T023000Z");
+    });
+    inZone("Asia/Tokyo", () => {
+      // East of UTC the instant is earlier, here the day before.
+      expect(icsUtc(new Date(2026, 9, 19, 10, 0, 0))).toBe("20261019T010000Z");
+      expect(icsUtc(new Date(2026, 9, 20, 8, 0, 0))).toBe("20261019T230000Z");
+    });
+  });
+});
+
+describe("the sprint's calendar away from UTC", () => {
+  const ACTION: CalendarAction = { id: "a1", text: "Fix the build", dueDate: "2026-10-28" };
+
+  it("writes New York's local times as UTC instants, either side of the end of summer time", () => {
+    inZone("America/New_York", () => {
+      // The clocks go back on Sunday 1 Nov 2026: UTC-4 before it, UTC-5 after.
+      const { ics } = build({ sprint: TWO_WEEKS, actions: [ACTION], weeklyStory: true });
+      const times = (kind: CeremonyKind, day: string) => {
+        const event = byUid(ics, uidOf(kind, day));
+        return [prop(event, "DTSTART"), prop(event, "DTEND")];
+      };
+      expect(times("planning", "20261019")).toEqual(["20261019T140000Z", "20261019T180000Z"]);
+      expect(times("refinement", "20261021")).toEqual(["20261021T150000Z", "20261021T160000Z"]);
+      expect(times("daily", "20261030")).toEqual(["20261030T133000Z", "20261030T134500Z"]);
+      expect(times("daily", "20261102")).toEqual(["20261102T143000Z", "20261102T144500Z"]);
+      expect(times("review", "20261102")[0]).toBe("20261102T190000Z");
+      expect(times("retro", "20261102")).toEqual(["20261102T203000Z", "20261102T220000Z"]);
+      // Whole days are the sprint's own dates, in any zone.
+      expect(byUid(ics, "retro-action-a1@agile.amrelharony.com")).toContain(
+        "DTSTART;VALUE=DATE:20261028"
+      );
+      expect(byUid(ics, "agile-at-work-weekly-story@agile.amrelharony.com")).toContain(
+        "DTSTART;VALUE=DATE:20261025"
+      );
+    });
+  });
+
+  it("names a late ceremony by the sprint's own day, though its instant is the next day in UTC", () => {
+    inZone("America/New_York", () => {
+      const { ics } = build({
+        sprint: TWO_WEEKS,
+        cadence: { ...DEFAULT_CADENCE, retroTime: "22:00" },
+      });
+      const retro = byUid(ics, uidOf("retro", "20261102"));
+      expect(prop(retro, "DTSTART")).toBe("20261103T030000Z");
+      expect(prop(retro, "DTEND")).toBe("20261103T043000Z");
+    });
+  });
+
+  it("writes Tokyo's local times as UTC instants, the day before for an early one", () => {
+    inZone("Asia/Tokyo", () => {
+      const { ics } = build({
+        sprint: TWO_WEEKS,
+        cadence: { ...DEFAULT_CADENCE, dailyTime: "08:00" },
+        actions: [ACTION],
+        weeklyStory: true,
+      });
+      const planning = byUid(ics, uidOf("planning", "20261019"));
+      expect(prop(planning, "DTSTART")).toBe("20261019T010000Z");
+      expect(prop(planning, "DTEND")).toBe("20261019T050000Z");
+      // Tuesday's 08:00 Daily Scrum is Monday 23:00 UTC, and still Tuesday's entry.
+      const daily = byUid(ics, uidOf("daily", "20261020"));
+      expect(prop(daily, "DTSTART")).toBe("20261019T230000Z");
+      expect(prop(daily, "DTEND")).toBe("20261019T231500Z");
+      expect(byUid(ics, "retro-action-a1@agile.amrelharony.com")).toContain(
+        "DTSTART;VALUE=DATE:20261028"
+      );
+      expect(byUid(ics, "agile-at-work-weekly-story@agile.amrelharony.com")).toContain(
+        "DTSTART;VALUE=DATE:20261025"
+      );
+    });
   });
 });
 
