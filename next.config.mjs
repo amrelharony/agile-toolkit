@@ -34,10 +34,10 @@ const cspDirectives = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.supabase.co https://*.googleusercontent.com https://avatars.githubusercontent.com",
-  // `blob:` in connect-src: nothing fetches a blob: URL since Amr replaced the
-  // 3D mascot, but the book's 3D model (deferred until the .glb arrives) will
-  // load with a GLTFLoader, whose ImageBitmapLoader does `fetch(blob:…)` for a
-  // model's embedded textures. Only this origin's own scripts can make one.
+  // `blob:` in connect-src: nothing fetches a blob: URL today. Amr replaced the
+  // 3D mascot, and the comic intros' book is drawn in CSS from the cover and
+  // panel images, so no .glb model is planned. It stays because taking it out
+  // would change the CSP; only this origin's own scripts can make a blob: URL.
   "connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://api.z.ai https://open.bigmodel.cn https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://api.open-meteo.com",
   "frame-src 'self' https://accounts.google.com",
   "frame-ancestors 'none'",
