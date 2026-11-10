@@ -867,6 +867,32 @@ describe("useRetroRoom: the host", () => {
     expect(JSON.stringify(latest.cards)).not.toContain(ME.id);
   });
 
+  it("gives everyone the board's Votes each, and sends a new budget at once", () => {
+    const { result } = host(board({ phase: "vote", votesPerPerson: 5 }));
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(states().at(-1)!.votesPerPerson).toBe(5);
+    expect(result.current.room.votesPerPerson).toBe(5);
+
+    act(() => {
+      for (let i = 1; i <= 6; i++) ch.deliver("retro:intent", intent(ME.id, "vote", "c1", `v${i}`));
+    });
+    // Five land; the sixth is past the budget.
+    expect(result.current.board.cards[0].votes).toBe(5);
+
+    const before = states().length;
+    act(() => result.current.setBoard((b) => ({ ...b, votesPerPerson: 8 })));
+    act(() => vi.advanceTimersByTime(600));
+    expect(states().length).toBeGreaterThan(before);
+    expect(states().at(-1)!).toMatchObject({ votesPerPerson: 8, votesUsed: { [ME.id]: 5 } });
+    act(() => ch.deliver("retro:intent", intent(ME.id, "vote", "c1", "v7")));
+    expect(result.current.board.cards[0].votes).toBe(6);
+  });
+
   it("drops a removed member's intents and tells them to leave", () => {
     const { result } = host();
     const ch = fakeRealtime.last();
