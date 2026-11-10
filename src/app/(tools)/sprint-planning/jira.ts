@@ -24,6 +24,7 @@ import {
   jiraKeyMatch,
   readJiraCsv,
   type JiraColumn,
+  type JiraCsvRead,
   type JiraRowError,
 } from "@/lib/jira/csv-export";
 import { STORY_TICKET_KEY_MAX, storyLink, storyNotes } from "@/lib/stories/fields";
@@ -193,16 +194,27 @@ export function jiraIssueLink(site: string, key: string): string | undefined {
 
 /* ── The preview ─────────────────────────────────────────────────────── */
 
+export interface JiraImportContext {
+  /** The stories the workspace holds now, to match ticket keys against. */
+  stories: readonly Story[];
+  /** The Jira site (readJiraSite), for links; null leaves the stories without one. */
+  site: string | null;
+}
+
+/** What importing the export in `text` would do. */
+export function previewJiraImport(text: string, context: JiraImportContext): JiraImportPreview {
+  return planJiraImport(readJiraCsv(text), context);
+}
+
 /**
- * What importing the export in `text` would do, against the `stories` the
- * workspace holds now. `site` is the Jira site (readJiraSite), for links;
- * null leaves the stories without one.
+ * `previewJiraImport` on an export already read, so the page reads a big
+ * file once and only plans again when the site address or the stories
+ * change.
  */
-export function previewJiraImport(
-  text: string,
-  { stories, site }: { stories: readonly Story[]; site: string | null }
+export function planJiraImport(
+  read: JiraCsvRead,
+  { stories, site }: JiraImportContext
 ): JiraImportPreview {
-  const read = readJiraCsv(text);
   const mapped: JiraImportPreview["mapped"] = [];
   const unused: JiraImportPreview["unused"] = [];
   for (const { column, header } of read.found) {

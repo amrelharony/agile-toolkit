@@ -7,15 +7,15 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { Story } from "@/lib/stores/workspace-types";
-import { JIRA_CSV_MAX_BYTES, JIRA_CSV_MAX_ROWS } from "@/lib/jira/csv-export";
+import { JIRA_CSV_MAX_BYTES, JIRA_CSV_MAX_ROWS, readJiraCsv } from "@/lib/jira/csv-export";
 import { storageRoomProblem } from "@/lib/stores/storage-room";
 import {
   jiraImportBytes,
   jiraImportLabel,
   jiraImportSummary,
   jiraSiteFrom,
+  planJiraImport,
   pointsChangeText,
-  previewJiraImport,
   readJiraSite,
   rowsText,
   type JiraImportPreview,
@@ -64,9 +64,11 @@ export function JiraImport({
   const text = file ? file.text : pasted;
   const siteRead = readJiraSite(site);
   const siteUrl = siteRead.ok ? siteRead.site : null;
+  // Read once per text; planned again as the site address is typed.
+  const read = useMemo(() => readJiraCsv(text), [text]);
   const preview = useMemo(
-    () => previewJiraImport(text, { stories, site: siteUrl }),
-    [text, stories, siteUrl]
+    () => planJiraImport(read, { stories, site: siteUrl }),
+    [read, stories, siteUrl]
   );
   const roomProblem = useMemo(
     () =>

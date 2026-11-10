@@ -18,10 +18,12 @@ import {
   jiraIssueLink,
   jiraSiteFrom,
   jiraStories,
+  planJiraImport,
   pointsChangeText,
   previewJiraImport,
   readJiraSite,
 } from "@/app/(tools)/sprint-planning/jira";
+import { readJiraCsv } from "@/lib/jira/csv-export";
 import { ALL_FIELDS_EXPORT, CURRENT_FIELDS_EXPORT } from "../jira/fixtures";
 
 const SITE = "https://your-team.atlassian.net";
@@ -138,6 +140,15 @@ describe("previewJiraImport: a first import", () => {
     expect(p.add).toEqual([]);
     expect(p.mapped).toEqual([{ header: "Summary", becomes: "the title" }]);
     expect(jiraImportSummary(p)).toBe("");
+  });
+
+  it("plans the same from an export read once, as the page does while the site is typed", () => {
+    const read = readJiraCsv(ALL_FIELDS_EXPORT);
+    for (const site of [SITE, null]) {
+      expect(planJiraImport(read, { stories: [], site })).toEqual(
+        previewJiraImport(ALL_FIELDS_EXPORT, { stories: [], site })
+      );
+    }
   });
 });
 
