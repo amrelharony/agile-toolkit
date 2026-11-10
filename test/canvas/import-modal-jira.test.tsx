@@ -13,6 +13,7 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 
 import { ImportModal } from "@/app/(tools)/canvas/components/import-modal";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { WhiteboardCard } from "@/lib/stores/workspace-types";
 
 const box = () => screen.getByLabelText("Jira → Kanban");
 
@@ -37,10 +38,9 @@ describe("the Canvas's Jira paste box", () => {
     expect(box().getAttribute("aria-describedby")?.split(" ")).toContain(note.id);
 
     fireEvent.click(screen.getByRole("button", { name: "Import 1 issue" }));
-    const cards = useWorkspaceStore
-      .getState()
-      .whiteboardObjects.filter((o) => o.type === "card")
-      .map((o) => (o as { title: string }).title);
+    const cards = (useWorkspaceStore.getState().whiteboardObjects ?? [])
+      .filter((o): o is WhiteboardCard => o.type === "card")
+      .map((o) => o.title);
     expect(cards).toEqual(["A-2: Two"]);
   });
 
