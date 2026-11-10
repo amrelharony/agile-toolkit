@@ -305,6 +305,19 @@ describe("where the grain may be", () => {
     }
   });
 
+  it("stays out of fields: Input, Textarea and SelectTrigger paint flat card paper", () => {
+    // A see-through field on the page paper would show the specks behind what
+    // is typed (DNA-SPEC lines 11 and 13). A caller's own bg-* still wins.
+    for (const file of ["input.tsx", "textarea.tsx", "select.tsx"]) {
+      const text = readFileSync(path.join(SRC, "components/ui", file), "utf8");
+      const base = text.match(/"flex [^"]*border-input[^"]*"/)?.[0];
+      expect(base, file).toBeDefined();
+      const classes = base!.slice(1, -1).split(/\s+/);
+      expect(classes, file).toContain("bg-card");
+      expect(classes, file).not.toContain("bg-transparent");
+    }
+  });
+
   it("switches with the theme at once: the body transition names background-color, not background", () => {
     const transitions = RULES.filter((r) => r.selector === "body")
       .map((r) => value(r.body, "transition"))
