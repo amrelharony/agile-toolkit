@@ -1,15 +1,16 @@
 "use client";
 
 /**
- * next/link, plus a cross-fade when the page changes (lib/motion/page-transition.ts).
- * Every internal link in src renders this (test/motion/link-coverage.test.ts),
- * so the rules live in one place.
+ * next/link, plus a cross-fade when the page changes
+ * (lib/motion/page-transition.ts). Every internal link in src renders this
+ * (test/motion/link-coverage.test.ts), so the rules live in one place.
  *
  * It calls no next/navigation hook: the router hook throws where no app
- * router is mounted, and cards render in tests that have none. The router comes from
- * the navigator RouteSignal registers; with none registered, or when a rule
- * keeps the change instant, the click is left to next/link as it was.
- * prefetch={false} means the page is not loaded ahead, so it is always instant.
+ * router is mounted, and cards render in tests that have none. The router
+ * comes from the navigator RouteSignal registers; with none registered, or
+ * when a rule keeps the change instant, the click is left to next/link as
+ * it was. prefetch={false} means the page is not loaded ahead, so it is
+ * always instant.
  */
 
 import { forwardRef, type ComponentPropsWithoutRef } from "react";
