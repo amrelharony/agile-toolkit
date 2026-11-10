@@ -18,7 +18,10 @@
  * header, which opens a live room. Participants' cards and votes arrive
  * through `onUpdate` like any other edit; ending the room keeps the board.
  * The board's sprint, its facts and where cards came from stay host-side:
- * the room's snapshot carries only what participants need.
+ * the room's snapshot carries only what participants need. While the room
+ * hides cards (Write, "Hide cards while writing" on), this screen hides the
+ * participants' cards too: each column shows the host's own and how many
+ * others it holds, and Common words and the AI prompts read only what shows.
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
@@ -76,6 +79,7 @@ import { CommonWords } from "./common-words";
 import { KudosSeed } from "./kudos-seed";
 import { toMarkdown } from "../markdown";
 import { RetroGoLive, type LiveRoomHandle } from "../room/host-live-room";
+import { hideCards } from "../room/hidden";
 
 /** A fresh card in `columnKey`. */
 function newCard(columnKey: string, text: string): RetroCard {
@@ -122,6 +126,10 @@ export function Board({
   const announce = useAnnounce();
   // Set while a visitor live room runs, so "New Retro" can end it first.
   const liveRoomRef = useRef<LiveRoomHandle | null>(null);
+  // The participants' cards a live room hides on this screen right now (null: none).
+  const [roomHidden, setRoomHidden] = useState<ReadonlySet<string> | null>(null);
+  const hiddenView = useMemo(() => hideCards(state.cards, roomHidden), [state.cards, roomHidden]);
+  const shownCards = hiddenView.shown;
 
   // Team names for "Voting as" (Vote phase).
   const teamNames = useWorkspaceStore(
@@ -539,11 +547,11 @@ export function Board({
 
   // ── Common words across the cards (keyword grouping) ───────────────
   // Only from THEME_MIN_CARDS cards (a group counts once): on a small board
-  // every shared word is a coincidence.
-  const themeCards = useMemo(() => themeCardCount(state.cards), [state.cards]);
+  // every shared word is a coincidence. Hidden cards' words stay hidden too.
+  const themeCards = useMemo(() => themeCardCount(shownCards), [shownCards]);
   const themes = useMemo(
-    () => (enoughData(themeCards, THEME_MIN_CARDS) ? keywordThemes(state.cards) : []),
-    [state.cards, themeCards]
+    () => (enoughData(themeCards, THEME_MIN_CARDS) ? keywordThemes(shownCards) : []),
+    [shownCards, themeCards]
   );
   const [highlight, setHighlight] = useState<string | null>(null);
   const highlighted = themes.find((t) => t.keyword === highlight) ?? null;
@@ -568,11 +576,11 @@ export function Board({
       prompts: generateRetroPrompts({
         formatName: state.format.name,
         columns: state.format.columns,
-        cards: state.cards,
-        themes: themesForPrompt(themes, state.cards),
+        cards: shownCards,
+        themes: themesForPrompt(themes, shownCards),
       }),
     }),
-    [state.format, state.cards, themes]
+    [state.format, shownCards, themes]
   );
 
   // Exports read only the format, cards, sprint and facts, so the timer's
@@ -699,7 +707,12 @@ export function Board({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <RetroGoLive board={state} onUpdate={onUpdate} handleRef={liveRoomRef} />
+            <RetroGoLive
+              board={state}
+              onUpdate={onUpdate}
+              handleRef={liveRoomRef}
+              onHiddenChange={setRoomHidden}
+            />
             <TimerWidget
               seconds={state.timerSeconds}
               running={state.timerRunning}
@@ -758,6 +771,11 @@ export function Board({
             )}
             {state.phase === "write" && hasVotes && (
               <span className="ml-2 text-accent">Votes cast so far are kept.</span>
+            )}
+            {roomHidden && (
+              <span className="ml-2 text-accent">
+                Everyone&apos;s cards stay hidden until you move to Vote, on this screen too.
+              </span>
             )}
           </p>
         </div>
@@ -821,14 +839,20 @@ export function Board({
         {/* ── Columns ──────────────────────────────────────── */}
         <div className={`grid ${gridClass} gap-4`}>
           {state.format.columns.map((col) => {
-            const colCards = state.cards.filter((c) => c.columnKey === col.key);
+            const colCards = shownCards.filter((c) => c.columnKey === col.key);
+            const hidden = hiddenView.hiddenCounts;
             return (
               <RetroColumnPanel
                 key={col.key}
                 column={col}
                 cards={colCards}
-                allCards={state.cards}
+                allCards={shownCards}
                 phase={state.phase}
+                hiddenCount={
+                  hidden && Object.prototype.hasOwnProperty.call(hidden, col.key)
+                    ? hidden[col.key]
+                    : 0
+                }
                 votesUsed={votesUsed}
                 highlightIds={highlightIds}
                 highlightWord={highlighted?.keyword}

@@ -49,7 +49,7 @@ export function HideCardsSetting({
   const id = useId();
   const hintId = useId();
   return (
-    <div className="flex items-start gap-3">
+    <div className="flex max-w-sm items-start gap-3">
       <Switch
         id={id}
         checked={checked}

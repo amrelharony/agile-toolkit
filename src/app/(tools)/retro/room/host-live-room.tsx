@@ -16,6 +16,11 @@
  * on it through the Board's own updater; ending the room keeps everything.
  * The live state itself is component state only, never persisted, so a
  * reload never reopens a room silently.
+ *
+ * "Hide cards while writing" sits in the host's strip, on by default: in
+ * Write each person sees only their own cards, and `onHiddenChange` tells
+ * the Board which of the participants' cards to hide on this screen too.
+ * The setting lasts as long as the room.
  */
 
 import { useEffect, useId, useRef, useState, type MutableRefObject } from "react";
@@ -39,7 +44,10 @@ import { toast } from "@/lib/utils/toast";
 import { signalGamification } from "@/lib/gamification/signal";
 import type { BoardState } from "../types";
 import { useRetroRoom, type RetroRoomStatus, type EndReason } from "./use-retro-room";
-import { IdlePromptDialog, RoomMemberList } from "./room-controls";
+import { HideCardsSetting, IdlePromptDialog, RoomMemberList } from "./room-controls";
+
+/** Which of the participants' cards the host's screen hides right now (null: none). */
+export type HiddenCardsListener = (ids: ReadonlySet<string> | null) => void;
 
 /** Lets the Board end the room before "New Retro" clears it. */
 export interface LiveRoomHandle {
@@ -63,10 +71,13 @@ export function RetroGoLive({
   board,
   onUpdate,
   handleRef,
+  onHiddenChange,
 }: {
   board: BoardState;
   onUpdate: (updater: (prev: BoardState) => BoardState) => void;
   handleRef?: MutableRefObject<LiveRoomHandle | null>;
+  /** Told which participants' cards to hide on the host's screen. */
+  onHiddenChange?: HiddenCardsListener;
 }) {
   const allowed = useCanGoLive();
   const [consentOpen, setConsentOpen] = useState(false);
@@ -93,6 +104,7 @@ export function RetroGoLive({
         onUpdate={onUpdate}
         allowed={allowed}
         handleRef={handleRef}
+        onHiddenChange={onHiddenChange}
         onClosed={() => {
           clearVisitorIdentity(live.code);
           refocus.current = true;
@@ -171,6 +183,7 @@ function HostLiveRoom({
   onUpdate,
   allowed,
   handleRef,
+  onHiddenChange,
   onClosed,
 }: {
   session: LiveSession;
@@ -178,6 +191,7 @@ function HostLiveRoom({
   onUpdate: (updater: (prev: BoardState) => BoardState) => void;
   allowed: boolean;
   handleRef?: MutableRefObject<LiveRoomHandle | null>;
+  onHiddenChange?: HiddenCardsListener;
   onClosed: () => void;
 }) {
   const room = useRetroRoom({
@@ -201,6 +215,15 @@ function HostLiveRoom({
       handleRef.current = null;
     };
   }, [handleRef, end]);
+
+  // The Board hides the participants' cards on this screen while the room does.
+  const { hiddenIds } = room;
+  const onHiddenRef = useRef(onHiddenChange);
+  onHiddenRef.current = onHiddenChange;
+  useEffect(() => {
+    onHiddenRef.current?.(hiddenIds);
+  }, [hiddenIds]);
+  useEffect(() => () => onHiddenRef.current?.(null), []);
 
   // Owners don't run visitor rooms: if this browser turns out to be the
   // owner's mid-room, close it before any stranger's card can sync.
@@ -232,6 +255,7 @@ function HostLiveRoom({
         isHost
         onEnd={() => setConfirmEnd(true)}
       />
+      <HideCardsSetting checked={room.hideWhileWriting} onChange={room.setHideWhileWriting} />
       {others.length > 0 && (
         <RoomMemberList
           members={room.members}

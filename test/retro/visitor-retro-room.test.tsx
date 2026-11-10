@@ -233,6 +233,50 @@ describe("Everyone on their own device, on the Retro board", () => {
     );
   });
 
+  it("hides the participants' cards on the host's screen while people write", () => {
+    render(<Harness initial={makeBoard()} />);
+    fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
+    consentAs("Hana");
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    const hide = screen.getByRole("switch", { name: "Hide cards while writing" });
+    expect(hide).toBeChecked();
+    expect(hide).toHaveAccessibleDescription(
+      "Until you move to Vote, each person sees only their own cards. This screen hides them too."
+    );
+
+    act(() =>
+      ch.deliver("retro:intent", {
+        v: 2,
+        by: ME.id,
+        intent: { t: "card:add", iid: "patCard01", columnKey: "start", text: "Pat's secret" },
+      })
+    );
+    // On the host's board, not on its screen: a count instead.
+    expect(screen.queryByText("Pat's secret")).toBeNull();
+    expect(screen.getByText("1 card from others, hidden until Vote")).toBeInTheDocument();
+    expect(
+      screen.getByText(/stay hidden until you move to Vote, on this screen too/)
+    ).toBeVisible();
+    // The host's own cards still show.
+    expect(screen.getByText("Card a")).toBeInTheDocument();
+
+    // Switched off: everyone's cards show, here and in the room.
+    fireEvent.click(hide);
+    expect(hide).not.toBeChecked();
+    expect(screen.getByText("Pat's secret")).toBeInTheDocument();
+    expect(screen.queryByText(/hidden until Vote/)).toBeNull();
+
+    // Back on, then Next Phase reveals them.
+    fireEvent.click(hide);
+    expect(screen.queryByText("Pat's secret")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /next phase/i }));
+    expect(screen.getByText("Pat's secret")).toBeInTheDocument();
+  });
+
   it("ends the room on request and keeps the board", () => {
     render(<Harness initial={makeBoard()} />);
     fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
