@@ -39,9 +39,11 @@ const CONST_RE = /\bconst\s+([A-Z][A-Z0-9_]*)\s*=\s*"([^"]+)"/g;
 /**
  * Tools named in a sourceRef that aren't pages to link back to: "story" marks
  * a sprint story queued for Planning Poker, so the accepted estimate is
- * written back to its points (lib/handoffs/poker-writeback.ts).
+ * written back to its points (lib/handoffs/poker-writeback.ts). "jira" marks
+ * a story imported from a Jira CSV export (sprint-planning/jira.ts): no page
+ * of ours made it, and its ticket key already links to the issue.
  */
-const NOT_SOURCES = new Set(["story"]);
+const NOT_SOURCES = new Set(["story", "jira"]);
 
 interface Scan {
   /** Each tool sent with, and the files (relative to src) that send it. */
