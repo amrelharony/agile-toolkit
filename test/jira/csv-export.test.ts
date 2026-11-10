@@ -176,6 +176,16 @@ describe("readJiraCsv: rows it can't read", () => {
     expect(read.rows).toBe(8);
   });
 
+  it("refuses points too long to be a number, which would be saved as nothing", () => {
+    const huge = "9".repeat(400);
+    const read = readJiraCsv(`Issue key,Summary,Story Points\nA-1,One,${huge}\nA-2,Two,8`);
+    expect(Number(huge)).toBe(Infinity);
+    expect(read.errors).toEqual([
+      { line: 2, reason: `the story points “${huge}” aren't a number, 0 or more` },
+    ]);
+    expect(read.issues.map((i) => [i.key, i.storyPoints])).toEqual([["A-2", 8]]);
+  });
+
   it("needs an issue key and a summary column", () => {
     expect(readJiraCsv("Summary,Status\nOne,To Do").problem).toBe(
       "No issue key column found. The first row must name the columns, as a Jira Cloud CSV export does: “Issue key” (or “Key”) and “Summary” are needed."

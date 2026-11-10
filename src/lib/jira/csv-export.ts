@@ -179,12 +179,17 @@ function filledLength(cells: readonly string[]): number {
   return n;
 }
 
-/** Story points as written: blank is none, a number 0 or more (a decimal comma too). */
+/**
+ * Story points as written: blank is none, a number 0 or more (a decimal
+ * comma too). A run of digits too long for a number (Infinity, which JSON
+ * would save as null) is refused like any other cell that isn't one.
+ */
 function readPoints(raw: string): number | undefined | null {
   const text = raw.trim();
   if (!text) return undefined;
   if (!/^\d+(?:[.,]\d+)?$/.test(text)) return null;
-  return Number(text.replace(",", "."));
+  const points = Number(text.replace(",", "."));
+  return Number.isFinite(points) ? points : null;
 }
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
