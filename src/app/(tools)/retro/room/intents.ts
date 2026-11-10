@@ -18,13 +18,19 @@
  *     characters with no control or bidi characters; at most 30 cards per
  *     member and 200 on the board; its id (the add request's id) must not be
  *     on the board or belong to a card that left it;
- *  6. a card may be deleted only by the member who added it;
+ *  6. a card may be deleted only by the member who added it, with the key
+ *     whose lock came with the card;
  *  7. a vote needs an existing card and a vote left in the sender's budget
- *     (`ledger.votesUsed`); a vote is taken back only from a card the sender
- *     voted on, at most 30 times per member.
+ *     (`ledger.votesUsed`); a vote is taken back only by the member who cast
+ *     it, with the key whose lock came with that vote, at most 30 times per
+ *     member.
  *
- * Who owns what (`ownerOf`, `votesOn`) lives in the ledger, in the host's
- * memory only: no snapshot carries it and no board saves it.
+ * Every peer sees every request, `by` included, so the keys are what stop
+ * one member deleting another's card or taking back another's vote: a lock
+ * is a hash, and only the sender's tab knows the key behind it.
+ *
+ * Who owns what (`ownerOf`, `cardLocks`, `voteLocks`) lives in the ledger,
+ * in the host's memory only: no snapshot carries it and no board saves it.
  */
 
 import { cleanText } from "@/lib/realtime/sanitize";
@@ -36,6 +42,7 @@ import {
   MEMBER_CARD_CAP,
   MEMBER_UNDO_CAP,
   RETIRED_ID_RING,
+  lockOf,
   readIntentEnv,
 } from "./protocol";
 
@@ -50,8 +57,10 @@ export interface IntentLedger {
   recent: string[];
   /** Who added each card that came through the room: card id → member id. */
   ownerOf: Record<string, string>;
-  /** Each member's votes per card: member id → card id → votes. */
-  votesOn: Record<string, Record<string, number>>;
+  /** The lock each card that came through the room was added with: card id → lock. */
+  cardLocks: Record<string, string>;
+  /** Each member's votes per card, as the locks they were cast with: member id → card id → locks. */
+  voteLocks: Record<string, Record<string, string[]>>;
   /** Ids of cards that left the board, oldest first, at most `RETIRED_ID_RING`. */
   retired: string[];
 }
@@ -63,6 +72,12 @@ export interface IntentContext {
   removed: ReadonlySet<string>;
   /** Votes each person has. Defaults to `MAX_VOTES`. */
   votesPerPerson?: number;
+  /**
+   * The request is this tab's own (a member promoted to host, acting on the
+   * board it hosts), not one from the channel, so no key is asked for. Never
+   * set for a message from the channel.
+   */
+  local?: boolean;
 }
 
 export type IntentRejection =
@@ -106,7 +121,8 @@ export function createIntentLedger(
     undosBy: {},
     recent: [],
     ownerOf: {},
-    votesOn: {},
+    cardLocks: {},
+    voteLocks: {},
     retired: [],
   };
 }
@@ -118,10 +134,15 @@ function countOf(record: Record<string, number>, id: string): number {
   return has(record, id) ? record[id] : 0;
 }
 
+/** The locks of `member`'s votes on `cardId`, oldest first. */
+function voteLocksOn(ledger: IntentLedger, member: string, cardId: string): string[] {
+  const mine = has(ledger.voteLocks, member) ? ledger.voteLocks[member] : undefined;
+  return mine && has(mine, cardId) ? mine[cardId] : [];
+}
+
 /** Votes `member` has on `cardId`, by the ledger. */
 export function votesOnCard(ledger: IntentLedger, member: string, cardId: string): number {
-  const mine = has(ledger.votesOn, member) ? ledger.votesOn[member] : undefined;
-  return mine ? countOf(mine, cardId) : 0;
+  return voteLocksOn(ledger, member, cardId).length;
 }
 
 /** Who added `cardId` through the room, or null. */
@@ -149,22 +170,22 @@ export function retireIds(ledger: IntentLedger, ids: readonly string[]): IntentL
  * clear brings the cards back), as are the duplicate and retired rings.
  */
 export function resetAllowances(ledger: IntentLedger): IntentLedger {
-  return { ...ledger, votesUsed: {}, cardsBy: {}, undosBy: {}, votesOn: {} };
+  return { ...ledger, votesUsed: {}, cardsBy: {}, undosBy: {}, voteLocks: {} };
 }
 
-function withVotesOn(
+function withVoteLocks(
   ledger: IntentLedger,
   member: string,
   cardId: string,
-  n: number
-): IntentLedger["votesOn"] {
+  locks: string[]
+): IntentLedger["voteLocks"] {
   // Built from entries, so any card id (even "__proto__") is an own key.
-  const entries = Object.entries(has(ledger.votesOn, member) ? ledger.votesOn[member] : {}).filter(
-    ([id]) => id !== cardId
-  );
-  if (n > 0) entries.push([cardId, n]);
-  const mine: Record<string, number> = Object.fromEntries(entries);
-  const next = { ...ledger.votesOn };
+  const entries = Object.entries(
+    has(ledger.voteLocks, member) ? ledger.voteLocks[member] : {}
+  ).filter(([id]) => id !== cardId);
+  if (locks.length > 0) entries.push([cardId, locks]);
+  const mine: Record<string, string[]> = Object.fromEntries(entries);
+  const next = { ...ledger.voteLocks };
   if (Object.keys(mine).length > 0) next[member] = mine;
   else delete next[member];
   return next;
@@ -265,6 +286,7 @@ export function applyIntent(
           ...ledger,
           cardsBy: { ...ledger.cardsBy, [by]: added + 1 },
           ownerOf: { ...ledger.ownerOf, [id]: by },
+          cardLocks: { ...ledger.cardLocks, [id]: intent.lock },
         }
       );
     }
@@ -275,10 +297,20 @@ export function applyIntent(
         return { ok: false, reason: "unknown-card" };
       }
       if (ownerOfCard(ledger, intent.cardId) !== by) return { ok: false, reason: "not-yours" };
+      // `by` is self-declared: the key behind the card's lock is the proof.
+      if (!ctx.local) {
+        const lock = has(ledger.cardLocks, intent.cardId) ? ledger.cardLocks[intent.cardId] : null;
+        if (lock === null || lockOf(intent.key) !== lock) return { ok: false, reason: "not-yours" };
+      }
       const ownerOf = { ...ledger.ownerOf };
       delete ownerOf[intent.cardId];
+      const cardLocks = { ...ledger.cardLocks };
+      delete cardLocks[intent.cardId];
       const retired = retireIds(ledger, [intent.cardId]).retired;
-      return accept({ t: "card:delete", cardId: intent.cardId }, { ...ledger, ownerOf, retired });
+      return accept(
+        { t: "card:delete", cardId: intent.cardId },
+        { ...ledger, ownerOf, cardLocks, retired }
+      );
     }
 
     case "vote": {
@@ -293,12 +325,10 @@ export function applyIntent(
         {
           ...ledger,
           votesUsed: { ...ledger.votesUsed, [by]: used + 1 },
-          votesOn: withVotesOn(
-            ledger,
-            by,
-            intent.cardId,
-            votesOnCard(ledger, by, intent.cardId) + 1
-          ),
+          voteLocks: withVoteLocks(ledger, by, intent.cardId, [
+            ...voteLocksOn(ledger, by, intent.cardId),
+            intent.lock,
+          ]),
         }
       );
     }
@@ -308,8 +338,10 @@ export function applyIntent(
       if (!board.cards.some((c) => c.id === intent.cardId)) {
         return { ok: false, reason: "unknown-card" };
       }
-      const mine = votesOnCard(ledger, by, intent.cardId);
-      if (mine <= 0) return { ok: false, reason: "not-yours" };
+      const locks = voteLocksOn(ledger, by, intent.cardId);
+      // `by` is self-declared: the key behind one of the sender's locks is the proof.
+      const at = ctx.local ? locks.length - 1 : locks.indexOf(lockOf(intent.key));
+      if (at < 0) return { ok: false, reason: "not-yours" };
       const undos = countOf(ledger.undosBy, by);
       if (undos >= MEMBER_UNDO_CAP) return { ok: false, reason: "undo-cap" };
       return accept(
@@ -318,7 +350,10 @@ export function applyIntent(
           ...ledger,
           votesUsed: { ...ledger.votesUsed, [by]: Math.max(0, countOf(ledger.votesUsed, by) - 1) },
           undosBy: { ...ledger.undosBy, [by]: undos + 1 },
-          votesOn: withVotesOn(ledger, by, intent.cardId, mine - 1),
+          voteLocks: withVoteLocks(ledger, by, intent.cardId, [
+            ...locks.slice(0, at),
+            ...locks.slice(at + 1),
+          ]),
         }
       );
     }

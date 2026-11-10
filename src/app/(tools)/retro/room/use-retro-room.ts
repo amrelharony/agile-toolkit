@@ -32,8 +32,11 @@
  *    history on either side;
  *  - remembers the cards it added (their text, while the host hides cards)
  *    and the votes it cast, in memory, so it can show its own cards, delete
- *    them and take its votes back. Once its last request is 2 s old, the
- *    host's snapshot wins over that memory;
+ *    them and take its votes back. Each card and vote has a random key that
+ *    never leaves this tab until it is used: the add or vote sends its lock
+ *    (a hash), the delete or take-back sends the key, so nobody else can
+ *    undo them. Once its last request is 2 s old, the host's snapshot wins
+ *    over that memory;
  *  - leaves at the room's 3-hour limit (its own join time + 3 h, or the
  *    host's `endsAt` if sooner): `useRoom` doesn't enforce `hardTtlMs`;
  *  - when elected, continues hosting from the last snapshot, still in memory,
@@ -81,6 +84,7 @@ import {
   readEndMessage,
   readIntentEnv,
   readKickMessage,
+  lockOf,
   otherVersionSender,
   type IntentEnv,
   type RetroIntent,
@@ -141,6 +145,20 @@ export interface OwnCard {
   columnKey: string;
   text: string;
 }
+
+/** An own card with the key that deletes it (the add sent its lock). Never leaves this tab. */
+interface HeldCard extends OwnCard {
+  key: string;
+}
+
+/** A vote this tab cast, with the key that takes it back (the vote sent its lock). */
+interface HeldVote {
+  cardId: string;
+  key: string;
+}
+
+/** A new random key for a card or a vote. */
+const newKey = (): string => nanoid(21);
 
 /** The participant's (or promoted host's) in-memory room. */
 interface RoomView {
@@ -343,8 +361,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const [hide, setHide] = useState(true);
   /** Bumped when the ledger changes, so what derives from it re-renders. */
   const [ledgerVersion, setLedgerVersion] = useState(0);
-  const [ownCards, setOwnCardsState] = useState<OwnCard[]>([]);
-  const [myVoteList, setMyVoteListState] = useState<string[]>([]);
+  const [ownCards, setOwnCardsState] = useState<HeldCard[]>([]);
+  const [myVoteList, setMyVoteListState] = useState<HeldVote[]>([]);
   const [unsharedCards, setUnsharedState] = useState<OwnCard[]>([]);
   const [cardsLost, setCardsLost] = useState(false);
   /** Participant: the host's state is of another protocol version (a tab on another build). */
@@ -391,18 +409,18 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const seenMembersRef = useRef<Set<string>>(new Set());
   /** Participant: when it last sent an intent (epoch ms). */
   const lastIntentAtRef = useRef(0);
-  const ownCardsRef = useRef<OwnCard[]>([]);
-  const myVotesRef = useRef<string[]>([]);
+  const ownCardsRef = useRef<HeldCard[]>([]);
+  const myVotesRef = useRef<HeldVote[]>([]);
   const unsharedRef = useRef<OwnCard[]>([]);
   /** Host: the card ids on its board at the last change, to notice cards that leave it. */
   const boardIdsRef = useRef<Set<string> | null>(null);
 
   // Each memory list has a ref (read by handlers) and state (renders); set both together.
-  const setOwnCards = useCallback((next: OwnCard[]) => {
+  const setOwnCards = useCallback((next: HeldCard[]) => {
     ownCardsRef.current = next;
     setOwnCardsState(next);
   }, []);
-  const setMyVotes = useCallback((next: string[]) => {
+  const setMyVotes = useCallback((next: HeldVote[]) => {
     myVotesRef.current = next;
     setMyVoteListState(next);
   }, []);
@@ -576,7 +594,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
             : 0;
           excess.set(key, Math.max(0, mine - held));
         });
-        const keep: OwnCard[] = [];
+        const keep: HeldCard[] = [];
         for (let i = own.length - 1; i >= 0; i--) {
           const left = excess.get(own[i].columnKey) ?? 0;
           if (left > 0) excess.set(own[i].columnKey, left - 1);
@@ -589,7 +607,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (own.length !== ownCardsRef.current.length) setOwnCards(own);
 
       let votes = myVotesRef.current;
-      if (!hidden) votes = votes.filter((id) => ids.has(id));
+      if (!hidden) votes = votes.filter((v) => ids.has(v.cardId));
       const confirmed = Object.prototype.hasOwnProperty.call(snap.votesUsed, selfId)
         ? snap.votesUsed[selfId]
         : 0;
@@ -632,7 +650,10 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
         // If cards were hidden, it never had them either: keep this tab's
         // text so the person can add those cards again.
         if (prev.counts !== null && snap.phase === "write") {
-          const lost = [...unsharedRef.current, ...ownCardsRef.current];
+          const lost = [
+            ...unsharedRef.current,
+            ...ownCardsRef.current.map(({ id, columnKey, text }) => ({ id, columnKey, text })),
+          ];
           setUnshared(lost);
           setCardsLost(true);
         }
@@ -932,7 +953,14 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
         ownerOf[c.id] = selfId;
         mine += 1;
       }
-      const myVotes = lost ? {} : countVotes(myVotesRef.current.filter((id) => onBoard.has(id)));
+      // Its own votes keep their locks: lost cards took everyone's votes with them.
+      const myLocks = new Map<string, string[]>();
+      if (!lost) {
+        for (const mv of myVotesRef.current) {
+          if (!onBoard.has(mv.cardId)) continue;
+          myLocks.set(mv.cardId, [...(myLocks.get(mv.cardId) ?? []), lockOf(mv.key)]);
+        }
+      }
       const seeded = createIntentLedger({
         // Lost cards took their votes with them: everyone's come back.
         votesUsed: lost ? {} : v.votesUsed,
@@ -942,7 +970,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
         ...seeded,
         ownerOf,
         cardsBy: mine > 0 ? { [selfId]: mine } : {},
-        votesOn: Object.keys(myVotes).length > 0 ? { [selfId]: myVotes } : {},
+        voteLocks: myLocks.size > 0 ? { [selfId]: Object.fromEntries(myLocks) } : {},
       });
       endsAtRef.current = v.endsAt;
       seqRef.current = v.seq;
@@ -973,7 +1001,11 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
 
   // ── Actions ──────────────────────────────────────────────────────
 
-  /** The promoted host runs its own intents through the same reducer. */
+  /**
+   * The promoted host runs its own intents through the same reducer, as its
+   * own (`local`): no key is asked for, and the channel's handler drops any
+   * message that claims to come from this tab.
+   */
   const applyOwn = useCallback(
     (intent: RetroIntent) => {
       const board = hostedBoard();
@@ -983,6 +1015,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
         admitted: new Set([selfId]),
         removed: new Set(),
         votesPerPerson: budget(),
+        local: true,
       });
       if (res.ok) {
         setLedger(res.ledger);
@@ -1024,8 +1057,10 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       const clean = cleanText(text, VISITOR_LIMITS.maxTextChars);
       if (clean === null) return "bad-text";
       // The request's id becomes the card's id: this tab's handle on its own card.
+      // The key stays here; its lock goes with the card, so only this tab can delete it.
       const iid = nanoid(12);
-      const intent: RetroIntent = { t: "card:add", iid, columnKey, text: clean };
+      const key = newKey();
+      const intent: RetroIntent = { t: "card:add", iid, columnKey, text: clean, lock: lockOf(key) };
       if (isHostRef.current) {
         const res = applyOwn(intent);
         return res.ok ? "added" : rejectionToResult(res.reason);
@@ -1038,7 +1073,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (v.board.cards.length + sumCounts(v.counts) >= BOARD_CARD_CAP) return "board-full";
       send(intent);
       sentCardsRef.current += 1;
-      setOwnCards([...ownCardsRef.current, { id: iid, columnKey, text: clean }]);
+      setOwnCards([...ownCardsRef.current, { id: iid, columnKey, text: clean, key }]);
       return "sent";
     },
     [applyOwn, selfId, send, setOwnCards]
@@ -1060,11 +1095,13 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const deleteCard = useCallback(
     (cardId: string): boolean => {
       if (!activeRef.current || role === "host") return false;
-      const intent: RetroIntent = { t: "card:delete", iid: nanoid(12), cardId };
-      if (isHostRef.current) return applyOwn(intent).ok;
+      if (isHostRef.current) {
+        return applyOwn({ t: "card:delete", iid: nanoid(12), cardId, key: newKey() }).ok;
+      }
       if (!seatedView("write")) return false;
-      if (!ownCardsRef.current.some((c) => c.id === cardId)) return false;
-      send(intent);
+      const own = ownCardsRef.current.find((c) => c.id === cardId);
+      if (!own) return false;
+      send({ t: "card:delete", iid: nanoid(12), cardId, key: own.key });
       setOwnCards(ownCardsRef.current.filter((c) => c.id !== cardId));
       return true;
     },
@@ -1074,14 +1111,15 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const vote = useCallback(
     (cardId: string): boolean => {
       if (!activeRef.current) return false;
-      const intent: RetroIntent = { t: "vote", iid: nanoid(12), cardId };
+      const key = newKey();
+      const intent: RetroIntent = { t: "vote", iid: nanoid(12), cardId, lock: lockOf(key) };
       if (isHostRef.current) return applyOwn(intent).ok;
       const v = seatedView("vote");
       if (!v || !v.board.cards.some((c) => c.id === cardId)) return false;
       const used = (v.votesUsed[selfId] ?? 0) + pendingVotes;
       if (used >= v.votesPerPerson) return false;
       send(intent);
-      setMyVotes([...myVotesRef.current, cardId]);
+      setMyVotes([...myVotesRef.current, { cardId, key }]);
       setPendingVotes((n) => n + 1);
       return true;
     },
@@ -1091,13 +1129,15 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const unvote = useCallback(
     (cardId: string): boolean => {
       if (!activeRef.current || role === "host") return false;
-      const intent: RetroIntent = { t: "vote:undo", iid: nanoid(12), cardId };
-      if (isHostRef.current) return applyOwn(intent).ok;
+      if (isHostRef.current) {
+        return applyOwn({ t: "vote:undo", iid: nanoid(12), cardId, key: newKey() }).ok;
+      }
       if (!seatedView("vote")) return false;
       const list = myVotesRef.current;
-      const at = list.lastIndexOf(cardId);
+      let at = -1;
+      for (let i = list.length - 1; i >= 0 && at < 0; i--) if (list[i].cardId === cardId) at = i;
       if (at < 0) return false;
-      send(intent);
+      send({ t: "vote:undo", iid: nanoid(12), cardId, key: list[at].key });
       setMyVotes([...list.slice(0, at), ...list.slice(at + 1)]);
       setPendingVotes((n) => n - 1);
       return true;
@@ -1248,10 +1288,13 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const myVotes = useMemo((): Readonly<Record<string, number>> => {
     if (role === "host") return {};
     if (promoted) {
-      const mine = ledgerRef.current.votesOn;
-      return Object.prototype.hasOwnProperty.call(mine, selfId) ? { ...mine[selfId] } : {};
+      const all = ledgerRef.current.voteLocks;
+      if (!Object.prototype.hasOwnProperty.call(all, selfId)) return {};
+      return Object.fromEntries(
+        Object.entries(all[selfId]).map(([cardId, locks]) => [cardId, locks.length])
+      );
     }
-    return countVotes(myVoteList);
+    return countVotes(myVoteList.map((mv) => mv.cardId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, promoted, myVoteList, ledgerVersion, selfId]);
 

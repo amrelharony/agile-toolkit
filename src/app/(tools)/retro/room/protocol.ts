@@ -22,8 +22,15 @@
  * No message the host sends says who wrote a card or cast a vote. Who owns
  * what is a host-side record in memory (`intents.ts`), never shared or
  * saved. A card added through the room takes its add request's id as its
- * card id: a random id the sender made, which is how the sender finds and
- * deletes its own card later.
+ * card id: a random id the sender made, which is how the sender finds its
+ * own card later.
+ *
+ * Every peer receives every request, so `by` alone can't prove a card or a
+ * vote is the sender's. Adding a card or casting a vote sends a lock, the
+ * SHA-256 of a random key only the sender's tab holds; deleting that card or
+ * taking that vote back sends the key, and the host checks it against the
+ * lock. A key and its lock belong to one card or one vote, so they say
+ * nothing about who sent them.
  *
  * Every inbound message is untrusted: `by` is self-declared, so these readers
  * check shape and size only. Who may send what is decided by the reducer
@@ -32,6 +39,7 @@
  * Pure, no browser globals.
  */
 
+import { sha256Base64Url } from "@/lib/realtime/sha256";
 import { VISITOR_LIMITS, isVisitorMemberId } from "@/lib/realtime/visitor-rooms";
 import { isExampleId } from "@/lib/utils/example-id";
 import type { BoardPhase, RetroCard } from "../types";
@@ -78,13 +86,15 @@ export const MAX_VOTES_PER_PERSON = 20;
 
 /**
  * What a participant may ask. `card:add` makes a card whose id is `iid`;
- * `card:delete` names one of the sender's own cards by that id.
+ * `card:delete` names one of the sender's own cards by that id. Adding and
+ * voting send a `lock` (`lockOf` a key the sender keeps); deleting that card
+ * or taking that vote back sends the `key`.
  */
 export type RetroIntent =
-  | { t: "card:add"; iid: string; columnKey: string; text: string }
-  | { t: "card:delete"; iid: string; cardId: string }
-  | { t: "vote"; iid: string; cardId: string }
-  | { t: "vote:undo"; iid: string; cardId: string };
+  | { t: "card:add"; iid: string; columnKey: string; text: string; lock: string }
+  | { t: "card:delete"; iid: string; cardId: string; key: string }
+  | { t: "vote"; iid: string; cardId: string; lock: string }
+  | { t: "vote:undo"; iid: string; cardId: string; key: string };
 
 export interface IntentEnv {
   v: typeof RETRO_ROOM_PROTOCOL_VERSION;
@@ -166,6 +176,25 @@ const isShortStr = (v: unknown, max: number): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= max;
 
 const IID_RE = /^[A-Za-z0-9_-]{1,32}$/;
+/** A key: random, 16 to 64 URL-safe characters (the room makes nanoid(21)). */
+const KEY_RE = /^[A-Za-z0-9_-]{16,64}$/;
+/** A lock: a SHA-256 in unpadded base64url. */
+const LOCK_RE = /^[A-Za-z0-9_-]{43}$/;
+
+/** The lock for `key`: what a card or vote carries so only the key's holder can undo it. */
+export function lockOf(key: string): string {
+  return sha256Base64Url(key);
+}
+
+/** Whether `v` is shaped like a key. */
+export function isKey(v: unknown): v is string {
+  return typeof v === "string" && KEY_RE.test(v);
+}
+
+/** Whether `v` is shaped like a lock. */
+export function isLock(v: unknown): v is string {
+  return typeof v === "string" && LOCK_RE.test(v);
+}
 
 /**
  * Whether `v` is shaped like an intent id (and so like the id of a card
@@ -202,15 +231,22 @@ export function readIntentEnv(raw: unknown): IntentEnv | null {
       if (isExampleId(iid)) return null;
       if (!isShortStr(i.columnKey, MAX_KEY_CHARS)) return null;
       if (typeof i.text !== "string" || i.text.length > MAX_RAW_TEXT_CHARS) return null;
-      return { v, by, intent: { t: "card:add", iid, columnKey: i.columnKey, text: i.text } };
+      if (!isLock(i.lock)) return null;
+      return {
+        v,
+        by,
+        intent: { t: "card:add", iid, columnKey: i.columnKey, text: i.text, lock: i.lock },
+      };
     case "card:delete":
       // Only cards added through the room can be deleted this way, and their ids are intent ids.
-      if (!isIntentId(i.cardId)) return null;
-      return { v, by, intent: { t: "card:delete", iid, cardId: i.cardId } };
+      if (!isIntentId(i.cardId) || !isKey(i.key)) return null;
+      return { v, by, intent: { t: "card:delete", iid, cardId: i.cardId, key: i.key } };
     case "vote":
+      if (!isShortStr(i.cardId, MAX_KEY_CHARS) || !isLock(i.lock)) return null;
+      return { v, by, intent: { t: "vote", iid, cardId: i.cardId, lock: i.lock } };
     case "vote:undo":
-      if (!isShortStr(i.cardId, MAX_KEY_CHARS)) return null;
-      return { v, by, intent: { t: i.t, iid, cardId: i.cardId } };
+      if (!isShortStr(i.cardId, MAX_KEY_CHARS) || !isKey(i.key)) return null;
+      return { v, by, intent: { t: "vote:undo", iid, cardId: i.cardId, key: i.key } };
     default:
       return null;
   }

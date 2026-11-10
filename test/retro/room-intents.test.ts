@@ -19,6 +19,7 @@ import {
   MEMBER_UNDO_CAP,
   RETIRED_ID_RING,
   RETRO_ROOM_PROTOCOL_VERSION,
+  lockOf,
   type RetroIntent,
 } from "@/app/(tools)/retro/room/protocol";
 import { MAX_VOTES, type BoardState, type RetroCard } from "@/app/(tools)/retro/types";
@@ -27,7 +28,9 @@ import { MAX_VOTES, type BoardState, type RetroCard } from "@/app/(tools)/retro/
  * The host's intent reducer for the Retro visitor room: every participant
  * message is untrusted, so the reducer alone decides what reaches the board.
  * Who added a card and who voted on it is the host's record, in the ledger
- * only: it never reaches the board.
+ * only: it never reaches the board. Every peer sees every request, so a
+ * delete or a take-back must carry the key behind the lock its card or vote
+ * came with.
  */
 
 const ALICE = "alice_0000000000";
@@ -75,23 +78,28 @@ function ctx(overrides: Partial<IntentContext> = {}): IntentContext {
 let iids = 0;
 const nextIid = () => `iid${++iids}`;
 
+/** The key a test sender holds for a card (by its id). */
+const cardKey = (cardId: string) => `ck_${cardId}_0123456789`;
+/** The key a test sender holds for its votes on a card (one per voter and card, for brevity). */
+const voteKey = (by: string, cardId: string) => `vk_${by}-${cardId}`;
+
 function add(by: string, columnKey: string, text: string, iid = nextIid()) {
-  const intent: RetroIntent = { t: "card:add", iid, columnKey, text };
+  const intent: RetroIntent = { t: "card:add", iid, columnKey, text, lock: lockOf(cardKey(iid)) };
   return { v: V, by, intent };
 }
 
-function del(by: string, cardId: string, iid = nextIid()) {
-  const intent: RetroIntent = { t: "card:delete", iid, cardId };
+function del(by: string, cardId: string, iid = nextIid(), key = cardKey(cardId)) {
+  const intent: RetroIntent = { t: "card:delete", iid, cardId, key };
   return { v: V, by, intent };
 }
 
 function vote(by: string, cardId: string, iid = nextIid()) {
-  const intent: RetroIntent = { t: "vote", iid, cardId };
+  const intent: RetroIntent = { t: "vote", iid, cardId, lock: lockOf(voteKey(by, cardId)) };
   return { v: V, by, intent };
 }
 
-function unvote(by: string, cardId: string, iid = nextIid()) {
-  const intent: RetroIntent = { t: "vote:undo", iid, cardId };
+function unvote(by: string, cardId: string, iid = nextIid(), key = voteKey(by, cardId)) {
+  const intent: RetroIntent = { t: "vote:undo", iid, cardId, key };
   return { v: V, by, intent };
 }
 
@@ -278,6 +286,47 @@ describe("applyIntent: deleting my card", () => {
     expect(res.patch).toEqual({ t: "card:delete", cardId: "parent1" });
   });
 
+  it("refuses a delete in the owner's name without the card's key", () => {
+    const added = run(board(), [
+      add(ALICE, "start", "Mine", "aliceK"),
+      add(BOB, "start", "Bob's", "bobK"),
+    ]);
+    const lock = lockOf(cardKey("aliceK"));
+    // Bob saw Alice's add go by, id and lock included, and claims to be her.
+    const spoofs = [
+      del(ALICE, "aliceK", nextIid(), "guessed_key_0000000"),
+      del(ALICE, "aliceK", nextIid(), lock), // the lock is no key
+      del(ALICE, "aliceK", nextIid(), cardKey("bobK")), // the key of another card
+    ];
+    const { board: b, reasons } = run(added.board, spoofs, ctx(), added.ledger);
+    expect(reasons).toEqual(["not-yours", "not-yours", "not-yours"]);
+    expect(b.cards.map((c) => c.id)).toContain("aliceK");
+    // A delete with no key at all isn't even well formed.
+    const bare = {
+      v: V,
+      by: ALICE,
+      intent: { t: "card:delete", iid: nextIid(), cardId: "aliceK" },
+    };
+    expect(applyIntent(added.board, added.ledger, bare, ctx())).toEqual({
+      ok: false,
+      reason: "bad-shape",
+    });
+    // Alice, with her key, can.
+    expect(applyIntent(added.board, added.ledger, del(ALICE, "aliceK"), ctx()).ok).toBe(true);
+  });
+
+  it("asks no key of the host's own request (a member promoted to host)", () => {
+    const added = run(board(), [add(ALICE, "start", "Mine", "aliceL")]);
+    const own = del(ALICE, "aliceL", nextIid(), "any_key_will_do_000");
+    expect(applyIntent(added.board, added.ledger, own, ctx()).ok).toBe(false);
+    expect(applyIntent(added.board, added.ledger, own, ctx({ local: true })).ok).toBe(true);
+    // Still only its own card.
+    const others = run(board(), [add(BOB, "start", "Bob's", "bobL")]);
+    expect(
+      applyIntent(others.board, others.ledger, del(ALICE, "bobL"), ctx({ local: true }))
+    ).toEqual({ ok: false, reason: "not-yours" });
+  });
+
   it("refuses a removed sender's delete", () => {
     const added = run(board(), [add(ALICE, "start", "Mine", "aliceR")]);
     const res = applyIntent(
@@ -382,6 +431,27 @@ describe("applyIntent: taking a vote back", () => {
     expect(gone).toEqual({ ok: false, reason: "unknown-card" });
   });
 
+  it("refuses a take-back in the voter's name without that vote's key", () => {
+    const voted = run(board({ phase: "vote" }), [vote(ALICE, "c1"), vote(BOB, "c1")]);
+    const spoofs = [
+      unvote(ALICE, "c1", nextIid(), "guessed_key_0000000"),
+      unvote(ALICE, "c1", nextIid(), lockOf(voteKey(ALICE, "c1"))), // the lock that went by
+      unvote(ALICE, "c1", nextIid(), voteKey(BOB, "c1")), // Bob's own key, in Alice's name
+    ];
+    const { board: b, ledger, reasons } = run(voted.board, spoofs, ctx(), voted.ledger);
+    expect(reasons).toEqual(["not-yours", "not-yours", "not-yours"]);
+    expect(b.cards[0].votes).toBe(2);
+    expect(votesOnCard(ledger, ALICE, "c1")).toBe(1);
+    const bare = { v: V, by: ALICE, intent: { t: "vote:undo", iid: nextIid(), cardId: "c1" } };
+    expect(applyIntent(voted.board, voted.ledger, bare, ctx())).toEqual({
+      ok: false,
+      reason: "bad-shape",
+    });
+    // Alice, with her key, can; then that key is spent.
+    const back = run(voted.board, [unvote(ALICE, "c1"), unvote(ALICE, "c1")], ctx(), voted.ledger);
+    expect(back.reasons).toEqual(["ok", "not-yours"]);
+  });
+
   it("refuses a vote no one cast, e.g. one cast before a new host took over", () => {
     const ledger = createIntentLedger({ votesUsed: { [ALICE]: 2 } });
     const res = applyIntent(board({ phase: "vote" }), ledger, unvote(ALICE, "c1"), ctx());
@@ -462,39 +532,53 @@ describe("applyIntent: senders and duplicates", () => {
   });
 
   it("refuses malformed envelopes", () => {
+    const key = cardKey("a1");
+    const lock = lockOf(key);
     const bad: unknown[] = [
       null,
       "card",
       // Version 1 tabs, and anything newer than this one.
-      { v: 1, by: ALICE, intent: { t: "vote", iid: "a", cardId: "c1" } },
-      { v: 3, by: ALICE, intent: { t: "vote", iid: "a", cardId: "c1" } },
-      { v: V, by: "short", intent: { t: "vote", iid: "a", cardId: "c1" } },
-      { v: V, by: ALICE, intent: { t: "delete", iid: "a", cardId: "c1" } },
-      { v: V, by: ALICE, intent: { t: "unvote", iid: "a", cardId: "c1" } },
+      { v: 1, by: ALICE, intent: { t: "vote", iid: "a", cardId: "c1", lock } },
+      { v: 3, by: ALICE, intent: { t: "vote", iid: "a", cardId: "c1", lock } },
+      { v: V, by: "short", intent: { t: "vote", iid: "a", cardId: "c1", lock } },
+      { v: V, by: ALICE, intent: { t: "delete", iid: "a", cardId: "c1", key } },
+      { v: V, by: ALICE, intent: { t: "unvote", iid: "a", cardId: "c1", key } },
       {
         v: V,
         by: ALICE,
-        intent: { t: "card:add", iid: "has space", columnKey: "start", text: "x" },
+        intent: { t: "card:add", iid: "has space", columnKey: "start", text: "x", lock },
       },
-      { v: V, by: ALICE, intent: { t: "card:add", iid: "a", columnKey: "", text: "x" } },
-      { v: V, by: ALICE, intent: { t: "card:add", iid: "a", columnKey: "start", text: 42 } },
-      { v: V, by: ALICE, intent: { t: "vote", iid: "a", cardId: "x".repeat(65) } },
-      { v: V, by: ALICE, intent: { t: "vote:undo", iid: "a", cardId: "" } },
+      { v: V, by: ALICE, intent: { t: "card:add", iid: "a", columnKey: "", text: "x", lock } },
+      { v: V, by: ALICE, intent: { t: "card:add", iid: "a", columnKey: "start", text: 42, lock } },
+      { v: V, by: ALICE, intent: { t: "vote", iid: "a", cardId: "x".repeat(65), lock } },
+      { v: V, by: ALICE, intent: { t: "vote:undo", iid: "a", cardId: "", key } },
       // It would become a card id, and the ledger keys records by card id.
       {
         v: V,
         by: ALICE,
-        intent: { t: "card:add", iid: "__proto__", columnKey: "start", text: "x" },
+        intent: { t: "card:add", iid: "__proto__", columnKey: "start", text: "x", lock },
       },
       // Nor one the host's board would take for an example card (Clear example removes those).
       {
         v: V,
         by: ALICE,
-        intent: { t: "card:add", iid: "example-1", columnKey: "start", text: "x" },
+        intent: { t: "card:add", iid: "example-1", columnKey: "start", text: "x", lock },
       },
       // A card added through the room has an intent id for its id.
-      { v: V, by: ALICE, intent: { t: "card:delete", iid: "a", cardId: "not an id" } },
-      { v: V, by: ALICE, intent: { t: "card:delete", iid: "a" } },
+      { v: V, by: ALICE, intent: { t: "card:delete", iid: "a", cardId: "not an id", key } },
+      { v: V, by: ALICE, intent: { t: "card:delete", iid: "a", key } },
+      // Adding and voting send a lock (a SHA-256, 43 characters); deleting and taking back a key.
+      { v: V, by: ALICE, intent: { t: "card:add", iid: "a", columnKey: "start", text: "x" } },
+      {
+        v: V,
+        by: ALICE,
+        intent: { t: "card:add", iid: "a", columnKey: "start", text: "x", lock: "short" },
+      },
+      { v: V, by: ALICE, intent: { t: "vote", iid: "a", cardId: "c1" } },
+      { v: V, by: ALICE, intent: { t: "vote", iid: "a", cardId: "c1", lock: `${lock}x` } },
+      { v: V, by: ALICE, intent: { t: "card:delete", iid: "a", cardId: "a1", key: "tooShort" } },
+      { v: V, by: ALICE, intent: { t: "vote:undo", iid: "a", cardId: "c1", key: "has space k" } },
+      { v: V, by: ALICE, intent: { t: "vote:undo", iid: "a", cardId: "c1", key: 42 } },
     ];
     for (const env of bad) {
       expect(applyIntent(board({ phase: "vote" }), createIntentLedger(), env, ctx())).toEqual({
@@ -528,7 +612,7 @@ describe("the ledger", () => {
       ledger
     );
     const cleared = resetAllowances(voted.ledger);
-    expect(cleared).toMatchObject({ votesUsed: {}, cardsBy: {}, undosBy: {}, votesOn: {} });
+    expect(cleared).toMatchObject({ votesUsed: {}, cardsBy: {}, undosBy: {}, voteLocks: {} });
     expect(ownerOfCard(cleared, "keep1")).toBe(ALICE);
     expect(cleared.recent).toEqual(voted.ledger.recent);
   });

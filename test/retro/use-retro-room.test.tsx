@@ -6,7 +6,7 @@ import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
 import { HOST_MIGRATION_DELAY_MS } from "@/lib/realtime/host-election";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { BoardState, RetroCard } from "@/app/(tools)/retro/types";
-import type { RoomSnapshot } from "@/app/(tools)/retro/room/protocol";
+import { lockOf, type RoomSnapshot } from "@/app/(tools)/retro/room/protocol";
 import { toRoomSnapshot } from "@/app/(tools)/retro/room/snapshot";
 import { fakeRealtime, type FakeMember } from "./fake-realtime";
 
@@ -92,15 +92,28 @@ function snap(
   ) as RoomSnapshot;
 }
 
+/** The key a test sender holds for a card (by its id), and for its votes on a card. */
+const cardKey = (cardId: string) => `ck_${cardId}_0123456789`;
+const voteKey = (by: string, cardId: string) => `vk_${by}-${cardId}`;
+
 function addIntent(by: string, text: string, iid: string, columnKey = "start") {
-  return { v: 2, by, intent: { t: "card:add", iid, columnKey, text } };
+  return { v: 2, by, intent: { t: "card:add", iid, columnKey, text, lock: lockOf(cardKey(iid)) } };
 }
 
+/** A delete, vote or take-back as `by`'s own tab would send it, key or lock included. */
 function intent(by: string, t: "card:delete" | "vote" | "vote:undo", cardId: string, iid: string) {
-  return { v: 2, by, intent: { t, iid, cardId } };
+  const proof =
+    t === "vote"
+      ? { lock: lockOf(voteKey(by, cardId)) }
+      : { key: t === "vote:undo" ? voteKey(by, cardId) : cardKey(cardId) };
+  return { v: 2, by, intent: { t, iid, cardId, ...proof } };
 }
 
-type Intent = { v: number; by: string; intent: { t: string; iid: string; cardId?: string } };
+type Intent = {
+  v: number;
+  by: string;
+  intent: { t: string; iid: string; cardId?: string; lock?: string; key?: string };
+};
 
 function participant(identity: FakeMember = ME) {
   const opts: UseRetroRoomOptions = {
@@ -355,11 +368,15 @@ describe("useRetroRoom: a participant's own cards and votes", () => {
       ok = result.current.deleteCard(id);
     });
     expect(ok).toBe(true);
-    expect((ch.sent("retro:intent") as Intent[]).at(-1)).toEqual({
+    const [add, del] = ch.sent("retro:intent") as Intent[];
+    expect(del).toEqual({
       v: 2,
       by: ME.id,
-      intent: { t: "card:delete", iid: expect.any(String), cardId: id },
+      intent: { t: "card:delete", iid: expect.any(String), cardId: id, key: expect.any(String) },
     });
+    // The add sent only the lock; the delete sends the key behind it.
+    expect(JSON.stringify(add)).not.toContain(del.intent.key!);
+    expect(lockOf(del.intent.key!)).toBe(add.intent.lock);
     expect(result.current.shownCards).toEqual([]);
     // Someone else's card isn't this tab's to delete.
     act(() => {
@@ -423,11 +440,14 @@ describe("useRetroRoom: a participant's own cards and votes", () => {
       ok = result.current.unvote("c1");
     });
     expect(ok).toBe(true);
-    expect((ch.sent("retro:intent") as Intent[]).at(-1)).toEqual({
+    const [cast, back] = ch.sent("retro:intent") as Intent[];
+    expect(back).toEqual({
       v: 2,
       by: ME.id,
-      intent: { t: "vote:undo", iid: expect.any(String), cardId: "c1" },
+      intent: { t: "vote:undo", iid: expect.any(String), cardId: "c1", key: expect.any(String) },
     });
+    expect(JSON.stringify(cast)).not.toContain(back.intent.key!);
+    expect(lockOf(back.intent.key!)).toBe(cast.intent.lock);
     expect(result.current.myVotes).toEqual({});
     expect(result.current.votesLeft).toBe(3);
 
@@ -561,6 +581,12 @@ describe("useRetroRoom: the host", () => {
     act(() => {
       ch.deliver("retro:intent", intent(OTHER.id, "card:delete", "m1", "d1")); // not Olu's
       ch.deliver("retro:intent", intent(ME.id, "card:delete", "c1", "d2")); // the host's own
+      // Olu saw Pat's add go by and claims to be Pat, but doesn't hold Pat's key.
+      ch.deliver("retro:intent", {
+        v: 2,
+        by: ME.id,
+        intent: { t: "card:delete", iid: "d4", cardId: "m1", key: "olu_guessed_key_000" },
+      });
     });
     expect(result.current.board.cards.map((c) => c.id)).toEqual(["c1", "c2", "m1", "o1"]);
     act(() => ch.deliver("retro:intent", intent(ME.id, "card:delete", "m1", "d3")));
@@ -582,6 +608,12 @@ describe("useRetroRoom: the host", () => {
       ch.deliver("retro:intent", intent(ME.id, "vote", "c1", "v1"));
       ch.deliver("retro:intent", intent(ME.id, "vote", "c1", "v2"));
       ch.deliver("retro:intent", intent(OTHER.id, "vote:undo", "c1", "u1")); // Olu never voted
+      // Olu, in Pat's name, replaying the lock Pat's vote carried.
+      ch.deliver("retro:intent", {
+        v: 2,
+        by: ME.id,
+        intent: { t: "vote:undo", iid: "u3", cardId: "c1", key: lockOf(voteKey(ME.id, "c1")) },
+      });
     });
     expect(result.current.board.cards[0].votes).toBe(2);
     act(() => ch.deliver("retro:intent", intent(ME.id, "vote:undo", "c1", "u2")));

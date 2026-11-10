@@ -7,7 +7,7 @@ import { retroFormats } from "@/lib/constants/retro-formats";
 import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { BoardState, RetroCard } from "@/app/(tools)/retro/types";
-import type { RoomSnapshot } from "@/app/(tools)/retro/room/protocol";
+import { lockOf, type RoomSnapshot } from "@/app/(tools)/retro/room/protocol";
 import { toRoomSnapshot } from "@/app/(tools)/retro/room/snapshot";
 import { exportToMarkdown } from "@/lib/utils/export";
 import { fakeRealtime, type FakeMember } from "./fake-realtime";
@@ -252,7 +252,13 @@ describe("Everyone on their own device, on the Retro board", () => {
       ch.deliver("retro:intent", {
         v: 2,
         by: ME.id,
-        intent: { t: "card:add", iid: "patCard01", columnKey: "start", text: "Pat's secret" },
+        intent: {
+          t: "card:add",
+          iid: "patCard01",
+          columnKey: "start",
+          text: "Pat's secret",
+          lock: lockOf("pat_card_key_00000"),
+        },
       })
     );
     // On the host's board, not on its screen: a count instead.
