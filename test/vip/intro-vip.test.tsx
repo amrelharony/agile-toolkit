@@ -564,6 +564,9 @@ describe("the timeline in vip-intro.module.css", () => {
     const plain = face.findIndex(([p, v]) => p === "backface-visibility" && v === "hidden");
     expect(prefixed).toBeGreaterThan(-1);
     expect(plain).toBeGreaterThan(prefixed);
+    // Its own layer: without it the face's lifted look (z-index 1) would
+    // stack in the cover's layer, outside the face and its backface hiding.
+    expect(face).toContainEqual(["isolation", "isolate"]);
   });
 
   // The art paints over the lettering because it comes after it in the face,
