@@ -2415,6 +2415,9 @@ export interface RetroBoard {
    *  person gets their own budget on a shared screen. `userVotes` stays the
    *  single-voter count. */
   votesBy?: Record<string, number>;
+  /** Votes each person has ("Votes each"); absent means 3, as on every
+   *  board from before the setting (lib/retro/board.ts `retroVotes`). */
+  votesPerPerson?: 3 | 5 | 8;
   /** The sprint this retro looks back on (Sprint.id). Absent on boards from
    *  before retros were per sprint: the cockpit then places the retro by its
    *  archive date (lib/retro/board.ts). Archived copies keep it. */

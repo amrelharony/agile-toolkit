@@ -22,7 +22,8 @@ import {
   lockOf,
   type RetroIntent,
 } from "@/app/(tools)/retro/room/protocol";
-import { MAX_VOTES, type BoardState, type RetroCard } from "@/app/(tools)/retro/types";
+import { DEFAULT_RETRO_VOTES } from "@/lib/retro/board";
+import type { BoardState, RetroCard } from "@/app/(tools)/retro/types";
 
 /**
  * The host's intent reducer for the Retro visitor room: every participant
@@ -347,7 +348,7 @@ describe("applyIntent: votes", () => {
     }
   });
 
-  it(`gives each member ${MAX_VOTES} votes, which may go on one card`, () => {
+  it(`gives each member ${DEFAULT_RETRO_VOTES} votes, which may go on one card`, () => {
     const envs = [
       vote(ALICE, "c1"),
       vote(ALICE, "c1"),
@@ -357,7 +358,7 @@ describe("applyIntent: votes", () => {
     ];
     const { board: b, ledger, reasons } = run(board({ phase: "vote" }), envs);
     expect(reasons).toEqual(["ok", "ok", "ok", "vote-budget", "ok"]);
-    expect(ledger.votesUsed).toEqual({ [ALICE]: MAX_VOTES, [BOB]: 1 });
+    expect(ledger.votesUsed).toEqual({ [ALICE]: DEFAULT_RETRO_VOTES, [BOB]: 1 });
     expect(b.cards.find((c) => c.id === "c1")?.votes).toBe(2);
     expect(b.cards.find((c) => c.id === "c2")?.votes).toBe(2);
     // Who voted where stays in the ledger, never on the board.
@@ -387,8 +388,8 @@ describe("applyIntent: votes", () => {
   });
 
   it("respects votes already spent, e.g. by a host taking over from a snapshot", () => {
-    const ledger = createIntentLedger({ votesUsed: { [ALICE]: MAX_VOTES, [BOB]: 99 } });
-    expect(ledger.votesUsed[BOB]).toBe(MAX_VOTES);
+    const ledger = createIntentLedger({ votesUsed: { [ALICE]: DEFAULT_RETRO_VOTES, [BOB]: 99 } });
+    expect(ledger.votesUsed[BOB]).toBe(DEFAULT_RETRO_VOTES);
     const res = applyIntent(board({ phase: "vote" }), ledger, vote(ALICE, "c1"), ctx());
     expect(res).toEqual({ ok: false, reason: "vote-budget" });
   });
@@ -412,7 +413,7 @@ describe("applyIntent: taking a vote back", () => {
     ]);
     expect(reasons).toEqual(["ok", "ok", "ok", "not-yours", "ok", "ok", "ok", "vote-budget"]);
     expect(b.cards.map((c) => c.votes)).toEqual([1, 3]);
-    expect(ledger.votesUsed[ALICE]).toBe(MAX_VOTES);
+    expect(ledger.votesUsed[ALICE]).toBe(DEFAULT_RETRO_VOTES);
     expect(votesOnCard(ledger, ALICE, "c1")).toBe(1);
     expect(votesOnCard(ledger, ALICE, "c2")).toBe(2);
     expect(votesOnCard(ledger, BOB, "c2")).toBe(1);

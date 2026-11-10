@@ -75,6 +75,7 @@ function snap(
     votesUsed: Record<string, number>;
     members: FakeMember[];
     hide: boolean;
+    votesPerPerson: number;
   }> = {}
 ): RoomSnapshot {
   return JSON.parse(
@@ -88,7 +89,7 @@ function snap(
         timer: { running: b.timerRunning, remaining: b.timerSeconds },
         now: Date.now(),
         hideWhileWriting: extra.hide ?? false,
-        votesPerPerson: 3,
+        votesPerPerson: extra.votesPerPerson ?? 3,
       })
     )
   ) as RoomSnapshot;
@@ -673,6 +674,61 @@ describe("useRetroRoom: a participant's own cards and votes", () => {
     expect(sent.at(-1)!.intent.key).toBe(sent.at(-2)!.intent.key);
   });
 
+  it("keeps every vote to take back when the host lowers Votes each below them", () => {
+    const voted = (n: number) =>
+      board({
+        phase: "vote",
+        cards: [card("c1", { votes: n }), card("c2", { columnKey: "stop" })],
+      });
+    const { result, ch } = joined(snap(HOST.id, voted(0), { votesPerPerson: 8 }));
+    for (let i = 0; i < 5; i++) {
+      act(() => {
+        result.current.vote("c1");
+      });
+    }
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    act(() =>
+      ch.deliver(
+        "retro:state",
+        snap(HOST.id, voted(5), { seq: 2, votesUsed: { [ME.id]: 5 }, votesPerPerson: 8 })
+      )
+    );
+    expect(result.current.myVotes).toEqual({ c1: 5 });
+
+    // The host switches to 3 each: its snapshot can count no more than 3 of the 5.
+    act(() =>
+      ch.deliver(
+        "retro:state",
+        snap(HOST.id, voted(5), { seq: 3, votesUsed: { [ME.id]: 5 }, votesPerPerson: 3 })
+      )
+    );
+    expect(result.current.myVotes).toEqual({ c1: 5 });
+    expect(result.current.votesLeft).toBe(0);
+
+    // Every one of the five can still be taken back.
+    let seq = 4;
+    for (let left = 4; left >= 0; left--) {
+      let ok = false;
+      act(() => {
+        ok = result.current.unvote("c1");
+      });
+      expect(ok).toBe(true);
+      act(() => vi.advanceTimersByTime(SETTLE_MS));
+      act(() =>
+        ch.deliver(
+          "retro:state",
+          snap(HOST.id, voted(left), {
+            seq: seq++,
+            votesUsed: { [ME.id]: left },
+            votesPerPerson: 3,
+          })
+        )
+      );
+      expect(result.current.myVotes).toEqual(left > 0 ? { c1: left } : {});
+    }
+    expect(result.current.votesLeft).toBe(3);
+  });
+
   it("starts again when the host clears the board", () => {
     const { result, ch } = joined(snap(HOST.id, board(), { hide: true }));
     act(() => {
@@ -865,6 +921,32 @@ describe("useRetroRoom: the host", () => {
     expect(latest.votesUsed).toEqual({ [ME.id]: 1 });
     // Who voted where never travels.
     expect(JSON.stringify(latest.cards)).not.toContain(ME.id);
+  });
+
+  it("gives everyone the board's Votes each, and sends a new budget at once", () => {
+    const { result } = host(board({ phase: "vote", votesPerPerson: 5 }));
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(states().at(-1)!.votesPerPerson).toBe(5);
+    expect(result.current.room.votesPerPerson).toBe(5);
+
+    act(() => {
+      for (let i = 1; i <= 6; i++) ch.deliver("retro:intent", intent(ME.id, "vote", "c1", `v${i}`));
+    });
+    // Five land; the sixth is past the budget.
+    expect(result.current.board.cards[0].votes).toBe(5);
+
+    const before = states().length;
+    act(() => result.current.setBoard((b) => ({ ...b, votesPerPerson: 8 })));
+    act(() => vi.advanceTimersByTime(600));
+    expect(states().length).toBeGreaterThan(before);
+    expect(states().at(-1)!).toMatchObject({ votesPerPerson: 8, votesUsed: { [ME.id]: 5 } });
+    act(() => ch.deliver("retro:intent", intent(ME.id, "vote", "c1", "v7")));
+    expect(result.current.board.cards[0].votes).toBe(6);
   });
 
   it("drops a removed member's intents and tells them to leave", () => {

@@ -278,6 +278,70 @@ describe("Take my vote back", () => {
   });
 });
 
+describe("Votes each", () => {
+  const votesEach = () => screen.getByRole("radiogroup", { name: "Votes each person has" });
+
+  it("sets everyone's budget on the board, in Write and Vote only", () => {
+    setRoster("Priya");
+    const { unmount } = render(<Harness initial={makeBoard({ phase: "discuss" })} />);
+    expect(screen.queryByRole("radiogroup", { name: "Votes each person has" })).toBeNull();
+    unmount();
+
+    render(<Harness initial={makeBoard({ phase: "write" })} />);
+    expect(within(votesEach()).getByRole("radio", { name: "3 votes" })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+    fireEvent.click(within(votesEach()).getByRole("radio", { name: "5 votes" }));
+    expect(latest.votesPerPerson).toBe(5);
+    expect(announced).toContain("Everyone now has 5 votes.");
+
+    fireEvent.click(screen.getByRole("button", { name: /Next Phase/ }));
+    expect(announced).toContain("Vote phase. Vote on cards (5 votes each).");
+    expect(screen.getByText("Vote on cards (5 votes each)")).toBeInTheDocument();
+    expect(screen.getByText("5 votes remaining")).toBeInTheDocument();
+    expect(
+      screen.getByText("No votes yet: each person has 5 votes for the cards that matter most.")
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Everyone gets 5 votes\./)).toBeInTheDocument();
+
+    // Priya spends all five; a sixth does nothing.
+    fireEvent.click(within(picker()).getByRole("radio", { name: "Priya · 5 left" }));
+    for (let i = 0; i < 5; i++) fireEvent.click(voteButtons()[0]);
+    expect(announced).toContain("Priya has used all 5 votes.");
+    expect(within(picker()).getByRole("radio", { name: "Priya · 0 left" })).toBeInTheDocument();
+    fireEvent.click(voteButtons()[1]);
+    expect(latest.cards.map((c) => c.votes)).toEqual([5, 0]);
+  });
+
+  it("keeps votes already cast when the budget goes down", () => {
+    setRoster("Priya");
+    render(
+      <Harness
+        initial={makeBoard({
+          votesPerPerson: 8,
+          votesBy: { Priya: 6 },
+          cards: [card("a", "start", { votes: 6 }), card("b", "stop")],
+        })}
+      />
+    );
+    expect(screen.getByText("8 votes remaining")).toBeInTheDocument();
+    expect(within(picker()).getByRole("radio", { name: "Priya · 2 left" })).toBeInTheDocument();
+
+    fireEvent.click(within(votesEach()).getByRole("radio", { name: "3 votes" }));
+    expect(latest.votesPerPerson).toBe(3);
+    expect(announced).toContain(
+      "Everyone now has 3 votes. Votes already cast stay on their cards."
+    );
+    expect(latest.cards.map((c) => c.votes)).toEqual([6, 0]);
+    // Past the new budget is none left, never a negative count.
+    expect(within(picker()).getByRole("radio", { name: "Priya · 0 left" })).toBeInTheDocument();
+    fireEvent.click(within(picker()).getByRole("radio", { name: "Priya · 0 left" }));
+    expect(screen.getByText("0 votes remaining for Priya")).toBeInTheDocument();
+    for (const button of voteButtons()) expect(button).toBeDisabled();
+  });
+});
+
 describe("Previous phase", () => {
   it("steps back from Vote to Write and keeps everyone's votes", () => {
     setRoster("Priya");
@@ -299,7 +363,7 @@ describe("Previous phase", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Next Phase/ }));
     expect(latest.phase).toBe("vote");
-    expect(announced).toContain("Vote phase. Vote on cards (max 3).");
+    expect(announced).toContain("Vote phase. Vote on cards (3 votes each).");
     expect(screen.getByText("2 votes remaining")).toBeInTheDocument();
     expect(within(picker()).getByRole("radio", { name: "Priya · 1 left" })).toBeInTheDocument();
   });

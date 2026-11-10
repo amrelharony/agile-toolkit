@@ -18,15 +18,22 @@
  * control or bidi characters anywhere it renders. Whether the sender is the
  * trusted host is the hook's call (`use-retro-room.ts`).
  *
- * The format travels as an id plus its column keys and labels. Participants
- * look the id up in their own `retroFormats`, so no peer-supplied colour or
- * icon reaches an inline style; an id they don't know falls back to the
- * host's column labels in local colours.
+ * The format travels as an id plus its column keys and labels, and the
+ * board's "Votes each" as `votesPerPerson`. Participants look the id up in
+ * their own `retroFormats`, so no peer-supplied colour or icon reaches an
+ * inline style; an id they don't know (a custom format among them) falls
+ * back to the host's column labels in the local palette, which is the one
+ * a custom format's columns are coloured from, in the same order.
  *
  * Pure apart from importing the snapshot validator.
  */
 
-import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
+import {
+  RETRO_COLUMN_PALETTE,
+  retroFormats,
+  type RetroFormat,
+} from "@/lib/constants/retro-formats";
+import { isRetroVotes, retroVotes } from "@/lib/retro/board";
 import { readRetro } from "@/lib/share/snapshot-import";
 import { cleanName, cleanText, isWithinJsonSize, shareableText } from "@/lib/realtime/sanitize";
 import { VISITOR_LIMITS, isVisitorMemberId } from "@/lib/realtime/visitor-rooms";
@@ -35,6 +42,7 @@ import {
   BOARD_CARD_CAP,
   MAX_COLUMN_LABEL_CHARS,
   MAX_COLUMNS,
+  MAX_FORMAT_NAME_CHARS,
   MAX_KEY_CHARS,
   MAX_VOTES_PER_PERSON,
   RETRO_ROOM_PROTOCOL_VERSION,
@@ -52,8 +60,8 @@ const MAX_ASSIGNEE_CHARS = 200;
 
 /** The format id participants get when the host's isn't one of theirs. */
 export const FALLBACK_FORMAT_ID = "room";
-/** Local palette for fallback columns (all brand colours `themed()` maps). */
-const FALLBACK_COLORS = ["#00f0ff", "#00ff88", "#f59e0b", "#a855f7", "#ef4444"];
+/** Local palette for fallback columns: the one custom formats use, in order. */
+const FALLBACK_COLORS = RETRO_COLUMN_PALETTE;
 
 // ── Host side ────────────────────────────────────────────────────────
 
@@ -118,6 +126,7 @@ function toRoomColumns(board: BoardState): RoomColumn[] {
 export function toRoomSnapshot(board: BoardState, meta: SnapshotMeta): RoomSnapshot {
   const budget = Math.max(1, Math.min(MAX_VOTES_PER_PERSON, Math.round(meta.votesPerPerson) || 1));
   const columns = toRoomColumns(board);
+  const formatName = shareableText(board.format.name ?? "", MAX_FORMAT_NAME_CHARS);
   const hidden = cardsHidden({ hideWhileWriting: meta.hideWhileWriting, phase: board.phase });
   const cards: RoomCard[] = [];
   for (const c of board.cards) {
@@ -151,6 +160,7 @@ export function toRoomSnapshot(board: BoardState, meta: SnapshotMeta): RoomSnaps
     hostId: meta.by,
     endsAt: meta.endsAt,
     formatId: board.format.id,
+    ...(formatName ? { formatName } : {}),
     columns,
     phase: board.phase,
     timer: {
@@ -172,14 +182,16 @@ export function toRoomSnapshot(board: BoardState, meta: SnapshotMeta): RoomSnaps
  * What a snapshot depends on, as a string: a change means "send one". The
  * timer counts only by its running flag while it runs, so the 1 s tick never
  * triggers a broadcast; starting, pausing, resetting or a preset does, and
- * so does switching "Hide cards while writing".
+ * so does switching "Hide cards while writing" or "Votes each".
  */
 export function roomSignature(board: BoardState, hideWhileWriting = false): string {
   return JSON.stringify([
     board.format.id,
+    board.format.name,
     board.format.columns.map((c) => [c.key, c.label]),
     board.phase,
     hideWhileWriting,
+    retroVotes(board),
     board.timerRunning,
     board.timerRunning ? -1 : board.timerSeconds,
     board.cards.map((c) => [
@@ -259,8 +271,8 @@ function readIds(raw: unknown, total: number): string[] | null {
  * over `VISITOR_LIMITS.maxPayloadChars`; a wrong version; a sender that isn't
  * the host it names; more than 200 cards, 12 columns or 20 members; any card
  * `readRetro` refuses, with a duplicate id, or with text, column key or
- * assignee holding control or bidi characters; a column or member with an
- * unclean label or name; cards while they should be hidden, or counts and
+ * assignee holding control or bidi characters; a column, member or format
+ * with an unclean label or name; cards while they should be hidden, or counts and
  * ids while they shouldn't; ids that don't match the counts; votes outside
  * the budget it states.
  */
@@ -273,6 +285,12 @@ export function readRoomSnapshot(raw: unknown): RoomSnapshot | null {
   if (typeof s.endsAt !== "number" || !Number.isFinite(s.endsAt) || s.endsAt <= 0) return null;
   if (typeof s.formatId !== "string" || s.formatId.length === 0) return null;
   if (s.formatId.length > MAX_KEY_CHARS) return null;
+  const formatName = s.formatName;
+  if (formatName !== undefined) {
+    if (typeof formatName !== "string" || !isCleanText(formatName, MAX_FORMAT_NAME_CHARS)) {
+      return null;
+    }
+  }
   if (!isPhase(s.phase)) return null;
   if (typeof s.hideWhileWriting !== "boolean") return null;
   const budget = s.votesPerPerson;
@@ -351,6 +369,7 @@ export function readRoomSnapshot(raw: unknown): RoomSnapshot | null {
     hostId: s.by,
     endsAt: s.endsAt,
     formatId: s.formatId,
+    ...(formatName !== undefined ? { formatName } : {}),
     columns,
     phase: s.phase,
     timer: { running: t.running, remaining: Math.floor(t.remaining), at: t.at },
@@ -365,15 +384,17 @@ export function readRoomSnapshot(raw: unknown): RoomSnapshot | null {
 }
 
 /**
- * The format to render: the participant's own copy of `formatId`, or the
- * host's columns (keys and labels) in the local palette when the id is
- * unknown. With no columns at all, plain columns named after the cards'
- * column keys, in order of first use.
+ * The format to render: the participant's own copy of `formatId`, or, when
+ * the id is unknown (a custom format), the host's columns (keys and labels)
+ * in the local palette under the host's format name. With no columns at
+ * all, plain columns named after the cards' column keys, in order of first
+ * use.
  */
 export function resolveRoomFormat(
   formatId: string,
   columns: readonly RoomColumn[],
-  cards: readonly RoomCard[] = []
+  cards: readonly RoomCard[] = [],
+  formatName?: string
 ): RetroFormat {
   const known = retroFormats.find((f) => f.id === formatId);
   if (known) return known;
@@ -387,7 +408,7 @@ export function resolveRoomFormat(
   }
   return {
     id: FALLBACK_FORMAT_ID,
-    name: "Retro",
+    name: formatName || "Retro",
     description: "",
     columns: named.map(({ key, label }, i) => ({
       key,
@@ -421,9 +442,11 @@ function flattenGroups(cards: RetroCard[]): RetroCard[] {
  * An in-memory board for a participant (never stored). Cards outside the
  * resolved format's columns are dropped. Timer fields are as of receipt.
  * While cards are hidden the board has none: the hook adds the tab's own.
+ * It keeps the host's Votes each when it is one of the board's choices, so
+ * "Save a copy" stores it with the cards.
  */
 export function boardFromSnapshot(snap: RoomSnapshot): BoardState {
-  const format = resolveRoomFormat(snap.formatId, snap.columns, snap.cards);
+  const format = resolveRoomFormat(snap.formatId, snap.columns, snap.cards, snap.formatName);
   const columns = new Set(format.columns.map((c) => c.key));
   const cards = flattenGroups(
     snap.cards.filter((c) => columns.has(c.columnKey)).map((c) => ({ ...c }))
@@ -436,5 +459,6 @@ export function boardFromSnapshot(snap: RoomSnapshot): BoardState {
     timerSeconds: snap.timer.remaining,
     timerRunning: snap.timer.running,
     discussingIndex: 0,
+    ...(isRetroVotes(snap.votesPerPerson) ? { votesPerPerson: snap.votesPerPerson } : {}),
   };
 }
