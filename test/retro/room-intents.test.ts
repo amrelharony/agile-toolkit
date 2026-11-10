@@ -480,6 +480,12 @@ describe("applyIntent: senders and duplicates", () => {
       { v: V, by: ALICE, intent: { t: "card:add", iid: "a", columnKey: "start", text: 42 } },
       { v: V, by: ALICE, intent: { t: "vote", iid: "a", cardId: "x".repeat(65) } },
       { v: V, by: ALICE, intent: { t: "vote:undo", iid: "a", cardId: "" } },
+      // It would become a card id, and the ledger keys records by card id.
+      {
+        v: V,
+        by: ALICE,
+        intent: { t: "card:add", iid: "__proto__", columnKey: "start", text: "x" },
+      },
       // A card added through the room has an intent id for its id.
       { v: V, by: ALICE, intent: { t: "card:delete", iid: "a", cardId: "not an id" } },
       { v: V, by: ALICE, intent: { t: "card:delete", iid: "a" } },

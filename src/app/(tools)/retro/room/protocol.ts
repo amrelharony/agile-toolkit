@@ -166,9 +166,13 @@ const isShortStr = (v: unknown, max: number): v is string =>
 
 const IID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
-/** Whether `v` is shaped like an intent id (and so like the id of a card added through the room). */
+/**
+ * Whether `v` is shaped like an intent id (and so like the id of a card
+ * added through the room). Never `__proto__`: it becomes a card id, and the
+ * ledger keys records by card id.
+ */
 export function isIntentId(v: unknown): v is string {
-  return typeof v === "string" && IID_RE.test(v);
+  return typeof v === "string" && IID_RE.test(v) && v !== "__proto__";
 }
 
 /**

@@ -123,11 +123,12 @@ function stepVoteRecord(
   cardId: string,
   step: 1 | -1
 ): VoteRecord {
-  const mine = { ...votesIn(record, voter) };
-  const n = (owns(mine, cardId) ? mine[cardId] : 0) + step;
-  if (n > 0) mine[cardId] = n;
-  else delete mine[cardId];
-  return { ...record, [recordKey(voter)]: mine };
+  const before = votesIn(record, voter);
+  const n = (owns(before, cardId) ? before[cardId] : 0) + step;
+  // Built from entries, so any card id is an own key.
+  const entries = Object.entries(before).filter(([id]) => id !== cardId);
+  if (n > 0) entries.push([cardId, n]);
+  return { ...record, [recordKey(voter)]: Object.fromEntries(entries) };
 }
 
 /** "Sat 4 Oct" for the retro that drops off Past retros. */

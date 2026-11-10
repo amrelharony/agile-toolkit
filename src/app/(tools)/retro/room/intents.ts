@@ -158,9 +158,12 @@ function withVotesOn(
   cardId: string,
   n: number
 ): IntentLedger["votesOn"] {
-  const mine = { ...(has(ledger.votesOn, member) ? ledger.votesOn[member] : {}) };
-  if (n > 0) mine[cardId] = n;
-  else delete mine[cardId];
+  // Built from entries, so any card id (even "__proto__") is an own key.
+  const entries = Object.entries(has(ledger.votesOn, member) ? ledger.votesOn[member] : {}).filter(
+    ([id]) => id !== cardId
+  );
+  if (n > 0) entries.push([cardId, n]);
+  const mine: Record<string, number> = Object.fromEntries(entries);
   const next = { ...ledger.votesOn };
   if (Object.keys(mine).length > 0) next[member] = mine;
   else delete next[member];

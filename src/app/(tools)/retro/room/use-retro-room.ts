@@ -315,11 +315,11 @@ function ownToCard(c: OwnCard): RetroCard {
   };
 }
 
+/** Votes per card from a list of card ids (built from entries, so every id is an own key). */
 function countVotes(list: readonly string[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const id of list)
-    out[id] = (Object.prototype.hasOwnProperty.call(out, id) ? out[id] : 0) + 1;
-  return out;
+  const counts = new Map<string, number>();
+  for (const id of list) counts.set(id, (counts.get(id) ?? 0) + 1);
+  return Object.fromEntries(counts);
 }
 
 function sumCounts(counts: Readonly<Record<string, number>> | null): number {
