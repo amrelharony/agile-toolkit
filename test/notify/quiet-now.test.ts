@@ -7,8 +7,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isQuietNow } from "@/lib/notify/quiet-now";
 import { getQuietState } from "@/lib/notify/quiet-state";
-import { NOTIFICATION_PREFS_VERSION } from "@/lib/notify/prefs";
+import { FOCUS_UNTIL_OFF, NOTIFICATION_PREFS_VERSION } from "@/lib/notify/prefs";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
+
+const PREFS_KEY = "agile-toolkit:notification-prefs";
 
 /** The clock moves by swapping Date for a subclass (not fake timers), as in quiet-state.test.ts. */
 const RealDate = Date;
@@ -82,7 +84,7 @@ describe("isQuietNow", () => {
 
   it("reads the stored preferences, not the factory defaults", async () => {
     localStorage.setItem(
-      "agile-toolkit:notification-prefs",
+      PREFS_KEY,
       JSON.stringify({
         state: { quietHours: { enabled: true, start: "12:00", end: "18:00" } },
         version: NOTIFICATION_PREFS_VERSION,
@@ -92,6 +94,43 @@ describe("isQuietNow", () => {
     // With the defaults (quiet hours off) 14:00 is not quiet.
     expect(getQuietState(Date.now(), "/kanban", root).quiet).toBe(false);
     expect(isQuietNow("/kanban")).toBe(true);
+  });
+
+  describe("on a cold load, before any provider has loaded the store", () => {
+    afterEach(() => {
+      vi.resetModules();
+    });
+
+    /** A fresh store that has never loaded, as on a first page load. */
+    async function coldStart(stored: Record<string, unknown>) {
+      localStorage.setItem(
+        PREFS_KEY,
+        JSON.stringify({ state: stored, version: NOTIFICATION_PREFS_VERSION })
+      );
+      vi.resetModules();
+      const store = await import("@/lib/stores/notification-prefs-store");
+      const { isQuietNow: coldIsQuietNow } = await import("@/lib/notify/quiet-now");
+      expect(store.useNotificationPrefsStore.persist.hasHydrated()).toBe(false);
+      return { store, coldIsQuietNow };
+    }
+
+    it("is quiet with Focus stored on", async () => {
+      const { store, coldIsQuietNow } = await coldStart({ focusUntil: FOCUS_UNTIL_OFF });
+      expect(coldIsQuietNow("/kanban")).toBe(true);
+      expect(store.useNotificationPrefsStore.persist.hasHydrated()).toBe(true);
+    });
+
+    it("is quiet inside stored quiet hours", async () => {
+      const { coldIsQuietNow } = await coldStart({
+        quietHours: { enabled: true, start: "13:00", end: "15:00" },
+      });
+      expect(coldIsQuietNow("/kanban")).toBe(true);
+    });
+
+    it("is not quiet when nothing quiet is stored", async () => {
+      const { coldIsQuietNow } = await coldStart({});
+      expect(coldIsQuietNow("/kanban")).toBe(false);
+    });
   });
 
   it("falls back to window.location only when given null", () => {
