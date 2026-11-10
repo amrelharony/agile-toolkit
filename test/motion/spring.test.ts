@@ -12,6 +12,7 @@ import {
   runSpring,
   springFor,
   stepSpring,
+  type Rest,
   type SpringState,
 } from "@/lib/motion/spring";
 import { DUR, EASE, SETTLE_SPRING, SPRING_STEPS, dampingRatio } from "@/lib/motion/tokens";
@@ -71,7 +72,7 @@ describe("stepping", () => {
     expect(stepSpring(s, 0, -1)).toBe(s);
   });
 
-  it("comes to rest on its target, within the settle duration from rest", () => {
+  it("comes to rest on its target, and is within half a pixel of it when the settle duration ends", () => {
     const states = run({ x: 0, v: 0 }, 100);
     const last = states.at(-1)!;
     expect(isAtRest(last, 100)).toBe(true);
@@ -79,6 +80,34 @@ describe("stepping", () => {
     // Within half a percent of the way by 320 ms, as the CSS settle ends there.
     const at = Math.round(DUR.settle / 1000 / FRAME);
     expect(Math.abs(states[at].x - 100)).toBeLessThan(0.5);
+  });
+
+  it("takes as long to rest as its decay allows: about 0.5 s from rest, 0.6 s for a flung panel", () => {
+    // Settle's spring decays at 20/s (damping / 2·mass), so how long it takes
+    // to count as at rest depends on the threshold. A reader panel 375 px off,
+    // released at up to 4000 px/s either way, is the slowest case R2 meets.
+    const restMs = (start: SpringState, rest: Rest) => {
+      let s = start;
+      let frames = 0;
+      while (!isAtRest(s, 0, rest) && frames < 600) {
+        s = stepSpring(s, 0, FRAME);
+        frames++;
+      }
+      return (frames * 1000) / 60;
+    };
+    const panel = (rest: Rest) =>
+      Math.max(
+        ...[-375, -187, 187, 375].flatMap((x) =>
+          [-4000, -2000, 0, 2000, 4000].map((v) => restMs({ x, v }, rest))
+        )
+      );
+    expect(restMs({ x: -100, v: 0 }, DEFAULT_REST)).toBeLessThanOrEqual(520);
+    expect(panel(DEFAULT_REST)).toBeGreaterThan(580);
+    expect(panel(DEFAULT_REST)).toBeLessThanOrEqual(620);
+    // R2 asks for rest within 300 ms. With these constants only a rest as
+    // loose as 2 px and 60 px/s gets there; 1 px and 30 px/s does not.
+    expect(panel({ delta: 2, speed: 60 })).toBeLessThanOrEqual(300);
+    expect(panel({ delta: 1, speed: 30 })).toBeGreaterThan(300);
   });
 
   it("passes the target once, by about 8%, when let go from rest", () => {
