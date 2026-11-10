@@ -1,8 +1,9 @@
 /**
  * The page behind a playing intro is unreachable (components/intro/intro-inert):
  * the siblings along the overlay's chain of ancestors are inert while it plays,
- * what was inert before stays so, and focus still goes back to the opener when
- * it ends, in a browser that won't focus anything inside [inert].
+ * those that mount mid-intro too, what was inert before stays so, an owner's
+ * own mid-intro word is kept for the end, and focus still goes back to the
+ * opener when it ends, in a browser that won't focus anything inside [inert].
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -146,6 +147,31 @@ describe("while an intro plays", () => {
     expect(screen.getByTestId("gallery")).toHaveAttribute("inert");
   });
 
+  it("holds what mounts beside the page mid-intro too, and lets it go at the end", async () => {
+    // As the app shell's late parts do: Amr's launcher beside the page's
+    // wrapper, and a portal straight into <body>.
+    const portal = document.createElement("div");
+    try {
+      await replay();
+      const main = screen.getByTestId("main");
+      const late = main.appendChild(document.createElement("button"));
+      const ownInert = main.appendChild(document.createElement("div"));
+      ownInert.setAttribute("inert", "");
+      document.body.appendChild(portal);
+      await settle();
+      expect(late).toHaveAttribute("inert");
+      expect(portal).toHaveAttribute("inert");
+      expect(overlay()).not.toHaveAttribute("inert");
+      fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+      expect(late).not.toHaveAttribute("inert");
+      expect(portal).not.toHaveAttribute("inert");
+      // Inert of its own when it came, so it stays inert.
+      expect(ownInert).toHaveAttribute("inert");
+    } finally {
+      portal.remove();
+    }
+  });
+
   it("leaves the page alone when no intro of its kind plays", async () => {
     render(<Page />);
     root.setAttribute(INTRO_ATTR, "poster");
@@ -163,6 +189,34 @@ describe("when it ends", () => {
     expect(drawer).toHaveAttribute("inert");
     expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
     expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
+  });
+
+  it("leaves each part as its owner last asked, as the sidebar does on a rotation", async () => {
+    const { drawer } = await replay();
+    const header = screen.getByTestId("header");
+    // Turned below 768 px: the sidebar closes its drawer on a part held here.
+    header.setAttribute("inert", "");
+    // Turned above it: the drawer, inert before, is opened by its owner.
+    drawer.removeAttribute("inert");
+    await settle();
+    // The intro still holds the page while it plays.
+    expect(drawer).toHaveAttribute("inert");
+    expect(header).toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(header).toHaveAttribute("inert");
+    expect(drawer).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
+  });
+
+  it("reads an owner's word written in the same moment the intro ends", async () => {
+    const { drawer } = await replay();
+    const header = screen.getByTestId("header");
+    header.setAttribute("inert", "");
+    drawer.removeAttribute("inert");
+    // No await: the observer hasn't reported yet when Skip ends the intro.
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(header).toHaveAttribute("inert");
+    expect(drawer).not.toHaveAttribute("inert");
   });
 
   it.each(["Skip", "Escape", "the overlay's animation", "stopIntro"])(
