@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { saveAs } from "file-saver";
 import { Check, Download, HardDrive, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import {
   YOUR_DATA_ROOMS,
   YOUR_DATA_SAVED_HERE,
 } from "@/lib/site/disclosures";
+import { PRIVACY_PATH, PRIVACY_TITLE } from "@/lib/site/owner";
 import { toast } from "@/lib/utils/toast";
 import { visitorAiEnabled } from "@/lib/visitor-ai/contract";
 import { useFlash } from "@/hooks/use-flash";
@@ -163,6 +165,15 @@ export function YourDataDialog({
                 ? "Your work syncs to your account and is also kept in this browser."
                 : visitorDescription()}
             </DialogDescription>
+            {/* Outside the description, which a screen reader reads with the
+                title: the link is a way on, not part of what is stored here. */}
+            <p className="text-sm text-sub">
+              Every part of the site, and who to ask:{" "}
+              <Link href={PRIVACY_PATH} onClick={() => onOpenChange(false)}>
+                {PRIVACY_TITLE}
+              </Link>
+              .
+            </p>
           </DialogHeader>
 
           <dl className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-card p-3 text-sm">

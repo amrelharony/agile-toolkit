@@ -12,7 +12,8 @@ import { isVipHidden } from "@/lib/tools/catalog";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { SECTIONS, getSectionForTool } from "@/lib/constants/sections";
-import { SITE_OWNER } from "@/lib/site/owner";
+import { PRIVACY_PATH, PRIVACY_TITLE, SITE_OWNER } from "@/lib/site/owner";
+import { TOUCH_LINK } from "@/components/ui/touch-target";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -718,6 +719,19 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               >
                 {SITE_OWNER.name}
               </a>
+            </p>
+            {/* What leaves a visitor's browser, and how to reach him. It stands
+                alone on its line, so it gets the 44px touch height. */}
+            <p className="text-xs text-center">
+              <Link
+                href={PRIVACY_PATH}
+                onClick={handleNavClick}
+                data-no-sound="true"
+                aria-current={pathname === PRIVACY_PATH ? "page" : undefined}
+                className={cn("text-accent hover:underline", TOUCH_LINK)}
+              >
+                {PRIVACY_TITLE}
+              </Link>
             </p>
           </div>
         )}
