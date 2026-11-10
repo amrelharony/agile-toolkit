@@ -111,6 +111,7 @@ describe("/llms.txt", () => {
       `- [All tools](${BASE}/): the ${defaultToolCount()} tools for Scrum Masters and agile teams, by section.`,
       `- [More tools](${BASE}/more-tools): ${getShelfTools().length} tools for neighbouring work, such as AI product management, security, reliability and strategy.`,
       `- [Team](${BASE}/team): the people on a team and the agreements they work by.`,
+      `- [What leaves your browser](${BASE}/privacy): what each part of the site sends from the browser and what is kept, who runs the site and how to reach him, and what a security team can check.`,
       `- [Sitemap](${BASE}/sitemap.xml): every public page.`,
     ]);
   });
@@ -119,7 +120,7 @@ describe("/llms.txt", () => {
     const listed = new Set(sitemap().map((entry) => entry.url));
     const closed = [robots().rules].flat().flatMap((rule) => rule.disallow ?? []);
     const urls = links(llmsTxt()).map(([, url]) => url);
-    expect(urls.length).toBe(CORE_SCRUM_TOOLS.length + 4);
+    expect(urls.length).toBe(CORE_SCRUM_TOOLS.length + 5);
     for (const url of urls) {
       expect(url.startsWith(`${BASE}/`), url).toBe(true);
       const pathname = new URL(url).pathname;
