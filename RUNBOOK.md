@@ -338,7 +338,7 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
   - **End room** ends it for everyone. The host keeps the board or session.
   - **Remove** takes a participant out and ignores what they send. It is soft: they can rejoin under a new name. To keep someone out, end the room and share a new link.
   - If the host closes the tab without ending the room, the others elect a new host after about 10 seconds and carry on from the last state they received.
-  - Retro, when the host leaves during Write with cards hidden: the new host only ever had counts, so the room stays in Write under the new host and carries on from the new host's own cards. Everyone sees "The host left. Cards written so far were not shared; add yours again", with their own earlier cards listed and an **Add again** button for each. After any change of host, cards and votes from before can no longer be deleted or taken back, except the new host's own: it doesn't know whose the others were.
+  - Retro, when the host leaves during Write with cards hidden: the new host only ever had counts, so the room stays in Write under the new host and carries on from the new host's own cards. If anyone else had written a card, everyone sees "The host left. Cards written so far were not shared; add yours again", with their own earlier cards listed and an **Add again** button for each. After any change of host, cards and votes from before can no longer be deleted or taken back, except the new host's own: it doesn't know whose the others were.
 - **Vote rounds** work differently (no host election, nothing shown before Reveal): see the next section.
 
 ### Live vote rounds (Health Check, Psych Safety, Mood; Kano; Buy-a-Feature and the $100 Test)

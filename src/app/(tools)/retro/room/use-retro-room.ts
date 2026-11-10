@@ -51,9 +51,10 @@
  *  - when elected, continues hosting from the last snapshot, still in memory,
  *    and can fix a card's text there (`editCard`). If the old host left
  *    while cards were hidden, the new host never had them: the room stays in
- *    Write and starts again from the new host's own cards, and everyone is
- *    told to add theirs again (`cardsLost`). A new host knows nothing of who
- *    added or voted on what before it took over.
+ *    Write and starts again from the new host's own cards, and, if anyone
+ *    else had written a card, everyone is told to add theirs again
+ *    (`cardsLost`). A new host knows nothing of who added or voted on what
+ *    before it took over.
  *
  * Nothing opens before the caller mounts this hook, which happens only after
  * the consent dialog. A terminal status (ended, expired, kicked, full, left,
@@ -695,14 +696,17 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (prev && prev.hostId !== snap.hostId) {
         // A new host knows nothing of who added or voted on what before it.
         // If cards were hidden, it never had them either: keep this tab's
-        // text so the person can add those cards again.
+        // text so the person can add those cards again. Nothing to say if
+        // nobody had written a card.
         if (prev.counts !== null && snap.phase === "write") {
           const lost = [
             ...unsharedRef.current,
             ...ownCardsRef.current.map(({ id, columnKey, text }) => ({ id, columnKey, text })),
           ];
-          setUnshared(lost);
-          setCardsLost(true);
+          if (hiddenTotal(prev.counts) > 0 || lost.length > 0) {
+            setUnshared(lost);
+            setCardsLost(true);
+          }
         }
         setOwnCards([]);
         setDeleting([]);
@@ -990,6 +994,11 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (!v) return;
       // The old host hid the cards and took them with it: start again from this tab's own.
       const lost = v.counts !== null;
+      // Others wrote cards, now gone, if the old host held more than this tab's own.
+      const counted = [...ownCardsRef.current, ...deletingRef.current].filter(
+        (c) => v.ids?.has(c.id) ?? false
+      ).length;
+      const othersLost = lost && hiddenTotal(v.counts) > counted;
       let board = v.board;
       if (lost) {
         const keys = new Set(board.format.columns.map((c) => c.key));
@@ -1051,7 +1060,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       setDeleting([]);
       setMyVotes([]);
       setPendingVotes(0);
-      if (lost) setCardsLost(true);
+      if (othersLost) setCardsLost(true);
       setPromoted(true);
       lastActivityRef.current = Date.now();
     }, wait);

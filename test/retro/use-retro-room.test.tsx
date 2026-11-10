@@ -987,16 +987,52 @@ describe("useRetroRoom: host election", () => {
 });
 
 describe("useRetroRoom: the host leaves while cards are hidden", () => {
-  function hiddenRoom(identity: FakeMember) {
+  function hiddenRoom(identity: FakeMember, first: BoardState = board()) {
     const view = participant(identity);
     const ch = fakeRealtime.last();
     act(() => {
       ch.connect();
       ch.setPresence([HOST, ME, OTHER]);
     });
-    act(() => ch.deliver("retro:state", snap(HOST.id, board(), { hide: true, seq: 7 })));
+    act(() => ch.deliver("retro:state", snap(HOST.id, first, { hide: true, seq: 7 })));
     return { ...view, ch };
   }
+
+  it("says nothing was lost when nobody had written a card", () => {
+    const empty = board({ cards: [] });
+    // The member who takes over...
+    const elected = hiddenRoom(ME, empty);
+    act(() => elected.ch.setPresence([ME, OTHER]));
+    act(() => vi.advanceTimersByTime(HOST_MIGRATION_DELAY_MS));
+    expect(elected.result.current.promoted).toBe(true);
+    expect(elected.result.current.cardsLost).toBe(false);
+    elected.unmount();
+
+    // ...and everyone else.
+    fakeRealtime.reset();
+    const other = hiddenRoom(OTHER, empty);
+    act(() => other.ch.setPresence([ME, OTHER]));
+    act(() => vi.advanceTimersByTime(HOST_MIGRATION_DELAY_MS));
+    act(() => other.ch.deliver("retro:state", snap(ME.id, empty, { hide: true, seq: 8 })));
+    expect(other.result.current.hostId).toBe(ME.id);
+    expect(other.result.current.cardsLost).toBe(false);
+    expect(other.result.current.unsharedCards).toEqual([]);
+  });
+
+  it("the new host says nothing was lost when the only hidden cards were its own", () => {
+    const { result, ch } = hiddenRoom(ME, board({ cards: [] }));
+    act(() => {
+      result.current.addCard("start", "Only mine");
+    });
+    const mine = (ch.sent("retro:intent") as Intent[])[0].intent.iid;
+    const onlyMine = board({ cards: [card(mine, { text: "Only mine" })] });
+    act(() => ch.deliver("retro:state", snap(HOST.id, onlyMine, { hide: true, seq: 8 })));
+    act(() => ch.setPresence([ME, OTHER]));
+    act(() => vi.advanceTimersByTime(HOST_MIGRATION_DELAY_MS));
+    expect(result.current.promoted).toBe(true);
+    expect(result.current.cardsLost).toBe(false);
+    expect(result.current.board?.cards.map((c) => c.text)).toEqual(["Only mine"]);
+  });
 
   it("the new host stays in Write and starts again from its own cards", () => {
     const { result, ch } = hiddenRoom(ME);
