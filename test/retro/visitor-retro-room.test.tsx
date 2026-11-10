@@ -21,7 +21,11 @@ import { fakeRealtime, type FakeMember } from "./fake-realtime";
 /** The button that opens a live room (it was "Go live"). */
 const GO_LIVE = "Everyone on their own device";
 
-const h = vi.hoisted(() => ({ auth: null as unknown, realtime: true }));
+const h = vi.hoisted(() => ({
+  auth: null as unknown,
+  realtime: true,
+  undo: null as null | { label: string; apply: () => void; revert: () => void },
+}));
 
 vi.mock("@/lib/auth/auth-provider", () => ({ useAuthOptional: () => h.auth }));
 vi.mock("@/lib/realtime/supabase-client", async () => {
@@ -34,6 +38,12 @@ vi.mock("@/lib/utils/export", async (importOriginal) => ({
 }));
 vi.mock("@/lib/sonification/emit", () => ({ emit: () => {}, emitRtEvent: () => {} }));
 vi.mock("@/lib/utils/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/utils/undoable", () => ({
+  undoable: (a: { label: string; apply: () => void; revert: () => void }) => {
+    h.undo = a;
+    a.apply();
+  },
+}));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
@@ -105,23 +115,30 @@ function Harness({ initial, onReset = () => {} }: { initial: BoardState; onReset
   );
 }
 
-function hostSnapshot(b: BoardState, seq = 1): RoomSnapshot {
+function hostSnapshot(
+  b: BoardState,
+  seq = 1,
+  extra: Partial<{ hide: boolean; by: FakeMember; votesUsed: Record<string, number> }> = {}
+): RoomSnapshot {
+  const by = extra.by ?? HOST;
   return JSON.parse(
     JSON.stringify(
       toRoomSnapshot(b, {
-        by: HOST.id,
+        by: by.id,
         seq,
         endsAt: Date.now() + VISITOR_LIMITS.hardTtlMs,
-        members: [HOST, ME].map(({ id, name }) => ({ id, name })),
-        votesUsed: {},
+        members: [by, ME].map(({ id, name }) => ({ id, name })),
+        votesUsed: extra.votesUsed ?? {},
         timer: { running: false, remaining: b.timerSeconds },
         now: Date.now(),
-        hideWhileWriting: false,
+        hideWhileWriting: extra.hide ?? false,
         votesPerPerson: 3,
       })
     )
   ) as RoomSnapshot;
 }
+
+type SentIntent = { intent: { t: string; iid: string; cardId?: string; text?: string } };
 
 /** Fill in and confirm the consent dialog. */
 function consentAs(name: string) {
@@ -134,6 +151,7 @@ function consentAs(name: string) {
 beforeEach(() => {
   h.auth = VISITOR;
   h.realtime = true;
+  h.undo = null;
   vi.mocked(exportToMarkdown).mockClear();
   fakeRealtime.reset();
   useWorkspaceStore.setState({ retroBoards: [] });
@@ -290,8 +308,9 @@ describe("VisitorRetroRoom (participant)", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(retroFormats[0].name);
     expect(screen.getByText("Hosted by Hana. You are Pat.")).toBeInTheDocument();
     expect(screen.getByText("Card a")).toBeInTheDocument();
-    // Participants don't delete or group cards.
+    // Participants don't delete the host's cards, or group any.
     expect(screen.queryByRole("button", { name: "Delete card" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete my card" })).toBeNull();
     expect(screen.queryByRole("combobox", { name: /group with/i })).toBeNull();
 
     const input = screen.getByRole("textbox", { name: "New card for Start" });
@@ -336,6 +355,119 @@ describe("VisitorRetroRoom (participant)", () => {
     expect(screen.getByRole("button", { name: "Saved to Past retros" })).toBeDisabled();
   });
 
+  it("hides everyone else's cards while people write, and deletes my own with Undo", () => {
+    render(<VisitorRetroRoom code={CODE} identity={identity} onLeave={() => {}} />);
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    act(() => ch.deliver("retro:state", hostSnapshot(makeBoard(), 1, { hide: true })));
+
+    // The host's cards are a count, not text.
+    expect(screen.queryByText("Card a")).toBeNull();
+    expect(screen.getByText(/You see only yours/)).toBeInTheDocument();
+    expect(screen.getAllByText("1 card from others, hidden until Vote")).toHaveLength(2);
+    expect(screen.getByText("2 cards")).toBeInTheDocument();
+
+    const input = screen.getByRole("textbox", { name: "New card for Start" });
+    fireEvent.change(input, { target: { value: "My own idea" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // My card shows at once, from this tab's memory, with Delete my card.
+    expect(screen.getByText("My own idea")).toBeInTheDocument();
+    const [sent] = ch.sent("retro:intent") as SentIntent[];
+    const id = sent.intent.iid;
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete my card" }));
+    expect(screen.queryByText("My own idea")).toBeNull();
+    expect((ch.sent("retro:intent") as SentIntent[]).at(-1)!.intent).toMatchObject({
+      t: "card:delete",
+      cardId: id,
+    });
+    expect(h.undo?.label).toBe("Deleted “My own idea”");
+    // Undo adds it again, as a new card.
+    act(() => h.undo!.revert());
+    const readded = (ch.sent("retro:intent") as SentIntent[]).at(-1)!.intent;
+    expect(readded).toMatchObject({ t: "card:add", text: "My own idea" });
+    expect(readded.iid).not.toBe(id);
+    expect(screen.getByText("My own idea")).toBeInTheDocument();
+
+    // Vote: every card's text arrives.
+    act(() =>
+      ch.deliver("retro:state", hostSnapshot(makeBoard({ phase: "vote" }), 2, { hide: true }))
+    );
+    expect(screen.getByText("Card a")).toBeInTheDocument();
+    expect(screen.queryByText(/hidden until Vote/)).toBeNull();
+  });
+
+  it("takes my vote back", () => {
+    render(<VisitorRetroRoom code={CODE} identity={identity} onLeave={() => {}} />);
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    act(() => ch.deliver("retro:state", hostSnapshot(makeBoard({ phase: "vote" }))));
+    expect(screen.queryByRole("button", { name: "Take my vote back" })).toBeNull();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /vote for this card/i })[0]);
+    expect(screen.getByText("2 votes left")).toBeInTheDocument();
+    const back = screen.getByRole("button", { name: "Take my vote back" });
+    fireEvent.click(back);
+    expect((ch.sent("retro:intent") as SentIntent[]).at(-1)!.intent).toMatchObject({
+      t: "vote:undo",
+      cardId: "a",
+    });
+    expect(screen.getByText("3 votes left")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Take my vote back" })).toBeNull();
+  });
+
+  it("tells me to add my cards again when the host leaves while they are hidden", () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
+    });
+    try {
+      const other: FakeMember = {
+        id: "other_0000000000",
+        name: "Olu",
+        joinedAt: "2026-10-19T08:59:00Z", // earlier than me: Olu takes over
+      };
+      render(<VisitorRetroRoom code={CODE} identity={identity} onLeave={() => {}} />);
+      const ch = fakeRealtime.last();
+      act(() => {
+        ch.connect();
+        ch.setPresence([HOST, other, ME]);
+      });
+      act(() => ch.deliver("retro:state", hostSnapshot(makeBoard(), 1, { hide: true })));
+      const input = screen.getByRole("textbox", { name: "New card for Stop" });
+      fireEvent.change(input, { target: { value: "Fewer meetings" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      act(() => ch.setPresence([other, ME]));
+      act(() => vi.advanceTimersByTime(10_000));
+      act(() =>
+        ch.deliver(
+          "retro:state",
+          hostSnapshot(makeBoard({ cards: [] }), 2, { hide: true, by: other })
+        )
+      );
+      expect(
+        screen.getByText("The host left. Cards written so far were not shared; add yours again.")
+      ).toBeInTheDocument();
+      const list = screen.getByRole("list", { name: "Your cards from before" });
+      expect(within(list).getByText("Fewer meetings")).toBeInTheDocument();
+      expect(within(list).getByText("Stop")).toBeInTheDocument();
+      const before = ch.sent("retro:intent").length;
+      fireEvent.click(within(list).getByRole("button", { name: "Add “Fewer meetings” again" }));
+      expect(ch.sent("retro:intent")).toHaveLength(before + 1);
+      expect(screen.queryByRole("list", { name: "Your cards from before" })).toBeNull();
+      // Back on my board, as my own card.
+      expect(screen.getByRole("button", { name: "Delete my card" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("hands the host controls to the member elected after the host leaves", () => {
     vi.useFakeTimers({
       toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
@@ -360,6 +492,8 @@ describe("VisitorRetroRoom (participant)", () => {
       expect(screen.getByText("The host left, so you are hosting this room now.")).toBeVisible();
       expect(screen.getByRole("button", { name: "End room" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Remove Olu from the room" })).toBeInTheDocument();
+      // The host's setting comes with it, as the old host had it.
+      expect(screen.getByRole("switch", { name: "Hide cards while writing" })).not.toBeChecked();
 
       fireEvent.click(screen.getByRole("button", { name: /next phase/i }));
       act(() => vi.advanceTimersByTime(600));

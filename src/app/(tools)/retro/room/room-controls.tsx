@@ -3,7 +3,8 @@
 /**
  * Small pieces shared by the host's live strip (on the Board) and the
  * participant view: the member list with Remove, the idle prompt, the
- * read-only phase steps and the countdown readout.
+ * host's "Hide cards while writing" switch, the read-only phase steps and
+ * the countdown readout.
  *
  * The member list and the idle prompt live in `components/collab` (every
  * visitor room uses them) and are re-exported here, the prompt with the
@@ -13,12 +14,14 @@
  * control and bidi characters, and render as React text only.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Timer } from "lucide-react";
 import {
   IdlePromptDialog as SharedIdlePromptDialog,
   type IdlePromptDialogProps,
 } from "@/components/collab/room-controls";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { PHASES, type BoardPhase } from "../types";
 import { formatTimer } from "../helpers";
@@ -29,6 +32,41 @@ export { RoomMemberList, type RoomMemberListProps } from "@/components/collab/ro
 /** The shared idle prompt: ending the room keeps the host's board. */
 export function IdlePromptDialog(props: Omit<IdlePromptDialogProps, "note">) {
   return <SharedIdlePromptDialog {...props} note="Your board stays here either way." />;
+}
+
+/**
+ * The host's "Hide cards while writing" switch. On (the default), each
+ * person sees only their own cards until the host moves to Vote, and the
+ * host's screen hides the others' cards too.
+ */
+export function HideCardsSetting({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  const id = useId();
+  const hintId = useId();
+  return (
+    <div className="flex items-start gap-3">
+      <Switch
+        id={id}
+        checked={checked}
+        onCheckedChange={onChange}
+        aria-describedby={hintId}
+        className="mt-0.5"
+      />
+      <div className="min-w-0 space-y-0.5">
+        <Label htmlFor={id} className="text-sm text-text">
+          Hide cards while writing
+        </Label>
+        <p id={hintId} className="text-xs text-sub">
+          Until you move to Vote, each person sees only their own cards. This screen hides them too.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 /** Write → Vote → Discuss → Actions, read-only. */
