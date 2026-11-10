@@ -690,7 +690,12 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       const undone = undoingRef.current.filter((v) => ids.has(v.cardId));
       undoingRef.current = [];
       while (votes.length < confirmed && undone.length > 0) votes = [...votes, undone.pop()!];
-      if (votes.length > confirmed) votes = votes.slice(0, confirmed);
+      // Fewer than this tab remembers: votes that never landed. A count at the
+      // budget may be capped (the host lowered Votes each after they were
+      // cast), so the votes on the cards stay this tab's to take back.
+      if (votes.length > confirmed && confirmed < snap.votesPerPerson) {
+        votes = votes.slice(0, confirmed);
+      }
       if (votes.length !== mine.length || votes.some((v, i) => v !== mine[i])) setMyVotes(votes);
     },
     [selfId, setDeleting, setMyVotes, setOwnCards]
