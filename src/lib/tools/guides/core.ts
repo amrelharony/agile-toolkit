@@ -24,7 +24,7 @@ export const CORE_GUIDES: ToolGuide[] = [
       'A fact with no data says what\'s missing (for example "No mood check-ins this sprint"); follow its link to fill it in.',
       "Fewer, owned actions beat a long list nobody follows up.",
       "Example cards can't be sent to other tools, and Clear example removes only them.",
-      "Past retros keep the latest 20. The New Retro confirmation names any that will drop off.",
+      "Past retros keep the latest 52, two years of two-week sprints. The New Retro confirmation names any that will drop off.",
     ],
     timebox: "45 minutes for a one-week sprint, up to 90 for a month",
   },
