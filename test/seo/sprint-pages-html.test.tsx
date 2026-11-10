@@ -53,9 +53,9 @@ describe.each(PAGES)("the first HTML of /%s", (toolId, title, about, page) => {
     ).toBeTruthy();
   });
 
-  it("keeps that sentence one plain sentence", () => {
+  it("keeps that sentence one plain, short sentence", () => {
     expect(about).toMatch(/^This page [^.!?—–]+\.$/);
-    expect(about.length).toBeLessThanOrEqual(200);
+    expect(about.length).toBeLessThanOrEqual(160);
   });
 
   it("also has the page's title and its guide", async () => {

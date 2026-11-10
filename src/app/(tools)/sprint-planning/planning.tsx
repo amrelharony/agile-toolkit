@@ -35,7 +35,7 @@ const noLog = () => {};
  * all a search engine or an assistant reads, said only "Loading sprints…".
  */
 export const PLANNING_ABOUT =
-  "This page plans a sprint from top to bottom: the team's capacity and recent velocity, the sprint goal, the stories to pull in and size, then the commitment, all saved in this browser.";
+  "This page plans a sprint from top to bottom: the team's capacity and recent velocity, the sprint goal, the stories to pull in and size, then the commitment.";
 
 /**
  * Sprint Planning: one page, top to bottom — the sprint, the team's

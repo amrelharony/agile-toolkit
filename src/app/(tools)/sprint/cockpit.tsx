@@ -69,7 +69,7 @@ const COMPACT_TILES: readonly TileId[] = ["committed", "done", "remaining", "gap
  * search engine or an assistant reads, said only "Loading sprints…".
  */
 export const COCKPIT_ABOUT =
-  "This page shows the sprint your team is running: how it stands today, the next ceremony, the burndown and what is blocking it, read from the sprints saved in this browser.";
+  "This page shows the sprint your team is running: where it stands today, the next ceremony, the burndown and what is blocking it.";
 
 const slug = (s: string) =>
   s
