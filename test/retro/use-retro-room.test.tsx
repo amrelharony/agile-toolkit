@@ -24,7 +24,11 @@ vi.mock("@/lib/realtime/supabase-client", async () => {
 vi.mock("@/lib/sonification/emit", () => ({ emit: () => {}, emitRtEvent: () => {} }));
 vi.mock("@/lib/utils/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-import { useRetroRoom, type UseRetroRoomOptions } from "@/app/(tools)/retro/room/use-retro-room";
+import {
+  SETTLE_MS,
+  useRetroRoom,
+  type UseRetroRoomOptions,
+} from "@/app/(tools)/retro/room/use-retro-room";
 
 const CODE = "ABCDEFGHJKMN";
 const NOW = Date.parse("2026-10-19T10:00:00.000Z");
@@ -60,11 +64,16 @@ function board(overrides: Partial<BoardState> = {}): BoardState {
   };
 }
 
-/** A snapshot as `by` would send it. */
+/** A snapshot as `by` would send it (cards shown in Write unless `hide`). */
 function snap(
   by: string,
   b: BoardState = board(),
-  extra: Partial<{ seq: number; votesUsed: Record<string, number>; members: FakeMember[] }> = {}
+  extra: Partial<{
+    seq: number;
+    votesUsed: Record<string, number>;
+    members: FakeMember[];
+    hide: boolean;
+  }> = {}
 ): RoomSnapshot {
   return JSON.parse(
     JSON.stringify(
@@ -76,7 +85,7 @@ function snap(
         votesUsed: extra.votesUsed ?? {},
         timer: { running: b.timerRunning, remaining: b.timerSeconds },
         now: Date.now(),
-        hideWhileWriting: false,
+        hideWhileWriting: extra.hide ?? false,
         votesPerPerson: 3,
       })
     )
@@ -86,6 +95,12 @@ function snap(
 function addIntent(by: string, text: string, iid: string, columnKey = "start") {
   return { v: 2, by, intent: { t: "card:add", iid, columnKey, text } };
 }
+
+function intent(by: string, t: "card:delete" | "vote" | "vote:undo", cardId: string, iid: string) {
+  return { v: 2, by, intent: { t, iid, cardId } };
+}
+
+type Intent = { v: number; by: string; intent: { t: string; iid: string; cardId?: string } };
 
 function participant(identity: FakeMember = ME) {
   const opts: UseRetroRoomOptions = {
@@ -272,6 +287,147 @@ describe("useRetroRoom: participant state stays in memory", () => {
   });
 });
 
+describe("useRetroRoom: a participant's own cards and votes", () => {
+  function joined(first: RoomSnapshot) {
+    const view = participant();
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME, OTHER]);
+    });
+    act(() => ch.deliver("retro:state", first));
+    return { ...view, ch };
+  }
+
+  it("shows its own cards while the host hides the rest, and deletes them", () => {
+    const { result, ch } = joined(snap(HOST.id, board(), { hide: true }));
+    expect(result.current.board?.cards).toEqual([]);
+    expect(result.current.shownCards).toEqual([]);
+    expect(result.current.hiddenCounts).toEqual({ start: 1, stop: 1, continue: 0 });
+
+    let res = "";
+    act(() => {
+      res = result.current.addCard("start", "My idea");
+    });
+    expect(res).toBe("sent");
+    const id = (ch.sent("retro:intent") as Intent[])[0].intent.iid;
+    // On screen at once, from this tab's memory.
+    expect(result.current.shownCards?.map((c) => [c.id, c.text])).toEqual([[id, "My idea"]]);
+    expect(result.current.ownIds.has(id)).toBe(true);
+
+    // The host counts it: two in Start now, one of them this tab's; the other stays a count.
+    const withMine = board({ cards: [...board().cards, card(id, { text: "My idea" })] });
+    act(() => ch.deliver("retro:state", snap(HOST.id, withMine, { hide: true, seq: 2 })));
+    expect(result.current.shownCards?.map((c) => c.id)).toEqual([id]);
+    expect(result.current.hiddenCounts).toEqual({ start: 1, stop: 1, continue: 0 });
+
+    let ok = false;
+    act(() => {
+      ok = result.current.deleteCard(id);
+    });
+    expect(ok).toBe(true);
+    expect((ch.sent("retro:intent") as Intent[]).at(-1)).toEqual({
+      v: 2,
+      by: ME.id,
+      intent: { t: "card:delete", iid: expect.any(String), cardId: id },
+    });
+    expect(result.current.shownCards).toEqual([]);
+    // Someone else's card isn't this tab's to delete.
+    act(() => {
+      ok = result.current.deleteCard("c1");
+    });
+    expect(ok).toBe(false);
+
+    // The phase changes: everyone's text arrives.
+    act(() =>
+      ch.deliver("retro:state", snap(HOST.id, board({ phase: "vote" }), { hide: true, seq: 3 }))
+    );
+    expect(result.current.hiddenCounts).toBeNull();
+    expect(result.current.shownCards?.map((c) => c.text)).toEqual(["Card c1", "Card c2"]);
+  });
+
+  it("marks its own cards on a board the host doesn't hide", () => {
+    const { result, ch } = joined(snap(HOST.id));
+    act(() => {
+      result.current.addCard("stop", "Visible to all");
+    });
+    const id = (ch.sent("retro:intent") as Intent[])[0].intent.iid;
+    // Nothing changes on screen until the host's snapshot says so.
+    expect(result.current.shownCards?.map((c) => c.id)).toEqual(["c1", "c2"]);
+    const withMine = board({ cards: [...board().cards, card(id, { columnKey: "stop" })] });
+    act(() => ch.deliver("retro:state", snap(HOST.id, withMine, { seq: 2 })));
+    expect(result.current.shownCards?.map((c) => c.id)).toEqual(["c1", "c2", id]);
+    expect(Array.from(result.current.ownIds)).toEqual([id]);
+  });
+
+  it("drops a card the host never counted, once its request has had time to land", () => {
+    // Nothing in Start on the host's board.
+    const noStart = board({ cards: [card("c2", { columnKey: "stop" })] });
+    const { result, ch } = joined(snap(HOST.id, noStart, { hide: true }));
+    act(() => {
+      result.current.addCard("start", "Lost on the way");
+    });
+    // A snapshot sent before the host saw it changes nothing yet.
+    act(() => ch.deliver("retro:state", snap(HOST.id, noStart, { hide: true, seq: 2 })));
+    expect(result.current.shownCards).toHaveLength(1);
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    // Still none in Start: the card never landed.
+    act(() => ch.deliver("retro:state", snap(HOST.id, noStart, { hide: true, seq: 3 })));
+    expect(result.current.shownCards).toEqual([]);
+    expect(result.current.ownIds.size).toBe(0);
+  });
+
+  it("takes its own vote back, and forgets a vote the host never counted", () => {
+    const { result, ch } = joined(snap(HOST.id, board({ phase: "vote" })));
+    act(() => {
+      result.current.vote("c1");
+    });
+    expect(result.current.myVotes).toEqual({ c1: 1 });
+    expect(result.current.votesLeft).toBe(2);
+
+    let ok = true;
+    act(() => {
+      ok = result.current.unvote("c2"); // no vote there
+    });
+    expect(ok).toBe(false);
+    act(() => {
+      ok = result.current.unvote("c1");
+    });
+    expect(ok).toBe(true);
+    expect((ch.sent("retro:intent") as Intent[]).at(-1)).toEqual({
+      v: 2,
+      by: ME.id,
+      intent: { t: "vote:undo", iid: expect.any(String), cardId: "c1" },
+    });
+    expect(result.current.myVotes).toEqual({});
+    expect(result.current.votesLeft).toBe(3);
+
+    act(() => {
+      result.current.vote("c2");
+    });
+    expect(result.current.myVotes).toEqual({ c2: 1 });
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    act(() =>
+      ch.deliver("retro:state", snap(HOST.id, board({ phase: "vote" }), { seq: 2, votesUsed: {} }))
+    );
+    expect(result.current.myVotes).toEqual({});
+    expect(result.current.votesLeft).toBe(3);
+  });
+
+  it("starts again when the host clears the board", () => {
+    const { result, ch } = joined(snap(HOST.id, board(), { hide: true }));
+    act(() => {
+      result.current.addCard("start", "Before the clear");
+    });
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    act(() =>
+      ch.deliver("retro:state", snap(HOST.id, board({ cards: [] }), { hide: true, seq: 2 }))
+    );
+    expect(result.current.shownCards).toEqual([]);
+    expect(result.current.hiddenCounts).toEqual({ start: 0, stop: 0, continue: 0 });
+  });
+});
+
 describe("useRetroRoom: the host", () => {
   it("never applies inbound state", () => {
     const { result, onHostUpdate } = host();
@@ -289,7 +445,7 @@ describe("useRetroRoom: the host", () => {
     expect(result.current.room.status).toBe("live");
   });
 
-  it("applies admitted members' intents to its board and shares the result, throttled", () => {
+  it("applies admitted members' intents to its board and shares a count while cards are hidden", () => {
     const { result } = host();
     const ch = fakeRealtime.last();
     act(() => {
@@ -312,13 +468,100 @@ describe("useRetroRoom: the host", () => {
       "One",
       "Two",
     ]);
+    // The cards keep their request's id: the sender's handle on them.
+    expect(result.current.board.cards.map((c) => c.id)).toEqual(["c1", "c2", "i1", "i2"]);
     act(() => vi.advanceTimersByTime(1));
     expect(states().length).toBe(before + 1);
     const latest = states().at(-1)!;
     expect(latest.by).toBe(HOST.id);
     expect(latest.hostId).toBe(HOST.id);
-    expect(latest.cards.map((c) => c.text)).toContain("Two");
     expect(latest.members.map((m) => m.id)).toEqual([HOST.id, ME.id]);
+    // "Hide cards while writing" is on by default: counts, no text, no author.
+    expect(latest.hideWhileWriting).toBe(true);
+    expect(latest.cards).toEqual([]);
+    expect(latest.counts).toEqual({ start: 3, stop: 1, continue: 0 });
+    const json = JSON.stringify(latest);
+    for (const secret of ["One", "Two", "Card c1"]) expect(json).not.toContain(secret);
+    // The host's own screen hides the others' cards too.
+    expect(Array.from(result.current.room.hiddenIds ?? []).sort()).toEqual(["i1", "i2"]);
+    expect(result.current.room.shownCards?.map((c) => c.id)).toEqual(["c1", "c2"]);
+    expect(result.current.room.hiddenCounts).toEqual({ start: 2 });
+
+    // The phase changes: every card's text goes out, and nothing is hidden.
+    act(() => result.current.setBoard((b) => ({ ...b, phase: "vote" })));
+    act(() => vi.advanceTimersByTime(600));
+    const revealed = states().at(-1)!;
+    expect(revealed.cards.map((c) => c.text)).toEqual(["Card c1", "Card c2", "One", "Two"]);
+    expect(JSON.stringify(revealed.cards)).not.toContain(ME.id);
+    expect(result.current.room.hiddenIds).toBeNull();
+    expect(result.current.room.hiddenCounts).toBeNull();
+  });
+
+  it("shares the cards while people write once the host switches hiding off", () => {
+    const { result } = host();
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    act(() => ch.deliver("retro:intent", addIntent(ME.id, "Seen by all", "s1")));
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(states().at(-1)!.cards).toEqual([]);
+
+    act(() => result.current.room.setHideWhileWriting(false));
+    expect(result.current.room.hideWhileWriting).toBe(false);
+    act(() => vi.advanceTimersByTime(600));
+    const latest = states().at(-1)!;
+    expect(latest.hideWhileWriting).toBe(false);
+    expect(latest.cards.map((c) => c.text)).toContain("Seen by all");
+    expect(latest.counts).toEqual({});
+    expect(result.current.room.hiddenIds).toBeNull();
+  });
+
+  it("deletes a card only for the member who added it, in Write", () => {
+    const { result } = host();
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME, OTHER]);
+    });
+    act(() => {
+      ch.deliver("retro:intent", addIntent(ME.id, "Mine", "m1"));
+      ch.deliver("retro:intent", addIntent(OTHER.id, "Olu's", "o1"));
+    });
+    act(() => {
+      ch.deliver("retro:intent", intent(OTHER.id, "card:delete", "m1", "d1")); // not Olu's
+      ch.deliver("retro:intent", intent(ME.id, "card:delete", "c1", "d2")); // the host's own
+    });
+    expect(result.current.board.cards.map((c) => c.id)).toEqual(["c1", "c2", "m1", "o1"]);
+    act(() => ch.deliver("retro:intent", intent(ME.id, "card:delete", "m1", "d3")));
+    expect(result.current.board.cards.map((c) => c.id)).toEqual(["c1", "c2", "o1"]);
+    expect(Array.from(result.current.room.hiddenIds ?? [])).toEqual(["o1"]);
+    // Its id can't come back as a new card.
+    act(() => ch.deliver("retro:intent", addIntent(OTHER.id, "Taking its id", "m1")));
+    expect(result.current.board.cards.map((c) => c.id)).toEqual(["c1", "c2", "o1"]);
+  });
+
+  it("takes a vote back only for the member who cast it", () => {
+    const { result } = host(board({ phase: "vote" }));
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME, OTHER]);
+    });
+    act(() => {
+      ch.deliver("retro:intent", intent(ME.id, "vote", "c1", "v1"));
+      ch.deliver("retro:intent", intent(ME.id, "vote", "c1", "v2"));
+      ch.deliver("retro:intent", intent(OTHER.id, "vote:undo", "c1", "u1")); // Olu never voted
+    });
+    expect(result.current.board.cards[0].votes).toBe(2);
+    act(() => ch.deliver("retro:intent", intent(ME.id, "vote:undo", "c1", "u2")));
+    expect(result.current.board.cards[0].votes).toBe(1);
+    act(() => vi.advanceTimersByTime(1_000));
+    const latest = states().at(-1)!;
+    expect(latest.votesUsed).toEqual({ [ME.id]: 1 });
+    // Who voted where never travels.
+    expect(JSON.stringify(latest.cards)).not.toContain(ME.id);
   });
 
   it("drops a removed member's intents and tells them to leave", () => {
@@ -454,6 +697,44 @@ describe("useRetroRoom: host election", () => {
     expect(result.current.board?.phase).toBe("vote");
   });
 
+  it("a new host from a revealed board keeps its own votes, and knows nobody else's", () => {
+    const voted = board({
+      phase: "vote",
+      cards: [card("c1", { votes: 1 }), card("c2", { columnKey: "stop", votes: 1 })],
+    });
+    const view = participant(ME);
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME, OTHER]);
+    });
+    act(() => ch.deliver("retro:state", snap(HOST.id, board({ phase: "vote" }))));
+    act(() => {
+      view.result.current.vote("c1");
+    });
+    act(() =>
+      ch.deliver(
+        "retro:state",
+        snap(HOST.id, voted, { seq: 2, votesUsed: { [ME.id]: 1, [OTHER.id]: 1 } })
+      )
+    );
+    act(() => ch.setPresence([ME, OTHER]));
+    act(() => vi.advanceTimersByTime(HOST_MIGRATION_DELAY_MS));
+    expect(view.result.current.promoted).toBe(true);
+    expect(view.result.current.myVotes).toEqual({ c1: 1 });
+
+    // Olu's vote from before is the old host's secret: it can't be taken back now.
+    act(() => ch.deliver("retro:intent", intent(OTHER.id, "vote:undo", "c2", "late1")));
+    expect(view.result.current.board?.cards.map((c) => c.votes)).toEqual([1, 1]);
+    let ok = false;
+    act(() => {
+      ok = view.result.current.unvote("c1");
+    });
+    expect(ok).toBe(true);
+    expect(view.result.current.board?.cards.map((c) => c.votes)).toEqual([0, 1]);
+    expect(view.result.current.votesLeft).toBe(3);
+  });
+
   it("accepts the elected member's snapshot before its own timer fires", () => {
     const { result, ch } = joinedParticipant(OTHER);
     act(() => ch.setPresence([ME, OTHER]));
@@ -462,5 +743,92 @@ describe("useRetroRoom: host election", () => {
     // A member who wouldn't win the election is still ignored.
     act(() => ch.deliver("retro:state", snap(SPOOF.id, board({ phase: "actions" }), { seq: 9 })));
     expect(result.current.board?.phase).toBe("discuss");
+  });
+});
+
+describe("useRetroRoom: the host leaves while cards are hidden", () => {
+  function hiddenRoom(identity: FakeMember) {
+    const view = participant(identity);
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME, OTHER]);
+    });
+    act(() => ch.deliver("retro:state", snap(HOST.id, board(), { hide: true, seq: 7 })));
+    return { ...view, ch };
+  }
+
+  it("the new host stays in Write and starts again from its own cards", () => {
+    const { result, ch } = hiddenRoom(ME);
+    act(() => {
+      result.current.addCard("stop", "Kept by me");
+    });
+    const mine = (ch.sent("retro:intent") as Intent[])[0].intent.iid;
+    act(() => ch.setPresence([ME, OTHER]));
+    act(() => vi.advanceTimersByTime(HOST_MIGRATION_DELAY_MS));
+    expect(result.current.promoted).toBe(true);
+    expect(result.current.cardsLost).toBe(true);
+    expect(result.current.board?.phase).toBe("write");
+    // The old host's cards (c1, c2) were never shared: they're gone.
+    expect(result.current.board?.cards.map((c) => [c.id, c.text])).toEqual([[mine, "Kept by me"]]);
+    expect(result.current.ownIds.has(mine)).toBe(true);
+    expect(result.current.hideWhileWriting).toBe(true);
+
+    act(() => vi.advanceTimersByTime(600));
+    expect(states().at(-1)!).toMatchObject({
+      by: ME.id,
+      phase: "write",
+      hideWhileWriting: true,
+      cards: [],
+      counts: { start: 0, stop: 1, continue: 0 },
+    });
+
+    // Olu adds again; the new host's screen hides it like everyone's.
+    act(() => ch.deliver("retro:intent", addIntent(OTHER.id, "Again", "o2")));
+    expect(result.current.shownCards?.map((c) => c.id)).toEqual([mine]);
+    expect(result.current.hiddenCounts).toEqual({ start: 1 });
+
+    let ok = false;
+    act(() => {
+      ok = result.current.deleteCard(mine);
+    });
+    expect(ok).toBe(true);
+    expect(result.current.board?.cards.map((c) => c.id)).toEqual(["o2"]);
+
+    // Moving on to Vote ends the notice.
+    act(() => result.current.setPhase("vote"));
+    expect(result.current.cardsLost).toBe(false);
+    expect(useWorkspaceStore.getState().retroBoards).toEqual([]);
+  });
+
+  it("everyone else is told to add theirs again, and can", () => {
+    const { result, ch } = hiddenRoom(OTHER);
+    act(() => {
+      result.current.addCard("start", "Olu's idea");
+    });
+    act(() => ch.setPresence([ME, OTHER]));
+    act(() => vi.advanceTimersByTime(HOST_MIGRATION_DELAY_MS));
+    expect(result.current.hostId).toBe(ME.id);
+    const fresh = board({ cards: [card("p1", { columnKey: "stop" })] });
+    act(() => ch.deliver("retro:state", snap(ME.id, fresh, { hide: true, seq: 8 })));
+    expect(result.current.cardsLost).toBe(true);
+    expect(result.current.shownCards).toEqual([]);
+    expect(result.current.ownIds.size).toBe(0);
+    expect(result.current.unsharedCards.map((c) => c.text)).toEqual(["Olu's idea"]);
+
+    const before = ch.sent("retro:intent").length;
+    let res = "";
+    act(() => {
+      res = result.current.addAgain(result.current.unsharedCards[0].id);
+    });
+    expect(res).toBe("sent");
+    expect(ch.sent("retro:intent")).toHaveLength(before + 1);
+    expect(result.current.unsharedCards).toEqual([]);
+    expect(result.current.shownCards?.map((c) => c.text)).toEqual(["Olu's idea"]);
+
+    act(() =>
+      ch.deliver("retro:state", snap(ME.id, board({ phase: "vote" }), { hide: true, seq: 9 }))
+    );
+    expect(result.current.cardsLost).toBe(false);
   });
 });

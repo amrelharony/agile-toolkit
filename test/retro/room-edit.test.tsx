@@ -13,7 +13,7 @@ import { fakeRealtime, type FakeMember } from "./fake-realtime";
  * Editing a card in a Retro visitor room. The starting host edits through
  * its own Board; a member promoted to host edits its in-memory board, and
  * the next snapshot carries the change (no new message). A participant's
- * edit does nothing and sends nothing.
+ * edit does nothing and sends nothing; it may only delete its own card.
  */
 
 vi.mock("@/lib/auth/auth-provider", () => ({ useAuthOptional: () => null }));
@@ -115,6 +115,29 @@ describe("useRetroRoom: editing a card", () => {
     expect(ok).toBe(false);
     expect(result.current.board?.cards[0].text).toBe("Card c1");
     expect(ch.sent("retro:intent")).toEqual([]);
+    expect(sentStates(ch)).toEqual([]);
+  });
+
+  it("a participant can't edit even its own card, but may delete it in Write", () => {
+    const { result, ch } = joinedParticipant();
+    act(() => {
+      result.current.addCard("start", "Typo here");
+    });
+    const [added] = ch.sent("retro:intent") as { intent: { iid: string } }[];
+    const id = added.intent.iid;
+    let ok = true;
+    act(() => {
+      ok = result.current.editCard(id, "Fixed");
+    });
+    expect(ok).toBe(false);
+    expect(ch.sent("retro:intent")).toHaveLength(1);
+    act(() => {
+      ok = result.current.deleteCard(id);
+    });
+    expect(ok).toBe(true);
+    expect(ch.sent("retro:intent").at(-1)).toMatchObject({
+      intent: { t: "card:delete", cardId: id },
+    });
     expect(sentStates(ch)).toEqual([]);
   });
 
