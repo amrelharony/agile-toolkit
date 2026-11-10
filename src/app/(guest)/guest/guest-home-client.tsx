@@ -105,27 +105,34 @@ export function GuestHomeClient({ profile }: Props) {
           </Button>
         </header>
 
+        {/* The tinted boxes below sit straight on the page paper, which is
+            grained in Comic and Night; a flat bg-bg under each keeps the grain
+            out from behind their words and keeps the tint as it was. */}
         {error && (
-          <div
-            role="alert"
-            className="border border-danger/40 bg-danger/10 rounded px-3 py-2 text-sm text-danger"
-          >
-            {error}
+          <div className="rounded bg-bg">
+            <div
+              role="alert"
+              className="border border-danger/40 bg-danger/10 rounded px-3 py-2 text-sm text-danger"
+            >
+              {error}
+            </div>
           </div>
         )}
 
         {loading ? (
           <div className="text-sub text-sm">Loading sessions…</div>
         ) : sessions.length === 0 ? (
-          <section className="border border-dashed border-border rounded-lg p-8 text-center bg-surface/40">
-            {/* Waiting on the owner: the hourglass, as on History. */}
-            <InkArt drawing={hourglassArt} className="mx-auto mb-3 h-14 w-14" />
-            <h2 className="text-sm font-semibold text-text mb-1">No sessions yet</h2>
-            <p className="text-xs text-sub max-w-sm mx-auto">
-              When the owner shares a tool session with your squad, it&apos;ll appear here. Leave
-              this tab open or come back later.
-            </p>
-          </section>
+          <div className="rounded-lg bg-bg">
+            <section className="border border-dashed border-border rounded-lg p-8 text-center bg-surface/40">
+              {/* Waiting on the owner: the hourglass, as on History. */}
+              <InkArt drawing={hourglassArt} className="mx-auto mb-3 h-14 w-14" />
+              <h2 className="text-sm font-semibold text-text mb-1">No sessions yet</h2>
+              <p className="text-xs text-sub max-w-sm mx-auto">
+                When the owner shares a tool session with your squad, it&apos;ll appear here. Leave
+                this tab open or come back later.
+              </p>
+            </section>
+          </div>
         ) : (
           <ul className="space-y-2">
             {sessions.map((s) => (
