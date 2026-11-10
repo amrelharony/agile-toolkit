@@ -43,13 +43,15 @@ import {
 import type { RetroColumn } from "@/lib/constants/retro-formats";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
+import { RETRO_ACTION_ROUTES } from "@/lib/retro/actions";
 import { RETRO_CURRENT_ID } from "@/lib/retro/board";
 import type { BoardPhase, RetroCard } from "../types";
 import { shortText } from "../helpers";
 import { OwnerField } from "./owner-field";
 
-/** Where a retro action can be sent. */
-export const RETRO_ACTION_ROUTES = ["impediment", "kanban"] as const;
+// Where a retro action can be sent (lib/retro/actions): an impediment, a
+// Kanban card, or a story in the backlog for Sprint Planning.
+export { RETRO_ACTION_ROUTES };
 
 /**
  * Touch sizing for the card's small icon buttons (Edit, vote, Delete). On a

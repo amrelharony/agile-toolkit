@@ -201,6 +201,44 @@ describe("tool.retro_actions", () => {
     expect(r).toMatchObject({ done: 1, open: 1 });
     expect(r.followThrough).toEqual([expect.objectContaining({ agreed: 2, done: 1, rate: 0.5 })]);
   });
+
+  it("list counts an action done when the story it became is done, and open again once that story is deleted", async () => {
+    const action = {
+      id: "a1",
+      columnKey: "start",
+      text: "Pair on deploys",
+      votes: 0,
+      groupedWith: null,
+      isActionItem: true,
+      assignee: "",
+      discussing: false,
+      sentTo: [{ route: "backlog-story" as const, targetId: "st1", at: "2026-10-09" }],
+    };
+    useWorkspaceStore.setState({
+      retroBoards: [archived([action])],
+      stories: [{ id: "st1", title: "Pair on deploys", status: "in_progress", sprintId: "s1" }],
+    });
+    type Listing = {
+      done: number;
+      open: number;
+      actions: { id: string; done: boolean; closedByTarget: boolean }[];
+    };
+    const open = await call<Listing>("tool.retro_actions.list");
+    expect(open).toMatchObject({ done: 0, open: 1 });
+
+    useWorkspaceStore.setState({
+      stories: [{ id: "st1", title: "Pair on deploys", status: "done", sprintId: "s1" }],
+    });
+    const done = await call<Listing>("tool.retro_actions.list");
+    expect(done).toMatchObject({ done: 1, open: 0 });
+    expect(done.actions[0]).toMatchObject({ id: "a1", done: true, closedByTarget: true });
+
+    // The story is deleted: its link stops counting.
+    useWorkspaceStore.setState({ stories: [] });
+    const reopened = await call<Listing>("tool.retro_actions.list");
+    expect(reopened).toMatchObject({ done: 0, open: 1 });
+    expect(reopened.actions[0]).toMatchObject({ done: false, closedByTarget: false });
+  });
 });
 
 describe("tool.six_hats sessions", () => {

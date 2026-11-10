@@ -9,7 +9,7 @@ const oneLine = (text: string) => text.replace(/\s*[\r\n]+\s*/g, " ").trim();
  * The action list as a spreadsheet, for the Export menu's CSV option: one
  * row per action in the page's order, with the columns a tracker's import
  * asks for. An action with no owner or no due date has a blank cell, and
- * one finished through a linked impediment or Kanban card counts as done,
+ * one finished through a linked impediment, Kanban card or story counts as done,
  * as on the page.
  */
 export function actionsToCsv(actions: readonly RetroAction[]): {

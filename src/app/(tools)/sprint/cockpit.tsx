@@ -118,7 +118,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
             reviews,
             sprints,
             today,
-            // Done when the impediment or Kanban card an action was sent to is finished.
+            // Done when the impediment, Kanban card or story an action was sent to is finished.
             targetDone: (link) => getHandoffRoute(link.route).isDone?.(link.targetId) ?? false,
             // The burndown's ideal line and projection count the team's working days.
             calendar,
