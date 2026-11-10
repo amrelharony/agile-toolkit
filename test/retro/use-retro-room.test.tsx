@@ -5,6 +5,7 @@ import { retroFormats } from "@/lib/constants/retro-formats";
 import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
 import { HOST_MIGRATION_DELAY_MS } from "@/lib/realtime/host-election";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { toast } from "@/lib/utils/toast";
 import type { BoardState, RetroCard } from "@/app/(tools)/retro/types";
 import { MEMBER_CARD_CAP, lockOf, type RoomSnapshot } from "@/app/(tools)/retro/room/protocol";
 import { toRoomSnapshot } from "@/app/(tools)/retro/room/snapshot";
@@ -25,6 +26,7 @@ vi.mock("@/lib/sonification/emit", () => ({ emit: () => {}, emitRtEvent: () => {
 vi.mock("@/lib/utils/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import {
+  BOARD_TOO_BIG_TO_REVEAL,
   SETTLE_MS,
   useRetroRoom,
   type UseRetroRoomOptions,
@@ -822,6 +824,33 @@ describe("useRetroRoom: the host", () => {
         .at(-1)!
         .members.map((m) => m.id)
     ).toEqual([HOST.id]);
+  });
+
+  it("warns while cards are hidden when the board will be too big to share at Vote, and still shares the counts", () => {
+    vi.mocked(toast.error).mockClear();
+    const long = "w".repeat(VISITOR_LIMITS.maxTextChars);
+    const big = board({
+      cards: Array.from({ length: 190 }, (_, i) => card(`h${i}`, { text: long })),
+    });
+    const { result } = host(big);
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    act(() => vi.advanceTimersByTime(1_000));
+    // Told now, while there is time to shorten cards, not when Vote is refused.
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    expect(toast.error).toHaveBeenCalledWith(BOARD_TOO_BIG_TO_REVEAL);
+    // The counts still go out, so everyone stays in step meanwhile.
+    expect(states().at(-1)!.counts.start).toBe(190);
+
+    act(() => result.current.setBoard((b) => ({ ...b, cards: b.cards.slice(0, 50) })));
+    act(() => vi.advanceTimersByTime(600));
+    act(() => result.current.setBoard((b) => ({ ...b, phase: "vote" })));
+    act(() => vi.advanceTimersByTime(600));
+    expect(states().at(-1)!.cards).toHaveLength(50);
+    expect(toast.error).toHaveBeenCalledTimes(1);
   });
 
   it("doesn't broadcast the timer's tick, but does start and pause", () => {

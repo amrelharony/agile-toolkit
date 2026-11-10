@@ -18,7 +18,9 @@
  *  - never applies an inbound snapshot;
  *  - sends a snapshot at most every 500 ms when the board changes (a timer
  *    tick is not a change), when someone joins, and every 30 s as a
- *    keepalive;
+ *    keepalive. A board too big to share is not sent, and the host is told;
+ *    while cards are hidden it checks the snapshot Vote will send too, so
+ *    the warning comes while there is still time to shorten cards;
  *  - gives everyone their votes and card allowance back when its own change
  *    empties the board (Clear Board), never when members' deletes do: or
  *    one could delete its own cards and add 30 more, again and again;
@@ -107,6 +109,11 @@ import { hideCards, hiddenTotal } from "./hidden";
 
 /** How often the host checks whether the room has gone idle. */
 const IDLE_CHECK_MS = 30_000;
+
+/** The host's warning for a board too big to share live. */
+export const BOARD_TOO_BIG = `This board is too big to share live (${BOARD_CARD_CAP} cards at most). Shorten or remove some cards.`;
+/** The same while cards are hidden: the snapshot that reveals them would be refused. */
+export const BOARD_TOO_BIG_TO_REVEAL = `This board will be too big to share when you move to Vote (${BOARD_CARD_CAP} cards at most). Shorten or remove some cards first.`;
 
 /**
  * Once a participant's last request is this old, the host's snapshot has
@@ -544,7 +551,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       seen.add(m.id);
       members.push({ id: m.id, name: m.name });
     }
-    const snap = toRoomSnapshot(board, {
+    const meta = {
       by: selfId,
       seq: seqRef.current + 1,
       endsAt: endsAtRef.current,
@@ -554,21 +561,27 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       now,
       hideWhileWriting: hideRef.current,
       votesPerPerson: budget(),
-    });
+    };
+    const snap = toRoomSnapshot(board, meta);
     // Participants refuse anything bigger, so don't spend the quota sending it.
-    if (
-      snap.cards.length + sumCounts(snap.counts) > BOARD_CARD_CAP ||
-      !isWithinJsonSize(snap, VISITOR_LIMITS.maxPayloadChars)
-    ) {
+    const fits = (s: RoomSnapshot) =>
+      s.cards.length + sumCounts(s.counts) <= BOARD_CARD_CAP &&
+      isWithinJsonSize(s, VISITOR_LIMITS.maxPayloadChars);
+    const sendable = fits(snap);
+    // Hidden cards make a small snapshot whatever they hold: check the one Vote will send.
+    const revealable =
+      !sendable ||
+      !cardsHidden(snap) ||
+      fits(toRoomSnapshot(board, { ...meta, hideWhileWriting: false }));
+    if (!sendable || !revealable) {
       if (!sizeWarnedRef.current) {
         sizeWarnedRef.current = true;
-        toast.error(
-          `This board is too big to share live (${BOARD_CARD_CAP} cards at most). Shorten or remove some cards.`
-        );
+        toast.error(sendable ? BOARD_TOO_BIG_TO_REVEAL : BOARD_TOO_BIG);
       }
-      return;
+      if (!sendable) return;
+    } else {
+      sizeWarnedRef.current = false;
     }
-    sizeWarnedRef.current = false;
     seqRef.current = snap.seq;
     lastSentRef.current = now;
     r.broadcast(RETRO_ROOM_EVENTS.state, snap);
