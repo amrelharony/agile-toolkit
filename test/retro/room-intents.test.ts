@@ -486,6 +486,12 @@ describe("applyIntent: senders and duplicates", () => {
         by: ALICE,
         intent: { t: "card:add", iid: "__proto__", columnKey: "start", text: "x" },
       },
+      // Nor one the host's board would take for an example card (Clear example removes those).
+      {
+        v: V,
+        by: ALICE,
+        intent: { t: "card:add", iid: "example-1", columnKey: "start", text: "x" },
+      },
       // A card added through the room has an intent id for its id.
       { v: V, by: ALICE, intent: { t: "card:delete", iid: "a", cardId: "not an id" } },
       { v: V, by: ALICE, intent: { t: "card:delete", iid: "a" } },

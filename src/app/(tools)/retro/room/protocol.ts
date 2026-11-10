@@ -33,6 +33,7 @@
  */
 
 import { VISITOR_LIMITS, isVisitorMemberId } from "@/lib/realtime/visitor-rooms";
+import { isExampleId } from "@/lib/utils/example-id";
 import type { BoardPhase, RetroCard } from "../types";
 
 export const RETRO_ROOM_EVENTS = {
@@ -197,6 +198,8 @@ export function readIntentEnv(raw: unknown): IntentEnv | null {
   const iid = i.iid;
   switch (i.t) {
     case "card:add":
+      // Its id becomes the card's: never one the host's board reads as an example card's.
+      if (isExampleId(iid)) return null;
       if (!isShortStr(i.columnKey, MAX_KEY_CHARS)) return null;
       if (typeof i.text !== "string" || i.text.length > MAX_RAW_TEXT_CHARS) return null;
       return { v, by, intent: { t: "card:add", iid, columnKey: i.columnKey, text: i.text } };
