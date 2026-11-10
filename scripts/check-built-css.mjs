@@ -139,29 +139,46 @@ function vtReducedMotion(css) {
   );
 }
 
-/** A rule that sets the -webkit- mask image and then the plain one, to the same value. */
+/**
+ * The book's grain rule (intro-look.module.css .grain): the one rule that
+ * stores the tile as --look-grain. Found by that, not by its hashed class
+ * name, and never by a mask alone: Amr's mascot-fx sheet pairs its own masks,
+ * which would pass for the book's.
+ */
+function grainRules(css) {
+  return rules(css).filter((r) => r.body.split(";").some((d) => d.startsWith("--look-grain:url(")));
+}
+
+/** Each mask longhand the grain uses: the -webkit- name first, then the plain one, to the same value. */
+const GRAIN_MASKS = ["mask-image", "mask-size", "mask-repeat"];
+
 function maskPaired(css) {
-  return rules(css).some((r) => {
+  return grainRules(css).some((r) => {
     const decls = r.body.split(";");
-    const at = (name) => decls.findIndex((d) => d.startsWith(`${name}:`));
-    const prefixed = at("-webkit-mask-image");
-    const plain = at("mask-image");
+    const value = (name) => {
+      const i = decls.findIndex((d) => d.startsWith(`${name}:`));
+      return { i, v: i === -1 ? null : decls[i].slice(name.length + 1) };
+    };
     return (
-      prefixed !== -1 &&
-      plain > prefixed &&
-      decls[plain].slice("mask-image:".length) ===
-        decls[prefixed].slice("-webkit-mask-image:".length)
+      value("mask-image").v === "var(--look-grain)" &&
+      GRAIN_MASKS.every((name) => {
+        const [prefixed, plain] = [value(`-webkit-${name}`), value(name)];
+        return prefixed.i !== -1 && plain.i > prefixed.i && plain.v === prefixed.v;
+      })
     );
   });
 }
 
-/** The book's grain is shown only inside @supports for either mask name. */
+/** That same rule's selector is shown only inside @supports for either mask name. */
 function grainShownWithMasks(css) {
+  const grain = new Set(grainRules(css).flatMap((r) => r.selectors));
   return blocks(css, "@supports").some(
     (b) =>
       b.params.includes("(mask-image:none)") &&
       b.params.includes("(-webkit-mask-image:none)") &&
-      rules(b.body).some((r) => r.body.split(";").includes("display:block"))
+      rules(b.body).some(
+        (r) => r.selectors.some((s) => grain.has(s)) && r.body.split(";").includes("display:block")
+      )
   );
 }
 
@@ -228,11 +245,11 @@ export const MARKERS = {
   ],
   I1: [
     {
-      name: "book grain: -webkit-mask-image, then mask-image with the same value, in one rule",
+      name: "book grain: the rule holding --look-grain:url( sets -webkit-mask-image, -size and -repeat, each before its plain twin with the same value",
       test: maskPaired,
     },
     {
-      name: "book grain: shown (display:block) only in @supports (mask-image:none) or (-webkit-mask-image:none)",
+      name: "book grain: that rule's selector shown (display:block) only in @supports (mask-image:none) or (-webkit-mask-image:none)",
       test: grainShownWithMasks,
     },
     {

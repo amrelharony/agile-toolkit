@@ -45,7 +45,7 @@ const vtBlock = (inner: string) => `@supports (view-transition-name:none){@media
 const VT = vtBlock(READY + NAMES + HOLD + STACK + TAPS + CALM);
 
 /** I1's book look, minified the way the build writes it (class names hashed, quotes dropped). */
-const MASK = `.g_x{--look-grain:${TILE};display:none;-webkit-mask-image:var(--look-grain);mask-image:var(--look-grain)}`;
+const MASK = `.g_x{--look-grain:${TILE};display:none;-webkit-mask-image:var(--look-grain);mask-image:var(--look-grain);-webkit-mask-size:61px 61px;mask-size:61px 61px;-webkit-mask-repeat:repeat;mask-repeat:repeat}`;
 const SHOWN = "@supports (mask-image:none) or (-webkit-mask-image:none){.g_x{display:block}}";
 const HIDE = ".hc [data-look],[data-theme=hc] [data-look]{display:none!important}";
 const BOWED =
@@ -154,16 +154,40 @@ describe("check-built-css: I1's book look", () => {
   it("flags a mask whose -webkit- name was dropped, comes second or differs", () => {
     const plainOnly = MASK.replace("-webkit-mask-image:var(--look-grain);", "");
     expect(failing(OTHERS + plainOnly + SHOWN + HIDE + BOWED)).toEqual([PAIRED]);
-    const swapped = `.g_x{mask-image:var(--look-grain);-webkit-mask-image:var(--look-grain)}`;
+    const swapped = MASK.replace(
+      "-webkit-mask-image:var(--look-grain);mask-image:var(--look-grain);",
+      "mask-image:var(--look-grain);-webkit-mask-image:var(--look-grain);"
+    );
+    expect(swapped).not.toBe(MASK);
     expect(failing(OTHERS + swapped + SHOWN + HIDE + BOWED)).toEqual([PAIRED]);
-    const differs = MASK.replace(";mask-image:var(--look-grain)}", ";mask-image:none}");
+    const differs = MASK.replace(";mask-image:var(--look-grain);", ";mask-image:none;");
+    expect(differs).not.toBe(MASK);
     expect(failing(OTHERS + differs + SHOWN + HIDE + BOWED)).toEqual([PAIRED]);
   });
 
-  it("flags grain shown outside its @supports, or behind only one mask name", () => {
+  it("flags a grain rule whose mask size or repeat lost its -webkit- twin", () => {
+    for (const twin of ["-webkit-mask-size:61px 61px;", "-webkit-mask-repeat:repeat;"]) {
+      const dropped = MASK.replace(twin, "");
+      expect(dropped, twin).not.toBe(MASK);
+      expect(failing(OTHERS + dropped + SHOWN + HIDE + BOWED), twin).toEqual([PAIRED]);
+    }
+  });
+
+  it("never takes another sheet's paired mask for the book's", () => {
+    // Amr's mascot-fx pairs its own masks; the build puts them in another file.
+    const mascot =
+      ".m_x{-webkit-mask-image:radial-gradient(ellipse 50% 55% at 50% 55%,#000 60%,transparent 100%);mask-image:radial-gradient(ellipse 50% 55% at 50% 55%,#000 60%,transparent 100%)}";
+    const plainOnly = MASK.replace("-webkit-mask-image:var(--look-grain);", "");
+    expect(failing(OTHERS + plainOnly + SHOWN + HIDE + BOWED, mascot)).toEqual([PAIRED]);
+    expect(failing(OTHERS + mascot + plainOnly + SHOWN + HIDE + BOWED)).toEqual([PAIRED]);
+  });
+
+  it("flags grain shown outside its @supports, behind only one mask name, or not the grain", () => {
     expect(failing(OTHERS + MASK + ".g_x{display:block}" + HIDE + BOWED)).toEqual([SUPPORTS]);
     const one = "@supports (mask-image:none){.g_x{display:block}}";
     expect(failing(OTHERS + MASK + one + HIDE + BOWED)).toEqual([SUPPORTS]);
+    const other = SHOWN.replace(".g_x{", ".o_x{");
+    expect(failing(OTHERS + MASK + other + HIDE + BOWED)).toEqual([SUPPORTS]);
   });
 
   it("flags the high-contrast rule without !important or without one of its selectors", () => {
