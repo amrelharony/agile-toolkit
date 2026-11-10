@@ -200,13 +200,16 @@
    parts are laid out in percentages of the book, which is square, so they
    sit where the intro's book has them at any width. */
 
-/* The book's box is its cover's. The page block and the ground reach past
+/* The book's box is its cover's: aligned to the start, so a grid or a flex
+   row never stretches it to a taller neighbour, which would drag the page
+   block and the ground down with it. The block and the ground reach past
    its right and bottom edges, so it keeps that room clear: the block's 4%
    offset and its 3px hard shadow, and the ground's drop to 106% of the
    book's height. A margin's percentage is of the column, a little wider
    than the book, so each is enough. */
 .still {
   position: relative;
+  align-self: start;
   margin-right: calc(4% + 3px);
   margin-bottom: 6%;
 }

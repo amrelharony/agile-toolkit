@@ -141,6 +141,8 @@ describe("/book", () => {
       .split(" ")
       .slice(0, 2)
       .map((v) => px(v, 0));
+    // The book's box is its cover's, square, even beside a taller card.
+    expect(declaration(".still", "align-self")).toBe("start");
     // The tool page's column at 375 px: .container-tool's 1rem gutters.
     const column = 375 - 2 * 16;
     // The cover filled the card inside its frame.
