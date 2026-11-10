@@ -22,8 +22,12 @@ import { sendHandoff } from "@/lib/handoffs/send";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { REFINEMENT_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { setStorySprint, setStoryStatus } from "@/lib/sprints/store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story } from "@/lib/stores/workspace-types";
+import { deleteStoryKeepingUndo } from "@/lib/stories/delete";
+import { withStoryDetails, type StoryDetails } from "@/lib/stories/fields";
+import { storyRemoval } from "@/lib/stories/removal";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { cn } from "@/lib/utils";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
@@ -78,11 +82,36 @@ function putStory(story: Story): void {
 }
 
 /**
+ * Delete a story where it lives, and hand back how to put it back in its
+ * place (null: there is no such story). A workspace story goes with the
+ * Canvas links its delete clears; an example story only leaves the example.
+ */
+function takeOutStory(id: string): (() => void) | null {
+  if (!isExampleId(id)) return deleteStoryKeepingUndo(id);
+  const before = useRefinementStore.getState().exampleStories;
+  const index = before.findIndex((s) => s.id === id);
+  if (index < 0) return null;
+  const story = before[index];
+  useRefinementStore.getState().setExampleStories(before.filter((s) => s.id !== id));
+  return () => {
+    const now = useRefinementStore.getState().exampleStories;
+    // Back already, or the example was cleared since: leave it as it is.
+    if (now.some((s) => s.id === id) || (now.length === 0 && before.length > 1)) return;
+    const next = [...now];
+    next.splice(Math.min(index, next.length), 0, story);
+    useRefinementStore.getState().setExampleStories(next);
+  };
+}
+
+/**
  * Which stories the walk lists. "In the backlog, no points" is the set the
  * cockpit counts behind "Refine the backlog"; "Needs points" adds the
  * unsized stories already planned into a sprint.
  */
 type Show = "all" | "unsized" | "backlog-unsized";
+
+/** A story nobody has run the story check on yet. */
+const NO_ANSWERS: readonly string[] = [];
 
 export function RefinementClient() {
   const hydrated = useWorkspaceHydrated();
@@ -223,9 +252,73 @@ export function RefinementClient() {
 
   function queue(story: Story) {
     if (isExampleId(story.id)) return;
-    if (queueForPoker(story))
+    // As stored now: its notes and acceptance criteria go to Poker with it.
+    if (queueForPoker(findStory(story.id) ?? story))
       log(REFINEMENT_ACTIONS.STORY_UPDATED, { storyId: story.id, queued: true });
   }
+
+  /* ── The story itself ─────────────────────────────────────────────── */
+
+  /** The story's acceptance criteria, notes, ticket key and link, as its form saved them. */
+  function saveDetails(story: Story, details: StoryDetails) {
+    const current = findStory(story.id);
+    if (!current) return;
+    putStory(withStoryDetails(current, details));
+    if (!isExampleId(current.id)) {
+      log(REFINEMENT_ACTIONS.STORY_UPDATED, { storyId: current.id, details: true });
+    }
+  }
+
+  /**
+   * The bin: the story is deleted, with Undo back to its place, and the walk
+   * goes on to the next one. Only where `storyRemoval` allows it (the
+   * backlog, or a sprint that hasn't started); this is the guard.
+   */
+  function deleteStory(story: Story) {
+    const current = findStory(story.id);
+    if (!current || storyRemoval(current, sprints) !== "delete") return;
+    const i = walk.findIndex((s) => s.id === story.id);
+    const next = i >= 0 ? (walk[i + 1] ?? walk[i - 1] ?? null) : null;
+    let restore: (() => void) | null = null;
+    undoable({
+      label: `Deleted “${current.title}”`,
+      apply: () => {
+        restore = takeOutStory(current.id);
+      },
+      revert: () => restore?.(),
+    });
+    if (!isExampleId(current.id)) {
+      log(REFINEMENT_ACTIONS.STORY_REMOVED, { storyId: current.id, title: current.title });
+    }
+    go(next?.id ?? null);
+  }
+
+  /**
+   * In a running sprint a story is never deleted (Burnup and Sprint Metrics
+   * read its past from the story): it goes back to the backlog, the move
+   * recorded on it as Sprint Planning records it, with Undo.
+   */
+  function removeFromSprint(story: Story) {
+    const before = findStory(story.id);
+    if (!before || isExampleId(before.id)) return;
+    if (storyRemoval(before, sprints) !== "remove-from-sprint") return;
+    const sprintName = (before.sprintId && sprintNames.get(before.sprintId)) || "the sprint";
+    undoable({
+      label: `Moved “${before.title}” back to the backlog`,
+      description: `It is out of ${sprintName}. Undo puts it back.`,
+      apply: () => {
+        setStorySprint(before.id, undefined);
+        setStoryStatus(before.id, "backlog");
+      },
+      // The copy from before the move, sprint moves and all.
+      revert: () => useWorkspaceStore.getState().upsertStory(before),
+    });
+    log(REFINEMENT_ACTIONS.STORY_UPDATED, { storyId: before.id, removedFromSprint: true });
+  }
+
+  // The story check's ticks, per story, while the page is open: never saved.
+  const [storyCheckOpen, setStoryCheckOpen] = useState(false);
+  const [investYes, setInvestYes] = useState<Record<string, string[]>>({});
 
   const unsizedToQueue = session.toRefine.filter(
     (s) => isUnsized(s) && !isExampleId(s.id) && !queued.has(s.id)
@@ -554,6 +647,16 @@ export function RefinementClient() {
                     onQueue={() => queue(focused)}
                     onPrevious={() => index > 0 && go(walk[index - 1].id)}
                     onNext={() => index < walk.length - 1 && go(walk[index + 1].id)}
+                    onSaveDetails={(details) => saveDetails(focused, details)}
+                    removal={storyRemoval(focused, sprints)}
+                    onDelete={() => deleteStory(focused)}
+                    onRemoveFromSprint={() => removeFromSprint(focused)}
+                    storyCheck={{
+                      open: storyCheckOpen,
+                      onOpenChange: setStoryCheckOpen,
+                      yes: investYes[focused.id] ?? NO_ANSWERS,
+                      onChange: (yes) => setInvestYes((all) => ({ ...all, [focused.id]: yes })),
+                    }}
                   />
                 ) : (
                   <p className="text-sm text-sub">

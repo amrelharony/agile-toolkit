@@ -2,12 +2,24 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Dices, RotateCcw } from "lucide-react";
+import {
+  Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  CircleMinus,
+  Dices,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
+import { StoryDetailsPanel } from "@/components/stories/story-details";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import type { Story } from "@/lib/stores/workspace-types";
+import type { StoryDetails } from "@/lib/stories/fields";
+import type { StoryRemoval } from "@/lib/stories/removal";
 import { cn } from "@/lib/utils";
 import {
   isUnsized,
@@ -19,6 +31,7 @@ import {
   type ReadyField,
 } from "./session";
 import type { Criterion } from "./store";
+import { StoryCheck } from "./story-check";
 
 /* -------------------------------------------------------------------------- */
 /*  Badges                                                                    */
@@ -86,13 +99,31 @@ export interface StoryCheckPanelProps {
   onQueue: () => void;
   onPrevious: () => void;
   onNext: () => void;
+  /** Save the story's acceptance criteria, notes, ticket key and link. Absent: not shown. */
+  onSaveDetails?: (details: StoryDetails) => void;
+  /** What the remove control may do (lib/stories/removal.ts). Absent: there is none. */
+  removal?: StoryRemoval;
+  /** Delete the story, with Undo (its bin shows when `removal` is "delete"). */
+  onDelete?: () => void;
+  /** Move the story out of its running sprint, back to the backlog, with Undo. */
+  onRemoveFromSprint?: () => void;
+  /** The story check: the INVEST questions answered yes, and whether it is open. Absent: not shown. */
+  storyCheck?: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    yes: readonly string[];
+    onChange: (yes: string[]) => void;
+  };
 }
 
 /**
- * One story at a time: tick the Definition of Ready, see whether it has
- * points, queue it for Planning Poker if not, then mark it ready. "Save
- * checks" records the ticks without the call, so a story that isn't ready
- * shows where it stands next time.
+ * One story at a time: read its acceptance criteria beside the Definition
+ * of Ready, tick the criteria it meets, see whether it has points, queue it
+ * for Planning Poker if not, then mark it ready. "Save checks" records the
+ * ticks without the call, so a story that isn't ready shows where it stands
+ * next time. The story's details are edited here too, a story that
+ * shouldn't be on the backlog is deleted from here, and "Check the story"
+ * holds the six INVEST questions for one that feels wrong.
  */
 export function StoryCheckPanel({
   story,
@@ -108,6 +139,11 @@ export function StoryCheckPanel({
   onQueue,
   onPrevious,
   onNext,
+  onSaveDetails,
+  removal,
+  onDelete,
+  onRemoveFromSprint,
+  storyCheck,
 }: StoryCheckPanelProps) {
   const headingId = useId();
   const errorId = useId();
@@ -158,10 +194,16 @@ export function StoryCheckPanel({
         : form.draft.checked.filter((x) => x !== id),
     });
 
+  const canDelete = removal === "delete" && onDelete !== undefined;
+  const canLeaveSprint = removal === "remove-from-sprint" && onRemoveFromSprint !== undefined;
+  const walking = position !== null && position.count > 1;
+
   return (
+    // A query container: the details sit beside the ticks once the panel
+    // itself is wide enough, whatever the sidebar leaves of the window.
     <section
       aria-labelledby={headingId}
-      className="space-y-4 rounded-lg border border-accent/30 bg-accent/5 p-4"
+      className="space-y-4 rounded-lg border border-accent/30 bg-accent/5 p-4 @container"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -188,124 +230,174 @@ export function StoryCheckPanel({
             )}
           </div>
         </div>
-        {position && position.count > 1 && (
+        {(walking || canDelete || canLeaveSprint) && (
           <span className="flex shrink-0 items-center">
-            <IconButton
-              label="Previous story"
-              icon={<ChevronLeft className="h-4 w-4" />}
-              disabled={position.index === 0}
-              onClick={onPrevious}
-            />
-            <IconButton
-              label="Next story"
-              icon={<ChevronRight className="h-4 w-4" />}
-              disabled={position.index >= position.count - 1}
-              onClick={onNext}
-            />
+            {walking && (
+              <>
+                <IconButton
+                  label="Previous story"
+                  icon={<ChevronLeft className="h-4 w-4" />}
+                  disabled={position.index === 0}
+                  onClick={onPrevious}
+                />
+                <IconButton
+                  label="Next story"
+                  icon={<ChevronRight className="h-4 w-4" />}
+                  disabled={position.index >= position.count - 1}
+                  onClick={onNext}
+                />
+              </>
+            )}
+            {canDelete && (
+              <IconButton
+                label={`Delete ${story.title}`}
+                icon={<Trash2 className="h-4 w-4" />}
+                variant="danger-ghost"
+                // A little apart from "Next story", which is pressed again and again.
+                className={walking ? "ml-2" : undefined}
+                onClick={onDelete}
+              />
+            )}
+            {/* In a running sprint a story can only leave it: deleting it
+                would erase it from the days it was in scope. */}
+            {canLeaveSprint && (
+              <IconButton
+                label={`Remove ${story.title} from the sprint`}
+                icon={<CircleMinus className="h-4 w-4" />}
+                className={walking ? "ml-2" : undefined}
+                onClick={() => {
+                  onRemoveFromSprint?.();
+                  // The button gives way to the bin: focus goes to the story's name.
+                  headingRef.current?.focus();
+                }}
+              />
+            )}
           </span>
         )}
       </div>
 
-      <ItemForm
-        form={{ ...form, submit }}
-        submitLabel="Mark ready"
-        submitIcon={<CheckCircle2 className="h-4 w-4" aria-hidden="true" />}
-        footer={
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={criteria.length === 0}
-              onClick={() => onSaveChecks(metCriteria(form.draft.checked, criteria))}
-            >
-              {unreadies ? "Save as not ready" : "Save checks"}
-            </Button>
-            {unsized && (
-              <QueueButton
-                queued={queued}
-                example={example}
-                describedBy={pointsErrorId}
-                onQueue={onQueue}
-              />
-            )}
-          </>
-        }
-      >
-        {criteria.length === 0 ? (
-          <p className="text-sm text-sub">
-            No criteria yet. Add your Definition of Ready to check stories against it.
-          </p>
-        ) : (
-          <fieldset className="space-y-2" aria-describedby={criteriaErrorId}>
-            <legend className="mb-2 text-sm font-medium text-text">Definition of Ready</legend>
-            <ul className="space-y-2">
-              {criteria.map((c) => (
-                <li key={c.id}>
-                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3 hover:bg-card-hover">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
-                      checked={ticked.has(c.id)}
-                      onChange={(e) => toggle(c.id, e.target.checked)}
-                      // The first unticked box takes focus after a refused "Mark ready".
-                      aria-invalid={form.errors.criteria && c.id === firstOpen ? true : undefined}
-                      aria-describedby={c.id === firstOpen ? criteriaErrorId : undefined}
-                    />
-                    <span className="min-w-0">
-                      <span className="block break-words text-sm text-text">{c.label}</span>
-                      {c.description && (
-                        <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs text-sub">
-                          {c.description}
-                        </span>
-                      )}
-                    </span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </fieldset>
+      {/* The story first when read top to bottom (a phone, a screen reader);
+          beside the ticks once the panel is wide enough for two columns. */}
+      <div className="grid gap-4 @2xl:grid-cols-2 @2xl:gap-x-6">
+        {onSaveDetails && (
+          <StoryDetailsPanel
+            story={story}
+            onSave={onSaveDetails}
+            className="self-start rounded-lg border border-border bg-card p-3 @2xl:col-start-2 @2xl:row-start-1"
+          />
         )}
-
-        {criteria.length > 0 && (
-          <div>
-            <div className="mb-1.5 flex items-center justify-between text-xs text-sub">
-              <span>
-                {met} of {criteria.length} criteria met
-              </span>
-              <span className="font-data font-semibold text-text">{pct}%</span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-card" aria-hidden="true">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-300",
-                  pct === 100 ? "bg-accent-green" : pct > 0 ? "bg-warning" : "bg-danger"
-                )}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {(form.errors.criteria || form.errors.points) && (
-          <div className="space-y-1" role="alert">
-            {form.errors.criteria && (
-              <p id={criteriaErrorId} className="text-xs text-danger">
-                {form.errors.criteria}
-              </p>
-            )}
-            {form.errors.points && (
-              <p
-                id={pointsErrorId}
-                ref={pointsErrorRef}
-                tabIndex={-1}
-                className="text-xs text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        <ItemForm
+          form={{ ...form, submit }}
+          submitLabel="Mark ready"
+          submitIcon={<CheckCircle2 className="h-4 w-4" aria-hidden="true" />}
+          className="min-w-0 @2xl:col-start-1 @2xl:row-span-2 @2xl:row-start-1"
+          footer={
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={criteria.length === 0}
+                onClick={() => onSaveChecks(metCriteria(form.draft.checked, criteria))}
               >
-                {form.errors.points}
-              </p>
-            )}
-          </div>
+                {unreadies ? "Save as not ready" : "Save checks"}
+              </Button>
+              {unsized && (
+                <QueueButton
+                  queued={queued}
+                  example={example}
+                  describedBy={pointsErrorId}
+                  onQueue={onQueue}
+                />
+              )}
+            </>
+          }
+        >
+          {criteria.length === 0 ? (
+            <p className="text-sm text-sub">
+              No criteria yet. Add your Definition of Ready to check stories against it.
+            </p>
+          ) : (
+            <fieldset className="space-y-2" aria-describedby={criteriaErrorId}>
+              <legend className="mb-2 text-sm font-medium text-text">Definition of Ready</legend>
+              <ul className="space-y-2">
+                {criteria.map((c) => (
+                  <li key={c.id}>
+                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3 hover:bg-card-hover">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
+                        checked={ticked.has(c.id)}
+                        onChange={(e) => toggle(c.id, e.target.checked)}
+                        // The first unticked box takes focus after a refused "Mark ready".
+                        aria-invalid={form.errors.criteria && c.id === firstOpen ? true : undefined}
+                        aria-describedby={c.id === firstOpen ? criteriaErrorId : undefined}
+                      />
+                      <span className="min-w-0">
+                        <span className="block break-words text-sm text-text">{c.label}</span>
+                        {c.description && (
+                          <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs text-sub">
+                            {c.description}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+          )}
+
+          {criteria.length > 0 && (
+            <div>
+              <div className="mb-1.5 flex items-center justify-between text-xs text-sub">
+                <span>
+                  {met} of {criteria.length} criteria met
+                </span>
+                <span className="font-data font-semibold text-text">{pct}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-card" aria-hidden="true">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-300",
+                    pct === 100 ? "bg-accent-green" : pct > 0 ? "bg-warning" : "bg-danger"
+                  )}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {(form.errors.criteria || form.errors.points) && (
+            <div className="space-y-1" role="alert">
+              {form.errors.criteria && (
+                <p id={criteriaErrorId} className="text-xs text-danger">
+                  {form.errors.criteria}
+                </p>
+              )}
+              {form.errors.points && (
+                <p
+                  id={pointsErrorId}
+                  ref={pointsErrorRef}
+                  tabIndex={-1}
+                  className="text-xs text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {form.errors.points}
+                </p>
+              )}
+            </div>
+          )}
+        </ItemForm>
+        {storyCheck && (
+          <StoryCheck
+            title={story.title}
+            open={storyCheck.open}
+            onOpenChange={storyCheck.onOpenChange}
+            yes={storyCheck.yes}
+            onChange={storyCheck.onChange}
+            className="self-start @2xl:col-start-2 @2xl:row-start-2"
+          />
         )}
-      </ItemForm>
+      </div>
     </section>
   );
 }
