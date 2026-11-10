@@ -674,6 +674,24 @@ describe("reordering the queue", () => {
     const res = await call(reorder.POST, req("POST", "/", { order }));
     expect(res.status).toBe(400);
   });
+
+  it("reorders the whole queue in one call, as the portal's arrows send it", async () => {
+    const queue = Array.from({ length: 326 }, (_, i) => 31 + i);
+    h.rows = queue.map((ep) => row(ep));
+    const order = [...queue].reverse();
+    const res = await call(reorder.POST, req("POST", "/", { order }));
+    expect(res.status).toBe(200);
+    expect(h.rpc).toHaveBeenCalledWith("comic_reorder_queue", { p_slots: queue, p_stories: order });
+  });
+
+  it("refuses more numbers than there can be weekly stories", async () => {
+    const order = Array.from({ length: 1000 }, (_, i) => 27 + i);
+    h.rows = order.map((ep) => row(ep));
+    const res = await call(reorder.POST, req("POST", "/", { order }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("invalid_order");
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/comics/queue/schedule", () => {
@@ -743,6 +761,26 @@ describe("POST /api/comics/queue/schedule", () => {
       req("POST", "/", { items: [{ ep: 27, releaseAt: FUTURE }] })
     );
     expect(res.status).toBe(409);
+    expect(h.writes).toEqual([]);
+  });
+
+  it("dates the whole queue in one call", async () => {
+    const eps = Array.from({ length: 326 }, (_, i) => 31 + i);
+    h.rows = eps.map((ep) => row(ep));
+    const items = eps.map((ep) => ({ ep, releaseAt: FUTURE }));
+    const res = await call(schedule.POST, req("POST", "/", { items }));
+    expect(res.status).toBe(200);
+    expect(h.rows.every((r) => r.release_at === FUTURE)).toBe(true);
+    expect(h.writes).toHaveLength(326);
+  });
+
+  it("refuses more items than there can be weekly stories", async () => {
+    const eps = Array.from({ length: 1000 }, (_, i) => 27 + i);
+    h.rows = eps.map((ep) => row(ep));
+    const items = eps.map((ep) => ({ ep, releaseAt: FUTURE }));
+    const res = await call(schedule.POST, req("POST", "/", { items }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("invalid_items");
     expect(h.writes).toEqual([]);
   });
 });

@@ -4,6 +4,7 @@ import { REPORT_SOURCES, summariseVisits } from "@/lib/comics/entries-summary";
 import { PRINT_SOURCES } from "@/lib/comics/entry";
 import {
   checkReorder,
+  MAX_QUEUE_STORIES,
   nextSundaySlot,
   queueWeeksLeft,
   releaseSlot,
@@ -183,6 +184,45 @@ describe("reorder rules", () => {
 
   it("refuses an unknown number", () => {
     expect(checkReorder([story(30)], [30, 99], NOW)).toMatchObject({ ok: false, ep: 99 });
+  });
+
+  it("takes the whole queue at once, up to every weekly number there can be", () => {
+    const run = (from: number, length: number) => Array.from({ length }, (_, i) => from + i);
+    const queue = run(31, 326);
+    const order = [...queue].reverse();
+    expect(
+      checkReorder(
+        queue.map((ep) => story(ep)),
+        order,
+        NOW
+      )
+    ).toEqual({
+      ok: true,
+      slots: queue,
+      order,
+    });
+
+    expect(MAX_QUEUE_STORIES).toBe(999 - 27 + 1);
+    const every = run(27, MAX_QUEUE_STORIES);
+    expect(
+      checkReorder(
+        every.map((ep) => story(ep)),
+        [...every].reverse(),
+        NOW
+      ).ok
+    ).toBe(true);
+
+    const tooMany = run(27, 1000);
+    expect(
+      checkReorder(
+        tooMany.map((ep) => story(ep)),
+        tooMany,
+        NOW
+      )
+    ).toEqual({
+      ok: false,
+      error: "invalid_order",
+    });
   });
 
   it("swaps with a neighbour, and stops at the ends", () => {
