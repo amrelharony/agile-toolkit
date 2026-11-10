@@ -22,7 +22,7 @@ describe("DNA-SPEC motion rules", () => {
     for (const clause of [
       "These follow their own rules",
       "may fade and scale from 96%",
-      "Amr keeps Amr's own pop-in",
+      "Amr keeps his own pop-in",
       "ink art draws itself in",
     ]) {
       expect(motion).toContain(clause);
