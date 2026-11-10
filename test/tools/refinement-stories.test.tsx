@@ -157,6 +157,18 @@ describe("the story being refined", () => {
     expect(about.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("lets every cell of the panel shrink, so a long link in the notes can't widen a phone's page", () => {
+    renderPage();
+    fireEvent.click(within(panel()).getByRole("button", { name: /Check the story/ }));
+    const grid = details("Pay with a saved card").parentElement!;
+    // One column below the two-column width: it is as wide as its widest
+    // cell, and break-words alone doesn't shrink a cell under a long word.
+    expect(grid.children).toHaveLength(3);
+    for (const cell of Array.from(grid.children)) {
+      expect(classesOf(cell)).toContain("min-w-0");
+    }
+  });
+
   it("opens the tracker's issue in a new tab from the ticket key", () => {
     renderPage();
     const link = within(details("Pay with a saved card")).getByRole("link", { name: /^PAY-12/ });

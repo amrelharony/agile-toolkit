@@ -287,13 +287,16 @@ export function StoryCheckPanel({
       </div>
 
       {/* The story first when read top to bottom (a phone, a screen reader);
-          beside the ticks once the panel is wide enough for two columns. */}
+          beside the ticks once the panel is wide enough for two columns.
+          Every cell is min-w-0: below that width the grid has one column as
+          wide as its widest cell, and a long unbroken word in the notes (a
+          pasted link) would widen it past a phone's screen. */}
       <div className="grid gap-4 @2xl:grid-cols-2 @2xl:gap-x-6">
         {onSaveDetails && (
           <StoryDetailsPanel
             story={story}
             onSave={onSaveDetails}
-            className="self-start rounded-lg border border-border bg-card p-3 @2xl:col-start-2 @2xl:row-start-1"
+            className="min-w-0 self-start rounded-lg border border-border bg-card p-3 @2xl:col-start-2 @2xl:row-start-1"
           />
         )}
         <ItemForm
@@ -404,7 +407,7 @@ export function StoryCheckPanel({
             onOpenChange={storyCheck.onOpenChange}
             yes={storyCheck.yes}
             onChange={storyCheck.onChange}
-            className="self-start @2xl:col-start-2 @2xl:row-start-2"
+            className="min-w-0 self-start @2xl:col-start-2 @2xl:row-start-2"
           />
         )}
       </div>
