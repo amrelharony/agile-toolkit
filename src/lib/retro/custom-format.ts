@@ -31,8 +31,17 @@ export const CUSTOM_COLUMNS_MAX = 6;
 export const CUSTOM_LABEL_MAX = 40;
 /** Longest format name. */
 export const CUSTOM_NAME_MAX = 60;
-/** Most custom formats a browser keeps; saving one more drops the oldest. */
+/**
+ * Most custom formats saving keeps: saving one more drops the one used
+ * longest ago, and the picker names it, with Undo.
+ */
 export const SAVED_CUSTOM_MAX = 12;
+/**
+ * Most entries read back from the browser: a guard against a hand-edited or
+ * synced list. Undo of a delete can leave the list above SAVED_CUSTOM_MAX
+ * until the next save, rather than drop another format unannounced.
+ */
+export const SAVED_CUSTOM_READ_MAX = SAVED_CUSTOM_MAX * 2;
 /** Longest column key made from a name (the room and share links take 64). */
 const KEY_MAX = 40;
 
@@ -155,15 +164,15 @@ function sameDraft(a: CustomFormatDraft, b: CustomFormatDraft): boolean {
 
 /**
  * The saved list as the picker shows it, from whatever the browser (or a
- * synced copy) holds: valid entries only, each id once, newest first, at
- * most SAVED_CUSTOM_MAX.
+ * synced copy) holds: valid entries only, each id once, most recently used
+ * first, at most SAVED_CUSTOM_READ_MAX.
  */
 export function normalizeSavedFormats(raw: unknown): SavedCustomFormat[] {
   if (!Array.isArray(raw)) return [];
   const out: SavedCustomFormat[] = [];
   const ids = new Set<string>();
   for (const entry of raw) {
-    if (out.length >= SAVED_CUSTOM_MAX) break;
+    if (out.length >= SAVED_CUSTOM_READ_MAX) break;
     if (!entry || typeof entry !== "object") continue;
     const e = entry as Record<string, unknown>;
     if (!isCustomFormatId(e.id) || ids.has(e.id)) continue;
@@ -183,21 +192,43 @@ export function normalizeSavedFormats(raw: unknown): SavedCustomFormat[] {
 /**
  * The saved list with `values` at the front. The same name and columns
  * saved before keep their id and move up instead of being saved twice.
- * Returns the list and the id the format is saved under.
+ * Past SAVED_CUSTOM_MAX the last ones (used longest ago) drop off. Returns
+ * the list, the id the format is saved under, and the ones that dropped
+ * off, for the picker to name.
  */
 export function withSavedFormat(
   list: readonly SavedCustomFormat[],
   values: CustomFormatDraft,
   newId: () => string = newCustomFormatId
-): { list: SavedCustomFormat[]; id: string } {
+): { list: SavedCustomFormat[]; id: string; dropped: SavedCustomFormat[] } {
   const twin = list.find((f) => sameDraft(f, values));
   const id = twin?.id ?? newId();
   const rest = list.filter((f) => f.id !== id);
-  return {
-    list: [{ id, name: values.name, columns: [...values.columns] }, ...rest].slice(
-      0,
-      SAVED_CUSTOM_MAX
-    ),
-    id,
-  };
+  const all = [{ id, name: values.name, columns: [...values.columns] }, ...rest];
+  return { list: all.slice(0, SAVED_CUSTOM_MAX), id, dropped: all.slice(SAVED_CUSTOM_MAX) };
+}
+
+/**
+ * The saved list with `format`, deleted from `before`, put back where it
+ * was: in front of the first of the ones after it that are still saved,
+ * else at the end. Nothing else drops off for it.
+ */
+export function withRestoredFormat(
+  list: readonly SavedCustomFormat[],
+  format: SavedCustomFormat,
+  before: readonly SavedCustomFormat[]
+): SavedCustomFormat[] {
+  if (list.some((f) => f.id === format.id)) return [...list];
+  const at = before.findIndex((f) => f.id === format.id);
+  for (const after of before.slice(at + 1)) {
+    const i = list.findIndex((f) => f.id === after.id);
+    if (i >= 0) return [...list.slice(0, i), format, ...list.slice(i)];
+  }
+  return [...list, format];
+}
+
+/** The saved list with format `id` moved to the front: the one used last. */
+export function savedFirst(list: readonly SavedCustomFormat[], id: string): SavedCustomFormat[] {
+  const picked = list.find((f) => f.id === id);
+  return picked ? [picked, ...list.filter((f) => f.id !== id)] : [...list];
 }

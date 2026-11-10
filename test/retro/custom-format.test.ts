@@ -4,12 +4,15 @@ import { retroColumnFor } from "@/lib/handoffs/targets/retro-board";
 import {
   CUSTOM_COLUMNS_MAX,
   SAVED_CUSTOM_MAX,
+  SAVED_CUSTOM_READ_MAX,
   customColumnKeys,
   customFormatFrom,
   isCustomFormatId,
   newCustomFormatId,
   normalizeSavedFormats,
+  savedFirst,
   validateCustomFormat,
+  withRestoredFormat,
   withSavedFormat,
   type SavedCustomFormat,
 } from "@/lib/retro/custom-format";
@@ -99,7 +102,7 @@ describe("the saved list", () => {
     columns,
   });
 
-  it("keeps only valid entries, each id once, at most 12", () => {
+  it("keeps only valid entries, each id once, at most 24 read back", () => {
     const raw = [
       saved("a"),
       saved("a", "Twin"),
@@ -113,8 +116,12 @@ describe("the saved list", () => {
     ];
     expect(normalizeSavedFormats(raw)).toEqual([saved("a"), saved("e", "Spaced name")]);
     expect(normalizeSavedFormats("nope")).toEqual([]);
-    const many = Array.from({ length: 20 }, (_, i) => saved(`n${i}`));
-    expect(normalizeSavedFormats(many)).toHaveLength(SAVED_CUSTOM_MAX);
+    // Undo of a delete can leave one past the 12 saving keeps: it isn't cut on read.
+    expect(SAVED_CUSTOM_READ_MAX).toBe(24);
+    const over = Array.from({ length: SAVED_CUSTOM_MAX + 1 }, (_, i) => saved(`n${i}`));
+    expect(normalizeSavedFormats(over)).toHaveLength(SAVED_CUSTOM_MAX + 1);
+    const many = Array.from({ length: 30 }, (_, i) => saved(`n${i}`));
+    expect(normalizeSavedFormats(many)).toHaveLength(SAVED_CUSTOM_READ_MAX);
   });
 
   it("puts a new format first, and moves a twin up under its old id", () => {
@@ -122,6 +129,7 @@ describe("the saved list", () => {
     const added = withSavedFormat(list, { name: "Gamma", columns: ["X", "Y"] }, () => "custom-g");
     expect(added.id).toBe("custom-g");
     expect(added.list.map((f) => f.id)).toEqual(["custom-g", "custom-a", "custom-b"]);
+    expect(added.dropped).toEqual([]);
 
     const again = withSavedFormat(added.list, { name: "beta", columns: ["a", "b"] }, () => {
       throw new Error("a twin keeps its id");
@@ -131,12 +139,43 @@ describe("the saved list", () => {
     expect(again.list[0]).toEqual({ id: "custom-b", name: "beta", columns: ["a", "b"] });
   });
 
-  it("drops the oldest past the limit", () => {
+  it("drops the one used longest ago past the limit, and says which", () => {
     const full = Array.from({ length: SAVED_CUSTOM_MAX }, (_, i) => saved(`n${i}`, `N${i}`));
     const next = withSavedFormat(full, { name: "New", columns: ["A", "B"] }, () => "custom-new");
     expect(next.list).toHaveLength(SAVED_CUSTOM_MAX);
     expect(next.list[0].id).toBe("custom-new");
-    expect(next.list.some((f) => f.id === `custom-n${SAVED_CUSTOM_MAX - 1}`)).toBe(false);
+    expect(next.dropped).toEqual([full[SAVED_CUSTOM_MAX - 1]]);
+    // A list one past the limit (after an Undo) gives back to 12, naming both.
+    const over = [...full, saved("x", "X")];
+    expect(withSavedFormat(over, { name: "New", columns: ["A", "B"] }).dropped).toEqual([
+      full[SAVED_CUSTOM_MAX - 1],
+      saved("x", "X"),
+    ]);
+  });
+
+  it("moves a picked format to the front", () => {
+    const list = [saved("a"), saved("b"), saved("c")];
+    expect(savedFirst(list, "custom-c").map((f) => f.id)).toEqual([
+      "custom-c",
+      "custom-a",
+      "custom-b",
+    ]);
+    expect(savedFirst(list, "custom-zz")).toEqual(list);
+  });
+
+  it("puts a deleted format back where it was, whatever came in since", () => {
+    const [a, b, c] = [saved("a"), saved("b"), saved("c")];
+    const before = [a, b, c];
+    const ids = (l: SavedCustomFormat[]) => l.map((f) => f.id.slice(7));
+    expect(ids(withRestoredFormat([a, c], b, before))).toEqual(["a", "b", "c"]);
+    // A format saved in front meanwhile stays in front, and nothing drops off.
+    const full = Array.from({ length: SAVED_CUSTOM_MAX }, (_, i) => saved(`n${i}`));
+    const back = withRestoredFormat([saved("new"), a, c, ...full.slice(3)], b, before);
+    expect(ids(back).slice(0, 4)).toEqual(["new", "a", "b", "c"]);
+    expect(back).toHaveLength(SAVED_CUSTOM_MAX + 1);
+    // The last one goes back at the end; one already back stays put.
+    expect(ids(withRestoredFormat([a, b], c, before))).toEqual(["a", "b", "c"]);
+    expect(withRestoredFormat(before, b, before)).toEqual(before);
   });
 
   it("allows as many columns as the picker offers", () => {

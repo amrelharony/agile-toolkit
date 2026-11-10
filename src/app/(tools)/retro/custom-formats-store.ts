@@ -18,7 +18,7 @@ import { createPersistedStore } from "@/lib/stores/create-persisted-store";
 import { normalizeSavedFormats, type SavedCustomFormat } from "@/lib/retro/custom-format";
 
 export interface RetroFormatsSettings {
-  /** Newest first. */
+  /** Most recently used first: saving or picking one moves it to the front. */
   custom: SavedCustomFormat[];
 }
 
@@ -38,7 +38,12 @@ export function updateSavedFormats(
   }));
 }
 
-/** The saved custom formats, clean, newest first. */
+/** The saved list as it is now, clean (for a change that needs it before writing). */
+export function readSavedFormats(): SavedCustomFormat[] {
+  return normalizeSavedFormats(useRetroFormatsStore.getState().custom);
+}
+
+/** The saved custom formats, clean, most recently used first. */
 export function useSavedFormats(): SavedCustomFormat[] {
   const raw = useRetroFormatsStore((s) => s.custom);
   return useMemo(() => normalizeSavedFormats(raw), [raw]);

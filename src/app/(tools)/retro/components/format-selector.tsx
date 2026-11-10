@@ -19,11 +19,13 @@
  * Custom opens a form for the team's own columns (2 to 6 names). Starting
  * from it saves the format in this browser (custom-formats-store), and each
  * saved one shows as its own card after the built-in formats, with Delete
- * and Undo.
+ * and Undo. Saving or picking one moves it to the front; past 12 the one
+ * used longest ago drops off, named in the start's notice, with Undo.
  */
 
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { MessagesSquare, Trash2 } from "lucide-react";
+import { listAnd } from "@/lib/charts/chart-text";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
@@ -31,7 +33,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { LoadExampleButton } from "@/components/tool-frame/example-data";
 import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
 import {
+  SAVED_CUSTOM_MAX,
   customFormatFrom,
+  savedFirst,
+  withRestoredFormat,
   withSavedFormat,
   type CustomFormatDraft,
   type SavedCustomFormat,
@@ -39,7 +44,12 @@ import {
 import { themed, tint } from "@/lib/utils/theme-color";
 import { undoable } from "@/lib/utils/undoable";
 import type { RetroBoard, Sprint } from "@/lib/stores/workspace-types";
-import { updateSavedFormats, useRetroFormatsStore, useSavedFormats } from "../custom-formats-store";
+import {
+  readSavedFormats,
+  updateSavedFormats,
+  useRetroFormatsStore,
+  useSavedFormats,
+} from "../custom-formats-store";
 import { useFormatSuggestion } from "../use-format-suggestion";
 import { CustomFormatEditor } from "./custom-format-editor";
 import { PastRetros } from "./past-retros";
@@ -163,27 +173,47 @@ export function FormatSelector({
 
   const startCustom = useCallback(
     (values: CustomFormatDraft) => {
-      let id = "";
-      updateSavedFormats((list) => {
-        const next = withSavedFormat(list, values);
-        id = next.id;
-        return next.list;
-      });
+      const before = readSavedFormats();
+      const { list, id, dropped } = withSavedFormat(before, values);
       setCustomOpen(false);
+      if (dropped.length === 0) {
+        updateSavedFormats(() => list);
+      } else {
+        // Past the limit, the one used longest ago drops off: say which, with Undo.
+        const isNew = !before.some((f) => f.id === id);
+        undoable({
+          label: `Saved the “${values.name}” format`,
+          description: `${listAnd(dropped.map((f) => `“${f.name}”`))} dropped off. This browser keeps ${SAVED_CUSTOM_MAX} formats.`,
+          apply: () => updateSavedFormats(() => list),
+          // The dropped ones come back; a format saved new isn't kept (the retro goes on in it).
+          revert: () =>
+            updateSavedFormats((now) => {
+              const kept = isNew ? now.filter((f) => f.id !== id) : [...now];
+              return [...kept, ...dropped.filter((d) => !kept.some((f) => f.id === d.id))];
+            }),
+        });
+      }
       onSelect(customFormatFrom(values, id));
     },
     [onSelect]
   );
 
+  // A saved format picked moves to the front, so the limit drops the one used longest ago.
+  const pickSaved = useCallback(
+    (saved: SavedCustomFormat, format: RetroFormat) => {
+      updateSavedFormats((list) => savedFirst(list, saved.id));
+      onSelect(format);
+    },
+    [onSelect]
+  );
+
   const deleteSaved = useCallback((format: SavedCustomFormat) => {
+    const before = readSavedFormats();
     undoable({
       label: `Deleted the “${format.name}” format`,
       apply: () => updateSavedFormats((list) => list.filter((f) => f.id !== format.id)),
-      // Back at the front: it was the last one this browser touched.
-      revert: () =>
-        updateSavedFormats((list) =>
-          list.some((f) => f.id === format.id) ? [...list] : [format, ...list]
-        ),
+      // Back where it was, and nothing else drops off for it.
+      revert: () => updateSavedFormats((list) => withRestoredFormat(list, format, before)),
     });
   }, []);
 
@@ -230,7 +260,7 @@ export function FormatSelector({
             <FormatCard
               key={format.id}
               format={format}
-              onSelect={onSelect}
+              onSelect={(f) => pickSaved(s, f)}
               action={
                 <Button
                   type="button"

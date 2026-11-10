@@ -191,6 +191,72 @@ describe("Custom format", () => {
     expect(screen.getByRole("button", { name: "Team pulse" })).toBeInTheDocument();
   });
 
+  /** Twelve saved formats, the most recently used first. */
+  const twelve = () =>
+    Array.from({ length: 12 }, (_, i) => ({
+      id: `custom-saved${String(i).padStart(4, "0")}`,
+      name: `Format ${i}`,
+      columns: [`A${i}`, `B${i}`],
+    }));
+
+  it("moves a picked saved format to the front, so the limit drops the one used longest ago", () => {
+    const list = twelve();
+    useRetroFormatsStore.setState({ custom: list });
+    render(<RetroClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Format 11" }));
+    expect(current()?.format.id).toBe("custom-saved0011");
+    expect(saved().map((f) => f.name)).toEqual([
+      "Format 11",
+      ...list.slice(0, 11).map((f) => f.name),
+    ]);
+    expect(undo.last).toBeNull();
+  });
+
+  it("says which saved format drops off past 12, with Undo", () => {
+    const list = twelve();
+    useRetroFormatsStore.setState({ custom: list });
+    render(<RetroClient />);
+    const form = openCustom();
+    fireEvent.change(within(form).getByLabelText("Format name"), { target: { value: "New one" } });
+    fireEvent.change(within(form).getByLabelText("Column 1"), { target: { value: "Up" } });
+    fireEvent.change(within(form).getByLabelText("Column 2"), { target: { value: "Down" } });
+    fireEvent.click(within(form).getAllByRole("button", { name: /^Remove column/ })[2]);
+    fireEvent.click(within(form).getByRole("button", { name: "Start retro" }));
+
+    const board = current()!;
+    expect(board.format.name).toBe("New one");
+    expect(saved()).toHaveLength(12);
+    expect(saved()[0]).toMatchObject({ id: board.format.id, name: "New one" });
+    expect(saved().some((f) => f.name === "Format 11")).toBe(false);
+    expect(undo.last?.label).toBe("Saved the “New one” format");
+    expect(undo.last).toMatchObject({
+      description: "“Format 11” dropped off. This browser keeps 12 formats.",
+    });
+
+    // Undo keeps the one that dropped off; the retro goes on in the new format.
+    act(() => undo.last!.revert());
+    expect(saved()).toEqual(list);
+    expect(current()?.format.id).toBe(board.format.id);
+  });
+
+  it("puts a deleted format back where it was, dropping nothing for it", () => {
+    const list = twelve();
+    useRetroFormatsStore.setState({ custom: list });
+    render(<RetroClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete the Format 5 format" }));
+    const deleted = undo.last!;
+    // Another format fills the list again before Undo.
+    const other = { id: "custom-other0001", name: "Other", columns: ["X", "Y"] };
+    act(() => useRetroFormatsStore.setState({ custom: [other, ...saved()] }));
+    act(() => deleted.revert());
+    expect(saved().map((f) => f.name)).toEqual([
+      "Other",
+      ...list.slice(0, 5).map((f) => f.name),
+      "Format 5",
+      ...list.slice(6).map((f) => f.name),
+    ]);
+  });
+
   it("puts the custom columns and Votes each in the board's share link", () => {
     const pulse = customFormatFrom(
       { name: "Team pulse", columns: ["Wins", "Worries"] },
