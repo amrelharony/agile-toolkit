@@ -164,6 +164,12 @@
   transform: translateX(3%);
 }
 
+/* The page facing it lies in the same light, its stripe off the page's edge,
+   so the open spread is shaded alike on both sides of the fold. */
+.shadeOnly {
+  transform: translateX(-22.5%);
+}
+
 /* A fixed 3:2 window for this week's panel, so a panel of another shape is
    cropped to fit, as in every intro window. Over the page's grain. */
 .window {

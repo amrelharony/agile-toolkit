@@ -288,6 +288,21 @@ describe("the book's pages", () => {
     }
   });
 
+  it("lays the facing page, the panel's, in the same light, still, and under the panel", () => {
+    const { leaf2 } = parts({ title: TITLE, cover: COVER });
+    const back = leaf2.querySelector<HTMLElement>(`:scope > .${styles.back}`)!;
+    const light = back.querySelector<HTMLElement>(':scope > [data-look="light"]')!;
+    expect(light.firstElementChild).toHaveClass(styles.shadeOnly);
+    const animated = new Set(sceneAnimations(CSS_FILE).map((a) => styles[a.selector.slice(1)]));
+    for (const el of [light, ...Array.from(light.querySelectorAll("*"))]) {
+      for (const cls of Array.from(el.classList)) expect(animated.has(cls), cls).toBe(false);
+    }
+    const kids = Array.from(back.children);
+    expect(kids.indexOf(light)).toBeLessThan(
+      kids.indexOf(back.querySelector(`.${styles.window}`)!)
+    );
+  });
+
   it("grains every face, and draws the page block's edges and the ground shadow", () => {
     const { dialog, book } = parts({ title: TITLE, cover: COVER });
     const faces = Array.from(dialog.querySelectorAll(`.${styles.face}`));

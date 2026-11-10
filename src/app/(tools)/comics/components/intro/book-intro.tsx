@@ -122,6 +122,8 @@ function PanelLeaf({ cover }: { cover: StoryCover | null }) {
       </div>
       <div className={cn(styles.face, styles.page, styles.back)}>
         <Grain />
+        {/* The inside page's light, its stripe off this page: the spread lies in one light. */}
+        <Light trackClassName={styles.shadeOnly} />
         {cover ? <IntroPanel panel={cover} className={styles.window} /> : null}
       </div>
     </div>
