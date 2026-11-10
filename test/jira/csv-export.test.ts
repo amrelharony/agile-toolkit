@@ -15,7 +15,7 @@ import {
   readJiraCsv,
   utf8Bytes,
 } from "@/lib/jira/csv-export";
-import { issuesToCards, parseJiraCsv } from "@/lib/whiteboard/jira-import";
+import { issuesToCards, jiraSkippedText, parseJiraCsv } from "@/lib/whiteboard/jira-import";
 import type { WhiteboardCard, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { ALL_FIELDS_EXPORT, CURRENT_FIELDS_EXPORT, SEMICOLON_EXPORT } from "./fixtures";
 
@@ -271,6 +271,31 @@ describe("the Canvas's Jira import reads through it", () => {
     const rows = Array.from({ length: JIRA_CSV_MAX_ROWS + 1 }, (_, i) => `A-${i},S`);
     expect(parseJiraCsv(["Key,Summary", ...rows].join("\n")).truncated).toBe(true);
     const big = `Key,Summary\nA-1,"${"x".repeat(JIRA_CSV_MAX_BYTES)}"`;
-    expect(parseJiraCsv(big)).toEqual({ issues: [], truncated: false, oversize: true });
+    expect(parseJiraCsv(big)).toEqual({
+      issues: [],
+      skipped: [],
+      problem:
+        "That is more than 5 MB. Export fewer issues at a time, such as one project or one sprint.",
+      truncated: false,
+      oversize: true,
+    });
+  });
+
+  it("lists the rows it leaves out, and says which and why under the box", () => {
+    const result = parseJiraCsv(
+      "Issue key,Summary,Story Points\nA-1,One,TBD\nA-2,,1\nA-3,Three,3\nA-4,Four,?\nA-5,Five,x"
+    );
+    expect(result.issues.map((i) => i.key)).toEqual(["A-3"]);
+    expect(result.skipped.map((e) => e.line)).toEqual([2, 3, 5, 6]);
+    expect(jiraSkippedText(result)).toBe(
+      "4 rows can't be imported. Line 2: the story points “TBD” aren't a number, 0 or more. Line 3: A-2 has no summary. Line 5: the story points “?” aren't a number, 0 or more. And 1 more."
+    );
+    expect(jiraSkippedText(parseJiraCsv("Key,Summary\n,One\nA-2,Two"))).toBe(
+      "1 row can't be imported. Line 2: no issue key."
+    );
+    expect(jiraSkippedText(parseJiraCsv(ALL_FIELDS_EXPORT))).toBeNull();
+    expect(jiraSkippedText(parseJiraCsv("Title,Status\nOne,To Do"))).toMatch(
+      /^No issue key or summary column found\./
+    );
   });
 });

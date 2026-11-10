@@ -16,7 +16,12 @@ import type {
   WhiteboardCard,
   WhiteboardKanbanFrame,
 } from "@/lib/stores/workspace-types";
-import { JIRA_SOURCE_TOOL, readJiraCsv, type JiraIssue } from "@/lib/jira/csv-export";
+import {
+  JIRA_SOURCE_TOOL,
+  readJiraCsv,
+  type JiraIssue,
+  type JiraRowError,
+} from "@/lib/jira/csv-export";
 import { wbId } from "./clipboard";
 
 export type { JiraIssue };
@@ -28,6 +33,10 @@ export type { JiraIssue };
  */
 export interface JiraParseResult {
   issues: JiraIssue[];
+  /** The rows the reader refused, with their line and why: the Canvas says so under the box. */
+  skipped: JiraRowError[];
+  /** Why nothing could be read at all (no issue key or summary column, over 5 MB), or null. */
+  problem: string | null;
   /** True when the CSV held more rows than the reader takes (1,000,
    * lib/jira JIRA_CSV_MAX_ROWS); `issues` then comes from the first ones. */
   truncated: boolean;
@@ -48,12 +57,36 @@ function normaliseStatus(jiraStatus: string): "todo" | "in_progress" | "done" {
 /**
  * The issues of a pasted Jira CSV export, for the Canvas. A row the reader
  * refuses (no key or summary, a key already on an earlier line, points that
- * aren't a number) is left out.
+ * aren't a number) is left out, and listed in `skipped` with why.
  */
 export function parseJiraCsv(text: string): JiraParseResult {
   const read = readJiraCsv(text);
-  if (read.oversize) return { issues: [], truncated: false, oversize: true };
-  return { issues: read.issues, truncated: read.overCap > 0 };
+  const said = { skipped: read.errors, problem: read.problem };
+  if (read.oversize) return { issues: [], ...said, truncated: false, oversize: true };
+  return { issues: read.issues, ...said, truncated: read.overCap > 0 };
+}
+
+/** The most refused rows the Canvas names one by one; the rest are counted. */
+const SKIPPED_NAMED = 3;
+
+/**
+ * What the Canvas says under the box about what a paste leaves out: why
+ * nothing can be read, or how many rows can't be imported and why (the
+ * first few by line), or null when every row reads.
+ */
+export function jiraSkippedText(
+  result: Pick<JiraParseResult, "skipped" | "problem">
+): string | null {
+  if (result.problem) return result.problem;
+  const { skipped } = result;
+  if (skipped.length === 0) return null;
+  const named = skipped.slice(0, SKIPPED_NAMED).map((e) => `Line ${e.line}: ${e.reason}.`);
+  const more = skipped.length - named.length;
+  return [
+    `${skipped.length === 1 ? "1 row" : `${skipped.length} rows`} can't be imported.`,
+    ...named,
+    ...(more > 0 ? [`And ${more} more.`] : []),
+  ].join(" ");
 }
 
 /**

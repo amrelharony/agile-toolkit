@@ -9,7 +9,7 @@ import {
   importFromStories,
   importFromOkrs,
 } from "@/lib/whiteboard/cross-tool-import";
-import { parseJiraCsv, issuesToCards } from "@/lib/whiteboard/jira-import";
+import { parseJiraCsv, issuesToCards, jiraSkippedText } from "@/lib/whiteboard/jira-import";
 import { parseDiagramCsv, diagramToObjects } from "@/lib/whiteboard/smart-diagrams";
 import { parseCsv, rowsToTable } from "@/lib/whiteboard/csv-to-table";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -126,17 +126,22 @@ export function ImportModal({ boardId, onClose }: Props) {
   // updates those cards instead of adding copies.
   const [jiraCsv, setJiraCsv] = useState("");
   const [jiraPreview, setJiraPreview] = useState<number | null>(null);
+  // The rows the paste leaves out, and why, said under the box.
+  const [jiraSkipped, setJiraSkipped] = useState<string | null>(null);
   const onJiraCsvChange = (text: string) => {
     setJiraCsv(text);
     if (text.trim().length === 0) {
       setJiraPreview(null);
+      setJiraSkipped(null);
       return;
     }
     try {
-      const { issues } = parseJiraCsv(text);
-      setJiraPreview(issues.length);
+      const result = parseJiraCsv(text);
+      setJiraPreview(result.issues.length);
+      setJiraSkipped(jiraSkippedText(result));
     } catch {
       setJiraPreview(0);
+      setJiraSkipped(null);
     }
   };
   // Smart Diagrams CSV paste import (Phase 33). Recognises two shapes:
@@ -356,12 +361,19 @@ export function ImportModal({ boardId, onClose }: Props) {
           </div>
           <textarea
             id={`${uid}-jira`}
-            aria-describedby={`${uid}-jira-hint`}
+            aria-describedby={
+              jiraSkipped ? `${uid}-jira-hint ${uid}-jira-skipped` : `${uid}-jira-hint`
+            }
             value={jiraCsv}
             onChange={(e) => onJiraCsvChange(e.target.value)}
             placeholder="Issue key,Summary,Status,Assignee,Story Points,..."
             className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-xs font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
+          {jiraSkipped && (
+            <p id={`${uid}-jira-skipped`} className="mt-1 break-words text-xs text-warning">
+              {jiraSkipped}
+            </p>
+          )}
           <button
             type="button"
             onClick={applyJira}
