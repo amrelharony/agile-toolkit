@@ -261,12 +261,15 @@ describe("importing a Jira export", () => {
   it("reads an uploaded file, semicolons and all", async () => {
     renderPlanning();
     open();
-    const file = new File([SEMICOLON_EXPORT], "pay.csv", { type: "text/csv" });
-    fireEvent.change(within(panel()).getByLabelText("CSV file"), { target: { files: [file] } });
+    // A renamed export: one long word, wider than a phone's panel.
+    const name = "PAY_backlog_export_2026-11-10_all_fields_final.csv";
+    const file = new File([SEMICOLON_EXPORT], name, { type: "text/csv" });
+    const input = within(panel()).getByLabelText("CSV file");
+    fireEvent.change(input, { target: { files: [file] } });
     await vi.waitFor(() => expect(summary()).toHaveTextContent("2 stories to add to the backlog."));
-    expect(
-      within(panel()).getByText("Reading pay.csv. Paste below to use that instead.")
-    ).toBeInTheDocument();
+    expect(input).toHaveAccessibleDescription(`Reading ${name}. Paste below to use that instead.`);
+    // It wraps anywhere, so the page never scrolls sideways at 375 px.
+    expect(within(panel()).getByText(name)).toHaveClass("break-all");
     // The file isn't shown in the box.
     expect(within(panel()).getByLabelText("Or paste the CSV")).toHaveValue("");
     fireEvent.click(within(panel()).getByRole("button", { name: "Import 2 stories" }));

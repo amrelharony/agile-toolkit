@@ -123,7 +123,15 @@ export function JiraImport({
       </p>
       <Field
         label="CSV file"
-        hint={file ? `Reading ${file.name}. Paste below to use that instead.` : undefined}
+        hint={
+          file ? (
+            <>
+              {/* A file name can be one long word: it wraps anywhere, so a phone never scrolls sideways. */}
+              Reading <span className="break-all">{file.name}</span>. Paste below to use that
+              instead.
+            </>
+          ) : undefined
+        }
         error={fileError ?? undefined}
       >
         {(control) => (
