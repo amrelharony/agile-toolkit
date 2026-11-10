@@ -31,6 +31,51 @@ export interface MarkdownExtra {
   themes?: readonly KeywordTheme[];
 }
 
+/** How many cards the summary names under "Most votes", and how many common words. */
+export const SUMMARY_TOP_CARDS = 3;
+export const SUMMARY_THEMES = 5;
+
+/**
+ * The summary at the top: the retro in three lines, for a chat message or
+ * the head of a wiki page, worked out from the board with no AI. The cards
+ * with the most votes (each with its column), the words several cards share
+ * (when the caller found any), and the actions with their owners. The
+ * sections below it are the full record. A line with nothing to say is left
+ * out, except the actions: a retro that agreed none should say so.
+ */
+function summarySection(
+  state: Pick<BoardState, "format" | "cards">,
+  themes: readonly KeywordTheme[]
+): string[] {
+  const column = new Map(state.format.columns.map((c) => [c.key, oneLine(c.label)]));
+  const voted = sortedByVotes(state.cards.filter((c) => c.groupedWith === null && c.votes > 0));
+  const actions = sortedByVotes(state.cards.filter((c) => c.isActionItem));
+  const lines = ["", "## Summary", ""];
+  if (voted.length > 0) {
+    const top = voted.slice(0, SUMMARY_TOP_CARDS).map((c) => {
+      const votes = `${c.votes} ${c.votes === 1 ? "vote" : "votes"}`;
+      const where = column.get(c.columnKey);
+      return `${oneLine(c.text)} (${where ? `${votes}, ${where}` : votes})`;
+    });
+    lines.push(`- **Most votes:** ${top.join("; ")}`);
+  }
+  if (themes.length > 0) {
+    const words = themes.slice(0, SUMMARY_THEMES).map((t) => {
+      const n = t.cardIds.length;
+      return `${oneLine(t.keyword)} (${n} ${n === 1 ? "card" : "cards"})`;
+    });
+    lines.push(`- **Common words:** ${words.join(", ")}`);
+  }
+  lines.push(
+    actions.length === 0
+      ? "- **Actions:** none agreed yet"
+      : `- **Actions:** ${actions
+          .map((a) => `${oneLine(a.text)} (${oneLine(a.assignee) || "no owner yet"})`)
+          .join("; ")}`
+  );
+  return lines;
+}
+
 /** "- **Sprint goal:** Partly met: “…”." for each fact. */
 function factsSection(facts: readonly FactLine[]): string[] {
   return ["", "## Facts", "", ...facts.map((f) => `- **${f.label}:** ${oneLine(f.sentence)}`)];
@@ -52,11 +97,12 @@ function themesSection(themes: readonly KeywordTheme[], cards: readonly RetroCar
 
 /**
  * The retro board as Markdown, for the team wiki or the sprint channel: the
- * sprint in the title and the facts the retro opened with (when the board
- * has a sprint), one section per column (most-voted first, grouped cards
- * nested under their parent), the action items with their owners, then the
- * common words across the cards. The visitor room calls it with the board
- * alone.
+ * sprint in the title, a three-line summary (the most-voted cards, the
+ * common words, the actions with their owners), the facts the retro opened
+ * with (when the board has a sprint), one section per column (most-voted
+ * first, grouped cards nested under their parent), the action items with
+ * their owners, then the common words across the cards. The visitor room
+ * calls it with the board alone, and gets the summary too.
  */
 export function toMarkdown(
   state: Pick<BoardState, "format" | "cards">,
@@ -70,7 +116,7 @@ export function toMarkdown(
     return `${[title, ...facts].join("\n")}\n\nNo cards on the board yet.\n`;
   }
 
-  const lines = [title, ...facts];
+  const lines = [title, ...summarySection(state, extra.themes ?? []), ...facts];
   for (const col of state.format.columns) {
     const cards = state.cards.filter((c) => c.columnKey === col.key);
     const top = sortedByVotes(cards.filter((c) => c.groupedWith === null));
