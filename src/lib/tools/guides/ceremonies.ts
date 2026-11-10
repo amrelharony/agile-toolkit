@@ -17,7 +17,7 @@ export const GUIDES: ToolGuide[] = [
       "Click an action's text to reword it, or its owner (No owner when nobody has it) to change who has it. Enter saves, Escape cancels. The due date saves when you leave the field, and the bin deletes the action, with Undo.",
       "Use Show (Open, Overdue, Done, All) and Filter by owner to see one person's actions, or No owner for the ones nobody has taken.",
       "On a past retro's open action, Carry over copies it onto the current retro. Send to… raises it as an Impediment or a Kanban card; once that is resolved or reaches Done, the action counts as done.",
-      "Follow-through per retro shows how many of each past retro's actions were done, carried over or left open; View as table lists the numbers. Export copies or downloads it all as Markdown.",
+      "Follow-through per retro shows how many of each past retro's actions were done, carried over or left open; View as table lists the numbers. Export copies or downloads it all as Markdown, or the actions as a CSV file.",
     ],
     tips: [
       "If follow-through stays under half, agree fewer actions, each with an owner, at the next retro.",

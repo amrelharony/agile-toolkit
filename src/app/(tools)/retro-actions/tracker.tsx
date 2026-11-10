@@ -53,6 +53,7 @@ import {
   settleRetros,
   type SprintNameOf,
 } from "./follow-through";
+import { actionsToCsv } from "./csv";
 import { actionsToMarkdown } from "./markdown";
 import { EVERYONE, NO_OWNER, matchesOwner, ownerOptions } from "./owners";
 import { QuickAddForm } from "./quick-add";
@@ -511,7 +512,12 @@ export function RetroActionsTracker() {
                 </select>
               </div>
             </div>
-            <ExportButton filename="retro-actions" markdown={markdown} clipboardText={markdown} />
+            <ExportButton
+              filename="retro-actions"
+              markdown={markdown}
+              clipboardText={markdown}
+              csvData={actionsToCsv(actions)}
+            />
           </div>
 
           {groups.length === 0 ? (

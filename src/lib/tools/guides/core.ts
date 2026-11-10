@@ -39,11 +39,11 @@ export const CORE_GUIDES: ToolGuide[] = [
     ],
     steps: [
       "Under Start a Session, name it, pick the Estimation scale (Fibonacci, T-Shirt or Custom card values) and your display name, then click Start Session. Start with the queue brings in the stories other tools queued; Start a live room lets everyone vote from their own device.",
-      "Add stories in the Story Queue (or Add queued stories), then read the current one and its acceptance criteria aloud and answer questions.",
+      "Add stories in the Story Queue (or Add queued stories), then read the current one and its acceptance criteria aloud and answer questions. A queued story shows its notes and criteria under its title.",
       "Everyone picks a card without showing it: under Your vote, or record each person's card under Votes, or click Next voter to pass the screen round.",
       "Click Reveal. The verdict says how close the votes are, with Average, Median, Mode and Cards apart.",
       "If votes differ, the highest and lowest explain their thinking, then click Vote Again.",
-      "Pick the agreed card under Accept estimate and click Accept. Queued stories get their points back where they came from; Save to backlog adds the stories you typed here.",
+      "Pick the agreed card under Accept estimate and click Accept. Queued stories get their points back where they came from; Save to backlog adds the stories you typed here. Export gives the estimates as Markdown or a CSV file.",
     ],
     tips: [
       "Estimate relative size and uncertainty, not hours.",
