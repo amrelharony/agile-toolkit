@@ -214,6 +214,70 @@ describe("Voting as", () => {
   });
 });
 
+describe("Take my vote back", () => {
+  const takeBack = (name = "Take my vote back") => screen.queryAllByRole("button", { name });
+
+  it("gives Me a vote back from a card I voted on, and only there", () => {
+    render(<Harness initial={makeBoard()} />);
+    expect(takeBack()).toHaveLength(0);
+
+    fireEvent.click(voteButtons()[0]);
+    fireEvent.click(voteButtons()[0]);
+    fireEvent.click(voteButtons()[1]);
+    expect(latest.userVotes).toBe(3);
+    expect(takeBack()).toHaveLength(2);
+    for (const button of voteButtons()) expect(button).toBeDisabled();
+
+    fireEvent.click(takeBack()[0]);
+    expect(latest.cards.map((c) => c.votes)).toEqual([1, 1]);
+    expect(latest.userVotes).toBe(2);
+    expect(announced).toContain("Took your vote back. 1 vote left.");
+    // The vote is mine to spend again.
+    expect(voteButtons()[1]).toBeEnabled();
+    fireEvent.click(takeBack()[0]);
+    fireEvent.click(takeBack()[0]);
+    expect(latest.cards.map((c) => c.votes)).toEqual([0, 0]);
+    expect(latest.userVotes).toBe(0);
+    expect(takeBack()).toHaveLength(0);
+  });
+
+  it("takes back each person's own votes, under their name", () => {
+    setRoster("Priya", "Sam");
+    render(<Harness initial={makeBoard()} />);
+    fireEvent.click(within(picker()).getByRole("radio", { name: "Priya · 3 left" }));
+    fireEvent.click(voteButtons()[0]);
+    expect(takeBack("Take Priya's vote back")).toHaveLength(1);
+
+    // Sam didn't vote there: nothing to take back for Sam.
+    fireEvent.click(within(picker()).getByRole("radio", { name: "Sam · 3 left" }));
+    expect(takeBack("Take Sam's vote back")).toHaveLength(0);
+    fireEvent.click(voteButtons()[1]);
+    expect(latest.votesBy).toEqual({ Priya: 1, Sam: 1 });
+
+    fireEvent.click(within(picker()).getByRole("radio", { name: "Priya · 2 left" }));
+    fireEvent.click(takeBack("Take Priya's vote back")[0]);
+    expect(latest.votesBy).toEqual({ Priya: 0, Sam: 1 });
+    expect(latest.cards.map((c) => c.votes)).toEqual([0, 1]);
+    expect(announced).toContain("Took back a vote for Priya. 3 votes left.");
+  });
+
+  it("only offers it in the Vote phase, for votes cast on this visit", () => {
+    // Votes saved on the board are counts: whose they were isn't known.
+    const { unmount } = render(
+      <Harness initial={makeBoard({ userVotes: 1, cards: [card("a", "start", { votes: 1 })] })} />
+    );
+    expect(takeBack()).toHaveLength(0);
+    unmount();
+
+    render(<Harness initial={makeBoard()} />);
+    fireEvent.click(voteButtons()[0]);
+    fireEvent.click(screen.getByRole("button", { name: /Next Phase/ }));
+    expect(takeBack()).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /Previous phase/ }));
+    expect(takeBack()).toHaveLength(1);
+  });
+});
+
 describe("Previous phase", () => {
   it("steps back from Vote to Write and keeps everyone's votes", () => {
     setRoster("Priya");

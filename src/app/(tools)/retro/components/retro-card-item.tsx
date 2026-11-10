@@ -278,11 +278,7 @@ export function RetroCardItem({
               type="button"
               onClick={() => onVote(card.id)}
               disabled={!canVote && phase === "vote"}
-              aria-label={
-                canUnvote
-                  ? `${votesLabel}, ${myVotes} of them yours, vote for this card`
-                  : `${votesLabel}, vote for this card`
-              }
+              aria-label={`${votesLabel}, vote for this card`}
               className={`relative z-10 ${CARD_ICON_TOUCH} gap-1 px-1.5 py-0.5 rounded text-xs transition-all ${
                 phase === "vote" && canVote
                   ? "text-sub hover:text-accent-magenta pointer-fine:hover:bg-accent-magenta/10 cursor-pointer"

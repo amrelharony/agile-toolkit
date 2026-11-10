@@ -13,6 +13,11 @@
  * the single `userVotes` budget. The facilitator can step back a phase
  * (votes are kept) and add a card in any phase.
  *
+ * Taking a vote back: the board remembers, in memory for this visit, which
+ * cards each voter ("Me" or a person) voted on, and "Take my vote back" on
+ * such a card returns one vote to that voter. The saved board keeps counts
+ * only, so after a reload the votes cast before it can't be taken back.
+ *
  * Visitor live room: with NEXT_PUBLIC_VISITOR_ROOMS=1, a visitor (never the
  * owner) can pick "Everyone on their own device" over "One screen" in the
  * header, which opens a live room. Participants' cards and votes arrive
@@ -95,6 +100,36 @@ function newCard(columnKey: string, text: string): RetroCard {
   };
 }
 
+/** Which cards each voter voted on this visit: voter ("" for Me) → card id → votes. */
+type VoteRecord = Record<string, Record<string, number>>;
+
+/** The record's key for a voter: "" for Me, else the name as it matches (any case). */
+function recordKey(voter: string): string {
+  return voter.trim().toLowerCase();
+}
+
+const owns = (o: object, key: string) => Object.prototype.hasOwnProperty.call(o, key);
+
+/** `voter`'s votes per card in `record`. */
+function votesIn(record: VoteRecord, voter: string): Record<string, number> {
+  const key = recordKey(voter);
+  return owns(record, key) ? record[key] : {};
+}
+
+/** `record` with `voter`'s votes on `cardId` moved by `step`. */
+function stepVoteRecord(
+  record: VoteRecord,
+  voter: string,
+  cardId: string,
+  step: 1 | -1
+): VoteRecord {
+  const mine = { ...votesIn(record, voter) };
+  const n = (owns(mine, cardId) ? mine[cardId] : 0) + step;
+  if (n > 0) mine[cardId] = n;
+  else delete mine[cardId];
+  return { ...record, [recordKey(voter)]: mine };
+}
+
 /** "Sat 4 Oct" for the retro that drops off Past retros. */
 function retroDay(iso: string | undefined): string {
   const d = iso ? new Date(iso) : null;
@@ -144,6 +179,9 @@ export function Board({
     (voter && voters.find((n) => n.toLowerCase() === voter.trim().toLowerCase())) || SINGLE_VOTER;
   const votesUsed = activeVoter ? votesCastBy(state.votesBy, activeVoter) : state.userVotes;
   const hasVotes = state.cards.some((c) => c.votes > 0);
+  // Which cards each voter voted on this visit, so a vote can be taken back.
+  const [voteRecord, setVoteRecord] = useState<VoteRecord>({});
+  const myVotes = votesIn(voteRecord, activeVoter);
 
   // ── The sprint, and what the toolkit knows about it ────────────────
   const { sprints, sprint, sprintGone, facts, example, previousRetroId, impedimentsRecorded } =
@@ -311,6 +349,7 @@ export function Board({
           votesBy: { ...prev.votesBy, [voterKey(prev.votesBy, who)]: cast + 1 },
         };
       });
+      setVoteRecord((prev) => stepVoteRecord(prev, who, id, 1));
       log(RETRO_ACTIONS.CARD_VOTED, { cardId: id, voteCount: nextVoteCount });
       if (used + 1 >= MAX_VOTES) {
         announce(
@@ -319,6 +358,51 @@ export function Board({
       }
     },
     [onUpdate, log, announce, activeVoter, state.phase, state.userVotes, state.votesBy, state.cards]
+  );
+
+  // "Take my vote back": one of the current voter's votes off a card they voted on.
+  const handleUnvote = useCallback(
+    (id: string) => {
+      if (state.phase !== "vote") return;
+      const who = activeVoter;
+      const record = votesIn(voteRecord, who);
+      const mine = owns(record, id) ? record[id] : 0;
+      const used = who ? votesCastBy(state.votesBy, who) : state.userVotes;
+      const card = state.cards.find((c) => c.id === id);
+      if (mine <= 0 || used <= 0 || !card || card.votes <= 0) return;
+      onUpdate((prev) => {
+        if (prev.phase !== "vote") return prev;
+        const target = prev.cards.find((c) => c.id === id);
+        if (!target || target.votes <= 0) return prev;
+        const cards = prev.cards.map((c) => (c.id === id ? { ...c, votes: c.votes - 1 } : c));
+        if (!who) {
+          return prev.userVotes > 0 ? { ...prev, userVotes: prev.userVotes - 1, cards } : prev;
+        }
+        const cast = votesCastBy(prev.votesBy, who);
+        if (cast <= 0) return prev;
+        return {
+          ...prev,
+          cards,
+          votesBy: { ...prev.votesBy, [voterKey(prev.votesBy, who)]: cast - 1 },
+        };
+      });
+      setVoteRecord((prev) => stepVoteRecord(prev, who, id, -1));
+      log(RETRO_ACTIONS.CARD_UNVOTED, { cardId: id, voteCount: card.votes - 1 });
+      const left = MAX_VOTES - (used - 1);
+      const votes = `${left} ${left === 1 ? "vote" : "votes"} left`;
+      announce(who ? `Took back a vote for ${who}. ${votes}.` : `Took your vote back. ${votes}.`);
+    },
+    [
+      onUpdate,
+      log,
+      announce,
+      activeVoter,
+      voteRecord,
+      state.phase,
+      state.userVotes,
+      state.votesBy,
+      state.cards,
+    ]
   );
 
   // A voter typed in by the facilitator (no team roster). Kept on the board
@@ -860,6 +944,9 @@ export function Board({
                 onAddMany={handleAddCards}
                 onEdit={handleEditCard}
                 onVote={handleVote}
+                myVotes={myVotes}
+                onUnvote={handleUnvote}
+                unvoteLabel={activeVoter ? `Take ${activeVoter}'s vote back` : "Take my vote back"}
                 onDelete={handleDelete}
                 onGroup={handleGroup}
                 onToggleAction={handleToggleAction}
