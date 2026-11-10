@@ -254,7 +254,9 @@ describe("the poster intro", () => {
     expect(light.textContent).toBe("");
     expect(light).toHaveClass(styles.titleLight);
     expect(light.firstElementChild).toHaveClass(styles.titleStripe);
-    // Before the lettering, which paints over it.
+    // Beside the lettering. The light is positioned, so it would paint over
+    // the text whatever the order: the CSS puts it under (see "lays the
+    // title's light under its lettering" below).
     expect(light.nextElementSibling).toHaveTextContent(TITLE);
     expect(dialog().querySelectorAll('[data-look="light"]')).toHaveLength(1);
   });
@@ -393,6 +395,26 @@ describe("the poster intro's CSS", () => {
       expect(Array.from(step.props.keys())).toEqual(["transform"]);
       expect(step.props.get("transform")).toMatch(/^translateX\(-?[\d.]+%\)$/);
     }
+  });
+
+  /** The top-level rule written for `selector` alone, as written. */
+  const ruleOf = (selector: string) => {
+    const found = Array.from(
+      css.matchAll(new RegExp(`(?:^|\\})\\s*\\${selector}\\s*\\{([^}]*)\\}`, "g")),
+      (m) => m[1]
+    );
+    expect(found, selector).toHaveLength(1);
+    return found[0];
+  };
+
+  // The light is positioned (intro-look.module.css), so without these it would
+  // paint over the in-flow lettering whatever the DOM order, and its shade or
+  // Night's stripe would sit on the title.
+  it("lays the title's light under its lettering, inside the window's own layer", () => {
+    const z = /(?:^|;)\s*z-index:\s*(-?\d+)\s*;/.exec(ruleOf(".titleLight"))?.[1];
+    expect(Number(z)).toBeLessThan(0);
+    // A layer of its own, so the light goes under the title and not under the window's paper.
+    expect(ruleOf(".bigWindow")).toMatch(/(?:^|;)\s*isolation:\s*isolate\s*;/);
   });
 
   it("darkens the page in three flat steps as it lifts away, and is done by the end", () => {

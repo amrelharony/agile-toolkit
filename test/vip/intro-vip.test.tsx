@@ -481,8 +481,37 @@ describe("the timeline in vip-intro.module.css", () => {
     const rule = /(?:^|\})\s*\.book\s*\{([^}]*)\}/.exec(source)?.[1] ?? "";
     expect(rule).toMatch(/(?:^|;)\s*grid-area:\s*1\s*\/\s*1\s*;/);
     expect(rule).toMatch(/(?:^|;)\s*place-self:\s*center\s*;/);
+    // Under the cards, by depth and not by order: a card that has landed has
+    // no transform left, so it is no layer of its own and would paint under a
+    // positioned book. The slot, which drifts, is the layer this -1 stays in.
+    expect(rule).toMatch(/(?:^|;)\s*position:\s*relative\s*;/);
+    expect(rule).toMatch(/(?:^|;)\s*z-index:\s*-1\s*;/);
+    expect(source).toMatch(/\.welcome,\s*\.slot\s*\{\s*animation:\s*vipDriftMid\b/);
     // The cell the tools and the comics take turns in.
     expect(source).toMatch(/\.tools,\s*\.comics\s*\{\s*grid-area:\s*1\s*\/\s*1\s*;\s*\}/);
+  });
+
+  /** The declarations of the top-level rule for `selector`, in order. */
+  function declsOf(selector: string): [string, string][] {
+    const rule = new RegExp(`(?:^|\\})\\s*\\${selector}\\s*\\{([^}]*)\\}`).exec(source);
+    expect(rule, selector).not.toBeNull();
+    return Array.from(rule![1].matchAll(/([a-z-]+)\s*:\s*([^;]+);/g), (d) => [
+      d[1],
+      d[2].replace(/\s+/g, " ").trim(),
+    ]);
+  }
+
+  // As in the book intro: once the cover opens past edge-on, its front (the
+  // lettering, its light and shade) would show mirrored through the inside.
+  it("turns the cover's inside over, and hides each face once it faces away", () => {
+    expect(declsOf(".bookBack")).toContainEqual(["transform", "rotateY(180deg)"]);
+    const face = declsOf(".bookFace");
+    const prefixed = face.findIndex(
+      ([p, v]) => p === "-webkit-backface-visibility" && v === "hidden"
+    );
+    const plain = face.findIndex(([p, v]) => p === "backface-visibility" && v === "hidden");
+    expect(prefixed).toBeGreaterThan(-1);
+    expect(plain).toBeGreaterThan(prefixed);
   });
 
   it("deals the tools at 2.95, 3.25 and 3.55 s, only once the book's cover is open", () => {
