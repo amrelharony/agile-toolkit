@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ToolHistoryDrawer } from "@/components/history/tool-history-drawer";
 import { UndoRedoControls } from "@/components/history/undo-redo-controls";
@@ -12,7 +12,8 @@ import { FavoriteButton } from "@/components/tool-frame/favorite-button";
 import { InkArt } from "@/components/ink/ink-art";
 import { useToolArt } from "@/components/ink/tool-art-context";
 import type { InkDrawing } from "@/lib/ink/types";
-import { isFrameLanding } from "@/lib/motion/page-transition";
+import { growFrom } from "@/lib/motion/grow-from";
+import { isFrameLanding, takeGrowSpot } from "@/lib/motion/page-transition";
 import { cn } from "@/lib/utils";
 
 // Only a tool's own page (toolId) shows these. The insight and next-step
@@ -33,6 +34,8 @@ const NextStepCard = dynamic(
   () => import("@/components/tool-frame/next-step").then((m) => m.NextStepCard),
   { ssr: false }
 );
+
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 interface ToolPageWrapperProps {
   title: string;
@@ -91,7 +94,9 @@ interface ToolPageWrapperProps {
  *     `data-vt-target` a tapped card's frame grows into. When that frame
  *     lands, it is the entrance, so the root leaves the rise out (decided
  *     once, on the first render; a later render never brings it back, or the
- *     page would jump after the frame landed). The server render is
+ *     page would jump after the frame landed). When no view transition
+ *     carried the frame, the header grows from the card's spot instead
+ *     (lib/motion/grow-from.ts), alongside the rise. The server render is
  *     unchanged.
  */
 export function ToolPageWrapper({
@@ -106,12 +111,31 @@ export function ToolPageWrapper({
   const showToolbar = showHistory && Boolean(toolId);
   const toolArt = useToolArt();
   const drawing = art === undefined ? toolArt : (art ?? undefined);
+  const headerRef = useRef<HTMLElement>(null);
   const [frameLanded] = useState(isFrameLanding);
+
+  useIsomorphicLayoutEffect(() => {
+    let live = true;
+    // Next puts the new page's scroll in place later in this same commit (its
+    // scroll handler wraps the page, so it runs after this effect). A
+    // microtask runs once the commit is done and before the first paint, and
+    // never waits for a frame, which a held page change would pause.
+    queueMicrotask(() => {
+      const header = headerRef.current;
+      if (!live || !header) return;
+      const spot = takeGrowSpot();
+      if (spot) growFrom(header, spot);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   return (
     <div className={cn("container-tool isolate", !frameLanded && "motion-safe:animate-rise")}>
       {/* Header row — title + toolbar */}
       <header
+        ref={headerRef}
         data-vt-target=""
         className="panel ink-host mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:gap-4 gap-3 px-4 py-4 sm:px-6 sm:py-5"
       >
