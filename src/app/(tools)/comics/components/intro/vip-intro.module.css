@@ -325,7 +325,7 @@
 }
 
 /* The cover's front darkens in three flat steps as it turns away, until it is
-   edge-on (40% of its opening). */
+   edge-on (40% of its opening). In Night it lightens (intro-look.module.css). */
 .bookShade {
   animation: vipBookShade 0.18s steps(3, jump-start) 2.5s both;
 }

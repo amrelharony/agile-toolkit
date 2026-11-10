@@ -99,6 +99,23 @@
   opacity: 0;
 }
 
+/* Night: the shadow ink is almost the card's own colour, so the face lightens
+   in the text ink instead, as the light's stripe does. The ink sits on a layer
+   inside at 30%, because the scene steps the span's own opacity: at its 24%
+   the lightening peaks near the stripe's 7%. */
+:global(html.dark) .turn {
+  background-color: transparent;
+}
+
+:global(html.dark) .turn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: var(--text);
+  opacity: 0.3;
+}
+
 /* Page edges: four fine ink lines in the hard offset between a page and the
    page block under it, along the block's right and bottom edges. The scene
    gives the offset as --look-edge-x and --look-edge-y; each line is one fifth

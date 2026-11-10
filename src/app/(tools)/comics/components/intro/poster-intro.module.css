@@ -124,7 +124,8 @@
 }
 
 /* The page darkens in three flat steps as it lifts away, until it's nearly
-   gone. Over everything on the page, under the caption and Amr. */
+   gone (in Night it lightens: intro-look.module.css). Over everything on the
+   page, under the caption and Amr. */
 .liftShade {
   animation: lift-shade 0.48s steps(3, jump-start) 2.42s both;
 }

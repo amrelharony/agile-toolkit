@@ -231,6 +231,28 @@ describe("intro-look.module.css", () => {
     expect(value(turn, "background-color")).toBe("var(--shadow-color)");
     expect(value(turn, "opacity")).toBe("0");
   });
+
+  // DNA-SPEC: comic light on a page as it turns or lifts is a flat lightening
+  // in the text ink in Night, where the shadow ink barely shows on the card.
+  it("lightens a turning face in Night, in the text ink and near the stripe's strength", () => {
+    const night = own(":global(html.dark) .turn");
+    expect(night.decls).toEqual([["background-color", "transparent"]]);
+    const ink = own(":global(html.dark) .turn::before");
+    expect(value(ink, "content")).toBe('""');
+    expect(value(ink, "position")).toBe("absolute");
+    expect(value(ink, "inset")).toBe("0");
+    expect(value(ink, "background-color")).toBe("var(--text)");
+    // Every scene steps a turning face's shade up to 24%.
+    const peaks = SCENES.flatMap((file) =>
+      parse(read(file))
+        .keyframes.filter((k) => /shade/i.test(k.name) && k.name !== "vipShade")
+        .map((k) => Number(k.steps.at(-1)!.decls.find(([p]) => p === "opacity")?.[1]))
+    );
+    expect(peaks).toEqual([0.24, 0.24, 0.24]);
+    const lightening = 0.24 * Number(value(ink, "opacity"));
+    expect(lightening).toBeGreaterThan(0.05);
+    expect(lightening).toBeLessThanOrEqual(0.08);
+  });
 });
 
 describe("the look's parts", () => {
