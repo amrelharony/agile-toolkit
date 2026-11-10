@@ -3,6 +3,7 @@ import { SHEET } from "@/components/agent/mascot/engine/sprite-poses";
 import type { StoryCover } from "@/lib/comics/types";
 import { cn } from "@/lib/utils";
 import { IntroAmr, IntroOverlay, IntroPanel } from "./intro-parts";
+import { CoverLettering, Grain, Ground, Light, PageEdges, TurnShade } from "./intro-look";
 import styles from "./vip-intro.module.css";
 
 /**
@@ -12,7 +13,8 @@ import styles from "./vip-intro.module.css";
  * Three depth layers drift at three speeds, so the page has parallax: empty
  * panel outlines at the back, the lettering and the tools in the middle, Amr in
  * front. An ink wipe opens it, the welcome is lettered word by word, Amr jumps
- * in and asks his question, the tools are dealt in, the early comics fan out
+ * in and asks his question, a small copy of the book drops into the tools'
+ * place, opens, and the tools are dealt out of it, the early comics fan out
  * when there are any, and the page turns away. vip-intro.module.css holds the
  * timeline; without early comics the tools simply hold until the page turns.
  *
@@ -87,6 +89,57 @@ const FANS: Record<number, readonly FanPlace[]> = {
   ],
 };
 
+/**
+ * How many card places (a card's height and the gap) a dealt card starts from
+ * its own place, down to the middle of the stack: where the book lies. The
+ * first of three starts one place down, the middle one where it lands.
+ */
+function dealFrom(index: number, count: number): string {
+  return String((count - 1) / 2 - index);
+}
+
+/**
+ * A small copy of the book, lettered like its cover, lying in the middle of
+ * the tools' place: it drops in, a stripe of light crosses its closed cover,
+ * the cover opens, the tools are dealt out of it, and it steps back for good.
+ * It shares the slot's one grid cell, so it adds no row, and lies under the
+ * cards, which come out of it. Decorative, so hidden from screen readers: the
+ * welcome and the tools say what it means. The parts are the book intro's
+ * look (intro-look.tsx); vip-intro.module.css moves them.
+ */
+function DealingBook() {
+  return (
+    <div aria-hidden="true" className={styles.book}>
+      <div className={styles.bookCamera}>
+        {/* On the ground, outside the book's 3D space, so the book always draws over it. */}
+        <Ground className={styles.bookGround} />
+        <div className={styles.bookDrop}>
+          <span className={styles.bookBlock}>
+            <PageEdges />
+          </span>
+          {/* The page the cards come out of. */}
+          <span className={styles.bookInside}>
+            <Grain />
+            <Light trackClassName={styles.bookRestingLight} />
+          </span>
+          <div className={styles.bookCover}>
+            <div className={styles.bookFace}>
+              <CoverLettering byline={false} />
+              <Grain />
+              <Light trackClassName={styles.bookStripe} />
+              <TurnShade className={styles.bookShade} />
+            </div>
+            <span className={cn(styles.bookFace, styles.bookBack)}>
+              <Grain />
+              <span className={styles.bookEndpaper} />
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function VipIntro({
   tools,
   earlyComics,
@@ -121,8 +174,6 @@ export function VipIntro({
           <span aria-hidden="true" className={styles.rule} />
         </div>
 
-        {/* PR 8: the user's 3D book comes in here, between the welcome and the tools. */}
-
         {/* Before the tools, so a screen reader hears the question first; the
             grid areas place it at the foot of the page. */}
         <div
@@ -148,12 +199,19 @@ export function VipIntro({
         </div>
 
         <div className={styles.slot}>
+          {/* The book the tools are dealt out of: none to deal, no book. */}
+          {shownTools.length > 0 ? <DealingBook /> : null}
+
           {shownTools.length > 0 ? (
             <ul className={styles.tools}>
               {shownTools.map((tool, i) => {
                 const Icon = tool.icon;
                 return (
-                  <li key={tool.id} className={cn("panel", styles.tool, DEAL_CLASSES[i])}>
+                  <li
+                    key={tool.id}
+                    className={cn("panel", styles.tool, DEAL_CLASSES[i])}
+                    style={{ "--deal-from": dealFrom(i, shownTools.length) } as CSSProperties}
+                  >
                     <span aria-hidden="true" className={cn("text-accent", styles.toolIcon)}>
                       <Icon className="h-full w-full" />
                     </span>

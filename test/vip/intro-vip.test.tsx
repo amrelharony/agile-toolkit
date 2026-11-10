@@ -60,6 +60,8 @@ const CSS = "src/app/(tools)/comics/components/intro/vip-intro.module.css";
 const WELCOME = "Welcome, reader of the book";
 const QUESTION = "Would one of these help your team this week?";
 const EARLY_HEADING = "The next four weeks of comics";
+/** The small book's cover lettering, the book intro's own words. */
+const BOOK_TITLE = "Agile at Work";
 
 /** One more than the intro shows, so the cut-off is tested too. */
 const TOOLS: VipIntroTool[] = [
@@ -220,7 +222,13 @@ describe("VipIntro", () => {
 
     it("says nothing but the allowed words", () => {
       render(<VipIntro tools={TOOLS} earlyComics={[]} />);
-      const allowed = ["Skip intro", WELCOME, QUESTION, ...TOOLS.slice(0, 3).map((t) => t.name)];
+      const allowed = [
+        "Skip intro",
+        WELCOME,
+        QUESTION,
+        BOOK_TITLE,
+        ...TOOLS.slice(0, 3).map((t) => t.name),
+      ];
       expect(leftover(overlay()!, allowed).trim()).toBe("");
     });
   });
@@ -270,9 +278,58 @@ describe("VipIntro", () => {
         WELCOME,
         QUESTION,
         EARLY_HEADING,
+        BOOK_TITLE,
         ...TOOLS.slice(0, 3).map((t) => t.name),
       ];
       expect(leftover(overlay()!, allowed).trim()).toBe("");
+    });
+  });
+
+  describe("the book the tools are dealt out of", () => {
+    const book = () => overlay()!.querySelector<HTMLElement>(`.${styles.book}`);
+
+    it.each([
+      ["without art", []],
+      ["with art", EARLY],
+    ])("%s, lies in the tools' place, before them, hidden from screen readers", (_, comics) => {
+      render(<VipIntro tools={TOOLS} earlyComics={comics} />);
+      const el = book()!;
+      const slot = overlay()!.querySelector(`.${styles.slot}`)!;
+      expect(el.parentElement).toBe(slot);
+      expect(el.nextElementSibling).toBe(slot.querySelector(`ul.${styles.tools}`));
+      expect(el).toHaveAttribute("aria-hidden", "true");
+      // No picture of its own, so the image and icon counts above hold.
+      expect(el.querySelector("img, svg, canvas, video, picture")).toBeNull();
+      expect(el.textContent).toBe(BOOK_TITLE);
+    });
+
+    it("wears the book intro's look: grain, light, a turning shade, page edges and a ground", () => {
+      render(<VipIntro tools={TOOLS} earlyComics={[]} />);
+      const looks = Array.from(book()!.querySelectorAll("[data-look]"), (n) =>
+        n.getAttribute("data-look")
+      );
+      expect(looks.sort()).toEqual(
+        ["edges", "grain", "grain", "grain", "ground", "light", "light", "turn"].sort()
+      );
+      const cover = book()!.querySelector(`.${styles.bookCover}`)!;
+      expect(cover.querySelector(`[data-look="light"] > .${styles.bookStripe}`)).not.toBeNull();
+      expect(cover.querySelector(`[data-look="turn"].${styles.bookShade}`)).not.toBeNull();
+      expect(book()!.querySelector(`[data-look="ground"].${styles.bookGround}`)).not.toBeNull();
+    });
+
+    it("has no book when there are no tools to deal", () => {
+      render(<VipIntro tools={[]} earlyComics={EARLY} />);
+      expect(book()).toBeNull();
+    });
+
+    it.each([
+      [3, ["1", "0", "-1"]],
+      [2, ["0.5", "-0.5"]],
+      [1, ["0"]],
+    ])("deals %i cards each from the middle of the stack, where the book lies", (count, from) => {
+      render(<VipIntro tools={TOOLS.slice(0, count)} earlyComics={[]} />);
+      const cards = Array.from(overlay()!.querySelectorAll<HTMLElement>("li"));
+      expect(cards.map((li) => li.style.getPropertyValue("--deal-from"))).toEqual(from);
     });
   });
 });
@@ -385,6 +442,88 @@ describe("the timeline in vip-intro.module.css", () => {
       for (const prop of Array.from(body.matchAll(/(?:^|[{;])\s*([a-z-]+)\s*:/g)))
         expect(allowed.has(prop[1]), `${name}: ${prop[1]}`).toBe(true);
     });
+  });
+
+  /** The one animation `selector` runs. */
+  function only(selector: string) {
+    const found = animations.filter((a) => a.selector === selector);
+    expect(found, selector).toHaveLength(1);
+    return found[0];
+  }
+
+  /** A keyframes block's first step, as written. */
+  const firstStep = (name: string) =>
+    /^\s*(?:from|0%)[^{]*\{([^}]*)\}/.exec(keyframes.get(name) ?? "")?.[1] ?? "";
+
+  it("lays the book in the slot's one cell, centred, so it adds no row", () => {
+    const rule = /(?:^|\})\s*\.book\s*\{([^}]*)\}/.exec(source)?.[1] ?? "";
+    expect(rule).toMatch(/(?:^|;)\s*grid-area:\s*1\s*\/\s*1\s*;/);
+    expect(rule).toMatch(/(?:^|;)\s*place-self:\s*center\s*;/);
+    // The cell the tools and the comics take turns in.
+    expect(source).toMatch(/\.tools,\s*\.comics\s*\{\s*grid-area:\s*1\s*\/\s*1\s*;\s*\}/);
+  });
+
+  it("deals the tools at 2.95, 3.25 and 3.55 s, only once the book's cover is open", () => {
+    const open = only(".bookCover");
+    [".deal0", ".deal1", ".deal2"].forEach((selector, i) => {
+      const deal = only(selector);
+      expect(deal.delay, selector).toBeCloseTo([2.95, 3.25, 3.55][i], 9);
+      expect(deal.delay, selector).toBeGreaterThanOrEqual(endsAt(open) - 1e-9);
+    });
+  });
+
+  it("starts each card small at the middle of the stack, by its own --deal-from", () => {
+    for (const selector of [".deal0", ".deal1", ".deal2"]) {
+      const first = firstStep(only(selector).name);
+      expect(first, selector).toMatch(/var\(--deal-from\b/);
+      expect(first, selector).toMatch(/scale\(0\.35\)/);
+      expect(first, selector).toMatch(/opacity:\s*0\s*;/);
+    }
+  });
+
+  it("shows the book as it starts to drop, and grows its ground shadow with the drop", () => {
+    const drop = only(".bookDrop");
+    const ground = only(".bookGround");
+    expect([ground.delay, ground.duration]).toEqual([drop.delay, drop.duration]);
+    expect(firstStep(ground.name)).toMatch(/transform:\s*scaleX\([\d.]+\)\s*;/);
+    expect(only(".bookCamera").delay).toBeCloseTo(drop.delay, 9);
+    expect(firstStep(only(".bookCamera").name)).toMatch(/opacity:\s*0\s*;/);
+  });
+
+  it("sweeps the stripe across the closed cover, ending before it opens", () => {
+    const stripe = only(".bookStripe");
+    expect(stripe.delay).toBeGreaterThanOrEqual(only(".bookDrop").delay);
+    expect(endsAt(stripe)).toBeLessThanOrEqual(only(".bookCover").delay + 1e-9);
+  });
+
+  it("darkens the cover's front in three flat steps until it is edge-on", () => {
+    const [cover, shade] = [only(".bookCover"), only(".bookShade")];
+    const edgeOn = /([\d.]+)%\s*\{[^}]*rotateY\(-90deg\)/.exec(keyframes.get(cover.name) ?? "");
+    expect(edgeOn, "an edge-on step").not.toBeNull();
+    expect(shade.delay).toBeCloseTo(cover.delay, 9);
+    expect(endsAt(shade)).toBeCloseTo(cover.delay + (cover.duration * Number(edgeOn![1])) / 100, 9);
+    expect(source).toMatch(/\.bookShade\s*\{\s*animation:\s*[\w-]+ [\d.]+s steps\(3\b/);
+  });
+
+  it("steps the book back for good once the last card is out, before the comics come in", () => {
+    const back = only(".book");
+    expect(back.delay).toBeGreaterThanOrEqual(only(".deal2").delay - 1e-9);
+    expect(only(".comicsHeading").delay).toBeCloseTo(5.8, 9);
+    expect(endsAt(back)).toBeLessThanOrEqual(only(".comicsHeading").delay);
+    const last = /(?:100%|to)\s*\{([^}]*)\}\s*$/.exec(keyframes.get(back.name) ?? "")?.[1] ?? "";
+    expect(last).toMatch(/opacity:\s*0\s*;/);
+    expect(last).toMatch(/visibility:\s*hidden\s*;/);
+  });
+
+  // vipFan still rises from 45vh below; only the deal and the book are held here.
+  it("moves the deal and the book by their own sizes, never by the screen's", () => {
+    const names = new Set(
+      animations.filter((a) => /^\.(?:deal\d|book\w*)$/.test(a.selector)).map((a) => a.name)
+    );
+    expect(names.size).toBeGreaterThanOrEqual(9);
+    for (const name of Array.from(names)) {
+      expect(keyframes.get(name), name).not.toMatch(/\d(?:[sld]?vh|vmin|vmax|vw)\b/);
+    }
   });
 });
 
