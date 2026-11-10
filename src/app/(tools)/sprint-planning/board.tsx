@@ -298,7 +298,14 @@ export function PlanningBoard({
 
   // The list being pasted (null: the panel is closed), and whether it came
   // from the sprint's own add field, which ticks "into the sprint" for it.
-  const [pasting, setPasting] = useState<{ text: string; intoSprint: boolean } | null>(null);
+  // `more` is a list pasted into that field while the panel was open: the
+  // panel reads `text` only as it opens, so a later list is handed over to
+  // be added to what it holds.
+  const [pasting, setPasting] = useState<{
+    text: string;
+    intoSprint: boolean;
+    more?: { text: string; n: number };
+  } | null>(null);
   const pasteButton = useRef<HTMLButtonElement>(null);
   const closePaste = () => {
     setPasting(null);
@@ -678,6 +685,7 @@ export function PlanningBoard({
             <PasteStories
               initialText={pasting.text}
               intoSprintFirst={pasting.intoSprint}
+              more={pasting.more}
               sprintName={closed ? undefined : sprint.name}
               onAdd={addPasted}
               onClose={closePaste}
@@ -735,11 +743,16 @@ export function PlanningBoard({
                       onChange={(e) => form.update({ title: e.target.value })}
                       // A list pasted here would run together into one title:
                       // it opens in "Paste stories" instead, one story a line.
+                      // With the panel open already, it joins the panel's list.
                       onPaste={(e) => {
                         const text = e.clipboardData.getData("text");
                         if (!splitPastedLines(text, PASTE_STORIES_CAP)) return;
                         e.preventDefault();
-                        setPasting({ text, intoSprint: true });
+                        setPasting((open) =>
+                          open
+                            ? { ...open, more: { text, n: (open.more?.n ?? 0) + 1 } }
+                            : { text, intoSprint: true }
+                        );
                       }}
                     />
                   )}

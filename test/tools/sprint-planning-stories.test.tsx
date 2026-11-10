@@ -644,6 +644,47 @@ describe("Paste stories", () => {
     expect(screen.queryByRole("region", { name: "Paste stories" })).toBeNull();
   });
 
+  it("adds a list pasted into the add-story field to the panel when it is already open", () => {
+    renderPlanning();
+    openPaste();
+    const box = () => within(panel()).getByLabelText("Stories to add");
+    fireEvent.change(box(), { target: { value: "Already typed\n" } });
+    const field = screen.getByLabelText("New story");
+    act(() => field.focus());
+    fireEvent.paste(field, { clipboardData: { getData: () => "Gift cards\nSplit payments" } });
+    // Nothing is lost: the list joins what the panel held, bound for the
+    // sprint as that field's stories are, and focus follows it there.
+    expect(box()).toHaveValue("Already typed\nGift cards\nSplit payments");
+    expect(within(panel()).getByLabelText("Put them straight into Sprint 2")).toBeChecked();
+    expect(box()).toHaveFocus();
+    expect(field).toHaveValue("");
+    // And again: every paste is added, also the same list twice.
+    fireEvent.paste(field, { clipboardData: { getData: () => "Gift cards\nSplit payments" } });
+    expect(box()).toHaveValue(
+      "Already typed\nGift cards\nSplit payments\nGift cards\nSplit payments"
+    );
+    fireEvent.click(within(panel()).getByRole("button", { name: "Add 5 stories to Sprint 2" }));
+    expect(
+      state()
+        .stories.slice(-5)
+        .map((s) => [s.title, s.sprintId])
+    ).toEqual([
+      ["Already typed", "s2"],
+      ["Gift cards", "s2"],
+      ["Split payments", "s2"],
+      ["Gift cards", "s2"],
+      ["Split payments", "s2"],
+    ]);
+
+    // Opened again from the button, it starts empty and for the backlog.
+    openPaste();
+    expect(box()).toHaveValue("");
+    expect(within(panel()).getByLabelText("Put them straight into Sprint 2")).not.toBeChecked();
+    // A list pasted into an empty open panel is the panel's text as it is.
+    fireEvent.paste(field, { clipboardData: { getData: () => "Pay later\nGift receipts" } });
+    expect(box()).toHaveValue("Pay later\nGift receipts");
+  });
+
   it("only offers the backlog while the sprint is closed", () => {
     useWorkspaceStore.setState({ sprints: [S1, { ...S2, status: "completed" }] });
     renderPlanning();

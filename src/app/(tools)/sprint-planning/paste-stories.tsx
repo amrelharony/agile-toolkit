@@ -27,6 +27,7 @@ export function PasteStories({
   initialText = "",
   sprintName,
   intoSprintFirst = false,
+  more,
   onAdd,
   onClose,
 }: {
@@ -36,6 +37,11 @@ export function PasteStories({
   sprintName?: string;
   /** Start with "into the sprint" ticked (the paste came from the sprint's own add field). */
   intoSprintFirst?: boolean;
+  /**
+   * A list pasted into the add-story field while this panel is open: `n`
+   * counts those pastes, so the same list pasted twice is added twice.
+   */
+  more?: { text: string; n: number };
   onAdd: (values: PasteValues) => void;
   onClose: () => void;
 }) {
@@ -49,6 +55,23 @@ export function PasteStories({
   });
   const field = useRef<HTMLTextAreaElement>(null);
   useEffect(() => field.current?.focus(), []);
+
+  // The form keeps its own draft, so a list that arrives later is added to
+  // it here: under what the box holds, bound for the sprint as that field's
+  // stories are, with focus on the box so it is clear where the list went.
+  const taken = useRef(0);
+  useEffect(() => {
+    if (!more || more.n === taken.current) return;
+    taken.current = more.n;
+    const held = form.draft.text.replace(/\s+$/, "");
+    form.update({
+      text: held ? `${held}\n${more.text}` : more.text,
+      ...(sprintName !== undefined ? { intoSprint: true } : {}),
+    });
+    field.current?.focus();
+    // Only when another list arrives; the draft it joins is this render's.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [more?.n]);
 
   const pasted = pastedStories(form.draft.text);
   const count = pasted.titles.length;
