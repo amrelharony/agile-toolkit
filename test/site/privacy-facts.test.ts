@@ -323,10 +323,7 @@ describe("who processes what, and where", () => {
       "src/app/og/tools/[id]/route.tsx": "the tools' share images",
       "src/app/api/agent/stream/route.ts": "the owner's AI stream",
     };
-    const files = sourceFiles(path.join(root, "src")).map((file) => ({
-      file: path.relative(root, file).replace(/\\/g, "/"),
-      text: readFileSync(file, "utf8"),
-    }));
+    const files = sourceTexts();
     const edge = files
       .filter(({ text }) =>
         /export\s+const\s+runtime\s*=\s*["'](?:experimental-)?edge["']/.test(text)
@@ -440,6 +437,19 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
+let srcTexts: { file: string; text: string }[] | undefined;
+/**
+ * Every file under src with its text, read once for the whole file: two
+ * checks scan it, and reading the tree twice is slow on a loaded runner.
+ */
+function sourceTexts(): { file: string; text: string }[] {
+  srcTexts ??= sourceFiles(path.join(root, "src")).map((file) => ({
+    file: path.relative(root, file).replace(/\\/g, "/"),
+    text: readFileSync(file, "utf8"),
+  }));
+  return srcTexts;
+}
+
 describe("for your security team", () => {
   it("lists four checks, with the script rule quoted from the header itself", () => {
     const checks = securityChecks();
@@ -475,11 +485,9 @@ describe("for your security team", () => {
       "src/lib/auth/supabase-server.ts": "owner",
       "src/lib/auth/sign-out.ts": "owner",
     };
-    const setters = sourceFiles(path.join(root, "src"))
-      .filter((file) =>
-        /cookieStore\.set\(|\.cookies\.set\(|document\.cookie\s*=/.test(readFileSync(file, "utf8"))
-      )
-      .map((file) => path.relative(root, file).replace(/\\/g, "/"))
+    const setters = sourceTexts()
+      .filter(({ text }) => /cookieStore\.set\(|\.cookies\.set\(|document\.cookie\s*=/.test(text))
+      .map(({ file }) => file)
       .sort();
     expect(setters).toEqual(Object.keys(CASES).sort());
     expect(new Set(Object.values(CASES))).toEqual(new Set(["owner", "book", "squad"]));
