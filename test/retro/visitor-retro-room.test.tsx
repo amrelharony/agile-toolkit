@@ -25,6 +25,8 @@ const h = vi.hoisted(() => ({
   auth: null as unknown,
   realtime: true,
   undo: null as null | { label: string; apply: () => void; revert: () => void },
+  /** Every config the Board handed the AI prompt panel, oldest first. */
+  prompts: [] as unknown[],
 }));
 
 vi.mock("@/lib/auth/auth-provider", () => ({ useAuthOptional: () => h.auth }));
@@ -47,7 +49,12 @@ vi.mock("@/lib/utils/undoable", () => ({
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+vi.mock("@/components/shared/ai-prompt-generator", () => ({
+  AiPromptGenerator: ({ config }: { config: unknown }) => {
+    h.prompts.push(config);
+    return null;
+  },
+}));
 vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({ log: () => {}, toolRunId: "test-run" }),
 }));
@@ -152,6 +159,7 @@ beforeEach(() => {
   h.auth = VISITOR;
   h.realtime = true;
   h.undo = null;
+  h.prompts = [];
   vi.mocked(exportToMarkdown).mockClear();
   fakeRealtime.reset();
   useWorkspaceStore.setState({ retroBoards: [] });
@@ -301,7 +309,9 @@ describe("Everyone on their own device, on the Retro board", () => {
     });
     expect(screen.getByRole("button", { name: /^pairing/ })).toHaveTextContent("2 cards");
 
-    // Every node the page inserts while the card lands, kept even if removed again.
+    // Every node the page inserts while the card lands, kept even if removed again,
+    // and every prompt the AI panel is handed meanwhile.
+    h.prompts = [];
     const observer = new MutationObserver(() => {});
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     act(() =>
@@ -326,6 +336,8 @@ describe("Everyone on their own device, on the Retro board", () => {
       );
     observer.disconnect();
     expect(drawn.join("\n")).not.toContain("Pat's secret");
+    expect(h.prompts.length).toBeGreaterThan(0);
+    expect(JSON.stringify(h.prompts)).not.toContain("Pat's secret");
     expect(screen.getByText("1 card from others, hidden until Vote")).toBeInTheDocument();
     // Its words stay out of Common words too.
     expect(screen.getByRole("button", { name: /^pairing/ })).toHaveTextContent("2 cards");
@@ -333,6 +345,7 @@ describe("Everyone on their own device, on the Retro board", () => {
     fireEvent.click(screen.getByRole("button", { name: /next phase/i }));
     expect(screen.getByText("Pairing is Pat's secret")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^pairing/ })).toHaveTextContent("3 cards");
+    expect(JSON.stringify(h.prompts.at(-1))).toContain("Pat's secret");
   });
 
   it("ends the room on request and keeps the board", () => {
