@@ -14,12 +14,19 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, Story, StoryStatus } from "@/lib/stores/workspace-types";
 import { setStoryStatus, updateSprint } from "@/lib/sprints/store";
 import { withStoryStatus } from "@/lib/sprints/story-status";
+import { deleteStoryKeepingUndo } from "@/lib/stories/delete";
 
 export interface PlanningWriter {
   /** The stories as stored right now. */
   stories(): Story[];
   upsertStory(story: Story): void;
+  /** Take back a story this page just made (the Undo of an add, an import or a paste). */
   removeStory(id: string): void;
+  /**
+   * Delete a story the user chose to delete. Returns how to put it back
+   * exactly, in its place in the stored order (null: there is no such story).
+   */
+  deleteStory(id: string): (() => void) | null;
   /** Move a story to `status`, stamping its flow times (`setStoryStatus`). */
   setStatus(id: string, status: StoryStatus): void;
   updateSprint(id: string, patch: Partial<Omit<Sprint, "id">>): void;
@@ -30,6 +37,8 @@ export const liveWriter: PlanningWriter = {
   stories: () => useWorkspaceStore.getState().stories,
   upsertStory: (story) => useWorkspaceStore.getState().upsertStory(story),
   removeStory: (id) => useWorkspaceStore.getState().removeStory(id),
+  // With the Canvas cards pinned to it, which the Undo re-links.
+  deleteStory: (id) => deleteStoryKeepingUndo(id),
   setStatus: (id, status) => {
     setStoryStatus(id, status);
   },
@@ -64,6 +73,19 @@ export function exampleWriter(store: ExampleStore): PlanningWriter {
     stories: () => store.getState().stories,
     upsertStory: (story) => store.setState((s) => ({ stories: replaceById(s.stories, story) })),
     removeStory: (id) => store.setState((s) => ({ stories: s.stories.filter((x) => x.id !== id) })),
+    deleteStory: (id) => {
+      const index = store.getState().stories.findIndex((x) => x.id === id);
+      if (index < 0) return null;
+      const story = store.getState().stories[index];
+      store.setState((s) => ({ stories: s.stories.filter((x) => x.id !== id) }));
+      return () =>
+        store.setState((s) => {
+          if (s.stories.some((x) => x.id === id)) return s;
+          const stories = [...s.stories];
+          stories.splice(Math.min(index, stories.length), 0, story);
+          return { stories };
+        });
+    },
     setStatus: (id, status) =>
       store.setState((s) => ({
         stories: s.stories.map((x) => (x.id === id ? withStoryStatus(x, status) : x)),

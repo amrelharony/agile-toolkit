@@ -2,14 +2,17 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { Check, Pencil } from "lucide-react";
+import { Check, ChevronDown, CircleMinus, Pencil, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
 import { SourceLink } from "@/components/handoff/source-link";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
+import { StoryDetailsPanel, StoryTicket } from "@/components/stories/story-details";
 import { cn } from "@/lib/utils";
 import type { Story } from "@/lib/stores/workspace-types";
 import { isRankedStory, storyPoints } from "@/lib/sprints/plan";
+import { hasStoryDetails, storyLink, type StoryDetails } from "@/lib/stories/fields";
+import type { StoryRemoval } from "@/lib/stories/removal";
 import { checkStoryPoints, isReady } from "./view";
 
 const STATUS_LABEL: Record<Story["status"], string> = {
@@ -126,13 +129,31 @@ function ReadinessBadge({ story }: { story: Story }) {
   );
 }
 
-/** One story: tick in or out of the sprint, its title (edit in place), what it is, its points. */
+/**
+ * The row's small buttons after the pencil (delete, remove from the sprint):
+ * 28 px as drawn, 44 px to a finger at any width. On a touch screen each
+ * stands 8 px clear of the pencil's slot (the row's 4 px gap and this 4 px
+ * margin), which is how far the pencil's own 44 px reaches, so the two
+ * targets meet and never overlap.
+ */
+const ROW_ACTION =
+  "h-7 w-7 shrink-0 pointer-coarse:-mr-2 pointer-coarse:-mt-2 pointer-coarse:ml-1 pointer-coarse:min-h-11 pointer-coarse:min-w-11 md:pointer-coarse:min-h-11 md:pointer-coarse:min-w-11";
+
+/**
+ * One story: tick in or out of the sprint, its title (edit in place), what
+ * it is, its points; its acceptance criteria, notes, ticket key and link
+ * behind "Details"; and the bin (a story in the backlog or in a sprint that
+ * hasn't started) or "remove from the sprint" (a running sprint).
+ */
 function StoryRow({
   story,
   checked,
   onToggle,
   onPoints,
   onRename,
+  onDetails,
+  onDelete,
+  removal = "locked",
   showStatus,
   showPriority,
   cantAdd,
@@ -142,6 +163,11 @@ function StoryRow({
   onToggle: (story: Story) => void;
   onPoints: (story: Story, points: number | undefined) => void;
   onRename: (story: Story, title: string) => void;
+  /** Save the story's acceptance criteria, notes, ticket key and link. Absent: no Details. */
+  onDetails?: (story: Story, details: StoryDetails) => void;
+  onDelete?: (story: Story) => void;
+  /** What the row's remove control may do (lib/stories/removal.ts). */
+  removal?: StoryRemoval;
   showStatus?: boolean;
   showPriority?: boolean;
   /** Why the box can't tick the story into the sprint (a closed sprint), if it can't. */
@@ -149,7 +175,14 @@ function StoryRow({
 }) {
   const edit = useInlineEdit();
   const errorId = useId();
+  const detailsId = useId();
   const [pointsError, setPointsError] = useState<string | undefined>();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsToggle = useRef<HTMLButtonElement>(null);
+  const hasDetails = hasStoryDetails(story);
+  // A done story's details can be read, but none are started on one that has none.
+  const showDetails = onDetails !== undefined && (story.status !== "done" || hasDetails);
+  const hasTicket = Boolean(story.ticketKey?.trim() || storyLink(story.link));
   // A done story stays in its sprint: moving it out would hide finished
   // work (it isn't backlog any more), so its box can't be unticked.
   const done = checked && story.status === "done";
@@ -166,7 +199,12 @@ function StoryRow({
       typeof story.priorityScore === "number" ? `Priority ${story.priorityScore}` : "Not scored"
     );
   }
-  const hasMeta = meta.length > 0 || story.status !== "done" || Boolean(story.sourceRef);
+  const hasMeta =
+    meta.length > 0 ||
+    story.status !== "done" ||
+    Boolean(story.sourceRef) ||
+    hasTicket ||
+    showDetails;
   // On a phone (below sm) the row is a grid: the points field leaves the
   // title's line for the meta line under it, so the title gets the row's
   // width and a long one wraps to about 3 lines at 360 px, not 5. The middle
@@ -226,6 +264,26 @@ function StoryRow({
                 className="h-7 w-7 shrink-0 text-sub hover:text-text pointer-coarse:-mx-2 pointer-coarse:-mt-2 pointer-coarse:min-h-11 pointer-coarse:min-w-11 md:pointer-coarse:min-h-11 md:pointer-coarse:min-w-11"
                 onClick={edit.start}
               />
+              {removal === "delete" && onDelete && (
+                <IconButton
+                  label={`Delete ${story.title}`}
+                  icon={<Trash2 className="h-3.5 w-3.5" />}
+                  variant="danger-ghost"
+                  className={ROW_ACTION}
+                  onClick={() => onDelete(story)}
+                />
+              )}
+              {/* In a running sprint a story can only leave it: deleting it
+                  would erase it from the days it was in scope. The box does
+                  the same; this stands where the bin would. */}
+              {removal === "remove-from-sprint" && checked && (
+                <IconButton
+                  label={`Remove ${story.title} from the sprint`}
+                  icon={<CircleMinus className="h-3.5 w-3.5" />}
+                  className={cn(ROW_ACTION, "text-sub hover:text-text")}
+                  onClick={() => onToggle(story)}
+                />
+              )}
             </div>
           )}
           {hasMeta && (
@@ -243,6 +301,27 @@ function StoryRow({
               {story.status !== "done" && <ReadinessBadge story={story} />}
               {/* Where it came from: a job, a story-map card, a review note… */}
               <SourceLink sourceRef={story.sourceRef} />
+              {/* Its issue in the team's tracker, opened in a new tab. */}
+              <StoryTicket story={story} />
+              {showDetails && (
+                <button
+                  ref={detailsToggle}
+                  type="button"
+                  aria-expanded={detailsOpen}
+                  aria-controls={detailsOpen ? detailsId : undefined}
+                  onClick={() => setDetailsOpen((open) => !open)}
+                  className="group inline-flex items-center rounded text-xs text-sub hover:text-accent focus-visible:outline-none pointer-coarse:min-h-11"
+                >
+                  <span className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 group-focus-visible:ring-2 group-focus-visible:ring-accent">
+                    {hasDetails ? "Details" : "Add details"}
+                    <span className="sr-only">: {story.title}</span>
+                    <ChevronDown
+                      className={cn("h-3 w-3 transition-transform", detailsOpen && "rotate-180")}
+                      aria-hidden="true"
+                    />
+                  </span>
+                </button>
+              )}
             </p>
           )}
         </div>
@@ -264,6 +343,20 @@ function StoryRow({
           {pointsError}
         </p>
       )}
+      {detailsOpen && onDetails && (
+        <StoryDetailsPanel
+          id={detailsId}
+          story={story}
+          // Nothing to read yet: open straight on the form.
+          startEditing={!hasDetails}
+          onSave={(details) => onDetails(story, details)}
+          onEmpty={() => {
+            setDetailsOpen(false);
+            detailsToggle.current?.focus();
+          }}
+          className="mt-2 rounded-lg border border-border bg-surface/40 p-3 sm:ml-7"
+        />
+      )}
     </li>
   );
 }
@@ -275,6 +368,9 @@ export function StoryList({
   onToggle,
   onPoints,
   onRename,
+  onDetails,
+  onDelete,
+  removalOf,
   showStatus,
   showPriority,
   label,
@@ -287,6 +383,12 @@ export function StoryList({
   onToggle: (story: Story, index: number) => void;
   onPoints: (story: Story, points: number | undefined) => void;
   onRename: (story: Story, title: string) => void;
+  /** Save a story's acceptance criteria, notes, ticket key and link. */
+  onDetails?: (story: Story, details: StoryDetails) => void;
+  /** Delete a story (its row shows the bin only where `removalOf` allows it). */
+  onDelete?: (story: Story, index: number) => void;
+  /** What each row's remove control may do; absent: no row has one. */
+  removalOf?: (story: Story) => StoryRemoval;
   showStatus?: boolean;
   showPriority?: boolean;
   /** The list's accessible name. */
@@ -310,6 +412,9 @@ export function StoryList({
           onToggle={(s) => onToggle(s, index)}
           onPoints={onPoints}
           onRename={onRename}
+          onDetails={onDetails}
+          onDelete={onDelete ? (s) => onDelete(s, index) : undefined}
+          removal={removalOf?.(story)}
           showStatus={showStatus}
           showPriority={showPriority}
           cantAdd={cantAdd}

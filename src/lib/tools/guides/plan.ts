@@ -21,8 +21,9 @@ export const GUIDES: ToolGuide[] = [
       "Under 1. Capacity and commitment, read Team capacity (from the Capacity Planner), Recent velocity and the forecast under them. Leave Commit to blank to use the suggested points, or type your own.",
       "Under 2. Sprint goal, write one sentence the team can say yes or no to at the review, or word it in the Sprint Goal Builder.",
       "Under 3. Stories, settle anything Left over from a closed sprint: Carry over moves the unfinished stories into this sprint, Back to the backlog returns them.",
-      "Pull work in: tick backlog stories, click Fill to capacity for the highest-priority sized stories that fit, Import from the backlog for the Backlog Prioritizer's items, or type a new story and press Enter.",
-      "Type points in a story's row, or click Estimate N in Planning Poker to queue the unsized ones for a session.",
+      "Pull work in: tick backlog stories, click Fill to capacity for the highest-priority sized stories that fit, Import from the backlog for the Backlog Prioritizer's items, or type a new story and press Enter. Paste stories adds a list, one title per line.",
+      "Type points in a story's row, or click Estimate N in Planning Poker to queue the unsized ones for a session. Details holds a story's acceptance criteria, notes, ticket key and link.",
+      "The bin on a row deletes the story, with Undo. In a running sprint a story can only be removed from the sprint, and done stories stay.",
       "Under 4. Commit, read the warnings, then click Start the sprint (Update the commitment once it runs). The Sprint Cockpit opens on it.",
     ],
     tips: [

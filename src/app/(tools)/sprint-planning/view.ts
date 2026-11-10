@@ -33,6 +33,7 @@ import { capacityForecast, countedPlan, isExampleOnly } from "@/app/(tools)/capa
 import { listAnd } from "@/lib/charts/chart-text";
 import { storyNotes } from "@/lib/stories/fields";
 import { parseNumber, type Validation } from "@/lib/utils/form";
+import { pastedLines } from "@/lib/utils/paste-lines";
 
 /** Trimmed, case-insensitive, single-spaced: how two names count as the same story. */
 export const nameKey = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
@@ -336,6 +337,78 @@ export function validateStory(d: StoryDraft): Validation<StoryValues, StoryField
   }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return { ok: true, values: points === undefined ? { title } : { title, points } };
+}
+
+/* ── Paste stories ───────────────────────────────────────────────────── */
+
+/** Most stories one paste adds here. The other tools' add boxes keep 30. */
+export const PASTE_STORIES_CAP = 200;
+
+/** A story title's limit, as in the add form. */
+const STORY_TITLE_CAP = 200;
+
+export interface PastedStories {
+  /** The titles to add, one per pasted line, in the pasted order. */
+  titles: string[];
+  /** Non-empty lines left out because of the cap. */
+  dropped: number;
+  /** Titles cut to the 200-character limit. */
+  cut: number;
+}
+
+/**
+ * A pasted list as story titles: one per non-empty line, list markers
+ * ("- ", "1. ") removed, at most `cap` lines, each title cut to 200
+ * characters like a typed one.
+ */
+export function pastedStories(text: string, cap: number = PASTE_STORIES_CAP): PastedStories {
+  const { lines, dropped } = pastedLines(text, cap);
+  const whole = lines.map((line) => line.replace(/\s+/g, " "));
+  return {
+    titles: whole.map((title) => title.slice(0, STORY_TITLE_CAP).trimEnd()),
+    dropped,
+    cut: whole.filter((title) => title.length > STORY_TITLE_CAP).length,
+  };
+}
+
+export interface PasteDraft {
+  text: string;
+  /** Plan them into the sprint, instead of leaving them in the backlog. */
+  intoSprint: boolean;
+}
+
+export type PasteField = "text";
+export interface PasteValues extends PastedStories {
+  intoSprint: boolean;
+}
+
+/** A paste needs at least one title. */
+export function validatePaste(d: PasteDraft): Validation<PasteValues, PasteField> {
+  const pasted = pastedStories(d.text);
+  if (pasted.titles.length === 0) {
+    return { ok: false, errors: { text: "Paste or type at least one story title, one per line." } };
+  }
+  return { ok: true, values: { ...pasted, intoSprint: d.intoSprint } };
+}
+
+/**
+ * What a paste will do, said under the box while the list is typed: how
+ * many stories, and what the caps leave out. "" for an empty box.
+ */
+export function pasteSummary(pasted: PastedStories): string {
+  if (pasted.titles.length === 0) return "";
+  const parts = [`${storiesCount(pasted.titles.length)} to add.`];
+  if (pasted.dropped > 0) {
+    parts.push(
+      `${pasted.dropped} more ${pasted.dropped === 1 ? "line is" : "lines are"} over the limit of ${PASTE_STORIES_CAP} and will be left out.`
+    );
+  }
+  if (pasted.cut > 0) {
+    parts.push(
+      `${pasted.cut} ${pasted.cut === 1 ? "title is" : "titles are"} longer than ${STORY_TITLE_CAP} characters and will be cut.`
+    );
+  }
+  return parts.join(" ");
 }
 
 /** Where a story pulled from the backlog came from. */
