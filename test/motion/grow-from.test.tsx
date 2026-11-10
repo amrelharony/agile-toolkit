@@ -11,9 +11,10 @@
  * (frame="spot"). It never plays under reduced motion, Save-Data, presenting
  * or an intro, after 1.5 s, on another page, or when the frame landed. It
  * starts from the wrapper's layout effect, after Next's scroll in the same
- * commit, without waiting for a frame.
+ * commit and before the commit's passive effects, without waiting for a frame.
  */
-import { useLayoutEffect, type ReactNode } from "react";
+import { startTransition, useEffect, useLayoutEffect, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
@@ -271,7 +272,7 @@ describe("the header grows from the card's spot", () => {
     expect(animate).toHaveBeenCalledTimes(1);
   });
 
-  it("from the layout effect, with requestAnimationFrame never firing", async () => {
+  it("without waiting for a frame: requestAnimationFrame never fires", async () => {
     const raf = vi.fn(() => 0);
     const realRaf = window.requestAnimationFrame;
     window.requestAnimationFrame = raf;
@@ -281,6 +282,57 @@ describe("the header grows from the card's spot", () => {
     await tapThenArrive(kanbanCard, "Kanban", "/kanban");
     expectOneGrow();
     expect(raf).not.toHaveBeenCalled();
+  });
+
+  it("from the layout effect: it has played before the commit's passive effects run", async () => {
+    // The page arrives as Next renders it, in a transition on React's own
+    // scheduler, outside act(): act() runs passive effects before any
+    // microtask, which would hide a grow started from useEffect.
+    let now = 10_000;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const { unmount } = render(<App href="/" page={kanbanCard} />);
+    fireEvent.click(screen.getByRole("link", { name: "Kanban" }));
+    await flush();
+    unmount();
+
+    // A parent's layout effect runs after the wrapper's in the same commit,
+    // so the microtask it queues runs after the one the wrapper queued. It
+    // also makes the commit "take" 20 ms on the pinned clock, past the
+    // scheduler's 5 ms slice, so the scheduler yields before the passive
+    // effects, as it can in the browser, where a paint may come first.
+    const seen: { grows: number; passiveRan: boolean }[] = [];
+    let passiveRan = false;
+    function Probe({ children }: { children: ReactNode }) {
+      useLayoutEffect(() => {
+        now += 20;
+        queueMicrotask(() => seen.push({ grows: animate.mock.calls.length, passiveRan }));
+      }, []);
+      useEffect(() => {
+        passiveRan = true;
+      }, []);
+      return <>{children}</>;
+    }
+
+    const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    const wasActEnvironment = env.IS_REACT_ACT_ENVIRONMENT;
+    env.IS_REACT_ACT_ENVIRONMENT = false;
+    const host = document.body.appendChild(document.createElement("div"));
+    const reactRoot = createRoot(host);
+    try {
+      window.history.replaceState(null, "", "/kanban");
+      startTransition(() => {
+        reactRoot.render(<App href="/kanban" page={<Probe>{toolPage()}</Probe>} />);
+      });
+      await vi.waitFor(() => expect(passiveRan).toBe(true));
+      // The first microtask after the commit: the grow had played, and the
+      // passive effects were still to come, so this checked the order.
+      expect(seen).toEqual([{ grows: 1, passiveRan: false }]);
+      expectOneGrow();
+    } finally {
+      reactRoot.unmount();
+      host.remove();
+      env.IS_REACT_ACT_ENVIRONMENT = wasActEnvironment;
+    }
   });
 
   it("after the commit's own scroll: it measures the header where it ends up", async () => {
