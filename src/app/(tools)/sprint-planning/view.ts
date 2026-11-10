@@ -31,6 +31,7 @@ import { findCapacityPlan, planCapacity } from "@/lib/sprints/capacity";
 import { hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
 import { capacityForecast, countedPlan, isExampleOnly } from "@/app/(tools)/capacity-planner/model";
 import { listAnd } from "@/lib/charts/chart-text";
+import { storyNotes } from "@/lib/stories/fields";
 import { parseNumber, type Validation } from "@/lib/utils/form";
 
 /** Trimmed, case-insensitive, single-spaced: how two names count as the same story. */
@@ -359,10 +360,11 @@ export function importCandidates(
 }
 
 /**
- * A story from a backlog item: its name, the shared priority score (left
- * off when the item isn't WSJF-scored), the decided rank it was pulled in
- * with (read live while the item exists: `withLiveBacklogRank`) and a link
- * back to the item. `rows` as priorityScore.
+ * A story from a backlog item: its name, its description as the story's
+ * notes, the shared priority score (left off when the item isn't
+ * WSJF-scored), the decided rank it was pulled in with (read live while the
+ * item exists: `withLiveBacklogRank`) and a link back to the item. `rows` as
+ * priorityScore.
  */
 export function storyFromBacklogItem(
   item: BacklogItem,
@@ -376,6 +378,8 @@ export function storyFromBacklogItem(
     status: "backlog",
     sourceRef: { tool: BACKLOG_SOURCE_TOOL, id: item.id },
   };
+  const notes = storyNotes(item.description);
+  if (notes) story.notes = notes;
   if (score !== null) story.priorityScore = Math.round(score * 100) / 100;
   const rank = backlogItemRank(item);
   if (rank !== undefined) story.backlogRank = rank;
