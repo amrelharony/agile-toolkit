@@ -93,6 +93,11 @@ describe("storageRoomProblem", () => {
     );
   });
 
+  it("lets through an import that adds nothing, however full storage is", () => {
+    expect(storageRoomProblem(near + 1000, 0, "These stories")).toBeNull();
+    expect(storageRoomProblem(STORAGE_QUOTA_BYTES * 2, 0)).toBeNull();
+  });
+
   it("says plainly when it can't fit at all", () => {
     expect(storageRoomProblem(STORAGE_QUOTA_BYTES, 10, "These stories")).toMatch(
       /^These stories need more room than this browser's storage has, about 5 MB in all\. Past that/

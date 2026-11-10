@@ -367,6 +367,24 @@ describe("what the import refuses", () => {
     fireEvent.click(within(panel()).getByRole("button", { name: "Import 4 stories" }));
     expect(ids()).toEqual(before);
   });
+
+  it("still updates points when storage is nearly full, since that adds no stories", () => {
+    useWorkspaceStore.setState({
+      stories: [...STORIES, { id: "p13", title: "Remove", status: "backlog", ticketKey: "PAY-13" }],
+    });
+    storage.used = Math.round(STORAGE_QUOTA_BYTES * 0.95);
+    renderPlanning();
+    open();
+    paste(
+      ALL_FIELDS_EXPORT.split("\r\n")
+        .filter((line, i) => i === 0 || line.includes("PAY-13"))
+        .join("\r\n")
+    );
+    expect(summary()).toHaveTextContent("No new stories. Points change on 1 story already here.");
+    expect(within(panel()).queryByText(/of this browser's storage/)).toBeNull();
+    fireEvent.click(within(panel()).getByRole("button", { name: "Update points on 1 story" }));
+    expect(story("p13")?.points).toBe(3);
+  });
 });
 
 describe("the writers' storage reading", () => {

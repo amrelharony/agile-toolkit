@@ -79,13 +79,16 @@ const percent = (bytes: number) => Math.round((bytes / STORAGE_QUOTA_BYTES) * 10
  * Why adding `addedBytes` to the `usedBytes` already stored isn't safe, or
  * null when it fits: the message says how full storage would be and what
  * to do instead. `what` names what is being added, plural and as a
- * sentence starts ("These stories").
+ * sentence starts ("These stories"). Adding nothing always fits, however
+ * full storage is (an import that only changes points on stories already
+ * here).
  */
 export function storageRoomProblem(
   usedBytes: number,
   addedBytes: number,
   what = "These items"
 ): string | null {
+  if (!(addedBytes > 0)) return null;
   const after = usedBytes + addedBytes;
   if (after <= STORAGE_QUOTA_BYTES * STORAGE_NEAR_SHARE) return null;
   const full =
