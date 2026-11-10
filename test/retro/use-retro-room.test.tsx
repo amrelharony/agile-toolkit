@@ -423,6 +423,118 @@ describe("useRetroRoom: a participant's own cards and votes", () => {
     expect(result.current.ownIds.size).toBe(0);
   });
 
+  it("drops a card that never landed in a column holding others' cards, by its id", () => {
+    const { result, ch } = joined(snap(HOST.id, board(), { hide: true }));
+    act(() => {
+      result.current.addCard("start", "Dropped by the host");
+    });
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    // Start still holds one card (someone else's): a count alone can't tell.
+    act(() => ch.deliver("retro:state", snap(HOST.id, board(), { hide: true, seq: 2 })));
+    expect(result.current.shownCards).toEqual([]);
+    expect(result.current.hiddenCounts).toEqual({ start: 1, stop: 1, continue: 0 });
+  });
+
+  /** Joined on a hidden board holding one card of this tab's (`id`) beside the others'. */
+  function withOwnCard() {
+    const view = joined(snap(HOST.id, board(), { hide: true }));
+    act(() => {
+      view.result.current.addCard("start", "Mine to delete");
+    });
+    const id = (view.ch.sent("retro:intent") as Intent[])[0].intent.iid;
+    const withMine = board({ cards: [...board().cards, card(id, { text: "Mine to delete" })] });
+    act(() => view.ch.deliver("retro:state", snap(HOST.id, withMine, { hide: true, seq: 2 })));
+    return { ...view, id, withMine };
+  }
+
+  it("gives a card back when the host refused its delete", () => {
+    const { result, ch, id, withMine } = withOwnCard();
+    act(() => {
+      result.current.deleteCard(id);
+    });
+    expect(result.current.shownCards).toEqual([]);
+    // Still on the host's board: counted as this tab's, not as someone else's.
+    expect(result.current.hiddenCounts).toEqual({ start: 1, stop: 1, continue: 0 });
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    act(() => ch.deliver("retro:state", snap(HOST.id, withMine, { hide: true, seq: 3 })));
+    expect(result.current.shownCards?.map((c) => c.id)).toEqual([id]);
+    expect(result.current.ownIds.has(id)).toBe(true);
+    // ...so it can be deleted again.
+    let ok = false;
+    act(() => {
+      ok = result.current.deleteCard(id);
+    });
+    expect(ok).toBe(true);
+  });
+
+  it("adds a deleted card again as a new card on Undo once the delete has landed", () => {
+    const { result, ch, id } = withOwnCard();
+    act(() => {
+      result.current.deleteCard(id);
+    });
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    act(() => ch.deliver("retro:state", snap(HOST.id, board(), { hide: true, seq: 3 })));
+    const sent = ch.sent("retro:intent").length;
+    let res = "";
+    act(() => {
+      res = result.current.undoDelete({ id, columnKey: "start", text: "Mine to delete" });
+    });
+    expect(res).toBe("sent");
+    const again = (ch.sent("retro:intent") as Intent[]).slice(sent);
+    expect(again).toHaveLength(1);
+    expect(again[0].intent).toMatchObject({ t: "card:add", text: "Mine to delete" });
+    expect(again[0].intent.iid).not.toBe(id);
+  });
+
+  it("puts a card back on Undo before its delete settled, adding it again only if the delete landed", () => {
+    // The delete is refused: Undo only shows the card again.
+    const refused = withOwnCard();
+    act(() => {
+      refused.result.current.deleteCard(refused.id);
+    });
+    const afterDelete = refused.ch.sent("retro:intent").length;
+    act(() => {
+      refused.result.current.undoDelete({
+        id: refused.id,
+        columnKey: "start",
+        text: "Mine to delete",
+      });
+    });
+    expect(refused.result.current.shownCards?.map((c) => c.id)).toEqual([refused.id]);
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    act(() =>
+      refused.ch.deliver("retro:state", snap(HOST.id, refused.withMine, { hide: true, seq: 3 }))
+    );
+    expect(refused.ch.sent("retro:intent")).toHaveLength(afterDelete);
+    expect(refused.result.current.shownCards?.map((c) => c.id)).toEqual([refused.id]);
+    refused.unmount();
+
+    // The delete landed: the card goes back to the host as a new one, once.
+    fakeRealtime.reset();
+    const landed = withOwnCard();
+    act(() => {
+      landed.result.current.deleteCard(landed.id);
+    });
+    act(() => {
+      landed.result.current.undoDelete({
+        id: landed.id,
+        columnKey: "start",
+        text: "Mine to delete",
+      });
+    });
+    const before = landed.ch.sent("retro:intent").length;
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    act(() => landed.ch.deliver("retro:state", snap(HOST.id, board(), { hide: true, seq: 3 })));
+    const readded = (landed.ch.sent("retro:intent") as Intent[]).slice(before);
+    expect(readded).toHaveLength(1);
+    expect(readded[0].intent).toMatchObject({ t: "card:add", text: "Mine to delete" });
+    expect(landed.result.current.shownCards?.map((c) => c.id)).toEqual([readded[0].intent.iid]);
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    act(() => landed.ch.deliver("retro:state", snap(HOST.id, board(), { hide: true, seq: 4 })));
+    // Not sent twice.
+    expect(landed.ch.sent("retro:intent")).toHaveLength(before + 1);
+  });
+
   it("takes its own vote back, and forgets a vote the host never counted", () => {
     const { result, ch } = joined(snap(HOST.id, board({ phase: "vote" })));
     act(() => {

@@ -487,12 +487,13 @@ describe("VisitorRetroRoom (participant)", () => {
       cardId: id,
     });
     expect(h.undo?.label).toBe("Deleted “My own idea”");
-    // Undo adds it again, as a new card.
+    // Undo before the host answered: the card is back as it was, and no copy
+    // is sent (the tab adds it again only if the delete turns out to have landed).
+    const sentBefore = ch.sent("retro:intent").length;
     act(() => h.undo!.revert());
-    const readded = (ch.sent("retro:intent") as SentIntent[]).at(-1)!.intent;
-    expect(readded).toMatchObject({ t: "card:add", text: "My own idea" });
-    expect(readded.iid).not.toBe(id);
+    expect(ch.sent("retro:intent")).toHaveLength(sentBefore);
     expect(screen.getByText("My own idea")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete my card" })).toBeInTheDocument();
 
     // Vote: every card's text arrives.
     act(() =>

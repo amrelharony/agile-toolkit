@@ -41,7 +41,11 @@
  *    never leaves this tab until it is used: the add or vote sends its lock
  *    (a hash), the delete or take-back sends the key, so nobody else can
  *    undo them. Once its last request is 2 s old, the host's snapshot wins
- *    over that memory;
+ *    over that memory: by card id (a snapshot that hides cards still lists
+ *    their ids), a card the host never took is dropped, and a deleted card
+ *    the host still has (the delete was refused) comes back. A deleted card
+ *    stays in memory until then, so Undo puts it back rather than adding a
+ *    copy;
  *  - leaves at the room's 3-hour limit (its own join time + 3 h, or the
  *    host's `endsAt` if sooner): `useRoom` doesn't enforce `hardTtlMs`;
  *  - when elected, continues hosting from the last snapshot, still in memory,
@@ -155,6 +159,11 @@ export interface OwnCard {
 /** An own card with the key that deletes it (the add sent its lock). Never leaves this tab. */
 interface HeldCard extends OwnCard {
   key: string;
+  /**
+   * Undo was pressed before its delete settled: if the delete turns out to
+   * have gone through, the card is added again, as a new card.
+   */
+  revive?: boolean;
 }
 
 /** A vote this tab cast, with the key that takes it back (the vote sent its lock). */
@@ -179,6 +188,8 @@ interface RoomView {
   hideWhileWriting: boolean;
   /** While the host hides the cards: its count per column (everyone's, this tab's included). */
   counts: Record<string, number> | null;
+  /** While the host hides the cards: the ids of every card it holds. */
+  ids: ReadonlySet<string> | null;
   votesPerPerson: number;
 }
 
@@ -277,6 +288,12 @@ export interface RetroRoom {
    * deletes through its own Board, so this is false for it.
    */
   deleteCard: (cardId: string) => boolean;
+  /**
+   * Undo of "Delete my card". A card whose delete hasn't settled comes back
+   * as it was (and is added again only if the delete did go through); after
+   * a settled delete it is added again as a new card.
+   */
+  undoDelete: (card: OwnCard) => AddCardResult;
   vote: (cardId: string) => boolean;
   /** "Take my vote back": one of this client's votes on `cardId`, in Vote. False for the starting host. */
   unvote: (cardId: string) => boolean;
@@ -378,6 +395,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const [ownCards, setOwnCardsState] = useState<HeldCard[]>([]);
   const [myVoteList, setMyVoteListState] = useState<HeldVote[]>([]);
   const [unsharedCards, setUnsharedState] = useState<OwnCard[]>([]);
+  /** Participant: own cards whose delete is on its way, until a settled snapshot says how it went. */
+  const [deleting, setDeletingState] = useState<HeldCard[]>([]);
   const [cardsLost, setCardsLost] = useState(false);
   /** Participant: the host's state is of another protocol version (a tab on another build). */
   const [otherVersion, setOtherVersion] = useState(false);
@@ -426,6 +445,9 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const ownCardsRef = useRef<HeldCard[]>([]);
   const myVotesRef = useRef<HeldVote[]>([]);
   const unsharedRef = useRef<OwnCard[]>([]);
+  const deletingRef = useRef<HeldCard[]>([]);
+  /** `addCard`, for the reconcile that re-adds a card undone before its delete settled. */
+  const addCardRef = useRef<((columnKey: string, text: string) => AddCardResult) | null>(null);
   /** Host: the card ids on its board at the last change, to notice cards that leave it. */
   const boardIdsRef = useRef<Set<string> | null>(null);
   /** Host: cards members deleted through the room since the last board change. */
@@ -445,6 +467,10 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const setUnshared = useCallback((next: OwnCard[]) => {
     unsharedRef.current = next;
     setUnsharedState(next);
+  }, []);
+  const setDeleting = useCallback((next: HeldCard[]) => {
+    deletingRef.current = next;
+    setDeletingState(next);
   }, []);
   const setLedger = useCallback((next: IntentLedger) => {
     if (next === ledgerRef.current) return;
@@ -585,10 +611,12 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
 
   /**
    * Bring what this participant remembers in line with the host's snapshot,
-   * once its own last request has had time to land: cards and votes the host
-   * doesn't have are dropped, newest first. A board that just emptied, by
-   * more than this tab's own deletes, was cleared, so the card allowance
-   * starts again too, as it does on the host's side.
+   * once its own last request has had time to land, by card id: cards and
+   * votes the host doesn't have are dropped, a delete the host refused gives
+   * the card back, and a card undone before its delete settled is added
+   * again if the delete went through. A board that just emptied, by more
+   * than this tab's own deletes, was cleared, so the card allowance starts
+   * again too, as it does on the host's side.
    */
   const reconcile = useCallback(
     (snap: RoomSnapshot, before: number, ownDeletes: number) => {
@@ -598,44 +626,38 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (total === 0 && before > ownDeletes) sentCardsRef.current = 0;
       if (!settled) return;
       if (total === 0) {
+        // Cleared: nothing of this tab's is left, and nothing comes back.
         if (ownCardsRef.current.length > 0) setOwnCards([]);
+        if (deletingRef.current.length > 0) setDeleting([]);
         if (myVotesRef.current.length > 0) setMyVotes([]);
         return;
       }
-      const ids = new Set(snap.cards.map((c) => c.id));
-      let own = ownCardsRef.current;
-      if (hidden) {
-        // Only counts to go by: a column holding fewer cards than this tab
-        // remembers adding to it lost the newest of them.
-        const excess = new Map<string, number>();
-        for (const c of own) excess.set(c.columnKey, (excess.get(c.columnKey) ?? 0) + 1);
-        excess.forEach((mine, key) => {
-          const held = Object.prototype.hasOwnProperty.call(snap.counts, key)
-            ? snap.counts[key]
-            : 0;
-          excess.set(key, Math.max(0, mine - held));
-        });
-        const keep: HeldCard[] = [];
-        for (let i = own.length - 1; i >= 0; i--) {
-          const left = excess.get(own[i].columnKey) ?? 0;
-          if (left > 0) excess.set(own[i].columnKey, left - 1);
-          else keep.unshift(own[i]);
-        }
-        own = keep;
-      } else {
-        own = own.filter((c) => ids.has(c.id));
+      // While cards are hidden the snapshot still lists their ids.
+      const ids = new Set(hidden ? snap.ids : snap.cards.map((c) => c.id));
+      // A delete the host refused leaves the card on its board: it is this tab's again.
+      const refused = deletingRef.current.filter((c) => ids.has(c.id));
+      if (deletingRef.current.length > 0) setDeleting([]);
+      const own = ownCardsRef.current;
+      const keep: HeldCard[] = [];
+      const readd: HeldCard[] = [];
+      for (const c of [...own, ...refused]) {
+        if (ids.has(c.id)) keep.push(c.revive ? { ...c, revive: false } : c);
+        // Undone before its delete settled, and the delete went through: add it again.
+        else if (c.revive) readd.push(c);
+        // Otherwise it never landed (or was lost): the host's board wins.
       }
-      if (own.length !== ownCardsRef.current.length) setOwnCards(own);
+      if (keep.length !== own.length || keep.some((c, i) => c !== own[i])) setOwnCards(keep);
+      for (const c of readd) addCardRef.current?.(c.columnKey, c.text);
 
       let votes = myVotesRef.current;
-      if (!hidden) votes = votes.filter((v) => ids.has(v.cardId));
+      votes = votes.filter((v) => ids.has(v.cardId));
       const confirmed = Object.prototype.hasOwnProperty.call(snap.votesUsed, selfId)
         ? snap.votesUsed[selfId]
         : 0;
       if (votes.length > confirmed) votes = votes.slice(0, confirmed);
       if (votes.length !== myVotesRef.current.length) setMyVotes(votes);
     },
-    [selfId, setMyVotes, setOwnCards]
+    [selfId, setDeleting, setMyVotes, setOwnCards]
   );
 
   const applySnapshot = useCallback(
@@ -662,6 +684,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
         seq: snap.seq,
         hideWhileWriting: snap.hideWhileWriting,
         counts: hidden ? snap.counts : null,
+        ids: hidden ? new Set(snap.ids) : null,
         votesPerPerson: snap.votesPerPerson,
       };
       viewRef.current = next;
@@ -682,6 +705,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
           setCardsLost(true);
         }
         setOwnCards([]);
+        setDeleting([]);
         setMyVotes([]);
         sentCardsRef.current = 0;
       } else {
@@ -693,7 +717,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       }
       setStatus((s) => (s === "connecting" ? "live" : s));
     },
-    [reconcile, setMyVotes, setOwnCards, setUnshared]
+    [reconcile, setDeleting, setMyVotes, setOwnCards, setUnshared]
   );
 
   /**
@@ -976,6 +1000,17 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
             .slice(0, BOARD_CARD_CAP)
             .map(ownToCard),
         };
+      } else if (deletingRef.current.length > 0) {
+        // Its own deletes still on their way: this board is the one that counts now.
+        const gone = new Set(deletingRef.current.map((c) => c.id));
+        board = {
+          ...board,
+          cards: board.cards
+            .filter((c) => !gone.has(c.id))
+            .map((c) =>
+              c.groupedWith !== null && gone.has(c.groupedWith) ? { ...c, groupedWith: null } : c
+            ),
+        };
       }
       // Its own cards and votes stay its own; nobody else's are known.
       const onBoard = new Set(board.cards.map((c) => c.id));
@@ -1011,8 +1046,9 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       isHostRef.current = true;
       hideRef.current = v.hideWhileWriting;
       setHide(v.hideWhileWriting);
-      updateView((cur) => ({ ...cur, board, hostId: selfId, counts: null }));
+      updateView((cur) => ({ ...cur, board, hostId: selfId, counts: null, ids: null }));
       setOwnCards([]);
+      setDeleting([]);
       setMyVotes([]);
       setPendingVotes(0);
       if (lost) setCardsLost(true);
@@ -1026,6 +1062,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     isHost,
     active,
     selfId,
+    setDeleting,
     setLedger,
     setMyVotes,
     setOwnCards,
@@ -1112,6 +1149,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     [applyOwn, selfId, send, setOwnCards]
   );
 
+  addCardRef.current = addCard;
+
   const addAgain = useCallback(
     (id: string): AddCardResult => {
       const c = unsharedRef.current.find((u) => u.id === id);
@@ -1136,10 +1175,29 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (!own) return false;
       send({ t: "card:delete", iid: nanoid(12), cardId, key: own.key });
       deletesSinceSnapRef.current += 1;
+      // Off the screen at once, but kept until a settled snapshot shows how the delete went.
       setOwnCards(ownCardsRef.current.filter((c) => c.id !== cardId));
+      setDeleting([...deletingRef.current, { ...own, revive: false }]);
       return true;
     },
-    [applyOwn, role, seatedView, send, setOwnCards]
+    [applyOwn, role, seatedView, send, setDeleting, setOwnCards]
+  );
+
+  const undoDelete = useCallback(
+    (card: OwnCard): AddCardResult => {
+      if (!activeRef.current) return "closed";
+      const pending = deletingRef.current.find((c) => c.id === card.id);
+      if (pending) {
+        // Not settled yet: back on the screen now, and added again only if the delete went through.
+        setDeleting(deletingRef.current.filter((c) => c.id !== card.id));
+        setOwnCards([...ownCardsRef.current, { ...pending, revive: true }]);
+        return "sent";
+      }
+      // The host refused the delete, and the card is back already.
+      if (ownCardsRef.current.some((c) => c.id === card.id)) return "sent";
+      return addCard(card.columnKey, card.text);
+    },
+    [addCard, setDeleting, setOwnCards]
   );
 
   const vote = useCallback(
@@ -1308,14 +1366,16 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     // Cards are hidden: this tab's own, and a count of the rest per column.
     const keys = view.board.format.columns.map((c) => c.key);
     const cards = ownCards.filter((c) => keys.includes(c.columnKey)).map(ownToCard);
+    // The host counts this tab's cards it has (by id), deleted ones still on their way included.
+    const counted = [...ownCards, ...deleting].filter((c) => view.ids?.has(c.id) ?? false);
     const counts: Record<string, number> = {};
     for (const key of keys) {
       const all = Object.prototype.hasOwnProperty.call(view.counts, key) ? view.counts[key] : 0;
-      const mine = cards.filter((c) => c.columnKey === key).length;
+      const mine = counted.filter((c) => c.columnKey === key).length;
       counts[key] = Math.max(0, all - mine);
     }
     return { cards, counts };
-  }, [hiddenIds, isHost, liveBoard, ownCards, view]);
+  }, [deleting, hiddenIds, isHost, liveBoard, ownCards, view]);
 
   const ownIds = useMemo((): ReadonlySet<string> => {
     if (role === "host") return NO_IDS;
@@ -1390,6 +1450,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     addCard,
     addAgain,
     deleteCard,
+    undoDelete,
     vote,
     unvote,
     setHideWhileWriting,

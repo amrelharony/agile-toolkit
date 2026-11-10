@@ -155,27 +155,41 @@ describe("toRoomSnapshot", () => {
     expect(readRoomSnapshot(wire(snap))).not.toBeNull();
   });
 
-  it("sends a count per column instead of the cards while people write", () => {
+  it("sends a count per column and the cards' ids instead of the cards while people write", () => {
     const b = hostBoard({
       phase: "write",
       cards: [
+        card("w3", { columnKey: "continue", text: "Secret three" }),
         card("w1", { text: "Secret one" }),
         card("w2", { text: "Secret two", groupedWith: "w1" }),
-        card("w3", { columnKey: "continue", text: "Secret three" }),
       ],
     });
     const snap = toRoomSnapshot(b, meta());
     expect(cardsHidden(snap)).toBe(true);
     expect(snap.cards).toEqual([]);
     expect(snap.counts).toEqual({ start: 2, stop: 0, continue: 1 });
+    // The ids, sorted, so each tab can tell whether its own card landed: no text, column or order.
+    expect(snap.ids).toEqual(["w1", "w2", "w3"]);
     const json = JSON.stringify(snap);
-    for (const text of ["Secret", "w1", "w2", "w3"]) expect(json).not.toContain(text);
+    for (const text of ["Secret", "groupedWith"]) expect(json).not.toContain(text);
     expect(readRoomSnapshot(wire(snap))).toEqual(snap);
 
-    // The phase changes: every card's text goes out.
+    // The phase changes: every card's text goes out, and the id list goes.
     const revealed = toRoomSnapshot({ ...b, phase: "vote" }, meta());
-    expect(revealed.cards.map((c) => c.text)).toEqual(["Secret one", "Secret two", "Secret three"]);
+    expect(revealed.cards.map((c) => c.text)).toEqual(["Secret three", "Secret one", "Secret two"]);
     expect(revealed.counts).toEqual({});
+    expect(revealed.ids).toEqual([]);
+  });
+
+  it("neither counts nor lists a hidden card in a column the room doesn't share", () => {
+    const b = hostBoard({
+      phase: "write",
+      cards: [card("in1"), card("stray", { columnKey: "not shared" })],
+    });
+    const snap = toRoomSnapshot(b, meta());
+    expect(snap.counts).toEqual({ start: 1, stop: 0, continue: 0 });
+    expect(snap.ids).toEqual(["in1"]);
+    expect(readRoomSnapshot(wire(snap))).toEqual(snap);
   });
 
   it("shares the cards in Write when the host switched hiding off", () => {
@@ -183,6 +197,7 @@ describe("toRoomSnapshot", () => {
     expect(cardsHidden(snap)).toBe(false);
     expect(snap.cards.map((c) => c.id)).toEqual(["c1", "c2"]);
     expect(snap.counts).toEqual({});
+    expect(snap.ids).toEqual([]);
   });
 
   it("keeps the votes per person within what a room allows", () => {
@@ -284,8 +299,10 @@ describe("readRoomSnapshot", () => {
         ],
       },
       { ...good, counts: undefined },
-      // Counts only while cards are hidden, and cards only while they aren't.
+      { ...good, ids: undefined },
+      // Counts and ids only while cards are hidden, and cards only while they aren't.
       { ...good, counts: { start: 1 } },
+      { ...good, ids: ["c1"] },
       { ...good, phase: "write" },
     ];
     for (const v of variants) expect(readRoomSnapshot(v)).toBeNull();
@@ -301,6 +318,22 @@ describe("readRoomSnapshot", () => {
       { ...hidden, counts: { start: "2" } },
       { ...hidden, counts: { start: BOARD_CARD_CAP, stop: 1 } }, // more than a board holds
       { ...hidden, counts: [] },
+    ];
+    for (const v of variants) expect(readRoomSnapshot(v)).toBeNull();
+  });
+
+  it("checks the ids while cards are hidden", () => {
+    const hidden = wire(toRoomSnapshot(hostBoard({ phase: "write" }), meta())) as RoomSnapshot;
+    expect(hidden.ids).toEqual(["c1", "c2"]);
+    const variants: unknown[] = [
+      { ...hidden, ids: ["c1"] }, // fewer than the counts add up to
+      { ...hidden, ids: ["c1", "c2", "c3"] }, // more
+      { ...hidden, ids: ["c1", "c1"] }, // twice
+      { ...hidden, ids: ["c1", "c‮2"] }, // a hidden character
+      { ...hidden, ids: ["c1", ""] },
+      { ...hidden, ids: ["c1", "x".repeat(65)] },
+      { ...hidden, ids: ["c1", 2] },
+      { ...hidden, ids: "c1,c2" },
     ];
     for (const v of variants) expect(readRoomSnapshot(v)).toBeNull();
   });

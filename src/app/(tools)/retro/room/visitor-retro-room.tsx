@@ -232,16 +232,21 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
     }
   };
 
-  // "Delete my card", with Undo: Undo adds the card again (as a new card).
+  // "Delete my card", with Undo: Undo puts the card back if the delete hasn't
+  // landed yet, else adds it again as a new card.
   const handleDeleteOwn = (cardId: string) => {
     const card = board?.cards.find((c) => c.id === cardId);
     if (!card || board?.phase !== "write" || !room.ownIds.has(cardId)) return;
+    const own = { id: cardId, columnKey: card.columnKey, text: card.text };
     undoable({
       label: `Deleted “${shortText(card.text)}”`,
       apply: () => {
         room.deleteCard(cardId);
       },
-      revert: () => handleAdd(card.columnKey, card.text),
+      revert: () => {
+        const error = addCardError(room.undoDelete(own));
+        if (error) toast.error(error, { id: "retro-room-add" });
+      },
     });
   };
 

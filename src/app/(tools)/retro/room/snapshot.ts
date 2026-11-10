@@ -8,9 +8,10 @@
  * card never leave the host's device.
  *
  * While cards are hidden (Write, with "Hide cards while writing" on) the
- * snapshot carries no card at all, only how many each column holds: each
- * tab shows its own cards from memory, and every card's text goes out with
- * the first snapshot after the phase changes.
+ * snapshot carries no card at all, only how many each column holds and the
+ * cards' ids, sorted (no text, column or author): each tab shows its own
+ * cards from memory and checks their ids, and every card's text goes out
+ * with the first snapshot after the phase changes.
  *
  * `readRoomSnapshot` (participant side) treats the payload as hostile: size
  * cap, strict shape, cards through `readRetro` plus the room's caps, no
@@ -124,11 +125,16 @@ export function toRoomSnapshot(board: BoardState, meta: SnapshotMeta): RoomSnaps
     if (rc) cards.push(rc);
   }
   const counts: Record<string, number> = {};
+  const ids: string[] = [];
   if (hidden) {
     for (const col of columns) counts[col.key] = 0;
     for (const c of cards) {
-      if (Object.prototype.hasOwnProperty.call(counts, c.columnKey)) counts[c.columnKey] += 1;
+      if (!Object.prototype.hasOwnProperty.call(counts, c.columnKey)) continue;
+      counts[c.columnKey] += 1;
+      ids.push(c.id);
     }
+    // Sorted, so the order says nothing about who added what when.
+    ids.sort();
   }
   const members = meta.members
     .slice(0, VISITOR_LIMITS.maxMembers)
@@ -155,6 +161,7 @@ export function toRoomSnapshot(board: BoardState, meta: SnapshotMeta): RoomSnaps
     hideWhileWriting: meta.hideWhileWriting,
     cards: hidden ? [] : cards,
     counts,
+    ids,
     members,
     votesUsed,
     votesPerPerson: budget,
@@ -235,14 +242,27 @@ function readCounts(raw: unknown, columns: readonly RoomColumn[]): Record<string
   return total > BOARD_CARD_CAP ? null : counts;
 }
 
+/** Hidden cards' ids: unique, clean, at most 200, as many as the counts add up to. */
+function readIds(raw: unknown, total: number): string[] | null {
+  if (!Array.isArray(raw) || raw.length !== total || raw.length > BOARD_CARD_CAP) return null;
+  const ids = new Set<string>();
+  for (const id of raw) {
+    if (typeof id !== "string" || id.length === 0 || !isCleanText(id, MAX_KEY_CHARS)) return null;
+    if (ids.has(id)) return null;
+    ids.add(id);
+  }
+  return Array.from(ids);
+}
+
 /**
  * A validated snapshot, rebuilt from known fields only, or null. Rejects:
  * over `VISITOR_LIMITS.maxPayloadChars`; a wrong version; a sender that isn't
  * the host it names; more than 200 cards, 12 columns or 20 members; any card
  * `readRetro` refuses, with a duplicate id, or with text, column key or
  * assignee holding control or bidi characters; a column or member with an
- * unclean label or name; cards while they should be hidden, or counts while
- * they shouldn't; votes outside the budget it states.
+ * unclean label or name; cards while they should be hidden, or counts and
+ * ids while they shouldn't; ids that don't match the counts; votes outside
+ * the budget it states.
  */
 export function readRoomSnapshot(raw: unknown): RoomSnapshot | null {
   if (!isWithinJsonSize(raw, VISITOR_LIMITS.maxPayloadChars)) return null;
@@ -272,6 +292,10 @@ export function readRoomSnapshot(raw: unknown): RoomSnapshot | null {
   if (!counts) return null;
   const hidden = cardsHidden({ hideWhileWriting: s.hideWhileWriting, phase: s.phase });
   if (hidden ? s.cards.length > 0 : Object.keys(counts).length > 0) return null;
+  let total = 0;
+  for (const n of Object.values(counts)) total += n;
+  const hiddenIds = readIds(s.ids, total);
+  if (!hiddenIds) return null;
   // Structure and per-field caps: the same validator as shared snapshot links.
   const checked = readRetro({ format: { name: "Room", columns: [] }, cards: s.cards });
   if (!checked) return null;
@@ -333,6 +357,7 @@ export function readRoomSnapshot(raw: unknown): RoomSnapshot | null {
     hideWhileWriting: s.hideWhileWriting,
     cards,
     counts,
+    ids: hiddenIds,
     members,
     votesUsed,
     votesPerPerson: budget,

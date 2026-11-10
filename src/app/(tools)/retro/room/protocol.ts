@@ -23,7 +23,9 @@
  * what is a host-side record in memory (`intents.ts`), never shared or
  * saved. A card added through the room takes its add request's id as its
  * card id: a random id the sender made, which is how the sender finds its
- * own card later.
+ * own card later. While cards are hidden the snapshot also lists the cards'
+ * ids, sorted (no text, column or author), so each tab can tell whether its
+ * own add or delete landed.
  *
  * Every peer receives every request, so `by` alone can't prove a card or a
  * vote is the sender's. Adding a card or casting a vote sends a lock, the
@@ -146,6 +148,12 @@ export interface RoomSnapshot {
   cards: RoomCard[];
   /** While cards are hidden: how many cards each column holds. Empty otherwise. */
   counts: Record<string, number>;
+  /**
+   * While cards are hidden: every card's id, sorted, with no text, column or
+   * author, so a tab can tell whether its own add or delete landed. Empty
+   * otherwise.
+   */
+  ids: string[];
   /** The members the host admits, in the order it seated them. */
   members: RoomMember[];
   /** Votes each admitted member has spent through the room. */
