@@ -13,8 +13,9 @@ import {
 } from "@/components/agent/mascot/motion-invite";
 import { BUBBLE_ASK_MS, BUBBLE_MS, useBubbleStore } from "@/lib/agent/mascot/bubble";
 import { MOTION_INVITE } from "@/lib/agent/mascot/lines";
-import { useMascotStore } from "@/lib/agent/mascot/store";
+import { MOTION_ASKED_KEY, useMascotStore } from "@/lib/agent/mascot/store";
 import { useAgentStore } from "@/lib/agent/store";
+import { collectBackup, parseBackup, restoreBackup, serializeBackup } from "@/lib/data/backup";
 import { useMomentStore } from "@/lib/notify/moment-scheduler";
 
 function stubMedia(matching: (query: string) => boolean) {
@@ -177,6 +178,115 @@ describe("his offer to feel the phone", () => {
     expect(inviteMotion()).toBe(false);
   });
 
+  it("notes that he asked under a key of its own, not in his appearance", () => {
+    askingPhone();
+    useMascotStore.getState().setAuraColor("#22d3ee");
+    expect(inviteMotion()).toBe(true);
+    expect(localStorage.getItem(MOTION_ASKED_KEY)).not.toBeNull();
+    // Later changes to his appearance don't write the mark into it either.
+    useMascotStore.getState().setAuraColor("#f59e0b");
+    expect(JSON.parse(localStorage.getItem("mascot_appearance")!)).toEqual({
+      auraColor: "#f59e0b",
+      feelPhone: null,
+    });
+  });
+
+  it("still knows he asked on a phone that noted it the old way, inside his appearance", () => {
+    localStorage.setItem(
+      "mascot_appearance",
+      JSON.stringify({ auraColor: "#22d3ee", feelPhone: null, motionAsked: true })
+    );
+    askingPhone();
+    useMascotStore.getState().hydrateAppearance();
+    expect(useMascotStore.getState().motionAsked).toBe(true);
+    expect(inviteMotion()).toBe(false);
+    // Moved across once: the mark has its own key, and his appearance no longer carries it.
+    expect(localStorage.getItem(MOTION_ASKED_KEY)).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem("mascot_appearance")!)).toEqual({
+      auraColor: "#22d3ee",
+      feelPhone: null,
+    });
+  });
+
+  describe("on a phone restored from another phone's backup", () => {
+    /** Wipe this "phone", restore the file into it, and load the page again. */
+    function restoreOnAnotherPhone(file: string) {
+      localStorage.clear();
+      useBubbleStore.setState({ current: null });
+      const parsed = parseBackup(file);
+      if (!parsed.ok) throw new Error(parsed.error);
+      restoreBackup(parsed.backup, localStorage);
+      useMascotStore.getState().reset();
+      useMascotStore.getState().hydrateAppearance();
+      askingPhone();
+    }
+
+    it("is still made, though the first phone was asked", () => {
+      askingPhone();
+      useMascotStore.getState().setAuraColor("#22d3ee");
+      expect(inviteMotion()).toBe(true); // asked, and the bubble left alone
+      const file = serializeBackup(collectBackup(localStorage));
+      expect(file).not.toMatch(/motion-?asked/i);
+
+      restoreOnAnotherPhone(file);
+      expect(useMascotStore.getState().auraColor).toBe("#22d3ee"); // his look did travel
+      expect(useMascotStore.getState().motionAsked).toBe(false);
+      expect(shouldInviteMotion()).toBe(true);
+      expect(inviteMotion()).toBe(true);
+    });
+
+    it("is still made from an older backup that carries the mark inside his appearance", () => {
+      const file = JSON.stringify({
+        format: "agile-toolkit-backup",
+        version: 1,
+        createdAt: "2026-11-09T10:00:00.000Z",
+        keys: {
+          mascot_appearance: JSON.stringify({
+            auraColor: "#22d3ee",
+            feelPhone: null,
+            motionAsked: true,
+          }),
+          [MOTION_ASKED_KEY]: "1", // a hand-edited file can't bring the new mark in either
+        },
+      });
+
+      restoreOnAnotherPhone(file);
+      expect(localStorage.getItem(MOTION_ASKED_KEY)).toBeNull();
+      expect(JSON.parse(localStorage.getItem("mascot_appearance")!)).toEqual({
+        auraColor: "#22d3ee",
+        feelPhone: null,
+      });
+      expect(useMascotStore.getState().auraColor).toBe("#22d3ee");
+      expect(shouldInviteMotion()).toBe(true);
+    });
+
+    it("isn't made again on the same phone, which keeps its own mark through a restore", () => {
+      askingPhone();
+      expect(inviteMotion()).toBe(true);
+      const file = serializeBackup(collectBackup(localStorage));
+
+      // The same phone: nothing wiped, the backup restored over what's there.
+      const parsed = parseBackup(file);
+      if (!parsed.ok) throw new Error(parsed.error);
+      restoreBackup(parsed.backup, localStorage);
+      useBubbleStore.setState({ current: null });
+      useMascotStore.getState().reset();
+      useMascotStore.getState().hydrateAppearance();
+      askingPhone();
+      expect(shouldInviteMotion()).toBe(false);
+    });
+
+    it("isn't made when the backup carries an answer: a choice travels", () => {
+      askingPhone();
+      useMascotStore.getState().setFeelPhone(false); // "No thanks", or the switch in his panel
+      const file = serializeBackup(collectBackup(localStorage));
+
+      restoreOnAnotherPhone(file);
+      expect(useMascotStore.getState().feelPhone).toBe(false);
+      expect(shouldInviteMotion()).toBe(false);
+    });
+  });
+
   it("isn't made where motion needs no asking, on a desktop, or under reduced motion", () => {
     // No prompt to raise: he feels the phone from the start.
     stubMedia((q) => q.includes("pointer: coarse"));
@@ -209,10 +319,11 @@ describe("his offer to feel the phone", () => {
     });
     expect(useMascotStore.getState().feelPhone).toBe(true);
     expect(useMascotStore.getState().reactionQueue).toEqual(["startle"]);
-    expect(JSON.parse(localStorage.getItem("mascot_appearance")!)).toMatchObject({
+    expect(JSON.parse(localStorage.getItem("mascot_appearance")!)).toEqual({
+      auraColor: null,
       feelPhone: true,
-      motionAsked: true,
     });
+    expect(localStorage.getItem(MOTION_ASKED_KEY)).not.toBeNull();
   });
 
   it("takes No thanks for an answer", () => {

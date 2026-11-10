@@ -171,11 +171,11 @@ interface MascotActions {
   setAuraColor(hex: string | null): void;
   /** Let him feel the phone's motion, or stop; persisted. */
   setFeelPhone(on: boolean): void;
-  /** Note that he has offered to feel the phone; persisted. */
+  /** Note that he has offered to feel the phone; persisted, for this device only. */
   setMotionAsked(): void;
   /** Report the corner he's parked in (the assistant calls it). */
   setCorner(c: MascotCorner): void;
-  /** Load the persisted aura and motion choice from localStorage. */
+  /** Load the persisted aura, the motion choice and the "already offered" mark from localStorage. */
   hydrateAppearance(): void;
   reset(): void;
 }
@@ -198,10 +198,18 @@ const INITIAL: MascotState = {
 
 const APPEARANCE_KEY = "mascot_appearance";
 
+/**
+ * The mark that he has offered to feel this phone. It has a key of its own
+ * because his appearance travels in a backup (lib/data/backup.ts) and this
+ * must not: it says what happened on this device, and a phone restored from
+ * another phone's backup should still be asked. The visitor's answer
+ * (feelPhone) is a choice, so it stays in the appearance and travels.
+ */
+export const MOTION_ASKED_KEY = "agile-toolkit:mascot:motion-asked";
+
 interface Appearance {
   auraColor: string | null;
   feelPhone: boolean | null;
-  motionAsked: boolean;
 }
 
 function saveAppearance(data: Appearance): void {
@@ -209,6 +217,24 @@ function saveAppearance(data: Appearance): void {
     localStorage.setItem(APPEARANCE_KEY, JSON.stringify(data));
   } catch {
     /* storage unavailable — ignore */
+  }
+}
+
+function loadMotionAsked(): boolean {
+  try {
+    return localStorage.getItem(MOTION_ASKED_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** True when the mark was written. */
+function saveMotionAsked(): boolean {
+  try {
+    localStorage.setItem(MOTION_ASKED_KEY, "1");
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -262,28 +288,38 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
   setMotionAsked: () => {
     if (get().motionAsked) return;
     set({ motionAsked: true });
-    saveAppearance(appearance(get()));
+    saveMotionAsked();
   },
   setCorner: (corner) => set((s) => (s.corner === corner ? s : { corner })),
   hydrateAppearance: () => {
+    let asked = loadMotionAsked();
     try {
       const raw = localStorage.getItem(APPEARANCE_KEY);
-      if (!raw) return;
-      const data = JSON.parse(raw) as Partial<Appearance>;
-      set({
-        auraColor: data.auraColor ?? null,
-        feelPhone: typeof data.feelPhone === "boolean" ? data.feelPhone : null,
-        motionAsked: data.motionAsked === true,
-      });
+      if (raw) {
+        const data = JSON.parse(raw) as Partial<Appearance> & { motionAsked?: unknown };
+        const stored: Appearance = {
+          auraColor: data.auraColor ?? null,
+          feelPhone: typeof data.feelPhone === "boolean" ? data.feelPhone : null,
+        };
+        set(stored);
+        // The mark used to be kept in here. What this browser wrote that way is
+        // moved to its own key, once. A backup never brings the old field in
+        // (lib/data/backup.ts drops it), so one found here is this device's own.
+        if (data.motionAsked === true) {
+          asked = true;
+          if (saveMotionAsked()) saveAppearance(stored);
+        }
+      }
     } catch {
       /* ignore */
     }
+    if (asked) set({ motionAsked: true });
   },
   reset: () => set({ ...INITIAL }),
 }));
 
 function appearance(s: MascotState): Appearance {
-  return { auraColor: s.auraColor, feelPhone: s.feelPhone, motionAsked: s.motionAsked };
+  return { auraColor: s.auraColor, feelPhone: s.feelPhone };
 }
 
 function clamp01(n: number): number {

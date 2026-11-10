@@ -174,7 +174,7 @@ At moments, each from frames already drawn:
 | knocked once                             | jumps                                    |
 | laid flat and left alone, then picked up | tires sooner, then looks about           |
 
-Where the browser asks before it sends motion (iPhones, and browsers that follow them), he asks first: a bubble beside him the first time his panel closes, "Tilt your phone, I'll feel it", with Allow and No thanks. He asks once, ever; the phone icon in his panel stays for a change of mind. Nothing here runs under reduced motion.
+Where the browser asks before it sends motion (iPhones, and browsers that follow them), he asks first: a bubble beside him the first time his panel closes, "Tilt your phone, I'll feel it", with Allow and No thanks. He asks once, ever; the phone icon in his panel stays for a change of mind. That he asked is noted on the phone itself (`agile-toolkit:mascot:motion-asked`) and kept out of backups, so a phone restored from another phone's backup is still asked. An answer is a choice, so it travels with his appearance. Nothing here runs under reduced motion.
 
 To try it without a phone, send the page `deviceorientation` and `devicemotion` events from the console.
 

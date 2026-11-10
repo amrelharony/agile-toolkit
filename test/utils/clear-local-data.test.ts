@@ -85,6 +85,7 @@ describe("clearLocalWorkspaceData", () => {
     localStorage.setItem("agile-toolkit:owner-seen", "1");
     localStorage.setItem("agile-toolkit:visitor-used", "1");
     localStorage.setItem("mascot_appearance", "{}");
+    localStorage.setItem("agile-toolkit:mascot:motion-asked", "1");
     // What Amr notes about the visitor: his memory, the last day, today's greetings.
     localStorage.setItem("mascot_memory", "{}");
     localStorage.setItem("mascot_last_day", "2026-11-9");
