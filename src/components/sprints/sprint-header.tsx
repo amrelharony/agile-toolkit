@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/select";
 import type { Sprint } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
+import { InkHighlight } from "@/components/ink/ink-highlight";
+import { InkMoment } from "@/components/ink/ink-moment";
 import { dayForDate, hasSyntheticDates, sprintLengthDays } from "@/lib/sprints/series";
 import { STATUS_LABEL, fmt, sprintDates, sprintDayLine } from "@/lib/sprints/hub-view";
 
@@ -110,6 +112,8 @@ export function SprintHeader({
               {sprint.name}
             </h2>
             <StatusBadge status={sprint.status} />
+            {/* An ink moment: stamped Done once it's closed. The badge says so. */}
+            {sprint.status === "completed" && <InkMoment mark="stamp" />}
           </div>
           <p className="mt-1 text-sm text-sub">
             {dates ? (
@@ -124,7 +128,10 @@ export function SprintHeader({
             {goal ? (
               <>
                 <span className="text-sub">Goal: </span>
-                <span className="text-text">{goal}</span>
+                {/* The one sentence the sprint is for, underlined by hand. */}
+                <InkHighlight delay={700} className="text-text">
+                  {goal}
+                </InkHighlight>
               </>
             ) : (
               <span className="text-sub">No sprint goal yet.</span>

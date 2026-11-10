@@ -14,6 +14,7 @@ import { privateRoomsEnabled } from "./private-rooms";
 import { acquireRoomAuth, roomAuthKind } from "./room-auth";
 import { createInboundLimiter } from "./rate-limit";
 import { isWithinJsonSize } from "./sanitize";
+import { enterLiveVisitorRoom } from "./live-visitor-room";
 import {
   VISITOR_LIMITS,
   createAdmissionLedger,
@@ -538,13 +539,24 @@ export function useRoom<T>(
       return leave;
     };
 
+    // A visitor room marks this tab as in a live room from here until the
+    // effect cleans up: meanwhile the visitor chat offers Amr no actions
+    // (live-visitor-room.ts). A room left early because it was full stays
+    // marked until then too. Owner and guest rooms never mark.
+    const markLiveRoom = (): (() => void) | null => (visitor ? enterLiveVisitorRoom() : null);
+
     // Flag off: the public channel, opened right away as it always was.
     if (!privateRooms) {
-      return joinChannel(
+      const leaveLiveRoom = markLiveRoom();
+      const leaveChannel = joinChannel(
         supabase.channel(channelName, {
           config: { presence: { key: me.id } },
         })
       );
+      return () => {
+        leaveChannel();
+        leaveLiveRoom?.();
+      };
     }
 
     // Flag on: get the room token onto the client first, then join the
@@ -552,12 +564,16 @@ export function useRoom<T>(
     // means no channel at all: never a public fallback.
     if (!authKind) return;
     const failKey = `${authKind}|${toolId}|${roomId}`;
+    // Marked before the token arrives: the channel opens as soon as it does.
+    const leaveLiveRoom = markLiveRoom();
     const lease = acquireRoomAuth(authKind, channelName);
     let cancelled = false;
     let leaveChannel: (() => void) | null = null;
     void lease.ready.then((ok) => {
       if (cancelled) return;
       if (!ok) {
+        // No channel opens in this run of the effect, so the room is not live.
+        leaveLiveRoom?.();
         setAuthFailedFor(failKey);
         return;
       }
@@ -571,6 +587,7 @@ export function useRoom<T>(
     return () => {
       cancelled = true;
       leaveChannel?.();
+      leaveLiveRoom?.();
       lease.release();
     };
     // `validateState` is intentionally excluded — callers typically pass an

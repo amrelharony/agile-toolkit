@@ -14,15 +14,23 @@
  * stroking his head gets a shy smile or a pat, and dragging picks him up by the
  * collar — he dangles and swings, and lands where he's dropped or thrown
  * (engine/interactions/clicks.ts, touch.ts). On phones the panel header has a
- * switch that lets him feel the phone's motion (engine/interactions/sensors.ts).
+ * switch that lets him feel the phone's motion (engine/interactions/sensors.ts);
+ * where the browser asks before it sends motion, he offers once himself, in a
+ * bubble beside him, the first time his panel closes (motion-invite.ts).
  * On touch screens he steps aside (up, or to the other side) when his figure
  * would sit on one of the page's controls (mascot-nudge.ts).
  *
- * The agent itself is owner-only. Visitors keep the mascot (clicks, Konami,
+ * The owner's agent is owner-only. Visitors keep the mascot (clicks, Konami,
  * Cmd/Ctrl+J) but the panel shows <VisitorGuide/> — a tool finder — instead
- * of the chat, so their panel never touches /api/agent/* or the agent tables
- * in Supabase. The chat (and the action registry it needs) is a separate
- * dynamic chunk, owner-agent-panel, so visitors never download it either.
+ * of the chat, so their panel never touches /api/agent/stream or the agent
+ * tables in Supabase. The chat (and the action registry it needs) is a
+ * separate dynamic chunk, owner-agent-panel, so visitors never download it
+ * either.
+ *
+ * With visitor AI on (visitorAiEnabled), a confirmed visitor gets
+ * <VisitorPanel/> instead: the same guide first, then, after a consent card,
+ * Amr's AI through /api/agent/visitor (its own chunks, loaded on demand). An
+ * unverified owner session (owner check unanswered) keeps the plain guide.
  */
 
 import {
@@ -40,6 +48,8 @@ import { X, Plus, History, Sparkles, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { visitorAiEnabled } from "@/lib/visitor-ai/contract";
+import { did, feel, getMind, recentlyDid } from "@/lib/agent/mascot/mind";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
@@ -53,9 +63,14 @@ import {
   requestMotionPermission,
 } from "./engine/interactions/sensors";
 import { installKonami } from "./engine/customization/commands";
+import { followUp, sceneOfShot } from "./engine/scene-taps";
+import { sceneReaction } from "./engine/scenes";
+import { MascotBubble } from "./mascot-bubble";
+import { inviteMotion } from "./motion-invite";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./engine/sprite-poses";
 import { VisitorGuide } from "./visitor-guide";
+import { VisitorPanel } from "./visitor-panel";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import {
   HOME,
@@ -603,7 +618,9 @@ export function MascotAssistant() {
   const [showHistory, setShowHistory] = useState(false);
   // `settled` keeps the owner from seeing the visitor notice flash while
   // auth is still loading; no chat component mounts until it's settled.
-  const { isOwner, settled } = useOwnerState();
+  const { isOwner, settled, visitor } = useOwnerState();
+  // Amr's AI for visitors: a confirmed visitor only, and only in a build that has it on.
+  const visitorAi = visitor && visitorAiEnabled();
   const isPhone = useIsPhone();
   // Touch screens of any width (a landscape phone, a tablet): his figure there is
   // where a finger lands, so he steps aside for the page's controls.
@@ -623,10 +640,19 @@ export function MascotAssistant() {
 
   // Owner signed out mid-session: drop the conversation from memory. (The
   // chat panel unmounts at the same moment, which aborts any in-flight turn.)
+  // The other way round, a visitor's chat (memory only) never carries over
+  // into the owner's: it goes, with the visitor's allowance, when they turn
+  // out to be the owner (the visitor panel unmounting stops its turn).
   const wasOwnerRef = useRef(false);
   useEffect(() => {
     if (isOwner) {
       wasOwnerRef.current = true;
+      const agent = useAgentStore.getState();
+      if (agent.chatProfile === "visitor") {
+        agent.reset();
+        agent.setChatProfile("owner");
+        agent.setVisitorQuota(null);
+      }
       return;
     }
     if (!wasOwnerRef.current) return;
@@ -641,13 +667,20 @@ export function MascotAssistant() {
   if (!clickRef.current) {
     clickRef.current = createClickInteraction({
       playNow: (r) => useMascotStore.getState().playNow(r),
+      hold: (h, on) => useMascotStore.getState().setHold(h, on),
       sound: () => playMascotSound("click"),
+      temperament: () => getMind().brain.temperament(),
+      feel,
     });
   }
   const touchRef = useRef<ReturnType<typeof createTouchInteraction> | null>(null);
   if (!touchRef.current) {
     touchRef.current = createTouchInteraction({
-      playNow: (r) => useMascotStore.getState().playNow(r),
+      playNow: (r) => {
+        if (r === "highFive") feel("highFive");
+        else if (r === "patLeft" || r === "patRight") feel("pat");
+        useMascotStore.getState().playNow(r);
+      },
       hold: (h, on) => useMascotStore.getState().setHold(h, on),
       sound: () => playMascotSound("click"),
     });
@@ -662,7 +695,19 @@ export function MascotAssistant() {
     // Where it landed: his head gets a pat, his tummy a poke. (A keyboard press is a poke.)
     const p = e.detail > 0 ? touchPoint(e, hitRef.current) : null;
     const side = p && p.x < p.box.left + p.box.width / 2 ? "left" : "right";
-    clickRef.current?.onClick(p ? zoneAt(p) : "body", side);
+    // Tapped in the middle of one of his own scenes, he carries on with another of
+    // its family (the ball bounced, then kicked) instead of the usual giggle.
+    const shot = buttonRef.current?.querySelector<HTMLElement>("[data-amr-shot]")?.dataset.amrShot;
+    const playing = sceneOfShot(shot);
+    const next = playing ? followUp(playing, sceneShipped, recentlyDid()) : null;
+    if (next) {
+      playMascotSound("click");
+      feel("played");
+      did(next);
+      useMascotStore.getState().playNow(sceneReaction(next));
+    } else {
+      clickRef.current?.onClick(p ? zoneAt(p) : "body", side);
+    }
     // The first tap of a burst opens or closes the panel; the rest are play.
     const now = Date.now();
     const gap = now - lastTapRef.current;
@@ -787,6 +832,7 @@ export function MascotAssistant() {
       if (!moved && Math.abs(ev.clientX - start.x) + Math.abs(ev.clientY - start.y) > 8) {
         moved = true;
         touch?.dragStart();
+        feel("carried");
       }
       if (!moved) {
         const q = touchPoint(ev, hitRef.current);
@@ -826,6 +872,7 @@ export function MascotAssistant() {
         }
         if (!prefersReducedMotion()) {
           const thrown = speed > THROW_SPEED;
+          if (thrown) feel("thrown");
           flightRef.current = { left: last.left, top: last.top, thrown };
           useMascotStore.getState().setHold(thrown ? "flying" : "falling", true);
         }
@@ -906,6 +953,17 @@ export function MascotAssistant() {
     if (granted) mascot.playNow("startle");
   };
 
+  // Where the browser asks before it sends motion, he offers to feel the phone:
+  // once, the first time his panel closes (the visitor has met him by then).
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    const was = wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (!was || open) return;
+    const id = setTimeout(inviteMotion, 700);
+    return () => clearTimeout(id);
+  }, [open]);
+
   // Drive the mascot from the conversation: talk while streaming, think on send,
   // react to tool results, shift mood to the reply's sentiment.
   useMascotChatReactions();
@@ -969,7 +1027,11 @@ export function MascotAssistant() {
             <div>
               <p className="text-sm font-semibold text-text">✦ Amr</p>
               <p className="text-xs text-sub">
-                {isOwner ? "Drive every tool" : "Find the right tool"}
+                {isOwner
+                  ? "Drive every tool"
+                  : visitorAi
+                    ? "Find a tool or ask"
+                    : "Find the right tool"}
                 {/* A keyboard shortcut means nothing on a touch screen. */}
                 <span className="pointer-coarse:hidden"> · Cmd/Ctrl+J</span>
               </p>
@@ -1033,7 +1095,12 @@ export function MascotAssistant() {
           </div>
           {!isOwner ? (
             <div className="min-h-0 flex-1" aria-busy={!settled}>
-              {settled && <VisitorGuide onNavigate={closeSheet} />}
+              {settled &&
+                (visitorAi ? (
+                  <VisitorPanel onNavigate={closeSheet} />
+                ) : (
+                  <VisitorGuide onNavigate={closeSheet} />
+                ))}
             </div>
           ) : (
             <OwnerAgentPanel
@@ -1043,6 +1110,9 @@ export function MascotAssistant() {
           )}
         </div>
       )}
+
+      {/* What he says beside himself, outside the chat. */}
+      {!hideFigure && <MascotBubble />}
 
       {/* The screen's side safe areas, for stepping aside to the other side (readSideInsets). */}
       <span

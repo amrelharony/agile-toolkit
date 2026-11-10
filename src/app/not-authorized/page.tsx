@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { InkArt } from "@/components/ink/ink-art";
+import { keyArt } from "@/lib/ink/drawings/pages/key";
 import { SignOutButton } from "./sign-out-button";
 
 // The root layout's title template appends " | Agile Toolkit".
@@ -27,10 +29,9 @@ export default function NotAuthorizedPage({
 
   return (
     <main className="min-h-screen-dvh flex items-center justify-center px-6 py-16">
-      <div className="max-w-md w-full text-center space-y-6">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-destructive/10 text-destructive text-2xl">
-          ⊘
-        </div>
+      <div className="ink-host max-w-md w-full text-center space-y-6">
+        {/* The owner's key: the one thing this account doesn't hold. */}
+        <InkArt drawing={keyArt} boil className="mx-auto h-16 w-16" />
         {config ? (
           <>
             <h1 className="text-2xl font-semibold text-text">Owner sign-in unavailable</h1>
@@ -49,7 +50,7 @@ export default function NotAuthorizedPage({
             <h1 className="text-2xl font-semibold text-text">Not the owner account</h1>
             <p className="text-sub leading-relaxed">
               This Google account isn&apos;t the workspace owner. Every tool still works without
-              signing in — your work stays in this browser.
+              signing in, and your work is saved only in this browser.
             </p>
           </>
         )}

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAgentStore } from "@/lib/agent/store";
+import { toolIdForPath } from "@/lib/agent/page-tool";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { sendUserMessage, abortInFlight, generateTitle } from "@/lib/agent/client";
 import {
@@ -14,10 +15,10 @@ import {
 } from "@/lib/agent/persist";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "./confirm-action";
-import { Markdown } from "./markdown";
+import { MessageBubble } from "./message-bubble";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
-import { Send, Wrench, AlertTriangle, Mic, Square } from "lucide-react";
+import { Send, AlertTriangle, Mic, Square } from "lucide-react";
 import type { ChatMessage } from "@/lib/agent/types";
 
 /** Resume the most recent thread at most once per page load (not on every
@@ -113,7 +114,8 @@ export function AgentConversation() {
       return;
     }
     setInput("");
-    const toolId = inferToolId(pathname);
+    // The registry's id for this page's tool (a sub-page counts), or null.
+    const toolId = toolIdForPath(pathname);
     // Ensure a persisted conversation exists so the thread survives reload.
     let convId = useAgentStore.getState().activeConversationId;
     if (!convId) {
@@ -239,70 +241,4 @@ export function AgentConversation() {
       </div>
     </div>
   );
-}
-
-function MessageBubble({ message }: { message: ChatMessage }) {
-  if (message.role === "tool") {
-    return (
-      <div className="text-xs text-sub bg-card/50 rounded-md p-2 border border-border">
-        {message.content.map((c, i) =>
-          c.type === "tool_result" ? (
-            <div key={i} className="flex gap-2 items-start">
-              <Wrench
-                className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${c.is_error ? "text-destructive" : "text-accent"}`}
-                aria-hidden="true"
-              />
-              <span className="font-mono break-all">
-                {typeof c.content === "string"
-                  ? c.content.slice(0, 400)
-                  : JSON.stringify(c.content).slice(0, 400)}
-              </span>
-            </div>
-          ) : null
-        )}
-      </div>
-    );
-  }
-
-  const isUser = message.role === "user";
-  return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-          isUser ? "bg-accent/20 text-text" : "bg-card border border-border text-text"
-        }`}
-      >
-        {message.content.map((c, i) => {
-          if (c.type === "text") {
-            // Agent replies are markdown; user messages are shown verbatim.
-            return isUser ? (
-              <p key={i} className="whitespace-pre-wrap break-words">
-                {c.text}
-              </p>
-            ) : (
-              <Markdown key={i} source={c.text} />
-            );
-          }
-          if (c.type === "tool_use") {
-            return (
-              <div key={i} className="mt-2 text-xs flex items-start gap-2">
-                <Wrench className="w-3.5 h-3.5 mt-0.5 shrink-0 text-accent" aria-hidden="true" />
-                <span className="font-mono break-all">
-                  {c.name}({JSON.stringify(c.input).slice(0, 120)})
-                </span>
-              </div>
-            );
-          }
-          return null;
-        })}
-      </div>
-    </div>
-  );
-}
-
-function inferToolId(pathname: string | null): string | null {
-  if (!pathname) return null;
-  // /planning-poker → "planning-poker"; / → null
-  const m = pathname.match(/^\/([a-z0-9-]+)(?:\/|$)/);
-  return m ? m[1] : null;
 }

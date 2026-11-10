@@ -93,6 +93,8 @@ vi.mock("framer-motion", async () => {
 });
 
 import JoinRoomPage, { metadata } from "@/app/join/[tool]/[code]/page";
+import { JoinRoom } from "@/app/join/[tool]/[code]/join-room";
+import { renderToStaticMarkup } from "react-dom/server";
 
 const CODE = "ABCDEFGHJKMN";
 
@@ -286,5 +288,42 @@ describe("joining with the flag on", () => {
     expect(h.client.removeChannel).toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "You left the room" })).toHaveFocus();
     expect(screen.getByRole("button", { name: "Join again" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * /join is bare: no app shell and no Amr, so its ink carries the page (DNA-SPEC
+ * §9). The art is decorative and stays out of the accessibility tree.
+ */
+describe("ink on the join page", () => {
+  const inkIn = (root: ParentNode, name: string) => {
+    const svg = root.querySelector(`svg[data-ink="${name}"]`);
+    expect(svg, name).not.toBeNull();
+    expect(svg!.getAttribute("aria-hidden")).toBe("true");
+    return svg!;
+  };
+
+  it("scribbles while the room loads", () => {
+    // A vote link reads its #k= after mount, so the first paint is the loading state.
+    const html = renderToStaticMarkup(<JoinRoom tool="health-check" code={CODE} />);
+    expect(html).toContain("Opening the room…");
+    expect(html).toContain('data-ink="scribble"');
+    expect(html).toContain('aria-hidden="true"');
+  });
+
+  it("draws a door over the heading outside the room", () => {
+    renderPage("planning-poker", CODE);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    const heading = screen.getByRole("heading", { name: "You haven't joined the room" });
+    const door = inkIn(heading.closest("section")!, "door");
+    expect(door.nextElementSibling).toBe(heading);
+  });
+
+  it("draws a broken link when the link itself is incomplete", async () => {
+    window.history.replaceState(null, "", window.location.pathname);
+    renderPage("health-check", CODE);
+    const heading = await screen.findByRole("heading", { name: "This link is incomplete" });
+    inkIn(heading.closest("section")!, "broken-link");
+    expect(heading.closest("section")!.querySelector('svg[data-ink="door"]')).toBeNull();
   });
 });

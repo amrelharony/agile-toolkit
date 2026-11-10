@@ -195,8 +195,8 @@ function VisitorMenu({
             </div>
           ) : (
             <div className="px-2 py-2 text-xs text-sub">
-              <span className="text-sm font-medium text-text">Visitor</span> · Your work stays in
-              this browser
+              <span className="text-sm font-medium text-text">Visitor</span> · Your work is saved
+              only in this browser
             </div>
           )}
           <DropdownMenuSeparator />

@@ -3,7 +3,9 @@
 /**
  * Amr's half of a moment: when the moment scheduler (lib/notify/moment-
  * scheduler.ts) plays a rare item at a calm time, he cheers once. He is the
- * only celebration surface; the chip beside him just names what happened.
+ * only celebration that moves; the chip beside him just names what happened.
+ * The ink moments (components/ink/ink-moment.tsx) aren't a second one: still
+ * marks drawn once in place beside the text that says something got finished.
  *
  * Coordinates with the tool reactions (use-tool-reactions.ts), which answer
  * the history log, so he doesn't react twice to one action:

@@ -31,6 +31,7 @@ const EXCLUDED_KEYS = new Set([
   "agile-toolkit:canvas:last-catchup", // cache
   "agile-toolkit:activity", // Activity inbox: a restore must not bring back stale unread rows
   "agile-toolkit:moments", // moments waiting for Amr: this browser's own, like the inbox
+  "agile-toolkit:amr-ai-consent", // visitor AI consent: each browser is asked for itself
   // Which loves the server counted from this device: restored elsewhere, one
   // love could be taken back from the count once per device.
   "agile-toolkit:comics:counted",
@@ -42,6 +43,7 @@ const EXCLUDED_PREFIXES = [
   "agile-toolkit:comics:entry:", // this device's daily count marks: which posters it scanned
   "agile-toolkit:comics:intro:", // which intros this device has seen: per device, by design
   "agile-toolkit:comics:draft", // the owner's unsaved stories, which can be unreleased ones
+  "agile-toolkit:live-room:", // a tab's "live room open" stamp: true for a few minutes at most
 ];
 
 /** Preferences stored outside the `agile-toolkit:` prefix that are worth keeping. */

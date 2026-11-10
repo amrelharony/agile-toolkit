@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Copy, Download, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InkMoment } from "@/components/ink/ink-moment";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { cardLink } from "@/lib/kudos/card-link";
 import {
@@ -100,14 +101,18 @@ export function KudosSent({ kudos, kept, onDone }: Props) {
       aria-labelledby="kudos-sent-title"
       className="flex flex-col gap-4 rounded-lg border border-accent/40 bg-surface p-4"
     >
-      <h2
-        id="kudos-sent-title"
-        ref={headingRef}
-        tabIndex={-1}
-        className="text-base font-semibold text-text focus:outline-none"
-      >
-        Your kudos for {kudos.toName} is ready
-      </h2>
+      {/* An ink moment: a heart drawn once by the heading, which says it's sent. */}
+      <div className="flex items-start gap-2">
+        <InkMoment mark="heart" className="mt-0.5" />
+        <h2
+          id="kudos-sent-title"
+          ref={headingRef}
+          tabIndex={-1}
+          className="min-w-0 text-base font-semibold text-text focus:outline-none"
+        >
+          Your kudos for {kudos.toName} is ready
+        </h2>
+      </div>
       <p role="status" className="text-sm text-text">
         {kept
           ? "A copy is kept on this device. Send the link or the image to pass it on."

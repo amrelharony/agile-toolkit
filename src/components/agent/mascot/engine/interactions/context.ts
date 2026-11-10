@@ -13,6 +13,7 @@
 import type { MascotReaction } from "@/lib/agent/mascot/store";
 import { cairoDay } from "@/lib/agent/mascot/context/occasions";
 import { momentsNow, PLAY_SCENES, type Moment } from "@/lib/agent/mascot/context/moments";
+import { toolPageScenes } from "@/lib/agent/mascot/context/tool-scenes";
 import type { WeatherNow } from "@/lib/agent/mascot/context/weather";
 import type { PackId } from "../../mascot-packs";
 import { clipPacks, shippedScene } from "../sprite-poses";
@@ -33,6 +34,10 @@ export interface ContextHooks {
   weekend(): readonly number[];
   /** Whether a scene's sheet has shipped. */
   shipped?: (scene: string) => boolean;
+  /** The last things he did (lib/agent/mascot/mind.ts): pastimes among them step back. */
+  recent?: () => readonly string[];
+  /** He's about to play this scene. */
+  played?: (scene: string) => void;
   now?: () => Date;
   random?: () => number;
   storage?: Pick<Storage, "getItem" | "setItem"> | null;
@@ -83,19 +88,26 @@ export function pickGreeting(
   return null;
 }
 
-/** A scene to pass the time: the day's own twice as likely as a game. */
+/**
+ * A scene to pass the time: the day's own twice as likely as a game, never the
+ * one he just played, and the ones he hasn't played lately (`recent`) before the
+ * ones he has.
+ */
 export function pickPastime(
   moments: readonly Moment[],
   shipped: (scene: string) => boolean,
   random: () => number,
-  last: string | null
+  last: string | null,
+  recent: readonly string[] = []
 ): string | null {
   const pool: string[] = [];
   for (const m of moments) for (const s of m.scenes) if (shipped(s)) pool.push(s, s);
   for (const s of PLAY_SCENES) if (shipped(s)) pool.push(s);
   const choices = pool.filter((s) => s !== last);
   if (!choices.length) return null;
-  return choices[Math.floor(random() * choices.length) % choices.length];
+  const fresh = choices.filter((s) => !recent.includes(s));
+  const from = fresh.length ? fresh : choices;
+  return from[Math.floor(random() * from.length) % from.length];
 }
 
 /** Within the last ten minutes, this many keys is a stretch of real work. */
@@ -125,6 +137,7 @@ export function installContextSenses(hooks: ContextHooks): ContextSenses {
   /** Load the scene's pack, then play it. */
   const stage = (scene: string, delay = LOAD_MS) => {
     hooks.want(packsOf(scene));
+    hooks.played?.(scene);
     after(delay, () => hooks.act(sceneReaction(scene)));
   };
 
@@ -226,12 +239,19 @@ export function installContextSenses(hooks: ContextHooks): ContextSenses {
   };
   if (typeof window !== "undefined") window.addEventListener("keydown", onKey, { passive: true });
 
+  /** On a tool's page, load the packs its moments play, before the first one happens. */
+  const preloadTool = (path: string) => {
+    const packs = Array.from(new Set(toolPageScenes(path).filter(shipped).flatMap(packsOf)));
+    if (packs.length) hooks.want(packs);
+  };
+
   let lastPath = hooks.path();
+  preloadTool(lastPath);
 
   return {
     play() {
       if (hooks.busy()) return false;
-      const scene = pickPastime(moments(), shipped, random, lastPastime);
+      const scene = pickPastime(moments(), shipped, random, lastPastime, hooks.recent?.() ?? []);
       if (!scene || !hooks.allow("pastime", 2 * 60_000)) return false;
       lastPastime = scene;
       stage(scene, 600);
@@ -241,6 +261,7 @@ export function installContextSenses(hooks: ContextHooks): ContextSenses {
       const path = hooks.path();
       if (path === lastPath) return;
       lastPath = path;
+      preloadTool(path);
       if (greetedOnArrival) greet(false); // a new page may have its own moment
     },
     dispose() {

@@ -640,6 +640,278 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   INK GRAPHICS — hand-inked spot art drawn in code (DNA-SPEC §9)
+   components/ink render lib/ink drawings as inline SVG. Strokes ink themselves in
+   once (pathLength 1 + dash offset), washes and fills fade in under them, and a
+   hovered .ink-host makes .ink-boil wobble like hand-drawn animation. Every
+   colour is a theme token; reduced motion shows the finished drawing, still.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@layer components {
+  .ink-art {
+    display: block;
+    overflow: visible;
+    pointer-events: none;
+    --ink-dur: 520ms;
+  }
+  .ink-line {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    /* With pathLength 1: one dash the length of the path, then a gap longer
+       than it, so an offset just over 1 hides the line without a cap dot. */
+    stroke-dasharray: 1 2;
+    stroke-dashoffset: 0;
+    animation: ink-draw var(--ink-dur) cubic-bezier(0.45, 0.05, 0.3, 1) both;
+    animation-delay: calc(var(--ink-delay, 0ms) * var(--mood-duration-scalar, 1));
+  }
+  .ink-fill,
+  .ink-wash,
+  .ink-wash-edge {
+    animation: ink-fade 480ms ease-out both;
+    animation-delay: calc(var(--ink-delay, 0ms) * var(--mood-duration-scalar, 1));
+  }
+  .ink-fill {
+    stroke: none;
+    opacity: 0.22;
+  }
+  .ink-wash {
+    stroke: none;
+    opacity: 0.15;
+  }
+  .ink-wash-edge {
+    fill: none;
+    stroke-width: 1.1;
+    opacity: 0.28;
+  }
+  .dark .ink-fill {
+    opacity: 0.26;
+  }
+  .dark .ink-wash {
+    opacity: 0.18;
+  }
+  .ink-bleed {
+    filter: url(#ink-bleed);
+  }
+  .ink-hl-ink {
+    stroke: none;
+  }
+  .ink-still .ink-line,
+  .ink-still .ink-fill,
+  .ink-still .ink-wash,
+  .ink-still .ink-wash-edge {
+    animation: none;
+  }
+
+  /* Tones: strokes and fills name a token, never a colour. */
+  .ink-tone-ink {
+    stroke: var(--text);
+  }
+  .ink-tone-sub {
+    stroke: var(--sub);
+  }
+  .ink-tone-paper {
+    stroke: var(--card);
+  }
+  .ink-tone-accent {
+    stroke: var(--accent);
+  }
+  .ink-tone-accent2 {
+    stroke: var(--accent2);
+  }
+  .ink-tone-accent3 {
+    stroke: var(--accent3);
+  }
+  .ink-tone-success {
+    stroke: var(--success);
+  }
+  .ink-tone-warning {
+    stroke: var(--warning);
+  }
+  .ink-tone-danger {
+    stroke: var(--danger);
+  }
+  .ink-tone-info {
+    stroke: var(--info);
+  }
+  .ink-tone-moss {
+    stroke: var(--neon-green);
+  }
+  .ink-tone-wood {
+    stroke: var(--neon-amber);
+  }
+  .ink-tone-plum {
+    stroke: var(--neon-magenta);
+  }
+  .ink-fill-ink {
+    fill: var(--text);
+  }
+  .ink-fill-sub {
+    fill: var(--sub);
+  }
+  .ink-fill-paper {
+    fill: var(--card);
+  }
+  .ink-fill-accent {
+    fill: var(--accent);
+  }
+  .ink-fill-accent2 {
+    fill: var(--accent2);
+  }
+  .ink-fill-accent3 {
+    fill: var(--accent3);
+  }
+  .ink-fill-success {
+    fill: var(--success);
+  }
+  .ink-fill-warning {
+    fill: var(--warning);
+  }
+  .ink-fill-danger {
+    fill: var(--danger);
+  }
+  .ink-fill-info {
+    fill: var(--info);
+  }
+  .ink-fill-moss {
+    fill: var(--neon-green);
+  }
+  .ink-fill-wood {
+    fill: var(--neon-amber);
+  }
+  .ink-fill-plum {
+    fill: var(--neon-magenta);
+  }
+  /* A paper fill is opaque: it covers the lines behind it (a balloon, a mug). */
+  .ink-fill.ink-fill-paper {
+    opacity: 1;
+  }
+
+  /* Line boil, mouse only: hover the host, not the (click-through) art. */
+  @media (hover: hover) and (pointer: fine) {
+    .ink-host:hover .ink-boil {
+      animation: ink-boil 380ms steps(1, end) infinite;
+    }
+  }
+
+  /* The loading scribble writes, rests, then lifts off and starts again. */
+  .ink-scribble .ink-line {
+    animation: ink-scribble 2.6s ease-in-out infinite;
+  }
+
+  /* A mark on a phrase (InkHighlight): behind the words, stretched to them. */
+  .ink-hl {
+    position: relative;
+    display: inline-block;
+    isolation: isolate;
+  }
+  .ink-hl-mark {
+    position: absolute;
+    z-index: -1;
+  }
+  .ink-hl-under {
+    left: -0.15em;
+    width: calc(100% + 0.3em);
+    bottom: -0.18em;
+    height: 0.42em;
+  }
+  .ink-hl-circle {
+    left: -0.4em;
+    width: calc(100% + 0.8em);
+    top: -0.35em;
+    height: calc(100% + 0.7em);
+  }
+
+  /* High contrast: plain line art, no washes, no colour fills, no wobble. A
+     paper fill stays: it's the card colour (black here), and it still hides
+     the lines of whatever sits behind a shape in front. */
+  .hc .ink-wash-group,
+  .hc .ink-fill:not(.ink-fill-paper) {
+    display: none;
+  }
+  .hc .ink-art .ink-line:not(.ink-hl-pen) {
+    stroke: var(--text);
+  }
+  .hc .ink-boil {
+    animation: none !important;
+    filter: none !important;
+  }
+}
+
+@keyframes ink-draw {
+  from {
+    stroke-dashoffset: 1.05;
+    opacity: 0;
+  }
+  1% {
+    opacity: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+@keyframes ink-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes ink-boil {
+  0% {
+    filter: url(#ink-boil-0);
+  }
+  33.333% {
+    filter: url(#ink-boil-1);
+  }
+  66.666% {
+    filter: url(#ink-boil-2);
+  }
+  100% {
+    filter: url(#ink-boil-0);
+  }
+}
+@keyframes ink-scribble {
+  0% {
+    stroke-dashoffset: 1.05;
+    opacity: 0;
+  }
+  2% {
+    opacity: 1;
+  }
+  45%,
+  62% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -1.05;
+    opacity: 1;
+  }
+}
+
+/* The global REDUCED MOTION rule (further down) only shortens animations, which
+   would leave delayed strokes hidden for a moment and the boil and scribble
+   flickering once: show the finished drawing, still. */
+@media (prefers-reduced-motion: reduce) {
+  .ink-line,
+  .ink-fill,
+  .ink-wash,
+  .ink-wash-edge,
+  .ink-boil,
+  .ink-scribble .ink-line {
+    animation: none !important;
+  }
+  .ink-boil {
+    filter: none !important;
+  }
+}
+
+@media print {
+  .ink-art {
+    display: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    COMIC INTROS — lib/comics/intro.ts decides, these rules show and frame them.
    Each scene's choreography lives in its own CSS module.
    ═══════════════════════════════════════════════════════════════════════════════ */

@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Users, AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { SQUAD_COLORS } from "@/lib/squads/colors";
+import { InkArt } from "@/components/ink/ink-art";
+import { squadArt } from "@/lib/ink/drawings/pages/squad";
 
 interface Props {
   initialCode: string;
@@ -67,10 +69,9 @@ export function JoinClient({ initialCode, nextUrl }: Props) {
   return (
     <main className="min-h-screen-dvh flex items-center justify-center px-6 py-12">
       <div className="w-full max-w-lg space-y-6">
-        <header className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-accent/10 text-accent">
-            <Users className="w-6 h-6" aria-hidden="true" />
-          </div>
+        {/* A bare page, with no Amr: the squad, inked, says who's inviting. */}
+        <header className="ink-host text-center space-y-2">
+          <InkArt drawing={squadArt} boil className="mx-auto h-16 w-16" />
           <h1 className="text-2xl font-semibold text-text">Join as a guest</h1>
           <p className="text-sub text-sm">
             Enter the squad code you were given, then pick a display name.

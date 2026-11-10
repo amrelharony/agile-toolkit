@@ -5,6 +5,8 @@ import Link from "next/link";
 import { ArrowRight, Star } from "lucide-react";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
 import { cn } from "@/lib/utils";
+import { ToneIcon } from "@/components/ink/tone-icon";
+import type { InkTone } from "@/lib/ink/types";
 
 interface ToolCardProps {
   href: string;
@@ -13,6 +15,11 @@ interface ToolCardProps {
   description: string;
   tags?: string[];
   accentColor?: string;
+  /**
+   * The section's watercolour (lib/ink/drawings/sections SECTION_TONE): the
+   * icon sits on a wash of it, in its colour, instead of the plain tile.
+   */
+  tone?: InkTone;
   /** When provided, a star toggle renders in the top-right corner. */
   toolId?: string;
 }
@@ -36,6 +43,7 @@ export function ToolCard({
   description,
   tags,
   accentColor,
+  tone,
   toolId,
 }: ToolCardProps) {
   const { isFavorite, toggleFavorite } = useToolPrefs();
@@ -65,17 +73,23 @@ export function ToolCard({
       {/* Content — above the stretched link so the star stays clickable;
           everything else in the row lets clicks fall through to the link. */}
       <div className="pointer-events-none relative z-[2] flex items-start justify-between">
-        <div
-          aria-hidden="true"
-          className="
-            w-11 h-11 rounded-lg
-            bg-accent/10 border border-border
-            flex items-center justify-center
-            text-accent text-lg
-          "
-        >
-          {icon}
-        </div>
+        {tone ? (
+          <ToneIcon tone={tone} seedKey={toolId ?? href}>
+            {icon}
+          </ToneIcon>
+        ) : (
+          <div
+            aria-hidden="true"
+            className="
+              w-11 h-11 rounded-lg
+              bg-accent/10 border border-border
+              flex items-center justify-center
+              text-accent text-lg
+            "
+          >
+            {icon}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           {toolId && (
             <button

@@ -5,6 +5,7 @@ import { COMMUNITY_URL, GUESTBOOK_ROUTE } from "@/lib/comics/guestbook";
 import { listApprovedNotes } from "@/lib/comics/guestbook-store";
 import { comicMetadata } from "../comic-metadata";
 import { GuestbookForm } from "./guestbook-form";
+import { guestbookArt } from "@/lib/ink/drawings/pages/guestbook";
 
 /** Refreshed once a day, and at once when a note is approved. */
 export const revalidate = 86400;
@@ -24,7 +25,11 @@ export const metadata: Metadata = comicMetadata({
 export default async function GuestbookPage() {
   const notes = await listApprovedNotes();
   return (
-    <ToolPageWrapper title="Guestbook" description="Notes from readers of Agile at Work">
+    <ToolPageWrapper
+      art={guestbookArt}
+      title="Guestbook"
+      description="Notes from readers of Agile at Work"
+    >
       <div className="max-w-2xl space-y-6">
         <section aria-labelledby="sign-heading" className="space-y-3">
           <h2 id="sign-heading" className="font-display text-lg font-semibold text-text">

@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import type { VisitorErrorCode } from "@/lib/visitor-ai/contract";
 import type { ChatMessage, ConversationMeta, PendingToolUse } from "./types";
 
 /** Usage snapshot parsed from the stream route's X-RateLimit-* headers. */
@@ -14,6 +15,30 @@ export interface RateLimitInfo {
   /** True once a window cap was hit (the route returned 429). */
   limited: boolean;
 }
+
+/**
+ * A visitor's message allowance, from the visitor route's x-visitor-ai-*
+ * headers (see VISITOR_HEADERS in lib/visitor-ai/contract).
+ */
+export interface VisitorQuota {
+  /** Messages left today. */
+  remaining: number;
+  /** The daily message limit. */
+  limit: number;
+  /** Z.AI's busy hours are on: a smaller allowance applies until they end. */
+  peak: boolean;
+  /** Messages left in this busy-hours window (null outside it). */
+  peakRemaining: number | null;
+  /** The limit for one busy-hours window, as configured (null if the route didn't say). */
+  peakLimit: number | null;
+  /** When this busy-hours window ends, ISO 8601 (null outside it). */
+  peakEndsAt: string | null;
+  /** When the route sent this (ms since 1970); left out, it counts as just now. */
+  receivedAt?: number;
+}
+
+/** Whose chat the store holds: the owner's (persisted) or a visitor's (memory only). */
+export type ChatProfile = "owner" | "visitor";
 
 interface AgentState {
   open: boolean;
@@ -35,6 +60,15 @@ interface AgentState {
   rateLimit: RateLimitInfo | null;
   /** total_tokens for the most recent turn (null until one reports usage). */
   lastTurnTokens: number | null;
+  /** Whose chat this is; set by sendUserMessage on every send. */
+  chatProfile: ChatProfile;
+  /** A visitor's allowance (null until the visitor route answers once). */
+  visitorQuota: VisitorQuota | null;
+  /**
+   * Set when the visitor route refused with a "no more AI for now" code
+   * (VISITOR_FALLBACK_CODES): the panel goes back to the offline guide.
+   */
+  visitorFallback: VisitorErrorCode | null;
 }
 
 interface AgentActions {
@@ -45,11 +79,18 @@ interface AgentActions {
   setActiveConversation(meta: ConversationMeta | null, messages: ChatMessage[]): void;
   appendMessage(msg: ChatMessage): void;
   patchLastAssistant(content: ChatMessage["content"]): void;
+  /** Replace one message's content, by id (no-op when it's gone). */
+  patchMessage(id: string, content: ChatMessage["content"]): void;
+  /** Drop one message, by id (no-op when it's gone). */
+  removeMessage(id: string): void;
   setStreaming(v: boolean): void;
   setPendingToolUse(p: PendingToolUse | null): void;
   setError(e: string | null): void;
   setRateLimit(r: RateLimitInfo | null): void;
   setLastTurnTokens(n: number | null): void;
+  setChatProfile(p: ChatProfile): void;
+  setVisitorQuota(q: VisitorQuota | null): void;
+  setVisitorFallback(code: VisitorErrorCode | null): void;
   reset(): void;
 }
 
@@ -64,6 +105,9 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   error: null,
   rateLimit: null,
   lastTurnTokens: null,
+  chatProfile: "owner",
+  visitorQuota: null,
+  visitorFallback: null,
 
   openSheet: () => set({ open: true }),
   // BUG-G1: also reset autoApprove on close. The docstring promised
@@ -123,6 +167,11 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
       return { messages: next };
     }),
 
+  patchMessage: (id, content) =>
+    set((s) => ({ messages: s.messages.map((m) => (m.id === id ? { ...m, content } : m)) })),
+
+  removeMessage: (id) => set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
+
   setStreaming: (v) => set({ streaming: v }),
   // If a new pending replaces a still-unsettled old one (shouldn't happen
   // in normal flow, but defensive), reject the old promise so the loop
@@ -135,6 +184,9 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   setError: (e) => set({ error: e }),
   setRateLimit: (r) => set({ rateLimit: r }),
   setLastTurnTokens: (n) => set({ lastTurnTokens: n }),
+  setChatProfile: (p) => set({ chatProfile: p }),
+  setVisitorQuota: (q) => set({ visitorQuota: q }),
+  setVisitorFallback: (code) => set({ visitorFallback: code }),
 
   reset: () => {
     const pending = get().pendingToolUse;
@@ -147,6 +199,10 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
       // BUG-G1: reset autoApprove on full reset too.
       autoApprove: false,
       error: null,
+      // A fresh chat may try the AI again. The profile and the visitor's
+      // allowance stay: they describe the person, not the conversation
+      // (MascotAssistant clears them when a visitor becomes the owner).
+      visitorFallback: null,
     });
     pending?.resolve(false);
   },

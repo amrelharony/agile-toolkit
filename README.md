@@ -8,8 +8,11 @@ prioritization and decision frameworks, whiteboarding — plus the free
 incident response, strategy frameworks) sit on a "More tools" shelf
 (`/more-tools`) that any visitor can switch on.
 
-Every tool works without an account: a visitor's work stays in their browser.
-The owner's sign-in adds cross-device cloud sync, the in-app agent and MCP.
+Every tool works without an account: a visitor's work is saved only in their
+browser. The owner's sign-in adds cross-device cloud sync, the in-app agent
+and MCP. Two opt-in features for visitors, both off by default, do send what
+a visitor types elsewhere: live rooms and Amr's AI (see the access model
+below).
 
 Built with Next.js 14 (App Router), Zustand, Supabase, and Tailwind.
 
@@ -18,16 +21,31 @@ Built with Next.js 14 (App Router), Zustand, Supabase, and Tailwind.
 Five integrated subsystems, layered:
 
 1. **Access model** — Public, browser-only tools; owner-only server.
-   - **Visitors** (no sign-in) use every tool. Their data stays in the
-     browser's localStorage and never reaches the toolkit's server or
+   - **Visitors** (no sign-in) use every tool. Their data is saved only in the
+     browser's localStorage and does not reach the toolkit's server or
      database (in-tool AI prompts go straight to the provider of the key the
-     visitor brings).
+     visitor brings). The comics and kudos pages do send anonymous counts for
+     every visitor: see "The 'Agile at Work' comics" in
+     [RUNBOOK.md](RUNBOOK.md#the-agile-at-work-comics). There are two opt-in
+     exceptions, both off by default:
+     - **Visitor live rooms** (off unless `NEXT_PUBLIC_VISITOR_ROOMS=1`):
+       after a consent step, what people type in a room passes through
+       Supabase Realtime to everyone with the link. Nothing is written to a
+       database. See "Visitor live rooms" in
+       [RUNBOOK.md](RUNBOOK.md#visitor-live-rooms).
+     - **Amr's AI for visitors** (off unless `VISITOR_AI_ENABLED=1` and
+       `NEXT_PUBLIC_VISITOR_AI=1`): after a consent card, the visitor's
+       messages, the tool they are on and what Amr reads from their tools go
+       through `/api/agent/visitor` and Amr's own AI server to the AI
+       provider. The site keeps only a daily message count. See "Visitor AI"
+       in [RUNBOOK.md](RUNBOOK.md#visitor-ai).
    - **The owner** is a Supabase session whose user is in
      `AUTHORIZED_EMAILS`, signed in with Google, with a verified email
      (`isOwnerUser` in [src/lib/auth/authorize.ts](src/lib/auth/authorize.ts)).
-     Owner-only: cloud and history sync, the agent's server path, MCP,
-     personal access tokens, the kudos/squads/sessions APIs and realtime
-     multiplayer.
+     Owner-only: cloud and history sync, the agent's server path
+     (`/api/agent/stream`), MCP, personal access tokens, the
+     kudos/squads/sessions APIs and realtime multiplayer. The two opt-in
+     features above are the exceptions for visitors.
    - Edge middleware lets every page through (pages fail **open**) and
      guards the owner surface (fails **closed**): every non-bypassed
      `/api/*` route answers JSON `401 unauthenticated`,
@@ -64,10 +82,14 @@ Five integrated subsystems, layered:
 
 4. **In-app chat agent** (owner) — A right-side sheet (Cmd/Ctrl+J) powered by GLM
    (Zhipu) via OpenAI-compatible chat completions. Server proxy at
-   `/api/agent/stream` or browser-direct BYOK using the per-tool key in
-   the LLM settings store. Write actions pause for inline approval;
+   `/api/agent/stream` (owner-only) or browser-direct BYOK using the per-tool
+   key in the LLM settings store. Write actions pause for inline approval;
    "approve all this session" opt-in available.
    See [src/app/api/agent/stream/route.ts](src/app/api/agent/stream/route.ts).
+   Visitors never use that path. With the visitor AI flags on, they get the
+   metered `/api/agent/visitor` instead
+   ([src/app/api/agent/visitor/route.ts](src/app/api/agent/visitor/route.ts)):
+   see "Visitor AI" in [RUNBOOK.md](RUNBOOK.md#visitor-ai).
 
 5. **MCP server** (owner) — HTTP/SSE transport at `/api/mcp` for remote agents
    (Claude Desktop, Claude Code, OpenClaw), plus a thin stdio relay

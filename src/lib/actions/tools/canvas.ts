@@ -106,6 +106,8 @@ function applyObjectText(
 registry.register({
   id: "tool.canvas.add_sticky",
   toolId: "tool.canvas",
+  // Canvas edits broadcast to everyone in a live board room: never offered to visitors.
+  visitor: false,
   name: "add_sticky",
   category: "write",
   description: "Add a sticky note to a whiteboard at the given world coordinates.",
@@ -181,6 +183,8 @@ function moveObjectTo(target: WhiteboardObject, x: number, y: number): Whiteboar
 registry.register({
   id: "tool.canvas.move_object",
   toolId: "tool.canvas",
+  // Canvas edits broadcast to everyone in a live board room: never offered to visitors.
+  visitor: false,
   name: "move_object",
   category: "write",
   description: "Move a whiteboard object to new world coordinates.",
@@ -220,6 +224,8 @@ registry.register({
 registry.register({
   id: "tool.canvas.add_mind_map_node",
   toolId: "tool.canvas",
+  // Canvas edits broadcast to everyone in a live board room: never offered to visitors.
+  visitor: false,
   name: "add_mind_map_node",
   category: "write",
   description:
@@ -315,6 +321,8 @@ registry.register({
 registry.register({
   id: "tool.canvas.list_objects",
   toolId: "tool.canvas",
+  // Canvas edits broadcast to everyone in a live board room: never offered to visitors.
+  visitor: false,
   name: "list_objects",
   category: "read",
   description: "List all objects on a whiteboard (optionally filtered by type).",
@@ -345,6 +353,8 @@ registry.register({
 registry.register({
   id: "tool.canvas.create_board",
   toolId: "tool.canvas",
+  // Canvas edits broadcast to everyone in a live board room: never offered to visitors.
+  visitor: false,
   name: "create_board",
   category: "write",
   description: "Create a new whiteboard (canvas). Returns the new boardId.",
@@ -386,6 +396,8 @@ registry.register({
 registry.register({
   id: "tool.canvas.delete_object",
   toolId: "tool.canvas",
+  // Canvas edits broadcast to everyone in a live board room: never offered to visitors.
+  visitor: false,
   name: "delete_object",
   category: "write",
   description:
@@ -433,6 +445,8 @@ registry.register({
 registry.register({
   id: "tool.canvas.set_object_text",
   toolId: "tool.canvas",
+  // Canvas edits broadcast to everyone in a live board room: never offered to visitors.
+  visitor: false,
   name: "set_object_text",
   category: "write",
   description:
@@ -483,6 +497,8 @@ registry.register({
 registry.register({
   id: "tool.canvas.add_connector",
   toolId: "tool.canvas",
+  // Canvas edits broadcast to everyone in a live board room: never offered to visitors.
+  visitor: false,
   name: "add_connector",
   category: "write",
   description: "Add a connector (arrow) between two whiteboard objects on the same board.",

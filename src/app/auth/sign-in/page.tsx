@@ -4,6 +4,8 @@ import { defaultToolCount } from "@/lib/tools/catalog";
 import { TOUCH_LINK } from "@/components/ui/touch-target";
 import { cn } from "@/lib/utils";
 import { SignInCard } from "./sign-in-card";
+import { InkArt } from "@/components/ink/ink-art";
+import { doorArt } from "@/lib/ink/drawings/pages/door";
 
 // The root layout's title template appends " | Agile Toolkit".
 export const metadata: Metadata = {
@@ -19,19 +21,23 @@ export default function SignInPage() {
           primary foreground; the AT.svg is dark-mode optimised but still
           legible against the light/HC themes thanks to its rounded white-
           background variant. */}
-      <header className="flex flex-col items-center gap-4">
+      <header className="ink-host flex flex-col items-center gap-4">
         {/* Plain <img> rather than next/image: the optimizer 400s on SVG
             unless you opt into dangerouslyAllowSVG globally. Logos are
             tiny static assets — no optimization upside, and bypassing
             the optimizer keeps the deploy footprint smaller. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/AT.svg"
-          alt="Agile Toolkit"
-          width={72}
-          height={72}
-          className="rounded-2xl shadow-sm"
-        />
+        <div className="flex items-end gap-3">
+          {/* The owner's door, left ajar: the one way in that needs a key. */}
+          <InkArt drawing={doorArt} boil className="h-[4.5rem] w-[4.5rem]" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/AT.svg"
+            alt="Agile Toolkit"
+            width={72}
+            height={72}
+            className="rounded-2xl shadow-sm"
+          />
+        </div>
         <div className="text-center space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-text">Agile Toolkit</h1>
           <p className="text-sm text-sub">

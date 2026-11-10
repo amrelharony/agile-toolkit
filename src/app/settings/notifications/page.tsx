@@ -1,4 +1,6 @@
 import { NotificationsClient } from "./notifications-client";
+import { SettingsHeader } from "@/components/settings/settings-header";
+import { bellArt } from "@/lib/ink/drawings/pages/bell";
 
 export const metadata = {
   title: "Notifications",
@@ -9,13 +11,10 @@ export const metadata = {
 export default function NotificationsPage() {
   return (
     <div className="container-tool py-8">
-      <header className="mb-6 space-y-2">
-        <h1 className="text-fluid-h2 font-semibold text-text">Notifications</h1>
-        <p className="text-sub max-w-2xl">
-          Choose how much the toolkit tells you and when. Everything here stays in this browser.
-          Finished work always lands in Activity, whatever you pick.
-        </p>
-      </header>
+      <SettingsHeader title="Notifications" art={bellArt}>
+        Choose how much the toolkit tells you and when. Everything here stays in this browser.
+        Finished work always lands in Activity, whatever you pick.
+      </SettingsHeader>
       <NotificationsClient />
     </div>
   );

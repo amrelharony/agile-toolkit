@@ -24,7 +24,9 @@ import {
 } from "@/lib/data/backup";
 import { announceRestored, readLastBackupAt, recordBackup } from "@/lib/data/backup-meta";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
+import { visitorRoomsEnabled } from "@/lib/realtime/visitor-rooms";
 import { toast } from "@/lib/utils/toast";
+import { visitorAiEnabled } from "@/lib/visitor-ai/contract";
 import { useFlash } from "@/hooks/use-flash";
 
 interface StorageInfo {
@@ -44,6 +46,37 @@ function formatDate(iso: string | null): string {
   return Number.isNaN(d.getTime())
     ? "never"
     : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+const VISITOR_COUNTS =
+  "The comics and kudos pages do send anonymous counts: which printed piece brought you there, if any, and on a weekly story whether you opened and finished it, roughly how long you read, and your answers, love, share, retro hand-off or click on its tool.";
+
+const VISITOR_ROOMS =
+  "If you start or join a live room, what you type there passes through our realtime provider (Supabase) to everyone with the link, and we don't store it.";
+const VISITOR_AI =
+  "If you choose to chat with Amr's AI, your messages and what Amr reads from your tools to answer are sent to write the reply, and the site keeps only a daily message count.";
+
+/**
+ * What a visitor is told about where their work goes. A live room and a chat
+ * with Amr's AI both send text off this browser, so with either one on the
+ * text names it and no longer says that nothing is sent.
+ */
+function visitorDescription(): string {
+  const rooms = visitorRoomsEnabled();
+  const ai = visitorAiEnabled();
+  if (!rooms && !ai) {
+    return `Everything you make in the toolkit is saved in this browser only, and none of it is sent to our servers. ${VISITOR_COUNTS} None of it says who you are.`;
+  }
+  return [
+    "Everything you make in the toolkit is saved in this browser only.",
+    rooms ? VISITOR_ROOMS : "",
+    ai ? VISITOR_AI : "",
+    VISITOR_COUNTS,
+    // "None of it" would now read as covering the messages too.
+    "Those counts don't say who you are.",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /**
@@ -129,7 +162,7 @@ export function YourDataDialog({
             <DialogDescription>
               {isOwner
                 ? "Your work syncs to your account and is also kept in this browser."
-                : "Everything you make in the toolkit is saved in this browser only, and none of it is sent to our servers. The comics and kudos pages do send anonymous counts: which printed piece brought you there, if any, and on a weekly story whether you opened and finished it, roughly how long you read, and your answers, love, share, retro hand-off or click on its tool. None of it says who you are."}
+                : visitorDescription()}
             </DialogDescription>
           </DialogHeader>
 

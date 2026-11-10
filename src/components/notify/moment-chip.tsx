@@ -16,6 +16,10 @@ import { CHIP_MS, useMomentStore, type MomentShown } from "@/lib/notify/moment-s
 import { momentChipText } from "@/lib/notify/copy";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { cn } from "@/lib/utils";
+import { InkTick } from "@/components/ink/ink-tick";
+
+/** Moments that mean something got finished get a tick written by hand. */
+const TICK_KINDS = new Set(["achievement", "challenge"]);
 
 const KIND_ICON: Record<string, LucideIcon> = {
   "level-up": TrendingUp,
@@ -159,7 +163,11 @@ function ChipBody({
         }}
         className="flex min-h-[44px] min-w-0 touch-pan-y items-center gap-2 rounded-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
-        <Icon className="h-4 w-4 shrink-0 text-accent" aria-hidden />
+        {TICK_KINDS.has(moment.kind) ? (
+          <InkTick className="h-5 w-5" />
+        ) : (
+          <Icon className="h-4 w-4 shrink-0 text-accent" aria-hidden />
+        )}
         <span className="truncate">{text}</span>
       </button>
       <button

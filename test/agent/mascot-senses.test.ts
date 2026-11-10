@@ -3,6 +3,7 @@ import type { MascotHold, MascotReaction } from "@/lib/agent/mascot/store";
 import { createDirector } from "@/components/agent/mascot/engine/director";
 import {
   DOZE_MS,
+  HURRY_FACTOR,
   SIT_MS,
   YAWN_MS,
   createIdleLadder,
@@ -17,12 +18,25 @@ import {
   type PageHooks,
 } from "@/components/agent/mascot/engine/interactions/page";
 import {
+  LEAN_MAX,
+  REST_MS,
+  SKID_MAX,
+  createBump,
+  createFreeFall,
+  createPose,
+  createRest,
   createShake,
   createTilt,
+  createTwist,
   feelsPhone,
   installMotionSenses,
+  leanFor,
+  restingFrame,
+  screenPitch,
   screenTilt,
+  skidFor,
 } from "@/components/agent/mascot/engine/interactions/sensors";
+import { tiltLook } from "@/components/agent/mascot/engine/sprite-poses";
 
 describe("the director", () => {
   it("allows one unprompted reaction every 20 s, each with its own cooldown", () => {
@@ -158,6 +172,21 @@ describe("the idle ladder", () => {
     h.run(DOZE_MS + 1000);
     expect(h.acts).toEqual([]);
     expect(h.holds.size).toBe(0);
+  });
+
+  it("tires sooner once the phone has been put down, and not once it's picked up", () => {
+    const h = ladderHarness();
+    h.ladder.hurry(true);
+    h.run(YAWN_MS * HURRY_FACTOR + 1000);
+    expect(h.acts).toEqual(["yawn"]);
+    h.run(SIT_MS * HURRY_FACTOR + 1000);
+    expect(Array.from(h.holds)).toEqual(["sitting"]);
+
+    h.ladder.hurry(false);
+    h.ladder.input();
+    const from = h.at();
+    h.run(from + YAWN_MS * HURRY_FACTOR + 1000);
+    expect(h.acts).toEqual(["yawn", "standUp"]);
   });
 });
 
@@ -407,5 +436,189 @@ describe("feeling the phone", () => {
     expect(feelsPhone(false)).toBe(false);
     // jsdom has no permission prompt, like Android.
     expect(feelsPhone(null)).toBe(true);
+  });
+});
+
+describe("the phone's pose, all the time", () => {
+  it("reads how far the screen leans back", () => {
+    expect(screenPitch(90, 0)).toBeCloseTo(0, 5); // held upright
+    expect(screenPitch(45, 0)).toBeCloseTo(45, 5);
+    expect(screenPitch(0, 0)).toBeCloseTo(90, 5); // flat on a table, facing up
+    expect(screenPitch(180, 0)).toBeCloseTo(-90, 5); // facing the floor
+  });
+
+  it("follows a tilt, smoothed, then gets used to it", () => {
+    const pose = createPose();
+    pose.update(0, 40, 0);
+    let p = pose.update(20, 40, 16);
+    // One reading isn't the whole tilt: a shaky hand isn't a shaky Amr.
+    expect(p.roll).toBeGreaterThan(1);
+    expect(p.roll).toBeLessThan(8);
+    for (let t = 32; t <= 600; t += 16) p = pose.update(20, 40, t);
+    expect(p.roll).toBeGreaterThan(16);
+    expect(Math.abs(p.pitch)).toBeLessThan(0.5);
+    for (let t = 700; t < 40_000; t += 100) p = pose.update(20, 40, t);
+    expect(Math.abs(p.roll)).toBeLessThan(1);
+  });
+
+  it("leans against the tilt, part of the way, up to ten degrees", () => {
+    expect(leanFor(0)).toBe(0);
+    expect(leanFor(10)).toBe(-5);
+    expect(leanFor(-10)).toBe(5);
+    expect(leanFor(60)).toBe(-LEAN_MAX);
+    expect(leanFor(-60)).toBe(LEAN_MAX);
+  });
+
+  it("skids toward the low side once the tilt is past eight degrees", () => {
+    expect(skidFor(5)).toBe(0);
+    expect(skidFor(-8)).toBe(0);
+    expect(skidFor(19)).toBeCloseTo(SKID_MAX / 2, 5);
+    expect(skidFor(45)).toBe(SKID_MAX);
+    expect(skidFor(-45)).toBe(-SKID_MAX);
+  });
+
+  it("looks where the phone tips, and at the visitor near level", () => {
+    expect(tiltLook(2, 2)).toBeNull();
+    expect(tiltLook(20, 0)).toBe(4); // right side down: right
+    expect(tiltLook(-20, 0)).toBe(12);
+    expect(tiltLook(0, 20)).toBe(0); // leaned back: up
+    expect(tiltLook(0, -20)).toBe(8); // brought upright: down
+  });
+});
+
+describe("the phone's pose, at moments", () => {
+  it("tells one knock from the start of a shake", () => {
+    const bump = createBump();
+    expect(bump.sample(25, 0)).toBe(false);
+    expect(bump.sample(1, 200)).toBe(false);
+    expect(bump.sample(1, 460)).toBe(true);
+    // A second jolt on its heels: that's shaking, not a knock.
+    expect(bump.sample(25, 1000)).toBe(false);
+    expect(bump.sample(25, 1200)).toBe(false);
+    expect(bump.sample(1, 1500)).toBe(false);
+  });
+
+  it("knows a toss from a wobble", () => {
+    const fall = createFreeFall();
+    expect(fall.sample(9.8, 0)).toBeNull();
+    expect(fall.sample(1, 100)).toBeNull();
+    expect(fall.sample(9.8, 150)).toBeNull(); // weightless for a blink: a wobble
+    expect(fall.sample(1, 200)).toBeNull();
+    expect(fall.sample(0.5, 340)).toBe("fall");
+    expect(fall.sample(0.5, 500)).toBeNull();
+    expect(fall.sample(15, 620)).toBe("land");
+    expect(fall.sample(9.8, 700)).toBeNull();
+  });
+
+  it("counts a quick turn of the wrist once", () => {
+    const twist = createTwist();
+    expect(twist.sample(400, 0)).toBe(false);
+    expect(twist.sample(420, 100)).toBe(false);
+    expect(twist.sample(410, 160)).toBe(true);
+    expect(twist.sample(410, 300)).toBe(false); // the same turn
+    expect(twist.sample(20, 400)).toBe(false);
+    expect(twist.sample(-400, 500)).toBe(false);
+    expect(twist.sample(-400, 660)).toBe(true); // back the other way
+  });
+
+  it("knows the phone was put down, and picked up again", () => {
+    const rest = createRest();
+    expect(rest.update(0, 88, 0.99, 0)).toBeNull();
+    expect(rest.update(1, 88, 0.99, REST_MS - 1000)).toBeNull();
+    expect(rest.update(1, 89, 0.99, REST_MS + 10)).toBe("rest");
+    expect(rest.update(1, 89, 0.99, REST_MS + 5000)).toBeNull();
+    expect(rest.update(2, 60, 0.6, REST_MS + 6000)).toBe("pickup");
+  });
+
+  describe("installMotionSenses", () => {
+    let t: number;
+    let holds: Set<MascotHold>;
+    let acts: MascotReaction[];
+    let rested: boolean[];
+    let dispose: () => void;
+    const frame = restingFrame();
+
+    beforeEach(() => {
+      t = 0;
+      holds = new Set();
+      acts = [];
+      rested = [];
+      dispose = installMotionSenses({
+        hold: (h, on) => (on ? holds.add(h) : holds.delete(h)),
+        act: (r) => acts.push(r),
+        playNow: (r) => acts.push(r),
+        frame,
+        rest: (r) => rested.push(r),
+        now: () => t,
+      });
+    });
+    afterEach(() => dispose());
+
+    const turn = (beta: number, gamma: number, ms = 100) => {
+      t += ms;
+      window.dispatchEvent(Object.assign(new Event("deviceorientation"), { beta, gamma }));
+    };
+    const feel = (withGravity: number, ms = 50) => {
+      t += ms;
+      window.dispatchEvent(
+        Object.assign(new Event("devicemotion"), {
+          accelerationIncludingGravity: { x: 0, y: 0, z: withGravity },
+        })
+      );
+    };
+
+    it("keeps the pose for the sprite, without a held pose for a small tilt", () => {
+      expect(frame.live).toBe(false);
+      turn(0, 0);
+      for (let i = 0; i < 10; i++) turn(0, 12, 30);
+      expect(frame.live).toBe(true);
+      expect(frame.roll).toBeGreaterThan(9);
+      expect(frame.roll).toBeLessThan(12);
+      expect(frame.at).toBe(t);
+      expect(holds.size).toBe(0);
+      dispose();
+      expect(frame).toEqual(restingFrame());
+    });
+
+    it("hangs on while the phone is upside down", () => {
+      turn(60, 0);
+      turn(-90, 0);
+      expect(holds.has("falling")).toBe(false); // a moment's flip isn't enough
+      turn(-90, 0, 450);
+      expect(holds.has("falling")).toBe(true);
+      expect(frame.roll).toBe(0);
+      turn(60, 0);
+      expect(holds.has("falling")).toBe(false);
+      expect(acts).toEqual(["steady"]);
+    });
+
+    it("is glad to see the visitor when the phone is turned back over", () => {
+      turn(60, 0);
+      turn(180, 0);
+      turn(180, 0, 600);
+      expect(acts).toEqual([]);
+      turn(60, 0);
+      expect(acts).toEqual(["peekFound"]);
+    });
+
+    it("flails while the phone is in the air, and lands when it's caught", () => {
+      feel(9.8);
+      feel(0.5);
+      expect(holds.has("flying")).toBe(false);
+      feel(0.4, 80);
+      feel(0.3, 80);
+      expect(holds.has("flying")).toBe(true);
+      feel(14);
+      expect(holds.has("flying")).toBe(false);
+      expect(acts).toEqual(["land"]);
+    });
+
+    it("says when the phone is put down, and looks about when it's picked up", () => {
+      for (let i = 0; i < 28; i++) turn(0, 0, 500);
+      expect(rested).toEqual([true]);
+      turn(50, 0);
+      expect(rested).toEqual([true, false]);
+      expect(acts).toContain("lookAround");
+    });
   });
 });

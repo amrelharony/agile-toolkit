@@ -1,13 +1,17 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { JOBS } from "@/lib/constants/jobs";
+import { getSectionForTool } from "@/lib/constants/sections";
 import { getToolById } from "@/lib/constants/tools";
+import { SECTION_TONE } from "@/lib/ink/drawings/section-tone";
 import { cn } from "@/lib/utils";
 import { TOUCH_ROW, TOUCH_ROW_LINK } from "@/components/ui/touch-target";
+import { ToneIcon } from "@/components/ink/tone-icon";
 
 /**
  * "What do you need to do?" — eight common jobs, each leading to the tool
- * that fits best, with alternatives and when to pick them.
+ * that fits best, with alternatives and when to pick them. The tool's icon sits
+ * on its section's wash, as it does on the tool cards further down.
  */
 export function JobLauncher() {
   return (
@@ -20,13 +24,21 @@ export function JobLauncher() {
           const primary = getToolById(job.primaryToolId);
           if (!primary) return null;
           const Icon = primary.icon;
+          const section = getSectionForTool(primary.id);
+          const tone = section ? SECTION_TONE[section.id] : undefined;
           return (
             <li
               key={job.id}
               className="panel group relative flex flex-col gap-2 p-4 transition-[transform,box-shadow] hover:-translate-x-px hover:-translate-y-px hover:shadow-xl"
             >
               <div className="flex items-center gap-2">
-                <Icon className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+                {tone ? (
+                  <ToneIcon tone={tone} seedKey={primary.id} className="-my-1 h-7 w-7">
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                  </ToneIcon>
+                ) : (
+                  <Icon className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+                )}
                 <h3 className="text-sm font-semibold text-text">
                   <Link
                     href={primary.path}

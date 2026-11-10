@@ -6,6 +6,10 @@ import dynamic from "next/dynamic";
 import { Compass, ShieldCheck, TrendingUp } from "lucide-react";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { PageHeader } from "@/components/shared/page-header";
+import { InkArt } from "@/components/ink/ink-art";
+import { InkHighlight } from "@/components/ink/ink-highlight";
+import { HOME_HERO } from "@/lib/ink/drawings/scenes/home-hero";
+import type { InkDrawing } from "@/lib/ink/types";
 import { HomeSearch } from "@/components/home/home-search";
 import { JobLauncher } from "@/components/home/job-launcher";
 import { ContinueSection } from "@/components/home/continue-section";
@@ -34,9 +38,16 @@ const InsightsEngine = dynamic(
  * browser's data, so the server renders it as a placeholder of about its size
  * and the cockpit fills it once the workspace has loaded. The comic's card
  * comes from the server page (app/page), since only the server can read the
- * stories.
+ * stories; so do the section drawings, as data, to stay out of home's bundle.
  */
-export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
+export function HomePage({
+  comicBanner,
+  sectionArt,
+}: {
+  comicBanner?: ReactNode;
+  /** SECTION_ART, keyed by section id, for the rows of the full index. */
+  sectionArt?: Record<string, InkDrawing>;
+}) {
   const { tools: visibleTools, shelfCount, showAll } = useToolVisibility();
   const hydrated = useWorkspaceHydrated();
   const hasSprints = useWorkspaceStore((s) => (s.sprints?.length ?? 0) > 0);
@@ -46,19 +57,39 @@ export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
 
   return (
     <div className="mx-auto max-w-[1200px] space-y-10 px-4 py-6 sm:space-y-12 sm:px-6 sm:py-8 md:p-8">
-      {/* Hero */}
-      <div className="animate-slide-up pt-6 sm:pt-10">
-        <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1 sm:mb-6 sm:px-4 sm:py-1.5">
+      {/* Hero: the words on the left, the team's board inked on the right. On
+          a phone the board sits small beside the trust line, so the sprint
+          below doesn't move down; from md it stands beside the title panel, and
+          the search row keeps the full width. The box keeps the scene's 16:10
+          shape, so nothing shifts as it inks in. */}
+      <div className="ink-host animate-slide-up grid grid-cols-[minmax(0,1fr)_8.5rem] items-end gap-x-3 pt-6 sm:grid-cols-[minmax(0,1fr)_11rem] sm:pt-10 md:grid-cols-[minmax(0,1fr)_19rem] md:gap-x-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="col-start-1 row-start-1 mb-4 inline-flex items-center gap-2 self-end justify-self-start rounded-md border border-border bg-card px-3 py-1 sm:mb-6 sm:px-4 sm:py-1.5">
           <ShieldCheck className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
           <span className="text-xs font-medium text-accent">
-            Free · No sign-up · Your data stays in your browser
+            Free · No sign-up · Saved only in your browser
           </span>
         </div>
-        <PageHeader
-          title="Agile Toolkit"
-          subtitle={`${toolCount} interactive tools for Scrum masters and agile teams. Plan the sprint, run the daily and the retro, estimate together, track delivery and keep the team healthy.`}
+        <InkArt
+          drawing={HOME_HERO}
+          boil
+          pace={1600}
+          className="col-start-2 row-start-1 mb-3 aspect-[16/10] w-full self-end md:row-span-2 md:mb-6 md:self-center"
         />
-        <div className="mt-4 flex flex-col gap-3 sm:mt-2 sm:flex-row sm:items-start">
+        <div className="col-span-2 md:col-span-1">
+          <PageHeader
+            title="Agile Toolkit"
+            subtitle={
+              <>
+                <InkHighlight mark="double-underline" delay={1100}>
+                  {toolCount} interactive tools
+                </InkHighlight>{" "}
+                for Scrum masters and agile teams. Plan the sprint, run the daily and the retro,
+                estimate together, track delivery and keep the team healthy.
+              </>
+            }
+          />
+        </div>
+        <div className="col-span-2 mt-4 flex flex-col gap-3 sm:mt-2 sm:flex-row sm:items-start">
           <HomeSearch />
           {hydrated && hasSprints ? (
             <Link
@@ -113,7 +144,7 @@ export function HomePage({ comicBanner }: { comicBanner?: ReactNode }) {
         <h2 id="all-tools-heading" className="font-display text-lg font-semibold text-text">
           All {toolCount} tools, by job
         </h2>
-        <ToolSections />
+        <ToolSections sectionArt={sectionArt} />
         {!showAll && shelfCount > 0 && (
           <p className="text-sm text-sub">
             <Link href="/more-tools" className="font-medium text-text hover:text-accent">
