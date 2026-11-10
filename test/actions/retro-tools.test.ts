@@ -13,6 +13,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RetroBoard, Sprint } from "@/lib/stores/workspace-types";
 import { blankRetroBoard } from "@/lib/retro/board";
 import { retroFormats } from "@/lib/constants/retro-formats";
+import { goalDocId } from "@/lib/sprints/goal-doc";
 
 import "@/lib/actions/tools/retro";
 import "@/lib/actions/tools/retro-actions";
@@ -120,6 +121,36 @@ describe("tool.retro", () => {
       completed: 5,
       impediments: { raised: 1, stillOpen: 1 },
       burndown: { shape: "late" },
+    });
+    // Every committed point done, no goal answer, no mood: nothing to suggest.
+    expect(r).toMatchObject({ suggestedFormat: null });
+  });
+
+  it("list_state suggests the format the sprint's facts call for, as the picker does", async () => {
+    useWorkspaceStore.setState({
+      retroBoards: [{ ...blankRetroBoard(retroFormats[0]), sprintId: "s1" }],
+      sprintGoals: [
+        {
+          id: goalDocId("s1"),
+          businessObjective: "",
+          goal: "Ship sign-in",
+          criteria: [],
+          keyResults: [],
+          sprintId: "s1",
+          outcome: { met: "partly", decidedAt: "2026-10-23" },
+        },
+      ],
+    });
+    const r = await call<{ suggestedFormat: unknown }>("tool.retro.list_state");
+    expect(r.suggestedFormat).toEqual({
+      formatId: "sailboat",
+      reason: "Sprint 1 partly met its goal: look at what held it back and what lies ahead.",
+    });
+    // No sprint to read: no suggestion.
+    useWorkspaceStore.setState({ retroBoards: [blankRetroBoard(retroFormats[0])] });
+    expect(await call("tool.retro.list_state")).toMatchObject({
+      facts: null,
+      suggestedFormat: null,
     });
   });
 });

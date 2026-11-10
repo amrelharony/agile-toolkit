@@ -11,6 +11,11 @@
  * shown, never applied behind the team's back, and can be changed or
  * cleared before a format is picked.
  *
+ * When the facts of that sprint call for it (low mood, a missed goal, work
+ * left unfinished: lib/retro/suggest), one format is marked as suggested,
+ * with the reason in a line above the cards. It is a hint: nothing is picked
+ * for the Scrum Master.
+ *
  * Custom opens a form for the team's own columns (2 to 6 names). Starting
  * from it saves the format in this browser (custom-formats-store), and each
  * saved one shows as its own card after the built-in formats, with Delete
@@ -35,6 +40,7 @@ import { themed, tint } from "@/lib/utils/theme-color";
 import { undoable } from "@/lib/utils/undoable";
 import type { RetroBoard, Sprint } from "@/lib/stores/workspace-types";
 import { updateSavedFormats, useRetroFormatsStore, useSavedFormats } from "../custom-formats-store";
+import { useFormatSuggestion } from "../use-format-suggestion";
 import { CustomFormatEditor } from "./custom-format-editor";
 import { PastRetros } from "./past-retros";
 import { RetroSprintPicker } from "./retro-sprint-picker";
@@ -44,25 +50,39 @@ function FormatCard({
   format,
   onSelect,
   action,
+  suggested = false,
 }: {
   format: RetroFormat;
   onSelect: (format: RetroFormat) => void;
   /** A control of its own on the card (Delete), above the stretched button. */
   action?: ReactNode;
+  /** Marked as the format suggested for this sprint (the reason is above the cards). */
+  suggested?: boolean;
 }) {
   const descId = `retro-format-${format.id}-desc`;
+  const suggestedId = `retro-format-${format.id}-suggested`;
   return (
     // The format name is a real button, stretched over the card, so the
     // picker works from the keyboard and its accessible name is exactly its
     // visible label; the description is read as its description.
     <div className="group relative h-full">
-      <Card className="h-full bg-card border-border group-hover:border-accent-cyan/40 transition-all duration-200">
+      <Card
+        className={`h-full bg-card group-hover:border-accent-cyan/40 transition-all duration-200 ${suggested ? "border-accent" : "border-border"}`}
+      >
         <CardHeader className="pb-2">
+          {suggested && (
+            <span
+              id={suggestedId}
+              className="w-fit rounded-md border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-xs font-semibold text-accent"
+            >
+              Suggested for this sprint
+            </span>
+          )}
           <CardTitle className="text-sm font-bold text-text group-hover:text-accent transition-colors">
             <button
               type="button"
               onClick={() => onSelect(format)}
-              aria-describedby={descId}
+              aria-describedby={suggested ? `${suggestedId} ${descId}` : descId}
               className="text-left after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-accent focus-visible:after:ring-offset-2 focus-visible:after:ring-offset-bg"
             >
               {format.name}
@@ -120,6 +140,11 @@ export function FormatSelector({
     [sprints]
   );
   const firstRun = Boolean(onLoadExample) && past.length === 0;
+  // One format the sprint's facts call for, if any: shown, never picked.
+  const suggestion = useFormatSuggestion(sprintId);
+  const suggestedFormat = suggestion
+    ? retroFormats.find((f) => f.id === suggestion.formatId)
+    : undefined;
 
   // ── Custom formats, kept in this browser ──
   useEffect(() => {
@@ -181,10 +206,25 @@ export function FormatSelector({
           <RetroSprintPicker sprints={sprints} sprintId={sprintId} onChange={onSprintChange} />
         )}
 
-        <h2 className="text-lg font-display font-bold text-text">Choose a Format</h2>
+        <div className="space-y-1">
+          <h2 className="text-lg font-display font-bold text-text">Choose a Format</h2>
+          {suggestion && suggestedFormat && (
+            <p className="text-sm text-sub">
+              <span className="font-semibold text-text">
+                Suggested for this sprint: {suggestedFormat.name}.
+              </span>{" "}
+              {suggestion.reason}
+            </p>
+          )}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {retroFormats.map((fmt) => (
-            <FormatCard key={fmt.id} format={fmt} onSelect={onSelect} />
+            <FormatCard
+              key={fmt.id}
+              format={fmt}
+              onSelect={onSelect}
+              suggested={fmt.id === suggestedFormat?.id}
+            />
           ))}
           {savedFormats.map(({ saved: s, format }) => (
             <FormatCard

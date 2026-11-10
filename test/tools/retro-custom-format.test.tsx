@@ -2,13 +2,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { RETRO_COLUMN_PALETTE } from "@/lib/constants/retro-formats";
+import { addDays } from "@/lib/impediments/model";
+import { goalDocId } from "@/lib/sprints/goal-doc";
+import { todayIso } from "@/lib/sprints/series";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Sprint, Story } from "@/lib/stores/workspace-types";
 
 /**
  * Retro: the Custom card in the format picker. The team names 2 to 6
  * columns, nothing starts until the draft is valid, starting saves the
  * format in this browser, and a saved format shows as its own card next
- * time, with Delete and Undo.
+ * time, with Delete and Undo. And the one format the sprint's facts call
+ * for is marked as suggested, never picked.
  */
 
 const undo = vi.hoisted(() => ({
@@ -59,7 +64,17 @@ function openCustom() {
 
 beforeEach(() => {
   undo.last = null;
-  useWorkspaceStore.setState({ retroBoards: [], sprints: [], teamMembers: [] });
+  useWorkspaceStore.setState({
+    retroBoards: [],
+    sprints: [],
+    teamMembers: [],
+    stories: [],
+    sprintGoals: [],
+    moodEntries: [],
+    moodPulses: [],
+    impediments: [],
+    kudos: [],
+  });
   useRetroFormatsStore.setState({ custom: [] });
 });
 
@@ -181,5 +196,73 @@ describe("Custom format", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Start retro" }));
     expect(saved().map((f) => f.id)).toEqual(["custom-saved0001", "custom-saved0002"]);
     expect(current()?.format.id).toBe("custom-saved0001");
+  });
+});
+
+describe("Suggested for this sprint", () => {
+  const TODAY = todayIso();
+  // Ended two days ago: its retro window is open, so the picker names it.
+  const S1: Sprint = {
+    id: "s1",
+    name: "Sprint 12",
+    startDate: addDays(TODAY, -15),
+    endDate: addDays(TODAY, -2),
+    pointsPlanned: 0,
+    status: "active",
+  };
+  const story = (id: string, points: number, status: Story["status"]): Story => ({
+    id,
+    title: id,
+    points,
+    status,
+    sprintId: "s1",
+  });
+  const missedGoal = {
+    id: goalDocId("s1"),
+    businessObjective: "",
+    goal: "Ship sign-in",
+    criteria: [],
+    keyResults: [],
+    sprintId: "s1",
+    outcome: { met: "not-met" as const, decidedAt: TODAY },
+  };
+
+  it("marks the format the sprint's facts call for, with the reason, and picks nothing", () => {
+    useWorkspaceStore.setState({ sprints: [S1], sprintGoals: [missedGoal] });
+    render(<RetroClient />);
+    expect(
+      screen.getByText(
+        "Sprint 12 didn't meet its goal: look at what held it back and what lies ahead."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("Suggested for this sprint: Sailboat.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sailboat" })).toHaveAccessibleDescription(
+      /^Suggested for this sprint/
+    );
+    expect(screen.getAllByText("Suggested for this sprint")).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "Start / Stop / Continue" })
+    ).not.toHaveAccessibleDescription(/Suggested/);
+    // A hint only: no board until someone picks.
+    expect(current()).toBeUndefined();
+    fireEvent.click(screen.getByRole("button", { name: "Mad / Sad / Glad" }));
+    expect(current()?.format.id).toBe("mad-sad-glad");
+  });
+
+  it("follows the sprint picked under Retro for, and says nothing without one", () => {
+    useWorkspaceStore.setState({
+      sprints: [S1],
+      stories: [story("a", 5, "done"), story("b", 8, "in_progress"), story("c", 7, "todo")],
+    });
+    render(<RetroClient />);
+    expect(screen.getByText("Suggested for this sprint: DAKI.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Sprint 12 left 15 of 20 committed points unfinished: agree what to drop, add, keep and improve."
+      )
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Unlink" }));
+    expect(screen.queryByText(/Suggested for this sprint/)).toBeNull();
   });
 });
