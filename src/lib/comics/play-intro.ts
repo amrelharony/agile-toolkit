@@ -7,6 +7,7 @@
 import { isSaveData } from "@/lib/holiday/save-data";
 import {
   INTRO_ATTR,
+  INTRO_END_EVENT,
   INTRO_RUN_ATTR,
   OVERLAY_ATTR,
   RETURN_ATTR,
@@ -24,7 +25,8 @@ export function introAllowed(): boolean {
 
 /**
  * End whatever intro is playing, and give focus back to what started it (as the
- * head script's own stop does), or to the page after an arrival.
+ * head script's own stop does), or to the page after an arrival. The end event
+ * goes first, so the page behind is no longer inert when the opener is focused.
  */
 export function stopIntro(): void {
   const root = document.documentElement;
@@ -32,6 +34,7 @@ export function stopIntro(): void {
   const focused = document.activeElement;
   if (focused instanceof HTMLElement && focused.closest(`[${OVERLAY_ATTR}]`)) focused.blur();
   root.removeAttribute(INTRO_ATTR);
+  document.dispatchEvent(new Event(INTRO_END_EVENT));
   const opener = document.querySelector<HTMLElement>(`[${RETURN_ATTR}]`);
   if (opener) {
     opener.removeAttribute(RETURN_ATTR);

@@ -19,13 +19,14 @@ import { panelImageUrl } from "@/lib/comics/images";
 import {
   INTRO_ATTR,
   INTRO_BOOT_SCRIPT,
+  INTRO_END_EVENT,
   INTRO_RUN_ATTR,
   OVERLAY_ATTR,
   RETURN_ATTR,
   SKIP_ATTR,
   introSafetyMs,
 } from "@/lib/comics/intro";
-import { playIntro } from "@/lib/comics/play-intro";
+import { playIntro, stopIntro } from "@/lib/comics/play-intro";
 
 const root = document.documentElement;
 
@@ -236,6 +237,28 @@ describe("ReplayIntro", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
     expect(document.activeElement).toBe(replay);
     expect(document.querySelector(`[${RETURN_ATTR}]`)).toBeNull();
+  });
+
+  it("tells the page a replay ended before it gives focus back to Replay", () => {
+    render(
+      <>
+        <BookOverlay />
+        <ReplayIntro kind="book" />
+      </>
+    );
+    const replay = screen.getByRole("button", { name: "Replay intro" });
+    replay.focus();
+    fireEvent.click(replay);
+    const order: string[] = [];
+    const onEnd = () => order.push(`${INTRO_END_EVENT}, playing: ${root.hasAttribute(INTRO_ATTR)}`);
+    document.addEventListener(INTRO_END_EVENT, onEnd);
+    vi.spyOn(replay, "focus").mockImplementation(() => order.push("focus"));
+    try {
+      stopIntro();
+    } finally {
+      document.removeEventListener(INTRO_END_EVENT, onEnd);
+    }
+    expect(order).toEqual([`${INTRO_END_EVENT}, playing: false`, "focus"]);
   });
 
   it("gives focus back to Replay when the replay ends by itself", () => {

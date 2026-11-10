@@ -5,6 +5,7 @@ import { panelImageUrl } from "@/lib/comics/images";
 import type { IntroKind } from "@/lib/comics/intro";
 import type { StoryCover } from "@/lib/comics/types";
 import { cn } from "@/lib/utils";
+import { IntroInert } from "./intro-inert";
 
 /**
  * What every intro is built from: the overlay with its Skip button, Amr's frames
@@ -26,6 +27,9 @@ import { cn } from "@/lib/utils";
  * `className` must give the overlay exactly one animation, the scene's exit: its
  * end is what ends the intro, so an entrance on the overlay itself would end it
  * early. Animate children for everything else, and don't set `display`.
+ *
+ * While it plays, IntroInert makes the page around it inert (a client part that
+ * draws nothing, so the overlay's markup is the same with or without it).
  */
 export function IntroOverlay({
   kind,
@@ -48,6 +52,7 @@ export function IntroOverlay({
       data-nosnippet=""
       className={cn("intro-overlay", className)}
     >
+      <IntroInert kind={kind} />
       {children}
       <button
         type="button"
