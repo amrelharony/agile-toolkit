@@ -103,6 +103,8 @@ export interface StoryCheckPanelProps {
   onSaveDetails?: (details: StoryDetails) => void;
   /** What the remove control may do (lib/stories/removal.ts). Absent: there is none. */
   removal?: StoryRemoval;
+  /** Why there is no bin, for a story a started sprint still counts ("Was in Sprint 5…"). */
+  keptNote?: string;
   /** Delete the story, with Undo (its bin shows when `removal` is "delete"). */
   onDelete?: () => void;
   /** Move the story out of its running sprint, back to the backlog, with Undo. */
@@ -141,6 +143,7 @@ export function StoryCheckPanel({
   onNext,
   onSaveDetails,
   removal,
+  keptNote,
   onDelete,
   onRemoveFromSprint,
   storyCheck,
@@ -229,6 +232,12 @@ export function StoryCheckPanel({
               </Badge>
             )}
           </div>
+          {/* No bin, and nothing else here would say why. */}
+          {keptNote && removal === "locked" && (
+            <p className="mt-2 text-xs text-sub" data-field="kept-note">
+              {keptNote}.
+            </p>
+          )}
         </div>
         {(walking || canDelete || canLeaveSprint) && (
           <span className="flex shrink-0 items-center">
@@ -259,7 +268,8 @@ export function StoryCheckPanel({
               />
             )}
             {/* In a running sprint a story can only leave it: deleting it
-                would erase it from the days it was in scope. */}
+                would erase it from the days it was in scope. Once out it has
+                no bin either, for the same reason (`keptNote` says so). */}
             {canLeaveSprint && (
               <IconButton
                 label={`Remove ${story.title} from the sprint`}
@@ -267,7 +277,7 @@ export function StoryCheckPanel({
                 className={walking ? "ml-2" : undefined}
                 onClick={() => {
                   onRemoveFromSprint?.();
-                  // The button gives way to the bin: focus goes to the story's name.
+                  // The button goes with the move: focus goes to the story's name.
                   headingRef.current?.focus();
                 }}
               />

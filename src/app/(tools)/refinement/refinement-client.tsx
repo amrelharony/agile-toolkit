@@ -27,7 +27,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story } from "@/lib/stores/workspace-types";
 import { deleteStoryKeepingUndo } from "@/lib/stories/delete";
 import { withStoryDetails, type StoryDetails } from "@/lib/stories/fields";
-import { storyRemoval } from "@/lib/stories/removal";
+import { keptForSprintNote, sprintKeepingStory, storyRemoval } from "@/lib/stories/removal";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { cn } from "@/lib/utils";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
@@ -272,7 +272,8 @@ export function RefinementClient() {
   /**
    * The bin: the story is deleted, with Undo back to its place, and the walk
    * goes on to the next one. Only where `storyRemoval` allows it (the
-   * backlog, or a sprint that hasn't started); this is the guard.
+   * backlog, or a sprint that hasn't started, for a story no started sprint
+   * still counts); this is the guard.
    */
   function deleteStory(story: Story) {
     const current = findStory(story.id);
@@ -315,6 +316,12 @@ export function RefinementClient() {
     });
     log(REFINEMENT_ACTIONS.STORY_UPDATED, { storyId: before.id, removedFromSprint: true });
   }
+
+  /** Why a story that has left a running or closed sprint has no bin (undefined: it hasn't). */
+  const keptNote = (story: Story) => {
+    const kept = sprintKeepingStory(story, sprints);
+    return kept ? keptForSprintNote(kept.name) : undefined;
+  };
 
   // The story check's ticks, per story, while the page is open: never saved.
   const [storyCheckOpen, setStoryCheckOpen] = useState(false);
@@ -649,6 +656,7 @@ export function RefinementClient() {
                     onNext={() => index < walk.length - 1 && go(walk[index + 1].id)}
                     onSaveDetails={(details) => saveDetails(focused, details)}
                     removal={storyRemoval(focused, sprints)}
+                    keptNote={keptNote(focused)}
                     onDelete={() => deleteStory(focused)}
                     onRemoveFromSprint={() => removeFromSprint(focused)}
                     storyCheck={{

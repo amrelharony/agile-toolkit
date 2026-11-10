@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, Story, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { deleteStoryKeepingUndo } from "@/lib/stories/delete";
-import { storyRemoval } from "@/lib/stories/removal";
+import { keptForSprintNote, sprintKeepingStory, storyRemoval } from "@/lib/stories/removal";
 import { liveLink } from "@/lib/handoffs/registry";
 import { burnSeries } from "@/lib/sprints/burn";
 
@@ -66,6 +66,104 @@ describe("what the remove control may do", () => {
   });
 });
 
+describe("a story that has left a sprint it was part of", () => {
+  // The sprints run 5 to 16 October.
+  const joined = "2026-10-05T08:00:00.000Z";
+  const during = "2026-10-08T08:00:00.000Z";
+  const after = "2026-10-19T08:00:00.000Z";
+  const moved = (from: string, at: string, to?: string) => ({
+    ...(to ? { sprintId: to } : {}),
+    from,
+    at,
+  });
+
+  it("stays locked in the backlog after it is removed from a running sprint", () => {
+    const removed = story({
+      sprintHistory: [{ sprintId: "active", at: joined }, moved("active", during)],
+    });
+    expect(storyRemoval(removed, SPRINTS)).toBe("locked");
+    expect(sprintKeepingStory(removed, SPRINTS)?.id).toBe("active");
+  });
+
+  it("stays locked when a closed sprint's left-over is carried over or sent back", () => {
+    for (const closed of ["completed", "cancelled"]) {
+      const history = [{ sprintId: closed, at: joined }];
+      const carried = story({
+        status: "in_progress",
+        sprintId: "planned",
+        sprintHistory: [...history, moved(closed, after, "planned")],
+      });
+      expect(storyRemoval(carried, SPRINTS)).toBe("locked");
+      expect(sprintKeepingStory(carried, SPRINTS)?.id).toBe(closed);
+      const sentBack = story({ sprintHistory: [...history, moved(closed, after)] });
+      expect(storyRemoval(sentBack, SPRINTS)).toBe("locked");
+      // The close dialog's own carry-over is flagged, and counts the same.
+      const atClose = story({
+        sprintHistory: [...history, { ...moved(closed, after), carriedOver: true }],
+      });
+      expect(storyRemoval(atClose, SPRINTS)).toBe("locked");
+    }
+  });
+
+  it("names the latest sprint it left when it was part of several", () => {
+    const twice = story({
+      sprintHistory: [
+        { sprintId: "completed", at: joined },
+        moved("completed", during, "active"),
+        moved("active", "2026-10-09T08:00:00.000Z"),
+      ],
+    });
+    expect(sprintKeepingStory(twice, SPRINTS)?.id).toBe("active");
+  });
+
+  it("can still be deleted when it only ever left sprints that are planned or gone", () => {
+    const replanned = story({
+      sprintHistory: [
+        { sprintId: "planned", at: joined },
+        moved("planned", during),
+        { sprintId: "deleted-sprint", at: during },
+        moved("deleted-sprint", after),
+      ],
+    });
+    expect(storyRemoval(replanned, SPRINTS)).toBe("delete");
+    expect(sprintKeepingStory(replanned, SPRINTS)).toBeUndefined();
+  });
+
+  it("can still be deleted when it left while the sprint was being planned", () => {
+    // Ticked in and out before the sprint's first day: its board never had it.
+    const planning = story({
+      sprintHistory: [
+        { sprintId: "active", at: "2026-10-01T08:00:00.000Z" },
+        moved("active", "2026-10-02T08:00:00.000Z"),
+      ],
+    });
+    expect(storyRemoval(planning, SPRINTS)).toBe("delete");
+  });
+
+  it("leaves a story that is in a started sprint now to that sprint's rule", () => {
+    const history = [{ sprintId: "completed", at: joined }, moved("completed", after, "active")];
+    const carried = story({ status: "todo", sprintId: "active", sprintHistory: history });
+    expect(storyRemoval(carried, SPRINTS)).toBe("remove-from-sprint");
+    expect(sprintKeepingStory(carried, SPRINTS)).toBeUndefined();
+    // Done is locked as done, with no sprint to name.
+    expect(sprintKeepingStory(story({ status: "done", sprintHistory: history }), SPRINTS)).toBe(
+      undefined
+    );
+  });
+
+  it("reads past sprint moves that aren't what the type says", () => {
+    const odd = story({
+      sprintHistory: [null, "x", { from: "active" }, { from: "active", at: "soon" }] as never,
+    });
+    expect(storyRemoval(odd, SPRINTS)).toBe("delete");
+    expect(storyRemoval(story({ sprintHistory: "none" as never }), SPRINTS)).toBe("delete");
+  });
+
+  it("says why in the same words on both pages", () => {
+    expect(keptForSprintNote("Sprint 5")).toBe("Was in Sprint 5, so it can't be deleted");
+  });
+});
+
 describe("why a running sprint's story isn't deleted", () => {
   it("keeps the burnup's past: scope a deleted story was part of would vanish", () => {
     const active: Sprint = { ...sprint("active", "active"), pointsPlanned: 8 };
@@ -102,6 +200,50 @@ describe("why a running sprint's story isn't deleted", () => {
     const deleted = read([staying]);
     expect(deleted.days[0].scope).toBe(5);
     expect(deleted.scopeRemoved).toBe(0);
+    // So the story is kept once it is out, too: no bin in the backlog.
+    expect(storyRemoval(removed, [active])).toBe("locked");
+  });
+
+  it("keeps a closed sprint's past: a left-over that moved on still counts in it", () => {
+    const closed: Sprint = { ...sprint("completed", "completed"), pointsPlanned: 8 };
+    const joined = "2026-10-05T08:00:00.000Z";
+    const finished = story({
+      id: "a",
+      status: "done",
+      sprintId: "completed",
+      points: 5,
+      startedAt: "2026-10-06T09:00:00.000Z",
+      doneAt: "2026-10-09T09:00:00.000Z",
+      statusHistory: [
+        { status: "in_progress", from: "todo", at: "2026-10-06T09:00:00.000Z" },
+        { status: "done", from: "in_progress", at: "2026-10-09T09:00:00.000Z" },
+      ],
+      sprintHistory: [{ sprintId: "completed", at: joined, points: 5 }],
+    });
+    // Not done when the sprint closed; Sprint Planning carried it over.
+    const carried = story({
+      id: "b",
+      status: "todo",
+      sprintId: "planned",
+      points: 3,
+      sprintHistory: [
+        { sprintId: "completed", at: joined, points: 3 },
+        { sprintId: "planned", from: "completed", at: "2026-10-19T08:00:00.000Z", points: 3 },
+      ],
+    });
+    const read = (stories: Story[]) =>
+      burnSeries({
+        sprint: closed,
+        series: undefined,
+        stories,
+        today: "2026-10-20",
+        prefer: "stories",
+      });
+    const lastDay = (stories: Story[]) => read(stories).days.at(-1);
+    expect(lastDay([finished, carried])).toMatchObject({ scope: 8, done: 5 });
+    // Deleted from the next sprint, the closed one would read as all done.
+    expect(lastDay([finished])).toMatchObject({ scope: 5, done: 5 });
+    expect(storyRemoval(carried, [closed, sprint("planned", "planned")])).toBe("locked");
   });
 });
 

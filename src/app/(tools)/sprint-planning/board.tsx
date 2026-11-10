@@ -35,7 +35,7 @@ import {
   storyQueueSource,
 } from "@/lib/handoffs/targets/poker-queue";
 import { withStoryDetails, type StoryDetails } from "@/lib/stories/fields";
-import { storyRemoval } from "@/lib/stories/removal";
+import { keptForSprintNote, sprintKeepingStory, storyRemoval } from "@/lib/stories/removal";
 import { leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
 import { undoable } from "@/lib/utils/undoable";
 import { toast } from "@/lib/utils/toast";
@@ -264,9 +264,19 @@ export function PlanningBoard({
   const removalOf = (story: Story) => storyRemoval(story, sprints);
 
   /**
+   * Why a story that has left a running or closed sprint has no bin: that
+   * sprint's charts still count it. Undefined for every other story.
+   */
+  const keptNoteOf = (story: Story) => {
+    const kept = sprintKeepingStory(story, sprints);
+    return kept ? keptForSprintNote(kept.name) : undefined;
+  };
+
+  /**
    * The bin on a row of `listKey`: the story is deleted, with Undo back to
    * its place. Only where `storyRemoval` allows it (the backlog, or a sprint
-   * that hasn't started): the row shows no bin otherwise, this is the guard.
+   * that hasn't started, for a story no started sprint still counts): the
+   * row shows no bin otherwise, this is the guard.
    */
   const deleteStory = (listKey: string, fallbackId: string) => (story: Story, index: number) => {
     if (removalOf(fresh(story)) !== "delete") return;
@@ -699,6 +709,7 @@ export function PlanningBoard({
                 onDetails={saveDetails}
                 onDelete={deleteStory("sprint", sprintHeadingId)}
                 removalOf={removalOf}
+                keptNoteOf={keptNoteOf}
                 showStatus
               />
             )}
@@ -769,8 +780,8 @@ export function PlanningBoard({
                 onPoints={setPoints}
                 onRename={rename}
                 onDetails={saveDetails}
-                // A closed sprint's stories are locked: no bin until they are
-                // carried over or sent back to the backlog.
+                // A closed sprint's stories are locked: no bin, here or once
+                // they are carried over or sent back (the sprint still counts them).
                 removalOf={removalOf}
                 showStatus
                 cantAdd={cantAdd}
@@ -808,6 +819,7 @@ export function PlanningBoard({
                 onDetails={saveDetails}
                 onDelete={deleteStory("backlog", backlogHeadingId)}
                 removalOf={removalOf}
+                keptNoteOf={keptNoteOf}
                 showPriority
                 cantAdd={cantAdd}
               />

@@ -143,7 +143,8 @@ const ROW_ACTION =
  * One story: tick in or out of the sprint, its title (edit in place), what
  * it is, its points; its acceptance criteria, notes, ticket key and link
  * behind "Details"; and the bin (a story in the backlog or in a sprint that
- * hasn't started) or "remove from the sprint" (a running sprint).
+ * hasn't started) or "remove from the sprint" (a running sprint). A story
+ * with neither because a started sprint still counts it says so (`keptNote`).
  */
 function StoryRow({
   story,
@@ -154,6 +155,7 @@ function StoryRow({
   onDetails,
   onDelete,
   removal = "locked",
+  keptNote,
   showStatus,
   showPriority,
   cantAdd,
@@ -168,6 +170,8 @@ function StoryRow({
   onDelete?: (story: Story) => void;
   /** What the row's remove control may do (lib/stories/removal.ts). */
   removal?: StoryRemoval;
+  /** Why the row has no bin, for a story a started sprint still counts ("Was in Sprint 5…"). */
+  keptNote?: string;
   showStatus?: boolean;
   showPriority?: boolean;
   /** Why the box can't tick the story into the sprint (a closed sprint), if it can't. */
@@ -199,6 +203,8 @@ function StoryRow({
       typeof story.priorityScore === "number" ? `Priority ${story.priorityScore}` : "Not scored"
     );
   }
+  // No bin on this row, and nothing else here would say why.
+  if (keptNote) meta.push(keptNote);
   const hasMeta =
     meta.length > 0 ||
     story.status !== "done" ||
@@ -371,6 +377,7 @@ export function StoryList({
   onDetails,
   onDelete,
   removalOf,
+  keptNoteOf,
   showStatus,
   showPriority,
   label,
@@ -389,6 +396,8 @@ export function StoryList({
   onDelete?: (story: Story, index: number) => void;
   /** What each row's remove control may do; absent: no row has one. */
   removalOf?: (story: Story) => StoryRemoval;
+  /** Why a story a started sprint still counts has no bin; undefined for any other story. */
+  keptNoteOf?: (story: Story) => string | undefined;
   showStatus?: boolean;
   showPriority?: boolean;
   /** The list's accessible name. */
@@ -415,6 +424,7 @@ export function StoryList({
           onDetails={onDetails}
           onDelete={onDelete ? (s) => onDelete(s, index) : undefined}
           removal={removalOf?.(story)}
+          keptNote={keptNoteOf?.(story)}
           showStatus={showStatus}
           showPriority={showPriority}
           cantAdd={cantAdd}

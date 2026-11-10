@@ -343,9 +343,46 @@ describe("deleting the story being refined", () => {
     // Still being refined, now as a backlog story; focus is on its name.
     expect(within(panel()).getByRole("heading", { name: "Refund flow" })).toHaveFocus();
     expect(within(panel()).queryByText("In Sprint 1")).toBeNull();
+    // Out of the sprint it is still part of the sprint's past: the button
+    // doesn't turn into a bin, and the panel says why.
+    expect(within(panel()).queryByRole("button", { name: /^(Delete|Remove) / })).toBeNull();
+    expect(
+      within(panel()).getByText("Was in Sprint 1, so it can't be deleted.")
+    ).toBeInTheDocument();
 
     undoLast();
     expect(story("b")).toEqual(planned);
+    expect(within(panel()).queryByText(/so it can't be deleted/)).toBeNull();
+  });
+
+  it("offers no bin on a story a closed sprint's left-over became, and says why", () => {
+    const carried: Story = {
+      ...STORIES[1],
+      status: "todo",
+      sprintId: "s2",
+      sprintHistory: [
+        { sprintId: "s1", at: "2026-10-05T08:00:00.000Z" },
+        { sprintId: "s2", from: "s1", at: "2026-10-19T08:00:00.000Z" },
+      ],
+    };
+    useWorkspaceStore.setState({
+      sprints: [sprint("s1", "completed"), sprint("s2", "planned")],
+      stories: [carried, STORIES[2]],
+    });
+    renderPage();
+    expect(within(panel()).getByRole("heading", { name: "Refund flow" })).toBeInTheDocument();
+    expect(within(panel()).queryByRole("button", { name: /^(Delete|Remove) / })).toBeNull();
+    expect(
+      within(panel()).getByText("Was in Sprint 1, so it can't be deleted.")
+    ).toBeInTheDocument();
+    // A story no started sprint counts keeps its bin, with no note.
+    fireEvent.click(
+      within(screen.getByRole("list", { name: "Stories to refine" })).getByRole("button", {
+        name: /Gift cards/,
+      })
+    );
+    expect(within(panel()).getByRole("button", { name: "Delete Gift cards" })).toBeInTheDocument();
+    expect(within(panel()).queryByText(/so it can't be deleted/)).toBeNull();
   });
 
   it("offers neither on a story a closed sprint left over", () => {

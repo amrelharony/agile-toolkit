@@ -23,7 +23,7 @@ export const GUIDES: ToolGuide[] = [
       "Under 3. Stories, settle anything Left over from a closed sprint: Carry over moves the unfinished stories into this sprint, Back to the backlog returns them.",
       "Pull work in: tick backlog stories, click Fill to capacity for the highest-priority sized stories that fit, Import from the backlog for the Backlog Prioritizer's items, or type a new story and press Enter. Paste stories adds a list, one title per line.",
       "Type points in a story's row, or click Estimate N in Planning Poker to queue the unsized ones for a session. Details holds a story's acceptance criteria, notes, ticket key and link.",
-      "The bin on a row deletes the story, with Undo. In a running sprint a story can only be removed from the sprint, and done stories stay.",
+      "The bin on a row deletes the story, with Undo. In a running sprint a story can only be removed from the sprint. Done stories stay, and so does a story that was in a running or closed sprint.",
       "Under 4. Commit, read the warnings, then click Start the sprint (Update the commitment once it runs). The Sprint Cockpit opens on it.",
     ],
     tips: [
@@ -54,7 +54,7 @@ export const GUIDES: ToolGuide[] = [
     tips: [
       "Keep the list short, around 5–8 checks: a long one becomes a gate that slows the team down.",
       "Check the story asks the six INVEST questions and lists five ways to split a story that is too big. Its ticks aren't saved.",
-      "The bin deletes the story, with Undo. In a running sprint it can only leave the sprint.",
+      "The bin deletes the story, with Undo. In a running sprint it can only leave the sprint, and a story that was in a running or closed sprint stays.",
       "The pass-rate trend is under Advanced analysis, once enough checks are saved.",
       "Reset checklist restores the default criteria and clears the earlier checks, with Undo. Readiness saved on stories stays.",
     ],

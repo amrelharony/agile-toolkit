@@ -187,11 +187,40 @@ describe("deleting a story", () => {
     expect(story("in-1")?.sprintId).toBeUndefined();
     expect(story("in-1")?.sprintHistory?.at(-1)).toMatchObject({ from: "s2" });
     expect(story("in-1")?.sprintHistory?.at(-1)?.sprintId).toBeUndefined();
-    // Backlog stories can still be deleted while a sprint runs.
+    // Out of the sprint it is still part of the sprint's past: its backlog
+    // row has no bin either, and says why.
+    const out = row("Backlog", "Pay with a saved card");
+    expect(within(out).queryByRole("button", { name: /^Delete/ })).toBeNull();
+    expect(within(out).getByText("Was in Sprint 2, so it can't be deleted")).toBeInTheDocument();
+    // Other backlog stories can still be deleted while a sprint runs.
     expect(screen.getByRole("button", { name: "Delete Apple Pay" })).toBeInTheDocument();
+    expect(within(row("Backlog", "Apple Pay")).queryByText(/so it can't be deleted/)).toBeNull();
     // A done story stays locked: no bin, no way out of the sprint.
     const done = row("Stories in Sprint 2", "Receipts");
     expect(within(done).queryByRole("button", { name: /Remove|Delete/ })).toBeNull();
+  });
+
+  it("keeps a closed sprint's left-over once it is carried over, or sent back to the backlog", () => {
+    renderPlanning();
+    fireEvent.click(screen.getByRole("button", { name: "Carry over 1 story (5 points)" }));
+    expect(story("left-1")).toMatchObject({ sprintId: "s2" });
+    const carried = row("Stories in Sprint 2", "Refund flow");
+    // Sprint 1's chart still counts it: deleting it here would rewrite that.
+    expect(within(carried).queryByRole("button", { name: /^Delete/ })).toBeNull();
+    expect(
+      within(carried).getByText("Was in Sprint 1, so it can't be deleted")
+    ).toBeInTheDocument();
+    // A story planned into Sprint 2 from the backlog keeps its bin.
+    expect(screen.getByRole("button", { name: "Delete Card nicknames" })).toBeInTheDocument();
+
+    undoLast();
+    fireEvent.click(screen.getByRole("button", { name: "Back to the backlog" }));
+    expect(story("left-1")?.sprintId).toBeUndefined();
+    const sentBack = row("Backlog", "Refund flow");
+    expect(within(sentBack).queryByRole("button", { name: /^Delete/ })).toBeNull();
+    expect(
+      within(sentBack).getByText("Was in Sprint 1, so it can't be deleted")
+    ).toBeInTheDocument();
   });
 
   it("locks every story of a closed sprint that is being looked at", () => {
