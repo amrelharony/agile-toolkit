@@ -215,9 +215,24 @@ Rate limit: 120 requests/minute per PAT.
 - All Supabase tables enforce `auth.uid() = user_id` via RLS.
 - PATs stored as scrypt hashes; lookup via SECURITY DEFINER Postgres function.
 - CSP locked to first-party + the LLM provider endpoints the app actually uses.
+  It is built from [src/lib/site/csp.mjs](src/lib/site/csp.mjs), where each
+  outside host says whose it is and when it is used; `/privacy` prints that
+  list for a security team, so add or drop a host there, never in the header.
 - HSTS, COOP, X-Frame-Options DENY, frame-ancestors 'none'.
-- security.txt at `/.well-known/security.txt`; `/robots.txt` keeps `/api/`,
-  `/auth/`, `/settings/`, `/guest/` and `/not-authorized` out of the index.
+- security.txt at `/.well-known/security.txt`, built from the one contact
+  address in [src/lib/site/owner.ts](src/lib/site/owner.ts), which `/privacy`
+  shows too. Renew its `Expires` date there before 2027-05-23.
+  `/robots.txt` keeps `/api/`, `/auth/`, `/settings/`, `/guest/` and
+  `/not-authorized` out of the index.
+- `/privacy` ("What leaves your browser") states what each part of the site
+  sends and keeps. Its facts are in
+  [src/lib/site/privacy.ts](src/lib/site/privacy.ts) and the wording people
+  see elsewhere in [src/lib/site/disclosures.ts](src/lib/site/disclosures.ts);
+  `test/site/privacy-facts.test.ts` checks each against the code, and
+  `test/site/privacy-kept.test.ts` against what the code does (the columns
+  the migrations give each table, the rows the routes write, what the
+  weather route logs and answers), so a change to what is sent or kept fails
+  a test until the page says it. `/about` and `/contact` redirect there.
 - See [src/lib/auth/](src/lib/auth/) for the auth helpers and
   [src/middleware.ts](src/middleware.ts) for the gate.
 

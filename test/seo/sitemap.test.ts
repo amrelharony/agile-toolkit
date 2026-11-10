@@ -6,8 +6,8 @@ import robots from "@/app/robots";
 import { tools } from "@/lib/constants/tools";
 
 /**
- * /sitemap.xml lists the landing page, the team page, the More tools shelf
- * and every public tool route, and stays sync: the stories have their own
+ * /sitemap.xml lists the landing page, the team page, the More tools shelf,
+ * the privacy page and every public tool route, and stays sync: the stories have their own
  * /comics/sitemap.xml. The module is re-imported per case so a future
  * module-level read of the env can't make these tests pass by accident.
  */
@@ -15,7 +15,7 @@ import { tools } from "@/lib/constants/tools";
 const BASE = "https://agile.amrelharony.com";
 
 /** The public pages the registry doesn't name. */
-const SITE_PAGES = ["/team", "/more-tools"];
+const SITE_PAGES = ["/team", "/more-tools", "/privacy"];
 
 async function loadSitemap() {
   vi.resetModules();
@@ -43,7 +43,7 @@ describe("sitemap", () => {
     expect(urls).toHaveLength(listed.length + 1 + SITE_PAGES.length);
   });
 
-  it("lists the team page and the More tools shelf, which no tool route covers", async () => {
+  it("lists the team page, the More tools shelf and the privacy page, which no tool route covers", async () => {
     const urls = await loadSitemapUrls();
     const disallowed = [robots().rules].flat().flatMap((rule) => rule.disallow ?? []);
     for (const page of SITE_PAGES) {
@@ -51,9 +51,13 @@ describe("sitemap", () => {
       // A page that exists, that crawlers may fetch and that doesn't say noindex.
       const dir = path.join(process.cwd(), "src/app/(meta)", page);
       expect(existsSync(path.join(dir, "page.tsx")), page).toBe(true);
-      expect(readFileSync(path.join(dir, "layout.tsx"), "utf8"), page).not.toMatch(
-        /robots|noindex/
-      );
+      // Its metadata is in its layout (a client page) or in the page itself.
+      for (const file of ["layout.tsx", "page.tsx"]) {
+        if (!existsSync(path.join(dir, file))) continue;
+        expect(readFileSync(path.join(dir, file), "utf8"), `${page} ${file}`).not.toMatch(
+          /robots|noindex/
+        );
+      }
       expect(
         disallowed.filter((prefix) => page.startsWith(prefix)),
         page

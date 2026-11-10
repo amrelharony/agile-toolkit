@@ -1,16 +1,18 @@
 import type { MetadataRoute } from "next";
 import { tools } from "@/lib/constants/tools";
+import { PRIVACY_PATH } from "@/lib/site/owner";
 
 /** Mirrors `metadataBase` in src/app/layout.tsx. */
 const SITE_URL = "https://agile.amrelharony.com";
 
 /**
  * The public pages that are not tools, so the registry doesn't name them: the
- * team's roster and agreements, and the shelf that links every tool kept off
- * the home page and the sidebar. Pages about one browser's own activity
- * (/history, /insights) and the owner's settings stay out.
+ * team's roster and agreements, the shelf that links every tool kept off the
+ * home page and the sidebar, and the page on what leaves a visitor's browser
+ * and who runs the site. Pages about one browser's own activity (/history,
+ * /insights) and the owner's settings stay out.
  */
-const SITE_PAGES = ["/team", "/more-tools"];
+const SITE_PAGES = ["/team", "/more-tools", PRIVACY_PATH];
 
 /**
  * /sitemap.xml — the landing page, the pages in SITE_PAGES and every public

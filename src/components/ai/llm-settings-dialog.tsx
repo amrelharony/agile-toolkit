@@ -36,6 +36,7 @@ import { DEFAULT_MODEL_BY_PROVIDER, MODELS_BY_PROVIDER, PROVIDER_META } from "@/
 import { getAdapter, PROVIDER_IDS } from "@/lib/llm/registry";
 import type { ProviderId } from "@/lib/llm/types";
 import { isLlmError } from "@/lib/llm/types";
+import { OWN_KEY_DISCLOSURE } from "@/lib/site/disclosures";
 import { cn } from "@/lib/utils";
 
 /**
@@ -199,10 +200,10 @@ export function LlmSettingsDialog() {
             <span className="text-xs text-sub">caps cost per request</span>
           </div>
 
+          {/* The first two sentences are the privacy page's too (lib/site/disclosures.ts). */}
           <p className="text-xs leading-relaxed">
-            Your key is stored only in this browser. Requests go directly from your browser to the
-            provider — they never touch the toolkit&apos;s servers. Any browser extension or XSS in
-            this app could read your key. Use session mode for the strongest default.
+            {OWN_KEY_DISCLOSURE} Any browser extension or XSS in this app could read your key. Use
+            session mode for the strongest default.
           </p>
         </div>
 
