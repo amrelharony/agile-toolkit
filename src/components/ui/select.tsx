@@ -23,7 +23,9 @@ const SelectTrigger = React.forwardRef<
       // call sites shrink it with responsive heights (xs:h-7, sm:h-7) that
       // Tailwind emits after the pointer variant, and a min-height outlasts
       // any height. Desktop keeps h-9 and every caller's own height.
-      "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background data-[placeholder]:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:min-h-11 [&>span]:line-clamp-1",
+      // `bg-card`: a field paints its own flat paper, so the page grain
+      // stays out of it (DNA-SPEC section 1).
+      "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-card px-3 py-2 text-sm ring-offset-background data-[placeholder]:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:min-h-11 [&>span]:line-clamp-1",
       className
     )}
     {...props}
