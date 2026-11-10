@@ -347,4 +347,109 @@ describe("deleting a story, with a way back", () => {
     undo?.();
     expect(liveLink(links, "backlog-story")).toBeDefined();
   });
+
+  /** How many times the store is written (each write saves the whole workspace). */
+  const countWrites = (run: () => void) => {
+    let writes = 0;
+    const stop = useWorkspaceStore.subscribe(() => {
+      writes += 1;
+    });
+    run();
+    stop();
+    return writes;
+  };
+
+  it("removes several stories in one write, with the Canvas links of each", () => {
+    useWorkspaceStore.setState({
+      whiteboardObjects: [
+        card("pinned-a", { sourceRef: { tool: "story", entityId: "a" } }),
+        card("wizard-c", { sourceRef: { tool: "backlog", entityId: "c" } }),
+        card("vote-c", { type: "voting", storyId: "c" } as Partial<WhiteboardObject>),
+        card("pinned-b", { sourceRef: { tool: "story", entityId: "b" } }),
+        card("plain"),
+      ],
+    });
+    const after = (id: string) => ws().whiteboardObjects?.find((o) => o.id === id);
+    expect(countWrites(() => ws().removeStories(["a", "c", "nope"]))).toBe(1);
+    expect(ws().stories.map((s) => s.id)).toEqual(["b"]);
+    expect(after("pinned-a")).toMatchObject({ version: 2 });
+    expect(after("pinned-a")?.sourceRef).toBeUndefined();
+    expect(after("wizard-c")?.sourceRef).toBeUndefined();
+    expect((after("vote-c") as { storyId?: string }).storyId).toBeUndefined();
+    // The story that stayed keeps its card, untouched.
+    expect(after("pinned-b")).toMatchObject({
+      sourceRef: { tool: "story", entityId: "b" },
+      version: 1,
+    });
+    expect(after("plain")?.version).toBe(1);
+  });
+
+  it("writes nothing when none of the stories is there", () => {
+    const before = ws().stories;
+    expect(countWrites(() => ws().removeStories([]))).toBe(0);
+    expect(countWrites(() => ws().removeStories(["nope"]))).toBe(0);
+    expect(ws().stories).toBe(before);
+  });
+
+  it("removes one story as it always did", () => {
+    useWorkspaceStore.setState({
+      whiteboardObjects: [
+        card("pinned", { sourceRef: { tool: "story", entityId: "b" } }),
+        card("vote", { type: "voting", storyId: "b" } as Partial<WhiteboardObject>),
+        card("other", { sourceRef: { tool: "story", entityId: "a" } }),
+        // A voting widget with no story is not a link to anything.
+        card("free-vote", { type: "voting" } as Partial<WhiteboardObject>),
+      ],
+    });
+    const after = (id: string) => ws().whiteboardObjects?.find((o) => o.id === id);
+    ws().removeStory("b");
+    expect(ws().stories.map((s) => s.id)).toEqual(["a", "c"]);
+    expect(after("pinned")?.sourceRef).toBeUndefined();
+    expect((after("vote") as { storyId?: string }).storyId).toBeUndefined();
+    expect(after("other")?.version).toBe(1);
+    expect(after("free-vote")?.version).toBe(1);
+  });
+});
+
+describe("adding several stories in one write", () => {
+  const ws = () => useWorkspaceStore.getState();
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({
+      stories: [story({ id: "kept", title: "Kept", createdAt: "2026-10-01T00:00:00.000Z" })],
+    });
+  });
+
+  it("stamps each new story as a single write does: created, and joined its sprint", () => {
+    let writes = 0;
+    const stop = useWorkspaceStore.subscribe(() => {
+      writes += 1;
+    });
+    ws().bulkUpsertStories([
+      story({ id: "n1", title: "New in the backlog" }),
+      story({ id: "n2", title: "New in a sprint", status: "todo", sprintId: "planned", points: 3 }),
+    ]);
+    stop();
+    expect(writes).toBe(1);
+    const [kept, n1, n2] = ws().stories;
+    expect(kept.createdAt).toBe("2026-10-01T00:00:00.000Z");
+    expect(n1.createdAt).toEqual(expect.any(String));
+    expect(n1.sprintHistory).toBeUndefined();
+    // One time for the batch.
+    expect(n2.createdAt).toBe(n1.createdAt);
+    expect(n2.sprintHistory).toEqual([{ sprintId: "planned", at: n2.createdAt, points: 3 }]);
+  });
+
+  it("records a change of sprint on a story it already holds, and keeps its place", () => {
+    ws().bulkUpsertStories([
+      story({ id: "kept", title: "Kept", status: "todo", sprintId: "planned" }),
+      story({ id: "n1", title: "New" }),
+    ]);
+    expect(ws().stories.map((s) => s.id)).toEqual(["kept", "n1"]);
+    expect(ws().stories[0].sprintHistory).toMatchObject([{ sprintId: "planned" }]);
+    // An empty batch changes nothing.
+    const before = ws().stories;
+    ws().bulkUpsertStories([]);
+    expect(ws().stories).toBe(before);
+  });
 });
