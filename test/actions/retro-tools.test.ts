@@ -10,7 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { RetroBoard, Sprint } from "@/lib/stores/workspace-types";
+import type { KanbanBoard, RetroBoard, RetroCard, Sprint } from "@/lib/stores/workspace-types";
 import { blankRetroBoard } from "@/lib/retro/board";
 import { retroFormats } from "@/lib/constants/retro-formats";
 
@@ -121,6 +121,56 @@ describe("tool.retro", () => {
       impediments: { raised: 1, stillOpen: 1 },
       burndown: { shape: "late" },
     });
+  });
+
+  it("list_state's follow-through counts an action its story, impediment or Flow card closed", async () => {
+    const action = (id: string, sentTo: NonNullable<RetroCard["sentTo"]>): RetroCard => ({
+      id,
+      columnKey: "start",
+      text: id,
+      votes: 0,
+      groupedWith: null,
+      isActionItem: true,
+      assignee: "",
+      discussing: false,
+      sentTo,
+    });
+    const previous: RetroBoard = {
+      ...blankRetroBoard(retroFormats[0]),
+      id: "retro:2026-10-09",
+      archivedAt: "2026-10-09T15:00:00Z",
+      cards: [
+        action("by-story", [{ route: "backlog-story", targetId: "st1", at: "2026-10-09" }]),
+        action("by-impediment", [{ route: "impediment", targetId: "imp1", at: "2026-10-09" }]),
+        action("by-card", [{ route: "kanban", targetId: "k1", at: "2026-10-09" }]),
+        action("open", []),
+      ],
+    };
+    useWorkspaceStore.setState({
+      retroBoards: [previous, { ...blankRetroBoard(retroFormats[0]), sprintId: "s1" }],
+      stories: [{ id: "st1", title: "by-story", status: "done", sprintId: "s1" }],
+      impediments: [
+        {
+          id: "imp1",
+          title: "VPN",
+          severity: "high",
+          raisedAt: "2026-10-09",
+          resolvedAt: "2026-10-12",
+        },
+      ],
+      kanbanBoards: [
+        {
+          id: "kanban:flow",
+          name: "Flow",
+          cards: [{ id: "k1", title: "by-card", column: "done" }],
+        } as unknown as KanbanBoard,
+      ],
+    });
+    const r = await call<{ facts: { followThrough: { agreed: number; done: number } } }>(
+      "tool.retro.list_state"
+    );
+    // As the Retro page reads it: done by a finished target, not only by a tick.
+    expect(r.facts.followThrough).toMatchObject({ agreed: 4, done: 3 });
   });
 });
 
