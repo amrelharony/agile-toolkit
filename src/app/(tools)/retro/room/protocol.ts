@@ -16,8 +16,11 @@
  * while writing" on (the default), a Write-phase snapshot carries a count
  * per column instead of the cards, and each tab shows its own cards from
  * memory. It also carries the column list with labels and the votes each
- * person has. A tab on version 1 refuses every version 2 message on its
- * `v`, and this version refuses theirs the same way.
+ * person has (the host's "Votes each"), so a custom format's columns and a
+ * budget of 5 or 8 reach everyone; the format's name rides along as an
+ * optional field, which a tab on an earlier build of version 2 leaves out.
+ * A tab on version 1 refuses every version 2 message on its `v`, and this
+ * version refuses theirs the same way.
  *
  * No message the host sends says who wrote a card or cast a vote. Who owns
  * what is a host-side record in memory (`intents.ts`), never shared or
@@ -81,6 +84,8 @@ export const MAX_KEY_CHARS = 64;
 export const MAX_COLUMNS = 12;
 /** Column labels, as `readRetro` caps them. */
 export const MAX_COLUMN_LABEL_CHARS = 200;
+/** A format's name, as `readRetro` caps it. */
+export const MAX_FORMAT_NAME_CHARS = 200;
 /** Most votes a snapshot may give each person. */
 export const MAX_VOTES_PER_PERSON = 20;
 
@@ -138,6 +143,11 @@ export interface RoomSnapshot {
   endsAt: number;
   /** Looked up in the participant's own `retroFormats`: no peer colours or icons. */
   formatId: string;
+  /**
+   * The format's name, shown for a format the participant doesn't have (a
+   * custom one). Optional: a tab on an earlier build of version 2 sends none.
+   */
+  formatName?: string;
   /** The board's columns in order, with their labels (for a format the participant doesn't have). */
   columns: RoomColumn[];
   phase: BoardPhase;

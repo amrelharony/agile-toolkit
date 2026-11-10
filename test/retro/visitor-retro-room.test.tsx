@@ -125,7 +125,12 @@ function Harness({ initial, onReset = () => {} }: { initial: BoardState; onReset
 function hostSnapshot(
   b: BoardState,
   seq = 1,
-  extra: Partial<{ hide: boolean; by: FakeMember; votesUsed: Record<string, number> }> = {}
+  extra: Partial<{
+    hide: boolean;
+    by: FakeMember;
+    votesUsed: Record<string, number>;
+    votes: number;
+  }> = {}
 ): RoomSnapshot {
   const by = extra.by ?? HOST;
   return JSON.parse(
@@ -139,7 +144,7 @@ function hostSnapshot(
         timer: { running: false, remaining: b.timerSeconds },
         now: Date.now(),
         hideWhileWriting: extra.hide ?? false,
-        votesPerPerson: 3,
+        votesPerPerson: extra.votes ?? 3,
       })
     )
   ) as RoomSnapshot;
@@ -514,6 +519,49 @@ describe("VisitorRetroRoom (participant)", () => {
     );
     expect(screen.getByText("Card a")).toBeInTheDocument();
     expect(screen.queryByText(/hidden until Vote/)).toBeNull();
+  });
+
+  it("shows the host's own columns, empty ones too, and the votes each person has", () => {
+    render(<VisitorRetroRoom code={CODE} identity={identity} onLeave={() => {}} />);
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    const custom = {
+      id: "custom-abc12345",
+      name: "Team pulse",
+      description: "",
+      columns: [
+        { key: "wins", label: "Wins", color: "#00f0ff", icon: "" },
+        { key: "worries", label: "Worries", color: "#00ff88", icon: "" },
+        { key: "ideas", label: "Ideas", color: "#f59e0b", icon: "" },
+      ],
+    };
+    const b = makeBoard({
+      format: custom,
+      phase: "vote",
+      cards: [card("w", { columnKey: "wins" })],
+    });
+    act(() => ch.deliver("retro:state", hostSnapshot(b, 1, { votes: 8 })));
+
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Team pulse");
+    for (const label of ["Wins", "Worries", "Ideas"]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    expect(screen.getByText("8 votes left")).toBeInTheDocument();
+    expect(screen.getByText(/Vote on cards \(8 votes each\)/)).toBeInTheDocument();
+
+    // The file is named after the format, as the host's own export is.
+    fireEvent.click(screen.getByRole("button", { name: "Download Markdown" }));
+    const [, filename] = vi.mocked(exportToMarkdown).mock.calls[0];
+    expect(filename).toMatch(/^retro-team-pulse-\d{4}-\d{2}-\d{2}$/);
+    // A copy keeps the columns and the votes each.
+    fireEvent.click(screen.getByRole("button", { name: "Save a copy" }));
+    const [copy] = useWorkspaceStore.getState().retroBoards ?? [];
+    expect(copy.format.name).toBe("Team pulse");
+    expect(copy.format.columns.map((c) => c.label)).toEqual(["Wins", "Worries", "Ideas"]);
+    expect(copy.votesPerPerson).toBe(8);
   });
 
   it("takes my vote back", () => {

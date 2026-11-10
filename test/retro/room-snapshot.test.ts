@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { retroFormats } from "@/lib/constants/retro-formats";
+import { RETRO_COLUMN_PALETTE, retroFormats } from "@/lib/constants/retro-formats";
 import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
 import {
   FALLBACK_FORMAT_ID,
@@ -17,7 +17,8 @@ import {
   otherVersionSender,
   type RoomSnapshot,
 } from "@/app/(tools)/retro/room/protocol";
-import { MAX_VOTES, type BoardState, type RetroCard } from "@/app/(tools)/retro/types";
+import { DEFAULT_RETRO_VOTES } from "@/lib/retro/board";
+import type { BoardState, RetroCard } from "@/app/(tools)/retro/types";
 
 /**
  * What the host shares (nothing private, no card while cards are hidden)
@@ -81,7 +82,7 @@ function meta(overrides: Partial<SnapshotMeta> = {}): SnapshotMeta {
     timer: { running: false, remaining: 120 },
     now: NOW,
     hideWhileWriting: true,
-    votesPerPerson: MAX_VOTES,
+    votesPerPerson: DEFAULT_RETRO_VOTES,
     ...overrides,
   };
 }
@@ -130,7 +131,7 @@ describe("toRoomSnapshot", () => {
     ]);
     expect(json).not.toContain(retroFormats[0].columns[0].color);
     expect(json).not.toContain(retroFormats[0].columns[0].icon);
-    expect(snap.votesPerPerson).toBe(MAX_VOTES);
+    expect(snap.votesPerPerson).toBe(DEFAULT_RETRO_VOTES);
   });
 
   it("shares votes only for members still in the room", () => {
@@ -447,6 +448,96 @@ describe("boardFromSnapshot", () => {
   });
 });
 
+describe("a custom format and its votes each, in the room", () => {
+  const custom = {
+    id: "custom-abc12345",
+    name: "Team pulse",
+    description: "Your own columns: Wins, Worries, Ideas.",
+    columns: [
+      { key: "wins", label: "Wins", color: RETRO_COLUMN_PALETTE[0], icon: "" },
+      { key: "worries", label: "Worries", color: RETRO_COLUMN_PALETTE[1], icon: "" },
+      { key: "ideas", label: "Ideas", color: RETRO_COLUMN_PALETTE[2], icon: "" },
+    ],
+  };
+  const customBoard = (overrides: Partial<BoardState> = {}) =>
+    hostBoard({
+      format: custom,
+      phase: "vote",
+      cards: [card("w1", { columnKey: "wins", votes: 6 })],
+      votesPerPerson: 8,
+      ...overrides,
+    });
+
+  it("sends the columns' labels, the format's name and the budget, and reads them back", () => {
+    const sent = toRoomSnapshot(
+      customBoard(),
+      meta({ votesPerPerson: 8, votesUsed: { [PAT]: 8 } })
+    );
+    expect(sent.formatId).toBe("custom-abc12345");
+    expect(sent.formatName).toBe("Team pulse");
+    expect(sent.columns).toEqual([
+      { key: "wins", label: "Wins" },
+      { key: "worries", label: "Worries" },
+      { key: "ideas", label: "Ideas" },
+    ]);
+    expect(sent.votesPerPerson).toBe(8);
+    expect(sent.votesUsed).toEqual({ [PAT]: 8 });
+
+    const read = readRoomSnapshot(wire(sent));
+    expect(read).toEqual(sent);
+    // Eight votes used is within a budget of 8; nine is not.
+    expect(
+      readRoomSnapshot({ ...(wire(sent) as RoomSnapshot), votesUsed: { [PAT]: 9 } })
+    ).toBeNull();
+  });
+
+  it("draws the host's columns, empty ones too, in the palette a custom format uses", () => {
+    const board = boardFromSnapshot(
+      readRoomSnapshot(wire(toRoomSnapshot(customBoard(), meta({ votesPerPerson: 8 }))))!
+    );
+    expect(board.format.id).toBe(FALLBACK_FORMAT_ID);
+    expect(board.format.name).toBe("Team pulse");
+    expect(board.format.columns.map((c) => [c.key, c.label, c.color])).toEqual([
+      ["wins", "Wins", RETRO_COLUMN_PALETTE[0]],
+      ["worries", "Worries", RETRO_COLUMN_PALETTE[1]],
+      ["ideas", "Ideas", RETRO_COLUMN_PALETTE[2]],
+    ]);
+    expect(board.cards.map((c) => c.id)).toEqual(["w1"]);
+  });
+
+  it("keeps the host's Votes each on the participant's board when it is a board choice", () => {
+    const read = (votesPerPerson: number) =>
+      boardFromSnapshot(
+        readRoomSnapshot(wire(toRoomSnapshot(customBoard(), meta({ votesPerPerson }))))!
+      );
+    expect(read(8).votesPerPerson).toBe(8);
+    expect(read(5).votesPerPerson).toBe(5);
+    // A budget the board can't hold (the room allows 1 to 20) isn't kept.
+    expect("votesPerPerson" in read(4)).toBe(false);
+  });
+
+  it("reads a snapshot without a format name (an earlier build), and refuses an unclean one", () => {
+    const sent = wire(toRoomSnapshot(customBoard(), meta())) as RoomSnapshot;
+    const { formatName, ...withoutName } = sent;
+    expect(formatName).toBe("Team pulse");
+    const read = readRoomSnapshot(withoutName)!;
+    expect(read).not.toBeNull();
+    expect("formatName" in read).toBe(false);
+    expect(boardFromSnapshot(read).format.name).toBe("Retro");
+    for (const bad of ["", "Bad‮name", 42, "x".repeat(201)]) {
+      expect(readRoomSnapshot({ ...sent, formatName: bad })).toBeNull();
+    }
+  });
+
+  it("strips hidden characters from the host's own format name before it leaves", () => {
+    const sent = toRoomSnapshot(
+      customBoard({ format: { ...custom, name: "Team‮ pulse" } }),
+      meta()
+    );
+    expect(sent.formatName).toBe("Team pulse");
+  });
+});
+
 describe("roomSignature", () => {
   it("ignores the running timer's tick but not start, pause or a reset", () => {
     const running = hostBoard({ timerRunning: true, timerSeconds: 100 });
@@ -464,5 +555,12 @@ describe("roomSignature", () => {
       roomSignature({ ...b, cards: b.cards.map((c) => ({ ...c, votes: c.votes + 1 })) })
     ).not.toBe(roomSignature(b));
     expect(roomSignature(b, true)).not.toBe(roomSignature(b, false));
+  });
+
+  it("changes with Votes each, so a new budget reaches everyone", () => {
+    const b = hostBoard();
+    expect(roomSignature({ ...b, votesPerPerson: 5 })).not.toBe(roomSignature(b));
+    // Absent and 3 are the same budget.
+    expect(roomSignature({ ...b, votesPerPerson: 3 })).toBe(roomSignature(b));
   });
 });

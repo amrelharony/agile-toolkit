@@ -3155,6 +3155,8 @@ const RetroBoardSchema = z.object({
   archivedAt: z.string().optional(),
   previousRetroId: z.string().optional(),
   votesBy: z.record(z.string(), z.number()).optional(),
+  // "Votes each": absent means 3 (lib/retro/board retroVotes).
+  votesPerPerson: z.union([z.literal(3), z.literal(5), z.literal(8)]).optional(),
   sprintId: z.string().optional(),
 }) as unknown as z.ZodType<RetroBoard>;
 

@@ -39,7 +39,8 @@ import type { HandoffLink } from "@/lib/handoffs/types";
 import type { Validation } from "@/lib/utils/form";
 import { PASTE_LINE_CAP, leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
 import { toast } from "@/lib/utils/toast";
-import { type BoardPhase, type RetroCard, MAX_VOTES } from "../types";
+import { DEFAULT_RETRO_VOTES } from "@/lib/retro/board";
+import type { BoardPhase, RetroCard } from "../types";
 import { sortedByVotes } from "../helpers";
 import { RetroCardItem } from "./retro-card-item";
 import { themed } from "@/lib/utils/theme-color";
@@ -82,7 +83,7 @@ export function RetroColumnPanel({
   canAdd = true,
   maxCardLength,
   pasteCap = PASTE_LINE_CAP,
-  maxVotes = MAX_VOTES,
+  maxVotes = DEFAULT_RETRO_VOTES,
   hiddenCount = 0,
   ownIds,
   myVotes,

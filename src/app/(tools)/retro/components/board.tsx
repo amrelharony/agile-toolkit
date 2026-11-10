@@ -9,9 +9,10 @@
  * truth.
  *
  * Facilitator mode: in the Vote phase "Voting as" picks who the next vote
- * belongs to, each person with their own MAX_VOTES (`votesBy`); "Me" keeps
- * the single `userVotes` budget. The facilitator can step back a phase
- * (votes are kept) and add a card in any phase.
+ * belongs to, each person with their own budget (`votesBy`); "Me" keeps
+ * the single `userVotes` budget. "Votes each" (Write and Vote) sets that
+ * budget for everyone: 3, 5 or 8, saved on the board. The facilitator can
+ * step back a phase (votes are kept) and add a card in any phase.
  *
  * Taking a vote back: the board remembers, in memory for this visit, which
  * cards each voter ("Me" or a person) voted on, and "Take my vote back" on
@@ -45,6 +46,7 @@ import { ExampleNotice, hasExampleItems, isExampleId } from "@/components/tool-f
 import { generateRetroPrompts } from "@/lib/ai-prompts/retro";
 import { enoughData } from "@/lib/analytics/min-sample";
 import { retroColumnFor } from "@/lib/handoffs/targets/retro-board";
+import { retroVotes, type RetroVotes } from "@/lib/retro/board";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { type HistoryLogger } from "@/lib/history/use-history-logger";
@@ -54,15 +56,17 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import type { RetroBoard, RetroCard as StoredRetroCard } from "@/lib/stores/workspace-types";
 import type { HandoffLink } from "@/lib/handoffs/types";
-import { type BoardState, type RetroCard, MAX_VOTES, PHASES } from "../types";
+import { type BoardState, type RetroCard, PHASES, phaseDescription } from "../types";
 import { carriedOverCard, RETRO_ARCHIVE_LIMIT } from "../archive";
 import {
   makeId,
   columnGridClass,
   buildExportJson,
+  buildShareState,
   formatTimer,
   removeCardWithGroup,
   restoreRemovedCards,
+  retroFileStem,
   shortText,
   voterKey,
   voterNames,
@@ -80,6 +84,7 @@ import { TimerWidget } from "./timer-widget";
 import { RetroColumnPanel } from "./retro-column-panel";
 import { LastRetroActions } from "./last-retro-actions";
 import { SINGLE_VOTER, VoterPicker } from "./voter-picker";
+import { VotesEach } from "./votes-each";
 import { RetroSprintPicker } from "./retro-sprint-picker";
 import { RetroFactsPanel } from "./retro-facts";
 import { CommonWords } from "./common-words";
@@ -194,6 +199,8 @@ export function Board({
     (voter && voters.find((n) => n.toLowerCase() === voter.trim().toLowerCase())) || SINGLE_VOTER;
   const votesUsed = activeVoter ? votesCastBy(state.votesBy, activeVoter) : state.userVotes;
   const hasVotes = state.cards.some((c) => c.votes > 0);
+  // Votes each person has: the board's "Votes each", else 3.
+  const budget = retroVotes(state);
   // Which cards each voter voted on this visit, so a vote can be taken back.
   const [voteRecord, setVoteRecord] = useState<VoteRecord>({});
   const myVotes = votesIn(voteRecord, activeVoter);
@@ -256,8 +263,8 @@ export function Board({
       return { ...prev, phase: nx.key };
     });
     log(RETRO_ACTIONS.PHASE_ADVANCED, transition);
-    announce(`${next.label} phase. ${next.description}.`);
-  }, [onUpdate, log, announce, state.phase, state.sprintId, state.cards]);
+    announce(`${next.label} phase. ${phaseDescription(next.key, budget)}.`);
+  }, [onUpdate, log, announce, state.phase, state.sprintId, state.cards, budget]);
 
   // Step back one phase. Nothing is undone: votes, groups and actions stay.
   // Not logged: PHASE_ADVANCED is a forward milestone.
@@ -345,19 +352,20 @@ export function Board({
       // "Me" spends `userVotes`; a picked person spends their own budget.
       const who = activeVoter;
       const used = who ? votesCastBy(state.votesBy, who) : state.userVotes;
-      if (used >= MAX_VOTES) return;
+      if (used >= budget) return;
       const card = state.cards.find((c) => c.id === id);
       const nextVoteCount = (card?.votes ?? 0) + 1;
       sonify("retro", "vote");
       onUpdate((prev) => {
         if (prev.phase !== "vote") return prev;
+        const limit = retroVotes(prev);
         const cards = prev.cards.map((c) => (c.id === id ? { ...c, votes: c.votes + 1 } : c));
         if (!who) {
-          if (prev.userVotes >= MAX_VOTES) return prev;
+          if (prev.userVotes >= limit) return prev;
           return { ...prev, userVotes: prev.userVotes + 1, cards };
         }
         const cast = votesCastBy(prev.votesBy, who);
-        if (cast >= MAX_VOTES) return prev;
+        if (cast >= limit) return prev;
         return {
           ...prev,
           cards,
@@ -366,13 +374,23 @@ export function Board({
       });
       setVoteRecord((prev) => stepVoteRecord(prev, who, id, 1));
       log(RETRO_ACTIONS.CARD_VOTED, { cardId: id, voteCount: nextVoteCount });
-      if (used + 1 >= MAX_VOTES) {
+      if (used + 1 >= budget) {
         announce(
-          who ? `${who} has used all ${MAX_VOTES} votes.` : `You have used all ${MAX_VOTES} votes.`
+          who ? `${who} has used all ${budget} votes.` : `You have used all ${budget} votes.`
         );
       }
     },
-    [onUpdate, log, announce, activeVoter, state.phase, state.userVotes, state.votesBy, state.cards]
+    [
+      onUpdate,
+      log,
+      announce,
+      activeVoter,
+      budget,
+      state.phase,
+      state.userVotes,
+      state.votesBy,
+      state.cards,
+    ]
   );
 
   // "Take my vote back": one of the current voter's votes off a card they voted on.
@@ -403,7 +421,7 @@ export function Board({
       });
       setVoteRecord((prev) => stepVoteRecord(prev, who, id, -1));
       log(RETRO_ACTIONS.CARD_UNVOTED, { cardId: id, voteCount: card.votes - 1 });
-      const left = MAX_VOTES - (used - 1);
+      const left = Math.max(0, budget - (used - 1));
       const votes = `${left} ${left === 1 ? "vote" : "votes"} left`;
       announce(who ? `Took back a vote for ${who}. ${votes}.` : `Took your vote back. ${votes}.`);
     },
@@ -412,6 +430,7 @@ export function Board({
       log,
       announce,
       activeVoter,
+      budget,
       voteRecord,
       state.phase,
       state.userVotes,
@@ -434,6 +453,19 @@ export function Board({
       setVoter(clean);
     },
     [onUpdate]
+  );
+
+  // "Votes each": everyone's budget, saved on the board. Votes already cast
+  // stay on their cards; a person past a lower budget just has none left.
+  const handleVotesChange = useCallback(
+    (votes: RetroVotes) => {
+      if (votes === budget) return;
+      onUpdate((prev) => ({ ...prev, votesPerPerson: votes }));
+      announce(
+        `Everyone now has ${votes} votes.${hasVotes ? " Votes already cast stay on their cards." : ""}`
+      );
+    },
+    [onUpdate, announce, budget, hasVotes]
   );
 
   const handleDelete = useCallback(
@@ -690,8 +722,13 @@ export function Board({
     [state.format, state.cards, facts, lines, themes]
   );
   const exportJson = useMemo(
-    () => buildExportJson({ format: state.format, cards: state.cards }),
-    [state.format, state.cards]
+    () => buildExportJson({ format: state.format, cards: state.cards, votesPerPerson: budget }),
+    [state.format, state.cards, budget]
+  );
+  // A share link carries Votes each too, so the copy someone imports keeps it.
+  const shareState = useMemo(
+    () => buildShareState({ format: state.format, cards: state.cards, votesPerPerson: budget }),
+    [state.format, state.cards, budget]
   );
 
   // Everyone's votes go too, "Me" and each person's.
@@ -786,9 +823,12 @@ export function Board({
               {state.phase === "vote" && (
                 <span className="text-accent font-semibold">
                   {activeVoter
-                    ? `${MAX_VOTES - votesUsed} votes remaining for ${activeVoter}`
-                    : `${MAX_VOTES - state.userVotes} votes remaining`}
+                    ? `${Math.max(0, budget - votesUsed)} votes remaining for ${activeVoter}`
+                    : `${Math.max(0, budget - state.userVotes)} votes remaining`}
                 </span>
+              )}
+              {(state.phase === "write" || state.phase === "vote") && (
+                <VotesEach value={budget} onChange={handleVotesChange} />
               )}
               {state.phase === "actions" && actionCount > 0 && (
                 <span className="inline-flex flex-col items-start">
@@ -859,7 +899,7 @@ export function Board({
         <div className="space-y-1 px-1">
           <p className="text-sm font-medium text-text">{verdict}</p>
           <p className="text-xs text-sub">
-            {PHASES.find((p) => p.key === state.phase)?.description}
+            {phaseDescription(state.phase, budget)}
             {state.phase === "discuss" && (
               <span className="ml-2 text-accent">
                 Cards sorted by votes — click a card to mark it as discussing.
@@ -881,6 +921,7 @@ export function Board({
           <VoterPicker
             names={voters}
             votesBy={state.votesBy}
+            votesPerPerson={budget}
             voter={activeVoter}
             onVoterChange={setVoter}
             showAddVoter={teamNames.length === 0}
@@ -950,6 +991,7 @@ export function Board({
                     : 0
                 }
                 votesUsed={votesUsed}
+                maxVotes={budget}
                 highlightIds={highlightIds}
                 highlightWord={highlighted?.keyword}
                 onAdd={handleAddCard}
@@ -976,9 +1018,9 @@ export function Board({
           {/* The user's LOCAL date in the filename: `toISOString()` is UTC and
               stamps "tomorrow" for users west of UTC in their evening. */}
           <ExportButton
-            filename={`retro-${state.format.id}-${todayLocalISO()}`}
+            filename={`${retroFileStem(state.format)}-${todayLocalISO()}`}
             markdown={markdown}
-            shareState={{ format: state.format, cards: state.cards }}
+            shareState={shareState}
             jsonData={exportJson}
           />
           <Button
