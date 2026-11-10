@@ -1438,6 +1438,19 @@ body:has(dialog[open]) [data-sonner-toaster] {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   BOOK LOOK — the grain, comic light, turning shade, page edges and ground
+   shadow a drawn book wears (comics/components/intro/intro-look.tsx). Each
+   carries data-look, since their CSS-module class names are hashed.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* High contrast keeps the book plain: ink lines, no texture, light or shadow.
+   Anywhere a book is drawn, not only inside an intro. */
+.hc [data-look],
+[data-theme="hc"] [data-look] {
+  display: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    MOBILE FOUNDATION — safe-area, no iOS input zoom, active-press, overscroll
    ═══════════════════════════════════════════════════════════════════════════════ */
 

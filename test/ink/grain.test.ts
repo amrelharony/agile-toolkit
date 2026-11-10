@@ -31,10 +31,10 @@ const css = readFileSync(GLOBALS, "utf8");
 const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
 
 /**
- * Files besides globals.css allowed to hold a tile string. The intro book
- * stylesheet (intro-look.module.css) joins when it lands.
+ * Files besides globals.css allowed to hold a tile string: the intro books'
+ * look, which masks their faces with grainMask() (test/comics/intro-look).
  */
-const ALLOWED: string[] = [];
+const ALLOWED: string[] = ["src/app/(tools)/comics/components/intro/intro-look.module.css"];
 
 const THEMES: GrainTheme[] = ["light", "dark"];
 const STRENGTHS: [string, GrainStrength][] = [

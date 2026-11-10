@@ -1,0 +1,193 @@
+/*
+ * The look a drawn book wears in the comic intros (intro-look.tsx; DNA-SPEC
+ * lines 11 and 13): paper grain, flat comic light, the stepped shade of a
+ * turning face, page edges, a ground shadow, and the cover's lettering.
+ *
+ * Static styles only: no animation and no keyframes here. A part that moves
+ * takes its animation class from its own scene's stylesheet, so that scene's
+ * timing tests still read every animation it runs.
+ *
+ * Every part is a span inside a face (or under the book), never on an element
+ * that keeps the 3D space open: a mask, a clip, opacity or isolation there
+ * would flatten the book. High contrast hides them all, by their data-look
+ * attribute (globals.css BOOK LOOK), since these class names are hashed.
+ */
+
+/* Each part covers the face it sits in, follows its corners, and lets taps through. */
+.grain,
+.light,
+.turn,
+.edges {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* Paper grain: the text ink at 6%, through the page paper's own 61 px speck
+   tile as a mask (lib/ink/grain.ts, grainMask()). Written once, here. It
+   never moves. Hidden where masks don't work, so such a browser shows the
+   plain face, the finished state, instead of a flat tint. The -webkit- names
+   come first: Chrome before 120 and Safari read only those. */
+.grain {
+  --look-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='61' height='61'%3E%3Cpath d='M43 .5h2m6 1h1m-27 3h1m10 0h1m18 1h2m-30 2h1m6 1h1m-8 5h2m10 0h1m8 1h2m2 0h1m-48 2h1m2 0h1m29 1h2m-29 1h2m22 0h1m15 1h1m5 3h2m-53 6h2m7 1h2m32 0h1m-11 1h1m-27 4h2m40 3h2m-17 7h1m-28 1h1m4 1h1m11 0h2m2 5h2m-8 1h1m1 3h2m22 1h1m-46 1h2m9 3h2' stroke='black'/%3E%3C/svg%3E");
+  display: none;
+  background-color: var(--text);
+  opacity: 0.06;
+  -webkit-mask-image: var(--look-grain);
+  mask-image: var(--look-grain);
+  -webkit-mask-size: 61px 61px;
+  mask-size: 61px 61px;
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+}
+@supports (mask-image: none) or (-webkit-mask-image: none) {
+  .grain {
+    display: block;
+  }
+}
+
+/* Flat comic light: a track of shade, one clear stripe, shade, slanted by its
+   inner span and clipped to the face. Only the track moves (its scene slides
+   it across, or rests it in place); the stripe is a quarter of the face wide,
+   and the shade reaches well past both sides however far the track goes. */
+.light {
+  overflow: hidden;
+}
+
+.track {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -150%;
+  width: 400%;
+}
+
+.slant {
+  display: flex;
+  height: 100%;
+  transform: skewX(-20deg);
+}
+
+/* Comic: a 10% shade of the shadow ink, and the stripe is clear paper. */
+.lightShade {
+  flex: 1 1 0;
+  background-color: var(--shadow-color);
+  opacity: 0.1;
+}
+
+.lightStripe {
+  flex: none;
+  width: 6.25%;
+}
+
+/* Night: the shadow ink is almost the card's own colour, so a shade would not
+   show. No shade, and the stripe is a 7% lightening in the text ink instead. */
+:global(html.dark) .lightShade {
+  opacity: 0;
+}
+
+:global(html.dark) .lightStripe {
+  background-color: var(--text);
+  opacity: 0.07;
+}
+
+/* A face darkening as it turns away. Clear at rest; the scene steps its
+   opacity up (to 24%, in three flat steps) until the face is edge-on. */
+.turn {
+  background-color: var(--shadow-color);
+  opacity: 0;
+}
+
+/* Page edges: four fine ink lines in the hard offset between a page and the
+   page block under it, along the block's right and bottom edges. The scene
+   gives the offset as --look-edge-x and --look-edge-y; each line is one fifth
+   of it further in. */
+.edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-right: 1px solid var(--sub);
+  border-bottom: 1px solid var(--sub);
+  border-radius: inherit;
+}
+
+.edge:nth-child(1) {
+  right: calc(var(--look-edge-x, 8px) * 0.2);
+  bottom: calc(var(--look-edge-y, 8px) * 0.2);
+}
+
+.edge:nth-child(2) {
+  right: calc(var(--look-edge-x, 8px) * 0.4);
+  bottom: calc(var(--look-edge-y, 8px) * 0.4);
+}
+
+.edge:nth-child(3) {
+  right: calc(var(--look-edge-x, 8px) * 0.6);
+  bottom: calc(var(--look-edge-y, 8px) * 0.6);
+}
+
+.edge:nth-child(4) {
+  right: calc(var(--look-edge-x, 8px) * 0.8);
+  bottom: calc(var(--look-edge-y, 8px) * 0.8);
+}
+
+/* The ground shadow: a flat, hard-edged bar of the shadow ink just under the
+   book's box (its parent is the book's size), a little to the right, like
+   every hard offset. Its scene grows it. */
+.ground {
+  position: absolute;
+  top: 103%;
+  left: 5%;
+  right: -3%;
+  height: 3%;
+  border-radius: 9999px;
+  background-color: var(--shadow-color);
+  pointer-events: none;
+}
+
+/* The cover's lettering, sized from the book's width (--book-w), which is
+   what a cover shows until its art arrives. */
+.lettering {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--book-w) * 0.13) calc(var(--book-w) * 0.08) calc(var(--book-w) * 0.1)
+    calc(var(--book-w) * 0.15);
+}
+
+/* The groove a hardcover bends at. */
+.hinge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--book-w) * 0.075);
+  border-left: var(--line-w) solid var(--border);
+}
+
+.title {
+  font-size: calc(var(--book-w) * 0.17);
+  line-height: 0.98;
+}
+
+.line {
+  display: block;
+}
+
+/* One stroke of the brush under the title, in ink like every other mark. */
+.titleRule {
+  display: block;
+  width: calc(var(--book-w) * 0.2);
+  height: max(3px, calc(var(--book-w) * 0.014));
+  margin-top: calc(var(--book-w) * 0.06);
+  border-radius: 9999px;
+  background-color: var(--border);
+  transform: rotate(-1.5deg);
+}
+
+.byline {
+  margin-top: auto;
+  font-size: max(0.75rem, calc(var(--book-w) * 0.056));
+  line-height: 1.25;
+}
