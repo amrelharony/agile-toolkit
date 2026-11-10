@@ -59,13 +59,27 @@ describe("/book", () => {
   it("stands the front cover on a still book, by its page edges, ground, grain and light", () => {
     render(<BookPage />);
     const { cover, face, book } = stillBook();
-    // The ground and the page block first, so the face, last, paints over them.
+    const edges = book.querySelector('[data-look="edges"]')!;
+    // Each piece wears the rule the tests below read. Under vitest any CSS
+    // module key gives a class, so the class itself is checked.
+    expect(moduleNames(book)).toEqual(["still"]);
+    expect(moduleNames(edges)).toEqual(["edges", "stillPages"]);
+    expect(moduleNames(face)).toEqual(["stillFace"]);
+    // It stands in the page's own grid, which adds nothing to the column the
+    // room below is worked out from.
+    expect(Array.from(book.parentElement!.classList).sort()).toEqual(
+      ["grid", "gap-6", "md:grid-cols-[minmax(0,22rem)_1fr]", "md:items-start"].sort()
+    );
+    // The ground and the page block first, so the face, last and positioned,
+    // paints over them; the book is what they are laid out against.
     expect(Array.from(book.children, (el) => el.getAttribute("data-look"))).toEqual([
       "ground",
       "edges",
       null,
     ]);
     expect(book.lastElementChild).toBe(face);
+    expect(declaration(".still", "position")).toBe("relative");
+    expect(declaration(".stillFace", "position")).toBe("relative");
     // On the face, the picture in the flow, then its grain and light over it.
     expect(Array.from(face.children, (el) => el.getAttribute("data-look"))).toEqual([
       null,
@@ -73,7 +87,7 @@ describe("/book", () => {
       "light",
     ]);
     expect(face.firstElementChild).toBe(cover);
-    expect(book.querySelector('[data-look="edges"]')!.children).toHaveLength(4);
+    expect(edges.children).toHaveLength(4);
     for (const part of Array.from(book.querySelectorAll("[data-look]"))) {
       const look = part.getAttribute("data-look")!;
       expect(part, look).toHaveAttribute("aria-hidden", "true");
@@ -89,16 +103,18 @@ describe("/book", () => {
     const { book } = stillBook();
     // A CSS module's class is _<name>_<file hash> here; the grain's is the look's own.
     const lookFile = moduleClass(book.querySelector('[data-look="grain"]')!.classList[0])!;
-    expect(readCss(LOOK_CSS)).not.toMatch(
-      /@keyframes|\banimation(?:-[a-z-]+)?\s*:|\btransition\s*:/
-    );
+    const css = readCss(LOOK_CSS);
+    expect(css).not.toMatch(/@keyframes|\banimation(?:-[a-z-]+)?\s*:|\btransition\s*:/);
     for (const el of [book, ...Array.from(book.querySelectorAll("*"))]) {
       expect(el.hasAttribute("style"), el.tagName).toBe(false);
       for (const cls of Array.from(el.classList)) {
         expect(cls).not.toMatch(/(?:^|:)(?:animate-|transition)/);
-        // Every module class is the static look's, never a scene's.
+        // Every module class is the static look's, never a scene's, and names
+        // a class its stylesheet styles, so a misspelt key cannot slip by.
         const file = moduleClass(cls);
-        if (file !== null) expect(file, cls).toBe(lookFile);
+        if (file === null) continue;
+        expect(file, cls).toBe(lookFile);
+        expect(css, cls).toMatch(new RegExp(`\\.${moduleName(cls)}(?![\\w-])`));
       }
     }
   });
@@ -120,7 +136,11 @@ describe("/book", () => {
 
   it("keeps the picture at least 92% as wide on a 375 px phone, and room for the pages and ground", () => {
     const frame = px(globalToken("--panel-w"), 0);
-    const shadow = px(globalToken("--shadow-3").split(" ")[0], 0);
+    // The hard shadow's x and y offsets.
+    const [sx, sy] = globalToken("--shadow-3")
+      .split(" ")
+      .slice(0, 2)
+      .map((v) => px(v, 0));
     // The tool page's column at 375 px: .container-tool's 1rem gutters.
     const column = 375 - 2 * 16;
     // The cover filled the card inside its frame.
@@ -134,13 +154,13 @@ describe("/book", () => {
     // Right of the book: the page block's offset and hard shadow, and the ground's end.
     const offset = /^translate\((.+), (.+)\)$/.exec(declaration(".stillPages", "transform"))!;
     const [dx, dy] = [px(offset[1], book), px(offset[2], book)];
-    expect(dx + shadow).toBeLessThanOrEqual(room);
+    expect(dx + sx).toBeLessThanOrEqual(room);
     expect(-px(declaration(".ground", "right"), book)).toBeLessThanOrEqual(room);
     // Below it: the same block, and the ground's foot.
     const below = px(declaration(".still", "margin-bottom"), column);
     const foot =
       px(declaration(".ground", "top"), book) + px(declaration(".ground", "height"), book) - book;
-    expect(Math.max(dy + shadow, foot)).toBeLessThanOrEqual(below);
+    expect(Math.max(dy + sy, foot)).toBeLessThanOrEqual(below);
   });
 
   it("lists all 26 episodes with the page each starts on, and links to none", () => {
@@ -206,6 +226,18 @@ function readCss(file: string): string {
 /** The file hash in a CSS module's class (_<name>_<hash> under vitest), or null for any other class. */
 function moduleClass(cls: string): string | null {
   return /^_\w+_([0-9a-z]+)$/.exec(cls)?.[1] ?? null;
+}
+
+/** The key a CSS module's class was asked for by (the <name> in _<name>_<hash>). */
+function moduleName(cls: string): string {
+  return /^_(\w+)_[0-9a-z]+$/.exec(cls)![1];
+}
+
+/** The CSS module keys an element's own classes come from, in order. */
+function moduleNames(el: Element): string[] {
+  return Array.from(el.classList)
+    .filter((cls) => moduleClass(cls) !== null)
+    .map(moduleName);
 }
 
 /** One declaration of the look's rule written for `selector` alone, whitespace evened out. */
