@@ -90,7 +90,7 @@ import { cockpitMarkdown } from "@/app/(tools)/sprint/markdown";
 import { buildExample } from "@/app/(tools)/sprint/example";
 import { carryOverLine, closeSprint } from "@/app/(tools)/sprint/close";
 import { validateMemberName } from "@/app/(tools)/sprint/components/start-flow";
-import { timeboxLabel } from "@/app/(tools)/sprint/components/next-ceremony";
+import { timeboxLabel } from "@/lib/sprints/cadence";
 import {
   CloseSprintDialog,
   newSprintAfter,
