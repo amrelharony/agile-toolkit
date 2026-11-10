@@ -23,7 +23,7 @@ export const GUIDES: ToolGuide[] = [
       "If follow-through stays under half, agree fewer actions, each with an owner, at the next retro.",
       "A retro isn't rated until the next one starts, so its actions have time to get done. The chart needs two past retros with actions.",
       "On an empty page, Load an example shows a checkout team's last three retros. Nothing in it is saved, and Clear example removes it.",
-      "The Sprint Cockpit's retro card shows how many actions are open and overdue, and its Add to calendar puts open actions on their due dates.",
+      "The Sprint Cockpit's retro card shows how many actions are open and overdue. Add to calendar, under Next ceremony there, can add open actions to the calendar file on their due dates.",
     ],
     timebox: "Five minutes a week, and the first five minutes of every retro.",
   },
