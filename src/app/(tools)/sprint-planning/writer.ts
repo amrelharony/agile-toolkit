@@ -25,17 +25,26 @@ import type {
 import { setStoryStatus, updateSprint } from "@/lib/sprints/store";
 import { withStoryStatus } from "@/lib/sprints/story-status";
 import { deleteStoryKeepingUndo } from "@/lib/stories/delete";
+import { storageInUse } from "@/lib/stores/storage-room";
 
 export interface PlanningWriter {
   /** The stories as stored right now. */
   stories(): Story[];
   upsertStory(story: Story): void;
   /**
-   * Add several new stories in one write (a paste, an import). Each write
-   * saves the whole workspace again, so 200 stories one at a time is 200
-   * saves of everything, and a frozen page on a phone.
+   * Write several stories in one write (a paste, an import, the points a
+   * Jira import changes). Each write saves the whole workspace again, so
+   * 200 stories one at a time is 200 saves of everything, and a frozen page
+   * on a phone.
    */
   upsertStories(stories: readonly Story[]): void;
+  /**
+   * How much of this browser's storage the toolkit uses now, counted the
+   * strict way (lib/stores/storage-room.ts), so a big import can check it
+   * fits before it is written. Null when this writer keeps nothing in
+   * storage (the example).
+   */
+  storageUsed(): number | null;
   /** Take back the stories this page just made (the Undo of a paste or an import), in one write. */
   removeStories(ids: readonly string[]): void;
   /**
@@ -77,6 +86,8 @@ export const liveWriter: PlanningWriter = {
   upsertStory: (story) => useWorkspaceStore.getState().upsertStory(story),
   // Stamped and cleaned as a single upsert is (the store's batch does both).
   upsertStories: (stories) => useWorkspaceStore.getState().bulkUpsertStories([...stories]),
+  // The site's storage, with the workspace as the store holds it now.
+  storageUsed: () => storageInUse(useWorkspaceStore.getState()),
   // With the Canvas links to each cleared, as the store clears them for one.
   removeStories: (ids) => useWorkspaceStore.getState().removeStories(ids),
   // With the Canvas cards pinned to it, which the Undo re-links.
@@ -129,6 +140,8 @@ export function exampleWriter(store: ExampleStore): PlanningWriter {
       store.setState((s) => ({
         stories: stories.reduce<Story[]>((list, story) => replaceById(list, story), s.stories),
       })),
+    // Nothing of the example reaches storage.
+    storageUsed: () => null,
     removeStories: (ids) =>
       store.setState((s) => ({ stories: s.stories.filter((x) => !ids.includes(x.id)) })),
     deleteStory: (id) => {

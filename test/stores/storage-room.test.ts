@@ -9,10 +9,13 @@ import { describe, expect, it } from "vitest";
 import {
   STORAGE_NEAR_SHARE,
   STORAGE_QUOTA_BYTES,
+  WORKSPACE_STORAGE_KEY,
   siteStorageBytes,
+  storageInUse,
   storageRoomProblem,
   storedBytes,
 } from "@/lib/stores/storage-room";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 /** A Storage over a plain map, as much of one as the counter reads. */
 function fakeStorage(entries: Record<string, string>) {
@@ -50,6 +53,26 @@ describe("siteStorageBytes", () => {
     expect(siteStorageBytes(blocked, { key: "w", value: "abcd" })).toBe(10);
     expect(siteStorageBytes(null, { key: "w", value: "abcd" })).toBe(10);
     expect(siteStorageBytes(undefined)).toBe(0);
+  });
+});
+
+describe("storageInUse", () => {
+  it("counts this browser's storage, with the workspace as the store writes it", () => {
+    window.localStorage.clear();
+    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, "stale");
+    window.localStorage.setItem("agile-toolkit:other", "abc");
+    const state = { stories: [{ id: "s1", title: "One" }] };
+    expect(storageInUse(state)).toBe(
+      storedBytes(WORKSPACE_STORAGE_KEY) +
+        storedBytes(JSON.stringify({ state, version: 1 })) +
+        storedBytes("agile-toolkit:other") +
+        storedBytes("abc")
+    );
+    window.localStorage.clear();
+  });
+
+  it("names the workspace's own entry", () => {
+    expect(useWorkspaceStore.persist.getOptions().name).toBe(WORKSPACE_STORAGE_KEY);
   });
 });
 

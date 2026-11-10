@@ -15,7 +15,8 @@
  * twice this room, so the check errs on the side of keeping work saved.
  *
  * Pure apart from `siteStorageBytes`, which reads the storage it is given
- * and counts nothing it can't read.
+ * and counts nothing it can't read, and `storageInUse`, which hands it the
+ * browser's.
  */
 
 /** The quota counted against: 5 MB. */
@@ -48,6 +49,28 @@ export function siteStorageBytes(
     // Unreadable storage: count what the workspace alone takes.
   }
   return total;
+}
+
+/** The workspace's entry in localStorage (lib/stores/workspace-store.ts persists under it). */
+export const WORKSPACE_STORAGE_KEY = "agile-toolkit:workspace";
+
+/**
+ * What the site keeps in this browser's localStorage now, with the
+ * workspace counted as `workspaceState` written the way the store writes it
+ * (`{state, version}`). In a browser only; elsewhere, or with storage
+ * blocked, the workspace alone.
+ */
+export function storageInUse(workspaceState: object, version = 1): number {
+  let storage: Storage | null = null;
+  try {
+    storage = typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    storage = null;
+  }
+  return siteStorageBytes(storage, {
+    key: WORKSPACE_STORAGE_KEY,
+    value: JSON.stringify({ state: workspaceState, version }),
+  });
 }
 
 const percent = (bytes: number) => Math.round((bytes / STORAGE_QUOTA_BYTES) * 100);
