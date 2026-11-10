@@ -216,7 +216,7 @@ describe("owner turns", () => {
 /**
  * A response whose body delivers `events` one read at a time and then fails,
  * as a dropped connection does. (Erroring up front would discard the queued
- * events unread.)
+ * events unread.) A string ("[DONE]") goes out as it is.
  */
 function brokenStream(...events: unknown[]): Response {
   const enc = new TextEncoder();
@@ -226,7 +226,7 @@ function brokenStream(...events: unknown[]): Response {
       pull(c) {
         const e = pending.shift();
         if (e === undefined) c.error(new Error("upstream_idle_timeout"));
-        else c.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`));
+        else c.enqueue(enc.encode(`data: ${typeof e === "string" ? e : JSON.stringify(e)}\n\n`));
       },
     },
     { highWaterMark: 0 }
@@ -281,6 +281,50 @@ describe("a round that doesn't finish", () => {
     queue = [brokenStream(delta({ content: "Reading it now." }), probeCall("call_cut"))];
     await send("read the probe state", null);
     expect(lastAssistant()?.content).toEqual([{ type: "text", text: "Reading it now." }]);
+  });
+
+  it("shows the owner the failure's own words, with no console line of the visitor's", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      queue = [brokenStream(delta({ content: "Reading it now." }))];
+      await send("read the probe state", null);
+      expect(useAgentStore.getState().error).toBe("upstream_idle_timeout");
+      // The plain-words note and the console line behind it are a visitor's only.
+      const visitorLines = warn.mock.calls.filter((c) => String(c[0]).includes("[visitor-ai]"));
+      expect(visitorLines).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // The connection can go down right after the stream's own [DONE]: the round
+  // was whole already, so it ends as it would have on a clean close.
+  it("takes a reply as complete when the connection breaks after [DONE]", async () => {
+    queue = [brokenStream(delta({ content: "Hello" }), delta({}, "stop"), "[DONE]")];
+    await send("hi", null);
+    expect(lastAssistant()?.content).toEqual([{ type: "text", text: "Hello" }]);
+    expect(useAgentStore.getState().error).toBeNull();
+  });
+
+  it("still runs a finished round's tool when the connection breaks after [DONE]", async () => {
+    queue = [
+      brokenStream(probeCall("call_done"), delta({}, "tool_calls"), "[DONE]"),
+      textTurn("The probe is empty."),
+    ];
+    await send("read the probe state", null);
+    expect(h.executeToolUse).toHaveBeenCalledTimes(1);
+    expect(posts).toHaveLength(2);
+    expect(everyToolCallAnswered(posts[1])).toBe(true);
+    expect(lastAssistant()?.content).toEqual([{ type: "text", text: "The probe is empty." }]);
+    expect(useAgentStore.getState().error).toBeNull();
+  });
+
+  it("still fails a round whose connection breaks after its finish but before [DONE]", async () => {
+    queue = [brokenStream(probeCall("call_cut"), delta({}, "tool_calls"))];
+    await send("read the probe state", null);
+    expect(h.executeToolUse).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().error).toBe("upstream_idle_timeout");
+    expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user"]);
   });
 
   it("drops a tool call when the stream ends without finish_reason tool_calls", async () => {

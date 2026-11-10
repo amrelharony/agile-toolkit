@@ -2,16 +2,67 @@
  * Retro action items across every retro — the current board and the
  * archives — as one list a Scrum master can follow up. Pure: the caller
  * supplies today's date and a way to ask a hand-off target whether it is
- * finished (an impediment resolved, a Kanban card in Done), so the page,
- * the cockpit and the agent read the same list.
+ * finished (an impediment resolved, a Kanban card in Done, a story done),
+ * so the page, the cockpit and the agent read the same list.
  */
 
-import type { HandoffLink, RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
+import type {
+  HandoffLink,
+  HandoffRouteId,
+  Impediment,
+  KanbanBoard,
+  RetroBoard,
+  RetroCard,
+  Story,
+} from "@/lib/stores/workspace-types";
 import { pastRetros } from "@/app/(tools)/retro/archive";
+import { isResolved } from "@/lib/impediments/model";
 import { isExampleId } from "@/lib/utils/example-id";
 import { RETRO_CARD_MAX, RETRO_CURRENT_ID, newestArchivedRetro } from "./board";
 
 export { RETRO_CURRENT_ID };
+
+/**
+ * Where a retro action can be sent, in menu order: the impediments log, the
+ * Flow board, or the backlog as a story (which Sprint Planning then plans
+ * into a sprint). The Retro board, "Actions from the last retro" and Retro
+ * Actions all offer these.
+ */
+export const RETRO_ACTION_ROUTES: readonly HandoffRouteId[] = [
+  "impediment",
+  "kanban",
+  "backlog-story",
+];
+
+/**
+ * Whether a hand-off target is finished, read from plain workspace data: an
+ * impediment resolved, a Kanban card in Done, a story done. The pages ask
+ * the hand-off routes (lib/handoffs), which read the browser's store; an
+ * agent's server copy has no store to ask, so it reads the same three rules
+ * here. A target that is gone (a deleted story) is never done, so its action
+ * reads as open again.
+ */
+export function targetDoneIn(data: {
+  impediments?: readonly Impediment[];
+  kanbanBoards?: readonly KanbanBoard[];
+  stories?: readonly Story[];
+}): (link: HandoffLink) => boolean {
+  return (link) => {
+    if (link.route === "impediment") {
+      const found = (data.impediments ?? []).find((i) => i.id === link.targetId);
+      return Boolean(found && isResolved(found));
+    }
+    if (link.route === "kanban") {
+      return (data.kanbanBoards ?? []).some((b) =>
+        b.cards.some((c) => c.id === link.targetId && c.column === "done")
+      );
+    }
+    if (link.route === "backlog-story") {
+      return (data.stories ?? []).some((s) => s.id === link.targetId && s.status === "done");
+    }
+    return false;
+  };
+}
 
 /**
  * Whether a card is the team's: example cards loaded onto a real board are

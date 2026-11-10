@@ -6,6 +6,9 @@
  * testable and shareable between the board and its export path.
  */
 
+import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
+import { retroVotes } from "@/lib/retro/board";
+import { slug } from "@/lib/retro/custom-format";
 import type { BoardState, RetroCard } from "./types";
 
 export function makeId() {
@@ -143,9 +146,24 @@ export function restoreRemovedCards(
   return [...out, ...current.filter((c) => live.has(c.id))];
 }
 
-export function buildExportJson(state: Pick<BoardState, "format" | "cards">) {
+/**
+ * The start of an export's file name: "retro-" and a built-in format's id,
+ * or for any other format (a custom one, or the one a live room's
+ * participant draws from the host's columns) its name in lower case with
+ * dashes ("retro-team-pulse"), not its id, so the host and everyone in the
+ * room save the same name. "retro-custom" when the name gives nothing.
+ */
+export function retroFileStem(format: Pick<RetroFormat, "id" | "name">): string {
+  if (retroFormats.some((f) => f.id === format.id)) return `retro-${format.id}`;
+  const name = slug(format.name);
+  // A room format without a name from the host is called "Retro".
+  return `retro-${name && name !== "retro" ? name : "custom"}`;
+}
+
+export function buildExportJson(state: Pick<BoardState, "format" | "cards" | "votesPerPerson">) {
   return {
     format: state.format.name,
+    votesPerPerson: retroVotes(state),
     date: new Date().toISOString(),
     columns: state.format.columns.map((col) => ({
       label: col.label,
@@ -159,4 +177,13 @@ export function buildExportJson(state: Pick<BoardState, "format" | "cards">) {
         })),
     })),
   };
+}
+
+/**
+ * What the board's share link carries (Export's "Copy link"): the format, a
+ * custom one included, the cards and Votes each, so the copy someone
+ * imports (lib/share/snapshot-import's readRetro) keeps all three.
+ */
+export function buildShareState(state: Pick<BoardState, "format" | "cards" | "votesPerPerson">) {
+  return { format: state.format, cards: state.cards, votesPerPerson: retroVotes(state) };
 }

@@ -1,51 +1,21 @@
+import { contentSecurityPolicy } from "./src/lib/site/csp.mjs";
+
 /** @type {import('next').NextConfig} */
 
 /**
  * Security headers applied to every route.
  *
- * Content-Security-Policy is locked down to:
- *   - same-origin everything by default
- *   - inline scripts allowed (Next.js needs this for hydration boot)
- *   - Supabase project URLs for fetch + websocket (auth + realtime)
- *   - GLM (Zhipu) chat API for the in-app agent — server-proxied, but
- *     the browser-direct BYOK fallback in agent/client.ts hits z.ai
- *     directly when ANTHROPIC_API_KEY is unset server-side
- *   - Google fonts (Inter, JetBrains Mono, Source Serif)
- *   - Open-Meteo forecast API for the header weather widget (lib/weather/api.ts)
- *   - data: + blob: for images/exports, and Supabase Storage for the comics' art
- *
- * The `connect-src` whitelist uses a wildcard for *.supabase.co so any
- * project URL works without rebuild. Tighten to the specific project
- * subdomain in production if you want defense-in-depth.
+ * The Content-Security-Policy is built from src/lib/site/csp.mjs, which holds
+ * every directive and every outside host with the reason it is allowed. The
+ * privacy page (/privacy) lists the hosts from that same file, so add or
+ * remove a host there, never here.
  */
-// BUG-A9: dropped 'unsafe-eval' in PRODUCTION builds — Next's hydration
-// boot does not require eval() there. In DEV the React Refresh runtime
-// (HMR) DOES use eval(), and without the allowance every client component
-// fails to hydrate silently: buttons render but their onClick handlers
-// never bind. Add the dev-only allowance back so `npm run dev` works.
+// BUG-A9: 'unsafe-eval' is for `next dev` only. Production hydration needs no
+// eval(); the React Refresh runtime (HMR) does, and without it every client
+// component fails to hydrate silently (see DIRECTIVES in csp.mjs).
 const isDev = process.env.NODE_ENV !== "production";
 
-const cspDirectives = [
-  "default-src 'self'",
-  // 'unsafe-inline' stays in both modes because Next still emits an inline
-  // boot script for the route manifest; switch to nonces or 'strict-dynamic'
-  // if you can tolerate the extra plumbing.
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' data: https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https://*.supabase.co https://*.googleusercontent.com https://avatars.githubusercontent.com",
-  // `blob:` in connect-src: nothing fetches a blob: URL since Amr replaced the
-  // 3D mascot, but the book's 3D model (deferred until the .glb arrives) will
-  // load with a GLTFLoader, whose ImageBitmapLoader does `fetch(blob:…)` for a
-  // model's embedded textures. Only this origin's own scripts can make one.
-  "connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://api.z.ai https://open.bigmodel.cn https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://api.open-meteo.com",
-  "frame-src 'self' https://accounts.google.com",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self' https://accounts.google.com",
-  "object-src 'none'",
-  "upgrade-insecure-requests",
-].join("; ");
+const cspDirectives = contentSecurityPolicy({ dev: isDev });
 
 const securityHeaders = [
   { key: "Content-Security-Policy", value: cspDirectives },
@@ -74,6 +44,11 @@ const nextConfig = {
       // more specific than the comics section.
       { source: "/agile-at-work", destination: "/comics", permanent: true },
       { source: "/agile-at-work/:path*", destination: "/comics", permanent: true },
+      // Who runs the site and how to reach him are on the privacy page. Not
+      // permanent: a browser keeps a permanent redirect for good, and either
+      // address may get a page of its own one day.
+      { source: "/about", destination: "/privacy", permanent: false },
+      { source: "/contact", destination: "/privacy", permanent: false },
     ];
   },
   async headers() {

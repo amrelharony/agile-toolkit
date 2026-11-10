@@ -15,26 +15,12 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { cleanName, MAX_NAME_LENGTH } from "@/lib/realtime/sanitize";
 import { VISITOR_LIMITS, visitorRoomsEnabled } from "@/lib/realtime/visitor-rooms";
+import { VISITOR_ROOM_CONSENT_TEXT, VOTE_ROOM_CONSENT_TEXT } from "@/lib/site/disclosures";
 
-/** What the dialog tells people before any channel opens. Exported for tests. */
-export const VISITOR_ROOM_CONSENT_TEXT =
-  "What you type passes through our realtime provider (Supabase) to everyone with the link. " +
-  "We don't store it; the room disappears when everyone leaves. " +
-  "Share the link only with your team.";
-
-/**
- * The vote-round variant: answers are numbers, encrypted to the host's
- * browser, and only totals are kept and shown. It promises no more than
- * that: the totals of a unanimous question show everyone's answer.
- * Exported for tests.
- */
-export const VOTE_ROOM_CONSENT_TEXT =
-  "Answers are encrypted in each person's browser, so only the host's browser can read them, " +
-  "and it keeps the totals only. They pass through our realtime provider (Supabase). " +
-  "Others in the room see your name and whether you've answered, not what. " +
-  "After the host reveals the results, everyone in the room sees the totals, for questions " +
-  "with enough answers; if everyone gives the same answer, the totals show it. " +
-  "Share the link only with your team.";
+// What the dialog tells people before any channel opens, per variant. The
+// wording is lib/site/disclosures.ts's, which the privacy page quotes too;
+// re-exported here for the tests and callers that read it beside the dialog.
+export { VISITOR_ROOM_CONSENT_TEXT, VOTE_ROOM_CONSENT_TEXT };
 
 /** The box people tick, per variant. */
 const CONSENT_CHECKBOX = {
@@ -56,6 +42,8 @@ export interface VisitorRoomConsentProps {
    * "vote": an anonymous vote round, where only encrypted numbers are.
    */
   variant?: "board" | "vote";
+  /** A line about this room in particular, under the notice (the Retro room's "no author"). */
+  note?: string;
   /**
    * Called once, with the cleaned name, after the person gave a name and
    * ticked the consent box. Open the channel only from here (typically
@@ -75,6 +63,7 @@ export function VisitorRoomConsent({
   toolName,
   defaultName = "",
   variant = "board",
+  note,
   onConfirm,
 }: VisitorRoomConsentProps) {
   const [name, setName] = useState(defaultName);
@@ -127,6 +116,8 @@ export function VisitorRoomConsent({
             </DialogTitle>
             <DialogDescription>{consentText}</DialogDescription>
           </DialogHeader>
+
+          {note && <p className="text-sm text-text">{note}</p>}
 
           <p className="text-xs text-sub">
             Up to {VISITOR_LIMITS.maxMembers} people. The room closes after{" "}

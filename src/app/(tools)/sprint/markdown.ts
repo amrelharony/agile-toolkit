@@ -7,7 +7,7 @@ import {
   daysOverdue,
   impedimentStatus,
 } from "@/lib/impediments/model";
-import { cockpitTiles, localDay, type CockpitData } from "./view";
+import { cockpitNotes, cockpitTiles, localDay, type CockpitData } from "./view";
 import { cockpitVerdict } from "./verdict";
 
 /** A table cell: one line, pipes escaped. */
@@ -216,6 +216,9 @@ export function cockpitMarkdown({
   } else {
     lines.push("No retro for this sprint yet.");
   }
+  // How much of the retro's improvement work the sprint holds, as its card says.
+  const improvement = cockpitNotes(data).find((n) => n.id !== "goal-answer");
+  if (improvement) lines.push("", `**Improvement work:** ${cell(improvement.title)}.`);
   if (data.openActions.length > 0) {
     lines.push(
       "",

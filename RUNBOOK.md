@@ -203,7 +203,7 @@ Every tool page is public, and so is the **Owner sign in** button. Anyone can st
 2. **Supabase → Authentication → Sign In / Providers → Allow anonymous sign-ins: off.** Turn off the Email provider too if you only use Google.
 3. **Supabase → Authentication → Users:** delete every user that isn't the owner (stray sign-ins from while sign-ups were on).
 4. **Vercel → Settings → Deployment Protection:** turn on protection for **Preview** deployments (Vercel Authentication). Only `master` and `preview/*` branches deploy (see [Vercel builds and cost](#vercel-builds-and-cost)), but any preview that does build would otherwise be public. Keep it **off** for the production domain.
-5. Verify on the production URL from a signed-out window: `/` → 200, `/api/kudos` → 401 JSON, `/settings/access-tokens` → redirect to sign-in, `/robots.txt` and `/sitemap.xml` → 200.
+5. Verify on the production URL from a signed-out window: `/` → 200, `/api/kudos` → 401 JSON, `/settings/access-tokens` → redirect to sign-in, `/robots.txt`, `/sitemap.xml` and `/llms.txt` → 200.
 
 Known behaviour worth knowing:
 
@@ -295,13 +295,13 @@ It does **not** shut the anon key out of private channels the policy admits for 
 
 Visitors (no sign-in, no squad invite) can run **Planning Poker** or a **Retro** live with their team, and anyone can run an anonymous **vote round** (Health Check, Psych Safety, Mood Tracker, Kano, Buy-a-Feature and the $100 Test, see "Live vote rounds" below). A room is a temporary Supabase Realtime broadcast + presence channel, `visitor:<tool>:<12-character code>`, joined through `/join/<tool>/<code>`. Nothing is written to a database, no server secret is involved, and the channel uses the same public anon key as owner rooms. Before any channel opens, the visitor gives a name and ticks a consent box under this text: _"What you type passes through our realtime provider (Supabase) to everyone with the link. We don't store it; the room disappears when everyone leaves. Share the link only with your team."_ (vote rounds have their own text, below). Owners don't get Poker or Retro visitor rooms (strangers' cards would sync into the owner's workspace); they keep using squad invites. **Vote rounds are the one exception:** the owner hosts them on a visitor channel too, because participants can send only encrypted numbers (scale answers, answer pairs or amounts) and nothing reaches the workspace except the totals, when the host presses Save round.
 
-The feature is **off** unless the build has `NEXT_PUBLIC_VISITOR_ROOMS=1`.
+The feature is **off** unless the build has `NEXT_PUBLIC_VISITOR_ROOMS=1`. **Production has it on since 2026-11-10** (`NEXT_PUBLIC_VISITOR_ROOMS=1` for Production in Vercel; a two-tab test of a Planning Poker and a Retro room passed on the live site that day). Preview and Development don't set it.
 
 ### Turning it on or off
 
 1. **Vercel → Settings → Environment Variables:** set `NEXT_PUBLIC_VISITOR_ROOMS` to `1` for Production (to turn it off, delete it or set it to anything else). Add it to Preview only if you want to try it there.
 2. **Redeploy** (Deployments → ⋯ → Redeploy, or push a commit). `NEXT_PUBLIC_*` values are inlined at build time, so changing the variable without a redeploy does nothing. Locally, edit `.env.local` and restart `npm run dev`.
-3. Verify from a signed-out window: the "Start a live room" / "Go live" buttons appear (or disappear), and `/join/planning-poker/ABCDEFGHJKMN` shows the name and consent step (or "Live rooms are off").
+3. Verify from a signed-out window: **Start a live room** in the Planning Poker lobby and **Everyone on their own device** on the Retro board appear (or disappear), and `/join/planning-poker/ABCDEFGHJKMN` shows the name and consent step (or "Live rooms are off"). `/llms.txt` is built with the site, so its "Live rooms" line (20 people, 3 hours, nothing stored) is there only when the build has rooms on.
 
 What turning it **off** does: hides the entry points, makes `/join/…` say live rooms are off, and makes the client gate refuse to open any `visitor:` channel. What it does **not** do: close tabs that already have a room open (they keep going until everyone leaves or the 3-hour limit), or stop anyone who calls Supabase directly with the public anon key. For that, use the emergency brake below.
 
@@ -318,23 +318,33 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
 
 ### How the rooms behave
 
+- **Two named ways.** Wherever a room can be started (the Planning Poker lobby, the Retro board, a tool's vote-round panel), the two ways to run a session carry the same names: **One screen** and **Everyone on their own device** (`src/components/collab/run-modes.tsx`). Beside the second sit the room's own limits, built from `VISITOR_LIMITS`: no account for the host or guests, 20 people, 3 hours, nothing stored. Name no other product there.
 - **Planning Poker:**
-  - The host starts a room with **Start a live room** on the "Running it with your team" card.
+  - The host starts a room with **Start a live room** under "Everyone on their own device", beside **Start Session** under "One screen", in the lobby.
   - Nothing from the room is logged to History, written back to the Story Map or synced. The host's browser keeps only a host-only copy of the session.
 - **Retro:**
-  - The host starts a room with **Go live** in the board header.
-  - Rooms are host-authoritative: participants send "add card" and "vote" requests, and only the host changes the board.
+  - The host starts a room with **Everyone on their own device** in the board header (the button was "Go live"), beside "One screen", which marks how the board runs until then.
+  - Rooms are host-authoritative: participants send four requests ("add card", "delete my card", "vote", "take my vote back"), and only the host changes the board.
+  - **Cards stay hidden while people write.** The host's **Hide cards while writing** switch, in its room strip, is on by default (it lasts as long as the room). In Write, the host's state then carries a count per column instead of the cards, plus the cards' ids, sorted, with no text, column or author (so each tab can tell whether its own card or delete reached the host; a refused delete gives the card back, and Undo before the host answered puts the card back rather than adding a copy): each person sees their own cards (kept in their tab's memory) and "N cards from others, hidden until Vote", and the host's own screen hides the participants' cards the same way, Common words included. Every card's text goes out with the first state after the host moves to Vote. Switching it off brings back the old behaviour, everyone seeing every card while writing.
+  - **Delete my card** (Write, with Undo) and **Take my vote back** (Vote). The host's browser keeps who added each card and who voted on which card, in memory only, to check these requests. Since every tab receives every request and a sender's room id is self-declared, the id alone proves nothing: adding a card or casting a vote also sends a lock (the SHA-256 of a random key that stays in the sender's tab), and deleting that card or taking that vote back sends the key, which the host checks against the lock. So nobody can delete someone else's card or take back their vote, even with their own code. A key and its lock belong to one card or one vote and name no one. No state the host sends names an author, and the board never saves one: a card added through the room has no author field, and its id is a random one its writer's tab made. The join step says so: "Cards carry no author, and nothing is stored".
+  - What hiding does not do: the requests themselves (a card's text, a vote, with the sender's room id) travel on the same broadcast channel, so every tab in the room receives them and the app ignores them unless it is the host. Hiding keeps cards off people's screens; it doesn't stop someone who reads the channel with their own code, the same as Planning Poker's hidden votes.
   - The host's board is its normal local Retro board, so participants' cards stay in the host's browser after the room ends.
-  - Participants keep the board in memory only. **Save a copy** puts it in their Past retros, and **Download Markdown** saves a file.
-- **Both:**
+  - Participants keep the board in memory only. **Save a copy** puts what they see in their Past retros (only their own cards while cards are hidden), and **Download Markdown** saves a file.
+  - **Custom columns and Votes each.** The host's state carries the board's columns as keys and labels, the format's name and the board's **Votes each** (3, 5 or 8). A participant draws a format it has (the 8 built-in ones) from its own copy; any other, a Custom one included, from the host's labels and name in the app's own column colours, empty columns too, so no colour or icon from another tab reaches the page. Changing Votes each sends a new state at once. The format's name is optional in the message: a tab on an earlier build of version 2 leaves it out, and the participant then names the board "Retro".
+  - **Version 2.** This message format (hidden cards, columns with labels, the votes each person has, the two new requests) is version 2. A tab still on an older build refuses every version 2 message, and this build refuses theirs, so after a deploy everyone in a room needs to reload once onto the same build. A participant on this build whose host is on another one is told so and asked to reload (the host first); a participant on the older build just stays on "Connecting to the room…".
+- **Every room** (Poker, Retro and vote rounds):
+  - **Sharing:** the room chip has **Copy link** and **Show QR code**. The QR code holds the same link, a vote round's `#k=` part included, drawn by the app's own encoder (`src/lib/qr`, no dependency) in black on white in every theme, so phones can scan it from a shared screen.
+  - **The screen stays on** while a room is open in a tab, hosting or joining: the tab asks for a screen wake lock, asks again whenever the page becomes visible (browsers drop it on a hidden page), and lets go when the room is left or ended (`src/lib/realtime/screen-wake-lock.ts`, set by `useRoom`). A browser without a wake lock, or one that refuses it (battery saver, say), just lets the screen sleep as before; nothing is shown.
+- **Poker and Retro:**
   - **End room** ends it for everyone. The host keeps the board or session.
   - **Remove** takes a participant out and ignores what they send. It is soft: they can rejoin under a new name. To keep someone out, end the room and share a new link.
   - If the host closes the tab without ending the room, the others elect a new host after about 10 seconds and carry on from the last state they received.
+  - Retro, when the host leaves during Write with cards hidden: the new host only ever had counts, so the room stays in Write under the new host and carries on from the new host's own cards. If anyone else had written a card, everyone sees "The host left. Cards written so far were not shared; add yours again", with their own earlier cards listed and an **Add again** button for each. After any change of host, cards and votes from before can no longer be deleted or taken back, except the new host's own: it doesn't know whose the others were.
 - **Vote rounds** work differently (no host election, nothing shown before Reveal): see the next section.
 
 ### Live vote rounds (Health Check, Psych Safety, Mood; Kano; Buy-a-Feature and the $100 Test)
 
-**What it is:** the facilitator presses **Run a live round**, gives a name, and shares the link with **Copy link** (it ends in `#k=…`). People open it on their phones, give a name and answer: with taps on a scale (scale rounds), two taps per feature (Kano), or by typing an amount per item (Buy-a-Feature, the $100 Test). The facilitator sees only how many people have answered. **Reveal results** needs 3 answers (5 for Psych Safety) and closes the round. It shows the totals per question (a question with fewer answers than that stays hidden, "withheld"), the answer-pair grid per feature (likewise per feature), or each item's total and average; in an allocation round who gave each item something, and the bands, show only if 5 had answered, so the host is told to wait for 5 before revealing if they want them. **Save round** stores the totals in the tool; **New round** starts again with a fresh key.
+**What it is:** the facilitator presses **Run a live round**, gives a name, and shares the link with **Copy link** or **Show QR code** (it ends in `#k=…`, and the QR code holds that part too). People open it on their phones, give a name and answer: with taps on a scale (scale rounds), two taps per feature (Kano), or by typing an amount per item (Buy-a-Feature, the $100 Test). The facilitator sees only how many people have answered. **Reveal results** needs 3 answers (5 for Psych Safety) and closes the round. It shows the totals per question (a question with fewer answers than that stays hidden, "withheld"), the answer-pair grid per feature (likewise per feature), or each item's total and average; in an allocation round who gave each item something, and the bands, show only if 5 had answered, so the host is told to wait for 5 before revealing if they want them. **Save round** stores the totals in the tool; **New round** starts again with a fresh key.
 
 **Three kinds of round** run on the same room, the same keys and the same messages. A tool's kind is fixed (`VOTE_ROUND_KIND` in `src/lib/realtime/vote-room/protocol.ts`):
 
@@ -358,7 +368,7 @@ Pair and allocation rounds send their state as a new version (v2, with its kind)
 
 **Limits:** the visitor-room limits above, plus at most 60 answers (ballots) per round, 20,000 characters per message, 32 questions, 11 scale points, and numbers only from participants. Kano: at most 32 features and 5 answers per question. Allocation rounds: 2 to 20 items, a budget of 10 to 9,999 whole units, caps up to 1,000,000, a unit of at most 4 characters, and items × digits of the budget at most 80 (so every ballot fits the same 128-character envelope).
 
-**Before deploying these tools:** push migrations 0027 and 0028 together (one `supabase db push`, see "Private rooms"). Production runs 0026 until then, whose visitor branch admits these rooms along with any other `visitor:` topic. Never leave 0027 applied without 0028: with `NEXT_PUBLIC_PRIVATE_ROOMS=1` the private channels of Kano, Buy-a-Feature and the $100 Test are then refused, so their live rounds can't connect (their count entry keeps working).
+**Migrations:** these tools need 0027 and 0028, pushed together (one `supabase db push`, see "Private rooms"). Both are in production (pushed 2026-11-01; the two checks under "Private rooms" step 2 passed again against production on 2026-11-10), so production's policy admits these rooms and no other `visitor:` topic. On another project, push them before deploying these tools: until then 0026's visitor branch admits these rooms along with any other `visitor:` topic. Never leave 0027 applied without 0028: with `NEXT_PUBLIC_PRIVATE_ROOMS=1` the private channels of Kano, Buy-a-Feature and the $100 Test are then refused, so their live rounds can't connect (their count entry keeps working).
 
 **Traffic:** each answer reaches every member, so about members × members deliveries per round (400 for a full room), plus the host's state at most every 0.5 s while answers arrive, after joins, and every 30 s.
 
@@ -373,7 +383,7 @@ Pair and allocation rounds send their state as a new version (v2, with its kind)
 - More answers than names in the room: the host sees a warning. Someone may have answered again from another tab; start a new round if the totals look wrong.
 - _"Someone else sent answers under your name"_ (participant) or "An answer came under a name that had already answered" (host): someone is answering under another member's id (residual risk 4 below). End the room and share a new link.
 
-**Turning it off:** unset the flag and redeploy, as above. **Enter counts instead** (count hands or collect paper answers, then type the totals) keeps working, with the same 3-or-5 rule. For Kano it is a 5 × 5 grid per feature (one tick per paper answer pair). For Buy-a-Feature and the $100 Test it is either **Paper splits** (type each paper split; it is added to the totals and cleared, so the spread shows from 5 as live) or **Totals only** (each item's total and the number of people; the spread is then unknown).
+**Turning it off:** unset the flag and redeploy, as above. Count entry (count hands or collect paper answers, then type the totals; the **Enter counts** button under "One screen" while live rounds are on, shown on its own once they are off) keeps working, with the same 3-or-5 rule. For Kano it is a 5 × 5 grid per feature (one tick per paper answer pair). For Buy-a-Feature and the $100 Test it is either **Paper splits** (type each paper split; it is added to the totals and cleared, so the spread shows from 5 as live) or **Totals only** (each item's total and the number of people; the spread is then unknown).
 
 ### Watching the quota (Supabase free tier)
 
@@ -387,7 +397,7 @@ Visitor rooms share the project's Realtime quota with owner rooms, squad-guest r
 
 The anon key is public, and there are two ways a script can use it on the Realtime quota, **whatever `NEXT_PUBLIC_PRIVATE_ROOMS` says** (that flag only decides which channels the app's own build opens):
 
-- **Private `visitor:` channels.** The policy from 0026/0027/0028 is a database setting: once it is pushed, its visitor branch lets the plain anon key join any private channel of the visitor shape, even while the app's build uses public channels. Only 0026 is in production so far, so production's visitor branch is still 0026's `topic like 'visitor:%'` (any topic starting with `visitor:`). 0027 and 0028 are pushed together before the deploy that ships the Team and Prioritize tools' live rounds; from then on the branch admits only `visitor:<visitor tool>:<12-character code>`.
+- **Private `visitor:` channels.** The policy from 0026/0027/0028 is a database setting: once it is pushed, its visitor branch lets the plain anon key join any private channel of the visitor shape, even while the app's build uses public channels. Production has 0026, 0027 and 0028, so its visitor branch admits only `visitor:<visitor tool>:<12-character code>` (0026 alone admitted any topic starting with `visitor:`). The checks under "Private rooms" step 2 confirm it.
 - **Public channels of any name**, `visitor:` ones included, for as long as "Allow public access" is on.
 
 A full brake against anon-key abuse therefore takes **both** steps:
@@ -512,6 +522,27 @@ update public.visitor_ai_config set peak_days = '{1,2,3,4,5}', peak_start = 14, 
 ```
 
 A limit answers 429 with its code (`visitor_limit`, `visitor_peak_limit`, `site_limit`, `site_peak_limit`, `site_busy`) and the panel falls back to the offline guide. A gateway 429 or 5xx is `503 upstream_busy`, never counted as a limit.
+
+### When an answer runs long
+
+The route may run for 300 s (`maxDuration`; the project's function limit on Vercel must allow at least that). Three clocks end an answer before then, and the visitor is told each time:
+
+| Clock                                                                                      | What the route does                                                                    | What the visitor sees                                                                                                 |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| No response from the gateway in 30 s                                                       | `504 timeout`                                                                          | "Amr's AI service took too long to answer. Try again in a moment."                                                    |
+| 30 s without a chunk, once streaming                                                       | Ends the stream with an error, and turns the 285 s clock off                           | What arrived stays, with "Amr couldn't finish answering. Try again, and check your connection if it keeps happening." |
+| 285 s since the request arrived (`VISITOR_STREAM_DEADLINE_MS`, `visitor-ai/time-limit.ts`) | Ends the answer itself: a last event with `finish_reason: "time_limit"`, then `[DONE]` | What arrived stays, with "Amr ran out of time, so his answer stops here. Ask him to go on."                           |
+
+The 285 s clock also goes off as soon as the gateway's stream is over for any other reason (it finished, or its connection broke), whether or not the browser is still reading. The time-limit ending is never added to an answer that already ended another way.
+
+A stream that stops with neither a finish event nor `[DONE]` (the platform or a proxy cut it) shows "Amr's answer may have been cut off. Ask him to go on." Depending on how the platform passes a broken stream on, the browser may see the 30 s stop this way too. The same note shows when the model's side stops a reply that already has text (`finish_reason` of `content_filter`, `sensitive` or `network_error`), and when the gateway reports an error of its own inside the stream (an event with an `error` and no finish before it); with no text yet, the note is "Amr didn't manage an answer that time. Try asking again." A tool call that was cut half way is dropped and never runs. A cut answer still counts as a message: the meter counts when the request arrives.
+
+"Amr couldn't finish answering" is the one wording for any failure in the browser (a request that never got through, a stream that broke). The real error goes to the visitor's browser console as `[visitor-ai] the answer stopped: …`, which is the line to ask for when someone reports it. Two cases are not failures and show nothing:
+
+- **The connection breaks after `[DONE]`.** The answer was whole already, so it ends as a finished one, and a finished round's tool calls still run. This holds for the owner's chat too. A break after the finish event but before `[DONE]` still counts as a failure.
+- **The visitor pressed Stop.** Whatever the browser reports afterwards (a refusal still arriving, a network error from the closing connection), the chat says nothing and keeps the text so far.
+
+The time limit leaves one server log line, `[visitor-ai] answer ended at the time limit`, with no text, address or code. An answer that stopped for another reason (the 30 s clock, the visitor leaving) never leaves that line. If it shows up often, answers are too slow for the limit: lower `reasoning_effort` in the config row first. Keep `VISITOR_STREAM_DEADLINE_MS` at least 10 s under `maxDuration`, so the last event is out before the platform stops the function; `test/api/agent-visitor-route.test.ts` checks the gap.
 
 ### Watching usage
 

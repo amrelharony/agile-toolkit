@@ -1,7 +1,10 @@
 "use client";
 
 /**
- * "Go live" on the Retro board, for visitors only.
+ * The Retro board's two ways to run it, for visitors only: "One screen"
+ * (the board as it is, shown as the way it runs now) and "Everyone on
+ * their own device" (a live room; the button was "Go live"), with the live
+ * room's limits beside it (components/collab/run-modes).
  *
  * Shown when `NEXT_PUBLIC_VISITOR_ROOMS=1` and the viewer is a confirmed
  * visitor: not the owner (strangers' cards would sync into the owner's
@@ -13,14 +16,21 @@
  * on it through the Board's own updater; ending the room keeps everything.
  * The live state itself is component state only, never persisted, so a
  * reload never reopens a room silently.
+ *
+ * "Hide cards while writing" sits in the host's strip, on by default: in
+ * Write each person sees only their own cards, and `onHiddenChange` hands
+ * the Board the room's `hidesCard`, which it asks while drawing so the
+ * participants' cards stay hidden on this screen too, from the first render
+ * a new one appears in. The setting lasts as long as the room.
  */
 
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
-import { Radio } from "lucide-react";
+import { useEffect, useId, useRef, useState, type MutableRefObject } from "react";
+import { Check, Monitor, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
+import { LiveRoomLimits, RUN_MODES } from "@/components/collab/run-modes";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { useGuestProfile } from "@/lib/auth/guest-profile-provider";
@@ -35,7 +45,13 @@ import { toast } from "@/lib/utils/toast";
 import { signalGamification } from "@/lib/gamification/signal";
 import type { BoardState } from "../types";
 import { useRetroRoom, type RetroRoomStatus, type EndReason } from "./use-retro-room";
-import { IdlePromptDialog, RoomMemberList } from "./room-controls";
+import { HideCardsSetting, IdlePromptDialog, RoomMemberList } from "./room-controls";
+
+/**
+ * Told whether the host's screen hides cards: a check to ask, card by card,
+ * while drawing in Write (the room's `hidesCard`), or null when it hides none.
+ */
+export type HiddenCardsListener = (hidesCard: ((cardId: string) => boolean) | null) => void;
 
 /** Lets the Board end the room before "New Retro" clears it. */
 export interface LiveRoomHandle {
@@ -59,18 +75,24 @@ export function RetroGoLive({
   board,
   onUpdate,
   handleRef,
+  onHiddenChange,
 }: {
   board: BoardState;
   onUpdate: (updater: (prev: BoardState) => BoardState) => void;
   handleRef?: MutableRefObject<LiveRoomHandle | null>;
+  /** Told which participants' cards to hide on the host's screen. */
+  onHiddenChange?: HiddenCardsListener;
 }) {
   const allowed = useCanGoLive();
   const [consentOpen, setConsentOpen] = useState(false);
   const [live, setLive] = useState<LiveSession | null>(null);
   const goLiveRef = useRef<HTMLButtonElement>(null);
   const refocus = useRef(false);
+  const labelId = useId();
+  const limitsId = useId();
 
-  // After the room closes, put focus back on "Go live" rather than losing it.
+  // After the room closes, put focus back on "Everyone on their own device"
+  // rather than losing it.
   useEffect(() => {
     if (live || !refocus.current) return;
     refocus.current = false;
@@ -86,6 +108,7 @@ export function RetroGoLive({
         onUpdate={onUpdate}
         allowed={allowed}
         handleRef={handleRef}
+        onHiddenChange={onHiddenChange}
         onClosed={() => {
           clearVisitorIdentity(live.code);
           refocus.current = true;
@@ -98,17 +121,33 @@ export function RetroGoLive({
 
   return (
     <>
-      <Button
-        ref={goLiveRef}
-        type="button"
-        variant="outline"
-        size="sm"
-        className="gap-1.5"
-        onClick={() => setConsentOpen(true)}
-      >
-        <Radio className="w-3.5 h-3.5" aria-hidden="true" />
-        Go live
-      </Button>
+      <div role="group" aria-labelledby={labelId} className="flex flex-col items-start gap-1">
+        <span id={labelId} className="sr-only">
+          How you run this retro
+        </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* The way it runs now: this board, on this screen. */}
+          <span className="inline-flex min-h-[36px] items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-3 text-xs font-medium text-accent pointer-coarse:min-h-11">
+            <Monitor className="w-3.5 h-3.5" aria-hidden="true" />
+            {RUN_MODES.oneScreen}
+            <Check className="w-3.5 h-3.5" aria-hidden="true" />
+            <span className="sr-only">, how it runs now</span>
+          </span>
+          <Button
+            ref={goLiveRef}
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            aria-describedby={limitsId}
+            onClick={() => setConsentOpen(true)}
+          >
+            <Radio className="w-3.5 h-3.5" aria-hidden="true" />
+            {RUN_MODES.ownDevice}
+          </Button>
+        </div>
+        <LiveRoomLimits id={limitsId} />
+      </div>
       <VisitorRoomConsent
         open={consentOpen}
         onOpenChange={setConsentOpen}
@@ -148,6 +187,7 @@ function HostLiveRoom({
   onUpdate,
   allowed,
   handleRef,
+  onHiddenChange,
   onClosed,
 }: {
   session: LiveSession;
@@ -155,6 +195,7 @@ function HostLiveRoom({
   onUpdate: (updater: (prev: BoardState) => BoardState) => void;
   allowed: boolean;
   handleRef?: MutableRefObject<LiveRoomHandle | null>;
+  onHiddenChange?: HiddenCardsListener;
   onClosed: () => void;
 }) {
   const room = useRetroRoom({
@@ -179,6 +220,17 @@ function HostLiveRoom({
     };
   }, [handleRef, end]);
 
+  // The Board hides the participants' cards on this screen while the room does.
+  // It gets the check itself, not a list: a list passed on after this render
+  // would let a card that just arrived show for one render first.
+  const { hidesCard } = room;
+  const onHiddenRef = useRef(onHiddenChange);
+  onHiddenRef.current = onHiddenChange;
+  useEffect(() => {
+    onHiddenRef.current?.(hidesCard);
+  }, [hidesCard]);
+  useEffect(() => () => onHiddenRef.current?.(null), []);
+
   // Owners don't run visitor rooms: if this browser turns out to be the
   // owner's mid-room, close it before any stranger's card can sync.
   useEffect(() => {
@@ -187,7 +239,7 @@ function HostLiveRoom({
 
   useEffect(() => {
     if (status === "live") {
-      announce("Live room started. Copy the link and share it with your team.");
+      announce("Live room started. Share it with your team: Copy link or Show QR code.");
       return;
     }
     if (status === "connecting") return;
@@ -209,6 +261,7 @@ function HostLiveRoom({
         isHost
         onEnd={() => setConfirmEnd(true)}
       />
+      <HideCardsSetting checked={room.hideWhileWriting} onChange={room.setHideWhileWriting} />
       {others.length > 0 && (
         <RoomMemberList
           members={room.members}

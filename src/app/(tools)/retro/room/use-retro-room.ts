@@ -3,14 +3,27 @@
 /**
  * Retro visitor room: one hook for both ends of the channel.
  *
- * Host (the visitor who pressed "Go live"):
+ * Host (the visitor who pressed "Everyone on their own device"):
  *  - owns the board. Intents from admitted members go through `applyIntent`
  *    against its latest board, then into the board through `onHostUpdate`
  *    (the Board's own updater);
+ *  - keeps who added which card and who voted on which card in memory only
+ *    (the ledger), so a member can delete their own card or take their own
+ *    vote back. No snapshot carries it and the board never saves it;
+ *  - "Hide cards while writing" (on by default): during Write a snapshot
+ *    carries a count per column instead of the cards, and `hiddenIds` names
+ *    the others' cards its own screen hides too. `hidesCard` answers the
+ *    same from the ledger when called, so a screen drawing a card that just
+ *    arrived hides it in that same render (the ledger changes first);
  *  - never applies an inbound snapshot;
  *  - sends a snapshot at most every 500 ms when the board changes (a timer
  *    tick is not a change), when someone joins, and every 30 s as a
- *    keepalive;
+ *    keepalive. A board too big to share is not sent, and the host is told;
+ *    while cards are hidden it checks the snapshot Vote will send too, so
+ *    the warning comes while there is still time to shorten cards;
+ *  - gives everyone their votes and card allowance back when its own change
+ *    empties the board (Clear Board), never when members' deletes do: or
+ *    one could delete its own cards and add 30 more, again and again;
  *  - ends the room at its 3-hour limit, and after 30 minutes with no
  *    activity asks first, then ends it a minute later;
  *  - can remove a member: a blocklist (their intents are dropped) plus a
@@ -24,11 +37,26 @@
  *  - keeps the board in memory only. Nothing reaches the workspace store
  *    unless the person presses "Save a copy", and nothing is logged to
  *    history on either side;
+ *  - remembers the cards it added (their text, while the host hides cards)
+ *    and the votes it cast, in memory, so it can show its own cards, delete
+ *    them and take its votes back. Each card and vote has a random key that
+ *    never leaves this tab until it is used: the add or vote sends its lock
+ *    (a hash), the delete or take-back sends the key, so nobody else can
+ *    undo them. Once its last request is 2 s old, the host's snapshot wins
+ *    over that memory: by card id (a snapshot that hides cards still lists
+ *    their ids), a card the host never took is dropped, and a deleted card
+ *    the host still has (the delete was refused) comes back. A deleted card
+ *    stays in memory until then, so Undo puts it back rather than adding a
+ *    copy;
  *  - leaves at the room's 3-hour limit (its own join time + 3 h, or the
  *    host's `endsAt` if sooner): `useRoom` doesn't enforce `hardTtlMs`;
  *  - when elected, continues hosting from the last snapshot, still in memory,
- *    and can fix a card's text there (`editCard`): the next snapshot carries
- *    it, so the protocol is unchanged.
+ *    and can fix a card's text there (`editCard`). If the old host left
+ *    while cards were hidden, the new host never had them: the room stays in
+ *    Write and starts again from the new host's own cards, and, if anyone
+ *    else had written a card, everyone is told to add theirs again
+ *    (`cardsLost`). A new host knows nothing of who added or voted on what
+ *    before it took over.
  *
  * Nothing opens before the caller mounts this hook, which happens only after
  * the consent dialog. A terminal status (ended, expired, kicked, full, left,
@@ -46,12 +74,15 @@ import {
 import { cleanText, isWithinJsonSize } from "@/lib/realtime/sanitize";
 import { VISITOR_LIMITS, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
 import { toast } from "@/lib/utils/toast";
-import { MAX_VOTES, type BoardPhase, type BoardState } from "../types";
-import { makeId } from "../helpers";
+import { DEFAULT_RETRO_VOTES, retroVotes } from "@/lib/retro/board";
+import type { BoardPhase, BoardState, RetroCard } from "../types";
 import {
   applyIntent,
   applyPatch,
   createIntentLedger,
+  ownerOfCard,
+  resetAllowances,
+  retireIds,
   type IntentLedger,
   type IntentPatch,
   type IntentRejection,
@@ -61,19 +92,35 @@ import {
   IDLE_GRACE_MS,
   MEMBER_CARD_CAP,
   RETRO_ROOM_EVENTS,
+  RETRO_ROOM_PROTOCOL_VERSION,
   SNAPSHOT_THROTTLE_MS,
+  cardsHidden,
   readEndMessage,
   readIntentEnv,
   readKickMessage,
+  lockOf,
+  otherVersionSender,
   type IntentEnv,
   type RetroIntent,
   type RoomMember,
   type RoomSnapshot,
 } from "./protocol";
 import { boardFromSnapshot, readRoomSnapshot, roomSignature, toRoomSnapshot } from "./snapshot";
+import { hideCards, hiddenTotal } from "./hidden";
 
 /** How often the host checks whether the room has gone idle. */
 const IDLE_CHECK_MS = 30_000;
+
+/** The host's warning for a board too big to share live. */
+export const BOARD_TOO_BIG = `This board is too big to share live (${BOARD_CARD_CAP} cards at most). Shorten or remove some cards.`;
+/** The same while cards are hidden: the snapshot that reveals them would be refused. */
+export const BOARD_TOO_BIG_TO_REVEAL = `This board will be too big to share when you move to Vote (${BOARD_CARD_CAP} cards at most). Shorten or remove some cards first.`;
+
+/**
+ * Once a participant's last request is this old, the host's snapshot has
+ * answered it, so the snapshot wins over what the participant remembers.
+ */
+export const SETTLE_MS = 2_000;
 
 export type RetroRoomRole = "host" | "participant";
 
@@ -111,6 +158,32 @@ export function timerRemaining(timer: RoomTimerView, now: number = Date.now()): 
   return Math.max(0, timer.remaining - Math.floor((now - timer.anchoredAt) / 1000));
 }
 
+/** A card this tab added through the room, as it remembers it. */
+export interface OwnCard {
+  id: string;
+  columnKey: string;
+  text: string;
+}
+
+/** An own card with the key that deletes it (the add sent its lock). Never leaves this tab. */
+interface HeldCard extends OwnCard {
+  key: string;
+  /**
+   * Undo was pressed before its delete settled: if the delete turns out to
+   * have gone through, the card is added again, as a new card.
+   */
+  revive?: boolean;
+}
+
+/** A vote this tab cast, with the key that takes it back (the vote sent its lock). */
+interface HeldVote {
+  cardId: string;
+  key: string;
+}
+
+/** A new random key for a card or a vote. */
+const newKey = (): string => nanoid(21);
+
 /** The participant's (or promoted host's) in-memory room. */
 interface RoomView {
   board: BoardState;
@@ -120,6 +193,13 @@ interface RoomView {
   hostId: string;
   endsAt: number;
   seq: number;
+  /** The host's "Hide cards while writing" setting. */
+  hideWhileWriting: boolean;
+  /** While the host hides the cards: its count per column (everyone's, this tab's included). */
+  counts: Record<string, number> | null;
+  /** While the host hides the cards: the ids of every card it holds. */
+  ids: ReadonlySet<string> | null;
+  votesPerPerson: number;
 }
 
 export type AddCardResult =
@@ -155,8 +235,44 @@ export interface RetroRoom {
   /** Who this client takes as host (itself when hosting). */
   hostId: string | null;
   hostName: string | null;
-  /** Host: `hostBoard`. Participant: the last snapshot, in memory. Null before the first one. */
+  /**
+   * Host: `hostBoard`. Participant: the last snapshot, in memory (no cards
+   * while the host hides them). Null before the first one.
+   */
   board: BoardState | null;
+  /**
+   * The cards this screen shows: the board's, or while cards are hidden,
+   * this client's own (a host: all but the others' hidden ones). Null
+   * before the first snapshot.
+   */
+  shownCards: RetroCard[] | null;
+  /** While cards are hidden from this screen: how many each column hides. Null otherwise. */
+  hiddenCounts: Record<string, number> | null;
+  /** Hosting: ids of the others' cards this host's screen hides right now, or null. */
+  hiddenIds: ReadonlySet<string> | null;
+  /**
+   * Hosting with hiding on: whether a card is one of the others', read from
+   * the ledger when called. The ledger changes before the board does, so a
+   * screen that asks while drawing a card that just arrived already hides
+   * it. The caller checks the phase (cards hide only in Write). Null when
+   * nothing is hidden: hiding off, or not hosting. Stable while those hold.
+   */
+  hidesCard: ((cardId: string) => boolean) | null;
+  /** The host's "Hide cards while writing" setting (this client's own when hosting). */
+  hideWhileWriting: boolean;
+  /** Ids of cards this client added through the room, which it may delete in Write. */
+  ownIds: ReadonlySet<string>;
+  /** Votes this client cast through the room, per card, as far as it knows. */
+  myVotes: Readonly<Record<string, number>>;
+  /** The host left during Write while cards were hidden, so the cards written so far were lost. */
+  cardsLost: boolean;
+  /**
+   * Participant, still connecting: the host's state came in another protocol
+   * version (one of the two tabs runs an older build), so it can't be read.
+   */
+  otherVersion: boolean;
+  /** Participant: its cards from before the host left, to add again. */
+  unsharedCards: OwnCard[];
   /** Participant and promoted host: the countdown. Null for the host (its board has the timer). */
   timer: RoomTimerView | null;
   /** People in the channel, as `useRoom` seats them (at most 20). */
@@ -165,6 +281,8 @@ export interface RetroRoom {
   removedIds: ReadonlySet<string>;
   /** Participant: the host's snapshot lists this client, so its intents count. */
   admitted: boolean;
+  /** Votes each person has. */
+  votesPerPerson: number;
   /** Votes this client has left in the Vote phase. */
   votesLeft: number;
   /** When the room closes for everyone (epoch ms), once known. */
@@ -172,7 +290,24 @@ export interface RetroRoom {
   /** Host: the room has been idle 30 minutes and will end unless kept open. */
   idlePrompt: boolean;
   addCard: (columnKey: string, text: string) => AddCardResult;
+  /** Participant: add one of `unsharedCards` again (it leaves the list once sent). */
+  addAgain: (id: string) => AddCardResult;
+  /**
+   * "Delete my card": a card this client added, in Write. The starting host
+   * deletes through its own Board, so this is false for it.
+   */
+  deleteCard: (cardId: string) => boolean;
+  /**
+   * Undo of "Delete my card". A card whose delete hasn't settled comes back
+   * as it was (and is added again only if the delete did go through); after
+   * a settled delete it is added again as a new card.
+   */
+  undoDelete: (card: OwnCard) => AddCardResult;
   vote: (cardId: string) => boolean;
+  /** "Take my vote back": one of this client's votes on `cardId`, in Vote. False for the starting host. */
+  unvote: (cardId: string) => boolean;
+  /** Hosting: switch "Hide cards while writing". */
+  setHideWhileWriting: (on: boolean) => void;
   /** Host: remove a member (soft). */
   kick: (id: string) => void;
   /** Host: end the room for everyone. */
@@ -204,6 +339,8 @@ const TERMINAL: ReadonlySet<RetroRoomStatus> = new Set<RetroRoomStatus>([
   "unavailable",
 ]);
 
+const NO_IDS: ReadonlySet<string> = new Set<string>();
+
 function rejectionToResult(reason: IntentRejection): AddCardResult {
   switch (reason) {
     case "bad-text":
@@ -223,6 +360,30 @@ function rejectionToResult(reason: IntentRejection): AddCardResult {
   }
 }
 
+function ownToCard(c: OwnCard): RetroCard {
+  return {
+    id: c.id,
+    columnKey: c.columnKey,
+    text: c.text,
+    votes: 0,
+    groupedWith: null,
+    isActionItem: false,
+    assignee: "",
+    discussing: false,
+  };
+}
+
+/** Votes per card from a list of card ids (built from entries, so every id is an own key). */
+function countVotes(list: readonly string[]): Record<string, number> {
+  const counts = new Map<string, number>();
+  for (const id of list) counts.set(id, (counts.get(id) ?? 0) + 1);
+  return Object.fromEntries(counts);
+}
+
+function sumCounts(counts: Readonly<Record<string, number>> | null): number {
+  return hiddenTotal(counts);
+}
+
 export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const { code, identity, role } = opts;
   const selfId = identity.id;
@@ -231,10 +392,23 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const [endReason, setEndReason] = useState<EndReason | null>(null);
   const [promoted, setPromoted] = useState(false);
   const [view, setView] = useState<RoomView | null>(null);
+  /** Votes cast (+1) and taken back (−1) since the last snapshot. */
   const [pendingVotes, setPendingVotes] = useState(0);
   const [idlePrompt, setIdlePrompt] = useState(false);
   const [removedVersion, setRemovedVersion] = useState(0);
   const [hostId, setHostId] = useState<string | null>(role === "host" ? selfId : null);
+  /** "Hide cards while writing", while this client hosts. */
+  const [hide, setHide] = useState(true);
+  /** Bumped when the ledger changes, so what derives from it re-renders. */
+  const [ledgerVersion, setLedgerVersion] = useState(0);
+  const [ownCards, setOwnCardsState] = useState<HeldCard[]>([]);
+  const [myVoteList, setMyVoteListState] = useState<HeldVote[]>([]);
+  const [unsharedCards, setUnsharedState] = useState<OwnCard[]>([]);
+  /** Participant: own cards whose delete is on its way, until a settled snapshot says how it went. */
+  const [deleting, setDeletingState] = useState<HeldCard[]>([]);
+  const [cardsLost, setCardsLost] = useState(false);
+  /** Participant: the host's state is of another protocol version (a tab on another build). */
+  const [otherVersion, setOtherVersion] = useState(false);
 
   const active = !TERMINAL.has(status);
   const isHost = role === "host" || promoted;
@@ -256,6 +430,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   hostBoardRef.current = opts.hostBoard ?? null;
   const onHostUpdateRef = useRef(opts.onHostUpdate);
   onHostUpdateRef.current = opts.onHostUpdate;
+  const hideRef = useRef(hide);
+  hideRef.current = hide;
 
   const trustedRef = useRef<string | null>(role === "host" ? selfId : null);
   const pendingSnapRef = useRef<RoomSnapshot | null>(null);
@@ -273,6 +449,47 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const sizeWarnedRef = useRef(false);
   const sentCardsRef = useRef(0);
   const seenMembersRef = useRef<Set<string>>(new Set());
+  /** Participant: when it last sent an intent (epoch ms). */
+  const lastIntentAtRef = useRef(0);
+  const ownCardsRef = useRef<HeldCard[]>([]);
+  const myVotesRef = useRef<HeldVote[]>([]);
+  /** Participant: votes it asked to take back, until a settled snapshot says how it went. */
+  const undoingRef = useRef<HeldVote[]>([]);
+  const unsharedRef = useRef<OwnCard[]>([]);
+  const deletingRef = useRef<HeldCard[]>([]);
+  /** `addCard`, for the reconcile that re-adds a card undone before its delete settled. */
+  const addCardRef = useRef<((columnKey: string, text: string) => AddCardResult) | null>(null);
+  /** Host: the card ids on its board at the last change, to notice cards that leave it. */
+  const boardIdsRef = useRef<Set<string> | null>(null);
+  /** Host: cards members deleted through the room since the last board change. */
+  const intentDeletedRef = useRef<Set<string>>(new Set());
+  /** Participant: "Delete my card" requests sent since the last snapshot. */
+  const deletesSinceSnapRef = useRef(0);
+  /** Participant: the host cleared the board since the last settled snapshot. */
+  const clearedRef = useRef(false);
+
+  // Each memory list has a ref (read by handlers) and state (renders); set both together.
+  const setOwnCards = useCallback((next: HeldCard[]) => {
+    ownCardsRef.current = next;
+    setOwnCardsState(next);
+  }, []);
+  const setMyVotes = useCallback((next: HeldVote[]) => {
+    myVotesRef.current = next;
+    setMyVoteListState(next);
+  }, []);
+  const setUnshared = useCallback((next: OwnCard[]) => {
+    unsharedRef.current = next;
+    setUnsharedState(next);
+  }, []);
+  const setDeleting = useCallback((next: HeldCard[]) => {
+    deletingRef.current = next;
+    setDeletingState(next);
+  }, []);
+  const setLedger = useCallback((next: IntentLedger) => {
+    if (next === ledgerRef.current) return;
+    ledgerRef.current = next;
+    setLedgerVersion((n) => n + 1);
+  }, []);
 
   /** Every in-memory view change goes through here, so `viewRef` is always current. */
   const updateView = useCallback((fn: (v: RoomView) => RoomView | null) => {
@@ -289,8 +506,22 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     return role === "host" ? hostBoardRef.current : (viewRef.current?.board ?? null);
   }, [role]);
 
+  /**
+   * Votes each person has: the "Votes each" of the board it started the room
+   * with, else the last snapshot's.
+   */
+  const budget = useCallback(
+    (): number =>
+      role === "host"
+        ? retroVotes(hostBoardRef.current)
+        : (viewRef.current?.votesPerPerson ?? DEFAULT_RETRO_VOTES),
+    [role]
+  );
+
   const commitPatch = useCallback(
     (patch: IntentPatch, next: BoardState) => {
+      // A board a member's delete empties wasn't cleared: allowances stay.
+      if (patch.t === "card:delete") intentDeletedRef.current.add(patch.cardId);
       if (role === "host") {
         // Mirror first, so a second intent in the same tick sees this one.
         hostBoardRef.current = next;
@@ -331,7 +562,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       seen.add(m.id);
       members.push({ id: m.id, name: m.name });
     }
-    const snap = toRoomSnapshot(board, {
+    const meta = {
       by: selfId,
       seq: seqRef.current + 1,
       endsAt: endsAtRef.current,
@@ -339,25 +570,33 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       votesUsed: ledgerRef.current.votesUsed,
       timer,
       now,
-    });
+      hideWhileWriting: hideRef.current,
+      votesPerPerson: budget(),
+    };
+    const snap = toRoomSnapshot(board, meta);
     // Participants refuse anything bigger, so don't spend the quota sending it.
-    if (
-      snap.cards.length > BOARD_CARD_CAP ||
-      !isWithinJsonSize(snap, VISITOR_LIMITS.maxPayloadChars)
-    ) {
+    const fits = (s: RoomSnapshot) =>
+      s.cards.length + sumCounts(s.counts) <= BOARD_CARD_CAP &&
+      isWithinJsonSize(s, VISITOR_LIMITS.maxPayloadChars);
+    const sendable = fits(snap);
+    // Hidden cards make a small snapshot whatever they hold: check the one Vote will send.
+    const revealable =
+      !sendable ||
+      !cardsHidden(snap) ||
+      fits(toRoomSnapshot(board, { ...meta, hideWhileWriting: false }));
+    if (!sendable || !revealable) {
       if (!sizeWarnedRef.current) {
         sizeWarnedRef.current = true;
-        toast.error(
-          `This board is too big to share live (${BOARD_CARD_CAP} cards at most). Shorten or remove some cards.`
-        );
+        toast.error(sendable ? BOARD_TOO_BIG_TO_REVEAL : BOARD_TOO_BIG);
       }
-      return;
+      if (!sendable) return;
+    } else {
+      sizeWarnedRef.current = false;
     }
-    sizeWarnedRef.current = false;
     seqRef.current = snap.seq;
     lastSentRef.current = now;
     r.broadcast(RETRO_ROOM_EVENTS.state, snap);
-  }, [hostedBoard, identity.name, role, selfId]);
+  }, [budget, hostedBoard, identity.name, role, selfId]);
 
   /** Send soon: at once if the last snapshot is 500 ms old, else when it will be. */
   const scheduleSnapshot = useCallback(() => {
@@ -395,31 +634,137 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
 
   // ── Inbound ──────────────────────────────────────────────────────
 
-  const applySnapshot = useCallback((snap: RoomSnapshot) => {
-    trustedRef.current = snap.by;
-    pendingSnapRef.current = null;
-    missingSinceRef.current = null;
-    const next: RoomView = {
-      board: boardFromSnapshot(snap),
-      timer: {
-        running: snap.timer.running,
-        remaining: snap.timer.remaining,
-        anchoredAt: Date.now(),
-      },
-      members: snap.members,
-      votesUsed: snap.votesUsed,
-      hostId: snap.hostId,
-      endsAt: snap.endsAt,
-      seq: snap.seq,
-    };
-    viewRef.current = next;
-    setView(next);
-    setHostId(snap.hostId);
-    setPendingVotes(0);
-    // The host cleared the board: its per-member card allowance starts again too.
-    if (snap.cards.length === 0) sentCardsRef.current = 0;
-    setStatus((s) => (s === "connecting" ? "live" : s));
-  }, []);
+  /**
+   * Bring what this participant remembers in line with the host's snapshot,
+   * once its own last request has had time to land, by card id: cards and
+   * votes the host doesn't have are dropped, a delete the host refused gives
+   * the card back (and a refused take-back the vote), and a card undone
+   * before its delete settled is added again if the delete went through. A board that just emptied, by more
+   * than this tab's own deletes, was cleared, so the card allowance starts
+   * again too, as it does on the host's side.
+   */
+  const reconcile = useCallback(
+    (snap: RoomSnapshot, before: number, ownDeletes: number) => {
+      const hidden = cardsHidden(snap);
+      const total = snap.cards.length + sumCounts(snap.counts);
+      const settled = Date.now() - lastIntentAtRef.current >= SETTLE_MS;
+      if (total === 0 && before > ownDeletes) {
+        sentCardsRef.current = 0;
+        clearedRef.current = true;
+      } else if (total > 0) {
+        clearedRef.current = false;
+      }
+      if (!settled) return;
+      if (clearedRef.current) {
+        // Cleared: nothing of this tab's is left, and nothing comes back.
+        clearedRef.current = false;
+        undoingRef.current = [];
+        if (ownCardsRef.current.length > 0) setOwnCards([]);
+        if (deletingRef.current.length > 0) setDeleting([]);
+        if (myVotesRef.current.length > 0) setMyVotes([]);
+        return;
+      }
+      // While cards are hidden the snapshot still lists their ids.
+      const ids = new Set(hidden ? snap.ids : snap.cards.map((c) => c.id));
+      // A delete the host refused leaves the card on its board: it is this tab's again.
+      const refused = deletingRef.current.filter((c) => ids.has(c.id));
+      if (deletingRef.current.length > 0) setDeleting([]);
+      const own = ownCardsRef.current;
+      const keep: HeldCard[] = [];
+      const readd: HeldCard[] = [];
+      for (const c of [...own, ...refused]) {
+        if (ids.has(c.id)) keep.push(c.revive ? { ...c, revive: false } : c);
+        // Undone before its delete settled, and the delete went through: add it again.
+        else if (c.revive) readd.push(c);
+        // Otherwise it never landed (or was lost): the host's board wins.
+      }
+      if (keep.length !== own.length || keep.some((c, i) => c !== own[i])) setOwnCards(keep);
+      for (const c of readd) addCardRef.current?.(c.columnKey, c.text);
+
+      const mine = myVotesRef.current;
+      let votes = mine.filter((v) => ids.has(v.cardId));
+      const confirmed = Object.prototype.hasOwnProperty.call(snap.votesUsed, selfId)
+        ? snap.votesUsed[selfId]
+        : 0;
+      // The host counts more votes than this tab remembers: take-backs it refused, newest first.
+      const undone = undoingRef.current.filter((v) => ids.has(v.cardId));
+      undoingRef.current = [];
+      while (votes.length < confirmed && undone.length > 0) votes = [...votes, undone.pop()!];
+      // Fewer than this tab remembers: votes that never landed. A count at the
+      // budget may be capped (the host lowered Votes each after they were
+      // cast), so the votes on the cards stay this tab's to take back.
+      if (votes.length > confirmed && confirmed < snap.votesPerPerson) {
+        votes = votes.slice(0, confirmed);
+      }
+      if (votes.length !== mine.length || votes.some((v, i) => v !== mine[i])) setMyVotes(votes);
+    },
+    [selfId, setDeleting, setMyVotes, setOwnCards]
+  );
+
+  const applySnapshot = useCallback(
+    (snap: RoomSnapshot) => {
+      const prev = viewRef.current;
+      const before = prev ? prev.board.cards.length + sumCounts(prev.counts) : 0;
+      const ownDeletes = deletesSinceSnapRef.current;
+      deletesSinceSnapRef.current = 0;
+      trustedRef.current = snap.by;
+      pendingSnapRef.current = null;
+      missingSinceRef.current = null;
+      const hidden = cardsHidden(snap);
+      const next: RoomView = {
+        board: boardFromSnapshot(snap),
+        timer: {
+          running: snap.timer.running,
+          remaining: snap.timer.remaining,
+          anchoredAt: Date.now(),
+        },
+        members: snap.members,
+        votesUsed: snap.votesUsed,
+        hostId: snap.hostId,
+        endsAt: snap.endsAt,
+        seq: snap.seq,
+        hideWhileWriting: snap.hideWhileWriting,
+        counts: hidden ? snap.counts : null,
+        ids: hidden ? new Set(snap.ids) : null,
+        votesPerPerson: snap.votesPerPerson,
+      };
+      viewRef.current = next;
+      setView(next);
+      setHostId(snap.hostId);
+      setPendingVotes(0);
+      setOtherVersion(false);
+      if (prev && prev.hostId !== snap.hostId) {
+        // A new host knows nothing of who added or voted on what before it.
+        // If cards were hidden, it never had them either: keep this tab's
+        // text so the person can add those cards again. Nothing to say if
+        // nobody had written a card.
+        if (prev.counts !== null && snap.phase === "write") {
+          const lost = [
+            ...unsharedRef.current,
+            ...ownCardsRef.current.map(({ id, columnKey, text }) => ({ id, columnKey, text })),
+          ];
+          if (hiddenTotal(prev.counts) > 0 || lost.length > 0) {
+            setUnshared(lost);
+            setCardsLost(true);
+          }
+        }
+        setOwnCards([]);
+        setDeleting([]);
+        setMyVotes([]);
+        undoingRef.current = [];
+        sentCardsRef.current = 0;
+        clearedRef.current = false;
+      } else {
+        reconcile(snap, before, ownDeletes);
+      }
+      if (snap.phase !== "write") {
+        setCardsLost(false);
+        if (unsharedRef.current.length > 0) setUnshared([]);
+      }
+      setStatus((s) => (s === "connecting" ? "live" : s));
+    },
+    [reconcile, setDeleting, setMyVotes, setOwnCards, setUnshared]
+  );
 
   /**
    * Whether a snapshot from `by` may be applied: the trusted host, and only
@@ -463,10 +808,10 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       const res = applyIntent(board, ledgerRef.current, env, {
         admitted,
         removed: blockedRef.current,
-        newCardId: makeId,
+        votesPerPerson: budget(),
       });
       if (!res.ok) return;
-      ledgerRef.current = res.ledger;
+      setLedger(res.ledger);
       commitPatch(res.patch, res.board);
       touch();
       scheduleSnapshot();
@@ -475,7 +820,21 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       // The host's own board is the only truth: inbound state is never applied.
       if (isHostRef.current || !activeRef.current) return;
       const snap = readRoomSnapshot(raw);
-      if (!snap || snap.by === selfId) return;
+      if (!snap) {
+        // Refused on its version, once per message: say why the board never comes,
+        // while this tab still waits for a host and the sender is in the room.
+        const by = otherVersionSender(raw);
+        if (
+          by !== null &&
+          by !== selfId &&
+          trustedRef.current === null &&
+          roomRef.current.members.some((m) => m.id === by)
+        ) {
+          setOtherVersion(true);
+        }
+        return;
+      }
+      if (snap.by === selfId) return;
       if (!trusts(snap.by)) {
         if (trustedRef.current === null) pendingSnapRef.current = snap;
         return;
@@ -505,11 +864,13 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     };
   }, [
     applySnapshot,
+    budget,
     commitPatch,
     fromPresentHost,
     hostedBoard,
     scheduleSnapshot,
     selfId,
+    setLedger,
     touch,
     trusts,
   ]);
@@ -547,18 +908,46 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
 
   const liveBoard =
     role === "host" ? (opts.hostBoard ?? null) : promoted ? (view?.board ?? null) : null;
-  const signature = useMemo(() => (liveBoard ? roomSignature(liveBoard) : ""), [liveBoard]);
-  const emptyBoard = liveBoard !== null && liveBoard.cards.length === 0;
+  const signature = useMemo(
+    () => (liveBoard ? roomSignature(liveBoard, hide) : ""),
+    [liveBoard, hide]
+  );
 
   useEffect(() => {
     if (!isHost || !active || !signature) return;
-    // Clear Board (or a fresh board) gives everyone their votes and card allowance back.
-    if (emptyBoard) {
-      ledgerRef.current = { ...ledgerRef.current, votesUsed: {}, cardsBy: {} };
-    }
     touch();
     scheduleSnapshot();
-  }, [signature, emptyBoard, isHost, active, touch, scheduleSnapshot]);
+  }, [signature, isHost, active, touch, scheduleSnapshot]);
+
+  // Cards that leave the board (deleted, cleared) can't lend their ids to a new card:
+  // an Undo on this side could bring them back. A board this host's own change
+  // empties (Clear Board) gives everyone their votes and card allowance back;
+  // one the members' own deletes empty doesn't.
+  useEffect(() => {
+    if (!isHost || !liveBoard) {
+      boardIdsRef.current = null;
+      intentDeletedRef.current = new Set();
+      return;
+    }
+    const ids = new Set(liveBoard.cards.map((c) => c.id));
+    const byIntent = intentDeletedRef.current;
+    // Keep the members' deletes still to land (their card is still here); drop the rest.
+    intentDeletedRef.current = new Set(Array.from(byIntent).filter((id) => ids.has(id)));
+    const before = boardIdsRef.current;
+    boardIdsRef.current = ids;
+    if (!before) return;
+    const gone: string[] = [];
+    before.forEach((id) => {
+      if (!ids.has(id)) gone.push(id);
+    });
+    if (gone.length === 0) return;
+    const retired = retireIds(ledgerRef.current, gone);
+    if (ids.size === 0 && gone.some((id) => !byIntent.has(id))) {
+      setLedger(resetAllowances(retired));
+    } else {
+      ledgerRef.current = retired;
+    }
+  }, [isHost, liveBoard, setLedger]);
 
   useEffect(() => {
     if (!isHost || !active || !room.isConnected) return;
@@ -645,40 +1034,143 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       // Elected: continue from the last snapshot, in memory only.
       const v = viewRef.current;
       if (!v) return;
-      ledgerRef.current = createIntentLedger({ votesUsed: v.votesUsed });
+      // The old host hid the cards and took them with it: start again from this tab's own.
+      const lost = v.counts !== null;
+      // Others wrote cards, now gone, if the old host held more than this tab's own.
+      const counted = [...ownCardsRef.current, ...deletingRef.current].filter(
+        (c) => v.ids?.has(c.id) ?? false
+      ).length;
+      const othersLost = lost && hiddenTotal(v.counts) > counted;
+      let board = v.board;
+      if (lost) {
+        const keys = new Set(board.format.columns.map((c) => c.key));
+        board = {
+          ...board,
+          cards: ownCardsRef.current
+            .filter((c) => keys.has(c.columnKey))
+            .slice(0, BOARD_CARD_CAP)
+            .map(ownToCard),
+        };
+      } else if (deletingRef.current.length > 0) {
+        // Its own deletes still on their way: this board is the one that counts now.
+        const gone = new Set(deletingRef.current.map((c) => c.id));
+        board = {
+          ...board,
+          cards: board.cards
+            .filter((c) => !gone.has(c.id))
+            .map((c) =>
+              c.groupedWith !== null && gone.has(c.groupedWith) ? { ...c, groupedWith: null } : c
+            ),
+        };
+      }
+      // Its own cards and votes stay its own; nobody else's are known.
+      const onBoard = new Set(board.cards.map((c) => c.id));
+      const ownerOf: Record<string, string> = {};
+      let mine = 0;
+      for (const c of ownCardsRef.current) {
+        if (!onBoard.has(c.id)) continue;
+        ownerOf[c.id] = selfId;
+        mine += 1;
+      }
+      // Its own votes keep their locks: lost cards took everyone's votes with them.
+      const myLocks = new Map<string, string[]>();
+      if (!lost) {
+        for (const mv of myVotesRef.current) {
+          if (!onBoard.has(mv.cardId)) continue;
+          myLocks.set(mv.cardId, [...(myLocks.get(mv.cardId) ?? []), lockOf(mv.key)]);
+        }
+      }
+      const seeded = createIntentLedger({
+        // Lost cards took their votes with them: everyone's come back.
+        votesUsed: lost ? {} : v.votesUsed,
+        votesPerPerson: v.votesPerPerson,
+      });
+      setLedger({
+        ...seeded,
+        ownerOf,
+        cardsBy: mine > 0 ? { [selfId]: mine } : {},
+        voteLocks: myLocks.size > 0 ? { [selfId]: Object.fromEntries(myLocks) } : {},
+      });
       endsAtRef.current = v.endsAt;
       seqRef.current = v.seq;
       blockedRef.current = new Set();
       isHostRef.current = true;
-      updateView((cur) => ({ ...cur, hostId: selfId }));
+      hideRef.current = v.hideWhileWriting;
+      setHide(v.hideWhileWriting);
+      updateView((cur) => ({ ...cur, board, hostId: selfId, counts: null, ids: null }));
+      setOwnCards([]);
+      setDeleting([]);
+      setMyVotes([]);
+      undoingRef.current = [];
+      setPendingVotes(0);
+      if (othersLost) setCardsLost(true);
       setPromoted(true);
       lastActivityRef.current = Date.now();
     }, wait);
     return () => clearTimeout(t);
-  }, [room.members, room.isConnected, isHost, active, selfId, updateView]);
+  }, [
+    room.members,
+    room.isConnected,
+    isHost,
+    active,
+    selfId,
+    setDeleting,
+    setLedger,
+    setMyVotes,
+    setOwnCards,
+    updateView,
+  ]);
 
   // ── Actions ──────────────────────────────────────────────────────
 
-  /** The promoted host runs its own intents through the same reducer. */
+  /**
+   * The promoted host runs its own intents through the same reducer, as its
+   * own (`local`): no key is asked for, and the channel's handler drops any
+   * message that claims to come from this tab.
+   */
   const applyOwn = useCallback(
     (intent: RetroIntent) => {
       const board = hostedBoard();
       if (!board) return { ok: false as const, reason: "bad-shape" as IntentRejection };
-      const env: IntentEnv = { v: 1, by: selfId, intent };
+      const env: IntentEnv = { v: RETRO_ROOM_PROTOCOL_VERSION, by: selfId, intent };
       const res = applyIntent(board, ledgerRef.current, env, {
         admitted: new Set([selfId]),
         removed: new Set(),
-        newCardId: makeId,
+        votesPerPerson: budget(),
+        local: true,
       });
       if (res.ok) {
-        ledgerRef.current = res.ledger;
+        setLedger(res.ledger);
         commitPatch(res.patch, res.board);
         touch();
         scheduleSnapshot();
       }
       return res;
     },
-    [commitPatch, hostedBoard, scheduleSnapshot, selfId, touch]
+    [budget, commitPatch, hostedBoard, scheduleSnapshot, selfId, setLedger, touch]
+  );
+
+  /** A participant's request to the host. */
+  const send = useCallback(
+    (intent: RetroIntent) => {
+      roomRef.current.broadcast(RETRO_ROOM_EVENTS.intent, {
+        v: RETRO_ROOM_PROTOCOL_VERSION,
+        by: selfId,
+        intent,
+      });
+      lastIntentAtRef.current = Date.now();
+    },
+    [selfId]
+  );
+
+  /** The participant's view, if it may act in `phase` (has a seat). */
+  const seatedView = useCallback(
+    (phase: BoardPhase): RoomView | null => {
+      const v = viewRef.current;
+      if (!v || v.board.phase !== phase) return null;
+      return v.members.some((m) => m.id === selfId) ? v : null;
+    },
+    [selfId]
   );
 
   const addCard = useCallback(
@@ -686,7 +1178,11 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (!activeRef.current) return "closed";
       const clean = cleanText(text, VISITOR_LIMITS.maxTextChars);
       if (clean === null) return "bad-text";
-      const intent: RetroIntent = { t: "card:add", iid: nanoid(12), columnKey, text: clean };
+      // The request's id becomes the card's id: this tab's handle on its own card.
+      // The key stays here; its lock goes with the card, so only this tab can delete it.
+      const iid = nanoid(12);
+      const key = newKey();
+      const intent: RetroIntent = { t: "card:add", iid, columnKey, text: clean, lock: lockOf(key) };
       if (isHostRef.current) {
         const res = applyOwn(intent);
         return res.ok ? "added" : rejectionToResult(res.reason);
@@ -696,30 +1192,113 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (!v.members.some((m) => m.id === selfId)) return "not-admitted";
       if (v.board.phase !== "write") return "wrong-phase";
       if (sentCardsRef.current >= MEMBER_CARD_CAP) return "member-cap";
-      if (v.board.cards.length >= BOARD_CARD_CAP) return "board-full";
-      roomRef.current.broadcast(RETRO_ROOM_EVENTS.intent, { v: 1, by: selfId, intent });
+      if (v.board.cards.length + sumCounts(v.counts) >= BOARD_CARD_CAP) return "board-full";
+      send(intent);
       sentCardsRef.current += 1;
+      setOwnCards([...ownCardsRef.current, { id: iid, columnKey, text: clean, key }]);
       return "sent";
     },
-    [applyOwn, selfId]
+    [applyOwn, selfId, send, setOwnCards]
+  );
+
+  addCardRef.current = addCard;
+
+  const addAgain = useCallback(
+    (id: string): AddCardResult => {
+      const c = unsharedRef.current.find((u) => u.id === id);
+      if (!c) return "closed";
+      const res = addCard(c.columnKey, c.text);
+      if (res === "sent" || res === "added") {
+        setUnshared(unsharedRef.current.filter((u) => u.id !== id));
+      }
+      return res;
+    },
+    [addCard, setUnshared]
+  );
+
+  const deleteCard = useCallback(
+    (cardId: string): boolean => {
+      if (!activeRef.current || role === "host") return false;
+      if (isHostRef.current) {
+        return applyOwn({ t: "card:delete", iid: nanoid(12), cardId, key: newKey() }).ok;
+      }
+      if (!seatedView("write")) return false;
+      const own = ownCardsRef.current.find((c) => c.id === cardId);
+      if (!own) return false;
+      send({ t: "card:delete", iid: nanoid(12), cardId, key: own.key });
+      deletesSinceSnapRef.current += 1;
+      // Off the screen at once, but kept until a settled snapshot shows how the delete went.
+      setOwnCards(ownCardsRef.current.filter((c) => c.id !== cardId));
+      setDeleting([...deletingRef.current, { ...own, revive: false }]);
+      return true;
+    },
+    [applyOwn, role, seatedView, send, setDeleting, setOwnCards]
+  );
+
+  const undoDelete = useCallback(
+    (card: OwnCard): AddCardResult => {
+      if (!activeRef.current) return "closed";
+      const pending = deletingRef.current.find((c) => c.id === card.id);
+      if (pending) {
+        // Not settled yet: back on the screen now, and added again only if the delete went through.
+        setDeleting(deletingRef.current.filter((c) => c.id !== card.id));
+        setOwnCards([...ownCardsRef.current, { ...pending, revive: true }]);
+        return "sent";
+      }
+      // The host refused the delete, and the card is back already.
+      if (ownCardsRef.current.some((c) => c.id === card.id)) return "sent";
+      return addCard(card.columnKey, card.text);
+    },
+    [addCard, setDeleting, setOwnCards]
   );
 
   const vote = useCallback(
     (cardId: string): boolean => {
       if (!activeRef.current) return false;
-      const intent: RetroIntent = { t: "vote", iid: nanoid(12), cardId };
+      const key = newKey();
+      const intent: RetroIntent = { t: "vote", iid: nanoid(12), cardId, lock: lockOf(key) };
       if (isHostRef.current) return applyOwn(intent).ok;
-      const v = viewRef.current;
-      if (!v || v.board.phase !== "vote") return false;
-      if (!v.members.some((m) => m.id === selfId)) return false;
-      if (!v.board.cards.some((c) => c.id === cardId)) return false;
+      const v = seatedView("vote");
+      if (!v || !v.board.cards.some((c) => c.id === cardId)) return false;
       const used = (v.votesUsed[selfId] ?? 0) + pendingVotes;
-      if (used >= MAX_VOTES) return false;
-      roomRef.current.broadcast(RETRO_ROOM_EVENTS.intent, { v: 1, by: selfId, intent });
+      if (used >= v.votesPerPerson) return false;
+      send(intent);
+      setMyVotes([...myVotesRef.current, { cardId, key }]);
       setPendingVotes((n) => n + 1);
       return true;
     },
-    [applyOwn, pendingVotes, selfId]
+    [applyOwn, pendingVotes, seatedView, selfId, send, setMyVotes]
+  );
+
+  const unvote = useCallback(
+    (cardId: string): boolean => {
+      if (!activeRef.current || role === "host") return false;
+      if (isHostRef.current) {
+        return applyOwn({ t: "vote:undo", iid: nanoid(12), cardId, key: newKey() }).ok;
+      }
+      if (!seatedView("vote")) return false;
+      const list = myVotesRef.current;
+      let at = -1;
+      for (let i = list.length - 1; i >= 0 && at < 0; i--) if (list[i].cardId === cardId) at = i;
+      if (at < 0) return false;
+      send({ t: "vote:undo", iid: nanoid(12), cardId, key: list[at].key });
+      // Kept aside until a settled snapshot shows the host took it back.
+      undoingRef.current = [...undoingRef.current, list[at]];
+      setMyVotes([...list.slice(0, at), ...list.slice(at + 1)]);
+      setPendingVotes((n) => n - 1);
+      return true;
+    },
+    [applyOwn, role, seatedView, send, setMyVotes]
+  );
+
+  const setHideWhileWriting = useCallback(
+    (on: boolean) => {
+      if (!isHostRef.current || !activeRef.current) return;
+      hideRef.current = on;
+      setHide(on);
+      touch();
+    },
+    [touch]
   );
 
   const kick = useCallback(
@@ -745,6 +1324,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     (phase: BoardPhase) => {
       if (role === "host" || !isHostRef.current) return;
       updateView((v) => ({ ...v, board: { ...v.board, phase } }));
+      if (phase !== "write") setCardsLost(false);
       touch();
     },
     [role, touch, updateView]
@@ -801,9 +1381,87 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   // ── Result ───────────────────────────────────────────────────────
 
   const board = role === "host" ? (opts.hostBoard ?? null) : (view?.board ?? null);
+  const livePhase = liveBoard?.phase ?? null;
+
+  // The others' cards a host's screen hides: the room's own record of who added what.
+  const hiddenIds = useMemo((): ReadonlySet<string> | null => {
+    if (!isHost || !hide || livePhase !== "write") return null;
+    const ids = new Set<string>();
+    for (const [cardId, owner] of Object.entries(ledgerRef.current.ownerOf)) {
+      if (owner !== selfId) ids.add(cardId);
+    }
+    return ids;
+    // `ledgerVersion` stands for the ledger, which lives in a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHost, hide, livePhase, ledgerVersion, selfId]);
+
+  const hidesCard = useMemo(
+    () =>
+      isHost && hide
+        ? (cardId: string): boolean => {
+            const owner = ownerOfCard(ledgerRef.current, cardId);
+            return owner !== null && owner !== selfId;
+          }
+        : null,
+    [isHost, hide, selfId]
+  );
+
+  const shown = useMemo((): {
+    cards: RetroCard[] | null;
+    counts: Record<string, number> | null;
+  } => {
+    if (isHost) {
+      if (!liveBoard) return { cards: null, counts: null };
+      const h = hideCards(liveBoard.cards, hiddenIds);
+      return { cards: h.shown, counts: h.hiddenCounts };
+    }
+    if (!view) return { cards: null, counts: null };
+    if (view.counts === null) return { cards: view.board.cards, counts: null };
+    // Cards are hidden: this tab's own, and a count of the rest per column.
+    const keys = view.board.format.columns.map((c) => c.key);
+    const cards = ownCards.filter((c) => keys.includes(c.columnKey)).map(ownToCard);
+    // The host counts this tab's cards it has (by id), deleted ones still on their way included.
+    const counted = [...ownCards, ...deleting].filter((c) => view.ids?.has(c.id) ?? false);
+    const counts: Record<string, number> = {};
+    for (const key of keys) {
+      const all = Object.prototype.hasOwnProperty.call(view.counts, key) ? view.counts[key] : 0;
+      const mine = counted.filter((c) => c.columnKey === key).length;
+      counts[key] = Math.max(0, all - mine);
+    }
+    return { cards, counts };
+  }, [deleting, hiddenIds, isHost, liveBoard, ownCards, view]);
+
+  const ownIds = useMemo((): ReadonlySet<string> => {
+    if (role === "host") return NO_IDS;
+    if (promoted) {
+      const ids = new Set<string>();
+      for (const [cardId, owner] of Object.entries(ledgerRef.current.ownerOf)) {
+        if (owner === selfId) ids.add(cardId);
+      }
+      return ids;
+    }
+    return new Set(ownCards.map((c) => c.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, promoted, ownCards, ledgerVersion, selfId]);
+
+  const myVotes = useMemo((): Readonly<Record<string, number>> => {
+    if (role === "host") return {};
+    if (promoted) {
+      const all = ledgerRef.current.voteLocks;
+      if (!Object.prototype.hasOwnProperty.call(all, selfId)) return {};
+      return Object.fromEntries(
+        Object.entries(all[selfId]).map(([cardId, locks]) => [cardId, locks.length])
+      );
+    }
+    return countVotes(myVoteList.map((mv) => mv.cardId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, promoted, myVoteList, ledgerVersion, selfId]);
+
+  const votesPerPerson =
+    role === "host" ? retroVotes(opts.hostBoard) : (view?.votesPerPerson ?? DEFAULT_RETRO_VOTES);
   const usedVotes = isHost
     ? (ledgerRef.current.votesUsed[selfId] ?? 0)
-    : (view?.votesUsed[selfId] ?? 0) + pendingVotes;
+    : Math.max(0, (view?.votesUsed[selfId] ?? 0) + pendingVotes);
   const hostName =
     hostId === selfId
       ? identity.name
@@ -826,15 +1484,31 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     hostId,
     hostName,
     board,
+    shownCards: shown.cards,
+    hiddenCounts: shown.counts,
+    hiddenIds,
+    hidesCard,
+    hideWhileWriting: isHost ? hide : (view?.hideWhileWriting ?? true),
+    ownIds,
+    myVotes,
+    cardsLost,
+    unsharedCards,
+    otherVersion,
     timer: role === "host" ? null : (view?.timer ?? null),
     members: room.members,
     removedIds,
     admitted: isHost || (view?.members.some((m) => m.id === selfId) ?? false),
-    votesLeft: Math.max(0, MAX_VOTES - usedVotes),
+    votesPerPerson,
+    votesLeft: Math.max(0, votesPerPerson - usedVotes),
     endsAt: isHost ? endsAtRef.current : (view?.endsAt ?? null),
     idlePrompt,
     addCard,
+    addAgain,
+    deleteCard,
+    undoDelete,
     vote,
+    unvote,
+    setHideWhileWriting,
     kick,
     end,
     keepOpen,

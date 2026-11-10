@@ -2,8 +2,9 @@
  * Hand-off routes, and the small link helpers both sides use.
  *
  * Which source offers which route is decided at the call site (a retro
- * action offers impediment and kanban; a premortem cause offers risk), so a
- * route knows only how to create, remove and find its target.
+ * action offers impediment, kanban and backlog story; a premortem cause
+ * offers risk), so a route knows only how to create, remove and find its
+ * target.
  *
  * `decision` writes the one decision record the Decision Log, DACI and
  * RAPID share (workspace.decisions, lib/decisions). A route whose target
@@ -66,6 +67,9 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   "scrum-of-scrums": { name: "Scrum of Scrums", href: "/scrum-of-scrums" },
   // Run the sprint
   "async-standup": { name: "async standup", href: "/async-standup" },
+  // An open impediment planned into a sprint as a story (Sprint Planning's
+  // "From the last retro" panel): the story links back to the log.
+  impediments: { name: "impediments", href: "/impediments" },
   "sprint-review": { name: "Sprint Review", href: "/sprint-review" },
   // Retrospect & improve
   "six-hats": { name: "six hats", href: "/six-hats" },

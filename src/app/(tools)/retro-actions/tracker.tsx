@@ -53,6 +53,7 @@ import {
   settleRetros,
   type SprintNameOf,
 } from "./follow-through";
+import { actionsToCsv } from "./csv";
 import { actionsToMarkdown } from "./markdown";
 import { EVERYONE, NO_OWNER, matchesOwner, ownerOptions } from "./owners";
 import { QuickAddForm } from "./quick-add";
@@ -141,7 +142,7 @@ const doneAtOn = (day: string): string => new Date(`${day}T12:00:00`).toISOStrin
 /**
  * Retro Actions: every action item the team agreed, across the current
  * retro and the archives, with owner, due date and done — done also when
- * the impediment or Kanban card it was sent to is finished. Actions can be
+ * the impediment, Kanban card or story it was sent to is finished. Actions can be
  * added here without opening the board (and deleted, with Undo), open ones
  * carried onto the current retro or sent to another tool, and each past
  * retro shows how much of what it agreed got done once the next one starts.
@@ -149,9 +150,11 @@ const doneAtOn = (day: string): string => new Date(`${day}T12:00:00`).toISOStrin
 export function RetroActionsTracker() {
   const hydrated = useWorkspaceHydrated();
   const stored = useWorkspaceStore((s) => s.retroBoards) ?? NO_BOARDS;
-  // Read so a resolved impediment or a finished Kanban card re-renders the list.
+  // Read so a resolved impediment, a finished Kanban card or a done story
+  // re-renders the list.
   const impediments = useWorkspaceStore((s) => s.impediments);
   const kanbanBoards = useWorkspaceStore((s) => s.kanbanBoards);
+  const stories = useWorkspaceStore((s) => s.stories);
   const sprints = useWorkspaceStore((s) => s.sprints) ?? NO_SPRINTS;
   const roster = useTeamRoster();
   const { log } = useHistoryLogger(TOOL_ID);
@@ -205,7 +208,7 @@ export function RetroActionsTracker() {
           ? (example?.doneTargets.has(link.targetId) ?? false)
           : (getHandoffRoute(link.route).isDone?.(link.targetId) ?? false),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- targets live in these slices
-    [example, impediments, kanbanBoards]
+    [example, impediments, kanbanBoards, stories]
   );
   const actions = useMemo(
     () => collectRetroActions(boards, { today, targetDone }),
@@ -511,7 +514,12 @@ export function RetroActionsTracker() {
                 </select>
               </div>
             </div>
-            <ExportButton filename="retro-actions" markdown={markdown} clipboardText={markdown} />
+            <ExportButton
+              filename="retro-actions"
+              markdown={markdown}
+              clipboardText={markdown}
+              csvData={actionsToCsv(actions)}
+            />
           </div>
 
           {groups.length === 0 ? (

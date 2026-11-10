@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { saveAs } from "file-saver";
+import Link from "next/link";
 import { Check, Download, HardDrive, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,17 +14,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import {
-  backupFilename,
-  collectBackup,
-  parseBackup,
-  restoreBackup,
-  serializeBackup,
-  type BackupFileV1,
-} from "@/lib/data/backup";
-import { announceRestored, readLastBackupAt, recordBackup } from "@/lib/data/backup-meta";
+import { parseBackup, restoreBackup, type BackupFileV1 } from "@/lib/data/backup";
+import { announceRestored } from "@/lib/data/backup-meta";
+import { downloadBackup } from "@/lib/data/download-backup";
+import { useLastBackupAt } from "@/lib/data/use-last-backup";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { visitorRoomsEnabled } from "@/lib/realtime/visitor-rooms";
+import {
+  YOUR_DATA_AI,
+  YOUR_DATA_COUNTS,
+  YOUR_DATA_ROOMS,
+  YOUR_DATA_SAVED_HERE,
+} from "@/lib/site/disclosures";
+import { PRIVACY_PATH, PRIVACY_TITLE } from "@/lib/site/owner";
 import { toast } from "@/lib/utils/toast";
 import { visitorAiEnabled } from "@/lib/visitor-ai/contract";
 import { useFlash } from "@/hooks/use-flash";
@@ -48,30 +50,23 @@ function formatDate(iso: string | null): string {
     : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-const VISITOR_COUNTS =
-  "The comics and kudos pages do send anonymous counts: which printed piece brought you there, if any, and on a weekly story whether you opened and finished it, roughly how long you read, and your answers, love, share, retro hand-off or click on its tool.";
-
-const VISITOR_ROOMS =
-  "If you start or join a live room, what you type there passes through our realtime provider (Supabase) to everyone with the link, and we don't store it.";
-const VISITOR_AI =
-  "If you choose to chat with Amr's AI, your messages and what Amr reads from your tools to answer are sent to write the reply, and the site keeps only a daily message count.";
-
 /**
  * What a visitor is told about where their work goes. A live room and a chat
  * with Amr's AI both send text off this browser, so with either one on the
- * text names it and no longer says that nothing is sent.
+ * text names it and no longer says that nothing is sent. The sentences are
+ * lib/site/disclosures.ts's, which the privacy page quotes too.
  */
 function visitorDescription(): string {
   const rooms = visitorRoomsEnabled();
   const ai = visitorAiEnabled();
   if (!rooms && !ai) {
-    return `Everything you make in the toolkit is saved in this browser only, and none of it is sent to our servers. ${VISITOR_COUNTS} None of it says who you are.`;
+    return `${YOUR_DATA_SAVED_HERE}, and none of it is sent to our servers. ${YOUR_DATA_COUNTS} None of it says who you are.`;
   }
   return [
-    "Everything you make in the toolkit is saved in this browser only.",
-    rooms ? VISITOR_ROOMS : "",
-    ai ? VISITOR_AI : "",
-    VISITOR_COUNTS,
+    `${YOUR_DATA_SAVED_HERE}.`,
+    rooms ? YOUR_DATA_ROOMS : "",
+    ai ? YOUR_DATA_AI : "",
+    YOUR_DATA_COUNTS,
     // "None of it" would now read as covering the messages too.
     "Those counts don't say who you are.",
   ]
@@ -96,7 +91,8 @@ export function YourDataDialog({
   const isOwner = useIsOwner();
   const fileRef = useRef<HTMLInputElement>(null);
   const [info, setInfo] = useState<StorageInfo>({ usedBytes: null, persisted: null });
-  const [lastBackup, setLastBackup] = useState<string | null>(null);
+  // Follows a download made here or anywhere else on the page.
+  const lastBackup = useLastBackupAt();
   // The download and "Last backup" confirm it in place; no toast.
   const { flash, isFlashing } = useFlash();
   const downloaded = isFlashing();
@@ -106,7 +102,6 @@ export function YourDataDialog({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setLastBackup(readLastBackupAt());
     const storage = navigator.storage;
     void (async () => {
       const [estimate, persisted] = await Promise.all([
@@ -118,12 +113,7 @@ export function YourDataDialog({
   }, [open]);
 
   const download = () => {
-    const backup = collectBackup();
-    const blob = new Blob([serializeBackup(backup)], { type: "application/json" });
-    saveAs(blob, backupFilename());
-    recordBackup();
-    setLastBackup(readLastBackupAt());
-    flash(`Backup downloaded: ${Object.keys(backup.keys).length} items saved.`);
+    flash(`Backup downloaded: ${downloadBackup()} items saved.`);
   };
 
   const pickFile = async (file: File) => {
@@ -164,6 +154,15 @@ export function YourDataDialog({
                 ? "Your work syncs to your account and is also kept in this browser."
                 : visitorDescription()}
             </DialogDescription>
+            {/* Outside the description, which a screen reader reads with the
+                title: the link is a way on, not part of what is stored here. */}
+            <p className="text-sm text-sub">
+              Every part of the site, and who to ask:{" "}
+              <Link href={PRIVACY_PATH} onClick={() => onOpenChange(false)}>
+                {PRIVACY_TITLE}
+              </Link>
+              .
+            </p>
           </DialogHeader>
 
           <dl className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-card p-3 text-sm">
@@ -183,7 +182,8 @@ export function YourDataDialog({
             <h3 className="text-sm font-semibold text-text">Back up</h3>
             <p className="text-sm text-sub">
               Download a file with all your boards, lists and settings. Your AI API keys are never
-              included.
+              included. Nothing is backed up on its own: the file is only as new as your last
+              download.
             </p>
             <Button type="button" onClick={download} className="gap-2">
               {downloaded ? <Check aria-hidden="true" /> : <Download aria-hidden="true" />}

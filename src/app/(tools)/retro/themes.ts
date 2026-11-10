@@ -11,7 +11,7 @@
  * which gets these groups as data.
  */
 
-import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
+import { MIN_SAMPLE, enoughData } from "@/lib/analytics/min-sample";
 import type { RetroCard } from "./types";
 
 export interface KeywordTheme {
@@ -216,6 +216,15 @@ export function keywordThemes(
     });
   }
   return out;
+}
+
+/**
+ * The common words the board shows and its exports quote: none below
+ * THEME_MIN_CARDS cards (a group counts once), where every shared word is a
+ * coincidence. The board and the visitor room read it the same way.
+ */
+export function boardThemes(cards: readonly RetroCard[]): KeywordTheme[] {
+  return enoughData(themeCardCount(cards), THEME_MIN_CARDS) ? keywordThemes(cards) : [];
 }
 
 /**

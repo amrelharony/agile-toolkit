@@ -36,7 +36,7 @@ import { ExampleNotice, isExampleId } from "@/components/tool-frame/example-data
 import { SessionScreen } from "./session-screen";
 import { usePokerSession } from "./use-poker-session";
 import { PokerRoomBar } from "./poker-room-bar";
-import { withHostOnly } from "./visitor-session";
+import { fitStoriesToVisitorRoom, withHostOnly } from "./visitor-session";
 import {
   adoptLocalSession,
   clearLocalSession,
@@ -51,6 +51,7 @@ import { LobbyScreen, type StartData } from "./lobby-screen";
 import { loggedQueueStoryIds, planBacklogSave, planSize, savedCount } from "./backlog";
 import { useCardReferences } from "./use-card-references";
 import { toMarkdown } from "./markdown";
+import { pokerCsv, sessionTicketKeys } from "./csv";
 import { generateRoomCode } from "./room-code";
 import { signalGamification } from "@/lib/gamification/signal";
 
@@ -251,8 +252,12 @@ export function PlanningPokerClient() {
 
   const addQueued = () => {
     if (!session) return;
-    const stories = takeQueuedStories(session.stories.map((st) => st.id));
-    if (stories.length === 0) return;
+    const taken = takeQueuedStories(session.stories.map((st) => st.id));
+    if (taken.length === 0) return;
+    // A live room can't send a session over its size limit, and a queue of
+    // stories with notes and acceptance criteria would pass it: their
+    // descriptions are shortened to fit. The stories keep theirs in full.
+    const stories = visitorRoom ? fitStoriesToVisitorRoom(session, taken) : taken;
     addFromQueue(stories.map((st) => st.id));
     setSession((prev) => (prev ? { ...prev, stories: [...prev.stories, ...stories] } : prev));
   };
@@ -439,6 +444,21 @@ export function PlanningPokerClient() {
   };
 
   const markdown = useMemo(() => toMarkdown(session), [session]);
+  // The Export menu's CSV: each story's ticket key (its title when it has
+  // none), the summary and the agreed estimate, ready for a tracker.
+  const csvData = useMemo(
+    () =>
+      pokerCsv(
+        session,
+        sessionTicketKeys(session?.stories ?? [], {
+          queue,
+          estimates: loggedEstimates,
+          stories: backlogStories,
+          fromQueue,
+        })
+      ),
+    [session, queue, loggedEstimates, backlogStories, fromQueue]
+  );
   const references = useCardReferences(session?.scaleType, session?.scale);
 
   // ─── AI prompt config (owner only, derived from current session) ───
@@ -545,7 +565,7 @@ export function PlanningPokerClient() {
               onLeave={handleLeave}
               extraHeaderActions={
                 <>
-                  <ExportButton filename="planning-poker" markdown={markdown} />
+                  <ExportButton filename="planning-poker" markdown={markdown} csvData={csvData} />
                   {promptConfig && <AiPromptGenerator config={promptConfig} />}
                   {/* The example (and what's kept of it) has no room to invite to. */}
                   {activeRoomCode !== null && !visitorRoom && (

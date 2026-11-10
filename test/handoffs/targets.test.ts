@@ -105,12 +105,23 @@ describe("backlog-story", () => {
         title: "Checkout is slow on mobile",
         status: "backlog",
         owner: "Priya",
+        // The description that came with it is kept, as the story's notes.
+        notes: "Two reviewers said so.",
         sourceRef: { tool: "sprint-review", id: "fb-1", doc: "sprint-review:s2" },
         // The store stamps when a story is first saved.
         createdAt: expect.any(String),
       },
     ]);
     expect(link.targetId).toMatch(/^story_/);
+  });
+
+  it("keeps the description as notes: trimmed, capped, and no key for a blank one", () => {
+    expect(buildBacklogStory(src({ description: "  Line one\r\nLine two  " })).notes).toBe(
+      "Line one\nLine two"
+    );
+    expect(buildBacklogStory(src({ description: "d".repeat(5000) })).notes).toHaveLength(2000);
+    expect("notes" in buildBacklogStory(src({ description: "   " }))).toBe(false);
+    expect("notes" in buildBacklogStory(src({ description: undefined }))).toBe(false);
   });
 
   it("keeps a positive estimate only, and caps the title", () => {

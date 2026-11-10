@@ -38,6 +38,7 @@ vi.mock("framer-motion", async () => {
 
 import { Board } from "@/app/(tools)/retro/components/board";
 import { FormatSelector } from "@/app/(tools)/retro/components/format-selector";
+import { PAST_RETROS_SHOWN, PastRetros } from "@/app/(tools)/retro/components/past-retros";
 import { RetroClient } from "@/app/(tools)/retro/retro-client";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
@@ -207,6 +208,42 @@ describe("Past retros", () => {
     const past = screen.getByRole("region", { name: "Past retros" });
     expect(within(past).getByText("Fix the flaky CI job")).toBeInTheDocument();
     expect(within(past).getByText(/Sam/)).toBeInTheDocument();
+  });
+
+  // Newest first, one a week: retro 0 is the newest.
+  const archived = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      id: `retro:${i}`,
+      ...makeBoard({ cards: [card(`c${i}`, "start", { text: `Retro ${i} card` })] }),
+      archivedAt: new Date(Date.UTC(2026, 9, 30 - i * 7, 10)).toISOString(),
+    }));
+  const listed = () =>
+    within(screen.getByRole("region", { name: "Past retros" })).getAllByRole("button", {
+      name: /^Delete the /,
+    });
+
+  it("lists the latest few and keeps the rest behind Show all, which can be taken back", () => {
+    const retros = archived(PAST_RETROS_SHOWN + 3);
+    render(<PastRetros retros={retros} onDelete={() => {}} />);
+    expect(listed()).toHaveLength(PAST_RETROS_SHOWN);
+
+    const more = screen.getByRole("button", { name: `Show all ${retros.length} past retros` });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(more).toHaveAttribute("aria-controls", "past-retros-list");
+    fireEvent.click(more);
+    expect(listed()).toHaveLength(retros.length);
+    // The same button, so focus stays on it, now offering the short list again.
+    expect(more).toHaveAttribute("aria-expanded", "true");
+    expect(more).toHaveTextContent(`Show the latest ${PAST_RETROS_SHOWN} only`);
+
+    fireEvent.click(more);
+    expect(listed()).toHaveLength(PAST_RETROS_SHOWN);
+  });
+
+  it("offers no Show all when every past retro is already listed", () => {
+    render(<PastRetros retros={archived(PAST_RETROS_SHOWN)} onDelete={() => {}} />);
+    expect(listed()).toHaveLength(PAST_RETROS_SHOWN);
+    expect(screen.queryByRole("button", { name: /^Show / })).toBeNull();
   });
 });
 
