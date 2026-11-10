@@ -36,29 +36,47 @@ export const WORKSPACE_LOADING_RESERVE_TALL = "md:min-h-[100svh]";
  * under a pen that writes, rests and lifts off (InkScribble), announced as a
  * status, that reserves the tool's room on phones (see
  * WORKSPACE_LOADING_RESERVE). Server-safe, so it is in the first HTML.
+ *
+ * `about` puts one sentence above the line, saying what the page does. The
+ * first HTML is all a search engine or an assistant reads, and for a page that
+ * is nothing but its saved data (the Sprint Cockpit, Sprint Planning) that was
+ * only "Loading sprints…". The sentence sits inside the same card, within the
+ * room it already holds, and only the loading line is the status.
  */
 export function WorkspaceLoading({
   children,
   className,
   tall = false,
+  about,
 }: {
   children: ReactNode;
   className?: string;
   /** Also reserve a full screen from md up (see WORKSPACE_LOADING_RESERVE_TALL). */
   tall?: boolean;
+  /** One sentence on what the page does, shown above the loading line. */
+  about?: ReactNode;
 }) {
+  const card = cn(
+    "flex flex-col items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub",
+    WORKSPACE_LOADING_RESERVE,
+    tall && WORKSPACE_LOADING_RESERVE_TALL,
+    className
+  );
+  if (!about) {
+    return (
+      <p role="status" className={card}>
+        <InkScribble />
+        <span>{children}</span>
+      </p>
+    );
+  }
   return (
-    <p
-      role="status"
-      className={cn(
-        "flex flex-col items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub",
-        WORKSPACE_LOADING_RESERVE,
-        tall && WORKSPACE_LOADING_RESERVE_TALL,
-        className
-      )}
-    >
-      <InkScribble />
-      <span>{children}</span>
-    </p>
+    <div className={card}>
+      <p className="mb-2 max-w-prose text-text">{about}</p>
+      <p role="status" className="flex flex-col items-center gap-2">
+        <InkScribble />
+        <span>{children}</span>
+      </p>
+    </div>
   );
 }

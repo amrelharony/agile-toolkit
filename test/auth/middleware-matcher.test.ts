@@ -44,6 +44,8 @@ const EXEMPT = [
   "/favicon.ico",
   "/robots.txt",
   "/sitemap.xml",
+  // Read by assistants with no session to check, like robots.txt.
+  "/llms.txt",
   "/manifest.webmanifest",
   "/_next/static/chunks/main.js",
   "/_next/image",

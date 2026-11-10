@@ -20,6 +20,11 @@ vi.mock("@/components/shared/export-button", () => ({ ExportButton: () => null }
 vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({ log: () => {} }),
 }));
+// Sprint Planning asks for the router, which only a mounted app provides.
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/navigation")>()),
+  useRouter: () => ({ push: () => {} }),
+}));
 // Recharts' ResponsiveContainer needs it; jsdom doesn't ship one.
 vi.stubGlobal(
   "ResizeObserver",
@@ -36,7 +41,8 @@ import {
   WorkspaceLoading,
 } from "@/components/shared/workspace-loading";
 import { LoadingSprints } from "@/components/sprints/start";
-import { SprintCockpit } from "@/app/(tools)/sprint/cockpit";
+import { COCKPIT_ABOUT, SprintCockpit } from "@/app/(tools)/sprint/cockpit";
+import { PLANNING_ABOUT, SprintPlanning } from "@/app/(tools)/sprint-planning/planning";
 import { CapacityPlannerClient } from "@/app/(tools)/capacity-planner/capacity-planner-client";
 import { KanbanClient } from "@/app/(tools)/kanban/kanban-client";
 import { RetroActionsTracker } from "@/app/(tools)/retro-actions/tracker";
@@ -79,6 +85,27 @@ describe("WorkspaceLoading", () => {
     render(<WorkspaceLoading className="mt-4">Loading…</WorkspaceLoading>);
     expect(screen.getByRole("status")).toHaveClass(WORKSPACE_LOADING_RESERVE, "mt-4");
   });
+
+  it("can say what the page does, inside the same card and outside the status", () => {
+    render(
+      <WorkspaceLoading tall className="mt-4" about="This page plans a sprint.">
+        Loading sprints…
+      </WorkspaceLoading>
+    );
+    const status = screen.getByRole("status");
+    // Only the loading line is the status: the sentence isn't an announcement.
+    expect(status).toHaveTextContent(/^Loading sprints…$/);
+    const about = screen.getByText("This page plans a sprint.");
+    expect(about.tagName).toBe("P");
+    expect(status).not.toContainElement(about);
+    // One card holds both, and it is the card that reserves the room now.
+    const card = status.parentElement!;
+    expect(card).toContainElement(about);
+    expect(card).toHaveClass(WORKSPACE_LOADING_RESERVE, WORKSPACE_LOADING_RESERVE_TALL, "mt-4");
+    expect(Array.from(status.classList).filter((c) => c.includes("min-h-"))).toEqual([]);
+    // The sentence comes first, the way it reads.
+    expect(about.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
 
 describe("pre-hydration placeholders reserve the tool's room", () => {
@@ -90,12 +117,31 @@ describe("pre-hydration placeholders reserve the tool's room", () => {
     expect(status).not.toHaveClass(WORKSPACE_LOADING_RESERVE_TALL);
   });
 
-  it("the Sprint Cockpit (the /sprint page and the home card)", () => {
-    for (const ui of [<SprintCockpit key="full" />, <SprintCockpit key="compact" compact />]) {
-      const status = serverStatus(ui);
-      expect(status).toHaveTextContent("Loading sprints…");
-      expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE, WORKSPACE_LOADING_RESERVE_TALL);
-    }
+  it("the Sprint Cockpit's home card", () => {
+    const status = serverStatus(<SprintCockpit compact />);
+    expect(status).toHaveTextContent("Loading sprints…");
+    expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE, WORKSPACE_LOADING_RESERVE_TALL);
+    // Home says what the toolkit is in its own words; the card adds none.
+    expect(status.parentElement).not.toHaveTextContent(COCKPIT_ABOUT);
+  });
+
+  it("the Sprint Cockpit's page, which also says what the page does", () => {
+    const status = serverStatus(<SprintCockpit />);
+    expect(status).toHaveTextContent(/^Loading sprints…$/);
+    // The card around the sentence and the status holds the room.
+    const card = status.parentElement!;
+    expect(card).toHaveTextContent(COCKPIT_ABOUT);
+    expect(card).toHaveClass(WORKSPACE_LOADING_RESERVE, WORKSPACE_LOADING_RESERVE_TALL);
+  });
+
+  it("Sprint Planning, which also says what the page does", () => {
+    const status = serverStatus(<SprintPlanning />);
+    expect(status).toHaveTextContent(/^Loading sprints…$/);
+    const card = status.parentElement!;
+    expect(card).toHaveTextContent(PLANNING_ABOUT);
+    // A short tool: the phone-only reserve, as before.
+    expect(card).toHaveClass(WORKSPACE_LOADING_RESERVE);
+    expect(card).not.toHaveClass(WORKSPACE_LOADING_RESERVE_TALL);
   });
 
   it("the Capacity Planner", () => {

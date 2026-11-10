@@ -67,6 +67,14 @@ const NO_GOALS: SprintGoal[] = [];
 /** The tiles the home card keeps; the full page shows them all. */
 const COMPACT_TILES: readonly TileId[] = ["committed", "done", "remaining", "gap", "blockers"];
 
+/**
+ * What the page does, in one sentence, shown while the saved sprints load. The
+ * server can't read them, so without it the first HTML of /sprint, all a
+ * search engine or an assistant reads, said only "Loading sprints…".
+ */
+export const COCKPIT_ABOUT =
+  "This page shows the sprint your team is running: where it stands today, the next ceremony, the burndown and what is blocking it.";
+
 const slug = (s: string) =>
   s
     .toLowerCase()
@@ -234,7 +242,8 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
 
   let body: React.ReactNode;
   if (!hydrated) {
-    body = <LoadingSprints tall />;
+    // The home card sits under home's own words; only the page needs the sentence.
+    body = <LoadingSprints tall about={compact ? undefined : COCKPIT_ABOUT} />;
   } else if (example) {
     body = (
       <ExampleCockpit
