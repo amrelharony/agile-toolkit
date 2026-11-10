@@ -105,7 +105,7 @@ export function llmsTxt(): string {
     `- ${link("All tools", "/")}: the ${defaultToolCount()} tools for Scrum Masters and agile teams, by section.`,
     `- ${link("More tools", "/more-tools")}: ${shelf} tools for neighbouring work, such as AI product management, security, reliability and strategy.`,
     `- ${link("Team", "/team")}: the people on a team and the agreements they work by.`,
-    `- ${link(PRIVACY_TITLE, PRIVACY_PATH)}: what each part of the site sends from the browser and what is kept, who runs the site and how to reach him, and what a security team can check.`,
+    `- ${link(PRIVACY_TITLE, PRIVACY_PATH)}: what each part of the site sends from the browser and what is kept, who runs the site and how to get in touch, and what a security team can check.`,
     `- ${link("Sitemap", "/sitemap.xml")}: every public page.`,
     "",
   ].join("\n");

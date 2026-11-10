@@ -720,7 +720,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                 {SITE_OWNER.name}
               </a>
             </p>
-            {/* What leaves a visitor's browser, and how to reach him. It stands
+            {/* What leaves a visitor's browser, and how to get in touch. It stands
                 alone on its line, so it gets the 44px touch height. */}
             <p className="text-xs text-center">
               <Link

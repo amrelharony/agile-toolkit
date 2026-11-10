@@ -22,7 +22,7 @@ import {
 export const metadata: Metadata = {
   title: PRIVACY_TITLE,
   description:
-    "What the Agile Toolkit sends from your browser and what it keeps, part by part. Who runs it, how to reach him, and what a security team can check in two minutes.",
+    "What the Agile Toolkit sends from your browser and what it keeps, part by part. Who runs it, how to get in touch, and what a security team can check in two minutes.",
 };
 
 // Built once with the site: it reads the tool registry, the security policy
@@ -77,7 +77,7 @@ function Items({ items }: { items: PrivacyItem[] }) {
 
 /**
  * /privacy: what leaves a visitor's browser, part by part; who runs the site
- * and how to reach him; who processes what; that the tools stay free; how
+ * and how to get in touch; who processes what; that the tools stay free; how
  * accessibility is tested; and what a security team can check. /about and
  * /contact redirect here (next.config.mjs).
  *
@@ -91,7 +91,7 @@ export default function PrivacyPage() {
     <ToolPageWrapper
       art={keyArt}
       title={PRIVACY_TITLE}
-      description="What this site sends, where it goes and what is kept. Who runs it, and how to reach him."
+      description="What this site sends, where it goes and what is kept. Who runs it, and how to get in touch."
     >
       <div className="max-w-4xl space-y-8">
         <section aria-labelledby="parts-heading" className="space-y-3">
@@ -145,7 +145,7 @@ export default function PrivacyPage() {
 
         <section id="contact" aria-labelledby="contact-heading" className="space-y-3">
           <h2 id="contact-heading" className={H2}>
-            Who runs this site, and how to reach him
+            Who runs this site, and how to get in touch
           </h2>
           <Card>
             <CardContent className="space-y-3 p-4 sm:p-6">
@@ -155,15 +155,14 @@ export default function PrivacyPage() {
                   href={SITE_OWNER.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-medium text-accent"
+                  className="font-medium text-accent hover:underline"
                 >
                   {SITE_OWNER.name}
                 </a>
                 .
               </p>
               <p className="text-sub">
-                Write to him about privacy, a removal, an accessibility problem or a security
-                report:
+                Write about privacy, a removal, an accessibility problem or a security report:
               </p>
               <div className="flex flex-wrap items-center gap-3">
                 {/* Plain text, not a link: one click selects it all, ready to copy. */}

@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Who runs the site and how to reach him is kept once (lib/site/owner.ts).
+ * Who runs the site and how to get in touch is kept once (lib/site/owner.ts).
  * /.well-known/security.txt is built from it, where it used to be a file in
  * /public with its own copy of the address.
  */

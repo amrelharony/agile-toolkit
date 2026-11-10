@@ -1,5 +1,5 @@
 /**
- * Who runs the site, how to reach him and where that is written, in one
+ * Who runs the site, how to get in touch and where that is written, in one
  * place: the sidebar, the privacy page (/privacy) and
  * /.well-known/security.txt all read it, so they can't name different people
  * or addresses. No imports: safe on the server, in the browser and in a route
@@ -9,7 +9,7 @@
 /** Mirrors `metadataBase` in src/app/layout.tsx. */
 const SITE_URL = "https://agile.amrelharony.com";
 
-/** The site's owner, as the sidebar and the site's metadata name him. */
+/** The site's owner, as the sidebar and the site's metadata name the owner. */
 export const SITE_OWNER = {
   name: "Amr El Harony",
   url: "https://amrelharony.com",
@@ -23,7 +23,7 @@ export const SITE_OWNER = {
 export const CONTACT_EMAIL = "a.elharony@gmail.com";
 
 /**
- * The page that says who runs the site, how to reach him and what leaves a
+ * The page that says who runs the site, how to get in touch and what leaves a
  * visitor's browser. Here, not in lib/site/privacy.ts, because the sidebar,
  * the home page and the forms that link to it are browser code, and that
  * module reads the tool registry and the build's settings.

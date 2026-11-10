@@ -211,7 +211,7 @@ describe("the table of parts", () => {
   });
 });
 
-describe("who runs the site, and how to reach him", () => {
+describe("who runs the site, and how to get in touch", () => {
   it("names the owner with the link the sidebar uses", () => {
     render(<PrivacyPage />);
     const link = screen.getByRole("link", { name: SITE_OWNER.name });

@@ -111,7 +111,7 @@ describe("/llms.txt", () => {
       `- [All tools](${BASE}/): the ${defaultToolCount()} tools for Scrum Masters and agile teams, by section.`,
       `- [More tools](${BASE}/more-tools): ${getShelfTools().length} tools for neighbouring work, such as AI product management, security, reliability and strategy.`,
       `- [Team](${BASE}/team): the people on a team and the agreements they work by.`,
-      `- [What leaves your browser](${BASE}/privacy): what each part of the site sends from the browser and what is kept, who runs the site and how to reach him, and what a security team can check.`,
+      `- [What leaves your browser](${BASE}/privacy): what each part of the site sends from the browser and what is kept, who runs the site and how to get in touch, and what a security team can check.`,
       `- [Sitemap](${BASE}/sitemap.xml): every public page.`,
     ]);
   });
