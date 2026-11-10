@@ -45,6 +45,7 @@ import { VipIntro, type VipIntroTool } from "@/app/(tools)/comics/components/int
 import styles from "@/app/(tools)/comics/components/intro/vip-intro.module.css";
 import { POSES } from "@/components/agent/mascot/engine/sprite-poses";
 import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
+import { COVER_SMALL_URL } from "@/lib/book/art";
 import { panelImageUrl } from "@/lib/comics/images";
 import {
   INTRO_ATTR,
@@ -193,10 +194,13 @@ describe("VipIntro", () => {
   });
 
   describe("without art", () => {
-    it("shows no pictures but Amr, and no early comics", () => {
+    it("shows no pictures but Amr and the book's cover, and no early comics", () => {
       render(<VipIntro tools={TOOLS} earlyComics={[]} />);
       const el = overlay()!;
-      expect(el.querySelectorAll("img")).toHaveLength(0);
+      // Exactly one img: the small book's front cover.
+      expect(Array.from(el.querySelectorAll("img"), (img) => img.getAttribute("src"))).toEqual([
+        COVER_SMALL_URL,
+      ]);
       for (const bg of backgrounds(el)) expect(bg).toContain(MASCOT_SPRITE_URL);
       expect(backgrounds(el).length).toBeGreaterThan(0);
       // The only SVGs are the tools' own icons.
@@ -208,7 +212,10 @@ describe("VipIntro", () => {
     it("leaves early comics without a cover out entirely", () => {
       render(<VipIntro tools={TOOLS} earlyComics={[early(31, false)]} />);
       const el = overlay()!;
-      expect(el.querySelectorAll("img")).toHaveLength(0);
+      // The book's cover is the one img left.
+      expect(Array.from(el.querySelectorAll("img"), (img) => img.getAttribute("src"))).toEqual([
+        COVER_SMALL_URL,
+      ]);
       expect(el).not.toHaveTextContent(EARLY_HEADING);
     });
 
@@ -235,11 +242,14 @@ describe("VipIntro", () => {
   });
 
   describe("with art", () => {
-    it("fans the first three covers, and no other pictures but Amr", () => {
+    it("fans the first three covers after the book's, and no other pictures but Amr", () => {
       render(<VipIntro tools={TOOLS} earlyComics={EARLY} />);
       const el = overlay()!;
       const sources = Array.from(el.querySelectorAll("img"), (img) => img.getAttribute("src"));
-      expect(sources).toEqual(FANNED.map((ep) => panelImageUrl(`stories/${ep}/one-768.webp`)));
+      expect(sources).toEqual([
+        COVER_SMALL_URL,
+        ...FANNED.map((ep) => panelImageUrl(`stories/${ep}/one-768.webp`)),
+      ]);
       for (const bg of backgrounds(el)) expect(bg).toContain(MASCOT_SPRITE_URL);
       expect(el.querySelectorAll("svg")).toHaveLength(el.querySelectorAll("li svg").length);
       expect(el).toHaveTextContent(EARLY_HEADING);
@@ -260,14 +270,18 @@ describe("VipIntro", () => {
       const sources = Array.from(overlay()!.querySelectorAll("img"), (img) =>
         img.getAttribute("src")
       );
-      expect(sources).toEqual([30, 32].map((ep) => panelImageUrl(`stories/${ep}/one-768.webp`)));
+      expect(sources).toEqual([
+        COVER_SMALL_URL,
+        ...[30, 32].map((ep) => panelImageUrl(`stories/${ep}/one-768.webp`)),
+      ]);
       expect(tilts()).toEqual(["-4deg", "4deg"]);
       expect(stepsBack()).toBe(true);
     });
 
     it("stands a single cover upright", () => {
       render(<VipIntro tools={TOOLS} earlyComics={[early(31, false), early(32)]} />);
-      expect(overlay()!.querySelectorAll("img")).toHaveLength(1);
+      // The book's cover and the one comic.
+      expect(overlay()!.querySelectorAll("img")).toHaveLength(2);
       expect(tilts()).toEqual(["0deg"]);
       expect(stepsBack()).toBe(true);
     });
@@ -299,8 +313,12 @@ describe("VipIntro", () => {
       expect(el.parentElement).toBe(slot);
       expect(el.nextElementSibling).toBe(slot.querySelector(`ul.${styles.tools}`));
       expect(el).toHaveAttribute("aria-hidden", "true");
-      // No picture of its own, so the image and icon counts above hold.
-      expect(el.querySelector("img, svg, canvas, video, picture")).toBeNull();
+      // One picture of its own, the front cover, which the image counts above
+      // include, and no icon, so the icon counts hold.
+      expect(Array.from(el.querySelectorAll("img"), (img) => img.getAttribute("src"))).toEqual([
+        COVER_SMALL_URL,
+      ]);
+      expect(el.querySelector("svg, canvas, video, picture")).toBeNull();
       expect(el.textContent).toBe(BOOK_TITLE);
     });
 
@@ -649,6 +667,7 @@ describe("on /vip", () => {
     for (const tool of getVipTools().slice(0, 3)) expect(el).toHaveTextContent(tool.name);
     // The page's early comics reach the intro: the hub's own cards can't pass this.
     expect(Array.from(el.querySelectorAll("img"), (img) => img.getAttribute("src"))).toEqual([
+      COVER_SMALL_URL,
       panelImageUrl("stories/30/one-768.webp"),
     ]);
     expect(el).toHaveTextContent(EARLY_HEADING);
