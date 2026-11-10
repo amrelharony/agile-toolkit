@@ -171,7 +171,9 @@ export function validateStoryDetails(
  * its acceptance criteria under their own heading. Folded into the one
  * description the session already carries, so the live room's payload and
  * its validator keep their shape. At most 4,023 characters, inside the
- * session's 5,000.
+ * session's 5,000. A visitor live room has a size limit for the whole
+ * session, so it shortens these when a long queue joins it
+ * (planning-poker/visitor-session.ts `fitStoriesToVisitorRoom`).
  */
 export function storyPokerDescription(story: StoryDetails): string | undefined {
   const notes = block(story.notes, STORY_NOTES_MAX);

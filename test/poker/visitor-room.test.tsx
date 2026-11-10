@@ -157,6 +157,10 @@ import { useAutoSeat } from "@/app/(tools)/planning-poker/use-auto-seat";
 import { LOCAL_SESSION_KEY } from "@/app/(tools)/planning-poker/local-session";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import type { Session } from "@/app/(tools)/planning-poker/types";
+import { SHORTENED_MARK } from "@/app/(tools)/planning-poker/visitor-session";
+import { pokerQueueRoute, storyQueueSource } from "@/lib/handoffs/targets/poker-queue";
+import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 type FakeChannel = (typeof h.channels)[number];
 
@@ -339,6 +343,41 @@ describe("Start a live room (host, tool page)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Reveal/ }));
     fireEvent.click(screen.getByRole("button", { name: "Accept 5" }));
     expect(h.log).not.toHaveBeenCalled();
+  });
+
+  it("takes a queue of fully described stories without going over the room's size limit", () => {
+    // 40 backlog stories with full notes and acceptance criteria: about
+    // 160,000 characters of description, more than the room sends at once.
+    const text = (word: string) => `- ${word} of the story\n`.repeat(120).slice(0, 2_000);
+    useWorkspaceStore.setState({ pokerEstimationLogs: [] });
+    for (let i = 0; i < 40; i++) {
+      pokerQueueRoute.send(
+        storyQueueSource({
+          id: `st${i}`,
+          title: `Queued story ${i}`,
+          notes: text("note"),
+          acceptanceCriteria: text("criterion"),
+        })
+      );
+    }
+    const { ch } = startLiveRoom();
+    const before = states(ch).length;
+    fireEvent.click(screen.getByRole("button", { name: "Add queued stories (40)" }));
+
+    // The room got the session, with every story: nothing was refused.
+    expect(h.toast.error).not.toHaveBeenCalled();
+    expect(states(ch).length).toBeGreaterThan(before);
+    const sent = states(ch).at(-1)!;
+    expect(sent.state.stories.map((st) => st.title)).toEqual(
+      Array.from({ length: 40 }, (_, i) => `Queued story ${i}`)
+    );
+    expect(JSON.stringify(sent).length).toBeLessThanOrEqual(VISITOR_LIMITS.maxPayloadChars);
+    // Each description was shortened, and says so.
+    for (const st of sent.state.stories) {
+      expect(st.description?.startsWith("- note of the story")).toBe(true);
+      expect(st.description?.endsWith(SHORTENED_MARK)).toBe(true);
+    }
+    useWorkspaceStore.setState({ pokerEstimationLogs: [] });
   });
 
   it("ending the room keeps the session locally, with only the host's seat", () => {
