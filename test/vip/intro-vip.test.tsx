@@ -317,6 +317,27 @@ describe("VipIntro", () => {
       expect(book()!.querySelector(`[data-look="ground"].${styles.bookGround}`)).not.toBeNull();
     });
 
+    // A part on an element that keeps the 3D space open would flatten the book.
+    it("puts every look part on a face or a page, never on what keeps the 3D space open", () => {
+      render(<VipIntro tools={TOOLS} earlyComics={[]} />);
+      const open = [styles.bookDrop, styles.bookCover];
+      for (const part of Array.from(book()!.querySelectorAll("[data-look]"))) {
+        const kind = part.getAttribute("data-look")!;
+        expect(
+          open.some((c) => part.classList.contains(c)),
+          kind
+        ).toBe(false);
+        expect(
+          open.some((c) => part.parentElement!.classList.contains(c)),
+          kind
+        ).toBe(false);
+      }
+      const cover = book()!.querySelector(`.${styles.bookCover}`)!;
+      for (const part of Array.from(cover.querySelectorAll("[data-look]"))) {
+        expect(part.parentElement).toHaveClass(styles.bookFace);
+      }
+    });
+
     it("has no book when there are no tools to deal", () => {
       render(<VipIntro tools={[]} earlyComics={EARLY} />);
       expect(book()).toBeNull();
