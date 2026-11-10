@@ -341,7 +341,8 @@ describe("who processes what, and where", () => {
     expect(middleware.slice(middleware.indexOf("export const config"))).not.toMatch(/runtime/);
     // vercel.json moves no function to another region.
     expect(Object.keys(JSON.parse(read("vercel.json")))).not.toContain("functions");
-  });
+    // The first read of every file under src: about 1.5 s alone, past 5 s under a full run.
+  }, 20_000);
 
   it("names Supabase for the database, storage and realtime, with no region it can't prove", () => {
     const [, supabase] = processors();
