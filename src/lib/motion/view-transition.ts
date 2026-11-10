@@ -14,7 +14,10 @@
  *   finishes, when it is skipped, when the update fails and when the browser
  *   refuses it (a rejected `ready`, for example two elements given one name).
  * - One at a time: a call while another runs skips the running one, and the
- *   new update swaps plainly.
+ *   new update swaps plainly. The browser calls an update only once it has
+ *   captured the old picture, and a skip before that only queues the call,
+ *   so a new update waits until the skipped one has begun. Otherwise the
+ *   stale change would land last (tap A, then B, and end on A).
  * - A plain swap, with no transition at all, when the browser has none, the
  *   block's --vt-ready marker is missing (without it nothing would be held
  *   still), under reduced motion, while presenting, with an intro on stage
@@ -48,6 +51,13 @@ export const VT_ATTR = "data-vt";
 /** Set by the VIEW TRANSITIONS block in globals.css, inside its @supports. */
 const READY_PROPERTY = "--vt-ready";
 
+/**
+ * A safety net only. The browser always calls an update, after the capture
+ * or in a task a skip queues, so this wait never runs out in practice; it
+ * keeps a browser bug from holding every later change back.
+ */
+const START_WAIT_MS = 1000;
+
 /** The parts of the browser's ViewTransition used here. */
 interface Transition {
   readonly ready: Promise<unknown>;
@@ -61,7 +71,20 @@ interface Running {
   skip: (why: "capped" | "skipped") => void;
 }
 
+/** An update handed to the browser that it has not called yet. */
+interface Unstarted {
+  begun: Promise<void>;
+  /** `begun` or the safety net, whichever comes first. Made once, so waiters keep their order. */
+  waited?: Promise<void>;
+}
+
 let running: Running | null = null;
+
+/**
+ * The last transition's update while the browser has not called it. It can
+ * outlive its transition: a skip or the cap before the capture only queues it.
+ */
+let unstarted: Unstarted | null = null;
 
 function prefersReducedMotion(): boolean {
   try {
@@ -102,9 +125,33 @@ export function skipViewTransition(): void {
   running?.skip("skipped");
 }
 
-async function plain(update: ViewTransitionUpdate): Promise<ViewTransitionOutcome> {
+/** Resolves once the earlier update the browser has not called yet has begun; null when none waits. */
+function afterUnstarted(): Promise<void> | null {
+  const pending = unstarted;
+  if (!pending) return null;
+  pending.waited ??= new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      // Given up on: later calls must not keep waiting for it.
+      if (unstarted === pending) unstarted = null;
+      resolve();
+    }, START_WAIT_MS);
+    void pending.begun.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+  return pending.waited;
+}
+
+async function runPlain(update: ViewTransitionUpdate): Promise<ViewTransitionOutcome> {
   await update();
   return "plain";
+}
+
+/** A plain swap: at once, or right after an earlier update the browser has not called yet. */
+function plain(update: ViewTransitionUpdate): Promise<ViewTransitionOutcome> {
+  const wait = afterUnstarted();
+  return wait ? wait.then(() => runPlain(update)) : runPlain(update);
 }
 
 /**
@@ -124,12 +171,17 @@ export function withViewTransition(
     running.skip("skipped");
     return plain(update);
   }
-  if (!canStartViewTransition()) return plain(update);
+  // An earlier update is still queued (its transition was skipped or capped
+  // before the capture): this one follows it, plainly.
+  if (unstarted || !canStartViewTransition()) return plain(update);
 
   const root = document.documentElement;
   let outcome: ViewTransitionOutcome = "ran";
   let updateSettled = false;
   let transition: Transition | null = null;
+  let begun = false;
+  let markBegun!: () => void;
+  const entry: Unstarted = { begun: new Promise<void>((resolve) => (markBegun = resolve)) };
 
   const self: Running = {
     kind,
@@ -162,6 +214,9 @@ export function withViewTransition(
   running = self;
   try {
     transition = document.startViewTransition(async () => {
+      begun = true;
+      if (unstarted === entry) unstarted = null;
+      markBegun();
       try {
         await update();
       } finally {
@@ -174,6 +229,9 @@ export function withViewTransition(
     release();
     return plain(update);
   }
+  // The browser calls the update later, after the capture; until then a
+  // newer call waits for it.
+  if (!begun) unstarted = entry;
 
   // A rejected ready means the browser skipped it: a duplicate name, a hidden
   // tab, a skip, a failed update. The names go now, not after the update.

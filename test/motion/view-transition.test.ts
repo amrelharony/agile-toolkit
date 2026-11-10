@@ -4,7 +4,8 @@
  * The browser's start function is a fake that follows the spec's order: the
  * old picture is captured first, the update runs after, `ready` settles when
  * the update is done (or rejects on a skip), and `finished` settles after the
- * animation, or right after the update when skipped.
+ * animation, or right after the update when skipped. With `captureMs` the
+ * capture waits on a timer, and a skip before it only queues the update.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -51,6 +52,14 @@ interface FakeOptions {
   duplicateInNew?: boolean;
   /** The start function itself throws. */
   throwOnStart?: boolean;
+  /**
+   * The capture takes this long (a timer), as when the next frame comes late.
+   * A skip before then queues the update as a task (a 0 ms timer), as the
+   * spec says. Unset: the update runs a microtask after the start.
+   */
+  captureMs?: number;
+  /** A browser bug: the update is never called. */
+  neverCallsUpdate?: boolean;
 }
 
 function installBrowser(options: FakeOptions = {}) {
@@ -67,10 +76,19 @@ function installBrowser(options: FakeOptions = {}) {
       readySettled = true;
       ready.reject(error);
     };
+    let call!: () => void;
+    const called = new Promise<void>((resolve) => (call = resolve));
+    let captureTimer: ReturnType<typeof setTimeout> | undefined;
     const skipTransition = vi.fn(() => {
       if (skipped) return;
       skipped = true;
       rejectReady(new DOMException("Skipped", "AbortError"));
+      // Skipped before the capture: the update is queued as a task.
+      if (captureTimer !== undefined) {
+        clearTimeout(captureTimer);
+        captureTimer = undefined;
+        setTimeout(call, 0);
+      }
     });
     const fake: FakeTransition = {
       vtAtCapture: root.getAttribute(VT_ATTR),
@@ -83,7 +101,17 @@ function installBrowser(options: FakeOptions = {}) {
       rejectReady(new DOMException("Duplicate name", "InvalidStateError"));
     }
     // The update runs after the old picture is captured, never synchronously.
-    const updateCallbackDone = Promise.resolve().then(() => update());
+    const updateCallbackDone = called.then(() => update());
+    if (options.neverCallsUpdate) {
+      // Left uncalled.
+    } else if (options.captureMs === undefined) {
+      call();
+    } else {
+      captureTimer = setTimeout(() => {
+        captureTimer = undefined;
+        call();
+      }, options.captureMs);
+    }
     updateCallbackDone.then(
       () => {
         if (options.duplicateInNew && !skipped) {
@@ -351,7 +379,80 @@ describe("html[data-vt] is always removed", () => {
 });
 
 describe("one at a time", () => {
-  it("a second call skips the running one and swaps plainly", async () => {
+  it("a second call in the same task waits for the first update to begin, so the newer change lands last", async () => {
+    const { start, made } = installBrowser();
+    const order: string[] = [];
+    const firstResult = withViewTransition("page", () => void order.push("A"), { capMs: CAP });
+    // No flush: the browser has not called the first update yet.
+    const secondResult = withViewTransition("page", () => void order.push("B"), { capMs: CAP });
+    expect(made[0].skipTransition).toHaveBeenCalledTimes(1);
+    expect(root.hasAttribute(VT_ATTR)).toBe(false);
+    expect(order).toEqual([]);
+    await expect(secondResult).resolves.toBe("plain");
+    expect(order).toEqual(["A", "B"]);
+    await expect(firstResult).resolves.toBe("skipped");
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(root.hasAttribute(VT_ATTR)).toBe(false);
+    expect(isViewTransitionRunning()).toBe(false);
+  });
+
+  it("keeps the order when the capture comes a frame later and a skip only queues the update", async () => {
+    vi.useFakeTimers();
+    const { made } = installBrowser({ captureMs: 16 });
+    const order: string[] = [];
+    const firstResult = withViewTransition("page", () => void order.push("A"), { capMs: CAP });
+    const secondResult = withViewTransition("page", () => void order.push("B"), { capMs: CAP });
+    const third = withViewTransition("page", () => void order.push("C"), { capMs: CAP });
+    expect(made[0].skipTransition).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order).toEqual(["A", "B", "C"]);
+    await expect(firstResult).resolves.toBe("skipped");
+    await expect(secondResult).resolves.toBe("plain");
+    await expect(third).resolves.toBe("plain");
+    expect(root.hasAttribute(VT_ATTR)).toBe(false);
+  });
+
+  it("runs a new update after one the cap skipped before the capture", async () => {
+    vi.useFakeTimers();
+    const { start, made } = installBrowser({ captureMs: CAP + 50 });
+    const order: string[] = [];
+    const firstResult = withViewTransition("page", () => void order.push("A"), { capMs: CAP });
+    // Only the cap fires; the update it queued has not run yet.
+    await vi.advanceTimersToNextTimerAsync();
+    expect(made[0].skipTransition).toHaveBeenCalledTimes(1);
+    expect(order).toEqual([]);
+    expect(isViewTransitionRunning()).toBe(false);
+    const secondResult = withViewTransition("page", () => void order.push("B"), { capMs: CAP });
+    expect(start).toHaveBeenCalledTimes(1);
+    // The fake clock gives a 0 ms timer made inside a timer 1 ms.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(order).toEqual(["A", "B"]);
+    await expect(firstResult).resolves.toBe("capped");
+    await expect(secondResult).resolves.toBe("plain");
+    expect(root.hasAttribute(VT_ATTR)).toBe(false);
+  });
+
+  it("stops waiting for an update the browser never calls after a second, then starts transitions again", async () => {
+    vi.useFakeTimers();
+    installBrowser({ neverCallsUpdate: true });
+    void withViewTransition("page", () => {}, { capMs: CAP });
+    const second = vi.fn();
+    const secondResult = withViewTransition("page", second, { capMs: CAP });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(second).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(second).toHaveBeenCalledTimes(1);
+    await expect(secondResult).resolves.toBe("plain");
+
+    const { start, made } = installBrowser();
+    const third = withViewTransition("page", () => {}, { capMs: CAP });
+    expect(start).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(0);
+    made[0].endAnimation();
+    await expect(third).resolves.toBe("ran");
+  });
+
+  it("a second call after the first update has begun skips the running one and swaps at once", async () => {
     const { start, made } = installBrowser();
     const first = deferred();
     const firstUpdate = vi.fn(() => first.promise);
