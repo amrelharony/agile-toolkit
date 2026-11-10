@@ -242,7 +242,7 @@ export function privacyRows(): PrivacyRow[] {
       leaves: [{ text: `What you type: ${listOf(Object.values(GUESTBOOK_FIELDS))}.` }],
       kept: [
         {
-          text: `Both, and when you sent them. No IP address and nothing about your browser. The note shows on the guestbook once Amr has approved it. ${KEPT_UNTIL_ASKED}`,
+          text: `Both, and when you sent them. No IP address and nothing about your browser. Your name and your note show on the guestbook once Amr has approved them. ${KEPT_UNTIL_ASKED}`,
         },
         { says: "Under the form, the site says:", text: GUESTBOOK_FORM_NOTE },
       ],

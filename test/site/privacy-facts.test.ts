@@ -224,7 +224,16 @@ describe("each row, against the site", () => {
     const guestbook = row("guestbook");
     expect(Object.keys(EMPTY_GUESTBOOK_DRAFT)).toEqual(["name", "message"]);
     expect(guestbook.leaves[0].text).toBe("What you type: the name and the note.");
-    expect(said(guestbook)).toContain("once Amr has approved it");
+    expect(said(guestbook)).toContain(
+      "Your name and your note show on the guestbook once Amr has approved them."
+    );
+    // The name is public, not only the note: the form says so beside the field,
+    // the page's read fetches it, and the page prints it under each note.
+    expect(read("src/app/(tools)/comics/guestbook/guestbook-form.tsx")).toMatch(
+      /<Field label="Your name" hint="Shown with your note\."/
+    );
+    expect(read("src/lib/comics/guestbook-store.ts")).toContain('.select("id,name,message")');
+    expect(read("src/app/(tools)/comics/guestbook/page.tsx")).toContain("{note.name}</p>");
     expect(quoted(guestbook)).toEqual([GUESTBOOK_FORM_NOTE]);
     expect(read("supabase/migrations/0033_comic_guestbook_quiz.sql")).toContain(
       "shown only once the owner approves them. Read and written by server code only. No IP address or user agent is stored."
