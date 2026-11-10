@@ -6,7 +6,8 @@
  * One VEVENT per ceremony from `ceremonyDates`, which has already skipped
  * the holidays, so there is no recurrence rule or exception date to get
  * wrong. No time zone is stored with the cadence: its times are the
- * browser's local times, written here as UTC instants.
+ * browser's local times, written here as UTC instants. An entry lasts its
+ * ceremony's timebox, or until the next ceremony starts when that is sooner.
  *
  * The file is a snapshot. Every entry has a UID that stays the same from one
  * download to the next (sprint id, ceremony and date), so a calendar that
@@ -22,7 +23,7 @@ import {
   ceremonyTimeboxMinutes,
   timeboxLabel,
   type CeremonyCadence,
-  type CeremonyKind,
+  type CeremonyOccurrence,
 } from "./cadence";
 import { isIsoDate, isoDayNumber, isoFromDayNumber, weekdayOf } from "./calendar";
 import { hasSyntheticDates, sprintLengthDays } from "./series";
@@ -220,12 +221,32 @@ export interface SprintCalendarInput {
 const snapshotNote = (change: string) =>
   `From the Agile Toolkit. This entry is a snapshot: if ${change}, download the calendar file again.`;
 
+/**
+ * The ceremony that starts while `occurrences[index]` would still be in its
+ * timebox, if there is one. Its start is where that entry ends, so no two of
+ * the sprint's ceremonies sit on a calendar at once: on the default times a
+ * two-week sprint's 2 h review would run 30 minutes into the retro. One that
+ * starts at the very same moment cuts nothing, since an entry needs a length.
+ * `occurrences` is in time order.
+ */
+function cutShortBy(
+  occurrences: readonly CeremonyOccurrence[],
+  index: number,
+  minutes: number
+): CeremonyOccurrence | undefined {
+  const start = occurrences[index].at.getTime();
+  const next = occurrences.slice(index + 1).find((o) => o.at.getTime() > start);
+  return next && next.at.getTime() < start + minutes * 60_000 ? next : undefined;
+}
+
 function ceremonyEntry(
   sprint: Sprint,
-  kind: CeremonyKind,
-  at: Date,
+  { kind, at }: CeremonyOccurrence,
+  /** Its timebox. */
   minutes: number,
-  origin: string
+  origin: string,
+  /** The ceremony that starts before the timebox is up: the entry ends there. */
+  cutBy?: CeremonyOccurrence
 ): CalendarEntry {
   const label = CEREMONY_LABEL[kind];
   const name = oneLine(sprint.name, SUMMARY_MAX) || "Sprint";
@@ -234,10 +255,16 @@ function ceremonyEntry(
   return {
     // The sprint's own date, not the UTC one: the same for a teammate in any zone.
     uid: `sprint-${uidPart(sprint.id)}-${kind}-${localDayStamp(at)}@${UID_DOMAIN}`,
-    when: { type: "timed", start: at, end: new Date(at.getTime() + minutes * 60_000) },
+    when: {
+      type: "timed",
+      start: at,
+      end: cutBy ? cutBy.at : new Date(at.getTime() + minutes * 60_000),
+    },
     summary: `${label} · ${name}`,
     description: [
-      `Timebox: ${timeboxLabel(minutes)}.`,
+      cutBy
+        ? `Timebox: ${timeboxLabel(minutes)}. This entry ends when the ${CEREMONY_LABEL[cutBy.kind]} starts.`
+        : `Timebox: ${timeboxLabel(minutes)}.`,
       ...(goal ? [`Sprint goal: ${goal}`] : []),
       `Open it on ${name}: ${url}`,
       "",
@@ -306,9 +333,11 @@ export function sprintCalendarEntries(input: SprintCalendarInput): SprintCalenda
     return { entries: [], ceremonies: 0, actions: 0, weeklyStory: false };
   }
   const length = sprintLengthDays(sprint);
-  const entries = ceremonyDates(sprint, cadence).map((o) =>
-    ceremonyEntry(sprint, o.kind, o.at, ceremonyTimeboxMinutes(o.kind, length), origin)
-  );
+  const occurrences = ceremonyDates(sprint, cadence);
+  const entries = occurrences.map((o, i) => {
+    const minutes = ceremonyTimeboxMinutes(o.kind, length);
+    return ceremonyEntry(sprint, o, minutes, origin, cutShortBy(occurrences, i, minutes));
+  });
   const ceremonies = entries.length;
   const due = calendarActions(input.actions ?? []).sort(
     (a, b) => (a.dueDate as string).localeCompare(b.dueDate as string) || a.id.localeCompare(b.id)

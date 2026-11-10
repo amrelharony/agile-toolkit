@@ -205,7 +205,8 @@ describe("the sprint's calendar away from UTC", () => {
       expect(times("refinement", "20261021")).toEqual(["20261021T150000Z", "20261021T160000Z"]);
       expect(times("daily", "20261030")).toEqual(["20261030T133000Z", "20261030T134500Z"]);
       expect(times("daily", "20261102")).toEqual(["20261102T143000Z", "20261102T144500Z"]);
-      expect(times("review", "20261102")[0]).toBe("20261102T190000Z");
+      // The 2 h review ends when the retro starts, 15:30 in New York.
+      expect(times("review", "20261102")).toEqual(["20261102T190000Z", "20261102T203000Z"]);
       expect(times("retro", "20261102")).toEqual(["20261102T203000Z", "20261102T220000Z"]);
       // Whole days are the sprint's own dates, in any zone.
       expect(byUid(ics, "retro-action-a1@agile.amrelharony.com")).toContain(
@@ -317,6 +318,67 @@ describe("sprintCalendar", () => {
     // In time order.
     const starts = events(ics).map((e) => prop(e, "DTSTART") ?? "");
     expect([...starts].sort()).toEqual(starts);
+  });
+
+  it("ends an entry when the next ceremony starts, and says so", () => {
+    // Two weeks on the default times: a 2 h review at 14:00, the retro at 15:30.
+    expect(sprintLengthDays(TWO_WEEKS)).toBe(14);
+    expect(ceremonyTimeboxMinutes("review", 14)).toBe(120);
+    const { ics } = build({ sprint: TWO_WEEKS });
+    const review = byUid(ics, uidOf("review", "20261102"));
+    const retro = byUid(ics, uidOf("retro", "20261102"));
+    expect(prop(review, "DTSTART")).toBe(icsUtc(localDateTime("2026-11-02", "14:00")!));
+    expect(prop(review, "DTEND")).toBe(icsUtc(localDateTime("2026-11-02", "15:30")!));
+    expect(prop(review, "DTEND")).toBe(prop(retro, "DTSTART"));
+    // The words still give the timebox, and why the entry is shorter.
+    expect(unescape(prop(review, "DESCRIPTION") ?? "")).toMatch(
+      /^Timebox: 2 h\. This entry ends when the Sprint Retrospective starts\.\n/
+    );
+    // Nothing follows the retro: it keeps its 1 h 30.
+    expect(prop(retro, "DTEND")).toBe(icsUtc(localDateTime("2026-11-02", "17:00")!));
+    expect(unescape(prop(retro, "DESCRIPTION") ?? "")).toMatch(/^Timebox: 1 h 30\.\n/);
+    // So does the planning: the next ceremony is a day away.
+    const planning = byUid(ics, uidOf("planning", "20261019"));
+    expect(prop(planning, "DTEND")).toBe(icsUtc(localDateTime("2026-10-19", "14:00")!));
+    expect(unescape(prop(planning, "DESCRIPTION") ?? "")).toMatch(/^Timebox: 4 h\.\n/);
+  });
+
+  it("has no two ceremonies at once in a sprint of two, three or four weeks", () => {
+    for (const endDate of ["2026-11-02", "2026-11-09", "2026-11-16"]) {
+      const { ics } = build({ sprint: { ...SPRINT, endDate } });
+      // UTC date-times of one shape: they sort as text.
+      const spans = events(ics).map((e) => [prop(e, "DTSTART") ?? "", prop(e, "DTEND") ?? ""]);
+      expect(spans.length, endDate).toBeGreaterThan(14);
+      spans.forEach(([start, end], i) => {
+        expect(end > start, `${endDate} entry ${i} has a length`).toBe(true);
+        const next = spans[i + 1];
+        if (next) expect(end <= next[0], `${endDate} entry ${i} ends by the next`).toBe(true);
+      });
+    }
+  });
+
+  it("cuts whichever ceremony comes first, and neither when two start together", () => {
+    const at = (time: string) => icsUtc(localDateTime("2026-11-02", time)!);
+    // The retro before the review.
+    const swapped = build({
+      sprint: TWO_WEEKS,
+      cadence: { ...DEFAULT_CADENCE, retroTime: "13:00" },
+    }).ics;
+    const early = byUid(swapped, uidOf("retro", "20261102"));
+    expect(prop(early, "DTEND")).toBe(at("14:00"));
+    expect(unescape(prop(early, "DESCRIPTION") ?? "")).toMatch(
+      /^Timebox: 1 h 30\. This entry ends when the Sprint Review starts\.\n/
+    );
+    expect(prop(byUid(swapped, uidOf("review", "20261102")), "DTEND")).toBe(at("16:00"));
+
+    // Both at 14:00: an entry can't end where it starts, so each keeps its timebox.
+    const together = build({
+      sprint: TWO_WEEKS,
+      cadence: { ...DEFAULT_CADENCE, retroTime: "14:00" },
+    }).ics;
+    expect(prop(byUid(together, uidOf("review", "20261102")), "DTEND")).toBe(at("16:00"));
+    expect(prop(byUid(together, uidOf("retro", "20261102")), "DTEND")).toBe(at("15:30"));
+    expect(together).not.toContain("This entry ends when");
   });
 
   it("gives each entry a summary, a description, a link to its tool on that sprint and a reminder 10 minutes before", () => {
