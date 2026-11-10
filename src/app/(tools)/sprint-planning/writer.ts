@@ -26,9 +26,7 @@ export interface PlanningWriter {
    * saves of everything, and a frozen page on a phone.
    */
   upsertStories(stories: readonly Story[]): void;
-  /** Take back a story this page just made (the Undo of an add). */
-  removeStory(id: string): void;
-  /** Take back the stories of a paste or an import, in one write. */
+  /** Take back the stories this page just made (the Undo of a paste or an import), in one write. */
   removeStories(ids: readonly string[]): void;
   /**
    * Delete a story the user chose to delete. Returns how to put it back
@@ -46,7 +44,7 @@ export const liveWriter: PlanningWriter = {
   upsertStory: (story) => useWorkspaceStore.getState().upsertStory(story),
   // Stamped and cleaned as a single upsert is (the store's batch does both).
   upsertStories: (stories) => useWorkspaceStore.getState().bulkUpsertStories([...stories]),
-  removeStory: (id) => useWorkspaceStore.getState().removeStory(id),
+  // With the Canvas links to each cleared, as the store clears them for one.
   removeStories: (ids) => useWorkspaceStore.getState().removeStories(ids),
   // With the Canvas cards pinned to it, which the Undo re-links.
   deleteStory: (id) => deleteStoryKeepingUndo(id),
@@ -84,8 +82,9 @@ export function exampleWriter(store: ExampleStore): PlanningWriter {
     stories: () => store.getState().stories,
     upsertStory: (story) => store.setState((s) => ({ stories: replaceById(s.stories, story) })),
     upsertStories: (stories) =>
-      store.setState((s) => ({ stories: stories.reduce(replaceById, s.stories) })),
-    removeStory: (id) => store.setState((s) => ({ stories: s.stories.filter((x) => x.id !== id) })),
+      store.setState((s) => ({
+        stories: stories.reduce<Story[]>((list, story) => replaceById(list, story), s.stories),
+      })),
     removeStories: (ids) =>
       store.setState((s) => ({ stories: s.stories.filter((x) => !ids.includes(x.id)) })),
     deleteStory: (id) => {

@@ -714,6 +714,36 @@ describe("Paste stories", () => {
     stop();
   });
 
+  it("adds and takes back a list on the example plan in memory, one write each way", () => {
+    const store = createExampleStore({
+      sprints: [S2],
+      stories: [{ id: "example-a", title: "A", status: "backlog" }],
+    });
+    const writer = exampleWriter(store);
+    let writes = 0;
+    const stop = store.subscribe(() => {
+      writes += 1;
+    });
+    writer.upsertStories([
+      { id: "example-b", title: "B", status: "backlog" },
+      { id: "example-c", title: "C", status: "todo", sprintId: "s2" },
+      // One it holds already is replaced where it is.
+      { id: "example-a", title: "A, reworded", status: "backlog" },
+    ]);
+    expect(store.getState().stories.map((s) => [s.id, s.title])).toEqual([
+      ["example-a", "A, reworded"],
+      ["example-b", "B"],
+      ["example-c", "C"],
+    ]);
+    expect(writes).toBe(1);
+    writer.removeStories(["example-b", "example-c", "nope"]);
+    expect(store.getState().stories.map((s) => s.id)).toEqual(["example-a"]);
+    expect(writes).toBe(2);
+    stop();
+    // Nothing reached the workspace.
+    expect(ids()).toEqual(STORIES.map((s) => s.id));
+  });
+
   it("unpins a Canvas card from a pasted story when the paste is undone", () => {
     renderPlanning();
     openPaste();
