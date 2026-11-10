@@ -3,8 +3,11 @@
  * The paper grain (lib/ink/grain.ts, globals.css PAPER; DNA-SPEC lines 11, 13
  * and 27): the tiles in globals.css are the ones grain.ts writes, each stays
  * small, still and filter-free, specks sit on whole pixels without lining up,
- * the grain is only the body's background in Comic and Night, and text on the
- * worst pixel, where both tiles' specks overlap, still clears 4.5:1.
+ * the grain is only the body's background in Comic and Night, fields paint
+ * their own flat paper, and page text on the worst pixel, where both tiles'
+ * specks overlap, still clears 4.5:1. The status and accent colours on their
+ * own tints over the grain do not all clear it; the last block records by how
+ * much, since Lighthouse stops checking text on the page paper.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -367,8 +370,12 @@ describe("contrast on the worst pixel", () => {
   };
 
   function hex(theme: Record<string, string>, token: string): Rgb {
-    const m = theme[token]?.match(/^#([0-9a-f]{6})$/i);
-    if (!m) throw new Error(`--${token}: expected a 6-digit hex colour`);
+    let value = theme[token];
+    for (let v = value?.match(/^var\(--([\w-]+)\)$/); v; v = value.match(/^var\(--([\w-]+)\)$/)) {
+      value = theme[v[1]];
+    }
+    const m = value?.match(/^#([0-9a-f]{6})$/i);
+    if (!m) throw new Error(`--${token}: expected a 6-digit hex colour, got ${value}`);
     return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)) as Rgb;
   }
 
@@ -385,26 +392,195 @@ describe("contrast on the worst pixel", () => {
     return (hi + 0.05) / (lo + 0.05);
   }
 
-  /** Paper under a speck from each tile: two layers composited in sRGB, as browsers do. */
-  function worstPaper(theme: GrainTheme, strength: GrainStrength): Rgb {
+  /**
+   * The paper under one speck, then under a speck from each tile where the two
+   * overlap: layers composited in sRGB, as browsers do.
+   */
+  function grainedPaper(theme: GrainTheme, strength: GrainStrength): [Rgb, Rgb] {
     const ink: Rgb = theme === "light" ? [0, 0, 0] : [255, 255, 255];
+    const layers: Rgb[] = [];
     let paper = hex(PALETTES[theme], "bg");
     for (const uri of grainTiles(theme, strength)) {
       const a = Number(attr(svgOf(uri), "opacity"));
       paper = paper.map((c, i) => ink[i] * a + c * (1 - a)) as Rgb;
+      layers.push(paper);
     }
-    return paper;
+    expect(layers).toHaveLength(2);
+    return [layers[0], layers[1]];
   }
 
+  /** A tint is color-mix(in srgb, var(--x) N%, transparent) laid over what is below it. */
+  function tint(colour: Rgb, over: Rgb, percent: number): Rgb {
+    const a = percent / 100;
+    return colour.map((c, i) => c * a + over[i] * (1 - a)) as Rgb;
+  }
+
+  const themeName = (theme: GrainTheme) => (theme === "light" ? "Comic" : "Night");
+
   for (const theme of THEMES) {
-    it(`keeps --text, --sub and --accent at 4.5:1 or more in ${theme === "light" ? "Comic" : "Night"}, at every strength`, () => {
+    it(`keeps page text, --sub and --accent at 4.5:1 or more on the bare paper in ${themeName(theme)}, at every strength`, () => {
       for (const [name, s] of STRENGTHS) {
-        const paper = worstPaper(theme, s);
+        const [, worst] = grainedPaper(theme, s);
         for (const token of ["text", "sub", "accent"]) {
-          const ratio = contrast(hex(PALETTES[theme], token), paper);
+          const ratio = contrast(hex(PALETTES[theme], token), worst);
           expect(ratio, `${name} --${token}`).toBeGreaterThanOrEqual(4.5);
         }
       }
     });
+  }
+
+  /**
+   * theme-contrast.test.ts's TEXT_TOKENS: colours set as text on a tint of
+   * themselves (`text-X` on `bg-X/N`), held there to 4.5:1 up to /20 over flat
+   * paper. A tint is see-through, so on the page paper the grain shows in it.
+   */
+  const TEXT_TOKENS = [
+    "text",
+    "accent",
+    "accent2",
+    "accent3",
+    "success",
+    "warning",
+    "danger",
+    "destructive",
+    "info",
+    "neon-green",
+    "neon-amber",
+    "neon-magenta",
+  ];
+  const TINTS = [0, 5, 10, 15, 20];
+
+  type Hold = [overOneSpeck: number, whereTwoOverlap: number, ratioAt20WhereTwoOverlap: number];
+
+  /**
+   * How far each text colour still clears 4.5:1 on its own tint laid straight
+   * on the grained page paper: the largest tint in % over one speck, the
+   * largest where a speck from each tile overlaps (-1: not even on the bare
+   * paper), and the ratio at /20 where two overlap, its worst pixel. Over flat
+   * paper every one holds to /20, so each number under 20 is the grain's doing.
+   * Text on a panel, card, row or field is not affected: those paint flat.
+   *
+   * NOT YET ACCEPTED. These shortfalls are for the owner to rule on with the
+   * A/B/C pick, before merge: accept them as written, lower the opacity, or
+   * darken the tokens (theme-contrast.test.ts). Whatever is decided, this table
+   * changes with it. C has B's opacities on smaller tiles, so its pixels are
+   * B's (checked below).
+   */
+  const HOLDS: Record<"A" | "B", Record<GrainTheme, Record<string, Hold>>> = {
+    A: {
+      light: {
+        text: [20, 20, 7.98],
+        accent: [20, 10, 4.06],
+        accent2: [20, 10, 4.14],
+        accent3: [20, 20, 4.64],
+        success: [15, 10, 3.95],
+        warning: [15, 5, 3.84],
+        danger: [15, 10, 3.98],
+        destructive: [15, 10, 3.98],
+        info: [20, 10, 4.07],
+        "neon-green": [15, 5, 3.89],
+        "neon-amber": [15, 10, 3.92],
+        "neon-magenta": [20, 15, 4.17],
+      },
+      dark: {
+        text: [20, 20, 6.65],
+        accent: [20, 20, 4.56],
+        accent2: [20, 15, 4.47],
+        accent3: [20, 15, 4.43],
+        success: [20, 20, 4.79],
+        warning: [20, 20, 5.06],
+        danger: [20, 15, 4.26],
+        destructive: [20, 15, 4.26],
+        info: [20, 20, 4.5],
+        "neon-green": [20, 20, 4.87],
+        "neon-amber": [20, 20, 4.82],
+        "neon-magenta": [20, 15, 4.27],
+      },
+    },
+    B: {
+      light: {
+        text: [20, 20, 6.77],
+        accent: [15, 0, 3.46],
+        accent2: [15, 0, 3.53],
+        accent3: [20, 10, 3.95],
+        success: [10, -1, 3.37],
+        warning: [10, -1, 3.28],
+        danger: [10, 0, 3.39],
+        destructive: [10, 0, 3.39],
+        info: [15, 0, 3.47],
+        "neon-green": [10, -1, 3.32],
+        "neon-amber": [10, -1, 3.34],
+        "neon-magenta": [15, 0, 3.56],
+      },
+      dark: {
+        text: [20, 20, 5.66],
+        accent: [20, 10, 3.87],
+        accent2: [20, 10, 3.8],
+        accent3: [20, 10, 3.76],
+        success: [20, 15, 4.07],
+        warning: [20, 15, 4.29],
+        danger: [15, 5, 3.61],
+        destructive: [15, 5, 3.61],
+        info: [20, 10, 3.82],
+        "neon-green": [20, 15, 4.13],
+        "neon-amber": [20, 15, 4.09],
+        "neon-magenta": [15, 5, 3.62],
+      },
+    },
+  };
+
+  it("checks the same text colours as theme-contrast.test.ts", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "test/design/theme-contrast.test.ts"),
+      "utf8"
+    );
+    const list = source.match(/const TEXT_TOKENS = \[([\s\S]*?)\];/)?.[1];
+    expect(list).toBeDefined();
+    expect(Array.from(list!.matchAll(/"([\w-]+)"/g), (m) => m[1])).toEqual(TEXT_TOKENS);
+  });
+
+  it("gives C the same pixels as B, so B's row stands for both", () => {
+    expect(GRAIN_C.opacity).toEqual(GRAIN_B.opacity);
+  });
+
+  for (const [name, s] of STRENGTHS) {
+    for (const theme of THEMES) {
+      it(`records how far each text colour's own tint holds over the grain at ${name} in ${themeName(theme)}`, () => {
+        const expected = HOLDS[name === "A" ? "A" : "B"][theme];
+        const [one, two] = grainedPaper(theme, s);
+        const largest = (text: Rgb, paper: Rgb) => {
+          let held = -1;
+          for (const percent of TINTS) {
+            if (contrast(text, tint(text, paper, percent)) < 4.5) break;
+            held = percent;
+          }
+          return held;
+        };
+        const short: string[] = [];
+        for (const token of TEXT_TOKENS) {
+          const text = hex(PALETTES[theme], token);
+          const [heldOne, heldTwo, ratio] = expected[token];
+          expect(largest(text, one), `${token} over one speck`).toBe(heldOne);
+          expect(largest(text, two), `${token} where two overlap`).toBe(heldTwo);
+          expect(contrast(text, tint(text, two, 20)), `${token} /20`).toBeCloseTo(ratio, 2);
+          // Over flat paper it holds to /20, as theme-contrast.test.ts says.
+          expect(largest(text, hex(PALETTES[theme], "bg")), `${token} on flat paper`).toBe(20);
+          for (const [where, paper] of [
+            ["one speck", one],
+            ["two specks", two],
+          ] as const) {
+            for (const percent of TINTS) {
+              const r = contrast(text, tint(text, paper, percent));
+              if (r < 4.5) short.push(`${token}/${percent} over ${where}: ${r.toFixed(2)}`);
+            }
+          }
+        }
+        // Text itself never falls short; the count makes the strengths easy to compare.
+        expect(short.filter((p) => p.startsWith("text/"))).toEqual([]);
+        expect(short.length).toBe(
+          { A: { light: 27, dark: 5 }, B: { light: 62, dark: 24 } }[name === "A" ? "A" : "B"][theme]
+        );
+      });
+    }
   }
 });
