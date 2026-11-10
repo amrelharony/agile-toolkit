@@ -263,6 +263,22 @@ describe("cockpitNotes", () => {
     expect(notes({ impediments: [IMP] })[0]?.detail).toMatch(/^1 impediment is open\./);
   });
 
+  it("leaves out impediments from the Impediments page's example, as Sprint Planning does", () => {
+    const loaded: Impediment = { ...IMP, id: "example-imp-1", title: "Example blocker" };
+    expect(notes({ impediments: [loaded] })).toEqual([]);
+    expect(gatherCockpitData(sources({ impediments: [loaded] })).improvements.impediments).toEqual(
+      []
+    );
+    // Beside the team's own, only those count.
+    expect(notes({ impediments: [loaded, IMP] })[0]?.detail).toMatch(/^1 impediment is open\./);
+    // The cockpit's own example (a preview sprint) keeps its example impediments.
+    const preview: Sprint = { ...S2, id: "example-preview-sprint-5" };
+    expect(
+      gatherCockpitData(sources({ sprint: preview, sprints: [preview], impediments: [loaded] }))
+        .improvements.impediments
+    ).toHaveLength(1);
+  });
+
   it("counts a story planned from an impediment as improvement work", () => {
     const fromImpediment: Story = {
       id: "st-i",

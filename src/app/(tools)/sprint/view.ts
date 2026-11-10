@@ -49,6 +49,7 @@ import {
 } from "@/lib/sprints/progress";
 import { DRAFT_REVIEW_ID, reviewDocId, reviewHasContent } from "@/lib/sprints/review-doc";
 import { isExampleSprintId } from "@/lib/sprints/example";
+import { isExampleId } from "@/lib/utils/example-id";
 import {
   dayOf,
   impedimentStatus,
@@ -971,7 +972,12 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
       sprint,
       sprints: src.sprints ?? [sprint],
       retroBoards,
-      impediments,
+      // An example loaded into Impediments isn't the team's to plan, so it
+      // isn't counted here either (Sprint Planning leaves it out the same
+      // way). The cockpit's own example reads its example impediments.
+      impediments: isExampleSprintId(sprint.id)
+        ? impediments
+        : impediments.filter((i) => !isExampleId(i.id)),
       stories,
       kanbanBoards: src.kanbanBoards,
       today,
