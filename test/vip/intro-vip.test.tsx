@@ -568,15 +568,25 @@ describe("the timeline in vip-intro.module.css", () => {
 
   // The art paints over the lettering because it comes after it in the face,
   // and under the face's look, so the stripe and the turning shade cross the
-  // picture, as on the book intro's cover.
+  // picture, as on the book intro's cover. Only the look is lifted: a z-index
+  // on the art or on the lettering would undo that order.
   it("fills the cover's front with its art, still, and lifts the face's look above it", () => {
     const art = declsOf(".bookArt");
     expect(art).toContainEqual(["position", "absolute"]);
     expect(art).toContainEqual(["inset", "0"]);
     expect(art.some(([p]) => p.startsWith("animation"))).toBe(false);
+    expect(art.some(([p]) => p === "z-index")).toBe(false);
     expect(animations.some((a) => a.selector === ".bookArt")).toBe(false);
     const z = declsOf(".bookOverArt").find(([p]) => p === "z-index");
     expect(Number(z?.[1])).toBeGreaterThan(0);
+    const look = readFileSync(
+      path.join(process.cwd(), path.dirname(CSS), "intro-look.module.css"),
+      "utf8"
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const lettering = /(?:^|\})\s*\.lettering\s*\{([^}]*)\}/.exec(look);
+    expect(lettering).not.toBeNull();
+    expect(lettering![1]).toMatch(/(?:^|;)\s*position:\s*absolute\s*;/);
+    expect(lettering![1]).not.toMatch(/(?:^|;)\s*z-index\s*:/);
   });
 
   it("deals the tools at 2.95, 3.25 and 3.55 s, only once the book's cover is open", () => {
