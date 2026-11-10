@@ -10,6 +10,7 @@
  * written).
  */
 
+import { MAX_QUEUE_STORIES } from "@/lib/comics/queue";
 import { revalidateComics } from "@/lib/comics/revalidate";
 import {
   everReleased,
@@ -19,7 +20,8 @@ import {
 } from "@/lib/comics/story-input";
 import { answer, loadStories, ownerRoute, readJson, refuse } from "../../_owner";
 
-const MAX_ITEMS = 200;
+/** The whole queue in one go: there can't be more weekly stories than this. */
+const MAX_ITEMS = MAX_QUEUE_STORIES;
 /** A hundred one-row writes in a row would use up a serverless function's time. */
 const WRITES_AT_ONCE = 10;
 
