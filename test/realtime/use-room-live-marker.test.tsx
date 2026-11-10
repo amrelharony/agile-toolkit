@@ -16,7 +16,8 @@ import type { RoomAuthLease } from "@/lib/realtime/room-auth";
  *    refuses the room (flag off, bad code, no consented identity);
  *  - one mark per open room, also after React's mount, cleanup, mount.
  *
- * For the same span the tab asks for a screen wake lock (screen-wake-lock.ts).
+ * For the same span the tab asks for a screen wake lock (screen-wake-lock.ts),
+ * except that a visitor turned away from a full room lets it go at once.
  */
 
 type Listener = (...args: unknown[]) => void;
@@ -100,6 +101,18 @@ const useVisitorRoom = (code: string | null = CODE) =>
 
 /** Let the token promise's `then` run. */
 const settle = () => act(async () => {});
+
+/** The first presence sync of `channel` shows a room that already holds 20 others. */
+function fillRoom(channel: ReturnType<typeof h.makeChannel>) {
+  channel.state = Object.fromEntries(
+    Array.from({ length: VISITOR_LIMITS.maxMembers }, (_, i) => {
+      const id = `member${String(i).padStart(10, "0")}`;
+      return [id, [{ id, name: "Peer", color: "#00f0ff", joinedAt: "2026-11-09T08:00:00.000Z" }]];
+    })
+  );
+  const sync = channel.on.mock.calls.find((c) => c[0] === "presence")?.[2];
+  act(() => sync?.());
+}
 
 beforeEach(() => {
   h.auth = { status: "anonymous", user: null };
@@ -212,15 +225,7 @@ describe("useRoom marks a visitor live room", () => {
       ({ code }: { code: string | null }) => useVisitorRoom(code),
       { initialProps: { code: CODE as string | null } }
     );
-    const channel = h.client.channel.mock.results[0].value as ReturnType<typeof h.makeChannel>;
-    channel.state = Object.fromEntries(
-      Array.from({ length: VISITOR_LIMITS.maxMembers }, (_, i) => {
-        const id = `member${String(i).padStart(10, "0")}`;
-        return [id, [{ id, name: "Peer", color: "#00f0ff", joinedAt: "2026-11-09T08:00:00.000Z" }]];
-      })
-    );
-    const sync = channel.on.mock.calls.find((c) => c[0] === "presence")?.[2];
-    act(() => sync?.());
+    fillRoom(h.client.channel.mock.results[0].value as ReturnType<typeof h.makeChannel>);
     expect(result.current.roomFull).toBe(true);
     expect(h.client.removeChannel).toHaveBeenCalledTimes(1);
     // The channel was open for a moment and may have heard the room.
@@ -275,6 +280,55 @@ describe("useRoom keeps the screen awake while a visitor room is open", () => {
     renderHook(() => useVisitorRoom());
     await settle();
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("lets go at once for a room left because it was full, while the mark stays", async () => {
+    const { result, rerender } = renderHook(
+      ({ code }: { code: string | null }) => useVisitorRoom(code),
+      { initialProps: { code: CODE as string | null } }
+    );
+    await settle();
+    expect(request).toHaveBeenCalledTimes(1);
+    fillRoom(h.client.channel.mock.results[0].value as ReturnType<typeof h.makeChannel>);
+    expect(result.current.roomFull).toBe(true);
+    // The visitor never joined, so the phone may sleep on "This room is full".
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(inLiveVisitorRoom()).toBe(true);
+
+    // Coming back to the page asks for nothing more.
+    document.dispatchEvent(new Event("visibilitychange"));
+    await settle();
+    expect(request).toHaveBeenCalledTimes(1);
+
+    // Dropping the code later lets go of nothing twice.
+    rerender({ code: null });
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(inLiveVisitorRoom()).toBe(false);
+  });
+
+  it("lets go at once for a full room on the private-rooms path too", async () => {
+    vi.stubEnv("NEXT_PUBLIC_PRIVATE_ROOMS", "1");
+    h.lease = () => ({ ready: Promise.resolve(true), release: () => {} });
+    const { result } = renderHook(() => useVisitorRoom());
+    await settle();
+    expect(request).toHaveBeenCalledTimes(1);
+    fillRoom(h.client.channel.mock.results[0].value as ReturnType<typeof h.makeChannel>);
+    expect(result.current.roomFull).toBe(true);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(inLiveVisitorRoom()).toBe(true);
+  });
+
+  it("keeps the lock for another room in the tab when one room turns out full", async () => {
+    const other = renderHook(() => useVisitorRoom(OTHER_CODE));
+    const full = renderHook(() => useVisitorRoom(CODE));
+    await settle();
+    expect(request).toHaveBeenCalledTimes(1);
+    fillRoom(h.client.channel.mock.results[1].value as ReturnType<typeof h.makeChannel>);
+    expect(full.result.current.roomFull).toBe(true);
+    expect(release).not.toHaveBeenCalled();
+
+    other.unmount();
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it("opens the room as usual when the browser refuses", async () => {
