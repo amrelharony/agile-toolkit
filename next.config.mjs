@@ -44,6 +44,11 @@ const nextConfig = {
       // more specific than the comics section.
       { source: "/agile-at-work", destination: "/comics", permanent: true },
       { source: "/agile-at-work/:path*", destination: "/comics", permanent: true },
+      // Who runs the site and how to reach him are on the privacy page. Not
+      // permanent: a browser keeps a permanent redirect for good, and either
+      // address may get a page of its own one day.
+      { source: "/about", destination: "/privacy", permanent: false },
+      { source: "/contact", destination: "/privacy", permanent: false },
     ];
   },
   async headers() {

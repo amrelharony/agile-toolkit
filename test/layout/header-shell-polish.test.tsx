@@ -152,6 +152,7 @@ describe("the bar's title on a page that isn't a tool", () => {
     ["/insights", "Your activity"],
     ["/team", "Team"],
     ["/more-tools", "More tools"],
+    ["/privacy", "Privacy"],
     ["/vip", VIP_TITLE],
     ["/s", "Shared snapshot"],
     ["/settings/appearance", "Settings"],
