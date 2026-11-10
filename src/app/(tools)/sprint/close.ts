@@ -11,7 +11,7 @@
  */
 
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Sprint, SprintGoalOutcome, Story } from "@/lib/stores/workspace-types";
+import type { Sprint, SprintGoal, SprintGoalOutcome, Story } from "@/lib/stores/workspace-types";
 import { goalDocId } from "@/lib/sprints/goal-doc";
 import { createSprint, setStorySprint, updateSprint } from "@/lib/sprints/store";
 import type { CarryOverPlan } from "@/components/sprints/close-sprint-dialog";
@@ -104,8 +104,14 @@ export function closeSprint(
   const moved = movedTo || plan?.target === "backlog" ? stories.length : 0;
 
   let undone = false;
-  // The answer the goal held before this close recorded one (usually none).
-  let answered: { before: SprintGoalOutcome | undefined } | null = null;
+  // The answer the goal held before this close recorded one (usually none),
+  // whether the goal document existed then or was made for the answer, and
+  // the document as the answer last wrote it.
+  let answered: {
+    before: SprintGoalOutcome | undefined;
+    existed: boolean;
+    written: SprintGoal;
+  } | null = null;
 
   return {
     sprint,
@@ -119,17 +125,26 @@ export function closeSprint(
       if (!current) return;
       // As the Sprint Goal page writes it: a sprint without a goal document
       // gets one, goal statement included.
-      const { doc } = viewGoal(now.sprintGoals ?? [], current);
-      if (!answered) answered = { before: doc.outcome };
-      now.upsertSprintGoal(withOutcome(doc, values));
+      const { doc, stored } = viewGoal(now.sprintGoals ?? [], current);
+      const written = withOutcome(doc, values);
+      answered = answered
+        ? { ...answered, written }
+        : { before: doc.outcome, existed: stored, written };
+      now.upsertSprintGoal(written);
     },
     revert: () => {
       undone = true;
       if (moved > 0) restoreStories(liveWriter, stories);
       const now = useWorkspaceStore.getState();
       if (answered) {
-        const doc = (now.sprintGoals ?? []).find((d) => d.id === goalDocId(id));
-        if (doc) now.upsertSprintGoal(withoutOutcome(doc, answered.before));
+        const docId = goalDocId(id);
+        const doc = (now.sprintGoals ?? []).find((d) => d.id === docId);
+        // A document made only to hold the answer goes with it, unless it was
+        // edited since (the Sprint Goal page): then, like one that was there,
+        // it keeps the edits and gets its earlier answer back.
+        const untouched = doc && JSON.stringify(doc) === JSON.stringify(answered.written);
+        if (doc && !answered.existed && untouched) now.removeSprintGoal(docId);
+        else if (doc) now.upsertSprintGoal(withoutOutcome(doc, answered.before));
       }
       if (created) now.removeSprint(created.id);
       now.upsertSprint(before);

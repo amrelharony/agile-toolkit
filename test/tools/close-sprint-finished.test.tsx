@@ -192,7 +192,8 @@ describe("the finished step", () => {
 
     undoClose();
     expect(sprint()).toEqual(S2);
-    expect(goalDoc()?.outcome).toBeUndefined();
+    // The goal document the answer made goes with it: Undo puts it all back.
+    expect(goalDoc()).toBeUndefined();
     expect(unansweredGoal(state().sprintGoals, sprint())).toBe("Checkout works end to end");
   });
 
@@ -385,6 +386,37 @@ describe("closeSprint: the goal answer", () => {
     closed.revert();
     // The answer from before the close, not the first one this close wrote.
     expect(goalDoc()).toEqual(earlier);
+  });
+
+  it("removes on revert the goal document it had to create for the answer", () => {
+    const other: SprintGoal = {
+      id: goalDocId("s3"),
+      sprintId: "s3",
+      businessObjective: "",
+      goal: "Refunds",
+      criteria: [],
+      keyResults: [],
+    };
+    useWorkspaceStore.setState({ sprintGoals: [other] });
+    const closed = closeSprint("s2", 13)!;
+    closed.answerGoal({ met: "met" });
+    // As the Sprint Goal page writes it: the goal statement goes with the answer.
+    expect(goalDoc()).toMatchObject({ goal: "Checkout works end to end", outcome: { met: "met" } });
+    closed.answerGoal({ met: "partly" });
+    closed.revert();
+    // The sprint had no goal document before the close: none is left behind.
+    expect(goalDoc()).toBeUndefined();
+    expect(state().sprintGoals).toEqual([other]);
+  });
+
+  it("keeps that document, without the answer, when it was edited before the Undo", () => {
+    const closed = closeSprint("s2", 13)!;
+    closed.answerGoal({ met: "met" });
+    // Someone fills in the objective on the Sprint Goal page meanwhile.
+    state().upsertSprintGoal({ ...goalDoc()!, businessObjective: "Fewer abandoned baskets" });
+    closed.revert();
+    expect(goalDoc()).toMatchObject({ businessObjective: "Fewer abandoned baskets" });
+    expect(goalDoc()?.outcome).toBeUndefined();
   });
 
   it("does nothing once the close was undone, or for a sprint that is gone", () => {
