@@ -69,6 +69,11 @@ export function buildExample(today: string = todayIso()): PlanningExample {
       sprintId: planning.id,
       owner: "Ben",
       readiness: ready(at),
+      // What "Details" on a row holds: criteria, notes and the ticket key.
+      acceptanceCriteria:
+        "- A returning customer sees their saved cards at checkout\n- Paying with one asks for the security code only\n- A declined card says why, and offers another",
+      notes: "Cards are stored by the payment provider, never by us.",
+      ticketKey: "PAY-12",
     },
     {
       id: exampleId("story-4"),

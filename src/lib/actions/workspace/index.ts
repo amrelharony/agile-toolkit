@@ -85,6 +85,14 @@ import {
   STORY_STATUS_HISTORY_CAP,
   stampStoryWrite,
 } from "@/lib/sprints/story-status";
+import {
+  STORY_CRITERIA_MAX,
+  STORY_LINK_MAX,
+  STORY_NOTES_MAX,
+  STORY_TICKET_KEY_MAX,
+  cleanStoryFields,
+  storyLink,
+} from "@/lib/stories/fields";
 import type {
   Sprint,
   SprintSeries,
@@ -336,7 +344,9 @@ const StoryStatusSchema = z.enum(STORY_STATUSES as [Story["status"], ...Story["s
 // The flow stamps are listed so an update keeps them (z.object drops keys it
 // doesn't know). A status change through create/update stamps them itself
 // (`stampStoryWrite`, as the app's setStoryStatus does); send them only to
-// backfill.
+// backfill. Notes, acceptance criteria, the link and the ticket key are
+// capped as the app caps them (lib/stories/fields.ts): a longer value, or a
+// link that isn't http or https, is rejected rather than cut.
 const StorySchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -402,6 +412,33 @@ const StorySchema = z.object({
     .describe(
       "The decided backlog order it was pulled in with (its backlog item's rank, 1 = first). Absent: not ordered."
     ),
+  notes: z
+    .string()
+    .max(STORY_NOTES_MAX)
+    .optional()
+    .describe('Free notes on the story (at most 2,000 characters). "" clears them.'),
+  acceptanceCriteria: z
+    .string()
+    .max(STORY_CRITERIA_MAX)
+    .optional()
+    .describe(
+      'How the team will know it is done right (at most 2,000 characters). "" clears them.'
+    ),
+  link: z
+    .string()
+    .max(STORY_LINK_MAX)
+    .refine((v) => v.trim() === "" || storyLink(v) !== undefined, {
+      message: "link must be an http or https address",
+    })
+    .optional()
+    .describe(
+      'Its issue in the tracker the team uses: an http or https address (at most 500 characters). "" clears it.'
+    ),
+  ticketKey: z
+    .string()
+    .max(STORY_TICKET_KEY_MAX)
+    .optional()
+    .describe('Its key in the tracker, such as "PAY-12" (at most 50 characters). "" clears it.'),
 }) as unknown as z.ZodType<Story>;
 
 const ImpedimentSchema = z.object({
@@ -795,7 +832,8 @@ defineCrudActions<Story>({
   upsert: (s) => ws().upsertStory(s),
   remove: (id) => ws().removeStory(id),
   generateId: () => `story_${nanoid(8)}`,
-  prepare: (next, current) => stampStoryWrite(next, current),
+  // The four text fields are trimmed, and one sent as "" is removed.
+  prepare: (next, current) => stampStoryWrite(cleanStoryFields(next), current),
 });
 
 defineCrudActions<Impediment>({
@@ -2344,6 +2382,7 @@ const PokerEstimationLogSchema = z.object({
       votes: z.array(z.string()).optional(),
       decidedAt: z.string(),
       sourceRef: HandoffRefSchema.optional(),
+      sessionStoryId: z.string().optional(),
     })
   ),
   queue: z

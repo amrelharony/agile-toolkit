@@ -10,6 +10,8 @@ interface Row {
   priorityScore: number;
   /** Indexes into the criteria that passed, and the day of the check (days ago). */
   check?: { met: "all" | number[]; daysAgo: number; ready: boolean };
+  /** What the panel shows beside the ticks: the story's criteria, notes and key. */
+  details?: Pick<Story, "acceptanceCriteria" | "notes" | "ticketKey">;
 }
 
 /**
@@ -38,6 +40,12 @@ const ROWS: Row[] = [
     priorityScore: 80,
     // Everything but "Dependencies identified": the PDF service isn't picked.
     check: { met: [0, 1, 2, 4, 5, 6, 7], daysAgo: 6, ready: false },
+    details: {
+      acceptanceCriteria:
+        "- A statement for any of the last 24 months\n- The figures match the ones in the app\n- It opens on a phone without zooming",
+      notes: "Waiting on the choice of PDF service.",
+      ticketKey: "BANK-214",
+    },
   },
   {
     title: "Split a bill with contacts",
@@ -50,6 +58,10 @@ const ROWS: Row[] = [
     priorityScore: 60,
     // Too big: it doesn't fit a sprint and needs splitting.
     check: { met: [0, 1, 2, 3], daysAgo: 13, ready: false },
+    details: {
+      notes:
+        "Covers every account, card and currency at once. Try Check the story: it may split by data.",
+    },
   },
   { title: "Biometric login on tablets", priorityScore: 55 },
   { title: "Dark mode for the app", points: 2, priorityScore: 40 },
@@ -74,6 +86,7 @@ export function buildExample(criteria: readonly Criterion[], now: Date = new Dat
       status: "backlog",
       priorityScore: row.priorityScore,
       ...(row.points ? { points: row.points } : {}),
+      ...row.details,
     };
     if (!row.check) return story;
     const met = row.check.met;

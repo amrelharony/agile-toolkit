@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import {
   AlertTriangle,
   ArrowRight,
+  ClipboardPaste,
   History,
   ListChecks,
   Plus,
@@ -28,11 +29,19 @@ import { SPRINT_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 import { averageVelocity, completedSprints } from "@/lib/sprints/hub-view";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
 import { backlogOrderText, storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
-import { currentPokerLog, pokerQueueRoute } from "@/lib/handoffs/targets/poker-queue";
+import {
+  currentPokerLog,
+  pokerQueueRoute,
+  storyQueueSource,
+} from "@/lib/handoffs/targets/poker-queue";
+import { withStoryDetails, type StoryDetails } from "@/lib/stories/fields";
+import { keptForSprintNote, sprintKeepingStory, storyRemoval } from "@/lib/stories/removal";
+import { leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
 import { undoable } from "@/lib/utils/undoable";
 import { toast } from "@/lib/utils/toast";
 import {
   EMPTY_STORY_DRAFT,
+  PASTE_STORIES_CAP,
   backlogStories,
   carryOverLabel,
   fmt,
@@ -54,11 +63,13 @@ import {
   usesReadiness,
   validateStory,
   type LeftoverGroup,
+  type PasteValues,
   type StoryDraft,
   type StoryField,
   type StoryValues,
 } from "./view";
 import { planToMarkdown } from "./markdown";
+import { PasteStories } from "./paste-stories";
 import { StoryList, focusAfterMove, type FocusTarget } from "./story-list";
 import { placeStory, restoreStories, type PlanningWriter } from "./writer";
 
@@ -245,6 +256,92 @@ export function PlanningBoard({
   const rename = (story: Story, title: string) =>
     writer.upsertStory({ ...fresh(story), title: title.slice(0, 200) });
 
+  /** The story's acceptance criteria, notes, ticket key and link, as its Details form saved them. */
+  const saveDetails = (story: Story, details: StoryDetails) =>
+    writer.upsertStory(withStoryDetails(fresh(story), details));
+
+  /** What a row's remove control may do: delete, leave a running sprint, or nothing. */
+  const removalOf = (story: Story) => storyRemoval(story, sprints);
+
+  /**
+   * Why a story that has left a running or closed sprint has no bin: that
+   * sprint's charts still count it. Undefined for every other story.
+   */
+  const keptNoteOf = (story: Story) => {
+    const kept = sprintKeepingStory(story, sprints);
+    return kept ? keptForSprintNote(kept.name) : undefined;
+  };
+
+  /**
+   * The bin on a row of `listKey`: the story is deleted, with Undo back to
+   * its place. Only where `storyRemoval` allows it (the backlog, or a sprint
+   * that hasn't started, for a story no started sprint still counts): the
+   * row shows no bin otherwise, this is the guard.
+   */
+  const deleteStory = (listKey: string, fallbackId: string) => (story: Story, index: number) => {
+    if (removalOf(fresh(story)) !== "delete") return;
+    refocus.current = { listKey, index, fallbackId };
+    let restore: (() => void) | null = null;
+    undoable({
+      label: `Deleted “${shortTitle(story.title)}”`,
+      apply: () => {
+        restore = writer.deleteStory(story.id);
+      },
+      revert: () => restore?.(),
+    });
+    // The undoable toast announces itself; say it once.
+    setAnnouncement("");
+    log(SPRINT_PLANNING_ACTIONS.STORY_DELETED, { storyId: story.id, title: story.title });
+  };
+
+  /* ── Paste stories ────────────────────────────────────────────────────── */
+
+  // The list being pasted (null: the panel is closed), and whether it came
+  // from the sprint's own add field, which ticks "into the sprint" for it.
+  // `more` is a list pasted into that field while the panel was open: the
+  // panel reads `text` only as it opens, so a later list is handed over to
+  // be added to what it holds.
+  const [pasting, setPasting] = useState<{
+    text: string;
+    intoSprint: boolean;
+    more?: { text: string; n: number };
+  } | null>(null);
+  const pasteButton = useRef<HTMLButtonElement>(null);
+  const closePaste = () => {
+    setPasting(null);
+    pasteButton.current?.focus();
+  };
+
+  /** Every pasted title becomes a story, in the pasted order, with one Undo for the lot. */
+  const addPasted = ({ titles, dropped, cut, intoSprint }: PasteValues) => {
+    const inSprintNow = intoSprint && !closed;
+    const created = titles.map(
+      (title): Story => ({
+        id: `story_${nanoid(8)}`,
+        title,
+        ...(inSprintNow
+          ? { status: "todo" as const, sprintId: sprint.id }
+          : { status: "backlog" as const }),
+      })
+    );
+    const notes = [
+      dropped > 0 ? leftOutMessage(dropped) : "",
+      cut > 0 ? `${cut} ${cut === 1 ? "title was" : "titles were"} cut to 200 characters.` : "",
+    ].filter(Boolean);
+    undoable({
+      label: `Added ${storiesCount(created.length)} to ${inSprintNow ? sprint.name : "the backlog"}`,
+      description: notes.length > 0 ? notes.join(" ") : undefined,
+      // One write each way, however long the list.
+      apply: () => writer.upsertStories(created),
+      revert: () => writer.removeStories(created.map((s) => s.id)),
+    });
+    log(SPRINT_PLANNING_ACTIONS.STORIES_PASTED, {
+      sprintId: sprint.id,
+      count: created.length,
+      intoSprint: inSprintNow,
+    });
+  };
+
   const form = useItemForm<StoryDraft, StoryValues, StoryField>({
     initial: EMPTY_STORY_DRAFT,
     validate: validateStory,
@@ -347,12 +444,8 @@ export function PlanningBoard({
       label: `${storiesCount(created.length)} imported from the backlog`,
       // The backlog lists them in the shared order (compareBacklogOrder): say which.
       description: `Ordered ${backlogOrderText(created)}.`,
-      apply: () => {
-        for (const s of created) writer.upsertStory(s);
-      },
-      revert: () => {
-        for (const s of created) writer.removeStory(s.id);
-      },
+      apply: () => writer.upsertStories(created),
+      revert: () => writer.removeStories(created.map((s) => s.id)),
     });
     log(SPRINT_PLANNING_ACTIONS.STORIES_IMPORTED, { sprintId: sprint.id, count: created.length });
   };
@@ -365,7 +458,8 @@ export function PlanningBoard({
     );
     const toQueue = unsized.filter((s) => !queued.has(s.id));
     for (const s of toQueue) {
-      pokerQueueRoute.send({ title: s.title, sourceRef: { tool: "story", id: s.id } });
+      // With its notes and acceptance criteria, as the description Poker shows.
+      pokerQueueRoute.send(storyQueueSource(s));
     }
     toast.success(
       toQueue.length === 0
@@ -568,7 +662,28 @@ export function PlanningBoard({
                 Estimate {unsized.length} in Planning Poker
               </Button>
             )}
+            <Button
+              ref={pasteButton}
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-expanded={pasting !== null}
+              onClick={() => (pasting ? closePaste() : setPasting({ text: "", intoSprint: false }))}
+            >
+              <ClipboardPaste className="mr-1 h-4 w-4" aria-hidden="true" />
+              Paste stories
+            </Button>
           </div>
+          {pasting && (
+            <PasteStories
+              initialText={pasting.text}
+              intoSprintFirst={pasting.intoSprint}
+              more={pasting.more}
+              sprintName={closed ? undefined : sprint.name}
+              onAdd={addPasted}
+              onClose={closePaste}
+            />
+          )}
           <div>
             <h3
               id={sprintHeadingId}
@@ -592,6 +707,10 @@ export function PlanningBoard({
                 onToggle={tickOut}
                 onPoints={setPoints}
                 onRename={rename}
+                onDetails={saveDetails}
+                onDelete={deleteStory("sprint", sprintHeadingId)}
+                removalOf={removalOf}
+                keptNoteOf={keptNoteOf}
                 showStatus
               />
             )}
@@ -615,6 +734,19 @@ export function PlanningBoard({
                       placeholder="Add a story and press Enter"
                       maxLength={200}
                       onChange={(e) => form.update({ title: e.target.value })}
+                      // A list pasted here would run together into one title:
+                      // it opens in "Paste stories" instead, one story a line.
+                      // With the panel open already, it joins the panel's list.
+                      onPaste={(e) => {
+                        const text = e.clipboardData.getData("text");
+                        if (!splitPastedLines(text, PASTE_STORIES_CAP)) return;
+                        e.preventDefault();
+                        setPasting((open) =>
+                          open
+                            ? { ...open, more: { text, n: (open.more?.n ?? 0) + 1 } }
+                            : { text, intoSprint: true }
+                        );
+                      }}
                     />
                   )}
                 </Field>
@@ -653,6 +785,10 @@ export function PlanningBoard({
                 onToggle={tickIn(`leftover-${group.sprint.id}`)}
                 onPoints={setPoints}
                 onRename={rename}
+                onDetails={saveDetails}
+                // A closed sprint's stories are locked: no bin, here or once
+                // they are carried over or sent back (the sprint still counts them).
+                removalOf={removalOf}
                 showStatus
                 cantAdd={cantAdd}
               />
@@ -686,6 +822,10 @@ export function PlanningBoard({
                 onToggle={tickIn("backlog")}
                 onPoints={setPoints}
                 onRename={rename}
+                onDetails={saveDetails}
+                onDelete={deleteStory("backlog", backlogHeadingId)}
+                removalOf={removalOf}
+                keptNoteOf={keptNoteOf}
                 showPriority
                 cantAdd={cantAdd}
               />

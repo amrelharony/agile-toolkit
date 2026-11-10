@@ -9,7 +9,8 @@
  */
 
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { PokerEstimationLog, PokerQueueItem } from "@/lib/stores/workspace-types";
+import type { PokerEstimationLog, PokerQueueItem, Story } from "@/lib/stores/workspace-types";
+import { storyPokerDescription } from "@/lib/stories/fields";
 import type { HandoffRoute, HandoffSource } from "../types";
 
 /** MUST match PE_ID in src/lib/actions/tools/planning-poker.ts. */
@@ -29,6 +30,27 @@ export function currentPokerLog(): PokerEstimationLog | undefined {
 export function updatePokerLog(update: (doc: PokerEstimationLog) => PokerEstimationLog): void {
   const doc = currentPokerLog() ?? { id: POKER_LOG_ID, estimates: [] };
   useWorkspaceStore.getState().upsertPokerEstimationLog({ ...update(doc), id: POKER_LOG_ID });
+}
+
+/** `sourceRef.tool` on a queued workspace story: the write-back looks for it. */
+export const STORY_QUEUE_TOOL = "story";
+
+/**
+ * What a workspace story hands the queue: its title, and its notes and
+ * acceptance criteria folded into the one description Poker shows under the
+ * title. The team estimates with the criteria in front of them, and the
+ * session keeps its shape. Refinement, Sprint Planning and the Epic Roadmap
+ * all queue stories with it.
+ */
+export function storyQueueSource(
+  story: Pick<Story, "id" | "title" | "notes" | "acceptanceCriteria">
+): HandoffSource {
+  const description = storyPokerDescription(story);
+  return {
+    title: story.title,
+    ...(description ? { description } : {}),
+    sourceRef: { tool: STORY_QUEUE_TOOL, id: story.id },
+  };
 }
 
 export function buildQueueItem(src: HandoffSource, id = crypto.randomUUID()): PokerQueueItem {

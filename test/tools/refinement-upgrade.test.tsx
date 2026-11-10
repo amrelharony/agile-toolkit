@@ -987,7 +987,12 @@ describe("advanced analysis", () => {
     expect(
       screen.getByText("Check 5 more stories to see the pass-rate trend.")
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Rechecked/ }));
+    // Its row in the list: the story's panel now names it on its own buttons too.
+    fireEvent.click(
+      within(screen.getByRole("list", { name: "Stories to refine" })).getByRole("button", {
+        name: /Rechecked/,
+      })
+    );
     fireEvent.click(within(panel()).getByRole("button", { name: "Save checks" }));
     expect(
       screen.getByText("Check 5 more stories to see the pass-rate trend.")

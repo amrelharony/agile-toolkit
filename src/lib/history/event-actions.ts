@@ -350,7 +350,11 @@ export const RETRO_ACTIONS_ACTIONS = {
 /** Sprint Planning: the plan for a sprint. Payloads carry `sprintId`. */
 export const SPRINT_PLANNING_ACTIONS = {
   STORY_ADDED: "story_added",
+  /** A story deleted from the backlog or from a sprint that hasn't started. */
+  STORY_DELETED: "story_deleted",
   STORIES_IMPORTED: "stories_imported",
+  /** A pasted list added as stories, one per line. Payload: `count`, `intoSprint`. */
+  STORIES_PASTED: "stories_pasted",
   FILLED_TO_CAPACITY: "filled_to_capacity",
   /** A closed sprint's unfinished stories moved into this sprint. */
   STORIES_CARRIED_OVER: "stories_carried_over",

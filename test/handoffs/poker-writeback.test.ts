@@ -118,6 +118,8 @@ describe("writing an accepted estimate back", () => {
         votes: ["3", "5", "5"],
         decidedAt: expect.any(String),
         sourceRef: { tool: "story-mapper", id: "c1", doc: STORY_MAP_ID },
+        // The session story it was accepted for: the queue entry is gone now.
+        sessionStoryId: story.id,
       },
     ]);
     // The card's "Sent · Open" link still finds its target.
