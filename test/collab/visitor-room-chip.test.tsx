@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 
@@ -7,8 +7,21 @@ const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("@/lib/utils/toast", () => ({ toast: toastMock }));
 
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
+import { QR_QUIET_ZONE } from "@/lib/qr/encode";
+import { decodeQr, rasterisePath, stripQuietZone } from "../qr/decoder";
 
 const CODE = "ABCDEFGHJKMN";
+
+/** Open the chip's QR dialog and read the code back with the test decoder. */
+function scanQr(): { text: string; dialog: HTMLElement } {
+  fireEvent.click(screen.getByRole("button", { name: "Show QR code" }));
+  const dialog = screen.getByRole("dialog", { name: "Scan to join" });
+  const svg = within(dialog).getByRole("img", { name: "QR code for the join link" });
+  const side = Number(svg.getAttribute("viewBox")?.split(" ")[2]);
+  const d = svg.querySelector("path")?.getAttribute("d") ?? "";
+  const modules = stripQuietZone(rasterisePath(d, side), QR_QUIET_ZONE);
+  return { text: decodeQr(modules).text, dialog };
+}
 
 function withAnnouncer({ children }: { children: ReactNode }) {
   return <LiveAnnouncerProvider>{children}</LiveAnnouncerProvider>;
@@ -142,6 +155,46 @@ describe("VisitorRoomChip", () => {
       vi.advanceTimersByTime(100);
     });
     expect(polite).toHaveTextContent("Someone left. 2 of 20 people in the room.");
+  });
+
+  it("shows a QR code that holds the join link, and the link written out", () => {
+    render(<VisitorRoomChip tool="planning-poker" code={CODE} memberCount={1} isHost />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const { text, dialog } = scanQr();
+    const link = `${window.location.origin}/join/planning-poker/${CODE}`;
+    expect(text).toBe(link);
+    expect(within(dialog).getByText(link)).toBeVisible();
+    expect(within(dialog).getByText(/Share it only with your team/)).toBeVisible();
+  });
+
+  it("puts a vote round's #k= host key in the QR code too", () => {
+    const fp = "abcdefghijklmnopqrstuv";
+    render(
+      <VisitorRoomChip
+        tool="hundred-dollar-test"
+        code={CODE}
+        memberCount={2}
+        isHost={false}
+        linkFragment={`#k=${fp}`}
+      />
+    );
+    expect(scanQr().text).toBe(
+      `${window.location.origin}/join/hundred-dollar-test/${CODE}#k=${fp}`
+    );
+  });
+
+  it("leaves a malformed fragment out of the QR code, as it does the copied link", () => {
+    render(
+      <VisitorRoomChip tool="retro" code={CODE} memberCount={1} isHost linkFragment="#k=<script>" />
+    );
+    expect(scanQr().text).toBe(`${window.location.origin}/join/retro/${CODE}`);
+  });
+
+  it("closes the QR code with the dialog's close button", () => {
+    render(<VisitorRoomChip tool="retro" code={CODE} memberCount={1} isHost />);
+    const { dialog } = scanQr();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close dialog" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("renders nothing with the flag off or for a malformed code", () => {

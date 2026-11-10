@@ -157,7 +157,7 @@ describe("VoteRoundPanel: an allocation tool", () => {
     renderAllocation({ blockedReason: "Set the players and their budget first." });
     expect(screen.getByText("Set the players and their budget first.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Run a live round" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Enter counts instead" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Enter counts" })).toBeNull();
   });
 
   it("asks for items when there's nothing to split", () => {

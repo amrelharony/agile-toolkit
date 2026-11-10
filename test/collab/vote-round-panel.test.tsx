@@ -147,6 +147,48 @@ describe("VoteRoundPanel: when live rounds are off", () => {
   });
 });
 
+describe("VoteRoundPanel: the two ways to run a round", () => {
+  it("offers One screen and Everyone on their own device, with the room's limits", async () => {
+    renderPanel();
+    const choice = await screen.findByRole("group", { name: "How will you run it?" });
+    const one = within(choice).getByRole("group", { name: "One screen" });
+    const own = within(choice).getByRole("group", { name: "Everyone on their own device" });
+    expect(one).toHaveTextContent(
+      "Count hands or collect paper answers, then enter the totals here."
+    );
+    expect(within(one).getByRole("button", { name: "Enter counts" })).toBeInTheDocument();
+    expect(own).toHaveTextContent(/People answer on their own phones, anonymously/);
+    expect(own).toHaveTextContent("No account needed, for you or your guests.");
+    expect(within(own).getByRole("button", { name: "Run a live round" })).toBeInTheDocument();
+    expect(within(one).queryByText(/No account needed/)).toBeNull();
+  });
+
+  it("One screen: Enter counts shows the count entry and Hide count entry puts it away", async () => {
+    renderPanel();
+    const toggle = await screen.findByRole("button", { name: "Enter counts" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Show totals" })).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Hide count entry" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
+    expect(screen.getByRole("button", { name: "Show totals" })).toBeInTheDocument();
+    expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide count entry" }));
+    expect(screen.queryByRole("button", { name: "Show totals" })).toBeNull();
+  });
+
+  it("names neither way when live rounds are off: the count entry shows on its own", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", "");
+    renderPanel();
+    expect(await screen.findByRole("button", { name: "Show totals" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "How will you run it?" })).toBeNull();
+  });
+});
+
 describe("VoteRoundPanel: a live round", () => {
   async function startRound(
     props: Partial<ScaleVoteRoundPanelProps> = {},
@@ -210,6 +252,21 @@ describe("VoteRoundPanel: a live round", () => {
     const fp = await fakeVoteCrypto().fingerprint(s.keys.sig);
     expect(writeText).toHaveBeenCalledWith(
       `${window.location.origin}/join/health-check/${code}#k=${fp}`
+    );
+  });
+
+  it("names both ways to share the keyed link: Copy link and Show QR code", async () => {
+    await startRound();
+    expect(
+      await screen.findByText(
+        "Share it with Copy link or Show QR code: both carry the key that shows the questions come from you. Only the totals are kept, and only if you save them."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show QR code" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Live round started. Share it with your team: Copy link or Show QR code."
+      )
     );
   });
 

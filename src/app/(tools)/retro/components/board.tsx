@@ -14,7 +14,8 @@
  * (votes are kept) and add a card in any phase.
  *
  * Visitor live room: with NEXT_PUBLIC_VISITOR_ROOMS=1, a visitor (never the
- * owner) can "Go live" from the header. Participants' cards and votes arrive
+ * owner) can pick "Everyone on their own device" over "One screen" in the
+ * header, which opens a live room. Participants' cards and votes arrive
  * through `onUpdate` like any other edit; ending the room keeps the board.
  * The board's sprint, its facts and where cards came from stay host-side:
  * the room's snapshot carries only what participants need.
