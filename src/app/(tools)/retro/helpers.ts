@@ -178,3 +178,12 @@ export function buildExportJson(state: Pick<BoardState, "format" | "cards" | "vo
     })),
   };
 }
+
+/**
+ * What the board's share link carries (Export's "Copy link"): the format, a
+ * custom one included, the cards and Votes each, so the copy someone
+ * imports (lib/share/snapshot-import's readRetro) keeps all three.
+ */
+export function buildShareState(state: Pick<BoardState, "format" | "cards" | "votesPerPerson">) {
+  return { format: state.format, cards: state.cards, votesPerPerson: retroVotes(state) };
+}

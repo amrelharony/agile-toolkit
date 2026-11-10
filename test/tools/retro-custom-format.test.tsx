@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { RETRO_COLUMN_PALETTE, retroFormats } from "@/lib/constants/retro-formats";
 import { addDays } from "@/lib/impediments/model";
 import { blankRetroBoard } from "@/lib/retro/board";
+import { customFormatFrom } from "@/lib/retro/custom-format";
+import { SNAPSHOT_IMPORTERS } from "@/lib/share/snapshot-import";
 import { goalDocId } from "@/lib/sprints/goal-doc";
 import { todayIso } from "@/lib/sprints/series";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -31,7 +33,14 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
-vi.mock("@/components/shared/export-button", () => ({ ExportButton: () => null }));
+/** What the board last handed Export: the share link's state among it. */
+const exported = vi.hoisted(() => ({ last: null as null | { shareState?: unknown } }));
+vi.mock("@/components/shared/export-button", () => ({
+  ExportButton: (props: { shareState?: unknown }) => {
+    exported.last = props;
+    return null;
+  },
+}));
 vi.mock("@/lib/sonification/emit", () => ({ emit: () => {} }));
 vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({ log: () => {}, toolRunId: "test-run" }),
@@ -180,6 +189,48 @@ describe("Custom format", () => {
     act(() => undo.last!.revert());
     expect(saved()).toEqual([pulse, other]);
     expect(screen.getByRole("button", { name: "Team pulse" })).toBeInTheDocument();
+  });
+
+  it("puts the custom columns and Votes each in the board's share link", () => {
+    const pulse = customFormatFrom(
+      { name: "Team pulse", columns: ["Wins", "Worries"] },
+      "custom-saved0001"
+    );
+    useWorkspaceStore.setState({
+      retroBoards: [
+        {
+          ...blankRetroBoard(pulse, { votesPerPerson: 5 }),
+          cards: [
+            {
+              id: "w1",
+              columnKey: "worries",
+              text: "Flaky CI",
+              votes: 0,
+              groupedWith: null,
+              isActionItem: false,
+              assignee: "",
+              discussing: false,
+            },
+          ],
+        },
+      ],
+    });
+    render(<RetroClient />);
+    // The link as someone opens it, through the importer.
+    const link = () => JSON.parse(JSON.stringify(exported.last?.shareState));
+    expect(link()).toMatchObject({ format: { id: "custom-saved0001" }, votesPerPerson: 5 });
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: "Votes each person has" })).getByRole("radio", {
+        name: "8 votes",
+      })
+    );
+    const shared = link();
+    useWorkspaceStore.setState({ retroBoards: [] });
+    expect(SNAPSHOT_IMPORTERS.retro.importState(shared)).toBeTypeOf("function");
+    const copy = useWorkspaceStore.getState().retroBoards!.find((b) => b.archivedAt)!;
+    expect(copy.format).toEqual(pulse);
+    expect(copy.votesPerPerson).toBe(8);
+    expect(copy.cards.map((c) => [c.columnKey, c.text])).toEqual([["worries", "Flaky CI"]]);
   });
 
   it("saves the same columns once, moving them to the front", () => {

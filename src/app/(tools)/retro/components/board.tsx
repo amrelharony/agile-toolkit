@@ -62,6 +62,7 @@ import {
   makeId,
   columnGridClass,
   buildExportJson,
+  buildShareState,
   formatTimer,
   removeCardWithGroup,
   restoreRemovedCards,
@@ -729,7 +730,7 @@ export function Board({
   );
   // A share link carries Votes each too, so the copy someone imports keeps it.
   const shareState = useMemo(
-    () => ({ format: state.format, cards: state.cards, votesPerPerson: budget }),
+    () => buildShareState({ format: state.format, cards: state.cards, votesPerPerson: budget }),
     [state.format, state.cards, budget]
   );
 

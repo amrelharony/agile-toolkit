@@ -11,7 +11,7 @@ import {
   carriedOverCard,
   pastRetros,
 } from "@/app/(tools)/retro/archive";
-import { buildExportJson, retroFileStem } from "@/app/(tools)/retro/helpers";
+import { buildExportJson, buildShareState, retroFileStem } from "@/app/(tools)/retro/helpers";
 import { toMarkdown } from "@/app/(tools)/retro/markdown";
 
 /**
@@ -103,8 +103,14 @@ describe("exports", () => {
 
 describe("share links", () => {
   /** What the board's Export puts in a share link, as it arrives. */
-  const linkState = (b: RetroBoard) =>
-    JSON.parse(JSON.stringify({ format: b.format, cards: b.cards, votesPerPerson: 5 }));
+  const linkState = (b: RetroBoard) => JSON.parse(JSON.stringify(buildShareState(b)));
+
+  it("puts the format, the cards and Votes each in the link", () => {
+    const b = customBoard();
+    expect(buildShareState(b)).toEqual({ format: pulse, cards: b.cards, votesPerPerson: 5 });
+    // A board from before the setting says 3.
+    expect(buildShareState(blankRetroBoard(retroFormats[0])).votesPerPerson).toBe(3);
+  });
 
   it("copies a custom-format retro into Past retros with its columns and votes each", () => {
     const undo = SNAPSHOT_IMPORTERS.retro.importState(linkState(customBoard()));
