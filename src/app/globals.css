@@ -332,8 +332,10 @@
     background: var(--bg);
     color: var(--text);
     line-height: 1.6;
+    /* The colour only: the paper's grain switches with the theme at once and
+       never cross-fades. */
     transition:
-      background 0.6s,
+      background-color 0.6s,
       color 0.6s;
     /* R8: cascade — iOS Safari < 15.4 ignores `dvh`, uses `100vh`
        (which includes the URL bar and overflows by ~80px). Modern
@@ -341,6 +343,35 @@
        viewport. */
     min-height: 100vh;
     min-height: 100dvh;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   PAPER — the page paper's still grain (lib/ink/grain.ts; DNA-SPEC section 1)
+   Comic and Night only. It is the body's own background image (with none on
+   html, the browser paints it over the whole canvas), so it scrolls with the
+   page and is never a layer. Panels, cards and rows paint their own flat paper
+   over it. High contrast has no rule here; print, forced colours and a request
+   for more contrast take it off. The strings are generated: test/ink/grain.test.ts
+   holds them equal to grain.ts.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+html.light body {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='61' height='61'%3E%3Cpath d='M43 .5h2m6 1h1m-27 3h1m10 0h1m18 1h2m-30 2h1m6 1h1m-8 5h2m10 0h1m8 1h2m2 0h1m-48 2h1m2 0h1m29 1h2m-29 1h2m22 0h1m15 1h1m5 3h2m-53 6h2m7 1h2m32 0h1m-11 1h1m-27 4h2m40 3h2m-17 7h1m-28 1h1m4 1h1m11 0h2m2 5h2m-8 1h1m1 3h2m22 1h1m-46 1h2m9 3h2' stroke='black' opacity='.1'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='47' height='47'%3E%3Cpath d='M4 1.5h2m3 1h1m9 0h2m-5 7h2m15 1h1m6 0h1m-38 2h2m30 0h2m-10 1h1m2 0h1m-30 1h1m30 3h2m-28 3h2m5 1h1m14 0h1m1 1h2m-11 2h1m-11 3h2m16 0h1m-9 1h1m13 3h2m-6 1h1m9 1h2m-28 1h2m17 0h2m-24 3h1m16 0h2m-6 1h1m-9 2h1m-9 2h1m-3 1h1m11 1h1m23 1h1m-19 1h1' stroke='black' opacity='.1'/%3E%3C/svg%3E");
+}
+
+html.dark body {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='61' height='61'%3E%3Cpath d='M43 .5h2m6 1h1m-27 3h1m10 0h1m18 1h2m-30 2h1m6 1h1m-8 5h2m10 0h1m8 1h2m2 0h1m-48 2h1m2 0h1m29 1h2m-29 1h2m22 0h1m15 1h1m5 3h2m-53 6h2m7 1h2m32 0h1m-11 1h1m-27 4h2m40 3h2m-17 7h1m-28 1h1m4 1h1m11 0h2m2 5h2m-8 1h1m1 3h2m22 1h1m-46 1h2m9 3h2' stroke='white' opacity='.08'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='47' height='47'%3E%3Cpath d='M4 1.5h2m3 1h1m9 0h2m-5 7h2m15 1h1m6 0h1m-38 2h2m30 0h2m-10 1h1m2 0h1m-30 1h1m30 3h2m-28 3h2m5 1h1m14 0h1m1 1h2m-11 2h1m-11 3h2m16 0h1m-9 1h1m13 3h2m-6 1h1m9 1h2m-28 1h2m17 0h2m-24 3h1m16 0h2m-6 1h1m-9 2h1m-9 2h1m-3 1h1m11 1h1m23 1h1m-19 1h1' stroke='white' opacity='.08'/%3E%3C/svg%3E");
+}
+
+@media print, (forced-colors: active), (prefers-contrast: more) {
+  html.light body,
+  html.dark body {
+    background-image: none;
   }
 }
 
