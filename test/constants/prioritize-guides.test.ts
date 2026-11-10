@@ -235,7 +235,7 @@ describe("the hub and the scoring methods quote their scales", () => {
 describe("the survey and vote tools run their rounds as the kit does", () => {
   const LIVE = ["Run a live round", "Copy link", "Show QR code", "Reveal results", "Save round"];
 
-  it.each([...LIVE, "Enter counts instead", "Show totals"])("the kit labels a button %j", (l) => {
+  it.each([...LIVE, "Enter counts", "Show totals"])("the kit labels a button %j", (l) => {
     expect(KIT).toContain(l);
   });
 
@@ -245,7 +245,8 @@ describe("the survey and vote tools run their rounds as the kit does", () => {
       const text = allText(guide(id));
       // The link is shared by Copy link or by the room chip's QR code.
       for (const label of LIVE) expect(text).toContain(label);
-      expect(text).toContain("Enter counts instead");
+      expect(text).toContain("press Enter counts and type");
+      expect(text).not.toContain("Enter counts instead");
       expect(text).toContain(`once ${MIN_SAMPLE.anonymous} have answered`);
       expect(text).toMatch(/never (anyone's split|who answered)/);
     }

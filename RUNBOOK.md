@@ -301,7 +301,7 @@ The feature is **off** unless the build has `NEXT_PUBLIC_VISITOR_ROOMS=1`.
 
 1. **Vercel → Settings → Environment Variables:** set `NEXT_PUBLIC_VISITOR_ROOMS` to `1` for Production (to turn it off, delete it or set it to anything else). Add it to Preview only if you want to try it there.
 2. **Redeploy** (Deployments → ⋯ → Redeploy, or push a commit). `NEXT_PUBLIC_*` values are inlined at build time, so changing the variable without a redeploy does nothing. Locally, edit `.env.local` and restart `npm run dev`.
-3. Verify from a signed-out window: the "Start a live room" / "Go live" buttons appear (or disappear), and `/join/planning-poker/ABCDEFGHJKMN` shows the name and consent step (or "Live rooms are off").
+3. Verify from a signed-out window: **Start a live room** in the Planning Poker lobby and **Everyone on their own device** on the Retro board appear (or disappear), and `/join/planning-poker/ABCDEFGHJKMN` shows the name and consent step (or "Live rooms are off").
 
 What turning it **off** does: hides the entry points, makes `/join/…` say live rooms are off, and makes the client gate refuse to open any `visitor:` channel. What it does **not** do: close tabs that already have a room open (they keep going until everyone leaves or the 3-hour limit), or stop anyone who calls Supabase directly with the public anon key. For that, use the emergency brake below.
 
@@ -318,11 +318,12 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
 
 ### How the rooms behave
 
+- **Two named ways.** Wherever a room can be started (the Planning Poker lobby, the Retro board, a tool's vote-round panel), the two ways to run a session carry the same names: **One screen** and **Everyone on their own device** (`src/components/collab/run-modes.tsx`). Beside the second sit the room's own limits, built from `VISITOR_LIMITS`: no account for the host or guests, 20 people, 3 hours, nothing stored. Name no other product there.
 - **Planning Poker:**
-  - The host starts a room with **Start a live room** on the "Running it with your team" card.
+  - The host starts a room with **Start a live room** under "Everyone on their own device", beside **Start Session** under "One screen", in the lobby.
   - Nothing from the room is logged to History, written back to the Story Map or synced. The host's browser keeps only a host-only copy of the session.
 - **Retro:**
-  - The host starts a room with **Go live** in the board header.
+  - The host starts a room with **Everyone on their own device** in the board header (the button was "Go live"), beside "One screen", which marks how the board runs until then.
   - Rooms are host-authoritative: participants send "add card" and "vote" requests, and only the host changes the board.
   - The host's board is its normal local Retro board, so participants' cards stay in the host's browser after the room ends.
   - Participants keep the board in memory only. **Save a copy** puts it in their Past retros, and **Download Markdown** saves a file.
@@ -373,7 +374,7 @@ Pair and allocation rounds send their state as a new version (v2, with its kind)
 - More answers than names in the room: the host sees a warning. Someone may have answered again from another tab; start a new round if the totals look wrong.
 - _"Someone else sent answers under your name"_ (participant) or "An answer came under a name that had already answered" (host): someone is answering under another member's id (residual risk 4 below). End the room and share a new link.
 
-**Turning it off:** unset the flag and redeploy, as above. **Enter counts instead** (count hands or collect paper answers, then type the totals) keeps working, with the same 3-or-5 rule. For Kano it is a 5 × 5 grid per feature (one tick per paper answer pair). For Buy-a-Feature and the $100 Test it is either **Paper splits** (type each paper split; it is added to the totals and cleared, so the spread shows from 5 as live) or **Totals only** (each item's total and the number of people; the spread is then unknown).
+**Turning it off:** unset the flag and redeploy, as above. Count entry (count hands or collect paper answers, then type the totals; the **Enter counts** button under "One screen" while live rounds are on, shown on its own once they are off) keeps working, with the same 3-or-5 rule. For Kano it is a 5 × 5 grid per feature (one tick per paper answer pair). For Buy-a-Feature and the $100 Test it is either **Paper splits** (type each paper split; it is added to the totals and cleared, so the spread shows from 5 as live) or **Totals only** (each item's total and the number of people; the spread is then unknown).
 
 ### Watching the quota (Supabase free tier)
 

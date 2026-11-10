@@ -269,6 +269,30 @@ describe("Start a live room (host, tool page)", () => {
     h.auth = { status: "authenticated", user: owner };
     render(<PlanningPokerClient />);
     expect(screen.queryByRole("button", { name: "Start a live room" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "How will you run it?" })).toBeNull();
+  });
+
+  it("sits beside Start Session as the two named ways, with the room's limits", () => {
+    render(<PlanningPokerClient />);
+    const choice = screen.getByRole("group", { name: "How will you run it?" });
+    const one = within(choice).getByRole("group", { name: "One screen" });
+    const own = within(choice).getByRole("group", { name: "Everyone on their own device" });
+    expect(within(one).getByRole("button", { name: "Start Session" })).toBeInTheDocument();
+    expect(within(own).getByRole("button", { name: "Start a live room" })).toBeInTheDocument();
+    expect(within(own).getByText(/No account needed, for you or your guests\./)).toHaveTextContent(
+      "Up to 20 people, for up to 3 hours. We store nothing."
+    );
+    // The card under it still explains the one-screen way.
+    expect(screen.getByText("Running it with your team")).toBeInTheDocument();
+    expect(screen.getByText(/On one screen: share it in your meeting/)).toBeInTheDocument();
+  });
+
+  it("still starts on one screen when the form is submitted (Enter in a field)", () => {
+    render(<PlanningPokerClient />);
+    fireEvent.submit(screen.getByLabelText("Session name").closest("form")!);
+    expect(h.client.channel).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("group", { name: "How will you run it?" })).toBeNull();
   });
 
   it("opens no channel before consent, nor when consent is cancelled", () => {

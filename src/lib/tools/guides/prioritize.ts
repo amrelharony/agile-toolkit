@@ -132,7 +132,7 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Type the Feature title. Under How you have the answers, pick One person's answers and answer both questions (If it has this, how do you feel? and If it doesn't have this, how do you feel?), or pick Survey counts and enter how many answer pairs came out A, O, M, I, R and Q. Click Add.",
       "To survey customers, under Ask customers press Run a live round, give your name, tick the consent and share the link with Copy link or Show QR code. Everyone answers on their own phone, anonymously; press Reveal results once 3 have answered, then Save round.",
-      "With paper answers, press Enter counts instead and type how many people gave each answer pair into the feature's 5 × 5 grid (first answer down, second across), then Show totals and Save round. A round replaces a feature's earlier counts unless Add to earlier answers is on; Undo puts them back.",
+      "With paper answers, press Enter counts and type how many people gave each answer pair into the feature's 5 × 5 grid (first answer down, second across), then Show totals and Save round. A round replaces a feature's earlier counts unless Add to earlier answers is on; Undo puts them back.",
       "Read the lists: a feature's category is its most common answer from 3 answers, with Better (having it helps) and Worse (missing it hurts), plotted in Better vs Worse.",
       "Cover every Must-be first, invest in Performance, add a few Attractive features, and reword the question for anything Questionable.",
     ],
@@ -189,7 +189,7 @@ export const GUIDES: ToolGuide[] = [
       "Add each feature with a Price that reflects its rough cost, such as its size in team-days. A price is a whole number, and every feature needs one.",
       "Under The game, set Players and Budget per player. The pool is the two multiplied and should stay below the sum of the prices (about half is usual). Use the team's N people and About half the prices offer numbers; nothing is set until you pick.",
       "To buy at the table, type an amount on a feature and press Buy. A purchase is capped at what the feature still needs and at what's left in the pool; Undo is in the toast.",
-      "Or under Play a round, press Run a live round, give your name, tick the consent and share the link (Copy link or Show QR code): each player splits their share on their phone, and you Reveal results once 3 have answered. With paper, press Enter counts instead and type the splits or the totals. Save round adds the totals; what a feature doesn't need goes back to the pool.",
+      "Or under Play a round, press Run a live round, give your name, tick the consent and share the link (Copy link or Show QR code): each player splits their share on their phone, and you Reveal results once 3 have answered. With paper, press Enter counts and type the splits or the totals. Save round adds the totals; what a feature doesn't need goes back to the pool.",
       "At the end, Refund unfunded features gives the money of short features back. Then Add N funded features to the backlog makes each one a backlog story.",
     ],
     tips: [
@@ -212,7 +212,7 @@ export const GUIDES: ToolGuide[] = [
       "Add each Item to vote on with Add item.",
       "Under The agreed split, type the group's amount next to each item. It saves when you leave the box or press Enter, can't take the split past $100, and a note says when it was capped.",
       "Keep going until Left to give shows $0. The list holds still while you type: Re-sort puts the biggest amounts first.",
-      "Under Ask the team, press Run a live round, give your name, tick the consent and share the link (Copy link or Show QR code): everyone splits their own $100 on their phone, anonymously. Press Reveal results once 3 have answered, then Save round. With paper, press Enter counts instead and type each split or the totals.",
+      "Under Ask the team, press Run a live round, give your name, tick the consent and share the link (Copy link or Show QR code): everyone splits their own $100 on their phone, anonymously. Press Reveal results once 3 have answered, then Save round. With paper, press Enter counts and type each split or the totals.",
       "Team results shows each item's team average beside the agreed split, and from 5 answers how the amounts were spread. Discuss the biggest gaps.",
     ],
     tips: [

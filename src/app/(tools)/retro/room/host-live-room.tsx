@@ -1,7 +1,10 @@
 "use client";
 
 /**
- * "Go live" on the Retro board, for visitors only.
+ * The Retro board's two ways to run it, for visitors only: "One screen"
+ * (the board as it is, shown as the way it runs now) and "Everyone on
+ * their own device" (a live room; the button was "Go live"), with the live
+ * room's limits beside it (components/collab/run-modes).
  *
  * Shown when `NEXT_PUBLIC_VISITOR_ROOMS=1` and the viewer is a confirmed
  * visitor: not the owner (strangers' cards would sync into the owner's
@@ -15,12 +18,13 @@
  * reload never reopens a room silently.
  */
 
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
-import { Radio } from "lucide-react";
+import { useEffect, useId, useRef, useState, type MutableRefObject } from "react";
+import { Check, Monitor, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
+import { LiveRoomLimits, RUN_MODES } from "@/components/collab/run-modes";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { useGuestProfile } from "@/lib/auth/guest-profile-provider";
@@ -69,8 +73,11 @@ export function RetroGoLive({
   const [live, setLive] = useState<LiveSession | null>(null);
   const goLiveRef = useRef<HTMLButtonElement>(null);
   const refocus = useRef(false);
+  const labelId = useId();
+  const limitsId = useId();
 
-  // After the room closes, put focus back on "Go live" rather than losing it.
+  // After the room closes, put focus back on "Everyone on their own device"
+  // rather than losing it.
   useEffect(() => {
     if (live || !refocus.current) return;
     refocus.current = false;
@@ -98,17 +105,33 @@ export function RetroGoLive({
 
   return (
     <>
-      <Button
-        ref={goLiveRef}
-        type="button"
-        variant="outline"
-        size="sm"
-        className="gap-1.5"
-        onClick={() => setConsentOpen(true)}
-      >
-        <Radio className="w-3.5 h-3.5" aria-hidden="true" />
-        Go live
-      </Button>
+      <div role="group" aria-labelledby={labelId} className="flex flex-col items-start gap-1">
+        <span id={labelId} className="sr-only">
+          How you run this retro
+        </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* The way it runs now: this board, on this screen. */}
+          <span className="inline-flex min-h-[36px] items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-3 text-xs font-medium text-accent pointer-coarse:min-h-11">
+            <Monitor className="w-3.5 h-3.5" aria-hidden="true" />
+            {RUN_MODES.oneScreen}
+            <Check className="w-3.5 h-3.5" aria-hidden="true" />
+            <span className="sr-only">, how it runs now</span>
+          </span>
+          <Button
+            ref={goLiveRef}
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            aria-describedby={limitsId}
+            onClick={() => setConsentOpen(true)}
+          >
+            <Radio className="w-3.5 h-3.5" aria-hidden="true" />
+            {RUN_MODES.ownDevice}
+          </Button>
+        </div>
+        <LiveRoomLimits id={limitsId} />
+      </div>
       <VisitorRoomConsent
         open={consentOpen}
         onOpenChange={setConsentOpen}
