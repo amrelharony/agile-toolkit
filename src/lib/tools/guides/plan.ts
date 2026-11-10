@@ -10,29 +10,30 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "sprint-planning",
     summary:
-      "Sprint Planning is the one page for the planning meeting: capacity and velocity, the sprint goal, the stories and the commitment. It writes to the shared sprint and stories, so the Sprint Cockpit, Burndown and the agent see the same plan.",
+      "One page for the planning meeting: capacity and velocity, the sprint goal, the stories and the commitment. The Sprint Cockpit, Burndown and the agent read the same sprint and stories.",
     whenToUse: [
       "In the Sprint Planning meeting, on the shared screen.",
-      "The day before, to settle last sprint's leftovers and pre-fill the stories so the meeting is about choices.",
+      "The day before, to settle leftovers and pre-fill the stories so the meeting is about choices.",
       "When a sprint is under way and the commitment changed.",
     ],
     steps: [
       "Pick the sprint, or click New sprint. With no sprint yet, click Create the sprint, or See an example plan, which saves nothing.",
-      "Under 1. Capacity and commitment, read Team capacity (from the Capacity Planner), Recent velocity and the forecast under them. Leave Commit to blank to use the suggested points, or type your own.",
+      "Under 1. Capacity and commitment, read Team capacity (from the Capacity Planner), Recent velocity and the forecast. Leave Commit to blank for the suggested points, or type your own.",
       "Under 2. Sprint goal, write one sentence the team can say yes or no to at the review, or word it in the Sprint Goal Builder.",
-      "Under 3. Stories, settle anything Left over from a closed sprint: Carry over moves the unfinished stories into this sprint, Back to the backlog returns them.",
+      "Under 3. Stories, settle anything Left over from a closed sprint: Carry over moves the unfinished stories in, Back to the backlog returns them.",
       "From the last retro lists its open actions and the open impediments. Add to this sprint makes one a story, with Undo; a retro action closes when its story is done.",
-      "Pull work in: tick backlog stories, click Fill to capacity for the highest-priority sized stories that fit, Import from the backlog for the Backlog Prioritizer's items, or type a new story and press Enter. Paste stories adds a list, one title per line.",
+      "Pull work in: tick backlog stories, Fill to capacity for the highest-priority sized stories that fit, Import from the backlog for the Backlog Prioritizer's items, or type a story and press Enter. Paste stories adds a list, one title per line.",
+      "Import from Jira (CSV) adds a Jira Cloud CSV export's issues to the backlog, after a preview. Importing it again updates points only.",
       "Type points in a story's row, or click Estimate N in Planning Poker to queue the unsized ones. Details holds a story's acceptance criteria, notes, ticket key and link.",
-      "The bin on a row deletes the story, with Undo. In a running sprint a story can only be removed from the sprint. Done stories stay, and so does one a running or closed sprint counted.",
+      "The bin on a row deletes the story, with Undo. In a running sprint a story can only leave the sprint. Done stories stay, and so does one a started sprint counted.",
       "Under 4. Commit, read the warnings, then click Start the sprint (Update the commitment once it runs). The Sprint Cockpit opens on it.",
     ],
     tips: [
       "Commit to the goal, not the list: a sprint with every story done but the goal missed is not a success.",
       "The suggestion scales velocity by the share of a normal sprint the team has, so holidays and days off lower it.",
-      "A warning shows when the stories add up to more than 10% over the points you commit to, or some aren't sized or refined.",
+      "A warning shows when the stories are more than 10% over the points you commit to, or some aren't sized or refined.",
     ],
-    timebox: "Up to two hours for a two-week sprint; much less when the backlog is refined.",
+    timebox: "Up to two hours for a two-week sprint, less with a refined backlog.",
   },
   {
     toolId: "refinement",

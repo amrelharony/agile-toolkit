@@ -76,6 +76,38 @@ describe("sprint-planning", () => {
       })
     ).toEqual([]);
   });
+
+  it("asks to refine the backlog stories a Jira import brought in with no points", () => {
+    const jira = (id: string, over: Partial<Story> = {}) =>
+      story({ id, points: undefined, sourceRef: { tool: "jira", id: `PAY-${id}` }, ...over });
+    const out = steps("sprint-planning", {
+      sprints: [sprint({ status: "planned" })],
+      stories: [
+        jira("1"),
+        jira("2", { points: 0 }),
+        // Sized, planned, done, or typed here: none of these.
+        jira("3", { points: 5 }),
+        jira("4", { sprintId: "s9", status: "todo" }),
+        jira("5", { status: "done" }),
+        story({ id: "6", points: undefined }),
+      ],
+    });
+    expect(out).toEqual([
+      {
+        id: "planning-refine-imported",
+        label: "Refine the stories imported from Jira",
+        detail:
+          "2 stories imported from the Jira CSV are in the backlog with no points. Check them against the Definition of Ready and size them before planning.",
+        href: "/refinement",
+      },
+    ]);
+    expect(
+      ids("sprint-planning", {
+        sprints: [sprint({ status: "planned" })],
+        stories: [jira("3", { points: 5 })],
+      })
+    ).toEqual([]);
+  });
 });
 
 describe("capacity-planner", () => {
