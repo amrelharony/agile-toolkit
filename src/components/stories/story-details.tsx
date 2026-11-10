@@ -44,8 +44,14 @@ type DetailedStory = Pick<Story, "title" | StoryTextField>;
 export function StoryTicket({ story, className }: { story: DetailedStory; className?: string }) {
   const key = story.ticketKey?.trim();
   const href = storyLink(story.link);
+  // A key can be 50 characters with no space in it: it breaks anywhere
+  // rather than push a phone's row sideways.
   if (!href) {
-    return key ? <span className={cn("font-data text-xs text-sub", className)}>{key}</span> : null;
+    return key ? (
+      <span className={cn("min-w-0 max-w-full break-all font-data text-xs text-sub", className)}>
+        {key}
+      </span>
+    ) : null;
   }
   return (
     <a
@@ -53,12 +59,12 @@ export function StoryTicket({ story, className }: { story: DetailedStory; classN
       target="_blank"
       rel="noopener noreferrer"
       className={cn(
-        "group inline-flex items-center rounded text-xs text-accent focus-visible:outline-none pointer-coarse:min-h-11",
+        "group inline-flex min-w-0 max-w-full items-center rounded text-xs text-accent focus-visible:outline-none pointer-coarse:min-h-11",
         className
       )}
     >
-      <span className="inline-flex items-center gap-1 rounded underline underline-offset-2 group-focus-visible:ring-2 group-focus-visible:ring-accent">
-        <span className={key ? "font-data" : undefined}>{key ?? "Open issue"}</span>
+      <span className="inline-flex min-w-0 items-center gap-1 rounded underline underline-offset-2 group-focus-visible:ring-2 group-focus-visible:ring-accent">
+        <span className={cn("min-w-0 break-all", key && "font-data")}>{key ?? "Open issue"}</span>
         <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
       </span>
       <span className="sr-only">

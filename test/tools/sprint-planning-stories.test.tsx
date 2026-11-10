@@ -338,8 +338,13 @@ describe("a story's details", () => {
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(link).toHaveAccessibleName("PAY-12: open the issue for Apple Pay (opens in a new tab)");
     expect(link.className).toContain("pointer-coarse:min-h-11");
+    // A 50-character key with no space breaks rather than widen a phone's row.
+    expect(link.className.split(/\s+/)).toEqual(expect.arrayContaining(["min-w-0", "max-w-full"]));
+    expect(within(link).getByText("PAY-12").className).toContain("break-all");
     // A key with no link is text; a link with no key still opens the issue.
-    expect(within(row("Backlog", "Remove a saved card")).getByText("PAY-7").tagName).toBe("SPAN");
+    const plain = within(row("Backlog", "Remove a saved card")).getByText("PAY-7");
+    expect(plain.tagName).toBe("SPAN");
+    expect(plain.className).toContain("break-all");
     expect(
       within(row("Backlog", "Fraud checks")).getByRole("link", { name: /^Open issue/ })
     ).toHaveAttribute("href", "https://tracker.example.com/browse/PAY-9");
