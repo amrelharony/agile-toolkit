@@ -15,7 +15,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { HandoffLink, RetroBoard, Sprint, Story } from "@/lib/stores/workspace-types";
 import { useTeamRoster } from "@/lib/team/use-team-roster";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
-import { pickDefaultSprint, todayIso } from "@/lib/sprints/series";
+import { sprintsNewestFirst, todayIso } from "@/lib/sprints/series";
 import { cn } from "@/lib/utils";
 import { useDefinitionOfDone } from "@/lib/dod/use-definition-of-done";
 import { WA_ID, normalizeAgreement } from "@/lib/working-agreement/model";
@@ -81,16 +81,19 @@ export function TeamCharter() {
   const cards = useMemo(() => charterCards(docs), [docs]);
   const markdown = useMemo(() => charterMarkdown(docs, today), [docs, today]);
 
-  // "Add to calendar" is for the sprint the sprint tools open on by default:
-  // the active one, else the newest that wasn't cancelled.
-  const sprint = useMemo(
-    () =>
-      pickDefaultSprint(
-        sprints.filter((s) => s.status !== "cancelled"),
-        null
-      ),
-    [sprints]
-  );
+  // "Add to calendar" is for the sprint whose ceremonies come next: the active
+  // one, else a planned one (without dates yet, the card says to set them),
+  // else the newest other one. A cancelled sprint only when every sprint is,
+  // and the card then says so.
+  const sprint = useMemo(() => {
+    const newest = sprintsNewestFirst(sprints);
+    return (
+      newest.find((s) => s.status === "active") ??
+      newest.find((s) => s.status === "planned") ??
+      newest.find((s) => s.status !== "cancelled") ??
+      newest[0]
+    );
+  }, [sprints]);
   const retroBoards = useWorkspaceStore((s) => s.retroBoards ?? NO_BOARDS);
   const actions = useMemo(
     () => collectRetroActions(retroBoards, { today, targetDone: handoffTargetDone }),

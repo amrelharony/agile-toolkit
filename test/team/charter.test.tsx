@@ -277,7 +277,35 @@ describe("TeamCharter", () => {
     expect(ics).not.toContain("act-undated");
   });
 
-  it("offers the newest sprint that wasn't cancelled when none is active", () => {
+  it("offers the planned sprint between sprints, not the one just completed", () => {
+    // Saturday 17 Oct: Sprint 7 ended yesterday.
+    vi.setSystemTime(new Date(2026, 9, 17, 9, 0, 0));
+    const sp7 = sprint("sp7", "Sprint 7", {
+      startDate: "2026-10-05",
+      endDate: "2026-10-16",
+      status: "completed",
+    });
+    // Planned, with dates.
+    useWorkspaceStore.setState({
+      sprints: [sp7, sprint("sp8", "Sprint 8", { startDate: "2026-10-19", endDate: "2026-10-30" })],
+    });
+    const { unmount } = render(<TeamCharter />);
+    const button = () => screen.getByRole("button", { name: "Add to calendar" });
+    expect(button()).toBeEnabled();
+    expect(button()).toHaveAccessibleDescription(/the 14 ceremonies of Sprint 8/);
+    unmount();
+
+    // Planned without dates yet: the card asks for them, rather than offering Sprint 7.
+    useWorkspaceStore.setState({ sprints: [sp7, sprint("sp8", "Sprint 8", {})] });
+    render(<TeamCharter />);
+    expect(button()).toBeDisabled();
+    expect(button()).toHaveAccessibleDescription(
+      "Sprint 8 has no dates, so its ceremonies can’t go on a calendar. Set its first and last day in the Sprint Cockpit."
+    );
+  });
+
+  it("says a completed sprint's ceremonies are past when there is no other", () => {
+    vi.setSystemTime(new Date(2026, 9, 17, 9, 0, 0));
     useWorkspaceStore.setState({
       sprints: [
         sprint("sp7", "Sprint 7", {
@@ -293,9 +321,39 @@ describe("TeamCharter", () => {
       ],
     });
     render(<TeamCharter />);
-    expect(screen.getByRole("button", { name: "Add to calendar" })).toHaveAccessibleDescription(
-      /ceremonies of Sprint 7/
+    const button = screen.getByRole("button", { name: "Add to calendar" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(
+      "Every ceremony of Sprint 7 is in the past, so there is nothing to add to a calendar. Plan the next sprint in the Sprint Cockpit."
     );
+    fireEvent.click(button);
+    expect(calendars).toEqual([]);
+  });
+
+  it("says every sprint is cancelled rather than that there is none", () => {
+    useWorkspaceStore.setState({
+      sprints: [
+        sprint("sp7", "Sprint 7", {
+          startDate: "2026-10-05",
+          endDate: "2026-10-16",
+          status: "cancelled",
+        }),
+        sprint("sp8", "Sprint 8", {
+          startDate: "2026-10-19",
+          endDate: "2026-10-30",
+          status: "cancelled",
+        }),
+      ],
+    });
+    render(<TeamCharter />);
+    const button = screen.getByRole("button", { name: "Add to calendar" });
+    expect(button).toBeDisabled();
+    // The newest, as the cockpit opens on it.
+    expect(button).toHaveAccessibleDescription(
+      "Sprint 8 was cancelled, so it has no ceremonies to add. Create a new sprint in the Sprint Cockpit."
+    );
+    fireEvent.click(button);
+    expect(calendars).toEqual([]);
   });
 
   it("disables Add to calendar, with the reason, without a sprint or its dates", () => {
