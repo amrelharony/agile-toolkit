@@ -150,6 +150,22 @@ export function retroFor(
   return out;
 }
 
+/**
+ * The sprint a new board looks back on when nobody names one: the sprint
+ * whose retro window holds `today`, of those whose retro isn't archived yet
+ * (the cockpit's rule), so the week after a sprint's retro was archived the
+ * next board is the next sprint's, not a second one for the same sprint.
+ * The Retro page's format picker and tool.retro.start / list_state share it.
+ */
+export function nextRetroSprint(
+  boards: readonly RetroBoard[],
+  sprints: readonly Sprint[],
+  today: string
+): Sprint | undefined {
+  const due = sprints.filter((s) => !retroFor(boards, s, sprints, today).archived);
+  return retroSprintFor(today, due);
+}
+
 /** The newest archived board, which a new retro follows (its actions can be carried over). */
 export function newestArchivedRetro(boards: readonly RetroBoard[]): RetroBoard | undefined {
   let best: RetroBoard | undefined;

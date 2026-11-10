@@ -238,6 +238,49 @@ describe("tool.retro", () => {
     });
   });
 
+  it("list_state with no board reads the sprint start would look back on", async () => {
+    const missed = {
+      id: goalDocId("s1"),
+      businessObjective: "",
+      goal: "Ship sign-in",
+      criteria: [],
+      keyResults: [],
+      sprintId: "s1",
+      outcome: { met: "not-met" as const, decidedAt: "2026-10-23" },
+    };
+    useWorkspaceStore.setState({ sprintGoals: [missed] });
+    const before = await call<Record<string, unknown>>("tool.retro.list_state");
+    expect(before).toMatchObject({
+      exists: false,
+      sprintId: null,
+      facts: { sprintId: "s1", sprintName: "Sprint 1" },
+      suggestedFormat: { formatId: "sailboat" },
+    });
+
+    // Sprint 1's retro is archived and Sprint 2 has started: both now name Sprint 2.
+    const S2: Sprint = {
+      id: "s2",
+      name: "Sprint 2",
+      startDate: "2026-10-24",
+      endDate: "2026-11-06",
+      pointsPlanned: 0,
+      status: "active",
+    };
+    useWorkspaceStore.setState({
+      sprints: [S1, S2],
+      retroBoards: [
+        {
+          ...blankRetroBoard(retroFormats[0], { sprintId: "s1" }),
+          id: "retro:2026-10-24",
+          archivedAt: "2026-10-24T09:00:00Z",
+        },
+      ],
+    });
+    const after = await call<Record<string, unknown>>("tool.retro.list_state");
+    expect(after).toMatchObject({ facts: { sprintId: "s2" }, suggestedFormat: null });
+    expect(await call("tool.retro.start")).toMatchObject({ started: true, sprintId: "s2" });
+  });
+
   it("list_state calls no running sprint's open work unfinished", async () => {
     // Started two days ago: nothing done yet.
     const S2: Sprint = {

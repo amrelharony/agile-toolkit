@@ -6,6 +6,7 @@ import {
   hasOwnCards,
   isRetroVotes,
   newestArchivedRetro,
+  nextRetroSprint,
   retroFor,
   retroSprintFor,
   retroVotes,
@@ -69,6 +70,17 @@ describe("which sprint a retro belongs to", () => {
     expect(retroSprintFor("2026-10-22", SPRINTS)?.id).toBe("s2");
     expect(retroSprintFor("2026-12-01", SPRINTS)).toBeUndefined();
     expect(retroSprintFor("2026-10-09", [{ ...S1, status: "cancelled" }])).toBeUndefined();
+  });
+
+  it("starts the next board on a sprint whose retro isn't archived yet", () => {
+    expect(nextRetroSprint([], SPRINTS, "2026-10-13")?.id).toBe("s1");
+    // S1's retro is under Past retros: two days into S2, the next board is S2's.
+    const held = board("retro:a", [card("c")], {
+      archivedAt: "2026-10-12T15:00:00Z",
+      sprintId: "s1",
+    });
+    expect(nextRetroSprint([held], SPRINTS, "2026-10-13")?.id).toBe("s2");
+    expect(nextRetroSprint([held], [S1], "2026-10-13")).toBeUndefined();
   });
 
   it("uses the board's sprint when it names one, the dates otherwise", () => {
