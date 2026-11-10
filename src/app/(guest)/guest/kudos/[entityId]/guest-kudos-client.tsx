@@ -213,22 +213,29 @@ export function GuestKudosClient({ role, profile, roomKey }: Props) {
           </div>
         </header>
 
+        {/* These see-through boxes sit straight on the page paper, grained in
+            Comic and Night: a flat bg-bg under each keeps the grain out from
+            behind their words. */}
         {loadError && (
-          <div
-            role="alert"
-            className="flex items-center gap-2 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
-          >
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span>{loadError}</span>
+          <div className="rounded bg-bg">
+            <div
+              role="alert"
+              className="flex items-center gap-2 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span>{loadError}</span>
+            </div>
           </div>
         )}
 
         {isViewer ? (
           // Viewers can read but not send. Skip the form entirely.
           <div className="grid gap-4">
-            <div className="rounded border border-border bg-surface/60 px-4 py-3 text-xs text-sub flex items-center gap-2">
-              <Users className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              You&apos;re a viewer — kudos others send to the wall appear here live.
+            <div className="rounded bg-bg">
+              <div className="rounded border border-border bg-surface/60 px-4 py-3 text-xs text-sub flex items-center gap-2">
+                <Users className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                You&apos;re a viewer — kudos others send to the wall appear here live.
+              </div>
             </div>
             <KudosWall kudos={room.kudos} highlightToProfileId={profile.id} />
           </div>

@@ -162,6 +162,7 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
   const bar = (
     <header
       data-chrome="header"
+      data-vt-hold="header"
       className={cn(
         // Mobile-first: tight 8 px gap on the smallest phones, growing as the
         // viewport widens.

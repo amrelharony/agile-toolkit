@@ -332,8 +332,10 @@
     background: var(--bg);
     color: var(--text);
     line-height: 1.6;
+    /* The colour only: the paper's grain switches with the theme at once and
+       never cross-fades. */
     transition:
-      background 0.6s,
+      background-color 0.6s,
       color 0.6s;
     /* R8: cascade — iOS Safari < 15.4 ignores `dvh`, uses `100vh`
        (which includes the URL bar and overflows by ~80px). Modern
@@ -341,6 +343,35 @@
        viewport. */
     min-height: 100vh;
     min-height: 100dvh;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   PAPER — the page paper's still grain (lib/ink/grain.ts; DNA-SPEC section 1)
+   Comic and Night only. It is the body's own background image (with none on
+   html, the browser paints it over the whole canvas), so it scrolls with the
+   page and is never a layer. Panels, cards and rows paint their own flat paper
+   over it. High contrast has no rule here; print, forced colours and a request
+   for more contrast take it off. The strings are generated: test/ink/grain.test.ts
+   holds them equal to grain.ts.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+html.light body {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='61' height='61'%3E%3Cpath d='M43 .5h2m6 1h1m-27 3h1m10 0h1m18 1h2m-30 2h1m6 1h1m-8 5h2m10 0h1m8 1h2m2 0h1m-48 2h1m2 0h1m29 1h2m-29 1h2m22 0h1m15 1h1m5 3h2m-53 6h2m7 1h2m32 0h1m-11 1h1m-27 4h2m40 3h2m-17 7h1m-28 1h1m4 1h1m11 0h2m2 5h2m-8 1h1m1 3h2m22 1h1m-46 1h2m9 3h2' stroke='black' opacity='.1'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='47' height='47'%3E%3Cpath d='M4 1.5h2m3 1h1m9 0h2m-5 7h2m15 1h1m6 0h1m-38 2h2m30 0h2m-10 1h1m2 0h1m-30 1h1m30 3h2m-28 3h2m5 1h1m14 0h1m1 1h2m-11 2h1m-11 3h2m16 0h1m-9 1h1m13 3h2m-6 1h1m9 1h2m-28 1h2m17 0h2m-24 3h1m16 0h2m-6 1h1m-9 2h1m-9 2h1m-3 1h1m11 1h1m23 1h1m-19 1h1' stroke='black' opacity='.1'/%3E%3C/svg%3E");
+}
+
+html.dark body {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='61' height='61'%3E%3Cpath d='M43 .5h2m6 1h1m-27 3h1m10 0h1m18 1h2m-30 2h1m6 1h1m-8 5h2m10 0h1m8 1h2m2 0h1m-48 2h1m2 0h1m29 1h2m-29 1h2m22 0h1m15 1h1m5 3h2m-53 6h2m7 1h2m32 0h1m-11 1h1m-27 4h2m40 3h2m-17 7h1m-28 1h1m4 1h1m11 0h2m2 5h2m-8 1h1m1 3h2m22 1h1m-46 1h2m9 3h2' stroke='white' opacity='.08'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='47' height='47'%3E%3Cpath d='M4 1.5h2m3 1h1m9 0h2m-5 7h2m15 1h1m6 0h1m-38 2h2m30 0h2m-10 1h1m2 0h1m-30 1h1m30 3h2m-28 3h2m5 1h1m14 0h1m1 1h2m-11 2h1m-11 3h2m16 0h1m-9 1h1m13 3h2m-6 1h1m9 1h2m-28 1h2m17 0h2m-24 3h1m16 0h2m-6 1h1m-9 2h1m-9 2h1m-3 1h1m11 1h1m23 1h1m-19 1h1' stroke='white' opacity='.08'/%3E%3C/svg%3E");
+}
+
+@media print, (forced-colors: active), (prefers-contrast: more) {
+  html.light body,
+  html.dark body {
+    background-image: none;
   }
 }
 
@@ -638,6 +669,133 @@
     border-right-color: var(--card);
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   MOTION FOUNDATIONS — the shared easings and durations (lib/motion/tokens.ts)
+   settle and pop are springs sampled into linear(). The cubic-bezier written
+   first for each is its one-overshoot stand-in, kept where linear() is unknown
+   (a custom property takes any value, so only @supports can choose). Presenting
+   turns every overshoot into calm. test/motion/tokens.test.ts holds these equal
+   to tokens.ts, and Tailwind's ease-* and duration-* keys read them.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --ease-calm: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-glide: cubic-bezier(0.2, 1.2, 0.4, 1);
+  --ease-settle: cubic-bezier(0.42, 1.52, 0.1, 1);
+  --ease-pop: cubic-bezier(0.38, 1.76, 0.1, 1);
+  --dur-press: 90ms;
+  --dur-settle: 320ms;
+  --dur-data: 450ms;
+  --dur-surface-in: 220ms;
+  --dur-surface-out: 140ms;
+  --dur-sheet-in: 280ms;
+  --dur-sheet-out: 200ms;
+  --dur-page: 240ms;
+  --dur-travel: 360ms;
+}
+
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --ease-settle: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
+    --ease-pop: linear(
+      0,
+      0.057,
+      0.198,
+      0.383,
+      0.579,
+      0.76,
+      0.913,
+      1.029,
+      1.106,
+      1.149,
+      1.163,
+      1.155,
+      1.133,
+      1.103,
+      1.071,
+      1.041,
+      1.016,
+      0.997,
+      0.983,
+      0.976,
+      0.973,
+      0.975,
+      0.978,
+      0.983,
+      0.988,
+      0.993,
+      0.997,
+      1,
+      1.003,
+      1.004,
+      1.004,
+      1.004,
+      1
+    );
+  }
+}
+
+/* More specific than :root, so it wins inside and outside @supports alike. */
+html[data-presenting="true"] {
+  --ease-glide: var(--ease-calm);
+  --ease-settle: var(--ease-calm);
+  --ease-pop: var(--ease-calm);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   PAGE SETTLE — page content that enters on its own: translate only, 12px at most
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   DATA MOTION — charts, bars, progress and numbers: they ease out and stop
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   SURFACES — dialogs, sheets, popovers and menus: opacity, scale and translate
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   PRESS — buttons, rows and cards pressed and let go
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   BOARDS — a held board card's lift and tilt, a dropped card's settle
+   ═══════════════════════════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    INK GRAPHICS — hand-inked spot art drawn in code (DNA-SPEC §9)
@@ -1185,6 +1343,97 @@ body:has(dialog[open]) [data-sonner-toaster] {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   VIEW TRANSITIONS — lib/motion/view-transition.ts starts every one and sets
+   html[data-vt] while it runs. Amr, his bubble and chat panel, the docked
+   timer and the top bar are held: they never move or fade in a page change.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@supports (view-transition-name: none) {
+  @media screen {
+    /* The script starts a transition only when it reads this marker. It sits
+       with the rules below, so wherever they do not apply (a browser without
+       them, or print) none runs with nothing held. */
+    html {
+      --vt-ready: 1;
+    }
+
+    /* Named only while a transition runs, and each data-vt-hold value is on
+       one element in the app, so no two elements ever share a name (a shared
+       name makes the browser skip the whole transition). */
+    html[data-vt] [data-vt-hold="header"] {
+      view-transition-name: header;
+    }
+    html[data-vt] [data-vt-hold="amr"] {
+      view-transition-name: amr;
+    }
+    html[data-vt] [data-vt-hold="amr-bubble"] {
+      view-transition-name: amr-bubble;
+    }
+    html[data-vt] [data-vt-hold="amr-panel"] {
+      view-transition-name: amr-panel;
+    }
+    html[data-vt] [data-vt-hold="dock-timer"] {
+      view-transition-name: dock-timer;
+    }
+
+    /* Held: the group does not travel, the old picture is not drawn, and the
+       new one is the live element as it is (no fade, no blend), so it stays
+       where it is, opaque and live. */
+    ::view-transition-group(header),
+    ::view-transition-group(amr),
+    ::view-transition-group(amr-bubble),
+    ::view-transition-group(amr-panel),
+    ::view-transition-group(dock-timer) {
+      animation: none;
+    }
+    ::view-transition-old(header),
+    ::view-transition-old(amr),
+    ::view-transition-old(amr-bubble),
+    ::view-transition-old(amr-panel),
+    ::view-transition-old(dock-timer) {
+      display: none;
+    }
+    ::view-transition-new(header),
+    ::view-transition-new(amr),
+    ::view-transition-new(amr-bubble),
+    ::view-transition-new(amr-panel),
+    ::view-transition-new(dock-timer) {
+      animation: none;
+      opacity: 1;
+      mix-blend-mode: normal;
+    }
+
+    /* Above the moving page: the top bar, then Amr and the timer over it. */
+    ::view-transition-group(header) {
+      z-index: 2;
+    }
+    ::view-transition-group(amr),
+    ::view-transition-group(amr-bubble),
+    ::view-transition-group(amr-panel),
+    ::view-transition-group(dock-timer) {
+      z-index: 3;
+    }
+
+    /* Taps go through the pictures to the live page underneath. */
+    ::view-transition {
+      pointer-events: none;
+    }
+
+    /* The global reduced-motion rule above cannot reach these pseudo-elements.
+       The script already starts none under reduced motion; this is the
+       second lock. */
+    @media (prefers-reduced-motion: reduce) {
+      ::view-transition-group(*),
+      ::view-transition-image-pair(*),
+      ::view-transition-old(*),
+      ::view-transition-new(*) {
+        animation: none !important;
+      }
+    }
   }
 }
 

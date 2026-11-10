@@ -132,6 +132,15 @@ describe("<MascotBubble />", () => {
     expect(bubble()).not.toBeNull();
   });
 
+  it("is held still during a page change, empty or not", () => {
+    // globals.css names it only while a view transition runs (html[data-vt]).
+    render(<MascotBubble />);
+    expect(screen.getByRole("status")).toHaveAttribute("data-vt-hold", "amr-bubble");
+    act(() => useBubbleStore.getState().show({ id: "hi", text: "Welcome back" }));
+    expect(screen.getByRole("status")).toHaveAttribute("data-vt-hold", "amr-bubble");
+    expect(document.querySelectorAll("[data-vt-hold]")).toHaveLength(1);
+  });
+
   it("replaces the line showing with a new one, which counts as ignoring the old", () => {
     const onIgnore = vi.fn();
     render(<MascotBubble />);

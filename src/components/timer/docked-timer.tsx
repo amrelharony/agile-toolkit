@@ -51,6 +51,7 @@ export function DockedTimer() {
 
   return (
     <div
+      data-vt-hold="dock-timer"
       className={cn(
         "fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-4 z-40 flex items-center gap-1 rounded-full border bg-card/95 py-1 pl-3 pr-1 text-sm shadow-lg backdrop-blur md:left-20",
         done ? "border-warning/50" : "border-border"
