@@ -28,7 +28,11 @@ import { SPRINT_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 import { averageVelocity, completedSprints } from "@/lib/sprints/hub-view";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
 import { backlogOrderText, storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
-import { currentPokerLog, pokerQueueRoute } from "@/lib/handoffs/targets/poker-queue";
+import {
+  currentPokerLog,
+  pokerQueueRoute,
+  storyQueueSource,
+} from "@/lib/handoffs/targets/poker-queue";
 import { undoable } from "@/lib/utils/undoable";
 import { toast } from "@/lib/utils/toast";
 import {
@@ -365,7 +369,8 @@ export function PlanningBoard({
     );
     const toQueue = unsized.filter((s) => !queued.has(s.id));
     for (const s of toQueue) {
-      pokerQueueRoute.send({ title: s.title, sourceRef: { tool: "story", id: s.id } });
+      // With its notes and acceptance criteria, as the description Poker shows.
+      pokerQueueRoute.send(storyQueueSource(s));
     }
     toast.success(
       toQueue.length === 0
