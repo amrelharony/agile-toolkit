@@ -10,6 +10,7 @@ import {
   VISITOR_AI_PATH,
   VISITOR_FALLBACK_CODES,
   VISITOR_LIMITS,
+  VISITOR_TIME_LIMIT_FINISH,
   type VisitorErrorCode,
   type VisitorRequestBody,
   type VisitorWireMessage,
@@ -177,9 +178,19 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
     // BUG-G18: clear pending confirmation when the loop errors so the
     // UI doesn't leave a wedged card pointing at a settled promise.
     useAgentStore.getState().setPendingToolUse(null);
-    // Don't surface the abort as a user-visible error.
-    if (!(err instanceof Error && err.name === "AbortError")) {
-      store.setError(msg);
+    // Don't surface the abort as a user-visible error. Stop is known by this
+    // send's own signal as well as by the error's name: a failure that arrives
+    // after Stop (the connection going down with the request) can carry any name.
+    const stopped =
+      controller.signal.aborted || (err instanceof Error && err.name === "AbortError");
+    if (!stopped) {
+      // A visitor's request that never got through, or an answer whose stream
+      // broke half way (their network, or the route's 30 s without a chunk),
+      // reaches here as the browser's own "Failed to fetch" / "network error".
+      // Say what happened in plain words instead; any text that did arrive
+      // stays. The real error goes to the console, for whoever is looking into it.
+      if (visitor) console.warn("[visitor-ai] the answer stopped:", msg);
+      store.setError(visitor ? VISITOR_STREAM_FAILED_TEXT : msg);
     }
   } finally {
     // Only clear streaming if no newer send has taken over (otherwise we'd flip
@@ -679,18 +690,60 @@ function chatStillHas(id: string): boolean {
   return useAgentStore.getState().messages.some((m) => m.id === id);
 }
 
-/** The visitor's note for a round that ended without a usable answer, or null. */
-function visitorEndNote(assistantId: string, finishReason: string | null): string | null {
+/**
+ * What a visitor is told when a request fails outright or its stream breaks
+ * half way. It may be their connection or the server's side (the route gave up
+ * on a silent gateway), so it blames neither.
+ */
+const VISITOR_STREAM_FAILED_TEXT =
+  "Amr couldn't finish answering. Try again, and check your connection if it keeps happening.";
+
+/**
+ * finish_reasons that mean the reply was stopped before its end by something
+ * other than its length: OpenAI's "content_filter", and GLM's own "sensitive"
+ * and "network_error" (the model's side failed half way).
+ */
+const VISITOR_STOPPED_EARLY: ReadonlySet<string> = new Set([
+  "content_filter",
+  "sensitive",
+  "network_error",
+]);
+
+/**
+ * The visitor's note for a round that ended without a usable answer, or with
+ * one that stops short, or null. An answer stops short when the model ran out
+ * of tokens ("length"), when the route ended it at its time limit
+ * (VISITOR_TIME_LIMIT_FINISH), when the model's side stopped it early
+ * (VISITOR_STOPPED_EARLY), or when the stream just ended (`cut`: no
+ * finish_reason, and either no [DONE], so something between the model and the
+ * browser closed it, or an error event of the stream's own).
+ */
+function visitorEndNote(
+  assistantId: string,
+  finishReason: string | null,
+  cut: boolean
+): string | null {
   const msg = useAgentStore.getState().messages.find((m) => m.id === assistantId);
   const hasText = msg?.content.some((c) => c.type === "text" && c.text.trim().length > 0) ?? false;
+  const timeLimit = finishReason === VISITOR_TIME_LIMIT_FINISH;
   if (!hasText) {
-    // All reasoning and no reply (the reply plus reasoning budget ran out), or
-    // a tool call cut off half-way: settleAssistant removed the empty message.
-    return finishReason === "length"
-      ? "Amr ran out of room thinking before he could answer. Try a shorter or simpler question."
-      : "Amr didn't manage an answer that time. Try asking again.";
+    // All reasoning and no reply (the reply plus reasoning budget, or the time,
+    // ran out), or a tool call cut off half-way: settleAssistant removed the
+    // empty message.
+    if (finishReason === "length") {
+      return "Amr ran out of room thinking before he could answer. Try a shorter or simpler question.";
+    }
+    if (timeLimit) {
+      return "Amr ran out of time before he could answer. Try a shorter or simpler question.";
+    }
+    return "Amr didn't manage an answer that time. Try asking again.";
   }
-  return finishReason === "length" ? "Amr's answer was cut short. Ask him to go on." : null;
+  if (finishReason === "length") return "Amr's answer was cut short. Ask him to go on.";
+  if (timeLimit) return "Amr ran out of time, so his answer stops here. Ask him to go on.";
+  if (cut || (finishReason !== null && VISITOR_STOPPED_EARLY.has(finishReason))) {
+    return "Amr's answer may have been cut off. Ask him to go on.";
+  }
+  return null;
 }
 
 /**
@@ -721,7 +774,8 @@ function visitorContextToolId(toolId: string | null | undefined): string | undef
  *    limits); the rest are taken out of the history unrun. Every non-read
  *    action asks first: autoApprove is never used.
  *  - The history sent is trimVisitorHistory's, and tool results are cut.
- *  - A round that ends with no reply, or a reply cut off, says so.
+ *  - A round that ends with no reply, or a reply cut off (by the model's
+ *    token limit, the route's time limit, or a stream that just ends), says so.
  *  - While a visitor live room is open in this browser, in this tab or
  *    another (lib/realtime/live-visitor-room.ts), no tools are offered and
  *    none runs: not one offered before the room opened, and not one whose
@@ -748,18 +802,20 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
       context: contextToolId ? { toolId: contextToolId } : {},
     };
 
-    const { stopReason, assistantId, finishReason } = await openOneTurn(
+    const { stopReason, assistantId, finishReason, cut } = await openOneTurn(
       "visitor",
       body as unknown as Record<string, unknown>,
       opts.signal
     );
     if (stopReason !== "tool_use") {
       // No reply at all (all reasoning, or a call cut off) still cost a
-      // message: say so rather than let "thinking…" just vanish. A refusal
-      // (no assistantId) has already said why.
+      // message: say so rather than let "thinking…" just vanish. So does a
+      // reply that stops short: the visitor can't tell it from a finished one.
+      // A refusal (no assistantId) has already said why, and a visitor who
+      // pressed Stop knows.
       const note =
         assistantId && !opts.signal?.aborted
-          ? visitorEndNote(assistantId, finishReason ?? null)
+          ? visitorEndNote(assistantId, finishReason ?? null, cut === true)
           : null;
       if (note) useAgentStore.getState().setError(note);
       return;
@@ -923,6 +979,13 @@ interface TurnOutcome {
   assistantId: string | null;
   /** The stream's own finish_reason ("stop", "length", "tool_calls"…), when it sent one. */
   finishReason?: string | null;
+  /**
+   * The stream ended without a finish_reason, and either without [DONE] (it
+   * was closed from outside rather than finished; also true after an abort,
+   * which the caller already knows about) or after reporting an error of its
+   * own (`data: {"error":…}`).
+   */
+  cut?: boolean;
 }
 
 /**
@@ -946,7 +1009,7 @@ async function openOneTurn(
 
   const early =
     mode === "visitor"
-      ? await handleVisitorResponse(response)
+      ? await handleVisitorResponse(response, signal)
       : await handleOwnerResponse(response);
   if (early) return early;
   // Both checks end the round on a response without a body; this only narrows the type.
@@ -993,7 +1056,18 @@ async function openOneTurn(
         }
         break;
       }
-      const { value, done } = await reader.read();
+      let read: ReadableStreamReadResult<Uint8Array>;
+      try {
+        read = await reader.read();
+      } catch (err) {
+        // The body failed after the stream's own [DONE]: the answer (or its
+        // tool calls) was whole already and only the connection's close went
+        // wrong, so the round ends as it would have on a clean close. A Stop
+        // is not that: it goes on to the catch below.
+        if (wip.sawDone && !signal?.aborted) break;
+        throw err;
+      }
+      const { value, done } = read;
       if (done) break;
       // Normalise CRLF → LF: some HTTP proxies rewrite the SSE separator.
       // BUG-H6: normalise AFTER concatenating into the buffer (mirrors
@@ -1022,10 +1096,16 @@ async function openOneTurn(
     if (wip.usage !== undefined && wip.usage > 0) onUsage?.(wip.usage);
     if (wip.ignoreToolCalls) stopReason = "end_turn";
     settleAssistant(assistantMsg.id, stopReason === "tool_use");
-    return { stopReason, assistantId: assistantMsg.id, finishReason: wip.finishReason ?? null };
+    return {
+      stopReason,
+      assistantId: assistantMsg.id,
+      finishReason: wip.finishReason ?? null,
+      cut: !wip.finishReason && (wip.sawError === true || !wip.sawDone),
+    };
   } catch (err) {
-    // The stream failed mid-way (network error, the route's idle timeout, an
-    // abort while reading): whatever tool call it carried never gets a result.
+    // The stream failed mid-way, before its [DONE] (network error, the route's
+    // idle timeout), or was stopped: whatever tool call it carried never gets
+    // a result.
     settleAssistant(assistantMsg.id, false);
     throw err;
   } finally {
@@ -1106,10 +1186,16 @@ function isVisitorErrorCode(v: unknown): v is VisitorErrorCode {
  * response without them keeps the last one). A refusal whose code means "no
  * more AI for now" (VISITOR_FALLBACK_CODES) sets visitorFallback, so the panel
  * goes back to the offline guide; every other refusal (a busy or failing AI
- * service, a timeout, a bad request) only shows an error. Returns the round's
- * outcome when it ends here, or null to read the stream.
+ * service, a timeout, a bad request) only shows an error. A visitor who
+ * pressed Stop while the refusal was still arriving is told nothing: they know
+ * why there is no answer, and the abort has usually taken the refusal's reason
+ * with it. Returns the round's outcome when it ends here, or null to read the
+ * stream.
  */
-async function handleVisitorResponse(response: Response): Promise<TurnOutcome | null> {
+async function handleVisitorResponse(
+  response: Response,
+  signal: AbortSignal | undefined
+): Promise<TurnOutcome | null> {
   const store = useAgentStore.getState();
   const quota = parseVisitorQuota(response.headers);
   if (quota) store.setVisitorQuota(quota);
@@ -1122,6 +1208,7 @@ async function handleVisitorResponse(response: Response): Promise<TurnOutcome | 
   } catch {
     /* not JSON: fall back to the status below */
   }
+  if (signal?.aborted) return { stopReason: "end_turn", assistantId: null };
   if (code && VISITOR_FALLBACK_CODES.has(code)) {
     store.setVisitorFallback(code);
     store.setError(VISITOR_ERROR_TEXT[code]);
@@ -1152,8 +1239,15 @@ interface WipState {
   usage?: number;
   /** Drop tool-call deltas (the wrap-up turn keeps only text). */
   ignoreToolCalls?: boolean;
-  /** The last finish_reason the stream sent, as sent. */
+  /**
+   * The finish_reason the stream sent, as sent: the last one, except that the
+   * visitor route's own "time_limit" never replaces one the model already sent.
+   */
   finishReason?: string;
+  /** The stream sent its closing [DONE]. */
+  sawDone?: boolean;
+  /** The stream carried an error event of its own (`data: {"error":…}`). */
+  sawError?: boolean;
 }
 
 /**
@@ -1191,7 +1285,10 @@ function handleSseChunk(raw: string, wip: WipState): string | null {
   if (dataLines.length === 0) return null;
   const dataLine = dataLines.join("\n").trimEnd();
   if (!dataLine) return null;
-  if (dataLine === "[DONE]") return null;
+  if (dataLine === "[DONE]") {
+    wip.sawDone = true;
+    return null;
+  }
 
   let payload: Record<string, unknown>;
   try {
@@ -1206,6 +1303,11 @@ function handleSseChunk(raw: string, wip: WipState): string | null {
   // count. Capture it before the choices guard below; the last count wins.
   const usage = usageTotal(payload.usage);
   if (usage !== null) wip.usage = usage;
+
+  // A gateway that fails half way can say so inside the stream, as an event
+  // with an `error` and no choices, and still close it with [DONE]. That is
+  // not a finished answer, whatever follows: the round counts as cut.
+  if (payload.error) wip.sawError = true;
 
   const choices = payload.choices as
     | Array<{
@@ -1248,6 +1350,10 @@ function handleSseChunk(raw: string, wip: WipState): string | null {
   }
 
   if (choice.finish_reason) {
+    // The visitor route ends a too-long answer with its own "time_limit". When
+    // its clock ran out between the model's finish and [DONE], the answer (or
+    // its tool calls) was already complete: keep the model's finish.
+    if (choice.finish_reason === VISITOR_TIME_LIMIT_FINISH && wip.finishReason) return null;
     wip.finishReason = choice.finish_reason;
     return mapFinishReason(choice.finish_reason);
   }

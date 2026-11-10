@@ -15,6 +15,11 @@ import { VISITOR_HEADERS, VISITOR_LIMITS, type VisitorErrorCode } from "@/lib/vi
 import { meterVisitor, type MeterResult } from "@/lib/visitor-ai/meter";
 import { buildVisitorSystemPrompt } from "@/lib/visitor-ai/prompt";
 import { parseVisitorBody } from "@/lib/visitor-ai/request";
+import {
+  VISITOR_STREAM_DEADLINE_MS,
+  deadlineStream,
+  timeLimitTail,
+} from "@/lib/visitor-ai/time-limit";
 import { cairoDay, ipBucket, visitorKey } from "@/lib/visitor-ai/visitor-key";
 
 /**
@@ -48,6 +53,11 @@ import { cairoDay, ipBucket, visitorKey } from "@/lib/visitor-ai/visitor-key";
  *      gateway's 429 / 5xx, or no answer at all, is 503 upstream_busy; any
  *      other error 502 upstream_error. Once streaming, 30 s without a chunk
  *      ends the stream.
+ *   9. The time limit: an answer still streaming 285 s after the request
+ *      arrived (VISITOR_STREAM_DEADLINE_MS) is ended by the route itself, with
+ *      a last event whose finish_reason is "time_limit" and then [DONE], so
+ *      the chat can tell the visitor the answer stops there. Without it the
+ *      platform would cut the stream at maxDuration with no sign at all.
  * Every answer after the meter carries the quota headers (VISITOR_HEADERS).
  *
  * Privacy: the address is used for the burst brake (in memory) and the
@@ -55,11 +65,13 @@ import { cairoDay, ipBucket, visitorKey } from "@/lib/visitor-ai/visitor-key";
  * never message text, an address or a code. No cookie is read or set.
  *
  * Runs on Node (node:crypto for the HMAC, the service-role client), with
- * maxDuration 60 s for a long reasoning answer.
+ * maxDuration 300 s: a full answer (MAX_TOKENS of reply and reasoning) at the
+ * gateway's usual speed takes close to three minutes, and 60 s cut real
+ * answers short. Step 9 ends an answer before the platform would.
  */
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 /**
@@ -106,6 +118,8 @@ function quotaHeaders(m: MeterResult): Record<string, string> {
 }
 
 export async function POST(req: NextRequest) {
+  // The time limit (step 9) counts from here, like the platform's own clock.
+  const startedAt = Date.now();
   const backend = resolveVisitorBackend();
   if (!backend) return refuse(503, "disabled");
   if (!isSameOrigin(req)) return refuse(403, "forbidden");
@@ -156,7 +170,7 @@ export async function POST(req: NextRequest) {
   );
 
   // One controller for the upstream call: the visitor closing the tab aborts
-  // it (nobody reads the tokens), and so do both timeouts.
+  // it (nobody reads the tokens), and so do both timeouts and the time limit.
   const upstreamAbort = new AbortController();
   if (req.signal?.aborted) upstreamAbort.abort();
   else req.signal?.addEventListener("abort", () => upstreamAbort.abort(), { once: true });
@@ -197,7 +211,24 @@ export async function POST(req: NextRequest) {
   const idle = idleTimeoutStream(upstream.body, IDLE_TIMEOUT_MS, () => upstreamAbort.abort());
   req.signal?.addEventListener("abort", idle.stop, { once: true });
 
-  return new Response(idle.stream, {
+  // The route's own end for an answer that runs too long: a last event the
+  // chat understands, instead of the platform's silent cut at maxDuration.
+  // At the limit it cancels idle.stream, which turns the idle timer off too.
+  // And an answer that ends another way first (the gateway closes or breaks,
+  // or the idle stop above) turns the limit's clock off, even with nobody
+  // reading: deadlineStream watches its source's end itself.
+  const limited = deadlineStream(
+    idle.stream,
+    VISITOR_STREAM_DEADLINE_MS - (Date.now() - startedAt),
+    timeLimitTail(),
+    () => {
+      upstreamAbort.abort();
+      console.warn("[visitor-ai] answer ended at the time limit");
+    }
+  );
+  req.signal?.addEventListener("abort", limited.stop, { once: true });
+
+  return new Response(limited.stream, {
     status: 200,
     headers: {
       "content-type": "text/event-stream; charset=utf-8",

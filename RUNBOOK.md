@@ -513,6 +513,27 @@ update public.visitor_ai_config set peak_days = '{1,2,3,4,5}', peak_start = 14, 
 
 A limit answers 429 with its code (`visitor_limit`, `visitor_peak_limit`, `site_limit`, `site_peak_limit`, `site_busy`) and the panel falls back to the offline guide. A gateway 429 or 5xx is `503 upstream_busy`, never counted as a limit.
 
+### When an answer runs long
+
+The route may run for 300 s (`maxDuration`; the project's function limit on Vercel must allow at least that). Three clocks end an answer before then, and the visitor is told each time:
+
+| Clock                                                                                      | What the route does                                                                    | What the visitor sees                                                                                                 |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| No response from the gateway in 30 s                                                       | `504 timeout`                                                                          | "Amr's AI service took too long to answer. Try again in a moment."                                                    |
+| 30 s without a chunk, once streaming                                                       | Ends the stream with an error, and turns the 285 s clock off                           | What arrived stays, with "Amr couldn't finish answering. Try again, and check your connection if it keeps happening." |
+| 285 s since the request arrived (`VISITOR_STREAM_DEADLINE_MS`, `visitor-ai/time-limit.ts`) | Ends the answer itself: a last event with `finish_reason: "time_limit"`, then `[DONE]` | What arrived stays, with "Amr ran out of time, so his answer stops here. Ask him to go on."                           |
+
+The 285 s clock also goes off as soon as the gateway's stream is over for any other reason (it finished, or its connection broke), whether or not the browser is still reading. The time-limit ending is never added to an answer that already ended another way.
+
+A stream that stops with neither a finish event nor `[DONE]` (the platform or a proxy cut it) shows "Amr's answer may have been cut off. Ask him to go on." Depending on how the platform passes a broken stream on, the browser may see the 30 s stop this way too. The same note shows when the model's side stops a reply that already has text (`finish_reason` of `content_filter`, `sensitive` or `network_error`), and when the gateway reports an error of its own inside the stream (an event with an `error` and no finish before it); with no text yet, the note is "Amr didn't manage an answer that time. Try asking again." A tool call that was cut half way is dropped and never runs. A cut answer still counts as a message: the meter counts when the request arrives.
+
+"Amr couldn't finish answering" is the one wording for any failure in the browser (a request that never got through, a stream that broke). The real error goes to the visitor's browser console as `[visitor-ai] the answer stopped: …`, which is the line to ask for when someone reports it. Two cases are not failures and show nothing:
+
+- **The connection breaks after `[DONE]`.** The answer was whole already, so it ends as a finished one, and a finished round's tool calls still run. This holds for the owner's chat too. A break after the finish event but before `[DONE]` still counts as a failure.
+- **The visitor pressed Stop.** Whatever the browser reports afterwards (a refusal still arriving, a network error from the closing connection), the chat says nothing and keeps the text so far.
+
+The time limit leaves one server log line, `[visitor-ai] answer ended at the time limit`, with no text, address or code. An answer that stopped for another reason (the 30 s clock, the visitor leaving) never leaves that line. If it shows up often, answers are too slow for the limit: lower `reasoning_effort` in the config row first. Keep `VISITOR_STREAM_DEADLINE_MS` at least 10 s under `maxDuration`, so the last event is out before the platform stops the function; `test/api/agent-visitor-route.test.ts` checks the gap.
+
 ### Watching usage
 
 ```sql
