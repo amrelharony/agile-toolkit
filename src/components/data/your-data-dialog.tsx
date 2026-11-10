@@ -172,7 +172,8 @@ export function YourDataDialog({
             <h3 className="text-sm font-semibold text-text">Back up</h3>
             <p className="text-sm text-sub">
               Download a file with all your boards, lists and settings. Your AI API keys are never
-              included.
+              included. Nothing is backed up on its own: the file is only as new as your last
+              download.
             </p>
             <Button type="button" onClick={download} className="gap-2">
               {downloaded ? <Check aria-hidden="true" /> : <Download aria-hidden="true" />}

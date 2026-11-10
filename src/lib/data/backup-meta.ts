@@ -69,16 +69,32 @@ export function daysSinceBackup(iso: string | null, now: Date = new Date()): num
   return Math.max(0, Math.round((startOfDay(now) - startOfDay(then)) / DAY_MS));
 }
 
-/** The longest line `lastBackupText` writes for a backup, for a control that reserves its width. */
-export const LAST_BACKUP_WIDEST = "Last backup: 0000 days ago";
+/** From this many days on, the age is said in years: "3 years ago". */
+const YEARS_FROM_DAYS = 1000;
+
+/**
+ * How long ago the last backup was, in words: "today", "yesterday", "3 days
+ * ago", and from 1,000 days "2 years ago". Null for no backup.
+ */
+export function lastBackupAge(iso: string | null, now: Date = new Date()): string | null {
+  const days = daysSinceBackup(iso, now);
+  if (days === null) return null;
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < YEARS_FROM_DAYS) return `${days} days ago`;
+  return `${Math.floor(days / 365)} years ago`;
+}
+
+/**
+ * The widest age `lastBackupAge` writes, for a control that reserves its
+ * width before it can read the real one (the saved chip's placeholder).
+ */
+export const LAST_BACKUP_AGE_WIDEST = "000 days ago";
 
 /** "Last backup: 3 days ago", "Last backup: today", or "No backup yet". */
 export function lastBackupText(iso: string | null, now: Date = new Date()): string {
-  const days = daysSinceBackup(iso, now);
-  if (days === null) return "No backup yet";
-  if (days === 0) return "Last backup: today";
-  if (days === 1) return "Last backup: yesterday";
-  return `Last backup: ${days} days ago`;
+  const age = lastBackupAge(iso, now);
+  return age === null ? "No backup yet" : `Last backup: ${age}`;
 }
 
 /**

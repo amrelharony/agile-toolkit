@@ -6,9 +6,10 @@ vi.mock("@/lib/gamification/signal", () => ({ signalGamification: vi.fn() }));
 
 import { saveAs } from "file-saver";
 import {
+  LAST_BACKUP_AGE_WIDEST,
   LAST_BACKUP_KEY,
-  LAST_BACKUP_WIDEST,
   daysSinceBackup,
+  lastBackupAge,
   lastBackupText,
   readLastBackupAt,
   recordBackup,
@@ -55,11 +56,25 @@ describe("how old the last backup is", () => {
     expect(lastBackupText("2025-01-01T08:00:00", now)).toBe("Last backup: 678 days ago");
   });
 
-  it("never writes a line longer than the width a control reserves for it", () => {
-    const lines = [null, "2026-11-10T08:00:00", "2026-11-09T08:00:00", "2000-01-01T08:00:00"].map(
-      (iso) => lastBackupText(iso, now)
-    );
-    for (const line of lines) expect(line.length).toBeLessThanOrEqual(LAST_BACKUP_WIDEST.length);
+  it("says a very old backup in years, so the age never outgrows three digits", () => {
+    expect(lastBackupAge("2024-02-15T08:00:00", now)).toBe("999 days ago");
+    expect(lastBackupAge("2024-02-14T08:00:00", now)).toBe("2 years ago");
+    expect(lastBackupAge("2000-01-01T08:00:00", now)).toBe("26 years ago");
+    expect(lastBackupAge(null, now)).toBeNull();
+  });
+
+  it("never writes an age longer than the width a control reserves for it", () => {
+    const stamps = [
+      "2026-11-10T08:00:00",
+      "2026-11-09T08:00:00",
+      "2026-08-02T08:00:00",
+      "2024-02-15T08:00:00",
+      "2000-01-01T08:00:00",
+      "1930-01-01T08:00:00",
+    ];
+    for (const iso of stamps) {
+      expect(lastBackupAge(iso, now)!.length).toBeLessThanOrEqual(LAST_BACKUP_AGE_WIDEST.length);
+    }
   });
 });
 
