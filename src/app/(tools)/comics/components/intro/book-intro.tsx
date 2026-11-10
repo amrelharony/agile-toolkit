@@ -19,7 +19,10 @@ export interface BookIntroStory {
  * cover, the cover swings open, a blank page turns, and the next page turns
  * over with this week's panel printed on its back, so the panel lands face up
  * beside the story's title as it inks in. Amr waves at the foot of the fold.
- * The beats and their times are in book-intro.module.css.
+ * The beats and their times are in book-intro.module.css. On a phone too
+ * narrow for the open spread, the panel's page lands mostly off-screen: the
+ * whole panel shows, foreshortened, while its page turns, and then only its
+ * right edge stays in view beside the title (the CSS describes the crop).
  *
  * The book is square, as printed, and its front is the cover's art. Under the
  * art the cover is lettered, in the gallery's own words, which is what shows
@@ -110,8 +113,9 @@ function BlankLeaf() {
 /**
  * The second page: blank on its front, and this week's panel printed on its
  * back, in the same 3:2 window every intro uses. It lies still a moment, then
- * turns over, so the panel lands face up as the left page of the spread.
- * Blank both sides while the story has no art.
+ * turns over, so the panel lands face up as the left page of the spread (on a
+ * phone, mostly past the screen's left edge). Blank both sides while the
+ * story has no art.
  */
 function PanelLeaf({ cover }: { cover: StoryCover | null }) {
   return (

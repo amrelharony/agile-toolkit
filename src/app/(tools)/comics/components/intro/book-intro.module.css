@@ -15,6 +15,8 @@
  *   2.6  – 3.1 s   Amr pops up at the foot of the fold, on the pop spring
  *   4.25 – 5.0 s   the page pushes toward the reader as the overlay fades
  *
+ * So the title is fully inked for 1.6 s before the push begins.
+ *
  * Every time is a literal in one `animation:` shorthand, filled both ways, and
  * everything is over by 5 s (test/comics/intro-book.test.tsx holds it to that).
  * Only transform, opacity, clip-path and visibility move. The two springs are
@@ -37,8 +39,12 @@
  * would carry a page through the one under it. The cover's board does bounce.
  *
  * Sizes come from the book's width, which comes from the viewport, so nothing
- * here can scroll or spill. The overlay clips the open cover where a phone is
- * too narrow for the spread: a deliberate crop of plain paper.
+ * here can scroll or spill. Where a phone is too narrow for the open spread,
+ * the overlay clips the turned sheets' left side, and with them most of this
+ * week's panel: on a 375 px phone only about its right 30% stays on screen
+ * once its page has landed, and it shows whole, foreshortened, only while
+ * that page turns over. The title's page, on the right, always shows whole,
+ * and on a desktop so does the whole spread.
  */
 
 /* The overlay's one animation: its end is the intro's end. Eased in, with the
