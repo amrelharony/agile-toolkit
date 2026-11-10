@@ -452,6 +452,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const lastIntentAtRef = useRef(0);
   const ownCardsRef = useRef<HeldCard[]>([]);
   const myVotesRef = useRef<HeldVote[]>([]);
+  /** Participant: votes it asked to take back, until a settled snapshot says how it went. */
+  const undoingRef = useRef<HeldVote[]>([]);
   const unsharedRef = useRef<OwnCard[]>([]);
   const deletingRef = useRef<HeldCard[]>([]);
   /** `addCard`, for the reconcile that re-adds a card undone before its delete settled. */
@@ -629,8 +631,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
    * Bring what this participant remembers in line with the host's snapshot,
    * once its own last request has had time to land, by card id: cards and
    * votes the host doesn't have are dropped, a delete the host refused gives
-   * the card back, and a card undone before its delete settled is added
-   * again if the delete went through. A board that just emptied, by more
+   * the card back (and a refused take-back the vote), and a card undone
+   * before its delete settled is added again if the delete went through. A board that just emptied, by more
    * than this tab's own deletes, was cleared, so the card allowance starts
    * again too, as it does on the host's side.
    */
@@ -649,6 +651,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (clearedRef.current) {
         // Cleared: nothing of this tab's is left, and nothing comes back.
         clearedRef.current = false;
+        undoingRef.current = [];
         if (ownCardsRef.current.length > 0) setOwnCards([]);
         if (deletingRef.current.length > 0) setDeleting([]);
         if (myVotesRef.current.length > 0) setMyVotes([]);
@@ -671,13 +674,17 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (keep.length !== own.length || keep.some((c, i) => c !== own[i])) setOwnCards(keep);
       for (const c of readd) addCardRef.current?.(c.columnKey, c.text);
 
-      let votes = myVotesRef.current;
-      votes = votes.filter((v) => ids.has(v.cardId));
+      const mine = myVotesRef.current;
+      let votes = mine.filter((v) => ids.has(v.cardId));
       const confirmed = Object.prototype.hasOwnProperty.call(snap.votesUsed, selfId)
         ? snap.votesUsed[selfId]
         : 0;
+      // The host counts more votes than this tab remembers: take-backs it refused, newest first.
+      const undone = undoingRef.current.filter((v) => ids.has(v.cardId));
+      undoingRef.current = [];
+      while (votes.length < confirmed && undone.length > 0) votes = [...votes, undone.pop()!];
       if (votes.length > confirmed) votes = votes.slice(0, confirmed);
-      if (votes.length !== myVotesRef.current.length) setMyVotes(votes);
+      if (votes.length !== mine.length || votes.some((v, i) => v !== mine[i])) setMyVotes(votes);
     },
     [selfId, setDeleting, setMyVotes, setOwnCards]
   );
@@ -732,6 +739,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
         setOwnCards([]);
         setDeleting([]);
         setMyVotes([]);
+        undoingRef.current = [];
         sentCardsRef.current = 0;
         clearedRef.current = false;
       } else {
@@ -1081,6 +1089,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       setOwnCards([]);
       setDeleting([]);
       setMyVotes([]);
+      undoingRef.current = [];
       setPendingVotes(0);
       if (othersLost) setCardsLost(true);
       setPromoted(true);
@@ -1261,6 +1270,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       for (let i = list.length - 1; i >= 0 && at < 0; i--) if (list[i].cardId === cardId) at = i;
       if (at < 0) return false;
       send({ t: "vote:undo", iid: nanoid(12), cardId, key: list[at].key });
+      // Kept aside until a settled snapshot shows the host took it back.
+      undoingRef.current = [...undoingRef.current, list[at]];
       setMyVotes([...list.slice(0, at), ...list.slice(at + 1)]);
       setPendingVotes((n) => n - 1);
       return true;

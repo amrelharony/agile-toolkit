@@ -640,6 +640,39 @@ describe("useRetroRoom: a participant's own cards and votes", () => {
     expect(res).toBe("sent");
   });
 
+  it("gets a vote back in memory when the host never took it back", () => {
+    const voted = board({
+      phase: "vote",
+      cards: [card("c1", { votes: 1 }), card("c2", { columnKey: "stop" })],
+    });
+    const { result, ch } = joined(snap(HOST.id, board({ phase: "vote" })));
+    act(() => {
+      result.current.vote("c1");
+    });
+    act(() =>
+      ch.deliver("retro:state", snap(HOST.id, voted, { seq: 2, votesUsed: { [ME.id]: 1 } }))
+    );
+    act(() => {
+      result.current.unvote("c1");
+    });
+    expect(result.current.myVotes).toEqual({});
+    act(() => vi.advanceTimersByTime(SETTLE_MS));
+    // The host still counts it: the request never reached it.
+    act(() =>
+      ch.deliver("retro:state", snap(HOST.id, voted, { seq: 3, votesUsed: { [ME.id]: 1 } }))
+    );
+    expect(result.current.myVotes).toEqual({ c1: 1 });
+    expect(result.current.votesLeft).toBe(2);
+    // ...so it can be taken back again, with the same vote's key.
+    let ok = false;
+    act(() => {
+      ok = result.current.unvote("c1");
+    });
+    expect(ok).toBe(true);
+    const sent = ch.sent("retro:intent") as Intent[];
+    expect(sent.at(-1)!.intent.key).toBe(sent.at(-2)!.intent.key);
+  });
+
   it("starts again when the host clears the board", () => {
     const { result, ch } = joined(snap(HOST.id, board(), { hide: true }));
     act(() => {
