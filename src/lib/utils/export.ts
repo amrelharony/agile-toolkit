@@ -85,6 +85,17 @@ export function exportToMarkdown(markdown: string, filename: string) {
   trackExport("markdown");
 }
 
+/**
+ * Save an iCalendar file (lib/sprints/ics) as `<filename>.ics`, for the
+ * visitor to open in their calendar app. The text arrives with its CRLF line
+ * endings and is saved as it is. Not counted as an export: the gamification
+ * engine knows the four document formats only.
+ */
+export function exportToICS(ics: string, filename: string) {
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  saveAs(blob, `${sanitizeFilename(filename)}.ics`);
+}
+
 export function exportToJSON(data: unknown, filename: string) {
   const json = JSON.stringify(data, null, 2);
   const blob = new Blob([json], { type: "application/json;charset=utf-8" });

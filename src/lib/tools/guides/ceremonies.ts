@@ -23,7 +23,7 @@ export const GUIDES: ToolGuide[] = [
       "If follow-through stays under half, agree fewer actions, each with an owner, at the next retro.",
       "A retro isn't rated until the next one starts, so its actions have time to get done. The chart needs two past retros with actions.",
       "On an empty page, Load an example shows a checkout team's last three retros. Nothing in it is saved, and Clear example removes it.",
-      "The Sprint Cockpit's retro card shows how many actions are open and overdue.",
+      "The Sprint Cockpit's retro card shows how many actions are open and overdue. Add to calendar, under Next ceremony there, can add open actions to the calendar file on their due dates.",
     ],
     timebox: "Five minutes a week, and the first five minutes of every retro.",
   },
@@ -38,6 +38,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "With no sprint yet, follow Set up your sprint: add your team, create the sprint and check the ceremony times. Or click See an example first.",
+      "Under Next ceremony, Add to calendar downloads the sprint's ceremonies, each asking for a reminder 10 minutes before. Open retro actions with a due date go in unless you untick them; tick the weekly Agile at Work story to add it. Each teammate imports the file, or you forward it; download it again when times change.",
       "Read the sentence under the sprint header and any notes under it (a goal still unanswered, how many retro actions are in the sprint), then the five ceremony cards. Each says where that ceremony stands and links to the tool that runs it.",
       "Done, Remaining and the Burndown come from the sprint board when its stories have points. Without pointed stories, type the points in Points left today under Burndown and click Log.",
       "Check Open blockers: the impediments open during the sprint, escalated and overdue ones first, and the stories Blocked on the board.",
@@ -47,7 +48,7 @@ export const GUIDES: ToolGuide[] = [
     tips: [
       "Give the stories points in Sprint Planning or Planning Poker: the numbers then follow the board, with nothing to type.",
       "Pick another sprint under Sprint and the other sprint tools open on the same one.",
-      "Ceremony times are the team's: change them under Next ceremony, or in the charter on the Team page.",
+      "Ceremony times are the team's: change them under Next ceremony, or in the charter on the Team page, which has Add to calendar too.",
     ],
     timebox: "Two minutes a day; ten at the start and end of a sprint.",
   },
