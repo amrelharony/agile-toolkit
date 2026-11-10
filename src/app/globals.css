@@ -640,6 +640,133 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   MOTION FOUNDATIONS — the shared easings and durations (lib/motion/tokens.ts)
+   settle and pop are springs sampled into linear(). The cubic-bezier written
+   first for each is its one-overshoot stand-in, kept where linear() is unknown
+   (a custom property takes any value, so only @supports can choose). Presenting
+   turns every overshoot into calm. test/motion/tokens.test.ts holds these equal
+   to tokens.ts, and Tailwind's ease-* and duration-* keys read them.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --ease-calm: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-glide: cubic-bezier(0.2, 1.2, 0.4, 1);
+  --ease-settle: cubic-bezier(0.42, 1.52, 0.1, 1);
+  --ease-pop: cubic-bezier(0.38, 1.76, 0.1, 1);
+  --dur-press: 90ms;
+  --dur-settle: 320ms;
+  --dur-data: 450ms;
+  --dur-surface-in: 220ms;
+  --dur-surface-out: 140ms;
+  --dur-sheet-in: 280ms;
+  --dur-sheet-out: 200ms;
+  --dur-page: 240ms;
+  --dur-travel: 360ms;
+}
+
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --ease-settle: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
+    --ease-pop: linear(
+      0,
+      0.057,
+      0.198,
+      0.383,
+      0.579,
+      0.76,
+      0.913,
+      1.029,
+      1.106,
+      1.149,
+      1.163,
+      1.155,
+      1.133,
+      1.103,
+      1.071,
+      1.041,
+      1.016,
+      0.997,
+      0.983,
+      0.976,
+      0.973,
+      0.975,
+      0.978,
+      0.983,
+      0.988,
+      0.993,
+      0.997,
+      1,
+      1.003,
+      1.004,
+      1.004,
+      1.004,
+      1
+    );
+  }
+}
+
+/* More specific than :root, so it wins inside and outside @supports alike. */
+html[data-presenting="true"] {
+  --ease-glide: var(--ease-calm);
+  --ease-settle: var(--ease-calm);
+  --ease-pop: var(--ease-calm);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   PAGE SETTLE — page content that enters on its own: translate only, 12px at most
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   DATA MOTION — charts, bars, progress and numbers: they ease out and stop
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   SURFACES — dialogs, sheets, popovers and menus: opacity, scale and translate
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   PRESS — buttons, rows and cards pressed and let go
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   BOARDS — a held board card's lift and tilt, a dropped card's settle
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    INK GRAPHICS — hand-inked spot art drawn in code (DNA-SPEC §9)
    components/ink render lib/ink drawings as inline SVG. Strokes ink themselves in
    once (pathLength 1 + dash offset), washes and fills fade in under them, and a
