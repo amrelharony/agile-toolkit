@@ -450,9 +450,10 @@ export function PlanningPokerClient() {
           queue,
           estimates: loggedEstimates,
           stories: backlogStories,
+          fromQueue,
         })
       ),
-    [session, queue, loggedEstimates, backlogStories]
+    [session, queue, loggedEstimates, backlogStories, fromQueue]
   );
   const references = useCardReferences(session?.scaleType, session?.scale);
 

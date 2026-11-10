@@ -44,6 +44,8 @@ describe("poker write-back to stories", () => {
       storyTitle: "Fraud checks",
       finalEstimate: "5",
       sourceRef: { tool: "story", id: "st1" },
+      // Which session story it was: the queue entry that knew is gone now.
+      sessionStoryId,
     });
   });
 

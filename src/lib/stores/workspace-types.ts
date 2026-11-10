@@ -3227,6 +3227,13 @@ export interface PokerEstimate {
   decidedAt: ISODateString;
   /** The story this estimated, when it came from another tool's queue. */
   sourceRef?: HandoffRef;
+  /**
+   * The session story the estimate was accepted for, when it came from the
+   * queue. The queue forgets the story once it is estimated, so this is how
+   * the session's rows are tied back to `sourceRef` afterwards (the CSV's
+   * ticket key). Absent on estimates logged before it was kept.
+   */
+  sessionStoryId?: string;
 }
 
 /** A story another tool sent for estimation, waiting for a Poker session. */

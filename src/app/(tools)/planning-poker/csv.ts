@@ -9,6 +9,10 @@
  * story's it came from, found through this browser's queue, the estimates
  * the queue's write-back logged, and the stories "Save to backlog" made.
  * A guest's browser has none of those, so its rows fall back to the title.
+ *
+ * The rows are imported into a tracker by key, so a key is only given to
+ * the story it belongs to: stories are matched by id, never by a title two
+ * of them can share. A row without a sure match keeps its title.
  */
 
 import type {
@@ -35,42 +39,62 @@ export interface TicketKeySources {
   estimates?: readonly PokerEstimate[];
   /** The workspace's stories. */
   stories: readonly WorkspaceStory[];
+  /**
+   * The session stories this browser pulled in from the queue. Only these
+   * may be matched by title, against an estimate logged before the log kept
+   * the session story's id.
+   */
+  fromQueue?: ReadonlySet<string>;
 }
 
 /**
  * The ticket key of each session story that has one, by session story id.
  * A story still on the queue is matched by the id the queue stamped on it;
- * one already estimated has left the queue, so it is matched by title
- * against the logged estimates (the newest first); one typed here and saved
- * to the backlog is matched by the link the save made.
+ * one already estimated has left the queue, so it is matched by the same id
+ * the write-back logged with its estimate; one typed here and saved to the
+ * backlog is matched by the link the save made.
+ *
+ * An estimate logged before the log kept that id can only be matched by
+ * title. That is done for a story known to come from the queue (`fromQueue`)
+ * and only when every such estimate with the title is for one story: with
+ * two, the key would be a guess.
  */
 export function sessionTicketKeys(
   sessionStories: readonly SessionStory[],
-  { queue = [], estimates = [], stories }: TicketKeySources
+  { queue = [], estimates = [], stories, fromQueue }: TicketKeySources
 ): Map<string, string> {
   const byId = new Map(stories.map((s) => [s.id, s]));
-  const keyOf = (storyId: string | undefined) =>
+  const keyOf = (storyId: string | null | undefined) =>
     (storyId ? byId.get(storyId)?.ticketKey?.trim() : undefined) || undefined;
 
-  const queued = new Map<string, string>();
+  /** Session story id to the workspace story it came from. */
+  const source = new Map<string, string>();
+  /** Title to the one story the older estimates name for it (null: more than one). */
+  const byTitle = new Map<string, string | null>();
+  for (const e of estimates) {
+    if (e.sourceRef?.tool !== STORY_QUEUE_TOOL) continue;
+    if (typeof e.sessionStoryId === "string" && e.sessionStoryId) {
+      source.set(e.sessionStoryId, e.sourceRef.id);
+      continue;
+    }
+    if (typeof e.storyTitle !== "string" || !byId.has(e.sourceRef.id)) continue;
+    const title = titleKey(e.storyTitle);
+    const known = byTitle.get(title);
+    byTitle.set(title, known === undefined || known === e.sourceRef.id ? e.sourceRef.id : null);
+  }
+  // Still on the queue (not estimated yet, or queued again since).
   for (const q of queue) {
     if (q.sessionStoryId && q.sourceRef.tool === STORY_QUEUE_TOOL) {
-      queued.set(q.sessionStoryId, q.sourceRef.id);
+      source.set(q.sessionStoryId, q.sourceRef.id);
     }
-  }
-  const logged = new Map<string, string>();
-  for (const e of estimates) {
-    if (e.sourceRef?.tool !== STORY_QUEUE_TOOL || typeof e.storyTitle !== "string") continue;
-    // Later entries win: the log runs oldest first.
-    if (byId.has(e.sourceRef.id)) logged.set(titleKey(e.storyTitle), e.sourceRef.id);
   }
 
   const keys = new Map<string, string>();
   for (const st of sessionStories) {
     const key =
-      keyOf(queued.get(st.id)) ??
+      keyOf(source.get(st.id)) ??
       keyOf(savedStoryFor(stories, st.id)?.id) ??
-      keyOf(logged.get(titleKey(st.title)));
+      (fromQueue?.has(st.id) ? keyOf(byTitle.get(titleKey(st.title))) : undefined);
     if (key) keys.set(st.id, key);
   }
   return keys;

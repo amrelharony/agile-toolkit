@@ -2382,6 +2382,7 @@ const PokerEstimationLogSchema = z.object({
       votes: z.array(z.string()).optional(),
       decidedAt: z.string(),
       sourceRef: HandoffRefSchema.optional(),
+      sessionStoryId: z.string().optional(),
     })
   ),
   queue: z

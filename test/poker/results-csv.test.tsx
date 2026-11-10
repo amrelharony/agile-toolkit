@@ -68,7 +68,7 @@ vi.mock("framer-motion", async () => {
 });
 
 import { PlanningPokerClient } from "@/app/(tools)/planning-poker/planning-poker-client";
-import { LOCAL_SESSION_KEY } from "@/app/(tools)/planning-poker/local-session";
+import { LOCAL_SESSION_KEY, QUEUED_IDS_KEY } from "@/app/(tools)/planning-poker/local-session";
 import { POKER_CSV_HEADERS, pokerCsv, sessionTicketKeys } from "@/app/(tools)/planning-poker/csv";
 import type { Session } from "@/app/(tools)/planning-poker/types";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
@@ -124,15 +124,27 @@ const SOURCES = {
   estimates: [
     {
       id: "q0",
-      storyTitle: " pay with a  saved card ",
+      storyTitle: "Pay with a saved card",
       finalEstimate: "3",
       scaleType: "fibonacci",
       decidedAt: "2026-11-01T09:05:00.000Z",
       sourceRef: { tool: "story", id: "st-card" },
+      sessionStoryId: "s-done",
     },
   ],
   stories: BACKLOG,
 };
+
+/** An estimate the write-back logged for workspace story `storyId`. */
+const logged = (id: string, storyTitle: string, storyId: string, sessionStoryId?: string) => ({
+  id,
+  storyTitle,
+  finalEstimate: "3",
+  scaleType: "fibonacci",
+  decidedAt: "2026-11-01T09:05:00.000Z",
+  sourceRef: { tool: "story", id: storyId },
+  ...(sessionStoryId ? { sessionStoryId } : {}),
+});
 
 beforeEach(() => {
   exported.csv = undefined;
@@ -147,12 +159,81 @@ describe("the ticket key of a session story", () => {
     expect(Object.fromEntries(keys)).toEqual({
       // Still on the queue: matched by the id the queue stamped.
       "s-queued": "PAY-7",
-      // Estimated, so off the queue: matched by title against the log,
-      // whatever was accepted since.
+      // Estimated, so off the queue: matched by the session story's id the
+      // write-back logged with the estimate, whatever was accepted since.
       "s-done": "PAY-12",
       // Typed here, then saved to the backlog.
       "s-saved": "PAY-30",
     });
+  });
+
+  it("tells two queued stories with the same title apart", () => {
+    const twins: Session["stories"] = [
+      { id: "s-one", title: "Update copy", finalEstimate: "2" },
+      { id: "s-two", title: "Update copy", finalEstimate: "5" },
+      // Typed into the session later, with the same title: not theirs.
+      { id: "s-typed", title: "Update copy", finalEstimate: "1" },
+    ];
+    const stories: WorkspaceStory[] = [
+      { id: "st-1", title: "Update copy", status: "backlog", ticketKey: "PAY-1" },
+      { id: "st-2", title: "Update copy", status: "backlog", ticketKey: "PAY-2" },
+    ];
+    const estimates = [
+      logged("q1", "Update copy", "st-1", "s-one"),
+      logged("q2", "Update copy", "st-2", "s-two"),
+    ];
+    const keys = sessionTicketKeys(twins, { estimates, stories, fromQueue: new Set(["s-one"]) });
+    expect(Object.fromEntries(keys)).toEqual({ "s-one": "PAY-1", "s-two": "PAY-2" });
+    expect(pokerCsv(session({ stories: twins }), keys)?.rows).toEqual([
+      ["PAY-1", "Update copy", 2],
+      ["PAY-2", "Update copy", 5],
+      ["Update copy", "Update copy", 1],
+    ]);
+  });
+
+  it("never gives a story typed here the key of an older queued story with its title", () => {
+    const typed: Session["stories"] = [{ id: "s-new", title: "Login page", finalEstimate: "8" }];
+    const stories: WorkspaceStory[] = [
+      { id: "st-login", title: "Login page", status: "done", ticketKey: "WEB-3" },
+    ];
+    // Logged by an earlier session, before and after the log kept the id.
+    for (const estimates of [
+      [logged("q1", "Login page", "st-login")],
+      [logged("q1", "Login page", "st-login", "s-old")],
+    ]) {
+      expect(sessionTicketKeys(typed, { estimates, stories }).size).toBe(0);
+      expect(sessionTicketKeys(typed, { estimates, stories, fromQueue: new Set() }).size).toBe(0);
+    }
+  });
+
+  it("matches an estimate logged before the log kept the id by title, for a queue story only", () => {
+    const stories: WorkspaceStory[] = [
+      { id: "st-card", title: "Pay with a saved card", status: "todo", ticketKey: "PAY-12" },
+      { id: "st-1", title: "Update copy", status: "backlog", ticketKey: "PAY-1" },
+      { id: "st-2", title: "Update copy", status: "backlog", ticketKey: "PAY-2" },
+    ];
+    const rows: Session["stories"] = [
+      { id: "s-done", title: "Pay with a saved card", finalEstimate: "5" },
+      { id: "s-copy", title: "Update copy", finalEstimate: "2" },
+    ];
+    const estimates = [
+      logged("q0", " pay with a  saved card ", "st-card"),
+      logged("q1", "Update copy", "st-1"),
+      logged("q2", "Update copy", "st-2"),
+    ];
+    const fromQueue = new Set(["s-done", "s-copy"]);
+    // One story has that title: it is the one. Two do: no key rather than
+    // the wrong one, so the row falls back to its title.
+    expect(Object.fromEntries(sessionTicketKeys(rows, { estimates, stories, fromQueue }))).toEqual({
+      "s-done": "PAY-12",
+    });
+    // Not known to come from the queue: no match by title at all.
+    expect(sessionTicketKeys(rows, { estimates, stories }).size).toBe(0);
+    // The same story estimated twice under one title is still one story.
+    const again = [...estimates.slice(0, 2), logged("q3", "Update copy", "st-1")];
+    expect(sessionTicketKeys(rows, { estimates: again, stories, fromQueue }).get("s-copy")).toBe(
+      "PAY-1"
+    );
   });
 
   it("is absent without a workspace story, or when that story has no key", () => {
@@ -203,5 +284,32 @@ describe("Planning Poker results as CSV", () => {
       ["Gift cards", "Gift cards", "M"],
       ["Refunds", "Refunds", ""],
     ]);
+  });
+
+  it("matches an older logged estimate by title only for the stories this browser took from the queue", () => {
+    const older = [logged("q0", "Pay with a saved card", "st-card")];
+    useWorkspaceStore.setState({
+      stories: BACKLOG,
+      pokerEstimationLogs: [{ id: POKER_LOG_ID, estimates: older, queue: [] }],
+    });
+    window.localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(session({ stories: STORIES })));
+    // The note kept beside a stored session: which of its stories came from the queue.
+    window.localStorage.setItem(QUEUED_IDS_KEY, JSON.stringify(["s-done"]));
+    render(<PlanningPokerClient />);
+    expect(exported.csv?.rows.slice(0, 2)).toEqual([
+      ["Fraud checks", "Fraud checks", ""],
+      ["PAY-12", "Pay with a saved card", 5],
+    ]);
+  });
+
+  it("gives no key by title to a story this browser did not take from the queue", () => {
+    const older = [logged("q0", "Pay with a saved card", "st-card")];
+    useWorkspaceStore.setState({
+      stories: BACKLOG,
+      pokerEstimationLogs: [{ id: POKER_LOG_ID, estimates: older, queue: [] }],
+    });
+    window.localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(session({ stories: STORIES })));
+    render(<PlanningPokerClient />);
+    expect(exported.csv?.rows[1]).toEqual(["Pay with a saved card", "Pay with a saved card", 5]);
   });
 });
