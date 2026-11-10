@@ -115,7 +115,8 @@ describe("a guided tool's page and its layout", () => {
         if (id !== null) expect(id, `src/app/(tools)${tool.path}`).toBe(tool.id);
       }
     }
-  });
+    // It reads every guided page's source: about 1 s alone, past 5 s under a full run.
+  }, 20_000);
 
   it("show the guide on the rendered page where only running it tells the wrapper's id", async () => {
     const run = guided.filter(needsRunning);
