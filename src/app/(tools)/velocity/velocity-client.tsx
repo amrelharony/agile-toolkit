@@ -157,6 +157,9 @@ export function VelocityClient() {
   };
 
   const closing = closingId ? ownSprints.find((s) => s.id === closingId) : undefined;
+  // The close just made, so the dialog's finished step can add the goal
+  // answer to it (and to its Undo).
+  const lastClose = useRef<ClosedSprint | null>(null);
 
   // The cockpit's close: the sprint, its points and every story it moves
   // are one change with one Undo.
@@ -183,6 +186,7 @@ export function VelocityClient() {
       revert: () => closed.result?.revert(),
     });
     const result = closed.result;
+    lastClose.current = result;
     if (!result) return;
     log(VELOCITY_ACTIONS.SPRINT_CLOSED, {
       sprintId,
@@ -417,6 +421,10 @@ export function VelocityClient() {
       sprints={ownSprints}
       nextLengthDays={cadence.sprintLengthDays}
       onConfirm={(done, carry) => confirmClose(closing.id, done, carry)}
+      // The finished step's goal answer joins that close, under its Undo.
+      onGoalOutcome={(values) => {
+        if (lastClose.current?.sprint.id === closing.id) lastClose.current.answerGoal(values);
+      }}
     />
   );
 

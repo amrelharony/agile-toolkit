@@ -12,6 +12,21 @@ export interface RetroFormat {
   columns: RetroColumn[];
 }
 
+/**
+ * The colours a column gets when nobody chose one: a custom format's
+ * columns, and a live room's columns from a format the participant doesn't
+ * have, in this order. All brand colours `themed()` maps onto each theme,
+ * so they stay readable in comic, night and high contrast.
+ */
+export const RETRO_COLUMN_PALETTE: readonly string[] = [
+  "#00f0ff",
+  "#00ff88",
+  "#f59e0b",
+  "#a855f7",
+  "#ef4444",
+  "#60a5fa",
+];
+
 export const retroFormats: RetroFormat[] = [
   {
     id: "start-stop-continue",

@@ -1,5 +1,14 @@
 import { exampleId } from "@/components/tool-frame/example-data";
-import type { CapacityPlan, Sprint, Story, StoryReadiness } from "@/lib/stores/workspace-types";
+import type {
+  CapacityPlan,
+  Impediment,
+  RetroBoard,
+  Sprint,
+  Story,
+  StoryReadiness,
+} from "@/lib/stores/workspace-types";
+import { retroFormats } from "@/lib/constants/retro-formats";
+import { addDays } from "@/lib/impediments/model";
 import { exampleSprints } from "@/lib/sprints/example";
 import { endDateFor, todayIso } from "@/lib/sprints/series";
 import { capacityPlanIdFor } from "@/lib/sprints/capacity";
@@ -14,11 +23,19 @@ import { capacityPlanIdFor } from "@/lib/sprints/capacity";
  * points. "Fill to capacity" then takes "Remove a saved card", "Split
  * payments" and "Saved card nicknames", and names the two it skips: Apple
  * Pay is too big for what's left, and the fraud checks aren't estimated.
+ *
+ * Sprint 4's retro agreed three actions: one is done, two wait under "From
+ * the last retro" beside one open impediment, each with "Add to this
+ * sprint".
  */
 export interface PlanningExample {
   sprints: Sprint[];
   stories: Story[];
   capacityPlans: CapacityPlan[];
+  /** Sprint 4's retro, whose open actions the plan can take in. */
+  retroBoards: RetroBoard[];
+  /** What is in the team's way: one open impediment, one resolved. */
+  impediments: Impediment[];
   /** The sprint being planned. */
   planning: Sprint;
 }
@@ -69,6 +86,11 @@ export function buildExample(today: string = todayIso()): PlanningExample {
       sprintId: planning.id,
       owner: "Ben",
       readiness: ready(at),
+      // What "Details" on a row holds: criteria, notes and the ticket key.
+      acceptanceCriteria:
+        "- A returning customer sees their saved cards at checkout\n- Paying with one asks for the security code only\n- A declined card says why, and offers another",
+      notes: "Cards are stored by the payment provider, never by us.",
+      ticketKey: "PAY-12",
     },
     {
       id: exampleId("story-4"),
@@ -145,5 +167,54 @@ export function buildExample(today: string = todayIso()): PlanningExample {
     },
   ];
 
-  return { sprints: all, stories, capacityPlans, planning };
+  const action = (key: string, text: string, assignee: string, extra = {}) => ({
+    id: exampleId(`action-${key}`),
+    columnKey: retroFormats[0].columns[0].key,
+    text,
+    votes: 0,
+    groupedWith: null,
+    isActionItem: true,
+    assignee,
+    discussing: false,
+    ...extra,
+  });
+  const retroBoards: RetroBoard[] = [
+    {
+      // An example board: its cards are read as they are (lib/retro/actions).
+      id: exampleId("retro"),
+      format: retroFormats[0],
+      phase: "actions",
+      cards: [
+        action("pairing", "Pair on every payment change", "Chloé", {
+          dueDate: addDays(today, 7),
+        }),
+        action("staging", "Refresh the staging data before each review", ""),
+        action("alerts", "Mute the noisy checkout alert", "Dev", { done: true, doneAt: at }),
+      ],
+      userVotes: 0,
+      timerSeconds: 300,
+      timerRunning: false,
+      discussingIndex: 0,
+      archivedAt: at,
+      sprintId: last.id,
+    },
+  ];
+  const impediments: Impediment[] = [
+    {
+      id: exampleId("impediment-sandbox"),
+      title: "The payment sandbox is down most mornings",
+      severity: "high",
+      raisedAt: addDays(today, -6),
+      owner: "Ben",
+    },
+    {
+      id: exampleId("impediment-laptop"),
+      title: "Elin's laptop replacement",
+      severity: "low",
+      raisedAt: addDays(today, -9),
+      resolvedAt: addDays(today, -2),
+    },
+  ];
+
+  return { sprints: all, stories, capacityPlans, retroBoards, impediments, planning };
 }

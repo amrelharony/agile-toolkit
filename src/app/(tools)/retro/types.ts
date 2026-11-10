@@ -8,6 +8,7 @@
  */
 
 import type { RetroFormat } from "@/lib/constants/retro-formats";
+import type { RetroVotes } from "@/lib/retro/board";
 import type { HandoffLink, HandoffRef } from "@/lib/stores/workspace-types";
 
 export type BoardPhase = "write" | "vote" | "discuss" | "actions";
@@ -46,10 +47,13 @@ export interface BoardState {
   previousRetroId?: string;
   /**
    * Facilitator mode: votes cast per person (name → count) on a shared
-   * screen, each against their own MAX_VOTES. `userVotes` stays the
-   * single-voter ("Me") count. A name with 0 is a voter added by hand.
+   * screen, each against their own budget (`votesPerPerson`). `userVotes`
+   * stays the single-voter ("Me") count. A name with 0 is a voter added by
+   * hand.
    */
   votesBy?: Record<string, number>;
+  /** "Votes each": 3, 5 or 8; absent means 3 (`retroVotes` in lib/retro/board). */
+  votesPerPerson?: RetroVotes;
   /**
    * The sprint this retro looks back on (Sprint.id); absent until someone
    * picks one, and on boards from before retros were per sprint. Host-local:
@@ -58,11 +62,15 @@ export interface BoardState {
   sprintId?: string;
 }
 
-export const MAX_VOTES = 3;
-
 export const PHASES: { key: BoardPhase; label: string; description: string }[] = [
   { key: "write", label: "Write", description: "Add cards to each column" },
-  { key: "vote", label: "Vote", description: "Vote on cards (max 3)" },
+  { key: "vote", label: "Vote", description: "Vote on cards" },
   { key: "discuss", label: "Discuss", description: "Work through top-voted cards" },
   { key: "actions", label: "Actions", description: "Assign action items" },
 ];
+
+/** A phase's one-line description; Vote's says how many votes each person has. */
+export function phaseDescription(phase: BoardPhase, votesPerPerson: number): string {
+  if (phase === "vote") return `Vote on cards (${votesPerPerson} votes each)`;
+  return PHASES.find((p) => p.key === phase)?.description ?? "";
+}

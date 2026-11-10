@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { saveAs } from "file-saver";
 import { Check, Download, HardDrive, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,15 +14,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import {
-  backupFilename,
-  collectBackup,
-  parseBackup,
-  restoreBackup,
-  serializeBackup,
-  type BackupFileV1,
-} from "@/lib/data/backup";
-import { announceRestored, readLastBackupAt, recordBackup } from "@/lib/data/backup-meta";
+import { parseBackup, restoreBackup, type BackupFileV1 } from "@/lib/data/backup";
+import { announceRestored } from "@/lib/data/backup-meta";
+import { downloadBackup } from "@/lib/data/download-backup";
+import { useLastBackupAt } from "@/lib/data/use-last-backup";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { visitorRoomsEnabled } from "@/lib/realtime/visitor-rooms";
 import {
@@ -97,7 +91,8 @@ export function YourDataDialog({
   const isOwner = useIsOwner();
   const fileRef = useRef<HTMLInputElement>(null);
   const [info, setInfo] = useState<StorageInfo>({ usedBytes: null, persisted: null });
-  const [lastBackup, setLastBackup] = useState<string | null>(null);
+  // Follows a download made here or anywhere else on the page.
+  const lastBackup = useLastBackupAt();
   // The download and "Last backup" confirm it in place; no toast.
   const { flash, isFlashing } = useFlash();
   const downloaded = isFlashing();
@@ -107,7 +102,6 @@ export function YourDataDialog({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setLastBackup(readLastBackupAt());
     const storage = navigator.storage;
     void (async () => {
       const [estimate, persisted] = await Promise.all([
@@ -119,12 +113,7 @@ export function YourDataDialog({
   }, [open]);
 
   const download = () => {
-    const backup = collectBackup();
-    const blob = new Blob([serializeBackup(backup)], { type: "application/json" });
-    saveAs(blob, backupFilename());
-    recordBackup();
-    setLastBackup(readLastBackupAt());
-    flash(`Backup downloaded: ${Object.keys(backup.keys).length} items saved.`);
+    flash(`Backup downloaded: ${downloadBackup()} items saved.`);
   };
 
   const pickFile = async (file: File) => {
@@ -193,7 +182,8 @@ export function YourDataDialog({
             <h3 className="text-sm font-semibold text-text">Back up</h3>
             <p className="text-sm text-sub">
               Download a file with all your boards, lists and settings. Your AI API keys are never
-              included.
+              included. Nothing is backed up on its own: the file is only as new as your last
+              download.
             </p>
             <Button type="button" onClick={download} className="gap-2">
               {downloaded ? <Check aria-hidden="true" /> : <Download aria-hidden="true" />}

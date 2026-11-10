@@ -12,12 +12,9 @@ import { PersonPicker } from "@/components/team/person-picker";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { RETRO_CARD_MAX, localDay } from "@/lib/retro/board";
-import type { RetroAction } from "@/lib/retro/actions";
+import { RETRO_ACTION_ROUTES, type RetroAction } from "@/lib/retro/actions";
 import { cn } from "@/lib/utils";
 import { ISO_DAY, OWNER_MAX } from "./quick-add";
-
-/** MUST match RETRO_ACTION_ROUTES in retro/components/retro-card-item.tsx. */
-const ROUTES = ["impediment", "kanban"] as const;
 
 /** Keep focus in an editor when one of its buttons is pressed, so its blur-save doesn't run first. */
 const keepFocus = (e: MouseEvent) => e.preventDefault();
@@ -274,8 +271,8 @@ export interface ActionRowProps {
 /**
  * One action: done (and the day it was done), its text (click to edit in
  * place), owner, due date, and for a past retro's open action, Carry over;
- * Send to… hands it to the impediments log or the Kanban board, and Delete
- * takes it off its board.
+ * Send to… hands it to the impediments log, the Kanban board or the backlog
+ * as a story, and Delete takes it off its board.
  */
 export function ActionRow({
   action: a,
@@ -388,7 +385,7 @@ export function ActionRow({
           </Button>
         )}
         <SendToMenu
-          routes={ROUTES}
+          routes={RETRO_ACTION_ROUTES}
           disabled={preview}
           item={{
             title: a.text,

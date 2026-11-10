@@ -74,6 +74,16 @@ describe("YourDataDialog: what a visitor is told", () => {
     );
   });
 
+  it("says that a backup still depends on a click", () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "");
+    render(<YourDataDialog open onOpenChange={() => {}} />);
+    expect(
+      screen.getByText(
+        /Nothing is backed up on its own: the file is only as new as your last download\./
+      )
+    ).toBeInTheDocument();
+  });
+
   it("with visitor AI on, leaves the owner's text as it was", () => {
     h.auth = { status: "authenticated", user: { id: "u1" } };
     vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");

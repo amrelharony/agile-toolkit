@@ -12,8 +12,8 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "Under Run a round, type a Round name (left blank, it's Round N), set Taken on and, if you like, the Sprint.",
-      "Press Run a live round, give your name, tick the consent, then share the link with Copy link. Everyone answers the seven statements on their own phone; you see only how many have answered.",
-      "Press Reveal results once 5 have answered, then Save round. With paper answers, press Enter counts instead (where live rounds aren't available, the count boxes show on their own), type how many chose each answer, then Show totals and Save round.",
+      "Press Run a live round, give your name, tick the consent, then share the link with Copy link or Show QR code. Everyone answers the seven statements on their own phone; you see only how many have answered.",
+      "Press Reveal results once 5 have answered, then Save round. With paper answers, press Enter counts (where live rounds aren't available, the count boxes show on their own), type how many chose each answer, then Show totals and Save round.",
       "Under Results, read the Team score, the Lowest statement and the Change since the round before. Q1, Q3 and Q5 are reverse-scored, so a higher score always means more safety.",
       "When a statement falls by more than 0.5, Send to… → Retro topic (no names) raises it. Compare rounds puts any two rounds side by side with From and To.",
       "Discuss the lowest or falling statement as a team, without asking who answered what, and agree one small change to try.",
@@ -47,7 +47,7 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Under How the team checks in, pick By name or Anonymous. Anonymous records only team pulses: how many picked each face on a day, never who.",
       "By name: under Check-ins by name, each person (or you, for them) picks a face; a note typed first is saved with it. To fill in a missed day, change Check-ins for or click the day in the heatmap.",
-      "For a pulse, in either mode: under Anonymous pulse, set Pulse for and press Run a live round, give your name, tick the consent, then share the link with Copy link. Everyone picks a face on their phone; press Reveal results once 3 have answered, then Save round. Or press Enter counts instead (where live rounds aren't available, the count boxes show on their own), type how many picked each face, then Show totals and Save round.",
+      "For a pulse, in either mode: under Anonymous pulse, set Pulse for and press Run a live round, give your name, tick the consent, then share the link with Copy link or Show QR code. Everyone picks a face on their phone; press Reveal results once 3 have answered, then Save round. Or press Enter counts (where live rounds aren't available, the count boxes show on their own), type how many picked each face, then Show totals and Save round.",
       "Read the 14-day average (from 3 check-ins, pulse answers included) and the Trend (from 6 days with check-ins). Daily team average charts it; its Advanced analysis adds shifts and the weekly trend.",
       "When the team averages 2.5 or less on 3 check-in days in a row, each with 3 or more check-ins, the Low mood callout offers Send to… → Retro topic (no names).",
     ],

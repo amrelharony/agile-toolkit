@@ -42,6 +42,8 @@ export interface VisitorRoomConsentProps {
    * "vote": an anonymous vote round, where only encrypted numbers are.
    */
   variant?: "board" | "vote";
+  /** A line about this room in particular, under the notice (the Retro room's "no author"). */
+  note?: string;
   /**
    * Called once, with the cleaned name, after the person gave a name and
    * ticked the consent box. Open the channel only from here (typically
@@ -61,6 +63,7 @@ export function VisitorRoomConsent({
   toolName,
   defaultName = "",
   variant = "board",
+  note,
   onConfirm,
 }: VisitorRoomConsentProps) {
   const [name, setName] = useState(defaultName);
@@ -113,6 +116,8 @@ export function VisitorRoomConsent({
             </DialogTitle>
             <DialogDescription>{consentText}</DialogDescription>
           </DialogHeader>
+
+          {note && <p className="text-sm text-text">{note}</p>}
 
           <p className="text-xs text-sub">
             Up to {VISITOR_LIMITS.maxMembers} people. The room closes after{" "}

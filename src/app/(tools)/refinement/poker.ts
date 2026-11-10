@@ -3,21 +3,24 @@
  * same queue Sprint Planning fills. The entry names the story
  * (`sourceRef: { tool: "story" }`), so the estimate the team accepts there
  * is written back to the story's points (lib/handoffs/poker-writeback.ts)
- * and the story leaves "needs points" here on its own.
+ * and the story leaves "needs points" here on its own. Its notes and
+ * acceptance criteria go with it, as the description Poker shows.
  */
 
 import { sendHandoff } from "@/lib/handoffs/send";
-import { currentPokerLog, pokerQueueRoute } from "@/lib/handoffs/targets/poker-queue";
+import {
+  STORY_QUEUE_TOOL,
+  currentPokerLog,
+  pokerQueueRoute,
+  storyQueueSource,
+} from "@/lib/handoffs/targets/poker-queue";
 import type { HandoffLink, PokerEstimationLog, Story } from "@/lib/stores/workspace-types";
 import { undoable } from "@/lib/utils/undoable";
 
 /** The write-back looks for this tool name on a queued story. */
-const STORY_TOOL = "story";
+const STORY_TOOL = STORY_QUEUE_TOOL;
 
-const source = (story: Story) => ({
-  title: story.title,
-  sourceRef: { tool: STORY_TOOL, id: story.id },
-});
+const source = storyQueueSource;
 
 /** Ids of the stories waiting in the queue (pulled into a session or not). */
 export function queuedStoryIds(log: PokerEstimationLog | undefined): Set<string> {
