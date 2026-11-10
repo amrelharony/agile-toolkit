@@ -189,9 +189,21 @@ export interface CalendarAction {
   retroLabel?: string;
 }
 
-/** The actions that can go on a calendar: still open, with a due date that exists. */
+/**
+ * The actions that can go on a calendar: still open, with a due date that
+ * exists. One per card id, the first in the list (`collectRetroActions` puts
+ * the current retro's first): an entry's UID is its card id, and two boards
+ * can hold the same id (a retro share link imported twice keeps the ids), so
+ * a second one would put two entries with one UID in the file.
+ */
 export function calendarActions<T extends CalendarAction>(actions: readonly T[]): T[] {
-  return actions.filter((a) => !a.done && typeof a.dueDate === "string" && isIsoDate(a.dueDate));
+  const seen = new Set<string>();
+  return actions.filter((a) => {
+    if (a.done || typeof a.dueDate !== "string" || !isIsoDate(a.dueDate)) return false;
+    if (seen.has(a.id)) return false;
+    seen.add(a.id);
+    return true;
+  });
 }
 
 /**

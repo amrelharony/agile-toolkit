@@ -553,6 +553,30 @@ describe("open retro actions in the calendar", () => {
     expect(description).toContain("From: Start, Stop, Continue · 16 Oct 2026");
   });
 
+  it("puts a card in once when two boards hold the same card id", () => {
+    // The same retro share link imported twice keeps its card ids.
+    const twice: CalendarAction[] = [
+      { id: "same", text: "Closed on one copy", dueDate: "2026-10-26", done: true },
+      { id: "same", text: "The current retro's copy", dueDate: "2026-10-29" },
+      { id: "other", text: "Another card", dueDate: "2026-10-27" },
+      { id: "same", text: "An older copy", dueDate: "2026-10-28" },
+    ];
+    // The first open one with a due date stands for the card.
+    expect(calendarActions(twice).map((a) => a.text)).toEqual([
+      "The current retro's copy",
+      "Another card",
+    ]);
+
+    const calendar = build({ actions: twice });
+    expect(calendar.actions).toBe(2);
+    const all = uids(calendar.ics);
+    expect(all).toHaveLength(14 + 2);
+    expect(new Set(all).size).toBe(all.length);
+    const same = byUid(calendar.ics, "retro-action-same@agile.amrelharony.com");
+    expect(same).toContain("DTSTART;VALUE=DATE:20261029");
+    expect(unescape(prop(same, "DESCRIPTION") ?? "")).toMatch(/^The current retro's copy\n/);
+  });
+
   it("names an action's entry by its card, so a moved due date moves the entry", () => {
     const moved = ACTIONS.map((a) => (a.id === "soon" ? { ...a, dueDate: "2026-11-04" } : a));
     const before = uids(build({ actions: ACTIONS }).ics);

@@ -93,6 +93,20 @@ describe("AddToCalendar", () => {
     expect(saved[1].ics).not.toContain("retro-action-");
   });
 
+  it("counts and adds a card once when two boards hold the same card id", () => {
+    const twice: CalendarAction[] = [
+      { id: "a1", text: "Pair on the flaky test", dueDate: "2026-10-28" },
+      { id: "a1", text: "Pair on the flaky test", dueDate: "2026-10-30" },
+    ];
+    render(
+      <AddToCalendar sprint={SPRINT} cadence={DEFAULT_CADENCE} actions={twice} place="cockpit" />
+    );
+    expect(actionsBox().closest("label")).toHaveTextContent("(1 with a due date)");
+    fireEvent.click(button());
+    expect(entries(saved[0].ics)).toBe(15);
+    expect(saved[0].ics.split("UID:retro-action-a1@")).toHaveLength(2);
+  });
+
   it("has the actions option off and disabled, with the reason, when none can be placed", () => {
     render(
       <AddToCalendar
