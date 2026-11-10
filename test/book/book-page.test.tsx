@@ -134,6 +134,18 @@ describe("/book", () => {
     expect(readCss(LOOK_CSS)).toMatch(off);
   });
 
+  it("gives the plain cover its whole column back in high contrast", () => {
+    // High contrast hides every look part, the page block and ground among
+    // them, under these two selectors (globals.css BOOK LOOK)...
+    expect(readCss("src/app/globals.css")).toMatch(
+      /\.hc \[data-look\],\s*\[data-theme="hc"\] \[data-look\] \{\s*display: none !important;\s*\}/
+    );
+    // ...and under the same two, the room the book keeps for them goes too.
+    expect(readCss(LOOK_CSS)).toMatch(
+      /:global\(\.hc\) \.still,\s*:global\(\[data-theme="hc"\]\) \.still \{\s*margin: 0;\s*\}/
+    );
+  });
+
   it("keeps the picture at least 92% as wide on a 375 px phone, and room for the pages and ground", () => {
     const frame = px(globalToken("--panel-w"), 0);
     // The hard shadow's x and y offsets.

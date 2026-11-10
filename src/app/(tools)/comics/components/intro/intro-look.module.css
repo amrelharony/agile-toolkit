@@ -214,6 +214,13 @@
   margin-bottom: 6%;
 }
 
+/* High contrast hides the block and the ground (globals.css BOOK LOOK), so
+   the room kept for them goes too, and the plain cover keeps its full width. */
+:global(.hc) .still,
+:global([data-theme="hc"]) .still {
+  margin: 0;
+}
+
 /* The pages under the cover, as one block offset like the hard shadow, with
    the four page edges in that offset (the edges' own box, moved). Ruled like
    the intro's page block. */
