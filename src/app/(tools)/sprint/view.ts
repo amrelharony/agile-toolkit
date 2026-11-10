@@ -1,16 +1,20 @@
 /**
  * What the Sprint Cockpit says about one sprint, as plain data: the state
  * of each ceremony, the numbers (read off the sprint board, else the typed
- * daily log), the blockers in the sprint's window, and this sprint's review
- * and retro. Pure, so the page, the home card and the Markdown export agree
- * and tests can check the wording without rendering.
+ * daily log), the blockers in the sprint's window, this sprint's review and
+ * retro, and the notes it raises as cards (a closed sprint's goal still
+ * unanswered, how much improvement work the sprint holds). Pure, so the
+ * page, the home card and the Markdown export agree and tests can check the
+ * wording without rendering.
  */
 
 import type {
   AsyncUpdate,
   Impediment,
+  KanbanBoard,
   RetroBoard,
   Sprint,
+  SprintGoal,
   SprintReview,
   SprintSeries,
   StandupEntry,
@@ -57,6 +61,8 @@ import { allStandupEntries, hasBlocker } from "@/lib/standup/entries";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { RETRO_CURRENT_ID, collectRetroActions, type RetroAction } from "@/lib/retro/actions";
 import { retroFor } from "@/lib/retro/board";
+import { improvementsFor, type Improvements } from "@/lib/retro/improvement";
+import { unansweredGoal } from "@/app/(tools)/sprint-goal/doc";
 import type { ChartText } from "@/lib/charts/chart-text";
 import { parseNumber, type FormErrors, type Validation } from "@/lib/utils/form";
 import { burnChartText } from "@/app/(tools)/burndown/chart-text";
@@ -870,6 +876,13 @@ export interface CockpitSources {
   /** Whether a hand-off target is finished (lib/handoffs routes); absent in previews. */
   targetDone?: (link: HandoffLink) => boolean;
   /**
+   * The sprint goals, for "Did we meet the sprint goal?" on a closed sprint.
+   * Absent in previews: the example's goal is never asked about.
+   */
+  goals?: readonly SprintGoal[];
+  /** Read for retro actions sent to the Flow board, when `targetDone` is absent. */
+  kanbanBoards?: readonly KanbanBoard[];
+  /**
    * The team's working days (cadenceCalendar of the cadence): the ideal
    * line, the gap and the projections count them. Absent, calendar days.
    */
@@ -892,6 +905,14 @@ export interface CockpitData extends CockpitInput {
   resolvedImpediments: number;
   /** Open stories in the sprint flagged as blocked. */
   blockedStories: Story[];
+  /**
+   * The goal of a closed sprint that still has no answer to "Did we meet
+   * the sprint goal?" (the close dialog asks, but it can be skipped). Null
+   * while the sprint is open, with no goal, or once it is answered.
+   */
+  goalToAnswer: string | null;
+  /** What the last retro and the impediments log left for this sprint (lib/retro/improvement). */
+  improvements: Improvements;
 }
 
 /** Everything the cockpit shows, read from the other tools' workspace data. */
@@ -915,6 +936,7 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
   const actions = collectRetroActions(retroBoards, { today, targetDone: src.targetDone });
   const openActions = actions.filter((a) => !a.done);
   const review = reviewFor(reviews, sprint);
+  const closed = sprint.status === "completed" || sprint.status === "cancelled";
 
   return {
     sprint,
@@ -944,5 +966,98 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
     sprintImpediments: inWindow,
     resolvedImpediments: resolvedDuring(inWindow, sprint),
     blockedStories: sprintStories.filter((s) => s.blocked && s.status !== "done"),
+    goalToAnswer: closed && src.goals ? unansweredGoal(src.goals, sprint) : null,
+    improvements: improvementsFor({
+      sprint,
+      sprints: src.sprints ?? [sprint],
+      retroBoards,
+      impediments,
+      stories,
+      kanbanBoards: src.kanbanBoards,
+      today,
+      targetDone: src.targetDone,
+    }),
   };
+}
+
+/* ── Notes: what the cockpit raises as cards ───────────────────────────── */
+
+export interface CockpitNote {
+  id: "goal-answer" | "improvement-in" | "improvement-none";
+  /** "warning": something to do; "info": where it stands. */
+  tone: "warning" | "info";
+  title: string;
+  detail: string;
+  href: string;
+  /** The link's text. */
+  cta: string;
+}
+
+/** "is" / "are" for a count. */
+const be = (n: number) => (n === 1 ? "is" : "are");
+
+/**
+ * The cockpit's notes, each a card with one link, never a toast:
+ *
+ *   - a closed sprint whose goal has no answer yet;
+ *   - "N of M retro actions are in this sprint", while it is planned or
+ *     running and at least one made it in;
+ *   - no improvement item in the sprint (no story from a retro action or an
+ *     impediment), while there is an open one to add. A planned sprint with
+ *     no stories yet isn't nagged: planning hasn't begun.
+ */
+export function cockpitNotes(
+  data: Pick<CockpitData, "sprint" | "sprintStories" | "goalToAnswer" | "improvements">
+): CockpitNote[] {
+  const { sprint, goalToAnswer, improvements: i } = data;
+  const notes: CockpitNote[] = [];
+  const closed = sprint.status === "completed" || sprint.status === "cancelled";
+
+  if (closed && goalToAnswer) {
+    notes.push({
+      id: "goal-answer",
+      tone: "warning",
+      title: `${sprint.name} closed without an answer to “Did we meet the sprint goal?”`,
+      detail: `Its goal: “${goalToAnswer}”. The Sprint Review, the retro and Sprint Comparison read the answer.`,
+      href: onSprint("/sprint-goal", sprint),
+      cta: "Answer it in Sprint Goal",
+    });
+  }
+  if (closed) return notes;
+
+  const planningHref = onSprint(PLANNING_HREF, sprint);
+  if (i.actionsInSprint > 0) {
+    const more = i.actionsCounted - i.actionsInSprint;
+    notes.push({
+      id: "improvement-in",
+      tone: "info",
+      title: `${i.actionsInSprint} of ${plural(i.actionsCounted, "retro action")} ${be(i.actionsInSprint)} in this sprint`,
+      detail:
+        more > 0
+          ? `${more} more ${be(more)} still open. Each closes when its story is done.`
+          : "Each closes when its story is done.",
+      href: planningHref,
+      cta: more > 0 ? "Add the rest in Sprint Planning" : "See them in Sprint Planning",
+    });
+  } else if (
+    i.improvementStories.length === 0 &&
+    (sprint.status === "active" || data.sprintStories.length > 0)
+  ) {
+    const waiting = [
+      i.actions.length > 0 ? plural(i.actions.length, "retro action") : "",
+      i.impediments.length > 0 ? plural(i.impediments.length, "impediment") : "",
+    ].filter(Boolean);
+    const total = i.actions.length + i.impediments.length;
+    if (total > 0) {
+      notes.push({
+        id: "improvement-none",
+        tone: "warning",
+        title: "No improvement item is in this sprint",
+        detail: `${waiting.join(" and ")} ${be(total)} open. Add one, so the sprint improves how the team works.`,
+        href: planningHref,
+        cta: "Add one in Sprint Planning",
+      });
+    }
+  }
+  return notes;
 }

@@ -40,6 +40,7 @@ import {
 import { reviewDocId, reviewHasContent } from "@/lib/sprints/review-doc";
 import { selectCadenceDoc } from "@/lib/sprints/use-ceremony-cadence";
 import { goalDocId } from "@/lib/sprints/goal-doc";
+import { unansweredGoal } from "@/app/(tools)/sprint-goal/doc";
 import { cycleStats } from "@/lib/kanban/flow";
 import { impedimentStatus } from "@/lib/impediments/model";
 import { RETRO_CURRENT_ID, collectRetroActions, followThroughByRetro } from "@/lib/retro/actions";
@@ -1731,10 +1732,27 @@ const RULES: Record<string, NextStepRule<object>> = {
       reviews: ws.sprintReviews,
       stories: ws.stories,
       cadences: ws.ceremonyCadences,
+      goals: ws.sprintGoals,
     }),
-    steps: ({ sprints, impediments, reviews, stories, cadences }) => {
+    steps: ({ sprints, impediments, reviews, stories, cadences, goals }) => {
+      // The last sprint closed with a goal and no answer to "Did we meet
+      // it?": the close dialog asks, but it can be skipped, and a Scrum
+      // Master who closes from here may never open Sprint Goal or the Review.
+      const [lastClosed] = completed(sprints).sort((a, b) => b.endDate.localeCompare(a.endDate));
+      const goalStep: NextStep[] =
+        lastClosed && unansweredGoal(goals, lastClosed)
+          ? [
+              {
+                id: "cockpit-goal-answer",
+                label: `Answer whether ${lastClosed.name} met its goal`,
+                detail:
+                  "It closed without an answer to “Did we meet the sprint goal?”. The Sprint Review, the retro and Sprint Comparison read it.",
+                href: sprintHref("/sprint-goal", lastClosed.id),
+              },
+            ]
+          : [];
       const sprint = focusSprint(sprints);
-      if (!sprint) return [];
+      if (!sprint) return goalStep;
       const today = todayIso();
       const steps: NextStep[] = [];
       const overdue = real(impediments).filter(
@@ -1781,7 +1799,8 @@ const RULES: Record<string, NextStepRule<object>> = {
           href: sprintHref("/sprint-review", sprint.id),
         });
       }
-      return steps;
+      // After what the running sprint needs today.
+      return [...steps, ...goalStep];
     },
   }),
 

@@ -68,6 +68,11 @@ export interface ImprovementInput {
   kanbanBoards?: readonly KanbanBoard[];
   /** YYYY-MM-DD, local. */
   today: string;
+  /**
+   * Whether a hand-off target is finished, when the caller already has a
+   * way to ask (the cockpit's). Absent: read from the data above.
+   */
+  targetDone?: (link: HandoffLink) => boolean;
 }
 
 export interface Improvements {
@@ -146,7 +151,7 @@ export function improvementsFor(input: ImprovementInput): Improvements {
   const { sprint, sprints, retroBoards, impediments, stories, kanbanBoards, today } = input;
   const all = collectRetroActions(retroBoards, {
     today,
-    targetDone: targetDoneIn({ impediments, kanbanBoards, stories }),
+    targetDone: input.targetDone ?? targetDoneIn({ impediments, kanbanBoards, stories }),
   });
   // Current board first, then the archives newest first: the first action's
   // board is the last retro that agreed one.

@@ -18,6 +18,7 @@ import type {
   Impediment,
   RetroBoard,
   Sprint,
+  SprintGoal,
   SprintReview,
   SprintSeries,
   StandupEntry,
@@ -38,7 +39,7 @@ import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
-import { cockpitTiles, flowCards, gatherCockpitData, type CockpitData } from "./view";
+import { cockpitNotes, cockpitTiles, flowCards, gatherCockpitData, type CockpitData } from "./view";
 import { cockpitVerdict } from "./verdict";
 import { cockpitMarkdown } from "./markdown";
 import { buildExample, type CockpitExample } from "./example";
@@ -48,6 +49,7 @@ import { FlowStrip } from "./components/flow-strip";
 import { NextCeremony } from "./components/next-ceremony";
 import { Blockers } from "./components/blockers";
 import { MiniBurndown } from "./components/mini-burndown";
+import { CockpitNotes } from "./components/notes";
 import { StartFlow } from "./components/start-flow";
 
 export const TOOL_ID = "sprint";
@@ -60,6 +62,7 @@ const NO_UPDATES: AsyncUpdate[] = [];
 const NO_MEMBERS: TeamMember[] = [];
 const NO_BOARDS: RetroBoard[] = [];
 const NO_REVIEWS: SprintReview[] = [];
+const NO_GOALS: SprintGoal[] = [];
 
 /** The tiles the home card keeps; the full page shows them all. */
 const COMPACT_TILES: readonly TileId[] = ["committed", "done", "remaining", "gap", "blockers"];
@@ -79,10 +82,12 @@ export interface SprintCockpitProps {
 /**
  * The Sprint Cockpit: the current sprint on one page. With no sprint it runs
  * the start flow (team, sprint, ceremony times) or shows an example; with one
- * it shows the verdict, the next ceremony, the ceremony strip, the numbers
- * (from the sprint board when its stories have points, else the daily log),
- * the burndown, and what is blocking the sprint. Everything comes from the
- * other tools' data; nothing is typed twice.
+ * it shows the verdict, its notes (a closed sprint's goal still unanswered,
+ * how much improvement work the sprint holds), the next ceremony, the
+ * ceremony strip, the numbers (from the sprint board when its stories have
+ * points, else the daily log), the burndown, and what is blocking the
+ * sprint. Everything comes from the other tools' data; nothing is typed
+ * twice.
  */
 export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const hydrated = useWorkspaceHydrated();
@@ -95,6 +100,8 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const teamMembers = useWorkspaceStore((s) => s.teamMembers) ?? NO_MEMBERS;
   const retroBoards = useWorkspaceStore((s) => s.retroBoards) ?? NO_BOARDS;
   const reviews = useWorkspaceStore((s) => s.sprintReviews) ?? NO_REVIEWS;
+  // For "Did we meet the sprint goal?" on a closed sprint.
+  const sprintGoals = useWorkspaceStore((s) => s.sprintGoals) ?? NO_GOALS;
   const [cadence, updateCadence] = useCeremonyCadence();
   const { log } = useHistoryLogger(TOOL_ID);
   const [today] = useState(() => todayIso());
@@ -122,6 +129,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
             reviews,
             sprints,
             today,
+            goals: sprintGoals,
             // Done when the impediment, Kanban card or story an action was sent to is finished.
             targetDone: (link) => getHandoffRoute(link.route).isDone?.(link.targetId) ?? false,
             // The burndown's ideal line and projection count the team's working days.
@@ -140,6 +148,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
       reviews,
       sprints,
       today,
+      sprintGoals,
       calendar,
     ]
   );
@@ -355,6 +364,7 @@ function CockpitBody({
     return compact ? all.filter((t) => COMPACT_TILES.includes(t.id)) : all;
   }, [data, sprints, today, compact, rating]);
   const verdict = useMemo(() => cockpitVerdict(data, today), [data, today]);
+  const notes = useMemo(() => cockpitNotes(data), [data]);
   const upcoming = useMemo(() => nextCeremonies(sprint, cadence, now), [sprint, cadence, now]);
   const day = dayForDate(sprint, today);
   const ended = day !== null && day > sprintLengthDays(sprint);
@@ -412,6 +422,8 @@ function CockpitBody({
       <p className="text-sm font-medium text-text" data-cockpit-verdict>
         {verdict}
       </p>
+
+      <CockpitNotes notes={notes} />
 
       <NextCeremony
         occurrences={upcoming}

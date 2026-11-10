@@ -3,11 +3,18 @@
  * trend rows (lib/sprints/trends) turned into what the charts draw, what
  * their tables and summaries say, and the words for each row's sources.
  * The numbers themselves all come from sprintTrends, so the page, its
- * Markdown and `tool.sprint_metrics.trend` agree.
+ * Markdown and `tool.sprint_metrics.trend` agree. Beside say/do sits the
+ * retros' follow-through (lib/retro/actions), read the way Retro Actions
+ * rates it: whether the team does what it agrees, next to whether it
+ * delivers what it commits to.
  */
 
 import { NO_VALUE, fmt, plural, type ChartText } from "@/lib/charts/chart-text";
 import { SAY_DO_GRADE_LABEL, type SayDoGrade } from "@/lib/sprints/metrics";
+import { enoughData } from "@/lib/analytics/min-sample";
+import { followThroughByRetro, quickAddBoard } from "@/lib/retro/actions";
+import type { HandoffLink, RetroBoard } from "@/lib/stores/workspace-types";
+import { ratedRetros, settleRetros, totals } from "@/app/(tools)/retro-actions/follow-through";
 import {
   CARRY_OVER_SOURCE_LABEL,
   SCOPE_SOURCE_LABEL,
@@ -40,6 +47,54 @@ export function windowSize(w: TrendWindow): number | null {
 
 export function windowLabel(w: TrendWindow): string {
   return w === "all" ? "All sprints" : `Last ${w} sprints`;
+}
+
+/* ── Retro follow-through ───────────────────────────────────────────── */
+
+export interface FollowThroughRead {
+  /** Rated retros in the window: past retros that agreed at least one action. */
+  retros: number;
+  agreed: number;
+  done: number;
+  /** done ÷ agreed as a whole percentage; null with too few actions to quote one. */
+  pct: number | null;
+}
+
+/**
+ * The retros' follow-through over the trend's window: of the actions the
+ * last `window` rated retros agreed (all of them for null), how many got
+ * done. Rated as Retro Actions rates them: the retro still being followed
+ * up isn't counted until the next one starts (settleRetros), and an action
+ * is done when marked, when its impediment, Kanban card or story finished,
+ * or when a carried copy got done. The percentage needs MIN_SAMPLE.average
+ * actions behind it.
+ */
+export function retroFollowThrough(
+  boards: readonly RetroBoard[],
+  window: number | null,
+  targetDone?: (link: HandoffLink) => boolean
+): FollowThroughRead {
+  const { settled } = settleRetros(
+    followThroughByRetro(boards, { targetDone }),
+    quickAddBoard(boards)
+  );
+  const rated = ratedRetros(settled);
+  const used = window === null ? rated : rated.slice(-window);
+  const { agreed, done } = totals(used);
+  return {
+    retros: used.length,
+    agreed,
+    done,
+    pct: enoughData(agreed, "average") ? Math.round((done / agreed) * 100) : null,
+  };
+}
+
+/** "58% · 7 of 12 actions done over the last 3 retros", or that no retro can be rated yet. */
+export function followThroughText(read: FollowThroughRead): string {
+  if (read.retros === 0) return "No past retro with actions to rate yet";
+  const count = `${read.done} of ${plural(read.agreed, "action")} done`;
+  const over = read.retros === 1 ? "at the last retro" : `over the last ${read.retros} retros`;
+  return read.pct === null ? `${count} ${over}` : `${read.pct}% · ${count} ${over}`;
 }
 
 /* ── Say/do chart ───────────────────────────────────────────────────── */
