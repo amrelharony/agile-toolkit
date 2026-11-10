@@ -19,7 +19,9 @@
 import { isSaveData } from "@/lib/holiday/save-data";
 import type { CardSpot } from "./page-transition";
 import { isIntroOnStage } from "./stage";
-import { DUR, EASE } from "./tokens";
+// durations.ts, not tokens.ts: every tool page loads this, and tokens.ts
+// brings the spring solver, which the grow never uses.
+import { CURVE, DUR } from "./durations";
 
 /**
  * Room the clip leaves around the header's own box once it is open, so the
@@ -66,6 +68,6 @@ export function growFrom(element: HTMLElement, spot: CardSpot): Animation | null
       },
       { translate: "0px 0px", clipPath: `inset(${room} ${room} ${room} ${room})` },
     ],
-    { duration: DUR.travel, easing: EASE.glide }
+    { duration: DUR.travel, easing: CURVE.glide }
   );
 }

@@ -22,6 +22,7 @@ import {
   dampedSpring,
   dampingRatio,
 } from "@/lib/motion/tokens";
+import * as durations from "@/lib/motion/durations";
 
 const css = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
 const SLICING_WORDS = ["INK GRAPHICS", "COMIC INTROS", "HOVER INTERACTION PATTERNS"];
@@ -245,6 +246,25 @@ describe("Tailwind reads the variables", () => {
       const name = value.slice(4, -1);
       expect(root[name], name).toBeDefined();
     }
+  });
+});
+
+describe("the plain values in lib/motion/durations.ts", () => {
+  const read = (file: string) => readFileSync(path.join(process.cwd(), file), "utf8");
+
+  it("are the same durations and cubic-bezier easings tokens.ts exports", () => {
+    expect(DUR).toBe(durations.DUR);
+    expect(durations.CURVE).toEqual({ calm: EASE.calm, glide: EASE.glide });
+  });
+
+  it("import nothing, so a file reading them never pulls in the spring solver", () => {
+    expect(read("src/lib/motion/durations.ts")).not.toMatch(/^\s*(import|export\s.*\sfrom)\s/m);
+  });
+
+  it("are what the header grow reads: it loads on every tool page", () => {
+    const grow = read("src/lib/motion/grow-from.ts");
+    expect(grow).toMatch(/from "\.\/durations"/);
+    expect(grow).not.toMatch(/from "(\.\/|@\/lib\/motion\/)tokens"/);
   });
 });
 

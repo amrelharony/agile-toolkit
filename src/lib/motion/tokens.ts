@@ -7,7 +7,17 @@
  * landing has a spring's shape wherever it runs. Browsers without linear()
  * (Safari 17.0-17.1) get a cubic-bezier with one overshoot of about the same
  * height. lib/motion/spring.ts runs the settle spring live, from the hand's speed.
+ *
+ * The durations and the two cubic-bezier easings are defined in durations.ts,
+ * which has no imports, and re-exported here. Client code that needs only
+ * those imports durations.ts, so it does not carry the spring code below,
+ * which runs when this module loads.
  */
+
+import { CURVE, DUR } from "./durations";
+
+export { DUR };
+export type { DurationName } from "./durations";
 
 export interface SpringConfig {
   /** Pull toward the target per unit of distance. */
@@ -89,21 +99,6 @@ export function springEase(config: SpringConfig, windowMs: number, steps = SPRIN
   return `linear(${points.join(", ")})`;
 }
 
-/** Durations in milliseconds; MOTION FOUNDATIONS writes each as --dur-<name>. */
-export const DUR = {
-  press: 90,
-  settle: 320,
-  data: 450,
-  "surface-in": 220,
-  "surface-out": 140,
-  "sheet-in": 280,
-  "sheet-out": 200,
-  page: 240,
-  travel: 360,
-} as const;
-
-export type DurationName = keyof typeof DUR;
-
 /**
  * The easings; MOTION FOUNDATIONS writes each as --ease-<name>. Both springs
  * are sampled over the settle duration; a longer animation stretches the
@@ -111,9 +106,9 @@ export type DurationName = keyof typeof DUR;
  */
 export const EASE = {
   /** Eases out and stops on its value. Data, progress, presenting. */
-  calm: "cubic-bezier(0.16, 1, 0.3, 1)",
+  calm: CURVE.calm,
   /** For things that travel far: about 1% past, never more than 3%. */
-  glide: "cubic-bezier(0.2, 1.2, 0.4, 1)",
+  glide: CURVE.glide,
   settle: springEase(SETTLE_SPRING, DUR.settle),
   pop: springEase(POP_SPRING, DUR.settle),
 } as const;
