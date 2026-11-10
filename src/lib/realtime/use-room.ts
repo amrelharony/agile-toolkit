@@ -15,6 +15,7 @@ import { acquireRoomAuth, roomAuthKind } from "./room-auth";
 import { createInboundLimiter } from "./rate-limit";
 import { isWithinJsonSize } from "./sanitize";
 import { enterLiveVisitorRoom } from "./live-visitor-room";
+import { holdScreenAwake } from "./screen-wake-lock";
 import {
   VISITOR_LIMITS,
   createAdmissionLedger,
@@ -367,6 +368,10 @@ export function useRoom<T>(
       : `tool:${toolId}:room:${roomId}`;
     if (!channelName) return;
 
+    // This run's hold on the screen wake lock (set by markLiveRoom below), so
+    // a visitor turned away from a full room can let the screen sleep at once.
+    let letScreenSleep: (() => void) | null = null;
+
     /** Wire up `channel`, subscribe, and return its teardown. */
     const joinChannel = (channel: RealtimeChannel): (() => void) => {
       let memberCount = 0;
@@ -469,6 +474,7 @@ export function useRoom<T>(
               const others = present.filter((m) => m.id !== me.id).length;
               if (isRoomFull(others)) {
                 setRoomFull(true);
+                letScreenSleep?.();
                 leave();
                 return;
               }
@@ -541,9 +547,22 @@ export function useRoom<T>(
 
     // A visitor room marks this tab as in a live room from here until the
     // effect cleans up: meanwhile the visitor chat offers Amr no actions
-    // (live-visitor-room.ts). A room left early because it was full stays
-    // marked until then too. Owner and guest rooms never mark.
-    const markLiveRoom = (): (() => void) | null => (visitor ? enterLiveVisitorRoom() : null);
+    // (live-visitor-room.ts), and the tab asks the browser to keep the
+    // screen on (screen-wake-lock.ts), so hosting or joining asks and leaving
+    // or ending lets go. A room left early because it was full stays marked
+    // until then too, but lets the screen sleep at once: the visitor never
+    // joined. Owner and guest rooms never mark.
+    const markLiveRoom = (): (() => void) | null => {
+      if (!visitor) return null;
+      const leaveLiveRoom = enterLiveVisitorRoom();
+      // Safe to call twice: the full-room branch and the cleanup both may.
+      const screen = holdScreenAwake();
+      letScreenSleep = screen;
+      return () => {
+        screen();
+        leaveLiveRoom();
+      };
+    };
 
     // Flag off: the public channel, opened right away as it always was.
     if (!privateRooms) {

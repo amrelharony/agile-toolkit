@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import type { HistoryLogger } from "@/lib/history/use-history-logger";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
@@ -12,9 +13,13 @@ import { exportToMarkdown } from "@/lib/utils/export";
 import { fakeRealtime, type FakeMember } from "./fake-realtime";
 
 /**
- * The Retro visitor room's UI: "Go live" on the Board (flag on, visitors
- * only, nothing opens before consent) and the participant view.
+ * The Retro visitor room's UI: the Board's two ways to run it, "One screen"
+ * and "Everyone on their own device" (flag on, visitors only, nothing opens
+ * before consent), and the participant view.
  */
+
+/** The button that opens a live room (it was "Go live"). */
+const GO_LIVE = "Everyone on their own device";
 
 const h = vi.hoisted(() => ({ auth: null as unknown, realtime: true }));
 
@@ -142,24 +147,39 @@ afterEach(() => {
   }
 });
 
-describe("Go live on the Retro board", () => {
+describe("Everyone on their own device, on the Retro board", () => {
   it("is hidden while the flag is off", () => {
     vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", "");
     render(<Harness initial={makeBoard()} />);
-    expect(screen.queryByRole("button", { name: /go live/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: GO_LIVE })).toBeNull();
+    expect(screen.queryByText("One screen")).toBeNull();
     expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
+  });
+
+  it("sits beside One screen, the way the board runs now, with the room's limits", () => {
+    render(<Harness initial={makeBoard()} />);
+    const group = screen.getByRole("group", { name: "How you run this retro" });
+    expect(within(group).getByText("One screen")).toBeInTheDocument();
+    expect(within(group).getByText(/how it runs now/)).toBeInTheDocument();
+    // One screen is the board itself: there is nothing to press.
+    expect(within(group).getAllByRole("button")).toHaveLength(1);
+    const live = within(group).getByRole("button", { name: GO_LIVE });
+    const hours = Math.round(VISITOR_LIMITS.hardTtlMs / 3_600_000);
+    expect(live).toHaveAccessibleDescription(
+      `No account needed, for you or your guests. Up to ${VISITOR_LIMITS.maxMembers} people, for up to ${hours} hours. We store nothing.`
+    );
   });
 
   it("is hidden for the owner", () => {
     h.auth = OWNER;
     render(<Harness initial={makeBoard()} />);
-    expect(screen.queryByRole("button", { name: /go live/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: GO_LIVE })).toBeNull();
     expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
   });
 
   it("opens no channel before consent, and one visitor channel after it", () => {
     render(<Harness initial={makeBoard()} />);
-    fireEvent.click(screen.getByRole("button", { name: /go live/i }));
+    fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
     expect(screen.getByRole("dialog")).toHaveTextContent(/passes through our realtime provider/i);
     expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
 
@@ -167,17 +187,35 @@ describe("Go live on the Retro board", () => {
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
     expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: /go live/i }));
+    fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
     consentAs("Hana");
     expect(fakeRealtime.client.channel).toHaveBeenCalledTimes(1);
     expect(fakeRealtime.last().name).toMatch(/^visitor:retro:[23456789A-HJKMNP-Z]{12}$/);
     expect(screen.getByText("Live room")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /go live/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: GO_LIVE })).toBeNull();
+  });
+
+  it("says how to share the room once it is live: Copy link or Show QR code", async () => {
+    render(
+      <LiveAnnouncerProvider>
+        <Harness initial={makeBoard()} />
+      </LiveAnnouncerProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
+    consentAs("Hana");
+    act(() => fakeRealtime.last().connect());
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show QR code" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Live room started. Share it with your team: Copy link or Show QR code."
+      )
+    );
   });
 
   it("ends the room on request and keeps the board", () => {
     render(<Harness initial={makeBoard()} />);
-    fireEvent.click(screen.getByRole("button", { name: /go live/i }));
+    fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
     consentAs("Hana");
     const ch = fakeRealtime.last();
     act(() => ch.connect());
@@ -189,14 +227,14 @@ describe("Go live on the Retro board", () => {
 
     expect(ch.sent("retro:end")).toHaveLength(1);
     expect(ch.removed).toBe(true);
-    expect(screen.getByRole("button", { name: /go live/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: GO_LIVE })).toBeInTheDocument();
     expect(screen.getByText("Card a")).toBeInTheDocument();
   });
 
   it("ends the room before New Retro clears the board", () => {
     const onReset = vi.fn();
     render(<Harness initial={makeBoard()} onReset={onReset} />);
-    fireEvent.click(screen.getByRole("button", { name: /go live/i }));
+    fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
     consentAs("Hana");
     const ch = fakeRealtime.last();
     act(() => ch.connect());
@@ -211,7 +249,7 @@ describe("Go live on the Retro board", () => {
 
   it("closes the room if this browser turns out to be the owner's", () => {
     const { rerender } = render(<Harness initial={makeBoard()} />);
-    fireEvent.click(screen.getByRole("button", { name: /go live/i }));
+    fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
     consentAs("Hana");
     const ch = fakeRealtime.last();
     act(() => ch.connect());

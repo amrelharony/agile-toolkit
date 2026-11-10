@@ -16,12 +16,14 @@
  * `PairSheet` and a `PairRoundResult`, an allocation tool an
  * `AllocationSheet` and an `AllocationRoundResult`.
  *
- * With live rooms available, "Run a live round" asks for a name and
- * consent, then mounts `HostVoteRoom`: no key or channel exists before
- * that. "Enter counts instead" (and, when live rooms are off, the only
- * option, with a one-line reason) is the kind's count entry
- * (`FacilitatorTally`, `FacilitatorPair`, `FacilitatorAllocation`): counted
- * hands or paper, same totals, same minN rule, same `onSave`.
+ * With live rooms available, the panel offers the two named ways to run
+ * the round (components/collab/run-modes). "Everyone on their own device":
+ * "Run a live round" asks for a name and consent, then mounts
+ * `HostVoteRoom`; no key or channel exists before that. "One screen":
+ * "Enter counts" shows the kind's count entry (`FacilitatorTally`,
+ * `FacilitatorPair`, `FacilitatorAllocation`): counted hands or paper, same
+ * totals, same minN rule, same `onSave`. When live rooms are off, the count
+ * entry is the only option and shows on its own, with a one-line reason.
  *
  * Live rounds run for every host, the owner included (see
  * `vote-room/protocol.ts`); squad guests count by hand, and so does a
@@ -43,6 +45,7 @@ import { Calculator, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signalGamification } from "@/lib/gamification/signal";
 import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
+import { RunModeChoice } from "@/components/collab/run-modes";
 import {
   clearVisitorIdentity,
   newVisitorRoomCode,
@@ -336,34 +339,48 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-sub">
-        People answer on their own phones, anonymously. You see how many have answered, and the
-        totals once {need} have.
-        {kind === "allocation" && ` ${spreadNote(Math.max(need, VOTE_LIMITS.minNSpread))}`}
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          ref={runRef}
-          type="button"
-          variant="toolkit"
-          className="gap-1.5"
-          disabled={pending}
-          onClick={() => setConsentOpen(true)}
-        >
-          <Radio className="h-4 w-4" aria-hidden="true" />
-          Run a live round
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="gap-1.5"
-          aria-expanded={tally}
-          onClick={() => setTally((t) => !t)}
-        >
-          <Calculator className="h-4 w-4" aria-hidden="true" />
-          {tally ? "Hide count entry" : "Enter counts instead"}
-        </Button>
-      </div>
+      <RunModeChoice
+        oneScreen={{
+          description:
+            kind === "scale"
+              ? "Count hands or collect paper answers, then enter the totals here."
+              : "Collect paper answers, then enter them here.",
+          action: (
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5"
+              aria-expanded={tally}
+              onClick={() => setTally((t) => !t)}
+            >
+              <Calculator className="h-4 w-4" aria-hidden="true" />
+              {tally ? "Hide count entry" : "Enter counts"}
+            </Button>
+          ),
+        }}
+        ownDevice={{
+          description: (
+            <>
+              People answer on their own phones, anonymously. You see how many have answered, and
+              the totals once {need} have.
+              {kind === "allocation" && ` ${spreadNote(Math.max(need, VOTE_LIMITS.minNSpread))}`}
+            </>
+          ),
+          action: (
+            <Button
+              ref={runRef}
+              type="button"
+              variant="toolkit"
+              className="gap-1.5"
+              disabled={pending}
+              onClick={() => setConsentOpen(true)}
+            >
+              <Radio className="h-4 w-4" aria-hidden="true" />
+              Run a live round
+            </Button>
+          ),
+        }}
+      />
       {pending && (
         <p role="status" className="text-xs text-sub">
           Checking whether live rounds work here…

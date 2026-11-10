@@ -3,7 +3,7 @@
 /**
  * Retro visitor room: one hook for both ends of the channel.
  *
- * Host (the visitor who pressed "Go live"):
+ * Host (the visitor who pressed "Everyone on their own device"):
  *  - owns the board. Intents from admitted members go through `applyIntent`
  *    against its latest board, then into the board through `onHostUpdate`
  *    (the Board's own updater);

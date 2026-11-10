@@ -1,8 +1,9 @@
 /**
  * Retro visitor room: the wire protocol.
  *
- * The room is host-authoritative. The person who pressed "Go live" owns the
- * board; everyone else sends intents and renders the host's snapshots.
+ * The room is host-authoritative. The person who pressed "Everyone on their
+ * own device" owns the board; everyone else sends intents and renders the
+ * host's snapshots.
  *
  *   participant → host   "retro:intent"  IntentEnv   (add a card, cast a vote)
  *   host → everyone      "retro:state"   RoomSnapshot (throttled 500 ms, on

@@ -1,8 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { Check, Copy, LogOut, Radio, Users, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, Copy, LogOut, QrCode as QrCodeIcon, Radio, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { QrCode } from "@/components/collab/qr-code";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { toast } from "@/lib/utils/toast";
 import { useFlash } from "@/hooks/use-flash";
@@ -26,9 +34,10 @@ export interface VisitorRoomChipProps {
   /** Participant only: leave the room. */
   onLeave?: () => void;
   /**
-   * Appended to the copied link, e.g. `#k=<host key>` for a vote round. A
-   * fragment stays in the browser: it never reaches the server or its logs.
-   * Ignored unless it is `#` plus up to 64 URL-safe characters.
+   * Appended to the copied link and to the QR code, e.g. `#k=<host key>`
+   * for a vote round. A fragment stays in the browser: it never reaches the
+   * server or its logs. Ignored unless it is `#` plus up to 64 URL-safe
+   * characters.
    */
   linkFragment?: string;
   className?: string;
@@ -37,10 +46,14 @@ export interface VisitorRoomChipProps {
 const LINK_FRAGMENT_RE = /^#[A-Za-z0-9=_-]{1,64}$/;
 
 /**
- * The header chip for a visitor live room: its code, "Copy link", how full
- * it is, and End room (host) or Leave (participant). Announces joins and
- * leaves politely. Renders nothing while the feature flag is off or for a
- * malformed code.
+ * The header chip for a visitor live room: its code, "Copy link", "Show QR
+ * code", how full it is, and End room (host) or Leave (participant).
+ * Announces joins and leaves politely. Renders nothing while the feature
+ * flag is off or for a malformed code.
+ *
+ * The QR code holds the same link as Copy link, fragment included, so a
+ * phone that scans it lands in the room with the vote round's host key. It
+ * is drawn only while its dialog is open, from the page's own origin.
  */
 export function VisitorRoomChip({
   tool,
@@ -55,6 +68,7 @@ export function VisitorRoomChip({
   const announce = useAnnounce();
   const { flash, isFlashing } = useFlash();
   const copied = isFlashing();
+  const [qrOpen, setQrOpen] = useState(false);
   const prevCount = useRef<number | null>(null);
   const max = VISITOR_LIMITS.maxMembers;
 
@@ -69,9 +83,14 @@ export function VisitorRoomChip({
   const path = joinUrl(tool, code);
   if (!visitorRoomsEnabled() || !path) return null;
 
-  const copyLink = async () => {
+  /** The whole join link: this page's origin, the path, and the fragment if it is well formed. */
+  const link = () => {
     const fragment = linkFragment && LINK_FRAGMENT_RE.test(linkFragment) ? linkFragment : "";
-    const url = `${window.location.origin}${path}${fragment}`;
+    return `${window.location.origin}${path}${fragment}`;
+  };
+
+  const copyLink = async () => {
+    const url = link();
     try {
       if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
       await navigator.clipboard.writeText(url);
@@ -122,6 +141,17 @@ export function VisitorRoomChip({
         )}
         {copied ? "Copied" : "Copy link"}
       </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="gap-1"
+        aria-haspopup="dialog"
+        onClick={() => setQrOpen(true)}
+      >
+        <QrCodeIcon className="w-3.5 h-3.5" aria-hidden="true" />
+        Show QR code
+      </Button>
       {isHost
         ? onEnd && (
             <Button
@@ -141,6 +171,41 @@ export function VisitorRoomChip({
               Leave
             </Button>
           )}
+      <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+        <DialogContent className="max-w-sm">
+          <JoinQr link={link} />
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+/**
+ * The dialog's body: the code to scan, and the link it holds written out.
+ * Mounted only while the dialog is open, so `link` (which reads the page's
+ * origin) runs in the browser.
+ */
+function JoinQr({ link }: { link: () => string }) {
+  const url = link();
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Scan to join</DialogTitle>
+        <DialogDescription>
+          Point a phone camera at the code to open the room. Share it only with your team.
+        </DialogDescription>
+      </DialogHeader>
+      <QrCode
+        text={url}
+        label="QR code for the join link"
+        className="mx-auto w-full max-w-[18rem] rounded-sm border border-border"
+        fallback={
+          <p className="text-sm text-sub">
+            This link is too long for a QR code. Use Copy link instead.
+          </p>
+        }
+      />
+      <p className="break-all text-center font-data text-xs text-sub">{url}</p>
+    </>
   );
 }
