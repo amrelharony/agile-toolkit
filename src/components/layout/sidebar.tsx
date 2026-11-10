@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { navPathname } from "@/lib/comics/entry";
@@ -28,6 +28,7 @@ import {
 import { useSwipeToClose } from "@/hooks/use-swipe-to-close";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
+import { afterPageTransition, isPageTransitionRunning } from "@/lib/motion/page-transition";
 
 /**
  * The section headings (and Favorites / Recent) are 32 px rows for a mouse,
@@ -135,6 +136,11 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   // tree as an overlay; leaving collapses back to the rail without changing
   // the persisted state.
   const [hoverExpanded, setHoverExpanded] = useState(false);
+  // Whether a pointer is over the rail, and a collapse waiting for a page
+  // change to end. During a change the rail holds its width: collapsing
+  // under the held picture would swap a wide rail for a thin one mid-fade.
+  const hoveredRef = useRef(false);
+  const pendingCollapseRef = useRef<(() => void) | null>(null);
   // The visual "expanded?" state — pinned-open OR hovering-over-collapsed.
   // On mobile, the drawer is always full-width (80vw) when open, so the
   // persisted `collapsed` preference must be ignored — otherwise the wide
@@ -201,6 +207,22 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
     sonify("ui", "sidebar-nav");
     onClose?.();
   }, [onClose]);
+
+  // A collapse still waiting for a page change is dropped with the rail.
+  useEffect(() => () => pendingCollapseRef.current?.(), []);
+
+  const collapseUnlessHovered = useCallback(() => {
+    pendingCollapseRef.current = null;
+    // The browser's own hover state too: a leave during the hold may have no
+    // matching enter if the pointer never moved.
+    let hovered = hoveredRef.current;
+    try {
+      hovered ||= asideRef.current?.matches(":hover") === true;
+    } catch {
+      // A browser that cannot answer: the tracked state stands.
+    }
+    if (!hovered) setHoverExpanded(false);
+  }, []);
 
   // Close the mobile drawer on route change.
   useEffect(() => {
@@ -346,6 +368,8 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         ref={asideRef}
         data-chrome="sidebar"
         aria-label="Primary navigation"
+        // The open phone menu changes pages instantly (lib/motion/page-transition).
+        data-vt-instant={mobileOpen ? "" : undefined}
         // Auto-hide reveal: when the persisted state is collapsed (rail
         // mode), hovering the rail temporarily expands the tree as an
         // overlay. Leaving the area collapses back to the rail. We don't
@@ -353,9 +377,16 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         // preserved. Touch users get no hover effect — they can pin via
         // the chevron at the bottom, or use the mobile drawer flow.
         onPointerEnter={(e) => {
+          hoveredRef.current = true;
           if (e.pointerType === "mouse" && collapsed) setHoverExpanded(true);
         }}
-        onPointerLeave={() => setHoverExpanded(false)}
+        onPointerLeave={() => {
+          hoveredRef.current = false;
+          // While a page change runs, collapse once it ends, and only if the
+          // pointer has not come back by then.
+          if (!isPageTransitionRunning()) setHoverExpanded(false);
+          else pendingCollapseRef.current ??= afterPageTransition(collapseUnlessHovered);
+        }}
         className={cn(
           // Shared layout: solid paper, one ink line down the edge.
           "flex flex-col bg-bg2 border-r border-border transition-all duration-slow ease-spring overflow-hidden overscroll-contain-strict",
