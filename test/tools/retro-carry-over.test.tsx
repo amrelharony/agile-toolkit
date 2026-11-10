@@ -300,4 +300,60 @@ describe("sending an action in the Actions phase", () => {
     expect(ws().impediments).toEqual([]);
     expect(c1().sentTo).toEqual([]);
   });
+
+  it("adds it to the backlog as a story that links back, and Undo removes both", () => {
+    useWorkspaceStore.setState({
+      stories: [],
+      retroBoards: [
+        board("retro:current", {
+          phase: "actions",
+          cards: [
+            card("c1", "stop", { text: "Flaky deploys", isActionItem: true, assignee: "Bo" }),
+          ],
+        }),
+      ],
+    });
+    render(<RetroClient />);
+    openSendTo(/^Send to… Flaky deploys/);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Backlog story" }));
+
+    const [story] = ws().stories;
+    expect(story).toMatchObject({
+      title: "Flaky deploys",
+      status: "backlog",
+      owner: "Bo",
+      sourceRef: { tool: "retro", id: "c1", doc: "retro:current" },
+    });
+    expect(story.sprintId).toBeUndefined();
+    const c1 = () => current()!.cards.find((c) => c.id === "c1")!;
+    expect(c1().sentTo).toEqual([
+      { route: "backlog-story", targetId: story.id, at: expect.any(String) },
+    ]);
+    expect(undo.last!.label).toBe("Added to the backlog");
+
+    openSendTo(/^Send to… Flaky deploys \(sent\)/);
+    expect(screen.getByRole("menuitem", { name: /Backlog story.*Sent · Open/ })).toHaveAttribute(
+      "href",
+      "/sprint-planning"
+    );
+
+    act(() => undo.last!.revert());
+    expect(ws().stories).toEqual([]);
+    expect(c1().sentTo).toEqual([]);
+  });
+
+  it("offers the last retro's actions the same story route", () => {
+    useWorkspaceStore.setState({
+      stories: [],
+      retroBoards: [archive(), board("retro:current", { previousRetroId: ARCHIVE_ID })],
+    });
+    render(<RetroClient />);
+    openSendTo(/^Send to… Pair on flaky tests/);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Backlog story" }));
+    const [story] = ws().stories;
+    expect(story.sourceRef).toEqual({ tool: "retro", id: "a1", doc: ARCHIVE_ID });
+    expect(archived()!.cards.find((c) => c.id === "a1")!.sentTo).toEqual([
+      { route: "backlog-story", targetId: story.id, at: expect.any(String) },
+    ]);
+  });
 });

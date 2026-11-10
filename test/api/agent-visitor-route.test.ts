@@ -16,7 +16,12 @@ import { NextRequest } from "next/server";
 import "@/lib/actions/register-all";
 import { claudeNameFromId, registry, zodToJsonSchema } from "@/lib/actions/registry";
 import { IDLE_TIMEOUT_MS } from "@/lib/agent/upstream";
-import { VISITOR_HEADERS, VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
+import {
+  VISITOR_HEADERS,
+  VISITOR_LIMITS,
+  VISITOR_TIME_LIMIT_FINISH,
+} from "@/lib/visitor-ai/contract";
+import { VISITOR_STREAM_DEADLINE_MS } from "@/lib/visitor-ai/time-limit";
 import { cairoDay, visitorKey } from "@/lib/visitor-ai/visitor-key";
 
 const h = vi.hoisted(() => ({
@@ -171,11 +176,19 @@ afterEach(() => {
 });
 
 describe("route config", () => {
-  it("runs on Node for up to 60 s, never cached, POST only", () => {
+  it("runs on Node for up to 300 s, never cached, POST only", () => {
     expect(route.runtime).toBe("nodejs");
-    expect(route.maxDuration).toBe(60);
+    expect(route.maxDuration).toBe(300);
     expect(route.dynamic).toBe("force-dynamic");
     expect("GET" in route).toBe(false);
+  });
+
+  it("ends an answer itself at least 10 s before the platform would", () => {
+    // The platform's cut at maxDuration is silent; the route's own end is not.
+    expect(route.maxDuration * 1000 - VISITOR_STREAM_DEADLINE_MS).toBeGreaterThanOrEqual(10_000);
+    // And a full answer has room: 4,096 tokens at the gateway's usual speed
+    // took about 160 s, plus up to 30 s to start.
+    expect(VISITOR_STREAM_DEADLINE_MS).toBeGreaterThanOrEqual(240_000);
   });
 });
 
@@ -591,6 +604,202 @@ describe("timeouts and the visitor leaving", () => {
     await vi.advanceTimersByTimeAsync(1);
     await expect(next).rejects.toThrow("upstream_idle_timeout");
     expect(upstreamSignal?.aborted).toBe(true);
+  });
+});
+
+describe("the time limit", () => {
+  const enc = new TextEncoder();
+  const WORD = 'data: {"choices":[{"delta":{"content":"word "}}]}\n\n';
+  /** Shorter than IDLE_TIMEOUT_MS, so a gateway sending this often is never "quiet". */
+  const STEP_MS = 20_000;
+
+  /**
+   * A gateway whose answer the test sends by hand. It takes `startMs` to start
+   * answering (on the fake clock).
+   */
+  function livelyGateway(startMs = 0) {
+    let ctl!: ReadableStreamDefaultController<Uint8Array>;
+    let signal: AbortSignal | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        ctl = c;
+      },
+    });
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+      signal = init.signal ?? undefined;
+      if (startMs > 0) await new Promise((r) => setTimeout(r, startMs));
+      return new Response(body, { status: 200 });
+    });
+    return {
+      say: (s: string) => ctl.enqueue(enc.encode(s)),
+      /** The gateway ends its answer. */
+      close: () => ctl.close(),
+      /** The gateway's connection breaks. */
+      fail: (e: Error) => ctl.error(e),
+      signal: () => signal,
+    };
+  }
+
+  /** The events of an SSE body: each one's data, in order. */
+  const events = (body: string) =>
+    body
+      .split("\n\n")
+      .filter((e) => e.trim().length > 0)
+      .map((e) => e.replace(/^data: /, ""));
+
+  it("ends an answer still streaming at the limit with a last event the chat understands, not an error", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const gateway = livelyGateway();
+    // Date too, so the limit can be checked to the millisecond.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const res = await POST(post(ASK));
+    expect(res.status).toBe(200);
+    let ended = false;
+    // text() rejects if the stream errors: a clean close is part of the check.
+    const text = res.text().finally(() => (ended = true));
+
+    let said = 0;
+    for (let t = STEP_MS; t < VISITOR_STREAM_DEADLINE_MS; t += STEP_MS) {
+      await vi.advanceTimersByTimeAsync(STEP_MS);
+      gateway.say(WORD);
+      said += 1;
+    }
+    const elapsed = said * STEP_MS;
+    await vi.advanceTimersByTimeAsync(VISITOR_STREAM_DEADLINE_MS - elapsed - 1);
+    expect(ended).toBe(false);
+    expect(gateway.signal()?.aborted).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    const got = events(await text);
+    // Everything the gateway said, then the route's own two events.
+    expect(got.slice(0, said)).toEqual(Array(said).fill(WORD.trim().replace(/^data: /, "")));
+    expect(got).toHaveLength(said + 2);
+    expect(JSON.parse(got[said]).choices[0].finish_reason).toBe(VISITOR_TIME_LIMIT_FINISH);
+    expect(got[said + 1]).toBe("[DONE]");
+    // The gateway is told to stop generating, and nothing is left running.
+    expect(gateway.signal()?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    // Logged without any of the answer.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("[visitor-ai] answer ended at the time limit");
+  });
+
+  it("counts from the moment the request arrives, so a slow start leaves less time", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const START_MS = 20_000;
+    const gateway = livelyGateway(START_MS);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    let res: Response | undefined;
+    const pending = POST(post(ASK)).then((r) => (res = r));
+    await settle(() => fetchMock.mock.calls.length > 0);
+    await vi.advanceTimersByTimeAsync(START_MS);
+    await pending;
+    let ended = false;
+    const text = (res as Response).text().finally(() => (ended = true));
+
+    let elapsed = START_MS;
+    while (elapsed + STEP_MS < VISITOR_STREAM_DEADLINE_MS) {
+      gateway.say(WORD);
+      await vi.advanceTimersByTimeAsync(STEP_MS);
+      elapsed += STEP_MS;
+    }
+    gateway.say(WORD);
+    await vi.advanceTimersByTimeAsync(VISITOR_STREAM_DEADLINE_MS - elapsed - 1);
+    expect(ended).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(events(await text).at(-1)).toBe("[DONE]");
+    expect(gateway.signal()?.aborted).toBe(true);
+  });
+
+  it("passes a short answer on untouched and leaves no clock running", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const res = await POST(post(ASK));
+    expect(await res.text()).toBe(SSE);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(VISITOR_STREAM_DEADLINE_MS * 2);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("stops the clock when the visitor leaves in the middle of an answer", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const gateway = livelyGateway();
+    const visitor = new AbortController();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const res = await POST(post(ASK, {}, visitor.signal));
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    gateway.say(WORD);
+    expect((await reader.read()).done).toBe(false);
+
+    visitor.abort();
+    expect(gateway.signal()?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(VISITOR_STREAM_DEADLINE_MS * 2);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("stops the clock when the gateway goes quiet while nobody is reading: no last event, no log", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const gateway = livelyGateway();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const res = await POST(post(ASK));
+    gateway.say(WORD);
+    // The browser isn't reading (a stalled connection), so the route holds the
+    // one chunk; the gateway then sends nothing for IDLE_TIMEOUT_MS.
+    await vi.advanceTimersByTimeAsync(IDLE_TIMEOUT_MS);
+    expect(gateway.signal()?.aborted).toBe(true);
+    // The idle stop ended the answer: the time limit's clock is off as well.
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(VISITOR_STREAM_DEADLINE_MS);
+    expect(warn).not.toHaveBeenCalled();
+
+    // A reader that comes back gets the chunk, then the broken stream: never a
+    // "time limit" end for an answer that stopped for another reason.
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe(WORD);
+    await expect(reader.read()).rejects.toThrow("upstream_idle_timeout");
+  });
+
+  it("stops the clock when the gateway's connection breaks while nobody is reading: no last event, no log", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const gateway = livelyGateway();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const res = await POST(post(ASK));
+    gateway.say(WORD);
+    // The browser isn't reading, so the route holds the one chunk. The
+    // gateway's connection then breaks, well before the idle stop would act.
+    await vi.advanceTimersByTimeAsync(5_000);
+    gateway.fail(new Error("terminated"));
+    await vi.advanceTimersByTimeAsync(1_000);
+    // The break ended the answer: neither clock is left running.
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(VISITOR_STREAM_DEADLINE_MS);
+    expect(warn).not.toHaveBeenCalled();
+
+    // A reader that comes back gets the chunk, then the break itself.
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe(WORD);
+    await expect(reader.read()).rejects.toThrow("terminated");
+  });
+
+  it("stops the clock when the gateway finishes while nobody is reading: the answer stays as the gateway ended it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const gateway = livelyGateway();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const res = await POST(post(ASK));
+    // The whole answer in one chunk, then the gateway closes. Nobody reads.
+    gateway.say(SSE);
+    gateway.close();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(VISITOR_STREAM_DEADLINE_MS);
+    expect(warn).not.toHaveBeenCalled();
+    // Nothing was cut, so the gateway is never told to stop.
+    expect(gateway.signal()?.aborted).toBe(false);
+
+    // Read late, it is the gateway's answer and nothing else: no "time_limit".
+    expect(await res.text()).toBe(SSE);
   });
 });
 

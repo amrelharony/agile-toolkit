@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 
 const owner = vi.hoisted(() => ({ isOwner: false, settled: true, unverified: false }));
@@ -13,8 +13,10 @@ vi.mock("@/lib/auth/use-is-owner", () => ({
   }),
 }));
 vi.mock("@/lib/sonification/emit", () => ({ emitUiEvent: () => {} }));
+vi.mock("@/lib/gamification/signal", () => ({ signalGamification: vi.fn() }));
 
 import { SavedChip } from "@/components/data/saved-chip";
+import { LAST_BACKUP_KEY, recordBackup } from "@/lib/data/backup-meta";
 import { useStorageHealth } from "@/lib/stores/storage-health";
 
 beforeEach(() => {
@@ -22,6 +24,7 @@ beforeEach(() => {
   owner.settled = true;
   owner.unverified = false;
   useStorageHealth.setState({ writeFailed: false, dismissed: false });
+  localStorage.clear();
 });
 
 /** The classes that size the chip (not colours, hover or focus). */
@@ -68,6 +71,93 @@ describe("SavedChip", () => {
     owner.isOwner = true;
     const { container } = render(<SavedChip />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("SavedChip: when the last backup was", () => {
+  const NOW = new Date("2026-11-10T09:00:00");
+  /** The backup line as written, wide form and phone form together (CSS shows one). */
+  const backupLine = () => document.querySelector("[data-saved-chip-backup]")!;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("says there is no backup yet", () => {
+    render(<SavedChip />);
+    expect(backupLine()).toHaveTextContent("No backup yet");
+    expect(
+      screen.getByRole("button", {
+        name: "Saved in this browser. No backup yet. Back up or restore your data",
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("says how many days ago, in full for the button's name", () => {
+    localStorage.setItem(LAST_BACKUP_KEY, "2026-11-07T15:00:00");
+    render(<SavedChip />);
+    expect(
+      screen.getByRole("button", {
+        name: "Saved in this browser. Last backup: 3 days ago. Back up or restore your data",
+      })
+    ).toBeInTheDocument();
+    expect(backupLine()).toHaveTextContent("3 days ago");
+  });
+
+  it("writes the long form for wide screens and a short one that fits a phone", () => {
+    localStorage.setItem(LAST_BACKUP_KEY, "2026-11-09T15:00:00");
+    render(<SavedChip />);
+    const [wide, narrow] = Array.from(backupLine().querySelectorAll("span"));
+    expect(wide).toHaveTextContent("Last backup:");
+    expect(wide).toHaveClass("max-lg:hidden");
+    expect(narrow).toHaveTextContent("Backup:");
+    expect(narrow).toHaveClass("lg:hidden");
+    expect(backupLine()).toHaveTextContent(/yesterday$/);
+  });
+
+  it("updates the moment a backup is downloaded, without reopening anything", () => {
+    render(<SavedChip />);
+    expect(backupLine()).toHaveTextContent("No backup yet");
+    act(() => recordBackup(NOW));
+    expect(backupLine()).toHaveTextContent(/today$/);
+    expect(screen.getByRole("button", { name: /Last backup: today/ })).toBeInTheDocument();
+  });
+
+  it("keeps saying it while the browser has stopped saving", () => {
+    localStorage.setItem(LAST_BACKUP_KEY, "2026-10-21T15:00:00");
+    useStorageHealth.setState({ writeFailed: true });
+    render(<SavedChip />);
+    expect(
+      screen.getByRole("button", {
+        name: "Not saving. Last backup: 20 days ago. Back up or restore your data",
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("holds one width whatever it says, the same one its placeholder holds", () => {
+    const holders = (root: ParentNode) =>
+      Array.from(root.querySelectorAll('span[aria-hidden="true"].invisible')).map(
+        (el) => el.textContent
+      );
+    owner.settled = false;
+    const { container, rerender } = render(<SavedChip />);
+    const placeholder = container.querySelector("[data-saved-chip-placeholder]")!;
+    // Before anything can be read it reserves the widest label and age.
+    expect(placeholder.querySelector("[data-saved-chip-backup]")).toHaveTextContent("000 days ago");
+    const reserved = holders(placeholder);
+    expect(reserved).toEqual(["Saved in this browser", "Last backup: Backup: 000 days ago"]);
+
+    owner.settled = true;
+    rerender(<SavedChip />);
+    expect(holders(screen.getByRole("button"))).toEqual(reserved);
+    // Whatever the chip then says, the holders are what size it.
+    act(() => recordBackup(NOW));
+    expect(holders(screen.getByRole("button"))).toEqual(reserved);
+    useStorageHealth.setState({ writeFailed: true });
+    rerender(<SavedChip />);
+    expect(holders(screen.getByRole("button", { name: /Not saving/ }))).toEqual(reserved);
   });
 });
 

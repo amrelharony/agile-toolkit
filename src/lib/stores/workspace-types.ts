@@ -151,6 +151,19 @@ export interface Story {
    * descending.
    */
   backlogRank?: number;
+  /*
+   * What the story is about, beyond its title. All four are optional, and
+   * cleaned and capped on every write (lib/stories/fields.ts). They stay out
+   * of share links, which are capped at 32 KB.
+   */
+  /** Free notes: context, a description that came with it (at most 2,000 characters). */
+  notes?: string;
+  /** How the team will know it is done right (at most 2,000 characters). */
+  acceptanceCriteria?: string;
+  /** Its issue in the team's tracker: an http or https address (at most 500 characters). */
+  link?: string;
+  /** Its key in the team's tracker, such as "PAY-12" (at most 50 characters). */
+  ticketKey?: string;
 }
 
 /**
@@ -2369,7 +2382,7 @@ export interface RetroCard {
   isActionItem: boolean;
   assignee: string;
   discussing: boolean;
-  /** Where this action was sent (an impediment, a Kanban card). */
+  /** Where this action was sent (an impediment, a Kanban card, a story). */
   sentTo?: HandoffLink[];
   /** Id of the previous retro's card this action was carried over from. */
   carriedFrom?: string;
@@ -2402,6 +2415,9 @@ export interface RetroBoard {
    *  person gets their own budget on a shared screen. `userVotes` stays the
    *  single-voter count. */
   votesBy?: Record<string, number>;
+  /** Votes each person has ("Votes each"); absent means 3, as on every
+   *  board from before the setting (lib/retro/board.ts `retroVotes`). */
+  votesPerPerson?: 3 | 5 | 8;
   /** The sprint this retro looks back on (Sprint.id). Absent on boards from
    *  before retros were per sprint: the cockpit then places the retro by its
    *  archive date (lib/retro/board.ts). Archived copies keep it. */
@@ -3214,6 +3230,13 @@ export interface PokerEstimate {
   decidedAt: ISODateString;
   /** The story this estimated, when it came from another tool's queue. */
   sourceRef?: HandoffRef;
+  /**
+   * The session story the estimate was accepted for, when it came from the
+   * queue. The queue forgets the story once it is estimated, so this is how
+   * the session's rows are tied back to `sourceRef` afterwards (the CSV's
+   * ticket key). Absent on estimates logged before it was kept.
+   */
+  sessionStoryId?: string;
 }
 
 /** A story another tool sent for estimation, waiting for a Poker session. */

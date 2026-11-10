@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { stampStoryMembership, withStorySprint } from "@/lib/sprints/story-status";
+import { cleanStoryFields } from "@/lib/stories/fields";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { reportStorageWriteFailure } from "./storage-health";
 import type {
@@ -142,6 +143,8 @@ interface WorkspaceActions {
   removeCeremonyCadence: (id: string) => void;
   upsertStory: (s: Story) => void;
   removeStory: (id: string) => void;
+  /** `removeStory` for several stories in one write (the Undo of a paste or an import). */
+  removeStories: (ids: readonly string[]) => void;
   upsertImpediment: (i: Impediment) => void;
   removeImpediment: (id: string) => void;
   upsertRisk: (r: Risk) => void;
@@ -364,8 +367,10 @@ interface WorkspaceActions {
   removeValueStreamStage: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
-  /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
-   *  each (find + copy), so calling N times is O(n²). */
+  /** Batch upsert, stamped and cleaned as `upsertStory` does each one. Use
+   *  this for bulk adds (a paste, an import): single-item upserts are O(n)
+   *  each (find + copy), so calling N times is O(n²), and every call
+   *  persists the whole workspace again. */
   bulkUpsertStories: (items: Story[]) => void;
   exportJSON: () => string;
   importJSON: (json: string) => void;
@@ -449,6 +454,53 @@ function cascadeSourceRefRemoval(
   return whiteboardObjects.map((o) =>
     isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o
   );
+}
+
+/**
+ * The workspace without stories `ids`, for `removeStory` and `removeStories`.
+ *
+ * Phase 26 cascade: any canvas object pinned to a removed Story via
+ * sourceRef now points at nothing. Strip the sourceRef so the object
+ * becomes a standalone snapshot; without this, future sync attempts
+ * against the dead id would silently fail and the link badge
+ * ("↳ backlog") would be misleading.
+ *
+ * Two tool labels are in the wild: cards added via the canvas wizard use
+ * `tool: "backlog"`, while `importFromStories` in cross-tool-import.ts
+ * emits `tool: "story"`. Match both, and include ALL object kinds
+ * (sticky/card) — `importFromStories` produces stickies, not just cards.
+ */
+function withoutStories(
+  s: Pick<Workspace, "stories" | "whiteboardObjects">,
+  ids: ReadonlySet<string>
+): Pick<Workspace, "stories"> | Pick<Workspace, "stories" | "whiteboardObjects"> {
+  const stories = s.stories.filter((x) => !ids.has(x.id));
+  const isStoryLink = (o: WhiteboardObject) =>
+    (o.sourceRef?.tool === "backlog" || o.sourceRef?.tool === "story") &&
+    ids.has(o.sourceRef.entityId);
+  // R5: WhiteboardVoting can pin to a story via `storyId` (Phase 27);
+  // clear that too so the voting widget doesn't keep a dead link
+  // that would cause confusing UI ("anchored to a story that no
+  // longer exists").
+  const isVotingLink = (o: WhiteboardObject) =>
+    o.type === "voting" && o.storyId !== undefined && ids.has(o.storyId);
+  // Pre-check so the common case (zero refs) doesn't allocate
+  // a fresh whiteboardObjects array via .map().
+  const affected = (s.whiteboardObjects ?? []).some((o) => isStoryLink(o) || isVotingLink(o));
+  if (!affected) return { stories };
+  const now = new Date().toISOString();
+  return {
+    stories,
+    whiteboardObjects: (s.whiteboardObjects ?? []).map((o) => {
+      if (isStoryLink(o)) {
+        return { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now };
+      }
+      if (isVotingLink(o)) {
+        return { ...o, storyId: undefined, version: o.version + 1, updatedAt: now };
+      }
+      return o;
+    }),
+  };
 }
 
 export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
@@ -554,57 +606,25 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       // Every local write of a story records when it was created and any
       // change of its sprint (lib/sprints/story-status.ts); synced rows from
       // other devices arrive through setEntities and keep their own stamps.
+      // Its notes, acceptance criteria, link and ticket key are cleaned and
+      // capped here too (lib/stories/fields.ts), whichever page wrote them.
       upsertStory: (s) =>
         set((_st) => ({
           stories: replaceById(
             _st.stories,
             stampStoryMembership(
-              s,
+              cleanStoryFields(s),
               _st.stories.find((x) => x.id === s.id)
             )
           ),
         })),
-      removeStory: (id) =>
+      // With the Canvas links to the story cleared (`withoutStories`).
+      removeStory: (id) => set((s) => withoutStories(s, new Set([id]))),
+      // One write for the lot: each write persists the whole workspace.
+      removeStories: (ids) =>
         set((s) => {
-          // Phase 26 cascade: any canvas object pinned to this Story via
-          // sourceRef now points at nothing. Strip the sourceRef so the
-          // object becomes a standalone snapshot; without this, future
-          // sync attempts against the dead id would silently fail and
-          // the link badge ("↳ backlog") would be misleading.
-          //
-          // Two tool labels are in the wild: cards added via the canvas
-          // wizard use `tool: "backlog"`, while `importFromStories` in
-          // cross-tool-import.ts emits `tool: "story"`. Match both, and
-          // include ALL object kinds (sticky/card) — `importFromStories`
-          // produces stickies, not just cards.
-          //
-          // Pre-check so the common case (zero refs) doesn't allocate
-          // a fresh whiteboardObjects array via .map().
-          const isStoryLink = (o: WhiteboardObject) =>
-            (o.sourceRef?.tool === "backlog" || o.sourceRef?.tool === "story") &&
-            o.sourceRef.entityId === id;
-          // R5: WhiteboardVoting can pin to a story via `storyId` (Phase 27);
-          // clear that too so the voting widget doesn't keep a dead link
-          // that would cause confusing UI ("anchored to a story that no
-          // longer exists").
-          const isVotingLink = (o: WhiteboardObject) => o.type === "voting" && o.storyId === id;
-          const affected = (s.whiteboardObjects ?? []).some(
-            (o) => isStoryLink(o) || isVotingLink(o)
-          );
-          if (!affected) return { stories: s.stories.filter((x) => x.id !== id) };
-          const now = new Date().toISOString();
-          return {
-            stories: s.stories.filter((x) => x.id !== id),
-            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) => {
-              if (isStoryLink(o)) {
-                return { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now };
-              }
-              if (isVotingLink(o)) {
-                return { ...o, storyId: undefined, version: o.version + 1, updatedAt: now };
-              }
-              return o;
-            }),
-          };
+          const gone = new Set(ids);
+          return s.stories.some((x) => gone.has(x.id)) ? withoutStories(s, gone) : s;
         }),
       upsertImpediment: (i) => set((_st) => ({ impediments: replaceById(_st.impediments, i) })),
       removeImpediment: (id) =>
@@ -773,7 +793,19 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         // BUG-W46: functional updater — non-functional read-then-set
         // races concurrent sync-engine writes and silently drops the
         // loser.
-        set((_st) => ({ stories: batchUpsertById(_st.stories, items) })),
+        set((_st) => {
+          if (items.length === 0) return _st;
+          // Stamped as `upsertStory` stamps each one (created, joined its
+          // sprint), with one time for the batch.
+          const stored = new Map(_st.stories.map((x) => [x.id, x]));
+          const at = new Date().toISOString();
+          return {
+            stories: batchUpsertById(
+              _st.stories,
+              items.map((s) => stampStoryMembership(cleanStoryFields(s), stored.get(s.id), at))
+            ),
+          };
+        }),
       // Phase 19 — AI/LLM PM
       upsertLLMEval: (x) => set((_st) => ({ llmEvals: replaceById(_st.llmEvals ?? [], x) })),
       // R11-fix: canvas sourceRef cascade. Audit A6 H6 flagged 16

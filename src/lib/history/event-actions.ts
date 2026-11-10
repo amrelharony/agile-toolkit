@@ -11,6 +11,8 @@ export const RETRO_ACTIONS = {
   CARD_EDITED: "card_edited",
   CARD_REMOVED: "card_removed",
   CARD_VOTED: "card_voted",
+  /** A vote was taken back off a card. */
+  CARD_UNVOTED: "card_unvoted",
   CARDS_GROUPED: "cards_grouped",
   CARDS_UNGROUPED: "cards_ungrouped",
   PHASE_ADVANCED: "phase_advanced", // milestone
@@ -350,12 +352,26 @@ export const RETRO_ACTIONS_ACTIONS = {
 /** Sprint Planning: the plan for a sprint. Payloads carry `sprintId`. */
 export const SPRINT_PLANNING_ACTIONS = {
   STORY_ADDED: "story_added",
+  /** A story deleted from the backlog or from a sprint that hasn't started. */
+  STORY_DELETED: "story_deleted",
   STORIES_IMPORTED: "stories_imported",
+  /** A pasted list added as stories, one per line. Payload: `count`, `intoSprint`. */
+  STORIES_PASTED: "stories_pasted",
+  /**
+   * A Jira Cloud CSV export imported as backlog stories. Payload: `added`
+   * (new stories), `updated` (stories already here whose points changed).
+   */
+  JIRA_IMPORTED: "jira_imported",
   FILLED_TO_CAPACITY: "filled_to_capacity",
   /** A closed sprint's unfinished stories moved into this sprint. */
   STORIES_CARRIED_OVER: "stories_carried_over",
   /** A closed sprint's unfinished stories sent back to the backlog. */
   STORIES_RETURNED: "stories_returned",
+  /**
+   * A retro action or an open impediment added to the sprint as a story.
+   * Payload: `storyId`, `from` ("retro" or "impediments"), `sourceId`.
+   */
+  IMPROVEMENT_ADDED: "improvement_added",
   SPRINT_COMMITTED: "sprint_committed", // milestone
 } as const;
 

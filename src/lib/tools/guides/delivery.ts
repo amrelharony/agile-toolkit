@@ -16,7 +16,7 @@ export const GUIDES: ToolGuide[] = [
       "Under Look back over, pick Last 3, 6 or 12 sprints, or All sprints. Last 6 is the default, and this browser remembers your choice.",
       "Read the sentence at the top. Under it, Worth checking lists data to fix: Add completed points (with Undo), Set real dates or Check its details in the cockpit, or Looks right for a sprint made from older data.",
       "Read the Say/do by sprint chart (the green band is 90–110%, a met commitment) and Carry-over and scope change. View as table shows each chart's numbers.",
-      "In Finished sprints, each row shows Committed, Completed, Say/do, Carried over, Scope +/− and the Source of those numbers. Click a sprint's name to open it in the cockpit.",
+      "In Finished sprints, each row shows Committed, Completed, Say/do, Carried over, Scope +/− and the Source of those numbers. Click a sprint's name to open it in the cockpit. Beside Say/do, Retro follow-through shows how many retro actions got done.",
       "Open Advanced analysis: is it drifting? to see whether say/do or scope churn is trending, from 6 sprints.",
       "Use Open the cockpit for the running sprint, and the Sprint tools cards to open Burndown, Burnup, Velocity, Sprint Comparison or Release Planner on it. Export gives the trend as Markdown.",
     ],

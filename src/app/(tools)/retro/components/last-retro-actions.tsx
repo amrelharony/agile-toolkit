@@ -3,11 +3,12 @@
 /**
  * "Actions from the last retro", shown while the team writes cards: each
  * action the previous retro agreed, with "Carry over" (copies it onto this
- * board as an action item) and "Send to…" (an impediment or a Kanban card).
- * Sending records the link on the archived card, so the next look shows
- * where it went. An action that got done (marked in Retro Actions, or its
- * impediment resolved, its Kanban card finished) says so, and isn't offered
- * for carrying over: that is the follow-through the retro starts by checking.
+ * board as an action item) and "Send to…" (an impediment, a Kanban card or
+ * a backlog story). Sending records the link on the archived card, so the
+ * next look shows where it went. An action that got done (marked in Retro
+ * Actions, or its impediment resolved, its Kanban card finished, its story
+ * done) says so, and isn't offered for carrying over: that is the
+ * follow-through the retro starts by checking.
  */
 
 import { useId, useMemo } from "react";
@@ -24,7 +25,7 @@ import type { RetroCard } from "../types";
 import { pastRetros, retroActionItems } from "../archive";
 import { ExampleNotSent, RETRO_ACTION_ROUTES } from "./retro-card-item";
 
-/** Whether a hand-off target (an impediment, a Kanban card) is finished. */
+/** Whether a hand-off target (an impediment, a Kanban card, a story) is finished. */
 const targetDone = (link: HandoffLink) =>
   getHandoffRoute(link.route).isDone?.(link.targetId) ?? false;
 
@@ -69,6 +70,7 @@ export function LastRetroActions({
   // Re-read when a target finishes, for "Done".
   useWorkspaceStore((s) => s.impediments);
   useWorkspaceStore((s) => s.kanbanBoards);
+  useWorkspaceStore((s) => s.stories);
   const previous = useMemo(
     () => (retroId ? (pastRetros(boards ?? []).find((b) => b.id === retroId) ?? null) : null),
     [boards, retroId]

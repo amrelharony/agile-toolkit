@@ -214,6 +214,134 @@ describe("Voting as", () => {
   });
 });
 
+describe("Take my vote back", () => {
+  const takeBack = (name = "Take my vote back") => screen.queryAllByRole("button", { name });
+
+  it("gives Me a vote back from a card I voted on, and only there", () => {
+    render(<Harness initial={makeBoard()} />);
+    expect(takeBack()).toHaveLength(0);
+
+    fireEvent.click(voteButtons()[0]);
+    fireEvent.click(voteButtons()[0]);
+    fireEvent.click(voteButtons()[1]);
+    expect(latest.userVotes).toBe(3);
+    expect(takeBack()).toHaveLength(2);
+    for (const button of voteButtons()) expect(button).toBeDisabled();
+
+    fireEvent.click(takeBack()[0]);
+    expect(latest.cards.map((c) => c.votes)).toEqual([1, 1]);
+    expect(latest.userVotes).toBe(2);
+    expect(announced).toContain("Took your vote back. 1 vote left.");
+    // The vote is mine to spend again.
+    expect(voteButtons()[1]).toBeEnabled();
+    fireEvent.click(takeBack()[0]);
+    fireEvent.click(takeBack()[0]);
+    expect(latest.cards.map((c) => c.votes)).toEqual([0, 0]);
+    expect(latest.userVotes).toBe(0);
+    expect(takeBack()).toHaveLength(0);
+  });
+
+  it("takes back each person's own votes, under their name", () => {
+    setRoster("Priya", "Sam");
+    render(<Harness initial={makeBoard()} />);
+    fireEvent.click(within(picker()).getByRole("radio", { name: "Priya · 3 left" }));
+    fireEvent.click(voteButtons()[0]);
+    expect(takeBack("Take Priya's vote back")).toHaveLength(1);
+
+    // Sam didn't vote there: nothing to take back for Sam.
+    fireEvent.click(within(picker()).getByRole("radio", { name: "Sam · 3 left" }));
+    expect(takeBack("Take Sam's vote back")).toHaveLength(0);
+    fireEvent.click(voteButtons()[1]);
+    expect(latest.votesBy).toEqual({ Priya: 1, Sam: 1 });
+
+    fireEvent.click(within(picker()).getByRole("radio", { name: "Priya · 2 left" }));
+    fireEvent.click(takeBack("Take Priya's vote back")[0]);
+    expect(latest.votesBy).toEqual({ Priya: 0, Sam: 1 });
+    expect(latest.cards.map((c) => c.votes)).toEqual([0, 1]);
+    expect(announced).toContain("Took back a vote for Priya. 3 votes left.");
+  });
+
+  it("only offers it in the Vote phase, for votes cast on this visit", () => {
+    // Votes saved on the board are counts: whose they were isn't known.
+    const { unmount } = render(
+      <Harness initial={makeBoard({ userVotes: 1, cards: [card("a", "start", { votes: 1 })] })} />
+    );
+    expect(takeBack()).toHaveLength(0);
+    unmount();
+
+    render(<Harness initial={makeBoard()} />);
+    fireEvent.click(voteButtons()[0]);
+    fireEvent.click(screen.getByRole("button", { name: /Next Phase/ }));
+    expect(takeBack()).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /Previous phase/ }));
+    expect(takeBack()).toHaveLength(1);
+  });
+});
+
+describe("Votes each", () => {
+  const votesEach = () => screen.getByRole("radiogroup", { name: "Votes each person has" });
+
+  it("sets everyone's budget on the board, in Write and Vote only", () => {
+    setRoster("Priya");
+    const { unmount } = render(<Harness initial={makeBoard({ phase: "discuss" })} />);
+    expect(screen.queryByRole("radiogroup", { name: "Votes each person has" })).toBeNull();
+    unmount();
+
+    render(<Harness initial={makeBoard({ phase: "write" })} />);
+    expect(within(votesEach()).getByRole("radio", { name: "3 votes" })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+    fireEvent.click(within(votesEach()).getByRole("radio", { name: "5 votes" }));
+    expect(latest.votesPerPerson).toBe(5);
+    expect(announced).toContain("Everyone now has 5 votes.");
+
+    fireEvent.click(screen.getByRole("button", { name: /Next Phase/ }));
+    expect(announced).toContain("Vote phase. Vote on cards (5 votes each).");
+    expect(screen.getByText("Vote on cards (5 votes each)")).toBeInTheDocument();
+    expect(screen.getByText("5 votes remaining")).toBeInTheDocument();
+    expect(
+      screen.getByText("No votes yet: each person has 5 votes for the cards that matter most.")
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Everyone gets 5 votes\./)).toBeInTheDocument();
+
+    // Priya spends all five; a sixth does nothing.
+    fireEvent.click(within(picker()).getByRole("radio", { name: "Priya · 5 left" }));
+    for (let i = 0; i < 5; i++) fireEvent.click(voteButtons()[0]);
+    expect(announced).toContain("Priya has used all 5 votes.");
+    expect(within(picker()).getByRole("radio", { name: "Priya · 0 left" })).toBeInTheDocument();
+    fireEvent.click(voteButtons()[1]);
+    expect(latest.cards.map((c) => c.votes)).toEqual([5, 0]);
+  });
+
+  it("keeps votes already cast when the budget goes down", () => {
+    setRoster("Priya");
+    render(
+      <Harness
+        initial={makeBoard({
+          votesPerPerson: 8,
+          votesBy: { Priya: 6 },
+          cards: [card("a", "start", { votes: 6 }), card("b", "stop")],
+        })}
+      />
+    );
+    expect(screen.getByText("8 votes remaining")).toBeInTheDocument();
+    expect(within(picker()).getByRole("radio", { name: "Priya · 2 left" })).toBeInTheDocument();
+
+    fireEvent.click(within(votesEach()).getByRole("radio", { name: "3 votes" }));
+    expect(latest.votesPerPerson).toBe(3);
+    expect(announced).toContain(
+      "Everyone now has 3 votes. Votes already cast stay on their cards."
+    );
+    expect(latest.cards.map((c) => c.votes)).toEqual([6, 0]);
+    // Past the new budget is none left, never a negative count.
+    expect(within(picker()).getByRole("radio", { name: "Priya · 0 left" })).toBeInTheDocument();
+    fireEvent.click(within(picker()).getByRole("radio", { name: "Priya · 0 left" }));
+    expect(screen.getByText("0 votes remaining for Priya")).toBeInTheDocument();
+    for (const button of voteButtons()) expect(button).toBeDisabled();
+  });
+});
+
 describe("Previous phase", () => {
   it("steps back from Vote to Write and keeps everyone's votes", () => {
     setRoster("Priya");
@@ -235,7 +363,7 @@ describe("Previous phase", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Next Phase/ }));
     expect(latest.phase).toBe("vote");
-    expect(announced).toContain("Vote phase. Vote on cards (max 3).");
+    expect(announced).toContain("Vote phase. Vote on cards (3 votes each).");
     expect(screen.getByText("2 votes remaining")).toBeInTheDocument();
     expect(within(picker()).getByRole("radio", { name: "Priya · 1 left" })).toBeInTheDocument();
   });

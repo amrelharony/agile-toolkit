@@ -17,7 +17,9 @@
  *   4. update   — edit an action's text, owner or due date in place.
  *
  * An action counts as done when it is marked on the card, or when the
- * impediment or Kanban card it was sent to is finished, as on the page.
+ * impediment, Kanban card or story it was sent to is finished, as on the
+ * page (a story it became in Sprint Planning closes it when that story is
+ * done; a deleted story leaves it open).
  */
 
 import { z } from "zod";
@@ -29,6 +31,7 @@ import type {
   Impediment,
   KanbanBoard,
   RetroBoard,
+  Story,
 } from "@/lib/stores/workspace-types";
 import {
   actionCard,
@@ -36,35 +39,15 @@ import {
   followThroughByRetro,
   quickAddBoard,
   summarizeRetroActions,
+  targetDoneIn,
   withActionDone,
   withActionPatch,
   withAddedAction,
   type RetroAction,
 } from "@/lib/retro/actions";
-import { isResolved } from "@/lib/impediments/model";
 import { todayIso } from "@/lib/sprints/series";
 
 const KIND_RETRO = "workspace:retroBoard";
-
-/**
- * Whether an action's hand-off target is finished, as the page reads it: an
- * impediment resolved, a Kanban card in Done.
- */
-function targetDoneFrom(
-  impediments: readonly Impediment[],
-  boards: readonly KanbanBoard[]
-): (link: HandoffLink) => boolean {
-  return (link) => {
-    if (link.route === "impediment") {
-      const i = impediments.find((x) => x.id === link.targetId);
-      return Boolean(i && isResolved(i));
-    }
-    if (link.route === "kanban") {
-      return boards.some((b) => b.cards.some((c) => c.id === link.targetId && c.column === "done"));
-    }
-    return false;
-  };
-}
 
 const ws = () => useWorkspaceStore.getState();
 
@@ -117,7 +100,7 @@ registry.register({
   name: "list",
   category: "read",
   description:
-    "List the team's retro action items across every retro (current board first, then archives newest first). An action is done when marked on the card or when the impediment or Kanban card it was sent to is finished. Returns {open, overdue, done, followThrough: {boardId, retroLabel, archivedAt, sprintId?, agreed, done, carried, open, rate | null}[] (past retros, oldest first), actions: {id, boardId, retro, text, assignee, dueDate, done, doneAt, overdue, closedByTarget (done because its impediment or Kanban card finished), current (on the current retro), carriedFrom (the action it was carried over from) | null, sentTo}[]}. Filter with status: open | overdue | done | all (default all).",
+    "List the team's retro action items across every retro (current board first, then archives newest first). An action is done when marked on the card or when the impediment, Kanban card or story it was sent to is finished (sentTo route impediment, kanban or backlog-story; a deleted story leaves it open). Returns {open, overdue, done, followThrough: {boardId, retroLabel, archivedAt, sprintId?, agreed, done, carried, open, rate | null}[] (past retros, oldest first), actions: {id, boardId, retro, text, assignee, dueDate, done, doneAt, overdue, closedByTarget (done because its impediment, Kanban card or story finished), current (on the current retro), carriedFrom (the action it was carried over from) | null, sentTo}[]}. Filter with status: open | overdue | done | all (default all).",
   paramsSchema: z.object({
     status: z.enum(["open", "overdue", "done", "all"]).optional(),
   }),
@@ -126,16 +109,21 @@ registry.register({
     return listing(
       s.retroBoards ?? [],
       params.status,
-      targetDoneFrom(s.impediments ?? [], s.kanbanBoards ?? [])
+      targetDoneIn({
+        impediments: s.impediments,
+        kanbanBoards: s.kanbanBoards,
+        stories: s.stories,
+      })
     );
   },
   mcpHandler: async (params, ctx) => {
-    const [boards, impediments, kanban] = await Promise.all([
+    const [boards, impediments, kanbanBoards, stories] = await Promise.all([
       serverListEntities<RetroBoard>(ctx.userId, KIND_RETRO),
       serverListEntities<Impediment>(ctx.userId, "workspace:impediment"),
       serverListEntities<KanbanBoard>(ctx.userId, "workspace:kanbanBoard"),
+      serverListEntities<Story>(ctx.userId, "workspace:story"),
     ]);
-    return listing(boards, params.status, targetDoneFrom(impediments, kanban));
+    return listing(boards, params.status, targetDoneIn({ impediments, kanbanBoards, stories }));
   },
 });
 

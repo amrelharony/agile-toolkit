@@ -1,8 +1,9 @@
 import { listAnd, plural } from "@/lib/charts/chart-text";
+import { retroVotes } from "@/lib/retro/board";
 import type { RetroFacts } from "@/lib/retro/facts";
 import { goalClause } from "./facts-text";
 import { shortText } from "./helpers";
-import { MAX_VOTES, type BoardState, type RetroCard } from "./types";
+import type { BoardState, RetroCard } from "./types";
 
 const quote = (card: RetroCard) => `“${shortText(card.text)}”`;
 
@@ -29,7 +30,7 @@ function names(cards: readonly RetroCard[]): string {
  *   Actions  "3 actions agreed, 1 without an owner."
  */
 export function retroVerdict(
-  state: Pick<BoardState, "phase" | "cards" | "format">,
+  state: Pick<BoardState, "phase" | "cards" | "format" | "votesPerPerson">,
   facts?: Pick<RetroFacts, "sprintName" | "goalOutcome"> | null
 ): string {
   const tops = state.cards.filter((c) => c.groupedWith === null);
@@ -49,7 +50,7 @@ export function retroVerdict(
     case "vote": {
       const cast = state.cards.reduce((sum, c) => sum + Math.max(0, c.votes), 0);
       if (cast === 0) {
-        return `No votes yet: each person has ${MAX_VOTES} votes for the cards that matter most.`;
+        return `No votes yet: each person has ${retroVotes(state)} votes for the cards that matter most.`;
       }
       const { top, votes } = leaders(state.cards);
       if (top.length === 0) return `${plural(cast, "vote")} cast.`;

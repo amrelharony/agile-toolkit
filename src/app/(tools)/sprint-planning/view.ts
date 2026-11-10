@@ -2,16 +2,21 @@
  * Sprint Planning's reading of the workspace: which stories are in the
  * sprint, which were left over by a closed sprint, which backlog items could
  * be imported, the priority score used to order the backlog, the capacity
- * forecast, and the warnings shown before committing. Pure.
+ * forecast, what the last retro and the impediments log leave to plan in,
+ * and the warnings shown before committing. Pure.
  */
 
 import type {
   BacklogItem,
   CapacityPlan,
+  Impediment,
   PrioritizationItem,
   Sprint,
   Story,
 } from "@/lib/stores/workspace-types";
+import { IMPEDIMENT_SEVERITY_LABEL, daysOverdue, impedimentAgeDays } from "@/lib/impediments/model";
+import type { RetroAction } from "@/lib/retro/actions";
+import type { Improvements, StoryPlace } from "@/lib/retro/improvement";
 import {
   BACKLOG_SOURCE_TOOL,
   backlogByPriority,
@@ -31,7 +36,9 @@ import { findCapacityPlan, planCapacity } from "@/lib/sprints/capacity";
 import { hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
 import { capacityForecast, countedPlan, isExampleOnly } from "@/app/(tools)/capacity-planner/model";
 import { listAnd } from "@/lib/charts/chart-text";
+import { storyNotes } from "@/lib/stories/fields";
 import { parseNumber, type Validation } from "@/lib/utils/form";
+import { pastedLines } from "@/lib/utils/paste-lines";
 
 /** Trimmed, case-insensitive, single-spaced: how two names count as the same story. */
 export const nameKey = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
@@ -126,6 +133,91 @@ export function leftoverGroups(
 export function carryOverLabel(group: Pick<LeftoverGroup, "stories" | "points">): string {
   return `Carry over ${storiesCount(group.stories.length)} (${pointsCount(group.points)})`;
 }
+
+/* ── From the last retro ─────────────────────────────────────────────── */
+
+export {
+  improvementsFor,
+  type Improvements,
+  type PlannedAction,
+  type PlannedImpediment,
+  type StoryPlace,
+} from "@/lib/retro/improvement";
+
+/** Whether the panel has anything to list: an open action, an open impediment. */
+export function hasImprovements(i: Improvements): boolean {
+  return i.actions.length > 0 || i.impediments.length > 0 || i.earlierOpen > 0;
+}
+
+/**
+ * The panel's heading: "From the last retro" and "2 open actions, 1 open
+ * impediment". A team that has never agreed a retro action has no last
+ * retro to name, so its open impediments are headed by where they do come
+ * from.
+ */
+export function improvementsHeading(
+  i: Pick<Improvements, "actions" | "impediments" | "retroLabel">
+): { lead: string; counts: string } {
+  const blockers = plural(i.impediments.length, "open impediment");
+  return i.retroLabel === undefined
+    ? { lead: "From the impediments log", counts: blockers }
+    : {
+        lead: "From the last retro",
+        counts: `${plural(i.actions.length, "open action")}, ${blockers}`,
+      };
+}
+
+/**
+ * What "Add to this sprint" does for a row, from where its story is: make a
+ * new story ("new"), move the one waiting in the backlog in ("move"), or
+ * nothing (null: it is planned already). A story that is done no longer
+ * stands for the row, so a new one can be made, unless it was done in this
+ * very sprint.
+ */
+export function addMode(place: StoryPlace): "new" | "move" | null {
+  if (place.where === "none") return "new";
+  if (place.story.status === "done") return place.where === "sprint" ? null : "new";
+  return place.where === "backlog" ? "move" : null;
+}
+
+/** Where a row's story is, in words; null when it has none. */
+export function placeText(place: StoryPlace): string | null {
+  if (place.where === "none") return null;
+  const done = place.story.status === "done";
+  if (place.where === "sprint") return done ? "Done in this sprint" : "In this sprint";
+  if (place.where === "backlog") return done ? "Its story is done" : "Its story is in the backlog";
+  const name = place.sprintName ?? "another sprint";
+  return done ? `Its story was done in ${name}` : `In ${name}`;
+}
+
+/** "30 Oct": a due date, short. The raw text when it isn't a date. */
+function shortDay(day: string): string {
+  const d = new Date(`${day.slice(0, 10)}T12:00:00`);
+  return Number.isFinite(d.getTime())
+    ? d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+    : day;
+}
+
+/** "Sam · due 30 Oct", or "No owner": who has a retro action, and by when. */
+export function actionMeta(action: Pick<RetroAction, "assignee" | "dueDate">): string {
+  const owner = action.assignee.trim() || "No owner";
+  return action.dueDate ? `${owner} · due ${shortDay(action.dueDate)}` : owner;
+}
+
+/** "High · open 6 days · Bo": how bad an impediment is, how old, and who has it. */
+export function impedimentMeta(impediment: Impediment, today: string): string {
+  const age = impedimentAgeDays(impediment, today);
+  const parts = [
+    IMPEDIMENT_SEVERITY_LABEL[impediment.severity] ?? impediment.severity,
+    age === null ? "" : age === 0 ? "raised today" : `open ${plural(age, "day")}`,
+    impediment.owner?.trim() ?? "",
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
+/** Whether an impediment is past the day it should be gone by. */
+export const impedimentOverdue = (impediment: Impediment, today: string) =>
+  daysOverdue(impediment, today) > 0;
 
 /* ── Fill to capacity ────────────────────────────────────────────────── */
 
@@ -337,6 +429,78 @@ export function validateStory(d: StoryDraft): Validation<StoryValues, StoryField
   return { ok: true, values: points === undefined ? { title } : { title, points } };
 }
 
+/* ── Paste stories ───────────────────────────────────────────────────── */
+
+/** Most stories one paste adds here. The other tools' add boxes keep 30. */
+export const PASTE_STORIES_CAP = 200;
+
+/** A story title's limit, as in the add form. */
+const STORY_TITLE_CAP = 200;
+
+export interface PastedStories {
+  /** The titles to add, one per pasted line, in the pasted order. */
+  titles: string[];
+  /** Non-empty lines left out because of the cap. */
+  dropped: number;
+  /** Titles cut to the 200-character limit. */
+  cut: number;
+}
+
+/**
+ * A pasted list as story titles: one per non-empty line, list markers
+ * ("- ", "1. ") removed, at most `cap` lines, each title cut to 200
+ * characters like a typed one.
+ */
+export function pastedStories(text: string, cap: number = PASTE_STORIES_CAP): PastedStories {
+  const { lines, dropped } = pastedLines(text, cap);
+  const whole = lines.map((line) => line.replace(/\s+/g, " "));
+  return {
+    titles: whole.map((title) => title.slice(0, STORY_TITLE_CAP).trimEnd()),
+    dropped,
+    cut: whole.filter((title) => title.length > STORY_TITLE_CAP).length,
+  };
+}
+
+export interface PasteDraft {
+  text: string;
+  /** Plan them into the sprint, instead of leaving them in the backlog. */
+  intoSprint: boolean;
+}
+
+export type PasteField = "text";
+export interface PasteValues extends PastedStories {
+  intoSprint: boolean;
+}
+
+/** A paste needs at least one title. */
+export function validatePaste(d: PasteDraft): Validation<PasteValues, PasteField> {
+  const pasted = pastedStories(d.text);
+  if (pasted.titles.length === 0) {
+    return { ok: false, errors: { text: "Paste or type at least one story title, one per line." } };
+  }
+  return { ok: true, values: { ...pasted, intoSprint: d.intoSprint } };
+}
+
+/**
+ * What a paste will do, said under the box while the list is typed: how
+ * many stories, and what the caps leave out. "" for an empty box.
+ */
+export function pasteSummary(pasted: PastedStories): string {
+  if (pasted.titles.length === 0) return "";
+  const parts = [`${storiesCount(pasted.titles.length)} to add.`];
+  if (pasted.dropped > 0) {
+    parts.push(
+      `${pasted.dropped} more ${pasted.dropped === 1 ? "line is" : "lines are"} over the limit of ${PASTE_STORIES_CAP} and will be left out.`
+    );
+  }
+  if (pasted.cut > 0) {
+    parts.push(
+      `${pasted.cut} ${pasted.cut === 1 ? "title is" : "titles are"} longer than ${STORY_TITLE_CAP} characters and will be cut.`
+    );
+  }
+  return parts.join(" ");
+}
+
 /** Where a story pulled from the backlog came from. */
 export { BACKLOG_SOURCE_TOOL };
 
@@ -359,10 +523,11 @@ export function importCandidates(
 }
 
 /**
- * A story from a backlog item: its name, the shared priority score (left
- * off when the item isn't WSJF-scored), the decided rank it was pulled in
- * with (read live while the item exists: `withLiveBacklogRank`) and a link
- * back to the item. `rows` as priorityScore.
+ * A story from a backlog item: its name, its description as the story's
+ * notes, the shared priority score (left off when the item isn't
+ * WSJF-scored), the decided rank it was pulled in with (read live while the
+ * item exists: `withLiveBacklogRank`) and a link back to the item. `rows` as
+ * priorityScore.
  */
 export function storyFromBacklogItem(
   item: BacklogItem,
@@ -376,6 +541,8 @@ export function storyFromBacklogItem(
     status: "backlog",
     sourceRef: { tool: BACKLOG_SOURCE_TOOL, id: item.id },
   };
+  const notes = storyNotes(item.description);
+  if (notes) story.notes = notes;
   if (score !== null) story.priorityScore = Math.round(score * 100) / 100;
   const rank = backlogItemRank(item);
   if (rank !== undefined) story.backlogRank = rank;

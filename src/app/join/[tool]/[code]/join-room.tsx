@@ -68,6 +68,15 @@ function RoomLoading() {
   );
 }
 
+/**
+ * What the Retro join step says about the cards, and nothing about other
+ * products. True of this room: a card has no author field, no message names
+ * who wrote or voted for it (the host's browser keeps that in memory only,
+ * for Delete my card and Take my vote back), and nothing is stored.
+ */
+export const RETRO_JOIN_NOTE =
+  "Cards carry no author, and nothing is stored: who wrote a card or voted for it is never shown or saved.";
+
 const TOOL_NAMES: Record<VisitorTool, string> = {
   "planning-poker": "Planning Poker",
   retro: "Retro",
@@ -168,6 +177,7 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
           }}
           mode="join"
           variant={kind === "vote" ? "vote" : "board"}
+          note={kind === "retro" ? RETRO_JOIN_NOTE : undefined}
           toolName={toolName}
           defaultName={defaultName}
           onConfirm={confirm}

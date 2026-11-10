@@ -691,7 +691,7 @@ export const tools: ToolDefinition[] = [
     code: "C1",
     name: "Retro Board",
     description:
-      "Run the sprint's retrospective in 8 formats, starting from that sprint's facts: write, dot-vote, discuss and agree actions with owners",
+      "Run the sprint's retrospective in 8 formats or your own columns, starting from that sprint's facts: write, dot-vote, discuss and agree actions with owners",
     category: "Ceremonies",
     path: "/retro",
     icon: MessageSquare,

@@ -14,16 +14,24 @@
  * unavailable). Each notice takes focus on its heading and is announced
  * politely. The 3-hour limit is enforced here, per client, by the hook.
  *
- * Participants add cards in Write and vote in Vote. They don't edit, delete,
- * un-vote or group cards, and cards aren't hidden during Write. A pasted
- * list adds one card per line.
+ * Participants add cards in Write and vote in Vote. While the host hides
+ * cards (the default), each person sees only their own cards in Write and a
+ * count of everyone else's per column; all the text arrives when the host
+ * moves to Vote. A participant can delete its own card in Write, with Undo,
+ * and take its own vote back in Vote. It doesn't edit or group cards. A
+ * pasted list adds one card per line.
  *
  * If the host leaves for good, the member every peer elects carries on
  * hosting from the last snapshot (still in memory) and gets the phase, timer,
- * member and End room controls here, and can fix a card's text.
+ * hide-cards, member and End room controls here, and can fix a card's text.
+ * If cards were hidden, the old host took them with it: the room stays in
+ * Write and everyone is told to add theirs again, with their own cards
+ * listed under the notice and an "Add again" button for each. A card added
+ * again leaves the list, and focus moves to the next one's button, or to
+ * the notice once none is left.
  */
 
-import { useEffect, useRef, useState, type JSX } from "react";
+import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 import { Check, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -38,14 +46,19 @@ import {
 import { exportToMarkdown } from "@/lib/utils/export";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { toast } from "@/lib/utils/toast";
+import { undoable } from "@/lib/utils/undoable";
 import { useFlash } from "@/hooks/use-flash";
-import { MAX_VOTES, PHASES } from "../types";
+import { PHASES, phaseDescription, type BoardState } from "../types";
+import { retroFileStem, shortText } from "../helpers";
 import { toMarkdown } from "../markdown";
+import { boardThemes } from "../themes";
 import { PhaseIndicator } from "../components/phase-indicator";
 import { TimerWidget } from "../components/timer-widget";
+import { hiddenTotal } from "./hidden";
 import { MEMBER_CARD_CAP } from "./protocol";
 import { ParticipantBoard } from "./participant-board";
 import {
+  HideCardsSetting,
   IdlePromptDialog,
   RoomMemberList,
   RoomPhaseSteps,
@@ -84,6 +97,13 @@ export function VisitorRetroRoom(props: {
   }
   return <ParticipantRoom {...props} />;
 }
+
+/** What a participant reads when the host left while cards were hidden. */
+export const HOST_LEFT_CARDS_LOST =
+  "The host left. Cards written so far were not shared; add yours again.";
+/** The same moment, for the member who now hosts (its own cards came with it). */
+export const HOST_LEFT_CARDS_LOST_HOSTING =
+  "The host left. Cards the others wrote were not shared, so they need to add them again. Yours are still here.";
 
 function addCardError(result: AddCardResult): string | null {
   switch (result) {
@@ -155,7 +175,13 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
   const [confirmEnd, setConfirmEnd] = useState(false);
   const countdown = useRoomCountdown(room.timer);
 
-  const { board, status, isHost, promoted, hostId, hostName, endReason } = room;
+  const { status, isHost, promoted, hostId, hostName, endReason, votesPerPerson } = room;
+  // What this screen shows: while cards are hidden, only this person's own.
+  const shownCards = room.shownCards;
+  const board: BoardState | null = useMemo(
+    () => (room.board && shownCards ? { ...room.board, cards: shownCards } : room.board),
+    [room.board, shownCards]
+  );
   const active = status === "connecting" || status === "live";
   const closed = !active;
   const phase = board?.phase ?? null;
@@ -168,7 +194,9 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
     lastPhase.current = phase;
     if (prev === null || prev === phase) return;
     const p = PHASES.find((x) => x.key === phase);
-    if (p) announce(`${p.label} phase. ${p.description}.`);
+    if (p) announce(`${p.label} phase. ${phaseDescription(p.key, votesPerPerson)}.`);
+    // Said once per phase change: a new budget mid-phase isn't a new phase.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, announce]);
 
   const lastStatus = useRef<RetroRoomStatus>(status);
@@ -209,9 +237,61 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
     }
   };
 
+  // "Delete my card", with Undo: Undo puts the card back if the delete hasn't
+  // landed yet, else adds it again as a new card.
+  const handleDeleteOwn = (cardId: string) => {
+    const card = board?.cards.find((c) => c.id === cardId);
+    if (!card || board?.phase !== "write" || !room.ownIds.has(cardId)) return;
+    const own = { id: cardId, columnKey: card.columnKey, text: card.text };
+    undoable({
+      label: `Deleted “${shortText(card.text)}”`,
+      apply: () => {
+        room.deleteCard(cardId);
+      },
+      revert: () => {
+        const error = addCardError(room.undoDelete(own));
+        if (error) toast.error(error, { id: "retro-room-add" });
+      },
+    });
+  };
+
   const handleVote = (cardId: string) => {
     const before = room.votesLeft;
-    if (room.vote(cardId) && before === 1) announce(`You have used all ${MAX_VOTES} votes.`);
+    if (room.vote(cardId) && before === 1) {
+      announce(`You have used all ${room.votesPerPerson} votes.`);
+    }
+  };
+
+  const handleUnvote = (cardId: string) => {
+    const after = room.votesLeft + 1;
+    if (room.unvote(cardId)) {
+      announce(`Took your vote back. ${after} ${after === 1 ? "vote" : "votes"} left.`);
+    }
+  };
+
+  // A card added again leaves the list with its button: focus goes to the
+  // next card's button (or the one before), or to the notice once none is left.
+  const addAgainButtons = useRef(new Map<string, HTMLButtonElement>());
+  const noticeRef = useRef<HTMLParagraphElement>(null);
+  const refocusTo = useRef<string | null>(null);
+  const unsharedCount = room.unsharedCards.length;
+  useEffect(() => {
+    const target = refocusTo.current;
+    if (target === null) return;
+    refocusTo.current = null;
+    (addAgainButtons.current.get(target) ?? noticeRef.current)?.focus();
+  }, [unsharedCount]);
+
+  const handleAddAgain = (id: string) => {
+    const list = room.unsharedCards;
+    const at = list.findIndex((c) => c.id === id);
+    const error = addCardError(room.addAgain(id));
+    if (error) {
+      toast.error(error, { id: "retro-room-add" });
+      return;
+    }
+    // "" is no card's id: the notice.
+    refocusTo.current = (list[at + 1] ?? list[at - 1])?.id ?? "";
   };
 
   const handleLeave = () => {
@@ -221,7 +301,11 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
 
   const saveCopy = () => {
     if (!board || board.cards.length === 0) return;
-    const undo = SNAPSHOT_IMPORTERS.retro.importState({ format: board.format, cards: board.cards });
+    const undo = SNAPSHOT_IMPORTERS.retro.importState({
+      format: board.format,
+      cards: board.cards,
+      votesPerPerson: board.votesPerPerson,
+    });
     if (!undo) {
       toast.error("Couldn't save a copy of this board.");
       return;
@@ -240,16 +324,25 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
 
   const downloadMarkdown = () => {
     if (!board || board.cards.length === 0) return;
-    exportToMarkdown(toMarkdown(board), `retro-${board.format.id}-${todayLocalISO()}`);
+    // The board's summary with its common words, as the Retro page exports it.
+    exportToMarkdown(
+      toMarkdown(board, new Date(), { themes: boardThemes(board.cards) }),
+      `${retroFileStem(board.format)}-${todayLocalISO()}`
+    );
   };
 
   const hosting = isHost && active;
   const canSave = board !== null && board.cards.length > 0;
   const showBoard = board !== null;
   const copy = closed ? closedCopy(status, endReason, isHost) : null;
-  const topLevel = board ? board.cards.filter((c) => c.groupedWith === null).length : 0;
+  const hiddenCount = hiddenTotal(room.hiddenCounts);
+  const cardCount =
+    (board ? board.cards.filter((c) => c.groupedWith === null).length : 0) + hiddenCount;
   const phaseInfo = PHASES.find((p) => p.key === phase);
   const phaseIndex = PHASES.findIndex((p) => p.key === phase);
+  const cardsHiddenNow = room.hiddenCounts !== null;
+  const columnLabel = (key: string) =>
+    board?.format.columns.find((c) => c.key === key)?.label ?? key;
 
   return (
     <main className="mx-auto min-h-screen-dvh w-full max-w-6xl space-y-5 px-4 py-6">
@@ -294,7 +387,9 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
       {!board && active && (
         <div className="space-y-3">
           <p role="status" className="text-sm text-sub">
-            Connecting to the room…
+            {room.otherVersion
+              ? "This room runs on a different version of the Agile Toolkit, so its board can't open here. Ask the host to reload their page, then reload this one."
+              : "Connecting to the room…"}
           </p>
           <Button type="button" variant="outline" onClick={handleLeave}>
             Leave
@@ -322,7 +417,7 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
                 <RoomPhaseSteps current={board.phase} />
               )}
               <div className="flex items-center gap-3 text-xs text-sub">
-                <span>{topLevel} cards</span>
+                <span>{cardCount} cards</span>
                 {board.phase === "vote" && room.admitted && active && (
                   <span className="text-accent font-semibold">
                     {room.votesLeft} {room.votesLeft === 1 ? "vote" : "votes"} left
@@ -343,7 +438,58 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
             )}
           </div>
 
-          {phaseInfo && <p className="text-xs text-sub px-1">{phaseInfo.description}</p>}
+          {phaseInfo && (
+            <p className="text-xs text-sub px-1">
+              {phaseDescription(phaseInfo.key, room.votesPerPerson)}
+              {cardsHiddenNow &&
+                (hosting
+                  ? ". Everyone's cards stay hidden until you move to Vote, on this screen too."
+                  : ". Everyone's cards stay hidden until the host moves to Vote. You see only yours.")}
+            </p>
+          )}
+
+          {active && room.cardsLost && board.phase === "write" && (
+            <section
+              aria-label="The host left"
+              className="space-y-2 rounded-md border border-warning/60 bg-warning/10 px-3 py-2"
+            >
+              <p
+                ref={noticeRef}
+                role="status"
+                tabIndex={-1}
+                className="text-sm text-text outline-none"
+              >
+                {hosting ? HOST_LEFT_CARDS_LOST_HOSTING : HOST_LEFT_CARDS_LOST}
+              </p>
+              {!hosting && room.unsharedCards.length > 0 && (
+                <ul aria-label="Your cards from before" className="space-y-1.5">
+                  {room.unsharedCards.map((c) => (
+                    <li key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="min-w-0 flex-1 break-words text-text">{c.text}</span>
+                      <span className="text-xs text-sub">{columnLabel(c.columnKey)}</span>
+                      <Button
+                        ref={(el) => {
+                          if (el) addAgainButtons.current.set(c.id, el);
+                          else addAgainButtons.current.delete(c.id);
+                        }}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleAddAgain(c.id)}
+                        aria-label={`Add “${shortText(c.text)}” again`}
+                      >
+                        Add again
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
+          {hosting && (
+            <HideCardsSetting checked={room.hideWhileWriting} onChange={room.setHideWhileWriting} />
+          )}
 
           {active && !room.admitted && (
             <p className="rounded-md border border-border bg-card px-3 py-2 text-sm text-sub">
@@ -370,10 +516,16 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
 
           <ParticipantBoard
             board={board}
+            votesPerPerson={room.votesPerPerson}
             votesLeft={room.votesLeft}
             canAct={active && room.admitted}
+            hiddenCounts={room.hiddenCounts}
+            ownIds={room.ownIds}
+            myVotes={room.myVotes}
             onAdd={handleAdd}
             onVote={handleVote}
+            onDeleteOwn={handleDeleteOwn}
+            onUnvote={handleUnvote}
             onEdit={hosting ? handleEdit : undefined}
           />
 

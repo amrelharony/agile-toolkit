@@ -9,15 +9,27 @@
  * truth.
  *
  * Facilitator mode: in the Vote phase "Voting as" picks who the next vote
- * belongs to, each person with their own MAX_VOTES (`votesBy`); "Me" keeps
- * the single `userVotes` budget. The facilitator can step back a phase
- * (votes are kept) and add a card in any phase.
+ * belongs to, each person with their own budget (`votesBy`); "Me" keeps
+ * the single `userVotes` budget. "Votes each" (Write and Vote) sets that
+ * budget for everyone: 3, 5 or 8, saved on the board. The facilitator can
+ * step back a phase (votes are kept) and add a card in any phase.
+ *
+ * Taking a vote back: the board remembers, in memory for this visit, which
+ * cards each voter ("Me" or a person) voted on, and "Take my vote back" on
+ * such a card returns one vote to that voter. The saved board keeps counts
+ * only, so after a reload the votes cast before it can't be taken back.
  *
  * Visitor live room: with NEXT_PUBLIC_VISITOR_ROOMS=1, a visitor (never the
- * owner) can "Go live" from the header. Participants' cards and votes arrive
+ * owner) can pick "Everyone on their own device" over "One screen" in the
+ * header, which opens a live room. Participants' cards and votes arrive
  * through `onUpdate` like any other edit; ending the room keeps the board.
  * The board's sprint, its facts and where cards came from stay host-side:
- * the room's snapshot carries only what participants need.
+ * the room's snapshot carries only what participants need. While the room
+ * hides cards (Write, "Hide cards while writing" on), this screen hides the
+ * participants' cards too: each column shows the host's own and how many
+ * others it holds, and Common words and the AI prompts read only what shows.
+ * The room's check is asked while drawing, so a card that just arrived is
+ * hidden from the first render it is in.
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
@@ -34,6 +46,7 @@ import { ExampleNotice, hasExampleItems, isExampleId } from "@/components/tool-f
 import { generateRetroPrompts } from "@/lib/ai-prompts/retro";
 import { enoughData } from "@/lib/analytics/min-sample";
 import { retroColumnFor } from "@/lib/handoffs/targets/retro-board";
+import { retroVotes, type RetroVotes } from "@/lib/retro/board";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { type HistoryLogger } from "@/lib/history/use-history-logger";
@@ -43,15 +56,17 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import type { RetroBoard, RetroCard as StoredRetroCard } from "@/lib/stores/workspace-types";
 import type { HandoffLink } from "@/lib/handoffs/types";
-import { type BoardState, type RetroCard, MAX_VOTES, PHASES } from "../types";
+import { type BoardState, type RetroCard, PHASES, phaseDescription } from "../types";
 import { carriedOverCard, RETRO_ARCHIVE_LIMIT } from "../archive";
 import {
   makeId,
   columnGridClass,
   buildExportJson,
+  buildShareState,
   formatTimer,
   removeCardWithGroup,
   restoreRemovedCards,
+  retroFileStem,
   shortText,
   voterKey,
   voterNames,
@@ -61,7 +76,7 @@ import {
 } from "../helpers";
 import { factLines } from "../facts-text";
 import { kudosCards, kudosOnBoard, type SprintKudos } from "../kudos";
-import { THEME_MIN_CARDS, keywordThemes, themeCardCount, themesForPrompt } from "../themes";
+import { THEME_MIN_CARDS, boardThemes, themeCardCount, themesForPrompt } from "../themes";
 import { useBoardFacts } from "../use-board-facts";
 import { retroVerdict } from "../verdict";
 import { PhaseIndicator } from "./phase-indicator";
@@ -69,12 +84,14 @@ import { TimerWidget } from "./timer-widget";
 import { RetroColumnPanel } from "./retro-column-panel";
 import { LastRetroActions } from "./last-retro-actions";
 import { SINGLE_VOTER, VoterPicker } from "./voter-picker";
+import { VotesEach } from "./votes-each";
 import { RetroSprintPicker } from "./retro-sprint-picker";
 import { RetroFactsPanel } from "./retro-facts";
 import { CommonWords } from "./common-words";
 import { KudosSeed } from "./kudos-seed";
 import { toMarkdown } from "../markdown";
 import { RetroGoLive, type LiveRoomHandle } from "../room/host-live-room";
+import { hideCards } from "../room/hidden";
 
 /** A fresh card in `columnKey`. */
 function newCard(columnKey: string, text: string): RetroCard {
@@ -88,6 +105,37 @@ function newCard(columnKey: string, text: string): RetroCard {
     assignee: "",
     discussing: false,
   };
+}
+
+/** Which cards each voter voted on this visit: voter ("" for Me) → card id → votes. */
+type VoteRecord = Record<string, Record<string, number>>;
+
+/** The record's key for a voter: "" for Me, else the name as it matches (any case). */
+function recordKey(voter: string): string {
+  return voter.trim().toLowerCase();
+}
+
+const owns = (o: object, key: string) => Object.prototype.hasOwnProperty.call(o, key);
+
+/** `voter`'s votes per card in `record`. */
+function votesIn(record: VoteRecord, voter: string): Record<string, number> {
+  const key = recordKey(voter);
+  return owns(record, key) ? record[key] : {};
+}
+
+/** `record` with `voter`'s votes on `cardId` moved by `step`. */
+function stepVoteRecord(
+  record: VoteRecord,
+  voter: string,
+  cardId: string,
+  step: 1 | -1
+): VoteRecord {
+  const before = votesIn(record, voter);
+  const n = (owns(before, cardId) ? before[cardId] : 0) + step;
+  // Built from entries, so any card id is an own key.
+  const entries = Object.entries(before).filter(([id]) => id !== cardId);
+  if (n > 0) entries.push([cardId, n]);
+  return { ...record, [recordKey(voter)]: Object.fromEntries(entries) };
 }
 
 /** "Sat 4 Oct" for the retro that drops off Past retros. */
@@ -121,6 +169,22 @@ export function Board({
   const announce = useAnnounce();
   // Set while a visitor live room runs, so "New Retro" can end it first.
   const liveRoomRef = useRef<LiveRoomHandle | null>(null);
+  // A live room's check for the participants' cards this screen hides (null: none).
+  const [roomHides, setRoomHides] = useState<((cardId: string) => boolean) | null>(null);
+  // Wrapped: a function handed to a state setter would be called as an updater.
+  const onRoomHidden = useCallback(
+    (hides: ((cardId: string) => boolean) | null) => setRoomHides(() => hides),
+    []
+  );
+  // Asked in this render, so a card that arrives with this render is already hidden.
+  const roomHidden = useMemo((): ReadonlySet<string> | null => {
+    if (!roomHides || state.phase !== "write") return null;
+    const ids = new Set<string>();
+    for (const c of state.cards) if (roomHides(c.id)) ids.add(c.id);
+    return ids;
+  }, [roomHides, state.phase, state.cards]);
+  const hiddenView = useMemo(() => hideCards(state.cards, roomHidden), [state.cards, roomHidden]);
+  const shownCards = hiddenView.shown;
 
   // Team names for "Voting as" (Vote phase).
   const teamNames = useWorkspaceStore(
@@ -135,6 +199,11 @@ export function Board({
     (voter && voters.find((n) => n.toLowerCase() === voter.trim().toLowerCase())) || SINGLE_VOTER;
   const votesUsed = activeVoter ? votesCastBy(state.votesBy, activeVoter) : state.userVotes;
   const hasVotes = state.cards.some((c) => c.votes > 0);
+  // Votes each person has: the board's "Votes each", else 3.
+  const budget = retroVotes(state);
+  // Which cards each voter voted on this visit, so a vote can be taken back.
+  const [voteRecord, setVoteRecord] = useState<VoteRecord>({});
+  const myVotes = votesIn(voteRecord, activeVoter);
 
   // ── The sprint, and what the toolkit knows about it ────────────────
   const { sprints, sprint, sprintGone, facts, example, previousRetroId, impedimentsRecorded } =
@@ -194,8 +263,8 @@ export function Board({
       return { ...prev, phase: nx.key };
     });
     log(RETRO_ACTIONS.PHASE_ADVANCED, transition);
-    announce(`${next.label} phase. ${next.description}.`);
-  }, [onUpdate, log, announce, state.phase, state.sprintId, state.cards]);
+    announce(`${next.label} phase. ${phaseDescription(next.key, budget)}.`);
+  }, [onUpdate, log, announce, state.phase, state.sprintId, state.cards, budget]);
 
   // Step back one phase. Nothing is undone: votes, groups and actions stay.
   // Not logged: PHASE_ADVANCED is a forward milestone.
@@ -283,33 +352,91 @@ export function Board({
       // "Me" spends `userVotes`; a picked person spends their own budget.
       const who = activeVoter;
       const used = who ? votesCastBy(state.votesBy, who) : state.userVotes;
-      if (used >= MAX_VOTES) return;
+      if (used >= budget) return;
       const card = state.cards.find((c) => c.id === id);
       const nextVoteCount = (card?.votes ?? 0) + 1;
       sonify("retro", "vote");
       onUpdate((prev) => {
         if (prev.phase !== "vote") return prev;
+        const limit = retroVotes(prev);
         const cards = prev.cards.map((c) => (c.id === id ? { ...c, votes: c.votes + 1 } : c));
         if (!who) {
-          if (prev.userVotes >= MAX_VOTES) return prev;
+          if (prev.userVotes >= limit) return prev;
           return { ...prev, userVotes: prev.userVotes + 1, cards };
         }
         const cast = votesCastBy(prev.votesBy, who);
-        if (cast >= MAX_VOTES) return prev;
+        if (cast >= limit) return prev;
         return {
           ...prev,
           cards,
           votesBy: { ...prev.votesBy, [voterKey(prev.votesBy, who)]: cast + 1 },
         };
       });
+      setVoteRecord((prev) => stepVoteRecord(prev, who, id, 1));
       log(RETRO_ACTIONS.CARD_VOTED, { cardId: id, voteCount: nextVoteCount });
-      if (used + 1 >= MAX_VOTES) {
+      if (used + 1 >= budget) {
         announce(
-          who ? `${who} has used all ${MAX_VOTES} votes.` : `You have used all ${MAX_VOTES} votes.`
+          who ? `${who} has used all ${budget} votes.` : `You have used all ${budget} votes.`
         );
       }
     },
-    [onUpdate, log, announce, activeVoter, state.phase, state.userVotes, state.votesBy, state.cards]
+    [
+      onUpdate,
+      log,
+      announce,
+      activeVoter,
+      budget,
+      state.phase,
+      state.userVotes,
+      state.votesBy,
+      state.cards,
+    ]
+  );
+
+  // "Take my vote back": one of the current voter's votes off a card they voted on.
+  const handleUnvote = useCallback(
+    (id: string) => {
+      if (state.phase !== "vote") return;
+      const who = activeVoter;
+      const record = votesIn(voteRecord, who);
+      const mine = owns(record, id) ? record[id] : 0;
+      const used = who ? votesCastBy(state.votesBy, who) : state.userVotes;
+      const card = state.cards.find((c) => c.id === id);
+      if (mine <= 0 || used <= 0 || !card || card.votes <= 0) return;
+      onUpdate((prev) => {
+        if (prev.phase !== "vote") return prev;
+        const target = prev.cards.find((c) => c.id === id);
+        if (!target || target.votes <= 0) return prev;
+        const cards = prev.cards.map((c) => (c.id === id ? { ...c, votes: c.votes - 1 } : c));
+        if (!who) {
+          return prev.userVotes > 0 ? { ...prev, userVotes: prev.userVotes - 1, cards } : prev;
+        }
+        const cast = votesCastBy(prev.votesBy, who);
+        if (cast <= 0) return prev;
+        return {
+          ...prev,
+          cards,
+          votesBy: { ...prev.votesBy, [voterKey(prev.votesBy, who)]: cast - 1 },
+        };
+      });
+      setVoteRecord((prev) => stepVoteRecord(prev, who, id, -1));
+      log(RETRO_ACTIONS.CARD_UNVOTED, { cardId: id, voteCount: card.votes - 1 });
+      const left = Math.max(0, budget - (used - 1));
+      const votes = `${left} ${left === 1 ? "vote" : "votes"} left`;
+      announce(who ? `Took back a vote for ${who}. ${votes}.` : `Took your vote back. ${votes}.`);
+    },
+    [
+      onUpdate,
+      log,
+      announce,
+      activeVoter,
+      budget,
+      voteRecord,
+      state.phase,
+      state.userVotes,
+      state.votesBy,
+      state.cards,
+    ]
   );
 
   // A voter typed in by the facilitator (no team roster). Kept on the board
@@ -326,6 +453,19 @@ export function Board({
       setVoter(clean);
     },
     [onUpdate]
+  );
+
+  // "Votes each": everyone's budget, saved on the board. Votes already cast
+  // stay on their cards; a person past a lower budget just has none left.
+  const handleVotesChange = useCallback(
+    (votes: RetroVotes) => {
+      if (votes === budget) return;
+      onUpdate((prev) => ({ ...prev, votesPerPerson: votes }));
+      announce(
+        `Everyone now has ${votes} votes.${hasVotes ? " Votes already cast stay on their cards." : ""}`
+      );
+    },
+    [onUpdate, announce, budget, hasVotes]
   );
 
   const handleDelete = useCallback(
@@ -538,12 +678,9 @@ export function Board({
 
   // ── Common words across the cards (keyword grouping) ───────────────
   // Only from THEME_MIN_CARDS cards (a group counts once): on a small board
-  // every shared word is a coincidence.
-  const themeCards = useMemo(() => themeCardCount(state.cards), [state.cards]);
-  const themes = useMemo(
-    () => (enoughData(themeCards, THEME_MIN_CARDS) ? keywordThemes(state.cards) : []),
-    [state.cards, themeCards]
-  );
+  // every shared word is a coincidence. Hidden cards' words stay hidden too.
+  const themeCards = useMemo(() => themeCardCount(shownCards), [shownCards]);
+  const themes = useMemo(() => boardThemes(shownCards), [shownCards]);
   const [highlight, setHighlight] = useState<string | null>(null);
   const highlighted = themes.find((t) => t.keyword === highlight) ?? null;
   const highlightIds = useMemo(
@@ -567,11 +704,11 @@ export function Board({
       prompts: generateRetroPrompts({
         formatName: state.format.name,
         columns: state.format.columns,
-        cards: state.cards,
-        themes: themesForPrompt(themes, state.cards),
+        cards: shownCards,
+        themes: themesForPrompt(themes, shownCards),
       }),
     }),
-    [state.format, state.cards, themes]
+    [state.format, shownCards, themes]
   );
 
   // Exports read only the format, cards, sprint and facts, so the timer's
@@ -585,8 +722,13 @@ export function Board({
     [state.format, state.cards, facts, lines, themes]
   );
   const exportJson = useMemo(
-    () => buildExportJson({ format: state.format, cards: state.cards }),
-    [state.format, state.cards]
+    () => buildExportJson({ format: state.format, cards: state.cards, votesPerPerson: budget }),
+    [state.format, state.cards, budget]
+  );
+  // A share link carries Votes each too, so the copy someone imports keeps it.
+  const shareState = useMemo(
+    () => buildShareState({ format: state.format, cards: state.cards, votesPerPerson: budget }),
+    [state.format, state.cards, budget]
   );
 
   // Everyone's votes go too, "Me" and each person's.
@@ -681,9 +823,12 @@ export function Board({
               {state.phase === "vote" && (
                 <span className="text-accent font-semibold">
                   {activeVoter
-                    ? `${MAX_VOTES - votesUsed} votes remaining for ${activeVoter}`
-                    : `${MAX_VOTES - state.userVotes} votes remaining`}
+                    ? `${Math.max(0, budget - votesUsed)} votes remaining for ${activeVoter}`
+                    : `${Math.max(0, budget - state.userVotes)} votes remaining`}
                 </span>
+              )}
+              {(state.phase === "write" || state.phase === "vote") && (
+                <VotesEach value={budget} onChange={handleVotesChange} />
               )}
               {state.phase === "actions" && actionCount > 0 && (
                 <span className="inline-flex flex-col items-start">
@@ -698,7 +843,12 @@ export function Board({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <RetroGoLive board={state} onUpdate={onUpdate} handleRef={liveRoomRef} />
+            <RetroGoLive
+              board={state}
+              onUpdate={onUpdate}
+              handleRef={liveRoomRef}
+              onHiddenChange={onRoomHidden}
+            />
             <TimerWidget
               seconds={state.timerSeconds}
               running={state.timerRunning}
@@ -749,7 +899,7 @@ export function Board({
         <div className="space-y-1 px-1">
           <p className="text-sm font-medium text-text">{verdict}</p>
           <p className="text-xs text-sub">
-            {PHASES.find((p) => p.key === state.phase)?.description}
+            {phaseDescription(state.phase, budget)}
             {state.phase === "discuss" && (
               <span className="ml-2 text-accent">
                 Cards sorted by votes — click a card to mark it as discussing.
@@ -757,6 +907,11 @@ export function Board({
             )}
             {state.phase === "write" && hasVotes && (
               <span className="ml-2 text-accent">Votes cast so far are kept.</span>
+            )}
+            {roomHidden && (
+              <span className="ml-2 text-accent">
+                Everyone&apos;s cards stay hidden until you move to Vote, on this screen too.
+              </span>
             )}
           </p>
         </div>
@@ -766,6 +921,7 @@ export function Board({
           <VoterPicker
             names={voters}
             votesBy={state.votesBy}
+            votesPerPerson={budget}
             voter={activeVoter}
             onVoterChange={setVoter}
             showAddVoter={teamNames.length === 0}
@@ -820,21 +976,31 @@ export function Board({
         {/* ── Columns ──────────────────────────────────────── */}
         <div className={`grid ${gridClass} gap-4`}>
           {state.format.columns.map((col) => {
-            const colCards = state.cards.filter((c) => c.columnKey === col.key);
+            const colCards = shownCards.filter((c) => c.columnKey === col.key);
+            const hidden = hiddenView.hiddenCounts;
             return (
               <RetroColumnPanel
                 key={col.key}
                 column={col}
                 cards={colCards}
-                allCards={state.cards}
+                allCards={shownCards}
                 phase={state.phase}
+                hiddenCount={
+                  hidden && Object.prototype.hasOwnProperty.call(hidden, col.key)
+                    ? hidden[col.key]
+                    : 0
+                }
                 votesUsed={votesUsed}
+                maxVotes={budget}
                 highlightIds={highlightIds}
                 highlightWord={highlighted?.keyword}
                 onAdd={handleAddCard}
                 onAddMany={handleAddCards}
                 onEdit={handleEditCard}
                 onVote={handleVote}
+                myVotes={myVotes}
+                onUnvote={handleUnvote}
+                unvoteLabel={activeVoter ? `Take ${activeVoter}'s vote back` : "Take my vote back"}
                 onDelete={handleDelete}
                 onGroup={handleGroup}
                 onToggleAction={handleToggleAction}
@@ -852,9 +1018,9 @@ export function Board({
           {/* The user's LOCAL date in the filename: `toISOString()` is UTC and
               stamps "tomorrow" for users west of UTC in their evening. */}
           <ExportButton
-            filename={`retro-${state.format.id}-${todayLocalISO()}`}
+            filename={`${retroFileStem(state.format)}-${todayLocalISO()}`}
             markdown={markdown}
-            shareState={{ format: state.format, cards: state.cards }}
+            shareState={shareState}
             jsonData={exportJson}
           />
           <Button

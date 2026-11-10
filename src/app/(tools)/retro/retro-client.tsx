@@ -12,8 +12,7 @@ import {
   RETRO_CURRENT_ID,
   blankRetroBoard,
   newestArchivedRetro,
-  retroFor,
-  retroSprintFor,
+  nextRetroSprint,
 } from "@/lib/retro/board";
 import { sprintsNewestFirst, todayIso } from "@/lib/sprints/series";
 import { readSprintParam } from "@/lib/sprints/use-selected-sprint";
@@ -63,15 +62,13 @@ export function RetroClient() {
   // undefined: the default below; null: "Not linked" was picked; else the pick.
   const [sprintChoice, setSprintChoice] = useState<string | null | undefined>(undefined);
   // Else the sprint whose retro window holds today, of those whose retro
-  // isn't under Past retros yet (the cockpit's rule): the week after a
-  // sprint's retro was archived, the next board is the next sprint's, not a
-  // second one for the same sprint. Picking that sprint is still possible.
+  // isn't under Past retros yet (`nextRetroSprint`, the cockpit's rule, and
+  // tool.retro.start's): the week after a sprint's retro was archived, the
+  // next board is the next sprint's, not a second one for the same sprint.
+  // Picking that sprint is still possible.
   const defaultSprintId = useMemo(() => {
     if (linkedSprint && allSprints.some((s) => s.id === linkedSprint)) return linkedSprint;
-    const today = todayIso();
-    const boards = retroBoards ?? [];
-    const due = allSprints.filter((s) => !retroFor(boards, s, allSprints, today).archived);
-    return retroSprintFor(today, due)?.id;
+    return nextRetroSprint(retroBoards ?? [], allSprints, todayIso())?.id;
   }, [linkedSprint, allSprints, retroBoards]);
   const newBoardSprintId =
     sprintChoice === undefined ? defaultSprintId : (sprintChoice ?? undefined);

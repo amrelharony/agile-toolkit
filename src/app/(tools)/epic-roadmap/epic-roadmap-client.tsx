@@ -22,7 +22,7 @@ import { useStableOrder } from "@/hooks/use-stable-order";
 import { generateEpicRoadmapPrompts } from "@/lib/ai-prompts/epic-roadmap";
 import { plural } from "@/lib/charts/chart-text";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
-import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
+import { POKER_LOG_ID, storyQueueSource } from "@/lib/handoffs/targets/poker-queue";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Epic, PokerQueueItem, Story } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -277,9 +277,8 @@ export function EpicRoadmapClient() {
       label: `${plural(toQueue.length, "story", "stories")} queued for Planning Poker`,
       description: `From “${short(epicName(epic))}”`,
       apply: () => {
-        itemIds = toQueue.map((s) =>
-          route.send({ title: s.title, sourceRef: { tool: "story", id: s.id } })
-        );
+        // With each story's notes and acceptance criteria, as Poker's description.
+        itemIds = toQueue.map((s) => route.send(storyQueueSource(s)));
       },
       revert: () => itemIds.forEach((id) => route.remove(id)),
     });
