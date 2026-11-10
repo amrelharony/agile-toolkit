@@ -545,6 +545,9 @@ describe("VisitorRetroRoom (participant)", () => {
       const input = screen.getByRole("textbox", { name: "New card for Stop" });
       fireEvent.change(input, { target: { value: "Fewer meetings" } });
       fireEvent.keyDown(input, { key: "Enter" });
+      const start = screen.getByRole("textbox", { name: "New card for Start" });
+      fireEvent.change(start, { target: { value: "More demos" } });
+      fireEvent.keyDown(start, { key: "Enter" });
 
       act(() => ch.setPresence([other, ME]));
       act(() => vi.advanceTimersByTime(10_000));
@@ -563,9 +566,16 @@ describe("VisitorRetroRoom (participant)", () => {
       const before = ch.sent("retro:intent").length;
       fireEvent.click(within(list).getByRole("button", { name: "Add “Fewer meetings” again" }));
       expect(ch.sent("retro:intent")).toHaveLength(before + 1);
+      // Its button left with it: focus moves to the next card's.
+      expect(screen.getByRole("button", { name: "Add “More demos” again" })).toHaveFocus();
+      fireEvent.click(screen.getByRole("button", { name: "Add “More demos” again" }));
       expect(screen.queryByRole("list", { name: "Your cards from before" })).toBeNull();
-      // Back on my board, as my own card.
-      expect(screen.getByRole("button", { name: "Delete my card" })).toBeInTheDocument();
+      // None left: focus rests on the notice.
+      expect(
+        screen.getByText("The host left. Cards written so far were not shared; add yours again.")
+      ).toHaveFocus();
+      // Back on my board, as my own cards.
+      expect(screen.getAllByRole("button", { name: "Delete my card" })).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }

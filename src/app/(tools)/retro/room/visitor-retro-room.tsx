@@ -26,7 +26,9 @@
  * hide-cards, member and End room controls here, and can fix a card's text.
  * If cards were hidden, the old host took them with it: the room stays in
  * Write and everyone is told to add theirs again, with their own cards
- * listed under the notice and an "Add again" button for each.
+ * listed under the notice and an "Add again" button for each. A card added
+ * again leaves the list, and focus moves to the next one's button, or to
+ * the notice once none is left.
  */
 
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
@@ -264,9 +266,29 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
     }
   };
 
+  // A card added again leaves the list with its button: focus goes to the
+  // next card's button (or the one before), or to the notice once none is left.
+  const addAgainButtons = useRef(new Map<string, HTMLButtonElement>());
+  const noticeRef = useRef<HTMLParagraphElement>(null);
+  const refocusTo = useRef<string | null>(null);
+  const unsharedCount = room.unsharedCards.length;
+  useEffect(() => {
+    const target = refocusTo.current;
+    if (target === null) return;
+    refocusTo.current = null;
+    (addAgainButtons.current.get(target) ?? noticeRef.current)?.focus();
+  }, [unsharedCount]);
+
   const handleAddAgain = (id: string) => {
+    const list = room.unsharedCards;
+    const at = list.findIndex((c) => c.id === id);
     const error = addCardError(room.addAgain(id));
-    if (error) toast.error(error, { id: "retro-room-add" });
+    if (error) {
+      toast.error(error, { id: "retro-room-add" });
+      return;
+    }
+    // "" is no card's id: the notice.
+    refocusTo.current = (list[at + 1] ?? list[at - 1])?.id ?? "";
   };
 
   const handleLeave = () => {
@@ -420,7 +442,12 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
               aria-label="The host left"
               className="space-y-2 rounded-md border border-warning/60 bg-warning/10 px-3 py-2"
             >
-              <p role="status" className="text-sm text-text">
+              <p
+                ref={noticeRef}
+                role="status"
+                tabIndex={-1}
+                className="text-sm text-text outline-none"
+              >
                 {hosting ? HOST_LEFT_CARDS_LOST_HOSTING : HOST_LEFT_CARDS_LOST}
               </p>
               {!hosting && room.unsharedCards.length > 0 && (
@@ -430,6 +457,10 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
                       <span className="min-w-0 flex-1 break-words text-text">{c.text}</span>
                       <span className="text-xs text-sub">{columnLabel(c.columnKey)}</span>
                       <Button
+                        ref={(el) => {
+                          if (el) addAgainButtons.current.set(c.id, el);
+                          else addAgainButtons.current.delete(c.id);
+                        }}
                         type="button"
                         size="sm"
                         variant="outline"
