@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { nanoid } from "nanoid";
 import { useShallow } from "zustand/react/shallow";
 import {

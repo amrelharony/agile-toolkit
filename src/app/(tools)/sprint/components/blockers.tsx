@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, ShieldAlert } from "lucide-react";
 import { SectionCard } from "@/components/shared/section-card";
 import type { Impediment, Story } from "@/lib/stores/workspace-types";

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import type { ReactNode } from "react";
 import { FIRST_WEEKLY_EP } from "@/lib/comics/entry";
 import { beaconStats } from "@/lib/comics/stats-client";

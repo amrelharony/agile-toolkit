@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { AlertTriangle, BookCheck, Scale } from "lucide-react";
 import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
 import { ChartFigure } from "@/components/shared/chart-card";

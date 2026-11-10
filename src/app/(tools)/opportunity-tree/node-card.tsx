@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useId, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { FlaskConical, Pencil, Plus, Target, Trash2 } from "lucide-react";
 import { SourceLink } from "@/components/handoff/source-link";
 import { Button } from "@/components/ui/button";

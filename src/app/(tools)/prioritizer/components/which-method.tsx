@@ -5,7 +5,7 @@
  * linking to its tool. Built from the framework registry's `pickWhen`.
  */
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Compass } from "lucide-react";
 import { SectionCard } from "@/components/shared/section-card";
 import { FRAMEWORKS } from "@/lib/prioritization/frameworks";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { usePathname } from "next/navigation";
 import { Pause, Play, Timer, X } from "lucide-react";
 import { IconButton } from "@/components/ui/icon-button";

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, TrendingDown } from "lucide-react";
 import { ChartCard } from "@/components/shared/chart-card";
 import { useItemForm } from "@/components/shared/item-form";

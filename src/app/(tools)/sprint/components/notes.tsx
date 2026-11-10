@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { AlertTriangle, ArrowRight, Lightbulb } from "lucide-react";
 import { TOUCH_LINK } from "@/components/ui/touch-target";
 import { cn } from "@/lib/utils";

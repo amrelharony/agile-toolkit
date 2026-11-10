@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, Check, Lightbulb } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TOUCH_LINK } from "@/components/ui/touch-target";

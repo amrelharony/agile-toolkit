@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Card } from "@/components/ui/card";
 import { COMICS_ROUTE, comicHref } from "@/lib/comics/entry";
 import { artLoading, panelImageUrl } from "@/lib/comics/images";

@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMounted } from "@/hooks/use-mounted";
 import {

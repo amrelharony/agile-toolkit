@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Pencil, ShieldAlert, Trash2 } from "lucide-react";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import { PersonPicker } from "@/components/team/person-picker";

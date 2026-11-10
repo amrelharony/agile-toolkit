@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Card, CardContent } from "@/components/ui/card";
 import { BOOK_PATH } from "@/lib/book/book";
 

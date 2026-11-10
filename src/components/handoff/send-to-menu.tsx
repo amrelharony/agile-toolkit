@@ -11,7 +11,7 @@
  * the new item and the link.
  */
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Check, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {

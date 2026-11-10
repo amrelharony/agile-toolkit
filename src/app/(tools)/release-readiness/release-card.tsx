@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { CheckCircle2, Circle, Pencil, RotateCcw, Rocket, Trash2, Undo2 } from "lucide-react";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";

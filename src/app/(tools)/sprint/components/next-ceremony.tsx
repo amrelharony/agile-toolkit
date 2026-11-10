@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { CalendarClock, ChevronDown, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {

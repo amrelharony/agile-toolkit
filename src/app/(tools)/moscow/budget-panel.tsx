@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Gauge } from "lucide-react";
 import { shortName } from "@/components/prioritization/method-tool";
 import { NotEnoughData } from "@/components/shared/not-enough-data";

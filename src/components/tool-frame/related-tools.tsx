@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { getSectionForTool } from "@/lib/constants/sections";
 import { getToolById } from "@/lib/constants/tools";
 import { SECTION_TONE } from "@/lib/ink/drawings/section-tone";

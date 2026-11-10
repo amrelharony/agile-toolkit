@@ -8,7 +8,7 @@
  */
 
 import { useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import {
   ArrowDown,
   ArrowRight,

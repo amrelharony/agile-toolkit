@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Mail, Mic } from "lucide-react";
 import type { StandupMode } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";

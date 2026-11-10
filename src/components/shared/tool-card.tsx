@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, Star } from "lucide-react";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
 import { cn } from "@/lib/utils";

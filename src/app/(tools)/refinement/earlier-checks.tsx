@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type Ref } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ListChecks, ListPlus, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useInlineEdit } from "@/components/shared/inline-item-editor";

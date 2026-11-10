@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { useRouter } from "next/navigation";
 import { Download, Eye, FileInput } from "lucide-react";
 import { Button } from "@/components/ui/button";

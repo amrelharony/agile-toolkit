@@ -5,7 +5,7 @@
  * tool it came from. Renders nothing for an item with no known source.
  */
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { CornerUpLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sourceHref, sourceLabel } from "@/lib/handoffs/registry";

@@ -20,7 +20,7 @@
  */
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Sparkles } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";

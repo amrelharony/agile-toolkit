@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, type KeyboardEvent } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { BookCheck, CheckCircle2, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";

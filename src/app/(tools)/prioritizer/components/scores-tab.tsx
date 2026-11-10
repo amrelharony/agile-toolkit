@@ -12,7 +12,7 @@
  */
 
 import { useRef } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { LayoutGrid } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
 import { SectionCard } from "@/components/shared/section-card";

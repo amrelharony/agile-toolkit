@@ -9,7 +9,7 @@
  */
 
 import { useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { BookCheck, MessageSquare, Pencil, Trash2 } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { SendToMenu } from "@/components/handoff/send-to-menu";

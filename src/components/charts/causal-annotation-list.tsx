@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 
 /*
  * Cross-tool annotation data and the list renderer. No Recharts here, so
