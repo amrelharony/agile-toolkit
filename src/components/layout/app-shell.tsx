@@ -65,6 +65,7 @@ import { ActivityPanel } from "@/components/notify/activity-panel";
 import { MomentChip } from "@/components/notify/moment-chip";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { RecentToolTracker } from "@/lib/tools/tool-prefs";
+import { RouteSignal } from "@/components/motion/route-signal";
 
 // Routes that bypass the full app chrome (sidebar/header/providers).
 // Every page is reachable signed-out now, so that is no longer what sets
@@ -73,7 +74,8 @@ import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 // visitor live-room join page (/join/<tool>/<code>), which must not mount
 // the owner's auth, cloud sync or workspace store. They must render
 // without depending on auth state, workspace store rehydration, etc.
-const BARE_ROUTE_PREFIXES = [
+// Page changes to or from them are instant (lib/motion/page-transition.ts).
+export const BARE_ROUTE_PREFIXES = [
   "/auth/sign-in",
   "/auth/sign-out",
   "/auth/callback",
@@ -91,15 +93,35 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const bare = isBareRoute(pathname);
 
+  // Each page's arrival, for page changes, in both branches and at the same
+  // place, so it stays mounted when a change crosses between them. Its own
+  // Suspense: it reads the query, which on a static page renders up to the
+  // nearest Suspense in the browser; this one holds nothing else.
+  const signal = (
+    <Suspense fallback={null}>
+      <RouteSignal isBare={isBareRoute} />
+    </Suspense>
+  );
+
   // Bare routes (sign-in, not-authorized) render with just the atmosphere
   // background already in the root layout. No sidebar, no header, no
   // providers — those would either depend on auth or pull in heavy bundles
   // for what is otherwise a single-screen landing page.
   if (bare) {
-    return <>{children}</>;
+    return (
+      <>
+        {signal}
+        {children}
+      </>
+    );
   }
 
-  return <FullAppShell>{children}</FullAppShell>;
+  return (
+    <>
+      {signal}
+      <FullAppShell>{children}</FullAppShell>
+    </>
+  );
 }
 
 function FullAppShell({ children }: { children: React.ReactNode }) {
