@@ -139,6 +139,23 @@ function vtReducedMotion(css) {
   );
 }
 
+/**
+ * The page cross-fade's duration on the root group and both root pictures,
+ * scoped to html[data-vt=page], in a VIEW TRANSITIONS screen block. The
+ * minifier writes 240ms as .24s.
+ */
+function pageCrossFade(css) {
+  const pseudos = ["group", "old", "new"];
+  return vtScreenBlocks(css).some((b) =>
+    pseudos.every((p) => {
+      const found = declsFor(b.body, `html[data-vt=page]::view-transition-${p}(root)`);
+      return (
+        found.includes("animation-duration:240ms") || found.includes("animation-duration:.24s")
+      );
+    })
+  );
+}
+
 /** Markers by PR id. Each `test` gets one file's CSS with all whitespace removed. */
 export const MARKERS = {
   F1: [
@@ -179,6 +196,12 @@ export const MARKERS = {
     {
       name: "reduced motion: animation:none!important on the transition pseudo-elements, in the same block",
       test: vtReducedMotion,
+    },
+  ],
+  T1: [
+    {
+      name: "page cross-fade: 240ms on the root group and pictures under html[data-vt=page], in the same block",
+      test: pageCrossFade,
     },
   ],
 };

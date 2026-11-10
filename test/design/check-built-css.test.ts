@@ -24,7 +24,11 @@ const GRAIN = `html.light body{background-image:${TILE},${TILE}}html.dark body{b
 const OFF =
   "@media print,(forced-colors:active),(prefers-contrast:more){html.light body,html.dark body{background-image:none}}";
 
-/** F2's VIEW TRANSITIONS block, minified the way the build writes it (attribute quotes dropped). */
+/**
+ * The VIEW TRANSITIONS block, minified the way the build writes it (attribute
+ * quotes dropped, 240ms as .24s): F2's held layers, and T1's page cross-fade,
+ * which every block below carries unless a T1 case leaves it out.
+ */
 const HELD = ["header", "amr", "amr-bubble", "amr-panel", "dock-timer"];
 const each = (pseudo: string, names = HELD) =>
   names.map((n) => `::view-transition-${pseudo}(${n})`).join(",");
@@ -37,7 +41,13 @@ const STACK = `::view-transition-group(header){z-index:2}${each("group", HELD.sl
 const TAPS = "::view-transition{pointer-events:none}";
 const CALM =
   "@media (prefers-reduced-motion:reduce){::view-transition-group(*),::view-transition-image-pair(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}}";
-const vtBlock = (inner: string) => `@supports (view-transition-name:none){@media screen{${inner}}}`;
+const FADE_ON = ["group", "old", "new"].map(
+  (p) => `html[data-vt=page]::view-transition-${p}(root)`
+);
+const FADE = `${FADE_ON.join(",")}{animation-duration:.24s}`;
+const bareVtBlock = (inner: string) =>
+  `@supports (view-transition-name:none){@media screen{${inner}}}`;
+const vtBlock = (inner: string) => bareVtBlock(inner + FADE);
 const VT = vtBlock(READY + NAMES + HOLD + STACK + TAPS + CALM);
 
 const F2_HELD = MARKERS.F2[0].name;
@@ -52,9 +62,10 @@ function failing(...sheets: string[]): string[] {
 
 describe("check-built-css", () => {
   it("lists each PR's markers", () => {
-    expect(Object.keys(MARKERS)).toEqual(["F1", "F2"]);
+    expect(Object.keys(MARKERS)).toEqual(["F1", "F2", "T1"]);
     expect(MARKERS.F1).toHaveLength(5);
     expect(MARKERS.F2).toHaveLength(4);
+    expect(MARKERS.T1).toHaveLength(1);
   });
 
   it("finds every marker in globals.css as written", () => {
@@ -91,7 +102,9 @@ describe("check-built-css: F2's held layers", () => {
   const F1 = FALLBACK + LINEAR + GRAIN + OFF;
 
   it("lists every F2 marker as missing without the VIEW TRANSITIONS block", () => {
-    expect(failing(F1)).toEqual(MARKERS.F2.map((m: { name: string }) => m.name));
+    expect(failing(F1)).toEqual(
+      [...MARKERS.F2, ...MARKERS.T1].map((m: { name: string }) => m.name)
+    );
   });
 
   it("reads the held names with or without quotes", () => {
@@ -126,5 +139,28 @@ describe("check-built-css: F2's held layers", () => {
     const soft = CALM.replace("!important", "");
     expect(failing(F1 + vtBlock(READY + NAMES + HOLD + STACK + TAPS + soft))).toEqual([F2_CALM]);
     expect(failing(F1 + CALM + vtBlock(READY + NAMES + HOLD + STACK + TAPS))).toEqual([F2_CALM]);
+  });
+});
+
+describe("check-built-css: T1's page cross-fade", () => {
+  const F1 = FALLBACK + LINEAR + GRAIN + OFF;
+  const F2 = READY + NAMES + HOLD + STACK + TAPS + CALM;
+  const T1_FADE = MARKERS.T1[0].name;
+
+  it("reads the duration as written or as the minifier writes it, quotes or not", () => {
+    expect(failing(F1 + bareVtBlock(F2 + FADE))).toEqual([]);
+    expect(failing(F1 + bareVtBlock(F2 + FADE.replace(".24s", "240ms")))).toEqual([]);
+    const quoted = FADE.replace(/data-vt=page/g, 'data-vt="page"');
+    expect(failing(F1 + bareVtBlock(F2 + quoted))).toEqual([]);
+  });
+
+  it("flags a fade that is missing, retimed, unscoped, partial or outside the screen block", () => {
+    expect(failing(F1 + bareVtBlock(F2))).toEqual([T1_FADE]);
+    expect(failing(F1 + bareVtBlock(F2 + FADE.replace(".24s", ".25s")))).toEqual([T1_FADE]);
+    const unscoped = FADE.replace(/html\[data-vt=page\]/g, "");
+    expect(failing(F1 + bareVtBlock(F2 + unscoped))).toEqual([T1_FADE]);
+    const onePicture = "html[data-vt=page]::view-transition-old(root){animation-duration:.24s}";
+    expect(failing(F1 + bareVtBlock(F2 + onePicture))).toEqual([T1_FADE]);
+    expect(failing(F1 + FADE + bareVtBlock(F2))).toEqual([T1_FADE]);
   });
 });

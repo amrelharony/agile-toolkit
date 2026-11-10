@@ -1423,6 +1423,16 @@ body:has(dialog[open]) [data-sonner-toaster] {
       pointer-events: none;
     }
 
+    /* A page change (lib/motion/page-transition.ts) cross-fades the rest of
+       the page in 240ms, DUR.page in lib/motion/tokens.ts. Only that kind:
+       the reader's own changes set their own timing. Set on the group and on
+       both pictures, so no engine's inheritance between them matters. */
+    html[data-vt="page"]::view-transition-group(root),
+    html[data-vt="page"]::view-transition-old(root),
+    html[data-vt="page"]::view-transition-new(root) {
+      animation-duration: 240ms;
+    }
+
     /* The global reduced-motion rule above cannot reach these pseudo-elements.
        The script already starts none under reduced motion; this is the
        second lock. */
