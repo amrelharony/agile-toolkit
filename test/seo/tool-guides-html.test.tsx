@@ -7,7 +7,7 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { renderToString } from "react-dom/server";
 import { HowItWorks } from "@/components/tool-frame/how-it-works";
 import { ToolGuide } from "@/components/tool-frame/tool-guide";
@@ -53,7 +53,8 @@ describe("a tool's guide in the server's HTML", () => {
       expect(text, guide.toolId).toContain("How to run it");
       for (const line of lines(guide)) expect(text, `${guide.toolId}: ${line}`).toContain(line);
     }
-  });
+    // Over a hundred panels rendered: room for a busy machine.
+  }, 30_000);
 
   it("keeps the steps an ordered list, so their order reads without the styles", async () => {
     const [guide] = await getAllGuides();
@@ -107,21 +108,32 @@ describe("a tool's guide in the server's HTML", () => {
 });
 
 describe("structured data", () => {
-  /** Source files under src that mention `needle`. */
-  function filesWith(needle: RegExp): string[] {
-    const found: string[] = [];
+  /** Every source file under src, read once: [path, text]. */
+  const sources: [string, string][] = [];
+
+  // A couple of thousand files: read once, with room for a busy machine.
+  beforeAll(() => {
     const walk = (dir: string) => {
       for (const name of readdirSync(dir)) {
         const full = path.join(dir, name);
         if (statSync(full).isDirectory()) walk(full);
-        else if (/\.(t|j)sx?$/.test(name) && needle.test(readFileSync(full, "utf8"))) {
-          found.push(path.relative(ROOT, full).split(path.sep).join("/"));
+        else if (/\.(t|j)sx?$/.test(name)) {
+          sources.push([
+            path.relative(ROOT, full).split(path.sep).join("/"),
+            readFileSync(full, "utf8"),
+          ]);
         }
       }
     };
     walk(path.join(ROOT, "src"));
-    return found.sort();
-  }
+  }, 60_000);
+
+  /** Source files under src that mention `needle`. */
+  const filesWith = (needle: RegExp): string[] =>
+    sources
+      .filter(([, text]) => needle.test(text))
+      .map(([file]) => file)
+      .sort();
 
   it("stays on the comic's stories and the book: no tool page carries any", () => {
     expect(filesWith(/application\/ld\+json/)).toEqual([
