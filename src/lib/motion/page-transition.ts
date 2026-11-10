@@ -18,6 +18,7 @@
  * Instant (the caller, usually next/link, changes the page itself) when:
  * - no router is registered (RouteSignal is not mounted);
  * - the link leaves the site, or keeps the same path and query;
+ * - the link only lends its spot (frame="spot": a related-tool tile);
  * - the page is not loaded ahead: prefetch={false}, or a force-dynamic page;
  * - either page is a bare route (sign-in, guest, join);
  * - the link sits in a dialog or a data-vt-instant zone (the open phone menu);
@@ -29,12 +30,29 @@
  * Measuring: each tap adds one performance.measure("page-change") entry and
  * one row to an in-memory list of the last 20, which ?vt-log=1 shows on the
  * page (components/motion/vt-log.tsx). Nothing is sent anywhere.
+ *
+ * A card's frame (TransitionLink's frame prop). When a tool, job or comic
+ * card's main link changes the page with a transition, the card's paper frame
+ * grows into the new page's header panel. The card ([data-vt-card]) carries
+ * data-vt-active for the old picture; at the arrival the mark moves to the
+ * first [data-vt-target] (the header), so exactly one element carries the
+ * name in each picture (two would make the browser skip the whole change).
+ * html[data-vt-frame] says which look the frame takes: "pair" once a header
+ * took the mark, "exit" when the new page has none (the old card fades out).
+ * The mark moves in RouteSignal's layout effect, like the arrival itself:
+ * nothing on the hold path waits for a frame.
+ * Every frame link also leaves an arrival record: where the card was and when.
+ * When no transition carried the frame (Safari 17, a page that missed the
+ * hold, a link that does not load ahead, frame="spot"), the new page's header
+ * grows from that spot instead (lib/motion/grow-from.ts).
  */
 
 import { isSaveData } from "@/lib/holiday/save-data";
+import { isIntroOnStage } from "./stage";
 import {
   canStartViewTransition,
   isViewTransitionRunning,
+  skipViewTransition,
   withViewTransition,
   type ViewTransitionOutcome,
 } from "./view-transition";
@@ -71,7 +89,38 @@ export interface PageChangeOptions {
   prefetch?: boolean | null;
   /** Changes the page when no transition runs. Without it the caller does (next/link does). */
   plain?: PageNavigator | null;
+  /**
+   * The tapped link is a card's main link. true: the card's frame may grow
+   * into the new page's header. "spot": the change is instant, and only the
+   * card's spot is kept, so the header grows from it.
+   */
+  frame?: FrameMode;
 }
+
+/** A card's main link: true for a frame that may grow into the header, "spot" for the header grow only. */
+export type FrameMode = boolean | "spot";
+
+/** Where the tapped card was, in viewport pixels at the tap. */
+export interface CardSpot {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** What a frame link leaves for the new page's header. */
+export interface PageArrival {
+  /** The page it is for: path plus query. */
+  to: string;
+  spot: CardSpot;
+  /** When the card was tapped, from performance.now(). */
+  at: number;
+  /** Whether a view transition carried the card's frame into the header. */
+  viewTransition: boolean;
+}
+
+/** How long after the tap a new page's header may still grow from the card's spot. */
+export const GROW_WINDOW_MS = 1500;
 
 /** ran: it moved. capped: the page missed the hold. fallback: skipped, the page changed plainly. instant: a rule said no. */
 export type PageChangeOutcome = "ran" | "capped" | "fallback" | "instant";
@@ -114,6 +163,19 @@ let switches: DebugSwitches | null = null;
 let after: (() => void)[] = [];
 const log: PageChangeEntry[] = [];
 const listeners = new Set<(entry: PageChangeEntry) => void>();
+
+/** The frame of the change running now: the element with the mark, and whether it lands on a header. */
+interface FrameChange {
+  marked: Element;
+  landing: boolean;
+  arrival: PageArrival;
+}
+
+const ACTIVE_ATTR = "data-vt-active";
+const FRAME_ATTR = "data-vt-frame";
+
+let frame: FrameChange | null = null;
+let lastArrival: PageArrival | null = null;
 
 /**
  * The last resort when the router push throws: a full page load. An object,
@@ -159,7 +221,103 @@ export function notifyRouteCommitted(href: string): void {
   const key = routeKey(href);
   if (!w || key === null || (key !== w.to && key === w.from)) return;
   waiting = null;
+  // Here, in the commit and before the new picture: the new page's header
+  // is in place, and a later layout effect (the header's grow) sees the move.
+  landFrame();
   w.done();
+}
+
+/**
+ * The new page is in place: the mark leaves the card for the first header
+ * that can take it, so the new picture has exactly one frame. With none, the
+ * frame exits ("exit": the old card fades out). An intro on the new page
+ * takes the stage instead: the change is skipped and the page swaps plainly.
+ */
+function landFrame(): void {
+  const f = frame;
+  if (!f) return;
+  if (!isPageTransitionRunning()) {
+    endFrame(f);
+    return;
+  }
+  if (isIntroOnStage()) {
+    endFrame(f);
+    skipViewTransition();
+    return;
+  }
+  f.marked.removeAttribute(ACTIVE_ATTR);
+  const header = document.querySelector("[data-vt-target]");
+  if (!header) {
+    f.landing = false;
+    return;
+  }
+  header.setAttribute(ACTIVE_ATTR, "");
+  document.documentElement.setAttribute(FRAME_ATTR, "pair");
+  f.marked = header;
+  f.arrival.viewTransition = true;
+}
+
+/** Takes the frame's mark and look away; only the change that set them may. */
+function endFrame(f: FrameChange | null): void {
+  if (!f || frame !== f) return;
+  frame = null;
+  f.marked.removeAttribute(ACTIVE_ATTR);
+  document.documentElement.removeAttribute(FRAME_ATTR);
+}
+
+/**
+ * Whether a card's frame is landing on the page now being put in place. The
+ * new page's wrapper reads it once, on its first render: the frame is then
+ * its entrance, so its own rise would play the entrance twice. False again
+ * as soon as the change is capped or skipped, before the page renders.
+ */
+export function isFrameLanding(): boolean {
+  return frame?.landing === true && isPageTransitionRunning();
+}
+
+/** The last frame link's arrival record, without using it up. */
+export function arrivalRecord(): PageArrival | null {
+  return lastArrival;
+}
+
+/**
+ * For the new page's header, once: where the tapped card was, when the
+ * header should grow from it. Null when no frame link opened this page, the
+ * tap is over GROW_WINDOW_MS old, or a view transition carried the frame.
+ */
+export function takeGrowSpot(): CardSpot | null {
+  const a = lastArrival;
+  if (!a) return null;
+  if (performance.now() - a.at > GROW_WINDOW_MS) {
+    lastArrival = null;
+    return null;
+  }
+  // Another page's header (a redirect, a later plain change) is not this card's.
+  if (routeKey(window.location.href) !== a.to) return null;
+  lastArrival = null;
+  return a.viewTransition ? null : a.spot;
+}
+
+/** The card a frame link belongs to, or the link itself (a related-tool tile). */
+function cardOf(source: Element): Element {
+  return source.closest("[data-vt-card]") ?? source;
+}
+
+/**
+ * Each tap replaces the last record: a frame link leaves a new one, any other
+ * link none. Only for a change to another page of this site.
+ */
+function noteArrival(to: string | null, why: string, o: PageChangeOptions): PageArrival | null {
+  lastArrival = null;
+  if (!o.frame || !o.source || to === null || why === "same-page") return null;
+  const r = cardOf(o.source).getBoundingClientRect();
+  lastArrival = {
+    to,
+    spot: { left: r.left, top: r.top, width: r.width, height: r.height },
+    at: performance.now(),
+    viewTransition: false,
+  };
+  return lastArrival;
 }
 
 /** Whether a page change is holding or animating now. */
@@ -252,6 +410,8 @@ function refusal(to: string | null, o: PageChangeOptions): string {
   if (!navigator_) return "no-router";
   if (to === null) return "external";
   if (to === routeKey(window.location.href)) return "same-page";
+  // A tile that only lends its spot: the header grows from it, with no transition.
+  if (o.frame === "spot") return "spot";
   if (o.prefetch === false) return "not-ahead";
   const path = to.split("?")[0];
   if (isDynamicPath(path)) return "dynamic";
@@ -278,6 +438,7 @@ export function pushWithTransition(href: string, options: PageChangeOptions = {}
   const to = routeKey(href);
   const why = refusal(to, options);
   const router = navigator_;
+  const spot = noteArrival(to, why, options);
   if (!router || to === null || (why && (ALONE.includes(why) || !isViewTransitionRunning()))) {
     record(href, "instant", start, start, why);
     if (!options.plain) return false;
@@ -288,7 +449,18 @@ export function pushWithTransition(href: string, options: PageChangeOptions = {}
   const from = routeKey(window.location.href) ?? "";
   let arrived: number | null = null;
   let recorded = false;
+  // The card is marked before the browser takes the old picture (the call
+  // below asks for it); only when a transition of its own starts.
+  let mine: FrameChange | null = null;
+  if (options.frame === true && spot && !why && !isViewTransitionRunning()) {
+    mine = { marked: cardOf(options.source!), landing: true, arrival: spot };
+    endFrame(frame);
+    frame = mine;
+    mine.marked.setAttribute(ACTIVE_ATTR, "");
+    document.documentElement.setAttribute(FRAME_ATTR, "exit");
+  }
   const fallBack = () => {
+    endFrame(mine);
     if (!recorded) {
       recorded = true;
       record(href, "fallback", start, performance.now(), "assign");
@@ -309,11 +481,17 @@ export function pushWithTransition(href: string, options: PageChangeOptions = {}
     { capMs: HOLD_CAP_MS, onLateError: fallBack }
   )
     .then((outcome) => {
+      // Finished, capped or skipped: the frame goes with the transition.
+      endFrame(mine);
       if (recorded) return;
       recorded = true;
       const end = arrived ?? performance.now();
       record(href, OUTCOME[outcome], start, end, why || (outcome === "plain" ? "busy" : undefined));
     }, fallBack)
     .finally(flushAfter);
+  // No transition of its own started (an earlier update the browser has not
+  // begun, or the browser refused one): the page swaps plainly, with no frame,
+  // and its header grows from the card's spot.
+  if (mine && !isPageTransitionRunning()) endFrame(mine);
   return true;
 }
