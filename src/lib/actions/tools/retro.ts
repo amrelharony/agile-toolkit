@@ -67,7 +67,7 @@ import {
   validateCustomFormat,
 } from "@/lib/retro/custom-format";
 import { retroFacts } from "@/lib/retro/facts";
-import { suggestFormat } from "@/lib/retro/suggest";
+import { sprintOver, suggestFormat } from "@/lib/retro/suggest";
 
 const KIND_RETRO = "workspace:retroBoard";
 
@@ -209,7 +209,9 @@ async function listState(store: RetroStore, params: { sprintId?: string }) {
   const board = boards.find((b) => b.id === RETRO_CURRENT_ID && !b.archivedAt) ?? null;
   const previous = previousRetro(boards, board?.previousRetroId);
   const sprintId = params.sprintId ?? (board ? boardSprintId(board) : undefined);
+  const today = todayIso();
   let facts = null;
+  let ended = false;
   if (sprintId) {
     const sprints = await store.listSprints();
     const sprint = sprints.find((s) => s.id === sprintId);
@@ -218,16 +220,17 @@ async function listState(store: RetroStore, params: { sprintId?: string }) {
         sprint,
         sprints,
         retroBoards: boards,
-        today: todayIso(),
+        today,
         ...(await store.factsInput()),
       });
+      ended = sprintOver(sprint, today);
     }
   }
   return {
     ...summarize(board),
     previousActions: previousActions(board, previous),
     facts,
-    suggestedFormat: suggestFormat(facts),
+    suggestedFormat: suggestFormat(facts, { ended }),
   };
 }
 
@@ -346,7 +349,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the current retro board. Returns {exists, formatName, phase, sprintId (the sprint it looks back on) | null, totalCards, totalVotes, actionItems, byColumn: {columnKey, count}[], topVoted: {id, text, votes, columnKey}[] (≤5), previousActions: {id, text, assignee, retroId, carriedOver, done, sentTo: {route, targetId, at}[]}[] (the previous retro's action items), facts: null | {sprintName, goal, goalOutcome, committed, completed, sayDo, burndown: {shape: none|steady|late, lateShare, sentence} | null, impediments: {raised, resolvedInSprint, stillOpen, escalated}, mood: {average | null, checkIns (named check-ins plus anonymous pulse answers), people, anonymous? (pulse answers, when there are some)}, followThrough (the previous retro's actions: agreed, done, carried, open, rate) | null, kudos: {toName, fromName, message, sentAt}[]}, suggestedFormat: null | {formatId: mad-sad-glad|sailboat|daki, reason} (a hint for the next retro from the facts: low mood, then a missed goal, then unfinished work; the page shows it in the format picker and never picks for the team)} — facts for the board's sprint, or for sprintId when given.",
+    "Summarise the current retro board. Returns {exists, formatName, phase, sprintId (the sprint it looks back on) | null, totalCards, totalVotes, actionItems, byColumn: {columnKey, count}[], topVoted: {id, text, votes, columnKey}[] (≤5), previousActions: {id, text, assignee, retroId, carriedOver, done, sentTo: {route, targetId, at}[]}[] (the previous retro's action items), facts: null | {sprintName, goal, goalOutcome, committed, completed, sayDo, burndown: {shape: none|steady|late, lateShare, sentence} | null, impediments: {raised, resolvedInSprint, stillOpen, escalated}, mood: {average | null, checkIns (named check-ins plus anonymous pulse answers), people, anonymous? (pulse answers, when there are some)}, followThrough (the previous retro's actions: agreed, done, carried, open, rate) | null, kudos: {toName, fromName, message, sentAt}[]}, suggestedFormat: null | {formatId: mad-sad-glad|sailboat|daki, reason} (a hint for the next retro from the facts: low mood, then a missed goal, then unfinished work once the sprint is over; the page shows it in the format picker and never picks for the team)} — facts for the board's sprint, or for sprintId when given.",
   paramsSchema: z.object({ sprintId: SprintIdParam.optional() }),
   handler: async (params) => listState(browserStore, params),
   mcpHandler: async (params, ctx) => listState(serverStore(ctx.userId), params),

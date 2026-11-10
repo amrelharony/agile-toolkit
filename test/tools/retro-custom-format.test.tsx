@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { RETRO_COLUMN_PALETTE } from "@/lib/constants/retro-formats";
+import { RETRO_COLUMN_PALETTE, retroFormats } from "@/lib/constants/retro-formats";
 import { addDays } from "@/lib/impediments/model";
+import { blankRetroBoard } from "@/lib/retro/board";
 import { goalDocId } from "@/lib/sprints/goal-doc";
 import { todayIso } from "@/lib/sprints/series";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -263,6 +264,47 @@ describe("Suggested for this sprint", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Unlink" }));
+    expect(screen.queryByText(/Suggested for this sprint/)).toBeNull();
+  });
+
+  it("calls no running sprint's open work unfinished", () => {
+    // Sprint 12's retro is under Past retros, so the picker names Sprint 13,
+    // which started yesterday: all its stories are still to do.
+    const S2: Sprint = {
+      id: "s2",
+      name: "Sprint 13",
+      startDate: addDays(TODAY, -1),
+      endDate: addDays(TODAY, 12),
+      pointsPlanned: 0,
+      status: "active",
+    };
+    const archived = {
+      ...blankRetroBoard(retroFormats[0], { sprintId: "s1" }),
+      id: "retro:archived-12",
+      archivedAt: new Date(Date.now() - 3_600_000).toISOString(),
+      cards: [
+        {
+          id: "k1",
+          columnKey: "start",
+          text: "Pair on reviews",
+          votes: 0,
+          groupedWith: null,
+          isActionItem: false,
+          assignee: "",
+          discussing: false,
+        },
+      ],
+    };
+    useWorkspaceStore.setState({
+      sprints: [S1, S2],
+      retroBoards: [archived],
+      stories: [
+        { ...story("a", 8, "todo"), sprintId: "s2" },
+        { ...story("b", 12, "todo"), sprintId: "s2" },
+      ],
+    });
+    render(<RetroClient />);
+    expect(screen.getByRole("combobox", { name: "Retro for" })).toHaveTextContent("Sprint 13");
     expect(screen.queryByText(/Suggested for this sprint/)).toBeNull();
   });
 });

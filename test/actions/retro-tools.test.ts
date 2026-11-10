@@ -237,6 +237,37 @@ describe("tool.retro", () => {
       suggestedFormat: null,
     });
   });
+
+  it("list_state calls no running sprint's open work unfinished", async () => {
+    // Started two days ago: nothing done yet.
+    const S2: Sprint = {
+      id: "s2",
+      name: "Sprint 2",
+      startDate: "2026-10-22",
+      endDate: "2026-11-04",
+      pointsPlanned: 0,
+      status: "active",
+    };
+    useWorkspaceStore.setState({
+      sprints: [S1, S2],
+      stories: [
+        { id: "a", title: "A", points: 8, status: "todo", sprintId: "s2" },
+        { id: "b", title: "B", points: 12, status: "in_progress", sprintId: "s2" },
+      ],
+    });
+    const early = await call<{ facts: Record<string, unknown>; suggestedFormat: unknown }>(
+      "tool.retro.list_state",
+      { sprintId: "s2" }
+    );
+    expect(early.facts).toMatchObject({ committed: 20, completed: 0 });
+    expect(early.suggestedFormat).toBeNull();
+    // On its last day the open work is unfinished.
+    vi.setSystemTime(new Date("2026-11-04T16:00:00"));
+    const last = await call<{ suggestedFormat: unknown }>("tool.retro.list_state", {
+      sprintId: "s2",
+    });
+    expect(last.suggestedFormat).toMatchObject({ formatId: "daki" });
+  });
 });
 
 describe("tool.retro_actions", () => {

@@ -6,7 +6,8 @@
  *
  *   mood averaged LOW_MOOD (2.5 of 5) or lower  → Mad / Sad / Glad
  *   the sprint goal was not met, or partly met   → Sailboat
- *   under 90% of the commitment was done          → DAKI
+ *   the sprint is over and under 90% of the
+ *   commitment was done                          → DAKI
  *
  * In that order, when several hold: a team that felt low needs to say so
  * before it can look at its process; a missed goal is about what held the
@@ -14,10 +15,16 @@
  * unfinished, carried-over work is about what to drop, add, keep and
  * improve. Nothing to go on, or a sprint that went fine: no suggestion.
  *
- * Pure: the caller passes the facts.
+ * Work still open in a sprint that is still running isn't unfinished yet:
+ * the picker can name the next sprint once the last one's retro is under
+ * Past retros, and on its first days most of its stories are still to do.
+ *
+ * Pure: the caller passes the facts and whether the sprint is over.
  */
 
 import { fmt, plural } from "@/lib/charts/chart-text";
+import { dayOf } from "@/lib/impediments/model";
+import type { Sprint } from "@/lib/stores/workspace-types";
 import { LOW_MOOD } from "@/lib/team/mood";
 import type { RetroFacts } from "./facts";
 
@@ -33,8 +40,21 @@ type Facts = Pick<
   "sprintName" | "goalOutcome" | "committed" | "completed" | "sayDo" | "mood"
 >;
 
-/** The format to suggest for these facts, or null when nothing calls for one. */
-export function suggestFormat(facts: Facts | null | undefined): FormatSuggestion | null {
+/** Whether `sprint` is over on `today` ("YYYY-MM-DD"): closed, or on or past its last day. */
+export function sprintOver(sprint: Pick<Sprint, "status" | "endDate">, today: string): boolean {
+  if (sprint.status === "completed") return true;
+  const end = dayOf(sprint.endDate);
+  return end !== null && end <= today;
+}
+
+/**
+ * The format to suggest for these facts, or null when nothing calls for one.
+ * `ended`: the sprint is over (`sprintOver`), so its open work is unfinished.
+ */
+export function suggestFormat(
+  facts: Facts | null | undefined,
+  { ended }: { ended: boolean }
+): FormatSuggestion | null {
   if (!facts) return null;
   const sprint = facts.sprintName;
   const mood = facts.mood.average;
@@ -52,7 +72,7 @@ export function suggestFormat(facts: Facts | null | undefined): FormatSuggestion
     };
   }
   const grade = facts.sayDo?.grade;
-  if ((grade === "close" || grade === "missed") && facts.completed < facts.committed) {
+  if (ended && (grade === "close" || grade === "missed") && facts.completed < facts.committed) {
     const left = facts.committed - facts.completed;
     return {
       formatId: "daki",
