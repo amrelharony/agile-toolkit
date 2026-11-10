@@ -42,6 +42,7 @@ import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
 import { bookEpisode } from "@/lib/comics/book-episodes";
 import { panelImageUrl } from "@/lib/comics/images";
 import { INTRO_ATTR, INTRO_RUN_ATTR, INTRO_SECONDS, OVERLAY_ATTR } from "@/lib/comics/intro";
+import { EASE } from "@/lib/motion/tokens";
 import { endsAt, sceneAnimations } from "./intro-css";
 
 const SCENE = "src/app/(tools)/comics/components/intro/poster-intro.tsx";
@@ -241,6 +242,42 @@ describe("the poster intro", () => {
     expect(source).not.toMatch(/^\s*["']use client["']/m);
     expect(source).not.toMatch(/\buse[A-Z]\w*\(/);
   });
+
+  it("without art, lights the title's window with one empty, decorative light, under the lettering", () => {
+    render(<PosterIntro ep={12} title={TITLE} panels={[]} />);
+    const window = dialog().querySelector<HTMLElement>(`.${styles.bigWindow}`)!;
+    const lights = Array.from(window.querySelectorAll('[data-look="light"]'));
+    expect(lights).toHaveLength(1);
+    const [light] = lights;
+    expect(light.parentElement).toBe(window);
+    expect(light).toHaveAttribute("aria-hidden", "true");
+    expect(light.textContent).toBe("");
+    expect(light).toHaveClass(styles.titleLight);
+    expect(light.firstElementChild).toHaveClass(styles.titleStripe);
+    // Before the lettering, which paints over it.
+    expect(light.nextElementSibling).toHaveTextContent(TITLE);
+    expect(dialog().querySelectorAll('[data-look="light"]')).toHaveLength(1);
+  });
+
+  it("with art, lights nothing: the title stands on the page, in no window", () => {
+    render(<PosterIntro ep={12} title={TITLE} panels={FIVE_PANELS} />);
+    expect(dialog().querySelector('[data-look="light"]')).toBeNull();
+  });
+
+  it.each([
+    ["with art", FIVE_PANELS],
+    ["without art", []],
+  ])("%s, shades the page with one stepped shade, last on it, and no grain", (_, panels) => {
+    render(<PosterIntro ep={12} title={TITLE} panels={panels} />);
+    const page = dialog().querySelector(`.${styles.page}`)!;
+    const shades = Array.from(dialog().querySelectorAll('[data-look="turn"]'));
+    expect(shades).toHaveLength(1);
+    expect(page.lastElementChild).toBe(shades[0]);
+    expect(shades[0]).toHaveClass(styles.liftShade);
+    expect(shades[0]).toHaveAttribute("aria-hidden", "true");
+    // The grain is the books' alone.
+    expect(dialog().querySelector('[data-look="grain"]')).toBeNull();
+  });
 });
 
 describe("the poster intro's CSS", () => {
@@ -334,6 +371,59 @@ describe("the poster intro's CSS", () => {
     for (const animation of animations) {
       expect(keyframes.has(animation.name), animation.name).toBe(true);
     }
+  });
+
+  /** The one animation `selector` runs, leaving out a window's reveal. */
+  function only(selector: string) {
+    const found = animations.filter((a) => a.selector === selector && a.name !== "reveal");
+    expect(found, selector).toHaveLength(1);
+    return found[0];
+  }
+
+  const squash = (value: string | undefined) => (value ?? "").replace(/\s+/g, "");
+
+  it("crosses the title's window with the stripe only once it has inked in, and rests it before the page lifts", () => {
+    const stripe = only(".titleStripe");
+    const reveal = animations.find((a) => a.selector === ".bigWindow" && a.name === "reveal")!;
+    expect(endsAt(reveal)).toBeCloseTo(0.92, 9);
+    expect(stripe.delay).toBeGreaterThanOrEqual(endsAt(reveal));
+    expect(endsAt(stripe)).toBeLessThanOrEqual(only(".overlay").delay);
+    // Only the track moves, sideways, and it stops on the window.
+    for (const step of keyframes.get(stripe.name)!) {
+      expect(Array.from(step.props.keys())).toEqual(["transform"]);
+      expect(step.props.get("transform")).toMatch(/^translateX\(-?[\d.]+%\)$/);
+    }
+  });
+
+  it("darkens the page in three flat steps as it lifts away, and is done by the end", () => {
+    const shade = only(".liftShade");
+    expect(shade.delay).toBeGreaterThanOrEqual(only(".overlay").delay);
+    expect(endsAt(shade)).toBeLessThanOrEqual(INTRO_SECONDS.poster);
+    expect(easingsOf(css, ".liftShade", shade.name)).toEqual([
+      expect.stringMatching(/^steps\(3\b/),
+    ]);
+    const steps = keyframes.get(shade.name)!;
+    expect(steps[0].props.get("opacity")).toBe("0");
+    expect(steps.at(-1)!.props.get("opacity")).toBe("0.24");
+  });
+
+  it.each([
+    [".caption", "pop"],
+    [".amrRise", "pop"],
+    [".bigWindow", "settle"],
+    [".w1", "settle"],
+    [".w2", "settle"],
+    [".w3", "settle"],
+    [".w4", "settle"],
+  ] as const)("lands %s on the book's %s spring", (selector, spring) => {
+    const [from] = keyframes.get(only(selector).name)!;
+    expect(squash(from.props.get("animation-timing-function"))).toBe(squash(EASE[spring]));
+  });
+
+  it("inks the page in straight, or bowed where shape() works, on the same time", () => {
+    const inks = animations.filter((a) => a.selector === ".page");
+    expect(inks.map((a) => a.name)).toEqual(["ink", "ink-bowed"]);
+    expect([inks[1].duration, inks[1].delay]).toEqual([inks[0].duration, inks[0].delay]);
   });
 });
 

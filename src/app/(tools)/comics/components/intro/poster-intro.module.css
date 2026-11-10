@@ -2,17 +2,24 @@
  * The poster intro: 3 s for someone standing at a wall with a phone in hand, so
  * it says the episode and its title at once and gets out of the way.
  *
- *   0.00–0.42  the page inks in, corner to corner
+ *   0.00–0.42  the page inks in, corner to corner, its edge bowed where the
+ *              browser draws shape()
  *   0.16–0.56  "Episode N" pops onto the page's top edge
  *   0.30–0.76  the title rises (no art: its big window inks in, 0.32–0.92)
  *   0.50–1.54  up to four windows ink in, one after another, and settle
  *   0.70–1.32  Amr comes up at the page's corner and waves
+ *   0.95–1.50  no art: a stripe of light crosses the title's window and rests
  *   1.54–2.42  stillness, to read
- *   2.42–3.00  the page lifts away
+ *   2.42–3.00  the page lifts away, darkening in three steps until 2.90
  *
  * Every animation is one shorthand with a literal duration and delay, and all of
  * them end by INTRO_SECONDS.poster (test/comics/intro-poster.test.tsx). Only
- * transform, opacity, clip-path and visibility move.
+ * transform, opacity, clip-path and visibility move. Every landing (the caption,
+ * the windows and Amr) is on the book intro's two springs: tokens.ts's settle and
+ * pop linear() lists, written inside keyframes, each shorthand keeping that
+ * spring's one-overshoot cubic-bezier for browsers without linear()
+ * (test/comics/intro-look.test.tsx). The light and the stepped shade are the
+ * shared look's parts (intro-look.tsx); this sheet only moves them.
  */
 
 /* The exit is the overlay's only animation: its end is what ends the intro. Its
@@ -82,6 +89,46 @@
   animation: ink 0.42s cubic-bezier(0.65, 0, 0.35, 1) 0s both;
 }
 
+/* Where shape() works, the ink's leading edge bows forward as it goes. Same
+   first and last frames as the straight wipe, and the same pace: its two steps
+   are that curve cut in two at its middle. Other browsers keep the straight
+   edge, which is the same scene. */
+@supports (clip-path: shape(from 0 0, line to 100% 0)) {
+  .page {
+    animation: ink-bowed 0.42s cubic-bezier(0.65, 0, 0.35, 1) 0s both;
+  }
+
+  @keyframes ink-bowed {
+    from {
+      clip-path: shape(from 0 0, line to 0 0, curve to 0 0 with 0 0, close);
+      animation-timing-function: cubic-bezier(0.65, 0, 0.825, 0.5);
+    }
+    50% {
+      clip-path: shape(
+        from 0 0,
+        line to calc(100% + 1rem) 0,
+        curve to 0 calc(100% + 1rem) with calc(57% + 0.5rem) calc(57% + 0.5rem),
+        close
+      );
+      animation-timing-function: cubic-bezier(0.175, 0.5, 0.35, 1);
+    }
+    to {
+      clip-path: shape(
+        from 0 0,
+        line to calc(200% + 2rem) 0,
+        curve to 0 calc(200% + 2rem) with calc(100% + 1rem) calc(100% + 1rem),
+        close
+      );
+    }
+  }
+}
+
+/* The page darkens in three flat steps as it lifts away, until it's nearly
+   gone. Over everything on the page, under the caption and Amr. */
+.liftShade {
+  animation: lift-shade 0.48s steps(3, jump-start) 2.42s both;
+}
+
 /* "Episode N": a caption box pinned across the page's top edge. Above the page,
    which paints as a layer of its own because of its clip-path. */
 .caption {
@@ -100,7 +147,7 @@
   border: var(--panel-w) solid var(--border);
   border-radius: var(--panel-radius);
   box-shadow: var(--shadow-2);
-  animation: pop 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.16s both;
+  animation: pop 0.4s cubic-bezier(0.38, 1.76, 0.1, 1) 0.16s both;
 }
 
 .title {
@@ -152,7 +199,7 @@
 .w1 {
   animation:
     reveal 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.5s both,
-    settle-ccw 0.62s cubic-bezier(0.34, 1.3, 0.64, 1) 0.5s both;
+    settle-ccw 0.62s cubic-bezier(0.42, 1.52, 0.1, 1) 0.5s both;
 }
 .w1::after {
   animation: band 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.5s both;
@@ -160,7 +207,7 @@
 .w2 {
   animation:
     reveal 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.64s both,
-    settle-cw 0.62s cubic-bezier(0.34, 1.3, 0.64, 1) 0.64s both;
+    settle-cw 0.62s cubic-bezier(0.42, 1.52, 0.1, 1) 0.64s both;
 }
 .w2::after {
   animation: band 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.64s both;
@@ -168,7 +215,7 @@
 .w3 {
   animation:
     reveal 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.78s both,
-    settle-cw 0.62s cubic-bezier(0.34, 1.3, 0.64, 1) 0.78s both;
+    settle-cw 0.62s cubic-bezier(0.42, 1.52, 0.1, 1) 0.78s both;
 }
 .w3::after {
   animation: band 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.78s both;
@@ -176,13 +223,14 @@
 .w4 {
   animation:
     reveal 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.92s both,
-    settle-ccw 0.62s cubic-bezier(0.34, 1.3, 0.64, 1) 0.92s both;
+    settle-ccw 0.62s cubic-bezier(0.42, 1.52, 0.1, 1) 0.92s both;
 }
 .w4::after {
   animation: band 0.52s cubic-bezier(0.65, 0, 0.35, 1) 0.92s both;
 }
 
-/* No art yet: one big window, and the title is what's in it. */
+/* No art yet: one big window, and the title is what's in it. Isolated, so the
+   light under the lettering sits over the window's paper and not behind it. */
 .bigWindow {
   flex: 1 1 0;
   min-height: 0;
@@ -190,14 +238,25 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  isolation: isolate;
   padding: clamp(0.75rem, 4vmin, 2rem);
   text-align: center;
   animation:
     reveal 0.6s cubic-bezier(0.65, 0, 0.35, 1) 0.32s both,
-    settle-big 0.7s cubic-bezier(0.34, 1.3, 0.64, 1) 0.32s both;
+    settle-big 0.7s cubic-bezier(0.42, 1.52, 0.1, 1) 0.32s both;
 }
 .bigWindow::after {
   animation: band 0.6s cubic-bezier(0.65, 0, 0.35, 1) 0.32s both;
+}
+
+/* The window's comic light, under the lettering, so the title reads the same.
+   Its stripe waits until the window has inked in (0.92 s), crosses, and rests
+   a little right of the middle, as on the book's inside page. */
+.titleLight {
+  z-index: -1;
+}
+.titleStripe {
+  animation: stripe 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.95s both;
 }
 .bigTitle {
   font-size: clamp(1.75rem, min(10vw, 6vh), 3.5rem);
@@ -220,7 +279,7 @@
 }
 .amrRise {
   display: block;
-  animation: come-up 0.62s cubic-bezier(0.34, 1.36, 0.64, 1) 0.7s both;
+  animation: come-up 0.62s cubic-bezier(0.38, 1.76, 0.1, 1) 0.7s both;
 }
 
 /* Short phones get a smaller Amr, tablets and desktops a bigger one. */
@@ -296,16 +355,48 @@
   }
 }
 
+/* On the pop spring: about 16% past its tilt and size, then back. */
 @keyframes pop {
-  0% {
+  from {
     opacity: 0;
     transform: scale(0.6) rotate(-8deg);
+    animation-timing-function: linear(
+      0,
+      0.057,
+      0.198,
+      0.383,
+      0.579,
+      0.76,
+      0.913,
+      1.029,
+      1.106,
+      1.149,
+      1.163,
+      1.155,
+      1.133,
+      1.103,
+      1.071,
+      1.041,
+      1.016,
+      0.997,
+      0.983,
+      0.976,
+      0.973,
+      0.975,
+      0.978,
+      0.983,
+      0.988,
+      0.993,
+      0.997,
+      1,
+      1.003,
+      1.004,
+      1.004,
+      1.004,
+      1
+    );
   }
-  55% {
-    opacity: 1;
-    transform: scale(1.06) rotate(-1deg);
-  }
-  100% {
+  to {
     opacity: 1;
     transform: scale(1) rotate(-2.5deg);
   }
@@ -349,9 +440,45 @@
   }
 }
 
+/* Each window lands on the settle spring, as the book does. */
 @keyframes settle-ccw {
   from {
     transform: translateY(0.4rem) rotate(-1.4deg);
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
   }
   to {
     transform: none;
@@ -361,32 +488,156 @@
 @keyframes settle-cw {
   from {
     transform: translateY(0.4rem) rotate(1.2deg);
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
   }
   to {
     transform: none;
   }
 }
 
+/* The title's window too. */
 @keyframes settle-big {
   from {
     transform: translateY(0.5rem) rotate(-0.5deg);
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
   }
   to {
     transform: none;
   }
 }
 
+/* Amr pops up on the pop spring, as he does at the book's fold. */
 @keyframes come-up {
   from {
     opacity: 0;
     transform: translateY(60%);
-  }
-  35% {
-    opacity: 1;
+    animation-timing-function: linear(
+      0,
+      0.057,
+      0.198,
+      0.383,
+      0.579,
+      0.76,
+      0.913,
+      1.029,
+      1.106,
+      1.149,
+      1.163,
+      1.155,
+      1.133,
+      1.103,
+      1.071,
+      1.041,
+      1.016,
+      0.997,
+      0.983,
+      0.976,
+      0.973,
+      0.975,
+      0.978,
+      0.983,
+      0.988,
+      0.993,
+      0.997,
+      1,
+      1.003,
+      1.004,
+      1.004,
+      1.004,
+      1
+    );
   }
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* From off the window's left edge to resting a little right of its middle
+   (the track is four windows wide: intro-look.module.css). */
+@keyframes stripe {
+  from {
+    transform: translateX(-22.5%);
+  }
+  to {
+    transform: translateX(3%);
+  }
+}
+
+@keyframes lift-shade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.24;
   }
 }
 

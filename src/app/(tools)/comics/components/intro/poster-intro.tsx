@@ -1,6 +1,7 @@
 import type { StoryCover } from "@/lib/comics/types";
 import { cn } from "@/lib/utils";
 import { IntroAmr, IntroOverlay, IntroPanel } from "./intro-parts";
+import { Light, TurnShade } from "./intro-look";
 import styles from "./poster-intro.module.css";
 
 /** A page's worth: any more would be too small to take in from a phone. */
@@ -20,6 +21,10 @@ const LETTERING = "font-display font-bold text-text";
  * panels it's given ink in after them, and Amr comes up at the corner to wave
  * before the page lifts away. The book's episodes are never put online, so their
  * page gives it none, and the title fills one big window.
+ *
+ * It wears the book intro's look where a sheet of paper would: the title's
+ * window catches one stripe of comic light, under its lettering, and the page
+ * darkens in steps as it lifts away. No grain: that stays on the books.
  *
  * No hooks, so the server page renders it and it plays from the first paint. The
  * choreography is all in poster-intro.module.css.
@@ -67,9 +72,13 @@ export function PosterIntro({
               </>
             ) : (
               <div className={cn("panel", styles.window, styles.bigWindow)}>
+                {/* Under the lettering: the stripe crosses once the window has inked in, and rests. */}
+                <Light className={styles.titleLight} trackClassName={styles.titleStripe} />
                 <p className={cn(styles.bigTitle, LETTERING)}>{title}</p>
               </div>
             )}
+            {/* Last, so it shades everything on the page as the page lifts away. */}
+            <TurnShade className={styles.liftShade} />
           </div>
           <span aria-hidden="true" className={styles.amrSpot}>
             <span className={styles.amrRise}>
