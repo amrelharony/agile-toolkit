@@ -77,6 +77,68 @@ function grainRemoved(css) {
   );
 }
 
+/** The layers held still during a view transition, by name, with their group's z-index. */
+const HELD_LAYERS = {
+  header: "2",
+  amr: "3",
+  "amr-bubble": "3",
+  "amr-panel": "3",
+  "dock-timer": "3",
+};
+
+/** The @media screen blocks inside @supports (view-transition-name: none). */
+function vtScreenBlocks(css) {
+  return blocks(css, "@supports")
+    .filter((b) => b.params.includes("(view-transition-name:none)"))
+    .flatMap((b) => blocks(b.body, "@media").filter((m) => m.params === "screen"));
+}
+
+/** Every declaration that rules naming `selector` give it, quotes taken out of attribute values. */
+function declsFor(css, selector) {
+  return rules(css)
+    .filter((r) => r.selectors.some((s) => s.replace(/["']/g, "") === selector))
+    .flatMap((r) => r.body.split(";"));
+}
+
+/** Some VIEW TRANSITIONS screen block gives each selector all its declarations. */
+function inVtScreen(wanted) {
+  return (css) =>
+    vtScreenBlocks(css).some((b) =>
+      Object.entries(wanted).every(([selector, decls]) => {
+        const found = declsFor(b.body, selector);
+        return decls.every((d) => found.includes(d));
+      })
+    );
+}
+
+function heldLayersWanted() {
+  const wanted = {};
+  for (const [name, z] of Object.entries(HELD_LAYERS)) {
+    wanted[`html[data-vt][data-vt-hold=${name}]`] = [`view-transition-name:${name}`];
+    wanted[`::view-transition-group(${name})`] = ["animation:none", `z-index:${z}`];
+    wanted[`::view-transition-old(${name})`] = ["display:none"];
+    wanted[`::view-transition-new(${name})`] = [
+      "animation:none",
+      "opacity:1",
+      "mix-blend-mode:normal",
+    ];
+  }
+  return wanted;
+}
+
+/** The pseudo-elements' own reduced-motion rule, nested in the VIEW TRANSITIONS screen block. */
+function vtReducedMotion(css) {
+  return vtScreenBlocks(css).some((b) =>
+    blocks(b.body, "@media")
+      .filter((m) => m.params.includes("(prefers-reduced-motion:reduce)"))
+      .some((m) =>
+        ["group", "old", "new"].every((p) =>
+          declsFor(m.body, `::view-transition-${p}(*)`).includes("animation:none!important")
+        )
+      )
+  );
+}
+
 /** Markers by PR id. Each `test` gets one file's CSS with all whitespace removed. */
 export const MARKERS = {
   F1: [
@@ -99,6 +161,24 @@ export const MARKERS = {
     {
       name: "paper grain: removed for print, forced colours and more contrast",
       test: grainRemoved,
+    },
+  ],
+  F2: [
+    {
+      name: "held layers: view-transition-name under html[data-vt] and the held ::view-transition-group( pictures, in @supports(view-transition-name:none) and @media screen",
+      test: inVtScreen(heldLayersWanted()),
+    },
+    {
+      name: "--vt-ready:1 on html, in @supports(view-transition-name:none) and @media screen",
+      test: inVtScreen({ html: ["--vt-ready:1"] }),
+    },
+    {
+      name: "::view-transition lets taps through (pointer-events:none), in the same block",
+      test: inVtScreen({ "::view-transition": ["pointer-events:none"] }),
+    },
+    {
+      name: "reduced motion: animation:none!important on the transition pseudo-elements, in the same block",
+      test: vtReducedMotion,
     },
   ],
 };

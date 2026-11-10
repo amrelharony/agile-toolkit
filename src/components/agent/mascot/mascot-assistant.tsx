@@ -1017,6 +1017,7 @@ export function MascotAssistant() {
       {open && (
         <div
           data-agent-sheet-root
+          data-vt-hold="amr-panel"
           role="dialog"
           aria-label="Amr assistant"
           aria-modal={false}
@@ -1130,6 +1131,7 @@ export function MascotAssistant() {
       {!hideFigure && (
         <button
           ref={buttonRef}
+          data-vt-hold="amr"
           type="button"
           onClick={onMascotClick}
           onPointerDown={onPointerDown}

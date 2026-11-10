@@ -90,6 +90,21 @@ describe("DockedTimer", () => {
     expect(useDockTimer.getState().timer).toBeNull();
   });
 
+  it("is held still during a page change: the pill itself carries the mark", () => {
+    useDockTimer.getState().publish({
+      label: "Standup",
+      href: "/ceremony-timer",
+      totalSeconds: 900,
+      endsAt: Date.now() + 120_000,
+      pausedRemaining: 120,
+    });
+    const { container } = render(<DockedTimer />);
+    const pill = container.firstElementChild;
+    expect(pill).toHaveAttribute("data-vt-hold", "dock-timer");
+    expect(pill).toContainElement(screen.getByRole("timer"));
+    expect(container.querySelectorAll("[data-vt-hold]")).toHaveLength(1);
+  });
+
   it("says time's up instead of counting below zero", () => {
     useDockTimer.getState().publish({
       label: "Retro",
