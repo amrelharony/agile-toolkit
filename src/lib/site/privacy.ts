@@ -299,6 +299,15 @@ export function hostingRegion(): { code: string; place: string | null } {
 }
 
 /**
+ * The server code vercel.json's region doesn't cover: the middleware, and
+ * every route that exports `runtime = "edge"`. Vercel runs these on its edge
+ * network, near whoever makes the request. test/site/privacy-facts.test.ts
+ * lists the edge routes, so a new one fails it until it is named here.
+ */
+const EDGE_CODE =
+  "The middleware that checks each request, the tools' share images and the owner's AI stream";
+
+/**
  * Who processes what, and where. The Supabase project's region is not in this
  * repository, so the page doesn't state one.
  */
@@ -309,7 +318,7 @@ export function processors(): Processor[] {
   return [
     {
       name: "Vercel",
-      does: `Hosts the site and runs its server code. The functions run in ${where}. Like any host, it receives your IP address with each request.`,
+      does: `Hosts the site and runs its server code. Its serverless functions run in ${where}. ${EDGE_CODE} run on Vercel's edge network, close to wherever the request comes from. Like any host, it receives your IP address with each request.`,
     },
     {
       name: "Supabase",

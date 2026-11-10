@@ -298,8 +298,44 @@ describe("who processes what, and where", () => {
     expect(hostingRegion()).toEqual({ code: "fra1", place: "Frankfurt, Germany" });
     const [vercel] = processors();
     expect(vercel.name).toBe("Vercel");
-    expect(vercel.does).toContain("Frankfurt, Germany (Vercel region fra1)");
+    expect(vercel.does).toContain(
+      "Its serverless functions run in Frankfurt, Germany (Vercel region fra1)."
+    );
     expect(vercel.does).toContain("receives your IP address");
+  });
+
+  // vercel.json's region covers serverless functions only. The middleware and
+  // any route on the edge runtime run near whoever makes the request, so the
+  // page names each one. A new edge route, or one pinned to a region, fails
+  // here until the Vercel line is reviewed.
+  it("says which server code runs on the edge, not in that region", () => {
+    const [vercel] = processors();
+    expect(vercel.does).toContain("run on Vercel's edge network, close to wherever the request");
+    const EDGE: Record<string, string> = {
+      "src/app/og/tools/[id]/route.tsx": "the tools' share images",
+      "src/app/api/agent/stream/route.ts": "the owner's AI stream",
+    };
+    const files = sourceFiles(path.join(root, "src")).map((file) => ({
+      file: path.relative(root, file).replace(/\\/g, "/"),
+      text: readFileSync(file, "utf8"),
+    }));
+    const edge = files
+      .filter(({ text }) =>
+        /export\s+const\s+runtime\s*=\s*["'](?:experimental-)?edge["']/.test(text)
+      )
+      .map(({ file }) => file)
+      .sort();
+    expect(edge).toEqual(Object.keys(EDGE).sort());
+    for (const [file, words] of Object.entries(EDGE)) expect(vercel.does, file).toContain(words);
+    // Nothing asks for a region of its own.
+    expect(files.filter(({ text }) => /\bpreferredRegion\b/.test(text))).toEqual([]);
+    // Next 14's middleware always runs on the edge: nothing switches it to Node.
+    expect(vercel.does).toContain("The middleware that checks each request");
+    const middleware = read("src/middleware.ts");
+    expect(middleware).toContain("export async function middleware(");
+    expect(middleware.slice(middleware.indexOf("export const config"))).not.toMatch(/runtime/);
+    // vercel.json moves no function to another region.
+    expect(Object.keys(JSON.parse(read("vercel.json")))).not.toContain("functions");
   });
 
   it("names Supabase for the database, storage and realtime, with no region it can't prove", () => {
