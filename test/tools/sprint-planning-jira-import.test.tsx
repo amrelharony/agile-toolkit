@@ -142,7 +142,7 @@ describe("importing a Jira export", () => {
     ).toEqual([
       "Issue key: the ticket key. Add your site address below for a link to the issue.",
       "Summary: the title",
-      "Custom field (Story point estimate): the points",
+      "Custom field (Story point estimate), Custom field (Story Points): the points, from the first one filled in on each row",
       "Assignee: the owner",
       "Description: the notes, its first 500 characters",
       "Status: not used, since every story lands in the backlog",

@@ -72,16 +72,29 @@ describe("readJiraCsv: an all-fields export", () => {
   });
 
   it("lists the columns it found, in its own order, and the ones it ignores", () => {
+    const one = (column: string, header: string) => ({
+      column,
+      header,
+      headers: [header],
+      count: 1,
+    });
     expect(read.found).toEqual([
-      { column: "key", header: "Issue key", count: 1 },
-      { column: "summary", header: "Summary", count: 1 },
-      { column: "points", header: "Custom field (Story point estimate)", count: 2 },
-      { column: "assignee", header: "Assignee", count: 1 },
-      { column: "description", header: "Description", count: 1 },
-      { column: "status", header: "Status", count: 1 },
-      { column: "priority", header: "Priority", count: 1 },
-      { column: "labels", header: "Labels", count: 2 },
-      { column: "dueDate", header: "Due date", count: 1 },
+      one("key", "Issue key"),
+      one("summary", "Summary"),
+      {
+        column: "points",
+        header: "Custom field (Story point estimate)",
+        // Both names, since a row whose first one is blank reads the second.
+        headers: ["Custom field (Story point estimate)", "Custom field (Story Points)"],
+        count: 2,
+      },
+      one("assignee", "Assignee"),
+      one("description", "Description"),
+      one("status", "Status"),
+      one("priority", "Priority"),
+      // A repeated column is named once.
+      { column: "labels", header: "Labels", headers: ["Labels"], count: 2 },
+      one("dueDate", "Due date"),
     ]);
     expect(read.ignored).toEqual([
       { header: "Issue id", count: 1 },
@@ -126,7 +139,12 @@ describe("readJiraCsv: the other documented variants", () => {
       },
       { line: 3, key: "PAY-21", summary: "Refunds; partial", status: "To Do" },
     ]);
-    expect(read.found[0]).toEqual({ column: "key", header: "Issue key", count: 1 });
+    expect(read.found[0]).toEqual({
+      column: "key",
+      header: "Issue key",
+      headers: ["Issue key"],
+      count: 1,
+    });
   });
 
   it("matches headers whatever their case, and each points variant", () => {

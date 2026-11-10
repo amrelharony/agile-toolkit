@@ -218,7 +218,13 @@ export function planJiraImport(
 ): JiraImportPreview {
   const mapped: JiraImportPreview["mapped"] = [];
   const unused: JiraImportPreview["unused"] = [];
-  for (const { column, header } of read.found) {
+  for (const { column, headers } of read.found) {
+    const [first, ...others] = headers;
+    // The reader takes points from every column named for them (a row's
+    // first filled one) and merges every Labels column, so each of their
+    // names is listed; any other column is read from its first copy only.
+    const everyCopy = column === "points" || column === "labels";
+    const header = everyCopy ? headers.join(", ") : first;
     if (column === "key") {
       mapped.push({
         header,
@@ -226,10 +232,17 @@ export function planJiraImport(
           ? "the ticket key, and the link to the issue"
           : "the ticket key. Add your site address below for a link to the issue.",
       });
+    } else if (column === "points" && others.length > 0) {
+      mapped.push({ header, becomes: "the points, from the first one filled in on each row" });
     } else if (BECOMES[column]) {
       mapped.push({ header, becomes: BECOMES[column] });
     } else {
       unused.push({ header, why: NOT_USED[column] ?? "not used" });
+    }
+    if (!everyCopy) {
+      for (const other of others) {
+        unused.push({ header: other, why: `not read, since ${first} comes first` });
+      }
     }
   }
   const ignored = read.ignored.map(({ header, count }) =>

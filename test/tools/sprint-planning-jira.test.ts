@@ -76,7 +76,10 @@ describe("previewJiraImport: a first import", () => {
     expect(preview.mapped).toEqual([
       { header: "Issue key", becomes: "the ticket key, and the link to the issue" },
       { header: "Summary", becomes: "the title" },
-      { header: "Custom field (Story point estimate)", becomes: "the points" },
+      {
+        header: "Custom field (Story point estimate), Custom field (Story Points)",
+        becomes: "the points, from the first one filled in on each row",
+      },
       { header: "Assignee", becomes: "the owner" },
       { header: "Description", becomes: "the notes, its first 500 characters" },
     ]);
@@ -94,6 +97,26 @@ describe("previewJiraImport: a first import", () => {
       "Created",
       "Sprint (2 columns)",
     ]);
+  });
+
+  it("names one points column plainly, and says which copy of any other column is read", () => {
+    const p = previewJiraImport(
+      "Issue key,Summary,Story Points,Key,Status,Status\nA-1,One,3,B-1,To Do,Done",
+      { stories: [], site: null }
+    );
+    expect(p.mapped).toEqual([
+      {
+        header: "Issue key",
+        becomes: "the ticket key. Add your site address below for a link to the issue.",
+      },
+      { header: "Summary", becomes: "the title" },
+      { header: "Story Points", becomes: "the points" },
+    ]);
+    expect(p.unused).toEqual([
+      { header: "Key", why: "not read, since Issue key comes first" },
+      { header: "Status", why: "not used, since every story lands in the backlog" },
+    ]);
+    expect(p.add.map((r) => r.key)).toEqual(["A-1"]);
   });
 
   it("without a site address, no links, and the key's line says how to get them", () => {

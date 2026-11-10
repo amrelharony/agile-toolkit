@@ -99,6 +99,12 @@ export interface JiraColumnFound {
   column: JiraColumn;
   /** The header as the file writes it (its first copy). */
   header: string;
+  /**
+   * Every name the file gives it, once each, in file order: "Labels" for a
+   * repeated Labels column, both names when an export has "Custom field
+   * (Story point estimate)" and "Custom field (Story Points)".
+   */
+  headers: string[];
   /** How many columns of the file it is (Jira repeats "Labels"). */
   count: number;
 }
@@ -230,7 +236,8 @@ export function readJiraCsv(text: string): JiraCsvRead {
   });
   const found: JiraColumnFound[] = JIRA_COLUMNS.filter((c) => columns.has(c)).map((column) => {
     const at = columns.get(column) ?? [];
-    return { column, header: oneLine(header[at[0]]), count: at.length };
+    const headers = Array.from(new Set(at.map((i) => oneLine(header[i]))));
+    return { column, header: headers[0], headers, count: at.length };
   });
   const base: JiraCsvRead = { ...EMPTY, delimiter, found, ignored: Array.from(ignored.values()) };
 
