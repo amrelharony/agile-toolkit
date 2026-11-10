@@ -1347,6 +1347,96 @@ body:has(dialog[open]) [data-sonner-toaster] {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   VIEW TRANSITIONS — lib/motion/view-transition.ts starts every one and sets
+   html[data-vt] while it runs. Amr, his bubble and chat panel, the docked
+   timer and the top bar are held: they never move or fade in a page change.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@supports (view-transition-name: none) {
+  /* The script starts a transition only when it reads this marker, so a
+     browser that lacks these rules never runs one with nothing held. */
+  html {
+    --vt-ready: 1;
+  }
+
+  @media screen {
+    /* Named only while a transition runs, and each data-vt-hold value is on
+       one element in the app, so no two elements ever share a name (a shared
+       name makes the browser skip the whole transition). */
+    html[data-vt] [data-vt-hold="header"] {
+      view-transition-name: header;
+    }
+    html[data-vt] [data-vt-hold="amr"] {
+      view-transition-name: amr;
+    }
+    html[data-vt] [data-vt-hold="amr-bubble"] {
+      view-transition-name: amr-bubble;
+    }
+    html[data-vt] [data-vt-hold="amr-panel"] {
+      view-transition-name: amr-panel;
+    }
+    html[data-vt] [data-vt-hold="dock-timer"] {
+      view-transition-name: dock-timer;
+    }
+
+    /* Held: the group does not travel, the old picture is not drawn, and the
+       new one is the live element as it is (no fade, no blend), so it stays
+       where it is, opaque and live. */
+    ::view-transition-group(header),
+    ::view-transition-group(amr),
+    ::view-transition-group(amr-bubble),
+    ::view-transition-group(amr-panel),
+    ::view-transition-group(dock-timer) {
+      animation: none;
+    }
+    ::view-transition-old(header),
+    ::view-transition-old(amr),
+    ::view-transition-old(amr-bubble),
+    ::view-transition-old(amr-panel),
+    ::view-transition-old(dock-timer) {
+      display: none;
+    }
+    ::view-transition-new(header),
+    ::view-transition-new(amr),
+    ::view-transition-new(amr-bubble),
+    ::view-transition-new(amr-panel),
+    ::view-transition-new(dock-timer) {
+      animation: none;
+      opacity: 1;
+      mix-blend-mode: normal;
+    }
+
+    /* Above the moving page: the top bar, then Amr and the timer over it. */
+    ::view-transition-group(header) {
+      z-index: 2;
+    }
+    ::view-transition-group(amr),
+    ::view-transition-group(amr-bubble),
+    ::view-transition-group(amr-panel),
+    ::view-transition-group(dock-timer) {
+      z-index: 3;
+    }
+
+    /* Taps go through the pictures to the live page underneath. */
+    ::view-transition {
+      pointer-events: none;
+    }
+
+    /* The global reduced-motion rule above cannot reach these pseudo-elements.
+       The script already starts none under reduced motion; this is the
+       second lock. */
+    @media (prefers-reduced-motion: reduce) {
+      ::view-transition-group(*),
+      ::view-transition-image-pair(*),
+      ::view-transition-old(*),
+      ::view-transition-new(*) {
+        animation: none !important;
+      }
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    MOBILE FOUNDATION — safe-area, no iOS input zoom, active-press, overscroll
    ═══════════════════════════════════════════════════════════════════════════════ */
 

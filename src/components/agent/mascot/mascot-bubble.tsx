@@ -50,6 +50,7 @@ export function MascotBubble() {
       aria-live="polite"
       aria-atomic="true"
       data-amr-bubble-region
+      data-vt-hold="amr-bubble"
       style={{ position: "fixed", ...momentChipPosition(corner, phone) }}
       className="pointer-events-none z-[55] max-w-[min(18rem,calc(100vw-32px))]"
     >
