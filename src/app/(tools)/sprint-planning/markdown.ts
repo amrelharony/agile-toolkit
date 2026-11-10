@@ -99,8 +99,12 @@ export function planToMarkdown({
     );
   }
   if (improvements && hasImprovements(improvements)) {
-    const where = (place: Parameters<typeof placeText>[0]) =>
-      (placeText(place) ?? "Not planned yet").toLowerCase();
+    // Mid-sentence, so the wording starts lower case; a sprint name in it
+    // keeps the team's own case ("in Payments Q4").
+    const where = (place: Parameters<typeof placeText>[0]) => {
+      const text = cell(placeText(place) ?? "Not planned yet");
+      return text.charAt(0).toLowerCase() + text.slice(1);
+    };
     const heading = improvementsHeading(improvements);
     lines.push("", `## ${heading.lead}`, "", `${heading.counts}.`);
     if (improvements.actions.length > 0) {

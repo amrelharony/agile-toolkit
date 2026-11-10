@@ -66,6 +66,7 @@ import { SprintPlanning } from "@/app/(tools)/sprint-planning/planning";
 import { buildExample } from "@/app/(tools)/sprint-planning/example";
 import { addMode, improvementsHeading, placeText } from "@/app/(tools)/sprint-planning/view";
 import { createExampleStore, exampleWriter } from "@/app/(tools)/sprint-planning/writer";
+import { planToMarkdown } from "@/app/(tools)/sprint-planning/markdown";
 
 const TODAY = "2026-10-22";
 
@@ -574,6 +575,39 @@ describe("From the last retro, in Sprint Planning", () => {
     expect(md).toContain("- Write the deploy runbook (No owner): not planned yet");
     expect(md).toContain("1 more open action is from an earlier retro.");
     expect(md).toContain("- VPN drops every hour (high): not planned yet");
+  });
+
+  it("keeps the case of the sprint names it quotes in the Markdown", () => {
+    const launch: Sprint = { ...S1, id: "q4", name: "Payments Q4" };
+    const retro = board("retro:current", [
+      card("a1", "Pair on flaky tests", {
+        sentTo: [{ route: "backlog-story", targetId: "st1", at: "2026-10-15" }],
+      }),
+      card("a2", "Write the deploy runbook", {
+        sentTo: [{ route: "backlog-story", targetId: "st2", at: "2026-10-15" }],
+      }),
+    ]);
+    const md = planToMarkdown({
+      sprint: S2,
+      stories: [],
+      capacityHours: null,
+      targetPoints: null,
+      averageVelocity: null,
+      improvements: improvementsFor({
+        sprint: S2,
+        sprints: [launch, S2],
+        retroBoards: [retro],
+        impediments: [],
+        stories: [
+          { id: "st1", title: "Pair on flaky tests", status: "todo", sprintId: "q4" },
+          { id: "st2", title: "Write the deploy runbook", status: "in_progress", sprintId: "q4" },
+        ],
+        today: TODAY,
+      }),
+    });
+    // Only the fixed wording starts lower case; the team's sprint name keeps its own.
+    expect(md).toContain("- Pair on flaky tests (No owner): in Payments Q4");
+    expect(md).toContain("- Write the deploy runbook (No owner): in Payments Q4");
   });
 });
 
