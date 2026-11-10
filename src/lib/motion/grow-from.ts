@@ -14,6 +14,10 @@
  *
  * It never plays under reduced motion, Save-Data or 2G, while presenting or
  * with an intro on stage, and does nothing where element.animate is missing.
+ *
+ * The way back (slideBack): on Back, the card that opened the page slides
+ * from where that page's header was into its own slot, by translate alone,
+ * under the same rules (lib/motion/page-transition.ts decides when).
  */
 
 import { isSaveData } from "@/lib/holiday/save-data";
@@ -70,4 +74,31 @@ export function growFrom(element: HTMLElement, spot: CardSpot): Animation | null
     ],
     { duration: DUR.travel, easing: CURVE.glide }
   );
+}
+
+/** How long a card takes to slide back into its slot on Back (0.3 s). */
+export const RETURN_MS = 300;
+
+/**
+ * Slide `element` (a card back in its slot) from `from` (viewport pixels: the
+ * header of the page Back left) to where it is. A translate only: the card
+ * keeps its size and look and nothing fades; with no fill, nothing stays on
+ * it once it ends. Where `translate` cannot be animated the card is simply in
+ * its slot, as an instant Back leaves it. Returns the animation, or null when
+ * it does not play.
+ */
+export function slideBack(
+  element: HTMLElement,
+  from: { left: number; top: number }
+): Animation | null {
+  if (typeof element.animate !== "function" || !canGrow()) return null;
+  const at = element.getBoundingClientRect();
+  const x = from.left - at.left;
+  const y = from.top - at.top;
+  // Already there: nothing to slide.
+  if (Math.abs(x) < 1 && Math.abs(y) < 1) return null;
+  return element.animate([{ translate: `${px(x)} ${px(y)}` }, { translate: "0px 0px" }], {
+    duration: RETURN_MS,
+    easing: CURVE.glide,
+  });
 }
