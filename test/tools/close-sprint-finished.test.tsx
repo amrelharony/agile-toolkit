@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, SprintGoal, Story } from "@/lib/stores/workspace-types";
 import { goalDocId } from "@/lib/sprints/goal-doc";
@@ -281,6 +281,76 @@ describe("the finished step", () => {
     expect(
       within(screen.getByRole("dialog")).getByRole("button", { name: "Close sprint" })
     ).toBeInTheDocument();
+  });
+
+  describe("kept mounted, as the cockpit keeps it", () => {
+    /** `open` held in state, the way the cockpit's Close sprint button drives it. */
+    function Mounted() {
+      const [isOpen, setOpen] = useState(true);
+      const current = useWorkspaceStore((s) => s.sprints.find((x) => x.id === "s2"));
+      const stories = useWorkspaceStore((s) => s.stories);
+      const sprints = useWorkspaceStore((s) => s.sprints);
+      const last = useRef<ClosedSprint | null>(null);
+      if (!current) return null;
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open the dialog
+          </button>
+          <CloseSprintDialog
+            open={isOpen}
+            onOpenChange={setOpen}
+            sprint={current}
+            series={undefined}
+            mode="close"
+            stories={stories}
+            sprints={sprints}
+            onConfirm={(points, carry) => {
+              undoable({
+                label: `Closed ${current.name}`,
+                apply: () => {
+                  last.current = closeSprint("s2", points, carry);
+                },
+                revert: () => last.current?.revert(),
+              });
+            }}
+            onGoalOutcome={(values) => last.current?.answerGoal(values)}
+          />
+        </>
+      );
+    }
+    const reopen = () =>
+      fireEvent.click(screen.getByRole("button", { name: "Open the dialog", hidden: true }));
+    const formButton = () =>
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Close sprint" });
+
+    it("opens on the form after a close that was finished with Done, then undone", () => {
+      render(<Mounted />);
+      fireEvent.click(within(closeIt()).getByRole("button", { name: "Done" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      undoClose();
+      expect(sprint().status).toBe("active");
+
+      reopen();
+      expect(formButton()).toBeInTheDocument();
+      // It stays open: the first click is enough.
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("opens on the form after a close undone while its finished step was up", () => {
+      render(<Mounted />);
+      closeIt();
+      undoClose();
+      expect(screen.queryByRole("dialog")).toBeNull();
+
+      reopen();
+      expect(formButton()).toBeInTheDocument();
+      // And a second close ends on the finished step again.
+      fireEvent.click(formButton());
+      expect(
+        within(screen.getByRole("dialog")).getByRole("heading", { name: "Sprint 2 is closed" })
+      ).toBeInTheDocument();
+    });
   });
 
   it("adding points to a finished sprint still closes on save, with no finished step", () => {

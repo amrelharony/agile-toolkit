@@ -328,6 +328,17 @@ export function CloseSprintDialog({
   const groupId = useId();
   // "form" until the sprint is closed, then the finished step.
   const [step, setStep] = useState<"form" | "closed">("form");
+  // Each opening starts on the form. Callers keep the dialog mounted (the
+  // cockpit), so the step from the last close is still here: reset it while
+  // rendering the opening, not in an effect, or the guard below would still
+  // see "closed" on a sprint that isn't and shut the dialog it just opened.
+  // It is left alone on closing, so the finished step doesn't turn back into
+  // the form while the dialog fades out.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open && step !== "form") setStep("form");
+  }
   const progress = useMemo(
     () => (stories ? storyProgress(stories, sprint.id) : null),
     [stories, sprint.id]
@@ -388,7 +399,6 @@ export function CloseSprintDialog({
   // A fresh suggestion, and no choice, each time it opens.
   useEffect(() => {
     if (!open) return;
-    setStep("form");
     form.reset({ points: suggestion === null ? "" : fmt(suggestion), carry: "" });
     // Only on opening: the suggestion must not overwrite what's being typed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
