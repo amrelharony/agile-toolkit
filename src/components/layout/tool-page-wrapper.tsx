@@ -21,7 +21,8 @@ import type { InkDrawing } from "@/lib/ink/types";
 // behind next/dynamic, hydration would leave it for later, and an early context
 // update (auth settling) would swap it for an empty fallback until its chunk
 // came, moving the tool up and back down. Its own code is small; the guide
-// text already loads on demand.
+// text reaches it as data from the tool's route layout, so it is in that HTML
+// too (components/tool-frame/tool-guide.tsx).
 const InsightsEngine = dynamic(
   () => import("@/components/shared/insights-engine").then((m) => m.InsightsEngine),
   { ssr: false }

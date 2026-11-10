@@ -8,7 +8,9 @@
  * - Writes `src/app/(tools)/<path>/layout.tsx` for every registry tool that
  *   has a drawing: a server layout that hands the page its drawing through
  *   <ToolArt>, so it reaches the browser as data, never as JS, and sets the
- *   tool's link-preview image (lib/seo/tool-share.ts).
+ *   tool's link-preview image (lib/seo/tool-share.ts). The same layout hands
+ *   over the tool's "How this works" guide through <ToolGuide>, so the method
+ *   text is in the HTML a search engine or an assistant receives.
  *
  * Idempotent: run it after adding or removing a drawing. `--check` writes
  * nothing and exits 1 if anything is out of date (test/ink/tool-art.test.ts
@@ -67,13 +69,18 @@ export function layoutSource(id) {
   return `${MARK}; don't edit by hand.
 import type { ReactNode } from "react";
 import { ToolArt } from "@/components/ink/tool-art";
+import { ToolGuide } from "@/components/tool-frame/tool-guide";
 import { toolShareMetadata } from "@/lib/seo/tool-share";
 
 // The tool's own link preview (app/og/tools/[id]) for every page under it.
 export const metadata = toolShareMetadata(${JSON.stringify(id)});
 
 export default function ToolLayout({ children }: { children: ReactNode }) {
-  return <ToolArt id=${JSON.stringify(id)}>{children}</ToolArt>;
+  return (
+    <ToolArt id=${JSON.stringify(id)}>
+      <ToolGuide id=${JSON.stringify(id)}>{children}</ToolGuide>
+    </ToolArt>
+  );
 }
 `;
 }

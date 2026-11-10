@@ -4,7 +4,9 @@ import path from "node:path";
 import { renderToString } from "react-dom/server";
 import { render, screen } from "@testing-library/react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { ToolGuideProvider } from "@/components/tool-frame/tool-guide-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { getGuide } from "@/lib/tools/guides";
 
 describe("ToolPageWrapper's first download", () => {
   // Only a tool page (toolId) shows them, and they import most tools' stores:
@@ -36,18 +38,44 @@ describe("ToolPageWrapper's first download", () => {
 });
 
 describe("ToolPageWrapper on a tool's page", () => {
-  it("shows How this works in the first render, server render included", () => {
+  it("shows How this works in the first render, server render included", async () => {
+    // The guide comes from the tool's route layout, as on the real page.
+    const guide = (await getGuide("wsjf"))!;
     const tree = (
       <TooltipProvider>
-        <ToolPageWrapper title="WSJF" description="Weighted shortest job first" toolId="wsjf">
-          <p>Board</p>
-        </ToolPageWrapper>
+        <ToolGuideProvider guide={guide}>
+          <ToolPageWrapper title="WSJF" description="Weighted shortest job first" toolId="wsjf">
+            <p>Board</p>
+          </ToolPageWrapper>
+        </ToolGuideProvider>
       </TooltipProvider>
     );
-    expect(renderToString(tree)).toContain("How this works");
+    const html = renderToString(tree);
+    expect(html).toContain("How this works");
+    // The method text itself, not only the bar: a crawler runs no JavaScript.
+    expect(html).toContain("When to use it");
+    expect(html).toContain("How to run it");
     render(tree);
     expect(screen.getByText("Board")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "How this works" })).toBeInTheDocument();
+  });
+
+  it("puts the guide between the title and the tool", async () => {
+    const guide = (await getGuide("wsjf"))!;
+    const { container } = render(
+      <TooltipProvider>
+        <ToolGuideProvider guide={guide}>
+          <ToolPageWrapper title="WSJF" description="Weighted shortest job first" toolId="wsjf">
+            <p>Board</p>
+          </ToolPageWrapper>
+        </ToolGuideProvider>
+      </TooltipProvider>
+    );
+    const header = container.querySelector("header")!;
+    const details = container.querySelector("details")!;
+    const board = screen.getByText("Board");
+    expect(header.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(details.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
