@@ -1,19 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { RetroBoard, RetroCard, Sprint } from "@/lib/stores/workspace-types";
+import { retroFormats } from "@/lib/constants/retro-formats";
 import { useRefinementStore } from "@/app/(tools)/refinement/store";
 import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
 import { DOD_STORAGE_KEY } from "@/app/(tools)/dod-builder/summary";
 
 /**
  * Team charter: each standing agreement as a card that reads the tool's
- * own data, the ceremony times editable in place, and the export.
+ * own data, the ceremony times editable in place (with the current sprint's
+ * ceremonies as a calendar file), and the export.
  */
 
 vi.mock("@/components/shared/export-button", () => ({
   ExportButton: ({ markdown }: { markdown?: string }) => (
     <pre data-testid="export-markdown">{markdown}</pre>
   ),
+}));
+const calendars = vi.hoisted(() => [] as { ics: string; filename: string }[]);
+vi.mock("@/lib/utils/export", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/utils/export")>()),
+  exportToICS: (ics: string, filename: string) => calendars.push({ ics, filename }),
 }));
 const cadence = vi.hoisted(() => ({ patches: [] as unknown[] }));
 vi.mock("@/lib/sprints/use-ceremony-cadence", async () => {
@@ -25,8 +33,40 @@ vi.mock("@/lib/sprints/use-ceremony-cadence", async () => {
 
 import { TeamCharter } from "@/app/(meta)/team/charter";
 
+const sprint = (id: string, name: string, extra: Partial<Sprint>): Sprint => ({
+  id,
+  name,
+  startDate: "",
+  endDate: "",
+  pointsPlanned: 10,
+  status: "planned",
+  ...extra,
+});
+const actionCard = (id: string, extra: Partial<RetroCard> = {}): RetroCard => ({
+  id,
+  columnKey: "start",
+  text: id,
+  votes: 0,
+  groupedWith: null,
+  isActionItem: true,
+  assignee: "",
+  discussing: false,
+  ...extra,
+});
+const currentRetro = (cards: RetroCard[]): RetroBoard => ({
+  id: "retro:current",
+  format: retroFormats[0],
+  phase: "actions",
+  cards,
+  userVotes: 0,
+  timerSeconds: 0,
+  timerRunning: false,
+  discussingIndex: 0,
+});
+
 beforeEach(() => {
   cadence.patches.length = 0;
+  calendars.length = 0;
   window.localStorage.clear();
   useWorkspaceStore.setState({
     teamMembers: [{ id: "m1", name: "Ann", role: "Dev" }],
@@ -64,7 +104,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  useWorkspaceStore.setState({ teamMembers: [], workingAgreements: [], stories: [], sprints: [] });
+  useWorkspaceStore.setState({
+    teamMembers: [],
+    workingAgreements: [],
+    stories: [],
+    sprints: [],
+    retroBoards: [],
+  });
 });
 
 describe("TeamCharter", () => {
@@ -182,6 +228,89 @@ describe("TeamCharter", () => {
     render(<TeamCharter />);
     fireEvent.change(screen.getByLabelText("Sprint Review"), { target: { value: "15:00" } });
     expect(cadence.patches).toContainEqual({ reviewTime: "15:00" });
+  });
+
+  it("adds the active sprint's ceremonies to a calendar, with the open retro actions", () => {
+    useWorkspaceStore.setState({
+      sprints: [
+        sprint("sp7", "Sprint 7", {
+          startDate: "2026-10-05",
+          endDate: "2026-10-16",
+          status: "completed",
+        }),
+        // Monday 19 to Friday 30 Oct: 14 ceremonies on the default times.
+        sprint("sp8", "Sprint 8", {
+          startDate: "2026-10-19",
+          endDate: "2026-10-30",
+          status: "active",
+        }),
+        sprint("sp9", "Sprint 9", { startDate: "2026-11-02", endDate: "2026-11-13" }),
+      ],
+      retroBoards: [
+        currentRetro([
+          actionCard("act-open", { text: "Pair on the flaky test", dueDate: "2026-10-28" }),
+          actionCard("act-done", { dueDate: "2026-10-27", done: true }),
+          actionCard("act-undated"),
+        ]),
+      ],
+    });
+    render(<TeamCharter />);
+    const button = screen.getByRole("button", { name: "Add to calendar" });
+    expect(button).toBeEnabled();
+    expect(button).toHaveAccessibleDescription(/the 14 ceremonies of Sprint 8/);
+    expect(screen.getByRole("checkbox", { name: /Open retro actions/ })).toBeChecked();
+    expect(screen.getByText(/The file is a snapshot/)).toBeInTheDocument();
+
+    fireEvent.click(button);
+    expect(calendars).toHaveLength(1);
+    expect(calendars[0].filename).toBe("sprint-8-ceremonies");
+    const { ics } = calendars[0];
+    expect(ics.split("BEGIN:VEVENT")).toHaveLength(1 + 14 + 1);
+    expect(ics).toContain("UID:sprint-sp8-planning-20261019@agile.amrelharony.com");
+    expect(ics).toContain("UID:retro-action-act-open@agile.amrelharony.com");
+    expect(ics).not.toContain("act-done");
+    expect(ics).not.toContain("act-undated");
+  });
+
+  it("offers the newest sprint that wasn't cancelled when none is active", () => {
+    useWorkspaceStore.setState({
+      sprints: [
+        sprint("sp7", "Sprint 7", {
+          startDate: "2026-10-05",
+          endDate: "2026-10-16",
+          status: "completed",
+        }),
+        sprint("sp8", "Sprint 8", {
+          startDate: "2026-10-19",
+          endDate: "2026-10-30",
+          status: "cancelled",
+        }),
+      ],
+    });
+    render(<TeamCharter />);
+    expect(screen.getByRole("button", { name: "Add to calendar" })).toHaveAccessibleDescription(
+      /ceremonies of Sprint 7/
+    );
+  });
+
+  it("disables Add to calendar, with the reason, without a sprint or its dates", () => {
+    const { unmount } = render(<TeamCharter />);
+    const button = () => screen.getByRole("button", { name: "Add to calendar" });
+    expect(button()).toBeDisabled();
+    expect(button()).toHaveAccessibleDescription(
+      "There is no sprint yet, so there are no ceremonies to add. Create one in the Sprint Cockpit."
+    );
+    unmount();
+
+    useWorkspaceStore.setState({ sprints: [sprint("sp1", "Sprint 1", { status: "active" })] });
+    render(<TeamCharter />);
+    expect(button()).toBeDisabled();
+    expect(button()).toHaveAccessibleDescription(
+      "Sprint 1 has no dates, so its ceremonies can’t go on a calendar. Set its first and last day in the Sprint Cockpit."
+    );
+    expect(screen.queryByRole("checkbox", { name: /Open retro actions/ })).toBeNull();
+    fireEvent.click(button());
+    expect(calendars).toEqual([]);
   });
 
   it("exports the charter with every section", async () => {

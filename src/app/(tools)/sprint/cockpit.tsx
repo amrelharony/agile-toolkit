@@ -11,6 +11,7 @@ import { NewSprintDialog } from "@/components/sprints/new-sprint-dialog";
 import { SprintHeader } from "@/components/sprints/sprint-header";
 import { SprintTiles } from "@/components/sprints/sprint-tiles";
 import { CloseSprintDialog, type CarryOverPlan } from "@/components/sprints/close-sprint-dialog";
+import { AddToCalendar } from "@/components/sprints/add-to-calendar";
 import { LoadingSprints } from "@/components/sprints/start";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
@@ -409,7 +410,17 @@ function CockpitBody({
         cadence={cadence}
         sprintLengthDays={sprintLengthDays(sprint)}
         onCadence={compact ? undefined : onCadence}
-      />
+      >
+        {/* The team's own sprint on the full page: not the home card, not the example. */}
+        {!compact && !readOnly && (
+          <AddToCalendar
+            sprint={sprint}
+            cadence={cadence}
+            actions={data.openActions}
+            place="cockpit"
+          />
+        )}
+      </NextCeremony>
 
       <FlowStrip cards={cards} />
 

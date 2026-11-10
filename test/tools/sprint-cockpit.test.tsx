@@ -6,6 +6,8 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Impediment, Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { DEFAULT_CADENCE } from "@/lib/sprints/cadence";
+import { icsUtc } from "@/lib/sprints/ics";
+import { retroFormats } from "@/lib/constants/retro-formats";
 import { TOUCH_LINK } from "@/components/ui/touch-target";
 
 /**
@@ -25,6 +27,11 @@ vi.mock("@/components/shared/export-button", () => ({
   ExportButton: ({ markdown }: { markdown?: string }) => (
     <pre data-testid="export-markdown">{markdown}</pre>
   ),
+}));
+const calendars = vi.hoisted(() => [] as { ics: string; filename: string }[]);
+vi.mock("@/lib/utils/export", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/utils/export")>()),
+  exportToICS: (ics: string, filename: string) => calendars.push({ ics, filename }),
 }));
 vi.mock("@/app/(tools)/burndown/charts", () => ({
   BurndownChart: ({ data }: { data: { day: number }[] }) => (
@@ -105,6 +112,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(2026, 9, 22, 8, 0, 0)); // Thu 22 Oct 2026: day 7 of Sprint 2
   logs.length = 0;
   cadence.patches.length = 0;
+  calendars.length = 0;
   resetSelectedSprint();
   window.localStorage.clear();
   window.history.replaceState(null, "", "/sprint");
@@ -258,6 +266,80 @@ describe("with a sprint", () => {
     fireEvent.click(screen.getByRole("button", { name: /Ceremony times/ }));
     fireEvent.change(screen.getByLabelText("Daily Scrum"), { target: { value: "10:15" } });
     expect(cadence.patches).toContainEqual({ dailyTime: "10:15" });
+  });
+
+  it("adds the sprint's ceremonies to a calendar from the next-ceremony card", () => {
+    useWorkspaceStore.setState({
+      retroBoards: [
+        {
+          id: "retro:current",
+          format: retroFormats[0],
+          phase: "actions",
+          cards: [
+            {
+              id: "act-open",
+              columnKey: "start",
+              text: "Pair on the flaky test",
+              votes: 0,
+              groupedWith: null,
+              isActionItem: true,
+              assignee: "Ann",
+              discussing: false,
+              dueDate: "2026-10-23",
+            },
+          ],
+          userVotes: 0,
+          timerSeconds: 0,
+          timerRunning: false,
+          discussingIndex: 0,
+        },
+      ],
+    });
+    render(<SprintCockpit />);
+    const next = screen.getByRole("region", { name: "Next ceremony" });
+    const button = within(next).getByRole("button", { name: "Add to calendar" });
+    // Thu 15 to Sun 25 Oct: planning, six dailies, one refinement, review and retro.
+    expect(button).toHaveAccessibleDescription(/the 10 ceremonies of Sprint 2/);
+    expect(within(next).getByText(/The file is a snapshot/)).toBeInTheDocument();
+    expect(within(next).getByRole("checkbox", { name: /Open retro actions/ })).toBeChecked();
+    expect(within(next).getByRole("checkbox", { name: /Agile at Work story/ })).not.toBeChecked();
+
+    fireEvent.click(button);
+    expect(calendars).toHaveLength(1);
+    expect(calendars[0].filename).toBe("sprint-2-ceremonies");
+    const { ics } = calendars[0];
+    expect(ics.split("BEGIN:VEVENT")).toHaveLength(1 + 10 + 1);
+    expect(ics).toContain("UID:sprint-s2-planning-20261015@agile.amrelharony.com");
+    expect(ics).toContain("/retro?sprint=s2");
+    expect(ics).toContain("UID:retro-action-act-open@agile.amrelharony.com");
+    // Stamped with the moment of the click.
+    expect(ics).toContain(`DTSTAMP:${icsUtc(new Date(2026, 9, 22, 8, 0, 0))}`);
+  });
+
+  it("disables Add to calendar for a sprint without dates and says where to set them", () => {
+    seed([{ ...S2, startDate: "", endDate: "" }]);
+    render(<SprintCockpit />);
+    const button = screen.getByRole("button", { name: "Add to calendar" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(
+      "Sprint 2 has no dates, so its ceremonies can’t go on a calendar. Click Edit details and set its first and last day."
+    );
+    expect(screen.getByRole("button", { name: "Edit details" })).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(calendars).toEqual([]);
+  });
+
+  it("keeps Add to calendar off the home card and out of the example", () => {
+    const { unmount } = render(<SprintCockpit compact />);
+    expect(screen.getByRole("region", { name: "Next ceremony" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add to calendar" })).toBeNull();
+    unmount();
+
+    seed([]);
+    render(<SprintCockpit />);
+    fireEvent.click(screen.getByRole("button", { name: "See an example first" }));
+    expect(screen.getByRole("region", { name: "Next ceremony" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add to calendar" })).toBeNull();
   });
 
   it("closes the sprint with the points done", () => {
