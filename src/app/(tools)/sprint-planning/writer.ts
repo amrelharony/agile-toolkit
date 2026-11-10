@@ -20,8 +20,16 @@ export interface PlanningWriter {
   /** The stories as stored right now. */
   stories(): Story[];
   upsertStory(story: Story): void;
-  /** Take back a story this page just made (the Undo of an add, an import or a paste). */
+  /**
+   * Add several new stories in one write (a paste, an import). Each write
+   * saves the whole workspace again, so 200 stories one at a time is 200
+   * saves of everything, and a frozen page on a phone.
+   */
+  upsertStories(stories: readonly Story[]): void;
+  /** Take back a story this page just made (the Undo of an add). */
   removeStory(id: string): void;
+  /** Take back the stories of a paste or an import, in one write. */
+  removeStories(ids: readonly string[]): void;
   /**
    * Delete a story the user chose to delete. Returns how to put it back
    * exactly, in its place in the stored order (null: there is no such story).
@@ -36,7 +44,10 @@ export interface PlanningWriter {
 export const liveWriter: PlanningWriter = {
   stories: () => useWorkspaceStore.getState().stories,
   upsertStory: (story) => useWorkspaceStore.getState().upsertStory(story),
+  // Stamped and cleaned as a single upsert is (the store's batch does both).
+  upsertStories: (stories) => useWorkspaceStore.getState().bulkUpsertStories([...stories]),
   removeStory: (id) => useWorkspaceStore.getState().removeStory(id),
+  removeStories: (ids) => useWorkspaceStore.getState().removeStories(ids),
   // With the Canvas cards pinned to it, which the Undo re-links.
   deleteStory: (id) => deleteStoryKeepingUndo(id),
   setStatus: (id, status) => {
@@ -72,7 +83,11 @@ export function exampleWriter(store: ExampleStore): PlanningWriter {
   return {
     stories: () => store.getState().stories,
     upsertStory: (story) => store.setState((s) => ({ stories: replaceById(s.stories, story) })),
+    upsertStories: (stories) =>
+      store.setState((s) => ({ stories: stories.reduce(replaceById, s.stories) })),
     removeStory: (id) => store.setState((s) => ({ stories: s.stories.filter((x) => x.id !== id) })),
+    removeStories: (ids) =>
+      store.setState((s) => ({ stories: s.stories.filter((x) => !ids.includes(x.id)) })),
     deleteStory: (id) => {
       const index = store.getState().stories.findIndex((x) => x.id === id);
       if (index < 0) return null;

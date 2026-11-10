@@ -331,12 +331,9 @@ export function PlanningBoard({
     undoable({
       label: `Added ${storiesCount(created.length)} to ${inSprintNow ? sprint.name : "the backlog"}`,
       description: notes.length > 0 ? notes.join(" ") : undefined,
-      apply: () => {
-        for (const s of created) writer.upsertStory(s);
-      },
-      revert: () => {
-        for (const s of created) writer.removeStory(s.id);
-      },
+      // One write each way, however long the list.
+      apply: () => writer.upsertStories(created),
+      revert: () => writer.removeStories(created.map((s) => s.id)),
     });
     log(SPRINT_PLANNING_ACTIONS.STORIES_PASTED, {
       sprintId: sprint.id,
@@ -447,12 +444,8 @@ export function PlanningBoard({
       label: `${storiesCount(created.length)} imported from the backlog`,
       // The backlog lists them in the shared order (compareBacklogOrder): say which.
       description: `Ordered ${backlogOrderText(created)}.`,
-      apply: () => {
-        for (const s of created) writer.upsertStory(s);
-      },
-      revert: () => {
-        for (const s of created) writer.removeStory(s.id);
-      },
+      apply: () => writer.upsertStories(created),
+      revert: () => writer.removeStories(created.map((s) => s.id)),
     });
     log(SPRINT_PLANNING_ACTIONS.STORIES_IMPORTED, { sprintId: sprint.id, count: created.length });
   };

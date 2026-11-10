@@ -685,6 +685,65 @@ describe("Paste stories", () => {
     expect(box()).toHaveValue("Pay later\nGift receipts");
   });
 
+  it("saves the workspace once for a whole paste, and once for its Undo", () => {
+    renderPlanning();
+    const before = ids();
+    openPaste();
+    const text = Array.from({ length: 200 }, (_, i) => `Story ${i + 1}`).join("\n");
+    fireEvent.change(within(panel()).getByLabelText("Stories to add"), { target: { value: text } });
+    fireEvent.click(within(panel()).getByLabelText("Put them straight into Sprint 2"));
+    // Every write of the store saves the whole workspace to the browser again.
+    let writes = 0;
+    const stop = useWorkspaceStore.subscribe(() => {
+      writes += 1;
+    });
+    fireEvent.click(within(panel()).getByRole("button", { name: "Add 200 stories to Sprint 2" }));
+    expect(ids()).toHaveLength(before.length + 200);
+    expect(writes).toBe(1);
+    // Stamped as a story added one at a time is: created, and joined its sprint.
+    const added = state().stories.slice(before.length);
+    expect(added.map((s) => s.title)).toEqual(text.split("\n"));
+    for (const s of [added[0], added[199]]) {
+      expect(s.createdAt).toEqual(expect.any(String));
+      expect(s.sprintHistory).toEqual([{ sprintId: "s2", at: s.createdAt }]);
+    }
+
+    undoLast();
+    expect(ids()).toEqual(before);
+    expect(writes).toBe(2);
+    stop();
+  });
+
+  it("unpins a Canvas card from a pasted story when the paste is undone", () => {
+    renderPlanning();
+    openPaste();
+    fireEvent.change(within(panel()).getByLabelText("Stories to add"), {
+      target: { value: "Gift cards\nSplit payments" },
+    });
+    fireEvent.click(within(panel()).getByRole("button", { name: "Add 2 stories to the backlog" }));
+    const pasted = state().stories.at(-1)!;
+    // Pinned to a card on a whiteboard before the Undo is pressed.
+    const card = {
+      id: "card-1",
+      type: "sticky",
+      boardId: "wb1",
+      x: 0,
+      y: 0,
+      w: 10,
+      h: 10,
+      z: 1,
+      version: 1,
+      updatedAt: "2026-10-01T00:00:00.000Z",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      sourceRef: { tool: "story", entityId: pasted.id },
+    };
+    act(() => useWorkspaceStore.setState({ whiteboardObjects: [card as never] }));
+    undoLast();
+    expect(story(pasted.id)).toBeUndefined();
+    expect(state().whiteboardObjects?.[0]).toMatchObject({ version: 2 });
+    expect(state().whiteboardObjects?.[0].sourceRef).toBeUndefined();
+  });
+
   it("only offers the backlog while the sprint is closed", () => {
     useWorkspaceStore.setState({ sprints: [S1, { ...S2, status: "completed" }] });
     renderPlanning();
