@@ -228,9 +228,11 @@ Rate limit: 120 requests/minute per PAT.
   sends and keeps. Its facts are in
   [src/lib/site/privacy.ts](src/lib/site/privacy.ts) and the wording people
   see elsewhere in [src/lib/site/disclosures.ts](src/lib/site/disclosures.ts);
-  `test/site/privacy-facts.test.ts` checks each against the code, so a change
-  to what is sent or kept fails a test until the page says it. `/about` and
-  `/contact` redirect there.
+  `test/site/privacy-facts.test.ts` checks each against the code, and
+  `test/site/privacy-kept.test.ts` against what the code does (the columns
+  the migrations give each table, the rows the routes write, what the
+  weather route logs and answers), so a change to what is sent or kept fails
+  a test until the page says it. `/about` and `/contact` redirect there.
 - See [src/lib/auth/](src/lib/auth/) for the auth helpers and
   [src/middleware.ts](src/middleware.ts) for the gate.
 

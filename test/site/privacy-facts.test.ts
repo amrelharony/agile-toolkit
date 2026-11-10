@@ -147,7 +147,8 @@ describe("each row, against the site", () => {
     expect(comics.kept[0].text).toContain("no cookies, no account and no IP address");
     // The pictures' address is the Supabase project's public storage.
     expect(read("src/lib/comics/images.ts")).toContain("/storage/v1/object/public/");
-    // The count adds to a month's total and keeps nothing else.
+    // The count adds to a month's total and keeps nothing else. The comment
+    // says so; privacy-kept.test.ts proves it from the route and the table.
     expect(read("src/app/api/comics/hit/route.ts")).toContain(
       "No IP address or user agent reaches the database"
     );
@@ -161,6 +162,8 @@ describe("each row, against the site", () => {
     expect(Math.round(0.1 * 111.32)).toBe(11);
     expect(WEATHER_TTL_S).toBe(900);
     expect(said(weather)).toContain("for 15 minutes");
+    // The module's own account; privacy-kept.test.ts calls the route and
+    // checks what it logs, asks Open-Meteo and answers.
     const server = read("src/lib/agent/mascot/context/weather-server.ts");
     expect(server).toContain("It isn't logged,");
     expect(server).toContain("stored or sent back");
@@ -216,6 +219,8 @@ describe("each row, against the site", () => {
     expect(said(licence)).toContain("No IP address and nothing about your browser.");
     // The line under the form says the same, and the row quotes it.
     expect(quoted(licence)).toEqual([LICENCE_FORM_NOTE]);
+    // The table's comment agrees; privacy-kept.test.ts holds its columns and
+    // the row the route writes.
     expect(read("supabase/migrations/0029_comic_stories.sql")).toContain(
       "Licence requests from /comics/license, read only by the owner through server code. No IP address or user agent is stored."
     );
@@ -236,6 +241,7 @@ describe("each row, against the site", () => {
     expect(read("src/lib/comics/guestbook-store.ts")).toContain('.select("id,name,message")');
     expect(read("src/app/(tools)/comics/guestbook/page.tsx")).toContain("{note.name}</p>");
     expect(quoted(guestbook)).toEqual([GUESTBOOK_FORM_NOTE]);
+    // Likewise: the comment here, the columns and the row in privacy-kept.test.ts.
     expect(read("supabase/migrations/0033_comic_guestbook_quiz.sql")).toContain(
       "shown only once the owner approves them. Read and written by server code only. No IP address or user agent is stored."
     );
@@ -248,6 +254,7 @@ describe("each row, against the site", () => {
     expect(said(book)).toContain("two cookies for up to 400 days");
     const route = read("src/app/vip/[key]/route.ts");
     expect(route.match(/response\.cookies\.set\(/g)).toHaveLength(2);
+    // privacy-kept.test.ts opens the link and checks the count and the cookies.
     expect(route).toContain("No key, cookie or IP");
   });
 
