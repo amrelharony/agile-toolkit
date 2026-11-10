@@ -72,6 +72,7 @@ export function TeamCharter() {
   }, []);
   const [cadence, updateCadence] = useCeremonyCadence();
   const [today] = useState(() => todayIso());
+  const [now] = useState(() => new Date());
 
   const docs = useMemo<CharterDocs>(
     () => ({ members, cadence, agreement, dod, dor, estimation, stories, sprints }),
@@ -176,7 +177,13 @@ export function TeamCharter() {
         </p>
         <CadenceForm cadence={cadence} onChange={updateCadence} />
         <div className="mt-4 border-t border-border pt-4">
-          <AddToCalendar sprint={sprint} cadence={cadence} actions={actions} place="team" />
+          <AddToCalendar
+            sprint={sprint}
+            cadence={cadence}
+            actions={actions}
+            now={now}
+            place="team"
+          />
         </div>
       </SectionCard>
     </div>

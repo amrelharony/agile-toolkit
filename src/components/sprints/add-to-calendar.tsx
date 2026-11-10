@@ -24,13 +24,15 @@ const OPTION_LABEL =
  * "Add to calendar": the sprint's ceremonies as a calendar file, built in
  * the browser (lib/sprints/ics) and saved on click. Two options sit beside
  * it: the open retro actions on their due dates (on when there are any) and
- * the weekly Agile at Work story (off). Without a sprint, or for one with no
- * dates, the button is disabled and the line beside it says why.
+ * the weekly Agile at Work story (off). Without a sprint, for a cancelled
+ * one, for one with no dates, or for one whose ceremonies are all in the
+ * past, the button is disabled and the line beside it says why.
  */
 export function AddToCalendar({
   sprint,
   cadence,
   actions,
+  now,
   place,
 }: {
   /** The sprint whose ceremonies go in the file. Absent: the team has no sprint yet. */
@@ -38,24 +40,30 @@ export function AddToCalendar({
   cadence: CeremonyCadence;
   /** The team's retro actions: the open ones with a due date can go in the file. */
   actions: readonly CalendarAction[];
+  /** When the page was opened: a sprint with no ceremony from then on has none to add. */
+  now: Date;
   /** Where this sits, for the way to a sprint's dates: the cockpit edits them in place. */
   place: "cockpit" | "team";
 }) {
   const noteId = useId();
   const { flash, flashing } = useFlash();
-  const ceremonies = useMemo(
-    () => (sprint ? ceremonyDates(sprint, cadence).length : 0),
+  const occurrences = useMemo(
+    () => (sprint ? ceremonyDates(sprint, cadence) : []),
     [sprint, cadence]
   );
+  const ceremonies = occurrences.length;
+  const cancelled = sprint?.status === "cancelled";
+  // As the next-ceremony card counts it: one starting now is still to come.
+  const over = ceremonies > 0 && !occurrences.some((o) => o.at.getTime() >= now.getTime());
   const due = useMemo(() => calendarActions(actions).length, [actions]);
   // Until it is clicked, the actions' box is ticked when there is one to add.
   const [actionsChoice, setActionsChoice] = useState<boolean | null>(null);
   const withActions = due > 0 && (actionsChoice ?? true);
   const [withStory, setWithStory] = useState(false);
-  const ready = sprint !== undefined && ceremonies > 0;
+  const ready = sprint !== undefined && !cancelled && ceremonies > 0 && !over;
 
   const download = () => {
-    if (!sprint) return;
+    if (!sprint || !ready) return;
     const calendar = sprintCalendar({
       sprint,
       cadence,
@@ -69,16 +77,16 @@ export function AddToCalendar({
     flash("Calendar file downloaded");
   };
 
-  // Opens the cockpit on this sprint, not on the one this browser last picked
-  // there: the line beside the link names this one.
-  const cockpitLink = (
-    <Link
-      href={sprintHref("/sprint", sprint?.id)}
-      className="font-medium text-accent hover:underline"
-    >
+  const cockpitLink = (href: string) => (
+    <Link href={href} className="font-medium text-accent hover:underline">
       Sprint Cockpit
     </Link>
   );
+  // A new sprint starts from the cockpit's New sprint, on whichever sprint it opens.
+  const newSprintLink = cockpitLink("/sprint");
+  // Opens the cockpit on this sprint, not on the one this browser last picked
+  // there: the line beside the link names this one.
+  const thisSprintLink = cockpitLink(sprintHref("/sprint", sprint?.id));
 
   return (
     <div className="space-y-3">
@@ -105,17 +113,41 @@ export function AddToCalendar({
           ) : !sprint ? (
             <>
               There is no sprint yet, so there are no ceremonies to add. Create one in the{" "}
-              {cockpitLink}.
+              {newSprintLink}.
             </>
+          ) : cancelled ? (
+            place === "cockpit" ? (
+              <>
+                {sprint.name} was cancelled, so it has no ceremonies to add. Pick another sprint
+                under Sprint, or click New sprint.
+              </>
+            ) : (
+              <>
+                {sprint.name} was cancelled, so it has no ceremonies to add. Create a new sprint in
+                the {newSprintLink}.
+              </>
+            )
+          ) : ceremonies === 0 ? (
+            place === "cockpit" ? (
+              <>
+                {sprint.name} has no dates, so its ceremonies can&rsquo;t go on a calendar. Click
+                Edit details and set its first and last day.
+              </>
+            ) : (
+              <>
+                {sprint.name} has no dates, so its ceremonies can&rsquo;t go on a calendar. Set its
+                first and last day in the {thisSprintLink}.
+              </>
+            )
           ) : place === "cockpit" ? (
             <>
-              {sprint.name} has no dates, so its ceremonies can&rsquo;t go on a calendar. Click Edit
-              details and set its first and last day.
+              Every ceremony of {sprint.name} is in the past, so there is nothing to add to a
+              calendar. Pick the next sprint under Sprint, or click New sprint.
             </>
           ) : (
             <>
-              {sprint.name} has no dates, so its ceremonies can&rsquo;t go on a calendar. Set its
-              first and last day in the {cockpitLink}.
+              Every ceremony of {sprint.name} is in the past, so there is nothing to add to a
+              calendar. Plan the next sprint in the {newSprintLink}.
             </>
           )}
         </p>

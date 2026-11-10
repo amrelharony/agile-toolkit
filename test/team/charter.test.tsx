@@ -66,6 +66,9 @@ const currentRetro = (cards: RetroCard[]): RetroBoard => ({
 });
 
 beforeEach(() => {
+  // Monday 12 Oct 2026, so the October sprints below have ceremonies to come.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 9, 12, 9, 0, 0));
   cadence.patches.length = 0;
   calendars.length = 0;
   window.localStorage.clear();
@@ -105,6 +108,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   useWorkspaceStore.setState({
     teamMembers: [],
     workingAgreements: [],

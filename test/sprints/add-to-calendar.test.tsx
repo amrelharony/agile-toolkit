@@ -6,9 +6,9 @@ import type { CalendarAction } from "@/lib/sprints/ics";
 
 /**
  * "Add to calendar": the button saves the sprint's ceremonies as a calendar
- * file, the two options beside it choose the extras, a sprint without dates
- * (or no sprint) disables it with the reason, and the note says the file is
- * a snapshot.
+ * file, the two options beside it choose the extras, a sprint without dates,
+ * a cancelled one, one whose ceremonies are all past (or no sprint) disables
+ * it with the reason, and the note says the file is a snapshot.
  */
 
 const saved = vi.hoisted(() => [] as { ics: string; filename: string }[]);
@@ -27,6 +27,8 @@ const SPRINT: Sprint = {
   pointsPlanned: 30,
   status: "active",
 };
+/** The page was opened on Sunday 18 Oct 2026, the day before the sprint starts. */
+const NOW = new Date(2026, 9, 18, 9, 0, 0);
 const ACTIONS: CalendarAction[] = [
   { id: "a1", text: "Pair on the flaky test", assignee: "Omar", dueDate: "2026-10-28" },
   { id: "a2", text: "Write the runbook", dueDate: "2026-11-02" },
@@ -46,7 +48,13 @@ beforeEach(() => {
 describe("AddToCalendar", () => {
   it("downloads the sprint's ceremonies as a calendar file and says so on the button", () => {
     render(
-      <AddToCalendar sprint={SPRINT} cadence={DEFAULT_CADENCE} actions={[]} place="cockpit" />
+      <AddToCalendar
+        sprint={SPRINT}
+        cadence={DEFAULT_CADENCE}
+        actions={[]}
+        now={NOW}
+        place="cockpit"
+      />
     );
     expect(button()).toBeEnabled();
     // The file asks for the reminder; whether one shows is up to the calendar app.
@@ -65,7 +73,15 @@ describe("AddToCalendar", () => {
   });
 
   it("says the file is a snapshot and how it reaches the team", () => {
-    render(<AddToCalendar sprint={SPRINT} cadence={DEFAULT_CADENCE} actions={[]} place="team" />);
+    render(
+      <AddToCalendar
+        sprint={SPRINT}
+        cadence={DEFAULT_CADENCE}
+        actions={[]}
+        now={NOW}
+        place="team"
+      />
+    );
     expect(
       screen.getByText(
         "The file is a snapshot. It does not change when the ceremony times do, so download it again after a change. Each teammate imports it into their own calendar, or the Scrum Master forwards it. Times are in this device’s time zone."
@@ -75,7 +91,13 @@ describe("AddToCalendar", () => {
 
   it("adds the open retro actions with a due date unless that is unticked", () => {
     render(
-      <AddToCalendar sprint={SPRINT} cadence={DEFAULT_CADENCE} actions={ACTIONS} place="cockpit" />
+      <AddToCalendar
+        sprint={SPRINT}
+        cadence={DEFAULT_CADENCE}
+        actions={ACTIONS}
+        now={NOW}
+        place="cockpit"
+      />
     );
     // On while there are any; the label counts the ones that can be placed.
     expect(actionsBox()).toBeChecked();
@@ -100,7 +122,13 @@ describe("AddToCalendar", () => {
       { id: "a1", text: "Pair on the flaky test", dueDate: "2026-10-30" },
     ];
     render(
-      <AddToCalendar sprint={SPRINT} cadence={DEFAULT_CADENCE} actions={twice} place="cockpit" />
+      <AddToCalendar
+        sprint={SPRINT}
+        cadence={DEFAULT_CADENCE}
+        actions={twice}
+        now={NOW}
+        place="cockpit"
+      />
     );
     expect(actionsBox().closest("label")).toHaveTextContent("(1 with a due date)");
     fireEvent.click(button());
@@ -114,6 +142,7 @@ describe("AddToCalendar", () => {
         sprint={SPRINT}
         cadence={DEFAULT_CADENCE}
         actions={ACTIONS.slice(2)}
+        now={NOW}
         place="cockpit"
       />
     );
@@ -126,7 +155,13 @@ describe("AddToCalendar", () => {
 
   it("adds the weekly Agile at Work story only when asked", () => {
     render(
-      <AddToCalendar sprint={SPRINT} cadence={DEFAULT_CADENCE} actions={[]} place="cockpit" />
+      <AddToCalendar
+        sprint={SPRINT}
+        cadence={DEFAULT_CADENCE}
+        actions={[]}
+        now={NOW}
+        place="cockpit"
+      />
     );
     expect(storyBox()).not.toBeChecked();
     fireEvent.click(button());
@@ -141,7 +176,7 @@ describe("AddToCalendar", () => {
 
   it("follows the ceremony times it is given", () => {
     const cadence = { ...DEFAULT_CADENCE, refinement: null, holidays: ["2026-10-22"] };
-    render(<AddToCalendar sprint={SPRINT} cadence={cadence} actions={[]} place="team" />);
+    render(<AddToCalendar sprint={SPRINT} cadence={cadence} actions={[]} now={NOW} place="team" />);
     // No refinements (2) and no Daily Scrum on the holiday.
     expect(button()).toHaveAccessibleDescription(/the 11 ceremonies of Sprint 1/);
     fireEvent.click(button());
@@ -151,7 +186,13 @@ describe("AddToCalendar", () => {
   it("is disabled for a sprint without dates, and says how to give it some", () => {
     const undated = { ...SPRINT, name: "Sprint 9", startDate: "", endDate: "" };
     const { rerender } = render(
-      <AddToCalendar sprint={undated} cadence={DEFAULT_CADENCE} actions={ACTIONS} place="cockpit" />
+      <AddToCalendar
+        sprint={undated}
+        cadence={DEFAULT_CADENCE}
+        actions={ACTIONS}
+        now={NOW}
+        place="cockpit"
+      />
     );
     expect(button()).toBeDisabled();
     expect(button()).toHaveAccessibleDescription(
@@ -165,7 +206,13 @@ describe("AddToCalendar", () => {
 
     // On the Team page the dates are set in the cockpit.
     rerender(
-      <AddToCalendar sprint={undated} cadence={DEFAULT_CADENCE} actions={ACTIONS} place="team" />
+      <AddToCalendar
+        sprint={undated}
+        cadence={DEFAULT_CADENCE}
+        actions={ACTIONS}
+        now={NOW}
+        place="team"
+      />
     );
     expect(button()).toBeDisabled();
     const reason = screen.getByText(/Sprint 9 has no dates/);
@@ -183,6 +230,7 @@ describe("AddToCalendar", () => {
         sprint={{ ...undated, id: "legacy sprint/3" }}
         cadence={DEFAULT_CADENCE}
         actions={[]}
+        now={NOW}
         place="team"
       />
     );
@@ -197,6 +245,7 @@ describe("AddToCalendar", () => {
         sprint={{ ...undated, startDate: "2020-01-05", endDate: "2020-01-15" }}
         cadence={DEFAULT_CADENCE}
         actions={[]}
+        now={NOW}
         place="team"
       />
     );
@@ -205,7 +254,13 @@ describe("AddToCalendar", () => {
 
   it("is disabled until the team has a sprint", () => {
     render(
-      <AddToCalendar sprint={undefined} cadence={DEFAULT_CADENCE} actions={[]} place="team" />
+      <AddToCalendar
+        sprint={undefined}
+        cadence={DEFAULT_CADENCE}
+        actions={[]}
+        now={NOW}
+        place="team"
+      />
     );
     expect(button()).toBeDisabled();
     expect(button()).toHaveAccessibleDescription(
@@ -214,9 +269,116 @@ describe("AddToCalendar", () => {
     expect(screen.getByRole("link", { name: "Sprint Cockpit" })).toHaveAttribute("href", "/sprint");
   });
 
+  it("is disabled for a cancelled sprint, whose ceremonies won't take place", () => {
+    const cancelled: Sprint = { ...SPRINT, name: "Sprint 4", status: "cancelled" };
+    const { rerender } = render(
+      <AddToCalendar
+        sprint={cancelled}
+        cadence={DEFAULT_CADENCE}
+        actions={ACTIONS}
+        now={NOW}
+        place="cockpit"
+      />
+    );
+    expect(button()).toBeDisabled();
+    expect(button()).toHaveAccessibleDescription(
+      "Sprint 4 was cancelled, so it has no ceremonies to add. Pick another sprint under Sprint, or click New sprint."
+    );
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    fireEvent.click(button());
+    expect(saved).toEqual([]);
+
+    rerender(
+      <AddToCalendar
+        sprint={cancelled}
+        cadence={DEFAULT_CADENCE}
+        actions={ACTIONS}
+        now={NOW}
+        place="team"
+      />
+    );
+    expect(button()).toHaveAccessibleDescription(
+      "Sprint 4 was cancelled, so it has no ceremonies to add. Create a new sprint in the Sprint Cockpit."
+    );
+    // To a new sprint, not to the cancelled one.
+    expect(screen.getByRole("link", { name: "Sprint Cockpit" })).toHaveAttribute("href", "/sprint");
+  });
+
+  it("is disabled once every ceremony of the sprint is in the past", () => {
+    // The retro on Friday 30 Oct starts at 15:30 on the default times.
+    const retro = new Date(2026, 9, 30, 15, 30, 0);
+    const { rerender } = render(
+      <AddToCalendar
+        sprint={SPRINT}
+        cadence={DEFAULT_CADENCE}
+        actions={ACTIONS}
+        now={retro}
+        place="cockpit"
+      />
+    );
+    // One starting now is still to come, as on the next-ceremony card.
+    expect(button()).toBeEnabled();
+    expect(button()).toHaveAccessibleDescription(/the 14 ceremonies of Sprint 1/);
+
+    const after = new Date(retro.getTime() + 60_000);
+    rerender(
+      <AddToCalendar
+        sprint={SPRINT}
+        cadence={DEFAULT_CADENCE}
+        actions={ACTIONS}
+        now={after}
+        place="cockpit"
+      />
+    );
+    expect(button()).toBeDisabled();
+    expect(button()).toHaveAccessibleDescription(
+      "Every ceremony of Sprint 1 is in the past, so there is nothing to add to a calendar. Pick the next sprint under Sprint, or click New sprint."
+    );
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByText(/The file is a snapshot/)).toBeNull();
+    fireEvent.click(button());
+    expect(saved).toEqual([]);
+
+    rerender(
+      <AddToCalendar
+        sprint={SPRINT}
+        cadence={DEFAULT_CADENCE}
+        actions={ACTIONS}
+        now={after}
+        place="team"
+      />
+    );
+    expect(button()).toHaveAccessibleDescription(
+      "Every ceremony of Sprint 1 is in the past, so there is nothing to add to a calendar. Plan the next sprint in the Sprint Cockpit."
+    );
+    expect(screen.getByRole("link", { name: "Sprint Cockpit" })).toHaveAttribute("href", "/sprint");
+  });
+
+  it("still offers a sprint under way, with every ceremony in the file", () => {
+    // Day 8 of 11: the first ceremonies are past, the rest to come.
+    render(
+      <AddToCalendar
+        sprint={SPRINT}
+        cadence={DEFAULT_CADENCE}
+        actions={[]}
+        now={new Date(2026, 9, 27, 12, 0, 0)}
+        place="team"
+      />
+    );
+    expect(button()).toBeEnabled();
+    fireEvent.click(button());
+    expect(entries(saved[0].ics)).toBe(14);
+  });
+
   it("makes each option's label the 44px target on touch, and nothing bigger with a mouse", () => {
     render(
-      <AddToCalendar sprint={SPRINT} cadence={DEFAULT_CADENCE} actions={ACTIONS} place="cockpit" />
+      <AddToCalendar
+        sprint={SPRINT}
+        cadence={DEFAULT_CADENCE}
+        actions={ACTIONS}
+        now={NOW}
+        place="cockpit"
+      />
     );
     const group = screen.getByRole("group", { name: "Also put in the file" });
     const boxes = within(group).getAllByRole("checkbox");

@@ -417,6 +417,7 @@ function CockpitBody({
             sprint={sprint}
             cadence={cadence}
             actions={data.openActions}
+            now={now}
             place="cockpit"
           />
         )}

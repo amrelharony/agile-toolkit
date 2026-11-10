@@ -329,6 +329,29 @@ describe("with a sprint", () => {
     expect(calendars).toEqual([]);
   });
 
+  it("disables Add to calendar for a sprint that is over or cancelled, and says why", () => {
+    // Sprint 1 ended on 1 Oct, three weeks before today.
+    window.history.replaceState(null, "", "/sprint?sprint=s1");
+    const { unmount } = render(<SprintCockpit />);
+    expect(screen.getByRole("button", { name: "Add to calendar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add to calendar" })).toHaveAccessibleDescription(
+      "Every ceremony of Sprint 1 is in the past, so there is nothing to add to a calendar. Pick the next sprint under Sprint, or click New sprint."
+    );
+    unmount();
+
+    resetSelectedSprint();
+    window.history.replaceState(null, "", "/sprint");
+    seed([{ ...S2, status: "cancelled" }]);
+    render(<SprintCockpit />);
+    const button = screen.getByRole("button", { name: "Add to calendar" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(
+      "Sprint 2 was cancelled, so it has no ceremonies to add. Pick another sprint under Sprint, or click New sprint."
+    );
+    fireEvent.click(button);
+    expect(calendars).toEqual([]);
+  });
+
   it("keeps Add to calendar off the home card and out of the example", () => {
     const { unmount } = render(<SprintCockpit compact />);
     expect(screen.getByRole("region", { name: "Next ceremony" })).toBeInTheDocument();
