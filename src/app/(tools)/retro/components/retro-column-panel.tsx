@@ -8,8 +8,14 @@
  * Cards are vote-sorted in Discuss/Actions.
  *
  * `canModerate={false}` is the visitor-room participant view: cards can be
- * added in Write and voted on in Vote, nothing else (no late cards, no
- * delete, group, action items, assignees or Send to).
+ * added in Write and voted on in Vote, nothing else (no late cards, group,
+ * action items, assignees or Send to), and only the participant's own cards
+ * (`ownIds`) can be deleted.
+ *
+ * While cards are hidden (a live room's Write phase), `hiddenCount` says how
+ * many of the column's cards this screen doesn't show; the header's count
+ * includes them. With `onUnvote`, a card the current voter voted on
+ * (`myVotes`) offers to take a vote back.
  *
  * Pasting several lines into the add box adds one card per non-empty line
  * (up to `pasteCap`, saying so when lines are left out). Cards are
@@ -22,7 +28,7 @@
 
 import { useEffect, useState, useRef, type ClipboardEvent } from "react";
 import { AnimatePresence } from "framer-motion";
-import { Plus } from "lucide-react";
+import { EyeOff, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Field } from "@/components/ui/field";
@@ -76,6 +82,12 @@ export function RetroColumnPanel({
   canAdd = true,
   maxCardLength,
   pasteCap = PASTE_LINE_CAP,
+  maxVotes = MAX_VOTES,
+  hiddenCount = 0,
+  ownIds,
+  myVotes,
+  onUnvote,
+  unvoteLabel,
 }: {
   column: RetroColumn;
   cards: RetroCard[];
@@ -110,6 +122,18 @@ export function RetroColumnPanel({
   maxCardLength?: number;
   /** Most cards one multi-line paste adds. */
   pasteCap?: number;
+  /** Votes each voter has. */
+  maxVotes?: number;
+  /** Cards in this column the screen doesn't show (hidden while people write). */
+  hiddenCount?: number;
+  /** Cards the viewer added and may delete as its own (a room participant). */
+  ownIds?: ReadonlySet<string>;
+  /** Votes the current voter has on each card. */
+  myVotes?: Readonly<Record<string, number>>;
+  /** Take one of the current voter's votes off a card. */
+  onUnvote?: (id: string) => void;
+  /** The take-back button's name (default "Take my vote back"). */
+  unvoteLabel?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const form = useItemForm<CardDraft, string, "text">({
@@ -128,7 +152,9 @@ export function RetroColumnPanel({
   if (addingIn !== null && addingIn !== phase) setAddingIn(null);
   const isWrite = phase === "write";
   const showInput = canAdd && (isWrite || (canModerate && addingIn === phase));
-  const canVote = votesUsed < MAX_VOTES;
+  const canVote = votesUsed < maxVotes;
+  const votesOn = (id: string) =>
+    myVotes && Object.prototype.hasOwnProperty.call(myVotes, id) ? myVotes[id] : 0;
 
   // Opening the input from the button puts the cursor in it.
   const focusOnOpen = useRef(false);
@@ -195,7 +221,7 @@ export function RetroColumnPanel({
           </span>
         </div>
         <Badge variant="outline" className="text-xs bg-cardH border-border text-sub">
-          {cards.length}
+          {cards.length + hiddenCount}
         </Badge>
       </div>
 
@@ -227,6 +253,10 @@ export function RetroColumnPanel({
                     onEdit={onEdit}
                     maxCardLength={maxCardLength}
                     canModerate={canModerate}
+                    ownCard={ownIds?.has(card.id) ?? false}
+                    myVotes={votesOn(card.id)}
+                    onUnvote={onUnvote}
+                    unvoteLabel={unvoteLabel}
                   />
                   {children.map((child) => (
                     <RetroCardItem
@@ -248,12 +278,24 @@ export function RetroColumnPanel({
                       onEdit={onEdit}
                       maxCardLength={maxCardLength}
                       canModerate={canModerate}
+                      ownCard={ownIds?.has(child.id) ?? false}
+                      myVotes={votesOn(child.id)}
+                      onUnvote={onUnvote}
+                      unvoteLabel={unvoteLabel}
                     />
                   ))}
                 </div>
               );
             })}
         </AnimatePresence>
+
+        {/* The cards this screen doesn't show yet: only how many */}
+        {hiddenCount > 0 && (
+          <p className="flex items-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1.5 text-xs text-sub">
+            <EyeOff className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            {hiddenCount} {hiddenCount === 1 ? "card" : "cards"} from others, hidden until Vote
+          </p>
+        )}
 
         {/* Add a card after Write: a button that opens the input */}
         {!isWrite && canModerate && canAdd && (

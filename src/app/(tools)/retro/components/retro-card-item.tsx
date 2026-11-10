@@ -12,7 +12,12 @@
  *
  * `canModerate={false}` (a visitor-room participant) keeps only the vote
  * button in the Vote phase. Votes, action items and assignees still show,
- * read-only; delete, group, discuss focus and Send to are gone.
+ * read-only; group, discuss focus and Send to are gone, and Delete is there
+ * only on a card the participant added (`ownCard`, "Delete my card").
+ *
+ * Taking a vote back: with `onUnvote` and `myVotes` above zero, the Vote
+ * phase adds a button beside the heart that takes one of the voter's votes
+ * off this card ("Take my vote back", or `unvoteLabel` for a named voter).
  *
  * Editing: with `onEdit`, the card text is click-to-edit in every phase
  * (Enter saves, Escape cancels, an emptied card reverts). In Discuss, where
@@ -29,7 +34,7 @@
  */
 
 import { motion } from "framer-motion";
-import { Heart, Trash2, CheckSquare, Square, Pencil } from "lucide-react";
+import { Heart, Trash2, CheckSquare, Square, Pencil, Undo2 } from "lucide-react";
 import { SourceLink } from "@/components/handoff/source-link";
 import { isExampleId } from "@/components/tool-frame/example-data";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
@@ -93,6 +98,10 @@ export function RetroCardItem({
   onEdit,
   maxCardLength,
   canModerate = true,
+  ownCard = false,
+  myVotes = 0,
+  onUnvote,
+  unvoteLabel = "Take my vote back",
 }: {
   card: RetroCard;
   allCards: RetroCard[];
@@ -120,6 +129,14 @@ export function RetroCardItem({
   maxCardLength?: number;
   /** False for a visitor-room participant: vote in Vote, everything else read-only. */
   canModerate?: boolean;
+  /** A participant's own card: it may delete it in Write ("Delete my card"). */
+  ownCard?: boolean;
+  /** Votes the current voter has on this card. */
+  myVotes?: number;
+  /** Take one of the current voter's votes off this card. Without it there's no take-back. */
+  onUnvote?: (id: string) => void;
+  /** The take-back button's name: "Take my vote back", or one naming the voter. */
+  unvoteLabel?: string;
 }) {
   const edit = useInlineEdit();
   const otherCards = allCards.filter(
@@ -132,6 +149,8 @@ export function RetroCardItem({
   const isDiscussClickable = canModerate && phase === "discuss" && card.groupedWith === null;
   const votesLabel = `${card.votes} ${card.votes === 1 ? "vote" : "votes"}`;
   const isExample = isExampleId(card.id);
+  const canUnvote = phase === "vote" && onUnvote !== undefined && myVotes > 0;
+  const canDelete = phase === "write" && (canModerate || ownCard);
 
   return (
     <motion.div
@@ -280,12 +299,25 @@ export function RetroCardItem({
             </button>
           )}
 
-          {/* Delete */}
-          {phase === "write" && canModerate && (
+          {/* Take a vote back: one of the current voter's, off this card */}
+          {canUnvote && onUnvote && (
+            <button
+              type="button"
+              onClick={() => onUnvote(card.id)}
+              aria-label={unvoteLabel}
+              title={unvoteLabel}
+              className={`relative z-10 ${CARD_ICON_TOUCH} p-1 rounded text-sub hover:text-accent-magenta pointer-fine:hover:bg-accent-magenta/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+            >
+              <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
+          )}
+
+          {/* Delete: any card when moderating, a participant's own card otherwise */}
+          {canDelete && (
             <button
               type="button"
               onClick={() => onDelete(card.id)}
-              aria-label="Delete card"
+              aria-label={canModerate ? "Delete card" : "Delete my card"}
               className={`${CARD_ICON_TOUCH} opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100 p-1 text-sub hover:text-status-red transition-all`}
             >
               <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />

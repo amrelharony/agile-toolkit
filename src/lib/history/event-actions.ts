@@ -11,6 +11,8 @@ export const RETRO_ACTIONS = {
   CARD_EDITED: "card_edited",
   CARD_REMOVED: "card_removed",
   CARD_VOTED: "card_voted",
+  /** A vote was taken back off a card. */
+  CARD_UNVOTED: "card_unvoted",
   CARDS_GROUPED: "cards_grouped",
   CARDS_UNGROUPED: "cards_ungrouped",
   PHASE_ADVANCED: "phase_advanced", // milestone
