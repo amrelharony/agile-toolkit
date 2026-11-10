@@ -102,7 +102,8 @@ function themesSection(themes: readonly KeywordTheme[], cards: readonly RetroCar
  * with (when the board has a sprint), one section per column (most-voted
  * first, grouped cards nested under their parent), the action items with
  * their owners, then the common words across the cards. The visitor room
- * calls it with the board alone, and gets the summary too.
+ * calls it with the board and its common words (no sprint or facts), and
+ * gets the same summary.
  */
 export function toMarkdown(
   state: Pick<BoardState, "format" | "cards">,

@@ -351,8 +351,45 @@ describe("VisitorRetroRoom (participant)", () => {
     expect(exportToMarkdown).toHaveBeenCalledTimes(1);
     const [markdown, filename] = vi.mocked(exportToMarkdown).mock.calls[0];
     expect(markdown).toContain("Card a");
+    // Two cards are too few for common words, as on the board.
+    expect(markdown).not.toContain("Common words");
     expect(filename).toMatch(/^retro-start-stop-continue-/);
     expect(useWorkspaceStore.getState().retroBoards).toEqual([]);
+  });
+
+  it("downloads the Markdown with the board's summary, common words included", () => {
+    const cards = [
+      card("f1", { text: "Flaky login tests", votes: 3 }),
+      card("f2", { text: "Flaky deploy pipeline", columnKey: "stop", votes: 2 }),
+      card("f3", { text: "Flaky staging data", columnKey: "stop" }),
+      ...[
+        "Pairing helped",
+        "Demo went well",
+        "Clear goal",
+        "Short standups",
+        "Good retro",
+        "Kind reviews",
+      ].map((text, i) => card(`c${i}`, { text, columnKey: "continue" })),
+      card("act", { text: "Quarantine the worst tests", isActionItem: true, assignee: "Sam" }),
+    ];
+    render(
+      <VisitorRetroRoom code={CODE} identity={{ id: ME.id, name: ME.name }} onLeave={() => {}} />
+    );
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    act(() => ch.deliver("retro:state", hostSnapshot(makeBoard({ cards }))));
+    act(() => ch.deliver("retro:end", { by: HOST.id }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Download Markdown" }));
+    const [markdown] = vi.mocked(exportToMarkdown).mock.calls[0];
+    // The same summary the board's own export opens with.
+    expect(markdown).toContain("## Summary");
+    expect(markdown).toContain("- **Most votes:** Flaky login tests (3 votes, Start)");
+    expect(markdown).toContain("- **Common words:** flaky (3 cards)");
+    expect(markdown).toContain("- **Actions:** Quarantine the worst tests (Sam)");
   });
 
   it("ignores end and kick from the host while it is missing from presence", () => {
