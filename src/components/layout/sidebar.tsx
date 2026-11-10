@@ -12,6 +12,7 @@ import { isVipHidden } from "@/lib/tools/catalog";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { SECTIONS, getSectionForTool } from "@/lib/constants/sections";
+import { SITE_OWNER } from "@/lib/site/owner";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -710,12 +711,12 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
             <p className="text-xs text-sub text-center">
               Built by{" "}
               <a
-                href="https://amrelharony.com"
+                href={SITE_OWNER.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-accent hover:underline"
               >
-                Amr El Harony
+                {SITE_OWNER.name}
               </a>
             </p>
           </div>
