@@ -12,7 +12,9 @@ import {
   VISITOR_AI_CONSENT_KEY,
   VISITOR_AI_CONSENT_VERSION,
 } from "@/components/agent/mascot/visitor-ai-consent";
+import { MEMORY_KEY } from "@/lib/agent/mascot/memory";
 import { LIVE_ROOM_KEY_PREFIX } from "@/lib/realtime/live-visitor-room";
+import { LEGACY_APP_KEYS } from "@/lib/utils/clear-local-data";
 
 beforeEach(() => localStorage.clear());
 
@@ -140,6 +142,62 @@ describe("toolkit backup", () => {
       if (!parsed.ok) throw new Error(parsed.error);
       restoreBackup(parsed.backup, localStorage);
       expect(localStorage.getItem(stamp)).toBe("1");
+    });
+  });
+
+  describe("what Amr remembers of a visitor: cleared with the rest, never in a backup", () => {
+    const memory = JSON.stringify({
+      v: 1,
+      firstDay: "2026-11-01",
+      lastDay: "2026-11-09",
+      days: 4,
+      streak: 2,
+      counts: { pat: 7 },
+      recent: ["wave"],
+    });
+
+    it("is not a backup key, and neither are his other notes about the browser", () => {
+      expect(isBackupKey(MEMORY_KEY)).toBe(false);
+      for (const key of ["mascot_last_day", "mascot_greeted", "mascot_helped", "mascot_weather"]) {
+        expect(isBackupKey(key)).toBe(false);
+      }
+      // LEGACY_APP_KEYS is cleared AND backed up, so of Amr's keys only his look belongs on it.
+      expect(LEGACY_APP_KEYS.filter((key) => key.startsWith("mascot_"))).toEqual([
+        "mascot_appearance",
+      ]);
+      for (const key of LEGACY_APP_KEYS) expect(isBackupKey(key)).toBe(true);
+    });
+
+    it("leaves his memory out of an export and drops it from a file", () => {
+      localStorage.setItem(MEMORY_KEY, memory);
+      localStorage.setItem("agile-toolkit:retro", "{}");
+      const backup = collectBackup(localStorage);
+      expect(Object.keys(backup.keys)).toEqual(["agile-toolkit:retro"]);
+      expect(serializeBackup(backup)).not.toContain(MEMORY_KEY);
+
+      localStorage.clear();
+      const parsed = parseBackup(
+        JSON.stringify({
+          format: "agile-toolkit-backup",
+          version: 1,
+          createdAt: "",
+          keys: { [MEMORY_KEY]: memory, "agile-toolkit:retro": "{}" },
+        })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      expect(Object.keys(parsed.backup.keys)).toEqual(["agile-toolkit:retro"]);
+      restoreBackup(parsed.backup, localStorage);
+      expect(localStorage.getItem(MEMORY_KEY)).toBeNull();
+    });
+
+    it("keeps this browser's own memory through a restore", () => {
+      localStorage.setItem(MEMORY_KEY, memory);
+      const parsed = parseBackup(
+        JSON.stringify({ format: "agile-toolkit-backup", version: 1, createdAt: "", keys: {} })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      restoreBackup(parsed.backup, localStorage);
+      expect(localStorage.getItem(MEMORY_KEY)).toBe(memory);
     });
   });
 

@@ -5,7 +5,9 @@
  *
  * It lives in this browser's localStorage under one key, stays under a few
  * kilobytes, and is never sent anywhere: it is about making him good company,
- * not about knowing the visitor. Clearing site data forgets it all.
+ * not about knowing the visitor. Clearing site data forgets it all, and so does
+ * "Clear data on this browser" (lib/utils/clear-local-data.ts, which names this
+ * key). It is not part of a backup (lib/data/backup.ts).
  *
  * Pure apart from the storage and the clock, both passed in.
  */

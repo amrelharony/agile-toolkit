@@ -72,6 +72,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -84,6 +85,10 @@ describe("clearLocalWorkspaceData", () => {
     localStorage.setItem("agile-toolkit:owner-seen", "1");
     localStorage.setItem("agile-toolkit:visitor-used", "1");
     localStorage.setItem("mascot_appearance", "{}");
+    // What Amr notes about the visitor: his memory, the last day, today's greetings.
+    localStorage.setItem("mascot_memory", "{}");
+    localStorage.setItem("mascot_last_day", "2026-11-9");
+    localStorage.setItem("mascot_greeted", "{}");
     localStorage.setItem("icebreaker-favorites", "[]");
     localStorage.setItem("icebreaker-favorites:migrated", "[]");
     localStorage.setItem("icebreaker-favorites:migrated:1729000000000", "[]");
@@ -93,6 +98,9 @@ describe("clearLocalWorkspaceData", () => {
     localStorage.setItem("other-app:prefs", "x");
     sessionStorage.setItem("agile-toolkit:llm", "{}");
     sessionStorage.setItem("agile-toolkit:kudos:backfilled", "1");
+    // Amr's notes for this tab: where he offered a hand, and the visitor's weather.
+    sessionStorage.setItem("mascot_helped", "[]");
+    sessionStorage.setItem("mascot_weather", "{}");
     sessionStorage.setItem("unrelated", "keep");
 
     clearLocalWorkspaceData();
@@ -126,6 +134,41 @@ describe("clearLocalWorkspaceData", () => {
     // The resets' persist writes happen first and are swept up afterwards.
     expect(localStorage.getItem("agile-toolkit:history")).toBeNull();
     expect(localStorage.getItem("agile-toolkit:llm")).toBeNull();
+  });
+
+  it("forgets what Amr remembers, and a save already on its way can't put it back", async () => {
+    const { clearLocalWorkspaceData } = await load();
+    const { MEMORY_KEY } = await import("@/lib/agent/mascot/memory");
+    const { feel, getMind } = await import("@/lib/agent/mascot/mind");
+    vi.useFakeTimers();
+    // Someone who has been here a few days running.
+    localStorage.setItem(
+      MEMORY_KEY,
+      JSON.stringify({
+        v: 1,
+        firstDay: "2026-11-01",
+        lastDay: "2026-11-01",
+        days: 3,
+        streak: 3,
+        counts: { pat: 7 },
+        recent: ["wave"],
+      })
+    );
+    getMind();
+    feel("poke"); // counted now, saved a moment later
+    expect(localStorage.getItem(MEMORY_KEY)).toContain('"pat":7');
+
+    clearLocalWorkspaceData({ broadcast: false });
+    expect(localStorage.getItem(MEMORY_KEY)).toBeNull();
+    // The page hasn't reloaded yet: the save that was on its way doesn't land.
+    vi.advanceTimersByTime(5000);
+    expect(localStorage.getItem(MEMORY_KEY)).toBeNull();
+
+    // If something happens to him before the reload, he starts over as a stranger.
+    feel("poke");
+    vi.advanceTimersByTime(5000);
+    const kept = JSON.parse(localStorage.getItem(MEMORY_KEY)!);
+    expect(kept).toMatchObject({ days: 1, streak: 1, counts: { poke: 1 }, recent: [] });
   });
 
   it("tells other tabs to reload, but not the tab that cleared", async () => {
@@ -206,10 +249,27 @@ describe("clearLocalWorkspaceData", () => {
 
   it("a late message (tab was frozen) clears only what the receiving tab could have written", async () => {
     const { installLocalDataChannelListener, LOCAL_DATA_CHANNEL, useHistoryStore } = await load();
+    const { MEMORY_KEY } = await import("@/lib/agent/mascot/memory");
+    const { feel, getMind } = await import("@/lib/agent/mascot/mind");
+    vi.useFakeTimers();
     useHistoryStore.getState().addEvents([{ ...event("e1"), userId: "owner-1" }]);
     sessionStorage.setItem("agile-toolkit:canvas-draft:b1", "draft");
-    // Newer work someone did in another tab since the clear.
+    // This tab's Amr still holds the earlier visitor in mind, with a save on its way.
+    getMind();
+    feel("pat");
+    // Newer work someone did in another tab since the clear, and what Amr
+    // remembers of them.
     localStorage.setItem("agile-toolkit:retro-board", '{"cards":[1]}');
+    const newer = JSON.stringify({
+      v: 1,
+      firstDay: "2026-11-09",
+      lastDay: "2026-11-09",
+      days: 1,
+      streak: 1,
+      counts: { highFive: 2 },
+      recent: [],
+    });
+    localStorage.setItem(MEMORY_KEY, newer);
 
     vi.spyOn(console, "error").mockImplementation(() => {});
     const uninstall = installLocalDataChannelListener();
@@ -217,11 +277,14 @@ describe("clearLocalWorkspaceData", () => {
       type: "cleared",
       at: Date.now() - 5 * 60_000,
     });
+    vi.advanceTimersByTime(5000);
 
     expect(useHistoryStore.getState().events).toEqual([]);
     expect(localStorage.getItem("agile-toolkit:history")).toBeNull();
     expect(sessionStorage.getItem("agile-toolkit:canvas-draft:b1")).toBeNull();
     expect(localStorage.getItem("agile-toolkit:retro-board")).toBe('{"cards":[1]}');
+    // The newer memory stays, and the frozen tab's old one is not written over it.
+    expect(localStorage.getItem(MEMORY_KEY)).toBe(newer);
     uninstall();
   });
 

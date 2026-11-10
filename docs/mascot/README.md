@@ -191,7 +191,7 @@ He has a little inner state (`src/lib/agent/mascot/brain/state.ts`): five drives
 
 The mood the sprite plays at follows it too, but the hour alone never slows him down.
 
-What he remembers between visits (`memory.ts`) is one small entry in this browser's localStorage, `mascot_memory`: the first and latest day, how many days and how many running, a few counters and the last thirty things he did. It is never sent anywhere. Someone back after a day or more gets a wave; a third or seventh day running, a cheer.
+What he remembers between visits (`memory.ts`) is one small entry in this browser's localStorage, `mascot_memory`: the first and latest day, how many days and how many running, a few counters and the last thirty things he did. It is never sent anywhere, it is not part of a backup, and "Clear data on this browser" forgets it. Someone back after a day or more gets a wave; a third or seventh day running, a cheer.
 
 On a touch screen he had nothing to look at, since his eyes followed the cursor. Now (`engine/attention.ts`) a finger on the screen has his eye, then the phone's tilt, then a field the visitor steps into, then the way the page is scrolled.
 
