@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { Card, CardContent } from "@/components/ui/card";
 import { LICENSE_PATH } from "@/lib/comics/rights";
+import { TOOLS_STAY_FREE } from "@/lib/site/disclosures";
 import { comicMetadata } from "../comic-metadata";
 import { LicenceForm } from "./licence-form";
 import { scrollArt } from "@/lib/ink/drawings/pages/scroll";
@@ -51,9 +52,7 @@ export default function ComicLicensePage() {
                 </div>
               ))}
             </dl>
-            <p className="text-sub">
-              This licence covers the comic only. The tools on this site stay free.
-            </p>
+            <p className="text-sub">This licence covers the comic only. {TOOLS_STAY_FREE}</p>
             <p className="text-sm text-sub">
               © Amr Elharony. The comics are the private property of this website.
             </p>

@@ -13,22 +13,16 @@
 import { useEffect, useRef } from "react";
 import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { VISITOR_AI_CONSENT_TEXT, VISITOR_AI_DAILY_MESSAGES } from "@/lib/site/disclosures";
 
 /** Where the visitor's agreement is kept (localStorage), and its version. */
 export const VISITOR_AI_CONSENT_KEY = "agile-toolkit:amr-ai-consent";
 export const VISITOR_AI_CONSENT_VERSION = "v1";
 
-/** The daily allowance the card names (the server's config row is what counts). */
-export const VISITOR_AI_DAILY_MESSAGES = 100;
-
-/** What the visitor agrees to, one point per line. */
-export const VISITOR_AI_CONSENT_TEXT: readonly string[] = [
-  "When you chat with Amr's AI, your messages, the tool you're on, and anything Amr reads from your tools to answer are sent through this site and Amr's own AI server to Z.AI, the AI provider, to write a reply.",
-  "The site keeps none of it. It keeps only a count of today's messages, under a code made from your IP address that changes every day and is deleted the next day.",
-  "Amr asks before he changes anything in your tools.",
-  "Don't share personal or confidential information.",
-  `You get ${VISITOR_AI_DAILY_MESSAGES} messages a day (fewer during busy hours). The offline guide is always free.`,
-];
+// What the visitor agrees to, one point per line, and the daily allowance the
+// card names. The wording is lib/site/disclosures.ts's, which the privacy page
+// quotes too; re-exported here for the panel and the tests.
+export { VISITOR_AI_CONSENT_TEXT, VISITOR_AI_DAILY_MESSAGES };
 
 /** Whether this browser already agreed to the current version of the card. */
 export function hasVisitorAiConsent(): boolean {
