@@ -49,8 +49,10 @@ export function HowItWorks({ toolId }: { toolId: string }) {
       >
         <BookOpen className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
         <h2 className="text-sm font-medium text-text">How this works</h2>
+        {/* The row's gap and the quieter colour set it off from the heading:
+            no dash, which this site's wording doesn't use. */}
         <span className="hidden min-w-0 flex-1 truncate text-sub sm:inline sm:group-open:hidden">
-          {`— ${guide.summary}`}
+          {guide.summary}
         </span>
         <ChevronDown
           className="ml-auto h-4 w-4 shrink-0 text-sub transition-transform group-open:rotate-180"

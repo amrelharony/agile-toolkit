@@ -54,6 +54,21 @@ describe("HowItWorks", () => {
     }
   });
 
+  it("shows the summary beside the heading while collapsed, with no dash before it", async () => {
+    const guide = (await getGuide("kanban"))!;
+    const { container } = render(await panel("kanban"));
+    const header = container.querySelector("summary")!;
+    const heading = header.querySelector("h2")!;
+    const teaser = header.querySelector("span")!;
+    expect(heading.textContent).toBe("How this works");
+    // The guide's own sentence and nothing else: the header adds no dash.
+    expect(teaser.textContent).toBe(guide.summary);
+    expect(header.textContent).toBe(`How this works${guide.summary}`);
+    expect(header.textContent).not.toMatch(/[—–]/);
+    // Hidden once the panel is open, where the summary is the first line.
+    expect(teaser).toHaveClass("sm:group-open:hidden");
+  });
+
   it("renders the same on the server and in the browser, so nothing moves on load", async () => {
     const ui = await panel("kanban");
     const host = document.createElement("div");
