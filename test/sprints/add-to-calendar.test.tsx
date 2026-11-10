@@ -171,9 +171,23 @@ describe("AddToCalendar", () => {
     expect(reason).toHaveTextContent(
       "Sprint 9 has no dates, so its ceremonies can’t go on a calendar. Set its first and last day in the Sprint Cockpit."
     );
+    // The link opens the cockpit on the sprint the sentence names, whichever
+    // one this browser last picked there.
     expect(within(reason).getByRole("link", { name: "Sprint Cockpit" })).toHaveAttribute(
       "href",
-      "/sprint"
+      "/sprint?sprint=s1"
+    );
+    rerender(
+      <AddToCalendar
+        sprint={{ ...undated, id: "legacy sprint/3" }}
+        cadence={DEFAULT_CADENCE}
+        actions={[]}
+        place="team"
+      />
+    );
+    expect(screen.getByRole("link", { name: "Sprint Cockpit" })).toHaveAttribute(
+      "href",
+      "/sprint?sprint=legacy%20sprint%2F3"
     );
 
     // The old Velocity tool's placeholder dates are not dates either.

@@ -13,6 +13,7 @@ import {
   sprintCalendar,
   type CalendarAction,
 } from "@/lib/sprints/ics";
+import { sprintHref } from "@/lib/sprints/use-selected-sprint";
 import { exportToICS } from "@/lib/utils/export";
 
 /** A checkbox and its words: the whole label is the 44px target on touch. */
@@ -68,8 +69,13 @@ export function AddToCalendar({
     flash("Calendar file downloaded");
   };
 
+  // Opens the cockpit on this sprint, not on the one this browser last picked
+  // there: the line beside the link names this one.
   const cockpitLink = (
-    <Link href="/sprint" className="font-medium text-accent hover:underline">
+    <Link
+      href={sprintHref("/sprint", sprint?.id)}
+      className="font-medium text-accent hover:underline"
+    >
       Sprint Cockpit
     </Link>
   );

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RetroBoard, RetroCard, Sprint } from "@/lib/stores/workspace-types";
 import { retroFormats } from "@/lib/constants/retro-formats";
+import { SELECTED_SPRINT_KEY } from "@/lib/sprints/use-selected-sprint";
 import { useRefinementStore } from "@/app/(tools)/refinement/store";
 import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
 import { DOD_STORAGE_KEY } from "@/app/(tools)/dod-builder/summary";
@@ -311,6 +312,27 @@ describe("TeamCharter", () => {
     expect(screen.queryByRole("checkbox", { name: /Open retro actions/ })).toBeNull();
     fireEvent.click(button());
     expect(calendars).toEqual([]);
+  });
+
+  it("links a sprint without dates to the cockpit opened on that sprint", () => {
+    // The cockpit opens on the sprint this browser last picked: here, an older one.
+    window.localStorage.setItem(SELECTED_SPRINT_KEY, "sp0");
+    useWorkspaceStore.setState({
+      sprints: [
+        sprint("sp0", "Sprint 0", {
+          startDate: "2026-10-05",
+          endDate: "2026-10-16",
+          status: "completed",
+        }),
+        sprint("sp1", "Sprint 1", { status: "active" }),
+      ],
+    });
+    render(<TeamCharter />);
+    const reason = screen.getByText(/Sprint 1 has no dates/);
+    expect(within(reason).getByRole("link", { name: "Sprint Cockpit" })).toHaveAttribute(
+      "href",
+      "/sprint?sprint=sp1"
+    );
   });
 
   it("exports the charter with every section", async () => {
