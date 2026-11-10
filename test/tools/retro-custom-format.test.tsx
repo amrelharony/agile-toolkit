@@ -101,6 +101,18 @@ describe("Custom format", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("region", { name: "Your own columns" })).toBeNull();
     expect(current()).toBeUndefined();
+    // Back on the card that opened it, not lost on the page.
+    expect(toggle).toHaveFocus();
+  });
+
+  it("closes the form on Escape and puts focus back on the Custom card", () => {
+    render(<RetroClient />);
+    const form = openCustom();
+    const name = within(form).getByLabelText("Format name");
+    expect(name).toHaveFocus();
+    fireEvent.keyDown(name, { key: "Escape" });
+    expect(screen.queryByRole("region", { name: "Your own columns" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Custom" })).toHaveFocus();
   });
 
   it("says what's missing and starts nothing until the draft is valid", () => {

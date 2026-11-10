@@ -23,7 +23,7 @@
  * used longest ago drops off, named in the start's notice, with Undo.
  */
 
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { MessagesSquare, Trash2 } from "lucide-react";
 import { listAnd } from "@/lib/charts/chart-text";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -217,6 +217,13 @@ export function FormatSelector({
     });
   }, []);
 
+  const customButton = useRef<HTMLButtonElement>(null);
+  // Cancel or Escape closes the form: focus goes back to the Custom card that opened it.
+  const cancelCustom = useCallback(() => {
+    customButton.current?.focus();
+    setCustomOpen(false);
+  }, []);
+
   return (
     <ToolPageWrapper
       toolId="retro"
@@ -282,6 +289,7 @@ export function FormatSelector({
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-bold text-text group-hover:text-accent transition-colors">
                   <button
+                    ref={customButton}
                     type="button"
                     onClick={() => setCustomOpen((o) => !o)}
                     aria-expanded={customOpen}
@@ -301,11 +309,7 @@ export function FormatSelector({
         </div>
 
         {customOpen && (
-          <CustomFormatEditor
-            id={editorId}
-            onStart={startCustom}
-            onCancel={() => setCustomOpen(false)}
-          />
+          <CustomFormatEditor id={editorId} onStart={startCustom} onCancel={cancelCustom} />
         )}
 
         <div className="flex flex-wrap items-center gap-3">
