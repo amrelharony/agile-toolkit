@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,7 @@ import { cockpitVerdict } from "./verdict";
 import { cockpitMarkdown } from "./markdown";
 import { buildExample, type CockpitExample } from "./example";
 import { carryOverLine, closeSprint, type ClosedSprint } from "./close";
+import type { OutcomeValues } from "@/app/(tools)/sprint-goal/outcome";
 import { FlowStrip } from "./components/flow-strip";
 import { NextCeremony } from "./components/next-ceremony";
 import { Blockers } from "./components/blockers";
@@ -101,6 +102,9 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const [creating, setCreating] = useState(false);
   const [example, setExample] = useState<CockpitExample | null>(null);
   const calendar = useMemo(() => cadenceCalendar(cadence), [cadence]);
+  // The close just made, so the dialog's finished step can add the goal
+  // answer to it (and to its Undo).
+  const lastClose = useRef<ClosedSprint | null>(null);
 
   const selectedId = selected?.id;
   const data = useMemo(
@@ -170,6 +174,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
           },
         });
         const done = closed.result;
+        lastClose.current = done;
         if (done) {
           log(SPRINT_COCKPIT_ACTIONS.SPRINT_CLOSED, {
             sprintId: done.sprint.id,
@@ -186,6 +191,10 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
               : {}),
           });
         }
+      },
+      answerGoal: (values) => {
+        // Only for the sprint that close closed: never another one's answer.
+        if (lastClose.current?.sprint.id === selectedId) lastClose.current.answerGoal(values);
       },
       reopen: (status) => {
         write({ status });
@@ -275,6 +284,8 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
 export interface CockpitCommands {
   edit: (patch: Partial<Omit<Sprint, "id">>) => void;
   close: (pointsCompleted: number, carryOver?: CarryOverPlan) => void;
+  /** Record the goal answer as part of the close just made (its Undo covers it). */
+  answerGoal: (values: OutcomeValues) => void;
   reopen: (status: Exclude<Sprint["status"], "completed">) => void;
   logDay: (day: number, remaining: number) => void;
   select: (id: string) => void;
@@ -457,10 +468,9 @@ function CockpitBody({
           stories={stories}
           sprints={sprints}
           nextLengthDays={cadence.sprintLengthDays}
-          onConfirm={(pointsCompleted, carry) => {
-            commands.close(pointsCompleted, carry);
-            setClosing(false);
-          }}
+          // The dialog stays up for its finished step and closes itself.
+          onConfirm={(pointsCompleted, carry) => commands.close(pointsCompleted, carry)}
+          onGoalOutcome={commands.answerGoal}
         />
       )}
     </div>

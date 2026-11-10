@@ -4,13 +4,20 @@
  * said, as one change with one Undo. Stories move the way Sprint Planning
  * moves them (its writer), so their flow stamps agree, and each move is
  * recorded as a carry-over in the story's sprint history.
+ *
+ * The close dialog's finished step can then record the team's answer to
+ * "Did we meet the sprint goal?" as part of the same close (`answerGoal`):
+ * the one Undo takes the answer back with the sprint and its stories.
  */
 
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Sprint, Story } from "@/lib/stores/workspace-types";
+import type { Sprint, SprintGoalOutcome, Story } from "@/lib/stores/workspace-types";
+import { goalDocId } from "@/lib/sprints/goal-doc";
 import { createSprint, setStorySprint, updateSprint } from "@/lib/sprints/store";
 import type { CarryOverPlan } from "@/components/sprints/close-sprint-dialog";
 import { liveWriter, placeStory, restoreStories } from "@/app/(tools)/sprint-planning/writer";
+import { viewGoal } from "@/app/(tools)/sprint-goal/doc";
+import { withOutcome, withoutOutcome, type OutcomeValues } from "@/app/(tools)/sprint-goal/outcome";
 
 export interface ClosedSprint {
   /** The sprint as saved. */
@@ -21,7 +28,17 @@ export interface ClosedSprint {
   created?: Sprint;
   /** Stories that left the sprint (0 when they wait in Sprint Planning). */
   moved: number;
-  /** Put the sprint, its stories and any created sprint back as they were. */
+  /**
+   * Record the team's answer to "Did we meet the sprint goal?" as part of
+   * this close, on the sprint's goal document (the field the Sprint Goal
+   * page writes). `revert` takes it back with the rest. Nothing happens
+   * once the close was undone, or if the sprint is gone.
+   */
+  answerGoal: (values: OutcomeValues) => void;
+  /**
+   * Put the sprint, its stories and any created sprint back as they were,
+   * and take back a goal answer this close recorded.
+   */
   revert: () => void;
 }
 
@@ -86,14 +103,34 @@ export function closeSprint(
   }
   const moved = movedTo || plan?.target === "backlog" ? stories.length : 0;
 
+  let undone = false;
+  // The answer the goal held before this close recorded one (usually none).
+  let answered: { before: SprintGoalOutcome | undefined } | null = null;
+
   return {
     sprint,
     ...(movedTo ? { movedTo } : {}),
     ...(created ? { created } : {}),
     moved,
+    answerGoal: (values) => {
+      if (undone) return;
+      const now = useWorkspaceStore.getState();
+      const current = now.sprints.find((s) => s.id === id);
+      if (!current) return;
+      // As the Sprint Goal page writes it: a sprint without a goal document
+      // gets one, goal statement included.
+      const { doc } = viewGoal(now.sprintGoals ?? [], current);
+      if (!answered) answered = { before: doc.outcome };
+      now.upsertSprintGoal(withOutcome(doc, values));
+    },
     revert: () => {
+      undone = true;
       if (moved > 0) restoreStories(liveWriter, stories);
       const now = useWorkspaceStore.getState();
+      if (answered) {
+        const doc = (now.sprintGoals ?? []).find((d) => d.id === goalDocId(id));
+        if (doc) now.upsertSprintGoal(withoutOutcome(doc, answered.before));
+      }
       if (created) now.removeSprint(created.id);
       now.upsertSprint(before);
     },
