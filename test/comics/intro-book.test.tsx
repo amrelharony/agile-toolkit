@@ -303,6 +303,40 @@ describe("the book's pages", () => {
     );
   });
 
+  it.each(STORIES)(
+    "puts every look part inside a face, never on what keeps the 3D space open, %s",
+    (_, latest) => {
+      const { dialog, book } = parts(latest);
+      // The classes that set preserve-3d, read from the CSS so a new one is held too.
+      const text = readFileSync(path.join(process.cwd(), CSS_FILE), "utf8").replace(
+        /\/\*[\s\S]*?\*\//g,
+        ""
+      );
+      const open = Array.from(text.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+        .filter((rule) => /transform-style\s*:\s*preserve-3d/.test(rule[2]))
+        .flatMap((rule) => rule[1].split(","))
+        .map((selector) => selector.trim().slice(1))
+        .sort();
+      expect(open).toEqual(["book", "cover", "glide", "leaf1", "leaf2", "lift", "push"]);
+      for (const name of open) {
+        const els = Array.from(dialog.querySelectorAll(`.${styles[name]}`));
+        expect(els, name).toHaveLength(1);
+        // Its own class alone, so no look part's class (a mask, a clip, opacity) sits on it.
+        expect(Array.from(els[0].classList), name).toEqual([styles[name]]);
+        expect(els[0].hasAttribute("data-look"), name).toBe(false);
+      }
+      // Inside a face, the inside page or the page block, and never one of those itself.
+      const holders = [styles.face, styles.inside, styles.block].map((c) => `.${c}`).join(",");
+      const looks = Array.from(book.querySelectorAll<HTMLElement>("[data-look]"));
+      expect(looks.length).toBeGreaterThan(0);
+      for (const part of looks) {
+        const look = part.getAttribute("data-look");
+        expect(part.matches(holders), look!).toBe(false);
+        expect(part.parentElement!.closest(holders), look!).not.toBeNull();
+      }
+    }
+  );
+
   it("grains every face, and draws the page block's edges and the ground shadow", () => {
     const { dialog, book } = parts({ title: TITLE, cover: COVER });
     const faces = Array.from(dialog.querySelectorAll(`.${styles.face}`));
@@ -428,6 +462,43 @@ describe("the book intro's timing", () => {
     expect(landscape).toBeGreaterThan(base);
   });
 
+  /**
+   * The declarations of the top-level rule for `selector`, in order. The markup
+   * tests can't see these: a CSS module reads as any class name in a test.
+   */
+  function declsOf(selector: string): [string, string][] {
+    const rule = new RegExp(`\\n\\${selector} \\{([^}]*)\\}`).exec(css);
+    expect(rule, selector).not.toBeNull();
+    return Array.from(rule![1].matchAll(/([a-z-]+)\s*:\s*([^;]+);/g), (d) => [
+      d[1],
+      d[2].replace(/\s+/g, " ").trim(),
+    ]);
+  }
+
+  it("turns a sheet's back over, and hides each face once it faces away", () => {
+    // So the panel on the second page's back turns over and lands face up.
+    expect(declsOf(".back")).toContainEqual(["transform", "rotateY(180deg)"]);
+    const face = declsOf(".face");
+    const prefixed = face.findIndex(
+      ([p, v]) => p === "-webkit-backface-visibility" && v === "hidden"
+    );
+    const plain = face.findIndex(([p, v]) => p === "backface-visibility" && v === "hidden");
+    expect(prefixed).toBeGreaterThan(-1);
+    expect(plain).toBeGreaterThan(prefixed);
+  });
+
+  it("lifts the cover's grain, light and shade above its art", () => {
+    const z = declsOf(".overArt").find(([p]) => p === "z-index");
+    expect(Number(z?.[1])).toBeGreaterThan(0);
+  });
+
+  it("places the resting light on each page of the open spread", () => {
+    for (const selector of [".restingLight", ".shadeOnly"]) {
+      const transform = declsOf(selector).find(([p]) => p === "transform");
+      expect(transform?.[1], selector).toMatch(/^translateX\(-?[\d.]+%\)$/);
+    }
+  });
+
   it("draws nothing of its own: no images or gradients in the CSS", () => {
     expect(css).not.toMatch(/url\(|gradient\(/);
   });
@@ -514,6 +585,20 @@ describe("the book intro's timing", () => {
       expect(steps.some((s) => /linear\(/.test(s.decls["animation-timing-function"] ?? ""))).toBe(
         false
       );
+      // Nor a curve that runs past its end: every cubic-bezier, in the shorthand
+      // (which a step without its own curve takes) and in each step, keeps y in 0..1.
+      const name = only(sheet).name;
+      const shorthand = shorthands.find((one) => one.startsWith(`${name} `))!;
+      const curves = [shorthand, ...steps.map((s) => s.decls["animation-timing-function"] ?? "")]
+        .flatMap((value) => Array.from(value.matchAll(/cubic-bezier\(([^)]*)\)/g)))
+        .map((m) => m[1].split(",").map(Number));
+      expect(curves.length, sheet).toBeGreaterThan(0);
+      for (const [, y1, , y2] of curves) {
+        for (const y of [y1, y2]) {
+          expect(y, `${sheet}: cubic-bezier y ${y}`).toBeGreaterThanOrEqual(0);
+          expect(y, `${sheet}: cubic-bezier y ${y}`).toBeLessThanOrEqual(1);
+        }
+      }
     }
     // Each sheet lifts only once the one above it is upright, and lands after it.
     expect(only(".leaf1").delay).toBeGreaterThanOrEqual(edgeOn(".cover") - 1e-9);
