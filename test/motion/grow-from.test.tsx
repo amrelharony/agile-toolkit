@@ -143,16 +143,28 @@ afterEach(async () => {
   readDebugSwitches();
 });
 
-/** Taps `name` on the old page, then puts `page` in place at `href`. */
+/** A quick page, well inside the hold. */
+const QUICK_MS = 40;
+
+/**
+ * Taps `name` on the old page, then puts `page` in place at `href`, `lateBy`
+ * ms after the tap. performance.now() is pinned for the whole step, so the
+ * grow window is measured on this clock and a slow test run never moves the
+ * arrival past it.
+ */
 async function tapThenArrive(
   oldPage: ReactNode,
   name: string | RegExp,
   href: string,
-  page: ReactNode = toolPage()
+  page: ReactNode = toolPage(),
+  lateBy = QUICK_MS
 ) {
+  let now = 10_000;
+  vi.spyOn(performance, "now").mockImplementation(() => now);
   const { rerender } = render(<App href="/" page={oldPage} />);
   fireEvent.click(screen.getAllByRole("link", { name })[0]);
   await flush();
+  now += lateBy;
   window.history.replaceState(null, "", href);
   rerender(<App href={href} page={page} />);
   await flush();
@@ -196,16 +208,25 @@ describe("the header grows from the card's spot", () => {
   });
 
   it("when the page missed the hold, and the page rises too", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    // performance is faked too, so the grow window sees the late arrival.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     installViewTransitions();
     const { rerender } = render(<App href="/" page={kanbanCard} />);
     fireEvent.click(screen.getByRole("link", { name: "Kanban" }));
     await vi.advanceTimersByTimeAsync(HOLD_CAP_MS);
+    // A page that took 600 ms: well past the cap, well inside the window.
+    await vi.advanceTimersByTimeAsync(600 - HOLD_CAP_MS);
+    expect(performance.now() - arrivalRecord()!.at).toBe(600);
     window.history.replaceState(null, "", "/kanban");
     rerender(<App href="/kanban" page={toolPage()} />);
     await flush();
     expectOneGrow();
     expect(header().parentElement).toHaveClass("motion-safe:animate-rise");
+  });
+
+  it("up to GROW_WINDOW_MS after the tap", async () => {
+    await tapThenArrive(kanbanCard, "Kanban", "/kanban", toolPage(), GROW_WINDOW_MS - 1);
+    expectOneGrow();
   });
 
   it("for a comic card, whose link does not load ahead", async () => {
@@ -351,13 +372,7 @@ describe("the header does not grow", () => {
 
   it("after GROW_WINDOW_MS (1.5 s)", async () => {
     expect(GROW_WINDOW_MS).toBe(1500);
-    const { rerender } = render(<App href="/" page={kanbanCard} />);
-    fireEvent.click(screen.getByRole("link", { name: "Kanban" }));
-    const tapped = arrivalRecord()!.at;
-    vi.spyOn(performance, "now").mockReturnValue(tapped + GROW_WINDOW_MS + 1);
-    window.history.replaceState(null, "", "/kanban");
-    rerender(<App href="/kanban" page={toolPage()} />);
-    await flush();
+    await tapThenArrive(kanbanCard, "Kanban", "/kanban", toolPage(), GROW_WINDOW_MS + 1);
     expect(animate).not.toHaveBeenCalled();
     expect(arrivalRecord()).toBeNull();
   });
