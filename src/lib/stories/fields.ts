@@ -10,6 +10,7 @@
  */
 
 import type { Story } from "@/lib/stores/workspace-types";
+import { cutText } from "@/lib/utils/cut-text";
 import type { Validation } from "@/lib/utils/form";
 
 export const STORY_NOTES_MAX = 2000;
@@ -23,17 +24,17 @@ export type StoryTextField = (typeof STORY_TEXT_FIELDS)[number];
 /** The four fields on their own: what the details form edits. */
 export type StoryDetails = Partial<Pick<Story, StoryTextField>>;
 
-/** Several lines of text: line ends made "\n", outer blank space removed, capped. */
+/** Several lines of text: line ends made "\n", outer blank space removed, capped (never through a character). */
 function block(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
-  const text = value.replace(/\r\n?/g, "\n").trim().slice(0, max).trimEnd();
+  const text = cutText(value.replace(/\r\n?/g, "\n").trim(), max).trimEnd();
   return text || undefined;
 }
 
-/** One line of text: runs of blank space become one space, capped. */
+/** One line of text: runs of blank space become one space, capped (never through a character). */
 function line(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
-  const text = value.replace(/\s+/g, " ").trim().slice(0, max).trimEnd();
+  const text = cutText(value.replace(/\s+/g, " ").trim(), max).trimEnd();
   return text || undefined;
 }
 

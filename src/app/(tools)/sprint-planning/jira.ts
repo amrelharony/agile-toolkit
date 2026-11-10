@@ -29,6 +29,7 @@ import {
 } from "@/lib/jira/csv-export";
 import { STORY_TICKET_KEY_MAX, storyLink, storyNotes } from "@/lib/stories/fields";
 import { storedBytes } from "@/lib/stores/storage-room";
+import { cutText } from "@/lib/utils/cut-text";
 import { fmt, storiesCount } from "./view";
 
 /** The most of an issue's description a story keeps as its notes. */
@@ -127,7 +128,7 @@ const NOT_USED: Partial<Record<JiraColumn, string>> = {
 export const rowsText = (n: number) => (n === 1 ? "1 row" : `${n} rows`);
 
 /** A long cell, short enough to name in a message. */
-const clip = (text: string, max = 24) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+const clip = (text: string, max = 24) => (text.length > max ? `${cutText(text, max - 1)}…` : text);
 
 /* ── The site address ────────────────────────────────────────────────── */
 
@@ -286,11 +287,13 @@ export function planJiraImport(
       }
       continue;
     }
-    const title = issue.summary.slice(0, TITLE_MAX).trimEnd();
+    // Cut on a character, never through one (an emoji at the cut would
+    // leave half of it, which the database refuses).
+    const title = cutText(issue.summary, TITLE_MAX).trimEnd();
     if (issue.summary.length > TITLE_MAX) titlesCut += 1;
     const description = (issue.description ?? "").replace(/\r\n?/g, "\n").trim();
     if (description.length > JIRA_NOTES_MAX) notesCut += 1;
-    const notes = storyNotes(description.slice(0, JIRA_NOTES_MAX));
+    const notes = storyNotes(cutText(description, JIRA_NOTES_MAX));
     const link = site ? jiraIssueLink(site, key) : undefined;
     add.push({
       line,

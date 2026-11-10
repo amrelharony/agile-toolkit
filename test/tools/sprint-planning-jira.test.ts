@@ -121,6 +121,21 @@ describe("previewJiraImport: a first import", () => {
     );
   });
 
+  it("never cuts a character in half, so the saved text stays valid JSON for the database", () => {
+    // "😀" is two UTF-16 units: these put one across character 500 and 200.
+    const description = `${"x".repeat(JIRA_NOTES_MAX - 1)}😀 and more`;
+    const summary = `${"t".repeat(199)}😀 more`;
+    const p = previewJiraImport(`Issue key,Summary,Description\nA-1,${summary},${description}`, {
+      stories: [],
+      site: null,
+    });
+    expect(p.add[0].notes).toBe("x".repeat(JIRA_NOTES_MAX - 1));
+    expect(p.add[0].title).toBe("t".repeat(199));
+    expect(JSON.stringify(p.add[0])).not.toMatch(/\\ud8/i);
+    expect(p.notesCut).toBe(1);
+    expect(p.titlesCut).toBe(1);
+  });
+
   it("refuses a key longer than a story's ticket key can be, with the rest of the reader's errors", () => {
     const key = `A-${"9".repeat(60)}`;
     const p = previewJiraImport(`Issue key,Summary\n,None\n${key},Long key\nA-3,Fine`, {
