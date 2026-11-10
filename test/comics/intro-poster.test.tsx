@@ -415,9 +415,13 @@ describe("the poster intro's CSS", () => {
     [".w2", "settle"],
     [".w3", "settle"],
     [".w4", "settle"],
-  ] as const)("lands %s on the book's %s spring", (selector, spring) => {
-    const [from] = keyframes.get(only(selector).name)!;
+  ] as const)("lands %s on the book's %s spring, in one leg", (selector, spring) => {
+    const steps = keyframes.get(only(selector).name)!;
+    // From and to alone: a step between them would be a hand-made overshoot.
+    expect(steps.map((s) => s.steps)).toEqual(["from", "to"]);
+    const [from, to] = steps;
     expect(squash(from.props.get("animation-timing-function"))).toBe(squash(EASE[spring]));
+    expect(to.props.has("animation-timing-function")).toBe(false);
   });
 
   it("inks the page in straight, or bowed where shape() works, on the same time", () => {

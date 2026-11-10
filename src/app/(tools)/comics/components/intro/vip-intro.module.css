@@ -21,9 +21,11 @@
 
    The book wears the book intro's look (intro-look.tsx: grain, comic light,
    the stepped shade, page edges and a ground shadow), which this sheet only
-   moves. Its drop, its cover's landing and the cards' deal use tokens.ts's
-   settle spring, a linear() list inside the keyframes, each shorthand keeping
-   the spring's one-overshoot cubic-bezier for browsers without linear()
+   moves. Every landing is on the book intro's two springs, tokens.ts's linear()
+   lists written inside the keyframes: the welcome's words pop on the pop
+   spring; Amr's jump, his balloon, the book's drop, its cover's landing and
+   the cards' deal settle on the settle spring. Each shorthand keeps its
+   spring's one-overshoot cubic-bezier for browsers without linear()
    (test/comics/intro-look.test.tsx). The 3D rule: what keeps the book's 3D
    space open (transform-style: preserve-3d: the drop and the cover) moves by
    transform alone and carries no opacity, overflow, clip, mask, filter, blend
@@ -104,25 +106,26 @@
   text-wrap: balance;
 }
 
-/* Inline blocks, so each word can pop on its own and the line still wraps. */
+/* Inline blocks, so each word can pop on its own and the line still wraps.
+   Each pops at its own beat, on the pop spring. */
 .word {
   display: inline-block;
   transform-origin: 50% 85%;
 }
 .word0 {
-  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 0.8s both;
+  animation: vipWord 0.55s cubic-bezier(0.38, 1.76, 0.1, 1) 0.8s both;
 }
 .word1 {
-  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.06s both;
+  animation: vipWord 0.55s cubic-bezier(0.38, 1.76, 0.1, 1) 1.06s both;
 }
 .word2 {
-  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.32s both;
+  animation: vipWord 0.55s cubic-bezier(0.38, 1.76, 0.1, 1) 1.32s both;
 }
 .word3 {
-  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.54s both;
+  animation: vipWord 0.55s cubic-bezier(0.38, 1.76, 0.1, 1) 1.54s both;
 }
 .word4 {
-  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.76s both;
+  animation: vipWord 0.55s cubic-bezier(0.38, 1.76, 0.1, 1) 1.76s both;
 }
 
 /* One pen stroke under the lettering: pressed down at the start, lifted off. */
@@ -387,7 +390,7 @@
   width: 100%;
   height: 100%;
   transform-origin: 50% 100%;
-  animation: vipAmrSpring 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) 1.15s both;
+  animation: vipAmrSpring 0.8s cubic-bezier(0.42, 1.52, 0.1, 1) 1.15s both;
 }
 
 .amrScale {
@@ -425,7 +428,7 @@
   font-size: clamp(0.95rem, 3.2vmin, 1.3rem);
   line-height: 1.3;
   transform-origin: 0% 85%;
-  animation: vipBalloon 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) 2.6s both;
+  animation: vipBalloon 0.5s cubic-bezier(0.42, 1.52, 0.1, 1) 2.6s both;
 }
 
 /* ── On top: the opening ink and the turning page's shadow ─────────────────── */
@@ -616,16 +619,49 @@
   }
 }
 
+/* Each word pops up on the pop spring: about 16% past its size and its tilt,
+   then back. */
 @keyframes vipWord {
-  0% {
+  from {
     transform: translate3d(0, 0.4em, 0) scale(0.55) rotate(-5deg);
     opacity: 0;
+    animation-timing-function: linear(
+      0,
+      0.057,
+      0.198,
+      0.383,
+      0.579,
+      0.76,
+      0.913,
+      1.029,
+      1.106,
+      1.149,
+      1.163,
+      1.155,
+      1.133,
+      1.103,
+      1.071,
+      1.041,
+      1.016,
+      0.997,
+      0.983,
+      0.976,
+      0.973,
+      0.975,
+      0.978,
+      0.983,
+      0.988,
+      0.993,
+      0.997,
+      1,
+      1.003,
+      1.004,
+      1.004,
+      1.004,
+      1
+    );
   }
-  55% {
-    transform: translate3d(0, -0.06em, 0) scale(1.07) rotate(1.5deg);
-    opacity: 1;
-  }
-  100% {
+  to {
     transform: none;
     opacity: 1;
   }
@@ -640,24 +676,49 @@
   }
 }
 
-/* Up from below the page and from nearer the reader, over the top, and down. */
+/* Up from below the page and from nearer the reader, a touch over the top,
+   and down: the settle spring, since he comes a long way. */
 @keyframes vipAmrSpring {
-  0% {
+  from {
     transform: translate3d(-2vmin, 38vmin, 0) scale(1.18);
     opacity: 0;
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
   }
-  12% {
-    opacity: 1;
-  }
-  58% {
-    transform: translate3d(0, -3.5vmin, 0) scale(1.02);
-    animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.5);
-  }
-  82% {
-    transform: translate3d(0, 0.6vmin, 0) scale(0.995);
-    animation-timing-function: ease-out;
-  }
-  100% {
+  to {
     transform: none;
     opacity: 1;
   }
@@ -681,16 +742,49 @@
   }
 }
 
+/* Grown from its tail on the settle spring: it grows from a fifth of its
+   size, so it goes only a touch past. */
 @keyframes vipBalloon {
-  0% {
+  from {
     transform: scale(0.2);
     opacity: 0;
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
   }
-  60% {
-    transform: scale(1.05);
-    opacity: 1;
-  }
-  100% {
+  to {
     transform: none;
     opacity: 1;
   }

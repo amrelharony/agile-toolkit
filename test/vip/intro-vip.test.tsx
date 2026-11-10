@@ -54,6 +54,7 @@ import {
   SKIP_ATTR,
 } from "@/lib/comics/intro";
 import { getVipTools } from "@/lib/tools/catalog";
+import { EASE } from "@/lib/motion/tokens";
 
 const CSS = "src/app/(tools)/comics/components/intro/vip-intro.module.css";
 
@@ -500,6 +501,37 @@ describe("the timeline in vip-intro.module.css", () => {
       expect(first, selector).toMatch(/scale\(0\.35\)/);
       expect(first, selector).toMatch(/opacity:\s*0\s*;/);
     }
+  });
+
+  /** A keyframes block's steps, as written: offsets and what each one sets. */
+  const stepsOf = (name: string) =>
+    Array.from((keyframes.get(name) ?? "").matchAll(/([^{}]+)\{([^{}]*)\}/g), (m) => ({
+      offsets: m[1].trim(),
+      body: m[2],
+    }));
+  const squash = (value: string) => value.replace(/\s+/g, "");
+
+  it.each([
+    [".word0", "pop"],
+    [".word1", "pop"],
+    [".word2", "pop"],
+    [".word3", "pop"],
+    [".word4", "pop"],
+    [".amrSpring", "settle"],
+    [".question", "settle"],
+    [".bookDrop", "settle"],
+    [".bookGround", "settle"],
+    [".deal0", "settle"],
+    [".deal1", "settle"],
+    [".deal2", "settle"],
+  ] as const)("lands %s on the book's %s spring, in one leg", (selector, spring) => {
+    const steps = stepsOf(only(selector).name);
+    // From and to alone: a step between them would be a hand-made overshoot.
+    expect(steps.map((s) => s.offsets)).toEqual(["from", "to"]);
+    const [from, to] = steps;
+    const pace = /animation-timing-function:\s*([^;]+);/.exec(from.body)?.[1] ?? "";
+    expect(squash(pace)).toBe(squash(EASE[spring]));
+    expect(to.body).not.toMatch(/animation-timing-function/);
   });
 
   it("shows the book as it starts to drop, and grows its ground shadow with the drop", () => {

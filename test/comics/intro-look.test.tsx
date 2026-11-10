@@ -432,7 +432,145 @@ describe("every intro stylesheet", () => {
     expect(checked).toBeGreaterThanOrEqual(3);
     for (const scene of SCENES) expect(byFile.get(scene), scene).toBeGreaterThan(0);
   });
+
+  // The two tests above see only linear(). A hand-made overshoot hides in a
+  // curve that passes its value or in a step part-way through a landing, so
+  // these hold the scenes to "the settle and pop springs only" for both.
+  it("passes a value only on a spring: any other curve that would is a spring's own fallback", () => {
+    const springOf: Record<string, string> = {
+      [EASE_FALLBACK.settle]: EASE.settle,
+      [EASE_FALLBACK.pop]: EASE.pop,
+    };
+    let fallbacks = 0;
+    for (const file of SCENES) {
+      const { rules, keyframes } = sheets.find((s) => s.file === file)!;
+      const names = new Set(keyframes.map((k) => k.name));
+      for (const k of keyframes) {
+        for (const step of k.steps) {
+          for (const [p, v] of step.decls) {
+            for (const curve of v.match(/cubic-bezier\([^)]*\)/g) ?? []) {
+              expect(overshoots(curve), `${file} ${k.name} ${step.offsets} ${p}: ${curve}`).toBe(
+                false
+              );
+            }
+          }
+        }
+      }
+      for (const rule of rules) {
+        for (const [p, v] of rule.decls) {
+          if (p === "animation") continue;
+          expect(v, `${file} ${rule.selector} ${p}`).not.toMatch(/cubic-bezier\(/);
+        }
+        for (const [name, one] of animationsOf(rule, names)) {
+          for (const curve of one.match(/cubic-bezier\([^)]*\)/g) ?? []) {
+            if (!overshoots(curve)) continue;
+            fallbacks += 1;
+            // Only as the fallback of the spring that animation's keyframes run.
+            expect(Object.keys(springOf), `${file} ${rule.selector}: ${one}`).toContain(curve);
+            const values = keyframes
+              .filter((k) => k.name === name)
+              .flatMap((k) => k.steps.flatMap((s) => s.decls.map(([, v]) => v)));
+            expect(values, `${file} ${rule.selector}: ${one}`).toContain(springOf[curve]);
+          }
+        }
+      }
+    }
+    expect(fallbacks).toBeGreaterThan(0);
+  });
+
+  it("lands every move that stays shown in one leg, its pace set on its first step alone", () => {
+    for (const file of SCENES) {
+      const { keyframes } = sheets.find((s) => s.file === file)!;
+      const landings = keyframes.filter(staysShown);
+      expect(landings.length, file).toBeGreaterThan(0);
+      for (const k of landings) {
+        const offsets = k.steps.map((s) => s.offsets);
+        if (LEGS[file].includes(k.name)) {
+          expect(offsets.length, `${file} ${k.name}`).toBeGreaterThan(2);
+          continue;
+        }
+        expect(offsets.length, `${file} ${k.name}: ${offsets.join(" | ")}`).toBe(2);
+        expect(offsets[0], `${file} ${k.name}`).toMatch(/^(?:from|0%)$/);
+        expect(offsets[1], `${file} ${k.name}`).toMatch(/^(?:to|100%)$/);
+        const paced = k.steps.filter((s) =>
+          s.decls.some(([p]) => p === "animation-timing-function")
+        );
+        expect(
+          paced.every((s) => s === k.steps[0]),
+          `${file} ${k.name}`
+        ).toBe(true);
+      }
+      // Every move allowed its legs is in the sheet, and stays shown.
+      for (const name of LEGS[file]) {
+        expect(
+          landings.map((k) => k.name),
+          `${file} ${name}`
+        ).toContain(name);
+      }
+    }
+  });
+
+  it("lifts each turning sheet to upright before it lets it fall, with a spring only on the fall", () => {
+    const turns = SCENES.flatMap((file) =>
+      sheets
+        .find((s) => s.file === file)!
+        .keyframes.filter((k) => LEGS[file].includes(k.name) && k.name !== "vipFan")
+        .map((k) => [file, k] as const)
+    );
+    expect(turns.map(([, k]) => k.name)).toEqual([
+      "book-open",
+      "book-leaf1",
+      "book-leaf2",
+      "vipBookOpen",
+    ]);
+    for (const [file, k] of turns) {
+      const label = `${file} ${k.name}`;
+      expect(k.steps, label).toHaveLength(3);
+      const [lift, upright, fall] = k.steps;
+      const transform = (s: (typeof k.steps)[number]) =>
+        s.decls.find(([p]) => p === "transform")?.[1];
+      expect(transform(lift), label).toMatch(/^rotateY\(0deg\)/);
+      expect(transform(upright), label).toMatch(/^rotateY\(-90deg\)/);
+      expect(transform(fall), label).toMatch(/^rotateY\(-1[56]\d(?:\.\d+)?deg\)/);
+      for (const step of [lift, fall]) {
+        for (const [, v] of step.decls) expect(v, label).not.toMatch(/linear\(/);
+      }
+      expect(
+        fall.decls.map(([p]) => p),
+        label
+      ).not.toContain("animation-timing-function");
+    }
+  });
 });
+
+/** Whether a cubic-bezier passes its end value or backs away first: a y outside 0 to 1. */
+function overshoots(curve: string): boolean {
+  const [, y1, , y2] = curve.slice(13, -1).split(",").map(Number);
+  return [y1, y2].some((y) => y < 0 || y > 1);
+}
+
+/** A keyframes that moves its element and leaves it shown: a landing, or a drift. */
+function staysShown(k: Keyframes): boolean {
+  const moves = k.steps.some((s) => s.decls.some(([p]) => p === "transform"));
+  const hides = k.steps
+    .at(-1)!
+    .decls.some(
+      ([p, v]) => (p === "opacity" && Number(v) === 0) || (p === "visibility" && v === "hidden")
+    );
+  return moves && !hides;
+}
+
+/**
+ * The moves allowed more than one leg, by scene, none of them past its place
+ * part-way. A sheet or cover lifted to upright and let fall: the lift is no
+ * landing, and a spring, if any, is on the fall (the test above). The VIP
+ * covers rise as one stack, then fan out (vipFan, left as it was).
+ */
+const LEGS: Record<string, string[]> = {
+  [BOOK]: ["book-open", "book-leaf1", "book-leaf2"],
+  [POSTER]: [],
+  [VIP]: ["vipBookOpen", "vipFan"],
+};
 
 /** Whether a declaration would flatten an element that keeps the 3D space open. */
 function flattens([property, v]: Decl): boolean {
