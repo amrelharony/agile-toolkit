@@ -19,6 +19,9 @@
  *  - sends a snapshot at most every 500 ms when the board changes (a timer
  *    tick is not a change), when someone joins, and every 30 s as a
  *    keepalive;
+ *  - gives everyone their votes and card allowance back when its own change
+ *    empties the board (Clear Board), never when members' deletes do: or
+ *    one could delete its own cards and add 30 more, again and again;
  *  - ends the room at its 3-hour limit, and after 30 minutes with no
  *    activity asks first, then ends it a minute later;
  *  - can remove a member: a blocklist (their intents are dropped) plus a
@@ -425,6 +428,10 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const unsharedRef = useRef<OwnCard[]>([]);
   /** Host: the card ids on its board at the last change, to notice cards that leave it. */
   const boardIdsRef = useRef<Set<string> | null>(null);
+  /** Host: cards members deleted through the room since the last board change. */
+  const intentDeletedRef = useRef<Set<string>>(new Set());
+  /** Participant: "Delete my card" requests sent since the last snapshot. */
+  const deletesSinceSnapRef = useRef(0);
 
   // Each memory list has a ref (read by handlers) and state (renders); set both together.
   const setOwnCards = useCallback((next: HeldCard[]) => {
@@ -468,6 +475,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
 
   const commitPatch = useCallback(
     (patch: IntentPatch, next: BoardState) => {
+      // A board a member's delete empties wasn't cleared: allowances stay.
+      if (patch.t === "card:delete") intentDeletedRef.current.add(patch.cardId);
       if (role === "host") {
         // Mirror first, so a second intent in the same tick sees this one.
         hostBoardRef.current = next;
@@ -577,15 +586,16 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   /**
    * Bring what this participant remembers in line with the host's snapshot,
    * once its own last request has had time to land: cards and votes the host
-   * doesn't have are dropped, newest first. A board with no cards at all was
-   * cleared, so the card allowance starts again too.
+   * doesn't have are dropped, newest first. A board that just emptied, by
+   * more than this tab's own deletes, was cleared, so the card allowance
+   * starts again too, as it does on the host's side.
    */
   const reconcile = useCallback(
-    (snap: RoomSnapshot) => {
+    (snap: RoomSnapshot, before: number, ownDeletes: number) => {
       const hidden = cardsHidden(snap);
       const total = snap.cards.length + sumCounts(snap.counts);
       const settled = Date.now() - lastIntentAtRef.current >= SETTLE_MS;
-      if (total === 0) sentCardsRef.current = 0;
+      if (total === 0 && before > ownDeletes) sentCardsRef.current = 0;
       if (!settled) return;
       if (total === 0) {
         if (ownCardsRef.current.length > 0) setOwnCards([]);
@@ -631,6 +641,9 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const applySnapshot = useCallback(
     (snap: RoomSnapshot) => {
       const prev = viewRef.current;
+      const before = prev ? prev.board.cards.length + sumCounts(prev.counts) : 0;
+      const ownDeletes = deletesSinceSnapRef.current;
+      deletesSinceSnapRef.current = 0;
       trustedRef.current = snap.by;
       pendingSnapRef.current = null;
       missingSinceRef.current = null;
@@ -672,7 +685,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
         setMyVotes([]);
         sentCardsRef.current = 0;
       } else {
-        reconcile(snap);
+        reconcile(snap, before, ownDeletes);
       }
       if (snap.phase !== "write") {
         setCardsLost(false);
@@ -829,24 +842,27 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     () => (liveBoard ? roomSignature(liveBoard, hide) : ""),
     [liveBoard, hide]
   );
-  const emptyBoard = liveBoard !== null && liveBoard.cards.length === 0;
 
   useEffect(() => {
     if (!isHost || !active || !signature) return;
-    // Clear Board (or a fresh board) gives everyone their votes and card allowance back.
-    if (emptyBoard) setLedger(resetAllowances(ledgerRef.current));
     touch();
     scheduleSnapshot();
-  }, [signature, emptyBoard, isHost, active, setLedger, touch, scheduleSnapshot]);
+  }, [signature, isHost, active, touch, scheduleSnapshot]);
 
   // Cards that leave the board (deleted, cleared) can't lend their ids to a new card:
-  // an Undo on this side could bring them back.
+  // an Undo on this side could bring them back. A board this host's own change
+  // empties (Clear Board) gives everyone their votes and card allowance back;
+  // one the members' own deletes empty doesn't.
   useEffect(() => {
     if (!isHost || !liveBoard) {
       boardIdsRef.current = null;
+      intentDeletedRef.current = new Set();
       return;
     }
     const ids = new Set(liveBoard.cards.map((c) => c.id));
+    const byIntent = intentDeletedRef.current;
+    // Keep the members' deletes still to land (their card is still here); drop the rest.
+    intentDeletedRef.current = new Set(Array.from(byIntent).filter((id) => ids.has(id)));
     const before = boardIdsRef.current;
     boardIdsRef.current = ids;
     if (!before) return;
@@ -854,8 +870,14 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     before.forEach((id) => {
       if (!ids.has(id)) gone.push(id);
     });
-    if (gone.length > 0) ledgerRef.current = retireIds(ledgerRef.current, gone);
-  }, [isHost, liveBoard]);
+    if (gone.length === 0) return;
+    const retired = retireIds(ledgerRef.current, gone);
+    if (ids.size === 0 && gone.some((id) => !byIntent.has(id))) {
+      setLedger(resetAllowances(retired));
+    } else {
+      ledgerRef.current = retired;
+    }
+  }, [isHost, liveBoard, setLedger]);
 
   useEffect(() => {
     if (!isHost || !active || !room.isConnected) return;
@@ -1113,6 +1135,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       const own = ownCardsRef.current.find((c) => c.id === cardId);
       if (!own) return false;
       send({ t: "card:delete", iid: nanoid(12), cardId, key: own.key });
+      deletesSinceSnapRef.current += 1;
       setOwnCards(ownCardsRef.current.filter((c) => c.id !== cardId));
       return true;
     },

@@ -6,7 +6,7 @@ import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
 import { HOST_MIGRATION_DELAY_MS } from "@/lib/realtime/host-election";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { BoardState, RetroCard } from "@/app/(tools)/retro/types";
-import { lockOf, type RoomSnapshot } from "@/app/(tools)/retro/room/protocol";
+import { MEMBER_CARD_CAP, lockOf, type RoomSnapshot } from "@/app/(tools)/retro/room/protocol";
 import { toRoomSnapshot } from "@/app/(tools)/retro/room/snapshot";
 import { fakeRealtime, type FakeMember } from "./fake-realtime";
 
@@ -463,6 +463,41 @@ describe("useRetroRoom: a participant's own cards and votes", () => {
     expect(result.current.votesLeft).toBe(3);
   });
 
+  it("keeps its card allowance when its own deletes empty the board, not when the host clears it", () => {
+    const { result, ch } = joined(snap(HOST.id, board({ cards: [] }), { hide: true }));
+    for (let i = 0; i < MEMBER_CARD_CAP; i++) {
+      act(() => {
+        result.current.addCard("start", `Mine ${i}`);
+      });
+    }
+    const ids = (ch.sent("retro:intent") as Intent[]).map((s) => s.intent.iid);
+    const withMine = board({ cards: ids.map((id) => card(id)) });
+    act(() => ch.deliver("retro:state", snap(HOST.id, withMine, { hide: true, seq: 2 })));
+    for (const id of ids) {
+      act(() => {
+        result.current.deleteCard(id);
+      });
+    }
+    act(() =>
+      ch.deliver("retro:state", snap(HOST.id, board({ cards: [] }), { hide: true, seq: 3 }))
+    );
+    let res = "";
+    act(() => {
+      res = result.current.addCard("start", "One more");
+    });
+    expect(res).toBe("member-cap");
+
+    // The host clears a board with others' cards on it: the allowance starts again.
+    act(() => ch.deliver("retro:state", snap(HOST.id, board(), { hide: true, seq: 4 })));
+    act(() =>
+      ch.deliver("retro:state", snap(HOST.id, board({ cards: [] }), { hide: true, seq: 5 }))
+    );
+    act(() => {
+      res = result.current.addCard("start", "After the clear");
+    });
+    expect(res).toBe("sent");
+  });
+
   it("starts again when the host clears the board", () => {
     const { result, ch } = joined(snap(HOST.id, board(), { hide: true }));
     act(() => {
@@ -595,6 +630,38 @@ describe("useRetroRoom: the host", () => {
     // Its id can't come back as a new card.
     act(() => ch.deliver("retro:intent", addIntent(OTHER.id, "Taking its id", "m1")));
     expect(result.current.board.cards.map((c) => c.id)).toEqual(["c1", "c2", "o1"]);
+  });
+
+  it("gives a member's card allowance back on the host's clear, not when its own deletes empty the board", () => {
+    const { result } = host(board({ cards: [] }));
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    // The per-sender limit lets a burst of 20 through, then 4 a second.
+    const deliver = (envs: unknown[]) => {
+      for (let i = 0; i < envs.length; i += 10) {
+        act(() => {
+          for (const env of envs.slice(i, i + 10)) ch.deliver("retro:intent", env);
+        });
+        act(() => vi.advanceTimersByTime(3_000));
+      }
+    };
+    const ids = Array.from({ length: MEMBER_CARD_CAP }, (_, i) => `a${i}`);
+    deliver(ids.map((id) => addIntent(ME.id, `Card ${id}`, id)));
+    expect(result.current.board.cards).toHaveLength(MEMBER_CARD_CAP);
+    deliver(ids.map((id, i) => intent(ME.id, "card:delete", id, `d${i}`)));
+    expect(result.current.board.cards).toEqual([]);
+    // Deleting its own cards gave nothing back.
+    deliver([addIntent(ME.id, "One more", "more1")]);
+    expect(result.current.board.cards).toEqual([]);
+
+    // The host's own Clear Board does.
+    act(() => result.current.setBoard((b) => ({ ...b, cards: [card("h1")] })));
+    act(() => result.current.setBoard((b) => ({ ...b, cards: [] })));
+    deliver([addIntent(ME.id, "After the clear", "more2")]);
+    expect(result.current.board.cards.map((c) => c.text)).toEqual(["After the clear"]);
   });
 
   it("takes a vote back only for the member who cast it", () => {
