@@ -2,16 +2,21 @@
  * Sprint Planning's reading of the workspace: which stories are in the
  * sprint, which were left over by a closed sprint, which backlog items could
  * be imported, the priority score used to order the backlog, the capacity
- * forecast, and the warnings shown before committing. Pure.
+ * forecast, what the last retro and the impediments log leave to plan in,
+ * and the warnings shown before committing. Pure.
  */
 
 import type {
   BacklogItem,
   CapacityPlan,
+  Impediment,
   PrioritizationItem,
   Sprint,
   Story,
 } from "@/lib/stores/workspace-types";
+import { IMPEDIMENT_SEVERITY_LABEL, daysOverdue, impedimentAgeDays } from "@/lib/impediments/model";
+import type { RetroAction } from "@/lib/retro/actions";
+import type { Improvements, StoryPlace } from "@/lib/retro/improvement";
 import {
   BACKLOG_SOURCE_TOOL,
   backlogByPriority,
@@ -128,6 +133,91 @@ export function leftoverGroups(
 export function carryOverLabel(group: Pick<LeftoverGroup, "stories" | "points">): string {
   return `Carry over ${storiesCount(group.stories.length)} (${pointsCount(group.points)})`;
 }
+
+/* ── From the last retro ─────────────────────────────────────────────── */
+
+export {
+  improvementsFor,
+  type Improvements,
+  type PlannedAction,
+  type PlannedImpediment,
+  type StoryPlace,
+} from "@/lib/retro/improvement";
+
+/** Whether the panel has anything to list: an open action, an open impediment. */
+export function hasImprovements(i: Improvements): boolean {
+  return i.actions.length > 0 || i.impediments.length > 0 || i.earlierOpen > 0;
+}
+
+/**
+ * The panel's heading: "From the last retro" and "2 open actions, 1 open
+ * impediment". A team that has never agreed a retro action has no last
+ * retro to name, so its open impediments are headed by where they do come
+ * from.
+ */
+export function improvementsHeading(
+  i: Pick<Improvements, "actions" | "impediments" | "retroLabel">
+): { lead: string; counts: string } {
+  const blockers = plural(i.impediments.length, "open impediment");
+  return i.retroLabel === undefined
+    ? { lead: "From the impediments log", counts: blockers }
+    : {
+        lead: "From the last retro",
+        counts: `${plural(i.actions.length, "open action")}, ${blockers}`,
+      };
+}
+
+/**
+ * What "Add to this sprint" does for a row, from where its story is: make a
+ * new story ("new"), move the one waiting in the backlog in ("move"), or
+ * nothing (null: it is planned already). A story that is done no longer
+ * stands for the row, so a new one can be made, unless it was done in this
+ * very sprint.
+ */
+export function addMode(place: StoryPlace): "new" | "move" | null {
+  if (place.where === "none") return "new";
+  if (place.story.status === "done") return place.where === "sprint" ? null : "new";
+  return place.where === "backlog" ? "move" : null;
+}
+
+/** Where a row's story is, in words; null when it has none. */
+export function placeText(place: StoryPlace): string | null {
+  if (place.where === "none") return null;
+  const done = place.story.status === "done";
+  if (place.where === "sprint") return done ? "Done in this sprint" : "In this sprint";
+  if (place.where === "backlog") return done ? "Its story is done" : "Its story is in the backlog";
+  const name = place.sprintName ?? "another sprint";
+  return done ? `Its story was done in ${name}` : `In ${name}`;
+}
+
+/** "30 Oct": a due date, short. The raw text when it isn't a date. */
+function shortDay(day: string): string {
+  const d = new Date(`${day.slice(0, 10)}T12:00:00`);
+  return Number.isFinite(d.getTime())
+    ? d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+    : day;
+}
+
+/** "Sam · due 30 Oct", or "No owner": who has a retro action, and by when. */
+export function actionMeta(action: Pick<RetroAction, "assignee" | "dueDate">): string {
+  const owner = action.assignee.trim() || "No owner";
+  return action.dueDate ? `${owner} · due ${shortDay(action.dueDate)}` : owner;
+}
+
+/** "High · open 6 days · Bo": how bad an impediment is, how old, and who has it. */
+export function impedimentMeta(impediment: Impediment, today: string): string {
+  const age = impedimentAgeDays(impediment, today);
+  const parts = [
+    IMPEDIMENT_SEVERITY_LABEL[impediment.severity] ?? impediment.severity,
+    age === null ? "" : age === 0 ? "raised today" : `open ${plural(age, "day")}`,
+    impediment.owner?.trim() ?? "",
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
+/** Whether an impediment is past the day it should be gone by. */
+export const impedimentOverdue = (impediment: Impediment, today: string) =>
+  daysOverdue(impediment, today) > 0;
 
 /* ── Fill to capacity ────────────────────────────────────────────────── */
 

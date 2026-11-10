@@ -1,6 +1,14 @@
 import type { Sprint, Story } from "@/lib/stores/workspace-types";
 import { storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
-import { isReady, type LeftoverGroup } from "./view";
+import {
+  actionMeta,
+  hasImprovements,
+  improvementsHeading,
+  isReady,
+  placeText,
+  type Improvements,
+  type LeftoverGroup,
+} from "./view";
 
 function cell(v: unknown): string {
   return String(v ?? "")
@@ -13,8 +21,9 @@ const STATUS = (s: Story) => cell(s.status.replace("_", " "));
 
 /**
  * The sprint plan as Markdown: goal, commitment, capacity and the points it
- * suggests, the stories with their readiness, and anything a closed sprint
- * left over that is still waiting to be carried over.
+ * suggests, the stories with their readiness, anything a closed sprint
+ * left over that is still waiting to be carried over, and what the last
+ * retro and the impediments log leave to plan in.
  */
 export function planToMarkdown({
   sprint,
@@ -25,6 +34,7 @@ export function planToMarkdown({
   capacityRatio = null,
   suggestedPoints = null,
   leftovers = [],
+  improvements,
 }: {
   sprint: Sprint;
   stories: readonly Story[];
@@ -36,6 +46,8 @@ export function planToMarkdown({
   /** The points the capacity and velocity suggest. */
   suggestedPoints?: number | null;
   leftovers?: readonly LeftoverGroup[];
+  /** The last retro's open actions and the open impediments (lib/retro/improvement). */
+  improvements?: Improvements;
 }): string {
   const lines = [`# ${cell(sprint.name) || "Sprint"} — plan`, ""];
   lines.push(`**Goal:** ${sprint.goal?.trim() ? cell(sprint.goal) : "not set yet"}  `);
@@ -85,6 +97,42 @@ export function planToMarkdown({
           `- ${cell(s.title)} (${storyPoints(s) > 0 ? `${storyPoints(s)} points` : "not estimated"}, ${STATUS(s)})`
       )
     );
+  }
+  if (improvements && hasImprovements(improvements)) {
+    const where = (place: Parameters<typeof placeText>[0]) =>
+      (placeText(place) ?? "Not planned yet").toLowerCase();
+    const heading = improvementsHeading(improvements);
+    lines.push("", `## ${heading.lead}`, "", `${heading.counts}.`);
+    if (improvements.actions.length > 0) {
+      lines.push(
+        "",
+        `Retro actions${improvements.retroLabel ? ` (${cell(improvements.retroLabel)})` : ""}:`,
+        "",
+        ...improvements.actions.map(
+          ({ action, place }) =>
+            `- ${cell(action.text)} (${cell(actionMeta(action))}${action.overdue ? ", overdue" : ""}): ${where(place)}`
+        )
+      );
+    }
+    if (improvements.earlierOpen > 0) {
+      lines.push(
+        "",
+        improvements.earlierOpen === 1
+          ? "1 more open action is from an earlier retro."
+          : `${improvements.earlierOpen} more open actions are from earlier retros.`
+      );
+    }
+    if (improvements.impediments.length > 0) {
+      lines.push(
+        "",
+        "Open impediments:",
+        "",
+        ...improvements.impediments.map(
+          ({ impediment, place }) =>
+            `- ${cell(impediment.title)} (${cell(impediment.severity)}): ${where(place)}`
+        )
+      );
+    }
   }
   return `${lines.join("\n")}\n`;
 }
