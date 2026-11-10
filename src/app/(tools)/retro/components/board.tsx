@@ -27,6 +27,8 @@
  * hides cards (Write, "Hide cards while writing" on), this screen hides the
  * participants' cards too: each column shows the host's own and how many
  * others it holds, and Common words and the AI prompts read only what shows.
+ * The room's check is asked while drawing, so a card that just arrived is
+ * hidden from the first render it is in.
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
@@ -162,8 +164,20 @@ export function Board({
   const announce = useAnnounce();
   // Set while a visitor live room runs, so "New Retro" can end it first.
   const liveRoomRef = useRef<LiveRoomHandle | null>(null);
-  // The participants' cards a live room hides on this screen right now (null: none).
-  const [roomHidden, setRoomHidden] = useState<ReadonlySet<string> | null>(null);
+  // A live room's check for the participants' cards this screen hides (null: none).
+  const [roomHides, setRoomHides] = useState<((cardId: string) => boolean) | null>(null);
+  // Wrapped: a function handed to a state setter would be called as an updater.
+  const onRoomHidden = useCallback(
+    (hides: ((cardId: string) => boolean) | null) => setRoomHides(() => hides),
+    []
+  );
+  // Asked in this render, so a card that arrives with this render is already hidden.
+  const roomHidden = useMemo((): ReadonlySet<string> | null => {
+    if (!roomHides || state.phase !== "write") return null;
+    const ids = new Set<string>();
+    for (const c of state.cards) if (roomHides(c.id)) ids.add(c.id);
+    return ids;
+  }, [roomHides, state.phase, state.cards]);
   const hiddenView = useMemo(() => hideCards(state.cards, roomHidden), [state.cards, roomHidden]);
   const shownCards = hiddenView.shown;
 
@@ -796,7 +810,7 @@ export function Board({
               board={state}
               onUpdate={onUpdate}
               handleRef={liveRoomRef}
-              onHiddenChange={setRoomHidden}
+              onHiddenChange={onRoomHidden}
             />
             <TimerWidget
               seconds={state.timerSeconds}

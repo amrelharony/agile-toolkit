@@ -12,7 +12,9 @@
  *    vote back. No snapshot carries it and the board never saves it;
  *  - "Hide cards while writing" (on by default): during Write a snapshot
  *    carries a count per column instead of the cards, and `hiddenIds` names
- *    the others' cards its own screen hides too;
+ *    the others' cards its own screen hides too. `hidesCard` answers the
+ *    same from the ledger when called, so a screen drawing a card that just
+ *    arrived hides it in that same render (the ledger changes first);
  *  - never applies an inbound snapshot;
  *  - sends a snapshot at most every 500 ms when the board changes (a timer
  *    tick is not a change), when someone joins, and every 30 s as a
@@ -67,6 +69,7 @@ import {
   applyIntent,
   applyPatch,
   createIntentLedger,
+  ownerOfCard,
   resetAllowances,
   retireIds,
   type IntentLedger,
@@ -224,6 +227,14 @@ export interface RetroRoom {
   hiddenCounts: Record<string, number> | null;
   /** Hosting: ids of the others' cards this host's screen hides right now, or null. */
   hiddenIds: ReadonlySet<string> | null;
+  /**
+   * Hosting with hiding on: whether a card is one of the others', read from
+   * the ledger when called. The ledger changes before the board does, so a
+   * screen that asks while drawing a card that just arrived already hides
+   * it. The caller checks the phase (cards hide only in Write). Null when
+   * nothing is hidden: hiding off, or not hosting. Stable while those hold.
+   */
+  hidesCard: ((cardId: string) => boolean) | null;
   /** The host's "Hide cards while writing" setting (this client's own when hosting). */
   hideWhileWriting: boolean;
   /** Ids of cards this client added through the room, which it may delete in Write. */
@@ -1249,6 +1260,17 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHost, hide, livePhase, ledgerVersion, selfId]);
 
+  const hidesCard = useMemo(
+    () =>
+      isHost && hide
+        ? (cardId: string): boolean => {
+            const owner = ownerOfCard(ledgerRef.current, cardId);
+            return owner !== null && owner !== selfId;
+          }
+        : null,
+    [isHost, hide, selfId]
+  );
+
   const shown = useMemo((): {
     cards: RetroCard[] | null;
     counts: Record<string, number> | null;
@@ -1327,6 +1349,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     shownCards: shown.cards,
     hiddenCounts: shown.counts,
     hiddenIds,
+    hidesCard,
     hideWhileWriting: isHost ? hide : (view?.hideWhileWriting ?? true),
     ownIds,
     myVotes,

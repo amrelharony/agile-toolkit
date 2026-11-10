@@ -18,9 +18,10 @@
  * reload never reopens a room silently.
  *
  * "Hide cards while writing" sits in the host's strip, on by default: in
- * Write each person sees only their own cards, and `onHiddenChange` tells
- * the Board which of the participants' cards to hide on this screen too.
- * The setting lasts as long as the room.
+ * Write each person sees only their own cards, and `onHiddenChange` hands
+ * the Board the room's `hidesCard`, which it asks while drawing so the
+ * participants' cards stay hidden on this screen too, from the first render
+ * a new one appears in. The setting lasts as long as the room.
  */
 
 import { useEffect, useId, useRef, useState, type MutableRefObject } from "react";
@@ -46,8 +47,11 @@ import type { BoardState } from "../types";
 import { useRetroRoom, type RetroRoomStatus, type EndReason } from "./use-retro-room";
 import { HideCardsSetting, IdlePromptDialog, RoomMemberList } from "./room-controls";
 
-/** Which of the participants' cards the host's screen hides right now (null: none). */
-export type HiddenCardsListener = (ids: ReadonlySet<string> | null) => void;
+/**
+ * Told whether the host's screen hides cards: a check to ask, card by card,
+ * while drawing in Write (the room's `hidesCard`), or null when it hides none.
+ */
+export type HiddenCardsListener = (hidesCard: ((cardId: string) => boolean) | null) => void;
 
 /** Lets the Board end the room before "New Retro" clears it. */
 export interface LiveRoomHandle {
@@ -217,12 +221,14 @@ function HostLiveRoom({
   }, [handleRef, end]);
 
   // The Board hides the participants' cards on this screen while the room does.
-  const { hiddenIds } = room;
+  // It gets the check itself, not a list: a list passed on after this render
+  // would let a card that just arrived show for one render first.
+  const { hidesCard } = room;
   const onHiddenRef = useRef(onHiddenChange);
   onHiddenRef.current = onHiddenChange;
   useEffect(() => {
-    onHiddenRef.current?.(hiddenIds);
-  }, [hiddenIds]);
+    onHiddenRef.current?.(hidesCard);
+  }, [hidesCard]);
   useEffect(() => () => onHiddenRef.current?.(null), []);
 
   // Owners don't run visitor rooms: if this browser turns out to be the

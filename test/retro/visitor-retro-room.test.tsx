@@ -283,6 +283,58 @@ describe("Everyone on their own device, on the Retro board", () => {
     expect(screen.getByText("Pat's secret")).toBeInTheDocument();
   });
 
+  it("never puts a hidden card's text in the host's page, not even for one render", () => {
+    // Ten cards of the host's, two sharing a word, so Common words shows.
+    const words = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel"];
+    const own = [
+      card("p1", { text: "Pairing sessions helped" }),
+      card("p2", { text: "Pairing with juniors", columnKey: "continue" }),
+      ...words.map((w, i) => card(`w${i}`, { text: w, columnKey: "stop" })),
+    ];
+    render(<Harness initial={makeBoard({ cards: own })} />);
+    fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
+    consentAs("Hana");
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    expect(screen.getByRole("button", { name: /^pairing/ })).toHaveTextContent("2 cards");
+
+    // Every node the page inserts while the card lands, kept even if removed again.
+    const observer = new MutationObserver(() => {});
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    act(() =>
+      ch.deliver("retro:intent", {
+        v: 2,
+        by: ME.id,
+        intent: {
+          t: "card:add",
+          iid: "patCard02",
+          columnKey: "start",
+          text: "Pairing is Pat's secret",
+          lock: lockOf("pat_card_key_00000"),
+        },
+      })
+    );
+    const drawn = observer
+      .takeRecords()
+      .flatMap((r) =>
+        r.type === "characterData"
+          ? [r.target.textContent ?? ""]
+          : Array.from(r.addedNodes, (n) => n.textContent ?? "")
+      );
+    observer.disconnect();
+    expect(drawn.join("\n")).not.toContain("Pat's secret");
+    expect(screen.getByText("1 card from others, hidden until Vote")).toBeInTheDocument();
+    // Its words stay out of Common words too.
+    expect(screen.getByRole("button", { name: /^pairing/ })).toHaveTextContent("2 cards");
+
+    fireEvent.click(screen.getByRole("button", { name: /next phase/i }));
+    expect(screen.getByText("Pairing is Pat's secret")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^pairing/ })).toHaveTextContent("3 cards");
+  });
+
   it("ends the room on request and keeps the board", () => {
     render(<Harness initial={makeBoard()} />);
     fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
