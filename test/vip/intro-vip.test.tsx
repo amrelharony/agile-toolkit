@@ -543,6 +543,37 @@ describe("the timeline in vip-intro.module.css", () => {
     expect(firstStep(only(".bookCamera").name)).toMatch(/opacity:\s*0\s*;/);
   });
 
+  // The cover opens round its left edge until it lies nearly flat, past the
+  // book's own left side and a little toward the camera. On a portrait phone
+  // the book is its vw share of the screen wide, so this holds on all of them.
+  it("keeps the opened cover's far edge on a portrait phone's screen", () => {
+    const widths = Array.from(source.matchAll(/--book-w:\s*min\(([\d.]+)vw,/g), (m) =>
+      Number(m[1])
+    );
+    expect(widths).toHaveLength(2);
+    const depth = Number(
+      /perspective:\s*calc\(var\(--book-w\)\s*\*\s*([\d.]+)\)/.exec(source)?.[1] ?? NaN
+    );
+    expect(depth).toBeGreaterThan(1);
+    const angles = Array.from(
+      (keyframes.get(only(".bookCover").name) ?? "").matchAll(/rotateY\((-?[\d.]+)deg\)/g),
+      (m) => Number(m[1])
+    );
+    const [upright, rest] = [angles.at(-2)!, angles.at(-1)!];
+    // The fall lands on the settle spring, so it swings a little past its rest.
+    const peak = Math.max(...EASE.settle.slice("linear(".length, -1).split(",").map(Number));
+    const furthest = rest + (rest - upright) * (peak - 1);
+    let reach = 0;
+    for (let a = 0; a >= furthest; a -= 0.25) {
+      const turn = (a * Math.PI) / 180;
+      // In book widths from the book's middle, and toward the camera.
+      const [x, z] = [-0.5 + Math.cos(turn), -Math.sin(turn)];
+      reach = Math.max(reach, (-x * depth) / (depth - z));
+    }
+    expect(reach).toBeGreaterThan(1.5);
+    for (const w of widths) expect(reach * w, `${w}vw`).toBeLessThan(50);
+  });
+
   it("sweeps the stripe across the closed cover, ending before it opens", () => {
     const stripe = only(".bookStripe");
     expect(stripe.delay).toBeGreaterThanOrEqual(only(".bookDrop").delay);

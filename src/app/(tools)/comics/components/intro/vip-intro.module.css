@@ -204,16 +204,20 @@
 
 /* ── The book the tools are dealt out of (vip-intro.tsx, DealingBook) ──────── */
 
-/* In the slot's one grid cell, centred on it, so it adds no row. Square, about
-   a third of a phone's width and at most a fifth of the screen's height, so it
-   stays shorter than the three cards dealt over it (about 105 px under 145 px
-   of cards at 375 × 550, 127 under 170 at 375 × 812). Under them, since they
-   come out of it: the slot is a layer of its own. In vh first: a custom
-   property has no fallback, so a browser without dvh would lose every size
-   built on it and draw no book at all. Steps back, for good, once the last
-   card is out. */
+/* In the slot's one grid cell, centred on it, so it adds no row. Square, a
+   little under a third of a phone's width and at most a fifth of the screen's
+   height, so it stays shorter than the three cards dealt over it (about 105 px
+   under 145 px of cards at 375 × 550, 116 under 170 at 375 × 812). The open
+   cover reaches about 1.56 book widths left of the book's middle, camera
+   included, so 31vw keeps its edge on a portrait phone's screen (about 6 px
+   in at 375 px wide), where 34vw put it some 12 px past. Under the cards,
+   since they come out of it: the slot is a layer of its own, and z-index -1
+   keeps a card that has landed (no transform left) over the book. In vh
+   first: a custom property has no fallback, so a browser without dvh would
+   lose every size built on it and draw no book at all. Steps back, for good,
+   once the last card is out. */
 .book {
-  --book-w: min(34vw, 19vh);
+  --book-w: min(31vw, 19vh);
   grid-area: 1 / 1;
   place-self: center;
   position: relative;
@@ -224,7 +228,7 @@
 }
 @supports (height: 1dvh) {
   .book {
-    --book-w: min(34vw, 19dvh);
+    --book-w: min(31vw, 19dvh);
   }
 }
 
