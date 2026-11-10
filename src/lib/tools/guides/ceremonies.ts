@@ -38,7 +38,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "With no sprint yet, follow Set up your sprint: add your team, create the sprint and check the ceremony times. Or click See an example first.",
-      "Under Next ceremony, click Add to calendar to download the sprint's ceremonies as a calendar file. Each asks for a reminder 10 minutes before, though some calendars use their own setting. Open retro actions with a due date go in on those days unless you untick them. Tick the weekly Agile at Work story to add it too. The file is a snapshot: each teammate imports it, or you forward it. Download it again when the times change.",
+      "Under Next ceremony, Add to calendar downloads the sprint's ceremonies, each asking for a reminder 10 minutes before. Open retro actions with a due date go in unless you untick them; tick the weekly Agile at Work story to add it. Each teammate imports the file, or you forward it; download it again when times change.",
       "Read the sentence under the sprint header, then the five ceremony cards. Each says where that ceremony stands and links to the tool that runs it.",
       "Done, Remaining and the Burndown come from the sprint board when its stories have points. Without pointed stories, type the points in Points left today under Burndown and click Log.",
       "Check Open blockers: the impediments open during the sprint, escalated and overdue ones first, and the stories Blocked on the board.",
