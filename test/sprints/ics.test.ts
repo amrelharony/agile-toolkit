@@ -343,7 +343,7 @@ describe("sprintCalendar", () => {
     expect(unescape(prop(planning, "DESCRIPTION") ?? "")).toMatch(/^Timebox: 4 h\.\n/);
   });
 
-  it("has no two ceremonies at once in a sprint of two, three or four weeks", () => {
+  it("has no two ceremonies at once on the default times, in a sprint of two, three or four weeks", () => {
     for (const endDate of ["2026-11-02", "2026-11-09", "2026-11-16"]) {
       const { ics } = build({ sprint: { ...SPRINT, endDate } });
       // UTC date-times of one shape: they sort as text.
@@ -379,6 +379,39 @@ describe("sprintCalendar", () => {
     expect(prop(byUid(together, uidOf("review", "20261102")), "DTEND")).toBe(at("16:00"));
     expect(prop(byUid(together, uidOf("retro", "20261102")), "DTEND")).toBe(at("15:30"));
     expect(together).not.toContain("This entry ends when");
+  });
+
+  it("never ends a ceremony at a Daily Scrum, though the next ceremony can end a Daily Scrum", () => {
+    const at = (time: string) => icsUtc(localDateTime("2026-11-02", time)!);
+    const withDailyAt = (dailyTime: string) =>
+      build({ sprint: TWO_WEEKS, cadence: { ...DEFAULT_CADENCE, dailyTime } }).ics;
+
+    // An afternoon Daily Scrum inside the review: the review still runs to the retro.
+    const inside = withDailyAt("14:30");
+    const review = byUid(inside, uidOf("review", "20261102"));
+    expect(prop(review, "DTEND")).toBe(at("15:30"));
+    expect(unescape(prop(review, "DESCRIPTION") ?? "")).toMatch(
+      /^Timebox: 2 h\. This entry ends when the Sprint Retrospective starts\.\n/
+    );
+    const daily = byUid(inside, uidOf("daily", "20261102"));
+    expect([prop(daily, "DTSTART"), prop(daily, "DTEND")]).toEqual([at("14:30"), at("14:45")]);
+
+    // Inside the retro, the last ceremony: the retro keeps its 1 h 30.
+    const late = byUid(withDailyAt("16:00"), uidOf("retro", "20261102"));
+    expect(prop(late, "DTEND")).toBe(at("17:00"));
+    expect(unescape(prop(late, "DESCRIPTION") ?? "")).toMatch(/^Timebox: 1 h 30\.\n/);
+
+    // A Daily Scrum that would run into the review ends when the review starts.
+    const before = withDailyAt("13:50");
+    const cut = byUid(before, uidOf("daily", "20261102"));
+    expect(prop(cut, "DTEND")).toBe(at("14:00"));
+    expect(unescape(prop(cut, "DESCRIPTION") ?? "")).toMatch(
+      /^Timebox: 15 min\. This entry ends when the Sprint Review starts\.\n/
+    );
+    // On a day without a review it has its 15 minutes.
+    expect(prop(byUid(before, uidOf("daily", "20261030")), "DTEND")).toBe(
+      icsUtc(localDateTime("2026-10-30", "14:05")!)
+    );
   });
 
   it("gives each entry a summary, a description, a link to its tool on that sprint and a reminder 10 minutes before", () => {

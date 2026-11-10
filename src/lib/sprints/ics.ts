@@ -7,7 +7,8 @@
  * the holidays, so there is no recurrence rule or exception date to get
  * wrong. No time zone is stored with the cadence: its times are the
  * browser's local times, written here as UTC instants. An entry lasts its
- * ceremony's timebox, or until the next ceremony starts when that is sooner.
+ * ceremony's timebox, or until the next ceremony starts when that is sooner
+ * (`cutShortBy`).
  *
  * The file is a snapshot. Every entry has a UID that stays the same from one
  * download to the next (sprint id, ceremony and date), so a calendar that
@@ -243,7 +244,9 @@ const snapshotNote = (change: string) =>
  * the sprint's ceremonies sit on a calendar at once: on the default times a
  * two-week sprint's 2 h review would run 30 minutes into the retro. One that
  * starts at the very same moment cuts nothing, since an entry needs a length.
- * `occurrences` is in time order.
+ * Nor does a Daily Scrum: a 15-minute meeting set inside a review or a retro
+ * is a clash for the team to settle, and ending the longer one there would
+ * hide most of it. `occurrences` is in time order.
  */
 function cutShortBy(
   occurrences: readonly CeremonyOccurrence[],
@@ -251,7 +254,9 @@ function cutShortBy(
   minutes: number
 ): CeremonyOccurrence | undefined {
   const start = occurrences[index].at.getTime();
-  const next = occurrences.slice(index + 1).find((o) => o.at.getTime() > start);
+  const next = occurrences
+    .slice(index + 1)
+    .find((o) => o.kind !== "daily" && o.at.getTime() > start);
   return next && next.at.getTime() < start + minutes * 60_000 ? next : undefined;
 }
 
