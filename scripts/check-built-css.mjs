@@ -194,19 +194,15 @@ function bookLookHidden(css) {
   });
 }
 
-/** The book title's bowed wipe: clip-path shape() inside @supports for it. */
-function bowedWipe(css) {
-  return blocks(css, "@supports").some(
-    (b) => b.params.includes("(clip-path:shape(") && b.body.includes("clip-path:shape(")
-  );
-}
-
 /**
- * A scene's own bowed ink: inside @supports (clip-path:shape(...)), a
+ * An intro's own bowed wipe: inside @supports (clip-path:shape(...)), a
  * @keyframes whose clip-path:shape() frames hold `mark`, run by a rule in that
- * same block. Found by what the wipe draws, not by its hashed name.
+ * same block. Found by what the wipe draws, not by its hashed name, so one
+ * scene's bowed wipe never passes for another's. `mark` is a string, or a
+ * RegExp where the minifier drops a leading zero the source writes.
  */
 function bowedTwin(mark) {
+  const holds = (body) => (mark instanceof RegExp ? mark.test(body) : body.includes(mark));
   return (css) =>
     blocks(css, "@supports").some(
       (b) =>
@@ -214,7 +210,7 @@ function bowedTwin(mark) {
         blocks(b.body, "@keyframes").some(
           (k) =>
             k.body.includes("clip-path:shape(") &&
-            k.body.includes(mark) &&
+            holds(k.body) &&
             b.body.includes(`animation:${k.params}`)
         )
     );
@@ -276,8 +272,10 @@ export const MARKERS = {
       test: bookLookHidden,
     },
     {
-      name: "book title: the bowed wipe's clip-path:shape() inside @supports (clip-path:shape(...))",
-      test: bowedWipe,
+      // Its last frame's bow, at the title's right edge, half-way down: only
+      // the book title draws it (0.5rem in the source, .5rem once minified).
+      name: "book title: the bowed wipe's clip-path:shape() (bowed with calc(100%+.5rem) 50%) in a @keyframes inside @supports (clip-path:shape(...)), run by a rule there",
+      test: bowedTwin(/withcalc\(100%\+0?\.5rem\)50%/),
     },
   ],
   I2: [

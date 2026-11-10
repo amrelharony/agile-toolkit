@@ -50,12 +50,14 @@ const VT = vtBlock(READY + NAMES + HOLD + STACK + TAPS + CALM);
 const MASK = `.g_x{--look-grain:${TILE};display:none;-webkit-mask-image:var(--look-grain);mask-image:var(--look-grain);-webkit-mask-size:61px 61px;mask-size:61px 61px;-webkit-mask-repeat:repeat;mask-repeat:repeat}`;
 const SHOWN = "@supports (mask-image:none) or (-webkit-mask-image:none){.g_x{display:block}}";
 const HIDE = ".hc [data-look],[data-theme=hc] [data-look]{display:none!important}";
-const BOWED =
-  "@supports (clip-path:shape(from 0 0,line to 100% 0)){.c_x{animation:b-ink .4s both}@keyframes b-ink{0%{clip-path:shape(from 0 0,line to 0 0)}to{clip-path:shape(from 0 0,line to 100% 0)}}}";
+const SHAPE_IF = "@supports (clip-path:shape(from 0 0,line to 100% 0))";
+/** The book title's bowed wipe as the build writes it: 0% becomes 0, 0.5rem .5rem. */
+const BOOK_INK =
+  "@keyframes b-ink{0%{clip-path:shape(from -.5rem -.5rem,line to 0 -.5rem,curve to 0 calc(100% + .5rem) with 0 50%,line to -.5rem calc(100% + .5rem),close)}to{clip-path:shape(from -.5rem -.5rem,line to calc(100% + .5rem) -.5rem,curve to calc(100% + .5rem) calc(100% + .5rem) with calc(100% + .5rem) 50%,line to -.5rem calc(100% + .5rem),close)}}";
+const BOWED = `${SHAPE_IF}{.c_x{animation:b-ink .4s both}${BOOK_INK}}`;
 const BOOK = MASK + SHOWN + HIDE + BOWED;
 
 /** I2's bowed twins for the poster's sheet and the VIP opening ink, minified (names hashed). */
-const SHAPE_IF = "@supports (clip-path:shape(from 0 0,line to 100% 0))";
 const POSTER_INK =
   "@keyframes p-ink{0%{clip-path:shape(from 0 0,line to 0 0,curve to 0 0 with 0 0,close)}to{clip-path:shape(from 0 0,line to calc(200% + 2rem) 0,curve to 0 calc(200% + 2rem) with calc(100% + 1rem) calc(100% + 1rem),close)}}";
 const POSTER_BOWED = `${SHAPE_IF}{.p_x{animation:p-ink .42s both}${POSTER_INK}}`;
@@ -73,8 +75,6 @@ function failing(...sheets: string[]): string[] {
     .filter((r: { ok: boolean }) => !r.ok)
     .map((r: { name: string }) => r.name);
 }
-/** The same, for a describe that narrows `failing` to its own PR's markers. */
-const failingAll = failing;
 
 describe("check-built-css", () => {
   it("lists each PR's markers", () => {
@@ -159,13 +159,10 @@ describe("check-built-css: F2's held layers", () => {
 });
 
 describe("check-built-css: I1's book look", () => {
-  const OTHERS = FALLBACK + LINEAR + GRAIN + OFF + VT;
+  // Every other PR's markers, the poster's and the VIP's bowed inks included:
+  // shape() wipes in @supports too, which must never pass for the book's.
+  const OTHERS = FALLBACK + LINEAR + GRAIN + OFF + VT + SCENES_BOWED;
   const [PAIRED, SUPPORTS, HIDDEN, SHAPE] = MARKERS.I1.map((m: { name: string }) => m.name);
-  // I1's own markers only. I2's pass only with its twins in the sheet, and
-  // those are shape() wipes in @supports too, which would pass I1's book
-  // title marker in every case below.
-  const failing = (...sheets: string[]) =>
-    failingAll(...sheets).filter((name) => [PAIRED, SUPPORTS, HIDDEN, SHAPE].includes(name));
 
   it("lists every I1 marker as missing without the book look", () => {
     expect(failing(OTHERS)).toEqual([PAIRED, SUPPORTS, HIDDEN, SHAPE]);
@@ -220,9 +217,27 @@ describe("check-built-css: I1's book look", () => {
   });
 
   it("flags a shape() wipe that left its @supports", () => {
-    const bare =
-      ".c_x{animation:b-ink .4s both}@keyframes b-ink{to{clip-path:shape(from 0 0,line to 100% 0)}}";
+    const bare = `.c_x{animation:b-ink .4s both}${BOOK_INK}`;
     expect(failing(OTHERS + MASK + SHOWN + HIDE + bare)).toEqual([SHAPE]);
+  });
+
+  it("never takes the poster's or the VIP's bowed ink for the book title's", () => {
+    // Both scenes' twins are in OTHERS, in their own @supports, each run there.
+    expect(failing(OTHERS + MASK + SHOWN + HIDE)).toEqual([SHAPE]);
+    expect(failing(OTHERS, MASK + SHOWN + HIDE, POSTER_BOWED, VIP_BOWED)).toEqual([SHAPE]);
+    expect(failing(OTHERS + MASK + SHOWN + HIDE + BOWED)).toEqual([]);
+  });
+
+  it("flags the book title's twin when no rule in its block runs it", () => {
+    const unused = BOWED.replace("animation:b-ink", "animation:other-ink");
+    expect(unused).not.toBe(BOWED);
+    expect(failing(OTHERS + MASK + SHOWN + HIDE + unused)).toEqual([SHAPE]);
+  });
+
+  it("reads the book title's bow as written in the source or as minified", () => {
+    const written = BOWED.split(".5rem").join("0.5rem");
+    expect(written).not.toBe(BOWED);
+    expect(failing(OTHERS + MASK + SHOWN + HIDE + written)).toEqual([]);
   });
 });
 
