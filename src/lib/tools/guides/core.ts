@@ -15,7 +15,7 @@ export const CORE_GUIDES: ToolGuide[] = [
       "Under Retro for, check the sprint this retro looks back on: the one you came from, else the sprint ending nearest today. Pick another or press Unlink, then choose a format, or Quick Start: Start / Stop / Continue. Load an example shows a finished board.",
       "In Write, read Facts from your sprint: goal, say/do, burndown, impediments, mood, kudos and how the last retro's actions went, each linked to its tool. Under Actions from the last retro, Carry over the ones still open, and add the sprint's kudos as cards.",
       "Add cards to each column; pasting several lines adds one card per line. Click a card's text to fix it. In Write, Group with… puts a card under a similar one in its column, and the bin deletes a card, with Undo. From 10 cards, Common words rings the cards that share a word.",
-      "Press Next Phase to vote. Everyone has 3 votes: on a shared screen, pick who is voting under Voting as. Take my vote back returns one. Previous phase keeps the votes.",
+      "Press Next Phase to vote. Everyone has 3 votes, or 5 or 8 under Votes each: on a shared screen, pick who is voting under Voting as. Take my vote back returns one. Previous phase keeps the votes.",
       "In Discuss the cards are sorted by votes. Click one to mark it as discussing, and timebox it with the timer's 5m, 10m, 15m or 30m and Start.",
       "In Actions, tick the cards the team will act on, pick each one's owner from the team, and use Send to… to raise it as an Impediment or a Kanban card. Retro Actions follows them up.",
       "Export gives the board as Markdown or JSON. New Retro moves it to Past retros, below the format picker, with Undo.",

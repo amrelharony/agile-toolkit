@@ -48,7 +48,7 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
 import { useFlash } from "@/hooks/use-flash";
-import { PHASES, type BoardState } from "../types";
+import { PHASES, phaseDescription, type BoardState } from "../types";
 import { shortText } from "../helpers";
 import { toMarkdown } from "../markdown";
 import { PhaseIndicator } from "../components/phase-indicator";
@@ -174,7 +174,7 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
   const [confirmEnd, setConfirmEnd] = useState(false);
   const countdown = useRoomCountdown(room.timer);
 
-  const { status, isHost, promoted, hostId, hostName, endReason } = room;
+  const { status, isHost, promoted, hostId, hostName, endReason, votesPerPerson } = room;
   // What this screen shows: while cards are hidden, only this person's own.
   const shownCards = room.shownCards;
   const board: BoardState | null = useMemo(
@@ -193,7 +193,9 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
     lastPhase.current = phase;
     if (prev === null || prev === phase) return;
     const p = PHASES.find((x) => x.key === phase);
-    if (p) announce(`${p.label} phase. ${p.description}.`);
+    if (p) announce(`${p.label} phase. ${phaseDescription(p.key, votesPerPerson)}.`);
+    // Said once per phase change: a new budget mid-phase isn't a new phase.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, announce]);
 
   const lastStatus = useRef<RetroRoomStatus>(status);
@@ -429,7 +431,7 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
 
           {phaseInfo && (
             <p className="text-xs text-sub px-1">
-              {phaseInfo.description}
+              {phaseDescription(phaseInfo.key, room.votesPerPerson)}
               {cardsHiddenNow &&
                 (hosting
                   ? ". Everyone's cards stay hidden until you move to Vote, on this screen too."

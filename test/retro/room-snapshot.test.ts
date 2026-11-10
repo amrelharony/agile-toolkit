@@ -17,7 +17,8 @@ import {
   otherVersionSender,
   type RoomSnapshot,
 } from "@/app/(tools)/retro/room/protocol";
-import { MAX_VOTES, type BoardState, type RetroCard } from "@/app/(tools)/retro/types";
+import { DEFAULT_RETRO_VOTES } from "@/lib/retro/board";
+import type { BoardState, RetroCard } from "@/app/(tools)/retro/types";
 
 /**
  * What the host shares (nothing private, no card while cards are hidden)
@@ -81,7 +82,7 @@ function meta(overrides: Partial<SnapshotMeta> = {}): SnapshotMeta {
     timer: { running: false, remaining: 120 },
     now: NOW,
     hideWhileWriting: true,
-    votesPerPerson: MAX_VOTES,
+    votesPerPerson: DEFAULT_RETRO_VOTES,
     ...overrides,
   };
 }
@@ -130,7 +131,7 @@ describe("toRoomSnapshot", () => {
     ]);
     expect(json).not.toContain(retroFormats[0].columns[0].color);
     expect(json).not.toContain(retroFormats[0].columns[0].icon);
-    expect(snap.votesPerPerson).toBe(MAX_VOTES);
+    expect(snap.votesPerPerson).toBe(DEFAULT_RETRO_VOTES);
   });
 
   it("shares votes only for members still in the room", () => {

@@ -24,6 +24,26 @@ export const RETRO_GRACE_DAYS = 7;
 /** How long a card's text can be, on the board, from a hand-off or an agent. */
 export const RETRO_CARD_MAX = 500;
 
+/** Votes each person has: the board's "Votes each" setting. */
+export type RetroVotes = NonNullable<RetroBoard["votesPerPerson"]>;
+
+/** The choices for "Votes each", fewest first. */
+export const RETRO_VOTE_OPTIONS: readonly RetroVotes[] = [3, 5, 8];
+
+/** Votes each person has on a board that doesn't say (every board from before the setting). */
+export const DEFAULT_RETRO_VOTES: RetroVotes = 3;
+
+/** Whether `v` is one of the "Votes each" choices. */
+export function isRetroVotes(v: unknown): v is RetroVotes {
+  return typeof v === "number" && (RETRO_VOTE_OPTIONS as readonly number[]).includes(v);
+}
+
+/** Votes each person has on `board`: its setting, else the default. */
+export function retroVotes(board: { votesPerPerson?: unknown } | null | undefined): RetroVotes {
+  const v = board?.votesPerPerson;
+  return isRetroVotes(v) ? v : DEFAULT_RETRO_VOTES;
+}
+
 // The local calendar day of a timestamp, shared with the flow charts.
 export { localDay };
 
@@ -142,13 +162,13 @@ export function newestArchivedRetro(boards: readonly RetroBoard[]): RetroBoard |
 
 /**
  * A new, empty current board in `format`, following `previousRetroId` (the
- * newest archive, usually) and looking back on `sprintId` when given. The
- * Retro page's format picker, the retro hand-offs and agents start boards
- * through this one builder.
+ * newest archive, usually), looking back on `sprintId` and with
+ * `votesPerPerson` votes each when given. The Retro page's format picker,
+ * the retro hand-offs and agents start boards through this one builder.
  */
 export function blankRetroBoard(
   format: RetroFormat,
-  opts: { previousRetroId?: string; sprintId?: string } = {}
+  opts: { previousRetroId?: string; sprintId?: string; votesPerPerson?: RetroVotes } = {}
 ): RetroBoard {
   return {
     id: RETRO_CURRENT_ID,
@@ -161,5 +181,6 @@ export function blankRetroBoard(
     discussingIndex: 0,
     ...(opts.previousRetroId ? { previousRetroId: opts.previousRetroId } : {}),
     ...(opts.sprintId ? { sprintId: opts.sprintId } : {}),
+    ...(isRetroVotes(opts.votesPerPerson) ? { votesPerPerson: opts.votesPerPerson } : {}),
   };
 }

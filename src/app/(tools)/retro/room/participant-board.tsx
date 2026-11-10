@@ -21,7 +21,8 @@
  */
 
 import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
-import { MAX_VOTES, type BoardState } from "../types";
+import { DEFAULT_RETRO_VOTES } from "@/lib/retro/board";
+import type { BoardState } from "../types";
 import { columnGridClass } from "../helpers";
 import { RetroColumnPanel } from "../components/retro-column-panel";
 
@@ -33,7 +34,7 @@ export const PARTICIPANT_PASTE_CAP = Math.floor(VISITOR_LIMITS.inbound.perSender
 export interface ParticipantBoardProps {
   /** The board as this person sees it (only their own cards while cards are hidden). */
   board: BoardState;
-  /** Votes each person has (the host's; `MAX_VOTES` when not given). */
+  /** Votes each person has (the host's; 3 when not given). */
   votesPerPerson?: number;
   /** Votes this person has left. */
   votesLeft: number;
@@ -57,7 +58,7 @@ export interface ParticipantBoardProps {
 
 export function ParticipantBoard({
   board,
-  votesPerPerson = MAX_VOTES,
+  votesPerPerson = DEFAULT_RETRO_VOTES,
   votesLeft,
   canAct,
   hiddenCounts,

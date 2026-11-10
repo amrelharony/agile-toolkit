@@ -74,7 +74,8 @@ import {
 import { cleanText, isWithinJsonSize } from "@/lib/realtime/sanitize";
 import { VISITOR_LIMITS, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
 import { toast } from "@/lib/utils/toast";
-import { MAX_VOTES, type BoardPhase, type BoardState, type RetroCard } from "../types";
+import { DEFAULT_RETRO_VOTES, retroVotes } from "@/lib/retro/board";
+import type { BoardPhase, BoardState, RetroCard } from "../types";
 import {
   applyIntent,
   applyPatch,
@@ -505,9 +506,15 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     return role === "host" ? hostBoardRef.current : (viewRef.current?.board ?? null);
   }, [role]);
 
-  /** Votes each person has: the board's when it started the room, else the snapshot's. */
+  /**
+   * Votes each person has: the "Votes each" of the board it started the room
+   * with, else the last snapshot's.
+   */
   const budget = useCallback(
-    (): number => (role === "host" ? MAX_VOTES : (viewRef.current?.votesPerPerson ?? MAX_VOTES)),
+    (): number =>
+      role === "host"
+        ? retroVotes(hostBoardRef.current)
+        : (viewRef.current?.votesPerPerson ?? DEFAULT_RETRO_VOTES),
     [role]
   );
 
@@ -1445,7 +1452,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, promoted, myVoteList, ledgerVersion, selfId]);
 
-  const votesPerPerson = role === "host" ? MAX_VOTES : (view?.votesPerPerson ?? MAX_VOTES);
+  const votesPerPerson =
+    role === "host" ? retroVotes(opts.hostBoard) : (view?.votesPerPerson ?? DEFAULT_RETRO_VOTES);
   const usedVotes = isHost
     ? (ledgerRef.current.votesUsed[selfId] ?? 0)
     : Math.max(0, (view?.votesUsed[selfId] ?? 0) + pendingVotes);

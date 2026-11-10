@@ -35,7 +35,8 @@
 
 import { cleanText } from "@/lib/realtime/sanitize";
 import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
-import { MAX_VOTES, type BoardState, type RetroCard } from "../types";
+import { DEFAULT_RETRO_VOTES } from "@/lib/retro/board";
+import type { BoardState, RetroCard } from "../types";
 import {
   BOARD_CARD_CAP,
   INTENT_ID_RING,
@@ -70,7 +71,7 @@ export interface IntentContext {
   admitted: ReadonlySet<string>;
   /** Members the host removed. Checked before `admitted`. */
   removed: ReadonlySet<string>;
-  /** Votes each person has. Defaults to `MAX_VOTES`. */
+  /** Votes each person has (the board's "Votes each"). Defaults to 3. */
   votesPerPerson?: number;
   /**
    * The request is this tab's own (a member promoted to host, acting on the
@@ -110,7 +111,7 @@ export type IntentResult =
 export function createIntentLedger(
   seed: { votesUsed?: Record<string, number>; votesPerPerson?: number } = {}
 ): IntentLedger {
-  const budget = seed.votesPerPerson ?? MAX_VOTES;
+  const budget = seed.votesPerPerson ?? DEFAULT_RETRO_VOTES;
   const votesUsed: Record<string, number> = {};
   for (const [id, n] of Object.entries(seed.votesUsed ?? {})) {
     if (Number.isInteger(n) && n > 0) votesUsed[id] = Math.min(n, budget);
@@ -319,7 +320,8 @@ export function applyIntent(
         return { ok: false, reason: "unknown-card" };
       }
       const used = countOf(ledger.votesUsed, by);
-      if (used >= (ctx.votesPerPerson ?? MAX_VOTES)) return { ok: false, reason: "vote-budget" };
+      if (used >= (ctx.votesPerPerson ?? DEFAULT_RETRO_VOTES))
+        return { ok: false, reason: "vote-budget" };
       return accept(
         { t: "vote", cardId: intent.cardId },
         {
