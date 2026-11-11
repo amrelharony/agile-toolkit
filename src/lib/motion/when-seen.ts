@@ -1,10 +1,13 @@
 /**
  * Run something once, when an element first comes into view. One shared
- * IntersectionObserver per threshold serves every caller (home sections,
- * the guess bars), instead of an observer each.
+ * IntersectionObserver per threshold and margin serves every caller (home
+ * sections, the guess bars, the comics list's pictures), instead of an
+ * observer each.
  *
  * - `threshold` is the share of the element that must be on screen, 0 to 1,
  *   as IntersectionObserver defines it (default 0: any part of it).
+ * - `rootMargin` grows the screen by that much first, as IntersectionObserver
+ *   defines it ("300px 0px"), so it runs a little before the element arrives.
  * - `maxWaitMs` runs it by then at the latest, seen or not, so a drawing or
  *   a bar never waits forever (an element taller than the screen may never
  *   reach a large share).
@@ -19,6 +22,8 @@
 export interface WhenSeenOptions {
   /** Share of the element that must be visible, 0 to 1. Default 0. */
   threshold?: number;
+  /** How far past the screen counts as seen, in IntersectionObserver's terms. */
+  rootMargin?: string;
   /** Run by this many ms at the latest, seen or not. */
   maxWaitMs?: number;
 }
@@ -32,8 +37,12 @@ interface Shared {
   watches: Map<Element, Set<Watch>>;
 }
 
-/** Keyed by threshold. */
-const shared = new Map<number, Shared>();
+/** Keyed by threshold and margin (observerKey). */
+const shared = new Map<string, Shared>();
+
+function observerKey(threshold: number, rootMargin: string): string {
+  return `${threshold}|${rootMargin}`;
+}
 
 /**
  * IntersectionObserver reports the crossing itself, but its float ratio can
@@ -58,8 +67,9 @@ function callSafely(fn: () => void): void {
   }
 }
 
-function observerFor(threshold: number): Shared {
-  const existing = shared.get(threshold);
+function observerFor(threshold: number, rootMargin: string): Shared {
+  const key = observerKey(threshold, rootMargin);
+  const existing = shared.get(key);
   if (existing) return existing;
   const watches = new Map<Element, Set<Watch>>();
   const observer = new IntersectionObserver(
@@ -73,15 +83,15 @@ function observerFor(threshold: number): Shared {
         for (const watch of Array.from(set)) callSafely(watch.run);
       }
     },
-    { threshold }
+    rootMargin ? { threshold, rootMargin } : { threshold }
   );
   const entry: Shared = { observer, watches };
-  shared.set(threshold, entry);
+  shared.set(key, entry);
   return entry;
 }
 
-function unwatch(threshold: number, el: Element, watch: Watch): void {
-  const entry = shared.get(threshold);
+function unwatch(key: string, el: Element, watch: Watch): void {
+  const entry = shared.get(key);
   const set = entry?.watches.get(el);
   if (!entry || !set) return;
   set.delete(watch);
@@ -90,14 +100,14 @@ function unwatch(threshold: number, el: Element, watch: Watch): void {
   entry.observer.unobserve(el);
   if (entry.watches.size === 0) {
     entry.observer.disconnect();
-    shared.delete(threshold);
+    shared.delete(key);
   }
 }
 
 export function whenSeen(
   el: Element,
   onSeen: () => void,
-  { threshold, maxWaitMs }: WhenSeenOptions = {}
+  { threshold, rootMargin, maxWaitMs }: WhenSeenOptions = {}
 ): () => void {
   if (typeof IntersectionObserver === "undefined") {
     onSeen();
@@ -105,6 +115,8 @@ export function whenSeen(
   }
 
   const t = clampThreshold(threshold);
+  const margin = rootMargin?.trim() ?? "";
+  const key = observerKey(t, margin);
   let done = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -112,7 +124,7 @@ export function whenSeen(
     if (done) return;
     done = true;
     clearTimeout(timer);
-    unwatch(t, el, watch);
+    unwatch(key, el, watch);
   };
   const watch: Watch = {
     run: () => {
@@ -122,7 +134,7 @@ export function whenSeen(
     },
   };
 
-  const { observer, watches } = observerFor(t);
+  const { observer, watches } = observerFor(t, margin);
   let set = watches.get(el);
   if (!set) {
     set = new Set();

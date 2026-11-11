@@ -320,6 +320,65 @@ describe("the plain address", () => {
     expect(covers.every((img) => img?.getAttribute("loading") === "lazy")).toBe(true);
   });
 
+  it("adds each book picture only once its card nears the screen, holding its space until then", async () => {
+    const observers: { margin?: string; seen: (el: Element) => void; observed: Set<Element> }[] =
+      [];
+    class NearObserver {
+      readonly observed = new Set<Element>();
+      constructor(
+        readonly callback: IntersectionObserverCallback,
+        readonly options: IntersectionObserverInit = {}
+      ) {
+        observers.push({
+          margin: options.rootMargin,
+          observed: this.observed,
+          seen: (el) =>
+            callback(
+              [
+                {
+                  target: el,
+                  isIntersecting: true,
+                  intersectionRatio: 0,
+                } as unknown as IntersectionObserverEntry,
+              ],
+              this as never
+            ),
+        });
+      }
+      observe(el: Element) {
+        this.observed.add(el);
+      }
+      unobserve(el: Element) {
+        this.observed.delete(el);
+      }
+      disconnect() {
+        this.observed.clear();
+      }
+      takeRecords() {
+        return [];
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", NearObserver);
+    try {
+      render(await ComicsPage());
+      const index = screen.getByRole("region", { name: "The 26 episodes in the book" });
+      // Nothing downloads with the page, and each card already has the picture's square.
+      expect(within(index).queryAllByRole("presentation")).toEqual([]);
+      const first = within(index).getByRole("link", { name: /^Episode 1:/ });
+      const slot = first.firstElementChild as HTMLElement;
+      expect(slot.style.aspectRatio).toBe("1536 / 1536");
+      const near = observers.find((o) => o.margin === "300px 0px");
+      expect(near?.observed.size).toBe(26);
+      act(() => near!.seen(slot));
+      const pictures = within(index).getAllByRole("presentation");
+      expect(pictures).toHaveLength(1);
+      expect(pictures[0].getAttribute("src")).toBe(`${STORAGE}${POSTER_ART[1].panels[0].small}`);
+      expect(near?.observed.size).toBe(25);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("lists the book's episodes as words alone where the art can't load", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
     render(await ComicsPage());

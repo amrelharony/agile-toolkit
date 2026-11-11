@@ -120,6 +120,27 @@ describe("whenSeen", () => {
     expect(FakeObserver.made).toHaveLength(2);
   });
 
+  it("with a rootMargin, watches on its own observer with that margin, shared by it", () => {
+    const plain = el();
+    const near = el();
+    const alsoNear = el();
+    const onNear = vi.fn();
+    watch(plain, vi.fn());
+    watch(near, onNear, { rootMargin: "300px 0px" });
+    watch(alsoNear, vi.fn(), { rootMargin: " 300px 0px " });
+    expect(FakeObserver.made).toHaveLength(2);
+    const withMargin = FakeObserver.made.find((o) => o.options.rootMargin === "300px 0px")!;
+    expect(withMargin.options.threshold).toBe(0);
+    expect(withMargin.observed).toEqual(new Set([near, alsoNear]));
+    // The plain one keeps IntersectionObserver's own default margin.
+    const noMargin = FakeObserver.made.find((o) => o !== withMargin)!;
+    expect(noMargin.options).toEqual({ threshold: 0 });
+    expect(noMargin.observed).toEqual(new Set([plain]));
+    withMargin.report(near, 0, true);
+    expect(onNear).toHaveBeenCalledTimes(1);
+    expect(withMargin.observed).toEqual(new Set([alsoNear]));
+  });
+
   it("runs every caller watching one element, and each cleanup is its own", () => {
     const target = el();
     const first = vi.fn();
