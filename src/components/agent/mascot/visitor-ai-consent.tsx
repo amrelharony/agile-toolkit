@@ -53,9 +53,11 @@ export function VisitorAiConsent({
   /** The privacy link was followed: the panel closes as the page changes. */
   onNavigate?: () => void;
 }) {
-  // Focus moves to the card when it appears: the card, not "Agree and ask",
-  // so a screen reader reads what it says before the buttons.
-  const cardRef = useRef<HTMLElement>(null);
+  // Focus moves to the card's scrolling text when it appears, not to "Agree
+  // and ask": a screen reader reads what it says before the buttons, and the
+  // arrow, Page and Space keys scroll the points (keys scroll the focused
+  // element or a scroller around it, never one inside it).
+  const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     cardRef.current?.focus();
   }, []);
@@ -68,13 +70,12 @@ export function VisitorAiConsent({
   }, []);
 
   return (
-    <section
-      ref={cardRef}
-      tabIndex={-1}
-      aria-labelledby="amr-ai-consent-title"
-      className="flex h-full min-h-0 flex-col focus:outline-none"
-    >
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-2 pt-3">
+    <section aria-labelledby="amr-ai-consent-title" className="flex h-full min-h-0 flex-col">
+      <div
+        ref={cardRef}
+        tabIndex={-1}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-2 pt-3 focus:outline-none"
+      >
         <div className="panel flex flex-col gap-3 px-3 py-3">
           {/* A card title, so it is lettered (DNA-SPEC section 5). */}
           <h3

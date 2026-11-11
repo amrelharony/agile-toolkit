@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 const h = vi.hoisted(() => ({
   announce: vi.fn(),
@@ -98,12 +98,20 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(h.announce).not.toHaveBeenCalled();
   });
 
-  it("puts focus on the consent card when it appears", () => {
+  it("puts focus on the consent card's scrolling text when it appears", () => {
     render(<VisitorPanel />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     const card = screen.getByRole("region", { name: "Before you chat with Amr's AI" });
-    expect(card).toHaveAttribute("tabindex", "-1");
-    expect(card).toHaveFocus();
+    // Keys scroll the focused element or a scroller around it, never one
+    // inside it: focus on the scroller lets the arrow keys scroll the points.
+    const scroller = within(card).getByRole("heading", { level: 3 }).closest(".overflow-y-auto");
+    expect(scroller).not.toBeNull();
+    expect(scroller).toHaveAttribute("tabindex", "-1");
+    expect(scroller).toHaveFocus();
+    expect(card).not.toHaveAttribute("tabindex");
+    // The buttons stay in the named region, outside the scroller.
+    expect(card).toContainElement(screen.getByRole("button", { name: "Not now" }));
+    expect(scroller).not.toContainElement(screen.getByRole("button", { name: "Not now" }));
   });
 
   it("Not now leaves focus on the guide, not on the page or the search box", () => {
