@@ -17,6 +17,7 @@ import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
 import { COMICS_ROUTE } from "@/lib/comics/entry";
 import { SITE_URL, jsonLdScript } from "@/lib/comics/rights";
 import { comicMetadata } from "../comics/comic-metadata";
+import { StillBook } from "../comics/components/intro/intro-look";
 import { bookArt } from "@/lib/ink/drawings/pages/book";
 
 export const metadata: Metadata = comicMetadata({
@@ -30,7 +31,8 @@ export const metadata: Metadata = comicMetadata({
  * /book: the printed book, in the words of its cover, with the 26 episodes and
  * the page each starts on. The episodes aren't links: the book's stories stay
  * out of the gallery, and a poster is the way to one. Static, with nothing to
- * read but this file, so it's the same for every visitor.
+ * read but this file, so it's the same for every visitor. Its cover is the
+ * comics intro's book, standing still on the page (StillBook).
  */
 export default function BookPage() {
   return (
@@ -44,21 +46,25 @@ export default function BookPage() {
         dangerouslySetInnerHTML={{ __html: jsonLdScript(bookJsonLd()) }}
       />
       <div className="space-y-6">
-        <Card className="grid overflow-hidden md:grid-cols-[minmax(0,22rem)_1fr]">
-          {/* Plain <img>: the cover is already sized, at two widths. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={COVER_URL}
-            srcSet={`${COVER_SMALL_URL} ${COVER_SMALL_SIZE}w, ${COVER_URL} ${COVER_SIZE}w`}
-            sizes="(min-width: 768px) 22rem, 100vw"
-            width={COVER_SIZE}
-            height={COVER_SIZE}
-            alt="The front cover: Amr at work in a Cairo office with three of his colleagues"
-            fetchPriority="high"
-            decoding="async"
-            className="h-auto w-full bg-surface"
-          />
-          <div className="space-y-3 p-4 sm:p-6">
+        {/* The book stands on the page, beside its card rather than in it: inside
+            a card, a cover as wide as it was would leave no room for its pages. */}
+        <div className="grid gap-6 md:grid-cols-[minmax(0,22rem)_1fr] md:items-start">
+          <StillBook>
+            {/* Plain <img>: the cover is already sized, at two widths. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={COVER_URL}
+              srcSet={`${COVER_SMALL_URL} ${COVER_SMALL_SIZE}w, ${COVER_URL} ${COVER_SIZE}w`}
+              sizes="(min-width: 768px) 22rem, 100vw"
+              width={COVER_SIZE}
+              height={COVER_SIZE}
+              alt="The front cover: Amr at work in a Cairo office with three of his colleagues"
+              fetchPriority="high"
+              decoding="async"
+              className="h-auto w-full bg-surface"
+            />
+          </StillBook>
+          <Card className="space-y-3 p-4 sm:p-6">
             <Eyebrow>{BOOK.volume}</Eyebrow>
             <h2 className="font-display text-xl font-semibold text-text">{BOOK.tagline}</h2>
             {BOOK.blurb.map((paragraph) => (
@@ -76,8 +82,8 @@ export default function BookPage() {
               Have the book? Scan the QR code inside it to open the tools for its readers.
             </p>
             <p className="text-sm text-sub">ISBN {BOOK.isbn}</p>
-          </div>
-        </Card>
+          </Card>
+        </div>
 
         <section aria-labelledby="contents-heading" className="space-y-3">
           <h2 id="contents-heading" className="font-display text-lg font-semibold text-text">
