@@ -9,10 +9,17 @@
  *    error tone;
  *  - forced colours hide the tails, which are drawn from transparent borders;
  *  - the page scrolls smoothly only for readers who haven't asked for less motion.
+ * The last block builds globals.css the way Next does (Tailwind, then its
+ * minifier) and runs the AMR markers of scripts/check-built-css.mjs on it.
  */
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
+import postcss from "postcss";
+import tailwindcss from "tailwindcss";
+import loadConfig from "tailwindcss/loadConfig";
 import { describe, expect, it } from "vitest";
+import { MARKERS, checkMarkers, stripWhitespace } from "../../scripts/check-built-css.mjs";
 
 const ROOT = path.resolve(__dirname, "../..");
 const SOURCE = readFileSync(path.join(ROOT, "src/app/globals.css"), "utf8");
@@ -418,4 +425,39 @@ describe("page scrolling", () => {
       /@media \(prefers-reduced-motion: no-preference\) \{\s*html \{\s*$/
     );
   });
+});
+
+describe("the built CSS", () => {
+  // Next builds globals.css with Tailwind (postcss.config.mjs), then minifies it
+  // with its own cssnano-simple (next/dist/build/webpack/plugins/css-minimizer-plugin.js).
+  const require = createRequire(path.join(ROOT, "package.json"));
+  const config = loadConfig(path.join(ROOT, "tailwind.config.ts"));
+
+  async function build(classes: string): Promise<string> {
+    process.env.BROWSERSLIST_IGNORE_OLD_DATA = "1";
+    const nano = require("next/dist/compiled/cssnano-simple");
+    const built = await postcss([
+      tailwindcss({
+        ...config,
+        content: [{ raw: `<div class="${classes}"></div>`, extension: "html" }],
+      }),
+    ]).process(SOURCE, { from: undefined });
+    const min = await postcss([nano({}, postcss)]).process(built.css, { from: undefined });
+    return stripWhitespace(min.css);
+  }
+
+  const failing = (css: string) =>
+    checkMarkers([css], { AMR: MARKERS.AMR })
+      .filter((r: { ok: boolean }) => !r.ok)
+      .map((r: { name: string }) => r.name);
+
+  it("keeps every AMR marker through Tailwind and the minifier", async () => {
+    expect(failing(await build("balloon comic-caption"))).toEqual([]);
+  }, 60_000);
+
+  it("keeps the forced-colours guard where no caption is used: it is outside the layer", async () => {
+    const css = await build("balloon");
+    expect(css).not.toContain(".comic-caption");
+    expect(failing(css)).toEqual([MARKERS.AMR[1].name]);
+  }, 60_000);
 });

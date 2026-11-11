@@ -139,6 +139,94 @@ function vtReducedMotion(css) {
   );
 }
 
+/**
+ * One selector or declaration the way the minifier may write it: no quotes in
+ * attribute values, one colon before before/after, no leading zero on a number.
+ */
+function minified(text) {
+  return text
+    .replace(/["']/g, "")
+    .replace(/::(before|after)/g, ":$1")
+    .replace(/(^|[^\d.])0+\.(\d)/g, "$1.$2");
+}
+
+/** Every declaration the rules naming `selector` give it, both sides read as minified. */
+function declsLike(css, selector) {
+  const wanted = minified(selector);
+  return rules(css)
+    .filter((r) => r.selectors.some((s) => minified(s) === wanted))
+    .flatMap((r) => r.body.split(";").map(minified));
+}
+
+/** `selector`'s ink and paper triangles: `ink` and `paper` hold the declarations each must have. */
+function tail(selector, ink, paper) {
+  return (css) => {
+    const before = declsLike(css, `${selector}::before`);
+    const after = declsLike(css, `${selector}::after`);
+    return ink.every((d) => before.includes(d)) && paper.every((d) => after.includes(d));
+  };
+}
+
+/** The right tail, in ink then in the balloon's own paper. */
+const RIGHT_TAIL = {
+  ink: ["left:auto", "right:-.8rem", "border-color:transparenttransparenttransparentvar(--border)"],
+  paper: [
+    "left:auto",
+    "right:-.6rem",
+    "border-color:transparenttransparenttransparentvar(--balloon-fill)",
+  ],
+};
+
+/** Rules with where they start, so a fallback can be held before its @supports. */
+function rulesAt(css) {
+  return Array.from(css.matchAll(/([^{};]*)\{([^{}]*)\}/g), (m) => ({
+    at: m.index,
+    selectors: m[1].split(",").map(minified),
+    body: m[2].split(";"),
+  }));
+}
+
+/** The you caption: its outline and plain fallback paper, then the wash inside @supports. */
+function youCaption(css) {
+  const you = minified(".comic-caption[data-voice=you]");
+  const guarded = blocks(css, "@supports")
+    .filter((b) => b.params.includes("color-mix("))
+    .map((b) => ({
+      from: b.at,
+      to: b.at + "@supports".length + b.params.length + 1 + b.body.length,
+    }));
+  const inside = (at) => guarded.some((b) => at > b.from && at < b.to);
+  const mine = rulesAt(css).filter((r) => r.selectors.includes(you));
+  const fallback = mine.find(
+    (r) =>
+      !inside(r.at) &&
+      r.body.includes("background-color:var(--surface)") &&
+      r.body.some(
+        (d) =>
+          d.startsWith("border:") &&
+          ["var(--line-w)", "solid", "var(--border)"].every((part) => d.includes(part))
+      )
+  );
+  return (
+    fallback !== undefined &&
+    mine.some(
+      (r) =>
+        r.at > fallback.at &&
+        inside(r.at) &&
+        r.body.includes("background-color:color-mix(insrgb,var(--accent2)14%,var(--card))")
+    )
+  );
+}
+
+/** Forced colours hide the balloon's tails. */
+function tailsHiddenInForcedColors(css) {
+  return blocks(css, "@media")
+    .filter((b) => b.params.includes("(forced-colors:active)"))
+    .some((b) =>
+      ["before", "after"].every((p) => declsLike(b.body, `.balloon::${p}`).includes("display:none"))
+    );
+}
+
 /** Markers by PR id. Each `test` gets one file's CSS with all whitespace removed. */
 export const MARKERS = {
   F1: [
@@ -181,6 +269,34 @@ export const MARKERS = {
       test: vtReducedMotion,
     },
   ],
+  AMR: [
+    {
+      name: ".balloon[data-tail=right]: the tail on the right edge, ink in --border and paper in --balloon-fill",
+      test: tail(".balloon[data-tail=right]", RIGHT_TAIL.ink, RIGHT_TAIL.paper),
+    },
+    {
+      name: ".comic-caption[data-voice=you]: a --line-w --border outline on --surface, then the --accent2 color-mix wash inside @supports",
+      test: youCaption,
+    },
+    {
+      name: "the amr alias: [data-amr-side=right] .balloon[data-tail=amr] takes the right tail, [data-amr-edge=top] counts it from the top",
+      test: (css) =>
+        tail(
+          "[data-amr-side=right].balloon[data-tail=amr]",
+          RIGHT_TAIL.ink,
+          RIGHT_TAIL.paper
+        )(css) &&
+        tail(
+          "[data-amr-edge=top].balloon[data-tail=amr]",
+          ["top:var(--tail-at)", "bottom:auto"],
+          ["top:calc(var(--tail-at)+.1rem)", "bottom:auto"]
+        )(css),
+    },
+    {
+      name: "forced colours: display:none on .balloon::before and ::after, in @media (forced-colors:active)",
+      test: tailsHiddenInForcedColors,
+    },
+  ],
 };
 
 export function stripWhitespace(css) {
@@ -189,6 +305,8 @@ export function stripWhitespace(css) {
 
 /**
  * @param {string[]} sheets CSS files, whitespace already removed
+ * @param {Record<string, { name: string, test: (css: string) => boolean }[]>} [markers]
+ *   MARKERS, or some of its groups
  * @returns {{ id: string, name: string, ok: boolean }[]} one entry per marker;
  *   a marker passes when any one file has it
  */
