@@ -65,24 +65,26 @@ The arm wording follows the body family (`families[*].arms`): human, wing, tube 
 
 ## Taking a return in
 
-1. **Intake.** `python -I scripts/build-cast-rigs.py intake <zip or folder>`:
-   - archives the return in `returns/<date>-<stem>/`;
-   - extracts only names matching `^AAW-(0[1-9]|[12][0-9]|30)_(master|parts|parts2|face|face2|arms)(-v[0-9]+)?\.png$`, and when names are missing sorts loose PNGs by content (one figure / many pieces / 8 heads / 8 arms) and prints the mapping for confirmation;
-   - writes `ledger/received.jsonl`;
-   - prints found / missing / extra.
-2. **Candidate.** `candidate <AAW-NN | batch>` builds into `review/` only, in this order:
-   1. key-out with despill;
+Every command takes `--sources <dir>` (default `D:\Claude Desktop\Agile_At_Work_Cast_Sources`) and `--review <dir>` (instead of `<sources>/review`); `--print-tolerances` prints the thresholds.
+
+1. **Intake.** `python -I scripts/build-cast-rigs.py intake <zip | folder | png> [--id AAW-NN]`:
+   - archives the return untouched in `returns/<date>-<stem>/original/`, and takes a return it has seen before (same sha256) only once;
+   - reads only PNG images from it, as bytes, into a new `returns/<date>-<stem>/extracted/`: names matching `^AAW-(0[1-9]|[12][0-9]|30)_(master|parts|parts2|face|face2|arms)(-v[0-9]+)?\.png$` as they are; other PNGs, whose owner comes from their folder, the zip's name or `--id`, are sorted by content (one figure = master; the face sheet's heads, one silhouette repeated = face or face2; one arm per cell of the arms grid = arms; otherwise parts or parts2 by count) and the mapping is printed for confirmation;
+   - writes `ledger/received.jsonl` and copies each image to `accepted/AAW-NN/` (a changed file under the same name moves to `_old/<date>/`; the highest `-vN` is current);
+   - prints found / still missing / sorted by content / extra.
+2. **Check.** `check <AAW-NN | A..E | all> [--masters] [--file <png>] [--no-sheets] [--strict]` audits the accepted images (C1–C4, and C9 on masters against the private block's colours, read at run time) and every published rig (C16), into `review/<batch>/report.json`. `--masters` checks the masters alone (batch A's come back first) and writes a contact sheet per master on light, dark and checker grounds with the margin and height guides. It exits 1 on a failure; with `--strict` also on a warning or an image not returned yet.
+3. **Candidate.** `candidate <AAW-NN | A..E | all>` builds into `review/<batch>/AAW-NN/` only, in this order:
+   1. key-out with despill, and the palette lock (the master onto the private swatches, every later sheet onto the master's own colours; it moves colour only, so it runs here);
    2. slice;
    3. assign pieces;
    4. register each piece onto the approved master;
    5. find pivots from the cap circles;
-   6. build the face patches;
+   6. cut the pupils from the master and build the face patches;
    7. pin the arm swaps;
-   8. lock the palette;
-   9. compose;
-   10. run checks C1–C15.
-3. **Approve.** `approve --image <img> | --rig --by owner|opus --words "…"` appends to `ledger/approvals.jsonl` and mirrors the sha into `cast-rig.json`. Every rig needs the owner's approval, and Amr refuses anything else.
-4. **Build.** `build` refuses unless every source sha equals its approval. It then writes the atlases and `rigs.generated.ts` and runs C16.
+   8. compose;
+   9. run checks C1–C11 (C12–C15 are the reviewers' and the owner's).
+4. **Approve.** `approve <AAW-NN> --image <img> | --rig --by owner|opus --words "…"` appends to `ledger/approvals.jsonl` and mirrors the sha into `cast-rig.json` (each character's `approved`). Every rig needs the owner's approval, and Amr refuses anything else.
+5. **Build.** `build <AAW-NN | A..E | all>` refuses unless every source sha equals its approval and the owner approved the candidate rig. It then writes the atlases and `rigs.generated.ts` and runs C16.
 
 ## Checks (thresholds are keys in `cast-rig.json` → `tolerances`)
 
