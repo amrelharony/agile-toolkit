@@ -1036,7 +1036,9 @@ interface TurnOutcome {
  *
  * The reply is written by its id only (the store's streamingMessageId points
  * at it while it streams), so a chat that changed under the turn never gets
- * it. A round that was stopped never ends in "tool_use": its calls are
+ * it. Writes are coalesced to one per animation frame (frameFlusher), and the
+ * final state is written at once when the stream ends, before the reply is
+ * settled. A round that was stopped never ends in "tool_use": its calls are
  * dropped unrun with it.
  */
 async function openOneTurn(
@@ -1088,10 +1090,12 @@ async function openOneTurn(
   /** Text accumulates as a single content block (OpenAI emits one
    *  content stream, not multiple addressable blocks like Anthropic). */
   const wip: WipState = {
-    textParts: [],
+    text: "",
     toolCalls: new Map(),
     ignoreToolCalls: turnOpts.ignoreToolCalls === true,
+    dirty: false,
   };
+  const flusher = frameFlusher(() => flushAssistant(wip, assistantMsg.id));
 
   // BUG-G8: release the body's reader lock in finally so the stream
   // doesn't sit half-locked until GC after we return.
@@ -1133,7 +1137,7 @@ async function openOneTurn(
         buf = buf.slice(nl + 2);
         const sr = handleSseChunk(chunk, wip);
         if (sr) stopReason = sr;
-        flushAssistant(wip, assistantMsg.id);
+        if (wip.dirty) flusher.schedule();
       }
     }
     // Tail flush in case the server closed without a trailing \n\n.
@@ -1141,7 +1145,9 @@ async function openOneTurn(
       const sr = handleSseChunk(buf, wip);
       if (sr) stopReason = sr;
     }
-    flushAssistant(wip, assistantMsg.id);
+    // The stream is over: every call's arguments are as whole as they will get.
+    closeToolCalls(wip);
+    flusher.flush();
     // Usage is optional: a backend that never sends it just records nothing.
     if (wip.usage !== undefined && wip.usage > 0) onUsage?.(wip.usage);
     if (wip.ignoreToolCalls || signal?.aborted) stopReason = "end_turn";
@@ -1155,10 +1161,13 @@ async function openOneTurn(
   } catch (err) {
     // The stream failed mid-way, before its [DONE] (network error, the route's
     // idle timeout), or was stopped: whatever tool call it carried never gets
-    // a result.
+    // a result. What did arrive is written first, so the text stays.
+    flusher.flush();
     settleAssistant(assistantMsg.id, false);
     throw err;
   } finally {
+    // No frame may write after the reply was settled.
+    flusher.cancel();
     const s = useAgentStore.getState();
     if (s.streamingMessageId === assistantMsg.id) s.setStreamingMessageId(null);
     try {
@@ -1167,6 +1176,50 @@ async function openOneTurn(
       /* already released */
     }
   }
+}
+
+/** How long a write waits when no animation frame will come (a hidden tab, or no rAF). */
+const HIDDEN_FLUSH_MS = 50;
+
+interface Flusher {
+  /** Write on the next animation frame (or after HIDDEN_FLUSH_MS); one write however often it's asked. */
+  schedule(): void;
+  /** Write now, instead of the one waiting. */
+  flush(): void;
+  /** Drop the write that is waiting. */
+  cancel(): void;
+}
+
+/**
+ * Coalesce a stream's writes to the store to one per animation frame. A tab
+ * that is hidden gets no frames, so a timer stands in, also for a frame asked
+ * for before the tab was hidden; whichever comes first writes.
+ */
+function frameFlusher(write: () => void): Flusher {
+  let frame: number | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const cancel = () => {
+    if (frame !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+    if (timer !== null) clearTimeout(timer);
+    frame = null;
+    timer = null;
+  };
+  const flush = () => {
+    cancel();
+    write();
+  };
+  return {
+    schedule() {
+      const hidden = typeof document !== "undefined" && document.hidden;
+      if (!hidden && typeof requestAnimationFrame === "function") {
+        if (frame === null && timer === null) frame = requestAnimationFrame(flush);
+        return;
+      }
+      if (timer === null) timer = setTimeout(flush, HIDDEN_FLUSH_MS);
+    },
+    flush,
+    cancel,
+  };
 }
 
 /**
@@ -1286,15 +1339,28 @@ async function handleVisitorResponse(
 interface WipToolCall {
   id: string;
   name: string;
+  /** The arguments JSON as streamed so far: kept here, never in the store. */
   jsonAccum: string;
+  /**
+   * The call's block is over (a later call started, the stream finished or
+   * ended): `input` holds its arguments, parsed once. A call that streams
+   * more after that opens again.
+   */
+  closed: boolean;
+  input: Record<string, unknown>;
+  /** The block last written to the store, kept while nothing about it changes. */
+  block: ToolUseBlock | null;
 }
 
 interface WipState {
-  textParts: string[];
+  /** The reply's text so far. */
+  text: string;
   /** Keyed by the streaming index (NOT the registry id). OpenAI emits
    *  tool_calls in sparse order — each chunk targets an index that
    *  refers back to the same call as previous chunks. */
   toolCalls: Map<number, WipToolCall>;
+  /** Something the store shows changed since the last write. */
+  dirty: boolean;
   /** Total tokens from the stream's usage, if any chunk carried it. */
   usage?: number;
   /** Drop tool-call deltas (the wrap-up turn keeps only text). */
@@ -1390,26 +1456,49 @@ function handleSseChunk(raw: string, wip: WipState): string | null {
 
   // Text deltas.
   if (typeof delta.content === "string" && delta.content.length > 0) {
-    wip.textParts.push(delta.content);
+    wip.text += delta.content;
+    wip.dirty = true;
   }
 
   // Tool-call deltas. Each entry refers to a specific call by index;
-  // we accumulate `id`, `name`, and a JSON string for `arguments`.
+  // we accumulate `id`, `name`, and a JSON string for `arguments`. The
+  // arguments are parsed once, when the call's block closes, never per chunk.
   if (Array.isArray(delta.tool_calls) && !wip.ignoreToolCalls) {
     for (const tc of delta.tool_calls) {
-      const existing = wip.toolCalls.get(tc.index) ?? {
-        id: "",
-        name: "",
-        jsonAccum: "",
-      };
-      if (tc.id) existing.id = tc.id;
-      if (tc.function?.name) existing.name = tc.function.name;
-      if (tc.function?.arguments) existing.jsonAccum += tc.function.arguments;
-      wip.toolCalls.set(tc.index, existing);
+      let call = wip.toolCalls.get(tc.index);
+      if (!call) {
+        call = { id: "", name: "", jsonAccum: "", closed: false, input: {}, block: null };
+        wip.toolCalls.set(tc.index, call);
+        wip.dirty = true;
+      }
+      if (tc.id && tc.id !== call.id) {
+        call.id = tc.id;
+        call.block = null;
+        wip.dirty = true;
+      }
+      if (tc.function?.name && tc.function.name !== call.name) {
+        call.name = tc.function.name;
+        call.block = null;
+        wip.dirty = true;
+      }
+      if (tc.function?.arguments) {
+        call.jsonAccum += tc.function.arguments;
+        // More of a call already taken as whole (a gateway that interleaves).
+        if (call.closed) {
+          call.closed = false;
+          call.block = null;
+          wip.dirty = true;
+        }
+      }
+      // Calls stream one after another, so one that starts ends those before it.
+      wip.toolCalls.forEach((other, i) => {
+        if (i < tc.index) closeToolCall(other, wip);
+      });
     }
   }
 
   if (choice.finish_reason) {
+    closeToolCalls(wip);
     // The visitor route ends a too-long answer with its own "time_limit". When
     // its clock ran out between the model's finish and [DONE], the answer (or
     // its tool calls) was already complete: keep the model's finish.
@@ -1475,35 +1564,64 @@ function settleAssistant(id: string, keepToolCalls: boolean): void {
 }
 
 /**
+ * A tool call's arguments, parsed once its block is over. Arguments that
+ * don't parse to an object (cut off, or not JSON) keep the `_partial` marker:
+ * such a call is never run and never sent back (see isPartialInput).
+ */
+function parseToolArguments(json: string): Record<string, unknown> {
+  if (!json) return {};
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (parsed === null) return {};
+    if (typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* cut off, or not JSON */
+  }
+  return { _partial: true };
+}
+
+/** Close one call's block: its arguments are as whole as they will get. */
+function closeToolCall(call: WipToolCall, wip: WipState): void {
+  if (call.closed) return;
+  call.closed = true;
+  call.input = parseToolArguments(call.jsonAccum);
+  call.block = null;
+  wip.dirty = true;
+}
+
+/** Close every call's block (the stream finished or ended). */
+function closeToolCalls(wip: WipState): void {
+  wip.toolCalls.forEach((call) => closeToolCall(call, wip));
+}
+
+/**
  * Write the reply so far to its own message, by id: a chat that no longer
- * holds it (New chat, another thread) gets nothing.
+ * holds it (New chat, another thread) gets nothing. A call whose block is
+ * still open shows the cheap `{_partial: true}` marker instead of its
+ * arguments; each block is built once and kept while nothing about it
+ * changes.
  */
 function flushAssistant(wip: WipState, id: string): void {
+  if (!wip.dirty) return;
+  wip.dirty = false;
   const content: ContentBlock[] = [];
-  const text = wip.textParts.join("");
-  if (text.length > 0) {
-    content.push({ type: "text", text });
+  if (wip.text.length > 0) {
+    content.push({ type: "text", text: wip.text });
   }
   // Tool calls in stream-index order.
   const indices = Array.from(wip.toolCalls.keys()).sort((a, b) => a - b);
   for (const i of indices) {
     const tc = wip.toolCalls.get(i);
     if (!tc) continue;
-    let input: Record<string, unknown> = {};
-    if (tc.jsonAccum) {
-      try {
-        input = JSON.parse(tc.jsonAccum);
-      } catch {
-        // Mid-stream — render the partial JSON so the UI shows progress.
-        input = { _partial: tc.jsonAccum };
-      }
-    }
-    content.push({
+    tc.block ??= {
       type: "tool_use",
       id: tc.id || `tc_${i}`,
       name: tc.name,
-      input,
-    });
+      input: tc.closed ? tc.input : { _partial: true },
+    };
+    content.push(tc.block);
   }
   if (!chatStillHas(id)) return;
   useAgentStore.getState().patchMessage(id, content);

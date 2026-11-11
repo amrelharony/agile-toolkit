@@ -56,7 +56,7 @@ import { registry } from "@/lib/actions/registry";
 import { getToolById } from "@/lib/constants/tools";
 import { roundLimitNote, sendUserMessage, usageTotal } from "@/lib/agent/client";
 import { useAgentStore } from "@/lib/agent/store";
-import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
+import type { ChatMessage, ConversationMeta, ToolUseBlock } from "@/lib/agent/types";
 
 const PROBE_TOOL = "tool_loop_probe_read_state";
 registry.register({
@@ -662,6 +662,9 @@ const savedTo = (conversationId: string) =>
     .filter((c) => c[0] === conversationId)
     .flatMap((c) => c[1] as ChatMessage[]);
 
+/** Let the stream's pending read and everything after it run. */
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
 const sendIn = (conversationId: string, text: string, toolId: string | null = null) =>
   sendUserMessage(text, { userId: "owner-1", toolId, conversationId });
 
@@ -799,5 +802,221 @@ describe("a turn outlives the panel", () => {
     expect(s.error).toBeNull();
     expect(savedTo("conv-1").map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(textOf(savedTo("conv-1")[1])).toBe("Retros are a team's look back.");
+  });
+});
+
+describe("streamed writes", () => {
+  /** Frames asked for and not yet run, by id. */
+  let frames: Map<number, FrameRequestCallback>;
+  let raf: ReturnType<typeof vi.fn<(cb: FrameRequestCallback) => number>>;
+  let caf: ReturnType<typeof vi.fn<(id: number) => void>>;
+
+  beforeEach(() => {
+    frames = new Map();
+    let next = 0;
+    raf = vi.fn((cb: FrameRequestCallback) => {
+      frames.set(++next, cb);
+      return next;
+    });
+    caf = vi.fn((id: number) => {
+      frames.delete(id);
+    });
+    vi.stubGlobal("requestAnimationFrame", raf);
+    vi.stubGlobal("cancelAnimationFrame", caf);
+  });
+
+  const runFrames = () => {
+    const due = Array.from(frames.values());
+    frames.clear();
+    for (const cb of due) cb(performance.now());
+  };
+
+  /** The streamed reply's text at each store write that changed its content. */
+  function recordWrites(): { writes: string[]; stop: () => void } {
+    const writes: string[] = [];
+    const stop = useAgentStore.subscribe((s, prev) => {
+      const now = s.messages.find((m) => m.role === "assistant");
+      const before = now && prev.messages.find((m) => m.id === now.id);
+      if (now && before && now.content !== before.content) writes.push(textOf(now));
+    });
+    return { writes, stop };
+  }
+
+  it("writes the reply at most once per animation frame, and its final state at once at the end", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const { writes, stop } = recordWrites();
+    const turn = send("hi", null);
+    await vi.waitFor(() => expect(lastAssistant()).toBeDefined());
+    expect(useAgentStore.getState().streamingMessageId).toBe(lastAssistant()!.id);
+
+    body.send(delta({ content: "One" }), delta({ content: " two" }), delta({ content: " three" }));
+    await tick();
+    expect(raf).toHaveBeenCalledTimes(1);
+    expect(writes).toEqual([]);
+    // More text before the frame comes rides on the same frame.
+    body.send(delta({ content: " four" }));
+    await tick();
+    expect(raf).toHaveBeenCalledTimes(1);
+    runFrames();
+    expect(writes).toEqual(["One two three four"]);
+
+    body.send(delta({ content: " five" }));
+    await tick();
+    expect(raf).toHaveBeenCalledTimes(2);
+    // The stream ends before that frame: its last state is written at once,
+    // and the frame is called off, so nothing writes after the reply settles.
+    body.send(delta({}, "stop"), "[DONE]");
+    body.end();
+    await turn;
+    stop();
+
+    expect(writes).toEqual(["One two three four", "One two three four five"]);
+    expect(caf).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(useAgentStore.getState().streamingMessageId).toBeNull();
+  });
+
+  it("asks for no write for reasoning, or for arguments still streaming in", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const turn = send("hi", null);
+    await vi.waitFor(() => expect(lastAssistant()).toBeDefined());
+
+    body.send(delta({ reasoning_content: "hmm" }));
+    await tick();
+    expect(raf).not.toHaveBeenCalled();
+    // A new call shows up (with the marker), once.
+    body.send(
+      delta({
+        tool_calls: [
+          {
+            index: 0,
+            id: "call_a",
+            type: "function",
+            function: { name: PROBE_TOOL, arguments: "" },
+          },
+        ],
+      })
+    );
+    await tick();
+    expect(raf).toHaveBeenCalledTimes(1);
+    runFrames();
+    body.send(
+      delta({ reasoning_content: "more" }),
+      delta({ tool_calls: [{ index: 0, function: { arguments: '{"a"' } }] }),
+      delta({ tool_calls: [{ index: 0, function: { arguments: ":1}" } }] })
+    );
+    await tick();
+    expect(raf).toHaveBeenCalledTimes(1);
+    body.send(delta({}, "stop"), "[DONE]");
+    body.end();
+    await turn;
+  });
+
+  it("waits 50 ms instead of a frame while the tab is hidden", async () => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    try {
+      const body = manualStream();
+      queue = [(init) => body.respond(init)];
+      const turn = send("hi", null);
+      body.send(delta({ content: "Hello" }));
+      // No frame comes in a hidden tab (and none runs here): a timer writes.
+      await vi.waitFor(() => expect(textOf(lastAssistant())).toBe("Hello"));
+      expect(raf).not.toHaveBeenCalled();
+      body.send(delta({}, "stop"), "[DONE]");
+      body.end();
+      await turn;
+    } finally {
+      Reflect.deleteProperty(document, "hidden");
+    }
+    expect(document.hidden).toBe(false);
+  });
+});
+
+describe("a tool call's arguments", () => {
+  const toolUses = () =>
+    (lastAssistant()?.content ?? []).filter((c): c is ToolUseBlock => c.type === "tool_use");
+
+  it("show a cheap marker while they stream, and are parsed once the call's block closes", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init), textTurn("Done.")];
+    const inputs: unknown[] = [];
+    const stop = useAgentStore.subscribe((s) => {
+      for (const m of s.messages) {
+        for (const c of m.content) if (c.type === "tool_use") inputs.push(c.input);
+      }
+    });
+    const turn = send("read the probe state twice", null);
+
+    body.send(
+      delta({
+        tool_calls: [
+          {
+            index: 0,
+            id: "call_a",
+            type: "function",
+            function: { name: PROBE_TOOL, arguments: '{"te' },
+          },
+        ],
+      })
+    );
+    await vi.waitFor(() => expect(toolUses().map((c) => c.input)).toEqual([{ _partial: true }]));
+    body.send(delta({ tool_calls: [{ index: 0, function: { arguments: 'xt":"hi"}' } }] }));
+    // The next call starting closes the first one.
+    body.send(
+      delta({
+        tool_calls: [
+          {
+            index: 1,
+            id: "call_b",
+            type: "function",
+            function: { name: PROBE_TOOL, arguments: "{" },
+          },
+        ],
+      })
+    );
+    await vi.waitFor(() =>
+      expect(toolUses().map((c) => c.input)).toEqual([{ text: "hi" }, { _partial: true }])
+    );
+    body.send(
+      delta({ tool_calls: [{ index: 1, function: { arguments: "}" } }] }),
+      delta({}, "tool_calls"),
+      "[DONE]"
+    );
+    body.end();
+    await turn;
+    stop();
+
+    expect(h.executeToolUse.mock.calls.map((c) => c[0].input)).toEqual([{ text: "hi" }, {}]);
+    // The store never held the arguments as they streamed in, only the marker.
+    for (const input of inputs) {
+      const partial = (input as Record<string, unknown>)._partial;
+      expect(partial === undefined || partial === true).toBe(true);
+    }
+    expect(everyToolCallAnswered(posts[1])).toBe(true);
+  });
+
+  it("that never parse keep the marker, so the call never runs", async () => {
+    queue = [
+      sse(
+        delta({
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_bad",
+              type: "function",
+              function: { name: PROBE_TOOL, arguments: '{"text": "cut' },
+            },
+          ],
+        }),
+        delta({}, "tool_calls"),
+        "[DONE]"
+      ),
+    ];
+    await send("read the probe state", null);
+    expect(h.executeToolUse).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(toolUses().map((c) => c.input)).toEqual([{ _partial: true }]);
   });
 });
