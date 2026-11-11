@@ -477,8 +477,13 @@ describe("import graph walk (self-tests)", () => {
   });
 
   it("stops the static shell at next/dynamic", () => {
-    expect(staticShell.files.has(HEADER)).toBe(true);
-    expect(staticShell.files.has(MOMENT_CHIP)).toBe(true);
+    // The extra roots must be what app-shell really ships in its first chunk:
+    // a walk from app-shell alone, which seeds nothing else, has to reach them.
+    const fromShell = closure([APP_SHELL]);
+    for (const file of STATIC_SHELL) {
+      expect(fromShell.files.has(file), `app-shell statically reaches ${file}`).toBe(true);
+    }
+    expect(fromShell.files.has(MASCOT)).toBe(false);
     expect(staticShell.files.has(MASCOT)).toBe(false);
   });
 
