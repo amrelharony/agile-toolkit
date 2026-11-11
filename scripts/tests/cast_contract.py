@@ -90,6 +90,46 @@ def problems(rig: dict, clips: dict | None = None) -> list[str]:
     return out
 
 
+# ---------- the runtime's moves, in the form clips.load() reads them ----------
+
+
+def _clip(ms, tracks, swaps=(), first=None, armless=None):
+    def lay(t, s=()):
+        return {"tracks": list(t), "swaps": list(s)}
+
+    return {
+        "ms": ms,
+        "main": lay(tracks, swaps),
+        "first": lay(*first) if first else None,
+        "armless": lay(*armless) if armless else None,
+    }
+
+
+# The idle and guess clips and some tap moves of src/lib/cast/clips.ts, so the
+# builder's tests run without the runtime in the tree (test_cast_manifest.py holds
+# them equal to clips.ts when it is).
+CLIPS = {
+    "maxMs": 900,
+    "clips": {
+        "idle.breathe": _clip(4000, ["body"]),
+        "idle.blink": _clip(5400, [], ["eyes.closed"]),
+        "guess.matched": _clip(900, ["head"], ["eyes.happy", "mouth.smile"], first=(["body"], ["arm-r.up", "arm-l.up"])),
+        "guess.differed": _clip(700, ["body"], ["eyes.wide", "mouth.o"]),
+        "guess.skipped": _clip(700, ["body"], ["arm-r.open", "arm-l.open"], armless=(["head"],)),
+        "sig.tail": _clip(800, ["tail"]),
+        "sig.ears": _clip(600, ["ear-r", "ear-l"]),
+        "sig.hop": _clip(600, ["body"]),
+        "sig.nod": _clip(700, ["head"]),
+        "sig.wave": _clip(900, ["arm-r"], ["arm-r.wave"]),
+        "sig.chin": _clip(900, ["head"], ["arm-l.chin"]),
+        "sig.fan": _clip(900, ["body"], ["fan.open"]),
+        "sig.ripple": _clip(900, [f"limb-{i}" for i in range(1, 9)]),
+        "sig.flap": _clip(700, ["flap"]),
+        "sig.eyes": _clip(900, ["pupils"]),
+    },
+}
+
+
 # ---------- the runtime's synthetic fixtures, as far as the counts need them ----------
 
 S = {"bg": [100, 100, 0, 0]}  # a sprite; where it sits in the atlas doesn't count here

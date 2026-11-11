@@ -20,6 +20,7 @@ import cast_synth as cs  # noqa: E402
 from test_cast_atlas import RUNTIME_FORM  # noqa: E402
 from PIL import Image  # noqa: E402
 
+from cast import clips as cast_clips  # noqa: E402
 from cast import fmt, ledger, publish, rig, spec  # noqa: E402
 from cast import imaging as im  # noqa: E402
 from cast.spec import BUDGETS, TOL  # noqa: E402
@@ -49,7 +50,7 @@ class Pipeline(unittest.TestCase):
     def setUpClass(cls):
         cls.root = Path(tempfile.mkdtemp(prefix="cast-pipeline-"))
         cls.src = sources_with_art(cls.root)
-        cls.report = rig.candidate(CID, cls.src, out=lambda *a: None)
+        cls.report = rig.candidate(CID, cls.src, out=lambda *a: None, clips=contract.CLIPS)
         cls.folder = cls.src / "review" / spec.batch_of(CID) / CID
         cls.spec_path = cls.root / "cast-rig.json"
         shutil.copy2(spec.SPEC_PATH, cls.spec_path)
@@ -62,7 +63,7 @@ class Pipeline(unittest.TestCase):
     def test_1_the_candidate_passes_its_checks(self):
         r = self.report
         self.assertEqual(r["missing"], [])
-        for name in ("C5", "C6", "C8", "C10"):
+        for name in ("C5", "C6", "C8", "C10", "rig"):
             self.assertEqual(r["checks"][name]["status"], "pass", (name, r["checks"][name]))
         for name in ("C7", "C9", "C11"):
             self.assertIn(r["checks"][name]["status"], ("pass", "warn"), (name, r["checks"][name]))
@@ -116,7 +117,8 @@ class Pipeline(unittest.TestCase):
         self.assertTrue(all(t > 0 for t in man["pupils"]["travel"]))
         self.assertEqual(man["counts"]["nodes"], rig.count_nodes(man))
         self.assertEqual(man["signature"], spec.character(CID)["signature"])
-        self.assertEqual(contract.problems(man), [])
+        self.assertEqual(contract.problems(man, contract.CLIPS), [])
+        self.assertEqual(man["counts"]["animated"], cast_clips.animated(man, contract.CLIPS))
         self.assertNotRegex(json.dumps(man), r"#[0-9A-Fa-f]{6}")
 
     def test_3_build_refuses_without_every_approval(self):

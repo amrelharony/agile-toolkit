@@ -15,7 +15,9 @@ sys.path.insert(0, str(HERE))
 
 import cast_contract as contract  # noqa: E402
 
+from cast import clips as cast_clips  # noqa: E402
 from cast import rig  # noqa: E402
+from cast.spec import SPEC  # noqa: E402
 
 
 class Nodes(unittest.TestCase):
@@ -41,6 +43,55 @@ class Nodes(unittest.TestCase):
         # arm-l's chin choice has its own z, so its own wrapper: 2 spans + 5 choices.
         arm_l = next(s for s in contract.TEST_PUPPET["swaps"] if s["id"] == "arm-l")
         self.assertEqual(len({c.get("z", arm_l["z"]) for c in arm_l["choices"]}), 2)
+
+
+def limbed(n=8, legs=True):
+    """A made-up rig with n numbered limbs (an octopus-like body) and its tap move."""
+    rig_ = copy.deepcopy(contract.ARMLESS_PUPPET)
+    rig_["parts"] = [p for p in rig_["parts"] if not p["id"].startswith("leg-") or legs]
+    rig_["parts"] += [contract._part(f"tentacle-{i}", "torso", -1, f"limb-{i}", rng=12) for i in range(1, n + 1)]
+    rig_["signature"] = ["sig.ripple"]
+    return rig_
+
+
+class Animated(unittest.TestCase):
+    def test_the_most_elements_one_clip_moves(self):
+        # TEST_PUPPET: the first speaker's matched guess turns the head and the body.
+        self.assertEqual(cast_clips.animated(contract.TEST_PUPPET, contract.CLIPS), 2)
+        # Eight limbs and ripple: eight, though fourteen parts have a range.
+        octo = limbed()
+        self.assertEqual(sum(1 for p in octo["parts"] if p["range"]), 14)
+        self.assertEqual(cast_clips.animated(octo, contract.CLIPS), 8)
+        # Pupils move in every eye choice that draws them.
+        eyes = copy.deepcopy(contract.TEST_PUPPET)
+        eyes["signature"] = ["sig.eyes"]
+        self.assertEqual(cast_clips.animated(eyes, contract.CLIPS), 4)
+        # A slot with a choice drawn over its siblings is two spans with its socket.
+        chin = copy.deepcopy(contract.TEST_PUPPET)
+        chin["signature"] = ["sig.chin"]
+        self.assertEqual(cast_clips.elements(chin)["arm-l"], 2)
+
+    def test_an_armless_rig_plays_the_armless_layer(self):
+        both = copy.deepcopy(contract.ARMLESS_PUPPET)
+        self.assertEqual(cast_clips.animated(both, contract.CLIPS), 2)  # skipped: body + head
+
+    def test_a_tap_move_that_moves_nothing_is_named(self):
+        r = copy.deepcopy(contract.ARMLESS_PUPPET)
+        r["signature"] = ["sig.ears", "sig.nope"]  # no ears on it
+        self.assertEqual(cast_clips.unplayable(r, contract.CLIPS), ["sig.ears: moves nothing on this rig", "sig.nope: no such clip"])
+        self.assertEqual(cast_clips.unplayable(limbed(), contract.CLIPS), [])
+        self.assertEqual(cast_clips.unplayable(contract.TEST_PUPPET, contract.CLIPS), [])
+
+    @unittest.skipUnless(cast_clips.CLIPS_TS.exists(), "the runtime (src/lib/cast/clips.ts) is not in this tree")
+    def test_the_fixture_and_the_spec_agree_with_the_runtimes_clips(self):
+        real = cast_clips.load()
+        self.assertEqual(real["maxMs"], contract.CLIPS["maxMs"])
+        for cid, clip in contract.CLIPS["clips"].items():
+            self.assertEqual(real["clips"][cid], clip, cid)
+        for c in SPEC["characters"]:
+            for sid in c["signature"]:
+                self.assertIn(sid, real["clips"], c["id"])
+                self.assertLessEqual(real["clips"][sid]["ms"], real["maxMs"], sid)
 
 
 class RuntimeChecks(unittest.TestCase):

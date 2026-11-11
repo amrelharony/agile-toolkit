@@ -27,6 +27,7 @@ import numpy as np
 from PIL import Image
 
 from . import atlas, checks, ledger, palette, parts, swaps
+from . import clips as cast_clips
 from . import imaging as im
 from . import register as rg
 from .spec import (
@@ -177,11 +178,14 @@ def rotate_about(mask: np.ndarray, x: float, y: float, deg: float) -> np.ndarray
 # ---------- the candidate ----------
 
 
-def candidate(cid: str, sources: Path, review_root: Path | None = None, out=print) -> dict:
+def candidate(cid: str, sources: Path, review_root: Path | None = None, out=print, clips: dict | None = None) -> dict:
+    """Build one candidate rig into review/<batch>/<id>/. `clips` is the runtime's
+    move table (clips.load(), read from src/lib/cast/clips.ts when not given)."""
     c = character(cid)
     why = signature_problem(c.get("signature"))
     if why:
         raise SystemExit(f"{cid}: docs/cast/cast-rig.json `signature`: {why}")
+    clips = cast_clips.load() if clips is None else clips
     sources = Path(sources)
     batch = batch_of(cid)
     folder = (Path(review_root) if review_root else sources / "review") / batch / cid
@@ -567,7 +571,14 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     report["checks"]["C9"] = c9
 
     # Sprites, atlas, manifest.
-    man, sprites = manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources)
+    man, sprites = manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources, clips)
+    # The rig as the runtime plays it: its tap moves move something, and the counts fit.
+    rchk = {"status": "pass", "notes": cast_clips.unplayable(man, clips)}
+    for key, cap in (("nodes", "rig_nodes_max"), ("animated", "rig_animated_max")):
+        if man["counts"][key] > BUDGETS[cap]:
+            rchk["notes"].append(f"{man['counts'][key]} {key}, over {BUDGETS[cap]}")
+    rchk["status"] = "fail" if rchk["notes"] else "pass"
+    report["checks"]["rig"] = rchk
     atlas2x, rects = atlas.compose_atlas([s for _, s in sprites])
     keys = [k for k, _ in sprites]
     fill_sprites(man, keys, rects, (atlas2x.size[0] // 2, atlas2x.size[1] // 2))
@@ -633,7 +644,7 @@ def _sprite(rgba: np.ndarray, k2: float) -> tuple[tuple[int, int, int, int], np.
     return box, np.array(crop.resize((w, h), Image.LANCZOS).convert("RGBA"))
 
 
-def manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources) -> tuple[dict, list]:
+def manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources, clips) -> tuple[dict, list]:
     """(RigManifest with sprite slots unfilled, [(sprite key, 2x RGBA)]).
 
     The shape CastFigure draws (src/lib/cast/rig-types.ts): the arms and the fan
@@ -810,7 +821,7 @@ def manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources)
     }
     if c.get("translucent") is not None:
         man["translucent"] = c["translucent"]
-    man["counts"] = {"nodes": count_nodes(man), "animated": sum(1 for p in parts_out if p["range"])}
+    man["counts"] = {"nodes": count_nodes(man), "animated": cast_clips.animated(man, clips)}
     return man, sprites
 
 
