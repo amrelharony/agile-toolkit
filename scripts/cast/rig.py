@@ -283,6 +283,8 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
                     c5["notes"].append(f"{pid} looks fused (too big for one piece)")
     report["checks"]["C5"] = c5
     c6 = {"parts": {}, "status": "pass", "notes": []}
+    # How many placed pieces cover each pixel, so each piece sees the others' union.
+    layers = sum((b[..., 3] > 127).astype(np.int16) for b in baked.values()) if baked else None
     for pid, reg in regs.items():
         st = "pass"
         if reg.ncc < TOL["ncc_min"]:
@@ -291,7 +293,18 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             st = "warn"
         if not (TOL["scale_min"] <= reg.r <= TOL["scale_max"]) or abs(reg.theta) > TOL["tilt_deg"]:
             st = checks.worst(st, "warn")
-        c6["parts"][pid] = {**reg.json(), "status": st}
+        own = baked[pid][..., 3] > 127
+        odd = rg.unexplained(baked[pid], master, (layers - own) > 0)
+        row = {**reg.json(), "unexplained": round(odd, 4)}
+        # The NCC is over what the second pass kept, so how much it left out, and
+        # where, is part of the score: a piece drawn wrong or placed off the figure fails.
+        if odd > TOL["reg_unexplained_max"]:
+            st = "fail"
+            c6["notes"].append(f"{pid}: {odd:.0%} of it is drawn otherwise in the master, with no other piece there")
+        if reg.coverage < TOL["reg_coverage_min"]:
+            st = "fail"
+            c6["notes"].append(f"{pid}: only {reg.coverage:.0%} of it lands on the figure")
+        c6["parts"][pid] = {**row, "status": st}
         c6["status"] = checks.worst(c6["status"], st)
     lost = [i for i in ids_all if i not in named and not i.startswith("pupil-")]
     if lost:

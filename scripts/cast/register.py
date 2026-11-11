@@ -192,6 +192,7 @@ class Reg:
     ncc: float
     coverage: float = 0.0
     excluded: float = 0.0  # share of the piece left out in the second pass
+    ncc_first: float | None = None  # the search's own score, before the second pass
 
     @property
     def m(self) -> float:
@@ -205,6 +206,7 @@ class Reg:
             "ncc": round(self.ncc, 4),
             "coverage": round(self.coverage, 4),
             "excluded": round(self.excluded, 4),
+            **({"ncc_first": round(self.ncc_first, 4)} if self.ncc_first is not None else {}),
         }
 
 
@@ -325,6 +327,7 @@ def second_pass(piece: np.ndarray, master: np.ndarray, reg: Reg) -> Reg:
     ml = im.lab(master[ys, xs, :3].astype(np.float64))
     differs = (im.de00(pl, ml) > TOL["diff_de00"]) | (master[ys, xs, 3] < 128)
     reg.coverage = float((master[ys, xs, 3] > 127).mean())
+    reg.ncc_first = reg.ncc
     reg.excluded = float(differs.mean())
     keep = ~differs
     if keep.sum() >= 16:
@@ -344,6 +347,25 @@ def second_pass(piece: np.ndarray, master: np.ndarray, reg: Reg) -> Reg:
         if vals:
             reg.ncc = float(np.mean(vals))
     return reg
+
+
+def unexplained(baked: np.ndarray, master: np.ndarray, others: np.ndarray) -> float:
+    """The share of a placed piece (baked, master frame) that the master doesn't
+    show as it is: off the figure, or in another colour where no other placed
+    piece lies (`others`, their union).
+
+    The second pass leaves out what the master shows differently, which a cap
+    under its parent or a hidden area drawn in explains: another piece is there.
+    Where no piece is there, a different colour (or no figure at all) means the
+    piece itself is drawn or placed wrong, and its NCC over what is left would
+    hide it."""
+    a = baked[..., 3] > 127
+    if not a.any():
+        return 1.0
+    on = master[..., 3] >= 128
+    ys, xs = np.nonzero(a & on & ~others)
+    d = im.de00(im.lab(baked[ys, xs, :3].astype(np.float64)), im.lab(master[ys, xs, :3].astype(np.float64)))
+    return float(((d > TOL["diff_de00"]).sum() + (a & ~on).sum()) / a.sum())
 
 
 # ---------- joints ----------

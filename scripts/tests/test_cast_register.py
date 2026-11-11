@@ -15,6 +15,7 @@ import numpy as np  # noqa: E402
 
 from cast import key  # noqa: E402
 from cast import register as rg  # noqa: E402
+from cast.spec import TOL  # noqa: E402
 
 
 def centroid(img):
@@ -74,6 +75,26 @@ class Register(unittest.TestCase):
         ys, xs = np.nonzero(flap[..., 3] > 0)
         centre = ((xs.min() + xs.max() + 1) / 2, (ys.min() + ys.max() + 1) / 2)
         self.check(cs.scaled(cs.crop(flap), 1.1), self.master, 1.1, 0.0, centre)
+
+    def test_a_recoloured_piece_scores_high_but_is_unexplained(self):
+        # The pieces over and under the torso in the master, as the candidate has them.
+        others = np.zeros(self.master.shape[:2], bool)
+        for layer in (cs.flap_layer(), cs.arm("arm-r"), cs.arm("arm-l"), cs.leg("leg-r"), cs.leg("leg-l")):
+            others |= layer[..., 3] > 127
+        torso = cs.crop(cs.torso())
+        good = rg.register(cs.scaled(torso, 0.85), self.master)
+        bad_art = torso.copy()
+        body = np.all(np.abs(bad_art[..., :3].astype(int) - cs.BODY) < 40, axis=-1)
+        bad_art[body, :3] = (60, 170, 160)  # the body drawn in another colour
+        bad = rg.register(cs.scaled(bad_art, 0.85), self.master)
+        self.assertGreater(bad.ncc, TOL["ncc_warn"])  # the second pass alone would pass it
+        self.assertGreater(bad.excluded, 0.5)
+        shape = self.master.shape
+        odd_good = rg.unexplained(rg.bake(cs.scaled(torso, 0.85), good, shape), self.master, others)
+        odd_bad = rg.unexplained(rg.bake(cs.scaled(bad_art, 0.85), bad, shape), self.master, others)
+        self.assertLess(odd_good, TOL["reg_unexplained_max"] / 4)
+        self.assertGreater(odd_bad, TOL["reg_unexplained_max"])
+        self.assertGreater(good.coverage, TOL["reg_coverage_min"])
 
     def test_a_window_keeps_a_sided_piece_on_its_side(self):
         arm = cs.arm("arm-r")
