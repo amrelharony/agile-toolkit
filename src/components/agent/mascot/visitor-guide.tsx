@@ -78,10 +78,12 @@ function useToolGuide(toolId: string | undefined): ToolGuide | null {
  * is left to it.
  *
  * With visitor AI on, VisitorPanel passes `onAskAmr`: the guide then shows one
- * primary Ask button under the search. It reads "Chat with Amr" (or "Back to
- * chat" with `resumeChat`) while the search is empty, and "Ask Amr about '…'"
- * once something is typed. It only calls back; the guide itself still sends
- * nothing.
+ * primary Ask button under the search. It reads "Chat with Amr" while the
+ * search is empty, and "Ask Amr about '…'" once something is typed. With
+ * `resumeChat` it reads "Back to chat" instead while the search is empty or
+ * still holds the question that chat opened with (`resumeQuery`), which was
+ * sent already and is never asked twice. It only calls back; the guide itself
+ * still sends nothing.
  */
 export function VisitorGuide({
   onNavigate,
@@ -90,6 +92,7 @@ export function VisitorGuide({
   note,
   initialQuery,
   resumeChat = false,
+  resumeQuery,
 }: {
   onNavigate?: () => void;
   /** Ask Amr's AI instead (visitor AI on); `query` may be empty. */
@@ -107,10 +110,16 @@ export function VisitorGuide({
    */
   initialQuery?: string;
   /**
-   * The visitor has a chat with Amr under way: with an empty search the Ask
-   * button reads "Back to chat", and `onAskAmr("")` takes them back to it.
+   * The visitor has a chat with Amr under way: while the search is empty or
+   * still holds `resumeQuery`, the Ask button reads "Back to chat", and
+   * `onAskAmr("")` takes them back to it.
    */
   resumeChat?: boolean;
+  /**
+   * The question the chat under way opened with. It was sent already, so a
+   * search that still holds it goes back to the chat instead of asking again.
+   */
+  resumeQuery?: string;
 }) {
   const pathname = usePathname();
   const vip = useVipHint();
@@ -127,6 +136,11 @@ export function VisitorGuide({
   // Only what the visitor types is read out: a search the guide opened with
   // (coming back from the consent card) was theirs already.
   const [typed, setTyped] = useState(false);
+  // Back to the chat under way, with an empty search or one that still holds
+  // the question that chat opened with: it was sent already, so the Ask button
+  // asks nothing again.
+  const backToChat = resumeChat && (!trimmed || trimmed === (resumeQuery ?? "").trim());
+  const askQuery = backToChat ? "" : trimmed;
 
   // Amr shrugs at a search that finds nothing, once the visitor stops typing.
   const noMatch = trimmed.length > 0 && results.length === 0;
@@ -220,7 +234,7 @@ export function VisitorGuide({
             />
           </div>
         </form>
-        {onAskAmr && <AskButton query={trimmed} resume={resumeChat} onAskAmr={onAskAmr} />}
+        {onAskAmr && <AskButton query={askQuery} resume={backToChat} onAskAmr={onAskAmr} />}
         {trimmed &&
           (results.length > 0 ? (
             <ul id={RESULTS_ID} className="flex flex-col gap-1" aria-label="Matching tools">
@@ -320,8 +334,9 @@ export function VisitorGuide({
 }
 
 /**
- * The guide's one way into Amr's AI: "Chat with Amr" (or "Back to chat") with
- * an empty search, "Ask Amr about '…'" with the search in it.
+ * The guide's one way into Amr's AI: "Chat with Amr" with an empty search,
+ * "Back to chat" (`resume`, with `query` empty) when it goes back to the chat
+ * under way, and "Ask Amr about '…'" with a new search in it.
  */
 function AskButton({
   query,

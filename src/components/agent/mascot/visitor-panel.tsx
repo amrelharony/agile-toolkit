@@ -14,8 +14,11 @@
  *    the agent runtime behind it loads on the first message.
  *
  * The search travels with the visitor: "Not now" on the card, and going back
- * from the chat, open the guide on the question they took there. A failure
- * drops it (the note says what happened, and asking again starts fresh).
+ * from the chat, open the guide on the question they took there. The chat's
+ * own question was sent already, so while the search still holds it the Ask
+ * button reads "Back to chat" and nothing is sent twice. A failure or a
+ * refusal drops it (the note says what happened, and asking again starts
+ * fresh).
  *
  * When the visitor route says there's no more AI for now (visitorFallback),
  * the panel goes back to the guide with a note saying which limit was reached
@@ -143,9 +146,13 @@ export function VisitorPanel({
   loadChat?: () => Promise<ChatModule>;
 }) {
   const [mode, setMode] = useState<Mode>(initialMode);
-  // The question to send when the chat opens ("" opens it empty). Kept after
-  // "Not now" and after going back from the chat, so the guide opens on it.
+  // The question to send when the chat opens ("" opens it empty, or goes back
+  // to the chat under way). Kept after "Not now", so the guide opens on it.
   const [question, setQuestion] = useState("");
+  // The question the chat under way opened with, sent already. The guide opens
+  // on it after "Tool finder", and while its search still holds it, the Ask
+  // button goes back to the chat instead of asking it again.
+  const [sent, setSent] = useState("");
   // The loader this panel started with, kept for its whole life.
   const [load] = useState(() => loadChat);
   // Why the chat last went back to the guide by itself: its code couldn't
@@ -172,9 +179,12 @@ export function VisitorPanel({
     lastFallback.current = fallback;
     if (!fallback) return;
     setMode("guide");
-    if (was !== fallback && lastMode.current === "guide") {
-      announce(visitorFallbackNote(fallback, quota));
-    }
+    if (was === fallback) return;
+    // A refusal drops the question: the panel can't tell which message was
+    // refused, so the guide opens empty and its Ask button goes back to the chat.
+    setQuestion("");
+    setSent("");
+    if (lastMode.current === "guide") announce(visitorFallbackNote(fallback, quota));
   }, [fallback, quota, announce]);
 
   // Back on the guide from another step: focus goes to the note when there is
@@ -191,24 +201,37 @@ export function VisitorPanel({
   // The note takes focus, so it is not announced as well.
   const chatFailed = (kind: "load" | "error") => {
     setQuestion("");
+    setSent("");
     setFailure(kind);
     setMode("guide");
   };
 
+  // The chat opens. A question becomes the chat's own; opening it empty with
+  // no chat under way starts afresh; going back to the chat keeps its own.
+  const openChat = (ask: string) => {
+    if (ask || !chatUnderWay) setSent(ask);
+    setMode("chat");
+  };
+
   const askAmr = (query: string) => {
-    setQuestion(query.trim());
+    const q = query.trim();
+    // Back to the chat under way, with no question or with the one it opened
+    // with: that one was sent already, so nothing is sent twice.
+    const ask = chatUnderWay && (q === "" || q === sent) ? "" : q;
+    setQuestion(ask);
     // Asking again is a fresh try: the route answers again if it can, and the
     // chat's code loads again if it didn't.
     setFailure(null);
     useAgentStore.getState().setVisitorFallback(null);
-    setMode(hasVisitorAiConsent() ? "chat" : "consent");
+    if (hasVisitorAiConsent()) openChat(ask);
+    else setMode("consent");
   };
 
   if (mode === "consent") {
     return (
       <VisitorAiConsent
         question={question}
-        onAgree={() => setMode("chat")}
+        onAgree={() => openChat(question)}
         // Back to the guide with the question still in its search.
         onDecline={() => setMode("guide")}
         onNavigate={onNavigate}
@@ -234,8 +257,12 @@ export function VisitorPanel({
           <Chat
             initialQuestion={question}
             // Back to the guide, its search on the question the chat opened
-            // with; the guide's "Back to chat" returns to this chat.
-            onOfflineGuide={() => setMode("guide")}
+            // with (`sent`); the guide's "Back to chat" returns to this chat,
+            // which then has nothing to send.
+            onOfflineGuide={() => {
+              setQuestion("");
+              setMode("guide");
+            }}
           />
         </Suspense>
       </ErrorBoundary>
@@ -254,8 +281,9 @@ export function VisitorPanel({
       onNavigate={onNavigate}
       onAskAmr={askAmr}
       guideRef={guideRef}
-      initialQuery={question}
+      initialQuery={question || sent}
       resumeChat={chatUnderWay}
+      resumeQuery={sent}
       // The note sits inside the guide's scroll area. Above it, in a panel as
       // short as 160 px, it left the guide a strip too low to use.
       note={

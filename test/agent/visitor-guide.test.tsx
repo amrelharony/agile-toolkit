@@ -272,6 +272,34 @@ describe("VisitorGuide", () => {
       expect(screen.getByRole("button", { name: "Ask Amr about “retro”" })).toBeInTheDocument();
     });
 
+    it("goes back to the chat while the search still holds the question it opened with", () => {
+      const onAskAmr = vi.fn();
+      render(
+        <VisitorGuide onAskAmr={onAskAmr} resumeChat initialQuery="retro" resumeQuery="retro" />
+      );
+      expect(search()).toHaveValue("retro");
+      expect(results()).toBeInTheDocument();
+      // That question was sent already: the button asks nothing again.
+      expect(screen.queryByRole("button", { name: "Ask Amr about “retro”" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+      expect(onAskAmr).toHaveBeenLastCalledWith("");
+
+      // A new search is asked as usual.
+      type("retro board");
+      fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro board”" }));
+      expect(onAskAmr).toHaveBeenLastCalledWith("retro board");
+      // The same question typed again goes back to the chat too.
+      type(" retro ");
+      expect(screen.getByRole("button", { name: "Back to chat" })).toBeInTheDocument();
+    });
+
+    it("asks a search it opened with when no chat is under way", () => {
+      const onAskAmr = vi.fn();
+      render(<VisitorGuide onAskAmr={onAskAmr} initialQuery="retro" resumeQuery="retro" />);
+      fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
+      expect(onAskAmr).toHaveBeenCalledWith("retro");
+    });
+
     it("is not there with the AI off", () => {
       render(<VisitorGuide />);
       type("zzqx");
