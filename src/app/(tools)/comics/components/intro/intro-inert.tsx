@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
-import { INTRO_ATTR, INTRO_END_EVENT, OVERLAY_ATTR, type IntroKind } from "@/lib/comics/intro";
+import {
+  INTRO_ATTR,
+  INTRO_END_EVENT,
+  INTRO_KINDS,
+  OVERLAY_ATTR,
+  type IntroKind,
+} from "@/lib/comics/intro";
 import { stopIntro } from "@/lib/comics/play-intro";
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
@@ -14,6 +20,120 @@ const INERT = "inert";
  * to restyle, so they're left alone.
  */
 const NEVER_SHOWN = new Set(["script", "template", "style", "link", "meta", "noscript"]);
+
+/** The page held for one intro. One plays at a time, so there's one hold at most. */
+interface Hold {
+  kind: IntroKind;
+  /** Each sibling along the chain, and whether its owner wants it inert. */
+  wanted: Map<Element, boolean>;
+  /** The overlay and its ancestors, which stay reachable. */
+  chain: Set<Element>;
+  /** New children of the chain's parents, and each held sibling's inert. */
+  watch: MutationObserver;
+}
+
+let held: Hold | null = null;
+
+/** Hold one sibling: note its owner's word, make it inert, and listen for that owner. */
+function track(hold: Hold, el: Element) {
+  if (hold.wanted.has(el) || hold.chain.has(el) || NEVER_SHOWN.has(el.localName)) return;
+  const inert = el.hasAttribute(INERT);
+  hold.wanted.set(el, inert);
+  // Written before it is watched, so this write is never read as its owner's.
+  if (!inert) el.setAttribute(INERT, "");
+  hold.watch.observe(el, { attributes: true, attributeFilter: [INERT] });
+}
+
+function onChange(hold: Hold, records: MutationRecord[]) {
+  if (held !== hold) return;
+  const touched = new Set<Element>();
+  for (const record of records) {
+    if (record.type === "childList") {
+      for (const node of Array.from(record.addedNodes)) {
+        if (node instanceof Element) track(hold, node);
+      }
+    } else if (record.target instanceof Element) touched.add(record.target);
+  }
+  // Once each, from its state now: an owner's last write is its word.
+  touched.forEach((el) => {
+    if (!hold.wanted.has(el)) return;
+    const inert = el.hasAttribute(INERT);
+    hold.wanted.set(el, inert);
+    if (!inert) el.setAttribute(INERT, "");
+  });
+  // The writes just made here are this guard's, not an owner's.
+  hold.watch.takeRecords();
+}
+
+/** Make the page around `kind`'s overlay inert, if it is shown and not held already. */
+function hold(kind: IntroKind) {
+  if (held?.kind === kind) return;
+  const overlay = document.querySelector<HTMLElement>(`[${OVERLAY_ATTR}="${kind}"]`);
+  if (!overlay || getComputedStyle(overlay).display === "none") return;
+  release();
+  const parents: Element[] = [];
+  const chain = new Set<Element>([overlay]);
+  for (let node: Element = overlay; node !== document.body; ) {
+    const parent: Element | null = node.parentElement;
+    if (!parent) break;
+    parents.push(parent);
+    chain.add(parent);
+    node = parent;
+  }
+  const next: Hold = {
+    kind,
+    wanted: new Map(),
+    chain,
+    watch: new MutationObserver((records) => onChange(next, records)),
+  };
+  held = next;
+  for (const parent of parents) {
+    next.watch.observe(parent, { childList: true });
+    for (const child of Array.from(parent.children)) track(next, child);
+  }
+}
+
+/** Let the page go: each sibling as its owner last asked. */
+function release() {
+  const hold = held;
+  if (!hold) return;
+  onChange(hold, hold.watch.takeRecords());
+  hold.watch.disconnect();
+  held = null;
+  hold.wanted.forEach((inert, el) => {
+    if (!inert) el.removeAttribute(INERT);
+  });
+}
+
+function releaseIf(kind: IntroKind) {
+  if (held?.kind === kind) release();
+}
+
+/**
+ * An arrival's intro is already playing when this file first runs (the head
+ * script started it at the first paint), so its page is held from here,
+ * before the app mounts. Held from inside the mount instead, every inert
+ * write sat under the app's whole tree of effects, which a browser recording
+ * a trace (Lighthouse) captures a stack for at each write: on /comics that
+ * was about 20 ms of the mount's longest task. The restyle the writes cause
+ * comes before the mount too, not in it. IntroInert finds the page held and
+ * keeps the hold. If the overlay isn't in the page yet, IntroInert holds it
+ * when it mounts, as it does for a replay.
+ *
+ * Production only: React's development build reports any attribute it didn't
+ * render on an element it hydrates, so in development the page is held when
+ * IntroInert mounts. Exported for its test; nothing else calls it.
+ */
+export function holdOnLoad() {
+  if (typeof document === "undefined" || process.env.NODE_ENV !== "production") return;
+  // If the app never mounts, the end still lets the page go.
+  document.addEventListener(INTRO_END_EVENT, release);
+  const kind = document.documentElement.getAttribute(INTRO_ATTR);
+  const known = INTRO_KINDS.find((k) => k === kind);
+  if (known) hold(known);
+}
+
+holdOnLoad();
 
 /**
  * While its intro plays, the page behind the overlay can't be reached: every
@@ -41,103 +161,34 @@ const NEVER_SHOWN = new Set(["script", "template", "style", "link", "meta", "nos
  * If motion is turned down mid-intro, globals.css hides the overlay; the intro
  * is then ended here, so the page isn't left inert under nothing.
  *
+ * An arrival's page is usually held already when this mounts (holdOnLoad).
+ *
  * Rendered by IntroOverlay; draws nothing.
  */
 export function IntroInert({ kind }: { kind: IntroKind }) {
   useEffect(() => {
     const root = document.documentElement;
-    /** While held: each sibling along the chain, and whether its owner wants it inert. */
-    let wanted: Map<Element, boolean> | null = null;
-    /** The overlay and its ancestors, which stay reachable. */
-    let chain = new Set<Element>();
-
     const playing = () => root.getAttribute(INTRO_ATTR) === kind;
-
-    // New children of the chain's parents, and each held sibling's inert.
-    const watch = new MutationObserver(onChange);
-
-    /** Hold one sibling: note its owner's word, make it inert, and listen for that owner. */
-    function track(el: Element) {
-      if (!wanted || wanted.has(el) || chain.has(el) || NEVER_SHOWN.has(el.localName)) return;
-      const inert = el.hasAttribute(INERT);
-      wanted.set(el, inert);
-      // Written before it is watched, so this write is never read as its owner's.
-      if (!inert) el.setAttribute(INERT, "");
-      watch.observe(el, { attributes: true, attributeFilter: [INERT] });
-    }
-
-    function onChange(records: MutationRecord[]) {
-      const held = wanted;
-      if (!held) return;
-      const touched = new Set<Element>();
-      for (const record of records) {
-        if (record.type === "childList") {
-          for (const node of Array.from(record.addedNodes)) {
-            if (node instanceof Element) track(node);
-          }
-        } else if (record.target instanceof Element) touched.add(record.target);
-      }
-      // Once each, from its state now: an owner's last write is its word.
-      touched.forEach((el) => {
-        if (!held.has(el)) return;
-        const inert = el.hasAttribute(INERT);
-        held.set(el, inert);
-        if (!inert) el.setAttribute(INERT, "");
-      });
-      // The writes just made here are this guard's, not an owner's.
-      watch.takeRecords();
-    }
-
-    function release() {
-      if (!wanted) return;
-      onChange(watch.takeRecords());
-      watch.disconnect();
-      wanted.forEach((inert, el) => {
-        if (!inert) el.removeAttribute(INERT);
-      });
-      wanted = null;
-      chain = new Set();
-    }
-
-    function hold() {
-      if (wanted) return;
-      const overlay = document.querySelector<HTMLElement>(`[${OVERLAY_ATTR}="${kind}"]`);
-      if (!overlay || getComputedStyle(overlay).display === "none") return;
-      const parents: Element[] = [];
-      chain = new Set([overlay]);
-      for (let node: Element = overlay; node !== document.body; ) {
-        const parent: Element | null = node.parentElement;
-        if (!parent) break;
-        parents.push(parent);
-        chain.add(parent);
-        node = parent;
-      }
-      wanted = new Map();
-      for (const parent of parents) {
-        watch.observe(parent, { childList: true });
-        for (const child of Array.from(parent.children)) track(child);
-      }
-    }
-
-    const sync = () => (playing() ? hold() : release());
+    const sync = () => (playing() ? hold(kind) : releaseIf(kind));
+    const onEnd = () => release();
 
     const motion = window.matchMedia?.(REDUCED_MOTION);
     const onMotion = () => {
       if (!motion?.matches || !playing()) return;
       stopIntro();
-      release();
+      releaseIf(kind);
     };
 
     sync();
     const observer = new MutationObserver(sync);
     observer.observe(root, { attributes: true, attributeFilter: [INTRO_ATTR] });
-    document.addEventListener(INTRO_END_EVENT, release);
+    document.addEventListener(INTRO_END_EVENT, onEnd);
     motion?.addEventListener?.("change", onMotion);
     return () => {
       observer.disconnect();
-      document.removeEventListener(INTRO_END_EVENT, release);
+      document.removeEventListener(INTRO_END_EVENT, onEnd);
       motion?.removeEventListener?.("change", onMotion);
-      release();
+      releaseIf(kind);
     };
   }, [kind]);
 

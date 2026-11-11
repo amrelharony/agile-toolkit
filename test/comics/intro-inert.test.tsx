@@ -8,6 +8,7 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { IntroInert, holdOnLoad } from "@/app/(tools)/comics/components/intro/intro-inert";
 import { IntroOverlay } from "@/app/(tools)/comics/components/intro/intro-parts";
 import { ReplayIntro } from "@/app/(tools)/comics/components/intro/replay-intro";
 import {
@@ -278,5 +279,83 @@ describe("when it ends", () => {
     } finally {
       portal.remove();
     }
+  });
+});
+
+describe("an arrival, held as soon as the guard's script loads", () => {
+  /**
+   * The page as the server sends it, before any app has mounted: the head
+   * script has started the intro, and the sidebar's drawer is closed.
+   */
+  function arrive() {
+    const page = document.createElement("div");
+    page.innerHTML = `
+      <header data-testid="header"><button type="button">Menu</button></header>
+      <aside data-testid="drawer" inert=""><a href="/retro">Retro</a></aside>
+      <main data-testid="main">
+        <section data-testid="gallery"><a href="/comics?ep=1">Episode 1</a></section>
+        <div ${OVERLAY_ATTR}="book" role="dialog" aria-modal="true" aria-label="Agile at Work intro">
+          <button type="button" data-intro-skip="">Skip intro</button>
+        </div>
+      </main>
+      <script data-testid="script"></script>`;
+    document.body.appendChild(page);
+    root.setAttribute(INTRO_RUN_ATTR, "0");
+    root.setAttribute(INTRO_ATTR, "book");
+    return page;
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    document.body.replaceChildren();
+  });
+
+  it("holds the page in production before the app mounts, and lets it go at the end", () => {
+    arrive();
+    vi.stubEnv("NODE_ENV", "production");
+    holdOnLoad();
+    expect(screen.getByTestId("header")).toHaveAttribute("inert");
+    expect(screen.getByTestId("gallery")).toHaveAttribute("inert");
+    for (let node: Element | null = overlay(); node; node = node.parentElement) {
+      expect(node.hasAttribute("inert"), node.tagName).toBe(false);
+    }
+    expect(screen.getByTestId("script")).not.toHaveAttribute("inert");
+    // No app has mounted: the head script's end alone lets the page go.
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(root.hasAttribute(INTRO_ATTR)).toBe(false);
+    expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
+  });
+
+  it("keeps that hold when the guard mounts, so the page it made inert is still let go", async () => {
+    arrive();
+    vi.stubEnv("NODE_ENV", "production");
+    holdOnLoad();
+    // The app mounts onto the held page: the guard must take the hold over,
+    // not read its own writes as the header's and gallery's owners', and not
+    // write the page again from inside the mount.
+    const setAttribute = vi.spyOn(Element.prototype, "setAttribute");
+    const { container } = render(<IntroInert kind="book" />);
+    await settle();
+    const written = setAttribute.mock.contexts.filter(
+      (el, i) => setAttribute.mock.calls[i][0] === "inert" && el !== container
+    );
+    expect(written).toEqual([]);
+    expect(screen.getByTestId("header")).toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
+  });
+
+  it("waits for the guard to mount in development, where React reports attributes it didn't render", () => {
+    arrive();
+    holdOnLoad();
+    expect(document.querySelectorAll("[inert]")).toHaveLength(1);
+    render(<IntroInert kind="book" />);
+    expect(screen.getByTestId("header")).toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
   });
 });
