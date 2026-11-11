@@ -51,7 +51,11 @@ import { ToolCard } from "@/components/shared/tool-card";
 import { ComicCard } from "@/app/(tools)/comics/components/comic-card";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { RETURN_MS } from "@/lib/motion/grow-from";
-import { BACK_WAIT_MS, readDebugSwitches } from "@/lib/motion/page-transition";
+import {
+  BACK_WAIT_MS,
+  isPageTransitionRunning,
+  readDebugSwitches,
+} from "@/lib/motion/page-transition";
 import { skipViewTransition } from "@/lib/motion/view-transition";
 import { DUR, EASE } from "@/lib/motion/tokens";
 import { comicHref } from "@/lib/comics/entry";
@@ -518,7 +522,44 @@ describe("the step must undo the card's own visit", () => {
   it("not when a newer page commits before the frame", () => {
     open("Kanban", "/kanban");
     back(home());
-    visit("/retro", toolPage("Retro"));
+    // The newer page shows a Kanban card on screen too: only the cancel keeps it still.
+    visit("/more-tools", home());
+    nextFrame();
+    expect(slides()).toEqual([]);
+  });
+
+  it("not when a tap comes before the frame", () => {
+    open("Kanban", "/kanban");
+    back(home());
+    // A tap on the page that is back, before its first paint: it goes somewhere new.
+    fireEvent.click(screen.getByRole("link", { name: "Retro" }));
+    nextFrame();
+    expect(slides()).toEqual([]);
+  });
+
+  it("not when a newer Back or Forward comes before the frame", () => {
+    open("Kanban", "/kanban");
+    back(home());
+    // Forward again before the frame; Next has not put the tool page back yet.
+    move(1);
+    window.dispatchEvent(popstate(false));
+    nextFrame();
+    expect(slides()).toEqual([]);
+  });
+
+  it("not when Back comes while a page change is still holding the screen", async () => {
+    const page = (
+      <>
+        {toolPage()}
+        <TransitionLink href="/retro">Retro next</TransitionLink>
+      </>
+    );
+    open("Kanban", "/kanban", page);
+    installViewTransitions();
+    fireEvent.click(screen.getByRole("link", { name: "Retro next" }));
+    await flush();
+    expect(isPageTransitionRunning()).toBe(true);
+    back(home());
     nextFrame();
     expect(slides()).toEqual([]);
   });
@@ -565,6 +606,22 @@ describe("the card for that page must be on screen", () => {
     expect(slides()).toEqual([]);
   });
 
+  // jsdom's window is 1024 by 768. Each box only touches the screen's edge.
+  it.each([
+    ["above the screen", { ...CARD, top: -CARD.height }],
+    ["below the screen", { ...CARD, top: 768 }],
+    ["left of the screen", { ...CARD, left: -CARD.width }],
+    ["right of the screen", { ...CARD, left: 1024 }],
+    ["of no width", { ...CARD, width: 0 }],
+    ["of no height", { ...CARD, height: 0 }],
+  ])("not when it is %s", (_name, box) => {
+    open("Kanban", "/kanban");
+    cardAt = () => box;
+    back(home());
+    nextFrame();
+    expect(slides()).toEqual([]);
+  });
+
   it("not when the page has no such card", () => {
     open("Kanban", "/kanban");
     back(home(retro));
@@ -584,6 +641,21 @@ describe("the card for that page must be on screen", () => {
     back(twice);
     nextFrame();
     expectSlide("Kanban board", { ...low, top: 410 });
+  });
+
+  it("of several on screen, the nearest though it is neither first nor last", () => {
+    const at: Record<string, Box> = {
+      Kanban: { ...CARD, top: 40 },
+      "Kanban board": { ...CARD, top: 300 },
+      "Kanban lane": { ...CARD, top: 560 },
+    };
+    cardAt = (name) => at[name] ?? CARD;
+    const three = home(kanban(), kanban("Kanban board"), kanban("Kanban lane"));
+    show("/", three);
+    open("Kanban board", "/kanban");
+    back(three);
+    nextFrame();
+    expectSlide("Kanban board", at["Kanban board"]);
   });
 
   it("of several, only those on screen count", () => {

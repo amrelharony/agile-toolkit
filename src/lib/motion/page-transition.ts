@@ -495,10 +495,11 @@ function slideBackOn(key: string | null): void {
 /**
  * The card to slide back, measured now: a [data-vt-card] whose tapped link
  * goes to the page Back left and that is on screen; of several, the one
- * nearest where the tapped card was. Null while a page change runs.
+ * nearest where the tapped card was. No page change can be running here: one
+ * running at the popstate notes no slide, and every change starts in
+ * pushWithTransition, which cancels this frame first.
  */
 function returningCard(o: CardOrigin): HTMLElement | null {
-  if (isPageTransitionRunning()) return null;
   const width = window.innerWidth;
   const height = window.innerHeight;
   let best: HTMLElement | null = null;
