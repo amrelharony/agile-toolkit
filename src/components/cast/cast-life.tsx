@@ -81,11 +81,11 @@ export function CastLife({ host }: { host?: string }) {
             },
             { rootMargin: "100% 0px" }
           );
+    document.addEventListener("visibilitychange", ask);
     for (const el of figures) {
       if (io) io.observe(el);
       else seen(el);
     }
-    document.addEventListener("visibilitychange", ask);
 
     return () => {
       gone = true;

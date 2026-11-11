@@ -23,23 +23,31 @@ function walk(dir: string): string[] {
 }
 
 const RIG_DATA = /["'](?:@\/lib\/cast|\.{1,2}(?:\/[\w.-]+)*)\/rigs(?:\.generated)?["']/;
+/** Leading line and block comments (a block never runs past its own end), then the directive. */
 const isClient = (src: string) =>
-  /^\s*(?:\/\/.*\n|\/\*[\s\S]*?\*\/\s*)*["']use client["']/.test(src);
+  /^\s*(?:\/\/[^\n]*\n\s*|\/\*(?:[^*]|\*(?!\/))*\*\/\s*)*["']use client["']/.test(src);
+
+/** Walking and reading all of src/ is slow on a busy machine. */
+const SLOW = 60_000;
 
 describe("the rig data", () => {
-  const files = walk(path.join(ROOT, "src"));
-
-  it("is imported by no client file", () => {
-    const offenders = files
-      .filter((f) => {
-        const src = readFileSync(f, "utf8");
-        return isClient(src) && RIG_DATA.test(src);
-      })
-      .map((f) => path.relative(ROOT, f));
-    expect(offenders).toEqual([]);
-    // The walk did find the client files (a broken walk would pass vacuously).
-    expect(files.filter((f) => isClient(readFileSync(f, "utf8"))).length).toBeGreaterThan(50);
-  });
+  it(
+    "is imported by no client file",
+    () => {
+      const offenders: string[] = [];
+      let clients = 0;
+      for (const file of walk(path.join(ROOT, "src"))) {
+        const src = readFileSync(file, "utf8");
+        if (!isClient(src)) continue;
+        clients += 1;
+        if (RIG_DATA.test(src)) offenders.push(path.relative(ROOT, file));
+      }
+      expect(offenders).toEqual([]);
+      // The walk did find the client files (a broken walk would pass vacuously).
+      expect(clients).toBeGreaterThan(50);
+    },
+    SLOW
+  );
 
   it("would be caught if a client file imported it", () => {
     for (const spec of [
@@ -77,27 +85,32 @@ describe("the client pieces", () => {
     expect(marker).not.toMatch(/^import [^;]*["']@\/lib\/cast\/life["']/m);
   });
 
-  it("stay small: the marker under 1 KB and life with its clips under 6 KB, minified and gzipped", async () => {
-    // Their own code, as a production build ships it; the helpers they import
-    // (springs, quiet state, Save-Data) are shared with the rest of the site.
-    const require = createRequire(path.join(ROOT, "package.json"));
-    const ts = require("typescript") as typeof import("typescript");
-    const { minify } = require("next/dist/compiled/terser") as {
-      minify: (code: string, options: object) => Promise<{ code?: string }>;
-    };
-    const shipped = async (rel: string) => {
-      const js = ts.transpileModule(read(rel), {
-        compilerOptions: {
-          target: ts.ScriptTarget.ES2020,
-          module: ts.ModuleKind.ESNext,
-          jsx: ts.JsxEmit.ReactJSX,
-        },
-      }).outputText;
-      const out = await minify(js, { module: true, compress: true, mangle: true });
-      return gzipSync(out.code ?? js).length;
-    };
-    expect(await shipped("src/components/cast/cast-life.tsx")).toBeLessThan(1024);
-    const life = (await shipped("src/lib/cast/life.ts")) + (await shipped("src/lib/cast/clips.ts"));
-    expect(life).toBeLessThan(6 * 1024);
-  });
+  it(
+    "stay small: the marker under 1 KB and life with its clips under 6 KB, minified and gzipped",
+    async () => {
+      // Their own code, as a production build ships it; the helpers they import
+      // (springs, quiet state, Save-Data) are shared with the rest of the site.
+      const require = createRequire(path.join(ROOT, "package.json"));
+      const ts = require("typescript") as typeof import("typescript");
+      const { minify } = require("next/dist/compiled/terser") as {
+        minify: (code: string, options: object) => Promise<{ code?: string }>;
+      };
+      const shipped = async (rel: string) => {
+        const js = ts.transpileModule(read(rel), {
+          compilerOptions: {
+            target: ts.ScriptTarget.ES2020,
+            module: ts.ModuleKind.ESNext,
+            jsx: ts.JsxEmit.ReactJSX,
+          },
+        }).outputText;
+        const out = await minify(js, { module: true, compress: true, mangle: true });
+        return gzipSync(out.code ?? js).length;
+      };
+      expect(await shipped("src/components/cast/cast-life.tsx")).toBeLessThan(1024);
+      const life =
+        (await shipped("src/lib/cast/life.ts")) + (await shipped("src/lib/cast/clips.ts"));
+      expect(life).toBeLessThan(6 * 1024);
+    },
+    SLOW
+  );
 });
