@@ -1,7 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import {
   Activity,
   BarChart2,

@@ -9,7 +9,7 @@
  */
 
 import { useId } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, ChevronDown, ClipboardList } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FactLine } from "../facts-text";

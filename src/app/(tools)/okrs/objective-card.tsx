@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Crosshair, Pencil, Plus, Target, Trash2, User } from "lucide-react";
 import { Badge } from "@/components/ui/badge";

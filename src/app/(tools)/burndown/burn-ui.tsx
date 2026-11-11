@@ -7,7 +7,7 @@
  * the typed log when both hold something), and the tiles' grid.
  */
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight } from "lucide-react";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { StatCard } from "@/components/shared/stat-card";

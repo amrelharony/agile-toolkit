@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { motion } from "framer-motion";
 import { CalendarCheck, Clock, History, Play, Star, Tag, Users, Zap } from "lucide-react";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";

@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+// Type only: the value is the string "auto", so none of the router's internals ship.
+import type { PrefetchKind } from "next/dist/client/components/router-reducer/router-reducer-types";
 import {
   CommandDialog,
   CommandEmpty,
@@ -18,6 +20,19 @@ import { searchTools } from "@/lib/search/tool-search";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { isDynamicPath, pushWithTransition } from "@/lib/motion/page-transition";
+
+/**
+ * The highlighted tool starts loading after it has stayed highlighted this
+ * long, so arrowing through the list does not fetch every row.
+ */
+const PREFETCH_DELAY_MS = 150;
+
+/**
+ * Next 14.2's router.prefetch defaults to "full", which would replace the
+ * "auto" copy a link already loaded with a new fetch. "auto" reuses it.
+ */
+const AUTO = "auto" as PrefetchKind.AUTO;
 
 interface CommandPaletteProps {
   open: boolean;
@@ -33,10 +48,17 @@ interface CommandPaletteProps {
  * "More tools" shelf sit in their own group unless "Show all tools" is on.
  * With an empty query it shows favourites and recent tools first, then every
  * visible category.
+ *
+ * Picking a tool cross-fades to it like a link (lib/motion/page-transition),
+ * so the highlighted tool starts loading while it is looked at. The prefetch
+ * is optional-chained: some tests hand in a router that has only push.
  */
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  // The highlighted item's value (cmdk only reports it when controlled).
+  const [active, setActive] = useState("");
+  const prefetched = useRef(new Set<string>());
   const { favorites, recent } = useToolPrefs();
   const { showAll, categories, toolsIn } = useToolVisibility();
   const vip = useVipHint();
@@ -44,10 +66,35 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   // Ctrl/Cmd+K is the shell's (use-command-palette-shortcut): this file loads
   // only once the palette is first opened.
 
-  // Start fresh each time the palette opens.
+  // Start fresh each time the palette opens. The query and highlight reset
+  // while rendering, not in an effect: cmdk highlights the first row only
+  // when its value is empty as the rows mount, and this component stays
+  // mounted between opens, so a highlight kept from last time would win.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setQuery("");
+      setActive("");
+    }
+  }
   useEffect(() => {
-    if (open) setQuery("");
+    if (open) prefetched.current = new Set();
   }, [open]);
+
+  // Load the highlighted tool ahead, once per path while the palette is open.
+  // Force-dynamic pages are left out: their prefetch carries no page, and
+  // the change to them is instant anyway.
+  useEffect(() => {
+    if (!open) return;
+    const path = getToolById(active.replace(/^pinned-/, ""))?.path;
+    if (!path || prefetched.current.has(path) || isDynamicPath(path)) return;
+    const timer = setTimeout(() => {
+      prefetched.current.add(path);
+      router.prefetch?.(path, { kind: AUTO });
+    }, PREFETCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [active, open, router]);
 
   const trimmed = query.trim();
   const matches = useMemo(() => (trimmed ? searchTools(trimmed, 12) : []), [trimmed]);
@@ -68,7 +115,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   }, [favorites, recent, vip]);
 
   const go = (tool: ToolDefinition) => {
-    router.push(tool.path);
+    // Cross-fades when it may; otherwise the router pushes plainly, as before.
+    pushWithTransition(tool.path, { plain: router });
     onOpenChange(false);
   };
 
@@ -77,7 +125,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       open={open}
       onOpenChange={onOpenChange}
       title="Search tools"
-      commandProps={{ shouldFilter: false, loop: true }}
+      commandProps={{ shouldFilter: false, loop: true, value: active, onValueChange: setActive }}
     >
       <CommandInput
         aria-label="Search tools"

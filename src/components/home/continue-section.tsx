@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Clock, Star } from "lucide-react";
 import { isVipHidden } from "@/lib/tools/catalog";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";

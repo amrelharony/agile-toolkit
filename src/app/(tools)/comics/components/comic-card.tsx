@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Card } from "@/components/ui/card";
 import { COMICS_ROUTE, comicHref } from "@/lib/comics/entry";
 import { artLoading, panelImageUrl } from "@/lib/comics/images";
@@ -40,10 +40,16 @@ export function ComicCard({
 }) {
   return (
     <li>
-      <Card className="h-full overflow-hidden transition-[transform,box-shadow] hover:-translate-x-px hover:-translate-y-px hover:shadow-xl">
+      {/* The story's header grows from this card: its link does not load
+          ahead, so no transition runs and only the card's spot is kept. */}
+      <Card
+        data-vt-card=""
+        className="h-full overflow-hidden transition-[transform,box-shadow] hover:-translate-x-px hover:-translate-y-px hover:shadow-xl"
+      >
         <Link
           href={href}
           prefetch={false}
+          frame
           className="block h-full rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {story.cover ? <ComicCover cover={story.cover} /> : null}

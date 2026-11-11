@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Dialog,

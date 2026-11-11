@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { useShallow } from "zustand/react/shallow";
 import { BookPlus, Check, CornerDownRight, Pencil, Plus, Trash2, User } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";

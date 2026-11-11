@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import {
   ArrowRight,
   BookmarkPlus,

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, BookImage } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";

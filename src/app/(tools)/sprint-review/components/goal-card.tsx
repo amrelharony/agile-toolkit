@@ -1,7 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, CheckCircle2, CircleHelp, MinusCircle, XCircle } from "lucide-react";
 import { GOAL_OUTCOME_LABEL } from "@/lib/sprints/goal-doc";
 import type { ReviewFacts } from "@/lib/sprints/review-doc";

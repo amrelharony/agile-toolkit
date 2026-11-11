@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { getSectionForTool } from "@/lib/constants/sections";
 import { getToolById } from "@/lib/constants/tools";
 import { SECTION_TONE } from "@/lib/ink/drawings/section-tone";
@@ -53,8 +53,11 @@ export function RelatedTools({ toolId }: { toolId: string }) {
           const Icon = tool.icon;
           return (
             <li key={tool.id}>
+              {/* Not a panel, so no frame: the next tool's header grows from
+                  this tile's spot instead, and the tile still loads ahead. */}
               <Link
                 href={tool.path}
+                frame="spot"
                 className="flex h-full items-start gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {tone ? (

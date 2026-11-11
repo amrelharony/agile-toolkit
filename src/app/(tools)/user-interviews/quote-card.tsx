@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { GitBranchPlus, Pencil, Plus, Trash2, Workflow } from "lucide-react";
 import { ItemForm, useItemForm, type ItemFormState } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";

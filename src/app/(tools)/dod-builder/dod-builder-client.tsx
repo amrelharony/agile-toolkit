@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import dynamic from "next/dynamic";
 import { nanoid } from "nanoid";
 import { ArrowRight, BarChart3, ListChecks, Plus, ShieldCheck, Sparkles } from "lucide-react";

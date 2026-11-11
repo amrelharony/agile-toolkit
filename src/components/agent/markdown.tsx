@@ -6,7 +6,7 @@
  */
 
 import { Fragment } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { parseBlocks, tokenizeInline } from "@/lib/agent/markdown";
 
 function Inline({ text }: { text: string }) {

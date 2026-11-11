@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useCallback, useMemo } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, BookOpen, Check, Share2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";

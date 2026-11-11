@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, Star } from "lucide-react";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
 import { cn } from "@/lib/utils";
@@ -59,6 +59,8 @@ export function ToolCard({
   return (
     <div
       data-sonify-hover="card"
+      // The frame a page change grows into the tool's header (lib/motion/page-transition.ts).
+      data-vt-card=""
       className="
         panel group relative flex flex-col gap-3
         p-4 sm:p-5
@@ -131,6 +133,7 @@ export function ToolCard({
         <h3 className="font-display text-sm font-semibold text-text">
           <Link
             href={href}
+            frame
             className="focus-visible:outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-accent"
           >
             {title}

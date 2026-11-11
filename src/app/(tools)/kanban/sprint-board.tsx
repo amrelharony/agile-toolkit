@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { useMemo, type ReactNode } from "react";
 import { CheckCircle2, ListTodo, MoveRight, OctagonAlert, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";

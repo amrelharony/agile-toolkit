@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, CalendarClock, ScrollText } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { SectionCard } from "@/components/shared/section-card";

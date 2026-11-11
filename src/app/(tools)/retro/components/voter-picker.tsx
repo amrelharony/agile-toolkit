@@ -8,7 +8,7 @@
  * types the names in.
  */
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { UserPlus } from "lucide-react";
 import { useItemForm } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";

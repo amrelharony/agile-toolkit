@@ -2,7 +2,7 @@
 
 import { Plus } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

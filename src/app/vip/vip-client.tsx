@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AmrPortrait } from "@/components/vip/amr-portrait";
 import { VipLockedMessage } from "@/components/vip/vip-lock-panel";

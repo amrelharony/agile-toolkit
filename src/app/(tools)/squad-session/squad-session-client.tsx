@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { useRouter } from "next/navigation";
 import { BookOpenText, ListChecks, Play, Send, Trash2, Users } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";

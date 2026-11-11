@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { useId, useMemo, useRef, useState } from "react";
 import { BarChart3, MessageSquareQuote, Plus, Tags, Upload, X } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";

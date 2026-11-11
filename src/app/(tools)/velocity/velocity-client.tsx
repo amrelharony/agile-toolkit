@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Activity, Gauge, Plus, Sigma, Target, Users } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { CapacityPlan, Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";

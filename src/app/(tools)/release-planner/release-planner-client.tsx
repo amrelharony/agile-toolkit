@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { CalendarRange, Gauge, Layers, Rocket } from "lucide-react";
 import { selectActiveSprint, useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint, Story } from "@/lib/stores/workspace-types";

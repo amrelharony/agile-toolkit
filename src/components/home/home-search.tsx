@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { ToolDefinition } from "@/lib/constants/tools";

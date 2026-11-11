@@ -12,7 +12,7 @@
 
 import { useMemo } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ChartFigure } from "@/components/shared/chart-card";
 import { SectionCard } from "@/components/shared/section-card";
 import { VE_LABEL, VE_MEANING, VE_QUADRANTS } from "@/lib/prioritization/methods/value-effort";

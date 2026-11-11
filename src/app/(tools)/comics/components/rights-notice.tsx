@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { LICENSE_PATH } from "@/lib/comics/rights";
 
 /** Shown on every episode's page. */
