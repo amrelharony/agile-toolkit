@@ -32,6 +32,17 @@ import { useAgentStore } from "@/lib/agent/store";
 
 type ChatModule = typeof import("@/components/agent/mascot/visitor-agent-panel");
 
+/**
+ * A note over the guide: a narration caption, here with the danger line, in a
+ * box that takes focus. The text sits inside the caption; this finds the box.
+ */
+async function findNote(text: string): Promise<HTMLElement> {
+  const words = await screen.findByText(text);
+  const caption = words.closest('[data-voice="narration"]');
+  expect(caption).toHaveAttribute("data-tone", "error");
+  return words.closest<HTMLElement>('[tabindex="-1"]')!;
+}
+
 // React throws the caught error again while it renders, and jsdom prints it.
 // This one is expected, so it is kept out of the test output.
 const quiet = (event: ErrorEvent) => event.preventDefault();
@@ -76,7 +87,8 @@ describe("VisitorPanel: the chat's code can't load", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
 
-    const note = await screen.findByText(VISITOR_CHAT_LOAD_NOTE);
+    const note = await findNote(VISITOR_CHAT_LOAD_NOTE);
+    expect(note).not.toBe(screen.getByTestId("mascot-visitor-guide"));
     expect(loadChat).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
     expect(screen.queryByText("Something went wrong")).toBeNull();
@@ -144,7 +156,7 @@ describe("VisitorPanel: the chat's code can't load", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
 
     // Not the connection's fault, so the note doesn't blame it.
-    const note = await screen.findByText(VISITOR_CHAT_ERROR_NOTE);
+    const note = await findNote(VISITOR_CHAT_ERROR_NOTE);
     await waitFor(() => expect(note).toHaveFocus());
     expect(screen.queryByText(VISITOR_CHAT_LOAD_NOTE)).toBeNull();
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();

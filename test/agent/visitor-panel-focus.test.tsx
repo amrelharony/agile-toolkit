@@ -33,6 +33,18 @@ async function openChat() {
   await screen.findByRole("button", { name: "Tool finder" });
 }
 
+/**
+ * A note over the guide: a narration caption in a box that takes focus. The
+ * text sits inside the caption, so this finds the box around it.
+ */
+function noteBox(text: string): HTMLElement {
+  const words = screen.getByText(text);
+  expect(words.closest('[data-voice="narration"]')).not.toBeNull();
+  const box = words.closest<HTMLElement>('[tabindex="-1"]');
+  expect(box).not.toBe(screen.getByTestId("mascot-visitor-guide"));
+  return box!;
+}
+
 describe("VisitorPanel: focus and announcements", () => {
   beforeEach(() => {
     h.announce.mockClear();
@@ -112,11 +124,13 @@ describe("VisitorPanel: focus and announcements", () => {
       useAgentStore.getState().setVisitorFallback("visitor_limit");
     });
     const text = visitorFallbackNote("visitor_limit", null);
-    const note = screen.getByText(text);
+    const note = noteBox(text);
     // Focus on the note makes a screen reader read it: saying it again through
     // the announcer would read it twice.
     expect(note).toHaveFocus();
     expect(note).not.toHaveAttribute("role");
+    // A limit is a note, not an error.
+    expect(note.querySelector('[data-voice="narration"]')).toHaveAttribute("data-tone", "note");
     expect(screen.queryByRole("status")).toBeNull();
     expect(h.announce).not.toHaveBeenCalled();
 
@@ -146,7 +160,7 @@ describe("VisitorPanel: focus and announcements", () => {
       useAgentStore.getState().setVisitorFallback("visitor_limit");
     });
     const text = visitorFallbackNote("visitor_limit", null);
-    const note = screen.getByText(text);
+    const note = noteBox(text);
     // No focus moves, so the announcer is the only thing that says it.
     expect(note).not.toHaveFocus();
     expect(guide).toHaveFocus();
@@ -160,7 +174,7 @@ describe("VisitorPanel: focus and announcements", () => {
       useAgentStore.getState().setVisitorFallback("visitor_limit");
     });
     const guide = screen.getByTestId("mascot-visitor-guide");
-    const note = screen.getByText(visitorFallbackNote("visitor_limit", null));
+    const note = noteBox(visitorFallbackNote("visitor_limit", null));
     // In a short panel a note outside the guide would take the guide's height
     // and leave it a strip. Inside, it scrolls with the rest.
     expect(guide).toContainElement(note);

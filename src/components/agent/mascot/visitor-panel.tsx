@@ -16,7 +16,7 @@
  * (visitorFallbackNote). It does the same when the chat's chunk can't load
  * (offline, or a tab left open across a deploy), and asking again tries the
  * import again. And it does the same when the loaded chat fails while it is
- * drawn.
+ * drawn. A note is a narration caption: the narrator's line, never Amr's.
  *
  * Focus follows the step: the consent card and the chat's message box take it
  * themselves, and a return to the guide puts it on the note, or on the guide
@@ -30,6 +30,7 @@
 
 import { Suspense, lazy, useEffect, useRef, useState, type LazyExoticComponent } from "react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
+import { Narration } from "@/components/agent/comic/comic-parts";
 import { ErrorBoundary } from "@/components/layout/error-boundary";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
 import type { VisitorErrorCode } from "@/lib/visitor-ai/contract";
@@ -147,7 +148,7 @@ export function VisitorPanel({
   const quota = useAgentStore((s) => s.visitorQuota);
   const announce = useAnnounce();
   const guideRef = useRef<HTMLDivElement>(null);
-  const noteRef = useRef<HTMLParagraphElement>(null);
+  const noteRef = useRef<HTMLDivElement>(null);
 
   // A "no more AI for now" refusal: back to the tool finder. Coming from
   // another step, its note takes focus (below), and a screen reader reads it
@@ -246,15 +247,12 @@ export function VisitorPanel({
       // short as 160 px, it left the guide a strip too low to use.
       note={
         note && (
-          // Not a live region: it is read once, when it takes focus or is
-          // announced (tabIndex -1: focusable from code only).
-          <p
-            ref={noteRef}
-            tabIndex={-1}
-            className="shrink-0 rounded-md border border-border bg-card px-3 py-2 text-sm text-text focus:outline-none"
-          >
-            {note}
-          </p>
+          // A narration caption, the narrator's line, in a box that takes
+          // focus from code only (tabIndex -1). Not a live region: it is read
+          // once, when it takes focus or is announced.
+          <div ref={noteRef} tabIndex={-1} className="shrink-0 focus:outline-none">
+            <Narration tone={failure ? "error" : "note"}>{note}</Narration>
+          </div>
         )
       }
     />
