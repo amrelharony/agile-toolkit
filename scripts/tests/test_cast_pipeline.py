@@ -16,6 +16,7 @@ sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
 import cast_synth as cs  # noqa: E402
+from test_cast_atlas import RUNTIME_FORM  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from cast import fmt, ledger, publish, rig, spec  # noqa: E402
@@ -137,7 +138,10 @@ class Pipeline(unittest.TestCase):
             self.assertEqual(f.stat().st_size, man["atlas"][bk])
         with Image.open(public / Path(man["atlas"]["x1"]).name) as a1, Image.open(public / Path(man["atlas"]["x2"]).name) as a2:
             self.assertEqual(a2.size, (2 * a1.size[0], 2 * a1.size[1]))
-        self.assertNotIn("import", ts.read_text(encoding="utf-8").split("*/", 1)[1])
+        text = ts.read_text(encoding="utf-8")
+        for pattern in RUNTIME_FORM:  # the runtime's rigs.test.ts
+            self.assertRegex(text, pattern)
+        self.assertEqual(text.split("*/", 1)[1].count("import"), 1)  # the type import only
         # A second build keeps one pair of files, the same bytes.
         publish.build(CID, self.src, public, ts, spec_path=self.spec_path, out=lambda *a: None)
         self.assertEqual(sorted(p.name for p in public.iterdir()), files)
