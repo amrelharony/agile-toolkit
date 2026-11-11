@@ -24,11 +24,16 @@ const NEVER_SHOWN = new Set(["script", "template", "style", "link", "meta", "nos
 /** The page held for one intro. One plays at a time, so there's one hold at most. */
 interface Hold {
   kind: IntroKind;
+  /** The overlay the page is held around. */
+  overlay: Element;
   /** Each sibling along the chain, and whether its owner wants it inert. */
   wanted: Map<Element, boolean>;
   /** The overlay and its ancestors, which stay reachable. */
   chain: Set<Element>;
-  /** New children of the chain's parents, and each held sibling's inert. */
+  /**
+   * New children of the chain's parents, each held sibling's inert, and the
+   * intro's attribute on <html>.
+   */
   watch: MutationObserver;
 }
 
@@ -66,6 +71,23 @@ function onChange(hold: Hold, records: MutationRecord[]) {
 }
 
 /**
+ * Whether the hold still has an intro behind it: its kind still on <html>,
+ * and its overlay still in the page.
+ *
+ * Each hold lets itself go when either is gone, needing neither the end event
+ * nor a mounted IntroInert. Both can be missing: after a hydration error React
+ * may draw the whole page anew, which drops every attribute it didn't render
+ * from <html> (the intro's too) with no end event, and an error page in place
+ * of the overlay never mounts IntroInert. Held on, the page would stay inert
+ * under nothing until a reload.
+ */
+function stillPlaying(hold: Hold) {
+  return (
+    document.documentElement.getAttribute(INTRO_ATTR) === hold.kind && hold.overlay.isConnected
+  );
+}
+
+/**
  * Make the page around `kind`'s overlay inert, if it is shown and not held
  * already. Held around another overlay (the app drew the page anew, as React
  * does after a hydration error), it is let go and held again around this one.
@@ -90,11 +112,21 @@ function holdPage(kind: IntroKind, shown = false) {
   }
   const next: Hold = {
     kind,
+    overlay,
     wanted: new Map(),
     chain,
-    watch: new MutationObserver((records) => onChange(next, records)),
+    watch: new MutationObserver((records) => {
+      // Each owner's word first, so letting go leaves each part as it asked.
+      onChange(next, records);
+      if (held === next && !stillPlaying(next)) releasePage();
+    }),
   };
   held = next;
+  // <html> is never one of the parents below: the walk stops at <body>.
+  next.watch.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: [INTRO_ATTR],
+  });
   for (const parent of parents) {
     next.watch.observe(parent, { childList: true });
     for (const child of Array.from(parent.children)) track(next, child);
@@ -140,7 +172,8 @@ function releasePageOf(kind: IntroKind) {
  */
 export function holdOnLoad() {
   if (typeof document === "undefined" || process.env.NODE_ENV !== "production") return;
-  // If the app never mounts, the end still lets the page go.
+  // If the app never mounts, the end still lets the page go, and so does the
+  // intro's attribute or overlay leaving the page (stillPlaying).
   document.addEventListener(INTRO_END_EVENT, releasePage);
   const kind = document.documentElement.getAttribute(INTRO_ATTR);
   const known = INTRO_KINDS.find((k) => k === kind);
@@ -170,7 +203,8 @@ holdOnLoad();
  * Release is at once, on INTRO_END_EVENT, which both ways an intro ends
  * dispatch before they focus the opener; an inert opener would refuse that
  * focus. Watching <html> for the attribute is the backstop, and how a replay
- * is noticed.
+ * is noticed. The hold itself watches for its attribute and its overlay too,
+ * so it ends without this (stillPlaying).
  *
  * If motion is turned down mid-intro, globals.css hides the overlay; the intro
  * is then ended here, so the page isn't left inert under nothing. The same if
