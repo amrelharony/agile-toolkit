@@ -15,6 +15,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
+import cast_contract as contract  # noqa: E402
 import cast_synth as cs  # noqa: E402
 from test_cast_atlas import RUNTIME_FORM  # noqa: E402
 from PIL import Image  # noqa: E402
@@ -93,7 +94,8 @@ class Pipeline(unittest.TestCase):
             seen.add(p["id"])
             self.assertEqual(len(p["box"]), 4)
             self.assertEqual(len(p["sprite"]["bg"]), 4)
-        self.assertEqual(sorted(seen), sorted(spec.character(CID)["parts"]))
+        # The arms are slots, not parts: every other piece is a part.
+        self.assertEqual(sorted(seen), sorted(set(spec.character(CID)["parts"]) - {"arm-r", "arm-l"}))
         slots = {s["id"]: s for s in man["swaps"]}
         self.assertEqual(sorted(slots), ["arm-l", "arm-r", "eyes", "mouth"])
         self.assertEqual([c["id"] for c in slots["eyes"]["choices"]], ["open", "closed", "happy", "wide"])
@@ -101,8 +103,19 @@ class Pipeline(unittest.TestCase):
         self.assertEqual([c["id"] for c in slots["arm-r"]["choices"]], ["rest", "wave", "up", "open", "point"])
         self.assertEqual([c["id"] for c in slots["arm-l"]["choices"]], ["rest", "up", "open", "chin", "sig"])
         self.assertIsNone(slots["eyes"]["choices"][0]["sprite"])
+        for arm in ("arm-r", "arm-l"):
+            # The rest choice carries the drawing, tucked under the body as the master shows.
+            self.assertIsNotNone(slots[arm]["choices"][0]["sprite"], arm)
+            self.assertLess(slots[arm]["z"], 0, arm)
+            self.assertFalse(any(p["id"] == arm or p.get("socket") == arm for p in man["parts"]), arm)
+        torso_z = [p["z"] for p in man["parts"] if p["parent"] == "torso"] + [s.get("z", 0) for s in man["swaps"] if s["on"] == "torso"]
+        chin = next(c for c in slots["arm-l"]["choices"] if c["id"] == "chin")
+        self.assertGreater(chin["z"], max(torso_z))  # a hand at the chin draws over everything on the body
         self.assertEqual(man["pupils"]["ids"], ["pupil-r", "pupil-l"])
+        self.assertEqual(man["pupils"]["shownWith"], ["open", "wide"])
         self.assertTrue(all(t > 0 for t in man["pupils"]["travel"]))
+        self.assertEqual(man["counts"]["nodes"], rig.count_nodes(man))
+        self.assertEqual(contract.problems(man), ["one or two signature moves"])
         self.assertNotRegex(json.dumps(man), r"#[0-9A-Fa-f]{6}")
 
     def test_3_build_refuses_without_every_approval(self):

@@ -46,6 +46,19 @@ from .spec import (
 # What a face piece keeps with its head or body (the brief: ears, a flap, the tie).
 FACE_EXTRAS = ("ear-", "flap", "tie", "cord", "collar", "quills")
 SOCKETS = {"torso": "body", "head": "head", "tail": "tail", "tie": "tie", "cord": "cord", "neck": "neck"}
+ARM_SLOTS = ("arm-r", "arm-l")
+# The fan is a swap slot on the torso (src/lib/cast/rig-types.ts: "Arms and the fan
+# are slots, not parts"): closed at rest, as the master shows it, and open pinned
+# at the closed fan's base the way an arm pose is pinned at the shoulder.
+FAN = {"slot": "fan", "rest": "closed", "rest_piece": "fan-closed", "pose": "open", "pose_piece": "fan-open"}
+PINNED_ONLY = (FAN["pose_piece"],)  # pieces the master doesn't show at rest: never registered
+
+
+def arm_rest(c: dict, slot: str) -> str:
+    """The piece an arm slot draws at rest: arm-r / arm-l, or the piece the spec's
+    `arm_parts` names (an octopus's or a spider's front pair)."""
+    return (c.get("arm_parts") or {}).get(slot, slot)
+
 
 
 def socket_of(pid: str) -> str | None:
@@ -205,6 +218,9 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             sheets[img] = s
             report["images"][img] = {"sha256": s["sha256"], "checks": s["checks"], "file": files[img].name}
     ids_all = [*c["parts"], *(c.get("parts2") or [])]
+    # A piece an arm slot draws at rest (arm-r, or the tentacle the spec names),
+    # by the side it lands on.
+    side_of = {arm_rest(c, slot): slot for slot in ARM_SLOTS}
     named: dict = {}
     regs: dict = {}
     baked: dict = {}
@@ -212,26 +228,27 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     gaps = {}
     for img, s in sheets.items():
         ids = list(c[img])
-        reg_ids = [i for i in ids if not i.startswith("pupil-")]
+        # Pupils are cut from the master; the open fan is pinned at the closed one's base.
+        reg_ids = [i for i in ids if not i.startswith("pupil-") and i not in PINNED_ONLY]
         got, spare, cost = parts.assign(s["pieces"], ids, img)
         r, close = parts.min_gap(s["pieces"], s["cut"].shape)
         gaps[img] = {"touching": close, "spare": spare, "cost": round(cost, 3)}
         tgt = rg.Target(rg.shrink(master, rg.COARSE))
+        for pid in ids:
+            if pid in got and pid not in reg_ids:
+                named[pid] = (img, got[pid])
         for pid in reg_ids:
             if pid not in got:
                 continue
             p = s["pieces"][got[pid]]
             crop, _ = p.crop(s["cut"])
-            reg = rg.register(crop, master, near=side_window(pid, mfig.box), coarse_target=tgt)
+            reg = rg.register(crop, master, near=side_window(side_of.get(pid, pid), mfig.box), coarse_target=tgt)
             if reg is None:
                 continue
             named[pid] = (img, got[pid])
             crops[pid] = crop
             regs[pid] = reg
             baked[pid] = rg.bake(crop, reg, shape)
-        for pid in ids:
-            if pid.startswith("pupil-") and pid in got:
-                named[pid] = (img, got[pid])
     # The character's own right lands on the viewer's left of the master.
     mid = (mfig.box[0] + mfig.box[2]) / 2
     for a, b in (("arm-r", "arm-l"), ("leg-r", "leg-l"), ("ear-r", "ear-l")):
@@ -365,7 +382,8 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     c8 = {"status": "skip", "notes": []}
     if "torso" in baked:
         t = baked["torso"][..., 3] > 127
-        sh = [pivots[k]["y"] for k in ("arm-r", "arm-l") if k in pivots and pivots[k]["y"] is not None]
+        arms_at = [arm_rest(c, s) for s in ARM_SLOTS]
+        sh = [pivots[k]["y"] for k in arms_at if k in pivots and pivots[k]["y"] is not None]
         hp = [pivots[k]["y"] for k in ("leg-r", "leg-l") if k in pivots and pivots[k]["y"] is not None]
         if sh and hp and max(hp) > min(sh):
             rows = t[int(min(sh)) : int(max(hp))]
@@ -443,9 +461,11 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
                 c10["status"] = checks.worst(c10["status"], "warn")
     report["checks"]["C10"] = c10
 
-    # Arm swaps pinned at the shoulder ball.
-    arm_out: dict = {}
+    # Swaps pinned at a joint: each arm pose at the rest arm's shoulder ball, and the
+    # open fan at the closed fan's base. Each is (slot, choice, rest piece, sheet, cell).
+    pinned: dict = {}  # slot -> {"rest": piece, "rest_id": choice, "poses": {choice: rgba}}
     c11 = {"status": "skip", "poses": [], "notes": []}
+    pins = []
     if "arms" in c["images"] and files.get("arms"):
         s = load_sheet(files["arms"], c, "arms")
         s["cut"], locks["arms"] = lock_to(s["cut"], targets)
@@ -453,70 +473,78 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         poses = arm_poses(c)
         rows = 2 if len(poses) == 8 else 1
         order = swaps.grid_order(s["pieces"], rows, len(poses) // rows, s["cut"].shape)
-        for (slot, pose), i in zip(poses, order):
-            row = {"slot": slot, "pose": pose}
-            if i is None or slot not in regs or slot not in pivots or pivots[slot]["x"] is None:
-                row.update(status="fail", notes=["no drawing or no rest arm to pin to"])
-                c11["poses"].append(row)
-                c11["status"] = "fail"
-                continue
-            reg = regs[slot]
-            pv = pivots[slot]
-            # The pivot in the rest arm's own sheet frame.
-            ch, cw = crops[slot].shape[:2]
-            dx, dy = pv["x"] - reg.cx, pv["y"] - reg.cy
-            cth, sth = np.cos(np.radians(-reg.theta)), np.sin(np.radians(-reg.theta))
-            # master = centre + m·Rf(-theta)·(p - c_p) → p = c_p + r·Rf(-theta)^T·(master - centre)
-            px = cw / 2 + reg.r * (cth * dx - sth * dy)
-            py = ch / 2 + reg.r * (sth * dx + cth * dy)
-            rr = (pv["r"] or 0.25 * min(cw, ch) / reg.r) * reg.r
-            ball, bp = swaps.shoulder_ball(crops[slot], (px, py), rr)
-            pose_crop, _ = s["pieces"][i].crop(s["cut"], pad=8)
-            found = swaps.find_ball(pose_crop, ball, bp)
-            if found is None:
-                row.update(status="fail", notes=["shoulder ball not found"])
-                c11["poses"].append(row)
-                c11["status"] = "fail"
-                continue
-            fit = swaps.fit_ball(pose_crop, (found["x"], found["y"]), rr * found["scale"])
-            st, notes = "pass", []
-            at = (found["x"], found["y"])
-            if fit:
-                fx, fy, fr, resid = fit
-                row["residual"] = round(resid, 4)
-                d_rel = fr / max(rr * found["scale"], 1e-6) - 1
-                row["diameter"] = round(d_rel, 4)
-                if resid <= TOL["cap_residual"] and abs(d_rel) <= TOL["ball_diameter_tol"]:
-                    at = (fx, fy)
-                else:
-                    st = "warn"
-                    notes.append("ball circle off; pinned at the matched centre")
-            m = 1 / (found["scale"] * reg.r)
-            phh, pww = pose_crop.shape[:2]
-            centre = (pv["x"] + m * (pww / 2 - at[0]), pv["y"] + m * (phh / 2 - at[1]))
-            placed = rg.warp(pose_crop, m, 0.0, (shape[1], shape[0]), centre)
-            pm = placed[..., 3] > 127
-            rest_len = swaps.arm_length(baked[slot][..., 3] > 127, (pv["x"], pv["y"]))
-            pose_len = swaps.arm_length(pm, (pv["x"], pv["y"]))
-            row["length"] = round(pose_len / max(rest_len, 1e-6), 4)
-            if pose in ("up", "point") and abs(row["length"] - 1) > TOL["arm_length_tol"]:
-                st = "fail"
-                notes.append(f"straight arm {row['length']:.0%} of the rest arm's length")
-            yy, xx = np.ogrid[: shape[0], : shape[1]]
-            ring = np.hypot(xx + 0.5 - pv["x"], yy + 0.5 - pv["y"]) <= (pv["r"] or rr / reg.r)
-            a_ = ring & pm
-            b_ = ring & (baked[slot][..., 3] > 127)
-            if a_.any() and b_.any():
-                sl = im.lab(np.median(placed[a_][:, :3], 0).astype(float))
-                rl = im.lab(np.median(baked[slot][b_][:, :3], 0).astype(float))
-                row["sleeve_de00"] = round(float(im.de00(sl, rl)), 2)
-                if row["sleeve_de00"] > TOL["sleeve_de00_max"]:
-                    st = checks.worst(st, "warn")
-                    notes.append("sleeve colour off at the shoulder")
-            row.update(status=st, notes=notes, ncc=round(found["ncc"], 3))
+        for slot in ARM_SLOTS:
+            if arm_rest(c, slot) in ids_all:
+                pinned[slot] = {"rest": arm_rest(c, slot), "rest_id": "rest", "poses": {}}
+        pins += [(slot, pose, arm_rest(c, slot), s, i) for (slot, pose), i in zip(poses, order)]
+    if FAN["rest_piece"] in ids_all and FAN["pose_piece"] in ids_all:
+        pinned[FAN["slot"]] = {"rest": FAN["rest_piece"], "rest_id": FAN["rest"], "poses": {}}
+        at = named.get(FAN["pose_piece"])
+        pins.append((FAN["slot"], FAN["pose"], FAN["rest_piece"], sheets.get(at[0]) if at else None, at[1] if at else None))
+    for slot, pose, rp, s, i in pins:
+        row = {"slot": slot, "pose": pose}
+        if s is None or i is None or rp not in regs or rp not in pivots or pivots[rp]["x"] is None:
+            row.update(status="fail", notes=[f"no drawing, or no rest {rp} to pin to"])
             c11["poses"].append(row)
-            c11["status"] = checks.worst(c11["status"], st)
-            arm_out.setdefault(slot, {})[pose] = placed
+            c11["status"] = "fail"
+            continue
+        reg = regs[rp]
+        pv = pivots[rp]
+        # The pivot in the rest arm's own sheet frame.
+        ch, cw = crops[rp].shape[:2]
+        dx, dy = pv["x"] - reg.cx, pv["y"] - reg.cy
+        cth, sth = np.cos(np.radians(-reg.theta)), np.sin(np.radians(-reg.theta))
+        # master = centre + m·Rf(-theta)·(p - c_p) → p = c_p + r·Rf(-theta)^T·(master - centre)
+        px = cw / 2 + reg.r * (cth * dx - sth * dy)
+        py = ch / 2 + reg.r * (sth * dx + cth * dy)
+        rr = (pv["r"] or 0.25 * min(cw, ch) / reg.r) * reg.r
+        ball, bp = swaps.shoulder_ball(crops[rp], (px, py), rr)
+        pose_crop, _ = s["pieces"][i].crop(s["cut"], pad=8)
+        found = swaps.find_ball(pose_crop, ball, bp)
+        if found is None:
+            row.update(status="fail", notes=["shoulder ball not found"])
+            c11["poses"].append(row)
+            c11["status"] = "fail"
+            continue
+        fit = swaps.fit_ball(pose_crop, (found["x"], found["y"]), rr * found["scale"])
+        st, notes = "pass", []
+        at = (found["x"], found["y"])
+        if fit:
+            fx, fy, fr, resid = fit
+            row["residual"] = round(resid, 4)
+            d_rel = fr / max(rr * found["scale"], 1e-6) - 1
+            row["diameter"] = round(d_rel, 4)
+            if resid <= TOL["cap_residual"] and abs(d_rel) <= TOL["ball_diameter_tol"]:
+                at = (fx, fy)
+            else:
+                st = "warn"
+                notes.append("ball circle off; pinned at the matched centre")
+        m = 1 / (found["scale"] * reg.r)
+        phh, pww = pose_crop.shape[:2]
+        centre = (pv["x"] + m * (pww / 2 - at[0]), pv["y"] + m * (phh / 2 - at[1]))
+        placed = rg.warp(pose_crop, m, 0.0, (shape[1], shape[0]), centre)
+        pm = placed[..., 3] > 127
+        rest_len = swaps.arm_length(baked[rp][..., 3] > 127, (pv["x"], pv["y"]))
+        pose_len = swaps.arm_length(pm, (pv["x"], pv["y"]))
+        row["length"] = round(pose_len / max(rest_len, 1e-6), 4)
+        if pose in ("up", "point") and abs(row["length"] - 1) > TOL["arm_length_tol"]:
+            st = "fail"
+            notes.append(f"straight arm {row['length']:.0%} of the rest arm's length")
+        yy, xx = np.ogrid[: shape[0], : shape[1]]
+        ring = np.hypot(xx + 0.5 - pv["x"], yy + 0.5 - pv["y"]) <= (pv["r"] or rr / reg.r)
+        a_ = ring & pm
+        b_ = ring & (baked[rp][..., 3] > 127)
+        if a_.any() and b_.any():
+            sl = im.lab(np.median(placed[a_][:, :3], 0).astype(float))
+            rl = im.lab(np.median(baked[rp][b_][:, :3], 0).astype(float))
+            row["sleeve_de00"] = round(float(im.de00(sl, rl)), 2)
+            if row["sleeve_de00"] > TOL["sleeve_de00_max"]:
+                st = checks.worst(st, "warn")
+                notes.append("sleeve colour off at the shoulder")
+        row.update(status=st, notes=notes, ncc=round(found["ncc"], 3))
+        c11["poses"].append(row)
+        c11["status"] = checks.worst(c11["status"], st)
+        pinned[slot]["poses"][pose] = placed
     report["checks"]["C11"] = c11
 
     # C9 on the later sheets: shifted onto the master's own colours, they agree.
@@ -535,7 +563,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     report["checks"]["C9"] = c9
 
     # Sprites, atlas, manifest.
-    man, sprites = manifest(c, baked, tree, z, pivots, face_out, pupils, arm_out, rest, sources)
+    man, sprites = manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources)
     atlas2x, rects = atlas.compose_atlas([s for _, s in sprites])
     keys = [k for k, _ in sprites]
     fill_sprites(man, keys, rects, (atlas2x.size[0] // 2, atlas2x.size[1] // 2))
@@ -601,8 +629,13 @@ def _sprite(rgba: np.ndarray, k2: float) -> tuple[tuple[int, int, int, int], np.
     return box, np.array(crop.resize((w, h), Image.LANCZOS).convert("RGBA"))
 
 
-def manifest(c, baked, tree, z, pivots, face_out, pupils, arm_out, rest, sources) -> tuple[dict, list]:
-    """(RigManifest with sprite slots unfilled, [(sprite key, 2x RGBA)])."""
+def manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources) -> tuple[dict, list]:
+    """(RigManifest with sprite slots unfilled, [(sprite key, 2x RGBA)]).
+
+    The shape CastFigure draws (src/lib/cast/rig-types.ts): the arms and the fan
+    are swap slots whose rest choice carries the drawing, and no part repeats it;
+    the pupils are parts of the eyes' host, drawn inside the eye choices that show
+    empty whites (and plain parts when there is no eyes slot)."""
     fig = im.mask_bbox(rest[..., 3] > 0)
     fh = fig[3] - fig[1]
     k2 = 2 * BUDGETS["figure_css_px_max"] / fh
@@ -617,6 +650,8 @@ def manifest(c, baked, tree, z, pivots, face_out, pupils, arm_out, rest, sources
         sprites.append((keyname, s2))
         return box
 
+    # A slot draws its rest piece; the piece is no part of its own.
+    slotted = {pin["rest"]: slot for slot, pin in pinned.items() if pin["rest"] in baked}
     order = []
 
     def walk(p):
@@ -628,11 +663,15 @@ def manifest(c, baked, tree, z, pivots, face_out, pupils, arm_out, rest, sources
         walk("torso")
     parts_out = []
     for pid in order:
+        if pid in slotted:
+            continue
+        par = parent_of(pid, list(baked))
+        if par is not None and par not in boxes:
+            continue  # its parent drew nothing, so it has nowhere to hang
         box = add(f"part:{pid}", baked[pid])
         if box is None:
             continue
         boxes[pid] = box
-        par = parent_of(pid, list(baked))
         pbox = fig if par is None else boxes[par]
         if par is None:
             px, py = (fig[0] + fig[2]) / 2, fig[3]
@@ -697,35 +736,45 @@ def manifest(c, baked, tree, z, pivots, face_out, pupils, arm_out, rest, sources
                 "choices": choices,
             }
         )
-    for slot, posed in arm_out.items():
-        if slot not in boxes or "torso" not in boxes:
+    # A hand at the chin draws over everything on the torso, the head included.
+    on_torso = [x["z"] for x in parts_out if x["parent"] == "torso"] + [z[k] for k in tree.get("torso", [])]
+    chin_z = max(on_torso, default=0) + 1
+    for slot, pin in pinned.items():
+        rp = pin["rest"]
+        if rp not in baked or "torso" not in boxes:
+            continue
+        rest_box = add(f"{slot}:{pin['rest_id']}", baked[rp])
+        if rest_box is None:
             continue
         pboxes = {}
-        for pose, rgba in posed.items():
+        for pose, rgba in pin["poses"].items():
             b = add(f"{slot}:{pose}", rgba)
             if b is not None:
                 pboxes[pose] = b
-        allb = [boxes[slot], *pboxes.values()]
+        allb = [rest_box, *pboxes.values()]
         sb = (min(b[0] for b in allb), min(b[1] for b in allb), max(b[2] for b in allb), max(b[3] for b in allb))
-        pv = pivots[slot]
-        choices = [{"id": "rest", "box": _box_in(boxes[slot], sb), "sprite": None}]
+        pv = pivots.get(rp, {})
+        px, py = (pv["x"], pv["y"]) if pv.get("x") is not None else ((rest_box[0] + rest_box[2]) / 2, rest_box[1])
+        choices = [{"id": pin["rest_id"], "box": _box_in(rest_box, sb), "sprite": f"{slot}:{pin['rest_id']}"}]
         for pose, b in pboxes.items():
             ch = {"id": pose, "box": _box_in(b, sb), "sprite": f"{slot}:{pose}"}
             if pose == "chin":
-                ch["z"] = 1
+                ch["z"] = int(chin_z)
             choices.append(ch)
         swaps_out.append(
             {
                 "id": slot,
                 "on": "torso",
                 "box": _box_in(sb, boxes["torso"]),
-                "pivot": _pt_in(pv["x"], pv["y"], sb),
-                "rest": "rest",
+                "pivot": _pt_in(px, py, sb),
+                "z": int(z.get(rp, 0)),
+                "rest": pin["rest_id"],
                 "choices": choices,
             }
         )
     pup = None
-    if len(pupil_ids) == 2:
+    eyes = next((s for s in swaps_out if s["id"] == "eyes"), None)
+    if len(pupil_ids) == 2 and eyes is not None:
         tx, ty = [], []
         light = swaps.whites(baked[host])
         for p in pupils[:2]:
@@ -733,15 +782,14 @@ def manifest(c, baked, tree, z, pivots, face_out, pupils, arm_out, rest, sources
             b = p["box"]
             tx.append(ax / max(b[2] - b[0], 1))
             ty.append(ay / max(b[3] - b[1], 1))
-        pup = {"ids": pupil_ids, "travel": [_pct(min(tx)), _pct(min(ty))], "shownWith": ["open", "wide"]}
+        shown = [s for s in ("open", "wide") if any(ch["id"] == s for ch in eyes["choices"])]
+        pup = {"ids": pupil_ids, "travel": [_pct(min(tx)), _pct(min(ty))], "shownWith": shown}
     hva = 1
     try:
         private = json.loads((Path(sources) / "sources" / "cast-private.json").read_text(encoding="utf-8"))
         hva = private["characters"][c["id"]].get("height_vs_amr", 1)
     except (OSError, KeyError, ValueError):
         pass
-    animated = sum(1 for p in parts_out if p["range"])
-    nodes = 1 + sum(2 for _ in parts_out) + sum(len(s["choices"]) for s in swaps_out) + 1
     man = {
         "v": 1,
         "id": c["id"],
@@ -754,10 +802,30 @@ def manifest(c, baked, tree, z, pivots, face_out, pupils, arm_out, rest, sources
         "parts": parts_out,
         "swaps": swaps_out,
         "pupils": pup,
-        "signature": [],
-        "counts": {"nodes": nodes, "animated": animated},
+        "signature": list(c.get("signature") or []),
     }
+    if c.get("translucent") is not None:
+        man["translucent"] = c["translucent"]
+    man["counts"] = {"nodes": count_nodes(man), "animated": sum(1 for p in parts_out if p["range"])}
     return man, sprites
+
+
+def count_nodes(man: dict) -> int:
+    """Every element CastFigure renders for the rig, the ground shadow included
+    (src/components/cast/cast-figure.tsx): the figure; each part's span and its
+    sprite; each slot's span per z group of its choices and each choice; the
+    pupils inside every eye choice that shows them; the ground."""
+    pup = man.get("pupils")
+    pup_ids = set(pup["ids"]) if pup else set()
+    ids = {p["id"] for p in man["parts"]}
+    n = 2  # the figure's own span and the ground
+    n += sum(1 + (p["sprite"] is not None) for p in man["parts"] if p["id"] not in pup_ids)
+    for s in man["swaps"]:
+        n += len({ch.get("z", s.get("z", 0)) for ch in s["choices"]}) + len(s["choices"])
+        if s["id"] == "eyes" and pup:
+            shown = sum(ch["id"] in pup["shownWith"] for ch in s["choices"])
+            n += shown * sum(i in ids for i in pup["ids"])
+    return n
 
 
 def fill_sprites(man: dict, keys: list[str], rects: list, size1x: tuple[int, int]) -> None:
