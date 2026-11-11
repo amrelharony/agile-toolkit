@@ -10,11 +10,19 @@
  * The arrival is reported from a layout effect, in the commit that puts the
  * new page in place and before the browser takes its new picture; never from
  * a frame callback, which the browser pauses while it holds the old picture.
+ *
+ * Back and Forward: a popstate listener that only reads (noteHistoryStep),
+ * so a card can slide back into its place once its page is back. It never
+ * stops the event or prevents its default; Next restores the page in its own
+ * listener. It listens in the capture phase: on window, capture listeners run
+ * before the others whatever order they were added in, so it measures the
+ * leaving page before Next's listener puts the old one back.
  */
 
 import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  noteHistoryStep,
   notifyRouteCommitted,
   readDebugSwitches,
   registerNavigator,
@@ -34,6 +42,10 @@ export function RouteSignal({ isBare }: { isBare?: (pathname: string) => boolean
 
   useIsomorphicLayoutEffect(() => registerNavigator(router, isBare), [router, isBare]);
   useIsomorphicLayoutEffect(() => notifyRouteCommitted(href), [href]);
+  useEffect(() => {
+    window.addEventListener("popstate", noteHistoryStep, true);
+    return () => window.removeEventListener("popstate", noteHistoryStep, true);
+  }, []);
   // The switches can arrive with any address, so read them on each one.
   useEffect(() => setShowLog(readDebugSwitches().log), [href]);
 

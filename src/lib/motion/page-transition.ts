@@ -10,10 +10,11 @@
  * the router push happens inside the update, and the update waits for
  * RouteSignal to report the new page from its layout effect
  * (notifyRouteCommitted), in the same commit that puts the page in place.
- * Nothing here waits for a frame, an observer or an animation event: the
- * browser pauses those while it holds the old picture, so such a wait would
- * always run into the cap. Past HOLD_CAP_MS the change is skipped and the
- * page swaps plainly when it arrives.
+ * Nothing on the hold path waits for a frame, an observer or an animation
+ * event: the browser pauses those while it holds the old picture, so such a
+ * wait would always run into the cap. Only the card's slide back on Back
+ * waits for a frame, and Back holds nothing. Past HOLD_CAP_MS the change is
+ * skipped and the page swaps plainly when it arrives.
  *
  * Instant (the caller, usually next/link, changes the page itself) when:
  * - no router is registered (RouteSignal is not mounted);
@@ -45,9 +46,28 @@
  * When no transition carried the frame (Safari 17, a page that missed the
  * hold, a link that does not load ahead, frame="spot"), the new page's header
  * grows from that spot instead (lib/motion/grow-from.ts).
+ *
+ * Back (DNA-SPEC: "on back and forward (where only the card's slide back may
+ * play)"). Back and Forward never run a view transition: Next puts the page
+ * back in its own popstate listener, and wrapping that would fight the
+ * browser's scroll restoration and the iPhone's swipe. A card's tap also
+ * leaves a forward record: the page it sat on, the page it opened, which of
+ * its links was tapped and where it was, and the two history entries of that
+ * visit (the Navigation API's entry keys: the one it was tapped on, and the
+ * one its page arrived in). RouteSignal's popstate listener only reads
+ * (noteHistoryStep). When the browser played no Back animation of its own,
+ * and the step is that visit undone (from the entry the card's page arrived
+ * in to the entry the card was tapped on), the leaving page's header is
+ * measured while it is still there. Once the page is back
+ * (notifyRouteCommitted) and the browser has put its scroll back, the card
+ * for that page that is on screen, the one nearest where it was tapped,
+ * slides from the header's spot into its slot (slideBack). Otherwise Back
+ * stays instant, as before, and so does every Back where the browser has no
+ * Navigation API.
  */
 
 import { isSaveData } from "@/lib/holiday/save-data";
+import { canGrow, slideBack } from "./grow-from";
 import { isIntroOnStage } from "./stage";
 import {
   canStartViewTransition,
@@ -177,6 +197,66 @@ const FRAME_ATTR = "data-vt-frame";
 let frame: FrameChange | null = null;
 let lastArrival: PageArrival | null = null;
 
+/** Where a card was tapped, for its slide back on Back. */
+interface CardOrigin {
+  /** The page the card sat on, and the page it opened: path plus query. */
+  from: string;
+  to: string;
+  /**
+   * Which of the card's links was tapped. A card for that page is one whose
+   * link at this place goes there, so a job card's Other options link to the
+   * same tool never counts.
+   */
+  link: number;
+  /** The card's box at the tap. */
+  spot: CardSpot;
+  /** The key of the history entry the card was tapped on. */
+  fromEntry: string;
+  /** The key of the entry the card's page arrived in; null until it has. */
+  toEntry: string | null;
+}
+
+/** A Back to a card's page, from the popstate until the page is back. */
+interface CardReturn {
+  origin: CardOrigin;
+  /** Where the leaving page's header was, in viewport pixels: the slide starts there. */
+  from: { left: number; top: number };
+  /** When Back happened, from performance.now(). */
+  at: number;
+}
+
+/**
+ * How long after Back the page may come back and still slide its card. Next
+ * restores a page it holds inside the popstate event; one it must fetch
+ * again comes later, by which time Back has long looked instant.
+ */
+export const BACK_WAIT_MS = 1000;
+
+/**
+ * The last card tap. Only another card's tap replaces it; it is tied to the
+ * history entries of its own visit, so each Back that undoes that visit
+ * (after Forward too) may slide it, and no other step can.
+ */
+let origin: CardOrigin | null = null;
+let returning: CardReturn | null = null;
+/** The animation frame the slide back waits for, or 0. */
+let returnFrame = 0;
+/** The page RouteSignal reported last: during a popstate, the page being left. */
+let shown: string | null = null;
+/** The history entry that page was shown in, by key, or null without the Navigation API. */
+let shownEntry: string | null = null;
+
+/**
+ * The current history entry's key (the Navigation API), or null where the
+ * browser has none. A push makes a new key; a replace keeps it. TypeScript's
+ * DOM types do not have window.navigation yet, hence the local type.
+ */
+function entryKey(): string | null {
+  const nav = (window as { navigation?: { currentEntry?: { key?: unknown } | null } }).navigation;
+  const key = nav?.currentEntry?.key;
+  return typeof key === "string" && key ? key : null;
+}
+
 /**
  * The last resort when the router push throws: a full page load. An object,
  * so tests can watch it (jsdom's location cannot be spied on).
@@ -219,6 +299,12 @@ function routeKey(href: string): string | null {
 export function notifyRouteCommitted(href: string): void {
   const w = waiting;
   const key = routeKey(href);
+  if (key !== null) shown = key;
+  // Next pushes the history entry in an insertion effect, before any layout
+  // effect of the same commit, so this is already the new page's entry.
+  shownEntry = entryKey();
+  noteVisit(key);
+  slideBackOn(key);
   if (!w || key === null || (key !== w.to && key === w.from)) return;
   waiting = null;
   // Here, in the commit and before the new picture: the new page's header
@@ -310,14 +396,134 @@ function cardOf(source: Element): Element {
 function noteArrival(to: string | null, why: string, o: PageChangeOptions): PageArrival | null {
   lastArrival = null;
   if (!o.frame || !o.source || to === null || why === "same-page") return null;
-  const r = cardOf(o.source).getBoundingClientRect();
-  lastArrival = {
-    to,
-    spot: { left: r.left, top: r.top, width: r.width, height: r.height },
-    at: performance.now(),
-    viewTransition: false,
-  };
+  const card = cardOf(o.source);
+  const r = card.getBoundingClientRect();
+  const spot = { left: r.left, top: r.top, width: r.width, height: r.height };
+  noteOrigin(card, o.source, to, spot);
+  lastArrival = { to, spot, at: performance.now(), viewTransition: false };
   return lastArrival;
+}
+
+/** A card's links, in order. */
+function linksOf(card: Element): Element[] {
+  return Array.from(card.querySelectorAll("a[href]"));
+}
+
+/**
+ * The forward record for the slide back: only for a card ([data-vt-card]),
+ * never a link that only lends its spot (a related-tool tile is no card).
+ */
+function noteOrigin(card: Element, link: Element, to: string, spot: CardSpot): void {
+  const from = routeKey(window.location.href);
+  const fromEntry = entryKey();
+  const at = card === link ? -1 : linksOf(card).indexOf(link);
+  if (from === null || fromEntry === null || at < 0) return;
+  origin = { from, to, link: at, spot, fromEntry, toEntry: null };
+}
+
+/**
+ * The card's page has arrived: the entry it arrived in is the one Back must
+ * leave for the card to slide. Only its first arrival after the tap counts:
+ * the same page opened again later by another link comes in another entry,
+ * and Back from that one is not the card's way back.
+ */
+function noteVisit(key: string | null): void {
+  const o = origin;
+  if (o && o.toEntry === null && key === o.to) o.toEntry = shownEntry;
+}
+
+function cancelSlideBack(): void {
+  if (returnFrame) window.cancelAnimationFrame?.(returnFrame);
+  returnFrame = 0;
+}
+
+/**
+ * Back or Forward, from RouteSignal's popstate listener. It only reads: it
+ * never stops the event or prevents its default, and changes nothing on the
+ * page. It runs before Next's own listener, which puts the old page back, so
+ * the leaving page's header is still there to measure.
+ *
+ * It notes a slide back when the browser played no Back animation of its own
+ * (hasUAVisualTransition exactly false: true after an iPhone's swipe, and a
+ * browser without the field leaves it undefined), the step undoes the card's
+ * visit, and nothing rules motion out. The browser has already moved to the
+ * new entry when popstate fires, and shownEntry is still the one being left.
+ */
+export function noteHistoryStep(event: PopStateEvent): void {
+  cancelSlideBack();
+  returning = null;
+  const o = origin;
+  if (!o || event.hasUAVisualTransition !== false) return;
+  // The entries, not only the pages: the same page reopened by another link,
+  // or Forward into a newer entry for the card's old page, is not the way back.
+  if (o.toEntry === null || shownEntry !== o.toEntry || entryKey() !== o.fromEntry) return;
+  if (routeKey(window.location.href) !== o.from || shown !== o.to) return;
+  if (isPageTransitionRunning() || !canGrow()) return;
+  const header = document.querySelector("[data-vt-target]");
+  if (!header) return;
+  const r = header.getBoundingClientRect();
+  // A header scrolled out of sight lends the top edge of the screen.
+  returning = {
+    origin: o,
+    from: { left: r.left, top: r.bottom > 0 ? r.top : 0 },
+    at: performance.now(),
+  };
+}
+
+/**
+ * A page is back in place (notifyRouteCommitted, from RouteSignal's layout
+ * effect). When it is the page a noted Back returns to, the card slides back
+ * in the next animation frame, not now: React puts the page back inside the
+ * popstate event, and the browser restores the scroll position only after
+ * that event, so the card is not yet where it will be shown. That animation
+ * frame still comes before the page's first paint, and no page change holds
+ * the screen on Back to pause it. Any other page, a newer Back or a tap
+ * cancels it.
+ */
+function slideBackOn(key: string | null): void {
+  cancelSlideBack();
+  const r = returning;
+  returning = null;
+  if (!r || key !== r.origin.from || typeof window.requestAnimationFrame !== "function") return;
+  returnFrame = window.requestAnimationFrame(() => {
+    returnFrame = 0;
+    if (performance.now() - r.at > BACK_WAIT_MS) return;
+    const card = returningCard(r.origin);
+    if (card) slideBack(card, r.from);
+  });
+}
+
+/**
+ * The card to slide back, measured now: a [data-vt-card] whose tapped link
+ * goes to the page Back left and that is on screen; of several, the one
+ * nearest where the tapped card was. No page change can be running here: one
+ * running at the popstate notes no slide, and every change starts in
+ * pushWithTransition, which cancels this frame first.
+ */
+function returningCard(o: CardOrigin): HTMLElement | null {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  let best: HTMLElement | null = null;
+  let nearest = Infinity;
+  for (const card of Array.from(document.querySelectorAll<HTMLElement>("[data-vt-card]"))) {
+    const href = linksOf(card)[o.link]?.getAttribute("href");
+    if (!href || routeKey(href) !== o.to) continue;
+    const b = card.getBoundingClientRect();
+    const onScreen =
+      b.width > 0 &&
+      b.height > 0 &&
+      b.bottom > 0 &&
+      b.right > 0 &&
+      b.top < height &&
+      b.left < width;
+    if (!onScreen) continue;
+    const distance = Math.hypot(b.left - o.spot.left, b.top - o.spot.top);
+    if (distance < nearest) {
+      nearest = distance;
+      best = card;
+    }
+  }
+  return best;
 }
 
 /** Whether a page change is holding or animating now. */
@@ -435,6 +641,9 @@ function go(router: PageNavigator, href: string, o: PageChangeOptions): void {
  */
 export function pushWithTransition(href: string, options: PageChangeOptions = {}): boolean {
   const start = performance.now();
+  // A tap goes somewhere new: a card still to slide back on this page stays put.
+  cancelSlideBack();
+  returning = null;
   const to = routeKey(href);
   const why = refusal(to, options);
   const router = navigator_;
