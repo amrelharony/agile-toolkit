@@ -201,6 +201,23 @@ function setStyle(els: HTMLElement[], prop: "rotate" | "translate", value: strin
   for (const el of els) el.style[prop] = value;
 }
 
+const STILL: SpringState = { x: 0, v: 0 };
+const still = (): Record<Channel, SpringState> => ({
+  head: STILL,
+  lean: STILL,
+  px: STILL,
+  py: STILL,
+});
+
+/** Every move and the look back at rest at once, with no spring. */
+function toRest(fig: Fig): void {
+  for (const anim of fig.anims) anim.cancel();
+  fig.anims = [];
+  fig.look = still();
+  setStyle([...fig.head, ...fig.body], "rotate", "");
+  setStyle(fig.pupils, "translate", "");
+}
+
 let linearOk: boolean | null = null;
 
 function easing(ease: Ease, presenting: boolean): string {
@@ -256,7 +273,6 @@ function show(root: HTMLElement, slot: string, choice: string | null): void {
 function makeFig(el: HTMLElement): Fig {
   const all = (selector: string) => Array.from(el.querySelectorAll<HTMLElement>(selector));
   const [tx, ty] = (el.dataset.travel ?? "").split(" ").map(Number);
-  const still = { x: 0, v: 0 };
   return {
     el,
     id: el.dataset.cast ?? "",
@@ -266,7 +282,7 @@ function makeFig(el: HTMLElement): Fig {
     body: all('[data-socket="body"]'),
     pupils: all("[data-pupil]"),
     travel: [tx || 0, ty || 0],
-    look: { head: still, lean: still, px: still, py: still },
+    look: still(),
     holdUntil: -Infinity,
     coolUntil: -Infinity,
     taps: [],
@@ -311,6 +327,13 @@ export function startLife(host: HTMLElement, env: LifeEnv = lifeEnv()): () => vo
   };
 
   const tick = (now: number) => {
+    // Reduced motion came on mid-visit: the rest pose straight away.
+    if (env.reducedMotion()) {
+      figs.forEach(toRest);
+      frame = 0;
+      last = 0;
+      return;
+    }
     if (now - ranked > 250) {
       ranked = now;
       rank();
@@ -515,11 +538,8 @@ export function startLife(host: HTMLElement, env: LifeEnv = lifeEnv()): () => vo
     document.removeEventListener("visibilitychange", onVisibility);
     for (const fig of figs) {
       claimed.delete(fig.el);
-      for (const anim of fig.anims) anim.cancel();
-      fig.anims = [];
+      toRest(fig);
       wake(fig, false);
-      setStyle([...fig.head, ...fig.body], "rotate", "");
-      setStyle(fig.pupils, "translate", "");
       for (const el of Array.from(fig.el.querySelectorAll("[data-swap]"))) {
         el.toggleAttribute("data-on", el.hasAttribute("data-rest"));
       }

@@ -292,6 +292,30 @@ describe("the look", () => {
     expect(frames.size).toBe(0);
   });
 
+  it("drops to the rest pose at once when reduced motion comes on, with no spring back", () => {
+    const { figs, io } = stage([TEST_PUPPET]);
+    const fig = figs[0];
+    lookAt(fig);
+    io.fire([[fig, 1]]);
+    window.dispatchEvent(pointer("pointermove", 2000, 148, "mouse"));
+    for (let t = 16; t <= 1500; t += 16) flush(t);
+    const head = fig.querySelector<HTMLElement>('[data-socket="head"]')!;
+    expect(head.style.rotate).toBe(`${LIMITS.lookDeg}deg`);
+    fig.click();
+    const move = animate.mock.results[0].value as { cancel: ReturnType<typeof vi.fn> };
+
+    flags.reduced = true;
+    rerank();
+    flush(1516);
+    expect(head.style.rotate).toBe("");
+    expect(fig.querySelector<HTMLElement>('[data-socket="body"]')!.style.rotate).toBe("");
+    for (const p of Array.from(fig.querySelectorAll<HTMLElement>("[data-pupil]"))) {
+      expect(p.style.translate).toBe("");
+    }
+    expect(move.cancel).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+  });
+
   it("follows the last touch on a touch screen, for a moment", () => {
     flags.fine = false;
     const { figs, io } = stage([TEST_PUPPET]);
