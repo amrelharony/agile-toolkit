@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, Check, Circle, CircleDot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TOUCH_LINK } from "@/components/ui/touch-target";

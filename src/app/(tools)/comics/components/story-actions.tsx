@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Check, MessagesSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMascotStore } from "@/lib/agent/mascot/store";

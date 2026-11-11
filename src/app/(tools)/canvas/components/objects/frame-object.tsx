@@ -7,7 +7,7 @@
  */
 
 import React from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import type { WhiteboardFrame, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { InlineEditor, LockBadge, FramePresenterNotesAffordance } from "./object-render-primitives";
 import type { ObjectViewBaseProps } from "./object-view-shared";

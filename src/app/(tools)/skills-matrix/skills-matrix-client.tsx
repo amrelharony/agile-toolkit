@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { AlertTriangle, GraduationCap, Info, Plus, Sparkles, Target, Users } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";

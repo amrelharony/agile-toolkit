@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { EARLY_COMICS_ROUTE } from "@/lib/comics/entry";
 
 /**

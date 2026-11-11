@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
 import { CalendarRange } from "lucide-react";

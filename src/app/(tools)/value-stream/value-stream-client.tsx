@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { nanoid } from "nanoid";
 import { ArrowRight, Copy, GitCompareArrows, Plus, Waves } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";

@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Archive, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";

@@ -2,7 +2,7 @@
 
 import { useId, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, ListChecks, Plus, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ExportButton } from "@/components/shared/export-button";

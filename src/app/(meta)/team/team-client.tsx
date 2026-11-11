@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Pencil, Share2, Trash2, UserPlus, Users } from "lucide-react";
 import { InkArt } from "@/components/ink/ink-art";
 import { Button } from "@/components/ui/button";

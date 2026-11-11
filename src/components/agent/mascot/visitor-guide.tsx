@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode, type Ref } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { usePathname } from "next/navigation";
 import { ArrowRight, KeyRound, MessageCircle, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";

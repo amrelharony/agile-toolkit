@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import type { ReactNode } from "react";
 import { leadBasisText, provenanceText, type DoraDerivation } from "@/lib/dora/derive";
 import type { DoraMetric } from "@/lib/dora/bands";

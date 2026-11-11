@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import dynamic from "next/dynamic";
 import { Compass, ShieldCheck, TrendingUp } from "lucide-react";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";

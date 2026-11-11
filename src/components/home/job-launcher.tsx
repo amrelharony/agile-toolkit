@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight } from "lucide-react";
 import { JOBS } from "@/lib/constants/jobs";
 import { getSectionForTool } from "@/lib/constants/sections";

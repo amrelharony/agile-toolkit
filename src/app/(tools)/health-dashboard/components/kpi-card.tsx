@@ -6,7 +6,7 @@
  * Theme tokens only; the light's name is always written beside its colour.
  */
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ExternalLink, type LucideIcon } from "lucide-react";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
 import type { HealthKpi } from "@/lib/health-dashboard/kpis";

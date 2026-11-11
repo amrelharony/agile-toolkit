@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { useShallow } from "zustand/react/shallow";
 import { ArrowRight, CheckCircle2, ClipboardCheck, Dices, History, ListChecks } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";

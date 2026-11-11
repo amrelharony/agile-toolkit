@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useId, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { CheckCircle2, FlaskConical, Pencil, Trash2 } from "lucide-react";
 import { ScalePicker, offScale, type ScaleStep } from "@/components/shared/scale-picker";
 import { Button } from "@/components/ui/button";

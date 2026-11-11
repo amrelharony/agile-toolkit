@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight } from "lucide-react";
 import { SprintPicker } from "@/components/sprints/sprint-picker";
 import { Button } from "@/components/ui/button";

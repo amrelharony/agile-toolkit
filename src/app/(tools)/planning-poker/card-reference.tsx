@@ -6,7 +6,7 @@
  * "is this an 8?" can be answered against stories the team already did.
  */
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { pointsOf, type CardReference } from "@/app/(tools)/estimation-guide/references";
 
 export function CardReferencePanel({

@@ -9,7 +9,7 @@
  */
 
 import { useRef } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SprintPicker } from "@/components/sprints/sprint-picker";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { BarChart3, Link2Off, Trash2 } from "lucide-react";
 import { BlurInput } from "@/components/shared/blur-fields";
 import { EmptyState } from "@/components/shared/empty-state";

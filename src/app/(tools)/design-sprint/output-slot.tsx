@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ExternalLink, Pencil, Plus, Trash2 } from "lucide-react";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
 import { ItemForm, useItemForm, type ItemFormState } from "@/components/shared/item-form";

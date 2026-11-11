@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import type { DecisionTemplate } from "@/lib/stores/workspace-types";
 import { TEMPLATES } from "@/lib/decisions/templates";
 import { cn } from "@/lib/utils";

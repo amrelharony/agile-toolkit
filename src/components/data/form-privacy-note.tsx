@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { PRIVACY_PATH, PRIVACY_TITLE } from "@/lib/site/owner";
 
 /**

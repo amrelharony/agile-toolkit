@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import {
   Check,
   CheckCircle2,

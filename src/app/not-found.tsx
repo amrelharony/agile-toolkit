@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { ArrowRight, Search } from "lucide-react";
 import { getToolById } from "@/lib/constants/tools";
 import { SITE_METADATA } from "@/lib/seo/site-metadata";
