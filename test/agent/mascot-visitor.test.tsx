@@ -57,6 +57,7 @@ import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
 import { LIVE_ROOM_KEY_PREFIX, enterLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { OWNER_UNVERIFIED } from "@/lib/auth/owner-check";
+import { PRIVACY_PATH, PRIVACY_TITLE } from "@/lib/site/owner";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 
 const OWNER = { status: "authenticated", user: { id: "u1" } };
@@ -435,6 +436,74 @@ describe("MascotAssistant — visitor AI", () => {
       expect(screen.getByText(/Before you chat with Amr/)).toBeInTheDocument();
       cleanup();
     }
+  });
+
+  it("says Agree and chat when nothing was asked, and shows a question in the visitor's caption", () => {
+    render(<MascotAssistant />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    expect(screen.getByRole("button", { name: "Agree and chat" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Agree and ask" })).toBeNull();
+    expect(document.querySelector('[data-voice="you"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    askAbout("retro");
+    expect(screen.getByRole("button", { name: "Agree and ask" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Agree and chat" })).toBeNull();
+    const caption = screen.getByText("retro").closest('[data-voice="you"]');
+    expect(caption).not.toBeNull();
+    // A screen reader hears whose words they are.
+    expect(caption).toHaveTextContent("You said: retro");
+  });
+
+  // jsdom has no layout, so this checks the structure and classes.
+  it("keeps the card's buttons in a footer that never scrolls, under a lettered title", () => {
+    render(<MascotAssistant />);
+    askAbout("retro");
+    const card = screen.getByRole("region", { name: "Before you chat with Amr's AI" });
+    const title = within(card).getByRole("heading", {
+      level: 3,
+      name: "Before you chat with Amr's AI",
+    });
+    expect(title).toHaveClass("font-display");
+    expect(card).toHaveClass("flex", "h-full", "min-h-0", "flex-col");
+
+    // The title, the question and the points scroll, inside the card...
+    const scroller = title.closest(".overflow-y-auto");
+    expect(scroller).not.toBeNull();
+    expect(scroller).toHaveClass("min-h-0", "flex-1", "overscroll-contain");
+    expect(scroller?.parentElement).toBe(card);
+    expect(within(card).getByRole("list")).toHaveClass("ps-5");
+
+    // ...and the buttons sit below them, in a footer that keeps its height.
+    const agree = within(card).getByRole("button", { name: "Agree and ask" });
+    const notNow = within(card).getByRole("button", { name: "Not now" });
+    expect(scroller).not.toContainElement(agree);
+    const footer = agree.parentElement;
+    expect(footer?.parentElement).toBe(card);
+    expect(footer).toHaveClass("shrink-0");
+    expect(footer).toContainElement(notNow);
+    // 44 px on touch and on narrow screens.
+    for (const button of [agree, notNow]) expect(button).toHaveClass("min-h-[44px]");
+  });
+
+  it("links the privacy page from the card, and closes the panel when it is followed", () => {
+    render(<MascotAssistant />);
+    askAbout("retro");
+    const card = screen.getByRole("region", { name: "Before you chat with Amr's AI" });
+    const link = within(card).getByRole("link", { name: PRIVACY_TITLE });
+    expect(link).toHaveAttribute("href", PRIVACY_PATH);
+    // jsdom can't follow a link to another page, so the click stops short of it.
+    const stay = (e: Event) => e.preventDefault();
+    document.addEventListener("click", stay);
+    try {
+      fireEvent.click(link);
+    } finally {
+      document.removeEventListener("click", stay);
+    }
+    expect(useAgentStore.getState().open).toBe(false);
+    // Following it agrees to nothing.
+    expect(window.localStorage.getItem(VISITOR_AI_CONSENT_KEY)).toBeNull();
+    expect(h.sendVisitorMessage).not.toHaveBeenCalled();
   });
 
   it("shows the visitor's allowance in the chat", async () => {

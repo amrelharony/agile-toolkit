@@ -43,12 +43,17 @@ describe("the disclosure wording", () => {
     expect(CARD_DAILY).toBe(disclosures.VISITOR_AI_DAILY_MESSAGES);
     expect(CARD_TEXT[0]).toBe(disclosures.VISITOR_AI_SENT);
     expect(CARD_TEXT[1]).toBe(disclosures.VISITOR_AI_KEPT);
-    render(<VisitorAiConsent question="" onAgree={() => {}} onDecline={() => {}} />);
-    const points = screen.getAllByRole("listitem").map((li) => li.textContent);
-    expect(points).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);
-    expect(points[4]).toContain(
+    const { rerender } = render(
+      <VisitorAiConsent question="" onAgree={() => {}} onDecline={() => {}} />
+    );
+    const points = () => screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(points()).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);
+    expect(points()[4]).toContain(
       `${disclosures.VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons`
     );
+    // A question is shown in its own caption, never as one of the points.
+    rerender(<VisitorAiConsent question="retro" onAgree={() => {}} onDecline={() => {}} />);
+    expect(points()).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);
   });
 
   it("is the compact card before a tool's first Ask Amr, the same points in the same order", () => {

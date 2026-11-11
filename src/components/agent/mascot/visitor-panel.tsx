@@ -199,6 +199,7 @@ export function VisitorPanel({
         question={question}
         onAgree={() => setMode("chat")}
         onDecline={() => setMode("guide")}
+        onNavigate={onNavigate}
       />
     );
   }
