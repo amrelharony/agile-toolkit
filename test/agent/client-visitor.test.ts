@@ -1116,7 +1116,8 @@ describe("an answer that stops before its end", () => {
 
 describe("the visitor's tool calls", () => {
   it("asks before every change, even one that never asks and with autoApprove on", async () => {
-    useAgentStore.setState({ autoApprove: true });
+    // Already the visitor's chat: a profile change would turn autoApprove off.
+    useAgentStore.setState({ chatProfile: "visitor", autoApprove: true });
     queue.push(
       toolTurn("c1", "tool_zorblax_add_card", { text: "flaky CI" }),
       textTurn("Added it.")
@@ -1124,6 +1125,7 @@ describe("the visitor's tool calls", () => {
     const turn = askVisitor("add a zorblax card saying flaky CI");
 
     await vi.waitFor(() => expect(useAgentStore.getState().pendingToolUse).not.toBeNull());
+    expect(useAgentStore.getState().autoApprove).toBe(true);
     expect(h.added).toEqual([]);
     expect(calls).toHaveLength(1);
     useAgentStore.getState().pendingToolUse?.resolve(true);
