@@ -321,7 +321,10 @@ def hungarian(C: np.ndarray) -> list[tuple[int, int]]:
 
 
 def assign(pieces, ids, image="parts", ncc=None) -> tuple[dict, list[int], float]:
-    """({part id: piece index}, spare piece indices, total cost)."""
+    """({part id: piece index}, spare piece indices, total cost). An empty sheet
+    names nothing."""
+    if not pieces or not ids:
+        return {}, list(range(len(pieces))), 0.0
     C = cost_matrix(pieces, ids, image, ncc)
     pairs = hungarian(C)
     got = {ids[c]: r for r, c in pairs}

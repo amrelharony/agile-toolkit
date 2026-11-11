@@ -297,13 +297,16 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     if lost:
         c6["status"] = "fail"
         c6["notes"].append("not placed: " + ", ".join(lost))
+    if "torso" not in baked:
+        # Every part hangs from the torso: without it there is no rig to build.
+        raise SystemExit(f"{cid}: the torso was not placed (C6 not placed: {', '.join(lost)}); fix or regenerate the parts sheet")
 
     # Tree, z from the master's evidence, pivots.
     present = [i for i in ids_all if i in baked]
     tree: dict = {}
     for pid in present:
         par = parent_of(pid, present)
-        if par is not None:
+        if par is not None and par in present:
             tree.setdefault(par, []).append(pid)
     z: dict = {"torso": 0}
     pivots: dict = {}

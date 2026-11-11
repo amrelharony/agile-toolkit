@@ -69,6 +69,11 @@ def print_master(rep: dict) -> None:
                     print(f"              {row['status']:5s} dE00 {de:>5s}  {row['label']}")
 
 
+def crashed(cid: str, e: Exception) -> None:
+    """One character's unexpected error, printed so the rest of the batch runs on."""
+    print(f"{MARK['fail']} {cid}: {type(e).__name__}: {e}")
+
+
 def cmd_check(args, sources: Path) -> int:
     ids = targets(args.target)
     if args.file and len(ids) != 1:
@@ -76,39 +81,14 @@ def cmd_check(args, sources: Path) -> int:
     by_batch: dict = {}
     bad = False
     for cid in ids:
-        c = character(cid)
-        batch = batch_of(cid)
-        images = ["master"] if args.masters else c["images"]
-        waiting = []
-        for img in images:
-            path = Path(args.file) if args.file else ledger.accepted_file(sources, cid, img)
-            if path is None:
-                waiting.append(img)
-                bad |= args.strict
-                continue
-            if img == "master":
-                rep, extra = checks.check_master(path, c, colours_for(sources, cid))
-                if not args.no_sheets:
-                    dest = review.review_dir(sources, batch, args.review) / f"{cid}_master-check.png"
-                    review.master_sheet(rep, extra, dest)
-                    rep["sheet"] = dest.name
-                print_master(rep)
-            else:
-                s = rig.load_sheet(path, c, img)
-                rep = {
-                    "id": cid,
-                    "image": img,
-                    "file": path.name,
-                    "sha256": s["sha256"],
-                    "checks": s["checks"],
-                    "status": checks.worst(*(v["status"] for v in s["checks"].values())),
-                }
-                notes = "; ".join(n for v in s["checks"].values() for n in v.get("notes", []))
-                print(f"{MARK[rep['status']]} {cid} {img} {path.name}  {notes}")
-            by_batch.setdefault(batch, []).append(rep)
-            bad |= rep["status"] == "fail" or (args.strict and rep["status"] == "warn")
-        if waiting:
-            print(f"{MARK['missing']} {cid} {c['name']}: not returned yet: {', '.join(waiting)}")
+        try:
+            bad |= check_one(args, sources, cid, by_batch)
+        except SystemExit as e:
+            print(f"{MARK['fail']} {e}")
+            bad = True
+        except Exception as e:  # noqa: BLE001 - one bad character never stops the batch
+            crashed(cid, e)
+            bad = True
     mode = "masters" if args.masters else "check"
     for batch, reps in by_batch.items():
         merged: dict = {}
@@ -123,6 +103,45 @@ def cmd_check(args, sources: Path) -> int:
     return 1 if bad else 0
 
 
+def check_one(args, sources: Path, cid: str, by_batch: dict) -> bool:
+    """Check one character's accepted images into by_batch; True when one failed."""
+    bad = False
+    c = character(cid)
+    batch = batch_of(cid)
+    images = ["master"] if args.masters else c["images"]
+    waiting = []
+    for img in images:
+        path = Path(args.file) if args.file else ledger.accepted_file(sources, cid, img)
+        if path is None:
+            waiting.append(img)
+            bad |= args.strict
+            continue
+        if img == "master":
+            rep, extra = checks.check_master(path, c, colours_for(sources, cid))
+            if not args.no_sheets:
+                dest = review.review_dir(sources, batch, args.review) / f"{cid}_master-check.png"
+                review.master_sheet(rep, extra, dest)
+                rep["sheet"] = dest.name
+            print_master(rep)
+        else:
+            s = rig.load_sheet(path, c, img)
+            rep = {
+                "id": cid,
+                "image": img,
+                "file": path.name,
+                "sha256": s["sha256"],
+                "checks": s["checks"],
+                "status": checks.worst(*(v["status"] for v in s["checks"].values())),
+            }
+            notes = "; ".join(n for v in s["checks"].values() for n in v.get("notes", []))
+            print(f"{MARK[rep['status']]} {cid} {img} {path.name}  {notes}")
+        by_batch.setdefault(batch, []).append(rep)
+        bad |= rep["status"] == "fail" or (args.strict and rep["status"] == "warn")
+    if waiting:
+        print(f"{MARK['missing']} {cid} {c['name']}: not returned yet: {', '.join(waiting)}")
+    return bad
+
+
 def cmd_candidate(args, sources: Path) -> int:
     by_batch: dict = {}
     bad = False
@@ -131,6 +150,10 @@ def cmd_candidate(args, sources: Path) -> int:
             rep = rig.candidate(cid, sources, args.review)
         except SystemExit as e:
             print(f"{MARK['fail']} {e}")
+            bad = True
+            continue
+        except Exception as e:  # noqa: BLE001 - one bad character never stops the batch
+            crashed(cid, e)
             bad = True
             continue
         by_batch.setdefault(batch_of(cid), []).append(rep)
@@ -147,6 +170,10 @@ def cmd_build(args, sources: Path) -> int:
             res = publish.build(cid, sources, review_root=args.review)
         except SystemExit as e:
             print(f"{MARK['fail']} {e}")
+            bad = True
+            continue
+        except Exception as e:  # noqa: BLE001 - one bad character never stops the batch
+            crashed(cid, e)
             bad = True
             continue
         for n in res["notes"]:
