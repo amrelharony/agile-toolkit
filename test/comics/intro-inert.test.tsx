@@ -349,6 +349,30 @@ describe("an arrival, held as soon as the guard's script loads", () => {
     expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
   });
 
+  it("holds the page again around the overlay the app draws, if it draws the page anew", async () => {
+    const served = arrive();
+    vi.stubEnv("NODE_ENV", "production");
+    holdOnLoad();
+    // After a hydration error React drops the server's page and draws its own,
+    // overlay and all, into the parent the guard watches: at first the new
+    // page is held whole, overlay and all.
+    const drawn = document.createElement("div");
+    drawn.innerHTML = served.innerHTML.replace(/ inert=""/g, "");
+    drawn.querySelector('[data-testid="drawer"]')!.setAttribute("inert", "");
+    served.replaceWith(drawn);
+    await settle();
+    render(<IntroInert kind="book" />);
+    for (let node: Element | null = overlay(); node; node = node.parentElement) {
+      expect(node.hasAttribute("inert"), node.tagName).toBe(false);
+    }
+    expect(screen.getByTestId("header")).toHaveAttribute("inert");
+    expect(screen.getByTestId("gallery")).toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
+  });
+
   it("waits for the guard to mount in development, where React reports attributes it didn't render", () => {
     arrive();
     holdOnLoad();

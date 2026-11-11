@@ -65,10 +65,14 @@ function onChange(hold: Hold, records: MutationRecord[]) {
   hold.watch.takeRecords();
 }
 
-/** Make the page around `kind`'s overlay inert, if it is shown and not held already. */
+/**
+ * Make the page around `kind`'s overlay inert, if it is shown and not held
+ * already. Held around another overlay (the app drew the page anew, as React
+ * does after a hydration error), it is let go and held again around this one.
+ */
 function hold(kind: IntroKind) {
-  if (held?.kind === kind) return;
   const overlay = document.querySelector<HTMLElement>(`[${OVERLAY_ATTR}="${kind}"]`);
+  if (held?.kind === kind && overlay && held.chain.has(overlay)) return;
   if (!overlay || getComputedStyle(overlay).display === "none") return;
   release();
   const parents: Element[] = [];
