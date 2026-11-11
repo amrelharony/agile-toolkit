@@ -9,7 +9,7 @@
  * only on the first message, with a dynamic import.
  *
  * The chat lives in memory (useAgentStore) and is never saved. Closing the
- * panel, or going back to the offline guide, stops any answer in progress.
+ * panel, or going back to the tool finder, stops any answer in progress.
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -99,7 +99,7 @@ export function peakNote(quota: VisitorQuota | null, now: Date): string | null {
 interface VisitorAgentPanelProps {
   /** Sent as soon as the chat opens ("" opens it empty). */
   initialQuestion: string;
-  /** Back to the offline guide. */
+  /** Back to the tool finder. */
   onOfflineGuide: () => void;
 }
 

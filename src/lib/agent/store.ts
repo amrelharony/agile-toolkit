@@ -66,7 +66,7 @@ interface AgentState {
   visitorQuota: VisitorQuota | null;
   /**
    * Set when the visitor route refused with a "no more AI for now" code
-   * (VISITOR_FALLBACK_CODES): the panel goes back to the offline guide.
+   * (VISITOR_FALLBACK_CODES): the panel goes back to the tool finder.
    */
   visitorFallback: VisitorErrorCode | null;
 }

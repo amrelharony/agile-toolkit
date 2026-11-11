@@ -342,7 +342,7 @@ describe("the visitor's allowance and refusals", () => {
   });
 
   it.each(Array.from(VISITOR_FALLBACK_CODES))(
-    "falls back to the offline guide on %s",
+    "falls back to the tool finder on %s",
     async (code) => {
       queue.push(
         refusal(code === "disabled" || code === "meter_unavailable" ? 503 : 429, code, {
