@@ -11,14 +11,16 @@
  * the cards are not yet where they will be shown; the slide measures them in
  * the next frame, before the first paint. requestAnimationFrame is a stub
  * that runs when the test says, element.animate a stub that records, and
- * getBoundingClientRect places the header and the cards.
+ * getBoundingClientRect places the header and the cards. jsdom has no
+ * Navigation API, so window.navigation is a fake that keeps the entries as
+ * Chrome does: a push adds one with a new key, Back and Forward move.
  *
  * What must hold: it plays only when hasUAVisualTransition is exactly false,
- * the step leaves the card's page for the page the card sat on, and a
- * [data-vt-card] for that page is on screen (the one nearest where the card
- * was tapped when several are); never under reduced motion, Save-Data,
- * presenting or an intro; and the listener only reads the event, never
- * stopping it or preventing its default.
+ * the step undoes the card's own visit (from the entry its page arrived in
+ * to the entry the card was tapped on), and a [data-vt-card] for that page is
+ * on screen (the one nearest where the card was tapped when several are);
+ * never under reduced motion, Save-Data, presenting or an intro; and the
+ * listener only reads the event, never stopping it or preventing its default.
  */
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -140,16 +142,59 @@ function show(href: string, page: ReactNode) {
   view.rerender(<App page={page} />);
 }
 
+/**
+ * The session history as the Navigation API shows it: each entry's key and
+ * address, and which one is current. Keys are never reused, not even across
+ * tests, as real ones are unique.
+ */
+interface Entry {
+  key: string;
+  href: string;
+}
+let entries: Entry[] = [];
+let current = 0;
+let keys = 0;
+
+const newEntry = (href: string): Entry => ({ key: `entry-${++keys}`, href });
+
+function installNavigation() {
+  entries = [newEntry(window.location.pathname)];
+  current = 0;
+  Object.defineProperty(window, "navigation", {
+    configurable: true,
+    value: {
+      get currentEntry() {
+        return { key: entries[current].key };
+      },
+    },
+  });
+}
+
+/** A push, as Next's router makes for a new page: the entries ahead go, a new one is added. */
+function push(href: string) {
+  entries = [...entries.slice(0, current + 1), newEntry(href)];
+  current = entries.length - 1;
+  window.history.pushState(null, "", href);
+}
+
+/** The browser's part of a history step, before popstate: the entry and the address change. */
+function move(delta: number): string {
+  current += delta;
+  const { href } = entries[current];
+  window.history.replaceState(null, "", href);
+  return href;
+}
+
 /** Taps a card's main link, then its page comes in, as any forward change ends. */
 function open(name: string | RegExp, href: string, page: ReactNode = toolPage()) {
   fireEvent.click(screen.getByRole("link", { name }));
-  window.history.pushState(null, "", href);
+  push(href);
   show(href, page);
 }
 
 /** A plain change to `href`, not from a card. */
 function visit(href: string, page: ReactNode) {
-  window.history.pushState(null, "", href);
+  push(href);
   show(href, page);
 }
 
@@ -170,18 +215,21 @@ function popstate(hasUAVisualTransition?: unknown): PopStateEvent {
 }
 
 /**
- * A history step to `href`: the address changes, popstate fires, Next's
- * listener puts `page` back inside the event, and the browser puts the scroll
- * back after it. Returns the event.
+ * A history step of `delta` entries: the entry and the address change,
+ * popstate fires, Next's listener puts `page` back inside the event, and the
+ * browser puts the scroll back after it. Returns the event.
  */
-function step(href: string, page: ReactNode, event: PopStateEvent = popstate(false)) {
-  window.history.replaceState(null, "", href);
+function go(delta: number, page: ReactNode, event: PopStateEvent = popstate(false)) {
+  const href = move(delta);
   restore = () => show(href, page);
   restored = false;
   window.dispatchEvent(event);
   restored = true;
   return event;
 }
+
+const back = (page: ReactNode, event?: PopStateEvent) => go(-1, page, event);
+const forward = (page: ReactNode, event?: PopStateEvent) => go(1, page, event);
 
 const frames = new Map<number, FrameRequestCallback>();
 let frameId = 0;
@@ -251,6 +299,7 @@ beforeEach(() => {
   // Added before RouteSignal's: the slide must still read the leaving page first.
   window.addEventListener("popstate", nextRestores);
   window.addEventListener("click", stopBrowser);
+  installNavigation();
   place();
   view = render(<App page={home()} />);
 });
@@ -265,6 +314,7 @@ afterEach(async () => {
   window.requestAnimationFrame = realRaf;
   window.cancelAnimationFrame = realCancel;
   delete (HTMLElement.prototype as { animate?: unknown }).animate;
+  delete (window as { navigation?: unknown }).navigation;
   vi.restoreAllMocks();
   removeViewTransitions();
   delete root.dataset.intro;
@@ -280,7 +330,7 @@ describe("on Back the tapped card slides back into its slot", () => {
     // A shared token (DNA-SPEC section 8), the one nearest the design's 0.3 s.
     expect(RETURN_MS).toBe(DUR.settle);
     open("Kanban", "/kanban");
-    step("/", home());
+    back(home());
     // Next put the home page back inside the event: the header is gone, so it
     // was measured before Next's listener ran, though that one was added first.
     expect(document.querySelector("header[data-vt-target]")).toBeNull();
@@ -295,21 +345,21 @@ describe("on Back the tapped card slides back into its slot", () => {
 
   it("once: a later frame or render does not slide it again", () => {
     open("Kanban", "/kanban");
-    step("/", home());
+    back(home());
     nextFrame();
     show("/", home());
     nextFrame();
     expect(slides()).toHaveLength(1);
   });
 
-  it("each time Back returns to the card's page, after Forward too", () => {
+  it("each time Back undoes the card's visit, after Forward too", () => {
     open("Kanban", "/kanban");
-    step("/", home());
+    back(home());
     nextFrame();
-    step("/kanban", toolPage());
+    forward(toolPage());
     nextFrame();
     expect(slides()).toHaveLength(1);
-    step("/", home());
+    back(home());
     nextFrame();
     expect(slides()).toHaveLength(2);
   });
@@ -319,12 +369,12 @@ describe("on Back the tapped card slides back into its slot", () => {
     fireEvent.click(screen.getByRole("link", { name: "Kanban" }));
     await flush();
     expect(router.push).toHaveBeenCalledWith("/kanban", { scroll: true });
-    window.history.pushState(null, "", "/kanban");
+    push("/kanban");
     show("/kanban", toolPage());
     await flush();
     made[0].endAnimation();
     await flush();
-    step("/", home());
+    back(home());
     nextFrame();
     expectSlide("Kanban");
   });
@@ -337,7 +387,7 @@ describe("on Back the tapped card slides back into its slot", () => {
     );
     visit("/comics", gallery);
     open(/The quiet stand-up/, comicHref(30), toolPage(STORY.title));
-    step("/comics", gallery);
+    back(gallery);
     nextFrame();
     expectSlide(/The quiet stand-up/);
   });
@@ -346,7 +396,7 @@ describe("on Back the tapped card slides back into its slot", () => {
     let now = 50_000;
     vi.spyOn(performance, "now").mockImplementation(() => now);
     open("Kanban", "/kanban");
-    window.history.replaceState(null, "", "/");
+    move(-1);
     window.dispatchEvent(popstate(false));
     now += BACK_WAIT_MS - 1;
     show("/", home());
@@ -357,7 +407,7 @@ describe("on Back the tapped card slides back into its slot", () => {
   it("from the top edge when the leaving page's header was scrolled out of sight", () => {
     open("Kanban", "/kanban");
     headerAt = { ...HEADER, top: -900 };
-    step("/", home());
+    back(home());
     nextFrame();
     expectSlide("Kanban", CARD, { left: HEADER.left, top: 0 });
   });
@@ -366,7 +416,7 @@ describe("on Back the tapped card slides back into its slot", () => {
     open("Kanban", "/kanban");
     const low = { ...CARD, top: 700 };
     cardAt = () => low;
-    step("/", home());
+    back(home());
     nextFrame();
     expectSlide("Kanban", low);
   });
@@ -379,16 +429,18 @@ describe("hasUAVisualTransition must be exactly false", () => {
     ["anything else that is not false", 0],
   ])("%s", (_name, value) => {
     open("Kanban", "/kanban");
-    step("/", home(), popstate(value));
+    back(home(), popstate(value));
     nextFrame();
     expect(slides()).toEqual([]);
   });
 });
 
-describe("the step must come back to the page the card was tapped on", () => {
-  it("not on a step to another page", () => {
+describe("the step must undo the card's own visit", () => {
+  it("not on a step past the card's old page, to another one", () => {
+    visit("/retro", toolPage("Retro"));
+    visit("/", home());
     open("Kanban", "/kanban");
-    step("/retro", toolPage("Retro"));
+    go(-2, toolPage("Retro"));
     nextFrame();
     expect(slides()).toEqual([]);
   });
@@ -397,30 +449,75 @@ describe("the step must come back to the page the card was tapped on", () => {
     open("Kanban", "/kanban");
     visit("/retro", toolPage("Retro"));
     // Back to the card's page: not the page it sat on.
-    step("/kanban", toolPage());
+    back(toolPage());
     nextFrame();
     expect(slides()).toEqual([]);
     // Then back again: from the card's page to the page it sat on.
-    step("/", home());
+    back(home());
     nextFrame();
     expectSlide("Kanban");
   });
 
   it("not when Back leaves another page for the card's old page", () => {
     open("Kanban", "/kanban");
-    step("/", home());
+    back(home());
     nextFrame();
     expect(slides()).toHaveLength(1);
     // A new page replaces the card's in history; Back from it is not the card's way back.
     visit("/retro", toolPage("Retro"));
-    step("/", home());
+    back(home());
     nextFrame();
     expect(slides()).toHaveLength(1);
   });
 
+  it("not when the card's page was opened again by a link that is not a card", () => {
+    const page = home(
+      kanban(),
+      <TransitionLink key="plain" href="/kanban">
+        Kanban again
+      </TransitionLink>
+    );
+    show("/", page);
+    open("Kanban", "/kanban");
+    back(page);
+    nextFrame();
+    expect(slides()).toHaveLength(1);
+    // The same page and the same card's old page, but a new entry the card never opened.
+    open("Kanban again", "/kanban");
+    back(page);
+    nextFrame();
+    expect(slides()).toHaveLength(1);
+  });
+
+  it("not on Forward into a newer entry for the card's old page", () => {
+    open("Kanban", "/kanban");
+    // Home again by a link: a newer entry for the page the card sat on.
+    visit("/", home());
+    back(toolPage());
+    nextFrame();
+    expect(slides()).toEqual([]);
+    // From the card's page to its old page, but forward, into the newer entry.
+    forward(home());
+    nextFrame();
+    expect(slides()).toEqual([]);
+    // The card's own way back still slides it.
+    back(toolPage());
+    back(home());
+    nextFrame();
+    expectSlide("Kanban");
+  });
+
+  it("not where the browser has no Navigation API to tell the entries apart", () => {
+    delete (window as { navigation?: unknown }).navigation;
+    open("Kanban", "/kanban");
+    back(home());
+    nextFrame();
+    expect(slides()).toEqual([]);
+  });
+
   it("not when a newer page commits before the frame", () => {
     open("Kanban", "/kanban");
-    step("/", home());
+    back(home());
     visit("/retro", toolPage("Retro"));
     nextFrame();
     expect(slides()).toEqual([]);
@@ -430,7 +527,7 @@ describe("the step must come back to the page the card was tapped on", () => {
     let now = 50_000;
     vi.spyOn(performance, "now").mockImplementation(() => now);
     open("Kanban", "/kanban");
-    window.history.replaceState(null, "", "/");
+    move(-1);
     window.dispatchEvent(popstate(false));
     now += BACK_WAIT_MS + 1;
     show("/", home());
@@ -439,9 +536,9 @@ describe("the step must come back to the page the card was tapped on", () => {
   });
 
   it("not for a link that only lends its spot: a related-tool tile is no card", () => {
-    // A card tap first, so an earlier test's record is replaced.
+    // A card's visit first, undone, so a record is there for the tile to keep.
     open("Retro", "/retro", toolPage("Retro"));
-    step("/", home());
+    back(home());
     nextFrame();
     expect(slides()).toHaveLength(1);
     const withTile = home(
@@ -452,7 +549,7 @@ describe("the step must come back to the page the card was tapped on", () => {
     );
     show("/", withTile);
     open("Kanban tile", "/kanban");
-    step("/", withTile);
+    back(withTile);
     nextFrame();
     // Only the Retro card's slide from before.
     expect(slides()).toHaveLength(1);
@@ -463,14 +560,14 @@ describe("the card for that page must be on screen", () => {
   it("not when it is below the screen once the scroll is back", () => {
     open("Kanban", "/kanban");
     cardAt = () => ({ ...CARD, top: 1200 });
-    step("/", home());
+    back(home());
     nextFrame();
     expect(slides()).toEqual([]);
   });
 
   it("not when the page has no such card", () => {
     open("Kanban", "/kanban");
-    step("/", home(retro));
+    back(home(retro));
     nextFrame();
     expect(slides()).toEqual([]);
   });
@@ -484,7 +581,7 @@ describe("the card for that page must be on screen", () => {
     open("Kanban board", "/kanban");
     // The page came back 10px lower: still nearest the lower card.
     cardAt = (name) => (name === "Kanban" ? { ...top, top: 110 } : { ...low, top: 410 });
-    step("/", twice);
+    back(twice);
     nextFrame();
     expectSlide("Kanban board", { ...low, top: 410 });
   });
@@ -497,7 +594,7 @@ describe("the card for that page must be on screen", () => {
     open("Kanban board", "/kanban");
     // Back, the tapped card is below the screen; the other is in view.
     cardAt = (name) => (name === "Kanban" ? top : { ...CARD, top: 1300 });
-    step("/", twice);
+    back(twice);
     nextFrame();
     expectSlide("Kanban", top);
   });
@@ -519,7 +616,7 @@ describe("the card for that page must be on screen", () => {
     open("Kanban", "/kanban");
     // The job card now sits exactly where the Kanban card was tapped.
     cardAt = (name) => (name === "Kanban" ? { ...far, top: 30 } : far);
-    step("/", page);
+    back(page);
     nextFrame();
     expectSlide("Kanban", { ...far, top: 30 });
   });
@@ -558,14 +655,14 @@ describe("never", () => {
   ])("%s", (_name, arrange) => {
     open("Kanban", "/kanban");
     arrange();
-    step("/", home());
+    back(home());
     nextFrame();
     expect(slides()).toEqual([]);
   });
 
   it("when the rule turns on between Back and the frame", () => {
     open("Kanban", "/kanban");
-    step("/", home());
+    back(home());
     root.dataset.presenting = "true";
     nextFrame();
     expect(slides()).toEqual([]);
@@ -574,7 +671,7 @@ describe("never", () => {
   it("where element.animate is missing", () => {
     open("Kanban", "/kanban");
     delete (HTMLElement.prototype as { animate?: unknown }).animate;
-    step("/", home());
+    back(home());
     expect(() => nextFrame()).not.toThrow();
     expect(card("Kanban").getAttribute("style")).toBeNull();
   });
@@ -592,7 +689,7 @@ describe("the popstate listener only reads", () => {
       (method) => vi.spyOn(event, method)
     );
     try {
-      step("/", home(), event);
+      back(home(), event);
     } finally {
       window.removeEventListener("popstate", after);
     }
@@ -614,7 +711,7 @@ describe("the popstate listener only reads", () => {
     const header = document.body.appendChild(document.createElement("header"));
     header.setAttribute("data-vt-target", "");
     try {
-      window.history.replaceState(null, "", "/");
+      move(-1);
       window.dispatchEvent(popstate(false));
       view = render(<App page={home()} />);
       nextFrame();

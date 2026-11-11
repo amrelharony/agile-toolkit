@@ -51,14 +51,18 @@
  * back in its own popstate listener, and wrapping that would fight the
  * browser's scroll restoration and the iPhone's swipe. A card's tap also
  * leaves a forward record: the page it sat on, the page it opened, which of
- * its links was tapped and where it was. RouteSignal's popstate listener only
- * reads (noteHistoryStep). When the browser played no Back animation of its
- * own, and the step leaves the card's page for the page the card sat on, the
- * leaving page's header is measured while it is still there. Once the page
- * is back (notifyRouteCommitted) and the browser has put its scroll back, the
- * card for that page that is on screen, the one nearest where it was tapped,
+ * its links was tapped and where it was, and the two history entries of that
+ * visit (the Navigation API's entry keys: the one it was tapped on, and the
+ * one its page arrived in). RouteSignal's popstate listener only reads
+ * (noteHistoryStep). When the browser played no Back animation of its own,
+ * and the step is that visit undone (from the entry the card's page arrived
+ * in to the entry the card was tapped on), the leaving page's header is
+ * measured while it is still there. Once the page is back
+ * (notifyRouteCommitted) and the browser has put its scroll back, the card
+ * for that page that is on screen, the one nearest where it was tapped,
  * slides from the header's spot into its slot (slideBack). Otherwise Back
- * stays instant, as before.
+ * stays instant, as before, and so does every Back where the browser has no
+ * Navigation API.
  */
 
 import { isSaveData } from "@/lib/holiday/save-data";
@@ -205,6 +209,10 @@ interface CardOrigin {
   link: number;
   /** The card's box at the tap. */
   spot: CardSpot;
+  /** The key of the history entry the card was tapped on. */
+  fromEntry: string;
+  /** The key of the entry the card's page arrived in; null until it has. */
+  toEntry: string | null;
 }
 
 /** A Back to a card's page, from the popstate until the page is back. */
@@ -223,13 +231,30 @@ interface CardReturn {
  */
 export const BACK_WAIT_MS = 1000;
 
-/** The last card tap. Only another card's tap replaces it, so each Back to that page may slide it. */
+/**
+ * The last card tap. Only another card's tap replaces it; it is tied to the
+ * history entries of its own visit, so each Back that undoes that visit
+ * (after Forward too) may slide it, and no other step can.
+ */
 let origin: CardOrigin | null = null;
 let returning: CardReturn | null = null;
 /** The animation frame the slide back waits for, or 0. */
 let returnFrame = 0;
 /** The page RouteSignal reported last: during a popstate, the page being left. */
 let shown: string | null = null;
+/** The history entry that page was shown in, by key, or null without the Navigation API. */
+let shownEntry: string | null = null;
+
+/**
+ * The current history entry's key (the Navigation API), or null where the
+ * browser has none. A push makes a new key; a replace keeps it. TypeScript's
+ * DOM types do not have window.navigation yet, hence the local type.
+ */
+function entryKey(): string | null {
+  const nav = (window as { navigation?: { currentEntry?: { key?: unknown } | null } }).navigation;
+  const key = nav?.currentEntry?.key;
+  return typeof key === "string" && key ? key : null;
+}
 
 /**
  * The last resort when the router push throws: a full page load. An object,
@@ -274,6 +299,10 @@ export function notifyRouteCommitted(href: string): void {
   const w = waiting;
   const key = routeKey(href);
   if (key !== null) shown = key;
+  // Next pushes the history entry in an insertion effect, before any layout
+  // effect of the same commit, so this is already the new page's entry.
+  shownEntry = entryKey();
+  noteVisit(key);
   slideBackOn(key);
   if (!w || key === null || (key !== w.to && key === w.from)) return;
   waiting = null;
@@ -385,9 +414,21 @@ function linksOf(card: Element): Element[] {
  */
 function noteOrigin(card: Element, link: Element, to: string, spot: CardSpot): void {
   const from = routeKey(window.location.href);
+  const fromEntry = entryKey();
   const at = card === link ? -1 : linksOf(card).indexOf(link);
-  if (from === null || at < 0) return;
-  origin = { from, to, link: at, spot };
+  if (from === null || fromEntry === null || at < 0) return;
+  origin = { from, to, link: at, spot, fromEntry, toEntry: null };
+}
+
+/**
+ * The card's page has arrived: the entry it arrived in is the one Back must
+ * leave for the card to slide. Only its first arrival after the tap counts:
+ * the same page opened again later by another link comes in another entry,
+ * and Back from that one is not the card's way back.
+ */
+function noteVisit(key: string | null): void {
+  const o = origin;
+  if (o && o.toEntry === null && key === o.to) o.toEntry = shownEntry;
 }
 
 function cancelSlideBack(): void {
@@ -403,14 +444,18 @@ function cancelSlideBack(): void {
  *
  * It notes a slide back when the browser played no Back animation of its own
  * (hasUAVisualTransition exactly false: true after an iPhone's swipe, and a
- * browser without the field leaves it undefined), the step leaves the page a
- * card opened for the page the card sat on, and nothing rules motion out.
+ * browser without the field leaves it undefined), the step undoes the card's
+ * visit, and nothing rules motion out. The browser has already moved to the
+ * new entry when popstate fires, and shownEntry is still the one being left.
  */
 export function noteHistoryStep(event: PopStateEvent): void {
   cancelSlideBack();
   returning = null;
   const o = origin;
   if (!o || event.hasUAVisualTransition !== false) return;
+  // The entries, not only the pages: the same page reopened by another link,
+  // or Forward into a newer entry for the card's old page, is not the way back.
+  if (o.toEntry === null || shownEntry !== o.toEntry || entryKey() !== o.fromEntry) return;
   if (routeKey(window.location.href) !== o.from || shown !== o.to) return;
   if (isPageTransitionRunning() || !canGrow()) return;
   const header = document.querySelector("[data-vt-target]");

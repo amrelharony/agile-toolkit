@@ -151,9 +151,15 @@ It plays only when all of these hold:
   `hasUAVisualTransition` is exactly `false`. It is `true` when the browser
   animated Back itself (a swipe, where the browser reports it), and a browser
   without the field leaves it undefined, so Back stays instant there.
-- The step leaves the card's page for the page the card sat on (path and
-  query; `/comics?ep=30` back to `/comics` counts). A page in between, or a
-  newer page in its place in history, does not.
+- The step undoes the card's own visit: it leaves the history entry the
+  card's page arrived in for the entry the card was tapped on, and those are
+  still the card's page and the card's old page (path and query;
+  `/comics?ep=30` back to `/comics` counts). A page in between, a newer page
+  in its place in history, the same page opened again by another link, and
+  Forward into a newer entry for the card's old page do not count.
+- The browser has the Navigation API (`window.navigation`), which tells the
+  entries apart by key. Chrome has had it since 102, before
+  `hasUAVisualTransition` (123). Without it, Back stays instant.
 - A `[data-vt-card]` whose tapped link goes to that page is on screen once the
   browser has put the scroll back. Of several, the one nearest where the card
   was tapped slides. A job card's Other options link to the same tool does not
@@ -164,8 +170,11 @@ It plays only when all of these hold:
 How it runs:
 
 - Each card tap leaves a forward record (`page-transition.ts`): the page it
-  sat on, the page it opened, which of its links was tapped and its box. Only
-  the next card tap replaces it, so Back after Forward slides it again.
+  sat on, the page it opened, which of its links was tapped, its box, and the
+  key of the entry it was tapped on. When the card's page first arrives,
+  `notifyRouteCommitted` adds the key of the entry it arrived in (Next pushes
+  the entry in an insertion effect, before that layout effect runs). Only the
+  next card tap replaces the record, so Back after Forward slides it again.
 - `RouteSignal`'s popstate listener (`noteHistoryStep`) only reads. It never
   stops the event or prevents its default. It listens in the capture phase,
   so it runs before Next's listener whatever order they were added in, and
