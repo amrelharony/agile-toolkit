@@ -2,8 +2,8 @@
  * The 26 episodes of the printed book, as the posters and kudos cards print
  * them. Read from print-campaign.json, the print campaign's own data file, so
  * the site says exactly what the print says: change the wording there, never
- * here. The book's episodes are never put online, so this is all the site has
- * of them.
+ * here. With the posters' panels (poster-panels.ts), this is all the site has
+ * of them: the full story stays in the book.
  */
 
 import campaign from "./print-campaign.json";

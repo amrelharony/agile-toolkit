@@ -84,8 +84,8 @@ const linksOf = (id: string): HandoffLink[] | undefined =>
 /**
  * A timed 15-minute team session on one episode of the book: read the story in
  * the book, discuss its question, agree actions, and send those to Retro
- * Actions. The book's episodes are never put online, so it runs on their
- * printed text.
+ * Actions. Only the posters' panels are online, and the full story is in the
+ * book, so it runs on their printed text.
  */
 export function SquadSessionClient({
   episodes,

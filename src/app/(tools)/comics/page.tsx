@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
 import { COMICS_ROUTE } from "@/lib/comics/entry";
+import { posterCover } from "@/lib/comics/poster-panels";
 import { pickFavourites } from "@/lib/comics/stats";
 import { listReleasedWeekly, listStoryTotals } from "@/lib/comics/store";
 import { CAST } from "@/lib/vip/cast.generated";
@@ -44,7 +45,12 @@ export default async function ComicsPage() {
       <BookIntro latest={latest ? { title: latest.title, cover: latest.cover } : null} />
       <ComicsGallery
         stories={stories}
-        bookEpisodes={BOOK_EPISODES.map(({ ep, title, theme }) => ({ ep, title, theme }))}
+        bookEpisodes={BOOK_EPISODES.map(({ ep, title, theme }) => ({
+          ep,
+          title,
+          theme,
+          cover: posterCover(ep),
+        }))}
         cast={CAST_NAMES}
         favourites={favourites}
       />

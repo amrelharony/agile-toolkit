@@ -22,7 +22,7 @@ import { FLASHCARDS_ROUTE, comicHref } from "@/lib/comics/entry";
 import { PRINT_THEMES, printTheme, type PrintThemeName } from "@/lib/comics/print-themes";
 import { GUESTBOOK_ROUTE } from "@/lib/comics/guestbook";
 import { themeLabel } from "@/lib/comics/themes";
-import type { StorySummary } from "@/lib/comics/types";
+import type { StoryCover, StorySummary } from "@/lib/comics/types";
 import { CountDisclosure, VisitRecorder } from "@/components/visits/visit-recorder";
 import { ComicCard, ComicCover } from "./comic-card";
 import { PrintThemeChip } from "./print-theme-chip";
@@ -37,6 +37,8 @@ export interface IndexEpisode {
   ep: number;
   title: string;
   theme: PrintThemeName;
+  /** The poster's first panel, when there's a Supabase address to load it from. */
+  cover?: StoryCover | null;
 }
 
 function sortedUnique(values: readonly string[]): string[] {
@@ -97,10 +99,14 @@ function ThisWeek({ story }: { story: StorySummary }) {
 }
 
 /**
- * The book's 26 episodes, colour-coded by habit as the posters are. Each opens
- * the episode's page: its lesson and question, and the book page it's on.
+ * The book's 26 episodes, colour-coded by habit as the posters are, each with
+ * its poster's first panel. Each opens the episode's page: the poster's panels,
+ * its lesson and question, and the book page it's on. Two to a row on a phone,
+ * so 26 pictures don't make the list a very long scroll; the pictures load as
+ * they near the screen. Without the art, each is a line of text, as before.
  */
 function BookIndex({ episodes }: { episodes: readonly IndexEpisode[] }) {
+  const withArt = episodes.some((e) => e.cover);
   return (
     <section aria-labelledby="book-episodes-heading" className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -124,29 +130,59 @@ function BookIndex({ episodes }: { episodes: readonly IndexEpisode[] }) {
           ))}
         </ul>
       </div>
-      <ol className="grid list-none gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <ol
+        className={
+          withArt
+            ? "grid list-none grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
+            : "grid list-none gap-2 sm:grid-cols-2 lg:grid-cols-3"
+        }
+      >
         {episodes.map((e) => {
           const { colour, ink } = printTheme(e.theme);
+          const number = (
+            <span
+              aria-hidden="true"
+              className={
+                e.cover
+                  ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                  : "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+              }
+              style={{ backgroundColor: colour, color: ink }}
+            >
+              {String(e.ep).padStart(2, "0")}
+            </span>
+          );
+          const words = (
+            <span className="min-w-0">
+              <span className="sr-only">Episode {e.ep}: </span>
+              <span className="block font-medium text-text">{e.title}</span>
+              <span className="block text-xs text-sub">{e.theme}</span>
+            </span>
+          );
           return (
             <li key={e.ep}>
-              <Link
-                href={comicHref(e.ep)}
-                prefetch={false}
-                className="flex h-full items-center gap-3 rounded-lg border-2 border-border bg-card p-3 hover:border-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              >
-                <span
-                  aria-hidden="true"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold"
-                  style={{ backgroundColor: colour, color: ink }}
+              {e.cover ? (
+                <Link
+                  href={comicHref(e.ep)}
+                  prefetch={false}
+                  className="block h-full overflow-hidden rounded-lg border-2 border-border bg-card hover:border-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
-                  {String(e.ep).padStart(2, "0")}
-                </span>
-                <span className="min-w-0">
-                  <span className="sr-only">Episode {e.ep}: </span>
-                  <span className="block font-medium text-text">{e.title}</span>
-                  <span className="block text-xs text-sub">{e.theme}</span>
-                </span>
-              </Link>
+                  <ComicCover cover={e.cover} />
+                  <span className="flex items-start gap-2 p-2 text-sm sm:p-3">
+                    {number}
+                    {words}
+                  </span>
+                </Link>
+              ) : (
+                <Link
+                  href={comicHref(e.ep)}
+                  prefetch={false}
+                  className="flex h-full items-center gap-3 rounded-lg border-2 border-border bg-card p-3 hover:border-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {number}
+                  {words}
+                </Link>
+              )}
             </li>
           );
         })}

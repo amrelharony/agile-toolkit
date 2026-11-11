@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import type { StudyCard } from "@/lib/comics/types";
+import { ComicCover } from "../components/comic-card";
 import { useSwipe } from "../components/use-swipe";
 
 /** A fresh order, without touching the one it came from. */
@@ -23,6 +24,10 @@ function shuffled<T>(items: readonly T[]): T[] {
  * to ask the team. One at a time, turned with a button, so it reads the same to
  * a screen reader as to everyone else. On a touch screen a sideways swipe on
  * the card moves too. Nothing is kept.
+ *
+ * The story's first panel stays on both sides of the card, and only the card on
+ * screen loads its picture. The title names the story, so the picture has no
+ * text of its own.
  */
 export function FlashcardDeck({ cards }: { cards: readonly StudyCard[] }) {
   const [deck, setDeck] = useState<readonly StudyCard[]>(cards);
@@ -71,23 +76,32 @@ export function FlashcardDeck({ cards }: { cards: readonly StudyCard[] }) {
           <Eyebrow>
             Card {at + 1} of {deck.length} · Episode {card.ep}
           </Eyebrow>
-          {/* Polite, so turning or moving reads out the card's new side. */}
-          <div aria-live="polite" className="space-y-3">
-            <h2 className="font-display text-xl font-semibold text-text">{card.title}</h2>
-            {turned ? (
-              <>
-                <div>
-                  <h3 className="font-display font-semibold text-text">The lesson</h3>
-                  <p className="mt-1 text-sub">{card.lesson}</p>
-                </div>
-                <div>
-                  <h3 className="font-display font-semibold text-text">Ask your team:</h3>
-                  <p className="mt-1 text-sub">{card.question}</p>
-                </div>
-              </>
-            ) : (
-              <p className="text-sub">What does this story teach?</p>
-            )}
+          <div
+            className={card.cover ? "flex flex-col gap-4 sm:flex-row sm:items-start" : undefined}
+          >
+            {card.cover ? (
+              <div className="w-36 shrink-0 overflow-hidden rounded-md border-2 border-border sm:w-44">
+                <ComicCover key={card.ep} cover={card.cover} priority />
+              </div>
+            ) : null}
+            {/* Polite, so turning or moving reads out the card's new side. */}
+            <div aria-live="polite" className="min-w-0 space-y-3">
+              <h2 className="font-display text-xl font-semibold text-text">{card.title}</h2>
+              {turned ? (
+                <>
+                  <div>
+                    <h3 className="font-display font-semibold text-text">The lesson</h3>
+                    <p className="mt-1 text-sub">{card.lesson}</p>
+                  </div>
+                  <div>
+                    <h3 className="font-display font-semibold text-text">Ask your team:</h3>
+                    <p className="mt-1 text-sub">{card.question}</p>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sub">What does this story teach?</p>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

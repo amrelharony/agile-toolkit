@@ -38,6 +38,7 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 import { PosterIntro } from "@/app/(tools)/comics/components/intro/poster-intro";
 import styles from "@/app/(tools)/comics/components/intro/poster-intro.module.css";
 import ComicStoryPage from "@/app/(tools)/comics/ep/[n]/page";
+import { POSTER_ART } from "@/lib/comics/poster-panels.generated";
 import { MASCOT_SPRITE_URL } from "@/components/agent/mascot/mascot-asset";
 import { bookEpisode } from "@/lib/comics/book-episodes";
 import { panelImageUrl } from "@/lib/comics/images";
@@ -347,9 +348,9 @@ describe("a book episode's page", () => {
     expect(dialog().parentElement).toBe(wrapper.parentElement);
   });
 
-  // The book's episodes are never put online, so the intro letters the printed
-  // title and shows no art, even if the store had a row for the number.
-  it("letters the book's title, with no art", async () => {
+  // The printed title and the poster's own four panels, even if the store had a
+  // row for the number.
+  it("letters the book's title and inks in its poster's panels", async () => {
     h.story = STORY;
     render(await ComicStoryPage(params));
     const book = bookEpisode(12)!;
@@ -358,6 +359,18 @@ describe("a book episode's page", () => {
     expect(
       dialog().querySelector(`img[src="${panelImageUrl(STORY.panels[0].pathSmall)}"]`)
     ).toBeNull();
+    const windows = Array.from(dialog().querySelectorAll("img")).map((img) =>
+      img.getAttribute("src")
+    );
+    expect(windows).toEqual(POSTER_ART[12].panels.map((files) => panelImageUrl(files.small)));
+  });
+
+  it("letters the title alone where the poster's art can't load", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    render(await ComicStoryPage(params));
+    expect(within(dialog()).getByText(bookEpisode(12)!.title)).toBeInTheDocument();
+    // Amr is a sprite drawn as a background, so any picture here would be art.
+    expect(dialog().querySelector("img")).toBeNull();
   });
 
   it("offers the intro again, on the page itself, and it plays the poster's", async () => {

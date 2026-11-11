@@ -55,7 +55,12 @@ import ComicStoryPage, {
 } from "@/app/(tools)/comics/ep/[n]/page";
 import ComicLicensePage, { metadata as licenseMetadata } from "@/app/(tools)/comics/license/page";
 import { BOOK_SHARE_URL } from "@/lib/book/art";
+import { bookDescriptionFor } from "@/lib/comics/book-descriptions";
+import { BOOK_DIALOGUE } from "@/lib/comics/book-dialogue";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
+import { POSTER_ART } from "@/lib/comics/poster-panels.generated";
+
+const STORAGE = "https://ref.supabase.co/storage/v1/object/public/comic-panels/";
 
 const STORY: Story = {
   ep: 30,
@@ -161,12 +166,62 @@ describe("a book episode", () => {
       "href",
       "/kudos?ep=12&src=comics"
     );
-    // Never put online: the comic is in the book, so no panels and no promise that it's coming.
-    expect(screen.queryByRole("button", { name: /full screen/ })).toBeNull();
+    // The poster's four panels, never a promise that the comic is coming.
+    expect(
+      screen.getAllByRole("button", { name: /^Open panel \d of 4 full screen$/ })
+    ).toHaveLength(4);
     expect(screen.queryByText("The comic will appear here soon")).toBeNull();
     expect(document.querySelector('script[type="application/ld+json"]')).toBeNull();
     // The scan that brought someone here is counted, and the page says so.
     expect(screen.getByText(/one anonymous count when you arrive/)).toBeTruthy();
+  });
+
+  it("shows the poster's panels, described, with the words they carry", async () => {
+    render(await ComicStoryPage(params(12)));
+    const panels = within(screen.getByRole("region", { name: "Comic panels" }));
+    const pictures = panels.getAllByRole("img");
+    expect(pictures.map((img) => img.getAttribute("src"))).toEqual(
+      POSTER_ART[12].panels.map((files) => `${STORAGE}${files.small}`)
+    );
+    expect(pictures.map((img) => img.getAttribute("alt"))).toEqual(
+      [1, 2, 3, 4].map((n) => bookDescriptionFor(12, n))
+    );
+    expect(pictures.every((img) => img.getAttribute("alt"))).toBe(true);
+    // The speech is in the art, so the transcript carries it for a screen reader.
+    const [first] = BOOK_DIALOGUE[12].panels[0].dialogue;
+    expect(panels.getByText(first.line)).toBeTruthy();
+    // No srcset: every page loads the 768 px file.
+    expect(pictures[0].getAttribute("srcset")).toBeNull();
+    expect(pictures[0].getAttribute("loading")).toBe("eager");
+    expect(pictures[1].getAttribute("loading")).toBe("lazy");
+  });
+
+  it("opens a panel full screen at its larger size", async () => {
+    render(await ComicStoryPage(params(12)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 2 of 4 full screen" }));
+    const dialog = screen.getByRole("dialog", { name: /panel 2 of 4/ });
+    expect(within(dialog).getByRole("img").getAttribute("src")).toBe(
+      `${STORAGE}${POSTER_ART[12].panels[1].full}`
+    );
+  });
+
+  it("gives the poster intro the same four panels", async () => {
+    render(await ComicStoryPage(params(12)));
+    const overlay = document.querySelector('[data-intro-overlay="poster"]');
+    const windows = Array.from(overlay?.querySelectorAll("img") ?? []);
+    expect(windows.map((img) => img.getAttribute("src"))).toEqual(
+      POSTER_ART[12].panels.map((files) => `${STORAGE}${files.small}`)
+    );
+  });
+
+  it("shows the words alone where there's no Supabase address to load the art from", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    render(await ComicStoryPage(params(12)));
+    expect(screen.getByRole("heading", { level: 1, name: "But You Were Closed!" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Comic panels" })).toBeNull();
+    expect(screen.getByText("Ask your team:")).toBeTruthy();
+    const meta = await storyMetadata(params(12));
+    expect(meta.openGraph?.images).toEqual([`https://agile.amrelharony.com${BOOK_SHARE_URL}`]);
   });
 
   it("renders all 26 from the campaign's data file", async () => {
@@ -188,7 +243,11 @@ describe("a book episode", () => {
     render(await ComicStoryPage(params(12)));
     expect(screen.getByRole("heading", { level: 1, name: "But You Were Closed!" })).toBeTruthy();
     expect(screen.queryByText("An edited title")).toBeNull();
-    expect(screen.queryByRole("button", { name: /full screen/ })).toBeNull();
+    // The poster's panels, never the row's.
+    const sources = within(screen.getByRole("region", { name: "Comic panels" }))
+      .getAllByRole("img")
+      .map((img) => img.getAttribute("src"));
+    expect(sources).toEqual(POSTER_ART[12].panels.map((files) => `${STORAGE}${files.small}`));
     expect(h.extrasCalls).toEqual([]);
   });
 
@@ -216,13 +275,14 @@ describe("a book episode", () => {
     );
   });
 
-  it("stays out of search and points at the public address", async () => {
+  it("stays out of search, points at the public address and previews as its poster", async () => {
     const meta = await storyMetadata(params(12));
     expect(meta.title).toBe("But You Were Closed! — Agile at Work");
     expect(meta.robots).toEqual({ index: false, follow: true });
     expect(meta.alternates?.canonical).toBe("/comics?ep=12");
     expect(meta.other).toEqual({ robots: "noai, noimageai" });
-    expect(meta.openGraph?.images).toEqual([`https://agile.amrelharony.com${BOOK_SHARE_URL}`]);
+    expect(meta.openGraph?.images).toEqual([`${STORAGE}${POSTER_ART[12].share}`]);
+    expect(meta.twitter).toMatchObject({ images: [`${STORAGE}${POSTER_ART[12].share}`] });
   });
 });
 
@@ -243,6 +303,29 @@ describe("the plain address", () => {
     for (const habit of ["Focus", "Ownership", "Real needs", "Trust"]) {
       expect(within(index).getAllByText(habit).length).toBeGreaterThan(0);
     }
+  });
+
+  it("shows each book episode with its poster's first panel, loaded as it nears the screen", async () => {
+    render(await ComicsPage());
+    const index = screen.getByRole("region", { name: "The 26 episodes in the book" });
+    const links = within(index)
+      .getAllByRole("link")
+      .filter((a) => a.getAttribute("href")?.startsWith("/comics?ep="));
+    const covers = links.map((a) => a.querySelector("img"));
+    expect(covers.map((img) => img?.getAttribute("src"))).toEqual(
+      BOOK_EPISODES.map((e) => `${STORAGE}${POSTER_ART[e.ep].panels[0].small}`)
+    );
+    // The title names the link, so the picture says nothing of its own.
+    expect(covers.every((img) => img?.getAttribute("alt") === "")).toBe(true);
+    expect(covers.every((img) => img?.getAttribute("loading") === "lazy")).toBe(true);
+  });
+
+  it("lists the book's episodes as words alone where the art can't load", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    render(await ComicsPage());
+    const index = screen.getByRole("region", { name: "The 26 episodes in the book" });
+    expect(within(index).queryAllByRole("img")).toEqual([]);
+    expect(within(index).getAllByRole("link", { name: /^Episode \d+:/ })).toHaveLength(26);
   });
 
   it("offers the open kudos cards' scanners a way to thank someone", async () => {
@@ -893,7 +976,8 @@ describe("the gallery", () => {
     const thisWeek = within(screen.getByRole("region", { name: "Newest story" })).getByRole(
       "presentation"
     );
-    const cards = art.filter((img) => img !== thisWeek);
+    const bookIndex = screen.getByRole("region", { name: "The 26 episodes in the book" });
+    const cards = art.filter((img) => img !== thisWeek && !bookIndex.contains(img));
     expect(thisWeek.getAttribute("loading")).toBe("eager");
     expect(thisWeek.getAttribute("fetchpriority")).toBe("high");
     expect(thisWeek.getAttribute("src")).toContain("-768.webp");
@@ -903,6 +987,14 @@ describe("the gallery", () => {
       expect(img.getAttribute("loading")).toBe("lazy");
       expect(img.hasAttribute("fetchpriority")).toBe(false);
       expect(img.getAttribute("src")).toContain("-768.webp");
+    }
+    // And the book's 26 posters, small and lazy too.
+    const book = art.filter((img) => bookIndex.contains(img));
+    expect(book.length).toBe(26);
+    for (const img of book) {
+      expect(img.getAttribute("loading")).toBe("lazy");
+      expect(img.hasAttribute("fetchpriority")).toBe(false);
+      expect(img.getAttribute("src")).toMatch(/\/posters\/ep-\d{2}\.p1\.[0-9a-f]{10}\.768\.webp$/);
     }
   });
 
