@@ -13,6 +13,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE))
 
 from cast import checks, parts, spec  # noqa: E402
 
@@ -54,6 +55,63 @@ class Tolerances(unittest.TestCase):
         self.assertEqual(spec.range_for("limb-mid-r"), SPEC["ranges"]["limb"])
         self.assertEqual(spec.range_for("pupil-r"), 0)
         self.assertEqual(spec.PACK, SPEC["pack"])
+
+
+class TapMovesAndRenderSettings(unittest.TestCase):
+    # What each tap move needs on the rig (src/lib/cast/clips.ts: the sockets its
+    # tracks turn, the swaps it shows).
+    NEEDS = {
+        "tail": {"tail"},
+        "ears": {"ear-r", "ear-l"},
+        "flap": {"flap"},
+        "quills": {"quills"},
+        "load": {"load"},
+        "fan": {"fan-open", "fan-closed"},
+    }
+    POSES = {"prop": [("arm-l", "sig")], "chin": [("arm-l", "chin")], "wave": [("arm-r", "wave")], "point": [("arm-r", "point")], "open": [("arm-r", "open"), ("arm-l", "open")]}
+
+    def test_every_character_has_one_or_two_moves_its_rig_can_play(self):
+        for c in SPEC["characters"]:
+            self.assertIsNone(spec.signature_problem(c.get("signature")), c["id"])
+            pieces = {*c["parts"], *(c.get("parts2") or [])}
+            poses = set(spec.arm_poses(c)) if "arms" in c["images"] else set()
+            for sid in c["signature"]:
+                name = sid.split(".", 1)[1]
+                if name in self.NEEDS:
+                    self.assertLessEqual(self.NEEDS[name], pieces, (c["id"], sid))
+                if name in self.POSES:
+                    self.assertLessEqual(set(self.POSES[name]), poses, (c["id"], sid))
+                if name == "ripple":
+                    self.assertGreaterEqual(sum(p.startswith(("tentacle-", "limb-")) for p in pieces), 8, c["id"])
+        self.assertEqual(spec.signature_problem(["sig.hop", "sig.hop"]), "the same tap move twice")
+        self.assertIsNotNone(spec.signature_problem([]))
+        self.assertIsNotNone(spec.signature_problem(["hop"]))
+
+    def test_arm_parts_name_a_front_pair_of_the_characters_own_pieces(self):
+        for c in SPEC["characters"]:
+            arm_parts = c.get("arm_parts")
+            if not arm_parts:
+                continue
+            self.assertIn("arms", c["images"], c["id"])
+            self.assertEqual(sorted(arm_parts), ["arm-l", "arm-r"], c["id"])
+            self.assertLessEqual(set(arm_parts.values()), {*c["parts"], *(c.get("parts2") or [])}, c["id"])
+            self.assertNotIn("arm-r", c["parts"], c["id"])
+
+    def test_translucency_is_an_opacity(self):
+        for c in SPEC["characters"]:
+            if "translucent" in c:
+                self.assertTrue(0 < c["translucent"] < 1, c["id"])
+
+    def test_no_part_turns_past_what_a_clip_may_turn_it(self):
+        import cast_contract as contract
+        from cast import rig
+
+        for c in SPEC["characters"]:
+            for pid in [*c["parts"], *(c.get("parts2") or [])]:
+                sock = rig.socket_of(pid)
+                if sock:
+                    self.assertLessEqual(spec.range_for(pid), contract.turn_limit(sock), (c["id"], pid))
+        self.assertGreater(spec.range_for("load"), 0)  # sig.load turns it, so C7 sweeps it
 
 
 class BriefAgreement(unittest.TestCase):

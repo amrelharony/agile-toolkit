@@ -23,7 +23,7 @@ from PIL import Image
 
 from . import atlas, fmt, ledger, rig
 from . import imaging as im
-from .spec import AMR, BUDGETS, ROOT, SPEC_PATH, batch_of, character, is_complex, load_spec
+from .spec import AMR, BUDGETS, ROOT, SPEC_PATH, batch_of, character, is_complex, load_spec, signature_problem
 
 PUBLIC = ROOT / "public" / "cast"
 TS_PATH = ROOT / "src" / "lib" / "cast" / "rigs.generated.ts"
@@ -207,6 +207,11 @@ def c16(man: dict, public_dir: Path = PUBLIC, spec: dict | None = None) -> dict:
         notes.append(f"{man['counts']['nodes']} nodes, over {BUDGETS['rig_nodes_max']}")
     if man["counts"]["animated"] > BUDGETS["rig_animated_max"]:
         notes.append(f"{man['counts']['animated']} animated parts, over {BUDGETS['rig_animated_max']}")
+    why = signature_problem(man.get("signature"))
+    if why:
+        notes.append(f"signature: {why}")
+    if "translucent" in man and not 0 < man["translucent"] < 1:
+        notes.append(f"translucent {man['translucent']} is not between 0 and 1")
     if spec is not None:
         c = next((x for x in spec["characters"] if x["id"] == cid), None)
         appr = (c or {}).get("approved", {})

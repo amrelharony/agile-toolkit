@@ -131,6 +131,20 @@ def is_complex(cid: str) -> bool:
     return cid in BUDGETS["complex"]
 
 
+def signature_problem(sig) -> str | None:
+    """Why a tap-move list isn't one or two `sig.*` clip ids (None when it is):
+    the runtime plays a tap's signature from src/lib/cast/clips.ts."""
+    sig = list(sig or [])
+    if not 1 <= len(sig) <= 2:
+        return f"{len(sig)} tap moves, not one or two"
+    bad = [s for s in sig if not isinstance(s, str) or not s.startswith("sig.")]
+    if bad:
+        return f"not sig.* clip ids: {', '.join(map(str, bad))}"
+    if len(set(sig)) != len(sig):
+        return "the same tap move twice"
+    return None
+
+
 def range_for(part_id: str) -> int:
     """The joint range in degrees a part may turn (0 = it never turns)."""
     base = re.sub(r"-(r|l|\d+|f[rl]|h[rl]|mid-[rl]|open|closed)$", "", part_id)

@@ -13,8 +13,8 @@ The palette lock moves colour only, never a pixel's place, so it runs right
 after each sheet's key-out and every later step sees the locked colours. The
 candidate keeps its 2x atlas lossless (atlas@2x.png) and its manifest in
 candidate.json; `build` encodes exactly those, so what the owner approved on the
-review page is what ships. The manifest's `signature` stays empty: the clips
-(src/lib/cast/clips.ts) are the runtime PR's.
+review page is what ships. The manifest's `signature` (the tap moves) and
+`translucent` come from the character's entry in cast-rig.json.
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ from .spec import (
     cell_count,
     is_complex,
     range_for,
+    signature_problem,
 )
 
 # What a face piece keeps with its head or body (the brief: ears, a flap, the tie).
@@ -178,6 +179,9 @@ def rotate_about(mask: np.ndarray, x: float, y: float, deg: float) -> np.ndarray
 
 def candidate(cid: str, sources: Path, review_root: Path | None = None, out=print) -> dict:
     c = character(cid)
+    why = signature_problem(c.get("signature"))
+    if why:
+        raise SystemExit(f"{cid}: docs/cast/cast-rig.json `signature`: {why}")
     sources = Path(sources)
     batch = batch_of(cid)
     folder = (Path(review_root) if review_root else sources / "review") / batch / cid

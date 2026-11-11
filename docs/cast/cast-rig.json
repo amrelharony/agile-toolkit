@@ -1,5 +1,5 @@
 {
-  "about": "The public half of the cast puppet spec: body families, the images each character's ChatGPT chat makes, batches, background keys, the tolerances the brief states and the builder checks (every builder threshold is here; shown_to_chatgpt lists the ones the brief states), the joint ranges, the atlas settings and budgets. Character canon (looks, colours, references) lives only in the private sources folder; see docs/cast/CAST-BUILD.md.",
+  "about": "The public half of the cast puppet spec: body families, the images each character's ChatGPT chat makes, batches, background keys, the tolerances the brief states and the builder checks (every builder threshold is here; shown_to_chatgpt lists the ones the brief states), the joint ranges, each character's tap moves (`signature`, clip ids of src/lib/cast/clips.ts), the atlas settings and budgets. Character canon (looks, colours, references) lives only in the private sources folder; see docs/cast/CAST-BUILD.md.",
   "brief_version": 1,
   "keys": {
     "magenta": "#FF00FF",
@@ -90,7 +90,8 @@
     "cord": 6,
     "tentacle": 12,
     "limb": 12,
-    "flap": 20
+    "flap": 20,
+    "load": 6
   },
   "pack": {
     "gutter_1x_px": 2,
@@ -161,7 +162,8 @@
       "family": "human",
       "key": "magenta",
       "images": ["master", "parts", "face", "face2", "arms"],
-      "parts": ["head", "torso", "cord", "arm-r", "arm-l", "leg-r", "leg-l"]
+      "parts": ["head", "torso", "cord", "arm-r", "arm-l", "leg-r", "leg-l"],
+      "signature": ["sig.wave"]
     },
     {
       "id": "AAW-02",
@@ -170,7 +172,8 @@
       "key": "magenta",
       "card": false,
       "images": ["master", "parts", "face", "arms"],
-      "parts": ["torso", "pupil-r", "pupil-l", "arm-r", "arm-l", "leg-r", "leg-l"]
+      "parts": ["torso", "pupil-r", "pupil-l", "arm-r", "arm-l", "leg-r", "leg-l"],
+      "signature": ["sig.hop"]
     },
     {
       "id": "AAW-03",
@@ -189,7 +192,8 @@
         "arm-l",
         "leg-r",
         "leg-l"
-      ]
+      ],
+      "signature": ["sig.prop"]
     },
     {
       "id": "AAW-04",
@@ -209,7 +213,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.prop", "sig.tail"]
     },
     {
       "id": "AAW-05",
@@ -218,7 +223,8 @@
       "key": "magenta",
       "images": ["master", "parts", "parts2", "face"],
       "parts": ["head", "pupil-r", "pupil-l", "neck", "torso", "load", "tie", "cord"],
-      "parts2": ["leg-fr", "leg-fl", "leg-hr", "leg-hl", "tail"]
+      "parts2": ["leg-fr", "leg-fl", "leg-hr", "leg-hl", "tail"],
+      "signature": ["sig.load"]
     },
     {
       "id": "AAW-06",
@@ -240,7 +246,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.prop", "sig.tail"]
     },
     {
       "id": "AAW-07",
@@ -260,7 +267,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.eyes", "sig.tail"]
     },
     {
       "id": "AAW-08",
@@ -280,7 +288,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.stomp"]
     },
     {
       "id": "AAW-09",
@@ -289,7 +298,8 @@
       "key": "magenta",
       "arms": "glove",
       "images": ["master", "parts", "face", "arms"],
-      "parts": ["head", "pupil-r", "pupil-l", "torso", "cord", "arm-r", "arm-l", "leg-r", "leg-l"]
+      "parts": ["head", "pupil-r", "pupil-l", "torso", "cord", "arm-r", "arm-l", "leg-r", "leg-l"],
+      "signature": ["sig.chin"]
     },
     {
       "id": "AAW-10",
@@ -310,7 +320,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.point", "sig.snap"]
     },
     {
       "id": "AAW-11",
@@ -332,7 +343,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.tail"]
     },
     {
       "id": "AAW-12",
@@ -341,7 +353,9 @@
       "key": "green",
       "arms": "soft",
       "images": ["master", "parts", "face", "arms"],
-      "parts": ["torso", "pupil-r", "pupil-l", "arm-r", "arm-l", "cord"]
+      "parts": ["torso", "pupil-r", "pupil-l", "arm-r", "arm-l", "cord"],
+      "signature": ["sig.float"],
+      "translucent": 0.9
     },
     {
       "id": "AAW-13",
@@ -361,7 +375,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.hop"]
     },
     {
       "id": "AAW-14",
@@ -381,7 +396,8 @@
         "leg-r",
         "leg-l",
         "quills"
-      ]
+      ],
+      "signature": ["sig.quills"]
     },
     {
       "id": "AAW-15",
@@ -400,7 +416,8 @@
         "arm-l",
         "leg-r",
         "leg-l"
-      ]
+      ],
+      "signature": ["sig.open"]
     },
     {
       "id": "AAW-16",
@@ -419,7 +436,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.wave"]
     },
     {
       "id": "AAW-17",
@@ -441,7 +459,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.ears", "sig.prop"]
     },
     {
       "id": "AAW-18",
@@ -459,7 +478,12 @@
         "tentacle-6",
         "tentacle-7",
         "tentacle-8"
-      ]
+      ],
+      "arm_parts": {
+        "arm-r": "tentacle-1",
+        "arm-l": "tentacle-2"
+      },
+      "signature": ["sig.ripple"]
     },
     {
       "id": "AAW-19",
@@ -479,7 +503,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.swivel"]
     },
     {
       "id": "AAW-20",
@@ -499,7 +524,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.prop"]
     },
     {
       "id": "AAW-21",
@@ -519,7 +545,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.prop", "sig.nod"]
     },
     {
       "id": "AAW-22",
@@ -540,7 +567,8 @@
         "leg-r",
         "leg-l"
       ],
-      "parts2": ["fan-open", "fan-closed"]
+      "parts2": ["fan-open", "fan-closed"],
+      "signature": ["sig.fan"]
     },
     {
       "id": "AAW-23",
@@ -562,7 +590,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.ears", "sig.prop"]
     },
     {
       "id": "AAW-24",
@@ -571,7 +600,12 @@
       "key": "green",
       "images": ["master", "parts", "parts2", "face", "arms"],
       "parts": ["head", "pupil-r", "pupil-l", "torso", "tie", "cord", "abdomen"],
-      "parts2": ["limb-1", "limb-2", "limb-3", "limb-4", "limb-5", "limb-6", "limb-7", "limb-8"]
+      "parts2": ["limb-1", "limb-2", "limb-3", "limb-4", "limb-5", "limb-6", "limb-7", "limb-8"],
+      "arm_parts": {
+        "arm-r": "limb-1",
+        "arm-l": "limb-2"
+      },
+      "signature": ["sig.ripple"]
     },
     {
       "id": "AAW-25",
@@ -580,7 +614,8 @@
       "key": "magenta",
       "card": false,
       "images": ["master", "parts", "face", "arms"],
-      "parts": ["torso", "flap", "pupil-r", "pupil-l", "arm-r", "arm-l", "leg-r", "leg-l"]
+      "parts": ["torso", "flap", "pupil-r", "pupil-l", "arm-r", "arm-l", "leg-r", "leg-l"],
+      "signature": ["sig.flap", "sig.hop"]
     },
     {
       "id": "AAW-26",
@@ -599,7 +634,8 @@
         "limb-mid-l",
         "leg-r",
         "leg-l"
-      ]
+      ],
+      "signature": ["sig.prop"]
     },
     {
       "id": "AAW-27",
@@ -620,7 +656,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.retreat"]
     },
     {
       "id": "AAW-28",
@@ -642,7 +679,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.point", "sig.ears"]
     },
     {
       "id": "AAW-29",
@@ -661,7 +699,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.prop"]
     },
     {
       "id": "AAW-30",
@@ -680,7 +719,8 @@
         "leg-r",
         "leg-l",
         "tail"
-      ]
+      ],
+      "signature": ["sig.prop"]
     }
   ],
   "budgets": {

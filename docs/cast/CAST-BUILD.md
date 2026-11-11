@@ -9,14 +9,14 @@ This file is the public-safe half of the contract: what returns from ChatGPT, ho
 
 ## Where things live
 
-| What                                                                                           | Where                                                                              | In git?                               |
-| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------- |
-| Families, images per character, batches, keys, tolerances, budgets, part ids, approved shas    | `docs/cast/cast-rig.json`                                                          | yes                                   |
-| Generic brief text (how to answer, master block, image blocks, arm wording, checks, fix lines) | `scripts/cast/brief-blocks.mjs`                                                    | yes                                   |
-| Brief generator / batch packer                                                                 | `scripts/build-cast-brief.mjs`, `scripts/cast/make-batches.py`                     | yes                                   |
-| Character canon (looks, colours, references, never-lists, conflicts) and the generated briefs  | `D:\Claude Desktop\Agile_At_Work_Cast_Sources\` (`sources/`, `brief/`, `batches/`) | **never**                             |
-| Returns from ChatGPT, approved copies, ledgers, review pages                                   | the same folder (`returns/`, `accepted/`, `approved/`, `ledger/`, `review/`)       | **never**                             |
-| Built atlases and the rig manifest                                                             | `public/cast/aaw-NN[@2x].<sha8>.webp`, `src/lib/cast/rigs.generated.ts`            | yes, built only from approved sources |
+| What                                                                                                   | Where                                                                              | In git?                               |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ------------------------------------- |
+| Families, images per character, batches, keys, tolerances, budgets, part ids, tap moves, approved shas | `docs/cast/cast-rig.json`                                                          | yes                                   |
+| Generic brief text (how to answer, master block, image blocks, arm wording, checks, fix lines)         | `scripts/cast/brief-blocks.mjs`                                                    | yes                                   |
+| Brief generator / batch packer                                                                         | `scripts/build-cast-brief.mjs`, `scripts/cast/make-batches.py`                     | yes                                   |
+| Character canon (looks, colours, references, never-lists, conflicts) and the generated briefs          | `D:\Claude Desktop\Agile_At_Work_Cast_Sources\` (`sources/`, `brief/`, `batches/`) | **never**                             |
+| Returns from ChatGPT, approved copies, ledgers, review pages                                           | the same folder (`returns/`, `accepted/`, `approved/`, `ledger/`, `review/`)       | **never**                             |
+| Built atlases and the rig manifest                                                                     | `public/cast/aaw-NN[@2x].<sha8>.webp`, `src/lib/cast/rigs.generated.ts`            | yes, built only from approved sources |
 
 **Custody rules:**
 

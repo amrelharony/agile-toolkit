@@ -115,7 +115,8 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(man["pupils"]["shownWith"], ["open", "wide"])
         self.assertTrue(all(t > 0 for t in man["pupils"]["travel"]))
         self.assertEqual(man["counts"]["nodes"], rig.count_nodes(man))
-        self.assertEqual(contract.problems(man), ["one or two signature moves"])
+        self.assertEqual(man["signature"], spec.character(CID)["signature"])
+        self.assertEqual(contract.problems(man), [])
         self.assertNotRegex(json.dumps(man), r"#[0-9A-Fa-f]{6}")
 
     def test_3_build_refuses_without_every_approval(self):
