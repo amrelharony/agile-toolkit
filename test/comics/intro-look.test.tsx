@@ -30,8 +30,18 @@ const VIP = `${DIR}/vip-intro.module.css`;
 const INTRO_SHEETS = [BOOK, POSTER, VIP, LOOK];
 /** The scenes, which are the ones that animate. */
 const SCENES = [BOOK, POSTER, VIP];
-/** The scenes whose clip-path wipes have a bowed shape() twin. I2 adds the poster and VIP. */
-const WIPE_TWINS = [BOOK];
+/**
+ * Each scene's clip-path wipes, by keyframes name: the ink wipes, which carry
+ * a bowed shape() twin, and the ones kept straight on purpose. A poster
+ * window's edge runs exactly on its band's leading edge, which a bow on either
+ * would break; the VIP rule is a pen stroke a few pixels tall, where no bow
+ * would show.
+ */
+const WIPES: Record<string, { bowed: string[]; straight: string[] }> = {
+  [BOOK]: { bowed: ["book-ink"], straight: [] },
+  [POSTER]: { bowed: ["ink"], straight: ["reveal", "band"] },
+  [VIP]: { bowed: ["vipInkWipe"], straight: ["vipRule"] },
+};
 
 function read(file: string): string {
   return readFileSync(path.join(process.cwd(), file), "utf8");
@@ -126,6 +136,35 @@ function value(rule: Rule, property: string): string | undefined {
   return rule.decls.find(([p]) => p === property)?.[1];
 }
 
+/**
+ * Holds every mask longhand in `rules` to its -webkit- twin, written first
+ * with the same value, and every -webkit- one to its plain twin; no mask
+ * shorthand. Returns how many plain mask longhands it checked.
+ */
+function checkMaskTwins(rules: Rule[]): number {
+  let masks = 0;
+  for (const rule of rules) {
+    rule.decls.forEach(([property, v], i) => {
+      expect(property, rule.selector).not.toMatch(/^(?:-webkit-)?mask$/);
+      if (!property.startsWith("mask-")) return;
+      masks += 1;
+      const twin = rule.decls.findIndex(([p]) => p === `-webkit-${property}`);
+      expect(twin, `${rule.selector}: -webkit-${property}`).toBeGreaterThan(-1);
+      expect(twin, `${rule.selector}: -webkit-${property} before ${property}`).toBeLessThan(i);
+      expect(rule.decls[twin][1]).toBe(v);
+    });
+    for (const [property] of rule.decls) {
+      if (!property.startsWith("-webkit-mask-")) continue;
+      const plain = property.slice("-webkit-".length);
+      expect(
+        rule.decls.some(([p]) => p === plain),
+        `${rule.selector}: ${plain}`
+      ).toBe(true);
+    }
+  }
+  return masks;
+}
+
 afterEach(cleanup);
 
 describe("intro-look.module.css", () => {
@@ -148,27 +187,7 @@ describe("intro-look.module.css", () => {
   });
 
   it("writes every mask property's -webkit- twin first, with the same value, and no mask shorthand", () => {
-    let masks = 0;
-    for (const rule of look.rules) {
-      rule.decls.forEach(([property, v], i) => {
-        expect(property, rule.selector).not.toMatch(/^(?:-webkit-)?mask$/);
-        if (!property.startsWith("mask-")) return;
-        masks += 1;
-        const twin = rule.decls.findIndex(([p]) => p === `-webkit-${property}`);
-        expect(twin, `${rule.selector}: -webkit-${property}`).toBeGreaterThan(-1);
-        expect(twin, `${rule.selector}: -webkit-${property} before ${property}`).toBeLessThan(i);
-        expect(rule.decls[twin][1]).toBe(v);
-      });
-      for (const [property] of rule.decls) {
-        if (!property.startsWith("-webkit-mask-")) continue;
-        const plain = property.slice("-webkit-".length);
-        expect(
-          rule.decls.some(([p]) => p === plain),
-          `${rule.selector}: ${plain}`
-        ).toBe(true);
-      }
-    }
-    expect(masks).toBeGreaterThanOrEqual(3);
+    expect(checkMaskTwins(look.rules)).toBeGreaterThanOrEqual(3);
   });
 
   it("masks the grain with the tile at its own size, repeating", () => {
@@ -211,6 +230,28 @@ describe("intro-look.module.css", () => {
     const turn = own(".turn");
     expect(value(turn, "background-color")).toBe("var(--shadow-color)");
     expect(value(turn, "opacity")).toBe("0");
+  });
+
+  // DNA-SPEC: comic light on a page as it turns or lifts is a flat lightening
+  // in the text ink in Night, where the shadow ink barely shows on the card.
+  it("lightens a turning face in Night, in the text ink and near the stripe's strength", () => {
+    const night = own(":global(html.dark) .turn");
+    expect(night.decls).toEqual([["background-color", "transparent"]]);
+    const ink = own(":global(html.dark) .turn::before");
+    expect(value(ink, "content")).toBe('""');
+    expect(value(ink, "position")).toBe("absolute");
+    expect(value(ink, "inset")).toBe("0");
+    expect(value(ink, "background-color")).toBe("var(--text)");
+    // Every scene steps a turning face's shade up to 24%.
+    const peaks = SCENES.flatMap((file) =>
+      parse(read(file))
+        .keyframes.filter((k) => /shade/i.test(k.name) && k.name !== "vipShade")
+        .map((k) => Number(k.steps.at(-1)!.decls.find(([p]) => p === "opacity")?.[1]))
+    );
+    expect(peaks).toEqual([0.24, 0.24, 0.24]);
+    const lightening = 0.24 * Number(value(ink, "opacity"));
+    expect(lightening).toBeGreaterThan(0.05);
+    expect(lightening).toBeLessThanOrEqual(0.08);
   });
 });
 
@@ -339,9 +380,17 @@ describe("every intro stylesheet", () => {
     }
   });
 
+  it.each(INTRO_SHEETS)(
+    "writes every mask property in %s after its -webkit- twin, with the same value",
+    (file) => {
+      checkMaskTwins(parse(read(file)).rules);
+    }
+  );
+
   it("uses linear() only inside keyframes, and only as tokens.ts's settle or pop spring", () => {
     const springs: string[] = [EASE.settle, EASE.pop];
     let used = 0;
+    const byFile = new Map<string, number>();
     for (const { file, text, rules, keyframes } of sheets) {
       for (const rule of rules) {
         for (const [p, v] of rule.decls) {
@@ -363,8 +412,11 @@ describe("every intro stylesheet", () => {
       const all = text.replace(/\/\*[\s\S]*?\*\//g, "").match(/linear\(/g) ?? [];
       expect(all.length, file).toBe(inKeyframes);
       used += inKeyframes;
+      byFile.set(file, inKeyframes);
     }
     expect(used).toBeGreaterThan(0);
+    // Every scene lands on them: the poster and the VIP intro as the book does.
+    for (const scene of SCENES) expect(byFile.get(scene), scene).toBeGreaterThan(0);
   });
 
   it("keeps the spring's own one-overshoot cubic-bezier in every shorthand whose keyframes use it", () => {
@@ -373,7 +425,9 @@ describe("every intro stylesheet", () => {
       [EASE.pop]: EASE_FALLBACK.pop,
     };
     let checked = 0;
+    const byFile = new Map<string, number>();
     for (const { file, rules, keyframes } of sheets) {
+      const before = checked;
       const names = new Set(keyframes.map((k) => k.name));
       const springOf = new Map(
         keyframes.map((k) => {
@@ -395,10 +449,150 @@ describe("every intro stylesheet", () => {
           expect(Math.max(y1, y2), one).toBeGreaterThan(1);
         }
       }
+      byFile.set(file, checked - before);
     }
     expect(checked).toBeGreaterThanOrEqual(3);
+    for (const scene of SCENES) expect(byFile.get(scene), scene).toBeGreaterThan(0);
+  });
+
+  // The two tests above see only linear(). A hand-made overshoot hides in a
+  // curve that passes its value or in a step part-way through a landing, so
+  // these hold the scenes to "the settle and pop springs only" for both.
+  it("passes a value only on a spring: any other curve that would is a spring's own fallback", () => {
+    const springOf: Record<string, string> = {
+      [EASE_FALLBACK.settle]: EASE.settle,
+      [EASE_FALLBACK.pop]: EASE.pop,
+    };
+    let fallbacks = 0;
+    for (const file of SCENES) {
+      const { rules, keyframes } = sheets.find((s) => s.file === file)!;
+      const names = new Set(keyframes.map((k) => k.name));
+      for (const k of keyframes) {
+        for (const step of k.steps) {
+          for (const [p, v] of step.decls) {
+            for (const curve of v.match(/cubic-bezier\([^)]*\)/g) ?? []) {
+              expect(overshoots(curve), `${file} ${k.name} ${step.offsets} ${p}: ${curve}`).toBe(
+                false
+              );
+            }
+          }
+        }
+      }
+      for (const rule of rules) {
+        for (const [p, v] of rule.decls) {
+          if (p === "animation") continue;
+          expect(v, `${file} ${rule.selector} ${p}`).not.toMatch(/cubic-bezier\(/);
+        }
+        for (const [name, one] of animationsOf(rule, names)) {
+          for (const curve of one.match(/cubic-bezier\([^)]*\)/g) ?? []) {
+            if (!overshoots(curve)) continue;
+            fallbacks += 1;
+            // Only as the fallback of the spring that animation's keyframes run.
+            expect(Object.keys(springOf), `${file} ${rule.selector}: ${one}`).toContain(curve);
+            const values = keyframes
+              .filter((k) => k.name === name)
+              .flatMap((k) => k.steps.flatMap((s) => s.decls.map(([, v]) => v)));
+            expect(values, `${file} ${rule.selector}: ${one}`).toContain(springOf[curve]);
+          }
+        }
+      }
+    }
+    expect(fallbacks).toBeGreaterThan(0);
+  });
+
+  it("lands every move that stays shown in one leg, its pace set on its first step alone", () => {
+    for (const file of SCENES) {
+      const { keyframes } = sheets.find((s) => s.file === file)!;
+      const landings = keyframes.filter(staysShown);
+      expect(landings.length, file).toBeGreaterThan(0);
+      for (const k of landings) {
+        const offsets = k.steps.map((s) => s.offsets);
+        if (LEGS[file].includes(k.name)) {
+          expect(offsets.length, `${file} ${k.name}`).toBeGreaterThan(2);
+          continue;
+        }
+        expect(offsets.length, `${file} ${k.name}: ${offsets.join(" | ")}`).toBe(2);
+        expect(offsets[0], `${file} ${k.name}`).toMatch(/^(?:from|0%)$/);
+        expect(offsets[1], `${file} ${k.name}`).toMatch(/^(?:to|100%)$/);
+        const paced = k.steps.filter((s) =>
+          s.decls.some(([p]) => p === "animation-timing-function")
+        );
+        expect(
+          paced.every((s) => s === k.steps[0]),
+          `${file} ${k.name}`
+        ).toBe(true);
+      }
+      // Every move allowed its legs is in the sheet, and stays shown.
+      for (const name of LEGS[file]) {
+        expect(
+          landings.map((k) => k.name),
+          `${file} ${name}`
+        ).toContain(name);
+      }
+    }
+  });
+
+  it("lifts each turning sheet to upright before it lets it fall, with a spring only on the fall", () => {
+    const turns = SCENES.flatMap((file) =>
+      sheets
+        .find((s) => s.file === file)!
+        .keyframes.filter((k) => LEGS[file].includes(k.name) && k.name !== "vipFan")
+        .map((k) => [file, k] as const)
+    );
+    expect(turns.map(([, k]) => k.name)).toEqual([
+      "book-open",
+      "book-leaf1",
+      "book-leaf2",
+      "vipBookOpen",
+    ]);
+    for (const [file, k] of turns) {
+      const label = `${file} ${k.name}`;
+      expect(k.steps, label).toHaveLength(3);
+      const [lift, upright, fall] = k.steps;
+      const transform = (s: (typeof k.steps)[number]) =>
+        s.decls.find(([p]) => p === "transform")?.[1];
+      expect(transform(lift), label).toMatch(/^rotateY\(0deg\)/);
+      expect(transform(upright), label).toMatch(/^rotateY\(-90deg\)/);
+      expect(transform(fall), label).toMatch(/^rotateY\(-1[56]\d(?:\.\d+)?deg\)/);
+      for (const step of [lift, fall]) {
+        for (const [, v] of step.decls) expect(v, label).not.toMatch(/linear\(/);
+      }
+      expect(
+        fall.decls.map(([p]) => p),
+        label
+      ).not.toContain("animation-timing-function");
+    }
   });
 });
+
+/** Whether a cubic-bezier passes its end value or backs away first: a y outside 0 to 1. */
+function overshoots(curve: string): boolean {
+  const [, y1, , y2] = curve.slice(13, -1).split(",").map(Number);
+  return [y1, y2].some((y) => y < 0 || y > 1);
+}
+
+/** A keyframes that moves its element and leaves it shown: a landing, or a drift. */
+function staysShown(k: Keyframes): boolean {
+  const moves = k.steps.some((s) => s.decls.some(([p]) => p === "transform"));
+  const hides = k.steps
+    .at(-1)!
+    .decls.some(
+      ([p, v]) => (p === "opacity" && Number(v) === 0) || (p === "visibility" && v === "hidden")
+    );
+  return moves && !hides;
+}
+
+/**
+ * The moves allowed more than one leg, by scene, none of them past its place
+ * part-way. A sheet or cover lifted to upright and let fall: the lift is no
+ * landing, and a spring, if any, is on the fall (the test above). The VIP
+ * covers rise as one stack, then fan out (vipFan, left as it was).
+ */
+const LEGS: Record<string, string[]> = {
+  [BOOK]: ["book-open", "book-leaf1", "book-leaf2"],
+  [POSTER]: [],
+  [VIP]: ["vipBookOpen", "vipFan"],
+};
 
 /** Whether a declaration would flatten an element that keeps the 3D space open. */
 function flattens([property, v]: Decl): boolean {
@@ -486,6 +680,30 @@ describe("the 3D rule: what keeps the 3D space open moves by transform alone", (
     );
     expect(scene.decls.some(([p]) => p === "transform-style")).toBe(false);
   });
+
+  it("keeps the VIP book's 3D space open from its drop to its cover, and fades only the camera and the wrapper", () => {
+    const { rules } = parse(read(VIP));
+    const open = rules
+      .filter((r) => r.decls.some(([p, v]) => p === "transform-style" && v === "preserve-3d"))
+      .map((r) => r.selector);
+    expect(open).toEqual([".bookDrop", ".bookCover"]);
+    // The camera sets the perspective and the wrapper steps the book back:
+    // neither keeps the 3D space open, so their fades flatten nothing.
+    for (const selector of [".bookCamera", ".book"]) {
+      const own = rules.filter((r) => r.selector === selector && r.at.length === 0);
+      expect(own, selector).toHaveLength(1);
+      expect(own[0].decls.some(([p]) => p === "transform-style")).toBe(false);
+    }
+    const camera = rules.find((r) => r.selector === ".bookCamera")!;
+    expect(camera.decls.map(([p]) => p)).toEqual(
+      expect.arrayContaining(["perspective", "animation"])
+    );
+  });
+
+  it("holds the poster to it too: nothing there keeps a 3D space open", () => {
+    const { rules } = parse(read(POSTER));
+    expect(rules.filter((r) => r.decls.some(([p]) => p === "transform-style"))).toEqual([]);
+  });
 });
 
 type Vec = Record<"%" | "rem" | "px", number>;
@@ -527,31 +745,79 @@ function corners(clip: string): string[] {
   return [pointKey(l, t), pointKey(right, t), pointKey(right, bottom), pointKey(l, bottom)];
 }
 
-/** A shape()'s points, and whether each curve's control lies on its own straight edge. */
-function shapePoints(clip: string): { points: string[]; straight: boolean } {
+type Point = [x: Vec, y: Vec];
+
+/**
+ * Whether `c` lies on the straight edge from `a` to `b` for a box of any size:
+ * the same fraction of the way along in every unit, on both axes.
+ */
+function onEdge(a: Point, b: Point, c: Point): boolean {
+  const flat = (p: Point) => p.flatMap((v) => [v["%"], v.rem, v.px]);
+  const [pa, pb, pc] = [flat(a), flat(b), flat(c)];
+  const d = pb.map((v, i) => v - pa[i]);
+  const k = d.findIndex((v) => Math.abs(v) > 1e-9);
+  if (k === -1) return pc.every((v, i) => Math.abs(v - pa[i]) < 1e-6);
+  const t = (pc[k] - pa[k]) / d[k];
+  return t >= -1e-9 && t <= 1 + 1e-9 && pc.every((v, i) => Math.abs(v - pa[i] - t * d[i]) < 1e-6);
+}
+
+/**
+ * A shape()'s points, as keys and as lengths, and whether each curve's control
+ * lies on its own straight edge (so the shape draws only straight edges).
+ */
+function shapePoints(clip: string): { points: string[]; ends: Point[]; straight: boolean } {
   const args = /^shape\((.*)\)$/.exec(clip);
   if (!args) throw new Error(`not a shape(): ${clip}`);
   const points: string[] = [];
+  const ends: Point[] = [];
   let straight = true;
-  let last: [Vec, Vec] | null = null;
+  let last: Point | null = null;
   for (const command of splitTop(args[1], ",")) {
     const words = splitTop(command, " ");
     if (words[0] === "close") continue;
     const at = words[0] === "from" ? 1 : 2;
-    const end: [Vec, Vec] = [length(words[at]), length(words[at + 1])];
+    const end: Point = [length(words[at]), length(words[at + 1])];
     if (words[0] === "curve") {
-      const control: [Vec, Vec] = [length(words[at + 3]), length(words[at + 4])];
-      const same = (a: Vec, b: Vec) => vecKey(a) === vecKey(b);
-      const onEdge =
-        (same(control[0], last![0]) && same(control[0], end[0])) ||
-        (same(control[1], last![1]) && same(control[1], end[1]));
-      if (!onEdge) straight = false;
+      const control: Point = [length(words[at + 3]), length(words[at + 4])];
+      if (!onEdge(last!, end, control)) straight = false;
     }
     points.push(pointKey(end[0], end[1]));
+    ends.push(end);
     last = end;
   }
-  return { points, straight };
+  return { points, ends, straight };
 }
+
+/** A step's offsets as fractions: `from`, `0%, 12%`, `to` → [0], [0, 0.12], [1]. */
+const offsetsOf = (offsets: string) =>
+  offsets.split(/,\s*/).map((o) => (o === "from" ? 0 : o === "to" ? 1 : parseFloat(o) / 100));
+
+/** The four numbers of the first cubic-bezier() in `value`. */
+function bezierOf(value: string | undefined): number[] {
+  const args = /cubic-bezier\(([^)]*)\)/.exec(value ?? "");
+  if (!args) throw new Error(`no cubic-bezier in ${value}`);
+  return args[1].split(",").map(Number);
+}
+
+/**
+ * A curve cut in two at its middle (de Casteljau at t = 0.5): where the cut
+ * falls in time and progress, and each half as a curve of its own from 0 to 1.
+ */
+function halves([x1, y1, x2, y2]: number[]) {
+  const mx = (3 * x1 + 3 * x2 + 1) / 8;
+  const my = (3 * y1 + 3 * y2 + 1) / 8;
+  const left = [x1 / 2 / mx, y1 / 2 / my, (2 * x1 + x2) / 4 / mx, (2 * y1 + y2) / 4 / my];
+  const right = [
+    ((x1 + 2 * x2 + 1) / 4 - mx) / (1 - mx),
+    ((y1 + 2 * y2 + 1) / 4 - my) / (1 - my),
+    ((x2 + 1) / 2 - mx) / (1 - mx),
+    ((y2 + 1) / 2 - my) / (1 - my),
+  ];
+  return { mx, my, left, right };
+}
+
+const stepEase = (step: Keyframes["steps"][number]) =>
+  step.decls.find(([p]) => p === "animation-timing-function")?.[1];
 
 const clipOf = (step: Keyframes["steps"][number]) =>
   step.decls.find(([p]) => p === "clip-path")?.[1];
@@ -578,15 +844,26 @@ describe("the ink wipes", () => {
     }
   });
 
-  it.each(WIPE_TWINS)(
-    "give every straight wipe in %s a bowed twin: its own name, the same shorthand, the same first and last frames",
+  it.each(SCENES)("name every clip-path wipe in %s as bowed or kept straight", (file) => {
+    const { keyframes } = parse(read(file));
+    const wipes = keyframes
+      .filter((k) => k.at.length === 0 && k.steps.some((s) => clipOf(s) !== undefined))
+      .map((k) => k.name);
+    expect(wipes.slice().sort()).toEqual([...WIPES[file].bowed, ...WIPES[file].straight].sort());
+  });
+
+  it.each(SCENES)(
+    "give every ink wipe in %s a bowed twin: its own name, the same shorthand, the same first and last frames",
     (file) => {
       const { rules, keyframes } = parse(read(file));
       const names = new Set(keyframes.map((k) => k.name));
       const wipes = keyframes.filter(
-        (k) => k.at.length === 0 && k.steps.some((s) => clipOf(s) !== undefined)
+        (k) =>
+          k.at.length === 0 &&
+          k.steps.some((s) => clipOf(s) !== undefined) &&
+          WIPES[file].bowed.includes(k.name)
       );
-      expect(wipes.length).toBeGreaterThan(0);
+      expect(wipes.map((k) => k.name)).toEqual(WIPES[file].bowed);
       for (const wipe of wipes) {
         const users = rules.filter(
           (r) => r.at.length === 0 && animationsOf(r, names).some(([n]) => n === wipe.name)
@@ -626,6 +903,38 @@ describe("the ink wipes", () => {
             clips.slice(1, -1).some((c) => !shapePoints(c).straight),
             twinName
           ).toBe(true);
+
+          // At the straight wipe's pace. That wipe moves on its shorthand's
+          // curve alone (its steps set none); the twin cuts that curve in two
+          // at its middle, so its one middle step comes when the straight
+          // wipe is halfway along the curve, with every point that far on its
+          // way, and each half keeps its half of the curve.
+          expect(wipe.steps, wipe.name).toHaveLength(2);
+          expect(
+            wipe.steps.every((s) => stepEase(s) === undefined),
+            wipe.name
+          ).toBe(true);
+          const { mx, my, left, right } = halves(bezierOf(straight));
+          const start = Math.max(...offsetsOf(wipe.steps[0].offsets));
+          expect(twin.steps, twinName).toHaveLength(3);
+          const [first, middle, last] = twin.steps;
+          expect(first.offsets).toBe(wipe.steps[0].offsets);
+          expect(offsetsOf(middle.offsets)).toEqual([expect.closeTo(start + (1 - start) * mx, 3)]);
+          expect(offsetsOf(last.offsets)).toEqual([1]);
+          bezierOf(stepEase(first)).forEach((v, i) => expect(v, twinName).toBeCloseTo(left[i], 3));
+          bezierOf(stepEase(middle)).forEach((v, i) =>
+            expect(v, twinName).toBeCloseTo(right[i], 3)
+          );
+          const [a, m, b] = [first, middle, last].map((s) => shapePoints(clipOf(s)!).ends);
+          expect(m).toHaveLength(a.length);
+          m.forEach((point, k) =>
+            point.forEach((axis, xy) => {
+              for (const unit of ["%", "rem", "px"] as const) {
+                const want = a[k][xy][unit] + my * (b[k][xy][unit] - a[k][xy][unit]);
+                expect(axis[unit], `${twinName} point ${k}`).toBeCloseTo(want, 2);
+              }
+            })
+          );
         }
       }
     }

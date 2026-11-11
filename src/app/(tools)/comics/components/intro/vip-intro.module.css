@@ -1,18 +1,35 @@
 /* The VIP intro's choreography (vip-intro.tsx), 9 s in all:
 
-   0    – 0.9  an ink band covers the screen and pulls away to the right
+   0    – 0.9  an ink band covers the screen and pulls away to the right, its
+               edge bowed where the browser draws shape()
    0    – 9    three layers drift left at three speeds: the parallax
    0.8  – 2.55 "Welcome, reader of the book", word by word, then its rule
    1.15 – 1.95 Amr jumps into the front layer; at 2.4 he stops to ask
+   1.6  – 2.3  a small copy of the book drops into the tools' place
+   2.0  – 2.5  a stripe of light crosses its closed cover
+   2.5  – 2.95 the cover opens
    2.6  – 3.1  his balloon
-   2.95 – 4.3  the tools are dealt in from below, 0.3 s apart
+   2.95 – 4.3  the tools are dealt out of the book, 0.3 s apart
+   3.55 – 4.0  the book steps back under the cards, for good
    5.3  – 7.0  with early comics only: the tools step back, and once they're
                gone (5.8) the heading and the covers come in, then fan out
    7.7  – 9    the page turns away round its left edge
 
    Each element holds its first frame until its delay and its last after it
    (fill both), so the timeline is the same with or without early comics: the
-   comics' rules just have nothing to run on. */
+   comics' rules just have nothing to run on.
+
+   The book wears the book intro's look (intro-look.tsx: grain, comic light,
+   the stepped shade, page edges and a ground shadow), which this sheet only
+   moves. Every landing is on the book intro's two springs, tokens.ts's linear()
+   lists written inside the keyframes: the welcome's words pop on the pop
+   spring; Amr's jump, his balloon, the book's drop, its cover's landing and
+   the cards' deal settle on the settle spring. Each shorthand keeps its
+   spring's one-overshoot cubic-bezier for browsers without linear()
+   (test/comics/intro-look.test.tsx). The 3D rule: what keeps the book's 3D
+   space open (transform-style: preserve-3d: the drop and the cover) moves by
+   transform alone and carries no opacity, overflow, clip, mask, filter, blend
+   mode, isolation or paint containment, which would flatten it. */
 
 /* The exit is the overlay's only animation: its end ends the intro. Hidden from
    behind, so the page vanishes edge-on instead of showing its mirror image. */
@@ -89,25 +106,26 @@
   text-wrap: balance;
 }
 
-/* Inline blocks, so each word can pop on its own and the line still wraps. */
+/* Inline blocks, so each word can pop on its own and the line still wraps.
+   Each pops at its own beat, on the pop spring. */
 .word {
   display: inline-block;
   transform-origin: 50% 85%;
 }
 .word0 {
-  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 0.8s both;
+  animation: vipWord 0.55s cubic-bezier(0.38, 1.76, 0.1, 1) 0.8s both;
 }
 .word1 {
-  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.06s both;
+  animation: vipWord 0.55s cubic-bezier(0.38, 1.76, 0.1, 1) 1.06s both;
 }
 .word2 {
-  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.32s both;
+  animation: vipWord 0.55s cubic-bezier(0.38, 1.76, 0.1, 1) 1.32s both;
 }
 .word3 {
-  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.54s both;
+  animation: vipWord 0.55s cubic-bezier(0.38, 1.76, 0.1, 1) 1.54s both;
 }
 .word4 {
-  animation: vipWord 0.55s cubic-bezier(0.25, 0.8, 0.35, 1) 1.76s both;
+  animation: vipWord 0.55s cubic-bezier(0.38, 1.76, 0.1, 1) 1.76s both;
 }
 
 /* One pen stroke under the lettering: pressed down at the start, lifted off. */
@@ -134,23 +152,26 @@
 }
 
 /* Centred like the comics that may take their place, so the slot doesn't jump
-   sideways between the two where the column is wider than the stack. */
+   sideways between the two where the column is wider than the stack. Its gap
+   is named, since a dealt card counts its way to the book in cards and gaps. */
 .tools {
+  --deal-gap: clamp(0.5rem, 1.8vmin, 1rem);
   display: grid;
-  gap: clamp(0.5rem, 1.8vmin, 1rem);
+  gap: var(--deal-gap);
   width: min(100%, 26rem);
   justify-self: center;
 }
 
 /* Sized by the narrower of the width and the height, so the cards grow on a
-   tall phone but stay small on one lying on its side. */
+   tall phone but stay small on one lying on its side. Turned and scaled about
+   its middle, which is where it leaves the book. */
 .tool {
   display: flex;
   align-items: center;
   gap: clamp(0.6rem, 2vmin, 1rem);
   padding: clamp(0.6rem, min(3.2vw, 1.7vh), 1.1rem) clamp(0.85rem, min(4.2vw, 2.4vh), 1.5rem);
   padding: clamp(0.6rem, min(3.2vw, 1.7dvh), 1.1rem) clamp(0.85rem, min(4.2vw, 2.4dvh), 1.5rem);
-  transform-origin: 50% 100%;
+  transform-origin: 50% 50%;
 }
 
 .toolIcon {
@@ -167,15 +188,146 @@
   line-height: 1.2;
 }
 
-/* Dealt like cards, from below the page, tilting alternately. */
+/* Dealt out of the book once its cover is open, tilting alternately: each card
+   leaves the middle of the stack, where the book lies, small, and lands in its
+   place on the settle spring. vip-intro.tsx gives each card --deal-from, how
+   many places (its height and the gap) it starts from its own. */
 .deal0 {
-  animation: vipDealLeft 0.75s cubic-bezier(0.18, 0.8, 0.3, 1) 2.95s both;
+  animation: vipDealLeft 0.75s cubic-bezier(0.42, 1.52, 0.1, 1) 2.95s both;
 }
 .deal1 {
-  animation: vipDealRight 0.75s cubic-bezier(0.18, 0.8, 0.3, 1) 3.25s both;
+  animation: vipDealRight 0.75s cubic-bezier(0.42, 1.52, 0.1, 1) 3.25s both;
 }
 .deal2 {
-  animation: vipDealLeft 0.75s cubic-bezier(0.18, 0.8, 0.3, 1) 3.55s both;
+  animation: vipDealLeft 0.75s cubic-bezier(0.42, 1.52, 0.1, 1) 3.55s both;
+}
+
+/* ── The book the tools are dealt out of (vip-intro.tsx, DealingBook) ──────── */
+
+/* In the slot's one grid cell, centred on it, so it adds no row. Square, a
+   little under a third of a phone's width and at most a fifth of the screen's
+   height, so it stays shorter than the three cards dealt over it (about 105 px
+   under 145 px of cards at 375 × 550, 116 under 170 at 375 × 812). The open
+   cover reaches about 1.56 book widths left of the book's middle, camera
+   included, so 31vw keeps its edge on a portrait phone's screen (about 6 px
+   in at 375 px wide), where 34vw put it some 12 px past. Under the cards,
+   since they come out of it: the slot is a layer of its own, and z-index -1
+   keeps a card that has landed (no transform left) over the book. In vh
+   first: a custom property has no fallback, so a browser without dvh would
+   lose every size built on it and draw no book at all. Steps back, for good,
+   once the last card is out. */
+.book {
+  --book-w: min(31vw, 19vh);
+  grid-area: 1 / 1;
+  place-self: center;
+  position: relative;
+  z-index: -1;
+  width: var(--book-w);
+  aspect-ratio: 1 / 1;
+  animation: vipBookBack 0.45s cubic-bezier(0.5, 0, 0.75, 0) 3.55s both;
+}
+@supports (height: 1dvh) {
+  .book {
+    --book-w: min(31vw, 19dvh);
+  }
+}
+
+/* The camera, its depth a multiple of the book, as in the book intro, so the
+   cover swings alike on every screen. The book shows as it starts to drop. */
+.bookCamera {
+  position: absolute;
+  inset: 0;
+  perspective: calc(var(--book-w) * 4.5);
+  animation: vipBookShow 0.2s ease-out 1.6s both;
+}
+
+/* The ground shadow spreads as the book comes down onto it. */
+.bookGround {
+  animation: vipBookGround 0.7s cubic-bezier(0.42, 1.52, 0.1, 1) 1.6s both;
+}
+
+/* Dropped from nearer the reader onto the page, landing a touch past. Keeps
+   the 3D space open down to the cover. */
+.bookDrop {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  animation: vipBookDrop 0.7s cubic-bezier(0.42, 1.52, 0.1, 1) 1.6s both;
+}
+
+/* The pages under the inside page, as one block, offset like the hard shadow
+   and a little behind it in depth. Its fine page edges sit in that offset. */
+.bookBlock {
+  --look-edge-x: calc(var(--book-w) * 0.04);
+  --look-edge-y: calc(var(--book-w) * 0.035);
+  position: absolute;
+  inset: 0;
+  background-color: var(--card);
+  border: var(--line-w) solid var(--border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--shadow-3);
+  transform: translate3d(var(--look-edge-x), var(--look-edge-y), -4px);
+}
+
+/* The page the cover opens onto and the cards come out of, its light resting
+   a little right of the middle. */
+.bookInside {
+  position: absolute;
+  inset: 0;
+  background-color: var(--card);
+  border: var(--panel-w) solid var(--border);
+  border-radius: var(--panel-radius);
+}
+
+.bookRestingLight {
+  transform: translateX(3%);
+}
+
+/* The cover turns on its left edge, a little in front of the page. */
+.bookCover {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  transform-style: preserve-3d;
+  animation: vipBookOpen 0.45s cubic-bezier(0.42, 1.52, 0.1, 1) 2.5s both;
+}
+
+/* One side of the cover: flat, and hidden when it faces away. Isolated, so the
+   grain, light and shade inside it paint inside it and hide with it. */
+.bookFace {
+  position: absolute;
+  inset: 0;
+  background-color: var(--card);
+  border: var(--panel-w) solid var(--border);
+  border-radius: var(--panel-radius);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  isolation: isolate;
+}
+
+/* The cover's inside, seen once it has opened. */
+.bookBack {
+  transform: rotateY(180deg);
+}
+
+/* Where the cover's cloth turns in over the board. */
+.bookEndpaper {
+  position: absolute;
+  inset: calc(var(--book-w) * 0.05);
+  border: var(--line-w) solid var(--sub);
+  border-radius: var(--panel-radius);
+}
+
+/* A stripe of light crosses the closed cover as the book settles, and is gone
+   by the time the cover starts to open. */
+.bookStripe {
+  animation: vipBookLight 0.5s cubic-bezier(0.45, 0, 0.55, 1) 2s both;
+}
+
+/* The cover's front darkens in three flat steps as it turns away, until it is
+   edge-on (40% of its opening). In Night it lightens (intro-look.module.css). */
+.bookShade {
+  animation: vipBookShade 0.18s steps(3, jump-start) 2.5s both;
 }
 
 /* Only when there are covers to show: the tools step back into the page. */
@@ -242,7 +394,7 @@
   width: 100%;
   height: 100%;
   transform-origin: 50% 100%;
-  animation: vipAmrSpring 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) 1.15s both;
+  animation: vipAmrSpring 0.8s cubic-bezier(0.42, 1.52, 0.1, 1) 1.15s both;
 }
 
 .amrScale {
@@ -280,7 +432,7 @@
   font-size: clamp(0.95rem, 3.2vmin, 1.3rem);
   line-height: 1.3;
   transform-origin: 0% 85%;
-  animation: vipBalloon 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) 2.6s both;
+  animation: vipBalloon 0.5s cubic-bezier(0.42, 1.52, 0.1, 1) 2.6s both;
 }
 
 /* ── On top: the opening ink and the turning page's shadow ─────────────────── */
@@ -294,6 +446,49 @@
   z-index: 5;
   background-color: var(--border);
   animation: vipInkWipe 0.9s cubic-bezier(0.7, 0, 0.3, 1) 0s both;
+}
+
+/* Where shape() works, the ink's slanted edge bows forward as it pulls away.
+   Same first and last frames as the straight wipe, and the same pace: its
+   middle step cuts that wipe's curve in two at its middle. Other browsers keep
+   the straight edge, which is the same scene. */
+@supports (clip-path: shape(from 0 0, line to 100% 0)) {
+  .ink {
+    animation: vipInkWipeBowed 0.9s cubic-bezier(0.7, 0, 0.3, 1) 0s both;
+  }
+
+  @keyframes vipInkWipeBowed {
+    0%,
+    12% {
+      clip-path: shape(
+        from -30% 100%,
+        curve to 0% 0% with -15% 50%,
+        line to 130% 0%,
+        line to 130% 100%,
+        close
+      );
+      animation-timing-function: cubic-bezier(0.7, 0, 0.85, 0.5);
+    }
+    56% {
+      clip-path: shape(
+        from 35% 100%,
+        curve to 65% 0% with 60% 50%,
+        line to 130% 0%,
+        line to 130% 100%,
+        close
+      );
+      animation-timing-function: cubic-bezier(0.15, 0.5, 0.3, 1);
+    }
+    100% {
+      clip-path: shape(
+        from 100% 100%,
+        curve to 130% 0% with 115% 50%,
+        line to 130% 0%,
+        line to 130% 100%,
+        close
+      );
+    }
+  }
 }
 
 /* The page darkens a little as it turns away from the light. The shadow's ink,
@@ -428,16 +623,49 @@
   }
 }
 
+/* Each word pops up on the pop spring: about 16% past its size and its tilt,
+   then back. */
 @keyframes vipWord {
-  0% {
+  from {
     transform: translate3d(0, 0.4em, 0) scale(0.55) rotate(-5deg);
     opacity: 0;
+    animation-timing-function: linear(
+      0,
+      0.057,
+      0.198,
+      0.383,
+      0.579,
+      0.76,
+      0.913,
+      1.029,
+      1.106,
+      1.149,
+      1.163,
+      1.155,
+      1.133,
+      1.103,
+      1.071,
+      1.041,
+      1.016,
+      0.997,
+      0.983,
+      0.976,
+      0.973,
+      0.975,
+      0.978,
+      0.983,
+      0.988,
+      0.993,
+      0.997,
+      1,
+      1.003,
+      1.004,
+      1.004,
+      1.004,
+      1
+    );
   }
-  55% {
-    transform: translate3d(0, -0.06em, 0) scale(1.07) rotate(1.5deg);
-    opacity: 1;
-  }
-  100% {
+  to {
     transform: none;
     opacity: 1;
   }
@@ -452,24 +680,49 @@
   }
 }
 
-/* Up from below the page and from nearer the reader, over the top, and down. */
+/* Up from below the page and from nearer the reader, a touch over the top,
+   and down: the settle spring, since he comes a long way. */
 @keyframes vipAmrSpring {
-  0% {
+  from {
     transform: translate3d(-2vmin, 38vmin, 0) scale(1.18);
     opacity: 0;
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
   }
-  12% {
-    opacity: 1;
-  }
-  58% {
-    transform: translate3d(0, -3.5vmin, 0) scale(1.02);
-    animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.5);
-  }
-  82% {
-    transform: translate3d(0, 0.6vmin, 0) scale(0.995);
-    animation-timing-function: ease-out;
-  }
-  100% {
+  to {
     transform: none;
     opacity: 1;
   }
@@ -493,52 +746,333 @@
   }
 }
 
+/* Grown from its tail on the settle spring: it grows from a fifth of its
+   size, so it goes only a touch past. */
 @keyframes vipBalloon {
-  0% {
+  from {
     transform: scale(0.2);
     opacity: 0;
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
   }
-  60% {
-    transform: scale(1.05);
-    opacity: 1;
-  }
-  100% {
+  to {
     transform: none;
     opacity: 1;
   }
 }
 
+/* Out of the book: from the middle of the stack, a third of its size and
+   tilted, to the card's own place. No viewport units: the distance is the
+   card's own places, so it leaves the book on every screen. */
 @keyframes vipDealLeft {
-  0% {
-    transform: translate3d(-3vmin, 75vh, 0) rotate(-9deg);
+  from {
+    transform: translate3d(0, calc(var(--deal-from, 0) * (100% + var(--deal-gap))), 0) rotate(-9deg)
+      scale(0.35);
     opacity: 0;
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
   }
-  12% {
-    opacity: 1;
-  }
-  70% {
-    transform: translate3d(0, -0.9vmin, 0) rotate(1.4deg);
-  }
-  100% {
+  to {
     transform: none;
     opacity: 1;
   }
 }
 
 @keyframes vipDealRight {
-  0% {
-    transform: translate3d(3vmin, 75vh, 0) rotate(8deg);
+  from {
+    transform: translate3d(0, calc(var(--deal-from, 0) * (100% + var(--deal-gap))), 0) rotate(8deg)
+      scale(0.35);
     opacity: 0;
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
   }
-  12% {
-    opacity: 1;
-  }
-  70% {
-    transform: translate3d(0, -0.9vmin, 0) rotate(-1.2deg);
-  }
-  100% {
+  to {
     transform: none;
     opacity: 1;
+  }
+}
+
+/* The book shows as it starts to drop. */
+@keyframes vipBookShow {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* From a third bigger, nearer the reader and turned a little, down onto the
+   page, pressing in a touch past it before it settles. */
+@keyframes vipBookDrop {
+  from {
+    transform: translate3d(0, -10%, calc(var(--book-w) * 1.2)) rotateZ(-7deg);
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* The shadow spreads as the book comes down onto it, by scaleX only. */
+@keyframes vipBookGround {
+  from {
+    transform: scaleX(0.25);
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* Across the closed cover, from off its left edge to off its right (the
+   track is four covers wide: intro-look.module.css). */
+@keyframes vipBookLight {
+  from {
+    transform: translateX(-22.5%);
+  }
+  to {
+    transform: translateX(22.5%);
+  }
+}
+
+@keyframes vipBookShade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.24;
+  }
+}
+
+/* Lifted to upright, let go, and falling open onto the page with a bounce,
+   as the book intro's cover does. */
+@keyframes vipBookOpen {
+  from {
+    transform: rotateY(0deg) translateZ(2px);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.5, 1);
+  }
+  40% {
+    transform: rotateY(-90deg) translateZ(2px);
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
+  }
+  to {
+    transform: rotateY(-160deg) translateZ(2px);
+  }
+}
+
+/* Back into the page, under the cards, and gone for good. */
+@keyframes vipBookBack {
+  from {
+    transform: none;
+    opacity: 1;
+    visibility: visible;
+  }
+  to {
+    transform: scale(0.85);
+    opacity: 0;
+    visibility: hidden;
   }
 }
 
