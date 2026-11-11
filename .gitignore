@@ -67,5 +67,12 @@ next-env.d.ts
 !/public/mascot/amr.*.webp
 !/public/mascot/amr-*.webp
 
+# The cast puppets' atlases, built only from approved sources and named after
+# their content (aaw-NN[@2x].<sha256-prefix>.webp, by scripts/build-cast-rigs.py).
+# The sources, returns and review pages stay in the private sources folder
+# (docs/cast/CAST-BUILD.md); nothing else belongs here.
+/public/cast/*
+!/public/cast/aaw-*.webp
+
 # Lighthouse CI local runs (npm run lighthouse)
 /.lighthouseci/

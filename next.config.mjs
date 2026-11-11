@@ -64,6 +64,13 @@ const nextConfig = {
         source: "/mascot/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
+      // The cast puppets' atlases: content-hashed names too
+      // (aaw-NN[@2x].<sha8>.webp, written by scripts/build-cast-rigs.py), so a
+      // rebuilt atlas always gets a new URL.
+      {
+        source: "/cast/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
       // The book's cover and the share images (lib/book/art.ts): content-hashed
       // names too. Their own folder, never /book/:path*, which would also match
       // the /book page.
