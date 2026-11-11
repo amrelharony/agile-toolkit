@@ -7,7 +7,9 @@
  *    its tail on the edge it names, or toward the real Amr for `amr`;
  *  - the caption voices: narration, you (with its outline) and scene, plus the
  *    error tone;
- *  - forced colours hide the tails, which are drawn from transparent borders;
+ *  - forced colours hide the tails, which are drawn from transparent borders,
+ *    and give the you caption a heavier start edge, so it never reads as
+ *    narration once both fills turn to Canvas;
  *  - the page scrolls smoothly only for readers who haven't asked for less motion.
  * The last block builds globals.css the way Next does (Tailwind, then its
  * minifier) and runs the AMR markers of scripts/check-built-css.mjs on it.
@@ -327,8 +329,9 @@ describe("captions", () => {
   });
 
   it("outlines the you caption and washes it with --accent2 behind an @supports", () => {
+    // The third is its forced-colours edge (the "forced colours" block below).
     const you = naming('.comic-caption[data-voice="you"]');
-    expect(you).toHaveLength(2);
+    expect(you).toHaveLength(3);
     const [fallback, wash] = you;
     expect(fallback.body.border).toBe("var(--line-w) solid var(--border)");
     expect(fallback.body["background-color"]).toBe("var(--surface)");
@@ -397,10 +400,17 @@ describe("the balloon and caption rules", () => {
 });
 
 describe("forced colours", () => {
+  const FORCED = "@media (forced-colors: active) {";
   const layer = PANELS.indexOf("@layer components");
   const layerEnd = close(PANELS, layer);
-  const guard = PANELS.indexOf("@media (forced-colors: active) {");
+  // The tail guard: the forced-colours block after the layer.
+  const guard = PANELS.indexOf(FORCED, layerEnd);
   const guardBody = PANELS.slice(guard, close(PANELS, guard) + 1);
+  /** Every forced-colours block in PANELS, with its innermost rules. */
+  const blocks: { at: number; rules: Rule[] }[] = [];
+  for (let at = PANELS.indexOf(FORCED); at !== -1; at = PANELS.indexOf(FORCED, at + 1)) {
+    blocks.push({ at, rules: rules(PANELS.slice(at + FORCED.length, close(PANELS, at))) });
+  }
 
   it("hide the tails, outside any layer, right after the PANELS layer", () => {
     expect(PANELS.slice(layer, layerEnd)).toContain(".comic-caption");
@@ -413,6 +423,39 @@ describe("forced colours", () => {
 
   it("leave every box its outline: the guard takes no border or caption away", () => {
     expect(guardBody).not.toMatch(/comic-caption|border|outline/);
+  });
+
+  it("give the you caption a heavier start edge, inside the layer after its wash", () => {
+    // Both fills turn to Canvas, so only a width can keep the reader's words
+    // out of narration's frame. In the layer, so it is purged with the caption.
+    const edges = blocks.filter((b) =>
+      b.rules.some((r) => r.selectors.includes('.comic-caption[data-voice="you"]'))
+    );
+    expect(edges).toHaveLength(1);
+    const [edge] = edges;
+    expect(edge.at).toBeGreaterThan(layer);
+    expect(edge.at).toBeLessThan(layerEnd);
+    const wash = naming('.comic-caption[data-voice="you"]')[1];
+    expect(edge.at).toBeGreaterThan(wash.at);
+    expect(edge.rules).toHaveLength(1);
+    const width = edge.rules[0].body["border-inline-start-width"];
+    expect(width).toBe("calc(var(--line-w) * 3)");
+    expect(width).not.toBe(style(".comic-caption").border.split(" ")[0]);
+  });
+
+  it("leave narration's frame as it is, so the two captions differ", () => {
+    for (const b of blocks) {
+      for (const r of b.rules) {
+        expect(r.selectors, "a forced-colours rule on the base caption").not.toContain(
+          ".comic-caption"
+        );
+        for (const s of r.selectors.filter((x) => x.includes(".comic-caption"))) {
+          expect(s, "only the you caption changes in forced colours").toBe(
+            '.comic-caption[data-voice="you"]'
+          );
+        }
+      }
+    }
   });
 });
 
@@ -458,6 +501,7 @@ describe("the built CSS", () => {
   it("keeps the forced-colours guard where no caption is used: it is outside the layer", async () => {
     const css = await build("balloon");
     expect(css).not.toContain(".comic-caption");
-    expect(failing(css)).toEqual([MARKERS.AMR[1].name]);
+    // The you caption's markers go with it: its forced-colours edge is in the layer.
+    expect(failing(css)).toEqual([MARKERS.AMR[1].name, MARKERS.AMR[4].name]);
   }, 60_000);
 });

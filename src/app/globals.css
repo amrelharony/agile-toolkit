@@ -782,8 +782,9 @@ html.dark body {
    * person: status, tool steps, notes, errors, limits, the empty and resume
    * lines. Its words stay in the body face.
    *   data-voice="you"    the reader's own words: a light --accent2 wash on the
-   *                       card inside the same ink outline, which stays when
-   *                       forced colours take the wash away
+   *                       card inside the same ink outline. When forced colours
+   *                       take the wash away, the outline stays and gains a
+   *                       heavier start edge, so it never reads as narration
    *   data-voice="scene"  a change of time or place: no paper, a quiet rule,
    *                       muted words, centred
    *   data-tone="error"   something went wrong: the danger line, and words that
@@ -804,6 +805,15 @@ html.dark body {
       background-color: color-mix(in srgb, var(--accent2) 14%, var(--card));
     }
   }
+  /* Forced colours paint both captions' fills as Canvas, which would leave the
+     reader's words in narration's frame. Widths survive, so the you caption
+     keeps a heavier start edge. Inside the layer, so it is purged with
+     .comic-caption. */
+  @media (forced-colors: active) {
+    .comic-caption[data-voice="you"] {
+      border-inline-start-width: calc(var(--line-w) * 3);
+    }
+  }
   .comic-caption[data-voice="scene"] {
     background-color: transparent;
     color: var(--sub);
@@ -817,10 +827,10 @@ html.dark body {
 
 /* Forced colours (a Windows contrast theme) paint every border in the system's
    ink, the see-through ones too, so a tail drawn from transparent borders would
-   turn into a solid block: the tails go. Every box keeps its own outline, so a
-   balloon, a you caption and a narration box still stand apart by frame and
-   corners. Outside the layer, so it is never purged and comes after every
-   balloon rule. */
+   turn into a solid block: the tails go. Every box keeps its own outline: a
+   balloon stands apart by its heavier line and rounder corners, a you caption
+   by the heavier start edge the layer gives it. Outside the layer, so it is
+   never purged and comes after every balloon rule. */
 @media (forced-colors: active) {
   .balloon::before,
   .balloon::after {

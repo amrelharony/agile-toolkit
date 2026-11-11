@@ -218,13 +218,28 @@ function youCaption(css) {
   );
 }
 
+/** The @media (forced-colors:active) blocks. */
+function forcedColorBlocks(css) {
+  return blocks(css, "@media").filter((b) => b.params.includes("(forced-colors:active)"));
+}
+
 /** Forced colours hide the balloon's tails. */
 function tailsHiddenInForcedColors(css) {
-  return blocks(css, "@media")
-    .filter((b) => b.params.includes("(forced-colors:active)"))
-    .some((b) =>
-      ["before", "after"].every((p) => declsLike(b.body, `.balloon::${p}`).includes("display:none"))
-    );
+  return forcedColorBlocks(css).some((b) =>
+    ["before", "after"].every((p) => declsLike(b.body, `.balloon::${p}`).includes("display:none"))
+  );
+}
+
+/** Forced colours give the you caption a start edge heavier than narration's --line-w. */
+function youEdgeInForcedColors(css) {
+  return forcedColorBlocks(css).some((b) =>
+    declsLike(b.body, ".comic-caption[data-voice=you]").some((d) => {
+      const [prop, value] = d.split(/:(.*)/);
+      return (
+        prop === "border-inline-start-width" && !!value && !/^(var\(--line-w\)|0)$/.test(value)
+      );
+    })
+  );
 }
 
 /** Markers by PR id. Each `test` gets one file's CSS with all whitespace removed. */
@@ -295,6 +310,10 @@ export const MARKERS = {
     {
       name: "forced colours: display:none on .balloon::before and ::after, in @media (forced-colors:active)",
       test: tailsHiddenInForcedColors,
+    },
+    {
+      name: "forced colours: .comic-caption[data-voice=you] keeps a border-inline-start-width heavier than --line-w, in @media (forced-colors:active)",
+      test: youEdgeInForcedColors,
     },
   ],
 };
