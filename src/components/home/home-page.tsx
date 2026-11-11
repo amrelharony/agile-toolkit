@@ -17,6 +17,7 @@ import { ToolSections } from "@/components/home/tool-sections";
 import { LoadingSprints } from "@/components/sprints/start";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { PRIVACY_PATH, PRIVACY_TITLE } from "@/lib/site/owner";
 import { cn } from "@/lib/utils";
 
 // Both need this browser's workspace, so neither is in the server HTML: the
@@ -63,12 +64,19 @@ export function HomePage({
           the search row keeps the full width. The box keeps the scene's 16:10
           shape, so nothing shifts as it inks in. */}
       <div className="ink-host animate-slide-up grid grid-cols-[minmax(0,1fr)_8.5rem] items-end gap-x-3 pt-6 sm:grid-cols-[minmax(0,1fr)_11rem] sm:pt-10 md:grid-cols-[minmax(0,1fr)_19rem] md:gap-x-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        <div className="col-start-1 row-start-1 mb-4 inline-flex items-center gap-2 self-end justify-self-start rounded-md border border-border bg-card px-3 py-1 sm:mb-6 sm:px-4 sm:py-1.5">
+        {/* The trust line opens the page that backs it up: what leaves the
+            browser, part by part. A badge, so no underline; its border
+            answers a hover, and a touch screen gets the 44px height. */}
+        <Link
+          href={PRIVACY_PATH}
+          className="col-start-1 row-start-1 mb-4 inline-flex items-center gap-2 self-end justify-self-start rounded-md border border-border bg-card px-3 py-1 no-underline transition-colors hover:border-accent sm:mb-6 sm:px-4 sm:py-1.5 pointer-coarse:min-h-11"
+        >
           <ShieldCheck className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
           <span className="text-xs font-medium text-accent">
             Free · No sign-up · Saved only in your browser
+            <span className="sr-only">. {PRIVACY_TITLE}</span>
           </span>
-        </div>
+        </Link>
         <InkArt
           drawing={HOME_HERO}
           boil

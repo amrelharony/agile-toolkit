@@ -990,6 +990,22 @@ describe("the licence page", () => {
     expect(screen.getByText(/covers the comic only/)).toBeTruthy();
   });
 
+  it("says under the form what is kept and for how long, and links the privacy page", () => {
+    const { container } = render(<ComicLicensePage />);
+    const note = container.querySelector<HTMLElement>("[data-privacy-note]")!;
+    expect(note.textContent).toBe(
+      "We keep what you send so Amr can reply, until you ask us to remove it. We don't keep your IP address. More in What leaves your browser."
+    );
+    expect(within(note).getByRole("link", { name: "What leaves your browser" })).toHaveAttribute(
+      "href",
+      "/privacy"
+    );
+    // Under the form, not inside it.
+    const form = container.querySelector("form")!;
+    expect(form.contains(note)).toBe(false);
+    expect(form.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("validates inline before sending anything", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);

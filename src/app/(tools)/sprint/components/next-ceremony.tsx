@@ -8,6 +8,7 @@ import {
   CEREMONY_HREF,
   CEREMONY_LABEL,
   ceremonyTimeboxMinutes,
+  timeboxLabel,
   whenLabel,
   type CeremonyCadence,
   type CeremonyOccurrence,
@@ -15,18 +16,11 @@ import {
 import { cn } from "@/lib/utils";
 import { CadenceForm } from "@/components/sprints/cadence-form";
 
-/** "15 min", "2 h", "1 h 30" */
-export function timeboxLabel(minutes: number): string {
-  if (minutes < 60) return `${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m === 0 ? `${h} h` : `${h} h ${m}`;
-}
-
 /**
  * "Next ceremony": the next one or two events from the team's cadence, the
- * first with its timebox for a sprint this long, and the form that sets the
- * times tucked under it.
+ * first with its timebox for a sprint this long, the form that sets the
+ * times tucked under it, and whatever the page adds below (the cockpit's
+ * "Add to calendar").
  */
 export function NextCeremony({
   occurrences,
@@ -35,6 +29,7 @@ export function NextCeremony({
   cadence,
   sprintLengthDays,
   onCadence,
+  children,
 }: {
   occurrences: CeremonyOccurrence[];
   now: Date;
@@ -45,6 +40,8 @@ export function NextCeremony({
   sprintLengthDays: number;
   /** Absent in a read-only preview. */
   onCadence?: (patch: Partial<CeremonyCadence>) => void;
+  /** A row under the ceremony and its form, inside the card. */
+  children?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const formId = useId();
@@ -110,6 +107,7 @@ export function NextCeremony({
           <CadenceForm cadence={cadence} onChange={onCadence} />
         </div>
       )}
+      {children && <div className="mt-4 border-t border-border pt-4">{children}</div>}
     </section>
   );
 }

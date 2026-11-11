@@ -810,3 +810,109 @@ describe("the reorder migration", () => {
     expect(setClause).not.toMatch(/,\s*ep\s*=/);
   });
 });
+
+const MIGRATIONS = "supabase/migrations";
+const migrations = readdirSync(MIGRATIONS)
+  .filter((name) => /^\d{4}_.*\.sql$/.test(name))
+  .sort()
+  .map((name) => ({ name, sql: readFileSync(path.join(MIGRATIONS, name), "utf8") }));
+
+/** Every comic_stories column the migrations have made: the table in 0029, then every add column. */
+function comicStoryColumns(): string[] {
+  const columns = new Set<string>();
+  const all = (text: string, pattern: RegExp) => Array.from(text.matchAll(pattern), (m) => m[1]);
+  for (const { sql } of migrations) {
+    const table = /create table if not exists public\.comic_stories \(([\s\S]*?)\r?\n\);/i.exec(
+      sql
+    );
+    // Columns sit two spaces in; a constraint's own lines sit deeper.
+    for (const line of table?.[1].split(/\r?\n/) ?? []) {
+      const name = /^ {2}([a-z_]+) /.exec(line)?.[1];
+      if (name && name !== "constraint") columns.add(name);
+    }
+    for (const alter of all(sql, /alter table (?:if exists )?public\.comic_stories\b([^;]*);/gi)) {
+      for (const name of all(alter, /add column (?:if not exists )?([a-z_]+)/gi)) columns.add(name);
+      for (const name of all(alter, /drop column (?:if exists )?([a-z_]+)/gi)) columns.delete(name);
+    }
+  }
+  return Array.from(columns);
+}
+
+/** The body of the last migration's comic_reorder_queue: the one the database runs. */
+function latestReorder() {
+  let latest: { name: string; sql: string; body: string } | null = null;
+  for (const { name, sql } of migrations) {
+    const at = sql.search(/create or replace function public\.comic_reorder_queue\(/i);
+    if (at < 0) continue;
+    const start = sql.indexOf("$$", at);
+    latest = { name, sql, body: sql.slice(start, sql.indexOf("$$", start + 2)) };
+  }
+  if (!latest) throw new Error("no migration defines comic_reorder_queue");
+  return latest;
+}
+
+/** The number's own columns: they stay where they are when its story moves. */
+const SLOT_COLUMNS = [
+  "ep",
+  "collection",
+  "book_page",
+  "release_at",
+  "first_released_at",
+  "created_at",
+  "updated_at",
+];
+
+describe("the latest reorder function", () => {
+  const columns = comicStoryColumns();
+  const storyColumns = columns.filter((c) => !SLOT_COLUMNS.includes(c));
+  const { name, sql, body } = latestReorder();
+  const copy = (column: string) => new RegExp(`\\b${column}\\s*=\\s*s\\.${column}\\b`);
+
+  it("reads every comic_stories column out of the migrations", () => {
+    expect(columns).toEqual(
+      expect.arrayContaining([
+        ...SLOT_COLUMNS,
+        "title",
+        "panels",
+        "quiz",
+        "guess",
+        "print_shortlist",
+      ])
+    );
+    expect(name >= "0038").toBe(true);
+  });
+
+  // A column added to comic_stories without a new comic_reorder_queue fails here:
+  // a reorder would leave it on the old number, under another story.
+  it.each(storyColumns)("moves %s with its story", (column) => {
+    expect(body).toMatch(copy(column));
+  });
+
+  it("leaves the number's own columns where they are", () => {
+    for (const column of SLOT_COLUMNS) expect(body).not.toMatch(copy(column));
+    expect(body).toMatch(/updated_at\s*=\s*now\(\)/);
+  });
+
+  it.each(["comic_story_taps", "comic_story_stats"])("moves %s with its story", (table) => {
+    expect(body).toMatch(new RegExp(`delete from public\\.${table}\\b`));
+    expect(body).toMatch(new RegExp(`insert into public\\.${table}\\b[\\s\\S]*?select m\\.slot,`));
+  });
+
+  it("keeps the released check under a row lock, and the unique source_id clear", () => {
+    expect(body).toMatch(/collection = 'weekly'/);
+    expect(body).toMatch(/release_at is null or release_at > now\(\)/);
+    expect(body).toMatch(/first_released_at is null/);
+    expect(body).toMatch(/for update/);
+    expect(body).toMatch(/update public\.comic_stories set source_id = null/);
+  });
+
+  it("is closed to everyone but the service role, with an empty search path", () => {
+    expect(sql).toMatch(/set search_path = ''/);
+    expect(sql).toMatch(
+      /revoke all on function public\.comic_reorder_queue\(int\[\], int\[\]\)\s+from public, anon, authenticated/
+    );
+    expect(sql).toMatch(
+      /grant execute on function public\.comic_reorder_queue\(int\[\], int\[\]\) to service_role/
+    );
+  });
+});

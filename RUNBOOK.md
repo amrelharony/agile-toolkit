@@ -203,7 +203,7 @@ Every tool page is public, and so is the **Owner sign in** button. Anyone can st
 2. **Supabase → Authentication → Sign In / Providers → Allow anonymous sign-ins: off.** Turn off the Email provider too if you only use Google.
 3. **Supabase → Authentication → Users:** delete every user that isn't the owner (stray sign-ins from while sign-ups were on).
 4. **Vercel → Settings → Deployment Protection:** turn on protection for **Preview** deployments (Vercel Authentication). Only `master` and `preview/*` branches deploy (see [Vercel builds and cost](#vercel-builds-and-cost)), but any preview that does build would otherwise be public. Keep it **off** for the production domain.
-5. Verify on the production URL from a signed-out window: `/` → 200, `/api/kudos` → 401 JSON, `/settings/access-tokens` → redirect to sign-in, `/robots.txt` and `/sitemap.xml` → 200.
+5. Verify on the production URL from a signed-out window: `/` → 200, `/api/kudos` → 401 JSON, `/settings/access-tokens` → redirect to sign-in, `/robots.txt`, `/sitemap.xml` and `/llms.txt` → 200.
 
 Known behaviour worth knowing:
 
@@ -301,7 +301,7 @@ The feature is **off** unless the build has `NEXT_PUBLIC_VISITOR_ROOMS=1`. **Pro
 
 1. **Vercel → Settings → Environment Variables:** set `NEXT_PUBLIC_VISITOR_ROOMS` to `1` for Production (to turn it off, delete it or set it to anything else). Add it to Preview only if you want to try it there.
 2. **Redeploy** (Deployments → ⋯ → Redeploy, or push a commit). `NEXT_PUBLIC_*` values are inlined at build time, so changing the variable without a redeploy does nothing. Locally, edit `.env.local` and restart `npm run dev`.
-3. Verify from a signed-out window: **Start a live room** in the Planning Poker lobby and **Everyone on their own device** on the Retro board appear (or disappear), and `/join/planning-poker/ABCDEFGHJKMN` shows the name and consent step (or "Live rooms are off").
+3. Verify from a signed-out window: **Start a live room** in the Planning Poker lobby and **Everyone on their own device** on the Retro board appear (or disappear), and `/join/planning-poker/ABCDEFGHJKMN` shows the name and consent step (or "Live rooms are off"). `/llms.txt` is built with the site, so its "Live rooms" line (20 people, 3 hours, nothing stored) is there only when the build has rooms on.
 
 What turning it **off** does: hides the entry points, makes `/join/…` say live rooms are off, and makes the client gate refuse to open any `visitor:` channel. What it does **not** do: close tabs that already have a room open (they keep going until everyone leaves or the 3-hour limit), or stop anyone who calls Supabase directly with the public anon key. For that, use the emergency brake below.
 

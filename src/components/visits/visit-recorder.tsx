@@ -3,6 +3,7 @@
 import { OnSearchParams, dropSearchParams } from "@/components/shared/on-search-params";
 import { arrivalSource } from "@/lib/comics/entry";
 import { isFreshArrival, sendVisit, visitFor, type VisitPath } from "@/lib/comics/visits";
+import { COUNT_DISCLOSURE, STORY_COUNT_DISCLOSURE } from "@/lib/site/disclosures";
 
 /**
  * What this page load has counted. Module state, so it lasts the document
@@ -51,25 +52,9 @@ export function VisitRecorder({ path }: { path: VisitPath }) {
 
 /**
  * Says what the counts do, wherever one is on the page. A weekly story
- * (`story`) also counts its reading (lib/comics/stats), so it says so.
+ * (`story`) also counts its reading (lib/comics/stats), so it says so. The
+ * wording is lib/site/disclosures.ts's, which the privacy page quotes too.
  */
 export function CountDisclosure({ story = false }: { story?: boolean }) {
-  if (story) {
-    return (
-      <p className="text-xs text-sub">
-        This page sends us anonymous counts: that you arrived (and which printed piece brought you,
-        if any), opened and finished this story, roughly how long you spent reading it, and your
-        answers, love, share, retro hand-off or click on its tool. Nothing about you is kept: no
-        cookies, no account and no IP address. What you&apos;ve read, guessed and loved stays in
-        this browser, for Your reading.
-      </p>
-    );
-  }
-  return (
-    <p className="text-xs text-sub">
-      This page sends us one anonymous count when you arrive: which printed piece brought you here,
-      if any, and the episode. It keeps nothing about you: no cookies and no IP address. The link is
-      then tidied, so sharing it doesn&apos;t count again.
-    </p>
-  );
+  return <p className="text-xs text-sub">{story ? STORY_COUNT_DISCLOSURE : COUNT_DISCLOSURE}</p>;
 }
