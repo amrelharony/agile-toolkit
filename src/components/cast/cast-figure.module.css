@@ -5,7 +5,8 @@
  * - Parts, slots and choices are boxes placed in percent by the markup.
  * - Swaps: one choice per slot is visible, the one with data-on.
  * - Art: --cast-x1 from the root, upgraded to the 2x atlas where image-set()
- *   works. A deferred figure paints none until it is near.
+ *   or -webkit-image-set() works. A deferred figure paints none until it is
+ *   near.
  * - Idle (breathe, blink) only on an awake figure (life.ts sets the
  *   attribute) and only with motion allowed; paused under an open dialog
  *   (lib/notify/dialog-open.ts's selectors, as life reads them: never a
@@ -49,6 +50,15 @@
 /* A part's own art fills its box; a choice or a pupil has a box of its own. */
 .figure [data-part] > [data-sprite] {
   inset: 0;
+}
+
+/* Safari 14-16 and Chrome before 113 know only the prefixed form; image-set()
+   below replaces it where both work. Behind @supports, since a var() that
+   fails at computed time paints nothing rather than falling back. */
+@supports (background-image: -webkit-image-set(url(x.webp) 1x)) {
+  .figure [data-sprite] {
+    background-image: -webkit-image-set(var(--cast-x1) 1x, var(--cast-x2) 2x);
+  }
 }
 
 @supports (background-image: image-set("x.webp" 1x)) {

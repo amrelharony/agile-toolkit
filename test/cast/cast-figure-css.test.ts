@@ -137,7 +137,8 @@ describe("cast-figure.module.css", () => {
   });
 
   it("stays plain: no images by url, gradients, filters, blends, will-change or fixed boxes", () => {
-    const code = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    // An @supports test names an image it never loads.
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@supports[^{]*/g, "");
     expect(code).not.toMatch(/url\(/i);
     expect(code).not.toMatch(/gradient\(/i);
     expect(code).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
@@ -194,14 +195,23 @@ describe("cast-figure.module.css", () => {
 
   it("paints the atlas from the root's properties, 2x where image-set() works, deferred until near", () => {
     expect(ruleFor(".figure [data-sprite]")["background-image"]).toBe("var(--cast-x1)");
-    let upgraded = "";
+    const upgrades: [string, string][] = [];
     tree.walkAtRules("supports", (s) => {
-      expect(s.params).toBe('(background-image: image-set("x.webp" 1x))');
       s.walkDecls("background-image", (d) => {
-        upgraded = d.value;
+        upgrades.push([s.params, d.value]);
       });
     });
-    expect(upgraded).toBe("image-set(var(--cast-x1) 1x, var(--cast-x2) 2x)");
+    // The prefixed form first (Safari 14-16), so the standard one wins where both work.
+    expect(upgrades).toEqual([
+      [
+        "(background-image: -webkit-image-set(url(x.webp) 1x))",
+        "-webkit-image-set(var(--cast-x1) 1x, var(--cast-x2) 2x)",
+      ],
+      [
+        '(background-image: image-set("x.webp" 1x))',
+        "image-set(var(--cast-x1) 1x, var(--cast-x2) 2x)",
+      ],
+    ]);
     expect(ruleFor(".figure[data-defer]:not([data-near]) [data-sprite]")).toEqual({
       "background-image": "none",
     });
