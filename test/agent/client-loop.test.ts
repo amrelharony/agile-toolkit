@@ -23,7 +23,12 @@ import { z } from "zod";
 const h = vi.hoisted(() => ({
   recordChatUsage: vi.fn<(tokens: number, model: string) => Promise<void>>(async () => {}),
   appendMessages: vi.fn<(conversationId: string, msgs: unknown[]) => Promise<void>>(async () => {}),
-  executeToolUse: vi.fn(async (tu: { id: string }) => ({
+  executeToolUse: vi.fn<
+    (
+      tu: { id: string; input?: Record<string, unknown> },
+      opts?: { confirm: (summary: string) => Promise<boolean> }
+    ) => Promise<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }>
+  >(async (tu) => ({
     type: "tool_result" as const,
     tool_use_id: tu.id,
     content: '{"ok":true}',
@@ -46,11 +51,12 @@ vi.mock("@/lib/tools/guides", async (importOriginal) => {
   };
 });
 
+import { renderHook } from "@testing-library/react";
 import { registry } from "@/lib/actions/registry";
 import { getToolById } from "@/lib/constants/tools";
 import { roundLimitNote, sendUserMessage, usageTotal } from "@/lib/agent/client";
 import { useAgentStore } from "@/lib/agent/store";
-import type { ChatMessage } from "@/lib/agent/types";
+import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 
 const PROBE_TOOL = "tool_loop_probe_read_state";
 registry.register({
@@ -110,7 +116,8 @@ function toolTurn(id: string, extra: unknown[] = []): Response {
   );
 }
 
-let queue: Response[];
+/** Each POST takes the next response, or builds it from the request (to see its signal). */
+let queue: Array<Response | ((init: RequestInit) => Response)>;
 let posts: Body[];
 
 beforeEach(() => {
@@ -131,7 +138,7 @@ beforeEach(() => {
       posts.push(JSON.parse(String(init.body)) as Body);
       const next = queue.shift();
       if (!next) throw new Error("unexpected POST");
-      return next;
+      return typeof next === "function" ? next(init) : next;
     })
   );
 });
@@ -587,5 +594,210 @@ describe("roundLimitNote", () => {
       at("t1", "tool", [{ type: "tool_result", tool_use_id: "c1", content: "ok" }]),
     ];
     expect(roundLimitNote(msgs)).toContain("This turn ran 1 tool call; none failed.");
+  });
+});
+
+/**
+ * A streamed response the test feeds by hand. Like a real one, its body fails
+ * with an AbortError once its request is aborted.
+ */
+function manualStream() {
+  const enc = new TextEncoder();
+  let ctl!: ReadableStreamDefaultController<Uint8Array>;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      ctl = c;
+    },
+  });
+  const quietly = (fn: () => void) => {
+    try {
+      fn();
+    } catch {
+      /* the reader already let go of the stream */
+    }
+  };
+  return {
+    respond(init: RequestInit): Response {
+      init.signal?.addEventListener(
+        "abort",
+        () => quietly(() => ctl.error(Object.assign(new Error("aborted"), { name: "AbortError" }))),
+        { once: true }
+      );
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    },
+    /** Events as one network chunk ("[DONE]" passes through). */
+    send(...events: unknown[]) {
+      const text = events
+        .map((e) => `data: ${typeof e === "string" ? e : JSON.stringify(e)}\n\n`)
+        .join("");
+      quietly(() => ctl.enqueue(enc.encode(text)));
+    },
+    end() {
+      quietly(() => ctl.close());
+    },
+  };
+}
+
+const textOf = (m: ChatMessage | undefined) =>
+  (m?.content ?? []).map((c) => (c.type === "text" ? c.text : "")).join("");
+
+const at = (id: string, role: ChatMessage["role"], content: ChatMessage["content"]) =>
+  ({ id, role, content, createdAt: "" }) as ChatMessage;
+
+const meta = (id: string): ConversationMeta => ({
+  id,
+  title: id,
+  toolId: null,
+  createdAt: "",
+  updatedAt: "",
+  lastMessageAt: "",
+});
+
+/** Every message saved to `conversationId`, in order. */
+const savedTo = (conversationId: string) =>
+  h.appendMessages.mock.calls
+    .filter((c) => c[0] === conversationId)
+    .flatMap((c) => c[1] as ChatMessage[]);
+
+const sendIn = (conversationId: string, text: string, toolId: string | null = null) =>
+  sendUserMessage(text, { userId: "owner-1", toolId, conversationId });
+
+const otherThread = () => [
+  at("o1", "user", [{ type: "text", text: "what is WSJF?" }]),
+  at("o2", "assistant", [{ type: "text", text: "Weighted shortest job first." }]),
+];
+
+describe("a turn stays in its own thread", () => {
+  it("New chat mid-answer stops the turn and writes nothing into the fresh chat", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const turn = sendIn("conv-1", "tell me about retros");
+    body.send(delta({ content: "Retros are" }));
+    await vi.waitFor(() => expect(textOf(lastAssistant())).toBe("Retros are"));
+    // The turn's abort is with the store while it runs.
+    expect(useAgentStore.getState().abortHook).toBeTypeOf("function");
+
+    useAgentStore.getState().reset();
+    body.send(delta({ content: " a team's look back." }), delta({}, "stop"), "[DONE]");
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.messages).toEqual([]);
+    expect(s.streaming).toBe(false);
+    expect(s.streamingMessageId).toBeNull();
+    expect(s.error).toBeNull();
+    expect(s.abortHook).toBeNull();
+    expect(posts).toHaveLength(1);
+    // Only the question was saved: the cut reply reaches no conversation.
+    expect(savedTo("conv-1").map((m) => m.role)).toEqual(["user"]);
+
+    // The fresh chat answers at once, with nothing of the old turn in it.
+    queue = [textTurn("Hello")];
+    await send("hi", null);
+    expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(posts[1].messages.slice(1)).toEqual([{ role: "user", content: "hi" }]);
+  });
+
+  it("opening another thread mid-answer leaves that thread's last reply as it was", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const turn = sendIn("conv-1", "tell me about retros");
+    body.send(delta({ content: "Retros are" }));
+    await vi.waitFor(() => expect(textOf(lastAssistant())).toBe("Retros are"));
+
+    const other = otherThread();
+    useAgentStore.getState().setActiveConversation(meta("conv-2"), other);
+    body.send(delta({ content: " a team's look back." }), delta({}, "stop"), "[DONE]");
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.activeConversationId).toBe("conv-2");
+    expect(s.messages).toEqual(otherThread());
+    expect(s.streaming).toBe(false);
+    expect(s.error).toBeNull();
+    expect(savedTo("conv-1").map((m) => m.role)).toEqual(["user"]);
+    expect(savedTo("conv-2")).toEqual([]);
+  });
+
+  it("opening another thread while a change waits denies it, keeps its saved thread whole and shows nothing in the other", async () => {
+    h.executeToolUse.mockImplementationOnce(async (tu, opts) => {
+      const ok = await opts!.confirm("Read the loop probe's state?");
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: ok ? '{"ok":true}' : "The user declined.",
+        ...(ok ? {} : { is_error: true }),
+      };
+    });
+    queue = [toolTurn("call_1")];
+    const turn = sendIn("conv-1", "read the probe state", "loop-probe");
+    await vi.waitFor(() => expect(useAgentStore.getState().pendingToolUse).not.toBeNull());
+
+    useAgentStore.getState().setActiveConversation(meta("conv-2"), otherThread());
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.messages).toEqual(otherThread());
+    expect(s.pendingToolUse).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(s.error).toBeNull();
+    // No next round went out from the other thread.
+    expect(posts).toHaveLength(1);
+    // The turn's own thread was saved with the call and its (denied) result.
+    const saved = savedTo("conv-1");
+    expect(saved.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
+    expect(saved[2].content).toEqual([
+      expect.objectContaining({ tool_use_id: "call_1", is_error: true }),
+    ]);
+    expect(savedTo("conv-2")).toEqual([]);
+  });
+
+  it("Stop through the store ends the answer where it is, with no error", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const turn = sendIn("conv-1", "tell me about retros");
+    body.send(delta({ content: "Retros are" }));
+    await vi.waitFor(() => expect(textOf(lastAssistant())).toBe("Retros are"));
+
+    useAgentStore.getState().abortTurn("stop");
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(textOf(lastAssistant())).toBe("Retros are");
+    expect(s.streaming).toBe(false);
+    expect(s.error).toBeNull();
+    expect(s.abortHook).toBeNull();
+    expect(posts).toHaveLength(1);
+  });
+});
+
+describe("a turn outlives the panel", () => {
+  it("closing the panel mid-answer, and its views unmounting, lets the reply finish in the store", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    useAgentStore.getState().openSheet();
+    // Stands in for the panel's views, which read the chat from the store.
+    const view = renderHook(() => useAgentStore((s) => s.messages));
+    const turn = sendIn("conv-1", "tell me about retros");
+    body.send(delta({ content: "Retros are" }));
+    await vi.waitFor(() => expect(textOf(view.result.current.at(-1))).toBe("Retros are"));
+
+    useAgentStore.getState().closeSheet();
+    view.unmount();
+    body.send(delta({ content: " a team's look back." }), delta({}, "stop"), "[DONE]");
+    body.end();
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.open).toBe(false);
+    expect(textOf(lastAssistant())).toBe("Retros are a team's look back.");
+    expect(s.streaming).toBe(false);
+    expect(s.error).toBeNull();
+    expect(savedTo("conv-1").map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(textOf(savedTo("conv-1")[1])).toBe("Retros are a team's look back.");
   });
 });

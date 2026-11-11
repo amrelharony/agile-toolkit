@@ -8,8 +8,9 @@ interface ExecuteOptions {
   confirm: (summary: string) => Promise<boolean>;
   /** When true, skip confirm() for write/intent actions. Read still no-prompt. */
   autoApprove: boolean;
-  /** Turn abort signal — closing the panel cancels an in-flight handler so the
-   *  loop doesn't stay parked (and `streaming`) for up to the 30s timeout. */
+  /** Turn abort signal — stopping the turn (Stop, New chat, a thread switch)
+   *  cancels an in-flight handler so the loop doesn't stay parked (and
+   *  `streaming`) for up to the 30s timeout. Closing the panel doesn't. */
   signal?: AbortSignal;
   /**
    * Ask before EVERY non-read action, even one whose `requiresConfirmation`
@@ -75,7 +76,7 @@ export async function executeToolUse(
   block: ToolUseBlock,
   opts: ExecuteOptions
 ): Promise<ToolResultBlock> {
-  // The turn was aborted (panel closed) before we got to this tool — answer it
+  // The turn was stopped before we got to this tool — answer it
   // with an error result rather than running it, so the tool_call isn't left
   // orphaned in the transcript.
   if (opts.signal?.aborted) {

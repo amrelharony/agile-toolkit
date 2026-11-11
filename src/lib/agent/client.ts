@@ -15,7 +15,7 @@ import {
   type VisitorRequestBody,
   type VisitorWireMessage,
 } from "@/lib/visitor-ai/contract";
-import { useAgentStore } from "./store";
+import { useAgentStore, type TurnAbort } from "./store";
 import { buildSystemPrompt } from "./system-prompt";
 import { composeGrounding } from "./grounding";
 import { resolvePageTool } from "./page-tool";
@@ -107,16 +107,22 @@ interface StreamOptions {
   profile?: "owner" | "visitor";
 }
 
-/** Module-scoped abort controller for the current in-flight send. Cleared
- *  on completion. UI callers (sheet close, route change, unmount) call
- *  `abortInFlight()` to terminate the stream. (BUG-G4) */
+/**
+ * Module-scoped abort controller for the current in-flight send, cleared on
+ * completion (BUG-G4). Each send also registers its abort with the store
+ * (setAbortTurn), so New chat, a thread switch, sign-out and a profile change
+ * stop the turn without importing this module. Closing the panel never does:
+ * an answer goes on with the panel shut.
+ */
 let currentController: AbortController | null = null;
+
+/** Stop the live turn (the Stop button): it ends where it is, and a waiting card is denied. */
 export function abortInFlight(): void {
+  // Runs the turn's registered abort once and denies a waiting card, so a
+  // stale card doesn't survive the abort (BUG-G18).
+  useAgentStore.getState().abortTurn("stop");
   currentController?.abort();
   currentController = null;
-  // Clear pending confirmation so a stale card doesn't survive the abort.
-  // (BUG-G18)
-  useAgentStore.getState().setPendingToolUse(null);
 }
 
 /**
@@ -150,6 +156,11 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
     if (opts.signal.aborted) controller.abort();
     else opts.signal.addEventListener("abort", () => controller.abort(), { once: true });
   }
+  // The store stops this turn on Stop, New chat, a thread switch, sign-out and
+  // a profile change, before it swaps the chat out: whatever the turn does
+  // after that is told by its signal.
+  const abortTurn: TurnAbort = () => controller.abort();
+  store.setAbortTurn(abortTurn);
   // A visitor's chat lives in memory only: no conversation to write to.
   const optsWithSignal: StreamOptions = {
     ...opts,
@@ -193,6 +204,9 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
       store.setError(visitor ? VISITOR_STREAM_FAILED_TEXT : msg);
     }
   } finally {
+    // The turn is over: the store has nothing of it left to stop (a newer
+    // send's abort, registered since, stays).
+    useAgentStore.getState().clearAbortTurn(abortTurn);
     // Only clear streaming if no newer send has taken over (otherwise we'd flip
     // the flag off mid-stream for that send — see ownsStreamingReset).
     if (ownsStreamingReset(currentController, controller)) {
@@ -312,7 +326,15 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     void recordChatUsage(turnTokens, model);
   };
 
+  // Every message of this turn is saved to the conversation it started in,
+  // whatever the chat shows by the time it lands.
+  const conversationId = opts.conversationId ?? null;
+
   for (let round = 0; round < MAX_TOOL_USE_ROUNDS; round++) {
+    // Stopped, or the chat changed under the turn (New chat, another thread)
+    // while it got ready or between rounds: the chat now showing is not this
+    // turn's to send.
+    if (opts.signal?.aborted) return;
     const history = useAgentStore.getState().messages;
     const messages = wireMessages(history, system);
     const body = withTools(
@@ -343,13 +365,13 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
       // Without this, reload yields invalid wire format (orphan tool_result
       // blocks referencing tool_call_ids that don't exist in any preceding
       // assistant message).
-      persistAssistant(opts.conversationId, assistantId);
+      persistAssistant(conversationId, assistantId);
       return;
     }
 
     // BUG-G6: persist the assistant message so its tool_call_ids are
     // recoverable on reload, before we append the tool-role response.
-    persistAssistant(opts.conversationId, assistantId);
+    persistAssistant(conversationId, assistantId);
 
     // Collect the tool_use blocks the streaming parser captured — from THIS
     // round's assistant message (looked up by id, not a reverse role scan).
@@ -393,10 +415,17 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
       content: results,
       createdAt: new Date().toISOString(),
     };
+    // The calls were saved with their conversation (above), so their results
+    // go there too, even when the chat moved on while a tool ran or waited for
+    // its card: the saved thread keeps every call answered.
+    if (conversationId) void appendMessages(conversationId, [toolMsg]);
+    // New chat or another thread while a tool ran or waited: the calls are
+    // gone from the chat on screen, so their results would only be strays in
+    // it (and the next request there would fail on them).
+    if (!chatStillHas(lastAssistant.id)) return;
     useAgentStore.getState().appendMessage(toolMsg);
-    if (opts.conversationId) void appendMessages(opts.conversationId, [toolMsg]);
 
-    // Panel closed mid-round: every tool_call now has a result (above), so the
+    // Stopped mid-round: every tool_call now has a result (above), so the
     // transcript is valid — just don't open another streaming round.
     if (opts.signal?.aborted) return;
 
@@ -435,6 +464,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   // reasoning; then the wrap-up has no text and a local note (roundLimitNote)
   // stands in, so the turn never ends on an empty reply.
   let wrapUpId: string | null = null;
+  if (opts.signal?.aborted) return;
   try {
     const history = useAgentStore.getState().messages;
     const messages = wireMessages(history, `${system}\n\n${WRAP_UP_INSTRUCTION}`);
@@ -460,9 +490,14 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   } catch {
     /* best-effort wrap-up; the note below stands in for it */
   }
-  // Panel closed: nobody reads a note, so keep only what the model wrote.
-  if (!opts.signal?.aborted) wrapUpId = withWrapUpText(wrapUpId);
-  persistAssistant(opts.conversationId, wrapUpId);
+  // Stopped, or the chat changed under the wrap-up: keep only what the model
+  // wrote, and leave no note in a chat that may not be this turn's.
+  if (opts.signal?.aborted) {
+    persistAssistant(conversationId, wrapUpId);
+    return;
+  }
+  wrapUpId = withWrapUpText(wrapUpId);
+  persistAssistant(conversationId, wrapUpId);
   useAgentStore
     .getState()
     .setError("Reached tool-use round limit (10). Send a follow-up if more is needed.");
@@ -789,6 +824,8 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
   const errorRepeats = new Map<string, number>();
 
   for (let round = 0; round < VISITOR_LIMITS.maxToolRounds; round++) {
+    // As for the owner: a stopped turn sends nothing more from the chat now showing.
+    if (opts.signal?.aborted) return;
     const history = trimVisitorHistory(useAgentStore.getState().messages);
     if (overVisitorLimits(history)) {
       useAgentStore.getState().setError(VISITOR_ERROR_TEXT.round_limit);
@@ -996,6 +1033,11 @@ interface TurnOutcome {
  * `ignoreToolCalls` (the wrap-up turn) keeps only the text: tool-call deltas
  * are dropped and the turn always ends, so no tool_call is left in the
  * transcript without a result.
+ *
+ * The reply is written by its id only (the store's streamingMessageId points
+ * at it while it streams), so a chat that changed under the turn never gets
+ * it. A round that was stopped never ends in "tool_use": its calls are
+ * dropped unrun with it.
  */
 async function openOneTurn(
   mode: AgentMode,
@@ -1010,11 +1052,17 @@ async function openOneTurn(
   const early =
     mode === "visitor"
       ? await handleVisitorResponse(response, signal)
-      : await handleOwnerResponse(response);
+      : await handleOwnerResponse(response, signal);
   if (early) return early;
   // Both checks end the round on a response without a body; this only narrows the type.
   const stream = response.body;
   if (!stream) return { stopReason: "end_turn", assistantId: null };
+  // Stopped (or the chat changed) while the response was on its way: no reply
+  // goes into the chat now showing, not even an empty one for a moment.
+  if (signal?.aborted) {
+    void stream.cancel().catch(() => {});
+    return { stopReason: "end_turn", assistantId: null };
+  }
 
   const assistantMsg: ChatMessage = {
     id: msgId(),
@@ -1022,7 +1070,9 @@ async function openOneTurn(
     content: [],
     createdAt: new Date().toISOString(),
   };
-  useAgentStore.getState().appendMessage(assistantMsg);
+  const store = useAgentStore.getState();
+  store.appendMessage(assistantMsg);
+  store.setStreamingMessageId(assistantMsg.id);
 
   // OpenAI / GLM streaming parser:
   //   data: {"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}
@@ -1083,7 +1133,7 @@ async function openOneTurn(
         buf = buf.slice(nl + 2);
         const sr = handleSseChunk(chunk, wip);
         if (sr) stopReason = sr;
-        flushAssistant(wip);
+        flushAssistant(wip, assistantMsg.id);
       }
     }
     // Tail flush in case the server closed without a trailing \n\n.
@@ -1091,10 +1141,10 @@ async function openOneTurn(
       const sr = handleSseChunk(buf, wip);
       if (sr) stopReason = sr;
     }
-    flushAssistant(wip);
+    flushAssistant(wip, assistantMsg.id);
     // Usage is optional: a backend that never sends it just records nothing.
     if (wip.usage !== undefined && wip.usage > 0) onUsage?.(wip.usage);
-    if (wip.ignoreToolCalls) stopReason = "end_turn";
+    if (wip.ignoreToolCalls || signal?.aborted) stopReason = "end_turn";
     settleAssistant(assistantMsg.id, stopReason === "tool_use");
     return {
       stopReason,
@@ -1109,6 +1159,8 @@ async function openOneTurn(
     settleAssistant(assistantMsg.id, false);
     throw err;
   } finally {
+    const s = useAgentStore.getState();
+    if (s.streamingMessageId === assistantMsg.id) s.setStreamingMessageId(null);
     try {
       reader.releaseLock();
     } catch {
@@ -1121,13 +1173,20 @@ async function openOneTurn(
  * The owner's response checks, before its stream is read: update the usage bar
  * from the route's X-RateLimit-* headers (server mode, turn start), and turn a
  * refusal into a message. Returns the round's outcome when it ends here, or
- * null to read the stream.
+ * null to read the stream. A refusal that lands after the turn was stopped
+ * says nothing: the chat on screen may not be this turn's any more.
  */
-async function handleOwnerResponse(response: Response): Promise<TurnOutcome | null> {
+async function handleOwnerResponse(
+  response: Response,
+  signal: AbortSignal | undefined
+): Promise<TurnOutcome | null> {
   // A 429 means a window cap was hit — surface it gently and stop the loop
   // instead of throwing the generic "stream failed" error.
   const rl = parseRateLimitHeaders(response.headers, response.status === 429);
   if (rl) useAgentStore.getState().setRateLimit(rl);
+  if (signal?.aborted && (response.status === 429 || !response.ok || !response.body)) {
+    return { stopReason: "end_turn", assistantId: null };
+  }
   if (response.status === 429) {
     useAgentStore
       .getState()
@@ -1137,6 +1196,7 @@ async function handleOwnerResponse(response: Response): Promise<TurnOutcome | nu
 
   if (!response.ok || !response.body) {
     const detail = await response.text().catch(() => "");
+    if (signal?.aborted) return { stopReason: "end_turn", assistantId: null };
     // Map the common upstream failures to a message a user can act on, instead
     // of dumping the raw `agent stream failed (NNN): {json}` developer string
     // into the chat's error banner.
@@ -1414,7 +1474,11 @@ function settleAssistant(id: string, keepToolCalls: boolean): void {
   else if (content.length !== msg.content.length) store.patchMessage(id, content);
 }
 
-function flushAssistant(wip: WipState): void {
+/**
+ * Write the reply so far to its own message, by id: a chat that no longer
+ * holds it (New chat, another thread) gets nothing.
+ */
+function flushAssistant(wip: WipState, id: string): void {
   const content: ContentBlock[] = [];
   const text = wip.textParts.join("");
   if (text.length > 0) {
@@ -1441,7 +1505,8 @@ function flushAssistant(wip: WipState): void {
       input,
     });
   }
-  useAgentStore.getState().patchLastAssistant(content);
+  if (!chatStillHas(id)) return;
+  useAgentStore.getState().patchMessage(id, content);
 }
 
 async function openStream(

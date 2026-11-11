@@ -1061,6 +1061,73 @@ describe("an answer that stops before its end", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  /** Events as the text of one network chunk ("[DONE]" passes through). */
+  const sseText = (...events: unknown[]) =>
+    events.map((e) => `data: ${typeof e === "string" ? e : JSON.stringify(e)}\n\n`).join("");
+
+  // The read already waiting gets the rest of the stream, so it returns rather
+  // than fails: the round ends cleanly, and still runs nothing.
+  it("runs no tool when Stop lands after a round's finish while its stream is still open", async () => {
+    let ran = 0;
+    h.onRead = () => {
+      ran += 1;
+    };
+    const body = manualBody();
+    queue.push(
+      new Response(body.stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream", ...QUOTA_HEADERS },
+      })
+    );
+    const turn = askVisitor("read my zorblax board");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    body.send(sseText(readCall("c1"), delta({}, "tool_calls")));
+    await vi.waitFor(() =>
+      expect(
+        useAgentStore
+          .getState()
+          .messages.at(-1)
+          ?.content.some((c) => c.type === "tool_use")
+      ).toBe(true)
+    );
+    abortInFlight();
+    body.send(sseText("[DONE]"));
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(ran).toBe(0);
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(calls).toHaveLength(1);
+    expect(s.error).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("a reset alone mid-answer (the visitor turned out to be the owner) stops it, and the emptied chat stays empty", async () => {
+    const body = manualBody();
+    queue.push(
+      new Response(body.stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream", ...QUOTA_HEADERS },
+      })
+    );
+    const turn = askVisitor("How do I run a retro?");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    body.send(sseText(delta({ content: "Start with" })));
+    await vi.waitFor(() => expect(lastText()).toBe("Start with"));
+    useAgentStore.getState().reset();
+    body.send(sseText(delta({ content: " what went well." }), delta({}, "stop"), "[DONE]"));
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.messages).toEqual([]);
+    expect(s.error).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(s.abortHook).toBeNull();
+    expect(calls).toHaveLength(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   // A gateway that fails half way can say so inside the stream and still close
   // it properly: an event with an error and no choices, then [DONE].
   it.each([

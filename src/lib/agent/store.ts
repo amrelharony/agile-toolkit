@@ -135,8 +135,11 @@ interface AgentActions {
    */
   attachConversation(meta: ConversationMeta, holding?: string): boolean;
   appendMessage(msg: ChatMessage): void;
-  patchLastAssistant(content: ChatMessage["content"]): void;
-  /** Replace one message's content, by id (no-op when it's gone). */
+  /**
+   * Replace one message's content, by id (no-op when it's gone). The live
+   * turn writes its reply this way, never to "the last assistant message",
+   * so a chat that changed under it is never written into.
+   */
   patchMessage(id: string, content: ChatMessage["content"]): void;
   /** Drop one message, by id (no-op when it's gone). */
   removeMessage(id: string): void;
@@ -242,31 +245,6 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   },
 
   appendMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
-
-  patchLastAssistant: (content) =>
-    set((s) => {
-      // Find the last assistant message and replace its content. If there
-      // isn't one yet, create one. Used by the streaming loop to grow the
-      // assistant's response as deltas arrive.
-      const idx = [...s.messages].reverse().findIndex((m) => m.role === "assistant");
-      if (idx === -1) {
-        return {
-          messages: [
-            ...s.messages,
-            {
-              id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-              role: "assistant",
-              content,
-              createdAt: new Date().toISOString(),
-            },
-          ],
-        };
-      }
-      const realIdx = s.messages.length - 1 - idx;
-      const next = s.messages.slice();
-      next[realIdx] = { ...next[realIdx], content };
-      return { messages: next };
-    }),
 
   patchMessage: (id, content) =>
     set((s) => ({ messages: s.messages.map((m) => (m.id === id ? { ...m, content } : m)) })),
