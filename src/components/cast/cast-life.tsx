@@ -10,7 +10,10 @@
  *   reduced motion, Save-Data or 2G. Never inside an intro overlay.
  *
  * `host` names the element to wake: `data-cast-host="<host>"`. Without it,
- * the whole page.
+ * the whole page. `cast` names the figures it wakes, such as
+ * `rigs.map((r) => r.id).join(" ")`: it finds them once, so a host whose
+ * figures change without remounting it (another episode, a strip shown after
+ * the guess) changes `cast`, and a change starts it afresh.
  */
 
 import { useEffect, useRef } from "react";
@@ -22,7 +25,7 @@ type IdleWindow = Window & {
   cancelIdleCallback?: (id: number) => void;
 };
 
-export function CastLife({ host }: { host?: string }) {
+export function CastLife({ host, cast }: { host?: string; cast?: string }) {
   const pathname = usePathname();
   const path = useRef(pathname);
   path.current = pathname;
@@ -95,7 +98,7 @@ export function CastLife({ host }: { host?: string }) {
       clearTimeout(timer);
       dispose?.();
     };
-  }, [host]);
+  }, [host, cast]);
 
   return null;
 }

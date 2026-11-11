@@ -2,7 +2,7 @@
  * <CastLife> marks a host's figures near the screen (so deferred art loads)
  * and loads life only when it may move them: no reduced motion, no Save-Data
  * or 2G, a visible tab, a figure near, and an idle browser. Never inside an
- * intro overlay.
+ * intro overlay. A new `cast` starts it afresh on the figures there now.
  */
 
 import { render } from "@testing-library/react";
@@ -208,6 +208,39 @@ describe("CastLife", () => {
     unmount();
     expect(life.dispose).toHaveBeenCalledTimes(1);
     expect(io.observed.size).toBe(0);
+  });
+
+  it("starts afresh on the figures it is given when `cast` changes", async () => {
+    const view = (ids: `AAW-${string}`[]) => (
+      <div>
+        <div data-cast-host="strip">
+          {ids.map((id) => (
+            <CastFigure key={id} rig={{ ...TEST_PUPPET, id }} height="120px" defer />
+          ))}
+        </div>
+        <CastLife host="strip" cast={ids.join(" ")} />
+      </div>
+    );
+    const { rerender, container } = render(view(["AAW-90", "AAW-89"]));
+    FakeIO.all.at(-1)!.near();
+    await settle();
+    expect(life.startLife).toHaveBeenCalledTimes(1);
+    const watchers = FakeIO.all.length;
+
+    // The same figures: nothing restarts.
+    rerender(view(["AAW-90", "AAW-89"]));
+    expect(FakeIO.all).toHaveLength(watchers);
+
+    rerender(view(["AAW-87"]));
+    expect(life.dispose).toHaveBeenCalledTimes(1);
+    const io = FakeIO.all.at(-1)!;
+    const fresh = container.querySelector<HTMLElement>('[data-cast="AAW-87"]')!;
+    expect(Array.from(io.observed)).toEqual([fresh]);
+    expect(fresh.hasAttribute("data-near")).toBe(false);
+    io.near();
+    expect(fresh.hasAttribute("data-near")).toBe(true);
+    await settle();
+    expect(life.startLife).toHaveBeenCalledTimes(2);
   });
 
   it("never starts life after it has unmounted", async () => {
