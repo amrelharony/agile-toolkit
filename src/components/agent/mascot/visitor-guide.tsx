@@ -36,9 +36,14 @@ const RESULTS_ID = "mascot-tool-results";
 /** Common jobs, shown before the visitor types anything (same list as the home page). */
 const STARTERS = JOBS.map((job) => ({ label: job.title, toolId: job.primaryToolId }));
 
-/** What the announcer says once typing stops: plain words, no dashes. */
-export function matchCountNote(count: number, query: string): string {
+/**
+ * What the announcer says once typing stops: plain words, no dashes. `more`
+ * says the list was cut at `count`, so it never names a capped count as the
+ * number of tools that match.
+ */
+export function matchCountNote(count: number, query: string, more = false): string {
   if (count === 0) return `No tools match “${query}”`;
+  if (more) return `More than ${count} tools match. The best ${count} are shown`;
   return count === 1 ? "1 tool matches" : `${count} tools match`;
 }
 
@@ -149,7 +154,10 @@ export function VisitorGuide({
   const [query, setQuery] = useState(initialQuery ?? "");
   const trimmed = query.trim();
   const cap = onAskAmr ? RESULTS_CAP_WITH_AI : RESULTS_CAP;
-  const results = useMemo(() => (trimmed ? searchTools(trimmed, cap) : []), [trimmed, cap]);
+  // One more than the cap, to know whether the list was cut.
+  const found = useMemo(() => (trimmed ? searchTools(trimmed, cap + 1) : []), [trimmed, cap]);
+  const more = found.length > cap;
+  const results = useMemo(() => (more ? found.slice(0, cap) : found), [found, more, cap]);
   // Only what the visitor types is read out: a search the guide opened with
   // (coming back from the consent card) was theirs already.
   const [typed, setTyped] = useState(false);
@@ -174,9 +182,9 @@ export function VisitorGuide({
   const count = results.length;
   useEffect(() => {
     if (!typed || !trimmed) return;
-    const id = setTimeout(() => announce(matchCountNote(count, trimmed)), SEARCH_ANNOUNCE_MS);
+    const id = setTimeout(() => announce(matchCountNote(count, trimmed, more)), SEARCH_ANNOUNCE_MS);
     return () => clearTimeout(id);
-  }, [typed, trimmed, count, announce]);
+  }, [typed, trimmed, count, more, announce]);
 
   // Picking a tool: "you've got this".
   const chose = () => {

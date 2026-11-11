@@ -124,17 +124,49 @@ describe("VisitorGuide", () => {
     it("reads the count out once typing has stopped for 450 ms", () => {
       vi.useFakeTimers();
       render(<VisitorGuide />);
-      type("retro");
+      type("ok");
       act(() => vi.advanceTimersByTime(SEARCH_ANNOUNCE_MS - 100));
       // Still typing: the wait starts again.
-      type("retrospective");
+      type("okr");
       act(() => vi.advanceTimersByTime(SEARCH_ANNOUNCE_MS - 1));
       expect(h.announce).not.toHaveBeenCalled();
       act(() => vi.advanceTimersByTime(1));
+      // Under the cap, so the list shows every match and the count is exact.
       const count = within(results()).getAllByRole("link").length;
+      expect(searchTools("okr", 50)).toHaveLength(count);
+      expect(count).toBeLessThan(RESULTS_CAP);
       expect(h.announce).toHaveBeenCalledTimes(1);
-      expect(h.announce).toHaveBeenCalledWith(matchCountNote(count, "retrospective"));
-      expect(matchCountNote(count, "retrospective")).toBe(`${count} tools match`);
+      expect(h.announce).toHaveBeenCalledWith(matchCountNote(count, "okr"));
+      expect(matchCountNote(count, "okr")).toBe(`${count} tools match`);
+    });
+
+    // "sprint" matches more tools than either cap.
+    it("says when the list was cut, instead of naming the cap as the count", () => {
+      vi.useFakeTimers();
+      expect(searchTools("sprint", 50).length).toBeGreaterThan(RESULTS_CAP);
+      const { unmount } = render(<VisitorGuide />);
+      type("sprint");
+      act(() => vi.advanceTimersByTime(SEARCH_ANNOUNCE_MS));
+      expect(within(results()).getAllByRole("link")).toHaveLength(RESULTS_CAP);
+      expect(h.announce).toHaveBeenCalledWith(matchCountNote(RESULTS_CAP, "sprint", true));
+      unmount();
+
+      h.announce.mockClear();
+      render(<VisitorGuide onAskAmr={() => {}} />);
+      type("sprint");
+      act(() => vi.advanceTimersByTime(SEARCH_ANNOUNCE_MS));
+      expect(within(results()).getAllByRole("link")).toHaveLength(RESULTS_CAP_WITH_AI);
+      expect(h.announce).toHaveBeenCalledWith(matchCountNote(RESULTS_CAP_WITH_AI, "sprint", true));
+    });
+
+    it("reads an exact count when the matches fill the list but don't overflow it", () => {
+      vi.useFakeTimers();
+      // "okr" matches exactly as many tools as the list holds with the AI on.
+      expect(searchTools("okr", 50)).toHaveLength(RESULTS_CAP_WITH_AI);
+      render(<VisitorGuide onAskAmr={() => {}} />);
+      type("okr");
+      act(() => vi.advanceTimersByTime(SEARCH_ANNOUNCE_MS));
+      expect(h.announce).toHaveBeenCalledWith(`${RESULTS_CAP_WITH_AI} tools match`);
     });
 
     it("reads out a search with no match, and shows it without a live region", () => {
@@ -153,7 +185,9 @@ describe("VisitorGuide", () => {
       expect(matchCountNote(1, "x")).toBe("1 tool matches");
       expect(matchCountNote(4, "x")).toBe("4 tools match");
       expect(matchCountNote(0, "okr board")).toBe("No tools match “okr board”");
+      expect(matchCountNote(6, "x", true)).toBe("More than 6 tools match. The best 6 are shown");
       for (const n of [0, 1, 4]) expect(matchCountNote(n, "x")).not.toMatch(/[—–]/);
+      expect(matchCountNote(6, "x", true)).not.toMatch(/[—–]/);
     });
 
     it("has a single live channel: the app's announcer", () => {
