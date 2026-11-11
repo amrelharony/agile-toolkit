@@ -298,22 +298,23 @@ export async function listReleasedWeekly(limit?: number): Promise<StorySummary[]
 
 /** What a flashcard needs of a released weekly story, oldest first. */
 export async function listStudyCards(): Promise<StudyCard[]> {
-  const rows = await read<{ ep: number; title: string; lesson: string; squad_question: string }[]>(
-    [],
-    (client, now, signal) =>
-      client
-        .from("comic_stories")
-        .select("ep,title,lesson,squad_question")
-        .eq("collection", "weekly")
-        .lte("release_at", now)
-        .order("ep", { ascending: true })
-        .abortSignal(signal)
+  const rows = await read<
+    { ep: number; title: string; lesson: string; squad_question: string; cover: unknown }[]
+  >([], (client, now, signal) =>
+    client
+      .from("comic_stories")
+      .select("ep,title,lesson,squad_question,cover:panels->0")
+      .eq("collection", "weekly")
+      .lte("release_at", now)
+      .order("ep", { ascending: true })
+      .abortSignal(signal)
   );
   return rows.map((row) => ({
     ep: row.ep,
     title: row.title,
     lesson: row.lesson,
     question: row.squad_question,
+    cover: toCover(row.cover),
   }));
 }
 

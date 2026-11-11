@@ -23,6 +23,9 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 
 import FlashcardsPage, { metadata, revalidate } from "@/app/(tools)/comics/flashcards/page";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
+import { POSTER_ART } from "@/lib/comics/poster-panels.generated";
+
+const STORAGE = "https://ref.supabase.co/storage/v1/object/public/comic-panels/";
 
 const WEEKLY: StudyCard = {
   ep: 27,
@@ -35,11 +38,13 @@ const deck = () => screen.getByRole("region", { name: "Flashcards" });
 
 beforeEach(() => {
   h.weekly = [WEEKLY];
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://ref.supabase.co");
 });
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("the flashcards", () => {
@@ -48,6 +53,43 @@ describe("the flashcards", () => {
     expect(within(deck()).getByText("Card 1 of 27 · Episode 1")).toBeTruthy();
     expect(within(deck()).getByRole("heading", { name: BOOK_EPISODES[0].title })).toBeTruthy();
     expect(within(deck()).queryByText(BOOK_EPISODES[0].lesson)).toBeNull();
+  });
+
+  it("show the story's first panel, the poster's for the book, on both sides", async () => {
+    render(await FlashcardsPage());
+    const picture = () => within(deck()).getByRole("presentation");
+    const first = `${STORAGE}${POSTER_ART[1].panels[0].small}`;
+    expect(picture().getAttribute("src")).toBe(first);
+    expect(picture().getAttribute("alt")).toBe("");
+    expect(picture().getAttribute("loading")).toBe("eager");
+    fireEvent.click(within(deck()).getByRole("button", { name: "Show the lesson" }));
+    expect(picture().getAttribute("src")).toBe(first);
+    fireEvent.click(within(deck()).getByRole("button", { name: /^Next/ }));
+    expect(picture().getAttribute("src")).toBe(`${STORAGE}${POSTER_ART[2].panels[0].small}`);
+  });
+
+  it("give a weekly story its own cover, and a card with none shows words alone", async () => {
+    h.weekly = [
+      { ...WEEKLY, cover: { pathSmall: "w/27-768.webp", width: 1536, height: 1024 } },
+      { ...WEEKLY, ep: 28, title: "No Art Yet", cover: null },
+    ];
+    render(await FlashcardsPage());
+    for (let i = 0; i < 26; i++) {
+      fireEvent.click(within(deck()).getByRole("button", { name: /^Next/ }));
+    }
+    expect(within(deck()).getByRole("presentation").getAttribute("src")).toBe(
+      `${STORAGE}w/27-768.webp`
+    );
+    fireEvent.click(within(deck()).getByRole("button", { name: /^Next/ }));
+    expect(within(deck()).getByRole("heading", { name: "No Art Yet" })).toBeTruthy();
+    expect(within(deck()).queryByRole("presentation")).toBeNull();
+  });
+
+  it("show the book's cards as words alone where the art can't load", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    render(await FlashcardsPage());
+    expect(within(deck()).getByRole("heading", { name: BOOK_EPISODES[0].title })).toBeTruthy();
+    expect(within(deck()).queryByRole("presentation")).toBeNull();
   });
 
   it("turn over to the lesson and the question, and back", async () => {
