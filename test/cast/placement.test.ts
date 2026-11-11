@@ -59,6 +59,21 @@ interface Graph {
 
 let built: Graph | null = null;
 
+/** `from` and everything reached from it through `next`. */
+function reach(from: string[], next: (file: string) => string[]): Set<string> {
+  const seen = new Set(from);
+  const queue = [...from];
+  while (queue.length) {
+    for (const dep of next(queue.pop()!)) {
+      if (!seen.has(dep)) {
+        seen.add(dep);
+        queue.push(dep);
+      }
+    }
+  }
+  return seen;
+}
+
 function graph(): Graph {
   if (built) return built;
   const imports = new Map<string, string[]>();
@@ -73,12 +88,10 @@ function graph(): Graph {
     imports.set(file, specs(STATIC));
     later.set(file, specs(DYNAMIC));
   }
-  const live = new Set(
-    Array.from(imports.keys()).filter((f) => /^src\/(app\/|middleware\.|instrumentation)/.test(f))
+  const entries = Array.from(imports.keys()).filter((f) =>
+    /^src\/(app\/|middleware\.|instrumentation)/.test(f)
   );
-  for (const file of live) {
-    for (const dep of [...(imports.get(file) ?? []), ...(later.get(file) ?? [])]) live.add(dep);
-  }
+  const live = reach(entries, (file) => [...(imports.get(file) ?? []), ...(later.get(file) ?? [])]);
   return (built = { imports, live });
 }
 
@@ -90,22 +103,21 @@ function graph(): Graph {
  */
 function chunkOf(entry: string): string[] {
   const { imports, live } = graph();
-  const chunk = new Set([entry]);
-  for (const file of chunk) for (const dep of imports.get(file) ?? []) chunk.add(dep);
+  const chunk = reach([entry], (file) => imports.get(file) ?? []);
   const shared = (file: string) =>
     Array.from(imports).some(
       ([from, deps]) => live.has(from) && !chunk.has(from) && deps.includes(file)
     );
   for (let changed = true; changed; ) {
     changed = false;
-    for (const file of chunk) {
+    for (const file of Array.from(chunk)) {
       if (file !== entry && shared(file)) {
         chunk.delete(file);
         changed = true;
       }
     }
   }
-  return [...chunk];
+  return Array.from(chunk);
 }
 
 describe("the rig data", () => {
