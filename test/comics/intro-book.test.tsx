@@ -613,6 +613,8 @@ describe("the book intro's timing", () => {
     expect(value(".eyebrow", "font-size")).toBe("var(--eyebrow-size)");
     expect(value(".storyTitle", "font-size")).toBe("var(--title-size)");
     expect(value(".inside", "border")).toMatch(/^var\(--panel-w\) solid /);
+    // The room counts one line of eyebrow, so it may never wrap to two.
+    expect(value(".eyebrow", "white-space")).toBe("nowrap");
     const landscape =
       /@media \(orientation: landscape\) and \(max-height: 540px\) \{\s*\.window \{([^}]*)\}/
         .exec(css)![1]
@@ -627,7 +629,8 @@ describe("the book intro's timing", () => {
       "--room": value(".window", "--room"),
     });
     // The book's width on a 375 px phone 667 or 550 tall (270px both), a 320
-    // and a 360 px phone, a laptop, and phones on their side (2:1 window).
+    // and a 360 px phone, a laptop, and phones on their side (2:1 window),
+    // down to 128px on a 480x320 one.
     for (const [bookW, width, ratio] of [
       [270, value(".window", "width"), 3 / 2],
       [230.4, value(".window", "width"), 3 / 2],
@@ -635,13 +638,16 @@ describe("the book intro's timing", () => {
       [416, value(".window", "width"), 3 / 2],
       [193.5, landscape, 2],
       [144, landscape, 2],
+      [128, landscape, 2],
     ] as const) {
       const v = vars(bookW);
       const at = (selector: string, property: string) => px(value(selector, property), v);
       const inner = bookW - 2 * px(panelW, v) - 2 * at(".inside", "padding");
       const windowH = px(width, v, inner) / ratio;
       expect(windowH, `${bookW}px`).toBeGreaterThan(0);
-      // The eyebrow takes one line: "This week's story" is far short of the page's width.
+      // The eyebrow takes one line: it never wraps (below). In Chrome it is
+      // 105.6px wide at the 12px floor: 88% of the column on a 144px book, 99.5%
+      // on a 128px one, so on a narrower book it runs into the page's padding.
       const caption =
         at(".caption", "margin-top") +
         Number(value(".eyebrow", "line-height")) * px("var(--eyebrow-size)", v) +

@@ -224,9 +224,15 @@
   margin-top: calc(var(--book-w) * 0.08);
 }
 
+/* On one line always, as the window's --room counts one. At the 12 px floor
+   "This week's story" fits the column on a book down to about 127 px wide (128
+   on a 480x320 phone on its side). On a narrower book, where the browser's
+   bars leave less height showing, its last letters run into the page's
+   padding rather than wrap and push a four-line title off the page. */
 .eyebrow {
   font-size: var(--eyebrow-size);
   line-height: 1.3;
+  white-space: nowrap;
 }
 
 .storyTitle {
