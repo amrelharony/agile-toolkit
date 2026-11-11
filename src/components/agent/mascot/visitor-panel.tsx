@@ -3,8 +3,8 @@
 /**
  * What the mascot's panel shows a signed-out visitor when visitor AI is on.
  *
- * Three steps, offline first:
- *  - guide: the offline tool finder (VisitorGuide), as before, plus "Ask Amr
+ * Three steps, the tool finder first:
+ *  - guide: the tool finder (VisitorGuide), as before, plus "Ask Amr
  *    about '…'" and "Chat with Amr". Opening the panel sends nothing.
  *  - consent: the first time, a card says where messages go
  *    (VisitorAiConsent). Nothing is sent before "Agree and ask".
@@ -75,16 +75,15 @@ function chatFor(load: LoadChat): LazyChat {
 }
 
 /** Shown over the guide for a refusal without a note of its own below. */
-export const VISITOR_FALLBACK_NOTE =
-  "Amr has answered all he can for now. Here's the offline guide.";
+export const VISITOR_FALLBACK_NOTE = "Amr has answered all he can for now. Here's the tool finder.";
 
 /** Shown over the guide when the chat's code couldn't load. */
 export const VISITOR_CHAT_LOAD_NOTE =
-  "Amr's chat couldn't load. Check your connection, or reload the page. Here's the offline guide.";
+  "Amr's chat couldn't load. Check your connection, or reload the page. Here's the tool finder.";
 
 /** Shown over the guide when the chat loaded and then failed while it was drawn. */
 export const VISITOR_CHAT_ERROR_NOTE =
-  "Amr's chat ran into a problem. Reload the page to try again. Here's the offline guide.";
+  "Amr's chat ran into a problem. Reload the page to try again. Here's the tool finder.";
 
 /**
  * The note over the guide for the refusal that sent the visitor back to it:
@@ -101,19 +100,19 @@ export function visitorFallbackNote(
   const until = ends && ends > now ? ` until ${formatPeakTime(ends)}` : "";
   switch (code) {
     case "visitor_limit":
-      return "You've used all of today's messages with Amr. Here's the offline guide until tomorrow.";
+      return "You've used all of today's messages with Amr. Here's the tool finder until tomorrow.";
     case "visitor_peak_limit":
-      return `You've used all your messages for these busy hours. Here's the offline guide${until || " until they end"}.`;
+      return `You've used all your messages for these busy hours. Here's the tool finder${until || " until they end"}.`;
     case "site_limit":
-      return "Amr has answered all he can for today. Here's the offline guide until tomorrow.";
+      return "Amr has answered all he can for today. Here's the tool finder until tomorrow.";
     case "site_peak_limit":
-      return `Amr has answered all he can for these busy hours. Here's the offline guide${until || " until they end"}.`;
+      return `Amr has answered all he can for these busy hours. Here's the tool finder${until || " until they end"}.`;
     case "site_busy":
-      return "Amr is too busy to answer right now. Here's the offline guide; try asking him again later.";
+      return "Amr is too busy to answer right now. Here's the tool finder; try asking him again later.";
     case "disabled":
-      return "Amr's AI is switched off right now. Here's the offline guide.";
+      return "Amr's AI is switched off right now. Here's the tool finder.";
     case "meter_unavailable":
-      return "Amr can't check today's message count right now. Here's the offline guide; try asking him again in a few minutes.";
+      return "Amr can't check today's message count right now. Here's the tool finder; try asking him again in a few minutes.";
     default:
       return VISITOR_FALLBACK_NOTE;
   }
@@ -150,7 +149,7 @@ export function VisitorPanel({
   const guideRef = useRef<HTMLDivElement>(null);
   const noteRef = useRef<HTMLParagraphElement>(null);
 
-  // A "no more AI for now" refusal: back to the offline guide. Coming from
+  // A "no more AI for now" refusal: back to the tool finder. Coming from
   // another step, its note takes focus (below), and a screen reader reads it
   // then. It is announced only when the guide is already showing, so it is
   // never said twice. An old one still showing when the panel opens is not
@@ -176,7 +175,7 @@ export function VisitorPanel({
     (noteRef.current ?? guideRef.current)?.focus();
   }, [mode]);
 
-  // The chat couldn't be shown: back to the offline guide, with a note. The
+  // The chat couldn't be shown: back to the tool finder, with a note. The
   // note takes focus, so it is not announced as well.
   const chatFailed = (kind: "load" | "error") => {
     setQuestion("");

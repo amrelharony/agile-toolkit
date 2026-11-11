@@ -113,7 +113,7 @@ export const VISITOR_AI_CONSENT_TEXT: readonly string[] = [
   VISITOR_AI_KEPT,
   "Amr never changes your work without you accepting it.",
   "Don't share personal or confidential information.",
-  `You get ${VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons (fewer during busy hours). The tools and the offline guide always work without AI.`,
+  `You get ${VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons (fewer during busy hours). The tools and the tool finder always work without AI.`,
 ];
 
 // ── The count note (components/visits/visit-recorder.tsx) ─────────────────

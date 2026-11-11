@@ -30,7 +30,7 @@ async function openChat() {
   window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
   render(<VisitorPanel />);
   fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-  await screen.findByRole("button", { name: "Offline guide" });
+  await screen.findByRole("button", { name: "Tool finder" });
 }
 
 describe("VisitorPanel: focus and announcements", () => {
@@ -74,11 +74,11 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(h.announce).not.toHaveBeenCalled();
   });
 
-  it("Offline guide leaves focus on the guide", async () => {
+  it("Tool finder leaves focus on the guide", async () => {
     await openChat();
     // The chat's message box takes focus itself, in an effect.
     await waitFor(() => expect(screen.getByLabelText("Message")).toHaveFocus());
-    fireEvent.click(screen.getByRole("button", { name: "Offline guide" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
     expect(screen.getByTestId("mascot-visitor-guide")).toHaveFocus();
     expect(screen.getByLabelText("What do you need to do?")).not.toHaveFocus();
   });
@@ -136,7 +136,7 @@ describe("VisitorPanel: focus and announcements", () => {
 
   it("a refusal that arrives with the guide showing is announced once and moves no focus", async () => {
     await openChat();
-    fireEvent.click(screen.getByRole("button", { name: "Offline guide" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
     const guide = screen.getByTestId("mascot-visitor-guide");
     expect(guide).toHaveFocus();
     h.announce.mockClear();

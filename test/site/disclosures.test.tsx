@@ -51,6 +51,9 @@ describe("the disclosure wording", () => {
     expect(points()[4]).toContain(
       `${disclosures.VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons`
     );
+    // The panel's search is the tool finder, the name the panel itself uses.
+    expect(points()[4]).toContain("The tools and the tool finder always work without AI.");
+    expect(disclosures.VISITOR_AI_CONSENT_TEXT.join(" ")).not.toMatch(/offline/i);
     // A question is shown in its own caption, never as one of the points.
     rerender(<VisitorAiConsent question="retro" onAgree={() => {}} onDecline={() => {}} />);
     expect(points()).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);

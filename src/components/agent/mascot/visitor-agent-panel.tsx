@@ -307,7 +307,7 @@ export default function VisitorAgentPanel({
         <div className="mt-2 flex items-center justify-between gap-2">
           <Button type="button" variant="outline" size="sm" onClick={onOfflineGuide}>
             <BookOpen aria-hidden="true" />
-            Offline guide
+            Tool finder
           </Button>
           <Button
             type="button"

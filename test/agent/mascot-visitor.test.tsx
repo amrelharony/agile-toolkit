@@ -375,7 +375,7 @@ describe("MascotAssistant — visitor AI", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("opens on the offline guide and sends nothing until the visitor agrees", () => {
+  it("opens on the tool finder and sends nothing until the visitor agrees", () => {
     render(<MascotAssistant />);
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Chat with Amr" })).toBeInTheDocument();
@@ -409,7 +409,7 @@ describe("MascotAssistant — visitor AI", () => {
       expect(h.sendVisitorMessage).toHaveBeenCalledWith("retro", { toolId: "retro" })
     );
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
-    expect(await screen.findByRole("button", { name: "Offline guide" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Tool finder" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear chat" })).toBeInTheDocument();
     // The runtime is mocked; the panel itself fetched nothing.
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -421,7 +421,7 @@ describe("MascotAssistant — visitor AI", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
 
     expect(screen.queryByText(/Before you chat with Amr/)).toBeNull();
-    expect(await screen.findByRole("button", { name: "Offline guide" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Tool finder" })).toBeInTheDocument();
     expect(screen.getByLabelText("Message")).toBeInTheDocument();
     expect(h.sendVisitorMessage).not.toHaveBeenCalled();
   });
@@ -510,7 +510,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Offline guide" });
+    await screen.findByRole("button", { name: "Tool finder" });
     act(() => {
       useAgentStore.getState().setVisitorQuota({
         remaining: 62,
@@ -524,11 +524,11 @@ describe("MascotAssistant — visitor AI", () => {
     expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent("62 of 100 left today");
   });
 
-  it("goes back to the offline guide when Amr can't answer any more", async () => {
+  it("goes back to the tool finder when Amr can't answer any more", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Offline guide" });
+    await screen.findByRole("button", { name: "Tool finder" });
 
     act(() => {
       useAgentStore.getState().setVisitorFallback("visitor_limit");
@@ -543,7 +543,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Offline guide" });
+    await screen.findByRole("button", { name: "Tool finder" });
 
     const ends = new Date(Date.now() + 90 * 60_000);
     act(() => {
@@ -559,7 +559,7 @@ describe("MascotAssistant — visitor AI", () => {
     });
     expect(
       screen.getByText(
-        `You've used all your messages for these busy hours. Here's the offline guide until ${formatPeakTime(ends)}.`
+        `You've used all your messages for these busy hours. Here's the tool finder until ${formatPeakTime(ends)}.`
       )
     ).toBeInTheDocument();
   });
@@ -677,7 +677,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Offline guide" });
+    await screen.findByRole("button", { name: "Tool finder" });
     expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
     // Out of a room the chat offers a change and says Amr asks first.
     expect(screen.getByText(/Add a card/)).toBeInTheDocument();
@@ -718,7 +718,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Offline guide" });
+    await screen.findByRole("button", { name: "Tool finder" });
     expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
 
     // What the tab with the room does: it writes its stamp, and this tab gets
@@ -750,7 +750,7 @@ describe("MascotAssistant — visitor AI", () => {
       askAbout("retro");
       fireEvent.click(screen.getByRole("button", { name: "Agree and ask" }));
       await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1));
-      await screen.findByRole("button", { name: "Offline guide" });
+      await screen.findByRole("button", { name: "Tool finder" });
       return view;
     }
 
@@ -820,10 +820,10 @@ describe("MascotAssistant — visitor AI", () => {
       expect(useAgentStore.getState().messages).toEqual([]);
     });
 
-    it("Offline guide goes back to the guide and stops the answer", async () => {
+    it("Tool finder goes back to the guide and stops the answer", async () => {
       await openChatWithQuestion();
       h.abortVisitor.mockClear();
-      fireEvent.click(screen.getByRole("button", { name: "Offline guide" }));
+      fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
       expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
       expect(screen.queryByLabelText("Message")).toBeNull();
       await waitFor(() => expect(h.abortVisitor).toHaveBeenCalledTimes(1));
@@ -979,7 +979,8 @@ describe("visitorFallbackNote (the note over the guide after a refusal)", () => 
   it.each(Array.from(VISITOR_FALLBACK_CODES))("has its own note for %s", (code) => {
     const note = visitorFallbackNote(code, null, NOW);
     expect(note).not.toBe(VISITOR_FALLBACK_NOTE);
-    expect(note).toMatch(/offline guide/);
+    expect(note).toMatch(/tool finder/);
+    expect(note).not.toMatch(/offline/);
   });
 
   it("gives each code a different note", () => {
