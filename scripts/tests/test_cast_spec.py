@@ -171,5 +171,27 @@ class BriefAgreement(unittest.TestCase):
             spec.targets("Z")
 
 
+class Custody(unittest.TestCase):
+    def test_private_output_never_lands_in_a_git_work_tree(self):
+        import tempfile
+
+        from cast import review, rig
+
+        for inside in (ROOT, ROOT / "review", ROOT / "docs" / "cast" / "new", ROOT.parent):
+            with self.assertRaises(SystemExit, msg=str(inside)):
+                spec.private_dir(inside)
+        with self.assertRaises(SystemExit):
+            review.review_dir(Path(tempfile.mkdtemp()), "A", ROOT / "review")
+        with self.assertRaises(SystemExit):
+            rig.candidate("AAW-25", Path(tempfile.mkdtemp()), review_root=ROOT / "review", clips={"clips": {}, "maxMs": 900})
+        self.assertFalse((ROOT / "review").exists())
+        outside = Path(tempfile.mkdtemp(prefix="cast-private-"))
+        self.assertEqual(spec.private_dir(outside / "review"), outside / "review")
+        repo_like = outside / "other-repo"
+        (repo_like / ".git").mkdir(parents=True)
+        with self.assertRaises(SystemExit):
+            spec.private_dir(repo_like / "review")
+
+
 if __name__ == "__main__":
     unittest.main()

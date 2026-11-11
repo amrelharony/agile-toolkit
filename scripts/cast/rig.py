@@ -41,6 +41,7 @@ from .spec import (
     character,
     cell_count,
     is_complex,
+    private_dir,
     range_for,
     signature_problem,
 )
@@ -188,7 +189,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     clips = cast_clips.load() if clips is None else clips
     sources = Path(sources)
     batch = batch_of(cid)
-    folder = (Path(review_root) if review_root else sources / "review") / batch / cid
+    folder = private_dir((Path(review_root) if review_root else sources / "review") / batch / cid)
     folder.mkdir(parents=True, exist_ok=True)
     files = {img: ledger.accepted_file(sources, cid, img) for img in c["images"]}
     missing = [img for img, p in files.items() if p is None]

@@ -17,7 +17,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from . import ledger
-from .spec import BUILDER_VERSION, TOL
+from .spec import BUILDER_VERSION, TOL, private_dir
 
 LIGHT = (246, 242, 232)
 DARK = (30, 30, 36)
@@ -165,7 +165,7 @@ def _summary(name: str, res: dict) -> str:
 
 
 def review_dir(sources: Path, batch: str, root: Path | str | None = None) -> Path:
-    return (Path(root) if root else Path(sources) / "review") / batch
+    return private_dir((Path(root) if root else Path(sources) / "review") / batch)
 
 
 def write_report(sources: Path, batch: str, mode: str, reports: list[dict], root=None) -> Path:

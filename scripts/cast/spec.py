@@ -74,6 +74,16 @@ INTAKE: dict = SPEC["intake"]
 KEYS: dict = SPEC["keys"]
 
 
+def private_dir(path, what: str = "review output and sources") -> Path:
+    """`path`, refused when it is in this repo or in any git work tree (a folder
+    with .git, the main checkout or a worktree): the sources, the review pages and
+    report.json hold the private swatches, which never enter git."""
+    rp = Path(path).resolve()
+    if rp == ROOT or ROOT in rp.parents or any((d / ".git").exists() for d in (rp, *rp.parents)):
+        raise SystemExit(f"{path} is inside a git work tree; {what} hold private canon and stay outside it")
+    return Path(path)
+
+
 def character(cid: str, spec: dict | None = None) -> dict:
     for c in (spec or SPEC)["characters"]:
         if c["id"] == cid:

@@ -45,7 +45,7 @@ sys.dont_write_bytecode = True  # no __pycache__ beside the scripts
 sys.stdout.reconfigure(errors="replace")  # a console without UTF-8 still prints
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cast import checks, intake, ledger, palette, publish, review, rig  # noqa: E402
-from cast.spec import DEFAULT_SOURCES, TOL, batch_of, character, targets  # noqa: E402
+from cast.spec import DEFAULT_SOURCES, TOL, batch_of, character, private_dir, targets  # noqa: E402
 
 MARK = {"pass": "ok  ", "warn": "WARN", "fail": "FAIL", "skip": "--  ", "missing": "....", "pending": "...."}
 
@@ -225,7 +225,10 @@ def main(argv=None) -> int:
     p = sub.add_parser("build", help="publish approved rigs")
     p.add_argument("target")
     args = ap.parse_args(argv)
-    sources = Path(args.sources)
+    # The sources, review pages and report.json hold private canon: never in the repo.
+    sources = private_dir(args.sources, "the cast sources")
+    if args.review:
+        private_dir(args.review, "review pages and report.json")
     if args.print_tolerances:
         print(json.dumps(TOL, indent=2))
         return 0

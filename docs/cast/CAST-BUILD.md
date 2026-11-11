@@ -65,7 +65,7 @@ The arm wording follows the body family (`families[*].arms`): human, wing, tube 
 
 ## Taking a return in
 
-Every command takes `--sources <dir>` (default `D:\Claude Desktop\Agile_At_Work_Cast_Sources`) and `--review <dir>` (instead of `<sources>/review`); `--print-tolerances` prints the thresholds.
+Every command takes `--sources <dir>` (default `D:\Claude Desktop\Agile_At_Work_Cast_Sources`) and `--review <dir>` (instead of `<sources>/review`), both refused inside a git work tree, since they hold the private swatches; `--print-tolerances` prints the thresholds.
 
 1. **Intake.** `python -I scripts/build-cast-rigs.py intake <zip | folder | png> [--id AAW-NN]`:
    - archives the return untouched in `returns/<date>-<stem>/original/`, and takes a return it has seen before (same sha256) only once;

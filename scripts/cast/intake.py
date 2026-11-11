@@ -33,7 +33,7 @@ from PIL import Image
 
 from . import imaging as im
 from . import ledger, parts
-from .spec import ID_RE, INTAKE, NAME_RE, SPEC, TOL, character, key_rgb, parse_image_name
+from .spec import ID_RE, INTAKE, NAME_RE, SPEC, TOL, character, key_rgb, parse_image_name, private_dir
 
 def _digest_folder(folder: Path) -> str:
     h = hashlib.sha256()
@@ -136,7 +136,7 @@ def _decode(data: bytes) -> tuple[np.ndarray, list[int]] | str:
 
 def intake(src: Path, sources: Path, cid: str | None = None, date: str | None = None, out=print) -> dict:
     src = Path(src)
-    sources = Path(sources)
+    sources = private_dir(sources, "the cast sources")
     if not src.exists():
         raise SystemExit(f"no such return: {src}")
     if src.is_file() and not zipfile.is_zipfile(src) and src.suffix.lower() != ".png":
