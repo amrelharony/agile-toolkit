@@ -16,8 +16,8 @@ export interface BookIntroStory {
 /**
  * The intro at /comics, the address printed on the book's back cover. The
  * closed book rises toward the reader and lands, a stripe of light crosses its
- * cover, the cover swings open, and two blank pages turn after it, one then
- * the other. As the second passes upright it uncovers the page
+ * cover, the cover swings open, and two blank pages turn after it, quickly,
+ * one then the other. As the second passes upright it uncovers the page
  * beneath: this week's panel, with the story's title under it inking in. Amr
  * waves at the foot of the fold. The beats and their times are in
  * book-intro.module.css. That page is the spread's right-hand one, which

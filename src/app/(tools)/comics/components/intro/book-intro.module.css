@@ -7,15 +7,17 @@
  *   0.95 – 1.75 s  the cover swings open on its left edge, darkening in three
  *                  steps until it is edge-on at 1.27 s, and lands with a bounce
  *   1.0  – 2.0 s   the book glides right, so the open spread sits centred
- *   1.27 – 1.87 s  the first page, blank, turns at once (edge-on at 1.51 s)
- *   1.95 – 2.55 s  the second page, blank, lies still 0.44 s, then turns
- *                  (edge-on at 2.19 s), uncovering this week's panel and the
- *                  title under it on the page beneath
- *   2.25 – 2.65 s  the story's title inks in, left to right
- *   2.6  – 3.1 s   Amr pops up at the foot of the fold, on the pop spring
+ *   1.27 – 1.77 s  the first page, blank, turns at once (edge-on at 1.47 s)
+ *   1.77 – 2.17 s  the second page, blank, turns as the first lands (edge-on
+ *                  at 1.93 s), uncovering this week's panel and the title
+ *                  under it on the page beneath
+ *   1.93 – 2.33 s  the story's title inks in, left to right
+ *   2.2  – 2.7 s   Amr pops up at the foot of the fold, on the pop spring
  *   4.25 – 5.0 s   the page pushes toward the reader as the overlay fades
  *
- * So the title is fully inked for 1.6 s before the push begins.
+ * So the title is fully inked for 1.92 s before the push begins. Paper is
+ * light, so the pages turn faster than the cover's board, and neither waits:
+ * there is no picture on them to look at.
  *
  * Every time is a literal in one `animation:` shorthand, filled both ways, and
  * everything is over by 5 s (test/comics/intro-book.test.tsx holds it to that).
@@ -209,7 +211,7 @@
    clip reaches half a rem past the box, so no letter's edge is ever cut. */
 .titleInk {
   position: relative;
-  animation: book-ink 0.4s cubic-bezier(0.25, 0.5, 0.45, 1) 2.25s both;
+  animation: book-ink 0.4s cubic-bezier(0.25, 0.5, 0.45, 1) 1.93s both;
 }
 
 /* Under the panel, four lines at most, which the window leaves room for. */
@@ -244,7 +246,7 @@
    are that curve cut in two at its middle. */
 @supports (clip-path: shape(from 0 0, line to 100% 0)) {
   .titleInk {
-    animation: book-ink-bowed 0.4s cubic-bezier(0.25, 0.5, 0.45, 1) 2.25s both;
+    animation: book-ink-bowed 0.4s cubic-bezier(0.25, 0.5, 0.45, 1) 1.93s both;
   }
 
   @keyframes book-ink-bowed {
@@ -296,17 +298,17 @@
   inset: 0;
   transform-origin: 0 50%;
   transform-style: preserve-3d;
-  animation: book-leaf1 0.6s cubic-bezier(0.5, 0, 0.5, 1) 1.27s both;
+  animation: book-leaf1 0.5s cubic-bezier(0.5, 0, 0.5, 1) 1.27s both;
 }
 
-/* The blank second page lies still a moment, then turns, and uncovers the
-   panel and the title as it passes upright. */
+/* The blank second page turns as soon as the first has landed, quicker still,
+   and uncovers the panel and the title as it passes upright. */
 .leaf2 {
   position: absolute;
   inset: 0;
   transform-origin: 0 50%;
   transform-style: preserve-3d;
-  animation: book-leaf2 0.6s cubic-bezier(0.5, 0, 0.5, 1) 1.95s both;
+  animation: book-leaf2 0.4s cubic-bezier(0.5, 0, 0.5, 1) 1.77s both;
 }
 
 /* One side of a sheet: flat, and hidden when it faces away. Isolated, so the
@@ -378,11 +380,11 @@
 }
 
 .leaf1Shade {
-  animation: book-shade 0.24s steps(3, jump-start) 1.27s both;
+  animation: book-shade 0.2s steps(3, jump-start) 1.27s both;
 }
 
 .leaf2Shade {
-  animation: book-shade 0.24s steps(3, jump-start) 1.95s both;
+  animation: book-shade 0.16s steps(3, jump-start) 1.77s both;
 }
 
 /* Amr in his sheet's own cell, scaled about his feet from the book's width.
@@ -433,7 +435,7 @@
 .amrPop {
   display: block;
   transform-origin: 50% 100%;
-  animation: book-amr 0.5s cubic-bezier(0.38, 1.76, 0.1, 1) 2.6s both;
+  animation: book-amr 0.5s cubic-bezier(0.38, 1.76, 0.1, 1) 2.2s both;
 }
 
 @keyframes book-fade {

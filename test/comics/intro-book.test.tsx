@@ -757,8 +757,9 @@ describe("the book intro's timing", () => {
     expect(Math.abs(only(".leaf1").delay - edgeOn(".cover"))).toBeLessThan(0.02);
   });
 
-  it("lets the second page lie flat at least 0.4 s before it turns over", () => {
-    expect(only(".leaf2").delay - edgeOn(".leaf1")).toBeGreaterThanOrEqual(0.4);
+  it("turns the blank second page at once too: it lifts as the first page lands", () => {
+    // Neither page holds a picture, so neither lies still to be looked at.
+    expect(Math.abs(only(".leaf2").delay - endsAt(only(".leaf1")))).toBeLessThan(0.02);
   });
 
   /** The title's two wipes: the straight one, and its bowed twin where shape() works. */
@@ -771,6 +772,14 @@ describe("the book intro's timing", () => {
   it("inks the title in only once the second page is edge-on, straight or bowed", () => {
     for (const wipe of wipes()) {
       expect(wipe.delay, wipe.name).toBeGreaterThanOrEqual(edgeOn(".leaf2") - 1e-9);
+    }
+  });
+
+  it("leaves the title fully inked at least 1.9 s before the push, which stays at 4.25 s", () => {
+    const push = only(".push").delay;
+    expect(push).toBeCloseTo(4.25, 9);
+    for (const wipe of wipes()) {
+      expect(push - endsAt(wipe), wipe.name).toBeGreaterThanOrEqual(1.9 - 1e-9);
     }
   });
 
