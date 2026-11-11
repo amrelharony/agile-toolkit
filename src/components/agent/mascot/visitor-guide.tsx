@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode, type Ref } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight, KeyRound, MessageCircle, Search } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getToolById, getToolByPath } from "@/lib/constants/tools";
@@ -18,8 +19,27 @@ import { useMascotStore } from "@/lib/agent/mascot/store";
 /** A search with no match, left alone this long, gets a shrug from Amr. */
 const SHRUG_AFTER_MS = 900;
 
+/** How long typing has to stop before the match count is read out. */
+export const SEARCH_ANNOUNCE_MS = 450;
+
+/**
+ * At most this many results. With Amr's AI on, one fewer, so the two-line
+ * rows leave the Ask button and the first rows in a phone's view of the panel.
+ */
+export const RESULTS_CAP = 6;
+export const RESULTS_CAP_WITH_AI = 5;
+
+/** The results list; Enter in the search moves focus to its first link. */
+const RESULTS_ID = "mascot-tool-results";
+
 /** Common jobs, shown before the visitor types anything (same list as the home page). */
 const STARTERS = JOBS.map((job) => ({ label: job.title, toolId: job.primaryToolId }));
+
+/** What the announcer says once typing stops: plain words, no dashes. */
+export function matchCountNote(count: number, query: string): string {
+  if (count === 0) return `No tools match “${query}”`;
+  return count === 1 ? "1 tool matches" : `${count} tools match`;
+}
 
 /** The current tool's "How this works" guide, loaded on demand. */
 function useToolGuide(toolId: string | undefined): ToolGuide | null {
@@ -47,6 +67,15 @@ function useToolGuide(toolId: string | undefined): ToolGuide | null {
  * settings that power every tool's built-in prompts. It makes no network
  * requests.
  *
+ * The search is a `role=search` form. Enter (the phone keyboard's Search key)
+ * moves focus to the first result, which drops the keyboard and lets a screen
+ * reader read the tool's name; with no match it does nothing. The match count
+ * is read out through the app's one announcer once typing stops, so the guide
+ * mounts no live region of its own. Escape in a non-empty search clears it
+ * and stops there (`preventDefault`, which the panel's own Escape respects);
+ * only an empty search lets Escape close the panel. An input method's Escape
+ * is left to it.
+ *
  * With visitor AI on, VisitorPanel passes `onAskAmr`: the guide then offers to
  * hand the search to Amr's AI ("Ask Amr about '…'", under the results and when
  * nothing matches) and a "Chat with Amr" link. Those only call back; the guide
@@ -57,6 +86,7 @@ export function VisitorGuide({
   onAskAmr,
   guideRef,
   note,
+  initialQuery,
 }: {
   onNavigate?: () => void;
   /** Ask Amr's AI instead (visitor AI on); `query` may be empty. */
@@ -68,6 +98,11 @@ export function VisitorGuide({
    * panel it scrolls away with the guide and takes no height from it.
    */
   note?: ReactNode;
+  /**
+   * The search to start with, such as the question a visitor took to the
+   * consent card or the chat and came back from. It is not read out again.
+   */
+  initialQuery?: string;
 }) {
   const pathname = usePathname();
   const vip = useVipHint();
@@ -76,9 +111,14 @@ export function VisitorGuide({
   const current = onPath && !isVipHidden(onPath, vip) ? onPath : undefined;
   const guide = useToolGuide(current?.id);
   const openSettings = useLlmUiStore((s) => s.openSettings);
-  const [query, setQuery] = useState("");
+  const announce = useAnnounce();
+  const [query, setQuery] = useState(initialQuery ?? "");
   const trimmed = query.trim();
-  const results = useMemo(() => (trimmed ? searchTools(trimmed, 6) : []), [trimmed]);
+  const cap = onAskAmr ? RESULTS_CAP_WITH_AI : RESULTS_CAP;
+  const results = useMemo(() => (trimmed ? searchTools(trimmed, cap) : []), [trimmed, cap]);
+  // Only what the visitor types is read out: a search the guide opened with
+  // (coming back from the consent card) was theirs already.
+  const [typed, setTyped] = useState(false);
   const signInHref = `/auth/sign-in?next=${encodeURIComponent(pathname || "/")}`;
 
   // Amr shrugs at a search that finds nothing, once the visitor stops typing.
@@ -88,6 +128,16 @@ export function VisitorGuide({
     const id = setTimeout(() => useMascotStore.getState().queueReaction("shrug"), SHRUG_AFTER_MS);
     return () => clearTimeout(id);
   }, [noMatch, trimmed]);
+
+  // The count, once typing stops. One polite line through the app's
+  // announcer; each key press starts the wait again.
+  const count = results.length;
+  useEffect(() => {
+    if (!typed || !trimmed) return;
+    const id = setTimeout(() => announce(matchCountNote(count, trimmed)), SEARCH_ANNOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [typed, trimmed, count, announce]);
+
   // Picking a tool: "you've got this".
   const chose = () => {
     useMascotStore.getState().queueReaction("cheer");
@@ -110,28 +160,59 @@ export function VisitorGuide({
           the search used to sit two to four screens down. Results show right
           under the field; the common jobs follow the tool's own card. */}
       <section className="flex flex-col gap-2">
-        <label htmlFor="mascot-tool-search" className="text-sm font-medium text-text">
-          What do you need to do?
-        </label>
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sub"
-            aria-hidden="true"
-          />
-          <Input
-            id="mascot-tool-search"
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g. run a retro, prioritize a backlog"
-            className="pl-9"
-            autoComplete="off"
-          />
-        </div>
+        <form
+          role="search"
+          aria-label="Find a tool"
+          // Enter (or the keyboard's Search key): on to the first result. A
+          // link is not a text field, so a phone's keyboard closes and the
+          // results show. With no match, focus stays in the box to try again.
+          onSubmit={(e) => {
+            e.preventDefault();
+            e.currentTarget.ownerDocument
+              .getElementById(RESULTS_ID)
+              ?.querySelector<HTMLAnchorElement>("a[href]")
+              ?.focus();
+          }}
+          className="flex flex-col gap-2"
+        >
+          <label htmlFor="mascot-tool-search" className="text-sm font-medium text-text">
+            What do you need to do?
+          </label>
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sub"
+              aria-hidden="true"
+            />
+            <Input
+              id="mascot-tool-search"
+              type="search"
+              dir="auto"
+              enterKeyHint="search"
+              value={query}
+              onChange={(e) => {
+                setTyped(true);
+                setQuery(e.target.value);
+              }}
+              // Escape clears a search first; only an empty one lets the
+              // panel close. An input method's Escape cancels its
+              // composition, nothing else.
+              onKeyDown={(e) => {
+                if (e.key !== "Escape") return;
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                if (!query) return;
+                e.preventDefault();
+                setQuery("");
+              }}
+              placeholder="e.g. run a retro, prioritize a backlog"
+              className="pl-9"
+              autoComplete="off"
+            />
+          </div>
+        </form>
         {trimmed &&
           (results.length > 0 ? (
             <>
-              <ul className="flex flex-col gap-1" aria-label="Matching tools">
+              <ul id={RESULTS_ID} className="flex flex-col gap-1" aria-label="Matching tools">
                 {results.map((tool) => (
                   <li key={tool.id}>
                     <ToolLink
@@ -147,9 +228,11 @@ export function VisitorGuide({
             </>
           ) : (
             <>
-              <p className="text-sm text-sub" role="status">
-                No tools match “{trimmed}”. Try a task like “retro” or “estimate”, or a method like
-                “OKR” or “WSJF”.
+              {/* Not a live region: the announcer reads the count once typing
+                  stops, so this is never said twice. */}
+              <p className="text-sm text-sub">
+                No tools match “<bdi>{trimmed}</bdi>”. Try a task like “retro” or “estimate”, or a
+                method like “OKR” or “WSJF”.
               </p>
               {onAskAmr && <AskAmrButton query={trimmed} onAskAmr={onAskAmr} />}
             </>

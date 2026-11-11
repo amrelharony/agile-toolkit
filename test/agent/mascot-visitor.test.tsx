@@ -304,6 +304,19 @@ describe("MascotAssistant — Escape", () => {
     expect(useAgentStore.getState().open).toBe(false);
   });
 
+  it("clears the tool finder's search on the first Escape, and closes on the next", () => {
+    render(<MascotAssistant />);
+    fireEvent.change(search(), { target: { value: "retro" } });
+
+    fireEvent.keyDown(search(), { key: "Escape" });
+    expect(search()).toHaveValue("");
+    expect(useAgentStore.getState().open).toBe(true);
+    expect(screen.getByRole("dialog", { name: "Amr assistant" })).toBeInTheDocument();
+
+    fireEvent.keyDown(search(), { key: "Escape" });
+    expect(useAgentStore.getState().open).toBe(false);
+  });
+
   it("ignores an Escape that ends an input method's composition", () => {
     render(<MascotAssistant />);
     fireEvent.keyDown(search(), { key: "Escape", isComposing: true });
