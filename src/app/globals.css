@@ -1433,6 +1433,83 @@ body:has(dialog[open]) [data-sonner-toaster] {
       animation-duration: 240ms;
     }
 
+    /* A card's frame grows into the new page's header panel. page-transition.ts
+       puts data-vt-active on the tapped card, then on the header once the page
+       arrives, so one element carries the name in each picture. The frame
+       moves in DUR.travel on the glide easing, under the top bar. Duration and
+       easing are longhands: the shorthand would also reset the browser's own
+       keyframes that move and stretch the group. */
+    html[data-vt-frame] [data-vt-active] {
+      view-transition-name: tool-frame;
+    }
+    ::view-transition-group(tool-frame) {
+      z-index: 1;
+      animation-duration: 360ms;
+      animation-timing-function: cubic-bezier(0.2, 1.2, 0.4, 1);
+    }
+
+    /* "pair": the card lands on a header. The layer draws the .panel look
+       itself (in high contrast --shadow-3 is transparent, so no shadow) and
+       clips what is inside. Both pictures keep their natural size, pinned to
+       the frame's inner corner, so no text scales: the growing frame uncovers
+       the header as it is laid out. The card's words fade over the first 40%,
+       the header's come in between 15% and 60%, laid over, not blended. */
+    html[data-vt-frame="pair"]::view-transition-group(tool-frame) {
+      box-sizing: border-box;
+      border: var(--panel-w) solid var(--border);
+      border-radius: var(--panel-radius);
+      background-color: var(--card);
+      box-shadow: var(--shadow-3);
+      overflow: clip;
+    }
+    html[data-vt-frame="pair"]::view-transition-old(tool-frame),
+    html[data-vt-frame="pair"]::view-transition-new(tool-frame) {
+      top: calc(var(--panel-w) * -1);
+      left: calc(var(--panel-w) * -1);
+      width: auto;
+      height: auto;
+      mix-blend-mode: normal;
+      animation-duration: 360ms;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+    }
+    html[data-vt-frame="pair"]::view-transition-old(tool-frame) {
+      animation-name: tool-frame-old;
+    }
+    html[data-vt-frame="pair"]::view-transition-new(tool-frame) {
+      animation-name: tool-frame-new;
+    }
+    @keyframes tool-frame-old {
+      40%,
+      100% {
+        opacity: 0;
+      }
+    }
+    @keyframes tool-frame-new {
+      0%,
+      15% {
+        opacity: 0;
+      }
+      60%,
+      100% {
+        opacity: 1;
+      }
+    }
+
+    /* "exit": the new page has no header to take the frame, so only the old
+       card's picture is left, and it fades out in 120ms where it was. */
+    ::view-transition-old(tool-frame):only-child {
+      animation-name: tool-frame-gone;
+      animation-duration: 120ms;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+    }
+    @keyframes tool-frame-gone {
+      to {
+        opacity: 0;
+      }
+    }
+
     /* The global reduced-motion rule above cannot reach these pseudo-elements.
        The script already starts none under reduced motion; this is the
        second lock. */

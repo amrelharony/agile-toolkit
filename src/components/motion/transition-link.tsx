@@ -11,23 +11,29 @@
  * when a rule keeps the change instant, the click is left to next/link as
  * it was. prefetch={false} means the page is not loaded ahead, so it is
  * always instant.
+ *
+ * `frame` marks a card's main link. Its card ([data-vt-card], or the link
+ * itself) is measured on the click, and its frame may grow into the new
+ * page's header; where no transition carries it, the header grows from the
+ * card's spot. The frame adds no loading of its own: next/link's prefetch,
+ * in view and on touch, stays as it is, with nothing on pointer-down,
+ * touch or click asking the router again.
  */
 
 import { forwardRef, type ComponentPropsWithoutRef } from "react";
 import Link from "next/link";
-import { pushWithTransition } from "@/lib/motion/page-transition";
+import { pushWithTransition, type FrameMode } from "@/lib/motion/page-transition";
 
 export type TransitionLinkProps = ComponentPropsWithoutRef<typeof Link> & {
   /**
-   * This is a card's main link, whose frame is to grow into the new page's
-   * header. Nothing reads it yet; it only stays off the anchor.
+   * A card's main link. true: the card's frame may grow into the new page's
+   * header. "spot": no transition at all; the header grows from the card's
+   * spot (the related-tool tiles, which are not panels). Never on the anchor.
    */
-  frame?: boolean;
+  frame?: FrameMode;
 };
 
 const TransitionLink = forwardRef<HTMLAnchorElement, TransitionLinkProps>(function TransitionLink(
-  // `frame` is taken out so it never reaches the anchor.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   { frame, onClick, ...props },
   ref
 ) {
@@ -58,6 +64,7 @@ const TransitionLink = forwardRef<HTMLAnchorElement, TransitionLinkProps>(functi
             scroll: props.scroll,
             source: a,
             prefetch: props.prefetch,
+            frame,
           })
         ) {
           // Taken over: next/link sees this and stays out of it.

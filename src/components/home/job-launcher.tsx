@@ -29,6 +29,9 @@ export function JobLauncher() {
           return (
             <li
               key={job.id}
+              // The frame a page change grows into the tool's header; the
+              // Other options links below change the page without it.
+              data-vt-card=""
               className="panel group relative flex flex-col gap-2 p-4 transition-[transform,box-shadow] hover:-translate-x-px hover:-translate-y-px hover:shadow-xl"
             >
               <div className="flex items-center gap-2">
@@ -42,6 +45,7 @@ export function JobLauncher() {
                 <h3 className="text-sm font-semibold text-text">
                   <Link
                     href={primary.path}
+                    frame
                     className="after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-accent"
                   >
                     {job.title}
