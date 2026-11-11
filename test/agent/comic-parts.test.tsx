@@ -95,11 +95,18 @@ describe("AmrBalloon", () => {
     expect(balloon.classList.contains("text-sm")).toBe(true);
   });
 
+  it("parts the lead from inline words with a real space, not run together", () => {
+    const balloon = first(render(<AmrBalloon lead="Hi.">There.</AmrBalloon>).container);
+    expect(balloon.querySelector("[data-comic-content]")!.textContent).toBe("Hi. There.");
+  });
+
   it("has no lead, and nothing lettered, when none is given", () => {
     for (const lead of [undefined, null, false, ""] as const) {
       const balloon = first(render(<AmrBalloon lead={lead}>A long answer.</AmrBalloon>).container);
       expect(balloon.querySelector("[data-balloon-lead]")).toBeNull();
       expect(balloon.querySelector(".font-display")).toBeNull();
+      // No lead, no leading space.
+      expect(balloon.querySelector("[data-comic-content]")!.textContent).toBe("A long answer.");
     }
   });
 
@@ -176,6 +183,10 @@ describe("Narration", () => {
     expect(caption.getAttribute("data-tone")).toBe("note");
     expect(caption.querySelector(".sr-only")).toBeNull();
     expect(caption.querySelector("[data-caption-label], [data-caption-actions]")).toBeNull();
+    // No label, no leading space.
+    expect(caption.querySelector("[data-comic-content]")!.textContent).toBe(
+      "Amr is working in Retro Board…"
+    );
   });
 
   it("draws an error's danger line through data-tone", () => {
@@ -209,6 +220,8 @@ describe("Narration", () => {
     expect(within(actions as HTMLElement).getAllByRole("button")).toHaveLength(2);
     const words = caption.querySelector("[data-comic-content]")!;
     expect(words.contains(label)).toBe(true);
+    // A real space parts the label from the words, for readers, copy and find.
+    expect(words.textContent).toBe("Retro Board Amr added 3 cards.");
     expect(words.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Captions are never lettered, the label and the data included.
     expect(caption.querySelector(".font-display")).toBeNull();

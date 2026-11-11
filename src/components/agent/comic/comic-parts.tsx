@@ -64,10 +64,14 @@ export function AmrBalloon({ children, lead, className, ...rest }: AmrBalloonPro
     >
       <span className="sr-only">Amr said: </span>
       <div dir="auto" data-comic-content="">
+        {/* A real space after the lead, so a reader, copy and find never run it
+            into the first word; it collapses before a block such as <p>. */}
         {given(lead) && (
-          <span className="font-display text-[0.9375rem]" data-balloon-lead="">
-            {lead}
-          </span>
+          <>
+            <span className="font-display text-[0.9375rem]" data-balloon-lead="">
+              {lead}
+            </span>{" "}
+          </>
         )}
         {children}
       </div>
@@ -154,10 +158,13 @@ export function Narration({
       data-tone={tone}
     >
       <div className="min-w-0 flex-1 basis-40" data-comic-content="">
+        {/* A real space, not a margin, so the label never runs into the words. */}
         {given(label) && (
-          <span className="me-1.5 font-medium" data-caption-label="">
-            {label}
-          </span>
+          <>
+            <span className="font-medium" data-caption-label="">
+              {label}
+            </span>{" "}
+          </>
         )}
         {children}
       </div>
