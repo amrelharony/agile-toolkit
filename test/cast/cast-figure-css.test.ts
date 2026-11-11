@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 
 import { CLIPS } from "@/lib/cast/clips";
 import { EASE, EASE_FALLBACK } from "@/lib/motion/tokens";
+import { OPEN_DIALOG_SELECTORS, POPOVER_WRAPPER_SELECTOR } from "@/lib/notify/dialog-open";
 
 const FILE = "src/components/cast/cast-figure.module.css";
 const css = readFileSync(path.join(process.cwd(), FILE), "utf8");
@@ -239,21 +240,29 @@ describe("cast-figure.module.css", () => {
     expect(Math.round((1 - lids.from) * CLIPS["idle.blink"].ms)).toBe(100);
   });
 
-  it("pauses the idle under an open dialog, never the intro overlay, and while an intro plays", () => {
+  it("pauses the idle under the dialogs life counts, never the intro overlay, and while an intro plays", () => {
     const rule = styleRules().find((r) => r.toString().includes("animation-play-state"))!;
     expect(rule).toBeDefined();
-    const sels = rule.selectors.map((s) => s.replace(/\s+/g, " "));
+    const sels = rule.selectors.map((s) =>
+      s.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")")
+    );
     expect(sels).toContain(":global(html[data-intro]) .figure[data-cast-awake] *");
     const dialog = sels.find((s) => s.startsWith(":global(body):has("))!;
     expect(dialog).toMatch(/\) \.figure\[data-cast-awake\] \*$/);
     const inner = dialog.slice(dialog.indexOf(":has(") + 5, dialog.lastIndexOf(") .figure"));
     const alternatives = inner.split(",").map((s) => s.trim());
-    expect(alternatives).toContain('[aria-modal="true"]:not([data-intro-overlay])');
-    expect(alternatives).toContain('[role="dialog"][data-state="open"]:not([data-intro-overlay])');
-    // The overlay is a div with role="dialog" aria-modal="true" (intro-parts.tsx).
-    for (const alt of alternatives) {
-      if (alt.startsWith("[")) expect(alt, alt).toMatch(/:not\(\[data-intro-overlay\]\)$/);
+    // lib/notify/dialog-open.ts's selectors, one each, as life reads them.
+    expect(alternatives).toHaveLength(OPEN_DIALOG_SELECTORS.length);
+    for (const selector of OPEN_DIALOG_SELECTORS) {
+      const alt = alternatives.find((a) => a === selector || a.startsWith(`${selector}:not(`));
+      expect(alt, selector).toBeDefined();
+      // The overlay is a div with role="dialog" aria-modal="true" (intro-parts.tsx).
+      if (selector.startsWith("[")) expect(alt, alt).toContain(":not([data-intro-overlay])");
     }
+    // A Radix Popover renders role="dialog" data-state="open" in its wrapper: not a modal.
+    expect(alternatives.find((a) => a.startsWith('[role="dialog"][data-state="open"]'))).toContain(
+      `:not(${POPOVER_WRAPPER_SELECTOR} *)`
+    );
     expect(rule.nodes.map((n) => n.toString())).toEqual(["animation-play-state: paused"]);
   });
 

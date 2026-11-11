@@ -8,8 +8,9 @@
  *   works. A deferred figure paints none until it is near.
  * - Idle (breathe, blink) only on an awake figure (life.ts sets the
  *   attribute) and only with motion allowed; paused under an open dialog
- *   (never the intro overlay, which is always in the page) and while an intro
- *   plays. Keyframes move only rotate, translate, scale and visibility.
+ *   (lib/notify/dialog-open.ts's selectors, as life reads them: never a
+ *   popover, nor the intro overlay, which is always in the page) and while an
+ *   intro plays. Keyframes move only rotate, translate, scale and visibility.
  * - High contrast drops the drawn extras (data-look); print leaves the
  *   figures out.
  */
@@ -114,8 +115,12 @@
 
 :global(html[data-intro]) .figure[data-cast-awake] *,
 :global(body):has(
-    [aria-modal="true"]:not([data-intro-overlay]),
-    [role="dialog"][data-state="open"]:not([data-intro-overlay]),
+    [role="dialog"][data-state="open"]:not([data-intro-overlay]):not(
+        [data-radix-popper-content-wrapper] *
+      ),
+    [role="alertdialog"][data-state="open"]:not([data-intro-overlay]),
+    [role="dialog"][aria-modal="true"]:not([data-intro-overlay]),
+    [role="alertdialog"][aria-modal="true"]:not([data-intro-overlay]),
     dialog[open]
   )
   .figure[data-cast-awake]
