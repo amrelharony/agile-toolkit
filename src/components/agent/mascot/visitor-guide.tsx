@@ -18,7 +18,7 @@ import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 
 /** A search with no match, left alone this long, gets a shrug from Amr. */
-const SHRUG_AFTER_MS = 900;
+export const SHRUG_AFTER_MS = 900;
 
 /** How long typing has to stop before the match count is read out. */
 export const SEARCH_ANNOUNCE_MS = 450;
@@ -143,7 +143,9 @@ export function VisitorGuide({
   const askQuery = backToChat ? "" : trimmed;
 
   // Amr shrugs at a search that finds nothing, once the visitor stops typing.
-  const noMatch = trimmed.length > 0 && results.length === 0;
+  // A search the guide opened with (back from the consent card or the chat)
+  // gets none: the visitor typed nothing.
+  const noMatch = typed && trimmed.length > 0 && results.length === 0;
   useEffect(() => {
     if (!noMatch) return;
     const id = setTimeout(() => useMascotStore.getState().queueReaction("shrug"), SHRUG_AFTER_MS);

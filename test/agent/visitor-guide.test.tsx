@@ -24,9 +24,11 @@ import {
   RESULTS_CAP,
   RESULTS_CAP_WITH_AI,
   SEARCH_ANNOUNCE_MS,
+  SHRUG_AFTER_MS,
   VisitorGuide,
   matchCountNote,
 } from "@/components/agent/mascot/visitor-guide";
+import { useMascotStore } from "@/lib/agent/mascot/store";
 import { searchTools } from "@/lib/search/tool-search";
 import { JOBS } from "@/lib/constants/jobs";
 
@@ -192,6 +194,19 @@ describe("VisitorGuide", () => {
       type("retro");
       act(() => vi.advanceTimersByTime(SEARCH_ANNOUNCE_MS));
       expect(h.announce).toHaveBeenCalledTimes(1);
+    });
+
+    it("gets no shrug from Amr for a search it opened with, only for one the visitor types", () => {
+      vi.useFakeTimers();
+      useMascotStore.setState({ reactionQueue: [] });
+      render(<VisitorGuide initialQuery="zzqx" />);
+      act(() => vi.advanceTimersByTime(SHRUG_AFTER_MS * 2));
+      expect(useMascotStore.getState().reactionQueue).not.toContain("shrug");
+
+      type("zzqxy");
+      act(() => vi.advanceTimersByTime(SHRUG_AFTER_MS));
+      expect(useMascotStore.getState().reactionQueue.filter((r) => r === "shrug")).toHaveLength(1);
+      useMascotStore.setState({ reactionQueue: [] });
     });
   });
 
