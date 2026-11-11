@@ -10,10 +10,11 @@
  * the router push happens inside the update, and the update waits for
  * RouteSignal to report the new page from its layout effect
  * (notifyRouteCommitted), in the same commit that puts the page in place.
- * Nothing here waits for a frame, an observer or an animation event: the
- * browser pauses those while it holds the old picture, so such a wait would
- * always run into the cap. Past HOLD_CAP_MS the change is skipped and the
- * page swaps plainly when it arrives.
+ * Nothing on the hold path waits for a frame, an observer or an animation
+ * event: the browser pauses those while it holds the old picture, so such a
+ * wait would always run into the cap. Only the card's slide back on Back
+ * waits for a frame, and Back holds nothing. Past HOLD_CAP_MS the change is
+ * skipped and the page swaps plainly when it arrives.
  *
  * Instant (the caller, usually next/link, changes the page itself) when:
  * - no router is registered (RouteSignal is not mounted);

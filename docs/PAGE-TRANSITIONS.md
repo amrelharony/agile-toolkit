@@ -12,16 +12,16 @@ check, and how to measure it.
 
 ## Where it lives
 
-| File                                          | What it does                                                                                                                                                         |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/lib/motion/view-transition.ts`           | The one place a view transition starts: the wait cap, `html[data-vt]`, the clean-up, one at a time.                                                                  |
-| `src/lib/motion/page-transition.ts`           | The page-change rules, `HOLD_CAP_MS`, `DYNAMIC_PATHS`, `pushWithTransition`, `notifyRouteCommitted`, `isPageTransitionRunning`, the debug switches.                  |
-| `src/components/motion/transition-link.tsx`   | next/link plus the cross-fade. Every internal link in `src` renders it.                                                                                              |
-| `src/components/motion/route-signal.tsx`      | Lends page changes the app router and reports each page's arrival from a layout effect. Rendered in both app-shell branches, inside its own Suspense.                |
-| `src/components/motion/vt-log.tsx`            | The `?vt-log=1` table. Loaded by a dynamic import only when the switch is on.                                                                                        |
-| `src/app/globals.css`, VIEW TRANSITIONS       | The held layers, the `--vt-ready` marker, the 240 ms root cross-fade (only under `html[data-vt="page"]`), the card frame (`tool-frame`) and the reduced-motion lock. |
-| `src/lib/motion/grow-from.ts`                 | The header grow: one Web Animations movement from the tapped card's spot, when no view transition carried the card's frame.                                          |
-| `src/components/layout/tool-page-wrapper.tsx` | The header is the `data-vt-target` a card's frame grows into; the root drops its rise when a frame lands; the header grows from the card's spot otherwise.           |
+| File                                          | What it does                                                                                                                                                                                                                                        |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/motion/view-transition.ts`           | The one place a view transition starts: the wait cap, `html[data-vt]`, the clean-up, one at a time.                                                                                                                                                 |
+| `src/lib/motion/page-transition.ts`           | The page-change rules, `HOLD_CAP_MS`, `DYNAMIC_PATHS`, `pushWithTransition`, `notifyRouteCommitted`, `isPageTransitionRunning`, the debug switches. For Back: the card's forward record, `noteHistoryStep` and `BACK_WAIT_MS`.                      |
+| `src/components/motion/transition-link.tsx`   | next/link plus the cross-fade. Every internal link in `src` renders it.                                                                                                                                                                             |
+| `src/components/motion/route-signal.tsx`      | Lends page changes the app router and reports each page's arrival from a layout effect. Rendered in both app-shell branches, inside its own Suspense. Its popstate listener (capture phase, read only) hands Back and Forward to `noteHistoryStep`. |
+| `src/components/motion/vt-log.tsx`            | The `?vt-log=1` table. Loaded by a dynamic import only when the switch is on.                                                                                                                                                                       |
+| `src/app/globals.css`, VIEW TRANSITIONS       | The held layers, the `--vt-ready` marker, the 240 ms root cross-fade (only under `html[data-vt="page"]`), the card frame (`tool-frame`) and the reduced-motion lock.                                                                                |
+| `src/lib/motion/grow-from.ts`                 | The header grow: one Web Animations movement from the tapped card's spot, when no view transition carried the card's frame. `slideBack`: the card's translate-only slide back on Back.                                                              |
+| `src/components/layout/tool-page-wrapper.tsx` | The header is the `data-vt-target` a card's frame grows into; the root drops its rise when a frame lands; the header grows from the card's spot otherwise.                                                                                          |
 
 `test/motion/link-coverage.test.ts` keeps it that way: only `transition-link.tsx`
 and the named exceptions import `next/link`, and only the named exceptions call
@@ -163,7 +163,9 @@ It plays only when all of these hold:
 - A `[data-vt-card]` whose tapped link goes to that page is on screen once the
   browser has put the scroll back. Of several, the one nearest where the card
   was tapped slides. A job card's Other options link to the same tool does not
-  count, and a related-tool tile, which is no card, leaves no record.
+  count, and a related-tool tile, which is no card, leaves no record. The
+  home page's sections come back closed after Back, so their tool cards are
+  not there to slide; the home job cards are.
 - No reduced motion, Save-Data or 2G, presenting mode or intro, and no page
   change running.
 
@@ -256,10 +258,13 @@ On the preview build, in Comic, Night and High contrast, upright and sideways:
       the card's spot.
 - [ ] High contrast: the frame has no offset shadow.
 - [ ] Android Chrome (Back button or the toolbar's Back) and desktop Chrome:
-      Back from a tool page opened by a card slides that card from the
-      header's spot into its slot in about a third of a second, when the card
-      is on screen. A back swipe that shows Chrome's own Back animation stays
-      instant.
+      Back from a page opened by a card slides that card from the header's
+      spot into its slot in about a third of a second, when the card is on
+      screen. Check it with a home job card, a card on `/more-tools` and a
+      comic card. The tool cards in the home page's sections cannot slide:
+      the sections come back closed after Back, so their cards are not on
+      the page (keeping them open is an owner decision, not part of this).
+      A back swipe that shows Chrome's own Back animation stays instant.
 - [ ] iPhone Safari: a back swipe keeps Safari's own animation. Note whether
       the Back button slides the card: it does only if Safari reports
       `hasUAVisualTransition` as false, which is not checked.
