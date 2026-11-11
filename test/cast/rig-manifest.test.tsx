@@ -17,6 +17,9 @@ import { CAST } from "@/lib/vip/cast.generated";
 import spec from "../../docs/cast/cast-rig.json";
 import { ARMLESS_PUPPET, TEST_PUPPET } from "./fixtures/rig-fixture";
 
+/** Amr, whose rig carries no tap move of its own. */
+const AMR = "AAW-01";
+
 function problems(rig: RigManifest): string[] {
   const out: string[] = [];
   const ids = rig.parts.map((p) => p.id);
@@ -49,7 +52,11 @@ function problems(rig: RigManifest): string[] {
       if (!eyes?.choices.some((x) => x.id === c)) out.push(`pupils shown with missing ${c}`);
     }
   }
-  if (rig.signature.length < 1 || rig.signature.length > 2) out.push("one or two signature moves");
+  // Amr's tap move plays only in the intros, so his rig may have none.
+  const fewest = rig.id === AMR ? 0 : 1;
+  if (rig.signature.length < fewest || rig.signature.length > 2) {
+    out.push("one or two signature moves");
+  }
   for (const id of rig.signature) {
     const clip = clipFor(id);
     if (!clip || !id.startsWith("sig.") || clip.ms > LIMITS.maxMs) out.push(`signature ${id}`);
@@ -125,6 +132,15 @@ describe("the rig checks", () => {
     expect(movedAtOnce(octopus)).toBe(8);
     // Its counts still say 6, which the shipped-rig check would catch.
     expect(movedAtOnce(octopus)).toBeGreaterThan(octopus.counts.animated);
+  });
+
+  it("ask every rig but Amr's for one or two signature moves", () => {
+    expect(problems({ ...TEST_PUPPET, id: AMR, signature: [] })).toEqual([]);
+    expect(problems({ ...TEST_PUPPET, signature: [] })).toEqual(["one or two signature moves"]);
+    const three = ["sig.tail", "sig.wave", "sig.nod"];
+    expect(problems({ ...TEST_PUPPET, id: AMR, signature: three })).toEqual([
+      "one or two signature moves",
+    ]);
   });
 
   it("catch a broken rig", () => {

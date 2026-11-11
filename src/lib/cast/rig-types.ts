@@ -156,7 +156,11 @@ export interface RigManifest {
   readonly parts: readonly RigPart[];
   readonly swaps: readonly SwapSlot[];
   readonly pupils: Pupils | null;
-  /** One or two `sig.*` clip ids (src/lib/cast/clips.ts). */
+  /**
+   * One or two `sig.*` clip ids (src/lib/cast/clips.ts), played on a tap. None
+   * for Amr (AAW-01), whose tap move plays only in the intros; CastFigure then
+   * leaves out data-sig and a tap does nothing.
+   */
   readonly signature: readonly string[];
   /** Shown at this opacity (a ghost). */
   readonly translucent?: number;
