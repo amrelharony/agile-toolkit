@@ -74,17 +74,43 @@ describe("VisitorGuide", () => {
       expect(first).toHaveFocus();
     });
 
-    it("Enter with no match keeps focus in the box and asks nobody", () => {
+    it("Enter with no match asks Amr when his AI is on, the same as the Ask button", () => {
       const onAskAmr = vi.fn();
       const onNavigate = vi.fn();
       render(<VisitorGuide onAskAmr={onAskAmr} onNavigate={onNavigate} />);
       search().focus();
       type("zzqx");
       expect(fireEvent.submit(screen.getByRole("search"))).toBe(false);
+      expect(onAskAmr).toHaveBeenCalledTimes(1);
+      expect(onAskAmr).toHaveBeenCalledWith("zzqx");
+      expect(onNavigate).not.toHaveBeenCalled();
+    });
+
+    it("Enter with no match goes back to the chat when the search still holds its question", () => {
+      const onAskAmr = vi.fn();
+      render(
+        <VisitorGuide onAskAmr={onAskAmr} resumeChat initialQuery="zzqx" resumeQuery="zzqx" />
+      );
+      expect(fireEvent.submit(screen.getByRole("search"))).toBe(false);
+      expect(onAskAmr).toHaveBeenCalledWith("");
+    });
+
+    it("Enter with no match and no AI keeps focus in the box to try again", () => {
+      render(<VisitorGuide />);
+      search().focus();
+      type("zzqx");
+      expect(fireEvent.submit(screen.getByRole("search"))).toBe(false);
       expect(search()).toHaveFocus();
       expect(search()).toHaveValue("zzqx");
+    });
+
+    it("Enter on an empty search asks nobody", () => {
+      const onAskAmr = vi.fn();
+      render(<VisitorGuide onAskAmr={onAskAmr} />);
+      search().focus();
+      expect(fireEvent.submit(screen.getByRole("search"))).toBe(false);
       expect(onAskAmr).not.toHaveBeenCalled();
-      expect(onNavigate).not.toHaveBeenCalled();
+      expect(search()).toHaveFocus();
     });
 
     it("Enter on an empty search does nothing", () => {

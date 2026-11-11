@@ -70,7 +70,8 @@ function useToolGuide(toolId: string | undefined): ToolGuide | null {
  *
  * The search is a `role=search` form. Enter (the phone keyboard's Search key)
  * moves focus to the first result, which drops the keyboard and lets a screen
- * reader read the tool's name; with no match it does nothing. The match count
+ * reader read the tool's name; with no match it asks Amr (visitor AI on), the
+ * same as the Ask button, or else leaves focus in the box. The match count
  * is read out through the app's one announcer once typing stops, so the guide
  * mounts no live region of its own. Escape in a non-empty search clears it
  * and stops there (`preventDefault`, which the panel's own Escape respects);
@@ -188,13 +189,19 @@ export function VisitorGuide({
           aria-label="Find a tool"
           // Enter (or the keyboard's Search key): on to the first result. A
           // link is not a text field, so a phone's keyboard closes and the
-          // results show. With no match, focus stays in the box to try again.
+          // results show. With no match and Amr's AI on, it asks him, the same
+          // as the Ask button. With no match and no AI, focus stays in the box
+          // to try again.
           onSubmit={(e) => {
             e.preventDefault();
-            e.currentTarget.ownerDocument
-              .getElementById(RESULTS_ID)
-              ?.querySelector<HTMLAnchorElement>("a[href]")
-              ?.focus();
+            if (results.length > 0) {
+              e.currentTarget.ownerDocument
+                .getElementById(RESULTS_ID)
+                ?.querySelector<HTMLAnchorElement>("a[href]")
+                ?.focus();
+            } else if (trimmed && onAskAmr) {
+              onAskAmr(askQuery);
+            }
           }}
           className="flex flex-col gap-2"
         >
