@@ -154,6 +154,10 @@ class Face(unittest.TestCase):
         x, y = cs.EYES[0]
         self.assertGreater(im.lab(out[y + 4, x + 8, :3].astype(float))[0], 90)
         np.testing.assert_array_equal(out[:, x0 + 200 :], img[:, x0 + 200 :])  # nothing else
+        # C10 reads the same: a pupil drawn into the eye, and none once painted out.
+        self.assertEqual(len(swaps.drawn_pupils(img, box)), 1)
+        self.assertEqual(swaps.drawn_pupils(out, box), [])
+        self.assertEqual(swaps.drawn_pupils(cs.torso(pupils=False), box), [])
 
 
 class Grid(unittest.TestCase):

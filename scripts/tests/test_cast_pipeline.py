@@ -193,10 +193,24 @@ class Pipeline(unittest.TestCase):
         # A second build keeps one pair of files, the same bytes.
         publish.build(CID, self.src, public, ts, spec_path=self.spec_path, out=lambda *a: None)
         self.assertEqual(sorted(p.name for p in public.iterdir()), files)
-        # C16 catches a renamed atlas and a stray file.
+        # What build shipped is on record, and C16 holds the rig to it and the ledger.
+        built = next(c for c in json.loads(self.spec_path.read_text(encoding="utf-8"))["characters"] if c["id"] == CID)["built"]
+        self.assertEqual(sorted(built), ["rig", "x1", "x2"])
+        self.assertEqual([built["x1"], built["x2"]], files)  # aaw-25.<sha8> sorts before aaw-25@2x.<sha8>
+        ok = publish.check_published([CID], public, ts, sources=self.src, spec_path=self.spec_path)
+        self.assertEqual([r["status"] for r in ok], ["pass"], ok)
+        spec_now = json.loads(self.spec_path.read_text(encoding="utf-8"))
+        mine = next(c for c in spec_now["characters"] if c["id"] == CID)
+        self.assertIn("no build record", " ".join(publish.c16(man, public, {**spec_now, "characters": [{**mine, "built": None}]})["notes"]))
+        other = {**mine, "built": {**mine["built"], "rig": "0" * 64}}
+        self.assertIn("didn't approve", " ".join(publish.c16(man, public, {**spec_now, "characters": [other]})["notes"]))
+        forged = {**mine, "approved": {**mine["approved"], "master": "f" * 64}}
+        notes = publish.c16(man, public, {**spec_now, "characters": [forged]}, self.src)["notes"]
+        self.assertIn("master: the sha in cast-rig.json has no row in the approvals ledger", notes)
+        # C16 catches a stray file.
         stray = public / "aaw-99.deadbeef.webp"
         stray.write_bytes(b"x")
-        bad = publish.check_published([CID], public, ts)
+        bad = publish.check_published([CID], public, ts, sources=self.src, spec_path=self.spec_path)
         self.assertEqual(bad[-1]["status"], "fail")
         stray.unlink()
 

@@ -234,6 +234,25 @@ def whites(rgba: np.ndarray) -> np.ndarray:
     return out
 
 
+def drawn_pupils(rgba: np.ndarray, box) -> list[np.ndarray]:
+    """The dark blobs enclosed by white inside `box` (x0, y0, x1, y1): pupils drawn
+    into an eye. Each as a mask of the box, with its 1-px ring's light pixels."""
+    x0, y0, x1, y1 = box
+    sub = rgba[y0:y1, x0:x1]
+    lab = im.lab(sub[..., :3].astype(float))
+    drawn = sub[..., 3] > 127
+    dark = (lab[..., 0] < TOL["white_l_min"]) & drawn
+    light = _light(lab) & drawn
+    out = []
+    for ys, xs in im.components(dark):
+        m = np.zeros(dark.shape, bool)
+        m[ys, xs] = True
+        ring = im.dilate(m, 2) & ~im.dilate(m, 1)
+        if ring.sum() and light[ring].mean() >= TOL["pupil_ring_light"]:
+            out.append(m)
+    return out
+
+
 def fill_whites(rgba: np.ndarray, box) -> np.ndarray:
     """rgba with every dark blob enclosed by white inside `box` (a drawn pupil)
     painted with the white around it, so an eye can show the moving pupils."""
@@ -241,18 +260,11 @@ def fill_whites(rgba: np.ndarray, box) -> np.ndarray:
     sub = rgba[y0:y1, x0:x1].copy()
     lab = im.lab(sub[..., :3].astype(float))
     drawn = sub[..., 3] > 127
-    dark = (lab[..., 0] < TOL["white_l_min"]) & drawn
     light = _light(lab) & drawn
-    for ys, xs in im.components(dark):
-        m = np.zeros(dark.shape, bool)
-        m[ys, xs] = True
+    for m in drawn_pupils(rgba, box):
         ring = im.dilate(m, 2) & ~im.dilate(m, 1)
-        if ring.sum() == 0:
-            continue
-        if light[ring].mean() >= TOL["pupil_ring_light"]:
-            fill = np.median(sub[ring & light][:, :3], axis=0) if (ring & light).any() else (255, 255, 255)
-            grow = im.dilate(m, 1)
-            sub[grow & drawn, :3] = fill
+        fill = np.median(sub[ring & light][:, :3], axis=0) if (ring & light).any() else (255, 255, 255)
+        sub[im.dilate(m, 1) & drawn, :3] = fill
     out = rgba.copy()
     out[y0:y1, x0:x1] = sub
     return out

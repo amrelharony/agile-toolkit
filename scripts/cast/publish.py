@@ -46,6 +46,15 @@ def mirror(spec_path: Path, cid: str, image: str, sha: str) -> None:
     spec_path.write_text(fmt.json_text(spec), encoding="utf-8", newline="\n")
 
 
+def mirror_built(spec_path: Path, cid: str, built: dict) -> None:
+    """Write what build shipped (the rig sha it built from and the atlas names)
+    into the spec file, so C16 can hold the published rig to its approval."""
+    spec = load_spec(spec_path)
+    c = next(x for x in spec["characters"] if x["id"] == cid)
+    c["built"] = built
+    spec_path.write_text(fmt.json_text(spec), encoding="utf-8", newline="\n")
+
+
 def approve(
     cid: str,
     sources: Path,
@@ -169,7 +178,8 @@ def build(
     man["atlas"] = {"x1": f"/cast/{n1}", "x2": f"/cast/{n2}", "bytes1": len(b1), "bytes2": len(b2)}
     spec = load_spec(spec_path)
     # C16 on the bytes in hand first: a rig that would fail it never reaches the repo.
-    pre = c16_bytes(man, {n1: b1, n2: b2}, spec)
+    built = {"rig": cand["rig_sha256"], "x1": n1, "x2": n2}
+    pre = c16_bytes(man, {n1: b1, n2: b2}, spec, built=built)
     if pre["status"] == "fail":
         raise SystemExit(f"{cid}: C16 would fail, nothing written:\n  " + "\n  ".join(pre["notes"]))
     rigs = rig.read_ts(ts_path)  # stops here, before any write, on a file it can't read back
@@ -187,7 +197,8 @@ def build(
     for old in list(public_dir.glob(f"aaw-{nn}.*.webp")) + list(public_dir.glob(f"aaw-{nn}@2x.*.webp")):
         if old.name not in (n1, n2):
             old.unlink()
-    res = c16(man, public_dir, spec)
+    mirror_built(spec_path, cid, built)
+    res = c16(man, public_dir, load_spec(spec_path), sources)
     res["quality"] = {"1x": q1, "2x": q2, "sharpen": amount}
     out(f"{cid}: built {n1} ({len(b1)} B), {n2} ({len(b2)} B); C16 {res['status']}")
     return res
@@ -212,21 +223,25 @@ def _rects(man: dict, size: tuple[int, int]) -> list[tuple[float, float, float, 
     return out
 
 
-def c16(man: dict, public_dir: Path = PUBLIC, spec: dict | None = None) -> dict:
+def c16(man: dict, public_dir: Path = PUBLIC, spec: dict | None = None, sources: Path | None = None) -> dict:
     """C16 on one published rig: its atlases as they are in public_dir."""
     files = {}
     for key_ in ("x1", "x2"):
         f = Path(public_dir) / Path(man["atlas"][key_]).name
         if f.exists():
             files[f.name] = f.read_bytes()
-    return c16_bytes(man, files, spec)
+    return c16_bytes(man, files, spec, sources=sources)
 
 
-def c16_bytes(man: dict, files: dict, spec: dict | None = None) -> dict:
+def c16_bytes(
+    man: dict, files: dict, spec: dict | None = None, built: dict | None = None, sources: Path | None = None
+) -> dict:
     """C16 on a rig and its atlas bytes ({file name: bytes}). Fails on a missing
     or misnamed atlas, bytes over budget, a 2x that isn't twice the 1x, rects
     outside or overlapping, node or animation counts over the caps, a bad tap-move
-    list, or (with the spec) no approval mirrored."""
+    list; with the spec, an approval not mirrored, or a rig not the one built
+    from the approved rig sha under these atlas names (`built`, or the spec's own
+    record); with the sources, a mirrored sha with no row in the approvals ledger."""
     notes = []
     cid = man["id"]
     k = "atlas_complex_" if is_complex(cid) else "atlas_"
@@ -268,6 +283,19 @@ def c16_bytes(man: dict, files: dict, spec: dict | None = None) -> dict:
         for img in (c or {}).get("images", []):
             if img not in appr:
                 notes.append(f"no approved {img} sha in cast-rig.json")
+        made = built if built is not None else (c or {}).get("built")
+        if not made:
+            notes.append("no build record in cast-rig.json")
+        else:
+            if made.get("rig") != appr.get("rig"):
+                notes.append("built from a rig sha the owner didn't approve")
+            names = (Path(man["atlas"]["x1"]).name, Path(man["atlas"]["x2"]).name)
+            if names != (made.get("x1"), made.get("x2")):
+                notes.append("its atlases are not the ones build wrote")
+        if sources is not None:
+            for img, sha in appr.items():
+                if ledger.approval_of(sources, cid, img, sha) is None:
+                    notes.append(f"{img}: the sha in cast-rig.json has no row in the approvals ledger")
     return {"status": "fail" if notes else "pass", "notes": notes, "id": cid}
 
 
@@ -275,12 +303,18 @@ def published(ts_path: Path = TS_PATH) -> dict:
     return rig.read_ts(ts_path)
 
 
-def check_published(ids: list[str], public_dir: Path = PUBLIC, ts_path: Path = TS_PATH) -> list[dict]:
+def check_published(
+    ids: list[str],
+    public_dir: Path = PUBLIC,
+    ts_path: Path = TS_PATH,
+    sources: Path | None = None,
+    spec_path: Path = SPEC_PATH,
+) -> list[dict]:
     """C16 for every published rig among ids, plus files in public/cast that no
     rig names."""
     rigs = published(ts_path)
-    spec = load_spec(SPEC_PATH)
-    res = [c16(rigs[i], public_dir, spec) for i in ids if i in rigs]
+    spec = load_spec(spec_path)
+    res = [c16(rigs[i], public_dir, spec, sources) for i in ids if i in rigs]
     named = {Path(m["atlas"][k]).name for m in rigs.values() for k in ("x1", "x2")}
     if Path(public_dir).is_dir():
         stray = sorted(p.name for p in Path(public_dir).iterdir() if p.is_file() and p.name not in named)

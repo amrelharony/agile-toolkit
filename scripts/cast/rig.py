@@ -290,8 +290,12 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             st = "fail"
         elif reg.ncc < TOL["ncc_warn"]:
             st = "warn"
-        if not (TOL["scale_min"] <= reg.r <= TOL["scale_max"]) or abs(reg.theta) > TOL["tilt_deg"]:
-            st = checks.worst(st, "warn")
+        if not (TOL["scale_min"] <= reg.r <= TOL["scale_max"]):
+            st = "fail"
+            c6["notes"].append(f"{pid}: drawn at {reg.r:.2f} of its master size, outside {TOL['scale_min']}-{TOL['scale_max']}")
+        if abs(reg.theta) > TOL["tilt_deg"]:
+            st = "fail"
+            c6["notes"].append(f"{pid}: tilted {reg.theta:.1f} degrees, over {TOL['tilt_deg']}")
         own = baked[pid][..., 3] > 127
         odd = rg.unexplained(baked[pid], master, (layers - own) > 0)
         row = {**reg.json(), "unexplained": round(odd, 4)}
@@ -482,6 +486,25 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
                 c10["notes"].append(f"{slot}.{st} ring dE00 {ring}")
             elif ring > TOL["ring_de00_max"]:
                 c10["status"] = checks.worst(c10["status"], "warn")
+    # The eyes that show the moving pupils are empty whites: the rig head's own
+    # (open) and the wide patch once its pupils are painted out; and each pupil has
+    # room to move both ways in its white.
+    if host in baked and pupils:
+        hb = im.mask_bbox(baked[host][..., 3] > 127)
+        top, bottom = swaps.head_bands(hb)["eyes"]
+        eyes_box = face_out["eyes"]["box"] if "eyes" in face_out else (hb[0], int(top), hb[2], int(np.ceil(bottom)))
+        if swaps.drawn_pupils(baked[host], eyes_box):
+            c10["status"] = "fail"
+            c10["notes"].append("eyes.open: the parts sheet's eyes hold pupils; they must be empty whites")
+        wide = face_out.get("eyes", {}).get("choices", {}).get("wide")
+        if wide is not None and swaps.drawn_pupils(wide, eyes_box):
+            c10["status"] = "fail"
+            c10["notes"].append("eyes.wide: a pupil is left in the white")
+        light = swaps.whites(baked[host])
+        for n, p in enumerate(pupils):
+            if 0 in swaps.pupil_travel(p["mask"], light):
+                c10["status"] = "fail"
+                c10["notes"].append(f"pupil {n + 1} can't move inside its white")
     report["checks"]["C10"] = c10
 
     # Swaps pinned at a joint: each arm pose at the rest arm's shoulder ball, and the

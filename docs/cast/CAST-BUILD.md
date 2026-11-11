@@ -87,7 +87,7 @@ Every command takes `--sources <dir>` (default `D:\Claude Desktop\Agile_At_Work_
    8. compose;
    9. run checks C1–C11 (C12–C15 are the reviewers' and the owner's).
 4. **Approve.** `approve <AAW-NN> --image <img> | --rig --by owner|opus --words "…"` appends to `ledger/approvals.jsonl` and mirrors the sha into `cast-rig.json` (each character's `approved`). Every rig needs the owner's approval, and Amr refuses anything else. `--by owner` is the owner at a terminal: it asks for the id and the sha's first 8 characters to be typed, and refuses a pipe or an agent's session, which record `--by opus`.
-5. **Build.** `build <AAW-NN | A..E | all>` refuses unless every source sha equals its approval and the owner approved the candidate rig. It then writes the atlases and `rigs.generated.ts` and runs C16.
+5. **Build.** `build <AAW-NN | A..E | all>` refuses unless every source sha equals its approval and the owner approved the candidate rig. It checks the atlases' budget and C16 on the bytes in hand before writing anything, then writes the atlases, `rigs.generated.ts` and the character's `built` record in `cast-rig.json` (the rig sha it built from and the atlas names), and runs C16 on what it wrote.
 
 ## Checks (thresholds are keys in `cast-rig.json` → `tolerances`)
 
@@ -108,7 +108,7 @@ Every command takes `--sources <dir>` (default `D:\Claude Desktop\Agile_At_Work_
 | C13 | identity and style                                          | two reviewers and a skeptic against the sheet and panels; three judges on Amr's face against R16                                                                                                                                                                                                                                                                      |
 | C14 | assembly and motion                                         | every move's extreme frames compose with no gaps; **the owner's anatomy review**                                                                                                                                                                                                                                                                                      |
 | C15 | size and ground                                             | contact sheets at 96, 160 and 240 px in Comic, Night and high contrast; the owner approves                                                                                                                                                                                                                                                                            |
-| C16 | pack                                                        | bytes within `budgets`; names are sha256[:8]; 2x is exactly 2× 1x; nodes ≤ `rig_nodes_max`; animated ≤ `rig_animated_max`; source shas match the approvals                                                                                                                                                                                                            |
+| C16 | pack                                                        | bytes within `budgets`; names are sha256[:8]; 2x is exactly 2× 1x; nodes ≤ `rig_nodes_max`; animated ≤ `rig_animated_max`; one or two tap moves; source shas match the approvals and the approvals ledger; the rig is the one `built` from the approved rig sha                                                                                                       |
 
 ## Fix rounds
 

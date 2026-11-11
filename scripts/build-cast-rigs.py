@@ -111,7 +111,7 @@ def cmd_check(args, sources: Path) -> int:
         path = review.write_report(sources, batch, mode, list(merged.values()), args.review)
         print(f"report: {path}")
     if not args.masters and not args.file:
-        for res in publish.check_published(ids):
+        for res in publish.check_published(ids, sources=sources):
             print(f"{MARK[res['status']]} {res['id']} published (C16)  {'; '.join(res['notes'])}")
             bad |= res["status"] == "fail"
     return 1 if bad else 0
