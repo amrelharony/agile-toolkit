@@ -1049,6 +1049,12 @@ export function MascotAssistant() {
     if (!open) return;
     const onEsc = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // An input method is composing: Escape cancels the composition, not the
+      // panel (keyCode 229 is how older browsers say so).
+      if (e.isComposing || e.keyCode === 229) return;
+      // A field inside the panel already used this Escape (the guide's search
+      // clears itself first); the next one closes.
+      if (e.defaultPrevented) return;
       if (useAgentStore.getState().pendingToolUse) return;
       // Renaming a thread: Escape cancels that edit, not the whole panel.
       const ae = document.activeElement;

@@ -243,6 +243,59 @@ describe("MascotAssistant — owner gating", () => {
   });
 });
 
+describe("MascotAssistant — Escape", () => {
+  beforeEach(() => {
+    h.auth = { status: "anonymous", user: null };
+    h.pathname = "/";
+    vi.stubGlobal("fetch", vi.fn());
+    stubPhoneWidth(false);
+    useAgentStore.setState({ open: true });
+  });
+
+  afterEach(() => {
+    useAgentStore.getState().reset();
+    useAgentStore.setState({ open: false });
+    vi.unstubAllGlobals();
+  });
+
+  const search = () => screen.getByLabelText("What do you need to do?");
+
+  it("closes the panel", () => {
+    render(<MascotAssistant />);
+    fireEvent.keyDown(search(), { key: "Escape" });
+    expect(useAgentStore.getState().open).toBe(false);
+    expect(screen.queryByRole("dialog", { name: "Amr assistant" })).toBeNull();
+  });
+
+  it("leaves the panel open when a field inside it already used the Escape", () => {
+    render(<MascotAssistant />);
+    const field = search();
+    // The field's own Escape (the guide's search clearing itself) runs first.
+    const own = (e: KeyboardEvent) => {
+      if (e.key === "Escape") e.preventDefault();
+    };
+    field.addEventListener("keydown", own);
+
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(useAgentStore.getState().open).toBe(true);
+
+    // Once the field lets it through, the next Escape closes.
+    field.removeEventListener("keydown", own);
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(useAgentStore.getState().open).toBe(false);
+  });
+
+  it("ignores an Escape that ends an input method's composition", () => {
+    render(<MascotAssistant />);
+    fireEvent.keyDown(search(), { key: "Escape", isComposing: true });
+    expect(useAgentStore.getState().open).toBe(true);
+    // Older browsers say "composing" with keyCode 229 instead.
+    fireEvent.keyDown(search(), { key: "Escape", keyCode: 229 });
+    expect(useAgentStore.getState().open).toBe(true);
+    expect(screen.getByRole("dialog", { name: "Amr assistant" })).toBeInTheDocument();
+  });
+});
+
 describe("MascotAssistant — visitor AI", () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
   const VISITOR = { status: "anonymous", user: null };
