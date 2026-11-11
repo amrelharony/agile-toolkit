@@ -69,3 +69,7 @@ next-env.d.ts
 
 # Lighthouse CI local runs (npm run lighthouse)
 /.lighthouseci/
+
+# Python bytecode: the builders set sys.dont_write_bytecode, but unittest caches
+# the first test module it loads before that line runs.
+__pycache__/
