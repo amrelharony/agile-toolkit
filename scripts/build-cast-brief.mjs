@@ -307,7 +307,6 @@ export function pageData(spec, priv) {
           image: img,
           file: fileName(c.id, img),
           words: IMAGE_WORDS[img],
-          prompt: imagePrompt(spec, c, p, img),
         })),
         check: checkFor(c),
         fixes: Object.entries(fixesFor(c, key)).map(([k, v]) => ({
@@ -365,7 +364,7 @@ ol.check{margin:6px 0 0;padding-left:22px}
 <main>
   <header>
     <h1>Cast Art Prompts</h1>
-    <p class="lead">One chat per character in ChatGPT Images. Attach that character's <b>CAST-AAW-NN.md</b> and its pictures from the batch zip, paste the kickoff, check the master against the five lines, then say “next”. Batch A is the pilot: send its six masters back before the rest.</p>
+    <p class="lead">One chat per character in ChatGPT Images. Attach that character's <b>CAST-AAW-NN.md</b> and its pictures from the batch zip, paste the kickoff, check the master against the five lines, then say “next”. Lost a chat? Start a new one with the same file, the pictures and the approved master, and paste the kickoff again. Batch A is the pilot: send its six masters back before the rest.</p>
   </header>
   <div class="bar" id="filters" role="group" aria-label="Show"></div>
   <div class="bar"><span id="count"></span><div class="progress" aria-hidden="true"><i id="fill"></i></div></div>
@@ -409,7 +408,6 @@ var DATA = ${json};
       return el("div", { class: "row" }, [
         el("span", { class: "what", text: i.words.charAt(0).toUpperCase() + i.words.slice(1) }),
         el("button", { class: "file", type: "button", text: i.file, title: "Copy the file name", on: function () { copy(i.file, "File name copied"); } }),
-        el("button", { class: "btn", type: "button", text: "Copy prompt", on: function () { copy(i.prompt, c.id + " " + i.image + " prompt copied"); } }),
         el("label", {}, [box, el("span", { text: "Done" })])
       ]);
     }));

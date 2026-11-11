@@ -127,7 +127,7 @@
       "id": "AAW-04",
       "name": "Dependable Beaver",
       "family": "biped",
-      "key": "green",
+      "key": "magenta",
       "images": ["master", "parts", "face", "arms"],
       "parts": [
         "head",
@@ -291,7 +291,8 @@
         "arm-r",
         "arm-l",
         "leg-r",
-        "leg-l"
+        "leg-l",
+        "tail"
       ]
     },
     {
@@ -416,7 +417,7 @@
       "id": "AAW-20",
       "name": "Captain Blocker Ox",
       "family": "biped",
-      "key": "green",
+      "key": "magenta",
       "images": ["master", "parts", "face", "arms"],
       "parts": [
         "head",
@@ -549,7 +550,8 @@
         "arm-r",
         "arm-l",
         "leg-r",
-        "leg-l"
+        "leg-l",
+        "tail"
       ]
     },
     {
