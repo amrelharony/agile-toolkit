@@ -18,8 +18,9 @@ const LETTERING = "font-display font-bold text-text";
  * card's QR is standing at a wall or holding a card, so it says the episode and
  * its title at once. A page inks itself in with "Episode N" and the title, any
  * panels it's given ink in after them, and Amr comes up at the corner to wave
- * before the page lifts away. The book's episodes are never put online, so their
- * page gives it none, and the title fills one big window.
+ * before the page lifts away. A book episode gives it its poster's four panels;
+ * with none (no Supabase address to load them from), the title fills one big
+ * window.
  *
  * No hooks, so the server page renders it and it plays from the first paint. The
  * choreography is all in poster-intro.module.css.
