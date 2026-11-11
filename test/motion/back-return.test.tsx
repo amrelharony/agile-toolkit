@@ -331,6 +331,9 @@ function nextFrame() {
 /** Whether the browser put the scroll back at once (no glide). */
 const scrollLandedAtOnce = () => restored && !gliding && !owed;
 
+/** html's inline scroll-behavior: "auto" while a noted Back holds it. */
+const scrollBehavior = () => root.style.getPropertyValue("scroll-behavior");
+
 /** The slides that played on a card (the header grow on the way in is not one). */
 function slides() {
   return animate.mock.calls.flatMap((call, i) => {
@@ -921,11 +924,15 @@ describe("never", () => {
     ],
     ["while presenting", () => (root.dataset.presenting = "true")],
     ["with an intro on stage", () => (root.dataset.intro = "poster")],
-  ])("%s", (_name, arrange) => {
+  ])("%s, and the scroll back keeps its glide", (_name, arrange) => {
     open("Kanban", "/kanban");
     arrange();
     back(home());
+    // No slide can play, so html's scroll-behavior is never held at auto.
+    expect(scrollBehavior()).toBe("");
     nextFrame();
+    expect(scrollBehavior()).toBe("");
+    expect(gliding).toBe(true);
     expect(slides()).toEqual([]);
   });
 
@@ -935,6 +942,7 @@ describe("never", () => {
     root.dataset.presenting = "true";
     nextFrame();
     expect(slides()).toEqual([]);
+    expect(scrollBehavior()).toBe("");
   });
 
   it("where element.animate is missing", () => {
@@ -1020,8 +1028,6 @@ describe("the listeners only read", () => {
 });
 
 describe("for a Back that slides, the browser puts the scroll back at once", () => {
-  const scrollBehavior = () => root.style.getPropertyValue("scroll-behavior");
-
   it("html's scroll-behavior is auto from the navigate event to the slide's frame", () => {
     open("Kanban", "/kanban");
     let duringPopstate = "";
