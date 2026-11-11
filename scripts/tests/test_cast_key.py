@@ -76,6 +76,39 @@ class KeyCut(unittest.TestCase):
         self.assertLess(float(np.median(d_edge)), TOL["key_flat_de00"])
         self.assertLessEqual(info["residue"], TOL["despill_residue_max"])
 
+    def spilled(self, amount, colour=(40, 120, 200), blend=2, reach=2):
+        """A blended disc whose rim (`reach` px in from the edge) is pulled toward
+        the key's hue by `amount` in a*b* on top of the blend: the non-linear spill
+        a real render leaves, which unmixing alone can't undo."""
+        img, truth = cs.disc_on_key(colour=colour, blend=blend)
+        yy, xx = np.mgrid[0 : cs.H, 0 : cs.W]
+        d = np.hypot(xx + 0.5 - 768, yy + 0.5 - 512)
+        rim = (truth > 0.05) & (200 - d <= reach)
+        klab = im.lab(np.array(cs.MAGENTA, float))
+        u = klab[1:] / np.hypot(*klab[1:])
+        lab = im.lab(img[rim, :3].astype(float))
+        lab[:, 1:] += amount * truth[rim, None] * u
+        img[rim, :3] = np.clip(heads.lab_to_srgb(lab) + 0.5, 0, 255).astype(np.uint8)
+        return img, truth, rim
+
+    def test_despill_takes_the_spill_out_of_the_rim(self):
+        colour = (40, 120, 200)
+        img, truth, rim = self.spilled(12, colour)
+        out, info = key.cut(img, cs.MAGENTA)
+        solid_rim = rim & (truth > 0.5)
+        d = im.de00(im.lab(out[solid_rim, :3].astype(float)), im.lab(np.array(colour, float)))
+        self.assertLess(float(np.median(d)), TOL["key_flat_de00"])
+        self.assertLessEqual(info["residue"], TOL["despill_residue_max"])
+
+    def test_c2s_residue_catches_spill_past_what_despill_takes(self):
+        # A wide soft edge spilled deep into the band: despill takes only part of it
+        # at the band's inner edge, and what is left is the residue C2 fails on.
+        band = TOL["despill_band_px"]
+        _, info = key.cut(self.spilled(12, blend=6, reach=band)[0], cs.MAGENTA)
+        self.assertLessEqual(info["residue"], TOL["despill_residue_max"])
+        _, info = key.cut(self.spilled(48, blend=6, reach=band)[0], cs.MAGENTA)
+        self.assertGreater(info["residue"], TOL["despill_residue_max"])
+
     def test_green_key(self):
         img, truth = cs.disc_on_key(key=cs.GREEN, colour=(200, 60, 40))
         out, info = key.cut(img, cs.GREEN)
