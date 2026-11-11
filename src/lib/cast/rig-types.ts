@@ -162,8 +162,10 @@ export interface RigManifest {
   readonly translucent?: number;
   /**
    * nodes: every element CastFigure renders for this rig, ground shadow
-   * included (at most 48). animated: the most elements one clip moves at once
-   * (at most 10).
+   * included (at most 48). animated: the most elements life moves at once
+   * (at most 10): the look's (the head, body and pupil elements) or one
+   * clip's, its first and armless layers included. The look waits while a
+   * clip plays, so the two never add.
    */
   readonly counts: { readonly nodes: number; readonly animated: number };
 }

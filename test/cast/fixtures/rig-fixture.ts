@@ -172,7 +172,7 @@ export const TEST_PUPPET: RigManifest = {
   ],
   pupils: { ids: ["pupil-r", "pupil-l"], travel: [30, 20], shownWith: ["open", "wide"] },
   signature: ["sig.tail", "sig.wave"],
-  counts: { nodes: 42, animated: 4 },
+  counts: { nodes: 42, animated: 6 },
 };
 
 /** Four legs, a load and no arms: every arm swap is left out. */
@@ -191,5 +191,5 @@ export const ARMLESS_PUPPET: RigManifest = {
   parts: TEST_PUPPET.parts.filter((p) => p.id !== "glint"),
   swaps: TEST_PUPPET.swaps.filter((s) => s.id === "eyes" || s.id === "mouth"),
   signature: ["sig.nod"],
-  counts: { nodes: 27, animated: 2 },
+  counts: { nodes: 27, animated: 6 },
 };

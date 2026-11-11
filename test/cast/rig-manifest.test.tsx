@@ -2,8 +2,8 @@
  * What every rig in rigs.generated.ts must be for CastFigure and life to draw
  * and move it: one root, parents first, arms as slots (never also a part),
  * pupils inside the eyes' host, turns within the clip limits, signature moves
- * that exist, and the node budget. Proved on the synthetic fixtures, then run
- * over every shipped rig (none yet).
+ * that exist, and the node and animated budgets. Proved on the synthetic
+ * fixtures, then run over every shipped rig (none yet).
  */
 
 import { render } from "@testing-library/react";
@@ -68,10 +68,63 @@ function rendered(rig: RigManifest): number {
   return container.querySelectorAll("[data-cast], [data-cast] *").length;
 }
 
+/**
+ * The most elements life moves at once on the drawn rig, as life finds them:
+ * the look's (head, body, pupils) or one clip's (signature or guess, its
+ * first and armless layers included). The look waits while a clip plays.
+ */
+function movedAtOnce(rig: RigManifest): number {
+  const { container } = render(<CastFigure rig={rig} height="160px" />);
+  const fig = container.querySelector("[data-cast]")!;
+  const count = (sockets: string[]) => {
+    const els = new Set<Element>();
+    for (const socket of sockets) {
+      const selector = socket === "pupils" ? "[data-pupil]" : `[data-socket="${socket}"]`;
+      for (const el of Array.from(fig.querySelectorAll(selector))) els.add(el);
+    }
+    return els.size;
+  };
+  const clips = [...rig.signature, "guess.matched", "guess.differed", "guess.skipped"]
+    .map(clipFor)
+    .map((clip) =>
+      clip
+        ? count(
+            [clip, clip.first, clip.armless].flatMap((layer) =>
+              layer ? layer.tracks.map((t) => t.socket) : []
+            )
+          )
+        : 0
+    );
+  return Math.max(count(["head", "body", "pupils"]), ...clips);
+}
+
 describe("the rig checks", () => {
   it("pass the synthetic fixtures", () => {
     expect(problems(TEST_PUPPET)).toEqual([]);
     expect(problems(ARMLESS_PUPPET)).toEqual([]);
+    for (const rig of [TEST_PUPPET, ARMLESS_PUPPET]) {
+      expect(movedAtOnce(rig), rig.id).toBeLessThanOrEqual(rig.counts.animated);
+    }
+  });
+
+  it("count every element the look or one clip moves: all four pupils, eight limbs", () => {
+    // The look: the head, the body and a pupil in each of two eye choices.
+    expect(movedAtOnce({ ...TEST_PUPPET, signature: [] })).toBe(6);
+    // sig.ripple moves eight limbs, more than the look.
+    const limbs = Array.from({ length: 8 }, (_, i) => ({
+      ...TEST_PUPPET.parts[4],
+      id: `tentacle-${i + 1}`,
+      socket: `limb-${i + 1}` as const,
+      range: 12,
+    }));
+    const octopus = {
+      ...ARMLESS_PUPPET,
+      parts: [...ARMLESS_PUPPET.parts, ...limbs],
+      signature: ["sig.ripple"],
+    };
+    expect(movedAtOnce(octopus)).toBe(8);
+    // Its counts still say 6, which the shipped-rig check would catch.
+    expect(movedAtOnce(octopus)).toBeGreaterThan(octopus.counts.animated);
   });
 
   it("catch a broken rig", () => {
@@ -106,6 +159,7 @@ describe.skipIf(shipped.length === 0)("every shipped rig", () => {
   it.each(shipped)("%s is sound", (key, rig) => {
     expect(rig.id).toBe(key);
     expect(problems(rig)).toEqual([]);
+    expect(movedAtOnce(rig)).toBeLessThanOrEqual(rig.counts.animated);
     expect(names.has(rig.name), rig.name).toBe(true);
     expect(rig.family).toBe(characters.get(rig.id)?.family);
   });
