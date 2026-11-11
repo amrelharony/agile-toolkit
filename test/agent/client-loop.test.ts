@@ -805,6 +805,56 @@ describe("a turn outlives the panel", () => {
   });
 });
 
+describe("the owner's history on the wire", () => {
+  it("sends every tool call with its result and every result with its call, leaving orphans out", async () => {
+    const call = (id: string): ToolUseBlock => ({
+      type: "tool_use",
+      id,
+      name: PROBE_TOOL,
+      input: {},
+    });
+    useAgentStore.setState({
+      messages: [
+        at("u0", "user", [{ type: "text", text: "first" }]),
+        // A call that never got its result (a turn stopped between the two).
+        at("a0", "assistant", [{ type: "text", text: "Checking." }, call("lost_call")]),
+        at("u1", "user", [{ type: "text", text: "second" }]),
+        at("a1", "assistant", [call("call_ok"), call("no_result")]),
+        at("t1", "tool", [
+          { type: "tool_result", tool_use_id: "call_ok", content: "ok" },
+          // Results that answer nothing this message called, or answer it twice.
+          { type: "tool_result", tool_use_id: "stray", content: "?" },
+          { type: "tool_result", tool_use_id: "call_ok", content: "again" },
+        ]),
+        at("a2", "assistant", [{ type: "text", text: "Done." }]),
+        // A result whose call is an earlier message's, not the one before it.
+        at("t2", "tool", [{ type: "tool_result", tool_use_id: "call_ok", content: "late" }]),
+        // A message whose only call has no result wires to nothing at all.
+        at("a3", "assistant", [call("only_orphan")]),
+      ],
+    });
+    queue = [textTurn("Hello")];
+    await send("third", null);
+
+    expect(posts[0].messages.slice(1)).toEqual([
+      { role: "user", content: "first" },
+      { role: "assistant", content: "Checking." },
+      { role: "user", content: "second" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "call_ok", type: "function", function: { name: PROBE_TOOL, arguments: "{}" } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_ok", content: "ok" },
+      { role: "assistant", content: "Done." },
+      { role: "user", content: "third" },
+    ]);
+    expect(everyToolCallAnswered(posts[0])).toBe(true);
+  });
+});
+
 describe("streamed writes", () => {
   /** Frames asked for and not yet run, by id. */
   let frames: Map<number, FrameRequestCallback>;

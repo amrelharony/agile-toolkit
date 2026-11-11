@@ -1739,12 +1739,23 @@ function pickModel(mode: AgentMode, serverModel: string | null): string {
  *
  * The system prompt becomes the first message (OpenAI doesn't have a
  * separate `system` field like Anthropic).
+ *
+ * Every tool_call goes out with its result, and every result with its call:
+ * a call is sent only when a tool message right after its assistant message
+ * answers it, and a result only when it answers a call of the assistant
+ * message just before it. An orphan either way (a turn stopped between the
+ * two, a thread saved before this rule, an id a gateway reused in a later
+ * round) is left out, since the endpoint rejects the whole request over it.
  */
 function wireMessages(messages: ChatMessage[], system: string): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [{ role: "system", content: system }];
+  /** The calls of the assistant message just sent, still waiting for their results. */
+  let pending = new Set<string>();
 
-  for (const m of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
     if (m.role === "user") {
+      pending = new Set();
       const text = m.content
         .filter((c): c is { type: "text"; text: string } => c.type === "text")
         .map((c) => c.text)
@@ -1754,6 +1765,8 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
     }
 
     if (m.role === "assistant") {
+      const answered = resultIdsAfter(messages, i);
+      const sent = new Set<string>();
       const textParts: string[] = [];
       const toolCalls: Array<{
         id: string;
@@ -1767,10 +1780,12 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
           // (length-truncated mid-stream). Re-serialising the partial JSON
           // string as `arguments` causes the next turn to send an orphan
           // tool_call that the API rejects with 400. (Their tool_results are
-          // never produced either — see BUG-H1 in runToolUseLoop.)
-          if (isPartialInput(c.input)) {
+          // never produced either — see BUG-H1 in runToolUseLoop.) A call
+          // with no result after it, or one already sent, goes the same way.
+          if (isPartialInput(c.input) || !answered.has(c.id) || sent.has(c.id)) {
             continue;
           }
+          sent.add(c.id);
           const input = (c.input ?? {}) as Record<string, unknown>;
           toolCalls.push({
             id: c.id,
@@ -1785,6 +1800,7 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
           });
         }
       }
+      pending = sent;
       const msg: Record<string, unknown> = { role: "assistant" };
       msg.content = textParts.join("") || null;
       if (toolCalls.length > 0) msg.tool_calls = toolCalls;
@@ -1798,9 +1814,10 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
       continue;
     }
 
-    // role "tool" — fan out one OpenAI tool message per result block.
+    // role "tool" — fan out one OpenAI tool message per result block that
+    // answers a call just sent (each once).
     for (const c of m.content) {
-      if (c.type !== "tool_result") continue;
+      if (c.type !== "tool_result" || !pending.delete(c.tool_use_id)) continue;
       const content =
         typeof c.content === "string" ? c.content : c.content.map((b) => b.text).join("");
       out.push({
@@ -1812,6 +1829,15 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
   }
 
   return out;
+}
+
+/** The ids the tool messages right after `messages[i]` answer (until the next other message). */
+function resultIdsAfter(messages: ChatMessage[], i: number): Set<string> {
+  const ids = new Set<string>();
+  for (let j = i + 1; j < messages.length && messages[j].role === "tool"; j++) {
+    for (const c of messages[j].content) if (c.type === "tool_result") ids.add(c.tool_use_id);
+  }
+  return ids;
 }
 
 function makeConfirmHandler(block: ToolUseBlock): (summary: string) => Promise<boolean> {
