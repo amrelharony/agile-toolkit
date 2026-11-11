@@ -5,9 +5,11 @@
         (each character's `approved`); AAW-01 takes only the owner's word
     build(cid, sources)
         refuses unless every source image's current sha has an approval, the
-        candidate is untouched and the owner approved that rig; then writes
-        public/cast/aaw-NN[@2x].<sha8>.webp and src/lib/cast/rigs.generated.ts
-        (keeping the other characters') and runs C16
+        candidate is untouched and the owner approved that rig, and (before
+        writing anything) unless the atlases fit their budget and C16 passes on
+        the bytes in hand; then writes public/cast/aaw-NN[@2x].<sha8>.webp and
+        src/lib/cast/rigs.generated.ts (keeping the other characters'), removes the
+        rig's old atlases and runs C16 on what it wrote
     c16(man, public_dir)
         bytes within budget, names = sha256[:8] of the bytes, 2x exactly 2x 1x,
         sprite rects inside the atlas and apart, nodes and animated parts capped
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from pathlib import Path
 
 from PIL import Image
@@ -136,20 +139,35 @@ def build(
     k = "atlas_complex_" if is_complex(cid) else "atlas_"
     b1, q1, ok1 = atlas.webp(a1, BUDGETS[k + "1x_kb"])
     b2, q2, ok2 = atlas.webp(a2, BUDGETS[k + "2x_kb"])
+    if not (ok1 and ok2):
+        raise SystemExit(
+            f"{cid}: atlas over budget even at q{q1}/q{q2} ({len(b1)} B 1x, {len(b2)} B 2x; caps "
+            f"{BUDGETS[k + '1x_kb']} KB / {BUDGETS[k + '2x_kb']} KB); nothing written"
+        )
     n1, n2 = atlas.atlas_names(cid, b1, b2)
-    public_dir.mkdir(parents=True, exist_ok=True)
-    nn = cid.split("-")[1]
-    for old in list(public_dir.glob(f"aaw-{nn}.*.webp")) + list(public_dir.glob(f"aaw-{nn}@2x.*.webp")):
-        old.unlink()
-    (public_dir / n1).write_bytes(b1)
-    (public_dir / n2).write_bytes(b2)
     man = json.loads(json.dumps(cand["manifest"]))
     man["atlas"] = {"x1": f"/cast/{n1}", "x2": f"/cast/{n2}", "bytes1": len(b1), "bytes2": len(b2)}
-    rigs = rig.read_ts(ts_path)
+    spec = load_spec(spec_path)
+    # C16 on the bytes in hand first: a rig that would fail it never reaches the repo.
+    pre = c16_bytes(man, {n1: b1, n2: b2}, spec)
+    if pre["status"] == "fail":
+        raise SystemExit(f"{cid}: C16 would fail, nothing written:\n  " + "\n  ".join(pre["notes"]))
+    rigs = rig.read_ts(ts_path)  # stops here, before any write, on a file it can't read back
     rigs[cid] = man
+    # New files first, the module swapped in whole, and only then the old atlases go,
+    # so a build cut short never leaves the repo without a rig's last good atlas.
+    public_dir.mkdir(parents=True, exist_ok=True)
+    (public_dir / n1).write_bytes(b1)
+    (public_dir / n2).write_bytes(b2)
     ts_path.parent.mkdir(parents=True, exist_ok=True)
-    ts_path.write_text(rig.ts_file(rigs), encoding="utf-8", newline="\n")
-    res = c16(man, public_dir, load_spec(spec_path))
+    tmp = ts_path.with_name(ts_path.name + ".tmp")
+    tmp.write_text(rig.ts_file(rigs), encoding="utf-8", newline="\n")
+    os.replace(tmp, ts_path)
+    nn = cid.split("-")[1]
+    for old in list(public_dir.glob(f"aaw-{nn}.*.webp")) + list(public_dir.glob(f"aaw-{nn}@2x.*.webp")):
+        if old.name not in (n1, n2):
+            old.unlink()
+    res = c16(man, public_dir, spec)
     res["quality"] = {"1x": q1, "2x": q2, "sharpen": amount}
     out(f"{cid}: built {n1} ({len(b1)} B), {n2} ({len(b2)} B); C16 {res['status']}")
     return res
@@ -175,20 +193,30 @@ def _rects(man: dict, size: tuple[int, int]) -> list[tuple[float, float, float, 
 
 
 def c16(man: dict, public_dir: Path = PUBLIC, spec: dict | None = None) -> dict:
-    """C16 on one published rig. Fails on a missing or misnamed atlas, bytes over
-    budget, a 2x that isn't twice the 1x, rects outside or overlapping, node or
-    animation counts over the caps, or (with the spec) no owner approval mirrored."""
+    """C16 on one published rig: its atlases as they are in public_dir."""
+    files = {}
+    for key_ in ("x1", "x2"):
+        f = Path(public_dir) / Path(man["atlas"][key_]).name
+        if f.exists():
+            files[f.name] = f.read_bytes()
+    return c16_bytes(man, files, spec)
+
+
+def c16_bytes(man: dict, files: dict, spec: dict | None = None) -> dict:
+    """C16 on a rig and its atlas bytes ({file name: bytes}). Fails on a missing
+    or misnamed atlas, bytes over budget, a 2x that isn't twice the 1x, rects
+    outside or overlapping, node or animation counts over the caps, a bad tap-move
+    list, or (with the spec) no approval mirrored."""
     notes = []
     cid = man["id"]
     k = "atlas_complex_" if is_complex(cid) else "atlas_"
     sizes = {}
     for which, key_, bkey, cap in (("1x", "x1", "bytes1", k + "1x_kb"), ("2x", "x2", "bytes2", k + "2x_kb")):
         name = Path(man["atlas"][key_]).name
-        f = Path(public_dir) / name
-        if not f.exists():
+        data = files.get(name)
+        if data is None:
             notes.append(f"{which} atlas {name} missing")
             continue
-        data = f.read_bytes()
         if not name.endswith(f".{im.sha256_bytes(data)[:8]}.webp"):
             notes.append(f"{name} is not named after its bytes")
         if len(data) != man["atlas"][bkey]:

@@ -8,6 +8,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -180,6 +181,30 @@ class Pipeline(unittest.TestCase):
             self.assertTrue(any("changed since the candidate" in w for w in why), why)
         finally:
             acc.write_bytes(keep)
+
+    def test_6_a_build_that_would_fail_writes_nothing(self):
+        self.approve_all("owner")
+        public, ts = self.root / "public6", self.root / "rigs6.generated.ts"
+        publish.build(CID, self.src, public, ts, spec_path=self.spec_path, out=lambda *a: None)
+        before = {p.name: p.read_bytes() for p in public.iterdir()}
+        text = ts.read_text(encoding="utf-8")
+        # Over budget at every quality: refused before public/ or the module is touched.
+        with mock.patch.dict(BUDGETS, {"atlas_1x_kb": 1, "atlas_2x_kb": 1}):
+            with self.assertRaises(SystemExit) as e:
+                publish.build(CID, self.src, public, ts, spec_path=self.spec_path, out=lambda *a: None)
+        self.assertIn("nothing written", str(e.exception))
+        # A node cap the rig is over: C16 on the bytes in hand refuses it the same way.
+        with mock.patch.dict(BUDGETS, {"rig_nodes_max": 1}):
+            with self.assertRaises(SystemExit) as e:
+                publish.build(CID, self.src, public, ts, spec_path=self.spec_path, out=lambda *a: None)
+        self.assertIn("C16 would fail", str(e.exception))
+        # A module it can't read back: stopped before anything is written.
+        ts.write_text("export const RIGS = load();\n", encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            publish.build(CID, self.src, public, ts, spec_path=self.spec_path, out=lambda *a: None)
+        self.assertEqual({p.name: p.read_bytes() for p in public.iterdir()}, before)
+        ts.write_text(text, encoding="utf-8")
+        self.assertFalse(ts.with_name(ts.name + ".tmp").exists())
 
 
 if __name__ == "__main__":
