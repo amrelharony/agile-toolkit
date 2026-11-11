@@ -11,18 +11,20 @@
  * new page in place and before the browser takes its new picture; never from
  * a frame callback, which the browser pauses while it holds the old picture.
  *
- * Back and Forward: a popstate listener that only reads (noteHistoryStep),
- * so a card can slide back into its place once its page is back. It never
- * stops the event or prevents its default; Next restores the page in its own
- * listener. It listens in the capture phase: on window, capture listeners run
- * before the others whatever order they were added in, so it measures the
- * leaving page before Next's listener puts the old one back.
+ * Back and Forward: listeners that only read (listenForHistorySteps), so a
+ * card can slide back into its place once its page is back. The Navigation
+ * API's navigate event measures the leaving page: it comes before any
+ * popstate listener, and Chrome runs a window's popstate listeners in the
+ * order they were added, capture or not, so Next's own (added first) has put
+ * the old page back before a popstate listener of this one runs. The popstate
+ * listener only confirms; it never stops the event or prevents its default,
+ * and Next restores the page in its own listener.
  */
 
 import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  noteHistoryStep,
+  listenForHistorySteps,
   notifyRouteCommitted,
   readDebugSwitches,
   registerNavigator,
@@ -42,10 +44,7 @@ export function RouteSignal({ isBare }: { isBare?: (pathname: string) => boolean
 
   useIsomorphicLayoutEffect(() => registerNavigator(router, isBare), [router, isBare]);
   useIsomorphicLayoutEffect(() => notifyRouteCommitted(href), [href]);
-  useEffect(() => {
-    window.addEventListener("popstate", noteHistoryStep, true);
-    return () => window.removeEventListener("popstate", noteHistoryStep, true);
-  }, []);
+  useEffect(() => listenForHistorySteps(), []);
   // The switches can arrive with any address, so read them on each one.
   useEffect(() => setShowLog(readDebugSwitches().log), [href]);
 

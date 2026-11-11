@@ -54,11 +54,17 @@
  * leaves a forward record: the page it sat on, the page it opened, which of
  * its links was tapped and where it was, and the two history entries of that
  * visit (the Navigation API's entry keys: the one it was tapped on, and the
- * one its page arrived in). RouteSignal's popstate listener only reads
- * (noteHistoryStep). When the browser played no Back animation of its own,
- * and the step is that visit undone (from the entry the card's page arrived
- * in to the entry the card was tapped on), the leaving page's header is
- * measured while it is still there. Once the page is back
+ * one its page arrived in). RouteSignal lends two listeners that only read
+ * (listenForHistorySteps). The Navigation API's navigate event comes first,
+ * before the address changes and before any popstate listener, so the
+ * leaving page is still there whatever order the popstate listeners were
+ * added in (Chrome runs a window's listeners in that order, capture or not,
+ * so Next's own, added first, puts the old page back before a later one
+ * runs). There (noteHistoryStep), when the browser played no Back animation
+ * of its own and the step is that visit undone (from the entry the card's
+ * page arrived in to the entry the card was tapped on), the leaving page's
+ * header is measured. The popstate event must then say the same
+ * (confirmHistoryStep), or the slide is dropped. Once the page is back
  * (notifyRouteCommitted) and the browser has put its scroll back, the card
  * for that page that is on screen, the one nearest where it was tapped,
  * slides from the header's spot into its slot (slideBack). Otherwise Back
@@ -216,13 +222,15 @@ interface CardOrigin {
   toEntry: string | null;
 }
 
-/** A Back to a card's page, from the popstate until the page is back. */
+/** A Back to a card's page, from the navigate event until the slide's frame. */
 interface CardReturn {
   origin: CardOrigin;
   /** Where the leaving page's header was, in viewport pixels: the slide starts there. */
   from: { left: number; top: number };
   /** When Back happened, from performance.now(). */
   at: number;
+  /** The popstate event said it too: hasUAVisualTransition exactly false. */
+  confirmed: boolean;
 }
 
 /**
@@ -241,19 +249,38 @@ let origin: CardOrigin | null = null;
 let returning: CardReturn | null = null;
 /** The animation frame the slide back waits for, or 0. */
 let returnFrame = 0;
-/** The page RouteSignal reported last: during a popstate, the page being left. */
+/** The page RouteSignal reported last: at the navigate event, the page being left. */
 let shown: string | null = null;
 /** The history entry that page was shown in, by key, or null without the Navigation API. */
 let shownEntry: string | null = null;
 
 /**
+ * The parts of the Navigation API used here. TypeScript's DOM types do not
+ * have window.navigation yet, hence the local types.
+ */
+interface HistoryNavigation {
+  currentEntry?: { key?: unknown } | null;
+  addEventListener?: (type: "navigate", listener: (event: Event) => void) => void;
+  removeEventListener?: (type: "navigate", listener: (event: Event) => void) => void;
+}
+
+/** What a navigate event says about the step (a NavigateEvent). */
+interface HistoryStepEvent extends Event {
+  navigationType?: unknown;
+  hasUAVisualTransition?: unknown;
+  destination?: { key?: unknown } | null;
+}
+
+function historyNavigation(): HistoryNavigation | null {
+  return (window as { navigation?: HistoryNavigation }).navigation ?? null;
+}
+
+/**
  * The current history entry's key (the Navigation API), or null where the
- * browser has none. A push makes a new key; a replace keeps it. TypeScript's
- * DOM types do not have window.navigation yet, hence the local type.
+ * browser has none. A push makes a new key; a replace keeps it.
  */
 function entryKey(): string | null {
-  const nav = (window as { navigation?: { currentEntry?: { key?: unknown } | null } }).navigation;
-  const key = nav?.currentEntry?.key;
+  const key = historyNavigation()?.currentEntry?.key;
   return typeof key === "string" && key ? key : null;
 }
 
@@ -432,33 +459,39 @@ function noteVisit(key: string | null): void {
   if (o && o.toEntry === null && key === o.to) o.toEntry = shownEntry;
 }
 
-function cancelSlideBack(): void {
+/** Drops a noted Back: its frame and its record. */
+function endReturn(): void {
   if (returnFrame) window.cancelAnimationFrame?.(returnFrame);
   returnFrame = 0;
+  returning = null;
 }
 
 /**
- * Back or Forward, from RouteSignal's popstate listener. It only reads: it
- * never stops the event or prevents its default, and changes nothing on the
- * page. It runs before Next's own listener, which puts the old page back, so
- * the leaving page's header is still there to measure.
+ * Back or Forward, from the Navigation API's navigate event (RouteSignal
+ * listens through listenForHistorySteps). It only reads: it never intercepts
+ * the step or prevents it, and changes nothing on the page. It fires before
+ * the address changes and before any popstate listener, so the leaving page
+ * is still there to measure, whatever order the popstate listeners run in.
  *
- * It notes a slide back when the browser played no Back animation of its own
- * (hasUAVisualTransition exactly false: true after an iPhone's swipe, and a
- * browser without the field leaves it undefined), the step undoes the card's
- * visit, and nothing rules motion out. The browser has already moved to the
- * new entry when popstate fires, and shownEntry is still the one being left.
+ * Only a traverse counts: the pushes and replaces Next makes come here too,
+ * even while it puts a page back, and must not drop a noted Back. It notes a
+ * slide back when the browser played no Back animation of its own
+ * (hasUAVisualTransition exactly false: true after a swipe the browser
+ * animated, and a browser without the field leaves it undefined), the step
+ * undoes the card's visit, and nothing rules motion out.
  */
-export function noteHistoryStep(event: PopStateEvent): void {
-  cancelSlideBack();
-  returning = null;
+export function noteHistoryStep(event: Event): void {
+  const step = event as HistoryStepEvent;
+  if (step.navigationType !== "traverse") return;
+  endReturn();
   const o = origin;
-  if (!o || event.hasUAVisualTransition !== false) return;
+  if (!o || step.hasUAVisualTransition !== false) return;
   // The entries, not only the pages: the same page reopened by another link,
   // or Forward into a newer entry for the card's old page, is not the way back.
-  if (o.toEntry === null || shownEntry !== o.toEntry || entryKey() !== o.fromEntry) return;
-  if (routeKey(window.location.href) !== o.from || shown !== o.to) return;
-  if (isPageTransitionRunning() || !canGrow()) return;
+  // The page it returns to is checked when that page is back (slideBackOn).
+  const undoesVisit =
+    o.toEntry !== null && entryKey() === o.toEntry && step.destination?.key === o.fromEntry;
+  if (!undoesVisit || shown !== o.to || isPageTransitionRunning() || !canGrow()) return;
   const header = document.querySelector("[data-vt-target]");
   if (!header) return;
   const r = header.getBoundingClientRect();
@@ -467,28 +500,66 @@ export function noteHistoryStep(event: PopStateEvent): void {
     origin: o,
     from: { left: r.left, top: r.bottom > 0 ? r.top : 0 },
     at: performance.now(),
+    confirmed: false,
   };
 }
 
 /**
- * A page is back in place (notifyRouteCommitted, from RouteSignal's layout
+ * The popstate event of a noted Back, from RouteSignal's listener (the same
+ * step: each traverse fires its own navigate event first, which drops an
+ * older one). It only reads: it never stops the event or prevents its
+ * default. The slide stays only when this event too says
+ * hasUAVisualTransition is exactly false; with no popstate at all, it never
+ * plays. It may run before or after Next's own listener has put the page
+ * back; the slide's frame comes after either.
+ */
+export function confirmHistoryStep(event: PopStateEvent): void {
+  const r = returning;
+  if (!r) return;
+  if (event.hasUAVisualTransition === false) r.confirmed = true;
+  else endReturn();
+}
+
+/**
+ * RouteSignal's listeners for Back and Forward: the navigate event where the
+ * browser has the Navigation API, and popstate. Returns the call that
+ * removes them.
+ */
+export function listenForHistorySteps(): () => void {
+  const nav = historyNavigation();
+  nav?.addEventListener?.("navigate", noteHistoryStep);
+  window.addEventListener("popstate", confirmHistoryStep);
+  return () => {
+    nav?.removeEventListener?.("navigate", noteHistoryStep);
+    window.removeEventListener("popstate", confirmHistoryStep);
+    endReturn();
+  };
+}
+
+/**
+ * A page is in place (notifyRouteCommitted, from RouteSignal's layout
  * effect). When it is the page a noted Back returns to, the card slides back
  * in the next animation frame, not now: React puts the page back inside the
  * popstate event, and the browser restores the scroll position only after
  * that event, so the card is not yet where it will be shown. That animation
  * frame still comes before the page's first paint, and no page change holds
  * the screen on Back to pause it. Any other page, a newer Back or a tap
- * cancels it.
+ * drops it.
  */
 function slideBackOn(key: string | null): void {
-  cancelSlideBack();
   const r = returning;
-  returning = null;
-  if (!r || key !== r.origin.from || typeof window.requestAnimationFrame !== "function") return;
+  if (!r) return;
+  if (returnFrame) window.cancelAnimationFrame?.(returnFrame);
+  returnFrame = 0;
+  if (key !== r.origin.from || typeof window.requestAnimationFrame !== "function") {
+    endReturn();
+    return;
+  }
   returnFrame = window.requestAnimationFrame(() => {
     returnFrame = 0;
-    if (performance.now() - r.at > BACK_WAIT_MS) return;
-    const card = returningCard(r.origin);
+    const plays = r.confirmed && performance.now() - r.at <= BACK_WAIT_MS;
+    const card = plays ? returningCard(r.origin) : null;
+    endReturn();
     if (card) slideBack(card, r.from);
   });
 }
@@ -497,7 +568,7 @@ function slideBackOn(key: string | null): void {
  * The card to slide back, measured now: a [data-vt-card] whose tapped link
  * goes to the page Back left and that is on screen; of several, the one
  * nearest where the tapped card was. No page change can be running here: one
- * running at the popstate notes no slide, and every change starts in
+ * running at the navigate event notes no slide, and every change starts in
  * pushWithTransition, which cancels this frame first.
  */
 function returningCard(o: CardOrigin): HTMLElement | null {
@@ -642,8 +713,7 @@ function go(router: PageNavigator, href: string, o: PageChangeOptions): void {
 export function pushWithTransition(href: string, options: PageChangeOptions = {}): boolean {
   const start = performance.now();
   // A tap goes somewhere new: a card still to slide back on this page stays put.
-  cancelSlideBack();
-  returning = null;
+  endReturn();
   const to = routeKey(href);
   const why = refusal(to, options);
   const router = navigator_;

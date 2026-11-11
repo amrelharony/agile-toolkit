@@ -4,23 +4,29 @@
  * with next/navigation mocked, so its popstate listener and its arrival
  * report are the ones the app runs.
  *
- * A history step here goes as it does in Chrome: the address changes, the
- * browser fires popstate, Next's own listener puts the old page back inside
- * that event (React renders a popstate update at once), and only after the
- * event does the browser put the scroll position back. So during the commit
- * the cards are not yet where they will be shown; the slide measures them in
- * the next frame, before the first paint. requestAnimationFrame is a stub
- * that runs when the test says, element.animate a stub that records, and
- * getBoundingClientRect places the header and the cards. jsdom has no
- * Navigation API, so window.navigation is a fake that keeps the entries as
- * Chrome does: a push adds one with a new key, Back and Forward move.
+ * A history step here goes as it does in Chrome (seen in Chrome 157): the
+ * Navigation API's navigate event fires while the leaving page is still
+ * there, then the address changes and the browser fires popstate. Chrome runs
+ * a window's listeners in the order they were added, capture or not, so
+ * Next's own listener, added first, runs first and puts the old page back
+ * inside that event (React renders a popstate update at once); Next's
+ * history update in that commit fires a navigate event of its own (a
+ * replace). Only after the event does the browser put the scroll position
+ * back. jsdom runs capture listeners first, so Next's stand-in
+ * listens in the capture phase, added before RouteSignal's: that is Chrome's
+ * order. requestAnimationFrame is a stub that runs when the test says,
+ * element.animate a stub that records, and getBoundingClientRect places the
+ * header and the cards. jsdom has no Navigation API, so window.navigation is
+ * a fake that keeps the entries as Chrome does (a push adds one with a new
+ * key, Back and Forward move) and fires navigate events.
  *
- * What must hold: it plays only when hasUAVisualTransition is exactly false,
- * the step undoes the card's own visit (from the entry its page arrived in
- * to the entry the card was tapped on), and a [data-vt-card] for that page is
- * on screen (the one nearest where the card was tapped when several are);
- * never under reduced motion, Save-Data, presenting or an intro; and the
- * listener only reads the event, never stopping it or preventing its default.
+ * What must hold: it plays only when hasUAVisualTransition is exactly false
+ * (on the navigate event and on popstate), the step undoes the card's own
+ * visit (from the entry its page arrived in to the entry the card was tapped
+ * on), and a [data-vt-card] for that page is on screen (the one nearest where
+ * the card was tapped when several are); never under reduced motion,
+ * Save-Data, presenting or an intro; and the listeners only read, never
+ * stopping or preventing popstate or the step.
  */
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -161,32 +167,59 @@ let keys = 0;
 
 const newEntry = (href: string): Entry => ({ key: `entry-${++keys}`, href });
 
+/** Every navigate event the fake fired, with a spy for intercept (a listener must never call it). */
+let steps: { event: Event; intercept: ReturnType<typeof vi.fn> }[] = [];
+
 function installNavigation() {
   entries = [newEntry(window.location.pathname)];
   current = 0;
-  Object.defineProperty(window, "navigation", {
-    configurable: true,
-    value: {
-      get currentEntry() {
-        return { key: entries[current].key };
-      },
-    },
+  steps = [];
+  const nav = new EventTarget();
+  Object.defineProperty(nav, "currentEntry", { get: () => ({ key: entries[current].key }) });
+  Object.defineProperty(window, "navigation", { configurable: true, value: nav });
+}
+
+/**
+ * The navigate event, fired before the step changes anything: a traverse
+ * names the entry it goes to; a push or replace has no key yet.
+ */
+const MISSING = Symbol("no hasUAVisualTransition field");
+
+function navigateEvent(navigationType: string, to: Entry | { key: ""; href: string }, ua: unknown) {
+  const nav = (window as { navigation?: EventTarget }).navigation;
+  if (!nav) return;
+  const event = new Event("navigate", { cancelable: true });
+  const intercept = vi.fn();
+  Object.defineProperties(event, {
+    navigationType: { value: navigationType },
+    destination: { value: { key: to.key, url: new URL(to.href, window.location.href).href } },
+    intercept: { value: intercept },
   });
+  if (ua !== undefined && ua !== MISSING) {
+    Object.defineProperty(event, "hasUAVisualTransition", { value: ua });
+  }
+  steps.push({ event, intercept });
+  nav.dispatchEvent(event);
 }
 
 /** A push, as Next's router makes for a new page: the entries ahead go, a new one is added. */
 function push(href: string) {
+  navigateEvent("push", { key: "", href }, false);
   entries = [...entries.slice(0, current + 1), newEntry(href)];
   current = entries.length - 1;
   window.history.pushState(null, "", href);
 }
 
-/** The browser's part of a history step, before popstate: the entry and the address change. */
-function move(delta: number): string {
+/**
+ * The browser's part of a history step, before popstate: the navigate event
+ * (its hasUAVisualTransition is `ua`), then the entry and the address change.
+ */
+function move(delta: number, ua: unknown = false): string {
+  const to = entries[current + delta];
+  navigateEvent("traverse", to, ua);
   current += delta;
-  const { href } = entries[current];
-  window.history.replaceState(null, "", href);
-  return href;
+  window.history.replaceState(null, "", to.href);
+  return to.href;
 }
 
 /** Taps a card's main link, then its page comes in, as any forward change ends. */
@@ -202,13 +235,19 @@ function visit(href: string, page: ReactNode) {
   show(href, page);
 }
 
-/** What Next's own popstate listener does next: put the page back. */
+/**
+ * What Next's own popstate listener does: put the page back. Its history
+ * update in that commit is a replace, which fires a navigate event too.
+ */
 let restore: (() => void) | null = null;
 function nextRestores() {
   const run = restore;
   restore = null;
   run?.();
 }
+
+/** Next's listener, as added before RouteSignal's: in Chrome it runs first. */
+const NEXT_FIRST = { capture: true } as const;
 
 function popstate(hasUAVisualTransition?: unknown): PopStateEvent {
   const event = new PopStateEvent("popstate", { state: { __NA: true } });
@@ -219,20 +258,30 @@ function popstate(hasUAVisualTransition?: unknown): PopStateEvent {
 }
 
 /**
- * A history step of `delta` entries: the entry and the address change,
- * popstate fires, Next's listener puts `page` back inside the event, and the
- * browser puts the scroll back after it. Returns the event.
+ * A history step of `delta` entries: the navigate event, the entry and the
+ * address change, popstate fires, Next's listener puts `page` back inside the
+ * event, and the browser puts the scroll back after it. The navigate event's
+ * hasUAVisualTransition is the popstate's unless `ua` says otherwise. Returns
+ * the event.
  */
-function go(delta: number, page: ReactNode, event: PopStateEvent = popstate(false)) {
-  const href = move(delta);
-  restore = () => show(href, page);
+function go(
+  delta: number,
+  page: ReactNode,
+  event: PopStateEvent = popstate(false),
+  ua: unknown = event.hasUAVisualTransition
+) {
+  const href = move(delta, ua);
+  restore = () => {
+    navigateEvent("replace", { key: "", href }, false);
+    show(href, page);
+  };
   restored = false;
   window.dispatchEvent(event);
   restored = true;
   return event;
 }
 
-const back = (page: ReactNode, event?: PopStateEvent) => go(-1, page, event);
+const back = (page: ReactNode, event?: PopStateEvent, ua?: unknown) => go(-1, page, event, ua);
 const forward = (page: ReactNode, event?: PopStateEvent) => go(1, page, event);
 
 const frames = new Map<number, FrameRequestCallback>();
@@ -300,8 +349,9 @@ beforeEach(() => {
   window.cancelAnimationFrame = (id) => {
     frames.delete(id);
   };
-  // Added before RouteSignal's: the slide must still read the leaving page first.
-  window.addEventListener("popstate", nextRestores);
+  // Added before RouteSignal's, and run before it, as Chrome runs them: the
+  // page is back before RouteSignal's popstate listener runs.
+  window.addEventListener("popstate", nextRestores, NEXT_FIRST);
   window.addEventListener("click", stopBrowser);
   installNavigation();
   place();
@@ -313,6 +363,7 @@ afterEach(async () => {
   await flush();
   cleanup();
   restore = null;
+  window.removeEventListener("popstate", nextRestores, NEXT_FIRST);
   window.removeEventListener("popstate", nextRestores);
   window.removeEventListener("click", stopBrowser);
   window.requestAnimationFrame = realRaf;
@@ -336,7 +387,7 @@ describe("on Back the tapped card slides back into its slot", () => {
     open("Kanban", "/kanban");
     back(home());
     // Next put the home page back inside the event: the header is gone, so it
-    // was measured before Next's listener ran, though that one was added first.
+    // was measured at the navigate event, before any popstate listener ran.
     expect(document.querySelector("header[data-vt-target]")).toBeNull();
     // Nothing yet: in the commit the browser had not put the scroll back.
     expect(slides()).toEqual([]);
@@ -345,6 +396,51 @@ describe("on Back the tapped card slides back into its slot", () => {
     // No fill, and nothing but translate: no clip, fade or scale.
     expect(slides()[0].options).not.toHaveProperty("fill");
     expect(Object.keys(slides()[0].keyframes[0])).toEqual(["translate"]);
+  });
+
+  it("when Next's popstate listener, added first, runs first and puts the page back (Chrome)", () => {
+    open("Kanban", "/kanban");
+    // What RouteSignal's popstate listener finds when it runs: in Chrome a
+    // window's listeners run in the order they were added, capture or not.
+    let atPopstate: { header: boolean; path: string } | null = null;
+    const late = () => {
+      atPopstate = {
+        header: document.querySelector("header[data-vt-target]") !== null,
+        path: nav.pathname,
+      };
+    };
+    window.addEventListener("popstate", late);
+    try {
+      back(home());
+    } finally {
+      window.removeEventListener("popstate", late);
+    }
+    expect(atPopstate).toEqual({ header: false, path: "/" });
+    nextFrame();
+    expectSlide("Kanban");
+  });
+
+  it("when RouteSignal's popstate listener runs before Next's", () => {
+    // Next's listener added again, after RouteSignal's, so it runs last.
+    window.removeEventListener("popstate", nextRestores, NEXT_FIRST);
+    window.addEventListener("popstate", nextRestores);
+    open("Kanban", "/kanban");
+    back(home());
+    nextFrame();
+    expectSlide("Kanban");
+  });
+
+  it("when Next's history update in that commit fires a navigate event of its own", () => {
+    open("Kanban", "/kanban");
+    back(home());
+    // The replace from Next's history update, while it put the page back.
+    expect(steps.map((s) => (s.event as { navigationType?: string }).navigationType)).toEqual([
+      "push",
+      "traverse",
+      "replace",
+    ]);
+    nextFrame();
+    expectSlide("Kanban");
   });
 
   it("once: a later frame or render does not slide it again", () => {
@@ -427,13 +523,29 @@ describe("on Back the tapped card slides back into its slot", () => {
 });
 
 describe("hasUAVisualTransition must be exactly false", () => {
-  it.each([
+  const values = [
     ["true: the browser played its own Back (an iPhone's swipe)", true],
-    ["missing: a browser without the field", undefined],
+    ["missing: a browser without the field", MISSING],
     ["anything else that is not false", 0],
-  ])("%s", (_name, value) => {
+  ] as const;
+
+  it.each(values)("on both events: %s", (_name, value) => {
     open("Kanban", "/kanban");
-    back(home(), popstate(value));
+    back(home(), popstate(value === MISSING ? undefined : value), value);
+    nextFrame();
+    expect(slides()).toEqual([]);
+  });
+
+  it.each(values)("on the navigate event: %s", (_name, value) => {
+    open("Kanban", "/kanban");
+    back(home(), popstate(false), value);
+    nextFrame();
+    expect(slides()).toEqual([]);
+  });
+
+  it.each(values)("on the popstate event: %s", (_name, value) => {
+    open("Kanban", "/kanban");
+    back(home(), popstate(value === MISSING ? undefined : value), false);
     nextFrame();
     expect(slides()).toEqual([]);
   });
@@ -511,6 +623,32 @@ describe("the step must undo the card's own visit", () => {
     expectSlide("Kanban");
   });
 
+  it("not when the card's old entry now holds another address", () => {
+    open("Kanban", "/kanban");
+    back(home());
+    nextFrame();
+    expect(slides()).toHaveLength(1);
+    // A replace on the card's old page: the same entry, a new query.
+    entries[current] = { ...entries[current], href: "/?tab=jobs" };
+    window.history.replaceState(null, "", "/?tab=jobs");
+    show("/?tab=jobs", home());
+    forward(toolPage());
+    back(home());
+    nextFrame();
+    expect(slides()).toHaveLength(1);
+  });
+
+  it("not when the card's page now shows another address in its entry", () => {
+    open("Kanban", "/kanban");
+    // A replace on the card's page: the same entry, another page to leave.
+    entries[current] = { ...entries[current], href: "/kanban?view=list" };
+    window.history.replaceState(null, "", "/kanban?view=list");
+    show("/kanban?view=list", toolPage());
+    back(home());
+    nextFrame();
+    expect(slides()).toEqual([]);
+  });
+
   it("not where the browser has no Navigation API to tell the entries apart", () => {
     delete (window as { navigation?: unknown }).navigation;
     open("Kanban", "/kanban");
@@ -560,6 +698,16 @@ describe("the step must undo the card's own visit", () => {
     await flush();
     expect(isPageTransitionRunning()).toBe(true);
     back(home());
+    nextFrame();
+    expect(slides()).toEqual([]);
+  });
+
+  it("not when no popstate followed the navigate event", () => {
+    open("Kanban", "/kanban");
+    // The step began but never landed (another navigation took over), and the
+    // card's old page came in some other way.
+    move(-1);
+    show("/", home());
     nextFrame();
     expect(slides()).toEqual([]);
   });
@@ -749,8 +897,8 @@ describe("never", () => {
   });
 });
 
-describe("the popstate listener only reads", () => {
-  it("never stops the event or prevents its default, and changes no page itself", () => {
+describe("the listeners only read", () => {
+  it("never stops popstate or prevents its default, and changes no page itself", () => {
     open("Kanban", "/kanban");
     router.push.mockClear();
     router.replace.mockClear();
@@ -776,6 +924,34 @@ describe("the popstate listener only reads", () => {
     expectSlide("Kanban");
   });
 
+  it("never intercepts, stops or prevents the navigate event", () => {
+    open("Kanban", "/kanban");
+    const nav = (window as unknown as { navigation: EventTarget }).navigation;
+    const after = vi.fn();
+    nav.addEventListener("navigate", after);
+    const before = steps.length;
+    const calls = (["stopPropagation", "stopImmediatePropagation", "preventDefault"] as const).map(
+      (method) => vi.spyOn(Event.prototype, method)
+    );
+    try {
+      back(home());
+    } finally {
+      nav.removeEventListener("navigate", after);
+    }
+    const made = steps.slice(before);
+    // The traverse, then Next's replace while it put the page back.
+    expect(made).toHaveLength(2);
+    for (const { event, intercept } of made) {
+      expect(intercept).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
+      for (const call of calls) expect(call.mock.contexts).not.toContain(event);
+    }
+    // Each one reached the listener added after RouteSignal's.
+    expect(after).toHaveBeenCalledTimes(2);
+    nextFrame();
+    expectSlide("Kanban");
+  });
+
   it("goes when RouteSignal does", () => {
     open("Kanban", "/kanban");
     cleanup();
@@ -791,5 +967,26 @@ describe("the popstate listener only reads", () => {
     } finally {
       header.remove();
     }
+  });
+});
+
+describe("Back and Forward never grow a header", () => {
+  // The header animations Chrome shows straight after Back are the top bar's
+  // colour transitions (it turns opaque once the page is scrolled), not this.
+  it("only the card's page grows its header, once, on the way in", async () => {
+    const grown = () =>
+      animate.mock.contexts.filter((el) => (el as Element).matches("header[data-vt-target]"));
+    open("Kanban", "/kanban");
+    await Promise.resolve();
+    // The grow from the card's spot: no view transition carried the frame here.
+    expect(grown()).toHaveLength(1);
+    back(home());
+    nextFrame();
+    await Promise.resolve();
+    forward(toolPage());
+    nextFrame();
+    await Promise.resolve();
+    expect(grown()).toHaveLength(1);
+    expect(slides()).toHaveLength(1);
   });
 });
