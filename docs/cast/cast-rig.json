@@ -1,5 +1,5 @@
 {
-  "about": "The public half of the cast puppet spec: body families, the images each character's ChatGPT chat makes, batches, background keys, the tolerances the brief states and the builder checks (every builder threshold is here; shown_to_chatgpt lists the ones the brief states), the joint ranges, each character's tap moves (`signature`, clip ids of src/lib/cast/clips.ts), the atlas settings and budgets. Character canon (looks, colours, references) lives only in the private sources folder; see docs/cast/CAST-BUILD.md.",
+  "about": "The public half of the cast puppet spec: body families, the images each character's ChatGPT chat makes, batches, background keys, the tolerances the brief states and the builder checks (every builder threshold is here; shown_to_chatgpt lists the ones the brief states), the joint ranges, each character's tap moves (`signature`, clip ids of src/lib/cast/clips.ts), the atlas settings and budgets, and the caps on what intake reads from a return. Character canon (looks, colours, references) lives only in the private sources folder; see docs/cast/CAST-BUILD.md.",
   "brief_version": 1,
   "keys": {
     "magenta": "#FF00FF",
@@ -101,6 +101,12 @@
     "detail_1x": 0.96,
     "sharpen_radius": 0.8,
     "sharpen_max": 1
+  },
+  "intake": {
+    "max_members": 64,
+    "max_member_mb": 64,
+    "max_total_mb": 512,
+    "max_canvases": 4
   },
   "shown_to_chatgpt": [
     "canvas_w",

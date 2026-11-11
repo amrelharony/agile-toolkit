@@ -2,7 +2,8 @@
 
 Everything numeric the checks compare against comes from docs/cast/cast-rig.json:
 `TOL` is its `tolerances` block, `RANGES` its joint ranges, `PACK` its atlas
-settings and `BUDGETS` its byte and node caps. No module keeps a threshold of its
+settings, `BUDGETS` its byte and node caps and `INTAKE` the caps on what intake
+reads from a return. No module keeps a threshold of its
 own (test_cast_spec.py holds that line).
 """
 
@@ -69,6 +70,7 @@ TOL: dict = SPEC["tolerances"]
 RANGES: dict = SPEC["ranges"]
 PACK: dict = SPEC["pack"]
 BUDGETS: dict = SPEC["budgets"]
+INTAKE: dict = SPEC["intake"]
 KEYS: dict = SPEC["keys"]
 
 

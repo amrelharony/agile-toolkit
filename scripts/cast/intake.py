@@ -5,7 +5,9 @@
 1. The return is archived untouched in returns/<date>-<stem>/original/.
 2. Only PNG images are read from it, by name, as bytes (a zip member is never
    extracted to disk by the zip library, never opened as anything but an image,
-   and nothing from it ever runs). Names matching the regex in CAST-BUILD.md are
+   and nothing from it ever runs), within cast-rig.json's `intake` caps (files,
+   bytes, pixels); a member that can't be read back is skipped, and a return that
+   can't be read at all leaves nothing behind. Names matching the regex in CAST-BUILD.md are
    kept as they are; any other PNG is sorted by what it holds (one figure, a face
    sheet's heads, a grid of arms, the pieces) and given its proper name. Both go
    into a new returns/<date>-<stem>/extracted/ folder.
@@ -20,6 +22,7 @@ import hashlib
 import io
 import shutil
 import zipfile
+import zlib
 from pathlib import Path, PurePosixPath
 
 import numpy as np
@@ -27,10 +30,7 @@ from PIL import Image
 
 from . import imaging as im
 from . import ledger, parts
-from .spec import ID_RE, NAME_RE, SPEC, character, key_rgb, parse_image_name
-
-MAX_MEMBER_BYTES = 64 << 20  # far over any 1536 x 1024 PNG: bigger members are not read
-
+from .spec import ID_RE, INTAKE, NAME_RE, SPEC, TOL, character, key_rgb, parse_image_name
 
 def _digest_folder(folder: Path) -> str:
     h = hashlib.sha256()
@@ -49,51 +49,86 @@ def _unique(path: Path) -> Path:
     return path.parent / f"{path.name}-{n}"
 
 
-def _members(archived: Path) -> tuple[list[tuple[str, str, bytes]], list[tuple[str, str]]]:
+# A zip member that can't be read back: a bad CRC, an unknown compression, a
+# truncated stream. Each is reported as skipped, never trusted.
+UNREADABLE = (zipfile.BadZipFile, NotImplementedError, RuntimeError, EOFError, zlib.error, OSError, ValueError)
+
+
+def _caps() -> tuple[int, int, int]:
+    """(most files read from a return, most bytes per file, most bytes in all)."""
+    return INTAKE["max_members"], INTAKE["max_member_mb"] << 20, INTAKE["max_total_mb"] << 20
+
+
+def _members(src: Path) -> tuple[list[tuple[str, str, bytes]], list[tuple[str, str]]]:
     """([(path inside the return, base name, bytes)] for PNG-named files, [(path,
-    why skipped)] for the rest)."""
+    why skipped)] for the rest). Reads at most intake.max_members files of at most
+    max_member_mb each and max_total_mb in all, by their declared sizes, before
+    reading any (a zip's reader stops at the declared size)."""
+    most, per, total = _caps()
     found, skipped = [], []
-    if archived.is_file() and zipfile.is_zipfile(archived):
-        with zipfile.ZipFile(archived) as z:
+    used = 0
+
+    def admit(inner: str, base: str, size: int) -> bool:
+        nonlocal used
+        if not base.lower().endswith(".png"):
+            skipped.append((inner, "not a PNG"))
+        elif size > per:
+            skipped.append((inner, "too big to be one image"))
+        elif len(found) >= most:
+            skipped.append((inner, f"more than {most} images in one return"))
+        elif used + size > total:
+            skipped.append((inner, f"past the {INTAKE['max_total_mb']} MB a return may hold"))
+        else:
+            used += size
+            return True
+        return False
+
+    if src.is_file() and zipfile.is_zipfile(src):
+        try:
+            z = zipfile.ZipFile(src)
+        except UNREADABLE as e:
+            raise SystemExit(f"{src.name} is not a readable zip ({type(e).__name__}); nothing taken in") from None
+        with z:
             for info in z.infolist():
                 if info.is_dir():
                     continue
                 inner = info.filename.replace("\\", "/")
                 base = PurePosixPath(inner).name
-                if not base.lower().endswith(".png"):
-                    skipped.append((inner, "not a PNG"))
-                elif info.flag_bits & 0x1:
+                if info.flag_bits & 0x1 and base.lower().endswith(".png"):
                     skipped.append((inner, "encrypted"))
-                elif info.file_size > MAX_MEMBER_BYTES:
-                    skipped.append((inner, "too big to be one image"))
-                else:
-                    found.append((inner, base, z.read(info)))
-    elif archived.is_dir():
-        for p in sorted(archived.rglob("*")):
-            if not p.is_file():
-                continue
-            inner = p.relative_to(archived).as_posix()
-            if not p.name.lower().endswith(".png"):
-                skipped.append((inner, "not a PNG"))
-            elif p.stat().st_size > MAX_MEMBER_BYTES:
-                skipped.append((inner, "too big to be one image"))
-            else:
-                found.append((inner, p.name, p.read_bytes()))
-    else:
-        found.append((archived.name, archived.name, archived.read_bytes()))
+                elif admit(inner, base, info.file_size):
+                    try:
+                        found.append((inner, base, z.read(info)))
+                    except UNREADABLE as e:
+                        used -= info.file_size
+                        skipped.append((inner, f"unreadable member ({type(e).__name__})"))
+    elif src.is_dir():
+        for p in sorted(src.rglob("*")):
+            if p.is_file():
+                inner = p.relative_to(src).as_posix()
+                if admit(inner, p.name, p.stat().st_size):
+                    found.append((inner, p.name, p.read_bytes()))
+    elif admit(src.name, src.name, src.stat().st_size):
+        found.append((src.name, src.name, src.read_bytes()))
     return found, skipped
 
 
-def _decode(data: bytes) -> tuple[np.ndarray, list[int]] | None:
+def _decode(data: bytes) -> tuple[np.ndarray, list[int]] | str:
+    """(RGBA, size) for a PNG that decodes, else why not. The size is checked from
+    the header before any pixel is decoded (at most intake.max_canvases canvases)."""
     if not im.is_png_bytes(data):
-        return None
+        return "not a readable PNG"
+    most = INTAKE["max_canvases"] * TOL["canvas_w"] * TOL["canvas_h"]
     try:
         with Image.open(io.BytesIO(data)) as probe:
+            w, h = probe.size
+            if w * h > most:
+                return f"{w}x{h} is more than {INTAKE['max_canvases']} canvases"
             probe.verify()
         with Image.open(io.BytesIO(data)) as img:
             return np.array(img.convert("RGBA")), list(img.size)
-    except Exception:  # a broken or hostile file is reported, never trusted
-        return None
+    except Exception:  # noqa: BLE001 - a broken or hostile file is reported, never trusted
+        return "not a readable PNG"
 
 
 def intake(src: Path, sources: Path, cid: str | None = None, date: str | None = None, out=print) -> dict:
@@ -113,6 +148,9 @@ def intake(src: Path, sources: Path, cid: str | None = None, date: str | None = 
             out(f"already taken in: {src.name} is returns/{r['folder']} ({r['date']}); nothing to do")
             return {"folder": r["folder"], "images": [], "repeat": True}
 
+    # Everything is read (and refused) before anything is written, so a return
+    # that can't be read leaves no half-made folder behind.
+    found, skipped = _members(src)
     stem = src.stem if src.is_file() else src.name
     folder = _unique(sources / "returns" / f"{date}-{stem}")
     original = folder / "original"
@@ -125,7 +163,9 @@ def intake(src: Path, sources: Path, cid: str | None = None, date: str | None = 
     extracted = folder / "extracted"
     extracted.mkdir()
 
-    found, skipped = _members(archived)
+    if (im.sha256_file(archived) if archived.is_file() else _digest_folder(archived)) != ret_sha:
+        shutil.rmtree(folder)
+        raise SystemExit(f"{src} changed while it was taken in; take it in again")
     extra = list(skipped)
     whose_default = cid or (ID_RE.search(stem).group(0) if ID_RE.search(stem) else None)
     taken: dict[str, dict] = {}  # name in extracted/ → ledger row
@@ -155,8 +195,8 @@ def intake(src: Path, sources: Path, cid: str | None = None, date: str | None = 
     loose = []
     for inner, base, data in found:
         decoded = _decode(data)
-        if decoded is None:
-            extra.append((inner, "not a readable PNG"))
+        if isinstance(decoded, str):
+            extra.append((inner, decoded))
             continue
         if base in seen_base:
             extra.append((inner, "same name twice in the return"))
@@ -169,9 +209,10 @@ def intake(src: Path, sources: Path, cid: str | None = None, date: str | None = 
                 continue
             take(base, data, decoded[1], inner, "name")
         else:
-            loose.append((inner, base, data, decoded))
+            loose.append((inner, base, data))  # decoded again one at a time below
 
-    for inner, base, data, (rgba, size) in loose:
+    for inner, base, data in loose:
+        rgba, size = _decode(data)
         m = ID_RE.search(inner)
         whose = m.group(0) if m else whose_default
         if whose is None:

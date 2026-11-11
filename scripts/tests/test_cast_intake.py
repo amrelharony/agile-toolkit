@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -145,6 +146,48 @@ class Intake(unittest.TestCase):
         two = cs.face_sheet(cells=cs.FACE_CELLS[:2])  # two heads on the first row's grid
         got = parts.sort_image(amr, two, spec.key_rgb(amr))
         self.assertEqual(got[0], "face2")
+
+    def test_an_unreadable_member_is_skipped_not_fatal(self):
+        src = self.tmp / "in" / "AAW-25.zip"
+        src.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(src, "w", zipfile.ZIP_STORED) as z:
+            z.writestr("AAW-25_master.png", self.art["master"])
+            z.writestr("AAW-25_face.png", self.art["face"])
+        raw = bytearray(src.read_bytes())
+        at = raw.find(self.art["master"][100:132])  # inside the stored master: its CRC no longer holds
+        raw[at] ^= 0xFF
+        src.write_bytes(bytes(raw))
+        got = intake.intake(src, self.sources, date="2026-11-11", out=QUIET)
+        self.assertEqual(got["images"], ["AAW-25_face.png"])
+        self.assertIn("unreadable member (BadZipFile)", dict(got["extra"])["AAW-25_master.png"])
+
+    def test_a_zip_that_cannot_be_opened_leaves_nothing_behind(self):
+        src = self.tmp / "in" / "AAW-25.zip"
+        src.parent.mkdir(parents=True, exist_ok=True)
+        good = self.zip_of({"AAW-25_master.png": self.art["master"]})
+        raw = bytearray(good.read_bytes())
+        cd = raw.rfind(b"PK\x01\x02")
+        raw[cd : cd + 4] = b"XXXX"  # the central directory's signature: the end record still reads
+        src.write_bytes(bytes(raw))
+        if not zipfile.is_zipfile(src):
+            self.skipTest("this Python's is_zipfile already refuses it")
+        with self.assertRaises(SystemExit):
+            intake.intake(src, self.sources, date="2026-11-11", out=QUIET)
+        self.assertFalse((self.sources / "returns").exists())
+        self.assertEqual(ledger.read(ledger.received_path(self.sources)), [])
+
+    def test_a_return_is_read_within_its_caps(self):
+        members = {f"AAW-25/loose-{i}.png": self.art["master"] for i in range(3)}
+        with mock.patch.dict(spec.INTAKE, {"max_members": 2}):
+            got = intake.intake(self.zip_of(members), self.sources, date="2026-11-11", out=QUIET)
+        self.assertIn("more than 2 images in one return", dict(got["extra"])["AAW-25/loose-2.png"])
+        with mock.patch.dict(spec.INTAKE, {"max_canvases": 0.5}):
+            got = intake.intake(self.zip_of({"AAW-25_face.png": self.art["face"]}, "b.zip"), self.sources, out=QUIET)
+        self.assertEqual(got["images"], [])
+        self.assertIn("more than 0.5 canvases", dict(got["extra"])["AAW-25_face.png"])
+        with mock.patch.dict(spec.INTAKE, {"max_total_mb": 0}):
+            got = intake.intake(self.zip_of({"AAW-25_arms.png": self.art["arms"]}, "c.zip"), self.sources, out=QUIET)
+        self.assertIn("past the 0 MB", dict(got["extra"])["AAW-25_arms.png"])
 
     def test_the_cli_takes_a_return_in(self):
         import subprocess
