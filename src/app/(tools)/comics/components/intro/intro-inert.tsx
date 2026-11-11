@@ -8,6 +8,14 @@ const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 const INERT = "inert";
 
 /**
+ * Elements a browser never draws, focuses or reads out, so inert would change
+ * nothing for them. Next.js leaves its scripts in <body>: on /comics they were
+ * 18 of the 34 siblings held, and every write makes the browser work out what
+ * to restyle, so they're left alone.
+ */
+const NEVER_SHOWN = new Set(["script", "template", "style", "link", "meta", "noscript"]);
+
+/**
  * While its intro plays, the page behind the overlay can't be reached: every
  * sibling along the overlay's chain of ancestors, up to <body>, is inert, so
  * neither Tab nor a screen reader's cursor can wander under the overlay. The
@@ -50,7 +58,7 @@ export function IntroInert({ kind }: { kind: IntroKind }) {
 
     /** Hold one sibling: note its owner's word, make it inert, and listen for that owner. */
     function track(el: Element) {
-      if (!wanted || wanted.has(el) || chain.has(el)) return;
+      if (!wanted || wanted.has(el) || chain.has(el) || NEVER_SHOWN.has(el.localName)) return;
       const inert = el.hasAttribute(INERT);
       wanted.set(el, inert);
       // Written before it is watched, so this write is never read as its owner's.

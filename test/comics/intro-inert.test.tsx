@@ -172,6 +172,26 @@ describe("while an intro plays", () => {
     }
   });
 
+  it("leaves the scripts and templates beside the page alone, before and mid-intro", async () => {
+    // Next.js leaves its scripts in <body>; nothing in them can be reached.
+    const early = document.body.appendChild(document.createElement("script"));
+    const template = document.body.appendChild(document.createElement("template"));
+    try {
+      await replay();
+      expect(screen.getByTestId("header")).toHaveAttribute("inert");
+      const late = screen.getByTestId("main").appendChild(document.createElement("script"));
+      await settle();
+      for (const el of [early, template, late])
+        expect(el.hasAttribute("inert"), el.tagName).toBe(false);
+      fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+      for (const el of [early, template, late])
+        expect(el.hasAttribute("inert"), el.tagName).toBe(false);
+    } finally {
+      early.remove();
+      template.remove();
+    }
+  });
+
   it("leaves the page alone when no intro of its kind plays", async () => {
     render(<Page />);
     root.setAttribute(INTRO_ATTR, "poster");
