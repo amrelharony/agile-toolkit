@@ -197,9 +197,9 @@
   aspect-ratio: 3 / 2;
 }
 
-/* On a phone on its side the square page is short, and a wider window leaves
-   more of it clear. After the rule above, which it has to outrank: a media
-   query adds no specificity. */
+/* On a phone on its side the window keeps the same height, --room, and is
+   drawn 2:1 instead, so the panel shows wider. After the rule above, which it
+   has to outrank: both set the width, and a media query adds no specificity. */
 @media (orientation: landscape) and (max-height: 540px) {
   .window {
     aspect-ratio: 2 / 1;
