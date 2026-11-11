@@ -3,10 +3,10 @@
  * Where the cast's code may go. Rig data reaches a browser only as props from
  * a server page: no "use client" file imports the rigs, and there is no
  * client-side index of them. Life reads the DOM and imports no manifest. The
- * two client pieces stay small.
+ * two client pieces stay small, counted with every helper only they import.
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
@@ -29,6 +29,84 @@ const isClient = (src: string) =>
 
 /** Walking and reading all of src/ is slow on a busy machine. */
 const SLOW = 60_000;
+
+const posix = (rel: string) => rel.split(path.sep).join("/");
+
+const STATIC =
+  /^(?:import|export) (?!type\s)[^;]*?\sfrom ["']([^"']+)["']|^import ["']([^"']+)["']/gm;
+const DYNAMIC = /\bimport\(\s*["']([^"']+)["']\s*\)/g;
+
+/** A module specifier as a repo path under src/, or null for a package. */
+function resolve(from: string, spec: string): string | null {
+  const base = spec.startsWith("@/")
+    ? path.join("src", spec.slice(2))
+    : spec.startsWith(".")
+      ? path.join(path.dirname(from), spec)
+      : null;
+  if (!base) return null;
+  const file = [".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx"]
+    .map((x) => base + x)
+    .find((f) => existsSync(path.join(ROOT, f)));
+  return file ? posix(file) : null;
+}
+
+interface Graph {
+  /** Each file's value imports (never `import type`), by repo path. */
+  imports: Map<string, string[]>;
+  /** The files a build ships: everything reached from the app routes, import() included. */
+  live: Set<string>;
+}
+
+let built: Graph | null = null;
+
+function graph(): Graph {
+  if (built) return built;
+  const imports = new Map<string, string[]>();
+  const later = new Map<string, string[]>();
+  for (const abs of walk(path.join(ROOT, "src"))) {
+    const file = posix(path.relative(ROOT, abs));
+    const src = readFileSync(abs, "utf8");
+    const specs = (re: RegExp) =>
+      Array.from(src.matchAll(re), (m) => resolve(file, m[1] ?? m[2])).filter(
+        (f): f is string => f !== null
+      );
+    imports.set(file, specs(STATIC));
+    later.set(file, specs(DYNAMIC));
+  }
+  const live = new Set(
+    Array.from(imports.keys()).filter((f) => /^src\/(app\/|middleware\.|instrumentation)/.test(f))
+  );
+  for (const file of live) {
+    for (const dep of [...(imports.get(file) ?? []), ...(later.get(file) ?? [])]) live.add(dep);
+  }
+  return (built = { imports, live });
+}
+
+/**
+ * What a production build ships with `entry`: the entry and every file it
+ * imports, less any file a shipped file outside that set also imports (that
+ * one goes to a chunk the rest of the site shares, and takes along whatever
+ * only it imports).
+ */
+function chunkOf(entry: string): string[] {
+  const { imports, live } = graph();
+  const chunk = new Set([entry]);
+  for (const file of chunk) for (const dep of imports.get(file) ?? []) chunk.add(dep);
+  const shared = (file: string) =>
+    Array.from(imports).some(
+      ([from, deps]) => live.has(from) && !chunk.has(from) && deps.includes(file)
+    );
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const file of chunk) {
+      if (file !== entry && shared(file)) {
+        chunk.delete(file);
+        changed = true;
+      }
+    }
+  }
+  return [...chunk];
+}
 
 describe("the rig data", () => {
   it(
@@ -86,16 +164,41 @@ describe("the client pieces", () => {
   });
 
   it(
-    "stay small: the marker under 1 KB and life with its clips under 6 KB, minified and gzipped",
+    "count every helper only life imports in its chunk",
+    () => {
+      expect(graph().live.size).toBeGreaterThan(100);
+      // Today nothing the site ships imports the springs, the stage, the
+      // tokens or the quiet check but life, so they ship in its chunk.
+      const life = chunkOf("src/lib/cast/life.ts");
+      expect(life).toEqual(
+        expect.arrayContaining([
+          "src/lib/cast/life.ts",
+          "src/lib/cast/clips.ts",
+          "src/lib/notify/quiet-now.ts",
+        ])
+      );
+      // The quiet state and the dialog check ship with the notification layer.
+      expect(life).not.toContain("src/lib/notify/quiet-state.ts");
+      expect(life).not.toContain("src/lib/notify/dialog-open.ts");
+      // Save-Data's check is shared with the intros and the holidays.
+      expect(chunkOf("src/components/cast/cast-life.tsx")).not.toContain(
+        "src/lib/holiday/save-data.ts"
+      );
+    },
+    SLOW
+  );
+
+  it(
+    "stay small: the marker under 1 KB and life's chunk under 6 KB, minified and gzipped",
     async () => {
-      // Their own code, as a production build ships it; the helpers they import
-      // (springs, quiet state, Save-Data) are shared with the rest of the site.
+      // As a production build ships them: each chunk's files minified, then
+      // gzipped together. Helpers the rest of the site imports aren't counted.
       const require = createRequire(path.join(ROOT, "package.json"));
       const ts = require("typescript") as typeof import("typescript");
       const { minify } = require("next/dist/compiled/terser") as {
         minify: (code: string, options: object) => Promise<{ code?: string }>;
       };
-      const shipped = async (rel: string) => {
+      const minified = async (rel: string) => {
         const js = ts.transpileModule(read(rel), {
           compilerOptions: {
             target: ts.ScriptTarget.ES2020,
@@ -104,12 +207,14 @@ describe("the client pieces", () => {
           },
         }).outputText;
         const out = await minify(js, { module: true, compress: true, mangle: true });
-        return gzipSync(out.code ?? js).length;
+        return out.code ?? js;
+      };
+      const shipped = async (entry: string) => {
+        const code = await Promise.all(chunkOf(entry).map(minified));
+        return gzipSync(code.join("\n")).length;
       };
       expect(await shipped("src/components/cast/cast-life.tsx")).toBeLessThan(1024);
-      const life =
-        (await shipped("src/lib/cast/life.ts")) + (await shipped("src/lib/cast/clips.ts"));
-      expect(life).toBeLessThan(6 * 1024);
+      expect(await shipped("src/lib/cast/life.ts")).toBeLessThan(6 * 1024);
     },
     SLOW
   );
