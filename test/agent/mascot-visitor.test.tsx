@@ -40,7 +40,7 @@ vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
   RateLimitBar: () => <div data-testid="rate-limit-bar" />,
 }));
 
-import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
+import { MascotAssistant, UNVERIFIED_OWNER_NOTE } from "@/components/agent/mascot/mascot-assistant";
 import {
   VISITOR_AI_CONSENT_KEY,
   VISITOR_AI_CONSENT_TEXT,
@@ -118,6 +118,25 @@ describe("MascotAssistant — owner gating", () => {
     fireEvent.click(screen.getByRole("button", { name: "AI settings" }));
     expect(useLlmUiStore.getState().settingsOpen).toBe(true);
     expect(useAgentStore.getState().open).toBe(false);
+  });
+
+  it("tells an owner whose check is unanswered that the chat comes back, in narration", () => {
+    h.auth = { status: "error", user: null, error: OWNER_UNVERIFIED };
+    render(<MascotAssistant />);
+
+    const guide = screen.getByTestId("mascot-visitor-guide");
+    const note = within(guide).getByText(UNVERIFIED_OWNER_NOTE);
+    // A narration caption, not an Amr line, and in the third person.
+    expect(note.closest(".comic-caption")).toHaveAttribute("data-voice", "narration");
+    expect(UNVERIFIED_OWNER_NOTE).not.toMatch(/\b(I|me|my)\b/i);
+    expect(screen.queryByTestId("agent-conversation")).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("shows a confirmed visitor no owner-check note", () => {
+    h.auth = { status: "anonymous", user: null };
+    render(<MascotAssistant />);
+    expect(screen.queryByText(UNVERIFIED_OWNER_NOTE)).toBeNull();
   });
 
   it("mounts neither the notice nor the chat while auth is loading", () => {
@@ -743,6 +762,7 @@ describe("MascotAssistant — visitor AI", () => {
     render(<MascotAssistant />);
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Chat with Amr" })).toBeNull();
+    expect(screen.getByText(UNVERIFIED_OWNER_NOTE)).toBeInTheDocument();
   });
 
   it("drops the visitor's chat when the visitor turns out to be the owner", () => {
