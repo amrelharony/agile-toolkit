@@ -229,25 +229,39 @@ describe("the book's pages", () => {
     }
   });
 
-  it("leaves the first page blank and prints this week's panel on the second page's back", () => {
-    const { inside, leaf1, leaf2 } = parts({ title: TITLE, cover: COVER });
-    expect(leaf1.querySelector("img")).toBeNull();
-    expect(inside.querySelector("img")).toBeNull();
-    const images = Array.from(leaf2.querySelectorAll("img"));
+  it.each(STORIES)("turns two blank pages, %s", (_, latest) => {
+    const { leaf1, leaf2 } = parts(latest);
+    for (const leaf of [leaf1, leaf2]) {
+      expect(leaf.querySelector("img")).toBeNull();
+      expect(leaf.textContent).toBe("");
+    }
+  });
+
+  it("holds this week's panel on the inside page, above the title", () => {
+    const { inside } = parts({ title: TITLE, cover: COVER });
+    const images = Array.from(inside.querySelectorAll("img"));
     expect(images).toHaveLength(1);
     const [panel] = images;
     expect(panel.getAttribute("src")).toBe(panelImageUrl(COVER.pathSmall));
     expect(panel).toHaveAttribute("alt", "");
     expect(panel).toHaveAttribute("loading", "lazy");
     expect(panel.hasAttribute("srcset")).toBe(false);
-    // On the back, so it turns over and lands face up as the spread's left page.
-    expect(panel.closest(`.${styles.face}`)).toHaveClass(styles.back);
-    expect(panel.parentElement).toHaveClass(styles.window);
+    // In the page's own 3:2 window, never on a sheet's face that turns.
+    const frame = panel.parentElement!;
+    expect(frame).toHaveClass(styles.window);
+    expect(frame.parentElement).toBe(inside);
+    expect(panel.closest(`.${styles.face}`)).toBeNull();
+    // The window first, then the title under it.
+    const caption = within(inside).getByText(TITLE).parentElement!;
+    const kids = Array.from(inside.children);
+    expect(kids.indexOf(frame)).toBeGreaterThan(-1);
+    expect(kids.indexOf(caption)).toBeGreaterThan(kids.indexOf(frame));
   });
 
-  it.each(STORIES.slice(1))("keeps both pages blank %s", (_, latest) => {
-    const { inside, leaf1, leaf2 } = parts(latest);
-    for (const page of [inside, leaf1, leaf2]) expect(page.querySelector("img")).toBeNull();
+  it.each(STORIES.slice(1))("keeps the inside page without a picture %s", (_, latest) => {
+    const { inside } = parts(latest);
+    expect(inside.querySelector("img")).toBeNull();
+    expect(inside.querySelector(`.${styles.window}`)).toBeNull();
   });
 
   it.each(STORIES)("shows no picture twice, %s", (_, latest) => {
@@ -255,12 +269,29 @@ describe("the book's pages", () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
-  it("letters the title alone on the inside page, where it inks in", () => {
+  it("letters the title under the panel, four lines at most, where it inks in", () => {
     const { inside } = parts({ title: TITLE, cover: COVER });
     const caption = within(inside).getByText(TITLE).parentElement!;
+    expect(caption.parentElement).toBe(inside);
+    expect(caption).toHaveClass(styles.titleInk);
+    expect(caption).toHaveClass(styles.caption);
+    expect(caption).not.toHaveClass(styles.captionAlone);
+    expect(within(caption).getByText("This week's story")).toHaveClass(styles.eyebrow);
+    const title = within(caption).getByText(TITLE);
+    expect(title).toHaveClass(styles.storyTitle);
+    expect(title).toHaveClass("line-clamp-4");
+  });
+
+  it("letters the title alone, larger, while the story has no art", () => {
+    const { inside } = parts({ title: TITLE, cover: null });
+    const caption = within(inside).getByText(TITLE).parentElement!;
+    expect(caption.parentElement).toBe(inside);
+    expect(caption).toHaveClass(styles.titleInk);
     expect(caption).toHaveClass(styles.captionAlone);
-    expect(within(caption).getByText("This week's story")).toBeTruthy();
-    expect(within(caption).getByText(TITLE)).toHaveClass("line-clamp-4");
+    expect(caption).not.toHaveClass(styles.caption);
+    const title = within(caption).getByText(TITLE);
+    expect(title).toHaveClass(styles.storyTitleAlone);
+    expect(title).toHaveClass("line-clamp-4");
   });
 
   it("lays the cover's grain, light and shade over its art, written before it", () => {
@@ -277,30 +308,34 @@ describe("the book's pages", () => {
     expect(front.lastElementChild).toBe(art);
   });
 
-  it("rests a stripe of light on the inside page, and nothing there moves it", () => {
+  it("rests a stripe of light on the inside page, under the panel, and nothing there moves it", () => {
     const { inside } = parts({ title: TITLE, cover: COVER });
-    const light = inside.querySelector<HTMLElement>('[data-look="light"]')!;
+    const light = inside.querySelector<HTMLElement>(':scope > [data-look="light"]')!;
     expect(light).not.toBeNull();
     expect(light.firstElementChild).toHaveClass(styles.restingLight);
     const animated = new Set(sceneAnimations(CSS_FILE).map((a) => styles[a.selector.slice(1)]));
     for (const el of [light, ...Array.from(light.querySelectorAll("*"))]) {
       for (const cls of Array.from(el.classList)) expect(animated.has(cls), cls).toBe(false);
     }
+    // Nothing moves the panel's window either: the second page uncovers it.
+    const frame = inside.querySelector<HTMLElement>(`:scope > .${styles.window}`)!;
+    for (const cls of Array.from(frame.classList)) expect(animated.has(cls), cls).toBe(false);
+    const kids = Array.from(inside.children);
+    expect(kids.indexOf(light)).toBeLessThan(kids.indexOf(frame));
   });
 
-  it("lays the facing page, the panel's, in the same light, still, and under the panel", () => {
-    const { leaf2 } = parts({ title: TITLE, cover: COVER });
-    const back = leaf2.querySelector<HTMLElement>(`:scope > .${styles.back}`)!;
-    const light = back.querySelector<HTMLElement>(':scope > [data-look="light"]')!;
-    expect(light.firstElementChild).toHaveClass(styles.shadeOnly);
+  it("lays each page's back, the spread's left page once it lands, in the same light, still", () => {
+    const { leaf1, leaf2 } = parts({ title: TITLE, cover: COVER });
     const animated = new Set(sceneAnimations(CSS_FILE).map((a) => styles[a.selector.slice(1)]));
-    for (const el of [light, ...Array.from(light.querySelectorAll("*"))]) {
-      for (const cls of Array.from(el.classList)) expect(animated.has(cls), cls).toBe(false);
+    for (const leaf of [leaf1, leaf2]) {
+      const back = leaf.querySelector<HTMLElement>(`:scope > .${styles.back}`)!;
+      const light = back.querySelector<HTMLElement>(':scope > [data-look="light"]')!;
+      expect(light.firstElementChild).toHaveClass(styles.shadeOnly);
+      for (const el of [light, ...Array.from(light.querySelectorAll("*"))]) {
+        for (const cls of Array.from(el.classList)) expect(animated.has(cls), cls).toBe(false);
+      }
+      expect(back.querySelector('[data-look="grain"]')).not.toBeNull();
     }
-    const kids = Array.from(back.children);
-    expect(kids.indexOf(light)).toBeLessThan(
-      kids.indexOf(back.querySelector(`.${styles.window}`)!)
-    );
   });
 
   it.each(STORIES)(
@@ -476,7 +511,7 @@ describe("the book intro's timing", () => {
   }
 
   it("turns a sheet's back over, and hides each face once it faces away", () => {
-    // So the panel on the second page's back turns over and lands face up.
+    // So a page's back turns over and lands face up as the spread's left page.
     expect(declsOf(".back")).toContainEqual(["transform", "rotateY(180deg)"]);
     const face = declsOf(".face");
     const prefixed = face.findIndex(
@@ -485,6 +520,118 @@ describe("the book intro's timing", () => {
     const plain = face.findIndex(([p, v]) => p === "backface-visibility" && v === "hidden");
     expect(prefixed).toBeGreaterThan(-1);
     expect(plain).toBeGreaterThan(prefixed);
+  });
+
+  /**
+   * A length as the browser works it out, in px: calc(), min(), max(), var(),
+   * rem (16px), px, % of `percent` and plain numbers.
+   */
+  function px(expr: string, vars: Record<string, string>, percent = Number.NaN): number {
+    let text = expr;
+    for (let pass = 0; /var\(/.test(text); pass++) {
+      expect(pass, `var() in ${expr}`).toBeLessThan(10);
+      text = text.replace(/var\((--[\w-]+)\)/g, (_, name: string) => {
+        expect(vars[name], name).toBeDefined();
+        return `(${vars[name]})`;
+      });
+    }
+    const found = Array.from(
+      text.matchAll(/\s*(?:(\d*\.?\d+)(rem|px|%)?|(calc|min|max)\(|([-+*/(),]))/g)
+    );
+    // Every character read: anything else (a unit or function it doesn't know) fails here.
+    expect(found.map((m) => m[0].trim()).join(""), text).toBe(text.replace(/\s+/g, ""));
+    const tokens = found.map((m) => m.slice(1));
+    let i = 0;
+    const peek = () => tokens[i]?.[3];
+    const sum = (): number => {
+      let v = product();
+      while (peek() === "+" || peek() === "-")
+        v = tokens[i++][3] === "+" ? v + product() : v - product();
+      return v;
+    };
+    const product = (): number => {
+      let v = factor();
+      while (peek() === "*" || peek() === "/")
+        v = tokens[i++][3] === "*" ? v * factor() : v / factor();
+      return v;
+    };
+    const factor = (): number => {
+      const [n, unit, fn, op] = tokens[i++];
+      if (n !== undefined)
+        return Number(n) * (unit === "rem" ? 16 : unit === "%" ? percent / 100 : 1);
+      if (op === "-") return -factor();
+      const args = [sum()];
+      while (peek() === ",") {
+        i++;
+        args.push(sum());
+      }
+      expect(tokens[i++]?.[3], text).toBe(")");
+      if (fn === "min") return Math.min(...args);
+      if (fn === "max") return Math.max(...args);
+      expect(args, text).toHaveLength(1);
+      return args[0];
+    };
+    const v = sum();
+    expect(i, text).toBe(tokens.length);
+    return v;
+  }
+
+  it("works lengths out the way the browser does", () => {
+    const vars = { "--w": "200px", "--two": "var(--w) / 100" };
+    expect(px("calc(var(--w) * 0.5 - 1rem)", vars)).toBeCloseTo(84, 9);
+    expect(px("max(0.75rem, calc(var(--w) * 0.046))", vars)).toBeCloseTo(12, 9);
+    expect(px("min(100%, calc(var(--w) * (1 - 2 * 0.25)))", vars, 80)).toBeCloseTo(80, 9);
+    expect(px("calc(var(--two) * -3)", vars)).toBeCloseTo(-6, 9);
+  });
+
+  it("sizes the panel's window so the eyebrow and four lines of title always fit under it", () => {
+    const value = (selector: string, property: string) => {
+      const found = declsOf(selector).find(([p]) => p === property);
+      expect(found, `${selector} ${property}`).toBeDefined();
+      return found![1];
+    };
+    // The lettering takes its sizes from the page, and the window its room from them.
+    expect(value(".eyebrow", "font-size")).toBe("var(--eyebrow-size)");
+    expect(value(".storyTitle", "font-size")).toBe("var(--title-size)");
+    expect(value(".inside", "border")).toMatch(/^var\(--panel-w\) solid /);
+    const landscape =
+      /@media \(orientation: landscape\) and \(max-height: 540px\) \{\s*\.window \{([^}]*)\}/
+        .exec(css)![1]
+        .match(/width:\s*([^;]+);/)![1];
+    const globals = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+    const panelW = /--panel-w:\s*([^;]+);/.exec(globals)![1].trim();
+    const vars = (bookW: number) => ({
+      "--book-w": `${bookW}px`,
+      "--panel-w": panelW,
+      "--eyebrow-size": value(".inside", "--eyebrow-size"),
+      "--title-size": value(".inside", "--title-size"),
+      "--room": value(".window", "--room"),
+    });
+    // The book's width on a 375 px phone 667 or 550 tall (270px both), a 320
+    // and a 360 px phone, a laptop, and phones on their side (2:1 window).
+    for (const [bookW, width, ratio] of [
+      [270, value(".window", "width"), 3 / 2],
+      [230.4, value(".window", "width"), 3 / 2],
+      [259.2, value(".window", "width"), 3 / 2],
+      [416, value(".window", "width"), 3 / 2],
+      [193.5, landscape, 2],
+      [144, landscape, 2],
+    ] as const) {
+      const v = vars(bookW);
+      const at = (selector: string, property: string) => px(value(selector, property), v);
+      const inner = bookW - 2 * px(panelW, v) - 2 * at(".inside", "padding");
+      const windowH = px(width, v, inner) / ratio;
+      expect(windowH, `${bookW}px`).toBeGreaterThan(0);
+      // The eyebrow takes one line: "This week's story" is far short of the page's width.
+      const caption =
+        at(".caption", "margin-top") +
+        Number(value(".eyebrow", "line-height")) * px("var(--eyebrow-size)", v) +
+        at(".storyTitle", "margin-top") +
+        4 * Number(value(".storyTitle", "line-height")) * px("var(--title-size)", v);
+      expect(windowH + caption, `${bookW}px`).toBeLessThanOrEqual(inner + 1e-6);
+      // And no smaller than that leaves it: the window fills the page's width, or the room.
+      expect(Math.min(inner / ratio, inner - caption), `${bookW}px`).toBeCloseTo(windowH, 6);
+    }
   });
 
   it("lifts the cover's grain, light and shade above its art", () => {
@@ -614,10 +761,17 @@ describe("the book intro's timing", () => {
     expect(only(".leaf2").delay - edgeOn(".leaf1")).toBeGreaterThanOrEqual(0.4);
   });
 
+  /** The title's two wipes: the straight one, and its bowed twin where shape() works. */
+  const wipes = () => {
+    const found = animations.filter((a) => a.selector === ".titleInk");
+    expect(found.map((w) => w.name)).toEqual(["book-ink", "book-ink-bowed"]);
+    return found;
+  };
+
   it("inks the title in only once the second page is edge-on, straight or bowed", () => {
-    const wipes = animations.filter((a) => a.selector === ".captionAlone");
-    expect(wipes.map((w) => w.name)).toEqual(["book-ink", "book-ink-bowed"]);
-    for (const wipe of wipes) expect(wipe.delay).toBeGreaterThanOrEqual(edgeOn(".leaf2"));
+    for (const wipe of wipes()) {
+      expect(wipe.delay, wipe.name).toBeGreaterThanOrEqual(edgeOn(".leaf2") - 1e-9);
+    }
   });
 
   it("keeps the bowed ink at the straight wipe's pace: its two steps are that curve cut at its middle", () => {

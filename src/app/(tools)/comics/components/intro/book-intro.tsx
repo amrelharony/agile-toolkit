@@ -16,21 +16,21 @@ export interface BookIntroStory {
 /**
  * The intro at /comics, the address printed on the book's back cover. The
  * closed book rises toward the reader and lands, a stripe of light crosses its
- * cover, the cover swings open, a blank page turns, and the next page turns
- * over with this week's panel printed on its back, so the panel lands face up
- * beside the story's title as it inks in. Amr waves at the foot of the fold.
- * The beats and their times are in book-intro.module.css. On a phone too
- * narrow for the open spread, the panel's page lands mostly off-screen: the
- * whole panel shows, foreshortened, while its page turns, and then only its
- * right edge stays in view beside the title (the CSS describes the crop).
+ * cover, the cover swings open, and two blank pages turn after it, one then
+ * the other. As the second passes upright it uncovers the page
+ * beneath: this week's panel, with the story's title under it inking in. Amr
+ * waves at the foot of the fold. The beats and their times are in
+ * book-intro.module.css. That page is the spread's right-hand one, which
+ * shows whole on every screen, a phone's included, so the panel and the title
+ * are always in view.
  *
  * The book is square, as printed, and its front is the cover's art. Under the
  * art the cover is lettered, in the gallery's own words, which is what shows
  * if the art hasn't loaded: the head script preloads it only when this intro
  * plays, and the image itself is lazy, so a visit without the intro fetches
  * nothing. Each picture shows once: the cover on the cover, the panel on the
- * second page's back. Before any story is released the page inside holds only
- * Amr, so the intro is finished without a single panel.
+ * page under the two turning pages. Before any story is released that page
+ * holds only Amr, so the intro is finished without a single panel.
  *
  * Not a client component: the server page renders it, so it's in the static
  * HTML for the head script to show from the first paint.
@@ -52,8 +52,8 @@ export function BookIntro({ latest }: { latest: BookIntroStory | null }) {
                 </span>
                 <InsidePage latest={latest} />
                 {/* The two pages over it: the cover lifts off them, then each turns in turn. */}
-                <BlankLeaf />
-                <PanelLeaf cover={latest?.cover ?? null} />
+                <BlankLeaf className={styles.leaf1} shadeClassName={styles.leaf1Shade} />
+                <BlankLeaf className={styles.leaf2} shadeClassName={styles.leaf2Shade} />
                 <BookCover />
                 <WavingAmr alone={!latest} />
               </div>
@@ -66,23 +66,26 @@ export function BookIntro({ latest }: { latest: BookIntroStory | null }) {
 }
 
 /**
- * What the pages open onto, on the right of the spread: this week's story's
- * title, inking in, under a resting stripe of light. Blank, for Amr, before
- * any story is out.
+ * What the pages open onto, on the right of the spread: this week's panel, in
+ * the same 3:2 window every intro uses, with the story's title lettered under
+ * it, inking in, all under a resting stripe of light. The title alone, larger,
+ * while the story has no art; blank, for Amr, before any story is out.
  */
 function InsidePage({ latest }: { latest: BookIntroStory | null }) {
+  const cover = latest?.cover ?? null;
   return (
     <div className={styles.inside}>
       <Grain />
       <Light trackClassName={styles.restingLight} />
+      {cover ? <IntroPanel panel={cover} className={styles.window} /> : null}
       {latest ? (
-        <div className={styles.captionAlone}>
+        <div className={cn(styles.titleInk, cover ? styles.caption : styles.captionAlone)}>
           <p className={cn(styles.eyebrow, "font-display font-semibold text-text")}>
             This week&apos;s story
           </p>
           <p
             className={cn(
-              styles.storyTitleAlone,
+              cover ? styles.storyTitle : styles.storyTitleAlone,
               // A long title stops at the page's foot rather than running off it.
               "line-clamp-4 text-balance font-display font-semibold text-text"
             )}
@@ -95,40 +98,22 @@ function InsidePage({ latest }: { latest: BookIntroStory | null }) {
   );
 }
 
-/** The first page under the cover: blank paper both sides, turned at once. */
-function BlankLeaf() {
-  return (
-    <div aria-hidden="true" className={styles.leaf1}>
-      <div className={cn(styles.face, styles.page)}>
-        <Grain />
-        <TurnShade className={styles.leaf1Shade} />
-      </div>
-      <div className={cn(styles.face, styles.page, styles.back)}>
-        <Grain />
-      </div>
-    </div>
-  );
-}
-
 /**
- * The second page: blank on its front, and this week's panel printed on its
- * back, in the same 3:2 window every intro uses. It lies still a moment, then
- * turns over, so the panel lands face up as the left page of the spread (on a
- * phone, mostly past the screen's left edge). Blank both sides while the
- * story has no art.
+ * A page between the cover and the inside page: blank paper both sides, which
+ * turns as soon as the sheet above it is out of the way. Its back lands as the
+ * spread's left page, in the inside page's light.
  */
-function PanelLeaf({ cover }: { cover: StoryCover | null }) {
+function BlankLeaf({ className, shadeClassName }: { className: string; shadeClassName: string }) {
   return (
-    <div aria-hidden="true" className={styles.leaf2}>
-      <div className={cn(styles.face, styles.page)}>
+    <div aria-hidden="true" className={className}>
+      <div className={styles.face}>
         <Grain />
-        <TurnShade className={styles.leaf2Shade} />
+        <TurnShade className={shadeClassName} />
       </div>
-      <div className={cn(styles.face, styles.page, styles.back)}>
+      <div className={cn(styles.face, styles.back)}>
         <Grain />
         {/* The inside page's light, its stripe off this page: the spread lies in one light. */}
         <Light trackClassName={styles.shadeOnly} />
-        {cover ? <IntroPanel panel={cover} className={styles.window} /> : null}
       </div>
     </div>
   );

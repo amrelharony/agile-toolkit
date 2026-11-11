@@ -8,9 +8,9 @@
  *                  steps until it is edge-on at 1.27 s, and lands with a bounce
  *   1.0  – 2.0 s   the book glides right, so the open spread sits centred
  *   1.27 – 1.87 s  the first page, blank, turns at once (edge-on at 1.51 s)
- *   1.95 – 2.55 s  the second page lies still 0.44 s, then turns over (edge-on
- *                  at 2.19 s): this week's panel is printed on its back, so it
- *                  lands face up beside the title
+ *   1.95 – 2.55 s  the second page, blank, lies still 0.44 s, then turns
+ *                  (edge-on at 2.19 s), uncovering this week's panel and the
+ *                  title under it on the page beneath
  *   2.25 – 2.65 s  the story's title inks in, left to right
  *   2.6  – 3.1 s   Amr pops up at the foot of the fold, on the pop spring
  *   4.25 – 5.0 s   the page pushes toward the reader as the overlay fades
@@ -40,11 +40,9 @@
  *
  * Sizes come from the book's width, which comes from the viewport, so nothing
  * here can scroll or spill. Where a phone is too narrow for the open spread,
- * the overlay clips the turned sheets' left side, and with them most of this
- * week's panel: on a 375 px phone only about its right 30% stays on screen
- * once its page has landed, and it shows whole, foreshortened, only while
- * that page turns over. The title's page, on the right, always shows whole,
- * and on a desktop so does the whole spread.
+ * the overlay clips the turned sheets' left side: blank paper, a deliberate
+ * crop. The inside page, on the right, always shows whole, and with it this
+ * week's panel and the title; on a desktop so does the whole spread.
  */
 
 /* The overlay's one animation: its end is the intro's end. Eased in, with the
@@ -153,8 +151,11 @@
   transform: translate3d(var(--look-edge-x), var(--look-edge-y), -4px);
 }
 
-/* The page the others open onto, on the right of the spread. */
+/* The page the others open onto, on the right of the spread. The lettering's
+   sizes are set here, so the panel's window can leave room for them. */
 .inside {
+  --eyebrow-size: max(0.75rem, calc(var(--book-w) * 0.046));
+  --title-size: max(0.875rem, calc(var(--book-w) * 0.07));
   position: absolute;
   inset: 0;
   display: flex;
@@ -176,12 +177,21 @@
   transform: translateX(-22.5%);
 }
 
-/* A fixed 3:2 window for this week's panel, so a panel of another shape is
-   cropped to fit, as in every intro window. Over the page's grain. */
+/* This week's panel at the top of the page, in a fixed 3:2 window, so a panel
+   of another shape is cropped to fit, as in every intro window. Over the
+   page's grain and light. Its height (--room) is what the page has left with
+   the caption under it at its tallest, the eyebrow and four lines of title:
+   the page's square less its padding and borders, the caption's and the
+   title's margins, and those five lines. So a long title still ends on the
+   page. On a phone the window is about three quarters of the page wide. */
 .window {
+  --room: calc(
+    var(--book-w) * (1 - 2 * 0.07 - 0.04 - 0.008) - 2 * var(--panel-w) - 1.3 * var(--eyebrow-size) -
+      4 * 1.15 * var(--title-size)
+  );
   position: relative;
   flex: none;
-  width: 100%;
+  width: min(100%, calc(var(--room) * 3 / 2));
   aspect-ratio: 3 / 2;
 }
 
@@ -191,20 +201,36 @@
 @media (orientation: landscape) and (max-height: 540px) {
   .window {
     aspect-ratio: 2 / 1;
+    width: min(100%, calc(var(--room) * 2));
   }
 }
 
 /* The title, inking in left to right, over the page's grain and light. The
    clip reaches half a rem past the box, so no letter's edge is ever cut. */
-.captionAlone {
+.titleInk {
   position: relative;
-  margin-top: calc(var(--book-w) * 0.08);
   animation: book-ink 0.4s cubic-bezier(0.25, 0.5, 0.45, 1) 2.25s both;
 }
 
+/* Under the panel, four lines at most, which the window leaves room for. */
+.caption {
+  margin-top: calc(var(--book-w) * 0.04);
+}
+
+/* No panel: the lettering is the page, larger and higher. */
+.captionAlone {
+  margin-top: calc(var(--book-w) * 0.08);
+}
+
 .eyebrow {
-  font-size: max(0.75rem, calc(var(--book-w) * 0.046));
+  font-size: var(--eyebrow-size);
   line-height: 1.3;
+}
+
+.storyTitle {
+  margin-top: calc(var(--book-w) * 0.008);
+  font-size: var(--title-size);
+  line-height: 1.15;
 }
 
 .storyTitleAlone {
@@ -217,7 +243,7 @@
    first and last frames as the straight wipe, and the same pace: its two steps
    are that curve cut in two at its middle. */
 @supports (clip-path: shape(from 0 0, line to 100% 0)) {
-  .captionAlone {
+  .titleInk {
     animation: book-ink-bowed 0.4s cubic-bezier(0.25, 0.5, 0.45, 1) 2.25s both;
   }
 
@@ -273,7 +299,8 @@
   animation: book-leaf1 0.6s cubic-bezier(0.5, 0, 0.5, 1) 1.27s both;
 }
 
-/* The second page lies still a moment, then turns over onto its panel. */
+/* The blank second page lies still a moment, then turns, and uncovers the
+   panel and the title as it passes upright. */
 .leaf2 {
   position: absolute;
   inset: 0;
@@ -293,14 +320,6 @@
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   isolation: isolate;
-}
-
-/* A page's side, laid out like the inside page, so the panel sits where the
-   title does on the other side of the fold. */
-.page {
-  display: flex;
-  flex-direction: column;
-  padding: calc(var(--book-w) * 0.07);
 }
 
 /* The other side of a sheet, seen once it has turned past upright. */
