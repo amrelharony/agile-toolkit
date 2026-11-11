@@ -99,6 +99,9 @@ describe("VisitorPanel: the chat's code can't load", () => {
     await waitFor(() => expect(note).toHaveFocus());
     expect(h.announce).not.toHaveBeenCalled();
     expect(note).not.toHaveAttribute("role");
+    // A failure drops the question: the note says what happened, and the
+    // search starts empty, so asking again is a fresh start.
+    expect(screen.getByLabelText("What do you need to do?")).toHaveValue("");
 
     // A second try: the note goes, the import runs again and the chat opens.
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));

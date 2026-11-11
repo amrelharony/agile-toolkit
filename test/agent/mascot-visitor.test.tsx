@@ -388,6 +388,8 @@ describe("MascotAssistant — visitor AI", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
+    // The search the visitor took to the card is still in the box.
+    expect(screen.getByLabelText("What do you need to do?")).toHaveValue("retro");
     expect(window.localStorage.getItem(VISITOR_AI_CONSENT_KEY)).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(h.sendVisitorMessage).not.toHaveBeenCalled();
@@ -825,6 +827,7 @@ describe("MascotAssistant — visitor AI", () => {
       h.abortVisitor.mockClear();
       fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
       expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
+      expect(screen.getByLabelText("What do you need to do?")).toHaveValue("retro");
       expect(screen.queryByLabelText("Message")).toBeNull();
       await waitFor(() => expect(h.abortVisitor).toHaveBeenCalledTimes(1));
     });

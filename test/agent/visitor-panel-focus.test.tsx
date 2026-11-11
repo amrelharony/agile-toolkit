@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 const h = vi.hoisted(() => ({
   announce: vi.fn(),
+  sendVisitorMessage: vi.fn(async () => {}),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -11,7 +12,7 @@ vi.mock("next/navigation", () => ({
 }));
 // The visitor chat's runtime (registry + client), loaded on the first message.
 vi.mock("@/lib/agent/visitor-runtime", () => ({
-  sendVisitorMessage: vi.fn(async () => {}),
+  sendVisitorMessage: h.sendVisitorMessage,
   abortInFlight: vi.fn(),
 }));
 vi.mock("@/components/a11y/live-announcer", () => ({
@@ -22,6 +23,7 @@ import {
   VISITOR_AI_CONSENT_KEY,
   VISITOR_AI_CONSENT_VERSION,
 } from "@/components/agent/mascot/visitor-ai-consent";
+import { SEARCH_ANNOUNCE_MS } from "@/components/agent/mascot/visitor-guide";
 import { VisitorPanel, visitorFallbackNote } from "@/components/agent/mascot/visitor-panel";
 import { useAgentStore } from "@/lib/agent/store";
 
@@ -32,6 +34,8 @@ async function openChat() {
   fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
   await screen.findByRole("button", { name: "Tool finder" });
 }
+
+const search = () => screen.getByLabelText("What do you need to do?");
 
 /**
  * A note over the guide: a narration caption in a box that takes focus. The
@@ -93,6 +97,67 @@ describe("VisitorPanel: focus and announcements", () => {
     fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
     expect(screen.getByTestId("mascot-visitor-guide")).toHaveFocus();
     expect(screen.getByLabelText("What do you need to do?")).not.toHaveFocus();
+  });
+
+  it("Not now opens the guide on the question the visitor took to the card, read out by no one", () => {
+    vi.useFakeTimers();
+    try {
+      render(<VisitorPanel />);
+      fireEvent.change(search(), { target: { value: "retro" } });
+      fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
+      // The card shows the question in the visitor's own caption.
+      expect(screen.getByText("retro").closest('[data-voice="you"]')).not.toBeNull();
+      act(() => vi.advanceTimersByTime(SEARCH_ANNOUNCE_MS + 50));
+      h.announce.mockClear();
+
+      fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+      expect(search()).toHaveValue("retro");
+      expect(screen.getByRole("list", { name: "Matching tools" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Ask Amr about “retro”" })).toBeInTheDocument();
+      expect(screen.getByTestId("mascot-visitor-guide")).toHaveFocus();
+      // The visitor typed it before: the guide doesn't read its count again.
+      act(() => vi.advanceTimersByTime(SEARCH_ANNOUNCE_MS + 50));
+      expect(h.announce).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("going back from the chat opens the guide on its question, and Back to chat returns to it", async () => {
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+    h.sendVisitorMessage.mockClear();
+    render(<VisitorPanel />);
+    fireEvent.change(search(), { target: { value: "retro" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
+    await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1));
+    // The runtime is mocked, so the test puts the visitor's message in the chat.
+    act(() => {
+      useAgentStore.setState({
+        chatProfile: "visitor",
+        messages: [
+          {
+            id: "v1",
+            role: "user",
+            content: [{ type: "text", text: "retro" }],
+            createdAt: "2026-11-09T08:00:00Z",
+          },
+        ],
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    expect(search()).toHaveValue("retro");
+    expect(screen.getByRole("list", { name: "Matching tools" })).toBeInTheDocument();
+    expect(screen.getByTestId("mascot-visitor-guide")).toHaveFocus();
+
+    // With the search cleared, the one Ask button is the way back to the chat.
+    fireEvent.change(search(), { target: { value: "" } });
+    expect(screen.queryByRole("button", { name: "Chat with Amr" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+    expect(await screen.findByLabelText("Message")).toBeInTheDocument();
+    expect(screen.getByText("retro")).toBeInTheDocument();
+    // Going back sends nothing again.
+    expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
   });
 
   it("a question from the guide keeps focus in a message box that is not disabled", async () => {

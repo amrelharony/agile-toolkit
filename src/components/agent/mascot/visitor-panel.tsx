@@ -4,12 +4,18 @@
  * What the mascot's panel shows a signed-out visitor when visitor AI is on.
  *
  * Three steps, the tool finder first:
- *  - guide: the tool finder (VisitorGuide), as before, plus "Ask Amr
- *    about '…'" and "Chat with Amr". Opening the panel sends nothing.
+ *  - guide: the tool finder (VisitorGuide), with its one Ask button ("Chat
+ *    with Amr", "Ask Amr about '…'", or "Back to chat" once a chat is under
+ *    way). Opening the panel sends nothing.
  *  - consent: the first time, a card says where messages go
- *    (VisitorAiConsent). Nothing is sent before "Agree and ask".
+ *    (VisitorAiConsent). Nothing is sent before "Agree and ask" (or "Agree
+ *    and chat" when nothing was asked).
  *  - chat: Amr's AI (visitor-agent-panel), a separate chunk loaded only now;
  *    the agent runtime behind it loads on the first message.
+ *
+ * The search travels with the visitor: "Not now" on the card, and going back
+ * from the chat, open the guide on the question they took there. A failure
+ * drops it (the note says what happened, and asking again starts fresh).
  *
  * When the visitor route says there's no more AI for now (visitorFallback),
  * the panel goes back to the guide with a note saying which limit was reached
@@ -137,7 +143,8 @@ export function VisitorPanel({
   loadChat?: () => Promise<ChatModule>;
 }) {
   const [mode, setMode] = useState<Mode>(initialMode);
-  // The question to send when the chat opens ("" opens it empty).
+  // The question to send when the chat opens ("" opens it empty). Kept after
+  // "Not now" and after going back from the chat, so the guide opens on it.
   const [question, setQuestion] = useState("");
   // The loader this panel started with, kept for its whole life.
   const [load] = useState(() => loadChat);
@@ -146,6 +153,9 @@ export function VisitorPanel({
   const [failure, setFailure] = useState<"load" | "error" | null>(null);
   const fallback = useAgentStore((s) => s.visitorFallback);
   const quota = useAgentStore((s) => s.visitorQuota);
+  // A chat is under way (it lives in the store, not in the chat step), so the
+  // guide's Ask button can take the visitor back to it.
+  const chatUnderWay = useAgentStore((s) => s.chatProfile === "visitor" && s.messages.length > 0);
   const announce = useAnnounce();
   const guideRef = useRef<HTMLDivElement>(null);
   const noteRef = useRef<HTMLDivElement>(null);
@@ -176,8 +186,9 @@ export function VisitorPanel({
     (noteRef.current ?? guideRef.current)?.focus();
   }, [mode]);
 
-  // The chat couldn't be shown: back to the tool finder, with a note. The
-  // note takes focus, so it is not announced as well.
+  // The chat couldn't be shown: back to the tool finder, with a note, and
+  // without the question (it was never answered; asking again starts fresh).
+  // The note takes focus, so it is not announced as well.
   const chatFailed = (kind: "load" | "error") => {
     setQuestion("");
     setFailure(kind);
@@ -198,6 +209,7 @@ export function VisitorPanel({
       <VisitorAiConsent
         question={question}
         onAgree={() => setMode("chat")}
+        // Back to the guide with the question still in its search.
         onDecline={() => setMode("guide")}
         onNavigate={onNavigate}
       />
@@ -221,10 +233,9 @@ export function VisitorPanel({
         <Suspense fallback={<div className="min-h-0 flex-1" aria-busy="true" />}>
           <Chat
             initialQuestion={question}
-            onOfflineGuide={() => {
-              setQuestion("");
-              setMode("guide");
-            }}
+            // Back to the guide, its search on the question the chat opened
+            // with; the guide's "Back to chat" returns to this chat.
+            onOfflineGuide={() => setMode("guide")}
           />
         </Suspense>
       </ErrorBoundary>
@@ -243,6 +254,8 @@ export function VisitorPanel({
       onNavigate={onNavigate}
       onAskAmr={askAmr}
       guideRef={guideRef}
+      initialQuery={question}
+      resumeChat={chatUnderWay}
       // The note sits inside the guide's scroll area. Above it, in a panel as
       // short as 160 px, it left the guide a strip too low to use.
       note={
