@@ -305,6 +305,29 @@ describe("the plain address", () => {
     }
   });
 
+  it("shows each book episode with its poster's first panel, loaded as it nears the screen", async () => {
+    render(await ComicsPage());
+    const index = screen.getByRole("region", { name: "The 26 episodes in the book" });
+    const links = within(index)
+      .getAllByRole("link")
+      .filter((a) => a.getAttribute("href")?.startsWith("/comics?ep="));
+    const covers = links.map((a) => a.querySelector("img"));
+    expect(covers.map((img) => img?.getAttribute("src"))).toEqual(
+      BOOK_EPISODES.map((e) => `${STORAGE}${POSTER_ART[e.ep].panels[0].small}`)
+    );
+    // The title names the link, so the picture says nothing of its own.
+    expect(covers.every((img) => img?.getAttribute("alt") === "")).toBe(true);
+    expect(covers.every((img) => img?.getAttribute("loading") === "lazy")).toBe(true);
+  });
+
+  it("lists the book's episodes as words alone where the art can't load", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    render(await ComicsPage());
+    const index = screen.getByRole("region", { name: "The 26 episodes in the book" });
+    expect(within(index).queryAllByRole("img")).toEqual([]);
+    expect(within(index).getAllByRole("link", { name: /^Episode \d+:/ })).toHaveLength(26);
+  });
+
   it("offers the open kudos cards' scanners a way to thank someone", async () => {
     render(await ComicsPage());
     expect(screen.getByRole("link", { name: /Thank someone/ })).toHaveAttribute(
@@ -953,7 +976,8 @@ describe("the gallery", () => {
     const thisWeek = within(screen.getByRole("region", { name: "Newest story" })).getByRole(
       "presentation"
     );
-    const cards = art.filter((img) => img !== thisWeek);
+    const bookIndex = screen.getByRole("region", { name: "The 26 episodes in the book" });
+    const cards = art.filter((img) => img !== thisWeek && !bookIndex.contains(img));
     expect(thisWeek.getAttribute("loading")).toBe("eager");
     expect(thisWeek.getAttribute("fetchpriority")).toBe("high");
     expect(thisWeek.getAttribute("src")).toContain("-768.webp");
@@ -963,6 +987,14 @@ describe("the gallery", () => {
       expect(img.getAttribute("loading")).toBe("lazy");
       expect(img.hasAttribute("fetchpriority")).toBe(false);
       expect(img.getAttribute("src")).toContain("-768.webp");
+    }
+    // And the book's 26 posters, small and lazy too.
+    const book = art.filter((img) => bookIndex.contains(img));
+    expect(book.length).toBe(26);
+    for (const img of book) {
+      expect(img.getAttribute("loading")).toBe("lazy");
+      expect(img.hasAttribute("fetchpriority")).toBe(false);
+      expect(img.getAttribute("src")).toMatch(/\/posters\/ep-\d{2}\.p1\.[0-9a-f]{10}\.768\.webp$/);
     }
   });
 
