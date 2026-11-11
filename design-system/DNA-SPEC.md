@@ -72,6 +72,7 @@ Rules:
 - **`--border` is solid.** Dividers inside dense data use `border-rule` or `divide-border` (both `--rule`) so a table doesn't turn into bars.
 - **Shadows are hard offsets:** `--shadow-1` to `--shadow-6`, wired to Tailwind's `shadow-sm`, `shadow`, `shadow-md`, `shadow-lg`, `shadow-xl`, `shadow-2xl`, and to the old `shadow-glow*`, `shadow-card` and `shadow-modal` keys. `shadow-neon-*` are 2px offsets in the colour the name promises. Form fields, switches and slider thumbs carry no shadow.
 - **Radii are small:** 2–12px. `rounded-full` stays for avatars, dots and bars. Nothing else is pill-shaped.
+- **Balloon and caption corners are tokens.** `--balloon-radius-page` keeps a page balloon (`EmptyState`, the VIP intro) round. `--balloon-radius` is a chat balloon's (`.balloon[data-tail]`): uneven, with every component at 12px or less, so a one-line reply is never a pill. `--caption-radius` leaves a caption box all but square. High contrast sets both balloon radii to 4px and the caption's to 2px.
 - `backdrop-blur-*` emits nothing (`corePlugins.backdropBlur: false`).
 
 ---
@@ -80,12 +81,14 @@ Rules:
 
 | Alias | Face | Used for |
 | --- | --- | --- |
-| `font-display` | Shantell Sans (`--font-hand`, through `--font-display-face`) | Page `h1`s (a base rule catches every one), card, dialog and section titles, speech balloons |
+| `font-display` | Shantell Sans (`--font-hand`, through `--font-display-face`) | Page `h1`s (a base rule catches every one), card, dialog and section titles, page speech balloons, a chat reply's lead |
 | `font-sans` | Inter | Body text and controls |
 | `font-data`, `font-mono` | JetBrains Mono | Tables, numbers, code. Never hand-lettered |
 | `font-serif` | Source Serif 4 | A couple of decorative spots, not preloaded |
 
 Shantell Sans is drawn from a marker hand in real upper and lower case, close to the comic's balloon lettering and steady enough to read at heading sizes. It's variable (300–800), so `font-semibold` and `font-bold` are real weights. Keep headings in sentence case. `Eyebrow`, `.label-mono` and `.tag-mono` are sentence case too. All fonts are self-hosted by `next/font` with `display: swap`.
+
+**The lead.** Long Shantell text reads poorly at chat sizes, so a chat reply letters only its lead: the first sentence, when the reply opens with a paragraph in Latin script and that sentence ends within about 120 characters (a period in a number, a URL or "e.g." doesn't end it). It is cut by character position, so words already streamed never change face. A reply without such an opener has no lead. The rest of the reply is Inter `text-sm`, code in the lead stays `font-data`, and captions are always Inter.
 
 ---
 
@@ -99,6 +102,7 @@ Shantell Sans is drawn from a marker hand in real upper and lower case, close to
 - **Severity labels and series** use `SEVERITY_SCALE` (`lib/utils/severity-color.ts`): four tokens that stay apart in all three modes. Don't map severities through `themed()`, which folds high and medium into one colour.
 - **Identity colours** (`lib/squads/colors.ts`) are bright in every mode. Words on them use `IDENTITY_INK`. A person's name stays in page text, with a coloured dot beside it.
 - **Speech balloons** (`.balloon`, `EmptyState`): Amr's still `waiting` frame (`AmrStill`, a crop of the existing sheet, lazy loaded, alt text, no animation), standing on a small watercolour wash, beside a balloon holding the tool's own message. Don't write new lines for Amr.
+- **Chat strip** (Amr's chat panel, the tool finder and his outside bubble; parts in `components/agent/comic`): the chat reads as a comic strip beside the live Amr. Speech balloons (`.balloon[data-tail]`) hold only the model's own words, in Inter after a lettered lead (section 5), and their tail points at the real Amr (`data-tail="amr"`, resolved from the panel's `data-amr-side` and `data-amr-edge`, so nothing re-renders when he moves). No `AmrStill` or second Amr in the chat: he is already standing beside it. The reader's words sit in a squared caption with an ink outline (`.comic-caption[data-voice="you"]`). Every other line (status, tool steps, notes, errors, limits, the empty and resume lines) is a narration caption (`.comic-caption`) in Inter, told in the third person ("Amr is working in Retro Board…"), never a new first-person line for Amr; an error takes the danger line and says what went wrong in words. Scene captions (`data-voice="scene"`) mark a resume or a change of day: no paper, a quiet rule, muted and centred. The panel's header carries a lettered name plate ("Amr"; "Ask Amr" where his figure can't show), and the panel has its own tail on the edge that faces him, hidden whenever it can't point at him (while he is carried or docked in the phone sheet, while the keyboard is up, or when the plate stands in for him). High contrast keeps plain corners, no plate tilt or shadow, and the tails as plain ink. Forced colours hide the tails; the you caption keeps its outline, so balloon, you caption and narration still read as three shapes.
 - **Amr in the corner** stays visible on every page and stays draggable. On phones space is kept for Amr at the bottom, or just under the header if Amr is dragged up: `mascot-assistant.tsx` publishes its height on `<html>` as `--amr-band-bottom` and `--amr-band-top` (and `--amr-band-top-edge` for things placed against the viewport). Nothing is drawn there and the page shows behind Amr; main's padding and the scroll padding keep content clear of it, and anything pinned to the bottom of the screen adds `--amr-band-bottom`. While a comic intro plays, Amr is behind it for those seconds, and the intro itself shows Amr. During a page change Amr, Amr's speech bubble and chat panel, and the docked timer are lifted out of the moving picture: they stay where they are, fully opaque, live and on top.
 - **Sound** stays off by default.
 
