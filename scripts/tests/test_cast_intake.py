@@ -70,7 +70,7 @@ class Intake(unittest.TestCase):
         self.assertEqual((folder / "original" / "AAW-25.zip").read_bytes(), src.read_bytes())
         # Only the named images of this character, under their own names.
         made = sorted(p.relative_to(folder / "extracted").as_posix() for p in (folder / "extracted").rglob("*") if p.is_file())
-        self.assertEqual(made, sorted(["AAW-25_face.png", "AAW-25_master.png", "AAW-25_master-v2.png"]))
+        self.assertEqual(made, sorted(["AAW-25_face.png", "AAW-25_master.png"]))
         self.assertFalse(list(self.tmp.rglob("run_me.py")))
         self.assertFalse(list(self.tmp.rglob("escape.png")))
         self.assertFalse((self.tmp / "escape.png").exists())
@@ -78,8 +78,10 @@ class Intake(unittest.TestCase):
         self.assertIn("run_me.py", why)
         self.assertIn("fake.png", why)
         self.assertIn("AAW-25_parts2.png", why)
-        # The loose 'escape.png' was sorted by content: one figure, so a master.
-        self.assertEqual([(s[0], s[1]) for s in got["sorted"]], [("../../escape.png", "AAW-25_master-v2.png")])
+        # The loose 'escape.png' reads as a master (one figure), but the return names
+        # its master itself: the named file wins and the loose one is left out.
+        self.assertEqual(got["sorted"], [])
+        self.assertIn("names that image itself", why["../../escape.png"])
         rows = ledger.read(ledger.received_path(self.sources))
         images = [r for r in rows if r["kind"] == "image"]
         self.assertEqual(sorted(r["file"] for r in images), made)
@@ -90,8 +92,8 @@ class Intake(unittest.TestCase):
             self.assertEqual(r["size"], [cs.W, cs.H])
             self.assertEqual(r["brief_version"], spec.SPEC["brief_version"])
         self.assertEqual([r["kind"] for r in rows].count("return"), 1)
-        # Accepted copies; the highest -vN is the current master.
-        self.assertEqual(ledger.accepted_file(self.sources, "AAW-25", "master").name, "AAW-25_master-v2.png")
+        # Accepted copies: the named master is the current one.
+        self.assertEqual(ledger.accepted_file(self.sources, "AAW-25", "master").name, "AAW-25_master.png")
         self.assertEqual(got["per"]["AAW-25"]["missing"], ["parts", "arms"])
 
     def test_the_same_return_twice_is_taken_once(self):
@@ -120,9 +122,37 @@ class Intake(unittest.TestCase):
         got = intake.intake(folder, self.sources, date="2026-11-11", out=QUIET)
         mapping = {s[0]: s[1] for s in got["sorted"]}
         self.assertEqual(mapping, {n: f"AAW-25_{img}.png" for n, img in names.items()})
-        self.assertEqual(got["per"]["AAW-25"]["missing"], [])
         archived = self.sources / "returns" / "2026-11-11-AAW-25" / "original" / "AAW-25"
         self.assertEqual(sorted(p.name for p in archived.iterdir()), sorted(names))
+        # Printed for confirmation, and not accepted until it is.
+        self.assertEqual(got["per"]["AAW-25"]["missing"], ["master", "parts", "face", "arms"])
+        self.assertEqual(got["per"]["AAW-25"]["waiting"], ["master", "parts", "face", "arms"])
+        self.assertEqual(got["pending"], sorted(mapping.values()))
+        done = intake.confirm(self.sources, got["folder"], out=QUIET)
+        self.assertEqual(sorted(r["file"] for r in done), sorted(mapping.values()))
+        for img in names.values():
+            self.assertEqual(ledger.accepted_file(self.sources, "AAW-25", img).name, f"AAW-25_{img}.png")
+        with self.assertRaises(SystemExit):  # confirmed once
+            intake.confirm(self.sources, got["folder"], out=QUIET)
+
+    def test_a_confirmed_image_comes_after_the_current_version(self):
+        acc = ledger.accepted_dir(self.sources, "AAW-25")
+        acc.mkdir(parents=True)
+        (acc / "AAW-25_master-v3.png").write_bytes(self.art["master"])
+        keep = (acc / "AAW-25_master-v3.png").read_bytes()
+        other = cs.png_bytes(cs.on_key(cs.master_rgba(), cs.MAGENTA)[:, ::-1].copy(), "RGB")
+        loose = self.tmp / "in" / "AAW-25" / "new master.png"
+        loose.parent.mkdir(parents=True)
+        loose.write_bytes(other)
+        got = intake.intake(loose.parent, self.sources, out=QUIET)
+        self.assertEqual(ledger.accepted_file(self.sources, "AAW-25", "master").name, "AAW-25_master-v3.png")
+        with self.assertRaises(SystemExit):
+            intake.confirm(self.sources, got["folder"], ["nope.png"], out=QUIET)
+        intake.confirm(self.sources, got["folder"], ["AAW-25_master.png"], out=QUIET)
+        cur = ledger.accepted_file(self.sources, "AAW-25", "master")
+        self.assertEqual((cur.name, cur.read_bytes()), ("AAW-25_master-v4.png", other))
+        self.assertEqual((acc / "AAW-25_master-v3.png").read_bytes(), keep)  # never moved or renamed
+        self.assertFalse((acc / "_old").exists())
 
     def test_loose_pngs_need_an_owner(self):
         folder = self.tmp / "in" / "batch"
@@ -133,6 +163,7 @@ class Intake(unittest.TestCase):
         self.assertIn("--id", dict(got["extra"])["image.png"])
         got = intake.intake(folder / "image.png", self.sources, cid="AAW-25", out=QUIET)
         self.assertEqual(got["images"], ["AAW-25_master.png"])
+        self.assertEqual(got["pending"], ["AAW-25_master.png"])
 
     def test_sorting_rules(self):
         def sort(img):

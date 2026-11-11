@@ -1,6 +1,7 @@
 """Taking a return in (docs/cast/CAST-BUILD.md, step 1).
 
-    intake(src, sources)   src is ChatGPT's zip, a folder of PNGs or one PNG
+    intake(src, sources)          src is ChatGPT's zip, a folder of PNGs or one PNG
+    confirm(sources, return)      accept the content-sorted images the owner confirmed
 
 1. The return is archived untouched in returns/<date>-<stem>/original/.
 2. Only PNG images are read from it, by name, as bytes (a zip member is never
@@ -12,7 +13,9 @@
    sheet's heads, a grid of arms, the pieces) and given its proper name. Both go
    into a new returns/<date>-<stem>/extracted/ folder.
 3. Every image gets a row in ledger/received.jsonl (sha256, bytes, size, brief
-   version, where it came from) and is copied into accepted/<id>/.
+   version, where it came from). A named one is copied into accepted/<id>/; a
+   content-sorted one waits, printed for the owner, until confirm() accepts it
+   over the current version (a loose PNG never replaces a file the return names).
 4. It prints found / missing / sorted by content / extra, per character.
 """
 
@@ -211,6 +214,10 @@ def intake(src: Path, sources: Path, cid: str | None = None, date: str | None = 
         else:
             loose.append((inner, base, data))  # decoded again one at a time below
 
+    # A loose PNG is sorted by what it holds, but waits in extracted/ until the
+    # owner confirms the mapping (confirm()): it never takes over an accepted image
+    # by itself, and never stands in for a file the return names.
+    named_here = {(r["id"], r["image"]) for r in taken.values()}
     for inner, base, data in loose:
         rgba, size = _decode(data)
         m = ID_RE.search(inner)
@@ -223,6 +230,9 @@ def intake(src: Path, sources: Path, cid: str | None = None, date: str | None = 
         if image is None:
             extra.append((inner, reason))
             continue
+        if (whose, image) in named_here:
+            extra.append((inner, f"looks like {whose}'s {image}, but the return names that image itself"))
+            continue
         name = f"{whose}_{image}.png"
         k = 2
         dup = False
@@ -231,6 +241,7 @@ def intake(src: Path, sources: Path, cid: str | None = None, date: str | None = 
             k += 1
             dup = True
         take(name, data, size, inner, "content", reason + (" (another file is this image too)" if dup else ""))
+        taken[name]["pending"] = True
         sorted_rows.append((inner, name, reason, dup))
 
     for row in taken.values():
@@ -248,24 +259,39 @@ def intake(src: Path, sources: Path, cid: str | None = None, date: str | None = 
     )
     superseded = []
     for name, row in sorted(taken.items()):
+        if row.get("pending"):
+            continue
         _, old = ledger.accept(sources, row["id"], extracted / name)
         if old:
             superseded.append((name, old))
 
     ids = sorted({r["id"] for r in taken.values()} | ({whose_default} if whose_default else set()))
-    report = {"folder": folder.name, "images": sorted(taken), "extra": extra, "sorted": sorted_rows, "per": {}}
+    report = {
+        "folder": folder.name,
+        "images": sorted(taken),
+        "pending": sorted(n for n, r in taken.items() if r.get("pending")),
+        "extra": extra,
+        "sorted": sorted_rows,
+        "per": {},
+    }
     out(f"return {src.name} -> returns/{folder.name}")
     for i in ids:
         c = character(i)
-        here = sorted({r["image"] for r in taken.values() if r["id"] == i}, key=c["images"].index)
+        mine = [r for r in taken.values() if r["id"] == i]
+        here = sorted({r["image"] for r in mine if not r.get("pending")}, key=c["images"].index)
+        held = sorted({r["image"] for r in mine if r.get("pending")}, key=c["images"].index)
         have = [img for img in c["images"] if ledger.accepted_file(sources, i, img)]
         missing = [img for img in c["images"] if img not in have]
-        report["per"][i] = {"found": here, "missing": missing}
-        out(f"  {i} {c['name']}: found {', '.join(here) or 'nothing'}; still missing {', '.join(missing) or 'nothing'}")
+        report["per"][i] = {"found": here, "waiting": held, "missing": missing}
+        line = f"  {i} {c['name']}: found {', '.join(here) or 'nothing'}"
+        if held:
+            line += f"; waiting for confirm {', '.join(held)}"
+        out(line + f"; still missing {', '.join(missing) or 'nothing'}")
     if sorted_rows:
-        out("  sorted by content (confirm before approving):")
+        out("  sorted by content, NOT accepted until you confirm the mapping:")
         for inner, name, reason, dup in sorted_rows:
             out(f"    {inner} -> {name}  ({reason}){'  DUPLICATE' if dup else ''}")
+        out(f"  then: python -I scripts/build-cast-rigs.py confirm {folder.name} [--file <name> ...]")
     for name, old in superseded:
         out(f"  {name} replaces an earlier copy, kept as {old.relative_to(sources).as_posix()}")
     if extra:
@@ -273,3 +299,58 @@ def intake(src: Path, sources: Path, cid: str | None = None, date: str | None = 
         for inner, why in extra:
             out(f"    {inner}: {why}")
     return report
+
+
+def confirm(sources: Path, ret: str, files: list[str] | None = None, out=print) -> list[dict]:
+    """Accept the content-sorted images of returns/<ret>/ that wait for the owner's
+    confirmation (all of them, or the extracted names in `files`). Each becomes the
+    current file of its image: accepted as -v(N+1) over the highest accepted -vN,
+    so no accepted copy is moved or renamed."""
+    sources = Path(sources)
+    rec = ledger.received_path(sources)
+    rows = ledger.read(rec)
+    done = {r["from"] for r in rows if r.get("kind") == "confirm" and r.get("return") == ret}
+    waiting = [
+        r
+        for r in rows
+        if r.get("kind") == "image" and r.get("return") == ret and r.get("pending") and r["file"] not in done
+    ]
+    if files:
+        unknown = sorted(set(files) - {r["file"] for r in waiting})
+        if unknown:
+            raise SystemExit(f"returns/{ret}: nothing waits under {', '.join(unknown)}")
+        waiting = [r for r in waiting if r["file"] in files]
+    if not waiting:
+        raise SystemExit(f"returns/{ret}: no content-sorted image waits for confirmation")
+    seen: dict = {}
+    for r in waiting:
+        seen.setdefault((r["id"], r["image"]), []).append(r["file"])
+    twice = {k: v for k, v in seen.items() if len(v) > 1}
+    if twice:
+        (cid, image), names = next(iter(twice.items()))
+        raise SystemExit(f"{', '.join(names)} were all sorted as {cid}'s {image}: confirm one with --file")
+    extracted = sources / "returns" / ret / "extracted"
+    accepted = []
+    for r in waiting:
+        src = extracted / r["file"]
+        if not src.exists() or im.sha256_file(src) != r["sha256"]:
+            raise SystemExit(f"returns/{ret}/extracted/{r['file']} changed or is gone; take the return in again")
+        cur = ledger.accepted_file(sources, r["id"], r["image"])
+        v = parse_image_name(cur.name)[2] + 1 if cur else 1
+        name = f"{r['id']}_{r['image']}.png" if v == 1 else f"{r['id']}_{r['image']}-v{v}.png"
+        ledger.accept(sources, r["id"], src, name=name)
+        row = {
+            "kind": "confirm",
+            "return": ret,
+            "from": r["file"],
+            "file": name,
+            "id": r["id"],
+            "image": r["image"],
+            "version": v,
+            "sha256": r["sha256"],
+            "date": ledger.today(),
+        }
+        ledger.append(rec, row)
+        accepted.append(row)
+        out(f"accepted {r['file']} as accepted/{r['id']}/{name}")
+    return accepted

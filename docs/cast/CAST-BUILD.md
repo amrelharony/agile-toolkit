@@ -69,9 +69,12 @@ Every command takes `--sources <dir>` (default `D:\Claude Desktop\Agile_At_Work_
 
 1. **Intake.** `python -I scripts/build-cast-rigs.py intake <zip | folder | png> [--id AAW-NN]`:
    - archives the return untouched in `returns/<date>-<stem>/original/`, and takes a return it has seen before (same sha256) only once;
-   - reads only PNG images from it, as bytes, into a new `returns/<date>-<stem>/extracted/`: names matching `^AAW-(0[1-9]|[12][0-9]|30)_(master|parts|parts2|face|face2|arms)(-v[0-9]+)?\.png$` as they are; other PNGs, whose owner comes from their folder, the zip's name or `--id`, are sorted by content (one figure = master; the face sheet's heads, one silhouette repeated = face or face2; one arm per cell of the arms grid = arms; otherwise parts or parts2 by count) and the mapping is printed for confirmation;
-   - writes `ledger/received.jsonl` and copies each image to `accepted/AAW-NN/` (a changed file under the same name moves to `_old/<date>/`; the highest `-vN` is current);
+   - reads only PNG images from it, as bytes, into a new `returns/<date>-<stem>/extracted/`: names matching `^AAW-(0[1-9]|[12][0-9]|30)_(master|parts|parts2|face|face2|arms)(-v[0-9]+)?\.png$` as they are; other PNGs, whose owner comes from their folder, the zip's name or `--id`, are sorted by content (one figure = master; the face sheet's heads, one silhouette repeated = face or face2; one arm per cell of the arms grid = arms; otherwise parts or parts2 by count) and the mapping is printed for confirmation (a loose PNG never stands in for an image the return names); every read is capped by `intake` in `cast-rig.json`;
+   - writes `ledger/received.jsonl` and copies each named image to `accepted/AAW-NN/` (a changed file under the same name moves to `_old/<date>/`; the highest `-vN` is current);
    - prints found / still missing / sorted by content / extra.
+
+   The content-sorted images wait in `extracted/` until `confirm <returns folder> [--file <name> ...]` accepts them, each as the next `-vN` over the current one, so a sorted file never moves an accepted copy.
+
 2. **Check.** `check <AAW-NN | A..E | all> [--masters] [--file <png>] [--no-sheets] [--strict]` audits the accepted images (C1–C4, and C9 on masters against the private block's colours, read at run time) and every published rig (C16), into `review/<batch>/report.json`. `--masters` checks the masters alone (batch A's come back first) and writes a contact sheet per master on light, dark and checker grounds with the margin and height guides. It exits 1 on a failure; with `--strict` also on a warning or an image not returned yet.
 3. **Candidate.** `candidate <AAW-NN | A..E | all>` builds into `review/<batch>/AAW-NN/` only, in this order:
    1. key-out with despill, and the palette lock (the master onto the private swatches, every later sheet onto the master's own colours; it moves colour only, so it runs here);

@@ -67,12 +67,13 @@ def accepted_file(sources: Path, cid: str, image: str) -> Path | None:
     return best[1] if best else None
 
 
-def accept(sources: Path, cid: str, src: Path) -> tuple[Path, Path | None]:
-    """Copy src into accepted/<id>/ under its name. A different file already under
-    that name moves to accepted/<id>/_old/<date>/ first. (dest, superseded)."""
+def accept(sources: Path, cid: str, src: Path, name: str | None = None) -> tuple[Path, Path | None]:
+    """Copy src into accepted/<id>/ under its name (or `name`). A different file
+    already under that name moves to accepted/<id>/_old/<date>/ first. (dest,
+    superseded)."""
     d = accepted_dir(sources, cid)
     d.mkdir(parents=True, exist_ok=True)
-    dest = d / src.name
+    dest = d / (name or src.name)
     old = None
     if dest.exists():
         if im.sha256_file(dest) == im.sha256_file(src):

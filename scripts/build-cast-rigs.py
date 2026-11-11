@@ -2,6 +2,7 @@
 Build the cast puppet rigs from the art ChatGPT returns (docs/cast/CAST-BUILD.md).
 
     python -I scripts/build-cast-rigs.py intake <zip | folder | png> [--id AAW-NN]
+    python -I scripts/build-cast-rigs.py confirm <returns folder> [--file <name> ...]
     python -I scripts/build-cast-rigs.py check <AAW-NN | A..E | all> [--masters] [--file <png>]
                                                 [--no-sheets] [--strict]
     python -I scripts/build-cast-rigs.py candidate <AAW-NN | A..E | all>
@@ -16,7 +17,10 @@ ledgers and the review output. Nothing private is ever written into the repo:
 
   intake     archives a return untouched under returns/<date>-<stem>/, reads only its
              PNG images (by name, or sorted by what they hold when the names are
-             missing), writes ledger/received.jsonl and copies them to accepted/<id>/
+             missing), writes ledger/received.jsonl and copies the named ones to
+             accepted/<id>/; the sorted ones wait for confirm
+  confirm    accepts the content-sorted images of one return once their printed
+             mapping is right, each over the current version
   check      audits what is accepted (C1-C4, and C9 on masters) and what is published
              (C16), into review/<batch>/; with --masters, only the masters, each with a
              contact sheet on light, dark and checker grounds. Exits 1 on a failure
@@ -191,6 +195,9 @@ def main(argv=None) -> int:
     p = sub.add_parser("intake", help="take a return in")
     p.add_argument("src", help="ChatGPT's zip, a folder of PNGs or one PNG")
     p.add_argument("--id", help="whose loose PNGs these are, when no name or folder says")
+    p = sub.add_parser("confirm", help="accept a return's content-sorted images")
+    p.add_argument("ret", help="the return's folder under returns/ (intake prints it)")
+    p.add_argument("--file", action="append", help="only this extracted name (repeatable)")
     p = sub.add_parser("check", help="audit accepted images and published rigs")
     p.add_argument("target", help="AAW-NN, a batch A..E, or all")
     p.add_argument("--masters", action="store_true", help="only the masters (batch A comes back first)")
@@ -214,6 +221,9 @@ def main(argv=None) -> int:
         return 0
     if args.cmd == "intake":
         intake.intake(Path(args.src), sources, cid=args.id)
+        return 0
+    if args.cmd == "confirm":
+        intake.confirm(sources, args.ret, args.file)
         return 0
     if args.cmd == "check":
         return cmd_check(args, sources)
