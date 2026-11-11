@@ -158,30 +158,41 @@ def lock(rgba: np.ndarray, targets: np.ndarray) -> tuple[np.ndarray, list[dict]]
     `lock_gate_de00`, the move clamped to `lock_clamp_de76`, every pixel moved by a
     soft weight exp(-d²/2σ²) of its distance to the cluster (σ = `lock_sigma`)
     through heads.shift_lab, so the shading inside a colour is kept. Returns the
-    locked image and, per target, the ΔE00 before and after."""
+    locked image and, per target, the ΔE00 before and after, and why a target
+    moved nothing (`why`: far, taken, clamped)."""
     lab, _ = _pixels(rgba)
     targets = np.asarray(targets, float)
     C, share = clusters(lab, targets)
     C = medians(lab, C)
-    pairs = [(j, int(np.argmin([heads.de2000(t, c) for c in C]))) for j, t in enumerate(targets)]
+    D = np.array([[heads.de2000(t, c) for c in C] for t in targets]) if len(targets) else np.zeros((0, len(C)))
     ys, xs = np.nonzero(rgba[..., 3] > 0)
     lab_px = im.lab(rgba[ys, xs, :3].astype(np.float64))
     shift = np.zeros_like(lab_px)
     weight = np.zeros(len(ys))
-    report = []
-    moved = set()
-    for j, k in pairs:
-        before = heads.de2000(targets[j], C[k])
+    report: list = [None] * len(targets)
+    # Each cluster belongs to the target it is nearest; a target takes the nearest
+    # of its own clusters. So a colour the sheet doesn't hold (no legs on a face
+    # sheet) never takes the ink from the ink, and a colour drawn off (the body,
+    # lighter) still comes to its own target, not to a neighbour's cluster.
+    owner = np.argmin(D, axis=0) if len(targets) else np.zeros(len(C), int)
+    for j in range(len(targets)):
+        mine = [k for k in range(len(C)) if owner[k] == j]
+        k = min(mine, key=lambda k: D[j, k]) if mine else int(np.argmin(D[j]))
+        before = float(D[j, k])
         row = {"target": j, "before": round(before, 2), "after": round(before, 2), "moved": False}
-        if before <= TOL["lock_gate_de00"] and k not in moved:
-            delta = targets[j] - C[k]
-            if float(np.linalg.norm(delta)) <= TOL["lock_clamp_de76"]:
-                w = np.exp(-((lab_px - C[k]) ** 2).sum(-1) / (2 * TOL["lock_sigma"] ** 2))
-                shift += w[:, None] * delta
-                weight += w
-                moved.add(k)
-                row["moved"] = True
-        report.append(row)
+        delta = targets[j] - C[k]
+        if not mine:
+            row["why"] = "taken"  # every cluster near it is nearer another target
+        elif before > TOL["lock_gate_de00"]:
+            row["why"] = "far"  # the sheet doesn't hold this colour
+        elif float(np.linalg.norm(delta)) > TOL["lock_clamp_de76"]:
+            row["why"] = "clamped"  # nearer than the gate, but further than a lock may move
+        else:
+            w = np.exp(-((lab_px - C[k]) ** 2).sum(-1) / (2 * TOL["lock_sigma"] ** 2))
+            shift += w[:, None] * delta
+            weight += w
+            row["moved"] = True
+        report[j] = row
     # heads.shift_lab's move, for every cluster at once (a pixel between two
     # clusters takes their weighted mean, never both in full).
     out = rgba.copy()
@@ -192,3 +203,16 @@ def lock(rgba: np.ndarray, targets: np.ndarray) -> tuple[np.ndarray, list[dict]]
     for row, t in zip(report, targets):
         row["after"] = round(min(heads.de2000(t, c) for c in C2), 2)
     return out, report
+
+
+def sheet_targets(master: np.ndarray, seeds: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(the colours every later sheet is locked onto, which of them are named):
+    the cut master's own clusters, seeded at the swatches (or at sampled pixels
+    when there is no private block) plus two far-off ones, keeping each that holds
+    at least a speck's worth of the drawing. A named one grew from a seed, so it
+    is a colour the character is drawn in; the far-off ones may be edge blends."""
+    lab, total = _pixels(master)
+    C, share = clusters(lab, seeds)
+    keep = share >= TOL["speck_px"] ** 2 / max(total, 1)
+    named = np.arange(len(C)) < len(seeds)
+    return C[keep], named[keep]

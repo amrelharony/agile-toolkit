@@ -182,6 +182,36 @@ def c9_master(cutout: np.ndarray, colours: list[tuple[str, str]] | None) -> dict
     return res
 
 
+def c9_sheet(img: str, rows: list[dict], named) -> dict:
+    """C9 on a later sheet from its palette lock's rows (palette.lock): how far
+    each colour was drawn from the master's, and how close the lock brought it.
+
+    A named colour (grown from a swatch) that the lock moved, or was too far from
+    to move, counts by its distance before the lock: past de00_regen the sheet is
+    regenerated, past de00_fix it takes an edit line. (The far-off clusters may be
+    edge blends, so only their agreement after the lock counts.) After the lock
+    the moved colours must agree: median at most lock_median_max, each at most
+    lock_swatch_max. A colour the sheet doesn't hold (far, or its cluster taken by
+    a closer one) stays out of the score."""
+    st, notes = "pass", []
+    for r in rows:
+        if not named[r["target"]] or not (r["moved"] or r.get("why") == "clamped"):
+            continue
+        if r["before"] > TOL["de00_regen"]:
+            st = "fail"
+            notes.append(f"{img}: a colour drawn {r['before']:.1f} dE00 off the master's: regenerate")
+        elif r["before"] > TOL["de00_fix"]:
+            st = worst(st, "warn")
+            notes.append(f"{img}: a colour drawn {r['before']:.1f} dE00 off the master's: an edit line")
+    after = [r["after"] for r in rows if r["moved"]]
+    med = float(np.median(after)) if after else 0.0
+    top = max(after) if after else 0.0
+    if med > TOL["lock_median_max"] or top > TOL["lock_swatch_max"]:
+        st = "fail"
+        notes.append(f"{img}: after the lock, median dE00 {med:.1f}, worst {top:.1f}")
+    return {"median_after": round(med, 2), "max_after": round(top, 2), "status": st, "notes": notes}
+
+
 def check_master(path: Path, c: dict, colours: list[tuple[str, str]] | None) -> tuple[dict, dict]:
     """(report, review images) for one returned master. The images are the cut
     figure (specks dropped) and the speck and extra boxes, for the contact sheet."""

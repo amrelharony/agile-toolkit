@@ -17,7 +17,7 @@ import numpy as np  # noqa: E402
 from test_cast_checks import shifted  # noqa: E402
 
 from cast import imaging as im  # noqa: E402
-from cast import key, palette, parts, swaps  # noqa: E402
+from cast import checks, key, palette, parts, swaps  # noqa: E402
 from cast.spec import TOL  # noqa: E402
 
 
@@ -56,6 +56,38 @@ class Lock(unittest.TestCase):
         out, rep = palette.lock(drawn, targets)
         self.assertFalse(rep[0]["moved"])
         np.testing.assert_array_equal(out[375, 768, :3], blue)
+
+    def test_a_sheet_drawn_far_from_the_master_fails_c9(self):
+        master, _ = key.cut(cs.master_png(), cs.MAGENTA)  # as the candidate has it
+        seeds = np.array([im.lab(np.array(c, float)) for c in (cs.BODY, cs.FLAP, cs.LIMB, cs.GLOVE, cs.INK)])
+        targets, named = palette.sheet_targets(master, seeds)
+        self.assertTrue(named[:5].all())
+        sheet, _ = key.cut(cs.parts_sheet()[0], cs.MAGENTA)
+        _, rows = palette.lock(sheet, targets)
+        self.assertEqual(checks.c9_sheet("parts", rows, named)["status"], "pass")
+        for de in (11, 15):  # past de00_regen: moved by the lock, or too far for it to move
+            off = shifted(cs.BODY, de, axes=((1, 0, 0), (0, 1, 0), (0, 0, -1)))
+            _, rows = palette.lock(recolour(sheet, cs.BODY, off), targets)
+            res = checks.c9_sheet("parts", rows, named)
+            self.assertEqual(res["status"], "fail", (de, rows[0]))
+            self.assertIn("regenerate", " ".join(res["notes"]))
+        off = shifted(cs.BODY, 9, axes=((1, 0, 0), (0, 1, 0)))
+        _, rows = palette.lock(recolour(sheet, cs.BODY, off), targets)
+        self.assertEqual(checks.c9_sheet("parts", rows, named)["status"], "warn")
+
+    def test_a_colour_the_sheet_lacks_never_takes_one_it_holds(self):
+        master, _ = key.cut(cs.master_png(), cs.MAGENTA)
+        # A face sheet has no limbs: the limbs' nearest cluster is the ink, which is
+        # nearer the ink's own target, so it stays the ink's (the limbs listed
+        # first once took it, and the face's outlines went limb grey).
+        seeds = np.array([im.lab(np.array(c, float)) for c in (cs.BODY, cs.FLAP, cs.LIMB, cs.GLOVE, cs.INK)])
+        targets, _ = palette.sheet_targets(master, seeds)
+        face, _ = key.cut(cs.face_sheet(), cs.MAGENTA)
+        out, rows = palette.lock(face, targets)
+        self.assertFalse(rows[2]["moved"])
+        self.assertEqual(rows[2]["why"], "taken")
+        self.assertTrue(rows[4]["moved"])
+        self.assertLess(rows[4]["after"], 1)
 
     def test_clusters_are_deterministic(self):
         lab, _ = palette._pixels(cs.master_rgba())

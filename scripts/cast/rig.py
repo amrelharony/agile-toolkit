@@ -207,10 +207,9 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     if colours:
         master, mlock = lock_to(master, np.array([im.hex_lab(h) for _, h in colours]))
         report["checks"]["C9-lock-master"] = mlock
-    lab, total = palette._pixels(master)
+    lab, _ = palette._pixels(master)
     seeds = np.array([im.hex_lab(h) for _, h in colours]) if colours else lab[:: max(1, len(lab) // 8)][:8]
-    C, share = palette.clusters(lab, seeds)
-    targets = C[share >= TOL["speck_px"] ** 2 / max(total, 1)]
+    targets, named_targets = palette.sheet_targets(master, seeds)
     mfig = mextra["figure"]
     if mfig is None:
         raise SystemExit(f"{cid}: the master has no figure")
@@ -574,16 +573,10 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     # C9 on the later sheets: shifted onto the master's own colours, they agree.
     c9 = {"status": "pass" if locks else "skip", "sheets": {}, "notes": []}
     for img, rows_ in locks.items():
-        after = [r["after"] for r in rows_ if r["moved"]]
-        med = float(np.median(after)) if after else 0.0
-        top = max(after) if after else 0.0
-        # Only the colours the sheet holds move; one it doesn't hold (a face sheet has
-        # no legs) stays out of the score.
-        st = "pass" if med <= TOL["lock_median_max"] and top <= TOL["lock_swatch_max"] else "warn"
-        if st == "warn":
-            c9["notes"].append(f"{img}: after the lock, median dE00 {med:.1f}, worst {top:.1f}")
-        c9["sheets"][img] = {"median_after": round(med, 2), "max_after": round(top, 2), "status": st}
-        c9["status"] = checks.worst(c9["status"], st)
+        res = checks.c9_sheet(img, rows_, named_targets)
+        c9["notes"] += res.pop("notes")
+        c9["sheets"][img] = res
+        c9["status"] = checks.worst(c9["status"], res["status"])
     report["checks"]["C9"] = c9
 
     # Sprites, atlas, manifest.
