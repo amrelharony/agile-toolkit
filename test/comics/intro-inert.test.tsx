@@ -4,6 +4,8 @@
  * those that mount mid-intro too, what was inert before stays so, an owner's
  * own mid-intro word is kept for the end, and focus still goes back to the
  * opener when it ends, in a browser that won't focus anything inside [inert].
+ * An arrival's page is held as soon as the guard's script loads, in
+ * production, and the mounted guard takes that hold over.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -326,6 +328,22 @@ describe("an arrival, held as soon as the guard's script loads", () => {
     expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
     expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
     expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
+  });
+
+  it("keeps the word of an owner that writes after the hold, as the sidebar does on a phone", async () => {
+    const page = arrive();
+    // As served: the sidebar closes its drawer from an effect, after this has held the page.
+    const drawer = screen.getByTestId("drawer");
+    drawer.removeAttribute("inert");
+    const header = page.querySelector("header")!;
+    vi.stubEnv("NODE_ENV", "production");
+    holdOnLoad();
+    expect(drawer).toHaveAttribute("inert");
+    drawer.setAttribute("inert", "");
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(drawer).toHaveAttribute("inert");
+    expect(header).not.toHaveAttribute("inert");
   });
 
   it("keeps that hold when the guard mounts, so the page it made inert is still let go", async () => {

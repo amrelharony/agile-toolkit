@@ -70,11 +70,11 @@ function onChange(hold: Hold, records: MutationRecord[]) {
  * already. Held around another overlay (the app drew the page anew, as React
  * does after a hydration error), it is let go and held again around this one.
  */
-function hold(kind: IntroKind) {
+function holdPage(kind: IntroKind) {
   const overlay = document.querySelector<HTMLElement>(`[${OVERLAY_ATTR}="${kind}"]`);
   if (held?.kind === kind && overlay && held.chain.has(overlay)) return;
   if (!overlay || getComputedStyle(overlay).display === "none") return;
-  release();
+  releasePage();
   const parents: Element[] = [];
   const chain = new Set<Element>([overlay]);
   for (let node: Element = overlay; node !== document.body; ) {
@@ -98,7 +98,7 @@ function hold(kind: IntroKind) {
 }
 
 /** Let the page go: each sibling as its owner last asked. */
-function release() {
+function releasePage() {
   const hold = held;
   if (!hold) return;
   onChange(hold, hold.watch.takeRecords());
@@ -109,18 +109,19 @@ function release() {
   });
 }
 
-function releaseIf(kind: IntroKind) {
-  if (held?.kind === kind) release();
+function releasePageOf(kind: IntroKind) {
+  if (held?.kind === kind) releasePage();
 }
 
 /**
  * An arrival's intro is already playing when this file first runs (the head
  * script started it at the first paint), so its page is held from here,
  * before the app mounts. Held from inside the mount instead, every inert
- * write sat under the app's whole tree of effects, which a browser recording
- * a trace (Lighthouse) captures a stack for at each write: on /comics that
- * was about 20 ms of the mount's longest task. The restyle the writes cause
- * comes before the mount too, not in it. IntroInert finds the page held and
+ * write ran under the app's whole tree of effects, over 100 calls deep, and
+ * a browser recording a trace (as Lighthouse does) copies that whole stack at
+ * every write: on /comics that came to about 20 ms of the mount's longest
+ * task. From here the stack is a few calls deep, and the restyle the writes
+ * cause comes before the mount, not in it. IntroInert finds the page held and
  * keeps the hold. If the overlay isn't in the page yet, IntroInert holds it
  * when it mounts, as it does for a replay.
  *
@@ -131,10 +132,10 @@ function releaseIf(kind: IntroKind) {
 export function holdOnLoad() {
   if (typeof document === "undefined" || process.env.NODE_ENV !== "production") return;
   // If the app never mounts, the end still lets the page go.
-  document.addEventListener(INTRO_END_EVENT, release);
+  document.addEventListener(INTRO_END_EVENT, releasePage);
   const kind = document.documentElement.getAttribute(INTRO_ATTR);
   const known = INTRO_KINDS.find((k) => k === kind);
-  if (known) hold(known);
+  if (known) holdPage(known);
 }
 
 holdOnLoad();
@@ -173,14 +174,14 @@ export function IntroInert({ kind }: { kind: IntroKind }) {
   useEffect(() => {
     const root = document.documentElement;
     const playing = () => root.getAttribute(INTRO_ATTR) === kind;
-    const sync = () => (playing() ? hold(kind) : releaseIf(kind));
-    const onEnd = () => release();
+    const sync = () => (playing() ? holdPage(kind) : releasePageOf(kind));
+    const onEnd = () => releasePage();
 
     const motion = window.matchMedia?.(REDUCED_MOTION);
     const onMotion = () => {
       if (!motion?.matches || !playing()) return;
       stopIntro();
-      releaseIf(kind);
+      releasePageOf(kind);
     };
 
     sync();
@@ -192,7 +193,7 @@ export function IntroInert({ kind }: { kind: IntroKind }) {
       observer.disconnect();
       document.removeEventListener(INTRO_END_EVENT, onEnd);
       motion?.removeEventListener?.("change", onMotion);
-      releaseIf(kind);
+      releasePageOf(kind);
     };
   }, [kind]);
 
