@@ -3,8 +3,8 @@
  * most-seen, at least 60% in view, three on a phone and six wider, none while
  * it's quiet, an intro plays, presenting, in a hidden tab or under a real
  * dialog), the look on springs, taps and the reader's guess answered with
- * added animations and swaps, the cooldown and tap limit, and a dispose that
- * leaves nothing behind.
+ * added animations and swaps, the cooldown and tap limit, a dispose that
+ * leaves nothing behind, and lifeEnv's reading of the page.
  */
 
 import { render } from "@testing-library/react";
@@ -13,9 +13,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CastFigure } from "@/components/cast/cast-figure";
 import { CLIPS, LIMITS, PACE } from "@/lib/cast/clips";
 import type { RigManifest } from "@/lib/cast/rig-types";
-import { REACT_EVENT, isCastDialogOpen, startLife, type LifeEnv } from "@/lib/cast/life";
+import { REACT_EVENT, isCastDialogOpen, lifeEnv, startLife, type LifeEnv } from "@/lib/cast/life";
 import { EASE } from "@/lib/motion/tokens";
 import { ARMLESS_PUPPET, TEST_PUPPET } from "./fixtures/rig-fixture";
+
+const quiet = vi.hoisted(() => ({
+  isQuietNow: vi.fn<(path: string | null) => boolean>(() => true),
+}));
+vi.mock("@/lib/notify/quiet-now", () => quiet);
 
 class FakeIO {
   static all: FakeIO[] = [];
@@ -265,6 +270,69 @@ describe("a real dialog", () => {
     expect(isCastDialogOpen()).toBe(false);
     document.body.insertAdjacentHTML("beforeend", `<div role="dialog" aria-modal="true"></div>`);
     expect(isCastDialogOpen()).toBe(true);
+  });
+});
+
+describe("lifeEnv", () => {
+  const html = document.documentElement;
+  const width = window.innerWidth;
+  afterEach(() => {
+    delete html.dataset.presenting;
+    delete html.dataset.intro;
+    Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    quiet.isQuietNow.mockClear();
+  });
+
+  it("reads presenting, an intro and the page's dialogs from the DOM", () => {
+    const page = lifeEnv();
+    expect([page.presenting(), page.introOnStage()]).toEqual([false, false]);
+    html.dataset.presenting = "false";
+    expect(page.presenting()).toBe(false);
+    html.dataset.presenting = "true";
+    html.dataset.intro = "book";
+    expect([page.presenting(), page.introOnStage()]).toEqual([true, true]);
+
+    document.body.innerHTML = `<div data-intro-overlay="book" role="dialog" aria-modal="true"></div>`;
+    expect(page.dialogOpen()).toBe(false);
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<div role="alertdialog" data-state="open"></div>`
+    );
+    expect(page.dialogOpen()).toBe(true);
+  });
+
+  it("asks the quiet state about the route the page names now", () => {
+    let route = "/comics";
+    const page = lifeEnv(() => route);
+    expect(page.quiet()).toBe(true);
+    route = "/retro";
+    page.quiet();
+    expect(quiet.isQuietNow.mock.calls.map((c) => c[0])).toEqual(["/comics", "/retro"]);
+    quiet.isQuietNow.mockReturnValueOnce(false);
+    expect(page.quiet()).toBe(false);
+    lifeEnv().quiet();
+    expect(quiet.isQuietNow).toHaveBeenLastCalledWith(null);
+  });
+
+  it("reads the tab, the width, the motion setting, the pointer and the clock", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: fine)" }));
+    const page = lifeEnv();
+    Object.defineProperty(window, "innerWidth", { value: PACE.narrowPx - 1, configurable: true });
+    expect(page.narrow()).toBe(true);
+    Object.defineProperty(window, "innerWidth", { value: PACE.narrowPx, configurable: true });
+    expect(page.narrow()).toBe(false);
+    expect(page.hidden()).toBe(false);
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    expect(page.hidden()).toBe(true);
+    expect([page.reducedMotion(), page.finePointer()]).toEqual([false, true]);
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(prefers-reduced-motion: reduce)",
+    }));
+    expect([page.reducedMotion(), page.finePointer()]).toEqual([true, false]);
+    const clock = vi.spyOn(performance, "now").mockReturnValue(1234.5);
+    expect(page.now()).toBe(1234.5);
+    clock.mockRestore();
   });
 });
 
