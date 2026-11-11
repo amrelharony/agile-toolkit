@@ -37,6 +37,7 @@ Every threshold comes from docs/cast/cast-rig.json. Needs Pillow and numpy only.
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -47,6 +48,15 @@ from cast import checks, intake, ledger, palette, publish, review, rig  # noqa: 
 from cast.spec import DEFAULT_SOURCES, TOL, batch_of, character, targets  # noqa: E402
 
 MARK = {"pass": "ok  ", "warn": "WARN", "fail": "FAIL", "skip": "--  ", "missing": "....", "pending": "...."}
+
+
+def owner_at_terminal(cid: str, what: str, sha: str) -> bool:
+    """The owner's own confirmation: typed at a terminal, never by an agent's
+    session (CLAUDECODE set) and never from a pipe."""
+    if os.environ.get("CLAUDECODE") or not sys.stdin.isatty():
+        raise SystemExit("--by owner is typed by the owner at a terminal; an agent records --by opus")
+    want = f"{cid} {sha[:8]}"
+    return input(f"Type {want} to approve {cid} {what} as the owner: ").strip() == want
 
 
 def colours_for(sources: Path, cid: str):
@@ -232,7 +242,14 @@ def main(argv=None) -> int:
     if args.cmd == "approve":
         character(args.target)
         publish.approve(
-            args.target, sources, args.by, args.words, image=args.image, rig_=args.rig, review_root=args.review
+            args.target,
+            sources,
+            args.by,
+            args.words,
+            image=args.image,
+            rig_=args.rig,
+            review_root=args.review,
+            confirm=owner_at_terminal,
         )
         return 0
     if args.cmd == "build":

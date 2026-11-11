@@ -4,12 +4,14 @@ way build refuses. Everything is written to temporary folders: the repo's
 public/cast, rigs.generated.ts and cast-rig.json are never touched."""
 
 import json
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
@@ -27,6 +29,7 @@ from cast import imaging as im  # noqa: E402
 from cast.spec import BUDGETS, TOL  # noqa: E402
 
 CID = "AAW-25"
+OWNER_TYPED = lambda cid, what, sha: True  # noqa: E731 - the owner typing it, as the CLI asks
 COLOURS = [("Body", cs.BODY), ("Flap", cs.FLAP), ("Limbs", cs.LIMB), ("Gloves", cs.GLOVE), ("Ink", cs.INK)]
 
 
@@ -57,9 +60,10 @@ class Pipeline(unittest.TestCase):
         shutil.copy2(spec.SPEC_PATH, cls.spec_path)
 
     def approve_all(self, by="owner"):
+        kw = {"spec_path": self.spec_path, "out": lambda *a: None, "confirm": OWNER_TYPED if by == "owner" else None}
         for img in spec.character(CID)["images"]:
-            publish.approve(CID, self.src, by, f"approve {CID} {img}", image=img, spec_path=self.spec_path, out=lambda *a: None)
-        publish.approve(CID, self.src, by, f"approve {CID} rig", rig_=True, spec_path=self.spec_path, out=lambda *a: None)
+            publish.approve(CID, self.src, by, f"approve {CID} {img}", image=img, **kw)
+        publish.approve(CID, self.src, by, f"approve {CID} rig", rig_=True, **kw)
 
     def test_1_the_candidate_passes_its_checks(self):
         r = self.report
@@ -130,7 +134,34 @@ class Pipeline(unittest.TestCase):
         with self.assertRaises(SystemExit):
             publish.approve("AAW-01", self.src, "opus", "looks fine", image="master", spec_path=self.spec_path)
         with self.assertRaises(SystemExit):
-            publish.approve(CID, self.src, "owner", "  ", image="master", spec_path=self.spec_path)
+            publish.approve(CID, self.src, "owner", "  ", image="master", spec_path=self.spec_path, confirm=OWNER_TYPED)
+
+    def test_3b_only_the_owner_at_a_terminal_approves_as_the_owner(self):
+        quiet = {"spec_path": self.spec_path, "out": lambda *a: None}
+        # A flag alone is no owner's word, and neither is a confirmation not given.
+        with self.assertRaises(SystemExit) as e:
+            publish.approve(CID, self.src, "owner", "looks right", image="master", **quiet)
+        self.assertIn("at a terminal", str(e.exception))
+        with self.assertRaises(SystemExit):
+            publish.approve(CID, self.src, "owner", "looks right", image="master", confirm=lambda *a: False, **quiet)
+        self.assertEqual(ledger.approvals_for(self.src, CID, "master"), [])
+        # The CLI refuses --by owner from an agent's session or a pipe.
+        cli = HERE.parent / "build-cast-rigs.py"
+        res = subprocess.run(
+            [sys.executable, "-I", str(cli), "--sources", str(self.src), "approve", CID, "--image", "master", "--by", "owner", "--words", "yes"],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            env={**os.environ, "CLAUDECODE": "1"},
+            timeout=300,
+        )
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("at a terminal", res.stderr + res.stdout)
+        # A ledger row that only says by: owner is not the owner's approval.
+        sha = im.sha256_file(ledger.accepted_file(self.src, CID, "master"))
+        ledger.append(ledger.approvals_path(self.src), {"id": CID, "image": "master", "sha256": sha, "by": "owner", "words": "x"})
+        self.assertIsNone(publish.owner_approval(self.src, CID, "master", sha))
+        self.assertIsNotNone(ledger.approval_of(self.src, CID, "master", sha))
 
     def test_4_approved_it_builds_and_passes_c16(self):
         self.approve_all("opus")

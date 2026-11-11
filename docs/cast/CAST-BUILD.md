@@ -86,7 +86,7 @@ Every command takes `--sources <dir>` (default `D:\Claude Desktop\Agile_At_Work_
    7. pin the arm swaps;
    8. compose;
    9. run checks C1–C11 (C12–C15 are the reviewers' and the owner's).
-4. **Approve.** `approve <AAW-NN> --image <img> | --rig --by owner|opus --words "…"` appends to `ledger/approvals.jsonl` and mirrors the sha into `cast-rig.json` (each character's `approved`). Every rig needs the owner's approval, and Amr refuses anything else.
+4. **Approve.** `approve <AAW-NN> --image <img> | --rig --by owner|opus --words "…"` appends to `ledger/approvals.jsonl` and mirrors the sha into `cast-rig.json` (each character's `approved`). Every rig needs the owner's approval, and Amr refuses anything else. `--by owner` is the owner at a terminal: it asks for the id and the sha's first 8 characters to be typed, and refuses a pipe or an agent's session, which record `--by opus`.
 5. **Build.** `build <AAW-NN | A..E | all>` refuses unless every source sha equals its approval and the owner approved the candidate rig. It then writes the atlases and `rigs.generated.ts` and runs C16.
 
 ## Checks (thresholds are keys in `cast-rig.json` → `tolerances`)

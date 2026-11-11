@@ -56,7 +56,11 @@ def approve(
     spec_path: Path = SPEC_PATH,
     review_root: Path | None = None,
     out=print,
+    confirm=None,
 ) -> dict:
+    """Record one approval. The owner's word is never a flag: `confirm(cid, what,
+    sha)` must come back True, which the CLI only does when the owner types the
+    id and the sha's first 8 at a terminal (an agent records --by opus)."""
     c = character(cid)
     if by not in BY:
         raise SystemExit(f"--by must be one of {', '.join(BY)}")
@@ -85,11 +89,27 @@ def approve(
         if p is None:
             raise SystemExit(f"{cid}: no accepted {image}")
         what, sha, name = image, im.sha256_file(p), p.name
+    if by == "owner":
+        if confirm is None:
+            raise SystemExit("--by owner is typed by the owner at a terminal; an agent records --by opus")
+        if not confirm(cid, what, sha):
+            raise SystemExit(f"{cid} {what}: not confirmed; nothing recorded")
     row = {"id": cid, "image": what, "file": name, "sha256": sha, "by": by, "words": words.strip(), "date": ledger.now()}
+    if by == "owner":
+        row["tty"] = True
     ledger.append(ledger.approvals_path(sources), row)
     mirror(spec_path, cid, what, sha)
     out(f"approved {cid} {what} {sha[:12]} by {by}")
     return row
+
+
+def owner_approval(sources: Path, cid: str, image: str, sha: str) -> dict | None:
+    """The owner's approval of exactly this sha, as the owner confirmed it at a
+    terminal (a row that only says by: owner is not one)."""
+    for r in reversed(ledger.approvals_for(sources, cid, image)):
+        if r.get("sha256") == sha and r.get("by") == "owner" and r.get("tty") is True:
+            return r
+    return None
 
 
 def refusals(cid: str, sources: Path, review_root: Path | None = None) -> tuple[list[str], dict | None]:
@@ -105,7 +125,7 @@ def refusals(cid: str, sources: Path, review_root: Path | None = None) -> tuple[
         sha = im.sha256_file(p)
         if ledger.approval_of(sources, cid, img, sha) is None:
             why.append(f"{img}: {p.name} ({sha[:12]}) has no approval")
-        elif cid == AMR and ledger.approval_of(sources, cid, img, sha, by="owner") is None:
+        elif cid == AMR and owner_approval(sources, cid, img, sha) is None:
             why.append(f"{img}: {cid} needs the owner's approval")
         if cand and cand["sources"].get(img) != sha:
             why.append(f"{img}: changed since the candidate")
@@ -117,7 +137,7 @@ def refusals(cid: str, sources: Path, review_root: Path | None = None) -> tuple[
         why.append("the candidate's atlas changed or is gone")
     if rig.rig_sha(cand) != cand.get("rig_sha256"):
         why.append("candidate.json was changed after it was built")
-    elif ledger.approval_of(sources, cid, "rig", cand["rig_sha256"], by="owner") is None:
+    elif owner_approval(sources, cid, "rig", cand["rig_sha256"]) is None:
         why.append(f"rig {cand['rig_sha256'][:12]} has no owner approval")
     return why, cand
 
