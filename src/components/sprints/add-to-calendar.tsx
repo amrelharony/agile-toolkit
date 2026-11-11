@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/motion/transition-link";
 import { CalendarPlus, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFlash } from "@/hooks/use-flash";
