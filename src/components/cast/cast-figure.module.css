@@ -1,0 +1,142 @@
+/*
+ * The cast puppets (cast-figure.tsx). Every rule sits under .figure, since
+ * CSS Modules runs in pure mode here.
+ *
+ * - Parts, slots and choices are boxes placed in percent by the markup.
+ * - Swaps: one choice per slot is visible, the one with data-on.
+ * - Art: --cast-x1 from the root, upgraded to the 2x atlas where image-set()
+ *   works. A deferred figure paints none until it is near.
+ * - Idle (breathe, blink) only on an awake figure (life.ts sets the
+ *   attribute) and only with motion allowed; paused under an open dialog
+ *   (never the intro overlay, which is always in the page) and while an intro
+ *   plays. Keyframes move only rotate, translate, scale and visibility.
+ * - High contrast drops the drawn extras (data-look); print leaves the
+ *   figures out.
+ */
+
+.figure {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  vertical-align: bottom;
+  max-height: 240px;
+  isolation: isolate;
+  contain: layout style;
+  pointer-events: none;
+}
+
+.figure[data-tap] {
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.figure [data-part],
+.figure [data-slot],
+.figure [data-choice],
+.figure [data-sprite],
+.figure [data-ground] {
+  position: absolute;
+  display: block;
+}
+
+.figure [data-sprite] {
+  background-image: var(--cast-x1);
+  background-repeat: no-repeat;
+}
+
+/* A part's own art fills its box; a choice or a pupil has a box of its own. */
+.figure [data-part] > [data-sprite] {
+  inset: 0;
+}
+
+@supports (background-image: image-set("x.webp" 1x)) {
+  .figure [data-sprite] {
+    background-image: image-set(var(--cast-x1) 1x, var(--cast-x2) 2x);
+  }
+}
+
+.figure[data-defer]:not([data-near]) [data-sprite] {
+  background-image: none;
+}
+
+.figure [data-choice] {
+  visibility: hidden;
+}
+
+.figure [data-choice][data-on] {
+  visibility: visible;
+}
+
+/* A flat, hard-edged shadow under the feet, centred on the floor line. */
+.figure [data-ground] {
+  left: 14%;
+  width: 72%;
+  height: 5%;
+  z-index: -1;
+  translate: 0 -50%;
+  border-radius: 50%;
+  background-color: var(--shadow-color);
+  opacity: 0.18;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* One breath: life sets each figure's phase inline (animation-delay). */
+  .figure[data-cast-awake] [data-socket="body"] {
+    animation: cast-breathe 4s ease-in-out infinite;
+  }
+
+  /* The lids show for 0.1 s of every 5.4 s, only while the eyes are at rest. */
+  .figure[data-cast-awake] [data-slot="eyes"]:has(> [data-rest][data-on]) > [data-choice="closed"] {
+    animation: cast-blink 5.4s step-end infinite;
+  }
+
+  @keyframes cast-breathe {
+    0%,
+    100% {
+      scale: 1;
+    }
+    50% {
+      scale: 1 1.012;
+    }
+  }
+
+  @keyframes cast-blink {
+    0% {
+      visibility: hidden;
+    }
+    98.15%,
+    100% {
+      visibility: visible;
+    }
+  }
+}
+
+:global(html[data-intro]) .figure[data-cast-awake] *,
+:global(body):has(
+    [aria-modal="true"]:not([data-intro-overlay]),
+    [role="dialog"][data-state="open"]:not([data-intro-overlay]),
+    dialog[open]
+  )
+  .figure[data-cast-awake]
+  * {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .figure,
+  .figure * {
+    animation: none !important;
+  }
+}
+
+:global(.hc) .figure [data-look],
+:global([data-theme="hc"]) .figure [data-look] {
+  display: none !important;
+}
+
+@media print {
+  .figure {
+    display: none !important;
+  }
+}
