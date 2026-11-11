@@ -17,14 +17,52 @@ import {
   clipFor,
   turnLimit,
   type Clip,
+  type Ease,
   type Layer,
   type Track,
 } from "@/lib/cast/clips";
+import { EASE, EASE_FALLBACK } from "@/lib/motion/tokens";
 
 const clips = Object.values(CLIPS);
 const layersOf = (clip: Clip): Layer[] =>
   [clip, clip.first, clip.armless].filter((l): l is Layer => Boolean(l));
 const tracksOf = (clip: Clip): Track[] => layersOf(clip).flatMap((l) => l.tracks);
+
+/** The highest point of a linear() list. */
+const linearTop = (ease: string) => Math.max(...ease.slice(7, -1).split(",").map(Number));
+/** The highest point of a cubic-bezier() easing, sampled. */
+function bezierTop(ease: string): number {
+  const [, y1, , y2] = ease.match(/[\d.]+/g)!.map(Number);
+  let top = 1;
+  for (let i = 0; i <= 1000; i++) {
+    const t = i / 1000;
+    top = Math.max(top, 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t * t * y2 + t ** 3);
+  }
+  return top;
+}
+
+/** How far past its key each ease carries a part, as a share of the step (life.ts easing()). */
+const OVER: Record<Ease, number> = {
+  settle: Math.max(linearTop(EASE.settle), bezierTop(EASE_FALLBACK.settle)),
+  pop: Math.max(linearTop(EASE.pop), bezierTop(EASE_FALLBACK.pop)),
+  calm: 1,
+  sine: 1,
+};
+
+/**
+ * The furthest a track takes `prop` from rest, either way. Each keyframe eases
+ * from one key `a` to the next `b`, and the spring carries it to
+ * b + (b - a) * (overshoot - 1) before it lands.
+ */
+function peak(track: Track, prop: "rotate" | "x" | "y"): number {
+  let most = 0;
+  for (let i = 1; i < track.keys.length; i++) {
+    const a = track.keys[i - 1][prop] ?? 0;
+    const b = track.keys[i][prop] ?? 0;
+    most = Math.max(most, Math.abs(a), Math.abs(b), Math.abs(b + (b - a) * (OVER[track.ease] - 1)));
+  }
+  return most;
+}
 
 describe("the limits", () => {
   it("are the approved numbers", () => {
@@ -105,28 +143,44 @@ describe("every clip", () => {
     }
   });
 
-  it("turns each socket within its range, and rises no more than LIMITS.risePx", () => {
+  it("turns each socket within its range, and rises no more than LIMITS.risePx, at the peak", () => {
     for (const clip of clips) {
       for (const track of tracksOf(clip)) {
+        for (const prop of ["rotate", "x", "y"] as const) {
+          const limit =
+            track.socket === "pupils"
+              ? 1 // a share of the rig's own pupil travel
+              : prop === "rotate"
+                ? turnLimit(track.socket)
+                : LIMITS.risePx;
+          expect(peak(track, prop), `${clip.id} ${track.socket} ${prop}`).toBeLessThanOrEqual(
+            limit
+          );
+        }
         for (const k of track.keys) {
-          if (track.socket !== "pupils") {
-            expect(Math.abs(k.rotate ?? 0), `${clip.id} ${track.socket}`).toBeLessThanOrEqual(
-              turnLimit(track.socket)
-            );
-            expect(Math.abs(k.x ?? 0), clip.id).toBeLessThanOrEqual(LIMITS.risePx);
-            expect(Math.abs(k.y ?? 0), clip.id).toBeLessThanOrEqual(LIMITS.risePx);
-          } else {
-            // A share of the rig's own pupil travel.
-            expect(Math.abs(k.x ?? 0)).toBeLessThanOrEqual(1);
-            expect(Math.abs(k.y ?? 0)).toBeLessThanOrEqual(1);
-            expect(k.rotate).toBeUndefined();
-          }
+          if (track.socket === "pupils") expect(k.rotate).toBeUndefined();
           for (const s of [k.sx ?? 1, k.sy ?? 1]) {
             expect(Math.abs(s - 1), clip.id).toBeLessThanOrEqual(0.1);
           }
         }
       }
     }
+  });
+
+  it("measures the peak with the springs' real overshoot", () => {
+    // The settle spring passes its target by about 8% and pop by about 16%.
+    expect(OVER.settle).toBeGreaterThan(1.07);
+    expect(OVER.settle).toBeLessThan(1.1);
+    expect(OVER.pop).toBeGreaterThan(1.15);
+    expect(OVER.pop).toBeLessThan(1.18);
+    // A swing through rest goes furthest: 8 deg to -8 deg lands past -9 deg.
+    const swing: Track = {
+      socket: "head",
+      ease: "settle",
+      keys: [{ t: 0 }, { t: 0.3, rotate: 8 }, { t: 0.6, rotate: -8 }, { t: 1 }],
+    };
+    expect(peak(swing, "rotate")).toBeCloseTo(8 + 16 * (OVER.settle - 1), 6);
+    expect(peak({ ...swing, ease: "calm" }, "rotate")).toBe(8);
   });
 
   it("moves at most ten parts at once", () => {
@@ -180,7 +234,10 @@ describe("the guess reactions", () => {
     // The first speaker hops with both arms up on a match.
     const first = CLIPS["guess.matched"].first!;
     expect(first.swaps!.map((s) => s.key)).toEqual(["arm-r.up", "arm-l.up"]);
-    expect(Math.min(...first.tracks[0].keys.map((k) => k.y ?? 0))).toBe(-LIMITS.risePx);
+    // A hop near the full rise, the spring's overshoot included.
+    const hop = peak(first.tracks[0], "y");
+    expect(hop).toBeLessThanOrEqual(LIMITS.risePx);
+    expect(hop).toBeGreaterThan(LIMITS.risePx * 0.9);
     // An armless rig tilts its head instead of shrugging.
     expect(CLIPS["guess.skipped"].armless!.tracks[0].socket).toBe("head");
   });

@@ -5,9 +5,10 @@
  * added over the idle (composite "add").
  *
  * Every clip starts and ends at rest, so a cut-short clip never leaves a part
- * turned. Code turns joints only a little (LIMITS, turnLimit): a big gesture
- * is a drawn whole-arm choice, swapped in at the shoulder, never a limb bent
- * into place (docs/cast/CAST-BUILD.md, BOOK-ANATOMY-001).
+ * turned. Code turns joints only a little (LIMITS, turnLimit), counted at the
+ * peak, where the settle or pop spring carries a part past its key: a big
+ * gesture is a drawn whole-arm choice, swapped in at the shoulder, never a limb
+ * bent into place (docs/cast/CAST-BUILD.md, BOOK-ANATOMY-001).
  *
  * The guess reactions answer the reader's pick the way the guess itself is
  * written (lib/comics/guess.ts): there is no wrong answer, so nothing is sad
@@ -207,7 +208,7 @@ export const CLIPS: Readonly<Record<ClipId, Clip>> = {
       { key: "mouth.smile", from: 0, to: 0.85 },
     ],
     first: {
-      tracks: [track("body", "pop", { t: 0.3, y: -12 }, { t: 0.6 })],
+      tracks: [track("body", "pop", { t: 0.3, y: -10 }, { t: 0.6 })],
       swaps: both("up", 0.05, 0.8),
     },
   },
@@ -237,7 +238,7 @@ export const CLIPS: Readonly<Record<ClipId, Clip>> = {
     id: "sig.tail",
     ms: 800,
     tracks: [
-      track("tail", "pop", { t: 0.2, rotate: 12 }, { t: 0.45, rotate: -12 }, { t: 0.7, rotate: 8 }),
+      track("tail", "pop", { t: 0.2, rotate: 10 }, { t: 0.45, rotate: -10 }, { t: 0.7, rotate: 6 }),
     ],
   },
   "sig.ears": {
@@ -252,14 +253,14 @@ export const CLIPS: Readonly<Record<ClipId, Clip>> = {
     id: "sig.hop",
     ms: 600,
     tracks: [
-      track("body", "pop", { t: 0.15, sy: 0.97 }, { t: 0.45, y: -12 }, { t: 0.8, sy: 0.98 }),
+      track("body", "pop", { t: 0.15, sy: 0.97 }, { t: 0.45, y: -10 }, { t: 0.8, sy: 0.98 }),
     ],
   },
   "sig.stomp": {
     id: "sig.stomp",
     ms: 600,
     tracks: [
-      track("leg-r", "settle", { t: 0.3, rotate: -10 }, { t: 0.55 }),
+      track("leg-r", "settle", { t: 0.3, rotate: -9 }, { t: 0.55 }),
       track("body", "settle", { t: 0.55, y: 2 }, { t: 0.7 }),
     ],
   },
@@ -312,12 +313,12 @@ export const CLIPS: Readonly<Record<ClipId, Clip>> = {
   "sig.swivel": {
     id: "sig.swivel",
     ms: 900,
-    tracks: [track("head", "settle", { t: 0.25, rotate: 10 }, { t: 0.6, rotate: -10 })],
+    tracks: [track("head", "settle", { t: 0.25, rotate: 8 }, { t: 0.6, rotate: -8 })],
   },
   "sig.snap": {
     id: "sig.snap",
     ms: 500,
-    tracks: [track("head", "pop", { t: 0.2, rotate: -9 })],
+    tracks: [track("head", "pop", { t: 0.2, rotate: -8 })],
   },
   "sig.quills": {
     id: "sig.quills",
@@ -362,12 +363,12 @@ export const CLIPS: Readonly<Record<ClipId, Clip>> = {
   "sig.flap": {
     id: "sig.flap",
     ms: 700,
-    tracks: [track("flap", "pop", { t: 0.3, rotate: -18 }, { t: 0.6, rotate: 4 })],
+    tracks: [track("flap", "pop", { t: 0.3, rotate: -16 }, { t: 0.6, rotate: 4 })],
   },
   "sig.eyes": {
     id: "sig.eyes",
     ms: 900,
-    tracks: [track("pupils", "settle", { t: 0.25, x: -1 }, { t: 0.6, x: 1 })],
+    tracks: [track("pupils", "settle", { t: 0.25, x: -0.85 }, { t: 0.6, x: 0.85 })],
   },
 };
 
