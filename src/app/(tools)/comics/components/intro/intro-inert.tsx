@@ -69,11 +69,15 @@ function onChange(hold: Hold, records: MutationRecord[]) {
  * Make the page around `kind`'s overlay inert, if it is shown and not held
  * already. Held around another overlay (the app drew the page anew, as React
  * does after a hydration error), it is let go and held again around this one.
+ *
+ * `shown` is for a caller that knows the overlay is shown, so the browser
+ * isn't asked: asking makes it work out the style of the whole page there
+ * and then, before the writes dirty it again.
  */
-function holdPage(kind: IntroKind) {
+function holdPage(kind: IntroKind, shown = false) {
   const overlay = document.querySelector<HTMLElement>(`[${OVERLAY_ATTR}="${kind}"]`);
   if (held?.kind === kind && overlay && held.chain.has(overlay)) return;
-  if (!overlay || getComputedStyle(overlay).display === "none") return;
+  if (!overlay || (!shown && getComputedStyle(overlay).display === "none")) return;
   releasePage();
   const parents: Element[] = [];
   const chain = new Set<Element>([overlay]);
@@ -125,6 +129,11 @@ function releasePageOf(kind: IntroKind) {
  * keeps the hold. If the overlay isn't in the page yet, IntroInert holds it
  * when it mounts, as it does for a replay.
  *
+ * The overlay is taken as shown: the head script has only just put the
+ * attribute on <html>, having checked reduced motion itself, and only reduced
+ * motion or printing hides a playing overlay (globals.css). Should motion be
+ * turned down in between, IntroInert ends the intro as it mounts.
+ *
  * Production only: React's development build reports any attribute it didn't
  * render on an element it hydrates, so in development the page is held when
  * IntroInert mounts. Exported for its test; nothing else calls it.
@@ -135,7 +144,7 @@ export function holdOnLoad() {
   document.addEventListener(INTRO_END_EVENT, releasePage);
   const kind = document.documentElement.getAttribute(INTRO_ATTR);
   const known = INTRO_KINDS.find((k) => k === kind);
-  if (known) holdPage(known);
+  if (known) holdPage(known, true);
 }
 
 holdOnLoad();
@@ -164,7 +173,8 @@ holdOnLoad();
  * is noticed.
  *
  * If motion is turned down mid-intro, globals.css hides the overlay; the intro
- * is then ended here, so the page isn't left inert under nothing.
+ * is then ended here, so the page isn't left inert under nothing. The same if
+ * it was turned down before this mounted.
  *
  * An arrival's page is usually held already when this mounts (holdOnLoad).
  *
@@ -189,6 +199,9 @@ export function IntroInert({ kind }: { kind: IntroKind }) {
     observer.observe(root, { attributes: true, attributeFilter: [INTRO_ATTR] });
     document.addEventListener(INTRO_END_EVENT, onEnd);
     motion?.addEventListener?.("change", onMotion);
+    // Turned down before this mounted, after the head script started the
+    // intro: the overlay is hidden already, so the intro ends now.
+    onMotion();
     return () => {
       observer.disconnect();
       document.removeEventListener(INTRO_END_EVENT, onEnd);

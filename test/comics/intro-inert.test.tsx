@@ -315,7 +315,11 @@ describe("an arrival, held as soon as the guard's script loads", () => {
   it("holds the page in production before the app mounts, and lets it go at the end", () => {
     arrive();
     vi.stubEnv("NODE_ENV", "production");
+    // The head script has just started the intro, so the browser isn't asked
+    // for the page's style, which it would have to work out there and then.
+    const style = vi.spyOn(window, "getComputedStyle");
     holdOnLoad();
+    expect(style).not.toHaveBeenCalled();
     expect(screen.getByTestId("header")).toHaveAttribute("inert");
     expect(screen.getByTestId("gallery")).toHaveAttribute("inert");
     for (let node: Element | null = overlay(); node; node = node.parentElement) {
@@ -388,6 +392,19 @@ describe("an arrival, held as soon as the guard's script loads", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
     expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
     expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
+  });
+
+  it("ends the intro as the guard mounts if motion was turned down after the head script started it", () => {
+    arrive();
+    vi.stubEnv("NODE_ENV", "production");
+    holdOnLoad();
+    expect(screen.getByTestId("header")).toHaveAttribute("inert");
+    // Turned down before the app mounted: no change event reaches the guard.
+    motion.matches = true;
+    render(<IntroInert kind="book" />);
+    expect(root.hasAttribute(INTRO_ATTR)).toBe(false);
+    expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
     expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
   });
 
