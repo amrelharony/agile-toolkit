@@ -26,7 +26,7 @@ const h = vi.hoisted(() => {
 
 vi.mock("sonner", () => ({ toast: h.sonner }));
 vi.mock("@/lib/sonification/emit", () => ({ emitFeedback: h.emitFeedback }));
-vi.mock("@/lib/utils/export", () => ({ copyToClipboard: h.copy }));
+vi.mock("@/lib/utils/clipboard", () => ({ copyToClipboard: h.copy }));
 
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { CopyButton } from "@/components/ui/copy-button";
