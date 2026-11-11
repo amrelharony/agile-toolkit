@@ -229,6 +229,25 @@ describe("the book's pages", () => {
     }
   });
 
+  it("darkens each page's front on that page's own clock, and never its back", () => {
+    // One BlankLeaf draws both pages, so each must be handed its own shade.
+    const { leaf1, leaf2 } = parts({ title: TITLE, cover: COVER });
+    const shades = (leaf: HTMLElement, side: string) =>
+      Array.from(leaf.querySelectorAll<HTMLElement>(`:scope > ${side} > [data-look="turn"]`));
+    const front = `.${styles.face}:not(.${styles.back})`;
+    for (const [leaf, own, other] of [
+      [leaf1, styles.leaf1Shade, styles.leaf2Shade],
+      [leaf2, styles.leaf2Shade, styles.leaf1Shade],
+    ] as const) {
+      const [shade, ...more] = shades(leaf, front);
+      expect(more).toEqual([]);
+      expect(shade).toHaveClass(own);
+      expect(shade).not.toHaveClass(other);
+      // The back lands face up as the spread's left page: no turn shade there.
+      expect(shades(leaf, `.${styles.back}`)).toEqual([]);
+    }
+  });
+
   it.each(STORIES)("turns two blank pages, %s", (_, latest) => {
     const { leaf1, leaf2 } = parts(latest);
     for (const leaf of [leaf1, leaf2]) {
