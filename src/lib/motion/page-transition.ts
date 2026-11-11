@@ -253,6 +253,17 @@ let returnFrame = 0;
 let shown: string | null = null;
 /** The history entry that page was shown in, by key, or null without the Navigation API. */
 let shownEntry: string | null = null;
+/**
+ * html's own inline scroll-behavior while a noted Back holds it at auto, or
+ * null when nothing is held. globals.css scrolls the page smoothly
+ * (scroll-behavior: smooth on html), and Chrome puts the scroll back on Back
+ * with that same smooth scroll: the page glides down from the top for over
+ * half a second, so in the slide's frame the card is still far below the
+ * screen. Held at auto from the navigate event to the slide's frame, the
+ * browser puts the scroll back at once, as Next does for its own scrolls.
+ * Only for a Back that may slide; every other Back is left as it was.
+ */
+let heldScroll: string | null = null;
 
 /**
  * The parts of the Navigation API used here. TypeScript's DOM types do not
@@ -459,19 +470,38 @@ function noteVisit(key: string | null): void {
   if (o && o.toEntry === null && key === o.to) o.toEntry = shownEntry;
 }
 
-/** Drops a noted Back: its frame and its record. */
+/** Holds html's scroll at auto for a Back that may slide (see heldScroll). */
+function holdInstantScroll(): void {
+  if (heldScroll !== null) return;
+  const style = document.documentElement.style;
+  heldScroll = style.getPropertyValue("scroll-behavior");
+  style.setProperty("scroll-behavior", "auto");
+}
+
+/** Gives html its own scroll-behavior back. */
+function releaseScroll(): void {
+  if (heldScroll === null) return;
+  const style = document.documentElement.style;
+  if (heldScroll) style.setProperty("scroll-behavior", heldScroll);
+  else style.removeProperty("scroll-behavior");
+  heldScroll = null;
+}
+
+/** Drops a noted Back: its frame, its record and the scroll it holds. */
 function endReturn(): void {
   if (returnFrame) window.cancelAnimationFrame?.(returnFrame);
   returnFrame = 0;
   returning = null;
+  releaseScroll();
 }
 
 /**
  * Back or Forward, from the Navigation API's navigate event (RouteSignal
  * listens through listenForHistorySteps). It only reads: it never intercepts
- * the step or prevents it, and changes nothing on the page. It fires before
- * the address changes and before any popstate listener, so the leaving page
- * is still there to measure, whatever order the popstate listeners run in.
+ * the step or prevents it, and changes nothing on the page but html's
+ * scroll-behavior (heldScroll). It fires before the address changes and
+ * before any popstate listener, so the leaving page and its scroll are still
+ * there to measure, whatever order the popstate listeners run in.
  *
  * Only a traverse counts: the pushes and replaces Next makes come here too,
  * even while it puts a page back, and must not drop a noted Back. It notes a
@@ -502,6 +532,7 @@ export function noteHistoryStep(event: Event): void {
     at: performance.now(),
     confirmed: false,
   };
+  holdInstantScroll();
 }
 
 /**
@@ -545,6 +576,13 @@ export function listenForHistorySteps(): () => void {
  * frame still comes before the page's first paint, and no page change holds
  * the screen on Back to pause it. Any other page, a newer Back or a tap
  * drops it.
+ *
+ * In that frame Chrome may still owe the scroll: it puts it back at the
+ * frame's first layout read, or at the frame's own layout after the frame
+ * callbacks. So the frame reads the scroll position first, while html's
+ * scroll is still held at auto, and only then measures the card and gives
+ * html its scroll-behavior back. Given back first, the owed scroll would
+ * glide, and the card would be measured far below the screen.
  */
 function slideBackOn(key: string | null): void {
   const r = returning;
@@ -557,11 +595,17 @@ function slideBackOn(key: string | null): void {
   }
   returnFrame = window.requestAnimationFrame(() => {
     returnFrame = 0;
+    settleScroll();
     const plays = r.confirmed && performance.now() - r.at <= BACK_WAIT_MS;
     const card = plays ? returningCard(r.origin) : null;
     endReturn();
     if (card) slideBack(card, r.from);
   });
+}
+
+/** Reads the scroll position, which makes the browser put back a scroll it still owes. */
+function settleScroll(): number {
+  return window.scrollY;
 }
 
 /**

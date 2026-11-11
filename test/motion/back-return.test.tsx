@@ -12,7 +12,9 @@
  * inside that event (React renders a popstate update at once); Next's
  * history update in that commit fires a navigate event of its own (a
  * replace). Only after the event does the browser put the scroll position
- * back. jsdom runs capture listeners first, so Next's stand-in
+ * back, and with globals.css's smooth scrolling on html it glides there, so
+ * the card is still far off in the next frame, unless html's scroll-behavior
+ * is auto then. jsdom runs capture listeners first, so Next's stand-in
  * listens in the capture phase, added before RouteSignal's: that is Chrome's
  * order. requestAnimationFrame is a stub that runs when the test says,
  * element.animate a stub that records, and getBoundingClientRect places the
@@ -98,9 +100,24 @@ function rect(b: Box): DOMRect {
 let cardAt: (name: string) => Box = () => CARD;
 let headerAt: Box = HEADER;
 let restored = true;
+/** The browser's scroll back is gliding (smooth): it lands after the next frame. */
+let gliding = false;
+/**
+ * After popstate the browser owes the scroll, as Chrome may: it puts it back
+ * at the first layout read (a box or the scroll position) or at the frame's
+ * own layout, at once when html's scroll-behavior is auto then, else gliding.
+ */
+let owed = false;
+function putScrollBack() {
+  if (!owed) return;
+  owed = false;
+  if (scrollIsInstant()) restored = true;
+  else gliding = true;
+}
 
 function place() {
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    putScrollBack();
     if (this.matches("header[data-vt-target]")) return rect(headerAt);
     if (this.hasAttribute("data-vt-card")) {
       const b = cardAt(this.querySelector("a")?.textContent ?? "");
@@ -257,12 +274,17 @@ function popstate(hasUAVisualTransition?: unknown): PopStateEvent {
   return event;
 }
 
+/** html's scroll-behavior as the browser uses it: globals.css makes it smooth. */
+function scrollIsInstant(): boolean {
+  return root.style.getPropertyValue("scroll-behavior") === "auto";
+}
+
 /**
  * A history step of `delta` entries: the navigate event, the entry and the
  * address change, popstate fires, Next's listener puts `page` back inside the
- * event, and the browser puts the scroll back after it. The navigate event's
- * hasUAVisualTransition is the popstate's unless `ua` says otherwise. Returns
- * the event.
+ * event, and after it the browser owes the scroll (putScrollBack). The
+ * navigate event's hasUAVisualTransition is the popstate's unless `ua` says
+ * otherwise. Returns the event.
  */
 function go(
   delta: number,
@@ -277,7 +299,7 @@ function go(
   };
   restored = false;
   window.dispatchEvent(event);
-  restored = true;
+  owed = true;
   return event;
 }
 
@@ -288,13 +310,26 @@ const frames = new Map<number, FrameRequestCallback>();
 let frameId = 0;
 const realRaf = window.requestAnimationFrame;
 const realCancel = window.cancelAnimationFrame;
+const realScrollY = Object.getOwnPropertyDescriptor(window, "scrollY");
 
-/** Runs the frame the browser paints next. */
+/**
+ * Runs the frame the browser paints next: its callbacks, then its own layout,
+ * which puts an owed scroll back. A glide begun before this frame lands in it.
+ */
 function nextFrame() {
+  const landing = gliding;
   const due = Array.from(frames.values());
   frames.clear();
   for (const callback of due) callback(performance.now());
+  putScrollBack();
+  if (landing) {
+    gliding = false;
+    restored = true;
+  }
 }
+
+/** Whether the browser put the scroll back at once (no glide). */
+const scrollLandedAtOnce = () => restored && !gliding && !owed;
 
 /** The slides that played on a card (the header grow on the way in is not one). */
 function slides() {
@@ -335,6 +370,16 @@ beforeEach(() => {
   cardAt = () => CARD;
   headerAt = HEADER;
   restored = true;
+  gliding = false;
+  owed = false;
+  // Reading the scroll position is a layout read too.
+  Object.defineProperty(window, "scrollY", {
+    configurable: true,
+    get: () => {
+      putScrollBack();
+      return 0;
+    },
+  });
   animate = vi.fn(() => ({ finished: Promise.resolve(), cancel: () => {} }));
   Object.defineProperty(HTMLElement.prototype, "animate", {
     configurable: true,
@@ -366,6 +411,8 @@ afterEach(async () => {
   window.removeEventListener("popstate", nextRestores, NEXT_FIRST);
   window.removeEventListener("popstate", nextRestores);
   window.removeEventListener("click", stopBrowser);
+  root.style.removeProperty("scroll-behavior");
+  if (realScrollY) Object.defineProperty(window, "scrollY", realScrollY);
   window.requestAnimationFrame = realRaf;
   window.cancelAnimationFrame = realCancel;
   delete (HTMLElement.prototype as { animate?: unknown }).animate;
@@ -636,6 +683,7 @@ describe("the step must undo the card's own visit", () => {
     back(home());
     nextFrame();
     expect(slides()).toHaveLength(1);
+    expect(root.style.getPropertyValue("scroll-behavior")).toBe("");
   });
 
   it("not when the card's page now shows another address in its entry", () => {
@@ -710,6 +758,7 @@ describe("the step must undo the card's own visit", () => {
     show("/", home());
     nextFrame();
     expect(slides()).toEqual([]);
+    expect(root.style.getPropertyValue("scroll-behavior")).toBe("");
   });
 
   it("not when the page comes back later than BACK_WAIT_MS after Back", () => {
@@ -967,6 +1016,98 @@ describe("the listeners only read", () => {
     } finally {
       header.remove();
     }
+  });
+});
+
+describe("for a Back that slides, the browser puts the scroll back at once", () => {
+  const scrollBehavior = () => root.style.getPropertyValue("scroll-behavior");
+
+  it("html's scroll-behavior is auto from the navigate event to the slide's frame", () => {
+    open("Kanban", "/kanban");
+    let duringPopstate = "";
+    const read = () => (duringPopstate = scrollBehavior());
+    window.addEventListener("popstate", read);
+    try {
+      back(home());
+    } finally {
+      window.removeEventListener("popstate", read);
+    }
+    // Still auto after the event, when the browser puts the scroll back.
+    expect(duringPopstate).toBe("auto");
+    expect(scrollBehavior()).toBe("auto");
+    nextFrame();
+    expectSlide("Kanban");
+    // Given back: globals.css's smooth scrolling is html's again.
+    expect(scrollBehavior()).toBe("");
+  });
+
+  it("a scroll the browser still owes in the slide's frame comes back at once", () => {
+    open("Kanban", "/kanban");
+    back(home());
+    // Owed past the event, as Chrome sometimes leaves it until the frame.
+    expect(restored).toBe(false);
+    nextFrame();
+    expect(scrollLandedAtOnce()).toBe(true);
+    expectSlide("Kanban");
+  });
+
+  it("at once even when the page has no card to slide", () => {
+    open("Kanban", "/kanban");
+    back(home(retro));
+    nextFrame();
+    expect(scrollLandedAtOnce()).toBe(true);
+    expect(slides()).toEqual([]);
+  });
+
+  it("a Back that may not slide keeps the glide it has today", () => {
+    open("Kanban", "/kanban");
+    back(home(), popstate(true));
+    nextFrame();
+    expect(gliding).toBe(true);
+  });
+
+  it("html's own inline scroll-behavior comes back as it was", () => {
+    root.style.setProperty("scroll-behavior", "smooth");
+    open("Kanban", "/kanban");
+    move(-1);
+    expect(scrollBehavior()).toBe("auto");
+    window.dispatchEvent(popstate(false));
+    show("/", home());
+    nextFrame();
+    expect(scrollBehavior()).toBe("smooth");
+  });
+
+  it("left alone when the browser animated Back itself", () => {
+    open("Kanban", "/kanban");
+    back(home(), popstate(true));
+    expect(scrollBehavior()).toBe("");
+  });
+
+  it("left alone when the popstate event alone says the browser animated Back", () => {
+    open("Kanban", "/kanban");
+    back(home(), popstate(true), false);
+    expect(scrollBehavior()).toBe("");
+  });
+
+  it("left alone on a step that is not the card's way back", () => {
+    open("Kanban", "/kanban");
+    back(home());
+    nextFrame();
+    forward(toolPage());
+    expect(scrollBehavior()).toBe("");
+  });
+
+  it.each([
+    ["a tap", () => fireEvent.click(screen.getByRole("link", { name: "Retro" }))],
+    ["a newer page", () => visit("/more-tools", home())],
+    ["a newer step", () => move(1)],
+    ["RouteSignal going", () => cleanup()],
+  ])("given back when %s comes before the frame", (_name, then) => {
+    open("Kanban", "/kanban");
+    back(home());
+    expect(scrollBehavior()).toBe("auto");
+    then();
+    expect(scrollBehavior()).toBe("");
   });
 });
 
