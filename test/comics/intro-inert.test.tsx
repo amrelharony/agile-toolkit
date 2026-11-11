@@ -4,10 +4,15 @@
  * those that mount mid-intro too, what was inert before stays so, an owner's
  * own mid-intro word is kept for the end, and focus still goes back to the
  * opener when it ends, in a browser that won't focus anything inside [inert].
+ * An arrival's page is held as soon as the guard's script loads, in
+ * production, and the mounted guard takes that hold over. A hold lets itself
+ * go when the intro's attribute or its overlay leaves the page, so a page React
+ * draws anew after a hydration error is never left inert.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { IntroInert, holdOnLoad } from "@/app/(tools)/comics/components/intro/intro-inert";
 import { IntroOverlay } from "@/app/(tools)/comics/components/intro/intro-parts";
 import { ReplayIntro } from "@/app/(tools)/comics/components/intro/replay-intro";
 import {
@@ -172,6 +177,26 @@ describe("while an intro plays", () => {
     }
   });
 
+  it("leaves the scripts and templates beside the page alone, before and mid-intro", async () => {
+    // Next.js leaves its scripts in <body>; nothing in them can be reached.
+    const early = document.body.appendChild(document.createElement("script"));
+    const template = document.body.appendChild(document.createElement("template"));
+    try {
+      await replay();
+      expect(screen.getByTestId("header")).toHaveAttribute("inert");
+      const late = screen.getByTestId("main").appendChild(document.createElement("script"));
+      await settle();
+      for (const el of [early, template, late])
+        expect(el.hasAttribute("inert"), el.tagName).toBe(false);
+      fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+      for (const el of [early, template, late])
+        expect(el.hasAttribute("inert"), el.tagName).toBe(false);
+    } finally {
+      early.remove();
+      template.remove();
+    }
+  });
+
   it("leaves the page alone when no intro of its kind plays", async () => {
     render(<Page />);
     root.setAttribute(INTRO_ATTR, "poster");
@@ -258,5 +283,192 @@ describe("when it ends", () => {
     } finally {
       portal.remove();
     }
+  });
+});
+
+describe("an arrival, held as soon as the guard's script loads", () => {
+  /**
+   * The page as the server sends it, before any app has mounted: the head
+   * script has started the intro, and the sidebar's drawer is closed.
+   */
+  function arrive() {
+    const page = document.createElement("div");
+    page.innerHTML = `
+      <header data-testid="header"><button type="button">Menu</button></header>
+      <aside data-testid="drawer" inert=""><a href="/retro">Retro</a></aside>
+      <main data-testid="main">
+        <section data-testid="gallery"><a href="/comics?ep=1">Episode 1</a></section>
+        <div ${OVERLAY_ATTR}="book" role="dialog" aria-modal="true" aria-label="Agile at Work intro">
+          <button type="button" data-intro-skip="">Skip intro</button>
+        </div>
+      </main>
+      <script data-testid="script"></script>`;
+    document.body.appendChild(page);
+    root.setAttribute(INTRO_RUN_ATTR, "0");
+    root.setAttribute(INTRO_ATTR, "book");
+    return page;
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    document.body.replaceChildren();
+  });
+
+  it("holds the page in production before the app mounts, and lets it go at the end", () => {
+    arrive();
+    vi.stubEnv("NODE_ENV", "production");
+    // The head script has just started the intro, so the browser isn't asked
+    // for the page's style, which it would have to work out there and then.
+    const style = vi.spyOn(window, "getComputedStyle");
+    holdOnLoad();
+    expect(style).not.toHaveBeenCalled();
+    expect(screen.getByTestId("header")).toHaveAttribute("inert");
+    expect(screen.getByTestId("gallery")).toHaveAttribute("inert");
+    for (let node: Element | null = overlay(); node; node = node.parentElement) {
+      expect(node.hasAttribute("inert"), node.tagName).toBe(false);
+    }
+    expect(screen.getByTestId("script")).not.toHaveAttribute("inert");
+    // No app has mounted: the head script's end alone lets the page go.
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(root.hasAttribute(INTRO_ATTR)).toBe(false);
+    expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
+  });
+
+  it("keeps the word of an owner that writes after the hold, as the sidebar does on a phone", async () => {
+    const page = arrive();
+    // As served: the sidebar closes its drawer from an effect, after this has held the page.
+    const drawer = screen.getByTestId("drawer");
+    drawer.removeAttribute("inert");
+    const header = page.querySelector("header")!;
+    vi.stubEnv("NODE_ENV", "production");
+    holdOnLoad();
+    expect(drawer).toHaveAttribute("inert");
+    drawer.setAttribute("inert", "");
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(drawer).toHaveAttribute("inert");
+    expect(header).not.toHaveAttribute("inert");
+  });
+
+  it("keeps that hold when the guard mounts, so the page it made inert is still let go", async () => {
+    arrive();
+    vi.stubEnv("NODE_ENV", "production");
+    holdOnLoad();
+    // The app mounts onto the held page: the guard must take the hold over,
+    // not read its own writes as the header's and gallery's owners', and not
+    // write the page again from inside the mount.
+    const setAttribute = vi.spyOn(Element.prototype, "setAttribute");
+    const { container } = render(<IntroInert kind="book" />);
+    await settle();
+    const written = setAttribute.mock.contexts.filter(
+      (el, i) => setAttribute.mock.calls[i][0] === "inert" && el !== container
+    );
+    expect(written).toEqual([]);
+    expect(screen.getByTestId("header")).toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
+  });
+
+  it.each(["after", "before"])(
+    "holds the page again around the overlay the app draws, if it draws the page anew (guard mounting %s the hold hears of it)",
+    async (when) => {
+      const served = arrive();
+      vi.stubEnv("NODE_ENV", "production");
+      holdOnLoad();
+      // After a hydration error React drops the server's page and draws its
+      // own, overlay and all, into the parent the guard watches. The old
+      // overlay leaving lets the hold go, and the mounted guard holds the page
+      // again around the new one, whichever comes first.
+      const drawn = document.createElement("div");
+      drawn.innerHTML = served.innerHTML.replace(/ inert=""/g, "");
+      drawn.querySelector('[data-testid="drawer"]')!.setAttribute("inert", "");
+      served.replaceWith(drawn);
+      if (when === "after") await settle();
+      render(<IntroInert kind="book" />);
+      await settle();
+      for (let node: Element | null = overlay(); node; node = node.parentElement) {
+        expect(node.hasAttribute("inert"), node.tagName).toBe(false);
+      }
+      expect(screen.getByTestId("header")).toHaveAttribute("inert");
+      expect(screen.getByTestId("gallery")).toHaveAttribute("inert");
+      fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+      expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
+      expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
+      expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
+    }
+  );
+
+  it("lets the page go when React draws the whole page anew with an error page, with no end event", async () => {
+    const served = arrive();
+    vi.stubEnv("NODE_ENV", "production");
+    holdOnLoad();
+    expect(screen.getByTestId("header")).toHaveAttribute("inert");
+    // A render error on hydration: React draws the whole page again on the
+    // client. <html> keeps only what React renders, so the intro's attributes
+    // go and nothing ends the intro, and the error page takes the overlay's
+    // place, so no guard ever mounts.
+    root.removeAttribute(INTRO_ATTR);
+    root.removeAttribute(INTRO_RUN_ATTR);
+    served.remove();
+    const header = document.body.appendChild(document.createElement("header"));
+    const error = document.body.appendChild(document.createElement("section"));
+    error.innerHTML = `<a href="/">Back to all tools</a>`;
+    const amr = document.body.appendChild(document.createElement("div"));
+    await settle();
+    expect(document.querySelectorAll("[inert]")).toHaveLength(0);
+    for (const el of [header, error, amr]) expect(el.hasAttribute("inert"), el.tagName).toBe(false);
+  });
+
+  it("lets the page go when the intro's attribute leaves <html> with no end event", async () => {
+    arrive();
+    vi.stubEnv("NODE_ENV", "production");
+    holdOnLoad();
+    root.removeAttribute(INTRO_ATTR);
+    await settle();
+    expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
+  });
+
+  it("lets the page go when an error page takes the overlay's place while the intro's attribute stays", async () => {
+    arrive();
+    vi.stubEnv("NODE_ENV", "production");
+    holdOnLoad();
+    const error = document.createElement("section");
+    error.innerHTML = `<a href="/">Back to all tools</a>`;
+    overlay().replaceWith(error);
+    await settle();
+    expect(root.getAttribute(INTRO_ATTR)).toBe("book");
+    expect(error).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("gallery")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
+  });
+
+  it("ends the intro as the guard mounts if motion was turned down after the head script started it", () => {
+    arrive();
+    vi.stubEnv("NODE_ENV", "production");
+    holdOnLoad();
+    expect(screen.getByTestId("header")).toHaveAttribute("inert");
+    // Turned down before the app mounted: no change event reaches the guard.
+    motion.matches = true;
+    render(<IntroInert kind="book" />);
+    expect(root.hasAttribute(INTRO_ATTR)).toBe(false);
+    expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
+    expect(screen.getByTestId("drawer")).toHaveAttribute("inert");
+  });
+
+  it("waits for the guard to mount in development, where React reports attributes it didn't render", () => {
+    arrive();
+    holdOnLoad();
+    expect(document.querySelectorAll("[inert]")).toHaveLength(1);
+    render(<IntroInert kind="book" />);
+    expect(screen.getByTestId("header")).toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: "Skip intro" }));
+    expect(screen.getByTestId("header")).not.toHaveAttribute("inert");
   });
 });
