@@ -9,8 +9,9 @@
  * - **Awake:** a figure at least PACE.awakeRatio on screen, ranked by how much
  *   shows, at most LIMITS.awakePhone under PACE.narrowPx and awakeWide wider,
  *   across every host on the page. An awake figure gets data-cast-awake, so
- *   the module's breathe and blink run, and it looks toward the mouse or the
- *   last touch on springs (lib/motion/spring.ts). Nothing is awake while it's
+ *   the module's breathe and blink run, each figure in a phase of its own,
+ *   and it looks toward the mouse or the last touch on springs
+ *   (lib/motion/spring.ts). Nothing is awake while it's
  *   quiet (lib/notify/quiet-now.ts), while an intro holds the stage, while
  *   presenting, in a hidden tab, or under an open dialog (the always-present
  *   intro overlay doesn't count).
@@ -114,6 +115,8 @@ interface Fig {
   head: HTMLElement[];
   body: HTMLElement[];
   pupils: HTMLElement[];
+  /** The closed eyes, which the module blinks. */
+  lids: HTMLElement[];
   travel: readonly [number, number];
   look: Record<Channel, SpringState>;
   /** The look waits until then: a move is playing. */
@@ -163,7 +166,11 @@ function wake(fig: Fig, on: boolean): boolean {
   if (fig.awake === on) return false;
   fig.awake = on;
   fig.el.toggleAttribute("data-cast-awake", on);
-  for (const el of fig.body) el.style.animationDelay = on ? `-${phase(fig.id)}s` : "";
+  const at = phase(fig.id);
+  for (const el of fig.body) el.style.animationDelay = on ? `-${at}s` : "";
+  // The blink's 5.4 s cycle at the same point as the breath's 4 s one, so
+  // figures woken together don't blink together.
+  for (const el of fig.lids) el.style.animationDelay = on ? `-${round(at * 1.35)}s` : "";
   return true;
 }
 
@@ -281,6 +288,7 @@ function makeFig(el: HTMLElement): Fig {
     head: all('[data-socket="head"]'),
     body: all('[data-socket="body"]'),
     pupils: all("[data-pupil]"),
+    lids: all('[data-slot="eyes"] > [data-choice="closed"]'),
     travel: [tx || 0, ty || 0],
     look: still(),
     holdUntil: -Infinity,

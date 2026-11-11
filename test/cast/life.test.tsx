@@ -212,20 +212,33 @@ describe("awake", () => {
     expect(awake(figs)).toEqual([true]);
   });
 
-  it("breathes in a phase fixed per character", () => {
+  it("breathes and blinks in a phase fixed per character", () => {
     const { figs, io } = stage([TEST_PUPPET, ARMLESS_PUPPET]);
     io.fire(figs.map((f) => [f, 1]));
     const delay = (f: HTMLElement) =>
       f.querySelector<HTMLElement>('[data-socket="body"]')!.style.animationDelay;
+    const lids = (f: HTMLElement) =>
+      f.querySelector<HTMLElement>('[data-slot="eyes"] > [data-choice="closed"]')!.style
+        .animationDelay;
     expect(delay(figs[0])).toMatch(/^-\d(\.\d+)?s$/);
     expect(delay(figs[0])).not.toBe(delay(figs[1]));
-    const again = delay(figs[0]);
+    expect(lids(figs[0])).toMatch(/^-\d(\.\d+)?s$/);
+    expect(lids(figs[0])).not.toBe(lids(figs[1]));
+    // The same point in the blink's cycle as in the breath's.
+    for (const f of figs) {
+      const share = (s: string, cycle: number) => -parseFloat(s) / cycle;
+      expect(
+        share(lids(f), CLIPS["idle.blink"].ms / 1000) -
+          share(delay(f), CLIPS["idle.breathe"].ms / 1000)
+      ).toBeCloseTo(0, 2);
+    }
+    const again = [delay(figs[0]), lids(figs[0])];
     flags.quiet = true;
     rerank();
-    expect(delay(figs[0])).toBe("");
+    expect([delay(figs[0]), lids(figs[0])]).toEqual(["", ""]);
     flags.quiet = false;
     rerank();
-    expect(delay(figs[0])).toBe(again);
+    expect([delay(figs[0]), lids(figs[0])]).toEqual(again);
   });
 
   it("never wakes or answers a figure inside an intro overlay", () => {
