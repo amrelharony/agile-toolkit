@@ -1,5 +1,6 @@
 import { Fragment, type ComponentType, type CSSProperties } from "react";
 import { SHEET } from "@/components/agent/mascot/engine/sprite-poses";
+import { COVER_SMALL_SIZE, COVER_SMALL_URL } from "@/lib/book/art";
 import type { StoryCover } from "@/lib/comics/types";
 import { cn } from "@/lib/utils";
 import { IntroAmr, IntroOverlay, IntroPanel } from "./intro-parts";
@@ -99,13 +100,18 @@ function dealFrom(index: number, count: number): string {
 }
 
 /**
- * A small copy of the book, lettered like its cover, lying in the middle of
- * the tools' place: it drops in, a stripe of light crosses its closed cover,
- * the cover opens, the tools are dealt out of it, and it steps back for good.
- * It shares the slot's one grid cell, so it adds no row, and lies under the
- * cards, which come out of it. Decorative, so hidden from screen readers: the
- * welcome and the tools say what it means. The parts are the book intro's
+ * A small copy of the book, wearing its real front cover, lying in the middle
+ * of the tools' place: it drops in, a stripe of light crosses its closed
+ * cover, the cover opens, the tools are dealt out of it, and it steps back for
+ * good. It shares the slot's one grid cell, so it adds no row, and lies under
+ * the cards, which come out of it. Decorative, so hidden from screen readers:
+ * the welcome and the tools say what it means. The parts are the book intro's
  * look (intro-look.tsx); vip-intro.module.css moves them.
+ *
+ * The cover is the 540 px file the home page's card already uses, lazy and
+ * never preloaded: the overlay is in view from its first frame, so it starts
+ * loading at once, long before the cover opens at 2.5 s. Under it the cover is
+ * lettered, which is what shows until it arrives.
  */
 function DealingBook() {
   return (
@@ -124,10 +130,22 @@ function DealingBook() {
           </span>
           <div className={styles.bookCover}>
             <div className={styles.bookFace}>
+              {/* Lettered under the art, for the moment before it arrives. */}
               <CoverLettering byline={false} />
-              <Grain />
-              <Light trackClassName={styles.bookStripe} />
-              <TurnShade className={styles.bookShade} />
+              <Grain className={styles.bookOverArt} />
+              <Light className={styles.bookOverArt} trackClassName={styles.bookStripe} />
+              <TurnShade className={cn(styles.bookOverArt, styles.bookShade)} />
+              {/* The cover's own words are lettered above, so the art adds none. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={COVER_SMALL_URL}
+                width={COVER_SMALL_SIZE}
+                height={COVER_SMALL_SIZE}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className={styles.bookArt}
+              />
             </div>
             <span className={cn(styles.bookFace, styles.bookBack)}>
               <Grain />

@@ -19,12 +19,13 @@
    (fill both), so the timeline is the same with or without early comics: the
    comics' rules just have nothing to run on.
 
-   The book wears the book intro's look (intro-look.tsx: grain, comic light,
-   the stepped shade, page edges and a ground shadow), which this sheet only
-   moves. Every landing is on the book intro's two springs, tokens.ts's linear()
-   lists written inside the keyframes: the welcome's words pop on the pop
-   spring; Amr's jump, his balloon, the book's drop, its cover's landing and
-   the cards' deal settle on the settle spring. Each shorthand keeps its
+   The book wears the book's real front cover over its lettering, and the book
+   intro's look (intro-look.tsx: grain, comic light, the stepped shade, page
+   edges and a ground shadow), which this sheet only moves. Every landing is
+   on the book intro's two springs, tokens.ts's linear() lists written inside
+   the keyframes: the welcome's words pop on the pop spring; Amr's jump, his
+   balloon, the book's drop, its cover's landing and the cards' deal settle on
+   the settle spring. Each shorthand keeps its
    spring's one-overshoot cubic-bezier for browsers without linear()
    (test/comics/intro-look.test.tsx). The 3D rule: what keeps the book's 3D
    space open (transform-style: preserve-3d: the drop and the cover) moves by
@@ -303,6 +304,25 @@
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   isolation: isolate;
+}
+
+/* The cover's grain, light and shade lie over its art, not under it, as on
+   the book intro's cover: the stripe and the turning shade cross the picture. */
+.bookOverArt {
+  z-index: 1;
+}
+
+/* The book's real front cover, filling the board inside its border, over the
+   lettering: the lettering is the cover until the picture arrives, and an
+   unloaded img with an empty alt draws nothing over it. Square on a square
+   face, so nothing is cropped. Plain in high contrast too: it carries no
+   data-look. */
+.bookArt {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
 }
 
 /* The cover's inside, seen once it has opened. */
