@@ -27,6 +27,7 @@ import {
   SHRUG_AFTER_MS,
   VisitorGuide,
   matchCountNote,
+  summaryLead,
 } from "@/components/agent/mascot/visitor-guide";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { searchTools } from "@/lib/search/tool-search";
@@ -379,6 +380,47 @@ describe("VisitorGuide", () => {
       expect(details).not.toHaveAttribute("open");
       const steps = within(details as HTMLElement).getAllByRole("listitem");
       expect(summary).toHaveTextContent(`How to run it (${steps.length} steps)`);
+    });
+
+    it("keeps the card short: only the opening sentence of the tool's summary", async () => {
+      h.pathname = "/retro";
+      render(<VisitorGuide />);
+      const tool = screen.getByRole("region", { name: "This tool" });
+      await within(tool).findByText(/^How to run it/);
+      const lead = within(tool).getByText("Run the retrospective for one sprint.");
+      expect(lead.tagName).toBe("P");
+      // A backstop for a long first sentence; `block` would undo the clamp.
+      expect(lead).toHaveClass("line-clamp-3");
+      expect(lead).not.toHaveClass("block");
+      expect(within(tool).queryByText(/each with an owner/)).toBeNull();
+    });
+
+    it("takes the next sentence too after a very short opener", async () => {
+      h.pathname = "/kanban";
+      render(<VisitorGuide />);
+      const tool = screen.getByRole("region", { name: "This tool" });
+      await within(tool).findByText(/^How to run it/);
+      const lead = within(tool).getByText(/^Two boards\. The Sprint board shows/);
+      expect(lead.textContent).not.toMatch(/The Flow board/);
+    });
+
+    it("cuts a summary at its first full sentence", () => {
+      expect(summaryLead("No full stop here")).toBe("No full stop here");
+      expect(summaryLead("One sentence that is long enough.")).toBe(
+        "One sentence that is long enough."
+      );
+      // A closing quote stays with its sentence.
+      expect(
+        summaryLead("A job story says “When [situation], so I can [outcome].” It focuses.")
+      ).toBe("A job story says “When [situation], so I can [outcome].”");
+      // A decimal point is not a sentence end.
+      expect(summaryLead("Scores 1.5 points for every item kept. Then more.")).toBe(
+        "Scores 1.5 points for every item kept."
+      );
+      // A short opener takes the next sentence.
+      expect(summaryLead("Two boards. The first one is the sprint. The second is flow.")).toBe(
+        "Two boards. The first one is the sprint."
+      );
     });
 
     it("uses no uppercase lettering anywhere", async () => {

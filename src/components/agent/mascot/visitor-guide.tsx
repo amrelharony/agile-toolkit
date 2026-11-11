@@ -42,6 +42,22 @@ export function matchCountNote(count: number, query: string): string {
   return count === 1 ? "1 tool matches" : `${count} tools match`;
 }
 
+/**
+ * The guide summary's opening sentence, so the "You're in" card stays a few
+ * lines on a phone (the page's own "How this works" panel has the rest). A
+ * very short opener ("Two boards.") takes the next sentence too; a closing
+ * quote or bracket after the stop stays with its sentence, and a stop with no
+ * space after it ("1.5") ends nothing.
+ */
+export function summaryLead(text: string): string {
+  const stop = /[.!?]["”’)]*(?=\s|$)/g;
+  for (let m = stop.exec(text); m; m = stop.exec(text)) {
+    const end = m.index + m[0].length;
+    if (end >= 24) return text.slice(0, end);
+  }
+  return text;
+}
+
 /** The current tool's "How this works" guide, loaded on demand. */
 function useToolGuide(toolId: string | undefined): ToolGuide | null {
   const [guide, setGuide] = useState<ToolGuide | null>(null);
@@ -272,7 +288,12 @@ export function VisitorGuide({
         <section aria-label="This tool" className="panel px-3 py-2.5">
           <p className="text-xs text-sub">You&apos;re in</p>
           <h3 className="font-display text-base font-semibold text-text">{current.name}</h3>
-          <p className="mt-0.5 text-sm text-sub">{guide?.summary ?? current.description}</p>
+          {/* The summary's first sentence only, so the tiles stay in a phone's
+              view. Three lines at most for a long one (no `block` here, which
+              would undo the clamp's own display). */}
+          <p className="mt-0.5 line-clamp-3 text-sm text-sub">
+            {guide ? summaryLead(guide.summary) : current.description}
+          </p>
           {guide && guide.steps.length > 0 && (
             // Closed by default: the page's own "How this works" panel has the
             // same steps, and the open list ran a phone screen long.
