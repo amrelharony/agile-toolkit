@@ -47,6 +47,14 @@ export const OVERLAY_ATTR = "data-intro-overlay";
 export const SKIP_ATTR = "data-intro-skip";
 /** On whatever started a replay, so focus goes back to it when the intro ends. */
 export const RETURN_ATTR = "data-intro-return";
+/**
+ * Dispatched on `document` when an intro ends: after `data-intro` is gone and
+ * before focus goes back. The page behind an intro is inert while it plays
+ * (components/intro/intro-inert.tsx), and a browser won't focus an inert
+ * element, so this lets the page go first. A MutationObserver would only hear
+ * of it after the focus call.
+ */
+export const INTRO_END_EVENT = "intro:end";
 
 /**
  * Under the `agile-toolkit:` prefix, so "Clear data on this browser" removes it
@@ -118,7 +126,9 @@ return null}`;
  * can follow a client navigation, and they do nothing unless an intro plays.
  *
  * Ending an intro gives focus back to what started a replay (RETURN_ATTR); an
- * arrival has nothing to go back to, so focus is left on the page. A page that
+ * arrival has nothing to go back to, so focus is left on the page. In between,
+ * it dispatches INTRO_END_EVENT, so the page is no longer inert when focus
+ * goes back to it. A page that
  * loads hidden (a background tab, a prerender) plays nothing and keeps its
  * intro for a visit someone sees. An intro that plays preloads its
  * INTRO_PRELOAD image.
@@ -127,7 +137,7 @@ export const INTRO_BOOT_SCRIPT = `(function(){var d=document.documentElement,A="
 function on(){return d.getAttribute(A)}
 function skip(){var k=on();return k?document.querySelector('[${OVERLAY_ATTR}="'+k+'"] [${SKIP_ATTR}]'):null}
 function stop(){if(!on())return;var f=document.activeElement;if(f&&f.closest&&f.closest("[${OVERLAY_ATTR}]"))f.blur();d.removeAttribute(A);
-var r=document.querySelector("[${RETURN_ATTR}]");if(r){r.removeAttribute("${RETURN_ATTR}");r.focus({preventScroll:true})}}
+document.dispatchEvent(new Event("${INTRO_END_EVENT}"));var r=document.querySelector("[${RETURN_ATTR}]");if(r){r.removeAttribute("${RETURN_ATTR}");r.focus({preventScroll:true})}}
 document.addEventListener("click",function(e){var t=e.target;if(t&&t.closest&&t.closest("[${SKIP_ATTR}]"))stop()});
 document.addEventListener("keydown",function(e){if(!on())return;if(e.key==="Escape")stop();else if(e.key==="Tab"){var s=skip();if(s){e.preventDefault();s.focus()}}});
 document.addEventListener("animationend",function(e){var t=e.target,k=on();if(k&&t&&t.getAttribute&&t.getAttribute("${OVERLAY_ATTR}")===k)stop()});

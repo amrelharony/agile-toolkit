@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   INTRO_ATTR,
   INTRO_BOOT_SCRIPT,
+  INTRO_END_EVENT,
   INTRO_KINDS,
   INTRO_PRELOAD,
   INTRO_RUN_ATTR,
@@ -331,6 +332,23 @@ describe("ending an intro", () => {
       expect(opener.hasAttribute(RETURN_ATTR)).toBe(false);
     }
   );
+
+  it("tells the page it ended before it gives focus back, so the page can stop being inert first", () => {
+    const { skip } = mountOverlay("book");
+    boot("/comics");
+    const opener = document.querySelector<HTMLElement>('[data-testid="page-button"]')!;
+    opener.setAttribute(RETURN_ATTR, "");
+    const order: string[] = [];
+    const onEnd = () => order.push(`${INTRO_END_EVENT}, playing: ${root.hasAttribute(INTRO_ATTR)}`);
+    document.addEventListener(INTRO_END_EVENT, onEnd);
+    vi.spyOn(opener, "focus").mockImplementation(() => order.push("focus"));
+    try {
+      skip.click();
+    } finally {
+      document.removeEventListener(INTRO_END_EVENT, onEnd);
+    }
+    expect(order).toEqual([`${INTRO_END_EVENT}, playing: false`, "focus"]);
+  });
 
   it("ends by itself if the animation never reports its end", () => {
     vi.useFakeTimers();

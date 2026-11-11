@@ -8,12 +8,16 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MARKERS, checkMarkers, stripWhitespace } from "../../scripts/check-built-css.mjs";
 
-const globals = stripWhitespace(
-  readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8").replace(
-    /\/\*[\s\S]*?\*\//g,
-    ""
-  )
-);
+/** A source stylesheet as written, comments out and whitespace removed. */
+const source = (file: string) =>
+  stripWhitespace(
+    readFileSync(path.join(process.cwd(), file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "")
+  );
+
+const globals = source("src/app/globals.css");
+const INTRO = "src/app/(tools)/comics/components/intro";
+const look = source(`${INTRO}/intro-look.module.css`);
+const book = source(`${INTRO}/book-intro.module.css`);
 
 const TILE = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E")`;
 const FALLBACK =
@@ -40,6 +44,14 @@ const CALM =
 const vtBlock = (inner: string) => `@supports (view-transition-name:none){@media screen{${inner}}}`;
 const VT = vtBlock(READY + NAMES + HOLD + STACK + TAPS + CALM);
 
+/** I1's book look, minified the way the build writes it (class names hashed, quotes dropped). */
+const MASK = `.g_x{--look-grain:${TILE};display:none;-webkit-mask-image:var(--look-grain);mask-image:var(--look-grain);-webkit-mask-size:61px 61px;mask-size:61px 61px;-webkit-mask-repeat:repeat;mask-repeat:repeat}`;
+const SHOWN = "@supports (mask-image:none) or (-webkit-mask-image:none){.g_x{display:block}}";
+const HIDE = ".hc [data-look],[data-theme=hc] [data-look]{display:none!important}";
+const BOWED =
+  "@supports (clip-path:shape(from 0 0,line to 100% 0)){.c_x{animation:b-ink .4s both}@keyframes b-ink{0%{clip-path:shape(from 0 0,line to 0 0)}to{clip-path:shape(from 0 0,line to 100% 0)}}}";
+const BOOK = MASK + SHOWN + HIDE + BOWED;
+
 const F2_HELD = MARKERS.F2[0].name;
 const F2_READY = MARKERS.F2[1].name;
 const F2_CALM = MARKERS.F2[3].name;
@@ -52,43 +64,45 @@ function failing(...sheets: string[]): string[] {
 
 describe("check-built-css", () => {
   it("lists each PR's markers", () => {
-    expect(Object.keys(MARKERS)).toEqual(["F1", "F2"]);
+    expect(Object.keys(MARKERS)).toEqual(["F1", "F2", "I1"]);
     expect(MARKERS.F1).toHaveLength(5);
     expect(MARKERS.F2).toHaveLength(4);
+    expect(MARKERS.I1).toHaveLength(4);
   });
 
-  it("finds every marker in globals.css as written", () => {
-    expect(failing(globals)).toEqual([]);
+  it("finds every marker in the source stylesheets as written", () => {
+    expect(failing(globals, look, book)).toEqual([]);
   });
 
   it("finds every marker in a minified sheet that keeps them", () => {
-    expect(failing(FALLBACK + LINEAR + GRAIN + OFF + VT)).toEqual([]);
+    expect(failing(FALLBACK + LINEAR + GRAIN + OFF + VT + BOOK)).toEqual([]);
   });
 
   it("flags linear() that comes before its fallback, or outside @supports", () => {
-    expect(failing(LINEAR + FALLBACK + GRAIN + OFF + VT)).toHaveLength(2);
+    expect(failing(LINEAR + FALLBACK + GRAIN + OFF + VT + BOOK)).toHaveLength(2);
     const unguarded = ":root{--ease-settle:linear(0,1.08,1);--ease-pop:linear(0,1.16,1)}";
-    expect(failing(FALLBACK + unguarded + GRAIN + OFF + VT)).toHaveLength(2);
-    expect(failing(LINEAR + GRAIN + OFF + VT)).toHaveLength(2);
+    expect(failing(FALLBACK + unguarded + GRAIN + OFF + VT + BOOK)).toHaveLength(2);
+    expect(failing(LINEAR + GRAIN + OFF + VT + BOOK)).toHaveLength(2);
   });
 
   it("flags a grain rule that lost a layer or its selector, and a missing removal", () => {
     const oneLayer = `html.light body{background-image:${TILE}}html.dark body{background-image:${TILE},${TILE}}`;
-    expect(failing(FALLBACK + LINEAR + oneLayer + OFF + VT)).toEqual([
+    expect(failing(FALLBACK + LINEAR + oneLayer + OFF + VT + BOOK)).toEqual([
       "paper grain: two url(data:image/svg+xml) layers on html.light body",
     ]);
-    expect(failing(FALLBACK + LINEAR + GRAIN + VT)).toEqual([
+    expect(failing(FALLBACK + LINEAR + GRAIN + VT + BOOK)).toEqual([
       "paper grain: removed for print, forced colours and more contrast",
     ]);
   });
 
   it("passes a marker found in any one of several files", () => {
-    expect(failing(FALLBACK + LINEAR, GRAIN + OFF, VT)).toEqual([]);
+    expect(failing(FALLBACK + LINEAR, GRAIN + OFF, VT, BOOK)).toEqual([]);
   });
 });
 
 describe("check-built-css: F2's held layers", () => {
-  const F1 = FALLBACK + LINEAR + GRAIN + OFF;
+  // Every other PR's markers, so only F2's can be missing.
+  const F1 = FALLBACK + LINEAR + GRAIN + OFF + BOOK;
 
   it("lists every F2 marker as missing without the VIEW TRANSITIONS block", () => {
     expect(failing(F1)).toEqual(MARKERS.F2.map((m: { name: string }) => m.name));
@@ -126,5 +140,68 @@ describe("check-built-css: F2's held layers", () => {
     const soft = CALM.replace("!important", "");
     expect(failing(F1 + vtBlock(READY + NAMES + HOLD + STACK + TAPS + soft))).toEqual([F2_CALM]);
     expect(failing(F1 + CALM + vtBlock(READY + NAMES + HOLD + STACK + TAPS))).toEqual([F2_CALM]);
+  });
+});
+
+describe("check-built-css: I1's book look", () => {
+  const OTHERS = FALLBACK + LINEAR + GRAIN + OFF + VT;
+  const [PAIRED, SUPPORTS, HIDDEN, SHAPE] = MARKERS.I1.map((m: { name: string }) => m.name);
+
+  it("lists every I1 marker as missing without the book look", () => {
+    expect(failing(OTHERS)).toEqual([PAIRED, SUPPORTS, HIDDEN, SHAPE]);
+  });
+
+  it("flags a mask whose -webkit- name was dropped, comes second or differs", () => {
+    const plainOnly = MASK.replace("-webkit-mask-image:var(--look-grain);", "");
+    expect(failing(OTHERS + plainOnly + SHOWN + HIDE + BOWED)).toEqual([PAIRED]);
+    const swapped = MASK.replace(
+      "-webkit-mask-image:var(--look-grain);mask-image:var(--look-grain);",
+      "mask-image:var(--look-grain);-webkit-mask-image:var(--look-grain);"
+    );
+    expect(swapped).not.toBe(MASK);
+    expect(failing(OTHERS + swapped + SHOWN + HIDE + BOWED)).toEqual([PAIRED]);
+    const differs = MASK.replace(";mask-image:var(--look-grain);", ";mask-image:none;");
+    expect(differs).not.toBe(MASK);
+    expect(failing(OTHERS + differs + SHOWN + HIDE + BOWED)).toEqual([PAIRED]);
+  });
+
+  it("flags a grain rule whose mask size or repeat lost its -webkit- twin", () => {
+    for (const twin of ["-webkit-mask-size:61px 61px;", "-webkit-mask-repeat:repeat;"]) {
+      const dropped = MASK.replace(twin, "");
+      expect(dropped, twin).not.toBe(MASK);
+      expect(failing(OTHERS + dropped + SHOWN + HIDE + BOWED), twin).toEqual([PAIRED]);
+    }
+  });
+
+  it("never takes another sheet's paired mask for the book's", () => {
+    // Amr's mascot-fx pairs its own masks; the build puts them in another file.
+    const mascot =
+      ".m_x{-webkit-mask-image:radial-gradient(ellipse 50% 55% at 50% 55%,#000 60%,transparent 100%);mask-image:radial-gradient(ellipse 50% 55% at 50% 55%,#000 60%,transparent 100%)}";
+    const plainOnly = MASK.replace("-webkit-mask-image:var(--look-grain);", "");
+    expect(failing(OTHERS + plainOnly + SHOWN + HIDE + BOWED, mascot)).toEqual([PAIRED]);
+    expect(failing(OTHERS + mascot + plainOnly + SHOWN + HIDE + BOWED)).toEqual([PAIRED]);
+  });
+
+  it("flags grain shown outside its @supports, behind only one mask name, or not the grain", () => {
+    expect(failing(OTHERS + MASK + ".g_x{display:block}" + HIDE + BOWED)).toEqual([SUPPORTS]);
+    const one = "@supports (mask-image:none){.g_x{display:block}}";
+    expect(failing(OTHERS + MASK + one + HIDE + BOWED)).toEqual([SUPPORTS]);
+    const other = SHOWN.replace(".g_x{", ".o_x{");
+    expect(failing(OTHERS + MASK + other + HIDE + BOWED)).toEqual([SUPPORTS]);
+  });
+
+  it("flags the high-contrast rule without !important or without one of its selectors", () => {
+    const soft = HIDE.replace("!important", "");
+    expect(failing(OTHERS + MASK + SHOWN + soft + BOWED)).toEqual([HIDDEN]);
+    const half = ".hc [data-look]{display:none!important}";
+    expect(failing(OTHERS + MASK + SHOWN + half + BOWED)).toEqual([HIDDEN]);
+    const quoted = HIDE.replace("=hc]", '="hc"]');
+    expect(failing(OTHERS + MASK + SHOWN + quoted + BOWED)).toEqual([]);
+  });
+
+  it("flags a shape() wipe that left its @supports", () => {
+    const bare =
+      ".c_x{animation:b-ink .4s both}@keyframes b-ink{to{clip-path:shape(from 0 0,line to 100% 0)}}";
+    expect(failing(OTHERS + MASK + SHOWN + HIDE + bare)).toEqual([SHAPE]);
   });
 });

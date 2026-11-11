@@ -31,10 +31,29 @@ const css = readFileSync(GLOBALS, "utf8");
 const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
 
 /**
- * Files besides globals.css allowed to hold a tile string. The intro book
- * stylesheet (intro-look.module.css) joins when it lands.
+ * Files besides globals.css allowed to hold a tile string: the intro books'
+ * look, which masks their faces with grainMask() (test/comics/intro-look).
  */
-const ALLOWED: string[] = [];
+const ALLOWED: string[] = ["src/app/(tools)/comics/components/intro/intro-look.module.css"];
+
+/**
+ * Every text file in src, read once when this file loads, so the walk does
+ * not count against a test's 5 s timeout (under a full parallel run it can
+ * take longer than that on its own).
+ */
+const SRC_TEXTS: { file: string; text: string }[] = (() => {
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((entry) => {
+      const full = path.join(dir, entry);
+      return statSync(full).isDirectory() ? walk(full) : [full];
+    });
+  return walk(SRC)
+    .filter((file) => /\.(css|tsx?|jsx?|mjs|json|svg|html|md)$/.test(file))
+    .map((file) => ({
+      file: path.relative(process.cwd(), file).split(path.sep).join("/"),
+      text: readFileSync(file, "utf8"),
+    }));
+})();
 
 const THEMES: GrainTheme[] = ["light", "dark"];
 const STRENGTHS: [string, GrainStrength][] = [
@@ -334,18 +353,9 @@ describe("where the grain may be", () => {
       ...grainTiles("light").map((u) => attr(svgOf(u), "d")!),
       grainMask(),
     ];
-    const walk = (dir: string): string[] =>
-      readdirSync(dir).flatMap((entry) => {
-        const full = path.join(dir, entry);
-        return statSync(full).isDirectory() ? walk(full) : [full];
-      });
     const holders = new Set<string>();
-    for (const file of walk(SRC)) {
-      if (!/\.(css|tsx?|jsx?|mjs|json|svg|html|md)$/.test(file)) continue;
-      const text = readFileSync(file, "utf8");
-      if (needles.some((n) => text.includes(n))) {
-        holders.add(path.relative(process.cwd(), file).split(path.sep).join("/"));
-      }
+    for (const { file, text } of SRC_TEXTS) {
+      if (needles.some((n) => text.includes(n))) holders.add(file);
     }
     expect(Array.from(holders).sort()).toEqual(["src/app/globals.css", ...ALLOWED].sort());
   });

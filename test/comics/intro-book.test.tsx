@@ -193,6 +193,164 @@ describe("the book intro", () => {
   });
 });
 
+describe("the book's pages", () => {
+  function parts(latest: { title: string; cover: StoryCover | null } | null) {
+    render(<BookIntro latest={latest} />);
+    const dialog = overlay();
+    const book = dialog.querySelector<HTMLElement>(`.${styles.book}`)!;
+    const one = (cls: string) => book.querySelector<HTMLElement>(`:scope > .${cls}`)!;
+    return {
+      dialog,
+      book,
+      inside: one(styles.inside),
+      leaf1: one(styles.leaf1),
+      leaf2: one(styles.leaf2),
+      cover: one(styles.cover),
+    };
+  }
+
+  const STORIES = [
+    ["with art", { title: TITLE, cover: COVER }],
+    ["without art", { title: TITLE, cover: null }],
+    ["before any story", null],
+  ] as const;
+
+  it.each(STORIES)("turns two pages between the inside page and the cover, %s", (_, latest) => {
+    const { book, inside, leaf1, leaf2, cover } = parts(latest);
+    const order = Array.from(book.children);
+    expect(order.indexOf(inside)).toBeGreaterThan(-1);
+    expect(order.indexOf(leaf1)).toBeGreaterThan(order.indexOf(inside));
+    expect(order.indexOf(leaf2)).toBeGreaterThan(order.indexOf(leaf1));
+    expect(order.indexOf(cover)).toBeGreaterThan(order.indexOf(leaf2));
+    for (const leaf of [leaf1, leaf2]) {
+      expect(leaf).toHaveAttribute("aria-hidden", "true");
+      expect(leaf.querySelectorAll(`:scope > .${styles.face}`)).toHaveLength(2);
+      expect(leaf.querySelectorAll(`:scope > .${styles.back}`)).toHaveLength(1);
+    }
+  });
+
+  it("leaves the first page blank and prints this week's panel on the second page's back", () => {
+    const { inside, leaf1, leaf2 } = parts({ title: TITLE, cover: COVER });
+    expect(leaf1.querySelector("img")).toBeNull();
+    expect(inside.querySelector("img")).toBeNull();
+    const images = Array.from(leaf2.querySelectorAll("img"));
+    expect(images).toHaveLength(1);
+    const [panel] = images;
+    expect(panel.getAttribute("src")).toBe(panelImageUrl(COVER.pathSmall));
+    expect(panel).toHaveAttribute("alt", "");
+    expect(panel).toHaveAttribute("loading", "lazy");
+    expect(panel.hasAttribute("srcset")).toBe(false);
+    // On the back, so it turns over and lands face up as the spread's left page.
+    expect(panel.closest(`.${styles.face}`)).toHaveClass(styles.back);
+    expect(panel.parentElement).toHaveClass(styles.window);
+  });
+
+  it.each(STORIES.slice(1))("keeps both pages blank %s", (_, latest) => {
+    const { inside, leaf1, leaf2 } = parts(latest);
+    for (const page of [inside, leaf1, leaf2]) expect(page.querySelector("img")).toBeNull();
+  });
+
+  it.each(STORIES)("shows no picture twice, %s", (_, latest) => {
+    const all = srcs(parts(latest).dialog);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it("letters the title alone on the inside page, where it inks in", () => {
+    const { inside } = parts({ title: TITLE, cover: COVER });
+    const caption = within(inside).getByText(TITLE).parentElement!;
+    expect(caption).toHaveClass(styles.captionAlone);
+    expect(within(caption).getByText("This week's story")).toBeTruthy();
+    expect(within(caption).getByText(TITLE)).toHaveClass("line-clamp-4");
+  });
+
+  it("lays the cover's grain, light and shade over its art, written before it", () => {
+    const { cover } = parts(null);
+    const art = cover.querySelector("img")!;
+    const front = art.parentElement!;
+    const kids = Array.from(front.children);
+    for (const look of ["grain", "light", "turn"]) {
+      const part = front.querySelector<HTMLElement>(`:scope > [data-look="${look}"]`)!;
+      expect(part, look).not.toBeNull();
+      expect(part).toHaveClass(styles.overArt);
+      expect(kids.indexOf(part)).toBeLessThan(kids.indexOf(art));
+    }
+    expect(front.lastElementChild).toBe(art);
+  });
+
+  it("rests a stripe of light on the inside page, and nothing there moves it", () => {
+    const { inside } = parts({ title: TITLE, cover: COVER });
+    const light = inside.querySelector<HTMLElement>('[data-look="light"]')!;
+    expect(light).not.toBeNull();
+    expect(light.firstElementChild).toHaveClass(styles.restingLight);
+    const animated = new Set(sceneAnimations(CSS_FILE).map((a) => styles[a.selector.slice(1)]));
+    for (const el of [light, ...Array.from(light.querySelectorAll("*"))]) {
+      for (const cls of Array.from(el.classList)) expect(animated.has(cls), cls).toBe(false);
+    }
+  });
+
+  it("lays the facing page, the panel's, in the same light, still, and under the panel", () => {
+    const { leaf2 } = parts({ title: TITLE, cover: COVER });
+    const back = leaf2.querySelector<HTMLElement>(`:scope > .${styles.back}`)!;
+    const light = back.querySelector<HTMLElement>(':scope > [data-look="light"]')!;
+    expect(light.firstElementChild).toHaveClass(styles.shadeOnly);
+    const animated = new Set(sceneAnimations(CSS_FILE).map((a) => styles[a.selector.slice(1)]));
+    for (const el of [light, ...Array.from(light.querySelectorAll("*"))]) {
+      for (const cls of Array.from(el.classList)) expect(animated.has(cls), cls).toBe(false);
+    }
+    const kids = Array.from(back.children);
+    expect(kids.indexOf(light)).toBeLessThan(
+      kids.indexOf(back.querySelector(`.${styles.window}`)!)
+    );
+  });
+
+  it.each(STORIES)(
+    "puts every look part inside a face, never on what keeps the 3D space open, %s",
+    (_, latest) => {
+      const { dialog, book } = parts(latest);
+      // The classes that set preserve-3d, read from the CSS so a new one is held too.
+      const text = readFileSync(path.join(process.cwd(), CSS_FILE), "utf8").replace(
+        /\/\*[\s\S]*?\*\//g,
+        ""
+      );
+      const open = Array.from(text.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+        .filter((rule) => /transform-style\s*:\s*preserve-3d/.test(rule[2]))
+        .flatMap((rule) => rule[1].split(","))
+        .map((selector) => selector.trim().slice(1))
+        .sort();
+      expect(open).toEqual(["book", "cover", "glide", "leaf1", "leaf2", "lift", "push"]);
+      for (const name of open) {
+        const els = Array.from(dialog.querySelectorAll(`.${styles[name]}`));
+        expect(els, name).toHaveLength(1);
+        // Its own class alone, so no look part's class (a mask, a clip, opacity) sits on it.
+        expect(Array.from(els[0].classList), name).toEqual([styles[name]]);
+        expect(els[0].hasAttribute("data-look"), name).toBe(false);
+      }
+      // Inside a face, the inside page or the page block, and never one of those itself.
+      const holders = [styles.face, styles.inside, styles.block].map((c) => `.${c}`).join(",");
+      const looks = Array.from(book.querySelectorAll<HTMLElement>("[data-look]"));
+      expect(looks.length).toBeGreaterThan(0);
+      for (const part of looks) {
+        const look = part.getAttribute("data-look");
+        expect(part.matches(holders), look!).toBe(false);
+        expect(part.parentElement!.closest(holders), look!).not.toBeNull();
+      }
+    }
+  );
+
+  it("grains every face, and draws the page block's edges and the ground shadow", () => {
+    const { dialog, book } = parts({ title: TITLE, cover: COVER });
+    const faces = Array.from(dialog.querySelectorAll(`.${styles.face}`));
+    expect(faces).toHaveLength(6);
+    for (const face of faces) expect(face.querySelector('[data-look="grain"]')).not.toBeNull();
+    expect(book.querySelector(`:scope > .${styles.inside} > [data-look="grain"]`)).not.toBeNull();
+    expect(book.querySelector(`:scope > .${styles.block} [data-look="edges"]`)).not.toBeNull();
+    const ground = dialog.querySelector(`.${styles.groundBox} [data-look="ground"]`);
+    expect(ground).toHaveClass(styles.groundGrow);
+    // On the ground, outside the book's 3D space, so the book always covers it.
+    expect(book.contains(ground)).toBe(false);
+  });
+});
+
 describe("the book intro's timing", () => {
   const animations = sceneAnimations(CSS_FILE);
   const css = readFileSync(path.join(process.cwd(), CSS_FILE), "utf8").replace(
@@ -304,8 +462,238 @@ describe("the book intro's timing", () => {
     expect(landscape).toBeGreaterThan(base);
   });
 
+  /**
+   * The declarations of the top-level rule for `selector`, in order. The markup
+   * tests can't see these: a CSS module reads as any class name in a test.
+   */
+  function declsOf(selector: string): [string, string][] {
+    const rule = new RegExp(`\\n\\${selector} \\{([^}]*)\\}`).exec(css);
+    expect(rule, selector).not.toBeNull();
+    return Array.from(rule![1].matchAll(/([a-z-]+)\s*:\s*([^;]+);/g), (d) => [
+      d[1],
+      d[2].replace(/\s+/g, " ").trim(),
+    ]);
+  }
+
+  it("turns a sheet's back over, and hides each face once it faces away", () => {
+    // So the panel on the second page's back turns over and lands face up.
+    expect(declsOf(".back")).toContainEqual(["transform", "rotateY(180deg)"]);
+    const face = declsOf(".face");
+    const prefixed = face.findIndex(
+      ([p, v]) => p === "-webkit-backface-visibility" && v === "hidden"
+    );
+    const plain = face.findIndex(([p, v]) => p === "backface-visibility" && v === "hidden");
+    expect(prefixed).toBeGreaterThan(-1);
+    expect(plain).toBeGreaterThan(prefixed);
+  });
+
+  it("lifts the cover's grain, light and shade above its art", () => {
+    const z = declsOf(".overArt").find(([p]) => p === "z-index");
+    expect(Number(z?.[1])).toBeGreaterThan(0);
+  });
+
+  it("places the resting light on each page of the open spread", () => {
+    for (const selector of [".restingLight", ".shadeOnly"]) {
+      const transform = declsOf(selector).find(([p]) => p === "transform");
+      expect(transform?.[1], selector).toMatch(/^translateX\(-?[\d.]+%\)$/);
+    }
+  });
+
   it("draws nothing of its own: no images or gradients in the CSS", () => {
     expect(css).not.toMatch(/url\(|gradient\(/);
+  });
+
+  /** The one animation on `selector` (the caption has two: the straight wipe and its bowed twin). */
+  function only(selector: string) {
+    const found = animations.filter((a) => a.selector === selector);
+    expect(found, selector).toHaveLength(1);
+    return found[0];
+  }
+
+  /** A keyframes block's steps, each at its offset from 0 to 1. */
+  function stepsOf(name: string): { at: number; decls: Record<string, string> }[] {
+    const head = new RegExp(`@keyframes\\s+${name}\\s*\\{`).exec(css);
+    expect(head, name).not.toBeNull();
+    let depth = 1;
+    let i = head!.index + head![0].length;
+    const start = i;
+    for (; depth > 0; i++) {
+      if (css[i] === "{") depth += 1;
+      if (css[i] === "}") depth -= 1;
+    }
+    return Array.from(css.slice(start, i - 1).matchAll(/([^{}]+)\{([^{}]*)\}/g)).flatMap((m) => {
+      const decls = Object.fromEntries(
+        Array.from(m[2].matchAll(/([a-z-]+)\s*:\s*([^;]+)/g)).map((d) => [
+          d[1],
+          d[2].replace(/\s+/g, " ").trim(),
+        ])
+      );
+      return m[1].split(",").map((offset) => {
+        const o = offset.trim();
+        return { at: o === "from" ? 0 : o === "to" ? 1 : Number(o.slice(0, -1)) / 100, decls };
+      });
+    });
+  }
+
+  const angle = (transform: string) => Number(/rotateY\((-?[\d.]+)deg\)/.exec(transform)![1]);
+  const depthOf = (transform: string) => Number(/translateZ\((-?[\d.]+)px\)/.exec(transform)![1]);
+
+  /** When a sheet's turn passes edge-on: its rotateY(-90deg) step. */
+  function edgeOn(selector: string): number {
+    const turn = only(selector);
+    const step = stepsOf(turn.name).find((s) => /rotateY\(-90deg\)/.test(s.decls.transform ?? ""));
+    expect(step, `${turn.name} has a rotateY(-90deg) step`).toBeDefined();
+    return turn.delay + step!.at * turn.duration;
+  }
+
+  const SHEETS = [".cover", ".leaf1", ".leaf2"] as const;
+
+  it("turns the cover and both pages through an explicit edge-on step", () => {
+    for (const sheet of SHEETS) expect(edgeOn(sheet), sheet).toBeGreaterThan(only(sheet).delay);
+  });
+
+  it("rests the cover at -160 and the pages at -158 and -156, so the page turned last lies on top", () => {
+    const resting = SHEETS.map((sheet) => angle(stepsOf(only(sheet).name).at(-1)!.decls.transform));
+    expect(resting).toEqual([-160, -158, -156]);
+    for (const a of resting) {
+      expect(a).toBeGreaterThanOrEqual(-160);
+      expect(a).toBeLessThanOrEqual(-154);
+    }
+  });
+
+  it("turns each sheet with rotateY and then translateZ, the cover in front while closed", () => {
+    const depths = SHEETS.map((sheet) => {
+      const steps = stepsOf(only(sheet).name);
+      for (const { decls } of steps) {
+        const t = decls.transform;
+        expect(t.indexOf("rotateY"), t).toBeGreaterThan(-1);
+        expect(t.indexOf("translateZ"), t).toBeGreaterThan(t.indexOf("rotateY"));
+      }
+      const each = new Set(steps.map((s) => depthOf(s.decls.transform)));
+      expect(each.size, sheet).toBe(1);
+      return Array.from(each)[0];
+    });
+    expect(depths).toEqual([3, 2, 1]);
+  });
+
+  it("lands the pages without passing their resting angle, so no page goes through the one under it", () => {
+    for (const sheet of [".leaf1", ".leaf2"]) {
+      const steps = stepsOf(only(sheet).name);
+      const angles = steps.map((s) => angle(s.decls.transform));
+      expect(angles, sheet).toEqual([...angles].sort((a, b) => b - a));
+      // No spring: its overshoot is past the resting angle.
+      expect(steps.some((s) => /linear\(/.test(s.decls["animation-timing-function"] ?? ""))).toBe(
+        false
+      );
+      // Nor a curve that runs past its end: every cubic-bezier, in the shorthand
+      // (which a step without its own curve takes) and in each step, keeps y in 0..1.
+      const name = only(sheet).name;
+      const shorthand = shorthands.find((one) => one.startsWith(`${name} `))!;
+      const curves = [shorthand, ...steps.map((s) => s.decls["animation-timing-function"] ?? "")]
+        .flatMap((value) => Array.from(value.matchAll(/cubic-bezier\(([^)]*)\)/g)))
+        .map((m) => m[1].split(",").map(Number));
+      expect(curves.length, sheet).toBeGreaterThan(0);
+      for (const [, y1, , y2] of curves) {
+        for (const y of [y1, y2]) {
+          expect(y, `${sheet}: cubic-bezier y ${y}`).toBeGreaterThanOrEqual(0);
+          expect(y, `${sheet}: cubic-bezier y ${y}`).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+    // Each sheet lifts only once the one above it is upright, and lands after it.
+    expect(only(".leaf1").delay).toBeGreaterThanOrEqual(edgeOn(".cover") - 1e-9);
+    expect(endsAt(only(".leaf1"))).toBeGreaterThan(endsAt(only(".cover")));
+    expect(only(".leaf2").delay).toBeGreaterThanOrEqual(endsAt(only(".leaf1")) - 1e-9);
+  });
+
+  it("turns the blank first page at once: it lifts as the cover goes edge-on", () => {
+    expect(Math.abs(only(".leaf1").delay - edgeOn(".cover"))).toBeLessThan(0.02);
+  });
+
+  it("lets the second page lie flat at least 0.4 s before it turns over", () => {
+    expect(only(".leaf2").delay - edgeOn(".leaf1")).toBeGreaterThanOrEqual(0.4);
+  });
+
+  it("inks the title in only once the second page is edge-on, straight or bowed", () => {
+    const wipes = animations.filter((a) => a.selector === ".captionAlone");
+    expect(wipes.map((w) => w.name)).toEqual(["book-ink", "book-ink-bowed"]);
+    for (const wipe of wipes) expect(wipe.delay).toBeGreaterThanOrEqual(edgeOn(".leaf2"));
+  });
+
+  it("keeps the bowed ink at the straight wipe's pace: its two steps are that curve cut at its middle", () => {
+    const bezier = (one: string) =>
+      /cubic-bezier\(([^)]*)\)/.exec(one)![1].split(",").map(Number) as [
+        number,
+        number,
+        number,
+        number,
+      ];
+    const [x1, y1, x2, y2] = bezier(shorthands.find((one) => one.startsWith("book-ink "))!);
+    // de Casteljau at t = 0.5: the middle point, and each half's control points.
+    const mid = (a: number, b: number) => (a + 3 * b) / 8;
+    const [mx, my] = [mid(0, x1) + mid(0, x2) + 1 / 8, mid(0, y1) + mid(0, y2) + 1 / 8];
+    const left = [x1 / 2 / mx, y1 / 2 / my, (2 * x1 + x2) / 4 / mx, (2 * y1 + y2) / 4 / my];
+    const right = [
+      ((x1 + 2 * x2 + 1) / 4 - mx) / (1 - mx),
+      ((y1 + 2 * y2 + 1) / 4 - my) / (1 - my),
+      ((x2 + 1) / 2 - mx) / (1 - mx),
+      ((y2 + 1) / 2 - my) / (1 - my),
+    ];
+    const steps = stepsOf("book-ink-bowed");
+    expect(steps.map((s) => s.at)).toEqual([0, expect.closeTo(mx, 3), 1]);
+    const curve = (s: (typeof steps)[number]) => bezier(s.decls["animation-timing-function"]);
+    curve(steps[0]).forEach((v, i) => expect(v).toBeCloseTo(left[i], 3));
+    curve(steps[1]).forEach((v, i) => expect(v).toBeCloseTo(right[i], 3));
+    // The edge has come that far of its way from 0 to 100% + 0.5rem.
+    const edge = /line to calc\(([\d.]+)% \+ ([\d.]+)rem\) -0\.5rem/.exec(
+      steps[1].decls["clip-path"]
+    )!;
+    expect(Number(edge[1]) / 100).toBeCloseTo(my, 3);
+    expect(Number(edge[2]) / 0.5).toBeCloseTo(my, 2);
+  });
+
+  it("pops Amr up only after the second page has landed, so no page sweeps across him", () => {
+    expect(only(".amrPop").delay).toBeGreaterThanOrEqual(endsAt(only(".leaf2")) - 1e-9);
+  });
+
+  it("sweeps the light across the closed cover, ending before it opens", () => {
+    const sweep = only(".coverLight");
+    expect(endsAt(sweep)).toBeLessThanOrEqual(only(".cover").delay + 1e-9);
+    expect(sweep.delay).toBeGreaterThan(0);
+  });
+
+  it("darkens each turning front in three flat steps, to 24%, until it is edge-on", () => {
+    for (const [shade, sheet] of [
+      [".coverShade", ".cover"],
+      [".leaf1Shade", ".leaf1"],
+      [".leaf2Shade", ".leaf2"],
+    ]) {
+      const a = only(shade);
+      expect(a.delay, shade).toBeCloseTo(only(sheet).delay, 9);
+      expect(endsAt(a), shade).toBeCloseTo(edgeOn(sheet), 9);
+      const shorthand = new RegExp(`\\n\\${shade} \\{\\s*animation: ([^;]+);`).exec(css)?.[1];
+      expect(shorthand, shade).toMatch(/\bsteps\(3\b/);
+      const steps = stepsOf(a.name);
+      expect(steps[0].decls.opacity).toBe("0");
+      expect(steps.at(-1)!.decls.opacity).toBe("0.24");
+    }
+  });
+
+  it("lands the book on a spring and grows its ground shadow with it, by scaleX only", () => {
+    const [rise, grow] = [only(".lift"), only(".groundGrow")];
+    expect([grow.delay, grow.duration]).toEqual([rise.delay, rise.duration]);
+    const steps = stepsOf(grow.name);
+    expect(steps[0].decls.transform).toMatch(/^scaleX\([\d.]+\)$/);
+    expect(steps.at(-1)!.decls.transform).toBe("none");
+  });
+
+  it("glides the ground with the book", () => {
+    const [book, ground] = [only(".glide"), only(".groundBox")];
+    expect([ground.name, ground.duration, ground.delay]).toEqual([
+      book.name,
+      book.duration,
+      book.delay,
+    ]);
   });
 });
 

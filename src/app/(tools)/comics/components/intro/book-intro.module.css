@@ -1,22 +1,50 @@
 /*
  * The book's intro, 5 s, at /comics (book-intro.tsx).
  *
- *   0    – 0.8 s   the closed book rises toward the reader out of a tilt
- *   1.0  – 2.3 s   the cover swings open on its left edge, and settles
- *   1.1  – 2.4 s   the book glides right, so the open spread sits centred
- *   2.0  – 2.5 s   Amr pops up at the foot of the fold and waves
+ *   0    – 0.6 s   the closed book rises toward the reader out of a tilt and
+ *                  lands on the settle spring; its ground shadow grows under it
+ *   0.45 – 0.95 s  a stripe of light crosses the closed cover
+ *   0.95 – 1.75 s  the cover swings open on its left edge, darkening in three
+ *                  steps until it is edge-on at 1.27 s, and lands with a bounce
+ *   1.0  – 2.0 s   the book glides right, so the open spread sits centred
+ *   1.27 – 1.87 s  the first page, blank, turns at once (edge-on at 1.51 s)
+ *   1.95 – 2.55 s  the second page lies still 0.44 s, then turns over (edge-on
+ *                  at 2.19 s): this week's panel is printed on its back, so it
+ *                  lands face up beside the title
+ *   2.25 – 2.65 s  the story's title inks in, left to right
+ *   2.6  – 3.1 s   Amr pops up at the foot of the fold, on the pop spring
  *   4.25 – 5.0 s   the page pushes toward the reader as the overlay fades
+ *
+ * So the title is fully inked for 1.6 s before the push begins.
  *
  * Every time is a literal in one `animation:` shorthand, filled both ways, and
  * everything is over by 5 s (test/comics/intro-book.test.tsx holds it to that).
- * Only transform, opacity and visibility move.
+ * Only transform, opacity, clip-path and visibility move. The two springs are
+ * tokens.ts's settle and pop linear() lists, written inside keyframes; each
+ * shorthand that uses one keeps that spring's one-overshoot cubic-bezier for
+ * browsers without linear() (test/comics/intro-look.test.tsx).
+ *
+ * The 3D rule: an element that keeps the 3D space open (transform-style:
+ * preserve-3d: lift, push, glide, book, cover and the two sheets) moves by
+ * transform alone and never carries opacity, overflow, a clip, a mask, a
+ * filter, a blend mode, isolation or paint containment, which would flatten
+ * it. Grain, light, shades and page edges are spans inside a face.
+ *
+ * Depth: each sheet turns with rotateY() and then translateZ() along its own
+ * face: the cover 3px, the first page 2px, the second 1px, the inside page 0.
+ * Closed, the cover is in front; turned, the sheet turned last lies on top.
+ * They rest at -160, -158 and -156 degrees, so no sheet ever passes through
+ * another and Amr (0.1 of the book's width in front) stays before all three.
+ * The pages land without overshoot: paper doesn't bounce, and settle's 8% past
+ * would carry a page through the one under it. The cover's board does bounce.
  *
  * Sizes come from the book's width, which comes from the viewport, so nothing
- * here can scroll or spill. The overlay clips the open cover where a phone is
- * too narrow for the spread: a deliberate crop of plain paper.
- *
- * The book is square, as printed, and its front is the cover's own art. The
- * cover is also lettered underneath, which is what shows until the art loads.
+ * here can scroll or spill. Where a phone is too narrow for the open spread,
+ * the overlay clips the turned sheets' left side, and with them most of this
+ * week's panel: on a 375 px phone only about its right 30% stays on screen
+ * once its page has landed, and it shows whole, foreshortened, only while
+ * that page turns over. The title's page, on the right, always shows whole,
+ * and on a desktop so does the whole spread.
  */
 
 /* The overlay's one animation: its end is the intro's end. Eased in, with the
@@ -71,11 +99,27 @@
   }
 }
 
+/* The ground under the book: a box the book's size in the same grid cell,
+   drawn before the book and outside its 3D space, so the book always covers
+   it. It glides with the book, and its shadow grows as the book lands. */
+.groundBox {
+  grid-area: 1 / 1;
+  position: relative;
+  width: var(--book-w);
+  aspect-ratio: 1 / 1;
+  animation: book-glide 1s cubic-bezier(0.45, 0, 0.2, 1) 1s both;
+}
+
+.groundGrow {
+  animation: book-ground 0.6s cubic-bezier(0.42, 1.52, 0.1, 1) 0s both;
+}
+
 /* Three wrappers, one move each, so no two animations fight over a transform.
    All keep the 3D space open down to the cover. */
 .lift {
+  grid-area: 1 / 1;
   transform-style: preserve-3d;
-  animation: book-rise 0.8s cubic-bezier(0.2, 0.7, 0.3, 1) 0s both;
+  animation: book-rise 0.6s cubic-bezier(0.42, 1.52, 0.1, 1) 0s both;
 }
 
 .push {
@@ -85,7 +129,7 @@
 
 .glide {
   transform-style: preserve-3d;
-  animation: book-glide 1.3s cubic-bezier(0.45, 0, 0.2, 1) 1.1s both;
+  animation: book-glide 1s cubic-bezier(0.45, 0, 0.2, 1) 1s both;
 }
 
 .book {
@@ -95,26 +139,21 @@
   transform-style: preserve-3d;
 }
 
-/* The pages under the cover: two leaves, offset like the hard shadow, a little
-   behind it in depth so the cover always draws in front. */
-.leaf {
+/* The pages under the inside page, as one block, offset like the hard shadow
+   and a little behind it in depth. Its fine page edges sit in that offset. */
+.block {
+  --look-edge-x: calc(var(--book-w) * 0.04);
+  --look-edge-y: calc(var(--book-w) * 0.035);
   position: absolute;
   inset: 0;
   background-color: var(--card);
   border: var(--line-w) solid var(--border);
   border-radius: var(--panel-radius);
-}
-
-.leafBack {
-  transform: translate3d(calc(var(--book-w) * 0.032), calc(var(--book-w) * 0.028), -4px);
   box-shadow: var(--shadow-3);
+  transform: translate3d(var(--look-edge-x), var(--look-edge-y), -4px);
 }
 
-.leafMid {
-  transform: translate3d(calc(var(--book-w) * 0.016), calc(var(--book-w) * 0.014), -2px);
-}
-
-/* The first page, what the cover opens onto. */
+/* The page the others open onto, on the right of the spread. */
 .inside {
   position: absolute;
   inset: 0;
@@ -126,43 +165,46 @@
   border-radius: var(--panel-radius);
 }
 
-/* A fixed 3:2 window, so the caption's place never moves: a panel of another
-   shape is cropped to fit, as in every intro window. */
+/* Where the light rests on that page: its stripe a little right of centre. */
+.restingLight {
+  transform: translateX(3%);
+}
+
+/* The page facing it lies in the same light, its stripe off the page's edge,
+   so the open spread is shaded alike on both sides of the fold. */
+.shadeOnly {
+  transform: translateX(-22.5%);
+}
+
+/* A fixed 3:2 window for this week's panel, so a panel of another shape is
+   cropped to fit, as in every intro window. Over the page's grain. */
 .window {
+  position: relative;
   flex: none;
   width: 100%;
   aspect-ratio: 3 / 2;
 }
 
-/* On a phone on its side the square page is short: at the lettering's smallest
-   sizes, a wider window is what leaves the title its two lines. After the rule
-   above, which it has to outrank: a media query adds no specificity. */
+/* On a phone on its side the square page is short, and a wider window leaves
+   more of it clear. After the rule above, which it has to outrank: a media
+   query adds no specificity. */
 @media (orientation: landscape) and (max-height: 540px) {
   .window {
     aspect-ratio: 2 / 1;
   }
 }
 
-/* Under the panel, two lines at most: on the smallest phone the page ends a
-   few pixels below them. */
-.caption {
-  margin-top: calc(var(--book-w) * 0.04);
-}
-
-/* No panel: the lettering is the page, larger and higher. */
+/* The title, inking in left to right, over the page's grain and light. The
+   clip reaches half a rem past the box, so no letter's edge is ever cut. */
 .captionAlone {
+  position: relative;
   margin-top: calc(var(--book-w) * 0.08);
+  animation: book-ink 0.4s cubic-bezier(0.25, 0.5, 0.45, 1) 2.25s both;
 }
 
 .eyebrow {
   font-size: max(0.75rem, calc(var(--book-w) * 0.046));
   line-height: 1.3;
-}
-
-.storyTitle {
-  margin-top: calc(var(--book-w) * 0.008);
-  font-size: max(0.875rem, calc(var(--book-w) * 0.07));
-  line-height: 1.15;
 }
 
 .storyTitleAlone {
@@ -171,16 +213,77 @@
   line-height: 1.2;
 }
 
-/* The cover turns on its left edge. A pixel in front of the page, so the two
-   never fight over the same depth while it's closed. */
+/* Where shape() works, the ink's leading edge bows forward as it goes. Same
+   first and last frames as the straight wipe, and the same pace: its two steps
+   are that curve cut in two at its middle. */
+@supports (clip-path: shape(from 0 0, line to 100% 0)) {
+  .captionAlone {
+    animation: book-ink-bowed 0.4s cubic-bezier(0.25, 0.5, 0.45, 1) 2.25s both;
+  }
+
+  @keyframes book-ink-bowed {
+    from {
+      clip-path: shape(
+        from -0.5rem -0.5rem,
+        line to 0% -0.5rem,
+        curve to 0% calc(100% + 0.5rem) with 0% 50%,
+        line to -0.5rem calc(100% + 0.5rem),
+        close
+      );
+      animation-timing-function: cubic-bezier(0.323, 0.364, 0.613, 0.727);
+    }
+    38.75% {
+      clip-path: shape(
+        from -0.5rem -0.5rem,
+        line to calc(68.75% + 0.344rem) -0.5rem,
+        curve to calc(68.75% + 0.344rem) calc(100% + 0.5rem) with calc(78.75% + 0.344rem) 50%,
+        line to -0.5rem calc(100% + 0.5rem),
+        close
+      );
+      animation-timing-function: cubic-bezier(0.245, 0.6, 0.551, 1);
+    }
+    to {
+      clip-path: shape(
+        from -0.5rem -0.5rem,
+        line to calc(100% + 0.5rem) -0.5rem,
+        curve to calc(100% + 0.5rem) calc(100% + 0.5rem) with calc(100% + 0.5rem) 50%,
+        line to -0.5rem calc(100% + 0.5rem),
+        close
+      );
+    }
+  }
+}
+
+/* The three sheets turn on their left edge. The cover: a stripe of light
+   crosses it while it's closed, then it opens. */
 .cover {
   position: absolute;
   inset: 0;
   transform-origin: 0 50%;
   transform-style: preserve-3d;
-  animation: book-open 1.3s cubic-bezier(0.6, 0, 0.35, 1) 1s both;
+  animation: book-open 0.8s cubic-bezier(0.42, 1.52, 0.1, 1) 0.95s both;
 }
 
+/* The blank first page turns as soon as the cover is edge-on. */
+.leaf1 {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  transform-style: preserve-3d;
+  animation: book-leaf1 0.6s cubic-bezier(0.5, 0, 0.5, 1) 1.27s both;
+}
+
+/* The second page lies still a moment, then turns over onto its panel. */
+.leaf2 {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  transform-style: preserve-3d;
+  animation: book-leaf2 0.6s cubic-bezier(0.5, 0, 0.5, 1) 1.95s both;
+}
+
+/* One side of a sheet: flat, and hidden when it faces away. Isolated, so the
+   grain, light and shade inside it paint inside it and hide with it. */
 .face {
   position: absolute;
   inset: 0;
@@ -189,13 +292,25 @@
   border-radius: var(--panel-radius);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
+  isolation: isolate;
 }
 
-.front {
+/* A page's side, laid out like the inside page, so the panel sits where the
+   title does on the other side of the fold. */
+.page {
   display: flex;
   flex-direction: column;
-  padding: calc(var(--book-w) * 0.13) calc(var(--book-w) * 0.08) calc(var(--book-w) * 0.1)
-    calc(var(--book-w) * 0.15);
+  padding: calc(var(--book-w) * 0.07);
+}
+
+/* The other side of a sheet, seen once it has turned past upright. */
+.back {
+  transform: rotateY(180deg);
+}
+
+/* The cover's grain, light and shade lie over its art, not under it. */
+.overArt {
+  z-index: 1;
 }
 
 /* The cover's art, filling the board inside its border, over the lettering
@@ -208,11 +323,6 @@
   border-radius: inherit;
 }
 
-/* The inside of the cover, seen once it has turned past upright. */
-.back {
-  transform: rotateY(180deg);
-}
-
 /* Where the cover's cloth turns in over the board. In the quieter ink, drawn
    plainly enough that the turned cover reads as a cover, not a blank board. */
 .endpaper {
@@ -222,45 +332,44 @@
   border-radius: var(--panel-radius);
 }
 
-/* The groove a hardcover bends at. */
-.hinge {
+/* The board's thickness: a 3px face along the cover's free edge, square to
+   it, seen only while the cover stands near upright and after, as the turned
+   cover's edge. */
+.boardEdge {
   position: absolute;
   top: 0;
+  right: 0;
   bottom: 0;
-  left: calc(var(--book-w) * 0.075);
-  border-left: var(--line-w) solid var(--border);
-}
-
-.title {
-  font-size: calc(var(--book-w) * 0.17);
-  line-height: 0.98;
-}
-
-.line {
-  display: block;
-}
-
-/* One stroke of the brush under the title, in ink like every other mark. */
-.titleRule {
-  display: block;
-  width: calc(var(--book-w) * 0.2);
-  height: max(3px, calc(var(--book-w) * 0.014));
-  margin-top: calc(var(--book-w) * 0.06);
-  border-radius: 9999px;
+  width: 3px;
   background-color: var(--border);
-  transform: rotate(-1.5deg);
+  transform-origin: 100% 50%;
+  transform: translateZ(-1.5px) rotateY(90deg);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
-.byline {
-  margin-top: auto;
-  font-size: max(0.75rem, calc(var(--book-w) * 0.056));
-  line-height: 1.25;
+/* The light's sweep across the closed cover, ending before it opens. */
+.coverLight {
+  animation: book-light 0.5s cubic-bezier(0.45, 0, 0.55, 1) 0.45s both;
+}
+
+/* Each front darkens in three flat steps as it turns away, until edge-on. */
+.coverShade {
+  animation: book-shade 0.32s steps(3, jump-start) 0.95s both;
+}
+
+.leaf1Shade {
+  animation: book-shade 0.24s steps(3, jump-start) 1.27s both;
+}
+
+.leaf2Shade {
+  animation: book-shade 0.24s steps(3, jump-start) 1.95s both;
 }
 
 /* Amr in his sheet's own cell, scaled about his feet from the book's width.
    The cell, his feet and his figure's height come from sprite-poses.ts by way
    of the --amr-* properties the TSX sets, so a new sheet moves him too. In
-   front of the turned cover, so its edge never cuts across him. */
+   front of the turned sheets, so no edge ever cuts across him. */
 .amr {
   position: absolute;
   width: var(--amr-cell-w);
@@ -301,10 +410,11 @@
   }
 }
 
+/* After the second page has landed, so no page sweeps across him. */
 .amrPop {
   display: block;
   transform-origin: 50% 100%;
-  animation: book-amr 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 2s both;
+  animation: book-amr 0.5s cubic-bezier(0.38, 1.76, 0.1, 1) 2.6s both;
 }
 
 @keyframes book-fade {
@@ -316,31 +426,187 @@
   }
 }
 
-/* From lying back on a desk to facing the reader, a touch past and back. */
+/* From lying back on a desk to facing the reader, landing a touch past. */
 @keyframes book-rise {
   from {
     transform: translate3d(0, 12vh, calc(var(--book-w) * -1.5)) rotateX(40deg) rotateZ(-5deg);
-  }
-  72% {
-    transform: translate3d(0, -0.6vh, calc(var(--book-w) * 0.04)) rotateX(-3deg) rotateZ(0.5deg);
-    animation-timing-function: cubic-bezier(0.4, 0, 0.3, 1);
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
   }
   to {
     transform: none;
   }
 }
 
-/* Falls open a few degrees past where it rests, then settles. */
-@keyframes book-open {
+/* The shadow spreads as the book comes down onto it. */
+@keyframes book-ground {
   from {
-    transform: translateZ(1px) rotateY(0deg);
-  }
-  80% {
-    transform: translateZ(1px) rotateY(-163deg);
-    animation-timing-function: cubic-bezier(0.3, 0, 0.5, 1);
+    transform: scaleX(0.25);
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
   }
   to {
-    transform: translateZ(1px) rotateY(-160deg);
+    transform: none;
+  }
+}
+
+@keyframes book-light {
+  from {
+    transform: translateX(-22.5%);
+  }
+  to {
+    transform: translateX(22.5%);
+  }
+}
+
+@keyframes book-shade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.24;
+  }
+}
+
+/* Lifted to upright, let go, and falling open onto the table with a bounce. */
+@keyframes book-open {
+  from {
+    transform: rotateY(0deg) translateZ(3px);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.5, 1);
+  }
+  40% {
+    transform: rotateY(-90deg) translateZ(3px);
+    animation-timing-function: linear(
+      0,
+      0.045,
+      0.154,
+      0.299,
+      0.454,
+      0.604,
+      0.738,
+      0.849,
+      0.937,
+      1,
+      1.043,
+      1.068,
+      1.079,
+      1.08,
+      1.074,
+      1.064,
+      1.051,
+      1.039,
+      1.027,
+      1.017,
+      1.009,
+      1.003,
+      0.998,
+      0.995,
+      0.994,
+      0.993,
+      0.994,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      0.998,
+      1
+    );
+  }
+  to {
+    transform: rotateY(-160deg) translateZ(3px);
+  }
+}
+
+/* A page lifted to upright and let go settles flat on the cover, no bounce. */
+@keyframes book-leaf1 {
+  from {
+    transform: rotateY(0deg) translateZ(2px);
+  }
+  40% {
+    transform: rotateY(-90deg) translateZ(2px);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.3, 1);
+  }
+  to {
+    transform: rotateY(-158deg) translateZ(2px);
+  }
+}
+
+@keyframes book-leaf2 {
+  from {
+    transform: rotateY(0deg) translateZ(1px);
+  }
+  40% {
+    transform: rotateY(-90deg) translateZ(1px);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.3, 1);
+  }
+  to {
+    transform: rotateY(-156deg) translateZ(1px);
   }
 }
 
@@ -353,10 +619,55 @@
   }
 }
 
+/* The straight wipe, everywhere shape() isn't. */
+@keyframes book-ink {
+  from {
+    clip-path: inset(-0.5rem 100% -0.5rem -0.5rem);
+  }
+  to {
+    clip-path: inset(-0.5rem);
+  }
+}
+
 @keyframes book-amr {
   from {
     opacity: 0;
     transform: translateY(14%) scale(0.82);
+    animation-timing-function: linear(
+      0,
+      0.057,
+      0.198,
+      0.383,
+      0.579,
+      0.76,
+      0.913,
+      1.029,
+      1.106,
+      1.149,
+      1.163,
+      1.155,
+      1.133,
+      1.103,
+      1.071,
+      1.041,
+      1.016,
+      0.997,
+      0.983,
+      0.976,
+      0.973,
+      0.975,
+      0.978,
+      0.983,
+      0.988,
+      0.993,
+      0.997,
+      1,
+      1.003,
+      1.004,
+      1.004,
+      1.004,
+      1
+    );
   }
   to {
     opacity: 1;

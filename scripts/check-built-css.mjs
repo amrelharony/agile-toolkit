@@ -139,6 +139,68 @@ function vtReducedMotion(css) {
   );
 }
 
+/**
+ * The book's grain rule (intro-look.module.css .grain): the one rule that
+ * stores the tile as --look-grain. Found by that, not by its hashed class
+ * name, and never by a mask alone: Amr's mascot-fx sheet pairs its own masks,
+ * which would pass for the book's.
+ */
+function grainRules(css) {
+  return rules(css).filter((r) => r.body.split(";").some((d) => d.startsWith("--look-grain:url(")));
+}
+
+/** Each mask longhand the grain uses: the -webkit- name first, then the plain one, to the same value. */
+const GRAIN_MASKS = ["mask-image", "mask-size", "mask-repeat"];
+
+function maskPaired(css) {
+  return grainRules(css).some((r) => {
+    const decls = r.body.split(";");
+    const value = (name) => {
+      const i = decls.findIndex((d) => d.startsWith(`${name}:`));
+      return { i, v: i === -1 ? null : decls[i].slice(name.length + 1) };
+    };
+    return (
+      value("mask-image").v === "var(--look-grain)" &&
+      GRAIN_MASKS.every((name) => {
+        const [prefixed, plain] = [value(`-webkit-${name}`), value(name)];
+        return prefixed.i !== -1 && plain.i > prefixed.i && plain.v === prefixed.v;
+      })
+    );
+  });
+}
+
+/** That same rule's selector is shown only inside @supports for either mask name. */
+function grainShownWithMasks(css) {
+  const grain = new Set(grainRules(css).flatMap((r) => r.selectors));
+  return blocks(css, "@supports").some(
+    (b) =>
+      b.params.includes("(mask-image:none)") &&
+      b.params.includes("(-webkit-mask-image:none)") &&
+      rules(b.body).some(
+        (r) => r.selectors.some((s) => grain.has(s)) && r.body.split(";").includes("display:block")
+      )
+  );
+}
+
+/** globals.css BOOK LOOK: every look part hidden in high contrast. */
+function bookLookHidden(css) {
+  return rules(css).some((r) => {
+    const selectors = r.selectors.map((s) => s.replace(/["']/g, ""));
+    return (
+      selectors.includes(".hc[data-look]") &&
+      selectors.includes("[data-theme=hc][data-look]") &&
+      r.body.split(";").includes("display:none!important")
+    );
+  });
+}
+
+/** The book title's bowed wipe: clip-path shape() inside @supports for it. */
+function bowedWipe(css) {
+  return blocks(css, "@supports").some(
+    (b) => b.params.includes("(clip-path:shape(") && b.body.includes("clip-path:shape(")
+  );
+}
+
 /** Markers by PR id. Each `test` gets one file's CSS with all whitespace removed. */
 export const MARKERS = {
   F1: [
@@ -179,6 +241,24 @@ export const MARKERS = {
     {
       name: "reduced motion: animation:none!important on the transition pseudo-elements, in the same block",
       test: vtReducedMotion,
+    },
+  ],
+  I1: [
+    {
+      name: "book grain: the rule holding --look-grain:url( sets -webkit-mask-image, -size and -repeat, each before its plain twin with the same value",
+      test: maskPaired,
+    },
+    {
+      name: "book grain: that rule's selector shown (display:block) only in @supports (mask-image:none) or (-webkit-mask-image:none)",
+      test: grainShownWithMasks,
+    },
+    {
+      name: "BOOK LOOK: .hc [data-look] and [data-theme=hc] [data-look] get display:none!important",
+      test: bookLookHidden,
+    },
+    {
+      name: "book title: the bowed wipe's clip-path:shape() inside @supports (clip-path:shape(...))",
+      test: bowedWipe,
     },
   ],
 };
