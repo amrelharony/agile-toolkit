@@ -319,8 +319,14 @@
 
 @layer base {
   html {
-    scroll-behavior: smooth;
     -webkit-tap-highlight-color: transparent;
+  }
+  /* Anchor jumps and scripted scrolls glide, unless the reader asked for less
+     motion: then they jump straight there. */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
   }
 
   /* Page titles are lettered by hand, whichever component draws them. */
