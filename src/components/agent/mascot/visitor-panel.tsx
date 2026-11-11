@@ -18,7 +18,7 @@
  * own question was sent already, so while the search still holds it the Ask
  * button reads "Back to chat" and nothing is sent twice. A failure or a
  * refusal drops it (the note says what happened, and asking again starts
- * fresh).
+ * fresh), and so does Clear chat (the question is no longer in the chat).
  *
  * When the visitor route says there's no more AI for now (visitorFallback),
  * the panel goes back to the guide with a note saying which limit was reached
@@ -186,6 +186,19 @@ export function VisitorPanel({
     setSent("");
     if (lastMode.current === "guide") announce(visitorFallbackNote(fallback, quota));
   }, [fallback, quota, announce]);
+
+  // Clear chat empties the chat under way: its opening question is no longer
+  // in it, so the guide neither opens on it nor treats it as sent. A fresh
+  // chat is unaffected: openChat() sets `sent` before the chat is under way.
+  const lastUnderWay = useRef(chatUnderWay);
+  useEffect(() => {
+    const was = lastUnderWay.current;
+    lastUnderWay.current = chatUnderWay;
+    if (was && !chatUnderWay) {
+      setSent("");
+      setQuestion("");
+    }
+  }, [chatUnderWay]);
 
   // Back on the guide from another step: focus goes to the note when there is
   // one, or else to the guide itself. Never when the panel opens.

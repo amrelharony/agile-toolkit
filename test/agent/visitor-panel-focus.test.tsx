@@ -205,6 +205,57 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(2);
   });
 
+  it("Clear chat drops the question: with a new chat under way, the guide opens empty and Back to chat sends nothing", async () => {
+    await askInChat("retro");
+    fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+    expect(useAgentStore.getState().messages).toHaveLength(0);
+    // The visitor sends a new message from the composer (as the runtime would add it).
+    act(() => {
+      useAgentStore.setState({
+        messages: [
+          {
+            id: "v2",
+            role: "user",
+            content: [{ type: "text", text: "estimate" }],
+            createdAt: "2026-11-09T08:05:00Z",
+          },
+        ],
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    // "retro" is no longer in the chat: the guide doesn't open on it.
+    expect(search()).toHaveValue("");
+    expect(screen.queryByRole("list", { name: "Matching tools" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+    expect(await screen.findByLabelText("Message")).toBeInTheDocument();
+    expect(screen.getByText("estimate")).toBeInTheDocument();
+    expect(screen.queryByText("retro")).toBeNull();
+    expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
+
+    // Typing "retro" again asks it: it is not the chat's own question any more.
+    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    fireEvent.change(search(), { target: { value: "retro" } });
+    expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
+    await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(2));
+    expect(h.sendVisitorMessage).toHaveBeenNthCalledWith(2, "retro", expect.anything());
+  });
+
+  it("Clear chat drops the question: with the chat left empty, the guide opens empty on Chat with Amr", async () => {
+    await askInChat("retro");
+    fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    expect(search()).toHaveValue("");
+    expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ask Amr about “retro”" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    expect(await screen.findByLabelText("Message")).toBeInTheDocument();
+    // The chat opens empty: nothing is sent.
+    expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
+  });
+
   it("a refusal drops the question: the guide opens empty, and Back to chat sends nothing", async () => {
     await askInChat("retro");
     act(() => {
