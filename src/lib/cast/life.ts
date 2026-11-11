@@ -18,8 +18,11 @@
  *   turn; a `cast:react` event on the host plays the guess reaction on each
  *   figure, staggered. Both are answered even while it's quiet, without
  *   overshoot while presenting. Reactions are added over the idle with the Web
- *   Animations API (composite "add") and swaps flip data-on. One move per
- *   figure per PACE.cooldownMs; a burst of taps is ignored for a while.
+ *   Animations API (composite "add") and swaps flip data-on. The look waits
+ *   while a move plays, and the move turns the head, the lean and the pupils
+ *   only within the share of their range the look leaves, so the two never
+ *   add up past a limit. One move per figure per PACE.cooldownMs; a burst of
+ *   taps is ignored for a while.
  *
  * startLife returns a dispose that takes every listener, timer and animation
  * back and leaves the figures at rest.
@@ -111,6 +114,8 @@ interface Fig {
   pupils: HTMLElement[];
   travel: readonly [number, number];
   look: Record<Channel, SpringState>;
+  /** The look waits until then: a move is playing. */
+  holdUntil: number;
   coolUntil: number;
   taps: number[];
   ignoreUntil: number;
@@ -206,7 +211,13 @@ function easing(ease: Ease, presenting: boolean): string {
   return linearOk ? EASE[ease] : EASE_FALLBACK[ease];
 }
 
-function keyframes(track: Track, travel: readonly [number, number], ease: string): Keyframe[] {
+/** `share`: the part of the track's turn (or, for the pupils, travel) it plays. */
+function keyframes(
+  track: Track,
+  travel: readonly [number, number],
+  ease: string,
+  share: number
+): Keyframe[] {
   const keys = track.keys;
   const turns = keys.some((k) => k.rotate !== undefined);
   const moves = keys.some((k) => k.x !== undefined || k.y !== undefined);
@@ -215,10 +226,10 @@ function keyframes(track: Track, travel: readonly [number, number], ease: string
   const unit = eyes ? "%" : "px";
   return keys.map((k) => {
     const frame: Keyframe = { offset: k.t, easing: ease };
-    if (turns) frame.rotate = `${k.rotate ?? 0}deg`;
+    if (turns) frame.rotate = `${round((k.rotate ?? 0) * share)}deg`;
     if (moves) {
-      const x = round((k.x ?? 0) * (eyes ? travel[0] : 1));
-      const y = round((k.y ?? 0) * (eyes ? travel[1] : 1));
+      const x = round((k.x ?? 0) * (eyes ? travel[0] * share : 1));
+      const y = round((k.y ?? 0) * (eyes ? travel[1] * share : 1));
       frame.translate = `${x}${unit} ${y}${unit}`;
     }
     if (sizes) frame.scale = `${k.sx ?? 1} ${k.sy ?? 1}`;
@@ -252,6 +263,7 @@ function makeFig(el: HTMLElement): Fig {
     pupils: all("[data-pupil]"),
     travel: [tx || 0, ty || 0],
     look: { head: still, lean: still, px: still, py: still },
+    holdUntil: -Infinity,
     coolUntil: -Infinity,
     taps: [],
     ignoreUntil: -Infinity,
@@ -304,8 +316,11 @@ export function startLife(host: HTMLElement, env: LifeEnv = lifeEnv()): () => vo
     const config = springFor(presenting);
     // Every read before any write, so no frame forces a layout.
     const aims = figs.map(aimOf);
+    const at = env.now();
     let moving = false;
     figs.forEach((fig, i) => {
+      // A move is playing; play() asks for a frame when it ends.
+      if (at < fig.holdUntil) return;
       for (const ch of CHANNELS) {
         const to = aims[i][ch];
         // Never past its aim, so a look stays within LIMITS.lookDeg.
@@ -340,7 +355,17 @@ export function startLife(host: HTMLElement, env: LifeEnv = lifeEnv()): () => vo
     const now = env.now();
     if (now < fig.coolUntil || env.hidden() || env.reducedMotion()) return false;
     fig.coolUntil = now + PACE.cooldownMs;
+    fig.holdUntil = now + clip.ms;
+    later(clip.ms, kick);
     fig.anims = [];
+    // Each clip stays within a joint's limit at its peak (clips.test.ts), so
+    // scaled by the share of the range the held look leaves, the sum does too.
+    const { head, lean, px, py } = fig.look;
+    const room: Partial<Record<Track["socket"], number>> = {
+      head: 1 - Math.abs(head.x) / LIMITS.headDeg,
+      body: 1 - Math.abs(lean.x) / LIMITS.leanDeg,
+      pupils: 1 - Math.max(Math.abs(px.x), Math.abs(py.x)),
+    };
     const layers: Layer[] = [clip];
     if (first && clip.first) layers.push(clip.first);
     if (clip.armless && !fig.el.querySelector('[data-slot^="arm-"]')) layers.push(clip.armless);
@@ -351,7 +376,12 @@ export function startLife(host: HTMLElement, env: LifeEnv = lifeEnv()): () => vo
           track.socket === "pupils"
             ? fig.pupils
             : Array.from(fig.el.querySelectorAll<HTMLElement>(`[data-socket="${track.socket}"]`));
-        const frames = keyframes(track, fig.travel, easing(track.ease, presenting));
+        const frames = keyframes(
+          track,
+          fig.travel,
+          easing(track.ease, presenting),
+          room[track.socket] ?? 1
+        );
         for (const el of els) {
           if (typeof el.animate !== "function") continue;
           fig.anims.push(el.animate(frames, { duration: clip.ms, composite: "add" }));

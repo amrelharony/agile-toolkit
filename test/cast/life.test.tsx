@@ -309,6 +309,49 @@ describe("the look", () => {
     for (let t = 1016; t <= 2500; t += 16) flush(t);
     expect(head.style.rotate).toBe("");
   });
+
+  it("waits while a move plays, and the move turns only within the room the look leaves", () => {
+    const { host, figs, io } = stage([{ ...TEST_PUPPET, signature: ["sig.swivel"] }]);
+    const fig = figs[0];
+    lookAt(fig);
+    io.fire([[fig, 1]]);
+    const head = fig.querySelector<HTMLElement>('[data-socket="head"]')!;
+    const body = fig.querySelector<HTMLElement>('[data-socket="body"]')!;
+    window.dispatchEvent(pointer("pointermove", 2000, 148, "mouse"));
+    for (let t = 16; t <= 1500; t += 16) flush(t);
+    expect(head.style.rotate).toBe(`${LIMITS.lookDeg}deg`);
+
+    // Each clip stays within its limit at its peak (clips.test.ts); scaled by
+    // the share of the range the look leaves, look and move together do too.
+    const turnsOn = (el: HTMLElement) =>
+      calls()
+        .filter((c) => c.el === el)
+        .flatMap((c) => c.frames.map((f) => parseFloat(String(f.rotate))));
+    const scaled = (keys: readonly { rotate?: number }[], share: number) =>
+      keys.map((k) => Math.round((k.rotate ?? 0) * share * 100) / 100);
+    fig.click();
+    expect(turnsOn(head)).toEqual(
+      scaled(CLIPS["sig.swivel"].tracks[0].keys, 1 - LIMITS.lookDeg / LIMITS.headDeg)
+    );
+
+    // The look holds still while the move plays...
+    window.dispatchEvent(pointer("pointermove", -2000, 148, "mouse"));
+    for (let t = 1516; t <= 2500; t += 16) flush(t);
+    expect(head.style.rotate).toBe(`${LIMITS.lookDeg}deg`);
+    expect(frames.size).toBe(0);
+    // ...and turns again once it ends.
+    vi.advanceTimersByTime(CLIPS["sig.swivel"].ms);
+    for (let t = 2516; t <= 4000; t += 16) flush(t);
+    expect(head.style.rotate).toBe(`-${LIMITS.lookDeg}deg`);
+
+    // The lean leaves half its range, so a reaction leans half as far.
+    animate.mockClear();
+    host.dispatchEvent(new CustomEvent(REACT_EVENT, { detail: { kind: "differed" } }));
+    vi.advanceTimersByTime(LIMITS.guessDelayMs);
+    expect(turnsOn(body)).toEqual(
+      scaled(CLIPS["guess.differed"].tracks[0].keys, 1 - PACE.lookLeanDeg / LIMITS.leanDeg)
+    );
+  });
 });
 
 describe("taps", () => {
