@@ -106,15 +106,16 @@ describe("MascotAssistant — owner gating", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("links visitors to AI settings and owner sign-in for the current page", () => {
+  it("links visitors to AI settings, and leaves signing in to the account menu", () => {
     h.auth = null; // no AuthProvider at all reads as a visitor too
     h.pathname = "/kudos";
     render(<MascotAssistant />);
 
-    expect(screen.getByRole("link", { name: "Owner sign in" })).toHaveAttribute(
-      "href",
-      "/auth/sign-in?next=%2Fkudos"
-    );
+    // A sign-in a visitor can't use has no place in Amr's help panel; the
+    // owner signs in from the header's account menu.
+    const guide = screen.getByTestId("mascot-visitor-guide");
+    expect(within(guide).queryByRole("link", { name: /sign in/i })).toBeNull();
+    expect(within(guide).queryByText(/Owner sign in/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "AI settings" }));
     expect(useLlmUiStore.getState().settingsOpen).toBe(true);
     expect(useAgentStore.getState().open).toBe(false);
@@ -165,7 +166,10 @@ describe("MascotAssistant — owner gating", () => {
     render(<MascotAssistant />);
 
     const tool = screen.getByRole("region", { name: "This tool" });
-    expect(await within(tool).findByText("How to run it")).toBeInTheDocument();
+    const howTo = await within(tool).findByText(/^How to run it \(\d+ steps\)$/);
+    // The steps wait in a closed disclosure: the page's own guide has them too.
+    expect(howTo.tagName).toBe("SUMMARY");
+    expect(howTo.closest("details")).not.toHaveAttribute("open");
     expect(within(tool).getByText(/WSJF = cost of delay ÷ job size/)).toBeInTheDocument();
   });
 
@@ -176,7 +180,7 @@ describe("MascotAssistant — owner gating", () => {
 
     const search = screen.getByLabelText("What do you need to do?");
     const tool = screen.getByRole("region", { name: "This tool" });
-    const howTo = await within(tool).findByText("How to run it");
+    const howTo = await within(tool).findByText(/^How to run it/);
     const popular = screen.getByRole("list", { name: "Popular tasks" });
     const follows = (a: Node, b: Node) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -193,18 +197,14 @@ describe("MascotAssistant — owner gating", () => {
     expect(screen.queryByRole("list", { name: "Popular tasks" })).toBeNull();
   });
 
-  it("gives the footer controls a 44 px target on touch", () => {
+  it("gives the quiet AI settings footer a 44 px target on touch", () => {
     h.auth = { status: "anonymous", user: null };
     render(<MascotAssistant />);
 
-    expect(screen.getByRole("button", { name: "AI settings" })).toHaveClass(
-      "pointer-coarse:min-h-11"
-    );
-    expect(screen.getByRole("link", { name: "Owner sign in" })).toHaveClass(
-      "min-touch-coarse",
-      "inline-flex",
-      "items-center"
-    );
+    const settings = screen.getByRole("button", { name: "AI settings" });
+    expect(settings).toHaveClass("pointer-coarse:min-h-11");
+    // A ghost button: the own-key settings are no longer the loudest control.
+    expect(settings).toHaveAttribute("data-variant", "ghost");
   });
 
   it("hides the Cmd/Ctrl+J hint on touch screens", () => {
@@ -526,13 +526,21 @@ describe("MascotAssistant — visitor AI", () => {
     expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
   });
 
-  it("gives Chat with Amr a 44 px target on touch, like the rest of the footer", () => {
+  it("offers one primary Ask button under the search, 44 px on touch", () => {
     render(<MascotAssistant />);
-    expect(screen.getByRole("button", { name: "Chat with Amr" })).toHaveClass(
-      "min-touch-coarse",
-      "flex",
-      "items-center"
-    );
+    const ask = screen.getByRole("button", { name: "Chat with Amr" });
+    expect(ask).toHaveClass("pointer-coarse:min-h-11", "inline-flex", "items-center");
+    expect(ask).toHaveAttribute("data-variant", "default");
+    // Right under the field, before the results.
+    const search = screen.getByLabelText("What do you need to do?");
+    expect(search.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Typing turns the same button into the question: never two Ask buttons.
+    fireEvent.change(search, { target: { value: "retro" } });
+    expect(screen.getByRole("button", { name: "Ask Amr about “retro”" })).toBe(ask);
+    expect(screen.queryByRole("button", { name: "Chat with Amr" })).toBeNull();
+    const results = screen.getByRole("list", { name: "Matching tools" });
+    expect(ask.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   // jsdom has no layout, so this checks the classes, not the wrapped text.
