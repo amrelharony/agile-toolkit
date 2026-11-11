@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, HeartHandshake, SearchX } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -22,6 +22,7 @@ import { FLASHCARDS_ROUTE, comicHref } from "@/lib/comics/entry";
 import { PRINT_THEMES, printTheme, type PrintThemeName } from "@/lib/comics/print-themes";
 import { GUESTBOOK_ROUTE } from "@/lib/comics/guestbook";
 import { themeLabel } from "@/lib/comics/themes";
+import { whenSeen } from "@/lib/motion/when-seen";
 import type { StoryCover, StorySummary } from "@/lib/comics/types";
 import { CountDisclosure, VisitRecorder } from "@/components/visits/visit-recorder";
 import { ComicCard, ComicCover } from "./comic-card";
@@ -98,12 +99,42 @@ function ThisWeek({ story }: { story: StorySummary }) {
   );
 }
 
+/** How close a book card comes before its picture loads. */
+const BOOK_COVER_MARGIN = "300px 0px";
+
+/**
+ * A book card's picture, added only once the card is near the screen. A lazy
+ * <img> alone isn't enough here: the browser treats about 1,250 px around the
+ * screen as near, which on a phone is most of the list, so 22 of the 26 used to
+ * download with the page and slowed its largest paint by some 2.5 s. The space
+ * is held at the picture's own shape all along, so nothing moves when it comes.
+ */
+function BookCover({ cover }: { cover: StoryCover }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    return whenSeen(el, () => setNear(true), { rootMargin: BOOK_COVER_MARGIN });
+  }, []);
+  return (
+    <span
+      ref={ref}
+      className="block bg-surface"
+      style={{ aspectRatio: `${cover.width} / ${cover.height}` }}
+    >
+      {near ? <ComicCover cover={cover} /> : null}
+    </span>
+  );
+}
+
 /**
  * The book's 26 episodes, colour-coded by habit as the posters are, each with
  * its poster's first panel. Each opens the episode's page: the poster's panels,
  * its lesson and question, and the book page it's on. Two to a row on a phone,
- * so 26 pictures don't make the list a very long scroll; the pictures load as
- * they near the screen. Without the art, each is a line of text, as before.
+ * so 26 pictures don't make the list a very long scroll; each picture loads as
+ * its card nears the screen (BookCover). Without the art, each is a line of
+ * text, as before.
  */
 function BookIndex({ episodes }: { episodes: readonly IndexEpisode[] }) {
   const withArt = episodes.some((e) => e.cover);
@@ -167,7 +198,7 @@ function BookIndex({ episodes }: { episodes: readonly IndexEpisode[] }) {
                   prefetch={false}
                   className="block h-full overflow-hidden rounded-lg border-2 border-border bg-card hover:border-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
-                  <ComicCover cover={e.cover} />
+                  <BookCover cover={e.cover} />
                   <span className="flex items-start gap-2 p-2 text-sm sm:p-3">
                     {number}
                     {words}
