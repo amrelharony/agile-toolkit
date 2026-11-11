@@ -75,6 +75,8 @@ const PAGE_TITLES = new Map<string, string>([
   ["/insights", "Your activity"],
   ["/team", "Team"],
   ["/more-tools", "More tools"],
+  // Short for the phone's bar, where "What leaves your browser" would be cut.
+  ["/privacy", "Privacy"],
   ["/vip", VIP_TITLE],
   ["/s", "Shared snapshot"],
 ]);

@@ -40,6 +40,14 @@ const NO_IMPEDIMENTS: Impediment[] = [];
 const noLog = () => {};
 
 /**
+ * What the page does, in one sentence, shown while the saved sprints load. The
+ * server can't read them, so without it the first HTML of /sprint-planning,
+ * all a search engine or an assistant reads, said only "Loading sprints…".
+ */
+export const PLANNING_ABOUT =
+  "This page plans a sprint from top to bottom: the team's capacity and recent velocity, the sprint goal, the stories to pull in and size, then the commitment.";
+
+/**
  * Sprint Planning: one page, top to bottom — the sprint, the team's
  * capacity and recent velocity, the goal, the stories (from the backlog,
  * left over from the last sprint, from the last retro's actions and the
@@ -72,7 +80,7 @@ export function SprintPlanning() {
   const [creating, setCreating] = useState(false);
   const [example, setExample] = useState<PlanningExample | null>(null);
 
-  if (!hydrated) return <LoadingSprints />;
+  if (!hydrated) return <LoadingSprints about={PLANNING_ABOUT} />;
 
   const dialog = (
     <NewSprintDialog

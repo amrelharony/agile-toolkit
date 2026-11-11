@@ -314,6 +314,21 @@ describe("the guestbook page", () => {
     expect(screen.queryByRole("link", { name: /WhatsApp/ })).toBeNull();
   });
 
+  it("says under the form what is kept and for how long, and links the privacy page", async () => {
+    const { container } = render(await GuestbookPage());
+    const note = container.querySelector<HTMLElement>("[data-privacy-note]")!;
+    expect(note.textContent).toBe(
+      "We keep your name and note until you ask us to remove them. We don't keep your IP address. More in What leaves your browser."
+    );
+    expect(within(note).getByRole("link", { name: "What leaves your browser" })).toHaveAttribute(
+      "href",
+      "/privacy"
+    );
+    const form = container.querySelector("form")!;
+    expect(form.contains(note)).toBe(false);
+    expect(form.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("says so when there are none", async () => {
     render(await GuestbookPage());
     expect(screen.getByText("No notes yet.")).toBeTruthy();

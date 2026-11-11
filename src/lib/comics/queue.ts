@@ -3,6 +3,7 @@
  * numbers a reorder may touch. Pure, so the route and the portal agree.
  */
 
+import { FIRST_WEEKLY_EP } from "./entry";
 import { everReleased, publishProblems, unreviewedPanels, type OwnerStory } from "./story-input";
 
 const DAY_MS = 86_400_000;
@@ -14,6 +15,12 @@ const SUNDAY = 0;
 export const LAUNCH_EPS = [27, 28, 29, 30] as const;
 /** Under this many weeks of stories, the portal warns. */
 export const QUEUE_WARNING_WEEKS = 4;
+/**
+ * Every weekly number there can be (27 to 999, the table's limit), so one
+ * reorder or one schedule can cover the whole queue. The portal's arrows send
+ * every queued story at once.
+ */
+export const MAX_QUEUE_STORIES = 999 - FIRST_WEEKLY_EP + 1;
 
 const LAUNCH_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -105,13 +112,17 @@ export type ReorderCheck =
  * into a dated slot has to be fit to publish, or a reorder would get round the
  * release check. That includes a draft with unreviewed panels; one that already
  * has a date was given a yes when it got it.
+ *
+ * The whole story moves: every column but its number's own (collection, book
+ * page, dates), and its guess and "Seen this at work?" taps with it
+ * (comic_reorder_queue, migration 0038).
  */
 export function checkReorder(
   stories: readonly OwnerStory[],
   order: unknown,
   now: number
 ): ReorderCheck {
-  if (!Array.isArray(order) || order.length < 2 || order.length > 200) {
+  if (!Array.isArray(order) || order.length < 2 || order.length > MAX_QUEUE_STORIES) {
     return { ok: false, error: "invalid_order" };
   }
   if (!order.every((ep) => Number.isInteger(ep)) || new Set(order).size !== order.length) {
