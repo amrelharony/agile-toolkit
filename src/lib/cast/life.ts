@@ -24,8 +24,10 @@
  *   add up past a limit. One move per figure per PACE.cooldownMs; a burst of
  *   taps is ignored for a while.
  *
- * startLife returns a dispose that takes every listener, timer and animation
- * back and leaves the figures at rest.
+ * A figure is moved by the first life started over it; a later one over the
+ * same figures (the whole page, say) leaves them alone. startLife returns a
+ * dispose that takes every listener, timer and animation back and leaves the
+ * figures at rest.
  */
 
 import {
@@ -131,6 +133,8 @@ interface Life {
 
 /** Every started host, so the awake cap holds for the whole page. */
 const lives = new Set<Life>();
+/** Every figure a life moves: one life each, or two would wake it and play each tap twice. */
+const claimed = new WeakSet<Element>();
 
 const AT_REST: Aim = { head: 0, lean: 0, px: 0, py: 0 };
 /** IntersectionObserver's ratio can land a hair under the threshold it crossed. */
@@ -275,9 +279,10 @@ function makeFig(el: HTMLElement): Fig {
 export function startLife(host: HTMLElement, env: LifeEnv = lifeEnv()): () => void {
   if (host.closest(OVERLAY)) return () => {};
   const figs = Array.from(host.querySelectorAll<HTMLElement>("[data-cast]"))
-    .filter((el) => !el.closest(OVERLAY))
+    .filter((el) => !el.closest(OVERLAY) && !claimed.has(el))
     .map(makeFig);
   if (figs.length === 0) return () => {};
+  for (const fig of figs) claimed.add(fig.el);
 
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const later = (ms: number, fn: () => void) => {
@@ -509,6 +514,7 @@ export function startLife(host: HTMLElement, env: LifeEnv = lifeEnv()): () => vo
     window.removeEventListener("resize", onResize);
     document.removeEventListener("visibilitychange", onVisibility);
     for (const fig of figs) {
+      claimed.delete(fig.el);
       for (const anim of fig.anims) anim.cancel();
       fig.anims = [];
       wake(fig, false);

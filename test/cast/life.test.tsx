@@ -393,6 +393,26 @@ describe("taps", () => {
     expect(tapAt(3000)).toBe(true);
   });
 
+  it("play once when a second life starts over the same figures, which it leaves alone", () => {
+    const { figs, io } = stage([TEST_PUPPET]);
+    const whole = startLife(document.body, env);
+    disposers.push(whole);
+    // The page-wide life found no figure of its own: no observer, no listener.
+    expect(FakeIO.all.at(-1)).toBe(io);
+    io.fire([[figs[0], 1]]);
+    expect(awake(figs)).toEqual([true]);
+    figs[0].click();
+    expect(calls().map((c) => c.el.dataset.socket)).toEqual(["tail"]);
+
+    // Once the first is gone, the figures are free for another.
+    for (const d of disposers.splice(0)) d();
+    animate.mockClear();
+    disposers.push(startLife(document.body, env));
+    vi.advanceTimersByTime(PACE.cooldownMs);
+    figs[0].click();
+    expect(calls().map((c) => c.el.dataset.socket)).toEqual(["tail"]);
+  });
+
   it("are ignored on a figure that doesn't take them", () => {
     const { figs } = stage([TEST_PUPPET], { tap: false });
     figs[0].click();
