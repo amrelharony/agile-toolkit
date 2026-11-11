@@ -12,16 +12,16 @@ check, and how to measure it.
 
 ## Where it lives
 
-| File                                          | What it does                                                                                                                                                                                                                                        |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/lib/motion/view-transition.ts`           | The one place a view transition starts: the wait cap, `html[data-vt]`, the clean-up, one at a time.                                                                                                                                                 |
-| `src/lib/motion/page-transition.ts`           | The page-change rules, `HOLD_CAP_MS`, `DYNAMIC_PATHS`, `pushWithTransition`, `notifyRouteCommitted`, `isPageTransitionRunning`, the debug switches. For Back: the card's forward record, `noteHistoryStep` and `BACK_WAIT_MS`.                      |
-| `src/components/motion/transition-link.tsx`   | next/link plus the cross-fade. Every internal link in `src` renders it.                                                                                                                                                                             |
-| `src/components/motion/route-signal.tsx`      | Lends page changes the app router and reports each page's arrival from a layout effect. Rendered in both app-shell branches, inside its own Suspense. Its popstate listener (capture phase, read only) hands Back and Forward to `noteHistoryStep`. |
-| `src/components/motion/vt-log.tsx`            | The `?vt-log=1` table. Loaded by a dynamic import only when the switch is on.                                                                                                                                                                       |
-| `src/app/globals.css`, VIEW TRANSITIONS       | The held layers, the `--vt-ready` marker, the 240 ms root cross-fade (only under `html[data-vt="page"]`), the card frame (`tool-frame`) and the reduced-motion lock.                                                                                |
-| `src/lib/motion/grow-from.ts`                 | The header grow: one Web Animations movement from the tapped card's spot, when no view transition carried the card's frame. `slideBack`: the card's translate-only slide back on Back.                                                              |
-| `src/components/layout/tool-page-wrapper.tsx` | The header is the `data-vt-target` a card's frame grows into; the root drops its rise when a frame lands; the header grows from the card's spot otherwise.                                                                                          |
+| File                                          | What it does                                                                                                                                                                                                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/motion/view-transition.ts`           | The one place a view transition starts: the wait cap, `html[data-vt]`, the clean-up, one at a time.                                                                                                                                                                             |
+| `src/lib/motion/page-transition.ts`           | The page-change rules, `HOLD_CAP_MS`, `DYNAMIC_PATHS`, `pushWithTransition`, `notifyRouteCommitted`, `isPageTransitionRunning`, the debug switches. For Back: the card's forward record, `listenForHistorySteps` (`noteHistoryStep`, `confirmHistoryStep`) and `BACK_WAIT_MS`.  |
+| `src/components/motion/transition-link.tsx`   | next/link plus the cross-fade. Every internal link in `src` renders it.                                                                                                                                                                                                         |
+| `src/components/motion/route-signal.tsx`      | Lends page changes the app router and reports each page's arrival from a layout effect. Rendered in both app-shell branches, inside its own Suspense. Its read-only listeners (`listenForHistorySteps`: the navigate event and popstate) hand Back and Forward to page changes. |
+| `src/components/motion/vt-log.tsx`            | The `?vt-log=1` table. Loaded by a dynamic import only when the switch is on.                                                                                                                                                                                                   |
+| `src/app/globals.css`, VIEW TRANSITIONS       | The held layers, the `--vt-ready` marker, the 240 ms root cross-fade (only under `html[data-vt="page"]`), the card frame (`tool-frame`) and the reduced-motion lock.                                                                                                            |
+| `src/lib/motion/grow-from.ts`                 | The header grow: one Web Animations movement from the tapped card's spot, when no view transition carried the card's frame. `slideBack`: the card's translate-only slide back on Back.                                                                                          |
+| `src/components/layout/tool-page-wrapper.tsx` | The header is the `data-vt-target` a card's frame grows into; the root drops its rise when a frame lands; the header grows from the card's spot otherwise.                                                                                                                      |
 
 `test/motion/link-coverage.test.ts` keeps it that way: only `transition-link.tsx`
 and the named exceptions import `next/link`, and only the named exceptions call
@@ -147,10 +147,11 @@ translate alone, on the glide easing over the shared settle duration
 
 It plays only when all of these hold:
 
-- The browser played no Back animation of its own: the popstate event's
-  `hasUAVisualTransition` is exactly `false`. It is `true` when the browser
-  animated Back itself (a swipe, where the browser reports it), and a browser
-  without the field leaves it undefined, so Back stays instant there.
+- The browser played no Back animation of its own: `hasUAVisualTransition`
+  is exactly `false`, on the Navigation API's navigate event and on the
+  popstate event. It is `true` when the browser animated Back itself (a
+  swipe, where the browser reports it), and a browser without the field
+  leaves it undefined, so Back stays instant there.
 - The step undoes the card's own visit: it leaves the history entry the
   card's page arrived in for the entry the card was tapped on, and those are
   still the card's page and the card's old page (path and query;
@@ -177,11 +178,30 @@ How it runs:
   `notifyRouteCommitted` adds the key of the entry it arrived in (Next pushes
   the entry in an insertion effect, before that layout effect runs). Only the
   next card tap replaces the record, so Back after Forward slides it again.
-- `RouteSignal`'s popstate listener (`noteHistoryStep`) only reads. It never
-  stops the event or prevents its default. It listens in the capture phase,
-  so it runs before Next's listener whatever order they were added in, and
-  measures the leaving page's header while it is still there. A header
-  scrolled out of sight lends the top edge of the screen.
+- `RouteSignal`'s listeners (`listenForHistorySteps`) only read. The
+  Navigation API's navigate event (`noteHistoryStep`) notes the step and
+  measures the leaving page's header: it fires before the address changes
+  and before any popstate listener, so the old page is still there. A
+  popstate listener cannot do that: Chrome runs a window's listeners in the
+  order they were added, capture phase or not, and Next's own, added first,
+  puts the old page back before a later one runs (seen in Chrome 157). Only
+  a traverse counts; the pushes and replaces Next makes come there too. A
+  header scrolled out of sight lends the top edge of the screen.
+- The popstate listener (`confirmHistoryStep`) never stops the event or
+  prevents its default, and the navigate listener never intercepts or
+  prevents the step. Popstate must say `hasUAVisualTransition` is `false`
+  too, or the slide is dropped; with no popstate, it never plays.
+- `globals.css` scrolls the page smoothly (`scroll-behavior: smooth` on
+  `html`), and Chrome puts the scroll back on Back with that smooth scroll:
+  the page glides down from the top for over half a second, and the card is
+  still far below the screen in the slide's frame. For a Back that may slide,
+  `html` gets an inline `scroll-behavior: auto` from the navigate event to
+  the slide's frame (or until the slide is dropped), so the browser puts the
+  scroll back at once, as Next does for its own scrolls. Every other Back
+  keeps the smooth scroll it has today. Chrome sometimes still owes the
+  scroll when that frame runs, and puts it back at the frame's first layout
+  read; so the frame reads the scroll position first, then measures the
+  card, and only then gives `html` its scroll-behavior back.
 - Next puts the page back inside the popstate event, and `notifyRouteCommitted`
   sees it in RouteSignal's layout effect. The browser restores the scroll only
   after that event, so the card is measured and the slide starts in the next
@@ -189,6 +209,10 @@ How it runs:
   screen on Back, so nothing pauses that frame. A newer page, a newer Back or
   a tap cancels it, and a page that comes back over a second after Back
   (`BACK_WAIT_MS`) does not slide.
+- The five animations on a `HEADER` seen straight after Back are the top
+  bar's own: its `transition-all` eases its background and four border
+  colours as it turns opaque once the page is scrolled past 8 px. They are not
+  the header grow, which plays only on the page a card opens.
 - The slide is a Web Animations movement with no fill: nothing stays on the
   card once it ends.
 
