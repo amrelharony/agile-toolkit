@@ -219,7 +219,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     """Build one candidate rig into review/<batch>/<id>/. `clips` is the runtime's
     move table (clips.load(), read from src/lib/cast/clips.ts when not given)."""
     c = character(cid)
-    why = signature_problem(c.get("signature"))
+    why = signature_problem(c.get("signature"), cid)
     if why:
         raise SystemExit(f"{cid}: docs/cast/cast-rig.json `signature`: {why}")
     clips = cast_clips.load() if clips is None else clips

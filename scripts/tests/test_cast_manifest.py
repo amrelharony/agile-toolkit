@@ -58,24 +58,26 @@ def limbed(n=8, legs=True):
 
 class Animated(unittest.TestCase):
     def test_the_most_elements_one_clip_moves(self):
-        # TEST_PUPPET: the first speaker's matched guess turns the head and the body.
-        self.assertEqual(cast_clips.animated(contract.TEST_PUPPET, contract.CLIPS), 2)
+        # TEST_PUPPET: the look turns the head, the body and a pupil in each of two
+        # eye choices (rig-manifest.test.tsx: 6); no clip moves more.
+        self.assertEqual(cast_clips.animated(contract.TEST_PUPPET, contract.CLIPS), 6)
+        self.assertEqual(cast_clips.animated(contract.TEST_PUPPET, contract.CLIPS), contract.TEST_PUPPET["counts"]["animated"])
         # Eight limbs and ripple: eight, though fourteen parts have a range.
         octo = limbed()
         self.assertEqual(sum(1 for p in octo["parts"] if p["range"]), 14)
         self.assertEqual(cast_clips.animated(octo, contract.CLIPS), 8)
         # Pupils move in every eye choice that draws them.
-        eyes = copy.deepcopy(contract.TEST_PUPPET)
-        eyes["signature"] = ["sig.eyes"]
-        self.assertEqual(cast_clips.animated(eyes, contract.CLIPS), 4)
+        self.assertEqual(cast_clips.elements(contract.TEST_PUPPET)["pupils"], 4)
         # A slot with a choice drawn over its siblings is two spans with its socket.
         chin = copy.deepcopy(contract.TEST_PUPPET)
         chin["signature"] = ["sig.chin"]
         self.assertEqual(cast_clips.elements(chin)["arm-l"], 2)
 
-    def test_an_armless_rig_plays_the_armless_layer(self):
-        both = copy.deepcopy(contract.ARMLESS_PUPPET)
-        self.assertEqual(cast_clips.animated(both, contract.CLIPS), 2)  # skipped: body + head
+    def test_a_clip_counts_with_its_first_and_armless_layers(self):
+        # guess.matched with the first speaker's layer: the head and the body.
+        bare = {**copy.deepcopy(contract.ARMLESS_PUPPET), "pupils": None, "swaps": []}
+        self.assertEqual(cast_clips.animated(bare, contract.CLIPS), 2)
+        self.assertEqual(cast_clips.animated(contract.ARMLESS_PUPPET, contract.CLIPS), 6)
 
     def test_a_tap_move_that_moves_nothing_is_named(self):
         r = copy.deepcopy(contract.ARMLESS_PUPPET)

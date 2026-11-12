@@ -270,7 +270,7 @@ def c16_bytes(
         notes.append(f"{man['counts']['nodes']} nodes, over {BUDGETS['rig_nodes_max']}")
     if man["counts"]["animated"] > BUDGETS["rig_animated_max"]:
         notes.append(f"{man['counts']['animated']} animated parts, over {BUDGETS['rig_animated_max']}")
-    why = signature_problem(man.get("signature"))
+    why = signature_problem(man.get("signature"), cid)
     if why:
         notes.append(f"signature: {why}")
     if "translucent" in man and not 0 < man["translucent"] < 1:

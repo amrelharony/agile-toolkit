@@ -187,7 +187,7 @@
       "key": "magenta",
       "images": ["master", "parts", "face", "face2", "arms"],
       "parts": ["head", "torso", "cord", "arm-r", "arm-l", "leg-r", "leg-l"],
-      "signature": ["sig.wave"]
+      "signature": []
     },
     {
       "id": "AAW-02",

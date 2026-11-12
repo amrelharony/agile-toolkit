@@ -6,14 +6,15 @@ TypeScript through Node's type stripping, so the two never drift.
                             each layer {"tracks": [socket | "pupils"], "swaps": ["slot.choice"]}
     elements(man)           how many rendered elements each socket names (data-socket),
                             and the pupils
-    animated(man, clips)    the most elements one clip moves at once on this rig
+    animated(man, clips)    the most elements life moves at once on this rig
     unplayable(man, clips)  the rig's tap moves that move nothing on it
 
 A clip moves every element whose data-socket is a track's socket (life.ts), and
-"pupils" moves every pupil the figure draws. A rig plays the idle and guess
-clips and its own tap moves; guess.matched adds its `first` layer for the
-story's first speaker, and a clip's `armless` layer plays on a rig with no arm
-slot.
+"pupils" moves every pupil the figure draws. life moves either the look (the
+head, the body and the pupils, toward the pointer) or one clip, never both: the
+look waits while a clip plays. A rig plays the idle and guess clips and its own
+tap moves, each counted with its `first` and `armless` layers
+(src/lib/cast/rig-types.ts `counts`), as the runtime's rig check counts them.
 """
 
 from __future__ import annotations
@@ -88,14 +89,14 @@ def elements(man: dict) -> dict:
     return out
 
 
-def _layers(man: dict, clip: dict) -> list[dict]:
-    armless = not any(s["id"].startswith("arm-") for s in man["swaps"])
-    out = [clip["main"]]
-    if clip.get("first"):
-        out.append(clip["first"])
-    if clip.get("armless") and armless:
-        out.append(clip["armless"])
-    return [lay for lay in out if lay]
+# What the look turns toward the pointer (life.ts), all at once.
+LOOK = ("head", "body", "pupils")
+
+
+def _layers(clip: dict) -> list[dict]:
+    """A clip's layers as the count takes them: its own, the first speaker's and
+    the armless one (each may play with it; counting them all never undercounts)."""
+    return [lay for lay in (clip["main"], clip.get("first"), clip.get("armless")) if lay]
 
 
 def played(man: dict, clips: dict) -> list[str]:
@@ -105,9 +106,9 @@ def played(man: dict, clips: dict) -> list[str]:
 
 def animated(man: dict, clips: dict) -> int:
     n = elements(man)
-    best = 0
+    best = sum(n.get(s, 0) for s in LOOK)
     for cid in played(man, clips):
-        socks = {t for lay in _layers(man, clips["clips"][cid]) for t in lay["tracks"]}
+        socks = {t for lay in _layers(clips["clips"][cid]) for t in lay["tracks"]}
         best = max(best, sum(n.get(s, 0) for s in socks))
     return best
 
@@ -125,7 +126,7 @@ def unplayable(man: dict, clips: dict) -> list[str]:
             continue
         if clip["ms"] > clips["maxMs"]:
             out.append(f"{sid}: {clip['ms']} ms, over {clips['maxMs']}")
-        lays = _layers(man, clip)
+        lays = _layers(clip)
         moves = any(n.get(t, 0) for lay in lays for t in lay["tracks"])
         shows = any(k in choices for lay in lays for k in lay["swaps"])
         if not moves and not shows:

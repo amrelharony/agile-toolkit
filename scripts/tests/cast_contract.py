@@ -71,7 +71,8 @@ def problems(rig: dict, clips: dict | None = None) -> list[str]:
         for c in pup["shownWith"]:
             if not eyes or not any(x["id"] == c for x in eyes["choices"]):
                 out.append(f"pupils shown with missing {c}")
-    if not 1 <= len(rig["signature"]) <= 2:
+    fewest = 0 if rig["id"] == "AAW-01" else 1  # Amr's tap move plays only in the intros
+    if not fewest <= len(rig["signature"]) <= 2:
         out.append("one or two signature moves")
     for sid in rig["signature"]:
         # Without the clips (the runtime not in the tree), only the id's form is checked.
@@ -181,7 +182,7 @@ TEST_PUPPET = {
     ],
     "pupils": {"ids": ["pupil-r", "pupil-l"], "travel": [30, 20], "shownWith": ["open", "wide"]},
     "signature": ["sig.tail", "sig.wave"],
-    "counts": {"nodes": 42, "animated": 4},
+    "counts": {"nodes": 42, "animated": 6},
 }
 
 ARMLESS_PUPPET = {
@@ -192,5 +193,5 @@ ARMLESS_PUPPET = {
     "parts": [p for p in TEST_PUPPET["parts"] if p["id"] != "glint"],
     "swaps": [s for s in TEST_PUPPET["swaps"] if s["id"] in ("eyes", "mouth")],
     "signature": ["sig.nod"],
-    "counts": {"nodes": 27, "animated": 2},
+    "counts": {"nodes": 27, "animated": 6},
 }

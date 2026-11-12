@@ -146,11 +146,13 @@ def is_complex(cid: str) -> bool:
     return cid in BUDGETS["complex"]
 
 
-def signature_problem(sig) -> str | None:
+def signature_problem(sig, cid: str | None = None) -> str | None:
     """Why a tap-move list isn't one or two `sig.*` clip ids (None when it is):
-    the runtime plays a tap's signature from src/lib/cast/clips.ts."""
+    the runtime plays a tap's signature from src/lib/cast/clips.ts. Amr's may be
+    empty: his tap move plays only in the intros (src/lib/cast/rig-types.ts)."""
     sig = list(sig or [])
-    if not 1 <= len(sig) <= 2:
+    fewest = 0 if cid == AMR else 1
+    if not fewest <= len(sig) <= 2:
         return f"{len(sig)} tap moves, not one or two"
     bad = [s for s in sig if not isinstance(s, str) or not s.startswith("sig.")]
     if bad:

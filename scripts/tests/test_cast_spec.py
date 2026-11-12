@@ -45,7 +45,7 @@ class Tolerances(unittest.TestCase):
         "publish.py": ["len(sizes) == 2"],  # the 1x and the 2x atlas
         "register.py": ["if n < 4:", "axis == 2", "len(g) < 5", "len(xs) < 3"],  # NCC, the 5-point step, a circle
         "rig.py": ["len(pupil_ids) == 2"],  # a pair
-        "spec.py": ["1 <= len(sig) <= 2"],  # the contract's one or two tap moves
+        "spec.py": ["fewest <= len(sig) <= 2"],  # the contract's one or two tap moves
         "swaps.py": ["ring.sum() < 4"],  # a mean needs a few pixels
     }
 
@@ -104,7 +104,7 @@ class TapMovesAndRenderSettings(unittest.TestCase):
 
     def test_every_character_has_one_or_two_moves_its_rig_can_play(self):
         for c in SPEC["characters"]:
-            self.assertIsNone(spec.signature_problem(c.get("signature")), c["id"])
+            self.assertIsNone(spec.signature_problem(c.get("signature"), c["id"]), c["id"])
             pieces = {*c["parts"], *(c.get("parts2") or [])}
             poses = set(spec.arm_poses(c)) if "arms" in c["images"] else set()
             for sid in c["signature"]:
@@ -116,8 +116,11 @@ class TapMovesAndRenderSettings(unittest.TestCase):
                 if name == "ripple":
                     self.assertGreaterEqual(sum(p.startswith(("tentacle-", "limb-")) for p in pieces), 8, c["id"])
         self.assertEqual(spec.signature_problem(["sig.hop", "sig.hop"]), "the same tap move twice")
-        self.assertIsNotNone(spec.signature_problem([]))
+        self.assertIsNotNone(spec.signature_problem([], "AAW-04"))
+        self.assertIsNone(spec.signature_problem([], "AAW-01"))  # Amr's plays only in the intros
+        self.assertIsNotNone(spec.signature_problem(["sig.a", "sig.b", "sig.c"], "AAW-01"))
         self.assertIsNotNone(spec.signature_problem(["hop"]))
+        self.assertEqual(spec.character("AAW-01")["signature"], [])
 
     def test_arm_parts_name_a_front_pair_of_the_characters_own_pieces(self):
         for c in SPEC["characters"]:
