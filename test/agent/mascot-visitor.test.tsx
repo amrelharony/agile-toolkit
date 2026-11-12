@@ -45,6 +45,7 @@ import {
   VISITOR_AI_CONSENT_KEY,
   VISITOR_AI_CONSENT_TEXT,
   VISITOR_AI_CONSENT_VERSION,
+  VISITOR_AI_DAILY_MESSAGES,
 } from "@/components/agent/mascot/visitor-ai-consent";
 import {
   VISITOR_FALLBACK_NOTE,
@@ -520,6 +521,11 @@ describe("MascotAssistant — visitor AI", () => {
     expect(screen.getByText(/Add a card/)).toBeInTheDocument();
     expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent(
       "Amr asks before changing anything"
+    );
+    // Before any answer, the allowance in the card's words: AI uses, shared
+    // by the chat and the Ask Amr buttons.
+    expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent(
+      `${VISITOR_AI_DAILY_MESSAGES} AI uses a day`
     );
 
     let leave = () => {};
