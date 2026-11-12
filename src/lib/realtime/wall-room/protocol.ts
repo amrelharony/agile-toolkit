@@ -47,7 +47,7 @@
  * shape, rebuilt field by field. Pure and server-safe.
  */
 
-import { cleanText, isWithinJsonSize } from "../sanitize";
+import { isWithinJsonSize } from "../sanitize";
 import { sha256Base64Url } from "../sha256";
 import { VISITOR_LIMITS, isVisitorMemberId, type VisitorTool } from "../visitor-rooms";
 import {
@@ -66,7 +66,9 @@ import {
   KEY_RE,
   ROUND_ID_RE,
   b64urlChars,
+  isCleanText,
   isCount,
+  mdCell,
   obj,
 } from "../vote-room/wire";
 
@@ -354,9 +356,6 @@ export function readIntent(plain: string): WallIntent | null {
 
 // ── States ───────────────────────────────────────────────────────────
 
-const isCleanText = (v: unknown, max: number): v is string =>
-  typeof v === "string" && cleanText(v, max) === v;
-
 function readPosts(raw: unknown, count: number): WallPost[] | null {
   if (!Array.isArray(raw) || raw.length !== count || raw.length > WALL_LIMITS.maxPostsPerRound) {
     return null;
@@ -463,13 +462,8 @@ export interface WallRoundResult {
 
 /** The round as Markdown: the prompt, then each post with its votes. */
 export function wallRoundMarkdown(r: WallRoundResult): string {
-  const cell = (s: string) =>
-    s
-      .replace(/\s*[\r\n]+\s*/g, " ")
-      .replace(/\|/g, "\\|")
-      .trim();
   const lines = [
-    `# ${cell(r.prompt)}`,
+    `# ${mdCell(r.prompt)}`,
     "",
     `${r.posts.length} ${r.posts.length === 1 ? "post" : "posts"}, anonymous, ${r.closedAt.slice(0, 10)}.`,
     "",
@@ -477,8 +471,8 @@ export function wallRoundMarkdown(r: WallRoundResult): string {
     "| --- | ---: |",
   ];
   for (const p of r.posts) {
-    const merged = p.merged.length > 0 ? ` (also: ${p.merged.map(cell).join("; ")})` : "";
-    lines.push(`| ${cell(p.text)}${merged} | ${p.votes} |`);
+    const merged = p.merged.length > 0 ? ` (also: ${p.merged.map(mdCell).join("; ")})` : "";
+    lines.push(`| ${mdCell(p.text)}${merged} | ${p.votes} |`);
   }
   return `${lines.join("\n")}\n`;
 }
