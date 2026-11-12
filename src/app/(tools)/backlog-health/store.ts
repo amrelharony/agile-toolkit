@@ -5,46 +5,23 @@
  */
 
 import { createPersistedStore } from "@/lib/stores/create-persisted-store";
-import { DEEP_TOP_N, STALE_WEEKS, TOO_BIG_POINTS } from "@/lib/backlog/health";
+import {
+  BACKLOG_HEALTH_STORE_NAME,
+  DEFAULT_SETTINGS,
+  SETTINGS_LIMITS,
+  normalizeSettings,
+  type HealthSettings,
+} from "@/lib/backlog/settings";
 import type { Validation } from "@/lib/utils/form";
 
-export interface HealthSettings {
-  topN: number;
-  tooBigPoints: number;
-  staleWeeks: number;
-}
-
-export const DEFAULT_SETTINGS: HealthSettings = {
-  topN: DEEP_TOP_N,
-  tooBigPoints: TOO_BIG_POINTS,
-  staleWeeks: STALE_WEEKS,
-};
+// The settings' shape, defaults and read-back live in lib/backlog/settings,
+// where Amr's verbs read them too.
+export { DEFAULT_SETTINGS, normalizeSettings, type HealthSettings };
 
 export const useBacklogHealthSettings = createPersistedStore<HealthSettings>(
-  "backlog-health",
+  BACKLOG_HEALTH_STORE_NAME,
   DEFAULT_SETTINGS
 );
-
-const LIMITS: Record<keyof HealthSettings, [number, number]> = {
-  topN: [1, 50],
-  tooBigPoints: [1, 100],
-  staleWeeks: [1, 104],
-};
-
-const inRange = (key: keyof HealthSettings, v: unknown): v is number =>
-  typeof v === "number" && Number.isInteger(v) && v >= LIMITS[key][0] && v <= LIMITS[key][1];
-
-/** Settings as read back: a value out of range is its default. */
-export function normalizeSettings(
-  value: Partial<Record<keyof HealthSettings, unknown>>
-): HealthSettings {
-  const out = { ...DEFAULT_SETTINGS };
-  for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof HealthSettings)[]) {
-    const v = value?.[key];
-    if (inRange(key, v)) out[key] = v;
-  }
-  return out;
-}
 
 export type SettingsDraft = Record<keyof HealthSettings, string>;
 
@@ -67,7 +44,7 @@ export function validateSettings(
   const values = { ...DEFAULT_SETTINGS };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof HealthSettings)[]) {
     const n = Number(draft[key].trim());
-    const [min, max] = LIMITS[key];
+    const [min, max] = SETTINGS_LIMITS[key];
     if (!draft[key].trim() || !Number.isInteger(n) || n < min || n > max) {
       errors[key] = `${LABEL[key]}: a whole number from ${min} to ${max}.`;
     } else values[key] = n;

@@ -7,6 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rows = vi.hoisted(() => new Map<string, unknown>());
+const blobs = vi.hoisted(() => new Map<string, unknown>());
 vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
   return {
@@ -17,6 +18,7 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
     serverUpsertEntity: vi.fn(async (_u: string, kind: string, e: { id: string }) => {
       rows.set(`${kind}/${e.id}`, e);
     }),
+    serverGetUserStateBlob: vi.fn(async (_u: string, key: string) => blobs.get(key) ?? null),
     serverListEntities: vi.fn(async (_u: string, kind: string) =>
       Array.from(rows.entries())
         .filter(([k]) => k.startsWith(`${kind}/`))
@@ -29,6 +31,12 @@ import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story } from "@/lib/stores/workspace-types";
 import "@/lib/actions/tools/backlog-health";
+import {
+  BACKLOG_HEALTH_STORE_KEY,
+  DEFAULT_SETTINGS,
+  settingsFromBlob,
+} from "@/lib/backlog/settings";
+import { todayIso } from "@/lib/sprints/series";
 
 const ctx = () => ({ userId: "u", source: "agent" as const, squadProfileIds: [] as string[] });
 const run = async <T>(id: string, params: Record<string, unknown> = {}) => {
@@ -55,6 +63,8 @@ const SC = { given: "a saved card", when: "I pay", then: "I'm charged once" };
 
 beforeEach(() => {
   rows.clear();
+  blobs.clear();
+  localStorage.clear();
   useWorkspaceStore.setState({ stories: [], backlogItems: [] });
 });
 
@@ -95,6 +105,66 @@ describe("list_state", () => {
         ],
       }),
     ]);
+  });
+});
+
+describe("list_state with the page's settings", () => {
+  // 11 points: too big only when the page says more than 8 is. Added today,
+  // so neither is stale whenever the test runs.
+  const backlog = () => {
+    const createdAt = new Date().toISOString();
+    return [
+      story({ createdAt }),
+      story({
+        id: "st2",
+        title: "Refund a payment from the phone",
+        points: 11,
+        backlogRank: 2,
+        createdAt,
+      }),
+    ];
+  };
+  type Scan = {
+    today: string;
+    settings: { topN: number; tooBigPoints: number; staleWeeks: number };
+    flagged: { id: string; flags: { id: string }[] }[];
+  };
+
+  it("reads the settings the page saved in this browser, and the local day", async () => {
+    useWorkspaceStore.setState({ stories: backlog() });
+    localStorage.setItem(
+      BACKLOG_HEALTH_STORE_KEY,
+      JSON.stringify({ state: { topN: 5, tooBigPoints: 8, staleWeeks: 4 }, version: 0 })
+    );
+    const r = await run<Scan>("tool.backlog_health.list_state");
+    expect(r.settings).toEqual({ topN: 5, tooBigPoints: 8, staleWeeks: 4 });
+    expect(r.today).toBe(todayIso());
+    expect(r.flagged.map((f) => [f.id, f.flags.map((x) => x.id)])).toEqual([["st2", ["too-big"]]]);
+    // A call can still say otherwise.
+    const wider = await run<Scan>("tool.backlog_health.list_state", { tooBigPoints: 13 });
+    expect(wider.flagged).toEqual([]);
+  });
+
+  it("uses the defaults when nothing is saved, or what is saved is out of range", async () => {
+    useWorkspaceStore.setState({ stories: backlog() });
+    expect((await run<Scan>("tool.backlog_health.list_state")).settings).toEqual(DEFAULT_SETTINGS);
+    localStorage.setItem(BACKLOG_HEALTH_STORE_KEY, "{not json");
+    expect((await run<Scan>("tool.backlog_health.list_state")).settings).toEqual(DEFAULT_SETTINGS);
+    expect(settingsFromBlob({ topN: 999, tooBigPoints: 8 })).toEqual({
+      ...DEFAULT_SETTINGS,
+      tooBigPoints: 8,
+    });
+    expect(settingsFromBlob([1, 2])).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it("reads the user's synced settings on the server", async () => {
+    for (const s of backlog()) rows.set(`workspace:story/${s.id}`, s);
+    blobs.set(BACKLOG_HEALTH_STORE_KEY, { topN: 5, tooBigPoints: 8, staleWeeks: 4 });
+    const r = await mcp<Scan>("tool.backlog_health.list_state", {
+      today: new Date().toISOString().slice(0, 10),
+    });
+    expect(r.settings.tooBigPoints).toBe(8);
+    expect(r.flagged.map((f) => f.id)).toEqual(["st2"]);
   });
 });
 

@@ -9,7 +9,10 @@
  *                lib/backlog/health, as on the page.
  *
  *   1. list_state   — the DEEP scan: the four checks with their reasons, the
- *                     score and verdict, and every flagged story.
+ *                     score and verdict, and every flagged story. It uses the
+ *                     page's saved settings (top, too big, stale) unless the
+ *                     call says otherwise, and the person's local day in the
+ *                     browser, so it reads what the page shows.
  *   2. set_gwt      — write Given/When/Then scenarios on a story (replace or
  *                     add), beside its free-text acceptance criteria. This is
  *                     the story verb the plan calls `story.set_gwt`: the story
@@ -23,7 +26,12 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
+import {
+  serverGetEntity,
+  serverGetUserStateBlob,
+  serverListEntities,
+  serverUpsertEntity,
+} from "../server-store";
 import {
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
@@ -34,7 +42,14 @@ import {
 import { stampStoryWrite } from "@/lib/sprints/story-status";
 import { cleanStoryFields, newGwtId, withStoryGwt } from "@/lib/stories/fields";
 import { STORY_TITLE_MAX } from "@/lib/handoffs/targets/backlog-story";
-import { DEEP_TOP_N, backlogForHealth, backlogHealth } from "@/lib/backlog/health";
+import { backlogForHealth, backlogHealth } from "@/lib/backlog/health";
+import {
+  BACKLOG_HEALTH_STORE_KEY,
+  SETTINGS_LIMITS,
+  settingsFromBlob,
+  type HealthSettings,
+} from "@/lib/backlog/settings";
+import { todayIso } from "@/lib/sprints/series";
 
 const KIND_STORY = "workspace:story";
 const KIND_BACKLOG_ITEM = "workspace:backlogItem";
@@ -49,6 +64,21 @@ interface StoryStore {
   items: () => Promise<BacklogItem[]>;
   get: (id: string) => Promise<Story | null>;
   put: (story: Story) => Promise<void>;
+  /** The page's saved settings (its defaults when none are saved). */
+  settings: () => Promise<HealthSettings>;
+  /** "YYYY-MM-DD" today: the person's local day in the browser, UTC on the server. */
+  today: () => string;
+}
+
+/** The page's persisted settings as this browser holds them, or null. */
+function browserSettingsBlob(): unknown {
+  try {
+    const raw =
+      typeof window === "undefined" ? null : window.localStorage.getItem(BACKLOG_HEALTH_STORE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 const browserStore: StoryStore = {
@@ -57,12 +87,23 @@ const browserStore: StoryStore = {
   get: async (id) => (ws().stories ?? []).find((s) => s.id === id) ?? null,
   // The store stamps and cleans every story write itself.
   put: async (story) => ws().upsertStory(story),
+  settings: async () => settingsFromBlob(browserSettingsBlob()),
+  today: () => todayIso(),
 };
 
 const serverStore = (userId: string): StoryStore => ({
   stories: () => serverListEntities<Story>(userId, KIND_STORY),
   items: () => serverListEntities<BacklogItem>(userId, KIND_BACKLOG_ITEM),
   get: (id) => serverGetEntity<Story>(userId, KIND_STORY, id),
+  // The page's settings as the user's synced row holds them; the defaults without one.
+  settings: async () => {
+    try {
+      return settingsFromBlob(await serverGetUserStateBlob(userId, BACKLOG_HEALTH_STORE_KEY));
+    } catch {
+      return settingsFromBlob(null);
+    }
+  },
+  today: todayUTC,
   put: async (story) => {
     // Stamped and cleaned as workspace.story.* does on the server.
     const current = await serverGetEntity<Story>(userId, KIND_STORY, story.id);
@@ -74,11 +115,50 @@ const serverStore = (userId: string): StoryStore => ({
   },
 });
 
-async function listState(store: StoryStore, topN: number, today: string) {
+const ListParams = z.object({
+  topN: z
+    .number()
+    .int()
+    .min(SETTINGS_LIMITS.topN[0])
+    .max(SETTINGS_LIMITS.topN[1])
+    .optional()
+    .describe("How many stories count as the top of the backlog. Default: the page's setting."),
+  tooBigPoints: z
+    .number()
+    .int()
+    .min(SETTINGS_LIMITS.tooBigPoints[0])
+    .max(SETTINGS_LIMITS.tooBigPoints[1])
+    .optional()
+    .describe("Points above which a story is too big. Default: the page's setting."),
+  staleWeeks: z
+    .number()
+    .int()
+    .min(SETTINGS_LIMITS.staleWeeks[0])
+    .max(SETTINGS_LIMITS.staleWeeks[1])
+    .optional()
+    .describe("Weeks untouched before a story is stale. Default: the page's setting."),
+  today: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe(
+      "YYYY-MM-DD. Defaults to today (the person's day in the browser, UTC on the server)."
+    ),
+});
+
+async function listState(store: StoryStore, p: z.infer<typeof ListParams>) {
+  const saved = await store.settings();
+  const settings: HealthSettings = {
+    topN: p.topN ?? saved.topN,
+    tooBigPoints: p.tooBigPoints ?? saved.tooBigPoints,
+    staleWeeks: p.staleWeeks ?? saved.staleWeeks,
+  };
+  const today = p.today ?? store.today();
   const backlog = backlogForHealth(await store.stories(), await store.items());
-  const health = backlogHealth(backlog, { today, topN });
+  const health = backlogHealth(backlog, { today, ...settings });
   return {
     today,
+    settings,
     total: health.total,
     topN: health.topN,
     score: health.score,
@@ -104,25 +184,10 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Run the DEEP scan on the backlog (stories with status backlog in no sprint, in the backlog's order). Returns {today, total, topN, score (0-100) | null, verdict: healthy|needs-work|unhealthy|empty, summary, checks: {id: detailed|estimated|emergent|prioritized, label, score (0-1) | null, reasons}[], flagged: {id, title, place, points, flags: {id: vague|no-criteria|no-points|too-big|stale, reason}[]}[]}. Only the top stories need criteria and points.",
-  paramsSchema: z.object({
-    topN: z
-      .number()
-      .int()
-      .min(1)
-      .max(50)
-      .optional()
-      .describe(`The top of the backlog; default ${DEEP_TOP_N}.`),
-    today: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional()
-      .describe("YYYY-MM-DD. Defaults to today (UTC)."),
-  }),
-  handler: async ({ topN, today }) =>
-    listState(browserStore, topN ?? DEEP_TOP_N, today ?? todayUTC()),
-  mcpHandler: async ({ topN, today }, ctx) =>
-    listState(serverStore(ctx.userId), topN ?? DEEP_TOP_N, today ?? todayUTC()),
+    "Run the DEEP scan on the backlog (stories with status backlog in no sprint, in the backlog's order), with the Backlog Health page's saved settings unless given. Returns {today, settings: {topN, tooBigPoints, staleWeeks}, total, topN, score (0-100) | null, verdict: healthy|needs-work|unhealthy|empty, summary, checks: {id: detailed|estimated|emergent|prioritized, label, score (0-1) | null, reasons}[], flagged: {id, title, place, points, flags: {id: vague|no-criteria|no-points|too-big|stale, reason}[]}[]}. Only the top stories need criteria and points.",
+  paramsSchema: ListParams,
+  handler: async (p) => listState(browserStore, p),
+  mcpHandler: async (p, ctx) => listState(serverStore(ctx.userId), p),
 });
 
 // ──────── tool.backlog_health.set_gwt ────────
