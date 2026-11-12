@@ -37,8 +37,14 @@ export const BUTTON_SIDE = 8;
 export const MASCOT_BOX: Readonly<{ w: number; h: number }> = { w: 132, h: 143 };
 /** Phones get a smaller figure, with space kept for him (phoneBandHeight). */
 export const MASCOT_BOX_PHONE: Readonly<{ w: number; h: number }> = { w: 96, h: 104 };
-/** The round launcher shown until the figure is ready (or if the sheet can't load). */
-export const LAUNCHER_SIZE = 48;
+/**
+ * The "Ask Amr" launcher plate (globals.css `.comic-name-plate[data-launcher]`),
+ * which stands in his spot until his figure is in, and while it can't load: its
+ * box in px, which his button sets as its minimum size. 44 px is the plate's
+ * floor (2.75rem); the width holds the lettered "Ask Amr" with the plate's
+ * padding and line. Larger text grows the plate past these, never clips it.
+ */
+export const LAUNCHER_PLATE: Readonly<{ w: number; h: number }> = { w: 108, h: 44 };
 /**
  * How much of the empty box (in sheet px) may sit past the screen edge: all the
  * space below his feet when parked at the bottom, most of the headroom when
@@ -138,10 +144,10 @@ export function cornerAfterKey(c: AmrCorner, key: string): AmrCorner | null {
  * How far his centre line runs in from the panel's edge on his side, in px.
  * Both are offset from the same side of the screen (BUTTON_SIDE, PANEL_SIDE, and
  * the same safe area), so this holds on any screen: 58 for the desktop figure,
- * 40 for a phone's, 16 for the launcher.
+ * 40 for a phone's, 46 for the launcher plate.
  */
 export function amrCentreInPanel(phone: boolean, figure: boolean): number {
-  const width = figure ? (phone ? MASCOT_BOX_PHONE : MASCOT_BOX).w : LAUNCHER_SIZE;
+  const width = figure ? (phone ? MASCOT_BOX_PHONE : MASCOT_BOX).w : LAUNCHER_PLATE.w;
   return BUTTON_SIDE + width / 2 - PANEL_SIDE;
 }
 

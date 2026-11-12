@@ -7,7 +7,7 @@ import {
   FEET_TRIM,
   HEAD_TRIM,
   HIT_SIDE,
-  LAUNCHER_SIZE,
+  LAUNCHER_PLATE,
   MASCOT_BOX,
   MASCOT_BOX_PHONE,
   PANEL_GAP,
@@ -65,7 +65,8 @@ describe("the constants moved out of mascot-assistant.tsx", () => {
     expect(BUTTON_INSET).toBe(4);
     expect(MASCOT_BOX).toEqual({ w: 132, h: 143 });
     expect(MASCOT_BOX_PHONE).toEqual({ w: 96, h: 104 });
-    expect(LAUNCHER_SIZE).toBe(48);
+    // The "Ask Amr" plate: its 44 px floor, wide enough for the lettering.
+    expect(LAUNCHER_PLATE).toEqual({ w: 108, h: 44 });
     expect(FEET_TRIM).toBe(208 - 202);
     expect(HEAD_TRIM).toBe(16);
     expect(HIT_SIDE).toBe(0.28);
@@ -86,7 +87,7 @@ describe("the constants moved out of mascot-assistant.tsx", () => {
       "BUTTON_SIDE",
       "MASCOT_BOX",
       "MASCOT_BOX_PHONE",
-      "LAUNCHER_SIZE",
+      "LAUNCHER_PLATE",
       "FEET_TRIM",
       "HEAD_TRIM",
       "HIT_SIDE",
@@ -175,9 +176,9 @@ describe("panelTail", () => {
       expect(centreFromScreenSide).toBeGreaterThan(BUTTON_SIDE + s.box.w * HIT_SIDE);
       expect(centreFromScreenSide).toBeLessThan(BUTTON_SIDE + s.box.w * (1 - HIT_SIDE));
     }
-    // The launcher's centre, for the entrance when it stands in for him.
-    expect(amrCentreInPanel(false, false)).toBe(BUTTON_SIDE + LAUNCHER_SIZE / 2 - PANEL_SIDE);
-    expect(amrCentreInPanel(true, false)).toBe(16);
+    // The launcher plate's centre, for the entrance when it stands in for him.
+    expect(amrCentreInPanel(false, false)).toBe(BUTTON_SIDE + LAUNCHER_PLATE.w / 2 - PANEL_SIDE);
+    expect(amrCentreInPanel(true, false)).toBe(46);
   });
 
   it("follows him when he steps aside: the flipped corner mirrors the tail", () => {
@@ -229,7 +230,7 @@ describe("panelOrigin", () => {
   for (const c of CORNERS) {
     for (const s of SCREENS) {
       for (const figure of [true, false]) {
-        const at = figure ? s.at : 16;
+        const at = figure ? s.at : 46;
         it(`${c}, ${s.name}, ${figure ? "figure" : "launcher"}: the edge facing him, ${at} px in`, () => {
           const x = c.endsWith("Left") ? `${at}px` : `calc(100% - ${at}px)`;
           const y = c.startsWith("top") ? "0%" : "100%";

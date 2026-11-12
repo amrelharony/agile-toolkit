@@ -47,7 +47,7 @@ afterEach(() => {
 describe("mascot hit area", () => {
   it("takes clicks only on the figure and stands closer to the edge", async () => {
     render(<MascotAssistant />);
-    // Before the figure loads: the round launcher takes clicks as before.
+    // Before the figure loads: the launcher plate takes clicks as before.
     const launcher = screen.getByRole("button", { name: "Ask Amr" });
     expect(launcher).not.toHaveClass("pointer-events-none");
 
@@ -78,10 +78,15 @@ describe("mascot hit area", () => {
 
   it("draws focus on the figure, not as a round ring around his mostly empty box", async () => {
     render(<MascotAssistant />);
-    // The round launcher keeps its ring until the figure is in.
+    // Until the figure is in, the lettered launcher plate: its focus is the
+    // plate's own --ring outline (globals.css), and nothing about it is round.
     const launcher = screen.getByRole("button", { name: "Ask Amr" });
-    expect(launcher).toHaveClass("rounded-full", "focus-visible:ring-2", styles.bob);
+    expect(launcher).toHaveClass("comic-name-plate", styles.bob);
+    expect(launcher).toHaveAttribute("data-launcher");
     expect(launcher).not.toHaveClass(styles.figure);
+    for (const c of launcher.className.split(/\s+/)) {
+      expect(c).not.toMatch(/^(?:[\w-]+:)*(?:rounded-full|ring|outline-none|shadow|drop-shadow)/);
+    }
 
     act(() => {
       window.dispatchEvent(new Event("pointerdown"));
@@ -91,6 +96,11 @@ describe("mascot hit area", () => {
     const button = screen.getByRole("button", { name: "Ask Amr" });
     // The module draws the outline on the hit span (test/design/comic-chat-css.test.ts).
     expect(button).toHaveClass(styles.figure, styles.bob);
+    // The plate gives way to him: same button, no plate left on it.
+    expect(button).toBe(launcher);
+    expect(button).not.toHaveClass("comic-name-plate");
+    expect(button).not.toHaveAttribute("data-launcher");
+    expect(button).not.toHaveTextContent("Ask Amr");
     for (const c of button.className.split(/\s+/)) {
       expect(c).not.toMatch(/^(?:[\w-]+:)*(?:rounded-full|ring|outline-none|shadow|drop-shadow)/);
     }

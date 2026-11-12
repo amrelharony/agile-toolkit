@@ -36,12 +36,17 @@ vi.mock("@/components/agent/mascot/mascot-sprite", async () => {
 });
 
 import {
+  FIGURE_RETRY_MS,
   MascotAssistant,
   PANEL_SIZE_KEY,
   panelPos,
   type Corner,
 } from "@/components/agent/mascot/mascot-assistant";
-import { PANEL_SIZE, type PanelSizeName } from "@/components/agent/mascot/amr-geometry";
+import {
+  LAUNCHER_PLATE,
+  PANEL_SIZE,
+  type PanelSizeName,
+} from "@/components/agent/mascot/amr-geometry";
 import { useAgentStore } from "@/lib/agent/store";
 import { useBubbleStore } from "@/lib/agent/mascot/bubble";
 import { useMascotStore } from "@/lib/agent/mascot/store";
@@ -841,8 +846,8 @@ describe("his panel is his balloon", () => {
     expect(panel).toHaveAttribute("data-tail", "none");
     expect(panel).not.toHaveAttribute("data-tail-from");
     expect(panel.style.getPropertyValue("--tail-at")).toBe("");
-    // It still grows from in line with the launcher.
-    expect(panel.style.getPropertyValue("--panel-origin")).toBe("calc(100% - 16px) 100%");
+    // It still grows from in line with the launcher plate (8 + 108 / 2 - 16).
+    expect(panel.style.getPropertyValue("--panel-origin")).toBe("calc(100% - 46px) 100%");
   });
 
   it("drops the tail while he's carried, and points again where he lands", async () => {
@@ -899,8 +904,9 @@ describe("his panel doesn't jump when his figure arrives (audit critic2-5)", () 
     });
   }
 
-  it("goes back by the launcher only when his figure can't load", async () => {
+  it("goes back by the launcher plate only when his figure can't load and no try is left", async () => {
     sprite.fail = true;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       stubScreen({ phone: false, coarse: false });
       render(<MascotAssistant />);
@@ -914,14 +920,25 @@ describe("his panel doesn't jump when his figure arrives (audit critic2-5)", () 
           },
           900
         ).bottom;
+      const figureAt = 131.6875;
       // Where his figure will stand...
-      expect(bottom()).toBeCloseTo(131.6875);
+      expect(bottom()).toBeCloseTo(figureAt);
       act(() => {
         window.dispatchEvent(new Event("pointerdown"));
       });
-      // ...until the sheet fails: then by the launcher (its inset, size and the gap), once.
-      await waitFor(() => expect(bottom()).toBe(4 + 48 + 6), { timeout: 2000 });
+      // (the idle moment, then the sheet fails)
+      await act(() => vi.advanceTimersByTimeAsync(300));
+      // ...and still there while his figure is tried again, 2, 4 and 8 s later,
+      // so the panel doesn't jump each time...
+      for (const wait of FIGURE_RETRY_MS) {
+        expect(bottom()).toBeCloseTo(figureAt);
+        await act(() => vi.advanceTimersByTimeAsync(wait));
+      }
+      // ...until the last try fails: then by the plate (its inset, height and the gap), once.
+      expect(bottom()).toBe(4 + LAUNCHER_PLATE.h + 6);
       expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute("data-tail", "none");
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expect(bottom()).toBe(4 + LAUNCHER_PLATE.h + 6);
     } finally {
       sprite.fail = false;
     }
