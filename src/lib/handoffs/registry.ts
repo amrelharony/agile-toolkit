@@ -120,6 +120,9 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   "audience-wall": { name: "Audience Wall", href: "/audience-wall" },
   "interrupt-buffer": { name: "interrupt buffer", href: "/interrupt-buffer" },
   "sm-notebook": { name: "Scrum Master Notebook", href: "/sm-notebook" },
+  // A contributing factor taken to Root Cause (its analysis's sourceRef): the
+  // plan's hand-off from Post-Mortem, whose sender Root Cause's builder adds.
+  "post-mortem": { name: "post-mortem", href: "/post-mortem" },
 };
 
 /** The sending tool, or undefined for one not listed (never an inherited key like "constructor"). */
