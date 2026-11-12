@@ -610,6 +610,49 @@ select cron.schedule('visitor_ai_housekeeping_hourly', '7 * * * *', 'select publ
 
 To rotate the gateway key, see "Deploy hardening" below: update `OPENCLAW_API_KEY` in Vercel and redeploy, then invalidate the old key on the gateway.
 
+## Tool AI
+
+The tools' **Ask Amr** buttons run small, fixed AI tasks (suggest options, cluster answers, draft an agenda…) through the same OpenClaw gateway. The browser sends only `{ task, input }`; the server builds the prompt, picks the model and checks the answer. AI never writes on its own: the person accepts suggestions, and every task has a fallback that works with no model, so each tool works fully with AI off.
+
+### The two routes
+
+| Route                       | Who                 | Gate                                                                                                                 | Meter                                                                                                 |
+| --------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `POST /api/ai/tool`         | the signed-in owner | the middleware's owner check (not on the bypass list) and `requireAuthorizedUser()` in the handler; body cap 256 KiB | `check_tool_ai_rate_limit` (migration 0040): 300 a day, 1,500 a week, 5,000 a month; **fails closed** |
+| `POST /api/ai/tool/visitor` | signed-out visitors | exact-match middleware bypass; kill switch, same-site, 30 a minute per address (`tool-ai` bucket), body cap 64 KiB   | `visitor_ai_meter` (0037), the **same daily allowance as Amr's chat**                                 |
+
+Both run on Node with `maxDuration` 300 s and an internal deadline of 240 s: past it the repair call is skipped and the gateway call is aborted. The owner route also serves the AI Prompts drawer's **Run with AI** for the owner with no personal key (special task `prompt.run`, streamed back as plain text). Visitors keep their own key for that.
+
+- **Models.** `pickModel(backend, tier)` in `src/lib/agent/upstream.ts`: on OpenClaw the owner gets `openclaw-flash` for "flash" tasks and `OPENCLAW_MODEL` (default `openclaw`) for "full"; a direct GLM or Z.AI key maps to its own flash model. Visitors always get `VISITOR_AI_MODEL`. The reasoning effort is the lower of the task's and the visitor config row's, so `visitor_ai_config.reasoning_effort` still works as a brake.
+- **Answers.** Only `delta.content` is kept (reasoning is ignored). The JSON is found tolerantly (code fences, prose around it), checked with the task's zod schema, and a list keeps its good items. Empty content with `finish_reason: "length"` returns the fallback at once; a malformed answer gets one repair call (a visitor's repair is metered again as a call, never a new turn).
+- **Privacy.** No prompt, input or answer text is stored or logged. One log line per call: `[tool-ai] <task> <outcome> <ms> in=<tokens> out=<tokens>`. `tool_ai_usage` holds the task id, the model, the time and the token counts.
+
+### The switches
+
+- **Visitors**: the visitor route follows the same switches as Amr's chat: `VISITOR_AI_ENABLED=1` plus `OPENCLAW_API_KEY` on the server, `NEXT_PUBLIC_VISITOR_AI=1` for the buttons to show, and `visitor_ai_config.enabled` as the instant brake (see [Visitor AI](#visitor-ai)). Visitors agree once to the card (v2 of the consent key `agile-toolkit:amr-ai-consent`, which also covers the chat). In a live room visitors get no AI; the owner, as host, previews any summary before it reaches the room.
+- **Owner**: on whenever the owner backend is set (`OPENCLAW_API_KEY`, or `GLM_API_KEY` / `ZAI_API_KEY`). Push migration `0040_tool_ai_rate_limit.sql` **before** deploying: the route refuses every task (`503 meter_unavailable`) until `check_tool_ai_rate_limit` exists.
+
+```sql
+-- The owner's tool AI use, newest first (no text is stored).
+select created_at, task, model, tokens_in, tokens_out from public.tool_ai_usage order by created_at desc limit 50;
+```
+
+To change the owner's caps, edit `v_daily_max`, `v_weekly_max` and `v_monthly_max` in `check_tool_ai_rate_limit` with a new migration.
+
+### Adding a task
+
+1. `src/lib/ai/tasks/<toolId>.ts` (browser-safe): `defineAiTask({ id: "<toolId>.<name>", toolId, tier, effort, maxTokens, input, output, fallback, sample })`. Cap every string (`.max()`) and array (`.max()`); `maxTokens` at least 4096 when the output holds a list, else 2048.
+2. `src/lib/ai/tasks/<toolId>.server.ts` (starts with `import "server-only"`): `defineAiPrompt(task, { system, user })`. `user(input)` returns the data as labelled text; the runner sanitises it and wraps it in `<user_content>`, and adds the scope rule, the guardrail and the JSON shape line.
+3. Add the task to `src/lib/ai/tasks/index.ts` and the prompt to `src/lib/ai/tasks/index.server.ts`.
+4. In the tool: `<AiButton task={…} input={…} onResult={…} />` (or `useToolAi(task)`), then `<AiSuggestions>` so the person accepts items into the tool's own store, with Undo.
+5. `test/ai/task-contract.test.ts` checks every task's caps, token minimum, fallback and prompt; add a golden test for the task's own fallback and a sample answer.
+
+The example task `ai.suggest_options` (`src/lib/ai/tasks/_example.ts`) shows the whole pattern.
+
+### The probe
+
+`node scripts/probe-tool-ai.mjs` sends every registered task's sample input through the routes' own code (the same prompt, call and parsing) and prints PASS or FAIL per task, with the model, time and token counts. Set the key in your own terminal first, at a hidden prompt (see the script's header); the script never prints it. `--visitor` probes `VISITOR_AI_MODEL` with the visitors' `X-Caller`; `--task <id>` runs one task. Exit 0 when all pass.
+
 ---
 
 ## Shared sprints (the one-time data move)

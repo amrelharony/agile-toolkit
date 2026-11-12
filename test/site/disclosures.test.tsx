@@ -23,6 +23,7 @@ import {
   VISITOR_ROOM_CONSENT_TEXT as ROOM_DIALOG_TEXT,
   VOTE_ROOM_CONSENT_TEXT as VOTE_DIALOG_TEXT,
 } from "@/components/collab/visitor-room-consent";
+import { AiConsentCompact } from "@/components/ai/ai-consent-compact";
 import { CountDisclosure } from "@/components/visits/visit-recorder";
 import * as disclosures from "@/lib/site/disclosures";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
@@ -45,7 +46,33 @@ describe("the disclosure wording", () => {
     render(<VisitorAiConsent question="" onAgree={() => {}} onDecline={() => {}} />);
     const points = screen.getAllByRole("listitem").map((li) => li.textContent);
     expect(points).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);
-    expect(points[4]).toContain(`${disclosures.VISITOR_AI_DAILY_MESSAGES} messages a day`);
+    expect(points[4]).toContain(
+      `${disclosures.VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons`
+    );
+  });
+
+  it("is the compact card before a tool's first Ask Amr, the same points in the same order", () => {
+    render(<AiConsentCompact onAgree={() => {}} onDecline={() => {}} />);
+    const points = screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(points).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);
+  });
+
+  it("says, in v2 of the card, that the Ask Amr buttons send tool content and count as AI uses", () => {
+    expect(disclosures.VISITOR_AI_SENT).toContain("press Ask Amr in a tool");
+    expect(disclosures.VISITOR_AI_KEPT).toContain("a count of today's AI uses");
+    expect(disclosures.VISITOR_AI_CONSENT_TEXT[2]).toBe(
+      "Amr never changes your work without you accepting it."
+    );
+    expect(disclosures.YOUR_DATA_AI).toContain("A tool sends nothing until you press Ask Amr.");
+    // Both room notices say the host may send answers, without names, for a summary.
+    for (const text of [
+      disclosures.VISITOR_ROOM_CONSENT_TEXT,
+      disclosures.VOTE_ROOM_CONSENT_TEXT,
+    ]) {
+      expect(text).toContain(
+        "The host may send the room's answers, without names, to an AI service for a summary."
+      );
+    }
   });
 
   it("is the count note under the comics and kudos pages, and under a weekly story", () => {

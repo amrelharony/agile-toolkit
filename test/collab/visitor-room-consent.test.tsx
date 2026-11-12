@@ -43,6 +43,7 @@ describe("VisitorRoomConsent", () => {
     expect(VISITOR_ROOM_CONSENT_TEXT).toBe(
       "What you type passes through our realtime provider (Supabase) to everyone with the link. " +
         "We don't store it; the room disappears when everyone leaves. " +
+        "The host may send the room's answers, without names, to an AI service for a summary. " +
         "Share the link only with your team."
     );
     // The wording is the dialog's accessible description.
@@ -67,6 +68,7 @@ describe("VisitorRoomConsent", () => {
         "Others in the room see your name and whether you've answered, not what. " +
         "After the host reveals the results, everyone in the room sees the totals, for questions " +
         "with enough answers; if everyone gives the same answer, the totals show it. " +
+        "The host may send the room's answers, without names, to an AI service for a summary. " +
         "Share the link only with your team."
     );
     // It promises no more than the round can keep.
