@@ -171,9 +171,10 @@ export async function executeToolUse(
   const ctx = makeContext(opts.userId, "agent");
   // Race the handler against a 30 s timeout and the abort signal. Without the
   // timeout a hung/looping handler would wedge the whole agent turn (the
-  // streaming loop awaits this result); abort wins if the user closes the panel
-  // mid-handler so the loop unwinds immediately. guards.cleanup tears down the
-  // timer + listener once the race settles.
+  // streaming loop awaits this result); abort wins if the turn is stopped
+  // mid-handler (Stop, New chat, a thread switch, sign-out, a profile change),
+  // so the loop unwinds immediately. Closing the panel doesn't abort.
+  // guards.cleanup tears down the timer + listener once the race settles.
   const HANDLER_TIMEOUT_MS = 30_000;
   const guards = raceGuards(opts.signal, HANDLER_TIMEOUT_MS);
   try {
