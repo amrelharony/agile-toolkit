@@ -38,6 +38,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRoom } from "@/lib/realtime/use-room";
 import { isWithinJsonSize } from "@/lib/realtime/sanitize";
 import { VISITOR_LIMITS, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
+import type { RoomExtrasPort } from "@/lib/realtime/use-room-extras";
 import { toast } from "@/lib/utils/toast";
 import { isValidSession, type Session } from "./types";
 import {
@@ -135,6 +136,11 @@ export interface PokerSessionHook {
    */
   idleWarning: boolean;
   keepRoomOpen: () => void;
+  /**
+   * Visitor rooms: the port for the room's countdown and reactions
+   * (`useRoomExtras`). Null for owner and guest rooms and outside a room.
+   */
+  extras: RoomExtrasPort | null;
 }
 
 export function usePokerSession(
@@ -604,5 +610,20 @@ export function usePokerSession(
     endRoom,
     idleWarning,
     keepRoomOpen: markActivity,
+    // Visitor rooms only: the countdown and reactions, trusting the session's
+    // host as the session itself does (unsigned, like `poker:state`).
+    extras:
+      visitor && liveRoomCode
+        ? {
+            tool: "planning-poker",
+            code: liveRoomCode,
+            role: effectiveIsHost ? "host" : "participant",
+            selfId: room.userId,
+            hostId: effectiveIsHost ? room.userId : (session?.hostId ?? null),
+            live: !room.isLocalOnly && !room.roomFull && leftReason === null,
+            channel: room,
+            signer: null,
+          }
+        : null,
   };
 }

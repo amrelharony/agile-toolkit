@@ -64,6 +64,7 @@ import {
   type SignedRoomHead,
 } from "./signed-room";
 import { toast } from "@/lib/utils/toast";
+import type { RoomExtrasPort, RoomExtrasSigner } from "./use-room-extras";
 
 /** How often the host checks whether the room has gone idle. */
 const IDLE_CHECK_MS = 30_000;
@@ -176,6 +177,8 @@ export interface SignedRoom {
   end: (reason?: "host" | "idle" | "expired") => void;
   /** Leave the room (the host's leave ends it). */
   leave: () => void;
+  /** For the room's countdown and reactions (`useRoomExtras`): signed with the room key. */
+  extras: RoomExtrasPort;
   // For the room kinds built on top:
   /** The channel, for the kind's own events. */
   room: UseRoomResult<null>;
@@ -671,6 +674,25 @@ export function useSignedRoom<S extends SignedRoomHead>(config: SignedRoomConfig
         ? signedJoinUrl(tool, code, hostFingerprint)
         : null;
 
+  // The countdown and reactions sign with the room key and trust only the pinned host.
+  const extrasSigner = useMemo<RoomExtrasSigner | null>(
+    () =>
+      cryptoImpl
+        ? {
+            sign: async (input) => {
+              const k = keysRef.current;
+              return k ? cryptoImpl.sign(k, input) : null;
+            },
+            verify: async (by, input, sig) => {
+              const pinned = pinnedRef.current;
+              if (!pinned || pinned.by !== by) return false;
+              return cryptoImpl.verify(pinned.sigKey, input, sig);
+            },
+          }
+        : null,
+    [cryptoImpl]
+  );
+
   return {
     status,
     endReason,
@@ -687,6 +709,16 @@ export function useSignedRoom<S extends SignedRoomHead>(config: SignedRoomConfig
     kick,
     end,
     leave,
+    extras: {
+      tool,
+      code,
+      role,
+      selfId,
+      hostId,
+      live: active && status !== "preparing",
+      channel: room,
+      signer: extrasSigner,
+    },
     room,
     activeRef,
     keysRef,

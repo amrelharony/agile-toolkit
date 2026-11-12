@@ -73,6 +73,7 @@ import {
 } from "@/lib/realtime/host-election";
 import { cleanText, isWithinJsonSize } from "@/lib/realtime/sanitize";
 import { VISITOR_LIMITS, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
+import type { RoomExtrasPort } from "@/lib/realtime/use-room-extras";
 import { toast } from "@/lib/utils/toast";
 import { DEFAULT_RETRO_VOTES, retroVotes } from "@/lib/retro/board";
 import type { BoardPhase, BoardState, RetroCard } from "../types";
@@ -328,6 +329,12 @@ export interface RetroRoom {
    * has hidden characters. The starting host edits through its own Board.
    */
   editCard: (cardId: string, text: string) => boolean;
+  /**
+   * For the room's reactions (`useRoomExtras(room.extras, { timer: false })`):
+   * the countdown already travels in the snapshot. Trusts the host the room
+   * takes, unsigned, as the snapshot does.
+   */
+  extras: RoomExtrasPort;
 }
 
 const TERMINAL: ReadonlySet<RetroRoomStatus> = new Set<RetroRoomStatus>([
@@ -1517,5 +1524,15 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     toggleTimer,
     setTimerSeconds,
     editCard,
+    extras: {
+      tool: "retro",
+      code,
+      role: isHost ? "host" : "participant",
+      selfId,
+      hostId,
+      live: active,
+      channel: room,
+      signer: null,
+    },
   };
 }
