@@ -53,6 +53,9 @@ export function RoundCard({ round, roster, onMove, onName }: RoundCardProps) {
   const move = () => {
     if (!who) return setMoveError("Pick who to move.");
     if (to === "") return setMoveError(`Pick the ${word.toLowerCase()} to move them to.`);
+    if (round.groups[Number(to)]?.people.includes(who)) {
+      return setMoveError(`${who} is already in ${label(Number(to))}.`);
+    }
     setMoveError(null);
     onMove(who, Number(to));
     setWho("");

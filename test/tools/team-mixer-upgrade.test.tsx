@@ -532,6 +532,23 @@ describe("after a mix", () => {
     expect(screen.getByText("Pick who to move.")).toBeInTheDocument();
   });
 
+  it("says so when someone is already in that group, with no Undo or history", async () => {
+    seed(SIX, { split: "count", count: 2 });
+    await mount();
+    fireEvent.click(mixButton());
+    const round = state().rounds[0];
+    const who = round.groups[0].people[0];
+    spies.log.mockClear();
+    toastSpy.mockClear();
+    fireEvent.change(screen.getByLabelText("Who"), { target: { value: who } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Move" }));
+    expect(screen.getByText(`${who} is already in Group 1.`)).toBeInTheDocument();
+    expect(state().rounds[0]).toEqual(round);
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(spies.log).not.toHaveBeenCalled();
+  });
+
   it("names the groups from the built-in lists, with Undo", async () => {
     seed(SIX, { split: "count", count: 2 });
     await mount();

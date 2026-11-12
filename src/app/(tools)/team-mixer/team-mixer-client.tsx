@@ -200,6 +200,9 @@ export function TeamMixerClient() {
   const roundNow = (id: string) => readMixer().rounds.find((r) => r.id === id);
 
   const move = (round: MixerRound, who: string, toGroup: number) => {
+    // A move that changes nothing (already there) gets no Undo and no history line.
+    const current = readMixer();
+    if (movePerson(current, round.id, who, toGroup, roster) === current) return;
     undoable({
       label: `Moved ${who}`,
       apply: () => updateMixer((s) => movePerson(s, round.id, who, toGroup, roster)),
