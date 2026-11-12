@@ -68,8 +68,9 @@ export function useAmrPanel(): AmrPanelContextValue {
  *                     root's --amr-dock-gutter and --amr-dock-footer say how
  *                     much room he needs, from the inner frame's edge
  * And what the views mark for the shell's sheet CSS (globals.css "AMR SHEET"):
- *   data-amr-scroll   a scroller: in the sheet it pans up and down and keeps
- *                     its scrolling to itself
+ *   data-amr-scroll   a scroller: in the sheet it pans up and down (and
+ *                     pinch-zooms, as the whole sheet does) and keeps its
+ *                     scrolling to itself
  *   data-amr-composer the chat's message box: docked Amr rides the keyboard
  *                     beside it while it has focus
  */

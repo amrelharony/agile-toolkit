@@ -1485,9 +1485,10 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
       openPanel();
       const finder = await guide();
       expect(window.getComputedStyle(document.documentElement).overflow).toBe("hidden");
-      // The sheet's chrome takes no swipe; its scrollers pan and keep their scrolling.
-      expect(window.getComputedStyle(dialog()).touchAction).toBe("none");
-      expect(window.getComputedStyle(finder).touchAction).toBe("pan-y");
+      // The sheet's chrome takes no swipe but still pinch-zooms (WCAG 1.4.4);
+      // its scrollers pan, zoom too, and keep their scrolling.
+      expect(window.getComputedStyle(dialog()).touchAction).toBe("pinch-zoom");
+      expect(window.getComputedStyle(finder).touchAction).toBe("pan-y pinch-zoom");
       expect(window.getComputedStyle(finder).overscrollBehavior).toBe("contain");
 
       act(() => useAgentStore.setState({ open: false }));
