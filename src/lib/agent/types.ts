@@ -48,8 +48,10 @@ export interface ConfirmPrompt {
   /** The card's question, as a sentence: "Add a card to Retro Board?" */
   question: string;
   /**
-   * The arguments in words, values quoted and shortened: `Text: “flaky CI” ·
-   * Column: “went-well”`. Ids are left out. Empty when nothing is worth showing.
+   * The arguments in words, text quoted and shortened, and a value the schema
+   * calls internal (an enum's, a column's key) said as words: `Column: Went
+   * well · Text: “flaky CI”`. Ids are left out. Empty when nothing is worth
+   * showing.
    */
   detail: string;
   /**

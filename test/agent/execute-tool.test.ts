@@ -542,6 +542,22 @@ describe("executeToolUse — the confirm card (ConfirmPrompt) and the destructiv
       }),
       handler: async () => ({ decided: true }),
     },
+    {
+      id: "workspace.story.create",
+      toolId: "workspace.story",
+      name: "create",
+      category: "write",
+      description: "probe",
+      paramsSchema: z.object({
+        entity: z.object({
+          id: z.string().optional(),
+          title: z.string(),
+          status: z.enum(["todo", "in_progress", "done"]).default("todo"),
+          ticketKey: z.string().optional(),
+        }),
+      }),
+      handler: async () => ({ id: "story_1" }),
+    },
   ];
   const handlers = new Map<string, ReturnType<typeof vi.fn>>();
 
@@ -579,7 +595,7 @@ describe("executeToolUse — the confirm card (ConfirmPrompt) and the destructiv
       verb: "Add card",
       title: "Retro Board",
       question: "Add a card to Retro Board?",
-      detail: "Column: “went-well” · Text: “flaky CI”",
+      detail: "Column: Went well · Text: “flaky CI”",
       destructive: false,
     });
     // No id, key name or JSON reaches the card.
@@ -609,6 +625,22 @@ describe("executeToolUse — the confirm card (ConfirmPrompt) and the destructiv
     const prompt = await promptFor("tool_prioritizer_set_order", { ids: ["a", "b", "c"] });
     expect(prompt.detail).toBe("Items: 3");
     expect(prompt.question).toBe("Set the order in Backlog Prioritizer?");
+  });
+
+  it("says an enum's value in words, and keeps a tracker key and free text quoted", async () => {
+    const prompt = await promptFor("workspace_story_create", {
+      entity: { title: "follow-up", status: "in_progress", ticketKey: "PAY-12" },
+    });
+    expect(prompt.question).toBe("Create a story in your workspace?");
+    expect(prompt.detail).toBe("Title: “follow-up” · Status: In progress · Ticket: “PAY-12”");
+  });
+
+  it("says a column key's slug in words but leaves a key that isn't a slug as written", async () => {
+    const slug = await promptFor("tool_retro_add_card", { columnKey: "start", text: "go_live" });
+    // Free text keeps its own spelling, even when it looks like a slug.
+    expect(slug.detail).toBe("Column: Start · Text: “go_live”");
+    const custom = await promptFor("tool_retro_add_card", { columnKey: "Kudos!", text: "x" });
+    expect(custom.detail).toBe("Column: “Kudos!” · Text: “x”");
   });
 
   it("leaves out an id held under a key that doesn't say so", async () => {

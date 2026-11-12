@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { registry } from "@/lib/actions/registry";
 import { makeContext } from "@/lib/actions/context";
 import type { AnyToolAction } from "@/lib/actions/types";
@@ -320,7 +321,7 @@ function describeAction(
     verb,
     title: label.tool,
     question: confirmLabel ? `${confirmLabel}?` : askQuestion(label.tool, verb),
-    detail: describeParams(input),
+    detail: describeParams(input, action.paramsSchema),
     destructive,
     ...(confirmLabel ? { confirmLabel } : {}),
   };
@@ -393,6 +394,43 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** A lower-case slug: "went-well", "in_progress", "start". "PAY-12" and free text aren't. */
+const SLUG = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
+
+/** A schema with its wrappers off (optional, nullable, default, readonly, catch, a pipe's typed side). */
+function unwrapSchema(schema: unknown): unknown {
+  let s = schema;
+  for (let depth = 0; depth < 8 && s instanceof z.ZodType; depth++) {
+    const def = (s as unknown as { _zod: { def: Record<string, unknown> } })._zod.def;
+    if (def.innerType instanceof z.ZodType) s = def.innerType;
+    else if (s instanceof z.ZodPipe) s = def.in instanceof z.ZodTransform ? def.out : def.in;
+    else break;
+  }
+  return s;
+}
+
+/** The schema of one field of an object schema, or undefined (a record, a union, no schema). */
+function fieldSchema(schema: unknown, key: string): unknown {
+  const obj = unwrapSchema(schema);
+  return obj instanceof z.ZodObject ? (obj.shape as Record<string, unknown>)[key] : undefined;
+}
+
+/**
+ * A value the schema says is internal, so the card says it in words: one of
+ * an enum's values, or a lower-case slug under a `…Key` argument (a retro
+ * column's key). Free text and a tracker key ("PAY-12") stay quoted as written.
+ */
+function isInternalValue(schema: unknown, key: string, value: string): boolean {
+  if (unwrapSchema(schema) instanceof z.ZodEnum) return true;
+  return /(?:Key|_key)$/.test(key) && SLUG.test(value);
+}
+
+/** An internal value in words: "went-well" → "Went well", "in_progress" → "In progress". */
+function internalWords(value: string): string {
+  const words = value.trim().split(/[-_\s]+/);
+  return phrase(words.filter(Boolean));
+}
+
 /** A string quoted and cut to VALUE_MAX, or "" when it holds no words. */
 function quoted(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -422,8 +460,10 @@ function valueWords(v: unknown): string {
  * them is counted), by their key or, under any key, when the value is a UUID,
  * and an object's own fields stand in for it one level down,
  * so a workspace create's `entity` or an update's `patch` reads as its fields.
+ * `schema` is the arguments' schema, so a value it calls internal (an enum's,
+ * a column's key) reads as words, unquoted.
  */
-function fieldsOf(input: unknown, nested = false): Array<[string, string]> {
+function fieldsOf(input: unknown, schema: unknown, nested = false): Array<[string, string]> {
   if (!isPlainObject(input)) return [];
   const out: Array<[string, string]> = [];
   for (const [key, value] of Object.entries(input)) {
@@ -431,20 +471,24 @@ function fieldsOf(input: unknown, nested = false): Array<[string, string]> {
       if (Array.isArray(value) && value.length > 0) out.push([ID_LIST_LABEL, String(value.length)]);
       continue;
     }
+    const own = fieldSchema(schema, key);
     if (isPlainObject(value)) {
-      if (!nested) out.push(...fieldsOf(value, true));
+      if (!nested) out.push(...fieldsOf(value, own, true));
       continue;
     }
-    const words = valueWords(value);
+    const words =
+      typeof value === "string" && !UUID.test(value.trim()) && isInternalValue(own, key, value)
+        ? internalWords(value)
+        : valueWords(value);
     const name = keyLabel(key);
     if (words && name) out.push([name, words]);
   }
   return out;
 }
 
-/** The arguments in a line: `Text: “flaky CI” · Column: “went-well”`, at most DETAIL_FIELDS, then a count. */
-function describeParams(input: unknown): string {
-  const fields = fieldsOf(input);
+/** The arguments in a line: `Column: Went well · Text: “flaky CI”`, at most DETAIL_FIELDS, then a count. */
+function describeParams(input: unknown, schema: unknown): string {
+  const fields = fieldsOf(input, schema);
   const shown = fields.slice(0, DETAIL_FIELDS).map(([name, words]) => `${name}: ${words}`);
   const more = fields.length - DETAIL_FIELDS;
   if (more > 0) shown.push(`${more} more`);

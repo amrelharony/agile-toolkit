@@ -15,7 +15,7 @@ const ADD: ConfirmPrompt = {
   verb: "Add card",
   title: "Retro Board",
   question: "Add a card to Retro Board?",
-  detail: "Column: “went-well” · Text: “flaky CI”",
+  detail: "Column: Went well · Text: “flaky CI”",
   destructive: false,
 };
 const DELETE: ConfirmPrompt = {
@@ -61,7 +61,7 @@ describe("ConfirmCard", () => {
     render(<ConfirmCard allowApproveAll />);
     waiting(ADD);
     const card = screen.getByRole("group", { name: "Add a card to Retro Board?" });
-    expect(card).toHaveAccessibleDescription("Column: “went-well” · Text: “flaky CI”");
+    expect(card).toHaveAccessibleDescription("Column: Went well · Text: “flaky CI”");
     const question = screen.getByRole("heading", { level: 3, name: "Add a card to Retro Board?" });
     expect(question).toHaveClass("font-display");
     expect(card.querySelector("[data-confirm-step]")).toHaveTextContent("Retro Board · Add card");
