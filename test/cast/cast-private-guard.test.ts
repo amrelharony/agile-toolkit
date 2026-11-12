@@ -15,14 +15,28 @@ const KEY_HEXES = new Set(["#FF00FF", "#00FF00"]);
 
 /** Cast files that hold data (hex colours there would be canon). */
 const DATA_DIRS = ["docs/cast", "src/lib/cast", "src/components/cast"];
-/** Cast code, where only canon keys are checked (UI colours are fine there). */
-const CODE = ["scripts/cast", "scripts/build-cast-brief.mjs", "scripts/build-cast-rigs.py"];
+/** The builder's Python tests and their synthetic fixtures. */
+const TESTS_DIR = path.join(ROOT, "scripts", "tests");
+const PY_TESTS = existsSync(TESTS_DIR)
+  ? readdirSync(TESTS_DIR)
+      .filter((n) => /^(test_)?cast_\w+\.py$/.test(n))
+      .map((n) => path.join("scripts", "tests", n))
+  : [];
+/** Cast code and its tests, where only canon keys are checked (UI colours are fine there). */
+const CODE = [
+  "scripts/cast",
+  ...PY_TESTS,
+  "scripts/build-cast-brief.mjs",
+  "scripts/build-cast-rigs.py",
+];
 
 function walk(rel: string): string[] {
   const abs = path.join(ROOT, rel);
   if (!existsSync(abs)) return [];
   if (statSync(abs).isFile()) return [rel];
-  return readdirSync(abs).flatMap((n) => walk(path.join(rel, n)));
+  return readdirSync(abs)
+    .filter((n) => n !== "__pycache__")
+    .flatMap((n) => walk(path.join(rel, n)));
 }
 
 function privateKeys(text: string): string[] {
@@ -50,6 +64,7 @@ describe("the cast files", () => {
   it("exist where the plan puts them", () => {
     expect(data).toContain(path.join("docs", "cast", "cast-rig.json"));
     expect(code.length).toBeGreaterThan(0);
+    expect(code).toContain(path.join("scripts", "tests", "cast_synth.py"));
   });
 
   it("hold no private canon key", () => {
