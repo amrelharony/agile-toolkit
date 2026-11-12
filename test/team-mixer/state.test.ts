@@ -14,6 +14,7 @@ import {
   MIXER_INITIAL,
   hasExampleRows,
   normalizeMixerState,
+  withExample,
   withoutExample,
   type MixerState,
 } from "@/lib/team-mixer/state";
@@ -216,6 +217,71 @@ describe("the example", () => {
     expect(
       withoutExample(normalizeMixerState({ rounds: [round("example-round-1", 1, 8)] })).seriesRound
     ).toBe(0);
+  });
+});
+
+describe("adding the example", () => {
+  const at = (h: number) => new Date(Date.UTC(2026, 10, 12, h)).toISOString();
+  const ex = normalizeMixerState({
+    mode: "groups",
+    split: "size",
+    size: 3,
+    title: "Example title",
+    seriesSeed: 9,
+    people: [
+      { id: "example-p1", name: "Amira" },
+      { id: "example-p2", name: "Ben" },
+    ],
+    rules: [
+      { id: "example-r1", kind: "apart", a: "Amira", b: "Ben" },
+      { id: "example-r2", kind: "together", a: "Chen", b: "Dana" },
+    ],
+    rounds: [{ id: "example-round-1", number: 1, at: at(12), groups: [{ people: ["Amira"] }] }],
+  });
+
+  it("puts the example's round after the person's own, so it's the one shown", () => {
+    const own = normalizeMixerState({
+      mode: "pairs",
+      seriesSeed: 4,
+      rounds: [{ id: "r1", number: 1, at: at(8), groups: [{ people: ["Zed", "Yan"] }] }],
+    });
+    const s = normalizeMixerState(withExample(own, ex));
+    expect(s.mode).toBe("groups");
+    expect(s.title).toBe("Example title");
+    expect(s.seriesSeed).toBe(4);
+    expect(s.rounds.map((r) => [r.id, r.number])).toEqual([
+      ["r1", 1],
+      ["example-round-1", 2],
+    ]);
+    expect(latestRound(s)?.id).toBe("example-round-1");
+    // Clear example puts the series back where it was.
+    expect(withoutExample(s).rounds.map((r) => r.id)).toEqual(["r1"]);
+    expect(withoutExample(s).seriesRound).toBe(1);
+  });
+
+  it("never pushes out the person's own rules or rounds at the caps", () => {
+    const rules = Array.from({ length: MIXER_LIMITS.rules - 1 }, (_, i) => ({
+      id: `r${i}`,
+      kind: "apart",
+      a: `A${i}`,
+      b: `B${i}`,
+    }));
+    const rounds = Array.from({ length: MIXER_LIMITS.rounds }, (_, i) => ({
+      id: `round${i}`,
+      number: i + 1,
+      at: new Date(Date.UTC(2026, 10, 1, 0, i)).toISOString(),
+      groups: [{ people: ["Zed", "Yan"] }],
+    }));
+    const own = normalizeMixerState({ rules, rounds });
+    const s = normalizeMixerState(withExample(own, ex));
+    // Room for one example rule, and none for its round.
+    expect(s.rules).toHaveLength(MIXER_LIMITS.rules);
+    expect(s.rules.slice(0, -1)).toEqual(own.rules);
+    expect(s.rules[s.rules.length - 1].id).toBe("example-r1");
+    expect(s.rounds).toEqual(own.rounds);
+    const back = withoutExample(s);
+    expect(back.rules).toEqual(own.rules);
+    expect(back.rounds).toEqual(own.rounds);
   });
 });
 

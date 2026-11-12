@@ -215,6 +215,33 @@ describe("the example and the empty page", () => {
     expect(state().cafe).toEqual(plan);
   });
 
+  it("shows the example's round, not an older one of the person's own", async () => {
+    // Everyone was taken out of the mix, but an earlier round is still saved.
+    useTeamMixerStore.setState({
+      ...MIXER_INITIAL,
+      seriesRound: 1,
+      rounds: [
+        {
+          id: "round_mine",
+          number: 1,
+          at: "2026-11-01T10:00:00.000Z",
+          mode: "groups",
+          seed: 1,
+          balance: "none",
+          groups: [{ people: ["Zed", "Yan"] }, { people: ["Xu", "Wil"] }],
+          sitOut: [],
+          issues: [],
+        },
+      ],
+    });
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(state().rounds.map((r) => r.id)).toEqual(["round_mine", "example-round-1"]);
+    const card = screen.getByRole("list", { name: "Round 2" });
+    expect(within(card).getByText("Amira")).toBeInTheDocument();
+    expect(within(card).queryByText("Zed")).toBeNull();
+  });
+
   it("keeps the example's rules in its first round", () => {
     const ex = buildExample(new Date());
     const groups = ex.rounds[0].groups.map((g) => g.people);

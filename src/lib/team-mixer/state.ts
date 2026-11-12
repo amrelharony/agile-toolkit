@@ -366,6 +366,29 @@ export function hasExampleRows(s: MixerState): boolean {
 }
 
 /**
+ * The example (`ex`, from the tool's example builder) added to the state:
+ * its settings, and its rows after the person's own. Only rows that fit
+ * the caps go in, so loading the example never pushes out a rule or a
+ * round of the person's own (which Clear example could not bring back);
+ * their own title, café plan, hosts and pair rotation stay as they were.
+ * The example's round, dated now, is the newest one shown.
+ */
+export function withExample(s: MixerState, ex: MixerState): MixerState {
+  const room = (have: number, max: number) => Math.max(0, max - have);
+  return {
+    ...s,
+    mode: ex.mode,
+    split: ex.split,
+    size: ex.size,
+    title: s.title || ex.title,
+    people: [...s.people, ...ex.people.slice(0, room(s.people.length, MIXER_LIMITS.people))],
+    rules: [...s.rules, ...ex.rules.slice(0, room(s.rules.length, MIXER_LIMITS.rules))],
+    rounds: [...s.rounds, ...ex.rounds.slice(0, room(s.rounds.length, MIXER_LIMITS.rounds))],
+    seriesSeed: s.seriesSeed || ex.seriesSeed,
+  };
+}
+
+/**
  * The state without the example's rows (the person's own rows stay). The
  * series count goes back by the example's rounds that came after the
  * person's own, so their next round follows their last.
