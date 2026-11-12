@@ -6,6 +6,7 @@ import { AiButton, AiSuggestions } from "@/components/ai";
 import { Button } from "@/components/ui/button";
 import type { AiSource } from "@/lib/ai/task-types";
 import {
+  PARKING_ROUTE_ID_MAX,
   PARKING_ROUTE_MAX_ITEMS,
   PARKING_ROUTE_TEXT_MAX,
   parkingRouteTask,
@@ -28,15 +29,53 @@ export interface ShownSuggestion extends RouteSuggestion {
 
 const SEND_DESTINATIONS = ["backlog", "impediment", "action"] as const;
 
-/** What Amr is asked about: the open points, first 30, each cut to what the task takes. */
+/** The review's send buttons, each an action: where the point goes. */
+const SEND_LABEL: Readonly<Record<(typeof SEND_DESTINATIONS)[number], string>> = {
+  backlog: "To backlog",
+  impediment: "To impediments",
+  action: "To retro actions",
+};
+
+/**
+ * What Amr is asked about: the open points, first 30, each cut to what the
+ * task takes. A point whose id the task can't take (one an agent named at
+ * length) is left out, so the rest still get their suggestions.
+ */
 export function routeInput(open: readonly ParkingLotItem[]): ParkingRouteInput {
   return {
-    items: open.slice(0, PARKING_ROUTE_MAX_ITEMS).map((i) => ({
-      id: i.id,
-      text: i.text.slice(0, PARKING_ROUTE_TEXT_MAX),
-      ...(i.meeting ? { meeting: i.meeting.slice(0, 200) } : {}),
-    })),
+    items: open
+      .filter((i) => {
+        const id = i.id.trim();
+        return id.length > 0 && id.length <= PARKING_ROUTE_ID_MAX;
+      })
+      .slice(0, PARKING_ROUTE_MAX_ITEMS)
+      .map((i) => ({
+        id: i.id,
+        text: i.text.slice(0, PARKING_ROUTE_TEXT_MAX),
+        ...(i.meeting ? { meeting: i.meeting.slice(0, 200) } : {}),
+      })),
   };
+}
+
+/**
+ * The suggestions the review offers: one per open point still open, minus
+ * those that would send an example point on (example points stay here, so
+ * accepting one would change nothing). `held` counts those left out.
+ */
+export function offeredSuggestions(
+  routes: readonly RouteSuggestion[],
+  open: readonly ParkingLotItem[],
+  sendBlocked: (item: ParkingLotItem) => string | null
+): { items: ShownSuggestion[]; held: number } {
+  const byId = new Map(open.map((i) => [i.id, i]));
+  const matched = matchSuggestions(routes, open);
+  const items = matched
+    .filter((s) => {
+      const item = byId.get(s.id);
+      return Boolean(item) && (s.destination === "drop" || !sendBlocked(item!));
+    })
+    .map((s) => ({ ...s, text: byId.get(s.id)?.text ?? "" }));
+  return { items, held: matched.length - items.length };
 }
 
 /** Focus an element by a data attribute once React has re-rendered, else `fallback`. */
@@ -80,6 +119,8 @@ export function ReviewPanel({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [suggestions, setSuggestions] = useState<{
     items: ShownSuggestion[];
+    /** Suggestions to send an example point on, left out. */
+    held: number;
     source: AiSource;
   } | null>(null);
   // Said once above the cards, not under each one (the example's points).
@@ -118,18 +159,24 @@ export function ReviewPanel({
           task={parkingRouteTask}
           input={() => routeInput(open)}
           onResult={(data, meta) => {
-            const texts = new Map(open.map((i) => [i.id, i.text]));
-            const items = matchSuggestions(data.routes, open).map((s) => ({
-              ...s,
-              text: texts.get(s.id) ?? "",
-            }));
-            setSuggestions({ items, source: meta.source });
+            setSuggestions({
+              ...offeredSuggestions(data.routes, open, sendBlocked),
+              source: meta.source,
+            });
           }}
           label="Ask Amr where each goes"
           fallbackLabel="Suggest where each goes"
         />
       )}
 
+      {suggestions && suggestions.held > 0 && (
+        <p role="status" className="text-xs text-sub">
+          {suggestions.held === 1
+            ? "1 suggestion to send an example point on is left out"
+            : `${suggestions.held} suggestions to send example points on are left out`}
+          : example points stay here. Clear the example and park your own to send them on.
+        </p>
+      )}
       {suggestions &&
         (suggestions.items.length > 0 ? (
           <AiSuggestions
@@ -148,7 +195,7 @@ export function ReviewPanel({
               headingRef.current?.focus();
             }}
           />
-        ) : (
+        ) : suggestions.held > 0 ? null : (
           <p role="status" className="text-xs text-sub">
             No suggestion fits the open points. Decide each one below.
           </p>
@@ -175,7 +222,9 @@ export function ReviewPanel({
             return (
               <li key={item.id} className="rounded-lg border border-border bg-card p-3">
                 <p className="break-words text-sm font-medium text-text">{item.text}</p>
-                {meta.length > 0 && <p className="mt-0.5 text-xs text-sub">{meta.join(" · ")}</p>}
+                {meta.length > 0 && (
+                  <p className="mt-0.5 break-words text-xs text-sub">{meta.join(" · ")}</p>
+                )}
                 <div className="mt-2 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                   <Button
                     type="button"
@@ -195,12 +244,12 @@ export function ReviewPanel({
                       type="button"
                       variant="outline"
                       size="sm"
+                      // Disabled buttons show no tooltip: the note above says why.
                       disabled={Boolean(blocked)}
-                      title={blocked ?? undefined}
-                      aria-label={`${DESTINATION_LABEL[d]}: ${name}`}
+                      aria-label={`Send ${SEND_LABEL[d].toLowerCase()}: ${name}`}
                       onClick={() => decide(item, () => onDecide(item.id, d))}
                     >
-                      {DESTINATION_LABEL[d]}
+                      {SEND_LABEL[d]}
                     </Button>
                   ))}
                   <Button

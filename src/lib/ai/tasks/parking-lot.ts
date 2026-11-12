@@ -18,8 +18,12 @@ import { ROUTE_REASON_MAX, routeByRules } from "@/lib/parking-lot/route-rules";
 export const PARKING_ROUTE_MAX_ITEMS = 30;
 /** A point's words as sent: the first 500 characters say where it belongs. */
 export const PARKING_ROUTE_TEXT_MAX = 500;
-/** Ids are the items' own ("parking_x1y2z3w4"), never longer. */
-const ID_MAX = 64;
+/**
+ * Ids are the items' own ("parking_x1y2z3w4"). A stored id can be longer (an
+ * agent may choose one), so the page leaves such a point out of the ask.
+ */
+export const PARKING_ROUTE_ID_MAX = 64;
+const ID_MAX = PARKING_ROUTE_ID_MAX;
 
 const input = z.object({
   items: z
