@@ -1,0 +1,48 @@
+/**
+ * What a view inside Amr's chat panel may ask of the panel around it.
+ *
+ *   layout                how the panel sits: a card beside Amr ("float"), the
+ *                         phone's full-height sheet ("sheet") or the short
+ *                         landscape panel down one side ("side")
+ *   onNavigate            a link in the view was followed: close the panel the
+ *                         way a page change closes it (no focus restore)
+ *   replaceOnNavigate     the panel's own Back marker is the newest history
+ *                         entry, so a link should replace it, not stack on it
+ *   registerInitialFocus  the element focus goes to when the panel opens (the
+ *                         composer, a search); a view registers it instead of
+ *                         calling focus() in its own mount effect
+ *
+ * Runtime-free on purpose: React only, no store or agent code, so every view
+ * and the mascot chunk can read it at no cost. Without a provider a view gets
+ * the safe default below: a floating panel whose callbacks do nothing. The
+ * panel's behaviour (focus, Back, the phone sheet) fills it in later.
+ */
+
+import { createContext, useContext } from "react";
+
+export type AmrPanelLayout = "float" | "sheet" | "side";
+
+export interface AmrPanelContextValue {
+  layout: AmrPanelLayout;
+  onNavigate(): void;
+  replaceOnNavigate: boolean;
+  registerInitialFocus(el: HTMLElement | null): void;
+}
+
+const nothing = () => {};
+
+/** No panel around the view: a floating card, and every callback does nothing. */
+export const NO_AMR_PANEL: AmrPanelContextValue = Object.freeze({
+  layout: "float",
+  onNavigate: nothing,
+  replaceOnNavigate: false,
+  registerInitialFocus: nothing,
+});
+
+export const AmrPanelContext = createContext<AmrPanelContextValue>(NO_AMR_PANEL);
+AmrPanelContext.displayName = "AmrPanelContext";
+
+/** The panel around this view, or the safe default when there is none. */
+export function useAmrPanel(): AmrPanelContextValue {
+  return useContext(AmrPanelContext);
+}
