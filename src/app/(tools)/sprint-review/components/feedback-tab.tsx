@@ -6,15 +6,19 @@
  * feedback edited in place, and a summary by category. A piece of
  * feedback becomes a backlog story through the backlog-story hand-off
  * (never from the example), and the item then links to that story.
+ * "Run a feedback room" opens an Audience Wall room for the stakeholders
+ * (feedback-room.tsx); its posts join the feedback only on Save round.
  */
 
 import { useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { BookCheck, MessageSquare, Pencil, Trash2 } from "lucide-react";
+import { BookCheck, MessageSquare, MessagesSquare, Pencil, Trash2 } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
 import { SectionCard } from "@/components/shared/section-card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
@@ -41,12 +45,26 @@ import { FeedbackAddForm, FeedbackEditor, type FeedbackValues } from "./feedback
 
 const ROUTES = ["backlog-story"] as const;
 
+/**
+ * The feedback room (an Audience Wall room) loads only when asked for, so
+ * the review page doesn't carry the room kit for everyone.
+ */
+const FeedbackRoomLazy = dynamic(() => import("./feedback-room").then((m) => m.FeedbackRoom), {
+  ssr: false,
+  loading: () => (
+    <p role="status" className="text-sm text-sub">
+      Loading the feedback room…
+    </p>
+  ),
+});
+
 export function FeedbackTab({ source }: { source: ReviewSource }) {
   const { doc, writer, sprint, example, stored } = source;
   const items = doc.feedbackItems;
   const { log } = useHistoryLogger("sprint-review");
   const announce = useAnnounce();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [roomOpen, setRoomOpen] = useState(false);
   const addRef = useRef<HTMLDivElement>(null);
 
   const updateItems = (fn: (list: readonly FeedbackItem[]) => FeedbackItem[]) =>
@@ -164,6 +182,29 @@ export function FeedbackTab({ source }: { source: ReviewSource }) {
             ))}
           </ul>
         )}
+
+        <div className="space-y-3 border-t border-border pt-4">
+          <h3 className="text-sm font-medium text-text">Feedback room</h3>
+          {example ? (
+            <p className="text-sm text-sub">
+              Pick your own sprint&apos;s review to run a feedback room: the example keeps nothing.
+            </p>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-1.5"
+                aria-expanded={roomOpen}
+                onClick={() => setRoomOpen((v) => !v)}
+              >
+                <MessagesSquare className="h-4 w-4" aria-hidden="true" />
+                Run a feedback room
+              </Button>
+              {roomOpen && <FeedbackRoomLazy source={source} />}
+            </>
+          )}
+        </div>
 
         <div ref={addRef} className="border-t border-border pt-4">
           <h3 className="mb-3 text-sm font-medium text-text">Add feedback</h3>
