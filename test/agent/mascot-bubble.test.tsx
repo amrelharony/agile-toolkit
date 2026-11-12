@@ -427,7 +427,7 @@ describe("narration while his panel is shut", () => {
     expect(bubble()).toHaveClass("balloon");
   });
 
-  it("waits behind a moment chip, and says nothing for a visitor or with the panel open", async () => {
+  it("waits behind a moment chip, and says nothing with the panel open", async () => {
     render(<MascotBubble />);
     act(() => useMomentStore.setState({ current: { id: "m" } as never }));
     await turnRuns({ messages: [ASKED] });
@@ -437,8 +437,29 @@ describe("narration while his panel is shut", () => {
 
     act(() => useAgentStore.setState({ open: true }));
     expect(bubble()).toBeNull();
+    // Shut again, on a visitor's chat: the narrator tells it just the same.
     act(() => useAgentStore.setState({ open: false, chatProfile: "visitor" }));
-    expect(bubble()).toBeNull();
+    expect(status()).toHaveTextContent(AMR_ANSWERING);
+  });
+
+  it("tells a visitor's turn too, which outlives the panel as an owner's does", async () => {
+    render(<MascotBubble />);
+    await turnRuns({ chatProfile: "visitor", messages: [ASKED, CALLING] });
+    expect(status()).toHaveTextContent(/^Amr is working in Retro Board…$/);
+    expect(bubble()).toHaveAttribute("data-voice", "narration");
+    expect(bubble()).not.toHaveAttribute("data-tail");
+
+    // His own line waits behind it, its clock stopped, until the turn is over.
+    act(() => useBubbleStore.getState().show({ id: "hi", text: "Welcome back" }));
+    expect(status()).toHaveTextContent(/^Amr is working in Retro Board…$/);
+    act(() => {
+      vi.advanceTimersByTime(BUBBLE_MS * 3);
+    });
+    act(() => useAgentStore.setState({ messages: [ASKED] }));
+    expect(status()).toHaveTextContent(AMR_ANSWERING);
+    act(() => useAgentStore.setState({ streaming: false }));
+    expect(status()).toHaveTextContent("Welcome back");
+    expect(bubble()).toHaveClass("balloon");
   });
 });
 
@@ -453,7 +474,10 @@ describe("the narration's lines", () => {
     );
     expect(outsidePhase(turn({ pendingToolUse: PENDING }))).toBe("waiting");
     expect(outsidePhase(turn({ streaming: true, open: true }))).toBeNull();
-    expect(outsidePhase(turn({ streaming: true, chatProfile: "visitor" }))).toBeNull();
+    // A visitor's turn outlives the panel too.
+    expect(outsidePhase(turn({ streaming: true, chatProfile: "visitor" }))).toBe("answering");
+    expect(outsidePhase(turn({ pendingToolUse: PENDING, chatProfile: "visitor" }))).toBe("waiting");
+    expect(outsidePhase(turn({ streaming: true, chatProfile: "visitor", open: true }))).toBeNull();
     // A tool's result is in: the call is no longer out.
     const answered = message("tool", [{ type: "tool_result", tool_use_id: "t1", content: "ok" }]);
     expect(outsidePhase(turn({ streaming: true, messages: [ASKED, CALLING, answered] }))).toBe(

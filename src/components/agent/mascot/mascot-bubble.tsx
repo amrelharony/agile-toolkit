@@ -36,7 +36,7 @@ import { bubbleMs, useBubbleStore } from "@/lib/agent/mascot/bubble";
 import {
   outsideNarration,
   outsidePhase,
-  ownerTurnRuns,
+  turnRuns,
   AMR_WAITING_FOR_OK,
 } from "@/lib/agent/mascot/outside-narration";
 import { useMascotStore } from "@/lib/agent/mascot/store";
@@ -56,8 +56,9 @@ const UNNAMED: LabelOf = () => ({ tool: "Tool", verb: "" });
 
 /**
  * tool-label, which names the tool in "Amr is working in Retro Board…". It is
- * fetched only once an owner's turn runs (`need`), so a visitor's page never
- * loads it; an owner's chat chunk already holds it, so it is there at once.
+ * fetched only once a turn runs (`need`), never on a page where nobody chats.
+ * Both chats' chunks already hold it (the owner's, and the visitor's through
+ * message-bubble), so by then it is there at once and adds nothing.
  */
 function useToolLabel(need: boolean): LabelOf | null {
   const [labelOf, setLabelOf] = useState<LabelOf | null>(() => loadedLabelOf);
@@ -89,7 +90,7 @@ export function MascotBubble() {
   const momentUp = useMomentStore((s) => s.current !== null);
   const panelOpen = useAgentStore((s) => s.open);
   const phase = useAgentStore(outsidePhase);
-  const labelOf = useToolLabel(useAgentStore(ownerTurnRuns));
+  const labelOf = useToolLabel(useAgentStore(turnRuns));
   const phone = useMediaQuery(PHONE_MEDIA_QUERY);
   const [held, setHeld] = useState(false);
   const statusId = useId();
