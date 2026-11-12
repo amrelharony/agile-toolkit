@@ -1390,6 +1390,10 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
       expect(button.style[other]).toBe("");
       expect(button.style.top).toBe("");
       expect(panel).toHaveAttribute("data-amr-dock", c.side);
+      // The panel says where he is drawn, as the store does: the balloons in
+      // it count their tails from there.
+      expect(panel).toHaveAttribute("data-amr-edge", "bottom");
+      expect(panel).toHaveAttribute("data-amr-side", c.side);
       // His corner is kept for after; he is drawn at the bottom.
       expect(useMascotStore.getState().corner).toBe(c.corner);
       expect(useMascotStore.getState().placed).toEqual({ side: c.side, edge: "bottom" });

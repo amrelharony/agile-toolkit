@@ -1704,8 +1704,9 @@ export function MascotAssistant({
   }, [openLayout]);
 
   // Where he is drawn and how far he has stepped up, worked out with his panel's
-  // place: his bubble and the moment chip follow these, not his chosen corner.
-  // Docked, that's the sheet's bottom corner on his side.
+  // place: his bubble and the moment chip follow these, not his chosen corner,
+  // and so does the panel's data-amr-edge, from which the balloons in it count
+  // their tails toward him. Docked, that's the sheet's bottom corner on his side.
   const drawnEdge = docked ? "bottom" : amrEdge(placed);
   const drawnLift = docked ? 0 : nudge.lift;
   useEffect(() => {
@@ -2197,7 +2198,8 @@ export function MascotAssistant({
           data-tail={tail?.tail ?? "none"}
           data-tail-from={tail?.from}
           data-amr-side={amrSide(placed)}
-          data-amr-edge={amrEdge(placed)}
+          // Where he is drawn: the sheet's bottom while docked (drawnEdge).
+          data-amr-edge={drawnEdge}
           data-amr-layout={layout}
           // Docked in the sheet: the side his gutter is on (the views read it).
           // data-amr-compact is written by usePanelViewport, not here.
