@@ -121,7 +121,7 @@ describe("focus sounds", () => {
 
 describe("noise", () => {
   it.each(["white", "pink", "brown"] as const)("keeps %s noise within -1 to 1", (colour) => {
-    const out = fillNoise(new Float32Array(4000), colour, createRng(7));
+    const out = Array.from(fillNoise(new Float32Array(4000), colour, createRng(7)));
     expect(Math.max(...out)).toBeLessThanOrEqual(1);
     expect(Math.min(...out)).toBeGreaterThanOrEqual(-1);
     expect(out.some((v) => v !== 0)).toBe(true);

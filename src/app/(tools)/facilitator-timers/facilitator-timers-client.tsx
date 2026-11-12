@@ -23,6 +23,7 @@ import type { AgendaSegmentDraft } from "@/lib/facilitator-timers/agenda";
 import {
   FT_HREF,
   autoAdvances,
+  backAtFromMinutes,
   breakRun,
   clockTime,
   costElapsedMs,
@@ -291,8 +292,11 @@ export function FacilitatorTimersClient() {
     announce(`Crazy 8s started: ${steps[0].label}, ${lengthText(steps[0].seconds)}.`);
   };
 
-  const startBreak = ({ backAt, minutes }: BreakValues) => {
+  const startBreak = (values: BreakValues) => {
     const t = Date.now();
+    const { minutes } = values;
+    // Minutes count from the press, not from when the form last drew.
+    const backAt = minutes !== undefined ? backAtFromMinutes(minutes, t) : values.backAt;
     if (minutes !== undefined && minutes !== settings.breakMinutes) {
       setSettings({ breakMinutes: minutes });
     }
@@ -504,6 +508,7 @@ export function FacilitatorTimersClient() {
   );
   const costCard = (
     <CostCard
+      key={ready ? "ready" : "loading"}
       ticker={cost}
       now={now}
       rosterCount={roster.filter((m) => m.name?.trim()).length}
@@ -562,6 +567,8 @@ export function FacilitatorTimersClient() {
           )}
           <div className={offStage}>
             <TimerSetup
+              // The forms start from the saved lengths once they have loaded.
+              key={ready ? "ready" : "loading"}
               pomodoro={settings.pomodoro}
               crazy8s={settings.crazy8s}
               breakMinutes={settings.breakMinutes}
