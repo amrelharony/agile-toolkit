@@ -556,6 +556,8 @@ describe("after a mix", () => {
     fireEvent.change(screen.getByLabelText("Theme (optional)"), { target: { value: "trees" } });
     fireEvent.click(screen.getByRole("button", { name: "Suggest names" }));
     expect(screen.getByText(/^Suggested without AI/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Suggested names: Trees" })).toBeInTheDocument();
+    expect(screen.queryByText(/No list for that theme/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Use all 2" }));
     // The list stays to say so, and keeps keyboard focus on its heading.
     expect(screen.getByText("All added.")).toBeInTheDocument();
@@ -565,6 +567,21 @@ describe("after a mix", () => {
     expect(screen.getByRole("list", { name: names[0]! })).toBeInTheDocument();
     undoOf("Named 2 groups")();
     expect(state().rounds[0].groups.every((g) => g.name === undefined)).toBe(true);
+  });
+
+  it("says which list it used when the lists don't know the theme", async () => {
+    seed(SIX, { split: "count", count: 2 });
+    await mount();
+    fireEvent.click(mixButton());
+    fireEvent.change(screen.getByLabelText("Theme (optional)"), {
+      target: { value: "dinosaurs" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Suggest names" }));
+    const heading = screen.getByRole("heading", { name: /^Suggested names: / });
+    const list = heading.textContent!.replace("Suggested names: ", "");
+    expect(
+      screen.getByText(`No list for that theme, so here are ${list.toLowerCase()}.`)
+    ).toBeInTheDocument();
   });
 
   it("asks Picker's AI task for names with a theme and a count only, never a name", async () => {
@@ -601,7 +618,7 @@ describe("after a mix", () => {
     expect(screen.getByRole("heading", { name: /Rounds so far \(2\)/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Remove round 1" }));
     expect(state().rounds).toHaveLength(1);
-    undoOf("Removed a round: its pairings count again")();
+    undoOf("Removed a round: its people can be mixed together again")();
     expect(state().rounds).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Start over" }));
     expect(state().rounds).toEqual([]);

@@ -28,7 +28,8 @@ function when(iso: string): string {
 
 /**
  * The rounds so far, newest first: what the next round avoids. Removing a
- * round (or starting over) lets its pairings count again; both have Undo.
+ * round (or starting over) lets its people be mixed together again; both
+ * have Undo.
  */
 export function HistoryCard({ rounds, onRemove, onStartOver, focusWhenEmpty }: HistoryCardProps) {
   const listRef = useRef<HTMLOListElement>(null);

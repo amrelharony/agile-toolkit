@@ -8,7 +8,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { AiSource } from "@/lib/ai/task-types";
 import { MIXER_LIMITS } from "@/lib/team-mixer/model";
-import { suggestGroupNames } from "@/lib/team-mixer/names";
+import { suggestGroupNames, themeFor } from "@/lib/team-mixer/names";
 import { GROUP_NAME_AI } from "./group-name-task";
 
 const THEME_MAX = 60;
@@ -39,16 +39,36 @@ export interface GroupNamerProps {
  */
 export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
   const [theme, setTheme] = useState("");
-  const [suggested, setSuggested] = useState<{ items: Suggestion[]; source: AiSource } | null>(
-    null
-  );
+  const [suggested, setSuggested] = useState<{
+    items: Suggestion[];
+    source: AiSource;
+    /** The list the names came from, for the title ("Trees"). */
+    list?: string;
+    /** Said when the typed theme has no list of its own. */
+    note?: string;
+  } | null>(null);
   const ai = GROUP_NAME_AI;
   const wanted = Math.min(count, MIXER_LIMITS.groups);
 
   // Each suggestion keeps its group's place, so "Use all" after one "Use"
   // still names the right groups.
-  const show = (names: readonly string[], source: AiSource) =>
-    setSuggested({ items: names.map((name, index) => ({ name, index })), source });
+  const show = (
+    names: readonly string[],
+    source: AiSource,
+    about: { list?: string; note?: string } = {}
+  ) => setSuggested({ items: names.map((name, index) => ({ name, index })), source, ...about });
+  // The built-in lists: a theme they don't know gets one at random, and
+  // the page says which instead of passing it off as the theme asked for.
+  const suggestBuiltIn = () => {
+    const typed = theme.trim();
+    const r = suggestGroupNames(typed, wanted);
+    show(r.names, "fallback", {
+      list: r.theme.label,
+      ...(typed && !themeFor(typed)
+        ? { note: `No list for that theme, so here are ${r.theme.label.toLowerCase()}.` }
+        : {}),
+    });
+  };
   const apply = (items: readonly Suggestion[]) => {
     const names: (string | null)[] = Array.from({ length: wanted }, () => null);
     for (const it of items) names[it.index] = it.name;
@@ -72,12 +92,7 @@ export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
         )}
       </Field>
       <div className="flex flex-wrap items-start gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => show(suggestGroupNames(theme, wanted).names, "fallback")}
-        >
+        <Button type="button" size="sm" variant="outline" onClick={suggestBuiltIn}>
           Suggest names
         </Button>
         {ai && (
@@ -103,11 +118,12 @@ export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
           />
         )}
       </div>
+      {suggested?.note && <p className="text-sm text-sub">{suggested.note}</p>}
       {suggested && suggested.items.length > 0 && (
         <AiSuggestions
           items={suggested.items}
           source={suggested.source}
-          title="Suggested names"
+          title={suggested.list ? `Suggested names: ${suggested.list}` : "Suggested names"}
           acceptLabel="Use"
           render={(it) => ({ title: it.name, detail: `For ${unit} ${it.index + 1}` })}
           onAccept={(it) => apply([it])}

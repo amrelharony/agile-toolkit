@@ -223,7 +223,7 @@ export function TeamMixerClient() {
 
   const removeRound = (round: MixerRound) =>
     removeWithUndo<MixerRound>({
-      label: "Removed a round: its pairings count again",
+      label: "Removed a round: its people can be mixed together again",
       update: updateRounds,
       match: (x) => x.id === round.id,
     });
