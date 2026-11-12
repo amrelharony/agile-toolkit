@@ -29,7 +29,12 @@ import {
 export const MEETING_AUDIT_MAX_MEETINGS = 30;
 /** Purposes and notes as sent: the first 300 characters say enough. */
 export const MEETING_AUDIT_TEXT_MAX = 300;
-const ID_MAX = 64;
+/**
+ * Ids as the task takes them. A stored id can be longer (an agent may choose
+ * one), so the page leaves such a meeting out of the ask.
+ */
+export const MEETING_AUDIT_ID_MAX = 64;
+const ID_MAX = MEETING_AUDIT_ID_MAX;
 
 const rating = z.number().int().min(RATING_MIN).max(RATING_MAX).optional();
 

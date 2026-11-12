@@ -429,7 +429,9 @@ describe("the export and what Amr is asked", () => {
       ...rows,
       audit({ id: "broken", minutes: 0 }),
       audit({ id: "long", purpose: "p".repeat(400), ratings: { energy: 9 } }),
+      audit({ id: `meeting_${"x".repeat(70)}` }),
     ]);
+    // A row whose id is longer than the task takes is left out, not the whole ask.
     expect(input.meetings.map((m) => m.id)).toEqual(["a", "b", "long"]);
     expect(input.meetings[0].ratings).toEqual({ purpose: 4, outcome: 4 });
     expect(input.meetings[2].purpose).toHaveLength(300);

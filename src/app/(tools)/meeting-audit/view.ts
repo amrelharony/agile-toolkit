@@ -1,5 +1,6 @@
 import type { MeetingAudit } from "@/lib/stores/workspace-types";
 import {
+  MEETING_AUDIT_ID_MAX,
   MEETING_AUDIT_MAX_MEETINGS,
   MEETING_AUDIT_TEXT_MAX,
   type MeetingAuditAiInput,
@@ -17,12 +18,17 @@ type AiRatings = MeetingAuditAiInput["meetings"][number]["ratings"];
 /**
  * What Amr is asked about: up to 30 meetings (the costliest first, as
  * given), each cut to what the task takes. A meeting with no usable length
- * (a row an older build saved) is left out: it costs nothing to change.
+ * (a row an older build saved) is left out: it costs nothing to change. So
+ * is one whose id the task can't take (an agent may name one at length), so
+ * the rest still get their suggestions.
  */
 export function auditAiInput(audits: readonly MeetingAudit[]): MeetingAuditAiInput {
   return {
     meetings: audits
-      .filter((a) => a.minutes > 0)
+      .filter((a) => {
+        const id = a.id.trim();
+        return a.minutes > 0 && id.length > 0 && id.length <= MEETING_AUDIT_ID_MAX;
+      })
       .slice(0, MEETING_AUDIT_MAX_MEETINGS)
       .map((a) => {
         const ratings: AiRatings = {};
