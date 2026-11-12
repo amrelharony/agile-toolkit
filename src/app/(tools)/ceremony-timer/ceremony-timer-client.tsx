@@ -34,6 +34,7 @@ import {
   namedAgendaFrom,
   newSavedAgendaId,
   readAgendaParam,
+  resolveAgenda,
   shortClock,
   toSaved,
   type AgendaId,
@@ -148,6 +149,25 @@ function setSaved(id: AgendaId, edits: Partial<BuiltInEdits>) {
     else delete next[id];
     return { agendas, layouts: next };
   });
+}
+
+/**
+ * The rows that keep a built-in agenda's segments as they are, during a
+ * meeting: the run keeps its record segment by segment, so a reset or its
+ * Undo then changes names, lengths and turns only, never which segments
+ * there are or their order. `rows` for the agenda's built-in segments are
+ * kept; a segment the team added is kept only while the agenda has it, as
+ * it is now when `rows` doesn't hold it.
+ */
+function rowsKeepingSegments(
+  rows: readonly SavedSegment[] | undefined,
+  now: readonly SavedSegment[] | undefined,
+  present: ReadonlySet<string>
+): SavedSegment[] {
+  const kept = (rows ?? []).filter((r) => r.added !== true || present.has(r.id));
+  const ids = new Set(kept.map((r) => r.id));
+  const added = (now ?? []).filter((r) => r.added === true && present.has(r.id) && !ids.has(r.id));
+  return [...kept, ...added];
 }
 
 function setNamed(fn: (list: NamedAgenda[]) => NamedAgenda[]) {
@@ -477,13 +497,61 @@ export function CeremonyTimerClient() {
     agenda && isAgendaId(agenda.id)
       ? { rows: saved[agenda.id], layout: layouts[agenda.id] }
       : undefined;
+  /** The segment ids the agenda has now, from the stores (not this render). */
+  const segmentIdsNow = (id: AgendaId): Set<string> => {
+    const s = useTimerSettings.getState();
+    const now = resolveAgenda(
+      id,
+      normalizeAgendas(s.agendas),
+      sprintLength,
+      normalizeLayouts(s.layouts)
+    );
+    return new Set(now.segments.map((seg) => seg.id));
+  };
+  const meetingOn = () => Boolean(useTimerSession.getState().run);
+  /** A built-in agenda's saved rows now. */
+  const rowsNow = (id: AgendaId) => normalizeAgendas(useTimerSettings.getState().agendas)[id];
+
+  // Before a meeting, a reset puts the built-in agenda back whole. During
+  // one, it keeps the segments the meeting is running: only names, lengths
+  // and turns go back to the defaults (Start over to restructure).
   const resetDefaults = () => {
-    if (agenda && isAgendaId(agenda.id))
-      setSaved(agenda.id, { rows: undefined, layout: undefined });
+    if (!agenda || !isAgendaId(agenda.id)) return;
+    const id = agenda.id;
+    if (!meetingOn()) setSaved(id, { rows: undefined, layout: undefined });
+    else setSaved(id, { rows: rowsKeepingSegments([], rowsNow(id), segmentIdsNow(id)) });
   };
   const restoreDefaults = () => {
-    if (agenda && isAgendaId(agenda.id) && shownEdits) setSaved(agenda.id, shownEdits);
+    if (!agenda || !isAgendaId(agenda.id) || !shownEdits) return;
+    const id = agenda.id;
+    if (!meetingOn()) setSaved(id, shownEdits);
+    else
+      setSaved(id, { rows: rowsKeepingSegments(shownEdits.rows, rowsNow(id), segmentIdsNow(id)) });
   };
+  // Whether a reset would change anything now: during a meeting, only names,
+  // lengths and turns can go back.
+  const canReset = (() => {
+    if (!agenda || !isAgendaId(agenda.id) || !agenda.edited) return false;
+    if (!run) return true;
+    const reset = resolveAgenda(
+      agenda.id,
+      {
+        [agenda.id]: rowsKeepingSegments(
+          [],
+          saved[agenda.id],
+          new Set(agenda.segments.map((s) => s.id))
+        ),
+      },
+      sprintLength,
+      layouts
+    );
+    return reset.segments.some((s, i) => {
+      const cur = agenda.segments[i];
+      return (
+        !cur || s.label !== cur.label || s.seconds !== cur.seconds || s.speakers !== cur.speakers
+      );
+    });
+  })();
 
   /** Turn-taking for the segment that's on: an edit to the agenda like any other. */
   const setTurns = (on: boolean) => {
@@ -720,6 +788,7 @@ export function CeremonyTimerClient() {
                 agenda={agenda}
                 view={view}
                 canRestructure={!view.started}
+                canReset={canReset}
                 takenNames={takenNames}
                 namedCount={named.length}
                 onSave={writeSegments}

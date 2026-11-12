@@ -57,6 +57,11 @@ export interface AgendaCardProps {
    * started, since the run keeps its record segment by segment.
    */
   canRestructure: boolean;
+  /**
+   * "Reset to defaults" has something to put back: a built-in agenda the
+   * team edited (during a meeting, its names, lengths or turns).
+   */
+  canReset: boolean;
   /** Names a saved agenda can't take: every other agenda's. */
   takenNames: readonly string[];
   /** How many agendas the team has saved by name. */
@@ -83,6 +88,7 @@ export function AgendaCard({
   agenda,
   view,
   canRestructure,
+  canReset,
   takenNames,
   namedCount,
   onSave,
@@ -132,11 +138,15 @@ export function AgendaCard({
         kind === "list" &&
         !open && (
           <>
-            {agenda.edited && !agenda.saved && (
+            {canReset && !agenda.saved && (
               <ResetButton
                 label="Reset to defaults"
                 title={`Reset the ${agenda.label} agenda?`}
-                description="Each segment's name, length and round of turns go back to the defaults for your sprint length, and any segments you added or removed come back as they were."
+                description={
+                  canRestructure
+                    ? "Each segment's name, length and round of turns go back to the defaults for your sprint length, and any segments you added or removed come back as they were."
+                    : "Each segment's name, length and round of turns go back to the defaults for your sprint length. The meeting keeps its segments in their order: Start over to bring back the built-in ones."
+                }
                 confirmLabel="Reset agenda"
                 doneLabel={`Reset the ${agenda.label} agenda`}
                 onReset={() => {

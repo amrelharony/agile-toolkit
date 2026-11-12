@@ -397,6 +397,80 @@ describe("editing the agenda on the page", () => {
     expect(screen.getByText(/^Start over to add, remove or reorder segments/)).toBeInTheDocument();
   });
 
+  it("keeps focus on a segment's other arrow once it reaches the top", () => {
+    renderTimer();
+    pick(/^Sprint Retrospective/);
+    fireEvent.click(screen.getByRole("button", { name: "Edit agenda" }));
+    fireEvent.click(screen.getByRole("button", { name: "Move segment 2 up" }));
+    expect(screen.getByRole("button", { name: "Move segment 1 up" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Move segment 1 down" })).toHaveFocus();
+  }, 15_000);
+
+  it("resets only names, lengths and turns during a meeting, and its Undo keeps the segments too", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    renderTimer();
+    pick(/^Sprint Retrospective/);
+    fireEvent.click(screen.getByRole("button", { name: "Edit agenda" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove segment 1" }));
+    fireEvent.change(screen.getByRole("textbox", { name: /^Segment 1 name/ }), {
+      target: { value: "Collect data" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save agenda" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start timer" }));
+    tick(60);
+    fireEvent.click(screen.getByRole("button", { name: "Next segment" }));
+    const segments = () =>
+      within(screen.getByRole("list", { name: "Agenda segments" }))
+        .getAllByRole("listitem")
+        .map((li) => li.textContent ?? "");
+    const current = () =>
+      screen.getByRole("list", { name: "Agenda segments" }).querySelector('[aria-current="step"]')
+        ?.textContent;
+    expect(segments()[0]).toContain("Collect data");
+    expect(current()).toContain("Generate insights");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("The meeting keeps its segments in their order");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reset agenda" }));
+    // The name is back; Set the stage stays out and the meeting stays where it was.
+    expect(segments()).toHaveLength(4);
+    expect(segments()[0]).toContain("Gather data");
+    expect(segments()[0]).not.toContain("Set the stage");
+    expect(current()).toContain("Generate insights");
+    expect(useTimerSession.getState().run?.index).toBe(1);
+    expect(useTimerSettings.getState().layouts.retro).toHaveLength(4);
+    // Only the order differs now, which waits for Start over.
+    expect(screen.queryByRole("button", { name: "Reset to defaults" })).toBeNull();
+
+    lastToast().undo();
+    expect(segments()[0]).toContain("Collect data");
+    expect(segments()).toHaveLength(4);
+    expect(current()).toContain("Generate insights");
+  }, 15_000);
+
+  it("keeps the meeting's segments when a reset made before it is undone during it", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    renderTimer();
+    pick(/^Sprint Retrospective/);
+    fireEvent.click(screen.getByRole("button", { name: "Edit agenda" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove segment 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save agenda" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Reset agenda" })
+    );
+    const undoReset = lastToast().undo;
+    fireEvent.click(screen.getByRole("button", { name: "Start timer" }));
+    undoReset();
+    expect(useTimerSettings.getState().layouts.retro).toBeUndefined();
+    expect(
+      within(screen.getByRole("list", { name: "Agenda segments" })).getAllByRole("listitem")
+    ).toHaveLength(5);
+  }, 15_000);
+
   it("saves an agenda under a new name, opens it, renames it and deletes it with Undo", () => {
     renderTimer();
     pick(/^Sprint Retrospective/);
