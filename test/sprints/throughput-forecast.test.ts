@@ -178,13 +178,36 @@ describe("throughputForecast", () => {
       ],
     });
     const cut = f.cutLine!;
+    // Every feature keeps its row: one with nothing in it is done with the ones before it.
     expect(cut.rows.map((r) => [r.name, r.cumulative, r.weeks.p85, r.inByTarget])).toEqual([
       ["Saved cards", 8, 2, true],
       ["Refunds", 20, 5, true],
       ["Receipts", 26, 7, false],
+      ["Nothing in it", 26, 7, false],
     ]);
     expect(cut.above).toBe(2);
     expect(cut.rows[1].p85Date).toBe("2026-12-21");
+  });
+
+  it("keeps a row, with its id, for a feature with nothing left at the top of the list", () => {
+    const f = throughputForecast({
+      samples: [4, 4, 4, 4],
+      start: "2026-11-16",
+      target: "2026-12-28",
+      features: [
+        { id: "fA", name: "Done epic", items: 0 },
+        { id: "fB", name: "Typed", items: 10 },
+        { id: "fC", name: "Not a count", items: 2.5 },
+      ],
+    });
+    const cut = f.cutLine!;
+    expect(cut.rows.map((r) => [r.id, r.items, r.cumulative, r.weeks.p85, r.inByTarget])).toEqual([
+      ["fA", 0, 0, 0, true],
+      ["fB", 10, 10, 3, true],
+      ["fC", 0, 10, 3, true],
+    ]);
+    expect(cut.rows[1].p85Date).toBe("2026-12-07");
+    expect(cut.above).toBe(3);
   });
 
   it("keeps the cut line's dates in order however the runs fall", () => {

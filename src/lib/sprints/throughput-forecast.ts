@@ -23,7 +23,9 @@
  *
  * Every feature in the cut line is read from the same runs: run i's week
  * for feature 2 is never before its week for feature 1, so the dates go up
- * the list.
+ * the list. Every feature passed in gets a row, in order: one with no items
+ * left (an epic whose stories are all done) is done when the ones before it
+ * are, so the rows stay in step with the list a page shows.
  *
  * Shared by the Release Planner and tool.release_planner.throughput_forecast.
  */
@@ -232,6 +234,8 @@ export interface HowManyAnswer {
 }
 
 export interface CutLineRow {
+  /** The feature's id, when one was passed in. */
+  id?: string;
   name: string;
   items: number;
   /** Items up to and including this feature. */
@@ -248,7 +252,8 @@ export interface CutLine {
   rows: CutLineRow[];
   /**
    * How many features sit above the line: done by the target in 85% of the
-   * runs. Null without a target.
+   * runs. They are always the first ones (the dates go up the list). Null
+   * without a target.
    */
   above: number | null;
 }
@@ -262,8 +267,8 @@ export interface ThroughputForecastInput {
   start: string;
   /** The date stakeholders ask about, for "How many by then?" and the cut line. */
   target?: string | null;
-  /** Features in order, for the cut line. */
-  features?: readonly { name: string; items: number }[];
+  /** Features in order, for the cut line: one row each (an item count that isn't 1 or more counts as 0). */
+  features?: readonly { id?: string; name: string; items: number }[];
   iterations?: number;
   seed?: number | string;
 }
@@ -382,9 +387,12 @@ export function throughputForecast(input: ThroughputForecastInput): ThroughputFo
     };
   }
 
-  const features = (input.features ?? [])
-    .slice(0, FEATURES_MAX)
-    .filter((f) => validItems(f.items) !== null);
+  // Every feature keeps its row, so a row is never read against another
+  // feature: one with nothing left adds 0 and is done with the ones before it.
+  const features = (input.features ?? []).slice(0, FEATURES_MAX).map((f) => ({
+    ...f,
+    items: validItems(f.items) ?? 0,
+  }));
   if (features.length > 0) {
     const cumulative: number[] = [];
     let sum = 0;
@@ -396,6 +404,7 @@ export function throughputForecast(input: ThroughputForecastInput): ThroughputFo
     const rows: CutLineRow[] = features.map((f, k) => {
       const weeks = weeksAt(runs.weeks[k]);
       return {
+        ...(f.id !== undefined ? { id: f.id } : {}),
         name: f.name,
         items: f.items,
         cumulative: cumulative[k],
