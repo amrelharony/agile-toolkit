@@ -866,6 +866,40 @@ describe("MascotAssistant — visitor AI", () => {
       expect(await screen.findByRole("button", { name: "Stop generating" })).toBeInTheDocument();
     });
 
+    it("keeps a new question asked from the guide mid-answer in the box, unsent", async () => {
+      await openChatWithQuestion();
+      const abortTurn = liveTurn();
+      h.sendVisitorMessage.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+      askAbout("sprint goal");
+      // The chat opens on the answer still under way, with the question waiting.
+      expect(await screen.findByLabelText("Message")).toHaveValue("sprint goal");
+      await settle();
+      expect(h.sendVisitorMessage).not.toHaveBeenCalled();
+      expect(abortTurn).not.toHaveBeenCalled();
+      expect(useAgentStore.getState().drafts.visitor).toBe("sprint goal");
+
+      // Once the answer ends, Send asks it.
+      act(() => useAgentStore.setState({ streaming: false }));
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() =>
+        expect(h.sendVisitorMessage).toHaveBeenCalledWith("sprint goal", { toolId: "retro" })
+      );
+      expect(useAgentStore.getState().drafts.visitor).toBe("");
+    });
+
+    it("puts a question asked mid-answer after what the visitor had typed", async () => {
+      await openChatWithQuestion();
+      liveTurn();
+      h.sendVisitorMessage.mockClear();
+      act(() => useAgentStore.getState().setDraft("visitor", "and how long"));
+      fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+      askAbout("sprint goal");
+      expect(await screen.findByLabelText("Message")).toHaveValue("and how long\n\nsprint goal");
+      await settle();
+      expect(h.sendVisitorMessage).not.toHaveBeenCalled();
+    });
+
     it("closing the panel mid-answer leaves the answer running", async () => {
       const view = await openChatWithQuestion();
       const abortTurn = liveTurn();

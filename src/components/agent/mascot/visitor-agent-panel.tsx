@@ -12,7 +12,8 @@
  * closing the panel or going back to the tool finder, stops nothing: an
  * answer under way goes on in the store, and the chat shows it when it opens
  * again. Stop and Clear chat stop it. What the visitor has typed but not sent
- * stays in the store too (drafts.visitor), so it survives the same trips.
+ * stays in the store too (drafts.visitor), so it survives the same trips, and
+ * a question asked from the guide while that answer is under way waits there.
  *
  * Notes and errors show as a narration caption, the narrator's line and never
  * Amr's own words, with "Try again" or "Go on" when the notice calls for one
@@ -202,6 +203,19 @@ export default function VisitorAgentPanel({
   useEffect(() => {
     if (sentInitialRef.current || !initialQuestion) return;
     sentInitialRef.current = true;
+    // A turn that outlived the chat is still under way: the new question
+    // waits in the box (nothing was sent, nothing spent) instead of being
+    // dropped, after anything already typed there. Send it once Amr is done.
+    if (useAgentStore.getState().streaming || sendingRef.current) {
+      const q = initialQuestion.trim().slice(0, VISITOR_LIMITS.userChars);
+      const draft = useAgentStore.getState().drafts.visitor;
+      if (q && !draft.includes(q)) {
+        setDraft(
+          draft.trim() ? `${draft.trimEnd()}\n\n${q}`.slice(0, VISITOR_LIMITS.userChars) : q
+        );
+      }
+      return;
+    }
     void send(initialQuestion, false);
     // send reads the latest state itself; this runs once per panel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
