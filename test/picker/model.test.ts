@@ -10,14 +10,20 @@ import {
   clampWeight,
   findList,
   freshProgress,
+  localDay,
   nextForRole,
   normalizePickerState,
+  planRoles,
   poolLabel,
+  progressFor,
+  rolePeople,
+  roleSourceLabel,
   roleStandings,
   sourceEntries,
   spinWheel,
   timeAgo,
   wheelView,
+  withProgress,
   withRecent,
   withRoleTurn,
   type PickerEntry,
@@ -100,15 +106,31 @@ describe("normalizePickerState", () => {
     expect(s.everyoneOnce).toBe(false);
     expect(s.progress).toEqual({ source: "l1", drawn: ["a"], removed: ["b"], round: 2, last: "a" });
     expect(s.roleTurns.map((t) => t.id)).toEqual(["t1"]);
+    // A turn saved without its day reads it back from its time.
+    expect(s.roleTurns[0].day).toMatch(/^2026-11-0[12]$/);
     expect(s.recent.map((r) => r.id)).toEqual(["r1"]);
     expect(s.shortlist).toEqual(["Nile", "Amazon"]);
     expect(s.away).toEqual({ day: "2026-11-12", keys: ["sam"] });
   });
 
   it("falls back to the team when the wheel's list is gone, and starts its progress afresh", () => {
-    const s = normalizePickerState({ source: "gone", progress: { source: "gone", drawn: ["a"] } });
+    const s = normalizePickerState({
+      source: "gone",
+      roleSource: "gone",
+      progress: { source: "gone", drawn: ["a"] },
+      parked: [{ source: "gone", drawn: ["b"] }],
+    });
     expect(s.source).toBe(TEAM_SOURCE);
+    expect(s.roleSource).toBe(TEAM_SOURCE);
     expect(s.progress).toEqual(freshProgress(TEAM_SOURCE));
+    expect(s.parked).toEqual([]);
+  });
+
+  it("keeps a UTC offset only when it is one", () => {
+    expect(normalizePickerState({ utcOffset: 120 }).utcOffset).toBe(120);
+    expect(normalizePickerState({ utcOffset: -330 }).utcOffset).toBe(-330);
+    expect(normalizePickerState({ utcOffset: 2000 }).utcOffset).toBeNull();
+    expect(normalizePickerState({ utcOffset: "60" }).utcOffset).toBeNull();
   });
 
   it("caps the history, the recent picks and the lists", () => {
@@ -154,6 +176,56 @@ describe("the wheel's names", () => {
     expect(v.removed).toEqual(["Chloé"]);
     expect(v.left).toBe(2);
     expect(wheelView(FIVE, progress, false).eligible).toEqual([0, 1, 2, 3]);
+  });
+});
+
+describe("each source keeps its own progress", () => {
+  const LISTS = [
+    { id: "l1", name: "Topics", entries: ["X", "Y"], updatedAt: "2026-11-01T00:00:00Z" },
+  ];
+  const teamRound = {
+    source: TEAM_SOURCE,
+    drawn: ["amina", "ben"],
+    removed: ["ben"],
+    round: 2,
+    last: "ben",
+  };
+
+  it("parks the team's round when a write moves the wheel to a list, and brings it back", () => {
+    const start = normalizePickerState({ lists: LISTS, progress: teamRound });
+    // What add_names, saving a new list, Spin this and Spin the shortlist write.
+    const onList = normalizePickerState({ ...start, source: "l1" });
+    expect(onList.progress).toEqual(freshProgress("l1"));
+    expect(onList.parked).toEqual([teamRound]);
+    const back = normalizePickerState({ ...onList, source: TEAM_SOURCE });
+    expect(back.progress).toEqual(teamRound);
+  });
+
+  it("saves a spin's progress for the source it spun, wherever the wheel is now", () => {
+    const onList = normalizePickerState({ lists: LISTS, source: "l1", parked: [teamRound] });
+    const listRound = { ...freshProgress("l1"), drawn: ["x"], last: "x" };
+    const a = normalizePickerState(withProgress(onList, listRound));
+    expect(a.progress).toEqual(listRound);
+    expect(progressFor(a, TEAM_SOURCE)).toEqual(teamRound);
+    // A team spin that lands after the wheel moved to the list is parked.
+    const later = { ...teamRound, drawn: ["amina", "ben", "chloé"], last: "chloé" };
+    const b = normalizePickerState(withProgress(a, later));
+    expect(b.progress).toEqual(listRound);
+    expect(progressFor(b, TEAM_SOURCE)).toEqual(later);
+  });
+
+  it("forgets a deleted list's progress, and keeps nothing for a fresh one", () => {
+    const s = normalizePickerState({
+      lists: LISTS,
+      progress: freshProgress(TEAM_SOURCE),
+      parked: [
+        { source: "l1", drawn: ["x"] },
+        { source: "l2", drawn: ["z"] },
+      ],
+    });
+    expect(s.parked.map((p) => p.source)).toEqual(["l1"]);
+    expect(normalizePickerState({ ...s, lists: [] }).parked).toEqual([]);
+    expect(normalizePickerState({ lists: LISTS, source: "l1" }).parked).toEqual([]);
   });
 });
 
@@ -211,12 +283,13 @@ describe("spinWheel", () => {
 });
 
 describe("roles", () => {
-  const turn = (id: string, roleId: string, person: string, at: string): PickerRoleTurn => ({
-    id,
-    roleId,
-    person,
-    at,
-  });
+  const turn = (
+    id: string,
+    roleId: string,
+    person: string,
+    at: string,
+    day = at.slice(0, 10)
+  ): PickerRoleTurn => ({ id, roleId, person, at, day });
   const people = ["Amina", "Ben", "Chloé", "Dev"];
   const turns = [
     turn("1", "role-facilitator", "Amina", "2026-10-20T09:00:00Z"),
@@ -238,10 +311,73 @@ describe("roles", () => {
   });
 
   it("skips someone away today without losing their place, and nobody when all are away", () => {
-    expect(nextForRole(people, turns, "role-facilitator", ["chloé"])).toBe("Dev");
-    const rows = roleStandings(people, turns, "role-facilitator", ["chloé"]);
+    expect(nextForRole(people, turns, "role-facilitator", { away: ["chloé"] })).toBe("Dev");
+    const rows = roleStandings(people, turns, "role-facilitator", { away: ["chloé"] });
     expect(rows[rows.length - 1]).toMatchObject({ name: "Chloé", away: true, turns: 0 });
-    expect(nextForRole(["Sam"], [], "role-scribe", ["sam"])).toBeNull();
+    expect(nextForRole(["Sam"], [], "role-scribe", { away: ["sam"] })).toBeNull();
+  });
+
+  it("gives three roles over four people to three different people", () => {
+    const today = "2026-11-12";
+    const given: PickerRoleTurn[] = [];
+    for (const roleId of ["role-facilitator", "role-scribe", "role-timekeeper"]) {
+      const person = nextForRole(people, given, roleId, { today })!;
+      given.push(turn(`t-${roleId}`, roleId, person, `${today}T09:00:00Z`, today));
+    }
+    expect(given.map((t) => t.person)).toEqual(["Amina", "Ben", "Chloé"]);
+    // Holding a role today is shown, and sorts after everyone free.
+    const rows = roleStandings(people, given, "role-timekeeper", { today });
+    expect(rows.find((r) => r.name === "Amina")?.busyWith).toBe("role-facilitator");
+    // Tomorrow, the Scribe rotation looks at Scribe turns only.
+    expect(nextForRole(people, given, "role-scribe", { today: "2026-11-13" })).toBe("Amina");
+  });
+
+  it("gives a second role only when everyone here already has one", () => {
+    const today = "2026-11-12";
+    const two = ["Amina", "Ben"];
+    const given = [
+      turn("a", "role-facilitator", "Amina", `${today}T09:00:00Z`, today),
+      turn("b", "role-scribe", "Ben", `${today}T09:01:00Z`, today),
+    ];
+    expect(nextForRole(two, given, "role-timekeeper", { today })).toBe("Amina");
+    expect(nextForRole(two, given, "role-timekeeper", { today, away: ["amina"] })).toBe("Ben");
+  });
+
+  it("plans every role not given today, each to someone else", () => {
+    const roles = [...DEFAULT_ROLES];
+    const today = "2026-11-12";
+    expect(planRoles(roles, people, [], { today }).map((p) => [p.role.name, p.person])).toEqual([
+      ["Facilitator", "Amina"],
+      ["Scribe", "Ben"],
+      ["Timekeeper", "Chloé"],
+    ]);
+    const facilitated = [turn("a", "role-facilitator", "Dev", `${today}T09:00:00Z`, today)];
+    expect(planRoles(roles, people, facilitated, { today }).map((p) => p.person)).toEqual([
+      "Amina",
+      "Ben",
+    ]);
+    expect(planRoles(roles, ["Sam"], [], { today, away: ["sam"] })[0].person).toBeNull();
+  });
+
+  it("rotates among the team, or the list chosen for roles, never the wheel's names", () => {
+    const lists = [
+      { id: "l1", name: "Squad", entries: ["Gus", "Hana"], updatedAt: "2026-11-01T00:00:00Z" },
+      { id: "l2", name: "Topics", entries: ["Nile", "Volga"], updatedAt: "2026-11-01T00:00:00Z" },
+    ];
+    const team = [{ name: "Amina" }, { name: "Ben" }];
+    const onTopics = normalizePickerState({ lists, source: "l2" });
+    expect(rolePeople(onTopics, team)).toEqual(["Amina", "Ben"]);
+    expect(roleSourceLabel(onTopics)).toBe("Team");
+    const squad = normalizePickerState({ lists, source: "l2", roleSource: "l1" });
+    expect(rolePeople(squad, team)).toEqual(["Gus", "Hana"]);
+    expect(roleSourceLabel(squad)).toBe("Squad");
+  });
+
+  it("works out the user's day from the offset the page saved", () => {
+    const now = new Date("2026-11-12T23:30:00Z");
+    expect(localDay(120, now)).toBe("2026-11-13");
+    expect(localDay(-300, now)).toBe("2026-11-12");
+    expect(localDay(0, new Date("2026-11-12T00:10:00Z"))).toBe("2026-11-12");
   });
 
   it("forgets who was away once the day is over", () => {

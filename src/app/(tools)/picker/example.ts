@@ -1,4 +1,5 @@
 import { exampleId } from "@/lib/utils/example-id";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import type { PickerList, PickerRecent, PickerRoleTurn } from "@/lib/picker/model";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -9,7 +10,8 @@ const HOUR_MS = 60 * 60 * 1000;
  * three weeks ago, Ben two weeks ago and Chloé last week, so Dev, Elif,
  * Farah and Gus are due; Dev and Elif have taken notes, Farah kept time.
  * Gus asked for more turns, so he weighs double on the wheel. Ben was spun
- * an hour ago and a 2d6 roll settled an estimate tie.
+ * an hour ago and a 2d6 roll settled an estimate tie. The squad is a saved
+ * list, so loading the example puts it on the wheel and gives it the roles.
  *
  * Every row carries an `example-` id, so Clear example removes exactly
  * them; the team's own lists and history stay.
@@ -55,6 +57,7 @@ export function buildExample(now: Date = new Date()): PickerExample {
       roleId,
       person,
       at: at(days * DAY_MS),
+      day: todayLocalISO(new Date(now.getTime() - days * DAY_MS)),
     })),
     recent: [
       {

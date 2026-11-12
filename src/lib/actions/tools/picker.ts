@@ -33,21 +33,25 @@ import { serverGetUserStateBlob, serverListEntities } from "../server-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TeamMember } from "@/lib/stores/workspace-types";
 import { nameKey } from "@/lib/team/names";
-import { todayLocalISO } from "@/lib/utils/formatters";
 import {
   PICKER_LIMITS,
   TEAM_SOURCE,
   addEntries,
   awayToday,
   findList,
+  localDay,
   nextForRole,
   normalizePickerState,
+  planRoles,
   poolLabel,
+  rolePeople,
+  roleSourceLabel,
   roleStandings,
   sourceEntries,
   sourceLabel,
   spinWheel,
   wheelView,
+  withProgress,
   withRecent,
   withRoleTurn,
   type PickerState,
@@ -75,6 +79,12 @@ const MCP_WRITE_REFUSAL =
 interface Snapshot {
   state: PickerState;
   roster: readonly { name: string }[];
+  /**
+   * The user's local day. In the browser, this machine's; over MCP, worked
+   * out from the UTC offset the page last saved, since the server's clock
+   * is UTC (without one, the server's day).
+   */
+  today: string;
 }
 
 /** The Picker's state and the team, on either transport. */
@@ -84,10 +94,15 @@ async function snapshot(ctx: ActionContext): Promise<Snapshot> {
       serverGetUserStateBlob(ctx.userId, PICKER_STORE_KEY),
       serverListEntities<TeamMember>(ctx.userId, KIND_TEAM),
     ]);
-    return { state: normalizePickerState(blob), roster };
+    const state = normalizePickerState(blob);
+    return { state, roster, today: localDay(state.utcOffset) };
   }
   await ensurePickerHydrated();
-  return { state: readPicker(), roster: useWorkspaceStore.getState().teamMembers ?? [] };
+  return {
+    state: readPicker(),
+    roster: useWorkspaceStore.getState().teamMembers ?? [],
+    today: localDay(null),
+  };
 }
 
 /** A role by id or name (case-insensitive). */
@@ -98,14 +113,17 @@ function findRole(state: PickerState, idOrName: string) {
   );
 }
 
-function summarize({ state, roster }: Snapshot) {
+function summarize({ state, roster, today }: Snapshot) {
   const entries = sourceEntries(state, roster);
   const view = wheelView(entries, state.progress, state.everyoneOnce);
   const eligible = new Set(view.eligible);
-  const today = todayLocalISO();
   const away = awayToday(state.away, today);
-  const people = entries.map((e) => e.name);
+  const people = rolePeople(state, roster);
+  const options = { away, today };
+  const roleName = (roleId: string | null) =>
+    roleId ? (state.roles.find((r) => r.id === roleId)?.name ?? null) : null;
   return {
+    today,
     wheel: {
       source: state.source,
       sourceName: sourceLabel(state),
@@ -121,18 +139,28 @@ function summarize({ state, roster }: Snapshot) {
       leftThisRound: view.left,
     },
     lists: state.lists.map((l) => ({ id: l.id, name: l.name, count: l.entries.length })),
+    rolePeopleFrom: {
+      source: state.roleSource,
+      name: roleSourceLabel(state),
+      count: people.length,
+    },
     roles: state.roles.map((role) => ({
       id: role.id,
       name: role.name,
-      next: nextForRole(people, state.roleTurns, role.id, away),
-      standings: roleStandings(people, state.roleTurns, role.id, away).map((s) => ({
+      next: nextForRole(people, state.roleTurns, role.id, options),
+      standings: roleStandings(people, state.roleTurns, role.id, options).map((s) => ({
         name: s.name,
         turns: s.turns,
         lastAt: s.lastAt,
         away: s.away,
+        roleToday: roleName(s.busyWith),
       })),
     })),
-    awayToday: entries.filter((e) => away.includes(nameKey(e.name))).map((e) => e.name),
+    giveOutToday: planRoles(state.roles, people, state.roleTurns, options).map((p) => ({
+      role: p.role.name,
+      person: p.person,
+    })),
+    awayToday: people.filter((p) => away.includes(nameKey(p))),
     recent: state.recent.slice(0, 10).map((r) => ({
       kind: r.kind,
       result: r.result,
@@ -152,7 +180,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Read the Picker: the wheel {source ('team' or a list id), sourceName, names: {name, weight 1-5, canComeUp}[], removed (taken off after being picked), everyoneOnce, removePicked, round, leftThisRound}, lists {id, name, count}[], roles {id, name, next (who is due, or null), standings: {name, turns, lastAt, away}[] fairest first}[], awayToday, recent picks (10, newest first) and the name shortlist.",
+    "Read the Picker: today (the user's local day), the wheel {source ('team' or a list id), sourceName, names: {name, weight 1-5, canComeUp}[], removed (taken off after being picked), everyoneOnce, removePicked, round, leftThisRound}, lists {id, name, count}[], rolePeopleFrom {source, name, count} (who takes the roles: the team, or a saved list chosen for roles; never the wheel's names), roles {id, name, next (who is due, passing over anyone with another role today; null when all are away), standings: {name, turns, lastAt, away, roleToday}[] fairest first}[], giveOutToday {role, person}[] (each role not given today, to different people where possible), awayToday, recent picks (10, newest first) and the name shortlist.",
   paramsSchema: z.object({}),
   handler: async (_params, ctx) => summarize(await snapshot(ctx)),
 });
@@ -208,10 +236,9 @@ registry.register({
     };
     if (ctx.source !== "mcp") {
       const source = state.source;
+      // withProgress parks the progress of the source the wheel leaves.
       updatePicker((s) => ({
-        ...s,
-        source,
-        progress: outcome.progress,
+        ...withProgress({ ...s, source }, outcome.progress),
         recent: withRecent(s.recent, {
           id: crypto.randomUUID(),
           kind: "wheel",
@@ -268,29 +295,31 @@ registry.register({
   name: "rotate_role",
   category: "write",
   description:
-    "Give a standing role (Facilitator, Scribe, Timekeeper or the team's own; role is its id or name) to whoever is due among the wheel's people: the fewest turns, then the longest since their last. skip names people away today: they are passed over (and stay away for today) without losing their place. Records the turn in the fairness history. Returns {role, person, turns}.",
+    "Give a standing role (Facilitator, Scribe, Timekeeper or the team's own; role is its id or name) to whoever is due among the people who take roles (the team, or the saved list chosen for roles; see list_state rolePeopleFrom): the fewest turns, then the longest since their last, passing over anyone who already has another role today unless nobody else is free. skip names people away today: they are passed over (and stay away for today) without losing their place. Records the turn in the fairness history. Returns {role, person, turns}.",
   paramsSchema: z.object({
-    role: z.string().trim().min(1).max(PICKER_LIMITS.maxRoleNameChars),
+    // A custom role's id (`role-<uuid>`) is longer than a role's name.
+    role: z.string().trim().min(1).max(80),
     skip: z.array(NameSchema).max(PICKER_LIMITS.maxNames).optional(),
   }),
   handler: async (params, ctx) => {
     if (ctx.source === "mcp") throw new Error(MCP_WRITE_REFUSAL);
-    const { state, roster } = await snapshot(ctx);
+    const { state, roster, today } = await snapshot(ctx);
     const role = findRole(state, params.role);
     if (!role) {
       throw new Error(
         `No role called "${params.role}". The roles are: ${state.roles.map((r) => r.name).join(", ")}.`
       );
     }
-    const people = sourceEntries(state, roster).map((e) => e.name);
+    const people = rolePeople(state, roster);
     if (people.length === 0) {
-      throw new Error("Nobody to rotate: add people on the Team page, or spin a saved list.");
+      throw new Error(
+        "Nobody to rotate: add people on the Team page, or choose a saved list for roles on the Picker page."
+      );
     }
-    const today = todayLocalISO();
     const away = Array.from(
       new Set([...awayToday(state.away, today), ...(params.skip ?? []).map(nameKey)])
     ).filter(Boolean);
-    const person = nextForRole(people, state.roleTurns, role.id, away);
+    const person = nextForRole(people, state.roleTurns, role.id, { away, today });
     if (!person) throw new Error("Everyone is away today, so nobody can take the role.");
     const at = new Date().toISOString();
     const next = updatePicker((s) => ({
@@ -301,6 +330,7 @@ registry.register({
         roleId: role.id,
         person,
         at,
+        day: today,
       }),
       recent: withRecent(s.recent, {
         id: crypto.randomUUID(),

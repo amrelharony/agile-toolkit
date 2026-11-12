@@ -2,11 +2,13 @@ import {
   TEAM_SOURCE,
   awayToday,
   nextForRole,
+  rolePeople,
+  roleSourceLabel,
   roleStandings,
+  sourceEntries,
   sourceLabel,
   timeAgo,
   wheelView,
-  type PickerEntry,
   type PickerState,
 } from "@/lib/picker/model";
 import { nameKey } from "@/lib/team/names";
@@ -26,9 +28,9 @@ function md(v: unknown): string {
 
 export interface PickerMarkdownInput {
   state: PickerState;
-  /** The wheel's source names, removed ones included (sourceEntries). */
-  entries: readonly PickerEntry[];
-  /** Local day, YYYY-MM-DD, for who is away today. */
+  /** The team on the Team page (for the wheel or the roles when they use it). */
+  roster: readonly { name: string }[] | null | undefined;
+  /** Local day, YYYY-MM-DD, for who is away and who holds a role today. */
   today: string;
 }
 
@@ -38,10 +40,11 @@ export interface PickerMarkdownInput {
  * paste into the team's wiki or the retro notes.
  */
 export function toMarkdown(
-  { state, entries, today }: PickerMarkdownInput,
+  { state, roster, today }: PickerMarkdownInput,
   now: Date = new Date()
 ): string {
   const lines = [`# Picker — ${mdDate(now)}`, ""];
+  const entries = sourceEntries(state, roster);
   const view = wheelView(entries, state.progress, state.everyoneOnce);
   const eligible = new Set(view.eligible);
 
@@ -70,19 +73,21 @@ export function toMarkdown(
       lines.push(`Off the wheel: ${view.removed.map(md).join(", ")}.`, "");
   }
 
-  const people = entries.map((e) => e.name);
+  const people = rolePeople(state, roster);
   const away = awayToday(state.away, today);
+  const options = { away, today };
   lines.push("## Roles", "");
   if (people.length === 0) lines.push("Nobody to rotate yet.", "");
+  else lines.push(`From ${md(roleSourceLabel(state))}.`, "");
   for (const role of state.roles) {
-    const next = nextForRole(people, state.roleTurns, role.id, away);
+    const next = nextForRole(people, state.roleTurns, role.id, options);
     lines.push(
       `### ${md(role.name)}`,
       "",
       next ? `Next up: ${md(next)}.` : "Nobody is free today.",
       ""
     );
-    const rows = roleStandings(people, state.roleTurns, role.id, away);
+    const rows = roleStandings(people, state.roleTurns, role.id, options);
     if (rows.length > 0) {
       lines.push("| Person | Turns | Last turn |", "|---|---:|---|");
       for (const r of rows) {
@@ -93,7 +98,7 @@ export function toMarkdown(
     }
   }
   if (away.length > 0) {
-    const names = entries.filter((e) => away.includes(nameKey(e.name))).map((e) => md(e.name));
+    const names = people.filter((p) => away.includes(nameKey(p))).map(md);
     if (names.length > 0) lines.push(`Away today: ${names.join(", ")}.`, "");
   }
 

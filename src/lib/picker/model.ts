@@ -13,6 +13,7 @@
  */
 
 import { nameKey } from "@/lib/team/names";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import { weightedPick, type Rng } from "@/lib/utils/random";
 import { PEOPLE_MAX, PERSON_NAME_MAX, rosterNames } from "./people";
 
@@ -70,6 +71,11 @@ export interface PickerRoleTurn {
   person: string;
   /** ISO time. */
   at: string;
+  /**
+   * The local day it was given on, YYYY-MM-DD, as the page saw it: who
+   * already holds a role today. Read back from `at` when missing.
+   */
+  day: string;
 }
 
 export const PICK_KINDS = ["wheel", "dice", "coin", "yes-no", "number", "letter", "role"] as const;
@@ -87,8 +93,9 @@ export interface PickerRecent {
 
 /**
  * Where the wheel is for one source: who has come up this round (everyone
- * once) and who was taken off the wheel after being picked. Kept for one
- * source at a time; switching the wheel to another source starts afresh.
+ * once) and who was taken off the wheel after being picked. Each source
+ * keeps its own: switching the wheel to a list and back finds the team's
+ * round where it was (the others wait in `PickerState.parked`).
  */
 export interface PickerProgress {
   source: string;
@@ -119,13 +126,27 @@ export interface PickerState {
   everyoneOnce: boolean;
   /** A name leaves the wheel once it is picked, until it is put back. */
   removePicked: boolean;
+  /** The wheel's progress for `source`. */
   progress: PickerProgress;
+  /** The other sources' progress, kept for when the wheel goes back to them. */
+  parked: PickerProgress[];
   roles: PickerRole[];
+  /**
+   * Who takes the roles: TEAM_SOURCE (the Team page) or a saved list's id
+   * chosen on the Roles tab. It never follows the wheel, which may be
+   * spinning topics or name ideas.
+   */
+  roleSource: string;
   roleTurns: PickerRoleTurn[];
   away: PickerAway;
   recent: PickerRecent[];
   /** Team or sprint name ideas the team liked. */
   shortlist: string[];
+  /**
+   * The browser's offset from UTC in minutes when the page last saved, or
+   * null. Over MCP the server works out the user's "today" from it.
+   */
+  utcOffset: number | null;
 }
 
 export const DEFAULT_ROLES: readonly PickerRole[] = [
@@ -149,11 +170,14 @@ export const PICKER_INITIAL: PickerState = {
   everyoneOnce: true,
   removePicked: false,
   progress: freshProgress(TEAM_SOURCE),
+  parked: [],
   roles: DEFAULT_ROLES.map((r) => ({ ...r })),
+  roleSource: TEAM_SOURCE,
   roleTurns: [],
   away: { day: "", keys: [] },
   recent: [],
   shortlist: [],
+  utcOffset: null,
 };
 
 // ── Text ─────────────────────────────────────────────────────────────
@@ -172,6 +196,7 @@ export function clampWeight(raw: unknown): number {
 }
 
 const isIso = (v: unknown): v is string => typeof v === "string" && !Number.isNaN(Date.parse(v));
+const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
 const isId = (v: unknown): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= 80 && /^[\w:-]+$/.test(v);
 
@@ -276,7 +301,8 @@ export function normalizeRoleTurns(raw: unknown, roles: readonly PickerRole[]): 
     const person = cleanLine(r.person, PICKER_LIMITS.maxNameChars);
     if (!person || !isIso(r.at)) continue;
     seen.add(r.id);
-    out.push({ id: r.id, roleId: r.roleId, person, at: r.at });
+    const day = isDay(r.day) ? r.day : todayLocalISO(new Date(r.at));
+    out.push({ id: r.id, roleId: r.roleId, person, at: r.at, day });
   }
   // Newest last, so the history reads in order; the oldest go first past the cap.
   out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
@@ -339,34 +365,96 @@ function normalizeWeights(raw: unknown): Record<string, number> {
 
 function normalizeAway(raw: unknown): PickerAway {
   const r = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
-  const day = typeof r?.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.day) ? r.day : "";
+  const day = isDay(r?.day) ? r.day : "";
   return { day, keys: day ? normalizeKeys(r?.keys, PICKER_LIMITS.maxNames) : [] };
+}
+
+/** Nothing worth keeping: nobody drawn or taken off, still the first round. */
+const isFresh = (p: PickerProgress) =>
+  p.drawn.length === 0 && p.removed.length === 0 && p.round === 1 && p.last === null;
+
+/**
+ * Each source's progress, from the current one and the parked ones (the
+ * first one for a source wins), for sources that still exist.
+ */
+function progressBySource(
+  current: unknown,
+  parked: unknown,
+  known: (source: string) => boolean
+): Map<string, PickerProgress> {
+  const rows = Array.isArray(parked) ? parked.slice(0, PICKER_LIMITS.maxLists + 1) : [];
+  const out = new Map<string, PickerProgress>();
+  for (const row of [current, ...rows]) {
+    const source =
+      row && typeof row === "object" ? (row as Record<string, unknown>).source : undefined;
+    if (typeof source !== "string" || !known(source) || out.has(source)) continue;
+    out.set(source, normalizeProgress(row, source));
+  }
+  return out;
+}
+
+/** Minutes from UTC, as `-getTimezoneOffset()` gives them; null for anything else. */
+function normalizeOffset(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isInteger(raw) && Math.abs(raw) <= 14 * 60 ? raw : null;
 }
 
 /**
  * The saved state as the page reads it: every field rebuilt and capped, so a
  * synced, imported or hand-edited value can't break the page. A source whose
- * list is gone falls back to the team.
+ * list is gone falls back to the team, for the wheel and for the roles.
+ *
+ * A write that switches the wheel (`{ ...s, source }`) leaves the old
+ * source's progress as the current one: it is parked here, not lost, and
+ * the new source's own progress comes back.
  */
 export function normalizePickerState(raw: unknown): PickerState {
   const r = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const lists = normalizeLists(r.lists);
-  const source =
-    typeof r.source === "string" && lists.some((l) => l.id === r.source) ? r.source : TEAM_SOURCE;
+  const known = (id: unknown): id is string =>
+    id === TEAM_SOURCE || (typeof id === "string" && lists.some((l) => l.id === id));
+  const source = known(r.source) ? r.source : TEAM_SOURCE;
   const roles = normalizeRoles(r.roles);
+  const progress = progressBySource(r.progress, r.parked, known);
   return {
     lists,
     source,
     teamWeights: normalizeWeights(r.teamWeights),
     everyoneOnce: r.everyoneOnce === undefined ? true : r.everyoneOnce === true,
     removePicked: r.removePicked === true,
-    progress: normalizeProgress(r.progress, source),
+    progress: progress.get(source) ?? freshProgress(source),
+    parked: Array.from(progress.values()).filter((p) => p.source !== source && !isFresh(p)),
     roles,
+    roleSource: known(r.roleSource) ? r.roleSource : TEAM_SOURCE,
     roleTurns: normalizeRoleTurns(r.roleTurns, roles),
     away: normalizeAway(r.away),
     recent: normalizeRecent(r.recent),
     shortlist: normalizeShortlist(r.shortlist),
+    utcOffset: normalizeOffset(r.utcOffset),
   };
+}
+
+/**
+ * The state with `progress` saved for its own source: as the wheel's when
+ * the wheel spins that source, else parked until the wheel goes back to it.
+ * Run the result through `normalizePickerState` (updatePicker does).
+ */
+export function withProgress(state: PickerState, progress: PickerProgress): PickerState {
+  return { ...state, progress, parked: [state.progress, ...state.parked] };
+}
+
+/** The progress kept for `source`: the wheel's, a parked one, or a fresh one. */
+export function progressFor(state: PickerState, source: string): PickerProgress {
+  if (state.progress.source === source) return state.progress;
+  return state.parked.find((p) => p.source === source) ?? freshProgress(source);
+}
+
+/**
+ * The user's local day, YYYY-MM-DD: at the UTC offset the page last saved
+ * (over MCP, where the server's clock isn't the user's), else this machine's.
+ */
+export function localDay(utcOffset: number | null, now: Date = new Date()): string {
+  if (utcOffset === null) return todayLocalISO(now);
+  return new Date(now.getTime() + utcOffset * 60_000).toISOString().slice(0, 10);
 }
 
 // ── The wheel's names ────────────────────────────────────────────────
@@ -390,6 +478,27 @@ export function sourceEntries(
 export function sourceLabel(state: PickerState): string {
   if (state.source === TEAM_SOURCE) return "Team";
   return state.lists.find((l) => l.id === state.source)?.name ?? "Team";
+}
+
+/**
+ * Who takes the roles: the team on the Team page, or the saved list chosen
+ * for roles. Never the wheel's source, which may be topics or name ideas.
+ */
+export function rolePeople(
+  state: PickerState,
+  roster: readonly { name: string }[] | null | undefined
+): string[] {
+  if (state.roleSource !== TEAM_SOURCE) {
+    const list = state.lists.find((l) => l.id === state.roleSource);
+    if (list) return list.entries.map((e) => e.name);
+  }
+  return rosterNames(roster);
+}
+
+/** "Team" or the name of the list the roles rotate among. */
+export function roleSourceLabel(state: PickerState): string {
+  if (state.roleSource === TEAM_SOURCE) return "Team";
+  return state.lists.find((l) => l.id === state.roleSource)?.name ?? "Team";
 }
 
 export interface WheelView {
@@ -508,24 +617,46 @@ export interface RoleStanding {
   /** ISO time of their last turn, or null for never. */
   lastAt: string | null;
   away: boolean;
+  /** The id of another role they already hold today, or null. */
+  busyWith: string | null;
+}
+
+export interface RoleOptions {
+  /** Name keys of people away today. */
+  away?: readonly string[];
+  /**
+   * The local day, YYYY-MM-DD. Someone who already took another role on
+   * it is passed over, so nobody holds two roles at once, unless nobody
+   * else is free.
+   */
+  today?: string;
 }
 
 /**
  * Who is due for a role, fairest first: the fewest turns, then the longest
- * since their last (never first), then the order of the people given. People
+ * since their last (never first), then the order of the people given.
+ * People who hold another role today come after everyone free, and people
  * away today sort last and are never "next".
  */
 export function roleStandings(
   people: readonly string[],
   turns: readonly PickerRoleTurn[],
   roleId: string,
-  awayKeys: readonly string[] = []
+  { away: awayKeys = [], today }: RoleOptions = {}
 ): RoleStanding[] {
   const away = new Set(awayKeys);
   const stats = new Map<string, { turns: number; lastAt: string | null }>();
+  const busy = new Map<string, { roleId: string; at: number }>();
   for (const t of turns) {
-    if (t.roleId !== roleId) continue;
     const key = nameKey(t.person);
+    if (t.roleId !== roleId) {
+      if (today && t.day === today) {
+        const at = Date.parse(t.at);
+        const held = busy.get(key);
+        if (!held || at > held.at) busy.set(key, { roleId: t.roleId, at });
+      }
+      continue;
+    }
     const s = stats.get(key) ?? { turns: 0, lastAt: null };
     s.turns += 1;
     if (!s.lastAt || Date.parse(t.at) > Date.parse(s.lastAt)) s.lastAt = t.at;
@@ -544,6 +675,7 @@ export function roleStandings(
       turns: s?.turns ?? 0,
       lastAt: s?.lastAt ?? null,
       away: away.has(key),
+      busyWith: busy.get(key)?.roleId ?? null,
       order,
     });
   });
@@ -551,6 +683,7 @@ export function roleStandings(
   rows.sort(
     (a, b) =>
       Number(a.away) - Number(b.away) ||
+      Number(a.busyWith !== null) - Number(b.busyWith !== null) ||
       a.turns - b.turns ||
       time(a.lastAt) - time(b.lastAt) ||
       a.order - b.order
@@ -561,18 +694,62 @@ export function roleStandings(
     turns: r.turns,
     lastAt: r.lastAt,
     away: r.away,
+    busyWith: r.busyWith,
   }));
 }
 
-/** The person due for the role, or null when everyone is away (or nobody is listed). */
+/**
+ * The person due for the role: the fairest one who is here and holds no
+ * other role today; if everyone here already has one, the fairest of them.
+ * Null when everyone is away (or nobody is listed).
+ */
 export function nextForRole(
   people: readonly string[],
   turns: readonly PickerRoleTurn[],
   roleId: string,
-  awayKeys: readonly string[] = []
+  options: RoleOptions = {}
 ): string | null {
-  const first = roleStandings(people, turns, roleId, awayKeys)[0];
+  const first = roleStandings(people, turns, roleId, options)[0];
   return first && !first.away ? first.name : null;
+}
+
+/** A role that hasn't been given today, and who would get it. */
+export interface RolePlanRow {
+  role: PickerRole;
+  /** Null when everyone is away. */
+  person: string | null;
+}
+
+/**
+ * Give out every role nobody has had today, in the roles' order, each to
+ * the person due for it with the earlier ones counted as taken: on a fresh
+ * team, three roles go to three different people. The same as giving each
+ * role in turn from its own card.
+ */
+export function planRoles(
+  roles: readonly PickerRole[],
+  people: readonly string[],
+  turns: readonly PickerRoleTurn[],
+  options: RoleOptions & { today: string }
+): RolePlanRow[] {
+  const given = new Set(turns.filter((t) => t.day === options.today).map((t) => t.roleId));
+  const planned: PickerRoleTurn[] = [];
+  const out: RolePlanRow[] = [];
+  for (const role of roles) {
+    if (given.has(role.id)) continue;
+    const person = nextForRole(people, [...turns, ...planned], role.id, options);
+    out.push({ role, person });
+    if (person) {
+      planned.push({
+        id: `plan-${role.id}`,
+        roleId: role.id,
+        person,
+        at: new Date(0).toISOString(),
+        day: options.today,
+      });
+    }
+  }
+  return out;
 }
 
 /** Who is away today: the saved keys when they were saved today, else nobody. */

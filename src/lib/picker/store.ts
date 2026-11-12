@@ -43,9 +43,15 @@ export function readPicker(): PickerState {
   return normalizePickerState(usePickerStore.getState());
 }
 
-/** Change the state, starting from the clean copy; the result is cleaned again. */
+/**
+ * Change the state, starting from the clean copy; the result is cleaned
+ * again. It also notes this browser's UTC offset, so the server can tell
+ * which day is "today" for the user when Amr reads the Picker over MCP.
+ */
 export function updatePicker(fn: (state: PickerState) => PickerState): PickerState {
-  const next = normalizePickerState(fn(readPicker()));
+  // `0 - x` rather than `-x`, so UTC is 0, not -0.
+  const utcOffset = typeof window === "undefined" ? null : 0 - new Date().getTimezoneOffset();
+  const next = normalizePickerState({ ...fn(readPicker()), utcOffset });
   usePickerStore.setState(next);
   return next;
 }

@@ -28,6 +28,7 @@ import { cheer } from "@/lib/celebrate/cheer";
 import { PICKER_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import {
+  DEFAULT_ROLES,
   PICKER_INITIAL,
   PICKER_LIMITS,
   TEAM_SOURCE,
@@ -35,13 +36,18 @@ import {
   findList,
   normalizePickerState,
   normalizeShortlist,
+  planRoles,
   poolLabel,
+  progressFor,
+  rolePeople,
+  roleSourceLabel,
   roleStandings,
   sourceEntries,
   sourceLabel,
   spinWheel,
   timeAgo,
   wheelView,
+  withProgress,
   withRecent,
   withRoleTurn,
   type PickerList,
@@ -185,8 +191,8 @@ export function PickerClient() {
       land: () => {
         landedKey.current = after;
         updatePicker((s) => ({
-          ...s,
-          progress: s.source === source ? outcome.progress : s.progress,
+          // Saved for the source it spun, even if the wheel moved on meanwhile.
+          ...withProgress(s, outcome.progress),
           recent: withRecent(s.recent, {
             id: crypto.randomUUID(),
             kind: "wheel",
@@ -219,6 +225,7 @@ export function PickerClient() {
 
   const setWeight = (name: string, weight: number) => {
     const key = nameKey(name);
+    announce(`${name}: weight ${weight}.`);
     updatePicker((s) => {
       if (s.source === TEAM_SOURCE) {
         const teamWeights = { ...s.teamWeights };
@@ -241,6 +248,8 @@ export function PickerClient() {
     });
   };
 
+  // Each takes back what it changed for the source it changed, wherever
+  // the wheel is by then.
   const putBack = () => {
     const before = readPicker().progress;
     undoable({
@@ -248,9 +257,7 @@ export function PickerClient() {
       apply: () => updatePicker((s) => ({ ...s, progress: { ...s.progress, removed: [] } })),
       revert: () =>
         updatePicker((s) =>
-          s.progress.source === before.source
-            ? { ...s, progress: { ...s.progress, removed: before.removed } }
-            : s
+          withProgress(s, { ...progressFor(s, before.source), removed: before.removed })
         ),
     });
   };
@@ -263,9 +270,11 @@ export function PickerClient() {
         updatePicker((s) => ({ ...s, progress: { ...s.progress, drawn: [], last: null } })),
       revert: () =>
         updatePicker((s) =>
-          s.progress.source === before.source
-            ? { ...s, progress: { ...s.progress, drawn: before.drawn, last: before.last } }
-            : s
+          withProgress(s, {
+            ...progressFor(s, before.source),
+            drawn: before.drawn,
+            last: before.last,
+          })
         ),
     });
   };
@@ -310,27 +319,73 @@ export function PickerClient() {
   };
 
   // ── Roles ─────────────────────────────────────────────────
-  const people = entries.map((e) => e.name);
+  // The roles rotate among the team, or a list chosen for them on the
+  // Roles tab: never whatever the wheel happens to spin.
+  const people = useMemo(() => rolePeople(state, roster), [state, roster]);
+  const roleTeam = state.roleSource === TEAM_SOURCE;
+  const roleOptions = { away, today };
+  const plan = planRoles(state.roles, people, state.roleTurns, roleOptions);
+
+  /** The writes for giving `person` the role now: a turn in the history and a recent pick. */
+  const roleTurn = (role: PickerRole, person: string, at: string) => ({
+    turn: { id: crypto.randomUUID(), roleId: role.id, person, at, day: today },
+    pick: {
+      id: crypto.randomUUID(),
+      kind: "role" as const,
+      result: person,
+      detail: role.name,
+      at,
+    },
+  });
+
+  /** History never holds a role's name (the team may have typed it): a built-in id or "custom". */
+  const roleLog = (role: PickerRole) => ({
+    role: DEFAULT_ROLES.some((r) => r.id === role.id) ? role.id : "custom",
+    people: people.length,
+  });
+
   const assignRole = (role: PickerRole, person: string) => {
-    const at = new Date().toISOString();
+    const { turn, pick } = roleTurn(role, person, new Date().toISOString());
     updatePicker((s) => ({
       ...s,
-      roleTurns: withRoleTurn(s.roleTurns, {
-        id: crypto.randomUUID(),
-        roleId: role.id,
-        person,
-        at,
-      }),
-      recent: withRecent(s.recent, {
-        id: crypto.randomUUID(),
-        kind: "role",
-        result: person,
-        detail: role.name,
-        at,
-      }),
+      roleTurns: withRoleTurn(s.roleTurns, turn),
+      recent: withRecent(s.recent, pick),
     }));
-    log(PICKER_ACTIONS.ROTATION_ADVANCED, { role: role.name, people: people.length });
+    log(PICKER_ACTIONS.ROTATION_ADVANCED, roleLog(role));
     announce(`${person} is the ${role.name}.`);
+  };
+
+  const giveOutRoles = () => {
+    const rows = plan.filter((p): p is { role: PickerRole; person: string } => !!p.person);
+    if (rows.length === 0) return;
+    const at = new Date().toISOString();
+    const writes = rows.map((p) => roleTurn(p.role, p.person, at));
+    const turnIds = new Set(writes.map((w) => w.turn.id));
+    const pickIds = new Set(writes.map((w) => w.pick.id));
+    undoable({
+      kind: "success",
+      label: rows.length === 1 ? "Gave out 1 role" : `Gave out ${rows.length} roles`,
+      apply: () =>
+        updatePicker((s) => ({
+          ...s,
+          roleTurns: writes.reduce((turns, w) => withRoleTurn(turns, w.turn), s.roleTurns),
+          recent: writes.reduce((recent, w) => withRecent(recent, w.pick), s.recent),
+        })),
+      revert: () =>
+        updatePicker((s) => ({
+          ...s,
+          roleTurns: s.roleTurns.filter((t) => !turnIds.has(t.id)),
+          recent: s.recent.filter((r) => !pickIds.has(r.id)),
+        })),
+    });
+    for (const p of rows) log(PICKER_ACTIONS.ROTATION_ADVANCED, roleLog(p.role));
+    announce(rows.map((p) => `${p.person} is the ${p.role.name}.`).join(" "));
+  };
+
+  const setRoleSource = (roleSource: string) => {
+    updatePicker((s) => ({ ...s, roleSource }));
+    const list = state.lists.find((l) => l.id === roleSource);
+    announce(`The roles rotate among ${list ? list.name : "the team"} now.`);
   };
 
   const setAway = (name: string, isAway: boolean) => {
@@ -472,7 +527,9 @@ export function PickerClient() {
     updatePicker((s) => ({
       ...s,
       lists: [...s.lists.filter((l) => l.id !== EXAMPLE_LIST_ID), ex.list],
+      // The example is a squad: it spins on the wheel and takes the roles.
       source: ex.list.id,
+      roleSource: ex.list.id,
       roleTurns: [...s.roleTurns.filter((t) => !isExampleId(t.id)), ...ex.roleTurns],
       recent: [...ex.recent, ...s.recent.filter((r) => !isExampleId(r.id))],
     }));
@@ -492,19 +549,16 @@ export function PickerClient() {
   const resetSnapshot = useRef<PickerState | null>(null);
 
   // ── Export and prompts ────────────────────────────────────
-  const markdown = toMarkdown({ state, entries, today }, now);
-  const promptConfig = useMemo(
-    () => ({
+  const markdown = toMarkdown({ state, roster, today }, now);
+  const promptConfig = useMemo(() => {
+    const day = todayLocalISO();
+    const options = { away: awayToday(state.away, day), today: day };
+    return {
       toolName: "Picker",
       prompts: generatePickerPrompts({
         roles: state.roles.map((role) => ({
           name: role.name,
-          rows: roleStandings(
-            entries.map((e) => e.name),
-            state.roleTurns,
-            role.id,
-            awayToday(state.away, todayLocalISO())
-          ).map((r) => ({
+          rows: roleStandings(people, state.roleTurns, role.id, options).map((r) => ({
             name: r.name,
             turns: r.turns,
             last: r.lastAt ? timeAgo(r.lastAt) : "never",
@@ -513,11 +567,17 @@ export function PickerClient() {
         })),
         shortlist: state.shortlist,
       }),
-    }),
-    [state, entries]
-  );
+    };
+  }, [state, people]);
 
-  const peopleFrom = poolLabel(label, entries.length, team);
+  const peopleFrom = poolLabel(roleSourceLabel(state), people.length, roleTeam);
+  const roleSourceOptions =
+    state.lists.length > 0
+      ? [
+          { value: TEAM_SOURCE, label: "Team" },
+          ...state.lists.map((l) => ({ value: l.id, label: l.name })),
+        ]
+      : [];
 
   return (
     <ToolPageWrapper
@@ -599,9 +659,16 @@ export function PickerClient() {
               turns={state.roleTurns}
               people={people}
               peopleFrom={peopleFrom}
+              peopleAreTeam={roleTeam}
+              roleSource={state.roleSource}
+              roleSourceOptions={roleSourceOptions}
+              onRoleSource={setRoleSource}
               away={away}
+              today={today}
+              plan={plan}
               now={now}
               roomLive={roomShow !== null}
+              onGiveOut={giveOutRoles}
               onAssign={assignRole}
               onAway={setAway}
               onRemoveTurn={removeTurn}

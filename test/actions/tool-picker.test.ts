@@ -50,28 +50,78 @@ describe("registration", () => {
   });
 });
 
+type State = {
+  today: string;
+  wheel: {
+    source: string;
+    names: { name: string; canComeUp: boolean }[];
+    leftThisRound: number;
+  };
+  rolePeopleFrom: { source: string; name: string; count: number };
+  roles: {
+    name: string;
+    next: string | null;
+    standings: { name: string; roleToday: string | null }[];
+  }[];
+  giveOutToday: { role: string; person: string | null }[];
+  awayToday: string[];
+};
+
 describe("tool.picker.list_state", () => {
-  it("reads the wheel from the team, with roles and who is next", async () => {
-    const s = await run<{
-      wheel: {
-        source: string;
-        names: { name: string; canComeUp: boolean }[];
-        leftThisRound: number;
-      };
-      roles: { name: string; next: string | null }[];
-    }>("list_state", {});
+  it("reads the wheel from the team, with roles, who is next and a plan with no doubled roles", async () => {
+    const s = await run<State>("list_state", {});
     expect(s.wheel.source).toBe("team");
     expect(s.wheel.names.map((n) => n.name)).toEqual(["Amina", "Ben", "Chloé", "Dev"]);
     expect(s.wheel.leftThisRound).toBe(4);
+    expect(s.rolePeopleFrom).toEqual({ source: "team", name: "Team", count: 4 });
+    // Each role on its own: nobody has one yet, so Amina is due for each.
     expect(s.roles.map((r) => [r.name, r.next])).toEqual([
       ["Facilitator", "Amina"],
       ["Scribe", "Amina"],
       ["Timekeeper", "Amina"],
     ]);
+    // Giving them all out today goes to three different people.
+    expect(s.giveOutToday).toEqual([
+      { role: "Facilitator", person: "Amina" },
+      { role: "Scribe", person: "Ben" },
+      { role: "Timekeeper", person: "Chloé" },
+    ]);
+  });
+
+  it("over MCP, reads today at the user's saved offset, not the server's clock", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-12T23:30:00Z"), toFake: ["Date"] });
+    try {
+      server.serverGetUserStateBlob.mockResolvedValue({
+        utcOffset: 120,
+        away: { day: "2026-11-13", keys: ["ben"] },
+      });
+      server.serverListEntities.mockResolvedValue(TEAM);
+      const s = await run<State>("list_state", {}, "mcp");
+      expect(s.today).toBe("2026-11-13");
+      expect(s.awayToday).toEqual(["Ben"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
 describe("tool.picker.spin", () => {
+  it("keeps the team's round when the wheel goes to a list and back", async () => {
+    usePickerStore.setState({ removePicked: true });
+    const first = await run<{ name: string }>("spin", {});
+    const second = await run<{ name: string }>("spin", {});
+    const kept = readPicker().progress;
+    expect(kept.drawn).toHaveLength(2);
+    expect(kept.removed).toEqual([first.name, second.name].map((n) => n.toLowerCase()));
+    // add_names moves the wheel to the list it makes.
+    await run("add_names", { names: ["Nile", "Amazon"], list: "Rivers" });
+    expect(readPicker().source).not.toBe("team");
+    await run("spin", { source: "team" });
+    const back = readPicker().progress;
+    expect(back.drawn).toHaveLength(3);
+    expect(back.removed).toEqual(expect.arrayContaining(kept.removed));
+  });
+
   it("picks each person once before anyone twice, and saves each pick", async () => {
     const picked: string[] = [];
     for (let i = 0; i < 4; i++) {
@@ -151,6 +201,41 @@ describe("tool.picker.rotate_role", () => {
     const second = await run<{ person: string }>("rotate_role", { role: "role-facilitator" });
     expect(second.person).toBe("Ben");
     expect(readPicker().roleTurns.map((t) => t.person)).toEqual(["Amina", "Ben"]);
+  });
+
+  it("gives three roles to three different people on the same day", async () => {
+    const people: string[] = [];
+    for (const role of ["Facilitator", "Scribe", "Timekeeper"]) {
+      people.push((await run<{ person: string }>("rotate_role", { role })).person);
+    }
+    expect(people).toEqual(["Amina", "Ben", "Chloé"]);
+    const s = await run<State>("list_state", {});
+    expect(s.giveOutToday).toEqual([]);
+    const scribe = s.roles.find((r) => r.name === "Scribe")!;
+    expect(scribe.standings.find((r) => r.name === "Amina")?.roleToday).toBe("Facilitator");
+  });
+
+  it("rotates among the team even while the wheel spins a list of other names", async () => {
+    await run("add_names", { names: ["Nile", "Amazon"], list: "Name shortlist" });
+    expect(readPicker().source).not.toBe("team");
+    const r = await run<{ person: string }>("rotate_role", { role: "Facilitator" });
+    expect(r.person).toBe("Amina");
+  });
+
+  it("rotates among the list chosen for roles", async () => {
+    await run("add_names", { names: ["Gus", "Hana"], list: "Squad" });
+    const squad = readPicker().lists[0];
+    usePickerStore.setState({ roleSource: squad.id, source: "team" });
+    const r = await run<{ person: string }>("rotate_role", { role: "Scribe" });
+    expect(r.person).toBe("Gus");
+  });
+
+  it("takes a role the team added by the id list_state gives", async () => {
+    const id = `role-${"0".repeat(8)}-0000-4000-8000-${"0".repeat(12)}`;
+    expect(id).toHaveLength(41);
+    usePickerStore.setState({ roles: [...PICKER_INITIAL.roles, { id, name: "Demo driver" }] });
+    const r = await run<{ role: string; person: string }>("rotate_role", { role: id });
+    expect(r).toMatchObject({ role: "Demo driver", person: "Amina" });
   });
 
   it("passes over someone away today, and keeps them away for the day", async () => {
