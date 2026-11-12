@@ -7,9 +7,14 @@
  * produces.
  *
  * Which room mounts comes from `VISITOR_ROOM_KIND`, so a tool can never
- * fall into another tool's room. A vote round's link must also carry the
- * host's key fingerprint (`#k=`, a fragment the server never sees): without
- * it the page says the link is incomplete and offers no consent at all.
+ * fall into another tool's room: Poker and Retro their own rooms, vote
+ * tools the vote kit's `VoteJoinRoom`, show tools `ShowJoinRoom` (which
+ * draws frames through the renderers in `lib/realtime/show-room/renderers`,
+ * never tool page code) and wall tools `WallJoinRoom`. A signed room's link
+ * (vote, show, wall) must also carry the host's key fingerprint (`#k=`, a
+ * fragment the server never sees): without it the page says the link is
+ * incomplete and offers no consent at all. Each kind shows its own consent
+ * text first.
  *
  * `/join` is a bare route (no app shell), so this mounts the live-region
  * announcer and reduced-motion config the shell would otherwise provide.
@@ -32,10 +37,14 @@ import { brokenLinkArt } from "@/lib/ink/drawings/pages/broken-link";
 import { doorArt } from "@/lib/ink/drawings/pages/door";
 import type { InkDrawing } from "@/lib/ink/types";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
-import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
+import {
+  VisitorRoomConsent,
+  type VisitorRoomConsentVariant,
+} from "@/components/collab/visitor-room-consent";
 import {
   VISITOR_ROOM_KIND,
   readVisitorIdentity,
+  roomNeedsHostKey,
   saveVisitorIdentity,
   type VisitorIdentity,
   type VisitorRoomKind,
@@ -43,6 +52,8 @@ import {
 } from "@/lib/realtime/visitor-rooms";
 import { isVoteRoomTool } from "@/lib/realtime/vote-room/protocol";
 import { readVoteLinkFragment } from "@/lib/realtime/vote-room/crypto";
+import { isShowRoomTool } from "@/lib/realtime/show-room/protocol";
+import { isWallRoomTool } from "@/lib/realtime/wall-room/protocol";
 
 const VisitorPokerRoom = dynamic(
   () => import("@/app/(tools)/planning-poker/visitor-poker-room").then((m) => m.VisitorPokerRoom),
@@ -54,6 +65,14 @@ const VisitorRetroRoom = dynamic(
 );
 const VoteJoinRoom = dynamic(
   () => import("@/components/collab/vote-room/vote-join-room").then((m) => m.VoteJoinRoom),
+  { ssr: false, loading: RoomLoading }
+);
+const ShowJoinRoom = dynamic(
+  () => import("@/components/collab/show-room/show-join-room").then((m) => m.ShowJoinRoom),
+  { ssr: false, loading: RoomLoading }
+);
+const WallJoinRoom = dynamic(
+  () => import("@/components/collab/wall-room/wall-join-room").then((m) => m.WallJoinRoom),
   { ssr: false, loading: RoomLoading }
 );
 
@@ -96,6 +115,22 @@ const TOOL_NAMES: Record<VisitorTool, string> = {
 /** The room each kind of link opens (`VISITOR_ROOM_KIND`). */
 const ROOM: Readonly<Record<VisitorTool, VisitorRoomKind>> = VISITOR_ROOM_KIND;
 
+/** The consent each kind of room shows first. */
+const CONSENT_VARIANT: Readonly<Record<VisitorRoomKind, VisitorRoomConsentVariant>> = {
+  poker: "board",
+  retro: "board",
+  vote: "vote",
+  show: "show",
+  wall: "wall",
+};
+
+/** What the host's key proves, per signed room, for "This link is incomplete". */
+const KEY_PROVES: Readonly<Partial<Record<VisitorRoomKind, string>>> = {
+  vote: "the questions come from the host",
+  show: "what you see comes from the host",
+  wall: "the wall comes from the host",
+};
+
 type Stage =
   | { kind: "consent" }
   | { kind: "declined" }
@@ -128,27 +163,27 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
   useEffect(() => {
     setDefaultName(readVisitorIdentity(code)?.name ?? "");
   }, [code]);
-  // Vote rounds: the host key from `#k=`, read after mount (undefined until then).
-  const [linkKey, setLinkKey] = useState<string | null | undefined>(
-    kind === "vote" ? undefined : null
-  );
+  // Signed rooms (vote, show, wall): the host key from `#k=`, read after
+  // mount (undefined until then).
+  const signed = roomNeedsHostKey(kind);
+  const [linkKey, setLinkKey] = useState<string | null | undefined>(signed ? undefined : null);
   useEffect(() => {
-    if (kind === "vote") setLinkKey(readVoteLinkFragment(window.location.hash));
-  }, [kind]);
+    if (signed) setLinkKey(readVoteLinkFragment(window.location.hash));
+  }, [signed]);
 
   const confirm = (name: string) => {
     const identity = saveVisitorIdentity(code, name);
     setStage(identity ? { kind: "joined", identity } : { kind: "declined" });
   };
 
-  if (kind === "vote") {
+  if (signed) {
     if (linkKey === undefined) return <RoomLoading />;
     if (linkKey === null) {
       return (
         <OutsideRoom
           art={brokenLinkArt}
           title="This link is incomplete"
-          body="The link is missing the part that proves the questions come from the host, so nothing has connected. Ask the host to send it again with Copy link."
+          body={`The link is missing the part that proves ${KEY_PROVES[kind] ?? "the room comes from the host"}, so nothing has connected. Ask the host to send it again with Copy link.`}
         />
       );
     }
@@ -162,8 +197,30 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
     if (kind === "retro") {
       return <VisitorRetroRoom code={code} identity={stage.identity} onLeave={onLeave} />;
     }
-    if (isVoteRoomTool(tool)) {
+    if (kind === "vote" && isVoteRoomTool(tool)) {
       return <VoteJoinRoom tool={tool} code={code} identity={stage.identity} onLeave={onLeave} />;
+    }
+    if (kind === "show" && isShowRoomTool(tool)) {
+      return (
+        <ShowJoinRoom
+          tool={tool}
+          toolName={toolName}
+          code={code}
+          identity={stage.identity}
+          onLeave={onLeave}
+        />
+      );
+    }
+    if (kind === "wall" && isWallRoomTool(tool)) {
+      return (
+        <WallJoinRoom
+          tool={tool}
+          toolName={toolName}
+          code={code}
+          identity={stage.identity}
+          onLeave={onLeave}
+        />
+      );
     }
     return <RoomLoading />;
   }
@@ -181,7 +238,7 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
             if (!open) setStage({ kind: "declined" });
           }}
           mode="join"
-          variant={kind === "vote" ? "vote" : "board"}
+          variant={CONSENT_VARIANT[kind]}
           note={kind === "retro" ? RETRO_JOIN_NOTE : undefined}
           toolName={toolName}
           defaultName={defaultName}
