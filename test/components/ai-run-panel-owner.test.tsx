@@ -10,14 +10,31 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 const h = vi.hoisted(() => ({
   auth: null as { status: string; user: { id: string } | null } | null,
+  adapterCall: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/auth-provider", () => ({
   useAuthOptional: () => h.auth,
 }));
 
+// The personal-key run's adapter, so nothing leaves the machine.
+vi.mock("@/lib/llm/registry", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm/registry")>();
+  return {
+    ...actual,
+    getAdapter: async (id: string) => ({
+      id,
+      models: [],
+      defaultModelId: "test-model",
+      call: h.adapterCall,
+      testKey: async () => {},
+    }),
+  };
+});
+
 import AiRunPanel from "@/components/shared/ai-run-panel";
 import { TOOL_AI_ERROR_TEXT } from "@/lib/ai/contract";
+import { PROVIDER_META } from "@/lib/llm/registry";
 import { useLlmStore } from "@/lib/stores/llm-store";
 
 const enc = new TextEncoder();
@@ -38,13 +55,20 @@ let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   h.auth = { status: "authenticated", user: { id: "owner-1" } };
-  useLlmStore.setState({ activeProvider: null });
+  h.adapterCall.mockReset();
+  h.adapterCall.mockImplementation(async (params: { onChunk: (t: string) => void }) => {
+    params.onChunk("Own key answer.");
+    return { inputTokens: 10, outputTokens: 4 };
+  });
+  useLlmStore.setState({ activeProvider: null, providers: {} });
   fetchMock = vi.fn(async () => textStream(["Three themes ", "stood out."]));
   vi.stubGlobal("fetch", fetchMock);
 });
 
 afterEach(() => {
   cleanup();
+  useLlmStore.setState({ activeProvider: null, providers: {} });
+  window.localStorage.removeItem("agile-toolkit:llm");
   vi.unstubAllGlobals();
 });
 
@@ -101,5 +125,28 @@ describe("AiRunPanel for a visitor without a key", () => {
     render(<AiRunPanel prompt="Summarise this retro." toolName="Retro" />);
     expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
     expect(screen.queryByText("Amr's AI")).toBeNull();
+  });
+});
+
+describe("AiRunPanel for the owner with a personal key", () => {
+  it("keeps today's own-key run: the key's provider, never the owner route", async () => {
+    useLlmStore.setState({
+      activeProvider: "openai",
+      providers: { openai: { apiKey: "placeholder-not-a-key", model: "test-model" } },
+    });
+    const onResult = vi.fn();
+    render(<AiRunPanel prompt="Summarise this retro." toolName="Retro" onResult={onResult} />);
+    expect(screen.queryByText("Amr's AI")).toBeNull();
+    expect(screen.getByText(PROVIDER_META.openai.name)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    expect(await screen.findByText("Own key answer.")).toBeInTheDocument();
+    expect(h.adapterCall).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/ai/tool")).toBe(false);
+    await waitFor(() =>
+      expect(onResult).toHaveBeenCalledWith({
+        text: "Own key answer.",
+        usage: { inputTokens: 10, outputTokens: 4 },
+      })
+    );
   });
 });
