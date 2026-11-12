@@ -8,7 +8,7 @@
  * tests read the same numbers.
  */
 
-import type { Epic, KanbanCard, Story } from "@/lib/stores/workspace-types";
+import type { Epic, KanbanCard, Sprint, Story } from "@/lib/stores/workspace-types";
 import { cardItems, storyItems, type ThroughputPoint } from "@/lib/flow";
 import { fmt, plural } from "@/lib/charts/chart-text";
 import { formatDay } from "@/lib/sprints/release-forecast";
@@ -48,7 +48,11 @@ export const ITEMS_SOURCE_LABEL: Record<ItemsSource, string> = {
   typed: "Type a number",
 };
 
-/** A feature on the cut line: a typed item count, or an epic counted live. */
+/**
+ * A feature on the cut line: a typed item count, or an epic counted live
+ * (its open stories, as the Items left count reads the backlog). An epic
+ * taken off the roadmap counts nothing: the page says so.
+ */
 export interface ReleaseFeature {
   id: string;
   name: string;
@@ -155,30 +159,53 @@ export function itemsLeft(
 export interface FeatureRow {
   id: string;
   name: string;
-  /** The items counted for it (an epic's open stories now). */
+  /** The items counted for it (an epic's open stories now; 0 once its epic is gone). */
   items: number;
   epicId?: string;
   /** The epic it counts is no longer on the roadmap. */
   epicMissing: boolean;
 }
 
-/** Open stories of each epic, by epic id (example stories left out). */
-export function openStoriesByEpic(stories: readonly Story[]): Map<string, number> {
+/** Which stories count as left, the way Items left reads the backlog (scope-source backlogScope). */
+export interface OpenStoryRules {
+  /** The sprints, so stories in a completed or cancelled sprint don't count. */
+  sprints?: readonly Pick<Sprint, "id" | "status">[];
+  /** The running sprint when the forecast starts after it: its stories are its own work. */
+  skipSprintId?: string;
+}
+
+/**
+ * Open stories of each epic, by epic id, counted as Items left counts the
+ * backlog: example stories, stories in a closed sprint and the stories of
+ * the sprint the forecast starts after are left out.
+ */
+export function openStoriesByEpic(
+  stories: readonly Story[],
+  { sprints = [], skipSprintId }: OpenStoryRules = {}
+): Map<string, number> {
+  const status = new Map(sprints.map((s) => [s.id, s.status]));
   const out = new Map<string, number>();
   for (const s of stories) {
     if (!s.epicId || s.status === "done" || isExampleId(s.id)) continue;
+    const sprintStatus = s.sprintId ? status.get(s.sprintId) : undefined;
+    if (sprintStatus === "completed" || sprintStatus === "cancelled") continue;
+    if (skipSprintId && s.sprintId === skipSprintId) continue;
     out.set(s.epicId, (out.get(s.epicId) ?? 0) + 1);
   }
   return out;
 }
 
-/** The features as the cut line reads them: an epic's count is live; a typed one is its own. */
+/**
+ * The features as the cut line reads them: an epic's count is live (0 once
+ * the epic is off the roadmap); a typed one is its own.
+ */
 export function featureRows(
   features: readonly ReleaseFeature[] | undefined,
   stories: readonly Story[],
-  epics: readonly Pick<Epic, "id" | "title">[]
+  epics: readonly Pick<Epic, "id" | "title">[],
+  rules: OpenStoryRules = {}
 ): FeatureRow[] {
-  const open = openStoriesByEpic(stories);
+  const open = openStoriesByEpic(stories, rules);
   const byId = new Map(epics.map((e) => [e.id, e]));
   return (features ?? []).slice(0, FEATURES_MAX).map((f) => {
     if (f.epicId) {
@@ -186,7 +213,7 @@ export function featureRows(
       return {
         id: f.id,
         name: f.name.trim() || epic?.title || "Epic",
-        items: epic ? (open.get(f.epicId) ?? 0) : (f.items ?? 0),
+        items: epic ? (open.get(f.epicId) ?? 0) : 0,
         epicId: f.epicId,
         epicMissing: !epic,
       };
@@ -279,7 +306,7 @@ export function planItems(input: {
       items: input.items,
       start: input.start.date,
       target: input.target,
-      features: input.features.map((f) => ({ name: f.name, items: f.items })),
+      features: input.features.map((f) => ({ id: f.id, name: f.name, items: f.items })),
     }),
   };
 }
@@ -406,8 +433,11 @@ export function itemsMarkdown(plan: ItemsPlan, now: Date = new Date()): string {
       "|---:|---|---:|---|---|---|"
     );
     cut.rows.forEach((r, i) => {
+      // A feature with nothing left has no date of its own.
+      const p50 = r.items === 0 ? "Nothing left" : dayOr(r.p50Date);
+      const p85 = r.items === 0 ? "—" : dayOr(r.p85Date);
       lines.push(
-        `| ${i + 1} | ${md(r.name)} | ${r.items} | ${dayOr(r.p50Date)} | ${dayOr(r.p85Date)} | ${
+        `| ${i + 1} | ${md(r.name)} | ${r.items} | ${p50} | ${p85} | ${
           r.inByTarget === null ? "—" : r.inByTarget ? "Above the line" : "Below the line"
         } |`
       );

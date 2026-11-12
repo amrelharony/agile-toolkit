@@ -8,7 +8,7 @@
  * components show it and hand edits back.
  */
 
-import { useId, useState, type Ref } from "react";
+import { useEffect, useId, useRef, useState, type Ref } from "react";
 import Link from "next/link";
 import {
   ArrowDown,
@@ -63,7 +63,7 @@ import { validateItemCount } from "./validate";
 
 const linkCls = "text-accent underline-offset-2 hover:underline";
 
-/** "Forecast by": story points (velocity) or items (throughput). */
+/** "Forecast by": story points (velocity) or items (throughput), under a visible caption. */
 export function ModeSwitch({
   mode,
   onMode,
@@ -72,16 +72,22 @@ export function ModeSwitch({
   onMode: (mode: ForecastMode) => void;
 }) {
   return (
-    <ToggleGroup<ForecastMode>
-      label="Forecast by"
-      size="sm"
-      value={mode}
-      onValueChange={onMode}
-      options={[
-        { value: "points", label: "Story points" },
-        { value: "items", label: "Item count" },
-      ]}
-    />
+    <div className="flex flex-wrap items-center gap-2" data-forecast-by>
+      {/* The group's own name says the same to a screen reader. */}
+      <span aria-hidden="true" className="text-xs font-medium text-sub">
+        Forecast by
+      </span>
+      <ToggleGroup<ForecastMode>
+        label="Forecast by"
+        size="sm"
+        value={mode}
+        onValueChange={onMode}
+        options={[
+          { value: "points", label: "Story points" },
+          { value: "items", label: "Item count" },
+        ]}
+      />
+    </div>
   );
 }
 
@@ -463,6 +469,36 @@ export function ItemsResults({ plan, plotRef }: { plan: ItemsPlan; plotRef: Ref<
 
 /* ── The cut line ───────────────────────────────────────────────────── */
 
+/**
+ * Put focus back on a row's control after a move or a removal re-renders
+ * the list: the control pressed moved (React re-inserts the row) or is gone,
+ * and focus would drop to the top of the page. The caller names where focus
+ * goes, as `data-focus-key` values under `root`, in order of preference;
+ * after the next render the first one that is there and enabled gets it.
+ */
+function useFocusAfter(root: { current: HTMLElement | null }): (...keys: string[]) => void {
+  const pending = useRef<string[] | null>(null);
+  // No deps on purpose: whichever render follows the action shows the target.
+  useEffect(() => {
+    const keys = pending.current;
+    if (!keys) return;
+    pending.current = null;
+    const marked = Array.from(
+      root.current?.querySelectorAll<HTMLElement>("[data-focus-key]") ?? []
+    );
+    for (const key of keys) {
+      const el = marked.find((e) => e.dataset.focusKey === key);
+      if (el && !el.hasAttribute("disabled")) {
+        el.focus();
+        return;
+      }
+    }
+  });
+  return (...keys: string[]) => {
+    pending.current = keys;
+  };
+}
+
 export function CutLineCard({
   plan,
   features,
@@ -481,9 +517,27 @@ export function CutLineCard({
 }) {
   const [draft, setDraft] = useState<FeatureDraft>(EMPTY_FEATURE_DRAFT);
   const [errors, setErrors] = useState<Partial<Record<"name" | "items", string>>>({});
+  const rootRef = useRef<HTMLDivElement>(null);
+  const focusAfter = useFocusAfter(rootRef);
   const cut = plan.forecast.cutLine;
-  const byId = new Map(plan.features.map((r, i) => [r.id, { row: r, at: cut?.rows[i] }]));
-  const above = cut?.above ?? null;
+  // Matched by id, never by place: each stored feature with its row and its dates.
+  const rows = new Map(plan.features.map((r) => [r.id, r]));
+  const dates = new Map((cut?.rows ?? []).map((r) => [r.id, r]));
+  const target = cut?.target ?? null;
+  // The line sits above the first feature past the target (those above it all fit).
+  const firstBelow = target ? features.findIndex((f) => dates.get(f.id)?.inByTarget === false) : -1;
+
+  const move = (id: string, direction: -1 | 1) => {
+    // The same button once it has moved; the other way when that one is now at the end.
+    focusAfter(`${direction < 0 ? "up" : "down"}:${id}`, `${direction < 0 ? "down" : "up"}:${id}`);
+    onMove(id, direction);
+  };
+  const remove = (feature: ReleaseFeature, i: number) => {
+    // The next feature's Remove, else the one before's, else the name box.
+    const near = [features[i + 1], features[i - 1]].filter((f): f is ReleaseFeature => Boolean(f));
+    focusAfter(...near.map((f) => `remove:${f.id}`), "feature-name");
+    onRemove(feature);
+  };
 
   const submit = () => {
     const result = validateFeatureDraft(draft, epics, features.length);
@@ -498,7 +552,7 @@ export function CutLineCard({
 
   return (
     <SectionCard title="Features in order" icon={ListOrdered}>
-      <div className="space-y-4">
+      <div className="space-y-4" ref={rootRef}>
         <p className="text-sm text-sub">
           List the features in the order they&apos;ll be built. Each one&apos;s date counts the ones
           before it, and the target date draws the line: above it, likely done by then (85% of
@@ -508,13 +562,13 @@ export function CutLineCard({
         {features.length > 0 && (
           <ol aria-label="Features in order" className="space-y-2">
             {features.map((feature, i) => {
-              const info = byId.get(feature.id);
-              const row = info?.row;
-              const at = info?.at;
-              const lineHere = above !== null && i === above && plan.target;
+              const row = rows.get(feature.id);
+              const at = dates.get(feature.id);
+              const name = row?.name ?? feature.name;
+              const items = row?.items ?? feature.items ?? 0;
               return (
                 <li key={feature.id} className="space-y-2" data-feature={feature.id}>
-                  {lineHere && <CutMark target={plan.target as string} />}
+                  {target && i === firstBelow && <CutMark target={target} />}
                   <div
                     className={cn(
                       "flex flex-wrap items-center gap-2 rounded-lg border border-border p-3",
@@ -523,43 +577,48 @@ export function CutLineCard({
                   >
                     <div className="min-w-0 flex-1">
                       <p className="break-words text-sm font-medium text-text">
-                        {i + 1}. {row?.name ?? feature.name}
+                        {i + 1}. {name}
                       </p>
                       <p className="text-xs text-sub">
-                        {plural(row?.items ?? feature.items ?? 0, "item")}
+                        {plural(items, "item")}
                         {row?.epicId
                           ? row.epicMissing
-                            ? " · its epic is no longer on the roadmap"
+                            ? " · its epic is no longer on the roadmap, so nothing is counted"
                             : " · open stories in the epic"
                           : ""}
-                        {at
-                          ? ` · likely ${at.p50Date ? formatDay(at.p50Date) : "—"}, safe ${
-                              at.p85Date ? formatDay(at.p85Date) : "—"
-                            }`
-                          : ""}
+                        {at && items === 0
+                          ? " · nothing left to count"
+                          : at
+                            ? ` · likely ${at.p50Date ? formatDay(at.p50Date) : "—"}, safe ${
+                                at.p85Date ? formatDay(at.p85Date) : "—"
+                              }`
+                            : ""}
                         {at?.inByTarget === false ? " · below the line" : ""}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <IconButton
                         tooltip={false}
-                        label={`Move ${row?.name ?? feature.name} up`}
+                        label={`Move ${name} up`}
                         icon={<ArrowUp aria-hidden="true" />}
                         disabled={i === 0}
-                        onClick={() => onMove(feature.id, -1)}
+                        data-focus-key={`up:${feature.id}`}
+                        onClick={() => move(feature.id, -1)}
                       />
                       <IconButton
                         tooltip={false}
-                        label={`Move ${row?.name ?? feature.name} down`}
+                        label={`Move ${name} down`}
                         icon={<ArrowDown aria-hidden="true" />}
                         disabled={i === features.length - 1}
-                        onClick={() => onMove(feature.id, 1)}
+                        data-focus-key={`down:${feature.id}`}
+                        onClick={() => move(feature.id, 1)}
                       />
                       <IconButton
                         tooltip={false}
-                        label={`Remove ${row?.name ?? feature.name}`}
+                        label={`Remove ${name}`}
                         icon={<Trash2 aria-hidden="true" />}
-                        onClick={() => onRemove(feature)}
+                        data-focus-key={`remove:${feature.id}`}
+                        onClick={() => remove(feature, i)}
                       />
                     </div>
                   </div>
@@ -568,9 +627,7 @@ export function CutLineCard({
             })}
           </ol>
         )}
-        {features.length > 0 && above !== null && plan.target && above === features.length && (
-          <CutMark target={plan.target} />
-        )}
+        {features.length > 0 && target && firstBelow < 0 && <CutMark target={target} />}
 
         {features.length > 0 && !cut && (
           <p className="text-sm text-sub">The dates appear once there is a forecast.</p>
@@ -592,6 +649,7 @@ export function CutLineCard({
               {(props) => (
                 <Input
                   {...props}
+                  data-focus-key="feature-name"
                   value={draft.name}
                   maxLength={120}
                   placeholder="e.g. Saved cards"

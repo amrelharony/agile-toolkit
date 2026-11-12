@@ -228,9 +228,11 @@ export function ReleasePlannerClient() {
   const finished = useMemo(() => finishedOn(stories, cards), [stories, cards]);
   const throughputSource = resolveThroughputSource(config.throughputSource, finished);
   const itemsSource = resolveItemsSource(config.itemsSource, backlog);
+  // An epic's open stories count as Items left counts the backlog.
   const features = useMemo(
-    () => featureRows(config.features, stories, epics),
-    [config.features, stories, epics]
+    () =>
+      featureRows(config.features, stories, epics, { sprints, skipSprintId: runningBefore?.id }),
+    [config.features, stories, epics, sprints, runningBefore?.id]
   );
   const itemsPlan = useMemo(
     () =>

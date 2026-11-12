@@ -63,6 +63,7 @@ import {
 import {
   featureRows,
   movedFeature,
+  openStoriesByEpic,
   validateFeatureDraft,
 } from "@/app/(tools)/release-planner/throughput";
 import { validateItemCount } from "@/app/(tools)/release-planner/validate";
@@ -108,6 +109,11 @@ afterEach(() => {
 describe("the mode", () => {
   it("keeps story points as the default and switches to items and back", () => {
     renderPlanner();
+    // The switch carries a visible caption, the words the guide points to.
+    expect(document.querySelector("[data-forecast-by]")).toHaveTextContent(
+      /^Forecast byStory pointsItem count$/
+    );
+    expect(screen.getByRole("radiogroup", { name: "Forecast by" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Story points" })).toHaveAttribute(
       "aria-checked",
       "true"
@@ -340,15 +346,146 @@ describe("the cut line", () => {
     });
     renderPlanner();
     expect(screen.getByRole("button", { name: "Move Saved cards up" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Move Saved cards down" }));
+    const down = screen.getByRole("button", { name: "Move Saved cards down" });
+    down.focus();
+    fireEvent.click(down);
     expect(config().features?.map((f) => f.id)).toEqual(["f2", "f1"]);
+    // Now last, its Move down is disabled: focus stays on the feature, on Move up.
+    expect(screen.getByRole("button", { name: "Move Saved cards down" })).toBeDisabled();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Move Saved cards up" })
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove Refunds" }));
+    const remove = screen.getByRole("button", { name: "Remove Refunds" });
+    remove.focus();
+    fireEvent.click(remove);
     expect(config().features?.map((f) => f.id)).toEqual(["f1"]);
+    // Focus goes to the next feature's Remove, not to the page.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Remove Saved cards" }));
     const [label, opts] = toastSpy.mock.calls[0];
     expect(label).toBe("Removed “Refunds” from the features");
     act(() => opts.action.onClick());
     expect(config().features?.map((f) => f.id)).toEqual(["f2", "f1"]);
+  });
+
+  it("keeps focus on a feature moved up, and on the name box once the last one is removed", () => {
+    useReleasePlannerStore.setState({
+      config: {
+        ...base,
+        features: [
+          { id: "f1", name: "Saved cards", items: 8 },
+          { id: "f2", name: "Refunds", items: 12 },
+          { id: "f3", name: "Receipts", items: 6 },
+        ],
+      },
+    });
+    renderPlanner();
+    fireEvent.click(screen.getByRole("button", { name: "Move Receipts up" }));
+    expect(config().features?.map((f) => f.id)).toEqual(["f1", "f3", "f2"]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Move Receipts up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Move Receipts up" }));
+    // First now: its Move up is disabled, so focus takes its Move down.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Move Receipts down" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Refunds" }));
+    // The last one: the one before it takes focus.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Remove Saved cards" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Saved cards" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Receipts" }));
+    expect(config().features).toEqual([]);
+    expect(document.activeElement).toBe(
+      within(screen.getByRole("form", { name: "Add a feature" })).getByLabelText("Feature")
+    );
+  });
+
+  it("dates each feature by its own row when an epic before it has nothing left", () => {
+    useWorkspaceStore.setState({
+      epicRoadmaps: [
+        {
+          id: "epicRoadmap:current",
+          epics: [
+            { id: "e1", title: "Wallets", startQuarter: "Q1", endQuarter: "Q2", progress: 100 },
+          ],
+        },
+      ],
+      // Every story in the epic is done.
+      stories: [{ ...open("w1", { epicId: "e1" }), status: "done" }],
+    });
+    useReleasePlannerStore.setState({
+      config: {
+        ...base,
+        features: [
+          { id: "fA", name: "", epicId: "e1" },
+          { id: "fB", name: "Typed", items: 10 },
+        ],
+      },
+    });
+    renderPlanner();
+    const items = within(screen.getByRole("list", { name: "Features in order" })).getAllByRole(
+      "listitem"
+    );
+    expect(items[0]).toHaveTextContent(
+      "1. Wallets0 items · open stories in the epic · nothing left to count"
+    );
+    expect(items[0]).not.toHaveTextContent("likely");
+    expect(items[1]).toHaveTextContent("2. Typed10 items · likely Dec 7, 2026, safe Dec 7, 2026");
+    // Both fit by Dec 28: no line between them, one after the list.
+    expect(items[1].querySelector("[data-cut-line]")).toBeNull();
+    expect(items[1]).not.toHaveTextContent("below the line");
+    const lines = document.querySelectorAll("[data-cut-line]");
+    expect(lines).toHaveLength(1);
+    expect(items[1].contains(lines[0])).toBe(false);
+    // The export lists both, each with its own dates.
+    const md = screen.getByTestId("export-markdown").textContent ?? "";
+    expect(md).toContain("| 1 | Wallets | 0 | Nothing left | — | Above the line |");
+    expect(md).toContain("| 2 | Typed | 10 | Dec 7, 2026 | Dec 7, 2026 | Above the line |");
+  });
+
+  it("counts nothing for an epic taken off the roadmap, and says so", () => {
+    const roadmap = (epics: { id: string; title: string }[]) => ({
+      epicRoadmaps: [
+        {
+          id: "epicRoadmap:current",
+          epics: epics.map((e) => ({ ...e, startQuarter: "Q1", endQuarter: "Q2", progress: 0 })),
+        },
+      ],
+    });
+    useWorkspaceStore.setState({
+      ...roadmap([{ id: "e1", title: "Wallets" }]),
+      stories: [open("w1", { epicId: "e1" }), open("w2", { epicId: "e1" })],
+    });
+    useReleasePlannerStore.setState({
+      config: { ...base, features: [{ id: "fB", name: "Refunds", items: 23 }] },
+    });
+    renderPlanner();
+    const form = screen.getByRole("form", { name: "Add a feature" });
+    fireEvent.change(within(form).getByLabelText("Or an epic"), { target: { value: "e1" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Move Wallets up" }));
+    expect(config().features?.map((f) => f.name)).toEqual(["Wallets", "Refunds"]);
+    let items = within(screen.getByRole("list", { name: "Features in order" })).getAllByRole(
+      "listitem"
+    );
+    expect(items[0]).toHaveTextContent(
+      "1. Wallets2 items · open stories in the epic · likely Nov 23, 2026"
+    );
+    // 25 items take 7 weeks: past the target.
+    expect(items[1]).toHaveTextContent("2. Refunds23 items · likely Jan 4, 2027");
+    expect(items[1]).toHaveTextContent("below the line");
+
+    act(() => useWorkspaceStore.setState(roadmap([])));
+    items = within(screen.getByRole("list", { name: "Features in order" })).getAllByRole(
+      "listitem"
+    );
+    expect(items[0]).toHaveTextContent(
+      "1. Wallets0 items · its epic is no longer on the roadmap, so nothing is counted · nothing left to count"
+    );
+    // Refunds' 23 items alone fit in the 6 weeks: its own dates, above the line.
+    expect(items[1]).toHaveTextContent(
+      "2. Refunds23 items · likely Dec 28, 2026, safe Dec 28, 2026"
+    );
+    expect(items[1]).not.toHaveTextContent("below the line");
+    expect(items[1].querySelector("[data-cut-line]")).toBeNull();
   });
 
   it("counts an epic's open stories live", () => {
@@ -430,23 +567,48 @@ describe("the pure parts", () => {
     expect(full).toEqual({ ok: false, errors: { name: "The cut line holds up to 30 features." } });
   });
 
-  it("reads features: an epic gone from the roadmap keeps its last count", () => {
+  it("reads features: an epic gone from the roadmap counts nothing", () => {
     expect(
       featureRows(
         [
-          { id: "a", name: "", epicId: "gone", items: 3 },
+          { id: "a", name: "", epicId: "gone" },
           { id: "b", name: "Typed", items: 4 },
         ],
-        [],
+        [open("s", { epicId: "gone" })],
         []
       )
     ).toEqual([
-      { id: "a", name: "Epic", items: 3, epicId: "gone", epicMissing: true },
+      { id: "a", name: "Epic", items: 0, epicId: "gone", epicMissing: true },
       { id: "b", name: "Typed", items: 4, epicMissing: false },
     ]);
     expect(movedFeature([{ id: "a", name: "A", items: 1 }], "a", -1)).toEqual([
       { id: "a", name: "A", items: 1 },
     ]);
+  });
+
+  it("counts an epic's open stories as Items left counts the backlog", () => {
+    const stories: Story[] = [
+      open("a", { epicId: "e" }),
+      open("b", { epicId: "e", sprintId: "closed" }), // a completed sprint's leftover
+      open("c", { epicId: "e", sprintId: "running" }), // the sprint the forecast starts after
+      open("d", { epicId: "e", sprintId: "next" }),
+      open("example-e", { epicId: "e" }),
+      { ...open("f", { epicId: "e" }), status: "done" },
+    ];
+    const sprints = [
+      { id: "closed", status: "completed" as const },
+      { id: "running", status: "active" as const },
+      { id: "next", status: "planned" as const },
+    ];
+    expect(openStoriesByEpic(stories).get("e")).toBe(4);
+    expect(openStoriesByEpic(stories, { sprints }).get("e")).toBe(3);
+    expect(openStoriesByEpic(stories, { sprints, skipSprintId: "running" }).get("e")).toBe(2);
+    expect(
+      featureRows([{ id: "x", name: "", epicId: "e" }], stories, [{ id: "e", title: "E" }], {
+        sprints,
+        skipSprintId: "running",
+      })[0].items
+    ).toBe(2);
   });
 
   it("reads the stored item fields back safely", () => {
