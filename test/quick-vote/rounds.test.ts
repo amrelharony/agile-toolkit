@@ -9,8 +9,11 @@ import {
   presetById,
 } from "@/lib/quick-vote/presets";
 import {
+  currentDraft,
   draftEdited,
   draftFromPreset,
+  hasDecimalComma,
+  typedNumber,
   normalizeDraft,
   parseLines,
   validateRoundDraft,
@@ -198,6 +201,27 @@ describe("checking the round (validateRoundDraft)", () => {
     expect(ok.ok && ok.values.kind === "number" && [ok.values.min, ok.values.max]).toEqual([
       1000, 5000,
     ]);
+  });
+
+  it("refuses a decimal comma instead of reading 2,5 as 25", () => {
+    const g = (over: Partial<RoundDraft>) => validateRoundDraft(draftOf("guess-number", over));
+    const comma = g({ min: "0", max: "2,5", decimals: 1 });
+    expect(!comma.ok && comma.errors.max).toBe(
+      "Use a point for decimals in the highest answer, like 2.5."
+    );
+    expect(hasDecimalComma("2,5")).toBe(true);
+    expect(hasDecimalComma("1,50")).toBe(true);
+    expect(hasDecimalComma("1,500")).toBe(false);
+    expect(hasDecimalComma("12,000.5")).toBe(false);
+    expect(hasDecimalComma("2.5")).toBe(false);
+    expect(typedNumber("14,5")).toBeNaN();
+    expect(typedNumber("1,500")).toBe(1500);
+    expect(typedNumber(" ")).toBeUndefined();
+  });
+
+  it("shows a fresh fist of five when nothing is set up, as the page does", () => {
+    expect(currentDraft(null)).toEqual(draftOf("fist-of-five"));
+    expect(currentDraft({ presetId: "roti" }).presetId).toBe("roti");
   });
 
   it("uses a format's own answers whatever text is in the options box", () => {

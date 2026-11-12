@@ -12,6 +12,7 @@ import {
   presetName,
   resultKind,
   resultSummary,
+  savedDay,
   type SavedResult,
   type StoredChoiceResult,
   type StoredRankResult,
@@ -61,7 +62,7 @@ export function generateQuickVotePrompts(data: {
     data.results
       .slice(0, 12)
       .map((s) => [
-        s.savedAt.slice(0, 10),
+        savedDay(s.savedAt),
         presetName(s),
         sanitizePromptCell(s.result.title, 100),
         sanitizePromptCell(resultSummary(s), 160),

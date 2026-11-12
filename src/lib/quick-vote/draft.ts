@@ -138,10 +138,21 @@ export function parseLines(text: string, max: number): string[] {
     .filter((line) => line.length > 0);
 }
 
-/** A number typed in a box: undefined when blank, NaN when it isn't one. */
-function typedNumber(raw: string): number | undefined {
+/**
+ * Whether a typed number has a comma that isn't a thousands separator
+ * ("2,5", "14,5"): a decimal comma, refused rather than read as 25 or 145.
+ * "1,500" and "12,000.5" are thousands, and fine.
+ */
+export function hasDecimalComma(raw: string): boolean {
+  const t = raw.trim();
+  return t.includes(",") && !/^[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(t);
+}
+
+/** A number typed in a box: undefined when blank, NaN when it isn't one (a decimal comma too). */
+export function typedNumber(raw: string): number | undefined {
   const t = raw.trim();
   if (t === "") return undefined;
+  if (hasDecimalComma(t)) return NaN;
   return Number(t.replace(/,/g, ""));
 }
 
@@ -151,6 +162,9 @@ function hasDecimals(v: number, decimals: number): boolean {
 }
 
 // ── Drafts ───────────────────────────────────────────────────────────
+
+/** The format a new page starts on, before anything is set up. */
+export const DEFAULT_PRESET_ID: PresetId = "fist-of-five";
 
 /** A fresh draft for a format: its question, answers and range. */
 export function draftFromPreset(preset: QuickVotePreset): RoundDraft {
@@ -233,6 +247,14 @@ export function normalizeDraft(raw: unknown): RoundDraft | null {
   };
 }
 
+/**
+ * The round set up now, as the page shows it: the stored draft, or a fresh
+ * fist of five when none is stored (so Amr and the page agree).
+ */
+export function currentDraft(raw: unknown): RoundDraft {
+  return normalizeDraft(raw) ?? draftFromPreset(presetById(DEFAULT_PRESET_ID) as QuickVotePreset);
+}
+
 /** The options a draft's round offers: its own list, or the format's. */
 export function draftOptions(draft: RoundDraft, preset: QuickVotePreset): PresetOption[] {
   if (preset.id === "feelings") return feelingsOptions(draft.feelingsCore);
@@ -300,8 +322,9 @@ export function validateRoundDraft(draft: RoundDraft): Validation<RoundSetup, Dr
     const max = typedNumber(draft.max);
     const decimals = draft.decimals;
     const lim = VOTE_LIMITS.maxNumberAbs;
-    const check = (v: number | undefined, label: string): string | null => {
+    const check = (v: number | undefined, label: string, raw: string): string | null => {
       if (v === undefined) return `Give the ${label} answer people can give.`;
+      if (hasDecimalComma(raw)) return `Use a point for decimals in the ${label} answer, like 2.5.`;
       if (!Number.isFinite(v) || Math.abs(v) > lim) {
         return `The ${label} answer needs to be a number from −${lim.toLocaleString("en-US")} to ${lim.toLocaleString("en-US")}.`;
       }
@@ -312,8 +335,8 @@ export function validateRoundDraft(draft: RoundDraft): Validation<RoundSetup, Dr
       }
       return null;
     };
-    const minProblem = check(min, "lowest");
-    const maxProblem = check(max, "highest");
+    const minProblem = check(min, "lowest", draft.min);
+    const maxProblem = check(max, "highest", draft.max);
     if (minProblem) errors.min = minProblem;
     if (maxProblem) errors.max = maxProblem;
     if (!minProblem && !maxProblem && min !== undefined && max !== undefined) {

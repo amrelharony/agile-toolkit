@@ -18,6 +18,7 @@ import {
   normalizeResults,
   normalizeRoundResult,
   resultSummary,
+  savedDay,
   showsAgreement,
   valuePicks,
   type SavedResult,
@@ -271,12 +272,24 @@ describe("sending and exporting", () => {
   it("hands over the question with its headline, the options in order and the leader", () => {
     const src = resultHandoff(saved(choiceResult("roman", [1, 3, 0], 4), "roman"));
     expect(src).toMatchObject({
-      title: "Do we go ahead with this?: top: Sideways (3)",
+      title: "Do we go ahead with this? Most picked: Sideways (3)",
       tone: "question",
       sourceRef: { tool: "quick-vote", id: "qvr-1" },
       decision: { options: ["Sideways", "Thumbs up", "Thumbs down"], recommendation: "Sideways" },
     });
     expect(src.description).toBe("Roman vote. 4 people answered. Top: Sideways (3 votes).");
+  });
+
+  it("ends a question with no mark of its own before the headline", () => {
+    const r = saved(scaleResult("roti", [0, 1, 2, 3, 1]), "roti");
+    r.result = { ...r.result, title: "Thursday demos" };
+    expect(resultHandoff(r).title).toMatch(/^Thursday demos\. Average \d(\.\d)? of 4$/);
+  });
+
+  it("dates an export by the local day it was saved, not the UTC one", () => {
+    // 01:00 local time: in Cairo the UTC day is the day before.
+    expect(savedDay(new Date(2026, 10, 12, 1, 0).toISOString())).toBe("2026-11-12");
+    expect(savedDay("junk")).toBe("junk");
   });
 
   it("leaves the recommendation out of a tie, and decisions out of a scale", () => {

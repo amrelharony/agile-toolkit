@@ -28,8 +28,11 @@ export function CountHands({
   minN: number;
   /** Counted from paper slips, never a show of hands: the answers stay anonymous. */
   slips?: boolean;
-  /** Returns false when nothing was stored (the tool said why). */
-  onSave: (result: ChoiceRoundResult) => boolean;
+  /**
+   * Returns false when nothing was stored (the tool said why). `onUndone`
+   * runs if the host undoes the save, so the form takes its counts back.
+   */
+  onSave: (result: ChoiceRoundResult, onUndone: () => void) => boolean;
   disabled?: boolean;
 }) {
   const [typed, setTyped] = useState<HandCounts>({ counts: {}, people: "" });
@@ -51,7 +54,12 @@ export function CountHands({
       return;
     }
     const result = handCountResult(sheet, check.values, minN);
-    if (result && onSave(result)) {
+    const counted = typed;
+    const undone = () => {
+      setSaved(false);
+      setTyped(counted);
+    };
+    if (result && onSave(result, undone)) {
       setSaved(true);
       setTyped({ counts: {}, people: "" });
       setTried(false);
@@ -136,11 +144,8 @@ export function CountHands({
           <Check aria-hidden="true" />
           Save round
         </Button>
-        {saved && (
-          <p role="status" className="text-xs text-success">
-            Saved to the results below.
-          </p>
-        )}
+        {/* The page announces the save. */}
+        {saved && <p className="text-xs text-success">Saved to the results below.</p>}
       </div>
     </form>
   );

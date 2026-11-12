@@ -41,6 +41,7 @@ import {
 import {
   LABEL_MAX,
   OPTION_MAX,
+  currentDraft,
   QUESTION_MAX,
   UNIT_MAX,
   draftFromPreset,
@@ -108,8 +109,7 @@ function customOut(c: CustomPreset) {
 }
 
 /** The round being set up, as the page shows it, with what's still missing. */
-function draftOut(draft: RoundDraft | null) {
-  if (!draft) return null;
+function draftOut(draft: RoundDraft) {
   const preset = presetById(draft.presetId);
   const check = validateRoundDraft(draft);
   return {
@@ -152,7 +152,8 @@ function listState(state: QuickVoteState) {
   return {
     formats: QUICK_VOTE_PRESETS.length,
     yourFormats: state.customPresets.map(customOut),
-    settingUp: draftOut(state.draft),
+    // As the page: with nothing stored yet, a fist of five is set up.
+    settingUp: draftOut(currentDraft(state.draft)),
     results: state.results.length,
     latest: latest ? resultOut(latest) : null,
   };
@@ -165,7 +166,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Quick Vote as the page shows it. Returns {formats (how many built-in), yourFormats: {id, name, format, question}[] (the host's saved formats), settingUp: {format, formatName, kind, question, ready, answers? | missing?} | null (the round set up on the page; `missing` lists what's still needed), results (saved rounds), latest: the newest saved round in one line | null}. Totals only: nobody's answers.",
+    "Quick Vote as the page shows it. Returns {formats (how many built-in), yourFormats: {id, name, format, question}[] (the host's saved formats), settingUp: {format, formatName, kind, question, ready, answers? | missing?} (the round set up on the page, a fist of five until another is set up; `missing` lists what's still needed), results (saved rounds), latest: the newest saved round in one line | null}. Totals only: nobody's answers.",
   paramsSchema: z.object({}),
   handler: async () => listState(await browserState()),
   mcpHandler: async (_p, ctx) => listState(await serverState(ctx.userId)),

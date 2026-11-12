@@ -18,6 +18,7 @@
 
 import type { VoteRoomTool, VoteScale } from "@/lib/realtime/vote-room/protocol";
 import type { HandoffLink, HandoffRouteId } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import { cleanLine } from "./draft";
 import { isPresetId, presetById, type PresetId, type QuickVoteKind } from "./presets";
 
@@ -509,6 +510,16 @@ export function showsAgreement(saved: SavedResult): boolean {
     return Boolean(up && down) && down.total === 0 && up.total * 2 > c.ballots;
   }
   return false;
+}
+
+/**
+ * The day a result was saved, YYYY-MM-DD in the viewer's own time zone, as
+ * the list shows it (an ISO slice would give the UTC day: yesterday, for a
+ * round saved after midnight east of UTC).
+ */
+export function savedDay(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso.slice(0, 10) : todayLocalISO(d);
 }
 
 /** The format's name for a saved result. */

@@ -26,9 +26,13 @@ import { toast } from "@/lib/utils/toast";
 import { VOTE_LIMITS } from "@/lib/realtime/vote-room/protocol";
 import { presetById, type QuickVotePreset } from "@/lib/quick-vote/presets";
 import {
+  DEFAULT_PRESET_ID,
+  currentDraft,
   draftEdited,
   draftFromPreset,
+  hasDecimalComma,
   normalizeDraft,
+  typedNumber,
   validateRoundDraft,
   type DraftField,
   type RoundDraft,
@@ -41,6 +45,7 @@ import {
   presetName,
   resultKind,
   resultSummary,
+  savedDay,
   showsAgreement,
   type SavedResult,
   type StoredNumberResult,
@@ -68,7 +73,7 @@ import { RunRound } from "./run-round";
 import { DELETE_RESULT_SELECTOR, ResultsList } from "./results-list";
 import { SaveFormatForm } from "./save-format-form";
 
-const DEFAULT_PRESET = presetById("fist-of-five") as QuickVotePreset;
+const DEFAULT_PRESET = presetById(DEFAULT_PRESET_ID) as QuickVotePreset;
 const FIELD_ORDER: DraftField[] = ["question", "options", "labels", "limit", "min", "max", "unit"];
 
 const ws = () => useWorkspaceStore.getState();
@@ -101,10 +106,7 @@ export function QuickVoteClient() {
   const rawDraft = useQuickVote((s) => s.draft);
   const storedResults = useMemo(() => normalizeResults(rawResults), [rawResults]);
   const storedPresets = useMemo(() => normalizeCustomPresets(rawPresets), [rawPresets]);
-  const draft = useMemo(
-    () => normalizeDraft(rawDraft) ?? draftFromPreset(DEFAULT_PRESET),
-    [rawDraft]
-  );
+  const draft = useMemo(() => currentDraft(rawDraft), [rawDraft]);
 
   const [example, setExample] = useState<QuickVoteExample | null>(null);
   const preview = example !== null;
@@ -278,7 +280,7 @@ export function QuickVoteClient() {
   };
 
   /** Count hands' Save round: no kit toast, so the Undo is ours. */
-  const saveCounts = (result: ChoiceRoundResult): boolean => {
+  const saveCounts = (result: ChoiceRoundResult, onUndone: () => void): boolean => {
     const saved = fileResult(result);
     if (!saved) return false;
     undoable({
@@ -286,7 +288,11 @@ export function QuickVoteClient() {
       kind: "success",
       // Filed just above, with its history line and Amr's moment in the same tick.
       apply: () => {},
-      revert: () => unfile(saved.id),
+      // The count form drops its "Saved" line and takes its counts back.
+      revert: () => {
+        unfile(saved.id);
+        onUndone();
+      },
     });
     return true;
   };
@@ -318,10 +324,12 @@ export function QuickVoteClient() {
 
   const realAnswer = (saved: SavedResult, typed: string): string | null => {
     if (readOnly) return "Clear the example first.";
-    const t = typed.trim().replace(/,/g, "");
-    if (!t) return "Type the real answer.";
-    const n = Number(t);
-    if (!Number.isFinite(n) || Math.abs(n) > 1e9) return "The real answer needs to be a number.";
+    if (!typed.trim()) return "Type the real answer.";
+    if (hasDecimalComma(typed)) return "Use a point for decimals, like 14.5.";
+    const n = typedNumber(typed);
+    if (n === undefined || !Number.isFinite(n) || Math.abs(n) > 1e9) {
+      return "The real answer needs to be a number.";
+    }
     updateResults((list) => list.map((x) => (x.id === saved.id ? { ...x, realAnswer: n } : x)));
     announce(guessVerdict(saved.result as StoredNumberResult, n));
     return null;
@@ -372,7 +380,7 @@ export function QuickVoteClient() {
     () => ({
       headers: ["Saved", "Format", "Question", "People", "How", "Result"],
       rows: results.map((s) => [
-        s.savedAt.slice(0, 10),
+        savedDay(s.savedAt),
         presetName(s),
         s.result.title,
         s.result.ballots,

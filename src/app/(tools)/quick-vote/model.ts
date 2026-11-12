@@ -105,7 +105,7 @@ export function savedFromRound(
   return saved;
 }
 
-/** A short headline for a result: "average 3.4 of 5", "top: Cafe (4)". */
+/** A short headline for a result, as a sentence: "Average 3.4 of 5", "Most picked: Cafe (4)". */
 export function resultHeadline(saved: SavedResult): string {
   const r = saved.result;
   switch (resultKind(r)) {
@@ -114,26 +114,36 @@ export function resultHeadline(saved: SavedResult): string {
       const mean = scaleMean(s);
       const top = s.scale.points[s.scale.points.length - 1]?.value;
       return mean === null
-        ? "too few answers to show"
-        : `average ${Math.round(mean * 10) / 10} of ${top}`;
+        ? "Too few answers to show"
+        : `Average ${Math.round(mean * 10) / 10} of ${top}`;
     }
     case "choice": {
       const { texts, total } = choiceLeaders(r as StoredChoiceResult);
-      if (texts.length === 0) return "nothing picked";
+      if (texts.length === 0) return "Nothing picked";
       return texts.length === 1
-        ? `top: ${texts[0]} (${total})`
-        : `tied: ${texts.join(", ")} (${total} each)`;
+        ? `Most picked: ${texts[0]} (${total})`
+        : `Tied: ${texts.join(", ")} (${total} each)`;
     }
     case "rank": {
       const k = r as StoredRankResult;
       const best = k.options.reduce((a, b) => (b.points > a.points ? b : a));
-      return `first: ${best.text}`;
+      return `First: ${best.text}`;
     }
     case "number": {
       const n = r as StoredNumberResult;
-      return `median ${withUnit(n.median, n.unit)}`;
+      return `Median ${withUnit(n.median, n.unit)}`;
     }
   }
+}
+
+/**
+ * The question, then its headline as a second sentence: "Do we go ahead
+ * with this? Most picked: Thumbs up (4)". A question without its own end
+ * mark gets a full stop, never "this?: top:".
+ */
+export function resultTitle(saved: SavedResult): string {
+  const q = saved.result.title.trim();
+  return `${q}${/[?.!:]$/.test(q) ? "" : "."} ${resultHeadline(saved)}`;
 }
 
 /**
@@ -144,7 +154,7 @@ export function resultHeadline(saved: SavedResult): string {
 export function resultHandoff(saved: SavedResult): HandoffSource {
   const r = saved.result;
   const src: HandoffSource = {
-    title: `${r.title}: ${resultHeadline(saved)}`,
+    title: resultTitle(saved),
     description: `${presetById(saved.presetId)?.name ?? "Quick Vote"}. ${resultSummary(saved)}`,
     tone: "question",
     sourceRef: { tool: "quick-vote", id: saved.id },

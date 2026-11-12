@@ -402,8 +402,12 @@ describe("running a round and saving its totals", () => {
       result: { kind: "choice", ballots: 4, source: "facilitator" },
     });
     expect(screen.getByText("Saved to the results below.")).toBeInTheDocument();
+    expect(screen.getByLabelText("People who picked it: Thumbs up")).toHaveValue("");
     undo("Saved the round");
     expect(qv().results).toEqual([]);
+    // Undone: the form says so, and has the counts back to save again.
+    expect(screen.queryByText("Saved to the results below.")).toBeNull();
+    expect(screen.getByLabelText("People who picked it: Thumbs up")).toHaveValue("3");
   });
 
   it("shows ESVP only from 5 people, like Psych Safety", async () => {
@@ -574,6 +578,10 @@ describe("saved results", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // The kit's view of the newest round (a fist of five) fills the panel.
+    const panel = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    expect(panel).toBeVisible();
+    expect(within(panel).getAllByText(/4: I like it/).length).toBeGreaterThan(0);
     expect(screen.getByTestId("quick-vote-verdict")).toHaveTextContent("Latest, Fist of five");
   });
 
@@ -611,7 +619,8 @@ describe("saved results", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Decision Log" }));
     const [decision] = ws().decisions;
     expect(decision).toMatchObject({
-      title: "Which retro topics should we talk about first?: top: Flaky end-to-end tests (7)",
+      title:
+        "Which retro topics should we talk about first? Most picked: Flaky end-to-end tests (7)",
       status: "proposed",
       sourceRef: { tool: "quick-vote", id: "qvr-2" },
       recommendation: "Flaky end-to-end tests",
@@ -633,7 +642,7 @@ describe("saved results", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Retro topic" }));
     const board = (ws().retroBoards ?? []).find((b) => b.id === RETRO_CURRENT_ID);
     expect(board?.cards[0]).toMatchObject({
-      text: "How much was this Sprint Review worth the time you gave it?: average 2.6 of 4",
+      text: "How much was this Sprint Review worth the time you gave it? Average 2.6 of 4",
       sourceRef: { tool: "quick-vote", id: "qvr-3" },
     });
   });
@@ -645,6 +654,11 @@ describe("saved results", () => {
     fireEvent.change(box, { target: { value: "lots" } });
     fireEvent.click(screen.getByRole("button", { name: "Add the real answer" }));
     expect(screen.getByRole("alert")).toHaveTextContent("The real answer needs to be a number.");
+    // A decimal comma is refused, never read as 145.
+    fireEvent.change(box, { target: { value: "14,5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add the real answer" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Use a point for decimals, like 14.5.");
+    expect(qv().results[0].realAnswer).toBeUndefined();
     fireEvent.change(box, { target: { value: "14" } });
     fireEvent.click(screen.getByRole("button", { name: "Add the real answer" }));
     expect(qv().results[0].realAnswer).toBe(14);

@@ -59,8 +59,8 @@ export interface RunRoundProps {
   blockedReason: string | null;
   /** The kit's Save round: totals only. An undo, or false when nothing was stored. */
   onSave: (result: RoundResult) => false | (() => void);
-  /** Count hands' Save round (no kit toast): true when stored. */
-  onSaveCounts: (result: ChoiceRoundResult) => boolean;
+  /** Count hands' Save round (no kit toast): true when stored; `onUndone` runs on its Undo. */
+  onSaveCounts: (result: ChoiceRoundResult, onUndone: () => void) => boolean;
   /** Hold-up cards opened. */
   onCards: () => void;
   readOnly: boolean;
