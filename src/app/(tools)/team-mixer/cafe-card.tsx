@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { AlertTriangle, Coffee, Info } from "lucide-react";
 import { SectionCard } from "@/components/shared/section-card";
 import { ToggleGroup } from "@/components/ui/toggle-group";
@@ -15,13 +16,17 @@ export interface CafeCardProps {
 
 /**
  * A World Café plan: pick a round to see its tables (hosts stay, guests
- * move), and the whole session person by person, "who goes where".
+ * move), and the whole session person by person, "who goes where": a line
+ * each on a phone, a table from sm up.
  */
 export function CafeCard({ cafe, onShowRound }: CafeCardProps) {
   const round = cafe.rounds[cafe.current];
   const hosts = cafe.rounds[0].map((t) => t.host);
   const moves = Array.from(cafeMoves({ hosts, rounds: cafe.rounds }).entries());
   const label = (i: number) => round[i]?.name || groupLabel("cafe", i);
+  /** Table `t` in round `r`, by its name when it has one. */
+  const tableName = (r: number, t: number) => cafe.rounds[r]?.[t]?.name || groupLabel("cafe", t);
+  const whereId = useId();
 
   return (
     <SectionCard title="World Café plan" icon={Coffee}>
@@ -82,14 +87,50 @@ export function CafeCard({ cafe, onShowRound }: CafeCardProps) {
         )}
 
         <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-text">Who goes where</h3>
-          {/* The table scrolls inside its own box on a phone; the page never does. */}
-          <div className="max-w-full overflow-x-auto rounded-md border border-border">
+          <h3 id={whereId} className="text-sm font-semibold text-text">
+            Who goes where
+          </h3>
+          {/* On a phone, one line per person: a table of rounds would need
+              sideways scrolling there. */}
+          <ul className="space-y-1.5 sm:hidden" aria-labelledby={whereId}>
+            {moves.map(([name, tables]) => {
+              const host = hosts.indexOf(name);
+              return (
+                <li key={name} className="rounded-md border border-border bg-card px-3 py-2">
+                  <p className="break-words text-sm font-medium text-text">
+                    {name}
+                    {host >= 0 && <span className="ml-1 text-xs font-normal text-sub">(host)</span>}
+                  </p>
+                  <p className="break-words text-sm text-sub">
+                    {host >= 0
+                      ? `${tableName(0, host)}, every round.`
+                      : tables.map((t, r) => (
+                          <span
+                            key={r}
+                            className={cn(r === cafe.current && "font-medium text-text")}
+                          >
+                            {r > 0 && " · "}
+                            Round {r + 1}: {t >= 0 ? tableName(r, t) : "no table"}
+                          </span>
+                        ))}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+          {/* From sm up, a table: it scrolls inside its own box (by keyboard
+              too), with the names pinned while the rounds scroll. */}
+          <div
+            role="region"
+            aria-labelledby={whereId}
+            tabIndex={0}
+            className="hidden max-w-full overflow-x-auto rounded-md border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:block"
+          >
             <table className="w-full text-left text-sm">
               <caption className="sr-only">Each person&apos;s table, round by round</caption>
               <thead>
                 <tr className="border-b border-border">
-                  <th scope="col" className="px-3 py-2 font-medium text-text">
+                  <th scope="col" className="sticky left-0 bg-card px-3 py-2 font-medium text-text">
                     Person
                   </th>
                   {cafe.rounds.map((_, r) => (
@@ -109,7 +150,10 @@ export function CafeCard({ cafe, onShowRound }: CafeCardProps) {
               <tbody>
                 {moves.map(([name, tables]) => (
                   <tr key={name} className="border-b border-border last:border-b-0">
-                    <th scope="row" className="px-3 py-1.5 font-normal text-text">
+                    <th
+                      scope="row"
+                      className="sticky left-0 bg-card px-3 py-1.5 font-normal text-text"
+                    >
                       {name}
                       {hosts.includes(name) && (
                         <span className="ml-1 text-xs text-sub">(host)</span>
@@ -123,7 +167,7 @@ export function CafeCard({ cafe, onShowRound }: CafeCardProps) {
                           r === cafe.current && "bg-accent/10"
                         )}
                       >
-                        {t >= 0 ? groupLabel("cafe", t) : "-"}
+                        {t >= 0 ? tableName(r, t) : "-"}
                       </td>
                     ))}
                   </tr>

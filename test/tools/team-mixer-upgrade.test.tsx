@@ -587,6 +587,17 @@ describe("World Café", () => {
     expect(screen.getByRole("heading", { name: "Round 1 of 2" })).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(within(screen.getByRole("table")).getByText("A1")).toBeInTheDocument();
+    // From sm up the table scrolls in its own box, which the keyboard can reach.
+    const region = screen.getByRole("region", { name: "Who goes where" });
+    expect(region).toHaveAttribute("tabindex", "0");
+    expect(within(region).getByRole("table")).toBeInTheDocument();
+    // On a phone, a line per person instead: hosts stay, guests move.
+    const where = within(screen.getByRole("list", { name: "Who goes where" }));
+    const host = where.getByText("A1").closest("li")!;
+    expect(host).toHaveTextContent("A1(host)Table 1, every round.");
+    const guest = cafe.rounds[0][0].guests[0];
+    const line = where.getByText(guest).closest("li")!;
+    expect(line).toHaveTextContent(/Round 1: Table 1 · Round 2: Table [12]$/);
     fireEvent.click(radio("Round on screen", "Round 2"));
     expect(state().cafe!.current).toBe(1);
     expect(screen.getByRole("heading", { name: "Round 2 of 2" })).toBeInTheDocument();
