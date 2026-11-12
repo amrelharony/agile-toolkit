@@ -308,6 +308,24 @@ describe("VoteRoundPanel: a live round", () => {
     }
   });
 
+  it("tells the tool when its room opens, with the minN it took, and when the host closes it", async () => {
+    const onLiveChange = vi.fn();
+    const { ch } = await startRound({ minN: 5, onLiveChange });
+    expect(onLiveChange).toHaveBeenCalledTimes(1);
+    expect(onLiveChange).toHaveBeenLastCalledWith({ minN: 5 });
+    fireEvent.click(screen.getByRole("button", { name: "End room" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "End the live room?" })).getByRole("button", {
+        name: "End room",
+      })
+    );
+    await waitFor(() => expect(ch.removed).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(await screen.findByRole("button", { name: "Run a live round" })).toBeInTheDocument();
+    expect(onLiveChange).toHaveBeenCalledTimes(2);
+    expect(onLiveChange).toHaveBeenLastCalledWith(null);
+  });
+
   it("asks before New round throws answers away, and before ending the room", async () => {
     const { ch, crypto } = await startRound();
     await answer(ch, crypto!, A, "bid_00000001");

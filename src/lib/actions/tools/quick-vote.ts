@@ -61,6 +61,7 @@ import {
   quickVoteState,
   setDraft,
 } from "@/lib/quick-vote/store";
+import { quickVoteRoom, roomTakesFormat } from "@/lib/quick-vote/live-room";
 
 /* ── Reading ────────────────────────────────────────────────────────── */
 
@@ -245,8 +246,19 @@ type StartResult =
       question: string;
       answers: string[];
       showsFrom: number;
+      /** The live room the page has open, if any, and whether its next round asks this one. */
+      liveRoom: string | null;
     }
   | { started: false; reason: string; missing?: string[] };
+
+/** What the page's open live room does with the round just set up, or null with none open. */
+function liveRoomNote(presetId: RoundDraft["presetId"], showsFrom: number): string | null {
+  const room = quickVoteRoom();
+  if (!room) return null;
+  return roomTakesFormat(room.minN, presetId)
+    ? "The live room open on the page asks it on its next round."
+    : `The live room open on the page shows results from ${room.minN} answers and this round needs ${showsFrom}, so it keeps its last round: the host ends and closes it, then runs a new room for this one.`;
+}
 
 /** The draft `params` asks for, or why not. */
 function draftFor(
@@ -323,7 +335,7 @@ registry.register({
   // An open live room asks the round set up here next: it reaches everyone in the room.
   visitor: false,
   description:
-    "Set up a Quick Vote round so the host can run it: the page shows it ready, live (anonymous, totals only), by a hand count or on hold-up cards, and an open live room asks it on its next round. Params: {format (an id from list_presets, or a saved format's id), question?, options? (poll, ranking, dots: 2-12, ranking up to 10), multi? (poll: most picks each), dots? (dot voting: dots each, 1-10), labels? (custom-scale: 2-11, lowest first), min?/max?/decimals?/unit? (guess-number), feeling? (feelings: a core feeling for step 2)}. Checked like the page's form: returns {started: true, format, kind, question, answers, showsFrom} or {started: false, reason, missing?}. It never runs or reveals a round, and it replaces the round being set up on the page. Browser only: over MCP it refuses.",
+    "Set up a Quick Vote round so the host can run it: the page shows it ready, live (anonymous, totals only), by a hand count or on hold-up cards. A live room the page has open asks it on its next round, unless the round needs more answers than that room shows results from. Params: {format (an id from list_presets, or a saved format's id), question?, options? (poll, ranking, dots: 2-12, ranking up to 10), multi? (poll: most picks each), dots? (dot voting: dots each, 1-10), labels? (custom-scale: 2-11, lowest first), min?/max?/decimals?/unit? (guess-number), feeling? (feelings: a core feeling for step 2)}. Checked like the page's form: returns {started: true, format, kind, question, answers, showsFrom, liveRoom (what the page's open live room does with it | null when none is open)} or {started: false, reason, missing?}. It never runs or reveals a round, and it replaces the round being set up on the page. Browser only: over MCP it refuses.",
   paramsSchema: startParams,
   handler: async (params): Promise<StartResult> => {
     const state = await browserState();
@@ -346,6 +358,7 @@ registry.register({
       question: check.values.title,
       answers: setupAnswers(check.values),
       showsFrom: check.values.minN,
+      liveRoom: liveRoomNote(preset.id, check.values.minN),
     };
   },
   mcpHandler: async (): Promise<StartResult> => ({

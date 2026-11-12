@@ -144,6 +144,14 @@ interface VoteRoundPanelBase {
    * its own.
    */
   oneScreen?: RunModeOption;
+  /**
+   * Told when this panel starts hosting a live room, with the answers that
+   * room shows results from (fixed for its life, whatever `minN` does
+   * later), and told null when the host closes it. A tool that changes its
+   * round while a room is open (Quick Vote) uses it to keep a stricter
+   * round out of a room that would show results sooner.
+   */
+  onLiveChange?: (room: { minN: number } | null) => void;
 }
 
 /**
@@ -388,6 +396,19 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
     refocus.current = false;
     runRef.current?.focus();
   }, [live]);
+
+  // Tell the tool when its room opens, with the minN the room took when it
+  // mounted (this render's), and when it closes or the panel goes.
+  const hosting = live && lastRound.current ? live.code : null;
+  const needRef = useRef(need);
+  needRef.current = need;
+  const onLiveChangeRef = useRef(props.onLiveChange);
+  onLiveChangeRef.current = props.onLiveChange;
+  useEffect(() => {
+    if (hosting === null) return;
+    onLiveChangeRef.current?.({ minN: needRef.current });
+    return () => onLiveChangeRef.current?.(null);
+  }, [hosting]);
 
   if (live && lastRound.current) {
     return (

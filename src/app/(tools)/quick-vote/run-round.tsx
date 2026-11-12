@@ -13,9 +13,11 @@
  * answer threshold is fixed when it opens (the kit's rule), so a format
  * that needs more answers than the open room shows from (ESVP, the safety
  * check: 5) isn't handed to it; the host is told to open a room for it.
+ * Only this panel's own room counts (the kit's `onLiveChange`): a room
+ * another tool or tab has open never takes Quick Vote's rounds.
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Calculator, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,34 +25,30 @@ import { VoteRoundPanel, type VoteRoundPanelProps } from "@/components/collab/vo
 import type { RoundResult } from "@/lib/realtime/vote-room/kinds";
 import { useVoteRoomsAvailable } from "@/lib/realtime/vote-room/use-vote-room";
 import type { ChoiceRoundResult } from "@/lib/realtime/vote-room/choice";
-import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
-import { DEFAULT_MIN_N, presetMinN } from "@/lib/quick-vote/draft";
+import { presetMinN } from "@/lib/quick-vote/draft";
+import { setQuickVoteRoom } from "@/lib/quick-vote/live-room";
 import { readSheetId, type QuickVoteRound } from "@/lib/quick-vote/sheets";
 import type { QuickVotePreset } from "@/lib/quick-vote/presets";
 import { CountHands } from "./count-hands";
 import { HoldUpCards } from "./hold-up-cards";
 
 /**
- * The answer threshold of the live room open in this browser, or null when
- * none is: the format's when a room opened while this page was here; the
- * kit's lowest (3) for one already open when the page opened (it may be in
- * another tab), so a stricter format is never handed to a room that would
- * show it sooner.
+ * The live room this page hosts: the answers it shows results from (fixed
+ * when it opened), or null while none is open. Shared with Amr's
+ * start_round through lib/quick-vote/live-room.
  */
-export function useOpenRoomMinN(minN: number): number | null {
-  const open = useSyncExternalStore(subscribeLiveVisitorRoom, inLiveVisitorRoom, () => false);
+export function usePageRoom(): {
+  roomMinN: number | null;
+  onLiveChange: (room: { minN: number } | null) => void;
+} {
   const [roomMinN, setRoomMinN] = useState<number | null>(null);
-  const was = useRef<boolean | null>(null);
-  const minNRef = useRef(minN);
-  minNRef.current = minN;
-  useEffect(() => {
-    const before = was.current;
-    was.current = open;
-    if (!open) setRoomMinN(null);
-    else if (before === false) setRoomMinN(minNRef.current);
-    else if (before === null) setRoomMinN(DEFAULT_MIN_N);
-  }, [open]);
-  return roomMinN;
+  const onLiveChange = useCallback((room: { minN: number } | null) => {
+    setRoomMinN(room ? room.minN : null);
+    setQuickVoteRoom(room);
+  }, []);
+  // The page went: so did its room.
+  useEffect(() => () => setQuickVoteRoom(null), []);
+  return { roomMinN, onLiveChange };
 }
 
 export interface RunRoundProps {
@@ -81,7 +79,7 @@ export function RunRound({
   const [counting, setCounting] = useState(false);
   const [cardsOpen, setCardsOpen] = useState(false);
   const formatMinN = presetMinN(preset);
-  const roomMinN = useOpenRoomMinN(formatMinN);
+  const { roomMinN, onLiveChange } = usePageRoom();
   const need = roomMinN ?? formatMinN;
   // A stricter format waits for a room of its own.
   const tooFewForRoom = roomMinN !== null && formatMinN > roomMinN;
@@ -103,6 +101,7 @@ export function RunRound({
       : blockedReason,
     onSave,
     renderResults,
+    onLiveChange,
   };
   let panel: VoteRoundPanelProps;
   switch (preset.kind) {
@@ -164,10 +163,10 @@ export function RunRound({
       {roomMinN !== null && (
         <p role="status" className="text-xs text-sub">
           {tooFewForRoom
-            ? `${preset.name} shows results only from ${formatMinN} answers, and the live room open in this browser shows them from ${roomMinN}. End that room, then run a new one for ${preset.name}.`
+            ? `${preset.name} shows results only from ${formatMinN} answers, and the live room you opened here shows them from ${roomMinN}, so its next round stays on the last one. End and close that room, then run a new one for ${preset.name}.`
             : need > formatMinN
-              ? `The live room open in this browser shows results from ${need} answers, as it was opened for a format that asks about people.`
-              : "A live room is open in this browser. Its next round asks what is set up above."}
+              ? `The live room you opened here shows results from ${need} answers, as it was opened for a format that asks about people. Its next round asks what is set up above.`
+              : "Your live room is open. Its next round asks what is set up above."}
         </p>
       )}
       <VoteRoundPanel {...panel} />

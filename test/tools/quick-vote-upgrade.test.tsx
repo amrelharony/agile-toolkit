@@ -401,23 +401,22 @@ describe("running a round and saving its totals", () => {
     });
   });
 
-  it("won't hand a stricter format to a live room opened for 3 answers", async () => {
-    await renderPage();
+  it("isn't held back by another tool's live room open in this browser", async () => {
+    // A retro or Audience Wall room never takes Quick Vote's rounds: only the
+    // page's own room does (test/quick-vote/run-round-room.test.tsx).
     let leave: () => void = () => {};
     act(() => {
       leave = enterLiveVisitorRoom();
     });
-    pickFormat("ESVP");
-    expect(
-      screen.getByText(
-        /ESVP shows results only from 5 answers, and the live room open in this browser shows them from 3/
-      )
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("ESVP needs a live room of its own, one that shows results from 5 answers.")
-    ).toBeInTheDocument();
-    act(() => leave());
-    expect(screen.queryByText(/ESVP shows results only from 5 answers/)).toBeNull();
+    try {
+      await renderPage();
+      pickFormat("ESVP");
+      expect(screen.queryByText(/needs a live room of its own/)).toBeNull();
+      expect(screen.queryByText(/live room you opened here|Your live room is open/)).toBeNull();
+      expect(screen.getByLabelText("People who picked it: Explorer")).toBeInTheDocument();
+    } finally {
+      act(() => leave());
+    }
   });
 });
 

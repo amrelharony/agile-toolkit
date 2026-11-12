@@ -23,6 +23,7 @@ import { hydrateQuickVote, useQuickVote, QUICK_VOTE_STORE_KEY } from "@/lib/quic
 import { QUICK_VOTE_INITIAL } from "@/lib/quick-vote/state";
 import { draftFromPreset } from "@/lib/quick-vote/draft";
 import { presetById } from "@/lib/quick-vote/presets";
+import { setQuickVoteRoom } from "@/lib/quick-vote/live-room";
 import { buildExample } from "@/app/(tools)/quick-vote/example";
 
 const ctx = (source: "agent" | "mcp" = "agent") => ({
@@ -110,6 +111,7 @@ describe("start_round", () => {
       question: "Where should we hold the retro?",
       answers: ["Meeting room", "Cafe", "Online"],
       showsFrom: 3,
+      liveRoom: null,
     });
     expect(useQuickVote.getState().draft).toMatchObject({
       presetId: "poll",
@@ -158,6 +160,25 @@ describe("start_round", () => {
       missing: ["The highest answer needs to be above the lowest."],
     });
     expect(useQuickVote.getState().draft).toBeNull();
+  });
+
+  it("says what the page's own open room does with the round: asks it next, or keeps its last", async () => {
+    setQuickVoteRoom({ minN: 3 });
+    try {
+      expect(await run("start_round", { format: "roman" })).toMatchObject({
+        started: true,
+        liveRoom: "The live room open on the page asks it on its next round.",
+      });
+      const esvp = await run("start_round", { format: "esvp" });
+      expect(esvp).toMatchObject({ started: true, showsFrom: 5 });
+      expect(esvp.liveRoom).toMatch(/shows results from 3 answers and this round needs 5/);
+      setQuickVoteRoom({ minN: 5 });
+      expect((await run("start_round", { format: "safety-check" })).liveRoom).toMatch(
+        /asks it on its next round/
+      );
+    } finally {
+      setQuickVoteRoom(null);
+    }
   });
 
   it("refuses over MCP: rounds are set up where the page and its room are", async () => {
