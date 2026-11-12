@@ -371,7 +371,7 @@ export function EmergencyPanel({
 export function HistoryTable({ rows }: { rows: readonly BufferHistoryRow[] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[20rem] text-sm">
+      <table className="w-full text-sm">
         <caption className="sr-only">Interrupts by sprint</caption>
         <thead>
           <tr className="border-b border-border text-left text-xs text-sub">
