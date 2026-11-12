@@ -4,8 +4,8 @@
     sort_image(c, rgba)           which image a loose PNG is, from what it holds
     assign(pieces, ids, ...)      Hungarian matching of pieces to part ids, then
                                   each pair drawn alike and its right piece on your left
-    LAYOUT, SIDES, SHAPES         where the parts brief lays each piece out, and
-                                  what any puppet's pieces can look like
+    LAYOUT, SIDES, ANYWHERE       where the parts brief lays each piece out
+    SHAPES                        what any puppet's pieces can look like
 
 The layout prior follows scripts/cast/brief-blocks.mjs imageParts word for word
 (test_cast_spec.py reads the brief to hold the two together): "the head at the
@@ -16,11 +16,12 @@ the legs below the body, the right leg on your left; a tail and anything else at
 the sides wherever there is room." parts2 is "in tidy rows from left to right in
 the order of the list".
 
-Every id a parts sheet holds has a place there: a point (LAYOUT), or "at the
-sides" (SIDES), which costs a piece only as far as it sits in the middle column.
-Every id has a generic shape: bands of area against the biggest piece and of
-height over width, free inside, so a long ear and a round one, or a thin tail and
-a ball of one, are all named by where they lie; an arm, a leg and a tie hang
+Every id a parts sheet holds has its place there: a point (LAYOUT), "at the
+sides" (SIDES), which costs a piece only as far as it sits in the middle column,
+or none, for a piece the brief lets lie at the sides or by its own place. Every
+id has a generic shape: bands of area against the biggest piece and of long side
+over short side, free inside, so a long ear and a round one, or a thin tail and a
+ball of one, are all named by where they lie; an arm, a leg and a tie hang
 straight down, so they stand taller than wide, and a collar is a band, wider than
 tall. The two pieces of a pair (ears, pupils, arms, legs) are one piece drawn for
 each side, so they are alike, and the right one is on your left whatever the
@@ -58,41 +59,48 @@ LAYOUT = {
     "leg-l": (0.6, 0.88),
     "limb-mid-l": (0.8, 0.88),
 }
-# "A tail and anything else at the sides wherever there is room": anywhere from top
-# to bottom outside the middle column; a piece whose centre is nearer the middle
-# than SIDE pays for how far in it is.
-SIDES = ("tail", "neck", "load", "quills", "abdomen", "flap", "collar")
+# "A tail and anything else at the sides wherever there is room": a tail lies
+# anywhere from top to bottom outside the middle column, and so does a coat behind
+# the whole figure, which has no room where it belongs; a piece nearer the middle
+# than SIDE pays for how far in it is. Anything else may lie at the sides or by its
+# own place, so the brief fixes it no place (ANYWHERE: no place cost).
+SIDES = ("tail", "quills")
 SIDE = 0.3
+ANYWHERE = ("neck", "load", "abdomen", "flap", "collar")
 # Generic piece shapes, matched on the start of the id (no canon: what any cut-out
 # puppet's pieces can look like): (typical area against a torso's, (fewest, most)
-# area against the biggest piece, (fewest, most) height over width). The typical
-# areas weigh a piece's expected share of its sheet (fused); naming costs nothing
-# inside the bands. A torso can be smaller than a big head or a coat; ears run from
-# small and round to long; a tail from a small ball to a bushy plume, in any curve;
-# a coat of quills behind the whole figure outsizes the body.
+# area against the biggest piece, (fewest, most) long side over short side, and
+# "tall" or "wide" for a piece that stands one way). The typical areas weigh a
+# piece's expected share of its sheet (fused); naming costs nothing inside the
+# bands. Most bands sit close round the typical piece, as a piece with no place of
+# its own has only its shape to be told by. The wide ones vary in any puppet: a
+# torso smaller than a big head or a coat, ears small and round to long, a tail
+# from a small ball to a bushy plume in any curve, thin tube limbs to full sleeves,
+# a coat of quills behind the whole figure outsizing the body. Arms, legs and a tie
+# hang straight down, so they stand tall; a collar is a band, wide.
 SHAPES = {
-    "torso": (1.0, (0.2, 1.0), (0.5, 2.5)),
-    "head": (0.6, (0.2, 1.0), (0.5, 2.0)),
-    "neck": (0.15, (0.05, 0.35), (0.5, 5.0)),
-    "abdomen": (0.6, (0.3, 1.0), (0.6, 1.7)),
-    "arm": (0.22, (0.03, 0.4), (1.4, 8.0)),
-    "leg": (0.25, (0.03, 0.4), (1.4, 8.0)),
-    "pupil": (0.004, (0.0005, 0.03), (0.7, 1.4)),
-    "tie": (0.05, (0.01, 0.12), (1.5, 6.0)),
-    "cord": (0.04, (0.01, 0.15), (0.5, 5.0)),
-    "tail": (0.2, (0.005, 0.7), (1 / 6, 6.0)),
-    "ear": (0.04, (0.005, 0.35), (0.6, 4.0)),
-    "quills": (2.0, (0.5, 1.0), (0.6, 3.0)),
-    "flap": (0.1, (0.01, 0.2), (0.4, 2.5)),
-    "load": (0.3, (0.15, 1.0), (0.3, 2.0)),
-    "collar": (0.1, (0.01, 0.2), (0.1, 0.7)),
-    "tentacle": (0.15, (0.02, 0.5), (1 / 8, 8.0)),
-    "limb-mid": (0.25, (0.03, 0.4), (1.4, 8.0)),
-    "limb": (0.12, (0.02, 0.5), (1 / 8, 8.0)),
-    "fan": (1.2, (0.1, 1.0), (1 / 6, 6.0)),
+    "torso": (1.0, (0.2, 1.0), (1.0, 2.0), None),
+    "head": (0.6, (0.2, 1.0), (1.0, 1.8), None),
+    "neck": (0.15, (0.1, 0.25), (1.8, 3.5), None),
+    "abdomen": (0.6, (0.4, 1.0), (1.0, 1.5), None),
+    "arm": (0.22, (0.03, 0.4), (1.4, 8.0), "tall"),
+    "leg": (0.25, (0.03, 0.4), (1.4, 8.0), "tall"),
+    "pupil": (0.004, (0.0005, 0.03), (1.0, 1.4), None),
+    "tie": (0.05, (0.02, 0.08), (2.0, 5.0), "tall"),
+    "cord": (0.04, (0.015, 0.1), (1.5, 5.0), None),
+    "tail": (0.2, (0.005, 0.7), (1.0, 6.0), None),
+    "ear": (0.04, (0.005, 0.35), (1.0, 4.0), None),
+    "quills": (2.0, (0.5, 1.0), (1.0, 3.0), None),
+    "flap": (0.1, (0.03, 0.2), (1.0, 2.5), None),
+    "load": (0.3, (0.2, 0.5), (1.2, 2.0), None),
+    "collar": (0.1, (0.05, 0.2), (2.0, 5.0), "wide"),
+    "tentacle": (0.15, (0.1, 0.25), (2.5, 6.0), None),
+    "limb-mid": (0.25, (0.03, 0.4), (1.4, 8.0), "tall"),
+    "limb": (0.12, (0.07, 0.2), (2.5, 6.0), None),
+    "fan": (1.2, (0.1, 1.0), (1.0, 6.0), None),
 }
-# cost = 3·place + area + 0.5·(height over width) + 2·(1 − NCC), and 1·how unlike
-# the two pieces named as a pair are.
+# cost = 3·place + area + 0.5·(long over short, and how far it stands the wrong
+# way) + 2·(1 − NCC), and 1·how unlike the two pieces named as a pair are.
 W_POS, W_AREA, W_ASPECT, W_NCC, W_PAIR = 3.0, 1.0, 0.5, 2.0, 1.0
 
 
@@ -247,7 +255,8 @@ def sort_image(c: dict, rgba: np.ndarray, key_rgb) -> tuple[str | None, str, int
 
 
 def shape_of(part_id: str) -> tuple | None:
-    """(typical area, area band, height-over-width band) for the id, or None."""
+    """(typical area, area band, long-over-short band, "tall" / "wide" / None)
+    for the id, or None."""
     for k, v in SHAPES.items():
         if part_id.startswith(k):
             return v
@@ -341,8 +350,12 @@ def cost_matrix(
                 cost += W_POS * max(0.0, SIDE - abs(cx - 0.5))
             shp = shape_of(pid)
             if shp:
-                cost += W_AREA * _outside(p.area / biggest, shp[1])
-                cost += W_ASPECT * _outside(_tall(p), shp[2])
+                _, areas, aspects, stands = shp
+                cost += W_AREA * _outside(p.area / biggest, areas)
+                cost += W_ASPECT * _outside(p.aspect, aspects)
+                pw, ph = p.size
+                if (stands == "tall" and pw > ph) or (stands == "wide" and ph > pw):
+                    cost += W_ASPECT * float(np.log(p.aspect))  # standing the other way
             if ncc is not None:
                 cost += W_NCC * (1 - float(ncc[i, j]))
             C[i, j] = cost

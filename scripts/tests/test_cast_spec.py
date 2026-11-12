@@ -226,7 +226,7 @@ class BriefAgreement(unittest.TestCase):
         self.assertFalse(set(parts.SIDES) & set(L))
         # Arms and legs hang straight down: taller than wide.
         for pid in ("arm-r", "leg-r", "limb-mid-r"):
-            self.assertGreater(parts.shape_of(pid)[2][0], 1, pid)
+            self.assertEqual(parts.shape_of(pid)[3], "tall", pid)
 
     def test_targets(self):
         self.assertEqual(spec.targets("A"), SPEC["batches"]["A"])

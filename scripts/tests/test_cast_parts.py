@@ -216,11 +216,13 @@ class NamingTheBriefsPieces(unittest.TestCase):
     def test_every_id_a_parts_sheet_holds_has_a_place_and_a_shape(self):
         for c in spec.SPEC["characters"]:
             for pid in c["parts"]:
-                self.assertTrue(pid in parts.LAYOUT or pid in parts.SIDES, f"{c['id']} {pid}")
+                places = [pid in parts.LAYOUT, pid in parts.SIDES, pid in parts.ANYWHERE]
+                self.assertEqual(sum(places), 1, f"{c['id']} {pid}")
             for pid in [*c["parts"], *(c.get("parts2") or [])]:
                 self.assertIsNotNone(parts.shape_of(pid), f"{c['id']} {pid}")
-        for k, (typical, (a0, a1), (t0, t1)) in parts.SHAPES.items():
-            self.assertTrue(0 < a0 < a1 <= 1 and 0 < t0 < t1 and typical > 0, k)
+        for k, (typical, (a0, a1), (t0, t1), stands) in parts.SHAPES.items():
+            self.assertTrue(typical > 0 and 0 < a0 < a1 <= 1 and 1 <= t0 < t1, k)
+            self.assertIn(stands, (None, "tall", "wide"), k)
 
     def test_a_coat_bigger_than_the_body_is_named_the_coat(self):
         # A coat behind the whole figure, drawn whole at one side, outsizes the body.
@@ -248,6 +250,22 @@ class NamingTheBriefsPieces(unittest.TestCase):
         for x, y in SPOTS:
             self.assertNamed(figure(TAILED, tail=tufted(x, y, 300, 12)), TAILED, (x, y))
             self.assertNamed(figure(TAILED, tail=oval(x, y, 300, 240)), TAILED, ("fan", x, y))
+
+    def test_a_piece_with_no_place_of_its_own_keeps_its_name(self):
+        # A neck laid by its own place, under the head, is still no tie or lanyard.
+        ids = ["head", "pupil-r", "pupil-l", "neck", "torso", "load", "tie", "cord"]
+        for neck, load in (((768, 400), (300, 700)), ((768, 400), (300, 250)), ((1300, 300), (300, 250))):
+            sheet = {
+                "head": oval(768, 130, 260, 200),
+                "pupil-r": oval(730, 260, 26, 26),
+                "pupil-l": oval(806, 260, 26, 26),
+                "neck": bar(*neck, 90, 240),
+                "torso": bar(768, 600, 400, 260),
+                "load": bar(*load, 330, 260),
+                "tie": bar(1050, 520, 50, 150),
+                "cord": lanyard(1150, 640),
+            }
+            self.assertNamed(sheet, ids, (neck, load))
 
     def test_a_second_pair_of_legs_keeps_its_sides(self):
         rng = np.random.default_rng(3)
