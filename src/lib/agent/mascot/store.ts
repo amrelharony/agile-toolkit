@@ -118,6 +118,16 @@ export interface MascotDrag {
 /** The corner Amr is parked in (he can be dragged to any of the four). */
 export type MascotCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
+/**
+ * Where his figure is drawn once the page has been laid out: the side of the
+ * screen and the edge he stands against. Usually his corner's, but the other
+ * side when he has stepped aside for one of the page's controls.
+ */
+export interface MascotPlacement {
+  side: "left" | "right";
+  edge: "top" | "bottom";
+}
+
 interface MascotState {
   /** True once the sprite sheet has loaded and Amr is on screen. */
   ready: boolean;
@@ -151,6 +161,13 @@ interface MascotState {
   motionAsked: boolean;
   /** Where he's parked, so things shown beside him (the moment chip) can follow. */
   corner: MascotCorner;
+  /**
+   * Where he is actually drawn (see MascotPlacement). `corner` stays the corner
+   * he was put in; things beside him (his bubble, the moment chip) follow this.
+   */
+  placed: MascotPlacement;
+  /** How far (px) he has stepped up off his edge: his bubble and chips rise this much with him. */
+  lift: number;
 }
 
 interface MascotActions {
@@ -180,6 +197,12 @@ interface MascotActions {
   setMotionAsked(): void;
   /** Report the corner he's parked in (the assistant calls it). */
   setCorner(c: MascotCorner): void;
+  /**
+   * Report where he is drawn and how far he has stepped off his edge (the
+   * assistant calls it whenever it places him and his panel). A lift that
+   * isn't a positive number counts as 0. Unchanged values change nothing.
+   */
+  setPlacement(placed: MascotPlacement, lift: number): void;
   /** Load the persisted aura and motion choice from localStorage. */
   hydrateAppearance(): void;
   reset(): void;
@@ -200,6 +223,8 @@ const INITIAL: MascotState = {
   feelPhone: null,
   motionAsked: false,
   corner: "bottomRight",
+  placed: { side: "right", edge: "bottom" },
+  lift: 0,
 };
 
 const APPEARANCE_KEY = "mascot_appearance";
@@ -271,6 +296,12 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
     saveAppearance(appearance(get()));
   },
   setCorner: (corner) => set((s) => (s.corner === corner ? s : { corner })),
+  setPlacement: ({ side, edge }, lift) =>
+    set((s) => {
+      const up = Number.isFinite(lift) && lift > 0 ? lift : 0;
+      if (s.placed.side === side && s.placed.edge === edge && s.lift === up) return s;
+      return { placed: { side, edge }, lift: up };
+    }),
   hydrateAppearance: () => {
     try {
       const raw = localStorage.getItem(APPEARANCE_KEY);
