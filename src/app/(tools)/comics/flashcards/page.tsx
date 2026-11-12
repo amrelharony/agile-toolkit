@@ -9,8 +9,8 @@ import { comicMetadata } from "../comic-metadata";
 import { FlashcardDeck } from "./flashcard-deck";
 import { cardsArt } from "@/lib/ink/drawings/pages/cards";
 
-/** Refreshed about every 10 minutes, like the gallery, so a Sunday's story joins the deck. */
-export const revalidate = 600;
+/** Refreshed like the gallery (once a day, and at release), so a Sunday's story joins the deck. */
+export const revalidate = 86400;
 
 // Out of search, like the book's episodes: their lessons are all here together.
 export const metadata: Metadata = comicMetadata({

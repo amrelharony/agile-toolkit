@@ -10,5 +10,6 @@
       "master": true,
       "preview/**": true
     }
-  }
+  },
+  "crons": [{ "path": "/api/cron/comics-release", "schedule": "0 7 * * *" }]
 }
