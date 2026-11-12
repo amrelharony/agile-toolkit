@@ -65,6 +65,17 @@ export function helloFor(arrival: ReturnType<typeof takeArrival>): MascotReactio
   return arrival.streak === 3 || arrival.streak === 7 ? "cheer" : "wave";
 }
 
+/**
+ * The chat has him busy: the panel is open, a turn runs, or his words stream.
+ * A turn counts with the panel shut too: it outlives the panel, and `talking`
+ * covers only the moments his words stream (not a tool run, the gap between
+ * rounds, or a card waiting for the user's OK). Exported for tests.
+ */
+export function chatBusy(): boolean {
+  const chat = useAgentStore.getState();
+  return chat.open || chat.streaming || useMascotStore.getState().talking;
+}
+
 export function installSenses(opts: SensesOptions): () => void {
   const mascot = () => useMascotStore.getState();
   const mind = getMind();
@@ -134,8 +145,7 @@ export function installSenses(opts: SensesOptions): () => void {
   const busy = () => {
     const m = mascot();
     return (
-      useAgentStore.getState().open ||
-      m.talking ||
+      chatBusy() ||
       m.drag !== null ||
       // Waiting on the visitor's decision, or settled because they chose Quiet:
       // nothing unprompted (a pastime, a yawn) takes that moment over.

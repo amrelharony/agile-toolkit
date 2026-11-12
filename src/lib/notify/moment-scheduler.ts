@@ -11,7 +11,8 @@
  * **Calm** means all of: not quiet (ceremony route, presenting, the intro,
  * Focus, quiet hours) and celebrations not paused; the page is visible; not
  * typing and 1.5 s since the last input; no dialog open; no toast showing;
- * Amr idle (nothing queued, not carried, not talking); no drag in progress;
+ * Amr idle (nothing queued, not carried, not talking, no chat turn running);
+ * no drag in progress;
  * 10 min since the last moment (2 min in Lively); fewer than 3 moments today
  * (10 in Lively).
  *
@@ -43,6 +44,7 @@ import {
 } from "@/lib/stores/notification-prefs-store";
 import { useHapticsStore } from "@/lib/stores/haptics-store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
+import { useAgentStore } from "@/lib/agent/store";
 import { isDragInProgress } from "@/lib/sonification/drag-flag";
 import { emitFeedback } from "@/lib/sonification/emit";
 import { subscribeCelebrations } from "@/lib/gamification/celebrations";
@@ -353,9 +355,17 @@ const LIVE_ENV: MomentEnv = {
   dialogOpen: () => isDialogOpen(),
   toastShowing: () =>
     typeof document !== "undefined" && document.querySelector("[data-sonner-toast]") !== null,
+  // A chat turn counts with the panel shut too: it outlives the panel, and
+  // `talking` covers only the moments his words stream (not a tool run, the
+  // gap between rounds, or a card waiting for the user's OK).
   amrBusy: () => {
     const m = useMascotStore.getState();
-    return m.reactionQueue.length > 0 || m.drag !== null || m.talking;
+    return (
+      m.reactionQueue.length > 0 ||
+      m.drag !== null ||
+      m.talking ||
+      useAgentStore.getState().streaming
+    );
   },
   dragging: () => isDragInProgress(),
   dom: () => defaultQuietDom(),
