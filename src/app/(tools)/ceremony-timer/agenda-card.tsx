@@ -319,16 +319,30 @@ function AgendaEditor({
   const setDraft = (next: AgendaDraft) => form.update(next);
   const listRef = useRef<HTMLOListElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
-  // After adding or removing a segment, the field to focus: a row's name, or Add segment.
+  // After adding, removing or moving a segment, what to focus: a row's name,
+  // Add segment, or the moved row's arrow.
   const focusRef = useRef<string | null>(null);
   useEffect(() => {
     const target = focusRef.current;
     if (!target) return;
     focusRef.current = null;
+    const list = listRef.current;
+    if (target === "add") return addRef.current?.focus();
+    if (target.startsWith("move:")) {
+      // Moved to the top or bottom, that arrow is switched off: its other one.
+      const [, id, dir] = target.split(":");
+      const arrow = (d: string) =>
+        list?.querySelector<HTMLButtonElement>(`[data-move="${id}:${d}"]`);
+      const el = arrow(dir);
+      return (el && !el.disabled ? el : arrow(dir === "up" ? "down" : "up"))?.focus();
+    }
     // A row's first field is its name.
-    if (target === "add") addRef.current?.focus();
-    else listRef.current?.querySelector<HTMLInputElement>(`[data-row="${target}"] input`)?.focus();
+    list?.querySelector<HTMLInputElement>(`[data-row="${target}"] input`)?.focus();
   });
+  const moveSegment = (id: string, dir: "up" | "down") => {
+    focusRef.current = `move:${id}:${dir}`;
+    setDraft(withMovedRow(draft, id, dir === "up" ? -1 : 1));
+  };
 
   const addSegment = () => {
     const id = newSegmentId(draft.rows.map((r) => r.id));
@@ -448,14 +462,16 @@ function AgendaEditor({
                   <IconButton
                     label={`Move segment ${i + 1} up`}
                     icon={<ArrowUp className="h-4 w-4" aria-hidden="true" />}
-                    onClick={() => setDraft(withMovedRow(draft, row.id, -1))}
+                    onClick={() => moveSegment(row.id, "up")}
                     disabled={i === 0}
+                    data-move={`${row.id}:up`}
                   />
                   <IconButton
                     label={`Move segment ${i + 1} down`}
                     icon={<ArrowDown className="h-4 w-4" aria-hidden="true" />}
-                    onClick={() => setDraft(withMovedRow(draft, row.id, 1))}
+                    onClick={() => moveSegment(row.id, "down")}
                     disabled={i === draft.rows.length - 1}
+                    data-move={`${row.id}:down`}
                   />
                   <IconButton
                     label={`Remove segment ${i + 1}`}

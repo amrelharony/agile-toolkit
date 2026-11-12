@@ -521,8 +521,11 @@ export function CeremonyTimerClient() {
   const deleteNamed = () => {
     if (!shownNamed) return;
     setNamed((list) => list.filter((a) => a.id !== shownNamed.id));
-    if (useTimerSession.getState().agendaId === shownNamed.id)
+    if (useTimerSession.getState().agendaId === shownNamed.id) {
+      // The card goes with its Delete button: focus moves to the agendas.
+      focusPickerRef.current = true;
       setSession({ agendaId: null, run: null });
+    }
   };
   const undoDeleteNamed = () => {
     if (!shownNamed) return;
@@ -534,6 +537,17 @@ export function CeremonyTimerClient() {
     });
     if (useTimerSession.getState().agendaId === null) setSession(shownSession);
   };
+
+  // After a saved agenda is deleted, focus goes to the first agenda to pick.
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const focusPickerRef = useRef(false);
+  useEffect(() => {
+    if (!focusPickerRef.current) return;
+    const first = pickerRef.current?.querySelector<HTMLElement>("button");
+    if (!first) return;
+    focusPickerRef.current = false;
+    first.focus();
+  });
 
   // Every other agenda's name, which a saved agenda's name can't repeat.
   const takenNames = agenda ? agendas.filter((a) => a.id !== agenda.id).map((a) => a.label) : [];
@@ -729,7 +743,9 @@ export function CeremonyTimerClient() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-6">
-          <AgendaPicker agendas={agendas} selected={agendaId} onPick={pickAgenda} />
+          <div ref={pickerRef}>
+            <AgendaPicker agendas={agendas} selected={agendaId} onPick={pickAgenda} />
+          </div>
           <SpeakersCard
             speakers={speakers}
             plan={view && !view.finished ? view.speakers : null}

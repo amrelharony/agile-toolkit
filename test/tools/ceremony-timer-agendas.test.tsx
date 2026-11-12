@@ -350,6 +350,8 @@ describe("editing the agenda on the page", () => {
     expect(fresh).toHaveFocus();
     fireEvent.change(fresh, { target: { value: "Appreciations" } });
     fireEvent.click(screen.getByRole("button", { name: "Move segment 5 up" }));
+    // Focus stays on the moved segment's arrow, now that of segment 4.
+    expect(screen.getByRole("button", { name: "Move segment 4 up" })).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Save agenda" }));
 
     const list = screen.getByRole("list", { name: "Agenda segments" });
@@ -433,6 +435,10 @@ describe("editing the agenda on the page", () => {
     );
     expect(useTimerSettings.getState().named).toEqual([]);
     expect(useTimerSession.getState().agendaId).toBeNull();
+    // The card went with its Delete button: focus is on the agendas to pick.
+    expect(
+      within(screen.getByRole("list", { name: "Agendas" })).getAllByRole("button")[0]
+    ).toHaveFocus();
     lastToast().undo();
     expect(useTimerSettings.getState().named.map((a) => a.name)).toEqual(["Team retro"]);
     expect(useTimerSession.getState().agendaId).toBe(saved[0].id);
