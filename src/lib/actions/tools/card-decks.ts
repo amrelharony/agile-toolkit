@@ -83,7 +83,7 @@ function deckSummary(state: CardDecksState, deck: Deck) {
     name: deck.name,
     source: deck.source,
     cards: p.total,
-    inPlay: p.total - p.setAside,
+    inPlay: p.inPlay,
     starred: deck.cards.filter((c) => marks.starred.has(cardKey(deck.id, c.id))).length,
     dealtThisRound: p.dealt,
     leftThisRound: p.left,
@@ -137,7 +137,7 @@ registry.register({
   name: "list_decks",
   category: "read",
   description:
-    "List Card Decks' decks: the built-in ones (retro prompts, coaching questions, “Tell us about…” storytelling, story splitting with the SPIDR patterns, Yay! appreciation questions), the check-in and check-out decks read from the Ice Breaker, and the team's own. Params: {deckId?}. Returns {current (the deck on the table), decks: {id, name, source: built-in|icebreaker|custom, cards, inPlay (not used or hidden), starred, dealtThisRound, leftThisRound}[]}; with deckId also {found, deck: {…, blurb, cardList: {id, text, title?, hint?, used, starred, hidden, dealtThisRound}[]}}.",
+    "List Card Decks' decks: the built-in ones (retro prompts, coaching questions, “Tell us about…” storytelling, story splitting with the SPIDR patterns, Yay! appreciation questions), the check-in and check-out decks read from the Ice Breaker, and the team's own. Params: {deckId?}. Returns {current (the deck on the table), decks: {id, name, source: built-in|icebreaker|custom, cards, inPlay (what a whole round deals: not used or hidden, and starred under starred-only; dealtThisRound + leftThisRound), starred, dealtThisRound, leftThisRound}[]}; with deckId also {found, deck: {…, blurb, cardList: {id, text, title?, hint?, used, starred, hidden, dealtThisRound}[]}}.",
   paramsSchema: listDecksParams,
   handler: async (params) => listDecks(await browserState(), params),
   mcpHandler: async (params, ctx) => listDecks(await serverState(ctx.userId), params),
@@ -153,7 +153,13 @@ function listState(state: CardDecksState) {
   return {
     deck: { id: deck.id, name: deck.name, source: deck.source },
     hand: handOf(deck, round).map(cardOut),
-    round: { dealt: p.dealt, left: p.left, total: p.total, setAside: p.setAside },
+    round: {
+      dealt: p.dealt,
+      left: p.left,
+      inPlay: p.inPlay,
+      total: p.total,
+      setAside: p.setAside,
+    },
     starredOnly,
     ownDecks: state.decks.length,
   };
@@ -165,7 +171,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "What is on Card Decks' table: {deck: {id, name, source}, hand (the cards dealt last: {id, text, title?, hint?}[]), round: {dealt, left (still dealable this round), total, setAside (used or hidden)}, starredOnly, ownDecks}.",
+    "What is on Card Decks' table: {deck: {id, name, source}, hand (the cards dealt last: {id, text, title?, hint?}[]), round: {dealt (cards in play dealt this round), left (still dealable this round), inPlay (dealt + left), total, setAside (used or hidden)}, starredOnly, ownDecks}.",
   paramsSchema: z.object({}),
   handler: async () => listState(await browserState()),
   mcpHandler: async (_p, ctx) => listState(await serverState(ctx.userId)),

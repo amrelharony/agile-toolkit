@@ -120,7 +120,10 @@ export function DeckTable({
   status,
 }: DeckTableProps) {
   const done = progress.left === 0;
-  const inPlay = progress.total - progress.setAside;
+  const { inPlay } = progress;
+  const pool = starredOnly
+    ? `${inPlay} starred ${inPlay === 1 ? "card" : "cards"}`
+    : `${inPlay} ${inPlay === 1 ? "card" : "cards"}`;
   return (
     <section aria-labelledby="card-decks-table" className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-2">
@@ -128,7 +131,7 @@ export function DeckTable({
           On the table
         </h2>
         <p className="text-sm text-sub">
-          {progress.dealt} of {inPlay} dealt this round · {progress.left} left
+          {progress.dealt} of {pool} dealt this round · {progress.left} left
           {progress.setAside > 0 && ` · ${progress.setAside} set aside`}
         </p>
       </div>

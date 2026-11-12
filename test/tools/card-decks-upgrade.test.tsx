@@ -283,6 +283,35 @@ describe("marks", () => {
     expect(readCardDecks().used).toEqual([`retro/${retro.cards[0].id}`]);
   });
 
+  it("keeps the round's counts adding up when a dealt card is marked used", async () => {
+    await mount();
+    const n = retro.cards.length;
+    const counts = () =>
+      screen.getByText(/dealt this round/, { selector: "section[aria-labelledby] p" }).textContent;
+    click(button("Deal a card"));
+    expect(counts()).toBe(`1 of ${n} cards dealt this round · ${n - 1} left`);
+    click(
+      within(screen.getByRole("list", { name: "The card dealt" })).getByRole("button", {
+        name: "Mark used",
+      })
+    );
+    expect(counts()).toBe(`0 of ${n - 1} cards dealt this round · ${n - 1} left · 1 set aside`);
+  });
+
+  it("counts the starred cards under starred-only", async () => {
+    useCardDecks.setState({
+      decks: [OWN],
+      deckId: "deck_own",
+      starred: ["deck_own/c2"],
+      starredOnly: true,
+    });
+    await mount();
+    click(button("Deal a card"));
+    expect(
+      screen.getByText(/dealt this round/, { selector: "section[aria-labelledby] p" }).textContent
+    ).toBe("1 of 1 starred card dealt this round · 0 left");
+  });
+
   it("hides a card from the card list so it is never dealt, and shows it again", async () => {
     await mount();
     const list = screen.getByRole("region", { name: "Cards in Retro prompts" });

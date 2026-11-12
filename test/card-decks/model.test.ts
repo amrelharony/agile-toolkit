@@ -164,7 +164,46 @@ describe("dealing", () => {
     expect(activeCards(small, marks)).toHaveLength(1);
     const starredOnly = marksOf({ used: [], hidden: [], starred: [cardKey("deck_a", "c2")] });
     expect(dealableCards(small, starredOnly, [], true).map((c) => c.id)).toEqual(["c2"]);
-    expect(roundProgress(small, marks, [])).toEqual({ dealt: 0, left: 1, total: 3, setAside: 2 });
+    expect(roundProgress(small, marks, [])).toEqual({
+      dealt: 0,
+      left: 1,
+      inPlay: 1,
+      total: 3,
+      setAside: 2,
+    });
+  });
+
+  it("counts a dealt card out of the round once it is marked used, so the counts add up", () => {
+    const small = findDeck([own()], "deck_a")!;
+    const round = [["c1"]];
+    expect(roundProgress(small, noMarks, round)).toEqual({
+      dealt: 1,
+      left: 2,
+      inPlay: 3,
+      total: 3,
+      setAside: 0,
+    });
+    const used = marksOf({ used: [cardKey("deck_a", "c1")], starred: [], hidden: [] });
+    const p = roundProgress(small, used, round);
+    expect(p).toEqual({ dealt: 0, left: 2, inPlay: 2, total: 3, setAside: 1 });
+    expect(p.dealt + p.left).toBe(p.inPlay);
+    expect(p.inPlay + p.setAside).toBe(p.total);
+  });
+
+  it("counts the starred cards only under starred-only", () => {
+    const small = findDeck([own()], "deck_a")!;
+    const starred = marksOf({ used: [], hidden: [], starred: [cardKey("deck_a", "c2")] });
+    expect(roundProgress(small, starred, [["c2"]], true)).toMatchObject({
+      dealt: 1,
+      left: 0,
+      inPlay: 1,
+    });
+    // A card dealt before starred-only went on isn't one of the starred ones.
+    expect(roundProgress(small, starred, [["c1"]], true)).toMatchObject({
+      dealt: 0,
+      left: 1,
+      inPlay: 1,
+    });
   });
 
   it("deals the one card Amr picked, only while the round can deal it", () => {

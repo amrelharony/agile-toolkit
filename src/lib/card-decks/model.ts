@@ -359,10 +359,16 @@ export function handOf(deck: Deck, round: readonly (readonly string[])[]): DeckC
 }
 
 export interface RoundProgress {
-  /** Cards dealt this round. */
+  /**
+   * Cards in play dealt this round: a dealt card marked used or hidden since
+   * (or not starred, under starred-only) no longer counts, so that
+   * `dealt + left === inPlay` always.
+   */
   dealt: number;
   /** Cards the round can still deal. */
   left: number;
+  /** What a whole round deals: not used or hidden, and starred under starred-only. */
+  inPlay: number;
   /** Cards in the deck. */
   total: number;
   /** Of `total`, used or hidden (never dealt). */
@@ -379,9 +385,13 @@ export function roundProgress(
     const key = cardKey(deck.id, c.id);
     return marks.hidden.has(key) || marks.used.has(key);
   }).length;
+  const pool = activeCards(deck, marks, starredOnly);
+  const dealtSet = new Set(dealtIds(round));
+  const dealt = pool.filter((c) => dealtSet.has(c.id)).length;
   return {
-    dealt: dealtIds(round).length,
-    left: dealableCards(deck, marks, round, starredOnly).length,
+    dealt,
+    left: pool.length - dealt,
+    inPlay: pool.length,
     total: deck.cards.length,
     setAside,
   };

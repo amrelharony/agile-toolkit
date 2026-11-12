@@ -47,7 +47,7 @@ export function toMarkdown(
     "",
     `${deck.cards.length} cards · ${progress.dealt} dealt this round · ${progress.left} left to deal${
       starredOnly ? " (starred only)" : ""
-    }`,
+    }${progress.setAside > 0 ? ` · ${progress.setAside} used or hidden` : ""}`,
     "",
   ];
 

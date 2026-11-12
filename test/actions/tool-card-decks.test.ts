@@ -127,7 +127,7 @@ describe("list_decks and list_state", () => {
     expect(await call("list_state")).toEqual({
       deck: { id: "deck_own", name: "Offsite", source: "custom" },
       hand: [{ id: "c2", text: "Two?" }],
-      round: { dealt: 1, left: 1, total: 2, setAside: 0 },
+      round: { dealt: 1, left: 1, inPlay: 2, total: 2, setAside: 0 },
       starredOnly: false,
       ownDecks: 1,
     });
