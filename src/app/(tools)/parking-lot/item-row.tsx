@@ -52,8 +52,22 @@ export function shortText(text: string, max = 40): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
+/** Whether any item the point was sent to still exists (a sent point with none can be reopened). */
+export function hasLiveSend(item: Pick<ParkingLotItem, "sentTo">): boolean {
+  return (item.sentTo ?? []).some(
+    (l) => isParkingRoute(l.route) && Boolean(liveLink(item.sentTo, l.route))
+  );
+}
+
 /** Where a point went, one line per route: a link to it while it lives there. */
-export function SentLinks({ links }: { links: readonly HandoffLink[] | undefined }) {
+export function SentLinks({
+  links,
+  name,
+}: {
+  links: readonly HandoffLink[] | undefined;
+  /** The point's words, short, so each row's link says which point it opens. */
+  name: string;
+}) {
   const sent = (links ?? []).filter((l) => isParkingRoute(l.route));
   if (sent.length === 0) return null;
   return (
@@ -71,7 +85,8 @@ export function SentLinks({ links }: { links: readonly HandoffLink[] | undefined
                 {done ? " (done there)" : ""} ·{" "}
                 <Link
                   href={route.targetHref(link.targetId)}
-                  className="text-accent underline-offset-2 hover:underline"
+                  aria-label={`Open on ${place}: ${name}`}
+                  className="min-touch-coarse inline-flex items-center justify-center text-accent underline-offset-2 hover:underline"
                 >
                   Open
                 </Link>
@@ -97,7 +112,7 @@ export function SendMenu({
   disabledReason: string | null;
   onSend: (item: ParkingLotItem, route: ParkingRoute) => void;
 }) {
-  const sent = (item.sentTo ?? []).some((l) => liveLink(item.sentTo, l.route));
+  const sent = hasLiveSend(item);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -105,8 +120,8 @@ export function SendMenu({
           type="button"
           variant="ghost"
           size="sm"
+          // A disabled button shows no tooltip: the example's notice says why.
           disabled={Boolean(disabledReason)}
-          title={disabledReason ?? undefined}
           // Rows repeat this button: its name says which point, after the visible text.
           aria-label={`Send to… ${shortText(item.text)}${sent ? " (sent)" : ""}`}
           className="gap-1.5 text-sub hover:text-accent"
@@ -229,7 +244,8 @@ export interface ParkingRowProps {
  * One parked point: its words and status, where and by whom it was raised,
  * where it was sent, and what can be done with it. An open point can be
  * marked discussed, sent on or dropped; a discussed or dropped one opened
- * again. Every row can be edited in place or deleted (with Undo).
+ * again, and so can a sent one whose items were all removed there (or it
+ * is dropped). Every row can be edited in place or deleted (with Undo).
  */
 export function ParkingRow({
   item,
@@ -246,6 +262,9 @@ export function ParkingRow({
   onDelete,
 }: ParkingRowProps) {
   const name = shortText(item.text);
+  // A sent point whose every item was removed there is decided by nothing:
+  // it can be dropped or opened again, as Amr's set_status allows.
+  const sentGone = item.status === "sent" && !hasLiveSend(item);
   const meta = [
     item.meeting,
     item.raisedBy ? `raised by ${item.raisedBy}` : null,
@@ -277,8 +296,10 @@ export function ParkingRow({
               {STATUS_LABEL[item.status]}
             </Badge>
           </div>
-          {meta.length > 0 && <p className="mt-1 text-xs text-sub">{meta.join(" · ")}</p>}
-          <SentLinks links={item.sentTo} />
+          {meta.length > 0 && (
+            <p className="mt-1 break-words text-xs text-sub">{meta.join(" · ")}</p>
+          )}
+          <SentLinks links={item.sentTo} name={name} />
           <div className="mt-2 flex flex-wrap items-center gap-1">
             {item.status === "open" && (
               <Button
@@ -294,7 +315,7 @@ export function ParkingRow({
               </Button>
             )}
             <SendMenu item={item} disabledReason={sendBlocked} onSend={onSend} />
-            {item.status === "open" && (
+            {(item.status === "open" || sentGone) && (
               <Button
                 type="button"
                 variant="ghost"
@@ -307,7 +328,7 @@ export function ParkingRow({
                 Drop
               </Button>
             )}
-            {(item.status === "discussed" || item.status === "dropped") && (
+            {(item.status === "discussed" || item.status === "dropped" || sentGone) && (
               <Button
                 type="button"
                 variant="ghost"
