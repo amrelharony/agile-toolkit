@@ -690,7 +690,7 @@ describe("parseBlocks with a cache", () => {
     const cache = createBlockCache();
     parseBlocks("One.\n\nTwo.", cache);
     parseBlocks("Three.", cache);
-    expect([...cache.segments.keys()]).toEqual(["Three."]);
+    expect(Array.from(cache.segments.keys())).toEqual(["Three."]);
   });
 });
 
