@@ -128,6 +128,8 @@ export function AgentConversation() {
     void generateTitle(userText, textOf("assistant")).then((title) => {
       if (title && useAgentStore.getState().activeConversationId === cid) {
         void renameConversation(cid, title);
+        // The panel header names the open thread: the new title, as saved.
+        useAgentStore.getState().retitleConversation(cid, conversationTitle(title));
       }
     });
   }, [streaming]);

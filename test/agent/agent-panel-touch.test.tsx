@@ -50,7 +50,8 @@ import { ConversationList, DELETE_UNDO_MS } from "@/components/agent/conversatio
 import { AgentConversation } from "@/components/agent/agent-conversation";
 import { ChatVisibleContext } from "@/components/agent/chat-visibility";
 import { useAgentStore } from "@/lib/agent/store";
-import { listConversations, loadMessages } from "@/lib/agent/persist";
+import { listConversations, loadMessages, renameConversation } from "@/lib/agent/persist";
+import { generateTitle } from "@/lib/agent/client";
 
 const meta = (id: string, title: string): ConversationMeta => ({
   id,
@@ -298,6 +299,30 @@ describe("ConversationList on touch", () => {
     expect(screen.getByRole("textbox", { name: "Rename conversation" })).toHaveClass(
       "pointer-coarse:text-base"
     );
+  });
+
+  it("renames the open thread in the panel header too, and no other thread there", async () => {
+    useAgentStore.getState().setActiveConversation(THREADS[2], []);
+    await renderList();
+    const rename = (title: string, to: string) => {
+      fireEvent.click(within(rowOf(title)).getByRole("button", { name: "Rename conversation" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "Rename conversation" }), {
+        target: { value: to },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+    };
+
+    rename("Backlog grooming notes", "Grooming");
+    await waitFor(() =>
+      expect(vi.mocked(renameConversation)).toHaveBeenCalledWith("c2", "Grooming")
+    );
+    expect(useAgentStore.getState().activeMeta?.title).toBe("Velocity question");
+
+    rename("Velocity question", "  Velocity, explained ");
+    await waitFor(() =>
+      expect(useAgentStore.getState().activeMeta?.title).toBe("Velocity, explained")
+    );
+    expect(useAgentStore.getState().activeMeta?.id).toBe("c3");
   });
 });
 
@@ -594,6 +619,35 @@ describe("AgentConversation: notices, the draft and a new thread", () => {
     );
     expect(useAgentStore.getState().activeConversationId).toBe("c9");
     expect(h.deleteConversation).not.toHaveBeenCalled();
+  });
+
+  it("gives the new thread's short title to the panel header too, once the first answer is in", async () => {
+    h.createConversation.mockResolvedValue(meta("c9", "Plan the sprint at 30 points please"));
+    vi.mocked(generateTitle).mockResolvedValueOnce("Sprint Planning");
+    vi.mocked(renameConversation).mockClear();
+    render(<AgentConversation />);
+    fireEvent.change(box(), { target: { value: "Plan the sprint at 30 points please" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(h.sendUserMessage).toHaveBeenCalledTimes(1));
+    expect(useAgentStore.getState().activeMeta?.title).toBe("Plan the sprint at 30 points please");
+
+    // The turn the (mocked) client would run: the question, an answer, then it settles.
+    act(() => {
+      useAgentStore.getState().appendMessage(userMsg("u1", "Plan the sprint at 30 points please"));
+      useAgentStore.getState().setStreaming(true);
+    });
+    act(() => {
+      useAgentStore.getState().appendMessage({
+        id: "a1",
+        role: "assistant",
+        content: [{ type: "text", text: "Here is the plan." }],
+        createdAt: "2026-11-08T09:01:00Z",
+      });
+      useAgentStore.getState().setStreaming(false);
+    });
+
+    await waitFor(() => expect(useAgentStore.getState().activeMeta?.title).toBe("Sprint Planning"));
+    expect(renameConversation).toHaveBeenCalledWith("c9", "Sprint Planning");
   });
 
   it("sends nothing when another thread opened while the new one was being made", async () => {
