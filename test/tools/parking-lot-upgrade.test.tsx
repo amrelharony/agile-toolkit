@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { ParkingLotItem } from "@/lib/stores/workspace-types";
 import { PARKING_LOT_ACTIONS } from "@/lib/history/event-actions";
+import { VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION } from "@/lib/visitor-ai/consent";
 
 /**
  * Parking Lot on workspace.parkingLotItems: quick capture (Enter parks, the
@@ -14,8 +15,10 @@ import { PARKING_LOT_ACTIONS } from "@/lib/history/event-actions";
  * routes with a link both ways and Undo putting the status back, in-place
  * edit and delete with Undo, the meeting filter, the end-of-meeting review
  * (one tap per decision, Amr's cheer when the last point is decided), the
- * suggestions without AI (accept one, accept all), clearing the decided
- * points, the example (never sent), and the export.
+ * suggestions without AI (accept one, accept all, each with Undo) and with
+ * it, clearing the decided points, the example (never sent, and never
+ * offered as a send), the export, keyboard focus after every change, and
+ * what the live announcer says.
  */
 
 const toastSpy = vi.hoisted(() =>
@@ -91,6 +94,26 @@ const pointField = () => screen.getByRole("textbox", { name: /^Point to park/ })
 const meetingField = () => screen.getByRole("textbox", { name: /^Meeting/ });
 const openSendTo = (name: RegExp) =>
   fireEvent.keyDown(screen.getByRole("button", { name }), { key: "Enter" });
+/** A point's text on screen, where focus lands after a change. */
+const textOf = (id: string) => document.querySelector(`[data-parking-text="${id}"]`);
+const focusIs = (el: () => Element | null) =>
+  waitFor(() => {
+    const target = el();
+    expect(target).not.toBeNull();
+    expect(document.activeElement).toBe(target);
+  });
+/** What the live announcer said last. */
+const announced = (text: string | RegExp) =>
+  waitFor(() => expect(screen.getByTestId("live-polite")).toHaveTextContent(text));
+/** Press Undo on every toast since `from`, newest first. */
+const undoSince = (from: number) => {
+  for (const call of toastSpy.mock.calls.slice(from).reverse()) {
+    const opts = call[1] as { action?: { onClick: () => void } } | undefined;
+    act(() => opts?.action?.onClick());
+  }
+};
+const toReview = () =>
+  fireEvent.click(screen.getByRole("radio", { name: "End-of-meeting review" }));
 
 beforeEach(() => {
   toastSpy.mockReset();
@@ -98,6 +121,11 @@ beforeEach(() => {
   cheers.length = 0;
   localStorage.clear();
   seed([]);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe("an empty parking lot", () => {
@@ -220,7 +248,12 @@ describe("Send to…", () => {
       targetId: storyId,
     });
     expect(screen.getByText(/Sent to the backlog/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/sprint-planning");
+    const open = screen.getByRole("link", {
+      name: "Open on the backlog: Who owns the release checklist?",
+    });
+    expect(open).toHaveAttribute("href", "/sprint-planning");
+    expect(open).toHaveTextContent("Open");
+    expect(open).toHaveClass("min-touch-coarse");
 
     undoLast();
     expect(ws().stories).toEqual([]);
@@ -314,7 +347,7 @@ describe("the end-of-meeting review", () => {
     await screen.findByText("Who owns the release checklist?");
     fireEvent.click(screen.getByRole("radio", { name: "End-of-meeting review" }));
     expect(screen.getByText(/2 open points to decide/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^Impediment: Who owns/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Send to impediments: Who owns/ }));
     expect(ws().impediments).toHaveLength(1);
     expect(point("p1")?.status).toBe("sent");
     expect(cheers).toEqual([]);
@@ -388,5 +421,318 @@ describe("the export", () => {
     const md = screen.getByTestId("export-markdown").textContent ?? "";
     expect(md).toContain("- [ ] Who owns the release checklist? (raised by Sam)");
     expect(md).toContain("- [x] Settled — discussed");
+  });
+});
+
+describe("more ways to decide", () => {
+  it("reopens a discussed point, and Undo marks it discussed again", async () => {
+    seed([item({ status: "discussed" })]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^Reopen: Who owns/ }));
+    expect(point("p1")?.status).toBe("open");
+    await announced("Reopened “Who owns the release checklist?”");
+    undoLast();
+    expect(point("p1")?.status).toBe("discussed");
+  });
+
+  it("reopens or drops a sent point whose item was removed there, never one still live", async () => {
+    seed([
+      item({
+        status: "sent",
+        sentTo: [{ route: "backlog-story", targetId: "gone", at: "2026-11-12T09:30:00Z" }],
+      }),
+    ]);
+    renderPage();
+    expect(await screen.findByText(/Sent to the backlog, since removed there/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Discussed: Who owns/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Drop: Who owns/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Reopen: Who owns/ }));
+    expect(point("p1")?.status).toBe("open");
+    await focusIs(() => textOf("p1"));
+
+    act(() => ws().upsertStory({ id: "s1", title: "Live", status: "backlog" }));
+    act(() =>
+      ws().upsertParkingLotItem(
+        item({
+          id: "p2",
+          text: "Still on the backlog",
+          status: "sent",
+          sentTo: [{ route: "backlog-story", targetId: "s1", at: "2026-11-12T09:30:00Z" }],
+        })
+      )
+    );
+    expect(await screen.findByText("Still on the backlog")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Reopen: Still on/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Drop: Still on/ })).toBeNull();
+  });
+
+  it("filters to the points parked with no meeting, and names that in the export", async () => {
+    seed([item(), item({ id: "p2", text: "Loose point", meeting: undefined })]);
+    renderPage();
+    await screen.findByText("Loose point");
+    const filter = screen.getByRole("radiogroup", { name: "Meeting" });
+    fireEvent.click(within(filter).getByRole("radio", { name: "No meeting named (1 open)" }));
+    expect(screen.queryByText("Who owns the release checklist?")).toBeNull();
+    expect(screen.getByText("Loose point")).toBeInTheDocument();
+    expect(screen.getByTestId("export-markdown").textContent).toContain(
+      "# Parking lot — No meeting named"
+    );
+  });
+
+  it("says each change out loud: parked, then sent", async () => {
+    renderPage();
+    await screen.findByText(/Nothing parked yet/);
+    fireEvent.change(pointField(), { target: { value: "Who signs off releases?" } });
+    fireEvent.submit(pointField().closest("form")!);
+    await announced("Parked “Who signs off releases?”");
+    openSendTo(/^Send to… Who signs/);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Backlog story" }));
+    await announced("Sent “Who signs off releases?” to the backlog");
+  });
+});
+
+describe("the review, further", () => {
+  it("marks a point discussed in the review, and Undo puts the card back", async () => {
+    seed([item()]);
+    renderPage();
+    await screen.findByText("Who owns the release checklist?");
+    toReview();
+    fireEvent.click(screen.getByRole("button", { name: /^Discussed: Who owns/ }));
+    expect(point("p1")?.status).toBe("discussed");
+    expect(logged(PARKING_LOT_ACTIONS.ITEM_DISCUSSED)).toHaveLength(1);
+    expect(screen.getByText(/Every point here is decided/)).toBeInTheDocument();
+    undoLast();
+    expect(point("p1")?.status).toBe("open");
+    expect(await screen.findByText(/1 open point to decide/)).toBeInTheDocument();
+  });
+
+  it("names each send button by where it sends the point", async () => {
+    seed([item()]);
+    renderPage();
+    await screen.findByText("Who owns the release checklist?");
+    toReview();
+    const buttons: [string, RegExp][] = [
+      ["To backlog", /^Send to backlog: Who owns/],
+      ["To impediments", /^Send to impediments: Who owns/],
+      ["To retro actions", /^Send to retro actions: Who owns/],
+    ];
+    for (const [label, name] of buttons) {
+      expect(screen.getByRole("button", { name })).toHaveTextContent(label);
+    }
+  });
+
+  it("Accept all sends each point on its route, and each Undo takes it back", async () => {
+    seed([
+      item({ text: "We are blocked on the payments team's approval" }),
+      item({ id: "p2", text: "Customers want a CSV export", createdAt: "2026-11-12T09:01:00Z" }),
+      item({
+        id: "p3",
+        text: "We should agree how we hand over on-call",
+        createdAt: "2026-11-12T09:02:00Z",
+      }),
+      item({ id: "p4", text: "Never mind, already decided", createdAt: "2026-11-12T09:03:00Z" }),
+    ]);
+    renderPage();
+    await screen.findByText("Customers want a CSV export");
+    toReview();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest where each goes" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    const before = toastSpy.mock.calls.length;
+    fireEvent.click(within(list).getByRole("button", { name: "Accept all 4" }));
+
+    const cards = () =>
+      (ws().retroBoards ?? [])
+        .flatMap((b) => b.cards)
+        .filter((c) => c.sourceRef?.tool === "parking-lot");
+    expect(ws().stories).toHaveLength(1);
+    expect(ws().impediments).toHaveLength(1);
+    expect(cards()).toHaveLength(1);
+    expect(points().map((i) => i.status)).toEqual(["sent", "sent", "sent", "dropped"]);
+    await announced("Decided 4 points");
+    expect(cheers).toEqual([["parking-lot", "done"]]);
+
+    // One toast per route, and one for the drops.
+    expect(toastSpy.mock.calls.length - before).toBe(4);
+    undoSince(before);
+    expect(ws().stories).toEqual([]);
+    expect(ws().impediments).toEqual([]);
+    expect(cards()).toEqual([]);
+    expect(points().every((i) => i.status === "open" && !i.sentTo)).toBe(true);
+  });
+
+  it("offers only drops for example points: a send would change nothing", async () => {
+    seed([
+      item({ id: "example-a", text: "We are blocked on the payments team's approval" }),
+      item({
+        id: "example-b",
+        text: "Never mind, already decided",
+        createdAt: "2026-11-12T09:01:00Z",
+      }),
+    ]);
+    renderPage();
+    await screen.findByText("Never mind, already decided");
+    toReview();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest where each goes" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    expect(
+      screen.getByText(/1 suggestion to send an example point on is left out: example points stay/)
+    ).toBeInTheDocument();
+    expect(within(list).queryByText(/We are blocked/)).toBeNull();
+    fireEvent.click(within(list).getByRole("button", { name: /^Accept: Drop: Never mind/ }));
+    expect(point("example-b")?.status).toBe("dropped");
+    expect(point("example-a")?.status).toBe("open");
+    expect(ws().impediments).toEqual([]);
+    expect(logs).toEqual([]);
+  });
+
+  it("says so when every suggestion would send an example point, and offers none", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Load an example" }));
+    toReview();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest where each goes" }));
+    expect(
+      await screen.findByText(/5 suggestions to send example points on are left out/)
+    ).toHaveAttribute("role", "status");
+    expect(screen.queryByTestId("ai-suggestions")).toBeNull();
+    expect(screen.queryByText(/No suggestion fits/)).toBeNull();
+  });
+
+  it("still suggests for the other points when one has an id the task can't take", async () => {
+    const longId = `parking_${"x".repeat(70)}`;
+    seed([
+      item({ id: longId, text: "We are blocked on approvals" }),
+      item({ id: "p2", text: "Customers want a CSV export", createdAt: "2026-11-12T09:01:00Z" }),
+    ]);
+    renderPage();
+    await screen.findByText("Customers want a CSV export");
+    toReview();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest where each goes" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    expect(
+      within(list).getByText("Backlog story: Customers want a CSV export")
+    ).toBeInTheDocument();
+    expect(within(list).queryByText(/We are blocked/)).toBeNull();
+    expect(screen.queryByText(/Fill in the tool first/)).toBeNull();
+  });
+
+  it("shows Amr's AI answer as his, and applies only what is accepted", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+    localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            source: "ai",
+            data: {
+              routes: [
+                { id: "p1", destination: "action", reason: "It is about how the team works." },
+                { id: "made-up", destination: "drop", reason: "Not a point on the list." },
+              ],
+            },
+          }),
+          { status: 200 }
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    seed([item()]);
+    renderPage();
+    await screen.findByText("Who owns the release checklist?");
+    toReview();
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Amr where each goes" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    expect(
+      within(list).getByText("Suggested by Amr's AI. Check before you add.")
+    ).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(within(list).queryByText(/Not a point on the list/)).toBeNull();
+    expect(point("p1")?.status).toBe("open");
+    fireEvent.click(within(list).getByRole("button", { name: /^Accept: Retro action: Who owns/ }));
+    expect(point("p1")?.sentTo?.map((l) => l.route)).toEqual(["retro-action"]);
+  });
+});
+
+describe("keyboard focus stays on the page", () => {
+  it("moves to the next open point after one is marked discussed, then to the last one itself", async () => {
+    seed([item(), item({ id: "p2", text: "Second point", createdAt: "2026-11-12T09:01:00Z" })]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^Discussed: Who owns/ }));
+    await focusIs(() => textOf("p2"));
+    fireEvent.click(screen.getByRole("button", { name: /^Discussed: Second point/ }));
+    await focusIs(() => textOf("p2"));
+  });
+
+  it("keeps focus after a reopen and a drop", async () => {
+    seed([
+      item({ status: "discussed" }),
+      item({
+        id: "p2",
+        text: "Second point",
+        status: "dropped",
+        createdAt: "2026-11-12T09:01:00Z",
+      }),
+      item({ id: "p3", text: "Third point", createdAt: "2026-11-12T09:02:00Z" }),
+    ]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^Reopen: Who owns/ }));
+    // It left the decided list: focus goes to the next point there.
+    await focusIs(() => textOf("p2"));
+    fireEvent.click(screen.getByRole("button", { name: /^Drop: Third point/ }));
+    // The open list now has the reopened point before it.
+    await focusIs(() => textOf("p1"));
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("moves to the next open point after a send from the menu", async () => {
+    seed([item(), item({ id: "p2", text: "Second point", createdAt: "2026-11-12T09:01:00Z" })]);
+    renderPage();
+    await screen.findByText("Second point");
+    openSendTo(/^Send to… Who owns/);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Impediment" }));
+    expect(point("p1")?.status).toBe("sent");
+    await focusIs(() => textOf("p2"));
+  });
+
+  it("moves to the next point after a delete, and back to the point on Undo", async () => {
+    seed([item(), item({ id: "p2", text: "Second point", createdAt: "2026-11-12T09:01:00Z" })]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^Delete: Who owns/ }));
+    await focusIs(() => textOf("p2"));
+    undoLast();
+    await focusIs(() => textOf("p1"));
+  });
+
+  it("returns to the point after an edit is cancelled or saved", async () => {
+    seed([item()]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^Edit: Who owns/ }));
+    fireEvent.click(
+      within(document.getElementById("parking-p1")!).getByRole("button", { name: "Cancel" })
+    );
+    await focusIs(() => textOf("p1"));
+    fireEvent.click(screen.getByRole("button", { name: /^Edit: Who owns/ }));
+    const row = document.getElementById("parking-p1")!;
+    fireEvent.change(within(row).getByRole("textbox", { name: /^Point/ }), {
+      target: { value: "Who owns releases now?" },
+    });
+    fireEvent.click(within(row).getByRole("button", { name: "Save" }));
+    await focusIs(() => textOf("p1"));
+    await announced("Saved “Who owns releases now?”");
+  });
+
+  it("moves through the review card by card, then to its heading; Dismiss keeps it there", async () => {
+    seed([item(), item({ id: "p2", text: "Second point", createdAt: "2026-11-12T09:01:00Z" })]);
+    renderPage();
+    await screen.findByText("Second point");
+    toReview();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest where each goes" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    fireEvent.click(within(list).getByRole("button", { name: "Dismiss suggestions" }));
+    const heading = () => screen.getByRole("heading", { name: "End-of-meeting review" });
+    expect(document.activeElement).toBe(heading());
+    fireEvent.click(screen.getByRole("button", { name: /^Drop: Who owns/ }));
+    await focusIs(() => screen.getByRole("button", { name: /^Discussed: Second point/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Discussed: Second point/ }));
+    await focusIs(heading);
   });
 });
