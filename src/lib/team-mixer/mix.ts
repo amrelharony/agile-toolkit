@@ -49,6 +49,7 @@ import {
   repeatCost,
   sharedTraits,
   traitsOf,
+  type MetHistory,
   type PlacedRule,
 } from "./weights";
 
@@ -260,13 +261,68 @@ export function mixGroups(input: MixInput): MixOutcome {
   found.assign.forEach((g, i) => seats[g].push(i));
   const groupSeats = seats.filter((_, g) => g !== sitOutGroup && seats[g].length > 0);
   const outSeats = sitOutGroup === null ? [] : seats[sitOutGroup];
+
+  const report = reportOn({
+    people,
+    mode,
+    groupSeats,
+    outSeats,
+    placed,
+    skipped,
+    history,
+    balance,
+    traits,
+    thisRound: pastRounds + 1,
+  });
+  const issues = report.issues;
+  if (found.timedOut && (report.broken > 0 || report.repeats > 0)) {
+    issues.push({ kind: "search", text: searchNote(input.timeLimitMs ?? MIX_TIME_LIMIT_MS) });
+  }
+
+  return {
+    ok: true,
+    groups: groupSeats.map((g) => g.map((i) => people[i].name)),
+    sitOut: outSeats.map((i) => people[i].name),
+    issues: issues.slice(0, MIXER_LIMITS.issues),
+    repeats: report.repeats,
+    broken: report.broken,
+    timedOut: found.timedOut,
+  };
+}
+
+/** What a mix's report is worked out from: the groups as places in `people`. */
+interface ReportParts {
+  people: readonly MixPerson[];
+  mode: "groups" | "pairs";
+  groupSeats: readonly (readonly number[])[];
+  outSeats: readonly number[];
+  placed: readonly PlacedRule[];
+  skipped: readonly MixIssue[];
+  history: MetHistory;
+  balance: Balance;
+  traits: readonly (readonly string[])[];
+  /** This round's place in the series, from 1. */
+  thisRound: number;
+}
+
+export interface MixReport {
+  /** Broken rules first, then repeats, sit-outs, balance and skipped rules. */
+  issues: MixIssue[];
+  repeats: number;
+  broken: number;
+}
+
+/** The plain-words report on groups as they stand (see the file header). */
+function reportOn(p: ReportParts): MixReport {
+  const { people, mode, groupSeats, outSeats, placed, history, balance, traits } = p;
+  const n = people.length;
   const groupOf = new Map<number, number>();
   groupSeats.forEach((g, gi) => g.forEach((i) => groupOf.set(i, gi)));
   const label = (g: number) => groupLabel(mode, g);
 
   const issues: MixIssue[] = [];
   let broken = 0;
-  const maxSize = Math.max(...groupSeats.map((g) => g.length));
+  const maxSize = Math.max(0, ...groupSeats.map((g) => g.length));
   const tooBig = togetherClusters(n, placed).filter((c) => c.length > maxSize);
   const inTooBig = new Set(tooBig.flat());
   for (const c of tooBig) {
@@ -311,7 +367,7 @@ export function mixGroups(input: MixInput): MixOutcome {
     }
   }
   if (again.length > 0) {
-    const thisRound = pastRounds + 1;
+    const thisRound = p.thisRound;
     const fresh = n % 2 === 0 ? n - 1 : n;
     const names = pairList(again);
     issues.push({
@@ -337,21 +393,52 @@ export function mixGroups(input: MixInput): MixOutcome {
   const noTraits = noTraitsIssue(people, balance, traits);
   if (noTraits) issues.push(noTraits);
   else issues.push(...balanceIssues(people, balance, groupSeats, label));
-  issues.push(...skipped);
+  issues.push(...p.skipped);
+  return { issues, repeats: again.length, broken };
+}
 
-  if (found.timedOut && (broken > 0 || again.length > 0)) {
-    issues.push({ kind: "search", text: searchNote(input.timeLimitMs ?? MIX_TIME_LIMIT_MS) });
-  }
+export interface ReportInput {
+  /** Everyone in the round, with their role and skills. */
+  people: readonly MixPerson[];
+  mode: "groups" | "pairs";
+  /** The groups, by name. */
+  groups: readonly (readonly string[])[];
+  sitOut?: readonly string[];
+  balance?: Balance;
+  rules?: readonly MixRuleInput[];
+  /** The rounds before this one, oldest first. */
+  history?: readonly PastRound[];
+  /** This round's place in the series, from 0. Default: how many rounds the history holds. */
+  round?: number;
+}
 
-  return {
-    ok: true,
-    groups: groupSeats.map((g) => g.map((i) => people[i].name)),
-    sitOut: outSeats.map((i) => people[i].name),
-    issues: issues.slice(0, MIXER_LIMITS.issues),
-    repeats: again.length,
-    broken,
-    timedOut: found.timedOut,
-  };
+/**
+ * The report on groups as they now stand, after the facilitator moved
+ * someone: the same lines a mix gives (broken rules, pairs who meet again,
+ * who sits out, balance, rules left out), worked out afresh, so none of
+ * them describes the groups as they were.
+ */
+export function reportGroups(input: ReportInput): MixReport {
+  const named = [...input.groups.flat(), ...(input.sitOut ?? [])].map((name) => ({ name }));
+  const people = uniquePeople([...input.people, ...named], Number.MAX_SAFE_INTEGER);
+  const at = new Map(people.map((p, i) => [nameKey(p.name), i] as const));
+  const seatsOf = (names: readonly string[]) =>
+    names.map((name) => at.get(nameKey(name))).filter((i): i is number => i !== undefined);
+  const balance = input.balance ?? "none";
+  const { placed, skipped } = placeRules(people, input.rules ?? []);
+  const report = reportOn({
+    people,
+    mode: input.mode,
+    groupSeats: input.groups.map(seatsOf).filter((g) => g.length > 0),
+    outSeats: seatsOf(input.sitOut ?? []),
+    placed,
+    skipped,
+    history: metHistory(input.history ?? []),
+    balance,
+    traits: traitsOf(people, balance),
+    thisRound: (input.round ?? input.history?.length ?? 0) + 1,
+  });
+  return { ...report, issues: report.issues.slice(0, MIXER_LIMITS.issues) };
 }
 
 /** The note when the time limit cut the search short. */

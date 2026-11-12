@@ -13,7 +13,7 @@ import { findRosterMember } from "@/lib/team/names";
 import { createRng } from "@/lib/utils/random";
 import type { FormErrors, Validation } from "@/lib/utils/form";
 import { cafeProblem, planCafe } from "./cafe";
-import { mixGroups, mixProblem } from "./mix";
+import { mixGroups, mixProblem, reportGroups } from "./mix";
 import {
   MIXER_LIMITS,
   groupSizes,
@@ -37,18 +37,26 @@ export function freshSeed(): number {
   return Math.floor(createRng()() * 4294967296) >>> 0;
 }
 
-/** The people in the mix, with their role and skills from the roster when they're on it. */
-export function mixPeople(state: MixerState, roster: readonly TeamMember[]): MixPerson[] {
-  return state.people.map((p) => {
-    const m = findRosterMember(roster, p.name);
+/** People by name, with their role and skills from the roster when they're on it. */
+export function withTraits(names: readonly string[], roster: readonly TeamMember[]): MixPerson[] {
+  return names.map((name) => {
+    const m = findRosterMember(roster, name);
     const role = m?.role?.trim();
     const skills = (m?.skills ?? []).map((s) => s.trim()).filter(Boolean);
     return {
-      name: p.name,
+      name,
       ...(role ? { role } : {}),
       ...(skills.length > 0 ? { skills } : {}),
     };
   });
+}
+
+/** The people in the mix, with their role and skills from the roster when they're on it. */
+export function mixPeople(state: MixerState, roster: readonly TeamMember[]): MixPerson[] {
+  return withTraits(
+    state.people.map((p) => p.name),
+    roster
+  );
 }
 
 /** The current split. */
@@ -293,12 +301,16 @@ export function addRule(
  * Move a person to another group of a saved round (the facilitator's own
  * swap after a mix). Unchanged when the round, the person or the group
  * isn't there, or the person is already in it; a group left empty goes.
+ * The round's report is worked out again for the groups as they now stand
+ * (the rules, the rounds before it, who sits out and the balance, with
+ * roles and skills from `roster`), so it never describes the old groups.
  */
 export function movePerson(
   state: MixerState,
   roundId: string,
   name: string,
-  toGroup: number
+  toGroup: number,
+  roster: readonly TeamMember[] = []
 ): MixerState {
   const at = state.rounds.findIndex((r) => r.id === roundId);
   if (at < 0) return state;
@@ -316,11 +328,20 @@ export function movePerson(
     ...g,
     people: i === toGroup ? [...g.people, person] : g.people.filter((p) => nameKey(p) !== key),
   }));
-  const next: MixerRound = {
-    ...round,
-    groups: groups.filter((g) => g.people.length > 0),
-    sitOut: round.sitOut.filter((p) => nameKey(p) !== key),
-  };
+  const kept = groups.filter((g) => g.people.length > 0);
+  const sitOut = round.sitOut.filter((p) => nameKey(p) !== key);
+  const everyone = [...kept.flatMap((g) => g.people), ...sitOut];
+  const report = reportGroups({
+    people: withTraits(everyone, roster),
+    mode: round.mode,
+    groups: kept.map((g) => g.people),
+    sitOut,
+    balance: round.balance,
+    rules: state.rules,
+    history: pastRounds({ ...state, rounds: state.rounds.slice(0, at) }),
+    round: at,
+  });
+  const next: MixerRound = { ...round, groups: kept, sitOut, issues: report.issues };
   const rounds = state.rounds.slice();
   rounds[at] = next;
   return { ...state, rounds };

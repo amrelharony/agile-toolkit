@@ -198,7 +198,7 @@ export function TeamMixerClient() {
   const move = (round: MixerRound, who: string, toGroup: number) => {
     undoable({
       label: `Moved ${who}`,
-      apply: () => updateMixer((s) => movePerson(s, round.id, who, toGroup)),
+      apply: () => updateMixer((s) => movePerson(s, round.id, who, toGroup, roster)),
       revert: restoreRound(roundNow(round.id)),
     });
     log(TEAM_MIXER_ACTIONS.MIX_SAVED, { edit: "moved", groups: round.groups.length });

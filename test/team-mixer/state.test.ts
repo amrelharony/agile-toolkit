@@ -325,6 +325,87 @@ describe("mixing and saving", () => {
     void second;
   });
 
+  it("works the report out again after a move: a rule now broken, nobody left sitting out", () => {
+    const s: MixerState = {
+      ...withPeople(["Ana", "Bo", "Cy", "Dee", "Eve"], { mode: "pairs", odd: "sit-out" }),
+      rules: [{ id: "x1", kind: "apart", a: "Ana", b: "Bo" }],
+      rounds: [
+        {
+          id: "r1",
+          at: "2026-11-12T10:00:00.000Z",
+          mode: "pairs",
+          seed: 1,
+          balance: "none",
+          groups: [{ people: ["Dee", "Eve"] }, { people: ["Bo", "Cy"] }],
+          sitOut: ["Ana"],
+          issues: [{ kind: "sit-out", text: "Ana sits out this round." }],
+        },
+      ],
+    };
+    const moved = movePerson(s, "r1", "Ana", 1).rounds[0];
+    expect(moved.groups.map((g) => g.people)).toEqual([
+      ["Dee", "Eve"],
+      ["Bo", "Cy", "Ana"],
+    ]);
+    expect(moved.sitOut).toEqual([]);
+    expect(moved.issues).toEqual([
+      { kind: "apart", text: "Ana and Bo are both in Pair 2, though they should be kept apart." },
+    ]);
+  });
+
+  it("names the groups by their new places once a move empties one, and counts the rounds before", () => {
+    const at = (h: number) => new Date(Date.UTC(2026, 10, 12, h)).toISOString();
+    const base = withPeople(["Ana", "Bo", "Cy", "Dee", "Eve"], { split: "count", count: 3 });
+    const s: MixerState = {
+      ...base,
+      balance: "role",
+      rules: [{ id: "x1", kind: "apart", a: "Dee", b: "Eve" }],
+      rounds: [
+        {
+          id: "r0",
+          at: at(9),
+          mode: "groups",
+          seed: 1,
+          balance: "none",
+          groups: [{ people: ["Ana", "Bo"] }, { people: ["Cy", "Dee", "Eve"] }],
+          sitOut: [],
+          issues: [],
+        },
+        {
+          id: "r1",
+          at: at(10),
+          mode: "groups",
+          seed: 2,
+          balance: "role",
+          groups: [{ people: ["Ana"] }, { people: ["Bo", "Cy"] }, { people: ["Dee", "Eve"] }],
+          sitOut: [],
+          issues: [
+            {
+              kind: "apart",
+              text: "Dee and Eve are both in Group 3, though they should be kept apart.",
+            },
+          ],
+        },
+      ],
+    };
+    const roster: TeamMember[] = [
+      { id: "m1", name: "Ana", role: "Developer" },
+      { id: "m2", name: "Bo", role: "Developer" },
+    ];
+    const moved = movePerson(s, "r1", "Ana", 1, roster).rounds[1];
+    expect(moved.groups.map((g) => g.people)).toEqual([
+      ["Bo", "Cy", "Ana"],
+      ["Dee", "Eve"],
+    ]);
+    expect(moved.issues.map((i) => i.text)).toEqual([
+      "Dee and Eve are both in Group 2, though they should be kept apart.",
+      "2 pairs have been together before: Bo with Ana and Dee with Eve.",
+      "Developer isn't spread evenly: Group 1 has 2 of the 2.",
+    ]);
+    // The round before is left as it was.
+    expect(movePerson(s, "r1", "Ana", 1, roster).rounds[0]).toBe(s.rounds[0]);
+  });
+
   it("names groups in order, and clears a blank name", () => {
     const r = ok(mixNow(six(), [], { seed: 5, id: "r1" }));
     const named = nameGroups(r.state, "r1", ["Oak", "Elm"]);
