@@ -83,9 +83,13 @@ const OWNER_MAX_TOKENS = 8192;
 const WRAP_UP_MAX_TOKENS = 4096;
 /** generateTitle: a 3-6 word title, plus low-effort reasoning. */
 const TITLE_MAX_TOKENS = 1024;
-/** Told to the model on the wrap-up turn, after the round budget is spent. */
-const WRAP_UP_INSTRUCTION =
-  "IMPORTANT: You have used every tool-use round for this turn. You cannot call any more tools — a tool call now is ignored. Answer the user now, in plain text: summarise what you accomplished, what failed, and what remains.";
+/**
+ * Told to the model on the wrap-up turn, after the round budget is spent. Its
+ * answer is the reply, so like the prompt it has no dashes (the model copies
+ * what it reads). Exported for tests.
+ */
+export const WRAP_UP_INSTRUCTION =
+  "You have used every tool round for this turn. You cannot call any more tools: a tool call now is ignored. Answer the user now, in plain text: say what you did, what failed, and what remains.";
 /** Guard against schema-violation wedges: if the same action returns
  *  is_error twice in a row with the same arg-shape, stop retrying. */
 const MAX_SAME_ERROR_REPEATS = 2;
@@ -2270,7 +2274,7 @@ export async function generateTitle(
         {
           role: "system",
           content:
-            "You title conversations. Reply with ONLY a 3-6 word title — no quotes, no preamble, no trailing punctuation.",
+            "You title conversations. Reply with only a 3 to 6 word title, with no quotes, no preamble and no trailing punctuation.",
         },
         {
           role: "user",

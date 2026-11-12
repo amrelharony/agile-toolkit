@@ -69,6 +69,7 @@ import {
   roundLimitNotice,
   sendUserMessage,
   usageTotal,
+  WRAP_UP_INSTRUCTION,
 } from "@/lib/agent/client";
 import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage, ConversationMeta, ToolUseBlock } from "@/lib/agent/types";
@@ -525,7 +526,11 @@ describe("round-limit wrap-up", () => {
     const wrapUp = posts[10];
     expect(wrapUp.tool_choice).toBe("auto");
     expect(wrapUp.tools!.map((t) => t.function.name)).toContain(PROBE_TOOL);
-    expect(String(wrapUp.messages[0].content)).toContain("You cannot call any more tools");
+    const wrapUpSystem = String(wrapUp.messages[0].content);
+    expect(wrapUpSystem).toContain("You cannot call any more tools");
+    // Its answer is the reply, so the instruction has no dashes for the model to copy.
+    expect(wrapUpSystem.endsWith(`\n\n${WRAP_UP_INSTRUCTION}`)).toBe(true);
+    expect(WRAP_UP_INSTRUCTION).not.toMatch(/[–—]/);
     // Still ends on a tool result, so the route doesn't meter it as a new turn.
     expect(wrapUp.messages.at(-1)?.role).toBe("tool");
     expect(posts.every((p) => p.tool_choice !== "none")).toBe(true);
