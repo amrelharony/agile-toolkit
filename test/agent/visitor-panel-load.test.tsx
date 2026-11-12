@@ -31,6 +31,7 @@ import {
   VisitorPanel,
 } from "@/components/agent/mascot/visitor-panel";
 import { PANEL_SUBTITLE, PanelChrome } from "@/components/agent/mascot/panel-chrome";
+import { PANEL_LOADING } from "@/components/agent/mascot/panel-parts";
 import { PanelHeader } from "@/components/agent/mascot/panel-header";
 import { ErrorBoundary } from "@/components/layout/error-boundary";
 import { useAgentStore } from "@/lib/agent/store";
@@ -176,6 +177,36 @@ describe("VisitorPanel: the chat's code can't load", () => {
     expect(await screen.findByText(VISITOR_CHAT_ERROR_NOTE)).toBeInTheDocument();
     expect(loadChat).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Something went wrong")).toBeNull();
+  });
+
+  it("draws a pen scribbling in the chat's place while its code loads, never a blank panel", async () => {
+    let finish: () => void = () => {};
+    const loadChat = vi.fn<() => Promise<ChatModule>>().mockImplementationOnce(
+      () =>
+        new Promise<ChatModule>((resolve, reject) => {
+          finish = () =>
+            import("@/components/agent/mascot/visitor-agent-panel").then(resolve, reject);
+        })
+    );
+    render(<VisitorPanel loadChat={loadChat} />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await waitFor(() => expect(loadChat).toHaveBeenCalledTimes(1));
+
+    // PanelLoading, as the owner's chat has: the scribble, and its words for screen readers.
+    const loading = screen.getByText(PANEL_LOADING);
+    expect(loading).toHaveClass("sr-only");
+    const place = loading.parentElement!;
+    expect(place).toHaveAttribute("data-panel-loading");
+    expect(place).toHaveAttribute("aria-busy", "true");
+    expect(place).toHaveClass("min-h-0", "flex-1");
+    expect(place.querySelector(".ink-scribble")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByLabelText("Message")).toBeNull();
+
+    await act(async () => {
+      finish();
+    });
+    expect(await screen.findByLabelText("Message")).toBeInTheDocument();
+    expect(screen.queryByText(PANEL_LOADING)).toBeNull();
   });
 
   it("names the step in the panel header: the chat while it loads, the tool finder after it fails", async () => {

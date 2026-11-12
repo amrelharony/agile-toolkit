@@ -52,6 +52,7 @@ import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { VisitorGuide } from "./visitor-guide";
 import { VisitorAiConsent, hasVisitorAiConsent } from "./visitor-ai-consent";
 import { PANEL_SUBTITLE, PanelSubtitle } from "./panel-chrome";
+import { PanelLoading } from "./panel-parts";
 
 type ChatModule = typeof import("./visitor-agent-panel");
 type LoadChat = () => Promise<ChatModule>;
@@ -280,7 +281,8 @@ export function VisitorPanel({
             <ChatFailed onFailed={() => chatFailed(failedChats.has(Chat) ? "load" : "error")} />
           )}
         >
-          <Suspense fallback={<div className="min-h-0 flex-1" aria-busy="true" />}>
+          {/* While it loads, a pen scribbles in its place, named for screen readers. */}
+          <Suspense fallback={<PanelLoading />}>
             <Chat
               initialQuestion={question}
               // Back to the guide, its search on the question the chat opened

@@ -8,9 +8,9 @@
  * One import, shared: mascot-assistant fetches it ahead (prefetchVisitorBody)
  * when the browser is idle after Amr mounts and when a pointer or focus first
  * reaches him, so opening the panel almost never waits. Once it has loaded,
- * a panel opening draws the body at once. Until then the body's place holds
- * a plain box of the same size (the panel keeps its height, nothing jumps),
- * named for screen readers. If the import fails (offline, or a tab left open
+ * a panel opening draws the body at once. Until then a pen scribbles in the
+ * body's place (PanelLoading), at the same size (the panel keeps its height,
+ * nothing jumps), named for screen readers. If the import fails (offline, or a tab left open
  * across a deploy), a narration caption says so and Try again imports it
  * again; a failed import is never kept, so the next try or prefetch starts
  * afresh. Try again goes when pressed, so it hands focus to Amr's name plate
@@ -22,6 +22,7 @@ import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { Button } from "@/components/ui/button";
 import { AMR_PANEL_TITLE_ID } from "./panel-header";
+import { PanelLoading } from "./panel-parts";
 import type { VisitorBodyProps } from "./visitor-body";
 
 type VisitorBodyModule = typeof import("./visitor-body");
@@ -122,9 +123,6 @@ export function LazyVisitorBody(props: VisitorBodyProps) {
       </div>
     );
   }
-  return (
-    <div className="h-full" aria-busy="true">
-      <span className="sr-only">{VISITOR_BODY_LOADING}</span>
-    </div>
-  );
+  // Its parent in the panel isn't a flex column: h-full keeps the panel's height.
+  return <PanelLoading label={VISITOR_BODY_LOADING} className="h-full" />;
 }

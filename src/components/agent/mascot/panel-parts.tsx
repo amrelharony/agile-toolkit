@@ -6,8 +6,10 @@
  *
  *   PanelLoading   the panel's body while its code or the sign-in check is on
  *                  its way: a pen scribbling, and "Loading Amr's chat" for
- *                  screen readers. It fills the body's place, so the panel
- *                  keeps its size and nothing jumps when the body arrives.
+ *                  screen readers (the visitor's tool finder names itself).
+ *                  It fills the body's place, so the panel keeps its size and
+ *                  nothing jumps when the body arrives. The owner's chat, the
+ *                  visitor's tool finder and the visitor's chat all use it.
  *   PanelFailed    the panel's body after it crashed, or after its code
  *                  couldn't load: a narration caption saying so in the third
  *                  person, with Reload page and, for the owner, Start a new
@@ -32,6 +34,7 @@ import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { InkScribble } from "@/components/ink/ink-scribble";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { AMR_PANEL_TITLE_ID } from "./panel-header";
 
 /** What the launcher plate says, and its button's name: the same words, so the name is what's seen. */
@@ -40,17 +43,24 @@ export const LAUNCHER_LABEL = "Ask Amr";
 /** Read by screen readers in the panel body's place while it loads. */
 export const PANEL_LOADING = "Loading Amr's chat";
 
+export interface PanelLoadingProps {
+  /** What screen readers hear in its place. Defaults to PANEL_LOADING. */
+  label?: string;
+  /** Sizing for a parent that isn't a flex column (it fills one by default). */
+  className?: string;
+}
+
 /** The panel's body, on its way: a pen scribbling in its place. */
-export function PanelLoading() {
+export function PanelLoading({ label = PANEL_LOADING, className }: PanelLoadingProps) {
   return (
     <div
-      className="flex min-h-0 flex-1 items-center justify-center p-4"
+      className={cn("flex min-h-0 flex-1 items-center justify-center p-4", className)}
       aria-busy="true"
       data-panel-loading=""
     >
       {/* Decorative (InkArt is aria-hidden); drawn still under reduced motion. */}
       <InkScribble />
-      <span className="sr-only">{PANEL_LOADING}</span>
+      <span className="sr-only">{label}</span>
     </div>
   );
 }
