@@ -408,14 +408,31 @@ describe("closing", () => {
     render(<MascotAssistant />);
     fireEvent.keyDown(document.body, { key: "j", ctrlKey: true });
     await guideLoaded();
-
-    // The Close button, then Escape, before the panel has gone from the page.
-    act(() => {
-      screen.getByRole("button", { name: "Close assistant" }).click();
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    fireEvent.change(screen.getByLabelText("What do you need to do?"), {
+      target: { value: "retro" },
     });
+    const link = within(screen.getByRole("list", { name: "Matching tools" })).getAllByRole(
+      "link"
+    )[0];
+
+    // jsdom can't follow a link to another page, so the click stops short of it.
+    const stay = (e: Event) => e.preventDefault();
+    document.addEventListener("click", stay);
+    try {
+      // The Close button, then a tool link (closePanel("navigate"), with no
+      // check of its own), then Escape, before the panel has gone from the page.
+      act(() => {
+        screen.getByRole("button", { name: "Close assistant" }).click();
+        link.click();
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+    } finally {
+      document.removeEventListener("click", stay);
+    }
     expect(closeSheet).toHaveBeenCalledTimes(1);
     expect(useAgentStore.getState().open).toBe(false);
+    // The first reason wins: the Close button brings focus back, where a
+    // "navigate" that overwrote it would have skipped the restore.
     expect(amr()).toHaveFocus();
   });
 });
