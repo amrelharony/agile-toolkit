@@ -6,8 +6,8 @@ import type { VisitorBodyProps } from "@/components/agent/mascot/visitor-body";
  * The open panel's visitor views are a chunk of their own (visitor-body), so
  * Amr's chunk, which every page loads, stays small. mascot-assistant fetches
  * it ahead: once the browser is idle after Amr mounts, and when a pointer, a
- * finger or focus first reaches him; never for the owner, never with Data
- * Saver on. lazy-visitor-body loads it, holds its place while it comes, and
+ * finger or focus first reaches him; never before auth settles, never for the
+ * owner, never with Data Saver on. lazy-visitor-body loads it, holds its place while it comes, and
  * offers Try again when it can't load.
  *
  * The prefetch is watched through a spy in place of prefetchVisitorBody (the
@@ -151,13 +151,33 @@ describe("MascotAssistant fetches the visitor body ahead", () => {
     const { rerender } = render(<MascotAssistant />);
     idle();
     expect(h.prefetch).not.toHaveBeenCalled();
+    // Reaching for him while it's still loading: isOwner reads false then, and
+    // this may yet be the owner.
+    fireEvent.pointerEnter(amrButton());
+    fireEvent.touchStart(amrButton());
+    fireEvent.focus(amrButton());
+    expect(h.prefetch).not.toHaveBeenCalled();
 
     h.auth = OWNER;
     rerender(<MascotAssistant />);
     idle();
     fireEvent.pointerEnter(amrButton());
+    fireEvent.touchStart(amrButton());
     fireEvent.focus(amrButton());
     expect(h.prefetch).not.toHaveBeenCalled();
+  });
+
+  it("reaching for Amr fetches it once auth settles on a visitor", () => {
+    stubIdle(); // never idle here
+    h.auth = { status: "loading", user: null };
+    const { rerender } = render(<MascotAssistant />);
+    fireEvent.pointerEnter(amrButton());
+    expect(h.prefetch).not.toHaveBeenCalled();
+
+    h.auth = VISITOR;
+    rerender(<MascotAssistant />);
+    fireEvent.pointerEnter(amrButton());
+    expect(h.prefetch).toHaveBeenCalledTimes(1);
   });
 
   it("never with Data Saver on: the body loads when the panel opens", async () => {

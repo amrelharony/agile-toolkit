@@ -754,10 +754,11 @@ export function MascotAssistant() {
   // Everyone but the owner opens the panel on the visitor body: fetch it ahead.
   usePrefetchVisitorBody(settled && !isOwner);
   // Reaching for Amr (a pointer over him, a finger on him, focus on him): fetch
-  // it now if it isn't here yet (Data Saver waits for the panel to open). Once
-  // fetched, this does nothing.
+  // it now if it isn't here yet (Data Saver waits for the panel to open). Like
+  // the idle fetch, it waits for auth to settle (isOwner reads false until then)
+  // and never runs for the owner. Once fetched, this does nothing.
   const reachForAmr = () => {
-    if (!isOwner && !savesData()) prefetchVisitorBody();
+    if (settled && !isOwner && !savesData()) prefetchVisitorBody();
   };
   const isPhone = useIsPhone();
   // Touch screens of any width (a landscape phone, a tablet): his figure there is
