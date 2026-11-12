@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { Pencil, Save, Star, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,6 +79,7 @@ export function MeetingCard({
   onDelete,
 }: MeetingCardProps) {
   const name = shortName(a.meeting);
+  const verdictRef = useRef<HTMLDivElement>(null);
   const lows = AUDIT_QUESTIONS.filter((q) => {
     const v = ratingOf(a, q.id);
     return v !== null && v <= LOW_RATING;
@@ -124,7 +126,7 @@ export function MeetingCard({
         {lows.length > 0 && <> · low on {lows.map((q) => q.label.toLowerCase()).join(", ")}</>}
       </p>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div ref={verdictRef} className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-sub" aria-hidden="true">
           Verdict
         </span>
@@ -141,7 +143,13 @@ export function MeetingCard({
             variant="ghost"
             size="sm"
             aria-label={`Clear the verdict for ${name}`}
-            onClick={() => onVerdict(a, null)}
+            onClick={() => {
+              onVerdict(a, null);
+              // Clear goes once it works: focus the verdict's first choice instead.
+              requestAnimationFrame(() =>
+                verdictRef.current?.querySelector<HTMLElement>('[role="radio"]')?.focus()
+              );
+            }}
           >
             Clear
           </Button>

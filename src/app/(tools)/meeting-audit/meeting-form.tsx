@@ -40,7 +40,8 @@ function CadencePicker({
         <span className="ml-0.5 text-danger">*</span>
       </span>
       <ToggleGroup<MeetingCadence>
-        label="How often"
+        // The visible asterisk is hidden from screen readers: the name says it.
+        label="How often (required)"
         size="sm"
         value={value}
         onValueChange={onChange}

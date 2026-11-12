@@ -111,6 +111,8 @@ export function MeetingAuditClient() {
     source: AiSource;
   } | null>(null);
   const newRef = useRef<HTMLButtonElement>(null);
+  /** Holds "Suggest changes" and its list: focus goes back to the button on Dismiss. */
+  const aiRef = useRef<HTMLDivElement>(null);
   const resetSnapshot = useRef<MeetingAudit[]>([]);
 
   const audits = useMemo(() => meetingAudits(raw), [raw]);
@@ -142,6 +144,12 @@ export function MeetingAuditClient() {
     if (!isExampleId(a.id)) log(action, payload);
   };
 
+  /** Amr's cheer once every one of the team's own meetings has a verdict: the plan is ready. */
+  const cheerIfAllDecided = () => {
+    const own = meetingAudits(currentAudits()).filter((x) => !isExampleId(x.id));
+    if (own.length > 0 && own.every((x) => x.verdict)) cheer(TOOL_ID, "done");
+  };
+
   const add = (values: MeetingValues) => {
     const a = saveAudit(newMeetingAudit(values, `meeting_${nanoid(8)}`, nowIso()));
     record(a, MEETING_AUDIT_ACTIONS.MEETING_ADDED, { meetingId: a.id, meeting: a.meeting });
@@ -171,11 +179,7 @@ export function MeetingAuditClient() {
     announce(
       v ? `${shortName(a.meeting)}: ${v}` : `Cleared the verdict for ${shortName(a.meeting)}`
     );
-    // Every one of the team's meetings has a verdict: the reset plan is ready.
-    if (v && !isExampleId(a.id)) {
-      const own = meetingAudits(currentAudits()).filter((x) => !isExampleId(x.id));
-      if (own.length > 0 && own.every((x) => x.verdict)) cheer(TOOL_ID, "done");
-    }
+    if (v && !isExampleId(a.id)) cheerIfAllDecided();
   };
 
   const save = (a: MeetingAudit, values: MeetingValues) => {
@@ -244,6 +248,7 @@ export function MeetingAuditClient() {
       label,
       apply: () => {
         const at = nowIso();
+        let verdictGiven = false;
         for (const c of todo) {
           const current = normalizeMeetingAudit(findAudit(c.meetingId));
           if (!current) continue;
@@ -258,8 +263,11 @@ export function MeetingAuditClient() {
               meetingId: current.id,
               verdict: next.verdict,
             });
+            if (!isExampleId(current.id)) verdictGiven = true;
           }
         }
+        // The last meeting may get its verdict from a change: the same cheer as setVerdict's.
+        if (verdictGiven) cheerIfAllDecided();
       },
       revert: () => {
         prevs.forEach((p) => saveAudit(p));
@@ -281,6 +289,9 @@ export function MeetingAuditClient() {
     const own = resetSnapshot.current.filter((a) => !isExampleId(a.id)).length;
     if (own > 0) log(MEETING_AUDIT_ACTIONS.AUDIT_RESET, { count: own });
     setSuggestions(null);
+    // "Start a new round" goes with the ratings (and its dialog with it): the
+    // round starts at the costliest meeting, or "Add meeting".
+    focusSoon(ordered[0]?.id ?? null, newRef.current);
   };
   const undoNewRound = () => {
     resetSnapshot.current.forEach(saveAudit);
@@ -415,7 +426,7 @@ export function MeetingAuditClient() {
                 />
               </KpiGrid>
 
-              <div className="space-y-2">
+              <div ref={aiRef} className="space-y-2">
                 <AiButton
                   task={meetingAuditSuggestTask}
                   input={() => {
@@ -446,7 +457,11 @@ export function MeetingAuditClient() {
                       })}
                       onAccept={(c) => acceptChanges([c])}
                       onAcceptAll={(list) => acceptChanges(list)}
-                      onDismiss={() => setSuggestions(null)}
+                      onDismiss={() => {
+                        // Before the list (and its focused Dismiss) goes: back to the button.
+                        aiRef.current?.querySelector<HTMLElement>("button")?.focus();
+                        setSuggestions(null);
+                      }}
                     />
                   ) : (
                     <p role="status" className="text-xs text-sub">
