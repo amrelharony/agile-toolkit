@@ -371,7 +371,8 @@ class Puppet:
     body (a capsule from `tail[0]` to `tail[1]` on the master), and its parts sheet
     laid out as AT, with the tail between the right arm and the body, where the sheet
     alone names it the right arm; `at` moves pieces on the sheet. `arms` (shoulder,
-    hand) moves the right arm's ends on the master; the left arm mirrors them."""
+    hand) moves the right arm's ends on the master; the left arm mirrors them. With
+    `hand` the tail is drawn just like the arm: as thick, and a ball at its end."""
 
     IDS = ["torso", "arm-r", "arm-l", "leg-r", "leg-l", "tail"]
     AT = {"torso": (768, 360), "arm-r": (200, 420), "arm-l": (1250, 420), "leg-r": (680, 800), "leg-l": (860, 800), "tail": (460, 430)}
@@ -379,9 +380,12 @@ class Puppet:
     TAIL_R = ((640, 560), (560, 800))
     TAIL_L = ((896, 560), (976, 800))
 
-    def __init__(self, tail, arms=None, at=None):
+    def __init__(self, tail, arms=None, at=None, hand=False):
         pen = cs.Pen()
-        pen.capsule(tail[0], tail[1], 24, cs.FLAP)
+        pen.capsule(tail[0], tail[1], cs.ARM_R if hand else 24, cs.FLAP)
+        if hand:
+            (x, y) = tail[1]
+            pen.ellipse((x - 34, y - 34, x + 34, y + 34), cs.GLOVE)
         self.layers = {**cs.part_layers(), "tail": pen.done()}
         if arms:
             (sx, sy), (hx, hy) = arms
@@ -415,8 +419,9 @@ class Puppet:
 
 class NamingByLanding(unittest.TestCase):
     """Where a named piece lands on the master: an ear on the head, an arm joining
-    the body above its hips, a leg or a tail reaching its bottom half; and a sided
-    arm or leg also by where it lands with no side window, and on which side."""
+    the body above its hips, a leg or a tail reaching its bottom half; a sided arm
+    or leg also by where it lands with no side window, and on which side; and a tail
+    on an arm's side by which of the two joins level with the other arm."""
 
     def test_a_sound_naming_lands_where_its_ids_join(self):
         got = {pid: n for n, pid in enumerate(EARED) if pid in LANDS}
@@ -594,21 +599,24 @@ class NamingByLanding(unittest.TestCase):
             self.assertGreater(laid[pid][0].ncc, TOL["ncc_min"], pid)
 
     SWAPPED = {"tail": "arm-r", "arm-r": "tail"}
+    # The pairs the swap misses: the tail called the right arm, and the right arm
+    # called the tail, which joins level with the left arm (shoulder_misses).
+    SWAP_MISSES = {("tail", "arm-r"), ("arm-r", "tail")}
 
     def test_a_tail_on_the_body_s_other_side_is_named_by_where_it_lands_with_no_window(self):
         # The master draws the tail on the body's left (your right), across from the
         # right arm whose name the sheet gives it. Forced into that arm's side window,
         # it lands on the body's edge there across both halves, and passes as an arm;
         # with no window it lands at the hips on the body's other side.
-        self.assertNamedByLanding(Puppet(Puppet.TAIL_L), self.SWAPPED, {("tail", "arm-r")})
+        self.assertNamedByLanding(Puppet(Puppet.TAIL_L), self.SWAPPED, self.SWAP_MISSES)
 
     def test_a_shoulder_below_the_body_s_middle_still_joins_as_an_arm(self):
         # The arms join the body low (a wing joined below a round body's middle): each
         # contact starts below the middle, and a sound arm must not miss, or its true
         # name is ruled out and the swap stays. Tail across the body, then beside it.
         arms = ((606, 440), (470, 670))
-        self.assertNamedByLanding(Puppet(Puppet.TAIL_L, arms), self.SWAPPED, {("tail", "arm-r")})
-        self.assertNamedByLanding(Puppet(Puppet.TAIL_R, ((606, 400), (470, 630))), self.SWAPPED, {("tail", "arm-r")})
+        self.assertNamedByLanding(Puppet(Puppet.TAIL_L, arms), self.SWAPPED, self.SWAP_MISSES)
+        self.assertNamedByLanding(Puppet(Puppet.TAIL_R, ((606, 400), (470, 630))), self.SWAPPED, self.SWAP_MISSES)
 
     def test_a_piece_forced_across_the_body_by_its_name_s_window_misses(self):
         # Three pieces each holding the next one's name: the tail (drawn on the body's
@@ -660,6 +668,80 @@ class NamingByLanding(unittest.TestCase):
         self.assertGreater(rig.iou(got, p.layers["tail"][..., 3] >= SOLID_ALPHA), 0.5)
         self.assertIn((p.truth["tail"], "arm-r"), rig.landing_misses(p.first, {**landed, "arm-r": free["arm-r"][1]}))
         self.assertEqual(rig.side_misses(p.first, placed, free), {(p.truth["tail"], "arm-r")})
+
+    def test_a_tail_and_the_arm_on_its_side_are_told_apart_by_the_other_arm(self):
+        # The arms' shoulders reach under the body (rows 280-640, middle 460, hips
+        # 550) from row 340 to past its middle. A tail on the body's right (your
+        # left) joined between its middle and its hips, and one reaching up its left
+        # side above the shoulders, each join where an arm or a tail may: traded with
+        # the arm on its side, no landing misses, but the piece called the arm starts
+        # far from the other arm's row and the one called the tail level with it.
+        at = {
+            **LANDS,
+            "arm-r": [(540, 370, 600, 600), (580, 340, 640, 480)],
+            "arm-l": [(936, 370, 996, 600), (896, 340, 956, 480)],
+            "low": [(560, 470, 640, 600)],
+            "up": [(900, 120, 960, 560)],
+        }
+        landed = {pid: lands(pid, at) for pid in at}
+        got = {"torso": 0, "arm-r": 1, "arm-l": 2, "tail": 3}
+
+        def laid(**given):  # {id: the piece it lands as}
+            return {pid: landed[given.get(pid, pid)] for pid in got}
+
+        for tail, arm in (("low", "arm-r"), ("up", "arm-l")):
+            self.assertEqual(rig.shoulder_misses(got, laid(tail=tail)), set(), tail)
+            traded = laid(**{arm: tail, "tail": arm})
+            self.assertEqual(rig.landing_misses(got, traded), set(), tail)
+            self.assertEqual(rig.shoulder_misses(got, traded), {(got[arm], arm), (got["tail"], "tail")}, tail)
+
+    def test_a_tail_drawn_like_the_arm_beside_it_is_named_by_the_other_arm(self):
+        # The tail is drawn just like the right arm (as long, as steep, as thick, a
+        # ball at its end) and joins 130 px below it on the same side, between the
+        # body's middle and its hips; laid beside that arm on the sheet, the sheet
+        # alone names it the arm. In the right arm's side window each piece fits
+        # either name, and each joins where an arm or a tail may: only the left arm,
+        # level with the true right arm, tells them apart.
+        p = Puppet(((600, 430), (464, 660)), ((606, 300), (470, 530)), hand=True)
+        self.assertNamedByLanding(p, self.SWAPPED, self.SWAP_MISSES)
+
+    def test_a_later_sheet_s_piece_not_placed_yet_is_no_evidence(self):
+        # Legs on this sheet; the master also shows a whole copy of the right leg off
+        # the body on its far side, as a later sheet's piece (unplaced while this sheet
+        # is named). The right leg fits its window as well as it fits the copy, so
+        # where it lands with no window says nothing of its name: a sound sheet, with
+        # nothing to warn of. The left leg is drawn unlike the copy.
+        layers = cs.part_layers()
+        (hx, hy), (fx, fy) = cs.HIP["leg-l"], cs.FOOT["leg-l"]
+        pen = cs.Pen()
+        pen.capsule((hx, hy), (fx, fy), 36, cs.LIMB)
+        pen.rect((fx - 30, fy - 20, fx + 110, fy + 60), cs.BAND)
+        layers["leg-l"] = pen.done()
+        copy = np.zeros_like(layers["leg-r"])
+        ys, xs = np.nonzero(layers["leg-r"][..., 3] > 0)
+        keep = (ys >= 200) & (xs + 560 < cs.W)
+        copy[ys[keep] - 200, xs[keep] + 560] = layers["leg-r"][ys[keep], xs[keep]]
+        master, _ = key.cut(cs.on_key(cs.over(*(layers[k] for k in ("leg-r", "leg-l", "torso")), copy)), cs.MAGENTA)
+        ids = ["torso", "leg-r", "leg-l"]
+        at = {"torso": (768, 360), "leg-r": (680, 800), "leg-l": (860, 800)}
+        canvas = np.zeros((cs.H, cs.W, 4), np.uint8)
+        for pid in ids:
+            cs.place(canvas, cs.scaled(cs.crop(layers[pid]), cs.PARTS_R), *at[pid])
+        cut, _ = key.cut(cs.on_key(canvas), cs.MAGENTA)
+        pieces, _ = parts.islands(cut)
+        truth = {pid: min(range(len(pieces)), key=lambda i: np.hypot(pieces[i].centroid[0] - x, pieces[i].centroid[1] - y)) for pid, (x, y) in at.items()}
+        first, _, _ = parts.assign(pieces, ids)
+        self.assertEqual(first, truth)
+
+        class Figure:
+            box = im.mask_bbox(master[..., 3] > 0)
+
+        place, missed = rig.by_landing(pieces, cut, ids, master, Figure, {}, {}, [*ids, "limb-mid-r", "limb-mid-l"])
+        laid = place(first)
+        self.assertGreaterEqual(laid["leg-r"][0].ncc, TOL["ncc_warn"])
+        self.assertEqual(missed(first, laid), set())
+        got, _, left = rig.settle_names(pieces, ids, first, place, missed)
+        self.assertEqual((got, left), (truth, set()))
 
 
 if __name__ == "__main__":

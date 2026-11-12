@@ -320,6 +320,14 @@ HIPS = 0.75
 # with no window is evidence for its name too (free_landings, side_misses).
 FREE_KINDS = ("arm", "leg")
 FREE_SAME_IOU = 0.8  # a landing with no window this alike to the placement is the same place
+FREE_GAIN = 0.03  # how much better a piece that fits its window well must fit with none
+# Shoulders match across the body: the two arms' contacts start at close rows. A tail
+# drawn like an arm and joined on the same side as one fits that arm's name in its
+# side window as well as its own, and both join where an arm or a tail may, so only
+# which of the two starts level with the other arm tells them apart (shoulder_misses):
+# the tail must start nearer it than the arm does by more than this share of the
+# body's height, so two shoulders drawn a little apart never trip.
+SHOULDER_SLACK = 0.03
 
 
 def kind_of(pid: str) -> str | None:
@@ -364,6 +372,45 @@ def landing_misses(got: dict, landed: dict) -> set:
     return out
 
 
+def shoulder_misses(got: dict, landed: dict) -> set:
+    """The (piece index, id) pairs of a naming whose tail and arm on one side of the
+    body have traded names: the piece named the tail lands on the side of the body
+    the piece named that side's arm hangs on, and its contact with the body starts
+    nearer the row the other arm's does than that arm's does, by more than
+    SHOULDER_SLACK of the body's height. Both pairs miss (that arm and the tail), so
+    the sheet is named again with the trade ruled out. A tail drawn like the arm
+    beside it (as long, as steep, as thick, a ball at its end) fits either name in
+    that side's window and joins where an arm or a tail may; the other arm, joined
+    level with the true arm, is the only witness. A tail joined high up the body's
+    side (reaching up behind it) starts far from the shoulders too, above them, so
+    it never passes for the arm either."""
+    across = {"arm-r": "arm-l", "arm-l": "arm-r"}
+    if "tail" not in got or "torso" not in landed or any(k not in landed for k in ("tail", *across)):
+        return set()
+    host = landed["torso"][..., 3] >= SOLID_ALPHA
+    hb = im.mask_bbox(host)
+    if hb is None:
+        return set()
+    grown = im.dilate(host, 2)
+
+    def start(pid):
+        ys = np.nonzero((landed[pid][..., 3] >= SOLID_ALPHA) & grown)[0]
+        return int(ys.min()) if len(ys) >= TOL["z_overlap_min_px"] else None
+
+    xs = np.nonzero(landed["tail"][..., 3] >= SOLID_ALPHA)[1]
+    if not len(xs):
+        return set()
+    arm = "arm-r" if xs.mean() < (hb[0] + hb[2]) / 2 else "arm-l"  # the right arm is on your left
+    if arm not in got:
+        return set()
+    s_arm, s_other, s_tail = start(arm), start(across[arm]), start("tail")
+    if None in (s_arm, s_other, s_tail):
+        return set()
+    if abs(s_arm - s_other) - abs(s_tail - s_other) > SHOULDER_SLACK * (hb[3] - hb[1]):
+        return {(got[arm], arm), (got["tail"], "tail")}
+    return set()
+
+
 def free_landings(got: dict, placed: dict, master: np.ndarray, landed: dict, tgt, cache: dict) -> dict:
     """{id: (Reg, baked RGBA)}: where the sided arms and legs of a naming (FREE_KINDS;
     their placements by place_named, `landed` all the placed pieces) land on the
@@ -378,7 +425,11 @@ def free_landings(got: dict, placed: dict, master: np.ndarray, landed: dict, tgt
     of the sheet); the best fits claim their places first, and one that lands on what
     another piece already explains (the right arm on the left arm's master arm) is
     searched again where the others leave the master bare, so no two pieces claim
-    one place. A landing below ncc_min, or no better than the placement, is none."""
+    one place. A landing below ncc_min, or no better than the placement, is none; so
+    is one of a piece that fits its window well (ncc_warn) and fits nowhere clearly
+    better (by FREE_GAIN): the master also shows a later sheet's pieces, not placed
+    while this sheet is named, and a sound leg can fit one of those as well as its own
+    place."""
     found = []
     for pid, (reg0, b0, crop, near) in placed.items():
         if kind_of(pid) not in FREE_KINDS or near is None:
@@ -390,6 +441,8 @@ def free_landings(got: dict, placed: dict, master: np.ndarray, landed: dict, tgt
         reg, b, _ = cache[(i, None)]
         if reg is None or reg.ncc < max(TOL["ncc_min"], reg0.ncc):
             continue
+        if reg0.ncc >= TOL["ncc_warn"] and reg.ncc < reg0.ncc + FREE_GAIN:
+            continue  # it fits its name's window well, and fits nowhere clearly better
         if iou(b[..., 3] >= SOLID_ALPHA, b0[..., 3] >= SOLID_ALPHA) >= FREE_SAME_IOU:
             continue  # where its window put it: nothing new
         found.append((reg.ncc, pid, reg, b, crop, reg0.ncc))
@@ -469,8 +522,9 @@ def by_landing(pieces, cut, reg_ids, master, mfig, baked, side_of, ids_all) -> t
     named pieces on the master (place_named, beside what earlier sheets placed,
     `baked`), and `missed(naming, placed)` gives the pairs that land where their id
     doesn't join (landing_misses), by their placement or, for a sided arm or leg, by
-    where it lands with no side window (free_landings), and the sided arms and legs
-    that fit only on the body's other side from their name (side_misses)."""
+    where it lands with no side window (free_landings), the sided arms and legs
+    that fit only on the body's other side from their name (side_misses), and a tail
+    and the arm on its side that traded names (shoulder_misses)."""
     tgt, cache = rg.Target(rg.shrink(master, rg.COARSE)), {}
 
     def place(got):
@@ -480,7 +534,7 @@ def by_landing(pieces, cut, reg_ids, master, mfig, baked, side_of, ids_all) -> t
         landed = {**baked, **{k: v[1] for k, v in placed.items()}}
         free = free_landings(got, placed, master, landed, tgt, cache)
         moved = {**landed, **{k: b for k, (_, b) in free.items()}}
-        return landing_misses(got, landed) | landing_misses(got, moved) | side_misses(got, placed, free)
+        return landing_misses(got, landed) | landing_misses(got, moved) | side_misses(got, placed, free) | shoulder_misses(got, landed)
 
     return place, missed
 
@@ -672,7 +726,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         if pid in c6["parts"]:
             c6["parts"][pid]["status"] = checks.worst(c6["parts"][pid]["status"], "warn")
             c6["status"] = checks.worst(c6["status"], "warn")
-            c6["notes"].append(f"{pid}: lands on the master where no {kind_of(pid)} joins the {JOINS[kind_of(pid)][0]}, or on its other side from its name")
+            c6["notes"].append(f"{pid}: lands on the master where no {kind_of(pid)} joins the {JOINS[kind_of(pid)][0]}, on its other side from its name, or where the arm or the tail beside it joins")
     lost = [i for i in ids_all if i not in named and not i.startswith("pupil-")]
     if lost:
         c6["status"] = "fail"
