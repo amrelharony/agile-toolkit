@@ -42,7 +42,7 @@ import { ConversationList, DELETE_UNDO_MS } from "@/components/agent/conversatio
 import { AgentConversation } from "@/components/agent/agent-conversation";
 import { ChatVisibleContext } from "@/components/agent/chat-visibility";
 import { useAgentStore } from "@/lib/agent/store";
-import { listConversations } from "@/lib/agent/persist";
+import { listConversations, loadMessages } from "@/lib/agent/persist";
 
 const meta = (id: string, title: string): ConversationMeta => ({
   id,
@@ -356,5 +356,103 @@ describe("AgentConversation hidden under Amr's scenes", () => {
     rerender(chat(true));
     await waitFor(() => expect(composer).toHaveFocus());
     expect(scrollTo).toHaveBeenCalled();
+  });
+});
+
+/** A turn under way, as the client registers it: its abort is with the store. */
+function liveTurn() {
+  const abortTurn = vi.fn();
+  useAgentStore.setState({ streaming: true });
+  useAgentStore.getState().setAbortTurn(abortTurn);
+  return abortTurn;
+}
+
+const userMsg = (id: string, text: string) => ({
+  id,
+  role: "user" as const,
+  content: [{ type: "text" as const, text }],
+  createdAt: "2026-11-08T09:00:00Z",
+});
+
+describe("ConversationList and the answer under way", () => {
+  beforeEach(() => {
+    h.conversations = THREADS;
+    vi.mocked(loadMessages).mockClear();
+  });
+
+  afterEach(() => {
+    useAgentStore.getState().setAbortTurn(null);
+    useAgentStore.getState().reset();
+  });
+
+  it("opening another thread stops the answer through the store before the thread loads", async () => {
+    useAgentStore.getState().setActiveConversation(THREADS[0], [userMsg("m1", "hi")]);
+    const abortTurn = liveTurn();
+    const onClose = vi.fn();
+    render(<ConversationList onClose={onClose} />);
+    await screen.findByText("Velocity question");
+
+    fireEvent.click(screen.getByTitle("Velocity question"));
+    expect(abortTurn).toHaveBeenCalledTimes(1);
+    expect(abortTurn).toHaveBeenCalledWith("thread");
+    expect(abortTurn.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(loadMessages).mock.invocationCallOrder[0]
+    );
+    await waitFor(() => expect(useAgentStore.getState().activeConversationId).toBe("c3"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("opening the open thread goes back to it as it is, answer and all", async () => {
+    const messages = [userMsg("m1", "hi")];
+    useAgentStore.getState().setActiveConversation(THREADS[0], messages);
+    const abortTurn = liveTurn();
+    const onClose = vi.fn();
+    render(<ConversationList onClose={onClose} />);
+    await screen.findByText("Sprint 42 retro prep");
+
+    fireEvent.click(screen.getByTitle("Sprint 42 retro prep"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(abortTurn).not.toHaveBeenCalled();
+    expect(loadMessages).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().messages).toBe(messages);
+    expect(useAgentStore.getState().streaming).toBe(true);
+  });
+
+  it("deleting the open thread stops its answer through the store", async () => {
+    useAgentStore.getState().setActiveConversation(THREADS[0], [userMsg("m1", "hi")]);
+    const abortTurn = liveTurn();
+    await renderList();
+
+    fireEvent.click(
+      within(rowOf("Sprint 42 retro prep")).getByRole("button", { name: "Delete conversation" })
+    );
+    expect(abortTurn).toHaveBeenCalledTimes(1);
+    expect(abortTurn).toHaveBeenCalledWith("reset");
+    expect(useAgentStore.getState().streaming).toBe(false);
+    // Undo, so the thread isn't left pending deletion for the next test.
+    clickUndo();
+  });
+
+  it("deleting another thread leaves the answer alone", async () => {
+    useAgentStore.getState().setActiveConversation(THREADS[0], [userMsg("m1", "hi")]);
+    const abortTurn = liveTurn();
+    await renderList();
+
+    fireEvent.click(
+      within(rowOf("Velocity question")).getByRole("button", { name: "Delete conversation" })
+    );
+    expect(abortTurn).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().streaming).toBe(true);
+    clickUndo();
+  });
+
+  it("New chat stops the answer through the store", async () => {
+    useAgentStore.getState().setActiveConversation(THREADS[0], [userMsg("m1", "hi")]);
+    const abortTurn = liveTurn();
+    await renderList();
+
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    expect(abortTurn).toHaveBeenCalledWith("reset");
+    expect(useAgentStore.getState().messages).toEqual([]);
   });
 });

@@ -802,10 +802,13 @@ describe("MascotAssistant — visitor AI", () => {
       expect(screen.queryByText("Amr is thinking…")).toBeNull();
     });
 
-    it("Clear chat stops the answer and empties the chat", async () => {
-      await openChatWithQuestion();
+    /** A turn under way, as the runtime registers it: its abort is with the store. */
+    function liveTurn() {
+      const abortTurn = vi.fn();
       act(() => {
         useAgentStore.setState({
+          chatProfile: "visitor",
+          streaming: true,
           messages: [
             {
               id: "v1",
@@ -815,29 +818,55 @@ describe("MascotAssistant — visitor AI", () => {
             },
           ],
         });
+        useAgentStore.getState().setAbortTurn(abortTurn);
       });
-      h.abortVisitor.mockClear();
+      return abortTurn;
+    }
+
+    /** Let effects, microtasks and timers queued by the last step run. */
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+    it("Clear chat stops the answer through the store and empties the chat", async () => {
+      await openChatWithQuestion();
+      const abortTurn = liveTurn();
       fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
-      expect(h.abortVisitor).toHaveBeenCalledTimes(1);
+      expect(abortTurn).toHaveBeenCalledTimes(1);
+      expect(abortTurn).toHaveBeenCalledWith("reset");
       expect(useAgentStore.getState().messages).toEqual([]);
+      expect(useAgentStore.getState().streaming).toBe(false);
     });
 
-    it("Tool finder goes back to the guide and stops the answer", async () => {
+    it("Tool finder goes back to the guide and the answer goes on", async () => {
       await openChatWithQuestion();
+      const abortTurn = liveTurn();
       h.abortVisitor.mockClear();
       fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
       expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
       expect(screen.getByLabelText("What do you need to do?")).toHaveValue("retro");
       expect(screen.queryByLabelText("Message")).toBeNull();
-      await waitFor(() => expect(h.abortVisitor).toHaveBeenCalledTimes(1));
+      await settle();
+      expect(abortTurn).not.toHaveBeenCalled();
+      expect(h.abortVisitor).not.toHaveBeenCalled();
+      expect(useAgentStore.getState().streaming).toBe(true);
+      // Back to chat shows the answer still under way.
+      fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+      expect(await screen.findByRole("button", { name: "Stop generating" })).toBeInTheDocument();
     });
 
-    it("unmounting the chat stops the answer", async () => {
+    it("closing the panel mid-answer leaves the answer running", async () => {
       const view = await openChatWithQuestion();
+      const abortTurn = liveTurn();
       h.abortVisitor.mockClear();
+      act(() => useAgentStore.getState().closeSheet());
+      expect(screen.queryByLabelText("Message")).toBeNull();
       view.unmount();
-      // The stop waits a microtask (React's development double-mount).
-      await waitFor(() => expect(h.abortVisitor).toHaveBeenCalledTimes(1));
+      await settle();
+      expect(abortTurn).not.toHaveBeenCalled();
+      expect(h.abortVisitor).not.toHaveBeenCalled();
+      expect(useAgentStore.getState().streaming).toBe(true);
     });
   });
 

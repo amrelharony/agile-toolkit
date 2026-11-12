@@ -661,19 +661,20 @@ export function MascotAssistant() {
     if (!open || confirmPending || figureFailed) setShowScenes(false);
   }, [open, confirmPending, figureFailed]);
   // A tapped scene plays with the panel closed, so he's in view. While a turn is
-  // still running, closing the panel would stop it: back to the chat instead, with
-  // him beside the panel.
+  // still running or a card waits, the answer is what to watch (closing the panel
+  // wouldn't stop it, but would hide it): back to the chat instead, with him beside
+  // the panel.
   const onScenePlayed = () => {
     const { streaming, pendingToolUse } = useAgentStore.getState();
     if (streaming || pendingToolUse) setShowScenes(false);
     else closeSheet();
   };
 
-  // Owner signed out mid-session: drop the conversation from memory. (The
-  // chat panel unmounts at the same moment, which aborts any in-flight turn.)
+  // Owner signed out mid-session: drop the conversation from memory (reset
+  // stops any in-flight turn; the chat panel unmounting stops nothing).
   // The other way round, a visitor's chat (memory only) never carries over
   // into the owner's: it goes, with the visitor's allowance, when they turn
-  // out to be the owner (the visitor panel unmounting stops its turn).
+  // out to be the owner (reset stops its turn here too).
   const wasOwnerRef = useRef(false);
   useEffect(() => {
     if (isOwner) {

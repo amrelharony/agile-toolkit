@@ -8,8 +8,10 @@
  * (lib/agent/visitor-runtime: the action registry and the streaming client)
  * only on the first message, with a dynamic import.
  *
- * The chat lives in memory (useAgentStore) and is never saved. Closing the
- * panel, or going back to the tool finder, stops any answer in progress.
+ * The chat lives in memory (useAgentStore) and is never saved. Leaving it, by
+ * closing the panel or going back to the tool finder, stops nothing: an
+ * answer under way goes on in the store, and the chat shows it when it opens
+ * again. Stop and Clear chat stop it.
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -121,7 +123,6 @@ export default function VisitorAgentPanel({
   const visible = useChatVisible();
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const mountedRef = useRef(false);
   const sentInitialRef = useRef(false);
   const sendingRef = useRef(false);
 
@@ -138,7 +139,7 @@ export default function VisitorAgentPanel({
     setLoading(true);
     try {
       const runtime = await loadRuntime();
-      if (!mountedRef.current) return;
+      // A turn outlives the chat: one asked as the panel closed still goes out.
       void runtime.sendVisitorMessage(text, { toolId: toolIdForPath(pathname) });
     } catch {
       useAgentStore
@@ -150,21 +151,9 @@ export default function VisitorAgentPanel({
     }
   };
 
-  // Mounted; on unmount, stop any answer in progress. The stop waits a tick:
-  // React's development double-mount runs this cleanup and the effect again
-  // straight away, and that must not cancel the question sent on mount.
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      queueMicrotask(() => {
-        if (!mountedRef.current) loadedRuntime?.abortInFlight();
-      });
-    };
-  }, []);
-
   // The message box takes focus on mount, and again when the chat comes back
-  // from under the Scenes view.
+  // from under the Scenes view. Leaving the chat stops nothing, so there is
+  // nothing to tidy up when it unmounts.
   useEffect(() => {
     if (visible) composerRef.current?.focus();
   }, [visible]);
@@ -313,10 +302,9 @@ export default function VisitorAgentPanel({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => {
-              loadedRuntime?.abortInFlight();
-              useAgentStore.getState().reset();
-            }}
+            // Through the store: reset stops the answer under way before the
+            // chat empties, so none of it lands in the fresh one.
+            onClick={() => useAgentStore.getState().reset()}
           >
             <Eraser aria-hidden="true" />
             Clear chat

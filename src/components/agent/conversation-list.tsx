@@ -166,11 +166,24 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
   }, [refresh]);
 
   const openThread = async (meta: ConversationMeta) => {
+    const store = useAgentStore.getState();
+    const isOpen = store.activeConversationId === meta.id;
+    // The open thread with an answer under way: back to it as it is.
+    // Reloading it would drop the reply still being written, not saved yet.
+    if (isOpen && store.streaming) {
+      store.attachConversation(meta);
+      onClose();
+      return;
+    }
+    // Another thread: the answer under way belongs to the one being left, so
+    // the store stops it now, not once the new thread has loaded.
+    if (!isOpen) store.abortTurn("thread");
     const msgs = await loadMessages(meta.id);
     useAgentStore.getState().setActiveConversation(meta, msgs);
     onClose();
   };
 
+  // New chat: reset stops the answer under way before the chat empties.
   const newChat = () => {
     useAgentStore.getState().reset();
     onClose();
@@ -195,6 +208,8 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
         });
         flushPendingOnPageHide();
         setItems((list) => list && list.filter((c) => c.id !== meta.id));
+        // The open thread: reset stops its answer under way (through the
+        // store) before the chat empties.
         if (wasActive) useAgentStore.getState().reset();
       },
       revert: () => {

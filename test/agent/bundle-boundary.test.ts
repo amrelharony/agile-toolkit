@@ -491,10 +491,10 @@ describe("import graph walk (self-tests)", () => {
     for (const file of [...OWNER_RUNTIME, ...HEAVY_ENGINE, MARKDOWN_VIEW, MARKDOWN_PARSER]) {
       expect(isFile(path.join(ROOT, file)), `${file} exists`).toBe(true);
     }
-    // The owner chunk is where the runtime lives, so banning it means something.
-    expect(staticTargets(OWNER_PANEL)).toEqual(
-      expect.arrayContaining([REGISTER_ALL, AGENT_CLIENT])
-    );
+    // The owner chunk is where the runtime lives, so banning it means something:
+    // it loads the registry itself, and its chat reaches the client.
+    expect(staticTargets(OWNER_PANEL)).toContain(REGISTER_ALL);
+    expect(closure([OWNER_PANEL]).files.has(AGENT_CLIENT)).toBe(true);
     // Amr's own chunk uses the engine the static shell must not carry.
     expect(staticTargets(MASCOT)).toEqual(
       expect.arrayContaining([
