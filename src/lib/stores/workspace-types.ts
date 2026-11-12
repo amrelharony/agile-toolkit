@@ -22,7 +22,8 @@ export interface Sprint {
   status: "planned" | "active" | "completed" | "cancelled";
   /**
    * Capacity kept free for unplanned work (Interrupt Buffer): a share of the
-   * sprint's capacity (`pct`, 0–100), points (`points`, 0 or more), or both.
+   * sprint's planned points (`pct`, 0–100; the forms take 1–90), points
+   * (`points`, 0 or more, which win when both are set), or both.
    * Absent: no buffer set.
    */
   interruptBuffer?: SprintInterruptBuffer;
@@ -3448,9 +3449,10 @@ export const INTERRUPT_KINDS = ["bug", "support", "request", "incident", "other"
 export type InterruptKind = (typeof INTERRUPT_KINDS)[number];
 
 /**
- * Unplanned work that landed in a sprint (Interrupt Buffer). It counts
- * against the sprint's `interruptBuffer` until it is resolved; `size` is in
- * the team's points when known.
+ * Unplanned work that landed in a sprint (Interrupt Buffer). Every interrupt
+ * logged in the sprint uses its `interruptBuffer`, open or resolved:
+ * resolving it means the work is done, not that the capacity came back.
+ * `size` is in the team's points when known.
  */
 export interface InterruptItem {
   id: string;
