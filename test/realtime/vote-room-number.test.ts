@@ -118,6 +118,52 @@ describe("number ballots", () => {
 });
 
 describe("number counting and reveal", () => {
+  it("refuses a second ballot, an answer off the step grid, and a closed or other round", () => {
+    const first = foldNumber(
+      emptyNumberTally(ROUND),
+      emptyLedger(),
+      PEOPLE[0],
+      40,
+      NUMBER_SHEET,
+      ctx
+    );
+    if (!first.ok) throw new Error(first.reason);
+    const { tally, ledger } = first;
+    const before = JSON.stringify(tally);
+    const refused = (by: string, steps: number, c: FoldContext = ctx, t: NumberTally = tally) =>
+      foldNumber(t, ledger, by, steps, NUMBER_SHEET, c);
+
+    expect(refused(PEOPLE[0], 70)).toEqual({ ok: false, reason: "duplicate" });
+    expect(refused(PEOPLE[1], numberSpan(NUMBER_SHEET) + 1)).toEqual({
+      ok: false,
+      reason: "bad-answers",
+    });
+    expect(refused(PEOPLE[1], 1.5)).toEqual({ ok: false, reason: "bad-answers" });
+    expect(refused(PEOPLE[1], -1)).toEqual({ ok: false, reason: "bad-answers" });
+    expect(refused(PEOPLE[1], Number.NaN)).toEqual({ ok: false, reason: "bad-answers" });
+    expect(refused(PEOPLE[1], 10, { ...ctx, open: false })).toEqual({
+      ok: false,
+      reason: "closed",
+    });
+    expect(refused(PEOPLE[1], 10, { ...ctx, roundId: "round_000002" })).toEqual({
+      ok: false,
+      reason: "wrong-round",
+    });
+    expect(refused(PEOPLE[1], 10, ctx, emptyNumberTally("round_000002"))).toEqual({
+      ok: false,
+      reason: "wrong-round",
+    });
+    expect(refused("outsider_0000000", 10)).toEqual({ ok: false, reason: "not-admitted" });
+    expect(refused(PEOPLE[1], 10, { ...ctx, removed: new Set([PEOPLE[1]]) })).toEqual({
+      ok: false,
+      reason: "removed",
+    });
+    // Nothing refused changed the count or the answers.
+    expect(JSON.stringify(tally)).toBe(before);
+    expect(tally).toEqual({ roundId: ROUND, steps: [40], ballots: 1 });
+    expect(Array.from(ledger.voted)).toEqual([PEOPLE[0]]);
+  });
+
   it("keeps the answers sorted, so the order they came in is gone", () => {
     const t = fold([70, 10, 40]);
     expect(t).toEqual({ roundId: ROUND, steps: [10, 40, 70], ballots: 3 });
