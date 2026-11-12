@@ -43,6 +43,7 @@ import {
 } from "@/components/agent/mascot/mascot-assistant";
 import { PANEL_SIZE, type PanelSizeName } from "@/components/agent/mascot/amr-geometry";
 import { useAgentStore } from "@/lib/agent/store";
+import { useBubbleStore } from "@/lib/agent/mascot/bubble";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
 
@@ -512,6 +513,73 @@ describe("stepping aside", () => {
     expect(asked).toContain(68);
     // Start is still at home, so he stays on the left.
     expect(amrButton().style.left).toContain("safe-area-inset-left");
+  });
+
+  it("doesn't step aside for his own bubble's answers or the moment chip beside him", async () => {
+    stubScreen({ phone: true });
+    // A moment chip's button, in the chip's region, where his figure stands.
+    const chip = document.createElement("div");
+    chip.setAttribute("data-moment-region", "");
+    chip.setAttribute("data-test-control", "");
+    const chipButton = document.createElement("button");
+    chip.appendChild(chipButton);
+    document.body.appendChild(chip);
+    const box = { left: 278, top: 547, width: 45, height: 44 };
+    // Laid out where his figure stands, as the timer's Start is above.
+    const laidOut = (el: Element) =>
+      vi.spyOn(el, "getBoundingClientRect").mockReturnValue({
+        ...box,
+        x: box.left,
+        y: box.top,
+        right: box.left + box.width,
+        bottom: box.top + box.height,
+        toJSON: () => ({}),
+      } as DOMRect);
+    laidOut(chipButton);
+    let under: Element[] = [chipButton];
+    const looked = vi.fn();
+    Object.defineProperty(document, "elementsFromPoint", {
+      configurable: true,
+      value: (x: number, y: number) => {
+        looked();
+        return x >= box.left &&
+          x <= box.left + box.width &&
+          y >= box.top &&
+          y <= box.top + box.height
+          ? [...under, document.body]
+          : [document.body];
+      },
+    });
+
+    render(<MascotAssistant />);
+    act(() => {
+      window.dispatchEvent(new Event("pointerdown"));
+    });
+    await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
+    await waitFor(() => expect(looked).toHaveBeenCalled(), { timeout: 2000 });
+    expect(amrButton().style.right).toContain("safe-area-inset-right");
+
+    // His bubble asks beside him: its answer is his own too, not a page control.
+    act(() =>
+      useBubbleStore.getState().show({
+        id: "q",
+        text: "Need a hand?",
+        actions: [{ label: "Yes", run: () => {} }],
+      })
+    );
+    const yes = screen.getByRole("button", { name: "Yes" });
+    laidOut(yes);
+    under = [yes, chipButton];
+    looked.mockClear();
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    await waitFor(() => expect(looked).toHaveBeenCalled(), { timeout: 2000 });
+    expect(amrButton().style.right).toContain("safe-area-inset-right");
+    expect(amrButton().style.left).toBe("");
+    expect(useMascotStore.getState().placed).toEqual({ side: "right", edge: "bottom" });
+    expect(useMascotStore.getState().lift).toBe(0);
+    act(() => useBubbleStore.setState({ current: null }));
   });
 
   it("leaves a desktop with a mouse alone", async () => {

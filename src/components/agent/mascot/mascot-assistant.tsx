@@ -674,6 +674,13 @@ function homeHitRect(
 }
 
 /**
+ * His own things, which never count as a page control under him and whose
+ * changes never make him look again: his panel, his bubble and the moment chip
+ * beside him. Otherwise his bubble's own buttons would push him away from it.
+ */
+const BESIDE_HIM = "[data-agent-sheet-root], [data-amr-bubble-region], [data-moment-region]";
+
+/**
  * On touch screens he steps aside when his figure sits on one of the page's
  * controls (mascot-nudge.ts): up from his edge, or to the other side. He looks
  * once he's placed and whenever the page settles after a scroll, resize, tap or
@@ -716,7 +723,7 @@ function useStepAside({
     let pressed = false;
     const own = (node: Node) =>
       !!buttonRef.current?.contains(node) ||
-      (node instanceof Element && !!node.closest("[data-agent-sheet-root]"));
+      (node instanceof Element && !!node.closest(BESIDE_HIM));
     const check = () => {
       timer = undefined;
       if (pressed) return; // looked at again when the finger lifts
