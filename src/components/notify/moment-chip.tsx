@@ -149,12 +149,15 @@ function ChipBody({
     onBlur: () => setHeld(false),
   };
 
+  // A small comic panel, never a pill (DNA-SPEC §4): the panel's pen corners
+  // (--panel-radius: 10px at most, 4px in high contrast), and both buttons
+  // squared to rounded-md, so their focus rings and hover match.
   return (
     <div
       data-moment-chip
       data-rarity={moment.rarity}
       className={cn(
-        "pointer-events-auto flex max-w-full items-center gap-1 rounded-full border border-border bg-surface py-1 pl-3 pr-1 text-sm text-text shadow-lg",
+        "pointer-events-auto flex max-w-full items-center gap-1 rounded-[var(--panel-radius)] border border-border bg-surface py-1 pl-3 pr-1 text-sm text-text shadow-lg",
         "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-reduce:animate-none"
       )}
     >
@@ -174,7 +177,7 @@ function ChipBody({
         onPointerCancel={() => {
           swipeFrom.current = null;
         }}
-        className="flex min-h-[44px] min-w-0 touch-pan-y items-center gap-2 rounded-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="flex min-h-[44px] min-w-0 touch-pan-y items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         {TICK_KINDS.has(moment.kind) ? (
           <InkTick className="h-5 w-5" />
@@ -188,7 +191,7 @@ function ChipBody({
         aria-label="Dismiss"
         onClick={dismiss}
         {...hold}
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sub hover:bg-accent/10 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sub hover:bg-accent/10 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <X className="h-4 w-4" aria-hidden />
       </button>

@@ -140,6 +140,20 @@ describe("MomentChip", () => {
     expect(region).toContain("z-[55]");
   });
 
+  it("is a small panel with pen corners, never a pill", () => {
+    render(<MomentChip />);
+    show();
+    const chip = document.querySelector<HTMLElement>("[data-moment-chip]")!;
+    // DNA-SPEC §4: rounded-full is for avatars, dots and bars only.
+    expect(chip.className).toContain("rounded-[var(--panel-radius)]");
+    for (const el of [chip, ...Array.from(chip.querySelectorAll<HTMLElement>("*"))]) {
+      expect(el.getAttribute("class") ?? "").not.toMatch(/(^|\s)rounded-full(\s|$)/);
+    }
+    for (const button of screen.getAllByRole("button")) {
+      expect(button.className).toContain("rounded-md");
+    }
+  });
+
   it("phones: just above Amr's band on his side", () => {
     h.phone = true;
     useMascotStore.getState().setPlacement({ side: "left", edge: "bottom" }, 0);
