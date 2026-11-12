@@ -226,6 +226,35 @@ describe("<MascotBubble />", () => {
     expect(bubble()).not.toBeNull();
   });
 
+  it("waits while a page field has a phone's keyboard, its clock and the narration too, losing nothing", async () => {
+    const view = render(<MascotBubble waiting />);
+    act(() => useBubbleStore.getState().show({ id: "hi", text: "Welcome back" }));
+    expect(bubble()).toBeNull();
+    expect(status()).toBeEmptyDOMElement();
+    act(() => {
+      vi.advanceTimersByTime(BUBBLE_MS * 3);
+    });
+    // The field lets go: the line shows, its clock starting now.
+    view.rerender(<MascotBubble waiting={false} />);
+    expect(status()).toHaveTextContent("Welcome back");
+    act(() => {
+      vi.advanceTimersByTime(BUBBLE_MS - 100);
+    });
+    expect(status()).toHaveTextContent("Welcome back");
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(bubble()).toBeNull();
+
+    // A turn running with the panel shut: its narration waits as well.
+    view.rerender(<MascotBubble waiting />);
+    await turnRuns({ messages: [ASKED] });
+    expect(bubble()).toBeNull();
+    expect(status()).toBeEmptyDOMElement();
+    view.rerender(<MascotBubble waiting={false} />);
+    expect(status()).toHaveTextContent(AMR_ANSWERING);
+  });
+
   it("is held still during a page change, empty or not, and the hold isn't live", () => {
     // globals.css names it only while a view transition runs (html[data-vt]).
     render(<MascotBubble />);
