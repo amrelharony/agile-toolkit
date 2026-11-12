@@ -279,6 +279,26 @@ class BriefAgreement(unittest.TestCase):
         for pid in ("arm-r", "leg-r", "limb-mid-r"):
             self.assertEqual(parts.shape_of(pid)[3], "tall", pid)
 
+    @unittest.skipUnless((spec.DEFAULT_SOURCES / "brief").is_dir(), "the private briefs are not on this machine")
+    def test_a_second_pair_of_legs_lies_where_its_brief_lays_it(self):
+        # The parts list of a figure with middle legs lays its four legs in one row
+        # from your left, the middle pair outside the hind pair, as LAYOUT has them.
+        # Only the order of the legs' side words is read; nothing of a brief is printed.
+        words = {"limb-mid-r": "right middle", "leg-r": "right hind", "leg-l": "left hind", "limb-mid-l": "left middle"}
+        seen = 0
+        for c in SPEC["characters"]:
+            if "limb-mid-r" not in c["parts"]:
+                continue
+            brief = (spec.DEFAULT_SOURCES / "brief" / f"CAST-{c['id']}.md").read_text(encoding="utf-8")
+            m = re.search(r"^PARTS \(image 2\).*?(?=^ARMS \(image 4\)|^MORE PARTS)", brief, re.M | re.S)
+            self.assertIsNotNone(m, c["id"])
+            rows = [r for r in m.group(0).splitlines() if "from your left" in r and all(w in r for w in words.values())]
+            self.assertEqual(len(rows), 1, f"{c['id']}: lines laying out its four legs")
+            at = {pid: rows[0].index(w) for pid, w in words.items()}
+            self.assertEqual(sorted(words, key=at.get), sorted(words, key=lambda p: parts.LAYOUT[p][0]), c["id"])
+            seen += 1
+        self.assertGreater(seen, 0)
+
     def test_targets(self):
         self.assertEqual(spec.targets("A"), SPEC["batches"]["A"])
         self.assertEqual(spec.targets("AAW-04"), ["AAW-04"])

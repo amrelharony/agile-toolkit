@@ -14,7 +14,8 @@ in the middle, with the tie and the lanyard just to your right of it; the
 character's right arm on your left of the body and its left arm on your right;
 the legs below the body, the right leg on your left; a tail and anything else at
 the sides wherever there is room." parts2 is "in tidy rows from left to right in
-the order of the list".
+the order of the list". A second pair of legs lies where its figure's parts list
+lays it: in the legs' row, outside the hind pair.
 
 Every id a parts sheet holds has its place there: a point (LAYOUT), "at the
 sides" (SIDES), which costs a piece only as far as it sits in the middle column,
@@ -40,9 +41,11 @@ from .spec import ARM_CELLS, SOLID_ALPHA, TOL, cell_count
 
 # Where imageParts lays each piece out, in the box around all the pieces (x, y in
 # 0..1, x from the viewer's left). A pair of middle legs (limb-mid) are legs too
-# ("the legs below the body, the right leg on your left"); that they lie outside
-# the hind pair is this builder's guess, as imageParts doesn't say. Either way each
-# leg keeps its side, and a side's two legs register in that side's window.
+# ("the legs below the body, the right leg on your left"), and the parts list of
+# the one figure that has them (AAW-26) lays its four legs in one row with the
+# middle pair outside the hind pair: from your left, the right middle, right hind,
+# left hind and left middle leg (test_cast_spec.py holds that line when the private
+# sources are on the machine). Each leg keeps its side, and its side's window.
 LAYOUT = {
     "head": (0.5, 0.1),
     "ear-r": (0.3, 0.08),
