@@ -27,9 +27,13 @@ export const PHONE_OFFSET: Offset = {
 /** Larger screens: bottom-centre, clear of every corner Amr can be dragged to. */
 export const DESKTOP_OFFSET: Offset = { bottom: "24px", ...SIDES };
 
-/** /comics: at the top, below the header, the notch and Amr's top band. */
+/**
+ * /comics: at the top, below the header and Amr's top band. `--header-h`
+ * already counts the notch (the header's row plus the top safe area), so the
+ * inset is not added again.
+ */
 export const COMICS_OFFSET: Offset = {
-  top: "calc(8px + var(--header-h, 56px) + var(--amr-band-top, 0px) + env(safe-area-inset-top, 0px))",
+  top: "calc(8px + var(--header-h, 56px) + var(--amr-band-top, 0px))",
   ...SIDES,
 };
 
