@@ -16,6 +16,7 @@ import { isVipHidden } from "@/lib/tools/catalog";
 import { getGuide, type ToolGuide } from "@/lib/tools/guides";
 import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { useMascotStore } from "@/lib/agent/mascot/store";
+import { closeAmrSheet } from "@/lib/layout/amr-sheet";
 import { DOCK_END, useAmrPanel } from "./panel-context";
 
 /** A search with no match, left alone this long, gets a shrug from Amr. */
@@ -187,9 +188,11 @@ export function VisitorGuide({
     return () => clearTimeout(id);
   }, [typed, trimmed, count, more, announce]);
 
-  // A tool picked or the settings opened closes the panel: the caller's way,
-  // else the panel context's (its links replace the phone sheet's Back marker,
-  // ToolLink).
+  // A tool picked closes the panel: the caller's way, else the panel
+  // context's (its links replace the phone sheet's Back marker, ToolLink).
+  // The settings button opens a dialog, not a page, so it first closes the
+  // phone sheet as a surface opening over it (Back's marker taken out), then
+  // closes the panel this way (nothing left to close in the sheet).
   const panel = useAmrPanel();
   const navigate = onNavigate ?? panel.onNavigate;
 
@@ -368,6 +371,7 @@ export function VisitorGuide({
           size="sm"
           className="text-sub pointer-coarse:min-h-11"
           onClick={() => {
+            closeAmrSheet();
             navigate();
             openSettings();
           }}

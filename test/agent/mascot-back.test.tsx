@@ -70,6 +70,7 @@ import { BACK_MARKER, URL_CHECK_MS } from "@/lib/agent/mascot/use-back-closes";
 import { useAgentStore } from "@/lib/agent/store";
 import { resetSelectedSprint, useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 import { PRIVACY_TITLE } from "@/lib/site/owner";
 
 const OWNER = { status: "authenticated", user: { id: "owner-1" } };
@@ -238,6 +239,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   useAgentStore.getState().reset();
   useAgentStore.getState().closeSheet();
+  useLlmUiStore.getState().closeSettings();
   document.body.replaceChildren();
   delete (window as Window & { CloseWatcher?: unknown }).CloseWatcher;
   window.removeEventListener("keydown", escapeRequests);
@@ -313,6 +315,16 @@ describe("Back with a CloseWatcher", () => {
     expect(answers).toEqual([false]);
     expect(isOpen()).toBe(true);
     expect(watchers()).toBe(1);
+  });
+
+  it("closes the sheet for AI settings with no step back in history", async () => {
+    const back = vi.spyOn(window.history, "back");
+    await openToolFinder();
+    fireEvent.click(screen.getByRole("button", { name: "AI settings" }));
+    expect(isOpen()).toBe(false);
+    expect(useLlmUiStore.getState().settingsOpen).toBe(true);
+    expect(watchers()).toBe(0);
+    expect(back).not.toHaveBeenCalled();
   });
 
   it("makes no watcher beside a floating panel (a wide screen)", async () => {
@@ -448,6 +460,20 @@ describe("Back with the history marker (no CloseWatcher)", () => {
     expect(back).toHaveBeenCalledTimes(1);
     await act(() => new Promise((r) => setTimeout(r, 30)));
     expect(window.location.pathname).toBe("/kudos");
+  });
+
+  it("takes the marker out once when AI settings opens over the sheet: a dialog, not a page", async () => {
+    const back = vi.spyOn(window.history, "back");
+    await openToolFinder();
+    expect(markerState()).toEqual(expect.any(String));
+    fireEvent.click(screen.getByRole("button", { name: "AI settings" }));
+    expect(isOpen()).toBe(false);
+    expect(useLlmUiStore.getState().settingsOpen).toBe(true);
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(router.replace).not.toHaveBeenCalled();
+    // Back's next press leaves the page, not a marker left at the same address.
+    await waitFor(() => expect(markerState()).toBeUndefined());
+    expect(back).toHaveBeenCalledTimes(1);
   });
 
   it("takes the marker out once for Escape as well", async () => {
