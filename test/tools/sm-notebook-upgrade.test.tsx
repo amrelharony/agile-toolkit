@@ -525,6 +525,20 @@ describe("the page", () => {
     fireEvent.click(del);
     expect(h.logs).toEqual([]);
   });
+
+  it("shows a note whose stored day isn't on the calendar, to fix or delete", () => {
+    seed([note("odd", "2026-02-30", { title: "Odd day", body: "An agent wrote this." })]);
+    renderPage();
+    expect(screen.getByText("2026-02-30 (not a calendar day)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit note: Odd day" }));
+    const form = within(screen.getByRole("group", { name: "Edit note: Odd day" }));
+    expect(
+      form.getByText("Saved as 2026-02-30, which isn't on the calendar. Pick the day it's about.")
+    ).toBeInTheDocument();
+    fireEvent.click(form.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete note: Odd day" }));
+    expect(stored()).toEqual([]);
+  });
 });
 
 /* ── The week ──────────────────────────────────────────────────────── */

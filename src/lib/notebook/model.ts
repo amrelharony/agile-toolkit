@@ -113,9 +113,15 @@ export function noteName(e: Pick<NotebookEntry, "title" | "body">, max = 80): st
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * Whether `s` looks like a day, YYYY-MM-DD: what the workspace schema checks,
+ * so an agent can store "2026-02-30".
+ */
+export const isDayShaped = (s: unknown): s is string => typeof s === "string" && DAY.test(s);
+
 /** Whether `s` is a real calendar day ("2026-02-30" isn't). */
 export function isDay(s: unknown): s is string {
-  if (typeof s !== "string" || !DAY.test(s)) return false;
+  if (!isDayShaped(s)) return false;
   const [y, m, d] = s.split("-").map(Number);
   const t = new Date(Date.UTC(y, m - 1, d));
   return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
@@ -123,17 +129,37 @@ export function isDay(s: unknown): s is string {
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v : undefined);
 
+/** A stored hand-off link the page can use: a route and a target, as text. */
+function asLink(v: unknown): HandoffLink | null {
+  if (!v || typeof v !== "object") return null;
+  const l = v as Record<string, unknown>;
+  if (typeof l.route !== "string" || !l.route || typeof l.targetId !== "string" || !l.targetId) {
+    return null;
+  }
+  return {
+    route: l.route as HandoffLink["route"],
+    targetId: l.targetId,
+    at: typeof l.at === "string" ? l.at : "",
+  };
+}
+
 /**
  * The notes as the page can show them. Synced rows are read back as they
- * were stored, so anything without an id, a day or a body is left out, tags
- * that aren't text are dropped, and optional fields that aren't text go.
+ * were stored, so anything without an id, a day's shape or a body is left
+ * out, tags that aren't text are dropped, optional fields that aren't text
+ * go, and so do hand-off links without a route and a target. A day the
+ * calendar doesn't have ("2026-02-30", which the workspace schema lets an
+ * agent store) is kept as written, so the note can still be seen, fixed and
+ * deleted; it is filed under its month's nearest day (calendarDay).
  */
 export function normalizeEntries(raw: readonly unknown[] | null | undefined): NotebookEntry[] {
   const out: NotebookEntry[] = [];
   for (const r of raw ?? []) {
     if (!r || typeof r !== "object") continue;
     const e = r as Record<string, unknown>;
-    if (typeof e.id !== "string" || !e.id || typeof e.body !== "string" || !isDay(e.date)) continue;
+    if (typeof e.id !== "string" || !e.id || typeof e.body !== "string" || !isDayShaped(e.date)) {
+      continue;
+    }
     const title = str(e.title);
     const event = str(e.event);
     const linkedTool = str(e.linkedTool);
@@ -145,7 +171,9 @@ export function normalizeEntries(raw: readonly unknown[] | null | undefined): No
       ...(title ? { title } : {}),
       ...(event ? { event } : {}),
       ...(linkedTool ? { linkedTool } : {}),
-      ...(Array.isArray(e.sentTo) ? { sentTo: e.sentTo as HandoffLink[] } : {}),
+      ...(Array.isArray(e.sentTo)
+        ? { sentTo: e.sentTo.map(asLink).filter((l): l is HandoffLink => l !== null) }
+        : {}),
       createdAt: typeof e.createdAt === "string" ? e.createdAt : "",
       updatedAt: typeof e.updatedAt === "string" ? e.updatedAt : "",
     });
@@ -172,13 +200,25 @@ const DAY_MS = 86_400_000;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+/**
+ * `day` at midnight UTC. A day the calendar doesn't have is read as the
+ * nearest one in its month ("2026-02-30" as 28 Feb, "2026-13-05" as
+ * 5 Dec), so it never rolls into another month or breaks a date.
+ */
 const utc = (day: string): Date => {
   const [y, m, d] = day.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d));
+  const month = Math.min(12, Math.max(1, m || 1));
+  const t = new Date(0);
+  t.setUTCFullYear(y, month, 0); // the month's last day
+  t.setUTCFullYear(y, month - 1, Math.min(t.getUTCDate(), Math.max(1, d || 1)));
+  return t;
 };
 const iso = (t: Date): string => t.toISOString().slice(0, 10);
 
-/** The day `n` days after `day` (before, when negative). `day` must be a day. */
+/** The real day a stored day is filed under: itself, or its month's nearest ("2026-02-30" → "2026-02-28"). */
+export const calendarDay = (day: string): string => (isDay(day) ? day : iso(utc(day)));
+
+/** The day `n` days after `day` (before, when negative). `day` must have a day's shape. */
 export const shiftDay = (day: string, n: number): string =>
   iso(new Date(utc(day).getTime() + Math.trunc(n) * DAY_MS));
 
@@ -192,8 +232,10 @@ export function weekStartOf(day: string): string {
 export const weekEndOf = (weekStart: string): string => shiftDay(weekStart, 6);
 
 /** Whether `day` falls in the week starting `weekStart`. */
-export const inWeek = (day: string, weekStart: string): boolean =>
-  day >= weekStart && day <= weekEndOf(weekStart);
+export function inWeek(day: string, weekStart: string): boolean {
+  const d = calendarDay(day);
+  return d >= weekStart && d <= weekEndOf(weekStart);
+}
 
 /** "9 Nov 2026". */
 export function formatDay(day: string): string {

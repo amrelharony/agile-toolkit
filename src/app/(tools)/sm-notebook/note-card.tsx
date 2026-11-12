@@ -17,6 +17,7 @@ import {
   NOTE_ROUTES,
   eventLabel,
   formatShortDay,
+  isDay,
   noteHandoffSource,
   noteName,
 } from "@/lib/notebook/model";
@@ -63,7 +64,9 @@ export function NoteCard({
   const backToEdit = useRef(false);
   const name = noteName(note);
   const title = note.title?.trim();
-  const when = [formatShortDay(note.date), eventLabel(note.event)].filter(Boolean).join(" · ");
+  // A day an agent stored that the calendar doesn't have shows as written, to fix in Edit.
+  const day = isDay(note.date) ? formatShortDay(note.date) : `${note.date} (not a calendar day)`;
+  const when = [day, eventLabel(note.event)].filter(Boolean).join(" · ");
   const tool = linkedToolOf(note);
 
   useEffect(() => {

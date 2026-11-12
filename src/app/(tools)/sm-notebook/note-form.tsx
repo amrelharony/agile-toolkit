@@ -25,6 +25,7 @@ import {
   NOTE_TAG_MAX,
   NOTE_TITLE_MAX,
   eventLabel,
+  isDay,
   isKnownEvent,
   normTags,
   parseTags,
@@ -87,6 +88,9 @@ export function NoteForm({
   const { draft, update, errors } = form;
   const tools = pickableTools(draft.linkedTool || stored?.linkedTool);
   const blank = !draft.body.trim();
+  // An agent may have saved a day the calendar doesn't have; the date
+  // field can't show it, so say what it is.
+  const oddDay = stored && !isDay(stored.date) && draft.date === stored.date ? stored.date : null;
 
   const takeTags = (tags: readonly string[], source: AiSource) => {
     const have = parseTags(draft.tags);
@@ -122,7 +126,16 @@ export function NoteForm({
       </fieldset>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[11rem_1fr]">
-        <Field label="Day" error={errors.date} required>
+        <Field
+          label="Day"
+          hint={
+            oddDay
+              ? `Saved as ${oddDay}, which isn't on the calendar. Pick the day it's about.`
+              : undefined
+          }
+          error={errors.date}
+          required
+        >
           {(props) => (
             <Input
               {...props}

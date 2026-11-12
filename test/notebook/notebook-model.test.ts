@@ -15,6 +15,7 @@ import {
   NOTEBOOK_EVENTS,
   SUMMARY_TAG,
   addedLinks,
+  calendarDay,
   compareNotes,
   eventCounts,
   eventLabel,
@@ -76,11 +77,11 @@ const note = (id: string, date: string, over: Partial<NotebookEntry> = {}): Note
 });
 
 describe("reading stored notes", () => {
-  it("keeps notes with an id, a real day and a body, and tidies their tags", () => {
+  it("keeps notes with an id, a day and a body, and tidies their tags", () => {
     const out = normalizeEntries([
       { id: "a", date: "2026-11-12", body: "ok", tags: [" Blockers ", "blockers", 3, "UX"] },
-      { id: "b", date: "2026-02-30", body: "no such day" },
       { id: "c", date: "2026-11-12" },
+      { id: "e", date: "12/11/2026", body: "not a day" },
       null,
       "text",
       { id: "d", date: "2026-11-11", body: "x", title: 7, event: "", linkedTool: "kanban" },
@@ -90,6 +91,44 @@ describe("reading stored notes", () => {
     expect(out[1]).not.toHaveProperty("title");
     expect(out[1]).not.toHaveProperty("event");
     expect(out[1].linkedTool).toBe("kanban");
+  });
+
+  it("keeps a day the calendar doesn't have, as the workspace schema stored it, filed in its month", () => {
+    // The CRUD only checks the shape, so an agent can store 30 Feb.
+    const [odd] = normalizeEntries([{ id: "b", date: "2026-02-30", body: "no such day" }]);
+    expect(odd).toMatchObject({ id: "b", date: "2026-02-30" });
+    expect(calendarDay("2026-02-30")).toBe("2026-02-28");
+    expect(calendarDay("2026-13-05")).toBe("2026-12-05");
+    expect(calendarDay("2026-11-12")).toBe("2026-11-12");
+    // Its week is the one its nearest day falls in, wherever it is read.
+    expect(weekStartOf("2026-02-30")).toBe("2026-02-23");
+    expect(groupByWeek([odd]).map((w) => w.weekStart)).toEqual(["2026-02-23"]);
+    expect(notesOfWeek([odd], "2026-02-23").notes).toEqual([odd]);
+    expect(weeklyInput([odd], "2026-02-23")!.notes).toHaveLength(1);
+    // Shown as written.
+    expect(formatShortDay("2026-02-30")).toBe("2026-02-30");
+  });
+
+  it("keeps only the hand-off links that have a route and a target", () => {
+    const [e] = normalizeEntries([
+      {
+        id: "a",
+        date: "2026-11-12",
+        body: "x",
+        sentTo: [
+          { route: "impediment", targetId: "imp_1", at: AT },
+          null,
+          { route: "retro-action", targetId: 7 },
+          { route: "retro-action", targetId: "ra_1" },
+          "imp_2",
+        ],
+      },
+    ]);
+    expect(e.sentTo).toEqual([
+      { route: "impediment", targetId: "imp_1", at: AT },
+      { route: "retro-action", targetId: "ra_1", at: "" },
+    ]);
+    expect(() => addedLinks([], e.sentTo)).not.toThrow();
   });
 
   it("knows a real day", () => {
