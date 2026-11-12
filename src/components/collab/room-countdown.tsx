@@ -12,6 +12,9 @@
  * that has `alarm` says time's up (assertively, once), rings the shared
  * alarm (`timesUp`), and the count turns into overtime counting up. Only
  * one countdown per device should have `alarm` (the big screen has none).
+ * A participant also hears, politely, when the host starts, pauses,
+ * extends or stops the timer (`useHostTimerNotes`); the ticking itself is
+ * never read out.
  */
 
 import { useEffect, useId, useRef, useState } from "react";
@@ -159,6 +162,42 @@ export function RoomCountdown({
   );
 }
 
+/**
+ * Say politely what the host did to the timer, for someone who can't see
+ * it change: started, paused, running again, time added, stopped. A timer
+ * already running when this screen first saw it (joining late) is said once
+ * as it stands. Keepalives that re-anchor the same timer say nothing.
+ */
+export function useHostTimerNotes(timer: RoomTimer | null): void {
+  const announce = useAnnounce();
+  const prevRef = useRef<RoomTimer | null | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevRef.current;
+    prevRef.current = timer;
+    const now = Date.now();
+    const left = timer ? spokenDuration(roomTimerLeft(timer, now)) : "";
+    let note: string | null = null;
+    if (!timer) {
+      if (prev) note = "The timer stopped.";
+    } else if (isRoomTimerUp(timer, now)) {
+      // Time's up is said by the countdown's alarm (or was, before this screen saw it).
+      note = null;
+    } else if (prev === undefined) {
+      // Joining late: say a running timer as it stands (a paused one waits for its next change).
+      if (timer.endsAt !== null) note = `The host's timer: ${left} left.`;
+    } else if (prev === null) {
+      note = `The host started the timer: ${left} left.`;
+    } else if (prev.endsAt !== null && timer.endsAt === null) {
+      note = `The host paused the timer: ${left} left.`;
+    } else if (prev.endsAt === null && timer.endsAt !== null) {
+      note = `The timer is running again: ${left} left.`;
+    } else if (timer.totalSeconds > prev.totalSeconds || isRoomTimerUp(prev, now)) {
+      note = `The host added time: ${left} left.`;
+    }
+    if (note) announce(note);
+  }, [timer, announce]);
+}
+
 export interface RoomTimerControlsProps {
   timer: RoomTimer | null;
   onChange: (next: RoomTimer | null) => void;
@@ -174,6 +213,10 @@ const presetLabel = (s: number) => `${s / 60} min`;
  * The host's timer for the whole room: a length to start (1 to 10 minutes),
  * then Pause or Resume, a minute more, and Stop. Everyone's phone shows the
  * same countdown; this screen rings at zero.
+ *
+ * Focus stays in the controls as they swap: a length sends it to Pause,
+ * Stop sends it to the first length, and at zero Pause becomes "1 more
+ * minute" in place (the separate "1 minute more" folds into it).
  */
 export function RoomTimerControls({
   timer,
@@ -190,6 +233,26 @@ export function RoomTimerControls({
   const reveal = timer ? timer.autoReveal : autoReveal;
   const up = timer !== null && isRoomTimerUp(timer, now);
   const paused = timer !== null && timer.endsAt === null;
+  const hasTimer = timer !== null;
+
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const firstPresetRef = useRef<HTMLButtonElement>(null);
+  // Where focus goes once the row swaps (the pressed button is gone).
+  const focusNextRef = useRef<"controls" | "presets" | null>(null);
+  useEffect(() => {
+    const want = focusNextRef.current;
+    focusNextRef.current = null;
+    if (want === "controls" && hasTimer) primaryRef.current?.focus();
+    else if (want === "presets" && !hasTimer) firstPresetRef.current?.focus();
+  }, [hasTimer]);
+  // At zero "1 minute more" folds into the first button: if it had focus, follow it there.
+  const moreFocusedRef = useRef(false);
+  useEffect(() => {
+    if (!up || !moreFocusedRef.current) return;
+    moreFocusedRef.current = false;
+    const active = document.activeElement;
+    if (active === null || active === document.body) primaryRef.current?.focus();
+  }, [up]);
 
   return (
     <section aria-labelledby={headingId} className={cn("space-y-2", className)}>
@@ -204,15 +267,20 @@ export function RoomTimerControls({
             aria-label="Start a timer for everyone"
             className="flex flex-wrap gap-1.5"
           >
-            {ROOM_TIMER_PRESETS.map((s) => (
+            {ROOM_TIMER_PRESETS.map((s, i) => (
+              // The group's name says what these do; each button's name is its
+              // visible text, so "click 1 min" works by voice.
               <Button
                 key={s}
+                ref={i === 0 ? firstPresetRef : undefined}
                 type="button"
                 variant="outline"
                 size="sm"
                 disabled={disabled}
-                aria-label={`Start a ${s / 60}-minute timer`}
-                onClick={() => onChange(startRoomTimer(s, Date.now(), { autoReveal }))}
+                onClick={() => {
+                  focusNextRef.current = "controls";
+                  onChange(startRoomTimer(s, Date.now(), { autoReveal }));
+                }}
               >
                 {presetLabel(s)}
               </Button>
@@ -220,6 +288,34 @@ export function RoomTimerControls({
           </div>
         ) : (
           <>
+            {/* One button, two jobs: Pause or Resume, and once time is up,
+                a minute more. It stays in place, so focus does too. */}
+            <Button
+              ref={primaryRef}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              disabled={disabled}
+              onClick={() =>
+                onChange(
+                  up
+                    ? addRoomTimerSeconds(timer, 60, Date.now())
+                    : paused
+                      ? resumeRoomTimer(timer, Date.now())
+                      : pauseRoomTimer(timer, Date.now())
+                )
+              }
+            >
+              {up ? (
+                <Plus aria-hidden="true" />
+              ) : paused ? (
+                <Play aria-hidden="true" />
+              ) : (
+                <Pause aria-hidden="true" />
+              )}
+              {up ? "1 more minute" : paused ? "Resume" : "Pause"}
+            </Button>
             {!up && (
               <Button
                 type="button"
@@ -227,34 +323,27 @@ export function RoomTimerControls({
                 size="sm"
                 className="gap-1"
                 disabled={disabled}
-                onClick={() =>
-                  onChange(
-                    paused ? resumeRoomTimer(timer, Date.now()) : pauseRoomTimer(timer, Date.now())
-                  )
-                }
+                onFocus={() => {
+                  moreFocusedRef.current = true;
+                }}
+                onBlur={() => {
+                  moreFocusedRef.current = false;
+                }}
+                onClick={() => onChange(addRoomTimerSeconds(timer, 60, Date.now()))}
               >
-                {paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
-                {paused ? "Resume" : "Pause"}
+                <Plus aria-hidden="true" />1 minute more
               </Button>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1"
-              disabled={disabled}
-              onClick={() => onChange(addRoomTimerSeconds(timer, 60, Date.now()))}
-            >
-              <Plus aria-hidden="true" />
-              {up ? "1 more minute" : "1 minute more"}
-            </Button>
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="gap-1"
               disabled={disabled}
-              onClick={() => onChange(null)}
+              onClick={() => {
+                focusNextRef.current = "presets";
+                onChange(null);
+              }}
             >
               <Square aria-hidden="true" />
               Stop timer
@@ -295,6 +384,7 @@ export function RoomCountdownCard({
   timer: RoomTimer | null;
   className?: string;
 }) {
+  useHostTimerNotes(timer);
   if (!timer) return null;
   return (
     <section

@@ -103,6 +103,47 @@ describe("RoomCountdown", () => {
     const { container } = withAnnouncer(<RoomCountdownCard timer={null} />);
     expect(container.querySelector("[role=timer]")).toBeNull();
   });
+
+  it("tells a participant politely when the host starts, pauses, resumes, adds time and stops", () => {
+    const { rerender } = withAnnouncer(<RoomCountdownCard timer={null} />);
+    const polite = screen.getByTestId("live-polite");
+    const show = (timer: RoomTimer | null) => {
+      rerender(
+        <LiveAnnouncerProvider>
+          <RoomCountdownCard timer={timer} />
+        </LiveAnnouncerProvider>
+      );
+      advance(100);
+    };
+    const t = startRoomTimer(300, Date.now())!;
+    show(t);
+    expect(polite).toHaveTextContent("The host started the timer: 5 minutes left.");
+    advance(60_000);
+    const paused: RoomTimer = { ...t, endsAt: null, pausedSeconds: 240 };
+    show(paused);
+    expect(polite).toHaveTextContent("The host paused the timer: 4 minutes left.");
+    const again: RoomTimer = { ...paused, endsAt: Date.now() + 240_000 };
+    show(again);
+    expect(polite).toHaveTextContent("The timer is running again: 4 minutes left.");
+    // A keepalive re-anchoring the same timer says nothing new.
+    polite.textContent = "";
+    show({ ...again, endsAt: again.endsAt! + 40 });
+    expect(polite).toHaveTextContent("");
+    show({ ...again, endsAt: again.endsAt! + 60_000, totalSeconds: 360 });
+    expect(polite).toHaveTextContent("The host added time: 5 minutes left.");
+    show(null);
+    expect(polite).toHaveTextContent("The timer stopped.");
+    // The ticking itself never reaches the live region.
+    expect(screen.getByTestId("live-assertive")).toHaveTextContent("");
+  });
+
+  it("says once how a timer stands when someone joins while it runs", () => {
+    withAnnouncer(<RoomCountdownCard timer={startRoomTimer(90, Date.now())} />);
+    advance(100);
+    expect(screen.getByTestId("live-polite")).toHaveTextContent(
+      "The host's timer: 1 minute 30 seconds left."
+    );
+  });
 });
 
 function Host({ autoRevealOption = false }: { autoRevealOption?: boolean }) {
@@ -121,7 +162,7 @@ const state = () =>
 describe("RoomTimerControls", () => {
   it("starts a timer for everyone, then pauses, resumes, adds a minute and stops", () => {
     withAnnouncer(<Host />);
-    fireEvent.click(screen.getByRole("button", { name: "Start a 5-minute timer" }));
+    fireEvent.click(screen.getByRole("button", { name: "5 min" }));
     expect(state()).toMatchObject({ endsAt: NOW + 300_000, totalSeconds: 300 });
     advance(60_000);
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
@@ -135,9 +176,46 @@ describe("RoomTimerControls", () => {
     expect(screen.getByRole("group", { name: "Start a timer for everyone" })).toBeInTheDocument();
   });
 
+  it("names each length by its visible text, inside a group that says what they do", () => {
+    withAnnouncer(<Host />);
+    const group = screen.getByRole("group", { name: "Start a timer for everyone" });
+    expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual([
+      "1 min",
+      "2 min",
+      "3 min",
+      "5 min",
+      "10 min",
+    ]);
+    for (const b of Array.from(group.querySelectorAll("button")))
+      expect(b).not.toHaveAttribute("aria-label");
+  });
+
+  it("keeps keyboard focus in the controls as they swap: start, zero and stop", () => {
+    withAnnouncer(<Host />);
+    const one = screen.getByRole("button", { name: "1 min" });
+    one.focus();
+    fireEvent.click(one);
+    expect(screen.getByRole("button", { name: "Pause" })).toHaveFocus();
+    // Time runs out with Pause focused: the same button becomes "1 more minute".
+    advance(61_000);
+    expect(screen.getByRole("button", { name: "1 more minute" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "1 more minute" }));
+    expect(screen.getByRole("button", { name: "Pause" })).toHaveFocus();
+    // "1 minute more" focused at zero: focus follows it into the first button.
+    const more = screen.getByRole("button", { name: "1 minute more" });
+    more.focus();
+    advance(61_000);
+    expect(screen.queryByRole("button", { name: "1 minute more" })).toBeNull();
+    expect(screen.getByRole("button", { name: "1 more minute" })).toHaveFocus();
+    const stop = screen.getByRole("button", { name: "Stop timer" });
+    stop.focus();
+    fireEvent.click(stop);
+    expect(screen.getByRole("button", { name: "1 min" })).toHaveFocus();
+  });
+
   it("rings on the host's own screen at zero, and offers a minute more instead of Pause", () => {
     withAnnouncer(<Host />);
-    fireEvent.click(screen.getByRole("button", { name: "Start a 1-minute timer" }));
+    fireEvent.click(screen.getByRole("button", { name: "1 min" }));
     advance(61_000);
     expect(alarm.timesUp).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
@@ -149,7 +227,7 @@ describe("RoomTimerControls", () => {
     withAnnouncer(<Host autoRevealOption />);
     const reveal = screen.getByRole("switch", { name: "Reveal the cards at zero" });
     fireEvent.click(reveal);
-    fireEvent.click(screen.getByRole("button", { name: "Start a 2-minute timer" }));
+    fireEvent.click(screen.getByRole("button", { name: "2 min" }));
     expect(state()?.autoReveal).toBe(true);
     fireEvent.click(screen.getByRole("switch", { name: "Reveal the cards at zero" }));
     expect(state()?.autoReveal).toBe(false);
