@@ -205,6 +205,8 @@ class BriefAgreement(unittest.TestCase):
             "the body in the middle, with the tie and the lanyard just to your right of it",
             "the character's right arm on your left of the body and its left arm on your right",
             "the legs below the body, the right leg on your left",
+            "a tail and anything else at the sides wherever there is room",
+            "hanging straight down",
             "in tidy rows from left to right in the order of the list",
         ):
             self.assertIn(words, BRIEF)
@@ -216,6 +218,15 @@ class BriefAgreement(unittest.TestCase):
         self.assertGreater(L["arm-l"][0], L["tie"][0])
         self.assertGreater(L["leg-r"][1], L["torso"][1])
         self.assertLess(L["leg-r"][0], L["leg-l"][0])
+        # A second pair of legs is legs: below the body, each on its own side.
+        self.assertLess(L["limb-mid-r"][0], L["leg-r"][0])
+        self.assertLess(L["leg-l"][0], L["limb-mid-l"][0])
+        self.assertGreater(min(L["limb-mid-r"][1], L["limb-mid-l"][1]), L["torso"][1])
+        self.assertIn("tail", parts.SIDES)
+        self.assertFalse(set(parts.SIDES) & set(L))
+        # Arms and legs hang straight down: taller than wide.
+        for pid in ("arm-r", "leg-r", "limb-mid-r"):
+            self.assertGreater(parts.shape_of(pid)[2][0], 1, pid)
 
     def test_targets(self):
         self.assertEqual(spec.targets("A"), SPEC["batches"]["A"])

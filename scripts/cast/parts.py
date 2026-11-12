@@ -3,16 +3,25 @@
     islands(rgba)                 the drawings after a `close_px` closing, specks apart
     sort_image(c, rgba)           which image a loose PNG is, from what it holds
     assign(pieces, ids, ...)      Hungarian matching of pieces to part ids
-    layout_prior(id)              where the parts brief lays each piece out
+    LAYOUT, SIDES, SHAPES         where the parts brief lays each piece out, and
+                                  what any puppet's pieces can look like
 
 The layout prior follows scripts/cast/brief-blocks.mjs imageParts word for word
-(test_cast_parts.py reads the brief to hold the two together): "the head at the
+(test_cast_spec.py reads the brief to hold the two together): "the head at the
 top in the middle, with any ears beside it and the pupils just below it; the body
 in the middle, with the tie and the lanyard just to your right of it; the
 character's right arm on your left of the body and its left arm on your right;
 the legs below the body, the right leg on your left; a tail and anything else at
 the sides wherever there is room." parts2 is "in tidy rows from left to right in
 the order of the list".
+
+Every id a parts sheet holds has a place there: a point (LAYOUT), or "at the
+sides" (SIDES), which costs a piece only as far as it sits in the middle column.
+Every id has a generic shape: bands of area against the biggest piece and of
+height over width, free inside, so a long ear and a round one, or a thin tail and
+a ball of one, are all named by where they lie; an arm, a leg and a tie hang
+straight down, so they stand taller than wide, and a collar is a band, wider than
+tall.
 """
 
 from __future__ import annotations
@@ -26,8 +35,10 @@ from . import key
 from .spec import ARM_CELLS, SOLID_ALPHA, TOL, cell_count
 
 # Where imageParts lays each piece out, in the box around all the pieces (x, y in
-# 0..1, x from the viewer's left). Ids it doesn't place go "at the sides wherever
-# there is room": no prior.
+# 0..1, x from the viewer's left). A pair of middle legs (limb-mid) are legs too
+# ("the legs below the body, the right leg on your left"); that they lie outside
+# the hind pair is this builder's guess, as imageParts doesn't say. Either way each
+# leg keeps its side, and a side's two legs register in that side's window.
 LAYOUT = {
     "head": (0.5, 0.1),
     "ear-r": (0.3, 0.08),
@@ -39,32 +50,45 @@ LAYOUT = {
     "cord": (0.68, 0.58),
     "arm-r": (0.18, 0.5),
     "arm-l": (0.86, 0.5),
+    "limb-mid-r": (0.2, 0.88),
     "leg-r": (0.4, 0.88),
     "leg-l": (0.6, 0.88),
+    "limb-mid-l": (0.8, 0.88),
 }
-# Generic piece shapes (no canon: what any cut-out puppet's pieces look like): the
-# area against the biggest piece, and long side over short side.
+# "A tail and anything else at the sides wherever there is room": anywhere from top
+# to bottom outside the middle column; a piece whose centre is nearer the middle
+# than SIDE pays for how far in it is.
+SIDES = ("tail", "neck", "load", "quills", "abdomen", "flap", "collar")
+SIDE = 0.3
+# Generic piece shapes, matched on the start of the id (no canon: what any cut-out
+# puppet's pieces can look like): (typical area against a torso's, (fewest, most)
+# area against the biggest piece, (fewest, most) height over width). The typical
+# areas weigh a piece's expected share of its sheet (fused); naming costs nothing
+# inside the bands. A torso can be smaller than a big head or a coat; ears run from
+# small and round to long; a tail from a small ball to a bushy plume, in any curve;
+# a coat of quills behind the whole figure outsizes the body.
 SHAPES = {
-    "torso": (1.0, 1.3),
-    "head": (0.6, 1.1),
-    "neck": (0.15, 2.5),
-    "abdomen": (0.6, 1.2),
-    "arm": (0.22, 3.0),
-    "leg": (0.25, 2.5),
-    "pupil": (0.004, 1.0),
-    "tie": (0.05, 3.0),
-    "cord": (0.04, 4.0),
-    "tail": (0.2, 1.8),
-    "ear": (0.04, 1.5),
-    "quills": (0.4, 1.5),
-    "flap": (0.1, 2.0),
-    "load": (0.3, 1.5),
-    "collar": (0.1, 3.0),
-    "tentacle": (0.15, 4.0),
-    "limb": (0.12, 4.0),
-    "fan": (1.2, 1.5),
+    "torso": (1.0, (0.2, 1.0), (0.5, 2.5)),
+    "head": (0.6, (0.2, 1.0), (0.5, 2.0)),
+    "neck": (0.15, (0.05, 0.35), (0.5, 5.0)),
+    "abdomen": (0.6, (0.3, 1.0), (0.6, 1.7)),
+    "arm": (0.22, (0.03, 0.4), (1.4, 8.0)),
+    "leg": (0.25, (0.03, 0.4), (1.4, 8.0)),
+    "pupil": (0.004, (0.0005, 0.03), (0.7, 1.4)),
+    "tie": (0.05, (0.01, 0.12), (1.5, 6.0)),
+    "cord": (0.04, (0.01, 0.15), (0.5, 5.0)),
+    "tail": (0.2, (0.005, 0.7), (1 / 6, 6.0)),
+    "ear": (0.04, (0.005, 0.35), (0.6, 4.0)),
+    "quills": (2.0, (0.5, 1.0), (0.6, 3.0)),
+    "flap": (0.1, (0.01, 0.2), (0.4, 2.5)),
+    "load": (0.3, (0.15, 1.0), (0.3, 2.0)),
+    "collar": (0.1, (0.01, 0.2), (0.1, 0.7)),
+    "tentacle": (0.15, (0.02, 0.5), (1 / 8, 8.0)),
+    "limb-mid": (0.25, (0.03, 0.4), (1.4, 8.0)),
+    "limb": (0.12, (0.02, 0.5), (1 / 8, 8.0)),
+    "fan": (1.2, (0.1, 1.0), (1 / 6, 6.0)),
 }
-W_POS, W_AREA, W_ASPECT, W_NCC = 3.0, 1.0, 0.5, 2.0  # docs: cost = 3·pos + area + 0.5·aspect + 2·(1 − NCC)
+W_POS, W_AREA, W_ASPECT, W_NCC = 3.0, 1.0, 0.5, 2.0  # cost = 3·place + area + 0.5·(height over width) + 2·(1 − NCC)
 
 
 @dataclass(eq=False)
@@ -217,7 +241,8 @@ def sort_image(c: dict, rgba: np.ndarray, key_rgb) -> tuple[str | None, str, int
 # ---------- naming the pieces ----------
 
 
-def shape_of(part_id: str) -> tuple[float, float] | None:
+def shape_of(part_id: str) -> tuple | None:
+    """(typical area, area band, height-over-width band) for the id, or None."""
     for k, v in SHAPES.items():
         if part_id.startswith(k):
             return v
@@ -228,7 +253,7 @@ def fused(pieces: list[Island], named: dict, ids: list[str], short: int = 1) -> 
     """For a sheet `short` drawings short of its pieces: the named pieces ({part
     id: piece index}) most likely to be two drawn as one, as (id, times its
     expected area). A piece's expected area is its share of all the sheet's
-    drawing by the generic SHAPES of every id the sheet should hold, so a fusion
+    drawing by the typical areas (SHAPES) of every id the sheet should hold, so a fusion
     with the biggest piece (a torso with an arm) shows too. Every piece over
     fused_area_max times is named, and at least the `short` biggest by that ratio.
     The pupils are left out: their size follows the eyes, not the body, so their
@@ -268,6 +293,17 @@ def reading_order(pieces: list[Island]) -> list[int]:
     return rank
 
 
+def _outside(v: float, band: tuple[float, float]) -> float:
+    """How far v lies outside the band, in log units (0 inside it)."""
+    lo, hi = band
+    return max(0.0, float(np.log(lo / v)), float(np.log(v / hi)))
+
+
+def _tall(p: Island) -> float:
+    w, h = p.size
+    return max(h, 1) / max(w, 1)
+
+
 def cost_matrix(
     pieces: list[Island], ids: list[str], image: str = "parts", ncc: np.ndarray | None = None
 ) -> np.ndarray:
@@ -290,10 +326,12 @@ def cost_matrix(
             elif pid in LAYOUT:
                 px, py = LAYOUT[pid]
                 cost += W_POS * float(np.hypot(cx - px, cy - py))
+            elif pid in SIDES:
+                cost += W_POS * max(0.0, SIDE - abs(cx - 0.5))
             shp = shape_of(pid)
             if shp:
-                cost += W_AREA * abs(np.log(p.area / biggest) - np.log(shp[0]))
-                cost += W_ASPECT * abs(np.log(p.aspect) - np.log(shp[1]))
+                cost += W_AREA * _outside(p.area / biggest, shp[1])
+                cost += W_ASPECT * _outside(_tall(p), shp[2])
             if ncc is not None:
                 cost += W_NCC * (1 - float(ncc[i, j]))
             C[i, j] = cost
