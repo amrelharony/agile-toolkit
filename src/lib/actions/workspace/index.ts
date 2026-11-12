@@ -4256,7 +4256,7 @@ const InterruptItemSchema = z.object({
   loggedAt: z
     .string()
     .optional()
-    .describe("ISO time it landed; stamped now on create when not given."),
+    .describe("ISO time it landed; can be backdated. Stamped now on create when not given."),
   resolvedAt: z.string().optional().describe("ISO time it was resolved; absent while open."),
   sentTo: z
     .array(HandoffLinkSchema)
@@ -4274,7 +4274,8 @@ defineCrudActions<InterruptItem>({
   generateId: () => `interrupt_${nanoid(8)}`,
   prepare: (next, current) => ({
     ...next,
-    loggedAt: current?.loggedAt ?? next.loggedAt ?? new Date().toISOString(),
+    // A value sent (backdating) wins; otherwise the stored one, or now on create.
+    loggedAt: next.loggedAt ?? current?.loggedAt ?? new Date().toISOString(),
   }),
 });
 

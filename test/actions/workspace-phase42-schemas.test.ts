@@ -164,7 +164,7 @@ describe("times", () => {
     expect(stored.updatedAt).toBe("2026-11-13T08:00:00.000Z");
   });
 
-  it("stamp when an interrupt landed, and keep it on later updates", async () => {
+  it("stamp when an interrupt landed, keep it on later updates, and let it be backdated", async () => {
     const { id } = (await create("workspace.interrupt_item", {
       title: "Password reset emails bounce",
       kind: "support",
@@ -172,12 +172,15 @@ describe("times", () => {
     })) as { id: string };
     const logged = useWorkspaceStore.getState().interruptItems!.find((i) => i.id === id)!;
     expect(logged.loggedAt).toBe("2026-11-13T08:00:00.000Z");
-    const resolved = (await update("workspace.interrupt_item", "interruptItems", INTERRUPT, {
-      loggedAt: "1999-01-01T00:00:00.000Z",
+    const sized = (await update("workspace.interrupt_item", "interruptItems", INTERRUPT, {
       size: 5,
     })) as typeof INTERRUPT;
-    expect(resolved.loggedAt).toBe(INTERRUPT.loggedAt);
-    expect(resolved.size).toBe(5);
+    expect(sized.loggedAt).toBe(INTERRUPT.loggedAt);
+    expect(sized.size).toBe(5);
+    const backdated = (await update("workspace.interrupt_item", "interruptItems", INTERRUPT, {
+      loggedAt: "2026-11-11T16:00:00.000Z",
+    })) as typeof INTERRUPT;
+    expect(backdated.loggedAt).toBe("2026-11-11T16:00:00.000Z");
   });
 });
 
