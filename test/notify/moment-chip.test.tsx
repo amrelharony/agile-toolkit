@@ -170,4 +170,18 @@ describe("momentChipPosition", () => {
     expect(pos[edge === "top" ? "bottom" : "top"]).toBeUndefined();
     if (variable) expect(String(pos[edge])).toContain(variable);
   });
+
+  it("moves off his edge as far as he has stepped up", () => {
+    expect(momentChipPosition("bottomRight", false, 48)).toMatchObject({ bottom: 72, right: 156 });
+    expect(String(momentChipPosition("topLeft", false, 48).top)).toContain("72px");
+    expect(String(momentChipPosition("bottomLeft", true, 144).bottom)).toContain("152px");
+    expect(String(momentChipPosition("topRight", true, 96).top)).toContain("104px");
+    // Not stepped up (or a lift that isn't a positive number): his usual spot.
+    expect(momentChipPosition("bottomRight", true, -5)).toEqual(
+      momentChipPosition("bottomRight", true)
+    );
+    expect(momentChipPosition("topLeft", false, Number.NaN)).toEqual(
+      momentChipPosition("topLeft", false)
+    );
+  });
 });

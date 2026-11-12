@@ -18,6 +18,7 @@ import {
   amrEdge,
   amrSide,
   bubbleTail,
+  cornerAt,
   otherSide,
   panelOrigin,
   panelTail,
@@ -127,7 +128,7 @@ describe("figure-metrics", () => {
   });
 });
 
-describe("amrSide, amrEdge and otherSide", () => {
+describe("amrSide, amrEdge, cornerAt and otherSide", () => {
   it("read his side and edge from the corner", () => {
     expect(CORNERS.map(amrSide)).toEqual(["left", "right", "left", "right"]);
     expect(CORNERS.map(amrEdge)).toEqual(["top", "top", "bottom", "bottom"]);
@@ -136,6 +137,11 @@ describe("amrSide, amrEdge and otherSide", () => {
   it("steps aside to the other side of the same edge, and back", () => {
     expect(CORNERS.map(otherSide)).toEqual(["topRight", "topLeft", "bottomRight", "bottomLeft"]);
     for (const c of CORNERS) expect(otherSide(otherSide(c))).toBe(c);
+  });
+
+  it("turns the store's placement (a side and an edge) back into his corner", () => {
+    for (const c of CORNERS) expect(cornerAt({ side: amrSide(c), edge: amrEdge(c) })).toBe(c);
+    expect(cornerAt({ side: "left", edge: "bottom" })).toBe("bottomLeft");
   });
 });
 

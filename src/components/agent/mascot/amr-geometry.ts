@@ -86,6 +86,14 @@ export function amrEdge(c: AmrCorner): AmrEdge {
   return c.startsWith("top") ? "top" : "bottom";
 }
 
+/**
+ * The corner a side and an edge name: where the mascot store's `placed` says
+ * he is drawn, as the helpers here take it.
+ */
+export function cornerAt(p: Readonly<{ side: AmrSide; edge: AmrEdge }>): AmrCorner {
+  return `${p.edge}${p.side === "left" ? "Left" : "Right"}`;
+}
+
 /** The same edge, the other side of the screen (where he steps aside to). */
 export function otherSide(c: AmrCorner): AmrCorner {
   return `${amrEdge(c)}${amrSide(c) === "left" ? "Right" : "Left"}` as AmrCorner;

@@ -38,20 +38,26 @@ const DESKTOP_SIDE_PX = 156;
  * - Phones: just past his band (`--amr-band-bottom`, or `--amr-band-top`
  *   under the header when he's docked at the top), on his side.
  * - Larger screens: level with him, to the inside of his corner.
+ * `lift` is how far (px) he has stepped up off his edge (the mascot store's
+ * `lift`): the spot moves off the edge with him. Anything but a positive
+ * number counts as 0.
  */
-export function momentChipPosition(corner: MascotCorner, phone: boolean): CSSProperties {
+export function momentChipPosition(corner: MascotCorner, phone: boolean, lift = 0): CSSProperties {
   const top = corner.startsWith("top");
   const left = corner.endsWith("Left");
+  const up = Number.isFinite(lift) && lift > 0 ? lift : 0;
   if (phone) {
     return {
       ...(top
-        ? { top: "calc(var(--header-h, 56px) + var(--amr-band-top, 0px) + 8px)" }
-        : { bottom: "calc(var(--amr-band-bottom, env(safe-area-inset-bottom, 0px)) + 8px)" }),
+        ? { top: `calc(var(--header-h, 56px) + var(--amr-band-top, 0px) + ${8 + up}px)` }
+        : {
+            bottom: `calc(var(--amr-band-bottom, env(safe-area-inset-bottom, 0px)) + ${8 + up}px)`,
+          }),
       ...(left ? { left: 16 } : { right: 16 }),
     };
   }
   return {
-    ...(top ? { top: "calc(var(--header-h, 56px) + 24px)" } : { bottom: 24 }),
+    ...(top ? { top: `calc(var(--header-h, 56px) + ${24 + up}px)` } : { bottom: 24 + up }),
     ...(left ? { left: DESKTOP_SIDE_PX } : { right: DESKTOP_SIDE_PX }),
   };
 }
