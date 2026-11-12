@@ -74,13 +74,17 @@ vi.mock("@/components/ai", async (importOriginal) => {
       label,
       input,
       onResult,
+      disabledReason,
     }: {
       label: string;
       input: () => unknown;
       onResult: (data: unknown, meta: { source: "ai" }) => void;
+      disabledReason?: string | null;
     }) => (
       <button
         type="button"
+        disabled={Boolean(disabledReason)}
+        title={disabledReason ?? undefined}
         onClick={() => {
           spies.aiInput(input());
           onResult({ names: ["Comet", "Nebula", "Quasar"] }, { source: "ai" });
@@ -460,8 +464,14 @@ describe("after a mix", () => {
     seed(SIX, { split: "count", count: 3 });
     await mount();
     fireEvent.click(mixButton());
+    const ask = () => screen.getByRole("button", { name: "Ask Amr for names" });
+    // Picker's task takes a theme of 2 letters or more.
+    expect(ask()).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Theme (optional)"), { target: { value: "s" } });
+    expect(ask()).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Theme (optional)"), { target: { value: "space" } });
-    fireEvent.click(screen.getByRole("button", { name: "Ask Amr for names" }));
+    expect(ask()).toBeEnabled();
+    fireEvent.click(ask());
     expect(spies.aiInput).toHaveBeenCalledWith({ theme: "space", count: 3 });
     // Suggestions wait for the person.
     expect(state().rounds[0].groups.every((g) => g.name === undefined)).toBe(true);

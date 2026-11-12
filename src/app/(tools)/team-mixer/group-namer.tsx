@@ -12,6 +12,8 @@ import { suggestGroupNames } from "@/lib/team-mixer/names";
 import { GROUP_NAME_AI } from "./group-name-task";
 
 const THEME_MAX = 60;
+/** The shortest theme Picker's task takes. */
+const THEME_MIN = 2;
 
 interface Suggestion {
   name: string;
@@ -82,7 +84,11 @@ export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
           <AiButton
             task={ai.task}
             input={() => ai.input(theme.trim(), Math.min(wanted, ai.max))}
-            disabledReason={theme.trim() ? null : "Type a theme first, such as planets or rivers."}
+            disabledReason={
+              theme.trim().length >= THEME_MIN
+                ? null
+                : "Type a theme first, such as planets or rivers."
+            }
             label="Ask Amr for names"
             onResult={(data, meta) =>
               show(
