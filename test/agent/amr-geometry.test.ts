@@ -12,12 +12,15 @@ import {
   HEAD_TRIM,
   HIT_SIDE,
   LAUNCHER_PLATE,
+  LAUNCHER_PLATE_REM,
   MASCOT_BOX,
   MASCOT_BOX_PHONE,
   PANEL_GAP,
   PANEL_MARGIN,
   PANEL_MIN_H,
   PANEL_SIDE,
+  PLATE_H_VAR,
+  PLATE_W_VAR,
   SHEET_LAYOUT_MAX_W,
   SIDE_LAYOUT_MAX_H,
   SIDE_PANEL_MAX_W,
@@ -29,6 +32,7 @@ import {
   dockInsets,
   dockedButtonPos,
   isCompact,
+  launcherPlateCss,
   otherSide,
   panelLayout,
   panelOrigin,
@@ -85,6 +89,8 @@ describe("the constants moved out of mascot-assistant.tsx", () => {
     expect(MASCOT_BOX_PHONE).toEqual({ w: 96, h: 104 });
     // The "Ask Amr" plate: its 44 px floor, wide enough for the lettering.
     expect(LAUNCHER_PLATE).toEqual({ w: 108, h: 44 });
+    // ...and the same box in rem, as the plate is lettered: 2.75rem is its floor.
+    expect(LAUNCHER_PLATE_REM).toEqual({ w: 6.75, h: 2.75 });
     expect(FEET_TRIM).toBe(208 - 202);
     expect(HEAD_TRIM).toBe(16);
     expect(HIT_SIDE).toBe(0.28);
@@ -596,6 +602,13 @@ describe("dockInsets", () => {
     expect(dockInsets(otherSide("bottomRight")).side).toBe("left");
   });
 
+  it("writes the plate's size as CSS that grows with it: floor, rem box, drawn size", () => {
+    expect(PLATE_W_VAR).toBe("--amr-plate-w");
+    expect(PLATE_H_VAR).toBe("--amr-plate-h");
+    expect(launcherPlateCss("w")).toBe("max(108px, 6.75rem, var(--amr-plate-w, 0px))");
+    expect(launcherPlateCss("h")).toBe("max(44px, 2.75rem, var(--amr-plate-h, 0px))");
+  });
+
   it("keeps the launcher plate's room while it stands in for him", () => {
     for (const c of CORNERS) {
       const d = dockInsets(c, false);
@@ -685,6 +698,29 @@ describe("sidePos", () => {
       }
     );
     expect(pos.right).toBe(8 + LAUNCHER_PLATE.w + PANEL_GAP);
+  });
+
+  it("clears the plate as drawn when larger text grows it, never less than its floor", () => {
+    const box = boxOf(SMALL);
+    const top = { compact: true, viewTop: 0 };
+    const fig = { phone: true, figure: false };
+    const floor = sidePos("bottomRight", box, fig, top);
+    // At 200% text the plate is about 190 px wide: the panel starts past it, narrower by as much.
+    const wide = sidePos("bottomRight", box, { ...fig, plateW: 190 }, top);
+    expect(wide.right).toBe(box.right + 190 + PANEL_GAP);
+    expect(wide.width).toBe(Math.min(SIDE_PANEL_MAX_W, box.width - 190 - PANEL_GAP));
+    expect(SMALL.width - wide.right! - wide.width).toBeGreaterThanOrEqual(box.left);
+    const left = sidePos("topLeft", box, { ...fig, plateW: 190 }, top);
+    expect(left.left).toBe(box.left + 190 + PANEL_GAP);
+    // Smaller readings (jsdom's 0, a plate mid-load) keep LAUNCHER_PLATE.
+    for (const plateW of [0, 50, LAUNCHER_PLATE.w]) {
+      expect(sidePos("bottomRight", box, { ...fig, plateW }, top)).toEqual(floor);
+    }
+    expect(floor.right).toBe(box.right + LAUNCHER_PLATE.w + PANEL_GAP);
+    // His figure's reach never reads the plate.
+    expect(sidePos("bottomRight", box, { phone: true, figure: true, plateW: 190 }, top)).toEqual(
+      sidePos("bottomRight", box, { phone: true, figure: true }, top)
+    );
   });
 
   it("stays PANEL_GAP clear of his figure, and never runs past the box's far side", () => {

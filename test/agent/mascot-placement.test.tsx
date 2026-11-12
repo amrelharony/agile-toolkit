@@ -1301,8 +1301,34 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
     expect(main).toHaveAttribute("inert");
   });
 
-  /** The launcher plate docked in the sheet's bottom right corner: on the screen, clear of the views. */
-  function expectPlateDocked(w: number, h: number, inset: number) {
+  /**
+   * A dock variable's room, px from the sheet's outer edge (its line and
+   * padding added back), worked out at a root font of `rem` px with the
+   * plate's size as the panel has it measured.
+   */
+  function dockRoom(panel: HTMLElement, name: string, rem = 16): number {
+    const css = panel.style
+      .getPropertyValue(name)
+      .replace(
+        /var\((--amr-plate-[wh]), 0px\)/g,
+        (_, v: string) => panel.style.getPropertyValue(v) || "0px"
+      )
+      .replace(/var\(--panel-w\)/g, "0px")
+      .replace(/(\d+(?:\.\d+)?)rem/g, (_, n: string) => `${Number(n) * rem}px`);
+    return cssPx(css, 0) + 0.375 * rem;
+  }
+
+  /**
+   * The launcher plate docked in the sheet's bottom right corner: on the
+   * screen, clear of the views. `plate` is its drawn size (larger text grows
+   * it), at a root font of `rem` px.
+   */
+  function expectPlateDocked(
+    w: number,
+    h: number,
+    inset: number,
+    { plate = LAUNCHER_PLATE, rem = 16 }: { plate?: { w: number; h: number }; rem?: number } = {}
+  ) {
     const panel = dialog();
     const button = amrButton();
     expect(button).toHaveAttribute("data-launcher");
@@ -1313,22 +1339,28 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
     expect(inline).toBeGreaterThanOrEqual(0);
     expect(inline).toBeCloseTo(BUTTON_SIDE + DOCK_INSET, 1);
     expect(bottom).toBeCloseTo(inset + VISIBLE_GAP + DOCK_INSET, 1);
-    // The views keep the plate's gutter and footer: its inner edge stays
-    // DOCK_GAP clear of them, and it stands beside the composer's row.
-    const plate = dockInsets("bottomRight", false);
-    expect(plate.gutter).toBeGreaterThanOrEqual(DOCK_INSET + LAUNCHER_PLATE.w + DOCK_GAP);
-    expect(plate.footer).toBeGreaterThanOrEqual(DOCK_INSET + LAUNCHER_PLATE.h);
-    expect(w - inline - LAUNCHER_PLATE.w).toBeGreaterThanOrEqual(
-      w - BUTTON_SIDE - plate.gutter + DOCK_GAP
-    );
+    // The views keep the plate's gutter and footer, as it is drawn: its
+    // inner edge stays DOCK_GAP clear of them, and it stands beside the
+    // composer's row, never over the log.
+    const gutter = dockRoom(panel, "--amr-dock-gutter", rem);
+    const footer = dockRoom(panel, "--amr-dock-footer", rem);
+    const floor = dockInsets("bottomRight", false);
+    expect(gutter).toBeGreaterThanOrEqual(floor.gutter);
+    expect(footer).toBeGreaterThanOrEqual(floor.footer);
+    expect(gutter).toBeGreaterThanOrEqual(DOCK_INSET + plate.w + DOCK_GAP);
+    expect(footer).toBeGreaterThanOrEqual(DOCK_INSET + plate.h);
+    const plateLeft = w - inline - plate.w;
+    const gutterEdge = w - BUTTON_SIDE - gutter;
+    expect(plateLeft).toBeGreaterThanOrEqual(gutterEdge + DOCK_GAP);
     const sheetBottom = h - inset - VISIBLE_GAP;
-    expect(h - bottom - LAUNCHER_PLATE.h).toBeGreaterThanOrEqual(sheetBottom - plate.footer);
-    expect(panel.style.getPropertyValue("--amr-dock-gutter")).toBe(
-      `calc(${plate.gutter}px - var(--panel-w) - 0.375rem)`
-    );
-    expect(panel.style.getPropertyValue("--amr-dock-footer")).toBe(
-      `calc(${plate.footer}px - var(--panel-w) - 0.375rem)`
-    );
+    const plateTop = h - bottom - plate.h;
+    expect(plateTop).toBeGreaterThanOrEqual(sheetBottom - footer);
+    // A 44 px Send at the end of the composer's row, at the gutter's edge:
+    // its centre is never on the plate.
+    const send = { x: gutterEdge - 22, y: sheetBottom - 8 - 22 };
+    const onPlate =
+      send.x >= plateLeft && send.x <= w - inline && send.y >= plateTop && send.y <= h - bottom;
+    expect(onPlate).toBe(false);
   }
 
   for (const inset of [0, 34]) {
@@ -1346,6 +1378,8 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
       const panel = dialog();
       const button = amrButton();
       expect(button).not.toHaveAttribute("data-launcher");
+      expect(panel.style.getPropertyValue("--amr-plate-w")).toBe("");
+      expect(panel.style.getPropertyValue("--amr-plate-h")).toBe("");
       expect(px(button, "--amr-dock-inline")).toBeCloseTo(
         BUTTON_SIDE + DOCK_INSET - MASCOT_BOX_PHONE.w * HIT_SIDE,
         1
@@ -1363,6 +1397,34 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
       );
     });
   }
+
+  it("keeps the room for the launcher plate as drawn, when larger text grows it", async () => {
+    screenAt(375, 812);
+    render(<MascotAssistant />);
+    // At 200% text the plate is about 200x88: what the shell reads off it.
+    const button = amrButton();
+    Object.defineProperty(button, "offsetWidth", { configurable: true, get: () => 200 });
+    Object.defineProperty(button, "offsetHeight", { configurable: true, get: () => 88 });
+    const panel = openPanel();
+    await frames();
+    expect(px(panel, "--amr-plate-w")).toBe(200);
+    expect(px(panel, "--amr-plate-h")).toBe(88);
+    expect(dockRoom(panel, "--amr-dock-gutter")).toBe(DOCK_INSET + 200 + DOCK_GAP);
+    expect(dockRoom(panel, "--amr-dock-footer")).toBe(DOCK_INSET + 88);
+    expectPlateDocked(375, 812, 0, { plate: { w: 200, h: 88 } });
+  });
+
+  it("at a 32 px root font, keeps the plate's rem box before any reading is larger", async () => {
+    screenAt(375, 812);
+    render(<MascotAssistant />);
+    openPanel();
+    await frames();
+    // jsdom draws nothing (a reading of 0): the rem box alone grows the room.
+    const plate = { w: LAUNCHER_PLATE.w * 2, h: LAUNCHER_PLATE.h * 2 };
+    expect(dockRoom(dialog(), "--amr-dock-gutter", 32)).toBe(DOCK_INSET + plate.w + DOCK_GAP);
+    expect(dockRoom(dialog(), "--amr-dock-footer", 32)).toBe(DOCK_INSET + plate.h);
+    expectPlateDocked(375, 812, 0, { plate, rem: 32 });
+  });
 
   it("keeps the launcher plate docked inside the sheet's corner while his figure is tried again and after it gives up", async () => {
     sprite.fail = true;

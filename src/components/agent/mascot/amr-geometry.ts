@@ -44,9 +44,36 @@ export const MASCOT_BOX_PHONE: Readonly<{ w: number; h: number }> = { w: 96, h: 
  * which stands in his spot until his figure is in, and while it can't load: its
  * box in px, which his button sets as its minimum size. 44 px is the plate's
  * floor (2.75rem); the width holds the lettered "Ask Amr" with the plate's
- * padding and line. Larger text grows the plate past these, never clips it.
+ * padding and line. Larger text grows the plate past these, never clips it, so
+ * they are floors: the room the sheet's dock and the side panel keep for it
+ * follows the drawn plate (launcherPlateCss, sidePos's `plateW`).
  */
 export const LAUNCHER_PLATE: Readonly<{ w: number; h: number }> = { w: 108, h: 44 };
+/**
+ * LAUNCHER_PLATE in rem: the plate is lettered and padded in rem, so at a
+ * larger root font (200% text) it grows by as much.
+ */
+export const LAUNCHER_PLATE_REM: Readonly<{ w: number; h: number }> = {
+  w: LAUNCHER_PLATE.w / 16,
+  h: LAUNCHER_PLATE.h / 16,
+};
+/**
+ * The variables usePanelViewport writes on the panel, px, with the plate's
+ * drawn width and height while it stands in for him (nothing while his figure
+ * is drawn).
+ */
+export const PLATE_W_VAR = "--amr-plate-w";
+export const PLATE_H_VAR = "--amr-plate-h";
+
+/**
+ * The launcher plate's width (`w`) or height (`h`) as CSS: LAUNCHER_PLATE as
+ * its floor, its rem box for larger text, and its drawn size as last measured
+ * (PLATE_W_VAR, PLATE_H_VAR) where that is larger still.
+ */
+export function launcherPlateCss(axis: "w" | "h"): string {
+  const measured = axis === "w" ? PLATE_W_VAR : PLATE_H_VAR;
+  return `max(${LAUNCHER_PLATE[axis]}px, ${LAUNCHER_PLATE_REM[axis]}rem, var(${measured}, 0px))`;
+}
 /**
  * How much of the empty box (in sheet px) may sit past the screen edge: all the
  * space below his feet when parked at the bottom, most of the headroom when
@@ -394,18 +421,19 @@ export interface SidePos {
  * clear of his figure (or of the launcher plate when that stands in for him),
  * and as wide as the room past him allows, up to SIDE_PANEL_MAX_W. He stays in
  * his corner at his usual size: `phone` picks MASCOT_BOX_PHONE, as panelTail
- * and panelOrigin do.
+ * and panelOrigin do. `plateW` is the plate's drawn width, px, which larger
+ * text grows past LAUNCHER_PLATE (its floor).
  */
 export function sidePos(
   c: AmrCorner,
   box: Readonly<VisibleBox>,
-  amr: Readonly<Pick<PanelTailState, "phone" | "figure">>,
+  amr: Readonly<Pick<PanelTailState, "phone" | "figure"> & { plateW?: number }>,
   top: Readonly<PanelTop>
 ): SidePos {
   const side = amrSide(c);
   const w = (amr.phone ? MASCOT_BOX_PHONE : MASCOT_BOX).w;
   // From his side of the box (where his button stands) to his figure's inner edge.
-  const reach = amr.figure ? w * (1 - HIT_SIDE) : LAUNCHER_PLATE.w;
+  const reach = amr.figure ? w * (1 - HIT_SIDE) : Math.max(LAUNCHER_PLATE.w, amr.plateW ?? 0);
   const offset = box[side] + reach + PANEL_GAP;
   const width = Math.max(0, Math.min(SIDE_PANEL_MAX_W, box.width - reach - PANEL_GAP));
   const vertical = { top: panelTopPx(box, top), bottom: box.bottom, width };
@@ -496,7 +524,8 @@ export interface DockInsets {
 /**
  * The gutter and footer the sheet's views keep for Amr docked on `c`'s side:
  * for his figure, or (`figure` false) the launcher plate, as dockedButtonPos
- * stands it.
+ * stands it. The plate's are its floor (LAUNCHER_PLATE): mascot-assistant
+ * writes them with launcherPlateCss, so they grow with the plate.
  */
 export function dockInsets(c: AmrCorner, figure = true): DockInsets {
   if (!figure) {

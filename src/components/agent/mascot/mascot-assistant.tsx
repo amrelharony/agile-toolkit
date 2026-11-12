@@ -167,6 +167,8 @@ import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "./engine/figure-metrics";
 import {
   BUTTON_INSET,
   BUTTON_SIDE,
+  DOCK_GAP,
+  DOCK_INSET,
   FEET_TRIM,
   HEAD_TRIM,
   HIT_SIDE,
@@ -178,6 +180,8 @@ import {
   PANEL_MIN_H,
   PANEL_SIDE,
   PANEL_SIZE,
+  PLATE_H_VAR,
+  PLATE_W_VAR,
   SIDE_PANEL_MAX_W,
   SIDE_TOAST_MIN_W,
   amrEdge,
@@ -188,6 +192,7 @@ import {
   dockInsets,
   dockedButtonPos,
   isCompact,
+  launcherPlateCss,
   otherSide,
   panelLayout,
   panelOrigin,
@@ -510,12 +515,14 @@ function sheetPlace(): CSSProperties {
 function sidePlace(c: Corner, phone: boolean, figure: boolean): StyleWithVars {
   const side = amrSide(c);
   const w = (phone ? MASCOT_BOX_PHONE : MASCOT_BOX).w;
-  const inline = BUTTON_SIDE + (figure ? w * (1 - HIT_SIDE) : LAUNCHER_PLATE.w) + PANEL_GAP;
+  // The plate's reach grows with larger text (launcherPlateCss); the figure's is px.
+  const reach = figure ? `${w * (1 - HIT_SIDE)}px` : launcherPlateCss("w");
+  const inline = `${BUTTON_SIDE + PANEL_GAP}px + ${reach}`;
   return {
     top: PLACE_TOP,
     bottom: PLACE_BOTTOM,
-    [side]: `var(--amr-vv-inline, calc(${inline}px + env(safe-area-inset-${side}, 0px)))`,
-    "--amr-panel-width": `var(--amr-vv-width, min(${SIDE_PANEL_MAX_W}px, calc(100vw - ${inline + BUTTON_SIDE}px)))`,
+    [side]: `var(--amr-vv-inline, calc(${inline} + env(safe-area-inset-${side}, 0px)))`,
+    "--amr-panel-width": `var(--amr-vv-width, min(${SIDE_PANEL_MAX_W}px, calc(100vw - ${BUTTON_SIDE}px - ${inline})))`,
     "--amr-panel-height": "auto",
   };
 }
@@ -912,6 +919,8 @@ function measureBox(probe: Element | null): {
  *   --amr-vv-left, --amr-vv-right   the sheet's side edges
  *   --amr-vv-inline, --amr-vv-width the side layout's offset from his side and its width
  *   --amr-kb, --amr-visible-h       the keyboard's height and the visible box's
+ *   --amr-plate-w, --amr-plate-h    the launcher plate's drawn size, while it
+ *                                   stands in for him (the dock's room reads it)
  * and on his button, docked in the sheet (DOCK_VARS):
  *   --amr-dock-bottom, --amr-dock-inline
  * and on <html>, for the toaster (lib/layout/amr-sheet, setToastPlace):
@@ -1034,6 +1043,18 @@ function usePanelViewport({
           setLayout(next);
         }
       }
+      const button = buttonRef.current;
+      // The launcher plate, while it stands in for him, as drawn: lettered in
+      // rem, so larger text grows it past LAUNCHER_PLATE. The dock's gutter and
+      // footer read it (launcherPlateCss), and the side panel clears it.
+      const plateW = button && !now.shown ? button.offsetWidth : undefined;
+      if (button && !now.shown) {
+        setPx(panel, PLATE_W_VAR, button.offsetWidth);
+        setPx(panel, PLATE_H_VAR, button.offsetHeight);
+      } else {
+        panel.style.removeProperty(PLATE_W_VAR);
+        panel.style.removeProperty(PLATE_H_VAR);
+      }
       const { area, box, width } = measureBox(probeRef.current);
       setPx(panel, "--amr-kb", area.kb);
       setPx(panel, "--amr-visible-h", box.height);
@@ -1048,7 +1069,7 @@ function usePanelViewport({
         // Compact, the toasts go under its one header row, not over it.
         setToastPlace(compact ? compactSheetToastTop(pos.top) : null, null);
       } else if (current === "side") {
-        const pos = sidePos(now.placed, box, { phone: now.phone, figure: now.figure }, top);
+        const pos = sidePos(now.placed, box, { phone: now.phone, figure: now.figure, plateW }, top);
         setPx(panel, "--amr-vv-top", pos.top);
         setPx(panel, "--amr-vv-bottom", pos.bottom);
         setPx(panel, "--amr-vv-inline", pos.left ?? pos.right ?? 0);
@@ -1058,7 +1079,6 @@ function usePanelViewport({
         setToastPlace(null, null);
       }
       panel.toggleAttribute("data-amr-compact", compact);
-      const button = buttonRef.current;
       // His button too: compact, the panel is lifted over the site header, and
       // he is lifted with it, so it never covers him (their classes).
       button?.toggleAttribute("data-amr-compact", compact);
@@ -2187,8 +2207,17 @@ export function MascotAssistant({
           at: `calc(${cornerTail.at}px - 0.4rem - var(--panel-w))`,
         };
   // Docked in the sheet: the views keep a gutter and a footer clear of him,
-  // or of the launcher plate while it stands in for him.
+  // or of the launcher plate while it stands in for him, as it is drawn
+  // (launcherPlateCss: larger text grows it past dockInsets' floor).
   const dock = docked ? dockInsets(placed, showFigure) : null;
+  const dockRoom =
+    dock &&
+    (showFigure
+      ? { gutter: `${dock.gutter}px`, footer: `${dock.footer}px` }
+      : {
+          gutter: `${DOCK_INSET + DOCK_GAP}px + ${launcherPlateCss("w")}`,
+          footer: `${DOCK_INSET}px + ${launcherPlateCss("h")}`,
+        });
   const size = PANEL_SIZE[panelSize.size];
   const panelStyle: StyleWithVars = {
     ...(layout === "sheet"
@@ -2220,9 +2249,9 @@ export function MascotAssistant({
         : panelOrigin(placed, { phone: isPhone, figure: showFigure }),
     ...(tail && { "--tail-at": tail.at }),
     // The gutter and footer from the inner frame (its line and padding off).
-    ...(dock && {
-      "--amr-dock-gutter": `calc(${dock.gutter}px - var(--panel-w) - 0.375rem)`,
-      "--amr-dock-footer": `calc(${dock.footer}px - var(--panel-w) - 0.375rem)`,
+    ...(dockRoom && {
+      "--amr-dock-gutter": `calc(${dockRoom.gutter} - var(--panel-w) - 0.375rem)`,
+      "--amr-dock-footer": `calc(${dockRoom.footer} - var(--panel-w) - 0.375rem)`,
     }),
   };
   // His button, docked: where usePanelViewport says, or, until its first
