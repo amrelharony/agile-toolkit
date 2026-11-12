@@ -3,7 +3,8 @@ Build the cast puppet rigs from the art ChatGPT returns (docs/cast/CAST-BUILD.md
 
     python -I scripts/build-cast-rigs.py intake <zip | folder | png> [--id AAW-NN]
     python -I scripts/build-cast-rigs.py confirm <returns folder> [--file <name> ...]
-    python -I scripts/build-cast-rigs.py check <AAW-NN | A..E | all> [--masters] [--file <png>]
+    python -I scripts/build-cast-rigs.py check <AAW-NN | A..E | all> [--masters]
+                                                [--file <png> [--image <image>]]
                                                 [--no-sheets] [--strict]
     python -I scripts/build-cast-rigs.py candidate <AAW-NN | A..E | all>
     python -I scripts/build-cast-rigs.py approve <AAW-NN> (--image <image> | --rig)
@@ -45,7 +46,15 @@ sys.dont_write_bytecode = True  # no __pycache__ beside the scripts
 sys.stdout.reconfigure(errors="replace")  # a console without UTF-8 still prints
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cast import checks, intake, ledger, palette, publish, review, rig  # noqa: E402
-from cast.spec import DEFAULT_SOURCES, TOL, batch_of, character, private_dir, targets  # noqa: E402
+from cast.spec import (  # noqa: E402
+    DEFAULT_SOURCES,
+    TOL,
+    batch_of,
+    character,
+    parse_image_name,
+    private_dir,
+    targets,
+)
 
 MARK = {"pass": "ok  ", "warn": "WARN", "fail": "FAIL", "skip": "--  ", "missing": "....", "pending": "...."}
 
@@ -117,12 +126,28 @@ def cmd_check(args, sources: Path) -> int:
     return 1 if bad else 0
 
 
+def file_image(args, c: dict) -> str:
+    """Which image a --file is: --image, else the one its name says."""
+    if args.image:
+        if args.image not in c["images"]:
+            raise SystemExit(f"{c['id']} has no {args.image} image")
+        return args.image
+    got = parse_image_name(Path(args.file).name)
+    if got is None or got[0] != c["id"]:
+        raise SystemExit(f"--file {Path(args.file).name}: say which image it is with --image (master, parts, ...)")
+    if got[1] not in c["images"]:
+        raise SystemExit(f"{c['id']} has no {got[1]} image")
+    return got[1]
+
+
 def check_one(args, sources: Path, cid: str, by_batch: dict) -> bool:
     """Check one character's accepted images into by_batch; True when one failed."""
     bad = False
     c = character(cid)
     batch = batch_of(cid)
     images = ["master"] if args.masters else c["images"]
+    if args.file:
+        images = [file_image(args, c)]
     waiting = []
     for img in images:
         path = Path(args.file) if args.file else ledger.accepted_file(sources, cid, img)
@@ -131,7 +156,11 @@ def check_one(args, sources: Path, cid: str, by_batch: dict) -> bool:
             bad |= args.strict
             continue
         if img == "master":
-            rep, extra = checks.check_master(path, c, colours_for(sources, cid))
+            colours = colours_for(sources, cid)
+            if colours is None and args.strict:
+                print(f"{MARK['fail']} {cid}: no private block to check the master's colours against (C9)")
+                bad = True
+            rep, extra = checks.check_master(path, c, colours)
             if not args.no_sheets:
                 dest = review.review_dir(sources, batch, args.review) / f"{cid}_master-check.png"
                 review.master_sheet(rep, extra, dest)
@@ -212,6 +241,7 @@ def main(argv=None) -> int:
     p.add_argument("target", help="AAW-NN, a batch A..E, or all")
     p.add_argument("--masters", action="store_true", help="only the masters (batch A comes back first)")
     p.add_argument("--file", help="check this PNG instead of the accepted copy")
+    p.add_argument("--image", help="which image --file is, when its name doesn't say")
     p.add_argument("--no-sheets", action="store_true", help="skip the contact sheets")
     p.add_argument("--strict", action="store_true", help="fail on warnings and missing images too")
     p = sub.add_parser("candidate", help="build candidate rigs into review/ only")

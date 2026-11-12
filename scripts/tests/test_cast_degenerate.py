@@ -3,6 +3,7 @@ with no torso, and an unexpected error in one character's run."""
 
 import contextlib
 import importlib.util
+import json
 import io
 import sys
 import tempfile
@@ -67,6 +68,39 @@ class Degenerate(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(seen, spec.SPEC["batches"]["A"])
         self.assertIn(f"FAIL {spec.SPEC['batches']['A'][0]}: ValueError: a bad drawing", buf.getvalue())
+
+
+class CheckOneFile(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cast-check-"))
+        self.src = self.tmp / "sources"
+        self.cli = load_cli()
+
+    def run_cli(self, *argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = self.cli.main(["--sources", str(self.src), *argv])
+        return code, buf.getvalue()
+
+    def test_a_file_is_checked_as_the_image_its_name_says(self):
+        face = cs.save(self.tmp / "AAW-25_face.png", cs.face_sheet(), "RGB")
+        code, text = self.run_cli("check", CID, "--file", str(face), "--no-sheets")
+        report = json.loads((self.src / "review" / "A" / "report.json").read_text(encoding="utf-8"))
+        self.assertEqual(list(report["characters"][CID]["check"]["images"]), ["face"], text)
+        loose = cs.save(self.tmp / "sheet.png", cs.face_sheet(), "RGB")
+        code, text = self.run_cli("check", CID, "--file", str(loose), "--no-sheets")
+        self.assertEqual(code, 1)
+        self.assertIn("--image", text)
+        code, text = self.run_cli("check", CID, "--file", str(loose), "--image", "face", "--no-sheets")
+        self.assertIn("AAW-25 face sheet.png", text)
+
+    def test_strict_fails_a_master_with_no_private_block(self):
+        cs.save(ledger.accepted_dir(self.src, CID) / f"{CID}_master.png", cs.master_png(), "RGB")
+        code, text = self.run_cli("check", CID, "--masters", "--no-sheets")
+        self.assertEqual(code, 0, text)  # C9 skips without the block
+        code, text = self.run_cli("check", CID, "--masters", "--no-sheets", "--strict")
+        self.assertEqual(code, 1)
+        self.assertIn("no private block", text)
 
 
 if __name__ == "__main__":
