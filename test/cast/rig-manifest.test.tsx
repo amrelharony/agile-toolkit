@@ -20,6 +20,12 @@ import { ARMLESS_PUPPET, FAN_PUPPET, TEST_PUPPET } from "./fixtures/rig-fixture"
 /** Amr, whose rig carries no tap move of its own. */
 const AMR = "AAW-01";
 
+/** The most nodes a rig may render: more for a complex rig (budgets.complex). */
+const nodeCap = (id: string) =>
+  (spec.budgets.complex as string[]).includes(id)
+    ? spec.budgets.rig_nodes_max_complex
+    : spec.budgets.rig_nodes_max;
+
 function problems(rig: RigManifest): string[] {
   const out: string[] = [];
   const ids = rig.parts.map((p) => p.id);
@@ -61,7 +67,7 @@ function problems(rig: RigManifest): string[] {
     const clip = clipFor(id);
     if (!clip || !id.startsWith("sig.") || clip.ms > LIMITS.maxMs) out.push(`signature ${id}`);
   }
-  if (rig.counts.nodes > 48) out.push("nodes");
+  if (rig.counts.nodes > nodeCap(rig.id)) out.push("nodes");
   if (rig.counts.animated > 10) out.push("animated");
   if (!(rig.ratio > 0) || !(rig.heightVsAmr > 0)) out.push("proportions");
   if (rig.translucent !== undefined && !(rig.translucent > 0 && rig.translucent < 1)) {
@@ -140,6 +146,24 @@ describe("the rig checks", () => {
     expect(problems({ ...TEST_PUPPET, id: AMR, signature: three })).toEqual([
       "one or two signature moves",
     ]);
+  });
+
+  it("cap a complex rig's nodes at rig_nodes_max_complex and any other's at rig_nodes_max", () => {
+    const { complex, rig_nodes_max: cap, rig_nodes_max_complex: complexCap } = spec.budgets;
+    expect(complexCap).toBeGreaterThan(cap);
+    expect(complex).not.toContain(TEST_PUPPET.id);
+    const withNodes = (id: string, nodes: number) =>
+      problems({
+        ...TEST_PUPPET,
+        id: id as RigManifest["id"],
+        counts: { ...TEST_PUPPET.counts, nodes },
+      });
+    expect(withNodes(TEST_PUPPET.id, cap)).toEqual([]);
+    expect(withNodes(TEST_PUPPET.id, cap + 1)).toEqual(["nodes"]);
+    for (const id of complex) {
+      expect(withNodes(id, complexCap), id).toEqual([]);
+      expect(withNodes(id, complexCap + 1), id).toEqual(["nodes"]);
+    }
   });
 
   it("catch a broken rig", () => {

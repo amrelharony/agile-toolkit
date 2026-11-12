@@ -623,6 +623,7 @@
     "complex": ["AAW-05", "AAW-18", "AAW-22", "AAW-24"],
     "figure_css_px_max": 240,
     "rig_nodes_max": 48,
+    "rig_nodes_max_complex": 64,
     "rig_animated_max": 10,
     "note": "Provisional. The pilot (batch A) measures real atlases and rewrites these numbers; the tests follow."
   }

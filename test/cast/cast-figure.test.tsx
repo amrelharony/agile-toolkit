@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { CAST_MAX_CSS_PX, CastFigure } from "@/components/cast/cast-figure";
 import styles from "@/components/cast/cast-figure.module.css";
+import spec from "../../docs/cast/cast-rig.json";
 import { ARMLESS_PUPPET, FAN_PUPPET, TEST_PUPPET } from "./fixtures/rig-fixture";
 
 const SOURCE = readFileSync(
@@ -117,7 +118,9 @@ describe("the skeleton", () => {
       const { container } = render(<CastFigure rig={rig} height="120px" ground />);
       const nodes = container.querySelectorAll("[data-cast], [data-cast] *").length;
       expect(nodes, rig.id).toBe(rig.counts.nodes);
-      expect(nodes).toBeLessThanOrEqual(48);
+      // The synthetic rigs aren't complex, so the plain cap holds them.
+      expect(spec.budgets.complex).not.toContain(rig.id);
+      expect(nodes).toBeLessThanOrEqual(spec.budgets.rig_nodes_max);
     }
   });
 
