@@ -52,8 +52,14 @@ import {
 } from "@/lib/realtime/visitor-rooms";
 import { isVoteRoomTool } from "@/lib/realtime/vote-room/protocol";
 import { readVoteLinkFragment } from "@/lib/realtime/vote-room/crypto";
-import { isShowRoomTool } from "@/lib/realtime/show-room/protocol";
-import { isWallRoomTool } from "@/lib/realtime/wall-room/protocol";
+// Types only: the show and wall protocols load with their rooms, after consent.
+import type { ShowRoomTool } from "@/lib/realtime/show-room/protocol";
+import type { WallRoomTool } from "@/lib/realtime/wall-room/protocol";
+
+/** A show tool, by the registry (`SHOW_ROOM_TOOLS` lists the same ones). */
+const isShowTool = (t: VisitorTool): t is ShowRoomTool => VISITOR_ROOM_KIND[t] === "show";
+/** A wall tool, by the registry (`WALL_ROOM_TOOLS` lists the same ones). */
+const isWallTool = (t: VisitorTool): t is WallRoomTool => VISITOR_ROOM_KIND[t] === "wall";
 
 const VisitorPokerRoom = dynamic(
   () => import("@/app/(tools)/planning-poker/visitor-poker-room").then((m) => m.VisitorPokerRoom),
@@ -200,7 +206,7 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
     if (kind === "vote" && isVoteRoomTool(tool)) {
       return <VoteJoinRoom tool={tool} code={code} identity={stage.identity} onLeave={onLeave} />;
     }
-    if (kind === "show" && isShowRoomTool(tool)) {
+    if (isShowTool(tool)) {
       return (
         <ShowJoinRoom
           tool={tool}
@@ -211,7 +217,7 @@ function JoinRoomFlow({ tool, code }: JoinRoomProps) {
         />
       );
     }
-    if (kind === "wall" && isWallRoomTool(tool)) {
+    if (isWallTool(tool)) {
       return (
         <WallJoinRoom
           tool={tool}
