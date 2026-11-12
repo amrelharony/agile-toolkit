@@ -29,10 +29,17 @@ import {
   agendaSeconds,
   allAgendas,
   durationText,
+  isAgendaId,
+  layoutOf,
+  namedAgendaFrom,
+  newSavedAgendaId,
   readAgendaParam,
   shortClock,
   toSaved,
   type AgendaId,
+  type AgendaKey,
+  type NamedAgenda,
+  type SavedAgendaId,
   type SavedSegment,
   type Segment,
 } from "./agenda";
@@ -40,6 +47,7 @@ import { AgendaCard } from "./agenda-card";
 import { AgendaPicker } from "./agenda-picker";
 import { flashTitle, playChime, vibrate } from "./alarm";
 import { buildExample } from "./example";
+import { keptRunOf, speakingShares, withKeptRun, type KeptRun, type ShareRuns } from "./history";
 import { toMarkdown } from "./markdown";
 import { rosterParticipantsToAdd } from "./roster";
 import {
@@ -59,11 +67,16 @@ import {
 import { RunSummary } from "./run-summary";
 import { useTimerShortcuts, type Shortcut } from "./shortcuts";
 import { SpeakersCard } from "./speakers-card";
+import { SpeakingTimeCard } from "./speaking-time-card";
 import { TimerFace } from "./timer-face";
-import type { Participant } from "./speakers";
+import { movableCount, restoredOrder, shuffledOrder, type Participant } from "./speakers";
 import {
   followDockWhileAway,
   normalizeAgendas,
+  normalizeHistory,
+  normalizeLayouts,
+  normalizeNamedAgendas,
+  normalizeShareRuns,
   normalizeSpeakers,
   useTimerSession,
   useTimerSettings,
@@ -93,28 +106,63 @@ function setSpeakers(fn: (list: Participant[]) => Participant[]) {
  * while the run is still where the step left it, keeping a pause or resume
  * made since; after a later step, that step's own Undo comes first.
  */
-function stepWithUndo(label: string, before: Run, after: Run) {
+function stepWithUndo(label: string, before: Run, after: Run, kept?: KeptRun) {
   undoable({
     label,
-    apply: () => setRun(after),
+    apply: () => {
+      setRun(after);
+      // A finished meeting is kept for speaking time across runs.
+      if (kept) setHistory((list) => withKeptRun(list, kept));
+    },
     revert: () => {
       const now = useTimerSession.getState().run;
       if (now === after) setRun(before);
       else if (now && !after.finished && now.segments === after.segments) {
         setRun({ ...now, index: before.index, segments: before.segments });
       }
+      // Finish undone: the meeting carries on, so it isn't kept (yet).
+      if (kept) setHistory((list) => list.filter((k) => k.id !== kept.id));
     },
   });
 }
 
-/** Save the team's rows for one agenda; none (or an empty list) means the defaults. */
-function setSaved(id: AgendaId, rows: SavedSegment[] | undefined) {
+/** A built-in agenda's edits: its saved rows and the order of its segments. */
+interface BuiltInEdits {
+  rows: SavedSegment[] | undefined;
+  layout: string[] | undefined;
+}
+
+/**
+ * Save the team's edits to one built-in agenda; none (or empty) means the
+ * defaults. Without `layout` in the edits, the order stays as it is.
+ */
+function setSaved(id: AgendaId, edits: Partial<BuiltInEdits>) {
   useTimerSettings.setState((s) => {
     const agendas = { ...normalizeAgendas(s.agendas) };
-    if (rows && rows.length > 0) agendas[id] = rows;
+    if (edits.rows && edits.rows.length > 0) agendas[id] = edits.rows;
     else delete agendas[id];
-    return { agendas };
+    const layouts = normalizeLayouts(s.layouts);
+    if (!("layout" in edits)) return { agendas };
+    const next = { ...layouts };
+    if (edits.layout && edits.layout.length > 0) next[id] = edits.layout;
+    else delete next[id];
+    return { agendas, layouts: next };
   });
+}
+
+function setNamed(fn: (list: NamedAgenda[]) => NamedAgenda[]) {
+  useTimerSettings.setState((s) => ({ named: fn(normalizeNamedAgendas(s.named)) }));
+}
+
+function setHistory(fn: (list: KeptRun[]) => KeptRun[]) {
+  useTimerSettings.setState((s) => ({ history: fn(normalizeHistory(s.history)) }));
+}
+
+/** A fresh id for a kept meeting. */
+function keptId(): string {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export function CeremonyTimerClient() {
@@ -122,14 +170,31 @@ export function CeremonyTimerClient() {
     useShallow((s) => ({ agendaId: s.agendaId, run: s.run }))
   );
   const settings = useTimerSettings(
-    useShallow((s) => ({ agendas: s.agendas, speakers: s.speakers, chime: s.chime }))
+    useShallow((s) => ({
+      agendas: s.agendas,
+      layouts: s.layouts,
+      named: s.named,
+      speakers: s.speakers,
+      chime: s.chime,
+      history: s.history,
+      shareRuns: s.shareRuns,
+      exportNames: s.exportNames,
+    }))
   );
   const [cadence] = useCeremonyCadence();
   const sprintLength = cadence.sprintLengthDays;
   const saved = useMemo(() => normalizeAgendas(settings.agendas), [settings.agendas]);
+  const layouts = useMemo(() => normalizeLayouts(settings.layouts), [settings.layouts]);
+  const named = useMemo(() => normalizeNamedAgendas(settings.named), [settings.named]);
   const speakers = useMemo(() => normalizeSpeakers(settings.speakers), [settings.speakers]);
+  const history = useMemo(() => normalizeHistory(settings.history), [settings.history]);
+  const shareRuns = normalizeShareRuns(settings.shareRuns);
+  const exportNames = settings.exportNames === true;
   const chime = settings.chime === true;
-  const agendas = useMemo(() => allAgendas(saved, sprintLength), [saved, sprintLength]);
+  const agendas = useMemo(
+    () => allAgendas(saved, sprintLength, layouts, named),
+    [saved, sprintLength, layouts, named]
+  );
   const agenda = useMemo(() => agendas.find((a) => a.id === agendaId) ?? null, [agendas, agendaId]);
 
   const [now, setNow] = useState(() => Date.now());
@@ -170,7 +235,7 @@ export function CeremonyTimerClient() {
       // A countdown started before agendas: carry on with it as a Custom
       // time-box of the same length.
       const legacy = runFromLegacyDock(ours, t);
-      setSaved("custom", [{ id: "timebox", minutes: ours.totalSeconds / 60 }]);
+      setSaved("custom", { rows: [{ id: "timebox", minutes: ours.totalSeconds / 60 }] });
       setSession({ agendaId: "custom", run: legacy });
       quietRunRef.current = legacy;
     } else {
@@ -316,7 +381,8 @@ export function CeremonyTimerClient() {
     stepWithUndo(
       next.finished ? `Finished the ${agenda.label}` : `Moved on to ${seg.label}`,
       current,
-      next
+      next,
+      next.finished ? keptRunOf(runReport(next, agenda, t), t, keptId()) : undefined
     );
     setNow(t);
     if (next.finished) {
@@ -364,7 +430,7 @@ export function CeremonyTimerClient() {
   // ---------------------------------------------------------------------------
 
   /** Pick an agenda. Leaving a meeting in progress clears its run, with Undo. */
-  const pickAgenda = (id: AgendaId) => {
+  const pickAgenda = (id: AgendaKey) => {
     const before = useTimerSession.getState();
     if (before.agendaId === id) return;
     const picked = agendas.find((a) => a.id === id);
@@ -385,29 +451,92 @@ export function CeremonyTimerClient() {
     });
   };
 
-  const saveAgenda = (segments: Segment[]) => {
+  /**
+   * Save the agenda's segments as edited: a built-in agenda keeps only what
+   * differs from its defaults (and the order, once segments were added,
+   * removed or moved); a saved one keeps them all, with its name.
+   */
+  const writeSegments = (segments: Segment[], name?: string) => {
     if (!agenda) return;
-    setSaved(agenda.id, toSaved(agenda.id, segments, sprintLength));
+    if (isAgendaId(agenda.id)) {
+      setSaved(agenda.id, {
+        rows: toSaved(agenda.id, segments, sprintLength),
+        layout: layoutOf(agenda.id, segments),
+      });
+      return;
+    }
+    const id = agenda.id as SavedAgendaId;
+    setNamed((list) =>
+      list.map((a) => (a.id === id ? namedAgendaFrom(id, name ?? a.name, segments) : a))
+    );
   };
 
-  // Undo puts back the rows this agenda had in the render that confirmed the
+  // Undo puts back the edits this agenda had in the render that confirmed the
   // reset, so resetting two agendas in a row undoes each one's own edits.
-  const shownRows: SavedSegment[] | undefined = agenda ? saved[agenda.id] : undefined;
+  const shownEdits: BuiltInEdits | undefined =
+    agenda && isAgendaId(agenda.id)
+      ? { rows: saved[agenda.id], layout: layouts[agenda.id] }
+      : undefined;
   const resetDefaults = () => {
-    if (agenda) setSaved(agenda.id, undefined);
+    if (agenda && isAgendaId(agenda.id))
+      setSaved(agenda.id, { rows: undefined, layout: undefined });
   };
   const restoreDefaults = () => {
-    if (agenda) setSaved(agenda.id, shownRows);
+    if (agenda && isAgendaId(agenda.id) && shownEdits) setSaved(agenda.id, shownEdits);
   };
 
   /** Turn-taking for the segment that's on: an edit to the agenda like any other. */
   const setTurns = (on: boolean) => {
     if (!agenda || !view) return;
     const segments = agenda.segments.map((s, i) => (i === view.index ? { ...s, speakers: on } : s));
-    setSaved(agenda.id, toSaved(agenda.id, segments, sprintLength));
+    if (isAgendaId(agenda.id))
+      setSaved(agenda.id, { rows: toSaved(agenda.id, segments, sprintLength) });
+    else writeSegments(segments);
     const current = useTimerSession.getState().run;
     if (on && current) setRun(restartTurns(current, Date.now()));
   };
+
+  /**
+   * Keep the agenda as it is under a new name. It opens straight away when
+   * no meeting is on; during one, the meeting stays and the new agenda
+   * waits in Your agendas.
+   */
+  const saveAsNew = (name: string) => {
+    if (!agenda) return;
+    const copy = namedAgendaFrom(newSavedAgendaId(), name, agenda.segments);
+    setNamed((list) => [...list, copy]);
+    const busy = Boolean(useTimerSession.getState().run);
+    if (!busy) setSession({ agendaId: copy.id, run: null });
+    announce(
+      busy
+        ? `Saved “${copy.name}” in Your agendas.`
+        : `Saved “${copy.name}” in Your agendas and opened it.`
+    );
+  };
+
+  // A saved agenda's delete, as this render shows it: Undo puts the agenda
+  // back in its place, with the meeting that was on it.
+  const shownNamed = agenda?.saved ? named.find((a) => a.id === agenda.id) : undefined;
+  const shownIndex = shownNamed ? named.indexOf(shownNamed) : -1;
+  const deleteNamed = () => {
+    if (!shownNamed) return;
+    setNamed((list) => list.filter((a) => a.id !== shownNamed.id));
+    if (useTimerSession.getState().agendaId === shownNamed.id)
+      setSession({ agendaId: null, run: null });
+  };
+  const undoDeleteNamed = () => {
+    if (!shownNamed) return;
+    setNamed((list) => {
+      if (list.some((a) => a.id === shownNamed.id)) return list;
+      const next = [...list];
+      next.splice(Math.min(shownIndex, next.length), 0, shownNamed);
+      return next;
+    });
+    if (useTimerSession.getState().agendaId === null) setSession(shownSession);
+  };
+
+  // Every other agenda's name, which a saved agenda's name can't repeat.
+  const takenNames = agenda ? agendas.filter((a) => a.id !== agenda.id).map((a) => a.label) : [];
 
   // ---------------------------------------------------------------------------
   // Speakers
@@ -460,6 +589,23 @@ export function CeremonyTimerClient() {
     });
   };
 
+  // In a round that's on, who has spoken and who is speaking keep their
+  // places; a shuffle mixes those still waiting. Before the meeting, everyone.
+  const roundOn = Boolean(view?.started && !view.finished && view.speakers);
+  const keepIds = new Set(
+    roundOn ? (view?.speakers?.slots ?? []).filter((s) => s.status !== "next").map((s) => s.id) : []
+  );
+  const shuffleSpeakers = () => {
+    const before = speakers;
+    const after = shuffledOrder(before, keepIds);
+    undoable({
+      label: "Shuffled the speaking order",
+      apply: () => setSpeakers(() => after),
+      revert: () => setSpeakers((list) => restoredOrder(before, list)),
+    });
+    announce(`New speaking order: ${after.map((p) => p.name).join(", ")}.`);
+  };
+
   // Everyone on the Team page who isn't in the order yet, at the end with
   // their roster id. Only adds, so it needs no Undo: each person can be
   // removed (with Undo) like any other speaker.
@@ -507,9 +653,11 @@ export function CeremonyTimerClient() {
     () => (run && agenda ? runReport(run, agenda, now) : null),
     [run, agenda, now]
   );
+  // Speaking time across runs, from the meetings kept.
+  const shares = useMemo(() => speakingShares(history, shareRuns), [history, shareRuns]);
   const markdown = useMemo(
-    () => toMarkdown({ agenda, speakers, report }),
-    [agenda, speakers, report]
+    () => toMarkdown({ agenda, speakers, report, shares, exportNames }),
+    [agenda, speakers, report, shares, exportNames]
   );
 
   // ---------------------------------------------------------------------------
@@ -557,9 +705,15 @@ export function CeremonyTimerClient() {
               <AgendaCard
                 agenda={agenda}
                 view={view}
-                onSave={saveAgenda}
+                canRestructure={!view.started}
+                takenNames={takenNames}
+                namedCount={named.length}
+                onSave={writeSegments}
                 onResetDefaults={resetDefaults}
                 onRestore={restoreDefaults}
+                onSaveAs={saveAsNew}
+                onDelete={deleteNamed}
+                onUndoDelete={undoDeleteNamed}
               />
             </>
           ) : (
@@ -592,10 +746,30 @@ export function CeremonyTimerClient() {
                 : null
             }
             locked={Boolean(view?.running)}
+            shuffle={{ movable: movableCount(speakers, keepIds), onShuffle: shuffleSpeakers }}
             onAdd={addSpeaker}
             onRemove={removeSpeaker}
             onLoadTeam={loadTeam}
           />
+          {shares.runs > 0 && (
+            <SpeakingTimeCard
+              shares={shares}
+              kept={history.length}
+              runs={shareRuns}
+              onRuns={(n: ShareRuns) => useTimerSettings.setState({ shareRuns: n })}
+              exportNames={exportNames}
+              onExportNames={(on) => useTimerSettings.setState({ exportNames: on })}
+              onClear={() => setHistory(() => [])}
+              onUndoClear={() =>
+                setHistory((list) => {
+                  const ids = new Set(list.map((k) => k.id));
+                  return [...history.filter((k) => !ids.has(k.id)), ...list].sort(
+                    (a, b) => a.at - b.at
+                  );
+                })
+              }
+            />
+          )}
         </div>
       </div>
     </ToolPageWrapper>
