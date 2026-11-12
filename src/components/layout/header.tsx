@@ -33,6 +33,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { SonificationToggle } from "@/components/shared/sonification-toggle";
 import { LlmStatusChip } from "@/components/ai/llm-status-chip";
 import { useAgentStore } from "@/lib/agent/store";
+import { AMR_PANEL_ID } from "@/components/agent/mascot/panel-ids";
 import { XpBar } from "@/components/gamification/xp-bar";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
@@ -103,6 +104,9 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
   const tool = onVipTool ? undefined : pathTool;
   const pageTitle = pageTitleFor(pathname);
   const openAgent = useAgentStore((s) => s.openSheet);
+  // The opener says whether Amr's panel is open (it may be: Amr's own button
+  // and Ctrl/Cmd+J open it too), and which panel it opens.
+  const agentOpen = useAgentStore((s) => s.open);
   // The agent and the Cairo weather are the owner's; visitors get the
   // mascot's help panel behind the same button instead.
   const isOwner = useIsOwner();
@@ -365,6 +369,9 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
           data-no-sound="true"
           className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
           aria-label={isOwner ? "Open agent chat" : "Open help"}
+          aria-expanded={agentOpen}
+          // The panel is in the page only while it is open.
+          aria-controls={agentOpen ? AMR_PANEL_ID : undefined}
           title={isOwner ? "Open agent (Cmd/Ctrl+J)" : "Find a tool or get help (Cmd/Ctrl+J)"}
         >
           {isOwner ? (

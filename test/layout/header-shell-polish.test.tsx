@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 const h = vi.hoisted(() => ({ pathname: "/", owner: false }));
 
@@ -38,6 +38,8 @@ vi.mock("@/components/auth/visitor-data-merge-dialog", () => ({
 vi.mock("@/lib/kudos/beacon/header-beacon", () => ({ KudosHeaderBeacon: () => null }));
 
 import { Header } from "@/components/layout/header";
+import { AMR_PANEL_ID } from "@/components/agent/mascot/panel-ids";
+import { useAgentStore } from "@/lib/agent/store";
 import { getToolById } from "@/lib/constants/tools";
 import { VIP_TITLE } from "@/lib/vip/constants";
 
@@ -51,6 +53,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  useAgentStore.getState().closeSheet();
 });
 
 describe("the header's box", () => {
@@ -136,6 +139,58 @@ describe("the header's icon buttons on touch", () => {
   it("leaves the search pill's desktop height to lg:h-auto", () => {
     render(<Header onOpenSearch={() => {}} />);
     expect(classesOf(screen.getByRole("button", { name: "Open search" }))).toContain("lg:h-auto");
+  });
+});
+
+/**
+ * The header's second way into Amr's panel (Amr's own button is the first).
+ * It keeps its name (header-overflow pins it), says whether the panel is open
+ * and which one it opens, and tells the panel how it was opened, so a key
+ * press can move focus in where a pointer leaves it be.
+ */
+describe("the header's Amr opener", () => {
+  it.each([
+    ["Open help", false],
+    ["Open agent chat", true],
+  ] as const)(
+    "%s says whether Amr's panel is open, and names it only while it is",
+    (name, owner) => {
+      h.owner = owner;
+      render(<Header onOpenSearch={() => {}} />);
+      const opener = screen.getByRole("button", { name });
+      expect(opener).toHaveAttribute("aria-expanded", "false");
+      // Closed, the panel isn't in the page: no reference to an id that isn't there.
+      expect(opener).not.toHaveAttribute("aria-controls");
+
+      // Opened from anywhere (Amr's own button, Ctrl/Cmd+J), the opener follows.
+      act(() => useAgentStore.getState().openSheet({ via: "pointer" }));
+      expect(screen.getByRole("button", { name })).toBe(opener);
+      expect(opener).toHaveAttribute("aria-expanded", "true");
+      expect(opener).toHaveAttribute("aria-controls", AMR_PANEL_ID);
+
+      act(() => useAgentStore.getState().closeSheet());
+      expect(opener).toHaveAttribute("aria-expanded", "false");
+      expect(opener).not.toHaveAttribute("aria-controls");
+    }
+  );
+
+  it.each([
+    ["a key press (a click with detail 0)", 0, "keyboard"],
+    ["a mouse or finger", 1, "pointer"],
+  ] as const)("opens the panel with %s and says so", (_label, detail, via) => {
+    render(<Header onOpenSearch={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open help" }), { detail });
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: via });
+  });
+
+  it("only opens: a press while the panel is open leaves it open", () => {
+    h.owner = true;
+    render(<Header onOpenSearch={() => {}} />);
+    const opener = screen.getByRole("button", { name: "Open agent chat" });
+    fireEvent.click(opener, { detail: 1 });
+    fireEvent.click(opener, { detail: 0 });
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: "keyboard" });
+    expect(opener).toHaveAttribute("aria-expanded", "true");
   });
 });
 
