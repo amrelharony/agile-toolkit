@@ -15,7 +15,7 @@
  * JSON. This is the interim row: the comic step caption replaces it.
  */
 
-import { useMemo, type ReactNode } from "react";
+import { useId, useMemo, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { Markdown } from "./markdown";
 import { useAgentStore } from "@/lib/agent/store";
@@ -71,7 +71,12 @@ function inputText(input: ToolUseBlock["input"] | undefined): string {
   }
 }
 
-/** The owner's disclosure with the raw arguments and result, in the data face. */
+/**
+ * The owner's disclosure with the raw arguments and result, in the data face.
+ * Each block scrolls past 160 px, so it is a named region a keyboard can
+ * reach and scroll (the global focus ring shows it), as the markdown's code
+ * blocks are.
+ */
 function StepDetails({
   input,
   result,
@@ -79,6 +84,8 @@ function StepDetails({
   input?: ToolUseBlock["input"];
   result?: ToolResultBlock;
 }) {
+  const inputId = useId();
+  const resultId = useId();
   const block =
     "max-h-40 overflow-auto overscroll-contain whitespace-pre-wrap break-all rounded-md border border-rule bg-surface-deep p-2 font-data text-xs text-text";
   return (
@@ -93,14 +100,22 @@ function StepDetails({
       <div className="mt-1 space-y-1">
         {input !== undefined && (
           <>
-            <p className="text-xs text-sub">Input</p>
-            <pre className={block}>{capped(inputText(input))}</pre>
+            <p id={inputId} className="text-xs text-sub">
+              Input
+            </p>
+            <pre role="region" aria-labelledby={inputId} tabIndex={0} dir="ltr" className={block}>
+              {capped(inputText(input))}
+            </pre>
           </>
         )}
         {result && (
           <>
-            <p className="text-xs text-sub">Result</p>
-            <pre className={block}>{capped(resultText(result))}</pre>
+            <p id={resultId} className="text-xs text-sub">
+              Result
+            </p>
+            <pre role="region" aria-labelledby={resultId} tabIndex={0} dir="ltr" className={block}>
+              {capped(resultText(result))}
+            </pre>
           </>
         )}
       </div>

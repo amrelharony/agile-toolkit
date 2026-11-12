@@ -75,6 +75,22 @@ describe("MessageBubble step rows", () => {
     expect(raw[0]).toHaveClass("font-data");
     expect(raw[0].textContent).toContain('"text": "flaky CI"');
     expect(raw[1].textContent).toBe('{"added":true}');
+    // Each block scrolls past 160 px: a named region a keyboard can reach.
+    act(() => summary.parentElement!.setAttribute("open", ""));
+    const input = screen.getByRole("region", { name: "Input" });
+    const output = screen.getByRole("region", { name: "Result" });
+    expect(input).toBe(raw[0]);
+    expect(output).toBe(raw[1]);
+    for (const block of [input, output]) {
+      expect(block).toHaveAttribute("tabindex", "0");
+      expect(block).toHaveAttribute("dir", "ltr");
+    }
+  });
+
+  it("gives a visitor no scrolling region to reach", () => {
+    render(<Chat messages={[call({ text: "flaky CI" }), result('{"added":true}')]} />);
+    expect(screen.queryByRole("region")).toBeNull();
+    expect(screen.getByTestId("log").querySelector("pre")).toBeNull();
   });
 
   it("says each way a step can end, without the result string", () => {
