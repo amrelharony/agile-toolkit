@@ -132,6 +132,23 @@ describe("empty state and example", () => {
     expect(await screen.findByText(/The backlog is empty/)).toBeInTheDocument();
   });
 
+  it("offers to add stories in Sprint Planning when the backlog is empty", async () => {
+    renderPage();
+    expect(
+      await screen.findByRole("link", { name: "Add stories in Sprint Planning" })
+    ).toHaveAttribute("href", "/sprint-planning");
+  });
+
+  it("keeps the review and its fixes in the example", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "See an example backlog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review by the rules" }));
+    const list = screen.getByRole("region", { name: "Splits and scenarios to add" });
+    fireEvent.click(within(list).getAllByRole("button", { name: /^Add:/ })[0]);
+    expect(ws().stories).toEqual([]);
+    expect(logs).toEqual([]);
+  });
+
   it("builds a backlog with every kind of flag", () => {
     const stories = buildExample(new Date("2026-11-12T00:00:00Z"));
     const h = backlogHealth(backlogForHealth(stories, [], { withExamples: true }), {
@@ -168,6 +185,17 @@ describe("the scan", () => {
     expect(row("planned")).toBeNull();
     expect(logs[0]).toMatchObject({ action: BACKLOG_HEALTH_ACTIONS.SCAN_RAN });
     expect(logs[0].payload).toMatchObject({ flagged: 2 });
+  });
+
+  it("shows each story's place in the backlog order, and the top the settings give", async () => {
+    useBacklogHealthSettings.setState({ topN: 5, tooBigPoints: 13, staleWeeks: 8 });
+    seed([story(), VAGUE()]);
+    renderPage();
+    expect(await within(row("vague")).findByText("2")).toBeInTheDocument();
+    expect(within(row("vague")).getByText("Place")).toHaveClass("sr-only");
+    expect(
+      screen.getByText(/Only the top 5 need acceptance criteria and points/)
+    ).toBeInTheDocument();
   });
 
   it("lists flagged stories, with every story one click away", async () => {
@@ -261,6 +289,40 @@ describe("fixing a story", () => {
     expect(screen.getByLabelText("Points for Pay with a saved card")).toHaveFocus();
   });
 
+  it("keeps a story listed when its free-text criteria are saved", async () => {
+    seed([story({ acceptanceCriteria: undefined })]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Criteria and details" }));
+    fireEvent.click(within(row("st1")).getByRole("button", { name: /^Add details/ }));
+    fireEvent.change(within(row("st1")).getByLabelText("Acceptance criteria"), {
+      target: { value: "Charged once." },
+    });
+    fireEvent.click(within(row("st1")).getByRole("button", { name: "Save details" }));
+    expect(find("st1")?.acceptanceCriteria).toBe("Charged once.");
+    expect(within(row("st1")).getByText("No flags.")).toBeInTheDocument();
+    expect(within(row("st1")).getByRole("button", { name: /^Edit details/ })).toHaveFocus();
+  });
+
+  it("offers a split only for a story that is too big", async () => {
+    seed([BIG(), VAGUE()]);
+    renderPage();
+    await screen.findByText("Stories to look at");
+    expect(within(row("big")).getByRole("button", { name: "Split it" })).toBeInTheDocument();
+    expect(within(row("vague")).queryByRole("button", { name: "Split it" })).toBeNull();
+  });
+
+  it("says a stale story needs Refinement's check, not just an edit here", async () => {
+    seed([story({ createdAt: new Date(Date.now() - 20 * 7 * 86_400_000).toISOString() })]);
+    renderPage();
+    expect(
+      await within(await screen.findByRole("list", { name: "Backlog stories" })).findByText(
+        /No status change, sprint move or ready check for 20 weeks\. Walk it through Refinement/
+      )
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByText("What counts as the top, too big and stale"));
+    expect(screen.getByText(/Points and criteria fixed here don.t reset it/)).toBeInTheDocument();
+  });
+
   it("splits a big one by a pattern, with Undo, keeping the original", async () => {
     seed([BIG()]);
     renderPage();
@@ -287,6 +349,15 @@ describe("fixing a story", () => {
     undoLast();
     expect(ws().stories.map((s) => s.id)).toEqual(["st1", "vague"]);
   });
+
+  it("puts focus on the score's heading after a drop", async () => {
+    seed([story(), VAGUE()]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Drop “Reports”" }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: /DEEP score/ })).toHaveFocus()
+    );
+  });
 });
 
 describe("the review without AI", () => {
@@ -304,6 +375,69 @@ describe("the review without AI", () => {
     expect(find("vague")?.gwt?.[0].when).toBe("someone uses “Reports”");
     undoLast();
     expect(find("vague")?.gwt).toBeUndefined();
+  });
+});
+
+describe("the review follows the page's settings", () => {
+  // 11 points, below the top: too big at 8, and no criteria is fine down there.
+  const REFUND = () =>
+    story({
+      id: "refund",
+      title: "Refund a payment from the phone",
+      points: 11,
+      acceptanceCriteria: undefined,
+      backlogRank: 2,
+    });
+
+  it("flags what the page flags: missing criteria near the top only, too big by its limit", async () => {
+    useBacklogHealthSettings.setState({ topN: 1, tooBigPoints: 8, staleWeeks: 8 });
+    seed([story(), REFUND()]);
+    renderPage();
+    expect(await within(row("refund")).findByText("Too big")).toBeInTheDocument();
+    expect(within(row("refund")).queryByText("No acceptance criteria")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review by the rules" }));
+    const noticed = screen.getByText(/What the rules noticed/).parentElement as HTMLElement;
+    expect(within(noticed).getByText(/Too big:/)).toBeInTheDocument();
+    expect(within(noticed).queryByText(/No acceptance criteria/)).toBeNull();
+    // Its split titles are offered, no scenarios for missing criteria.
+    const list = screen.getByRole("region", { name: "Splits and scenarios to add" });
+    expect(
+      within(list).getAllByRole("button", { name: /^Add: New story:/ }).length
+    ).toBeGreaterThan(0);
+    expect(within(list).queryByRole("button", { name: /^Add: Given/ })).toBeNull();
+  });
+
+  it("adds a suggested split as a backlog story, with Undo", async () => {
+    seed([BIG()]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Review by the rules" }));
+    const list = screen.getByRole("region", { name: "Splits and scenarios to add" });
+    fireEvent.click(within(list).getAllByRole("button", { name: /^Add: New story:/ })[0]);
+    expect(ws().stories).toHaveLength(2);
+    expect(ws().stories[1]).toMatchObject({ status: "backlog" });
+    expect(logs.at(-1)).toMatchObject({ action: BACKLOG_HEALTH_ACTIONS.STORY_SPLIT });
+    undoLast();
+    expect(ws().stories.map((s) => s.id)).toEqual(["big"]);
+  });
+
+  it("says so when there is nothing to suggest", async () => {
+    seed([story()]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Review by the rules" }));
+    expect(
+      await screen.findByText("Nothing to suggest: every story looks fine.")
+    ).toBeInTheDocument();
+  });
+
+  it("flags the stories again when the settings change", async () => {
+    seed([story(), REFUND()]);
+    renderPage();
+    expect(await within(row("refund")).findByText("No acceptance criteria")).toBeInTheDocument();
+    expect(within(row("refund")).queryByText("Too big")).toBeNull();
+    fireEvent.click(screen.getByText("What counts as the top, too big and stale"));
+    fireEvent.change(screen.getByLabelText("Too big above"), { target: { value: "8" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save the settings" }));
+    expect(within(row("refund")).getByText("Too big")).toBeInTheDocument();
   });
 });
 

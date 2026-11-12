@@ -372,6 +372,30 @@ describe("over the buffer", () => {
     expect(within(panel).queryByRole("button", { name: /Start the Emergency/ })).toBeNull();
   });
 
+  it("shows the share used as a bar, and says when it is nearly used up", async () => {
+    seed([sprint({ interruptBuffer: { points: 8 } })], [item({ size: 6 })]);
+    renderPage();
+    const bar = await screen.findByRole("progressbar", { name: "Buffer used" });
+    expect(bar).toHaveAttribute("aria-valuenow", "75");
+    expect(bar).toHaveAttribute("aria-valuetext", "6 of 8 points used, 2 points left.");
+    expect(screen.getByText("Nearly used up")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Emergency Procedure" })).toBeNull();
+  });
+
+  it("can't weigh a share of a sprint with no planned points yet, and says so", async () => {
+    seed([sprint({ pointsPlanned: 0, interruptBuffer: { pct: 20 } })], [item()]);
+    renderPage();
+    expect(
+      await screen.findByText(
+        "The buffer is a share of the sprint, which has no planned points yet. 1 interrupt logged, 2 points.",
+        { selector: '[data-field="buffer-summary"]' }
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("No buffer to weigh against")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar", { name: "Buffer used" })).toBeNull();
+    expect(screen.getByText(/the share turns into points once it is planned/)).toBeInTheDocument();
+  });
+
   it("is quiet while there is buffer left", async () => {
     seed([sprint({ interruptBuffer: { points: 8 } })], [item()]);
     renderPage();
@@ -390,6 +414,26 @@ describe("over the buffer", () => {
 });
 
 describe("history and export", () => {
+  it("leaves a cancelled sprint out of the history", async () => {
+    seed(
+      [
+        sprint({ interruptBuffer: { points: 5 } }),
+        sprint({
+          id: "sx",
+          name: "Sprint X",
+          startDate: "2026-10-19",
+          endDate: "2026-10-30",
+          status: "cancelled",
+          interruptBuffer: { points: 4 },
+        }),
+      ],
+      [item()]
+    );
+    renderPage();
+    const table = await screen.findByRole("table", { name: "Interrupts by sprint" });
+    expect(within(table).queryByText("Sprint X")).toBeNull();
+  });
+
   it("lists each sprint's buffer and use, newest first", async () => {
     seed(
       [
