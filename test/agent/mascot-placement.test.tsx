@@ -725,6 +725,35 @@ describe("his panel is his balloon", () => {
     expect(panel.style.getPropertyValue("--tail-at")).toBe("calc(40px - 0.4rem - var(--panel-w))");
   });
 
+  it("on a phone, drops the tail while a page field outside the panel has the keyboard", async () => {
+    stubScreen({ phone: true });
+    render(
+      <>
+        <input aria-label="Page field" />
+        <MascotAssistant />
+      </>
+    );
+    await withFigure();
+    expect(openPanel()).toHaveAttribute("data-tail", "down");
+
+    const field = screen.getByLabelText("Page field");
+    act(() => {
+      field.focus();
+    });
+    // He steps off the page for the keyboard: nothing beside the panel to point at.
+    expect(screen.queryByTitle(/^Ask Amr/)).toBeNull();
+    const typing = screen.getByRole("dialog", { name: "Amr" });
+    expect(typing).toHaveAttribute("data-tail", "none");
+    expect(typing).not.toHaveAttribute("data-tail-from");
+    expect(typing.style.getPropertyValue("--tail-at")).toBe("");
+
+    act(() => {
+      field.blur();
+    });
+    expect(amr()).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute("data-tail", "down");
+  });
+
   it("has no tail while the launcher stands in for him", () => {
     stubScreen({ phone: false, coarse: false });
     useMascotStore.setState({ ready: false });

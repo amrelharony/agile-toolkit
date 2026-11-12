@@ -1226,12 +1226,19 @@ export function MascotAssistant() {
   );
 
   // The panel's tail points at his figure: none while the launcher stands in for
-  // him, while he's carried (the panel stays at his corner), or in the phone's
-  // sheet (it covers the screen; there is nothing beside it to point at).
+  // him, while he's off the page for the keyboard (a page field has focus on a
+  // phone), while he's carried (the panel stays at his corner), or in the phone's
+  // sheet (it covers the screen; there is nothing beside it to point at). Its
+  // place and growth point stay on showFigure, so the card doesn't move while he
+  // steps aside and still matches where he comes back.
   const tail =
     layout === "sheet"
       ? null
-      : panelTail(placed, { phone: isPhone, figure: showFigure, dragging: dragPos !== null });
+      : panelTail(placed, {
+          phone: isPhone,
+          figure: showFigure && !hideFigure,
+          dragging: dragPos !== null,
+        });
   const size = PANEL_SIZE[panelSize.size];
   const panelStyle = {
     ...panelPos(placed, showFigure, box.h, isPhone, nudge.lift, panelSize.size),
