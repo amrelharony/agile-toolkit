@@ -412,11 +412,12 @@ def assign(pieces, ids, image="parts", ncc=None) -> tuple[dict, list[int], float
     names nothing.
 
     The Hungarian match of the cost matrix; then, on a parts sheet, each pair's
-    two pieces are kept alike: a piece of a pair trades names with any other piece
-    (or a spare) while that lowers the cost plus W_PAIR times how unlike each
-    pair's pieces are, so a ball of a tail laid where an ear or an arm would go
-    doesn't take its name. Last, each pair's right piece is the one on your left.
-    parts2, in the order of its list, has no pairs to keep."""
+    two pieces are kept alike: while it lowers the cost plus W_PAIR times how
+    unlike each pair's pieces are, the best single trade of any two pieces' names
+    (or of one for a spare) is made, so a ball of a tail laid where an ear or an arm
+    would go doesn't take its name, and a piece a pair's trade pushed out of its own
+    name (a tail into the tie's) trades back. Last, each pair's right piece is the
+    one on your left. parts2, in the order of its list, has no pairs to keep."""
     if not pieces or not ids:
         return {}, list(range(len(pieces))), 0.0
     C = cost_matrix(pieces, ids, image, ncc)
@@ -448,15 +449,13 @@ def assign(pieces, ids, image="parts", ncc=None) -> tuple[dict, list[int], float
                 yield trial
 
     best = total(at)
-    moved = bool(pairs)
-    while moved:  # every move lowers the total, so this ends
-        moved = False
-        for a in [c for ab in pairs for c in ab]:
-            for trial in moves(at, a):
-                v = total(trial)
-                if v < best - 1e-9:
-                    at, best, moved = trial, v, True
-                    break
+    while pairs:  # every step lowers the total, so this ends
+        # The best single trade of any two columns' pieces, or of one for a spare:
+        # the pieces a pair's trade pushed out (a tail into the tie's name) trade back.
+        v, trial = min(((total(t), t) for a in range(m) for t in moves(at, a)), key=lambda vt: vt[0])
+        if v >= best - 1e-9:
+            break
+        at, best = trial, v
     for a, b in pairs:
         if at[a] is not None and at[b] is not None and pieces[at[a]].centroid[0] > pieces[at[b]].centroid[0]:
             at[a], at[b] = at[b], at[a]

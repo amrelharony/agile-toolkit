@@ -157,6 +157,15 @@ def wave(cx, cy, h, thick) -> parts.Island:
     return drawn(lambda d: d.line(pts, fill=255, width=thick, joint="curve"))
 
 
+def curled(cx, cy, h, thick, reach=70, curl=30) -> parts.Island:
+    """A loose S rising, its tip curled up and back over itself (a tail's rest curve)."""
+    t = np.linspace(0, 1, 80)
+    xs, ys = cx + reach * np.sin(2 * np.pi * t), cy + h / 2 - t * h
+    a = np.linspace(0, 1.6 * np.pi, 40)
+    pts = list(zip(np.r_[xs, xs[-1] - curl * (1 - np.cos(a))], np.r_[ys, ys[-1] - curl * np.sin(a)]))
+    return drawn(lambda d: d.line(pts, fill=255, width=thick, joint="curve"))
+
+
 def tufted(cx, cy, h, thick) -> parts.Island:
     """A thin line hanging down to a tuft."""
 
@@ -180,8 +189,9 @@ EARS = {"small": (80, 90, 110), "long": (85, 300, 170), "round": (170, 170, 130)
 
 def figure(ids, ears="small", **pieces) -> dict:
     """{id: piece} for a big-headed figure laid out as imageParts says, with any
-    piece given by keyword instead (a tail, a coat)."""
-    w, h, y = EARS[ears]
+    piece given by keyword instead (a tail, a coat). `ears` names a kind in EARS or
+    gives (w, h, centre y)."""
+    w, h, y = EARS[ears] if isinstance(ears, str) else ears
     at = {
         "head": lambda: oval(768, 160, 300, 260),
         "ear-r": lambda: oval(768 - 208 - (w - 80) / 2, y, w, h),
@@ -245,6 +255,17 @@ class NamingTheBriefsPieces(unittest.TestCase):
         ):
             for x, y in SPOTS:
                 self.assertNamed(figure(EARED, ears, tail=tail(x, y)), EARED, (ears, x, y))
+
+    def test_a_thin_curled_tail_beside_the_left_arm_keeps_its_name(self):
+        # Big round ears (half the head's width and more) and a thin S tail curled up
+        # at its tip, laid at mid height on your right of the left arm: the first match
+        # trades the tail with that arm, and only trading the tie and the tail back
+        # (two columns no pair holds) finds the naming that costs least.
+        for ear in (150, 171, 180):
+            for thick, h, curl in ((6, 240, 45), (6, 300, 30), (8, 240, 30), (10, 300, 30), (8, 360, 45)):
+                for x, y in ((1400, 560), (1390, 520), (1410, 600)):
+                    tail = curled(x, y, h, thick, curl=curl)
+                    self.assertNamed(figure(EARED, (ear, ear, 130), tail=tail), EARED, (ear, thick, h, x, y))
 
     def test_a_tail_like_an_arm_at_the_sides_keeps_its_name(self):
         for x, y in SPOTS:
