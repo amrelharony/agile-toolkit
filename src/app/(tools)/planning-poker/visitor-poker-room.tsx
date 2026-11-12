@@ -136,7 +136,6 @@ export function VisitorPokerRoom({ code, identity, onLeave }: VisitorPokerRoomPr
           idleWarning={idleWarning}
           onKeepOpen={keepRoomOpen}
           extras={extras}
-          session={session}
         />
         <SessionScreen
           session={session}

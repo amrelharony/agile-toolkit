@@ -9,8 +9,12 @@
  *  - refreshes by itself (every 60 s unless told otherwise): its render
  *    prop gets the time, and `onRefresh` runs, so a dashboard re-reads its
  *    store;
- *  - holds nothing to press: the content is inert (no focus, no clicks, no
- *    text selection), and only the shell's Exit button works;
+ *  - holds nothing to press: nothing in the content takes a click, a tap,
+ *    focus or a text selection, and only the shell's Exit button works. A
+ *    screen reader still reads the content, and the page under the wall is
+ *    inert (`usePresentingLayer`); focus goes back to the opener on close;
+ *  - scrolls on a small screen when the content is taller than it (from
+ *    `lg` up it fits the screen, as a wall does);
  *  - keeps the screen awake while it shows, where the browser allows.
  *
  * Example (the Sprint Cockpit wires its own in P1.12):
@@ -29,7 +33,15 @@
  *   </WallView>
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { Tv } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,6 +50,7 @@ import {
   stopPresenting,
   usePresentation,
 } from "@/components/presentation/presentation-mode";
+import { usePresentingLayer } from "@/components/presentation/presenting-layer";
 import { holdScreenAwake } from "@/lib/realtime/screen-wake-lock";
 
 /** The default refresh: often enough for a sprint's numbers, rare enough to stay calm. */
@@ -69,7 +82,44 @@ function clock(now: number): string {
   return new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-const setInert = (el: HTMLDivElement | null) => el?.setAttribute("inert", "");
+/** What could take focus inside the wall's content. */
+const FOCUSABLE =
+  "a[href],area[href],button,input,select,textarea,iframe,summary,[tabindex],[contenteditable]";
+
+/**
+ * Keep everything inside `el` out of the Tab order (now, and whenever the
+ * content re-renders) and swallow clicks, which a screen reader can still
+ * send though nothing can be tapped. Unlike `inert`, the content stays
+ * readable by a screen reader.
+ */
+function useNothingToPress(open: boolean, ref: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!open || !el) return;
+    const lock = () => {
+      el.querySelectorAll<HTMLElement>(FOCUSABLE).forEach((n) => {
+        if (n.getAttribute("tabindex") !== "-1") n.setAttribute("tabindex", "-1");
+      });
+    };
+    lock();
+    const watch = new MutationObserver(lock);
+    watch.observe(el, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["tabindex", "href"],
+    });
+    const swallow = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    el.addEventListener("click", swallow, true);
+    return () => {
+      watch.disconnect();
+      el.removeEventListener("click", swallow, true);
+    };
+  }, [open, ref]);
+}
 
 export function WallView({
   open,
@@ -86,6 +136,12 @@ export function WallView({
   const refreshRef = useRef(onRefresh);
   refreshRef.current = onRefresh;
   const every = Math.max(WALL_VIEW_MIN_REFRESH_MS, refreshMs);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const headingId = useId();
+  const close = useCallback(() => closeRef.current(), []);
+  usePresentingLayer(open, headingRef, close);
+  useNothingToPress(open, contentRef);
 
   useEffect(() => {
     if (!open) return;
@@ -131,22 +187,34 @@ export function WallView({
   const content = typeof children === "function" ? children(tick) : children;
 
   return createPortal(
-    <div data-wall-view className="fixed inset-0 z-[90] overflow-hidden bg-bg text-text">
-      <div className="mx-auto flex h-full max-w-[120rem] flex-col gap-6 px-4 py-6 sm:px-10 sm:py-8">
+    <div
+      data-wall-view
+      role="dialog"
+      aria-labelledby={headingId}
+      className="fixed inset-0 z-[90] overflow-y-auto overflow-x-hidden bg-bg text-text lg:overflow-hidden"
+    >
+      <div className="mx-auto flex min-h-full max-w-[120rem] flex-col gap-6 px-4 py-6 sm:px-10 sm:py-8 lg:h-full">
         {/* Clear of the Exit presentation button, top right. */}
         <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 pr-14 sm:pr-48">
-          <h1 className="break-words text-3xl font-bold sm:text-5xl">{title}</h1>
+          <h1
+            id={headingId}
+            ref={headingRef}
+            tabIndex={-1}
+            className="break-words text-3xl font-bold outline-none sm:text-5xl"
+          >
+            {title}
+          </h1>
           <p className="font-data text-xl text-sub sm:text-2xl">
             <span className="sr-only">Updated at </span>
             {clock(tick.now)}
           </p>
         </header>
-        {/* Nothing in here takes a click, a tap or focus. React 18 has no
-            boolean `inert` prop, so the attribute is set on the element. */}
+        {/* Nothing in here takes a click, a tap or focus (`useNothingToPress`),
+            but a screen reader reads it. Below lg the layer scrolls. */}
         <div
           data-wall-content
-          ref={setInert}
-          className="min-h-0 flex-1 select-none overflow-hidden text-xl pointer-events-none sm:text-2xl lg:[zoom:1.4]"
+          ref={contentRef}
+          className="flex-1 select-none text-xl pointer-events-none sm:text-2xl lg:min-h-0 lg:overflow-hidden lg:[zoom:1.4]"
         >
           {content}
         </div>

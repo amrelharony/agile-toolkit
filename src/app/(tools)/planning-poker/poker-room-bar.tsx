@@ -36,6 +36,13 @@ export interface PokerRoomBarProps {
   extras?: RoomExtras | null;
   /** Host: the session, for "Big screen" (the story and how the vote stands). */
   session?: Session | null;
+  /**
+   * Offer "Big screen". Only on the tool page, inside the app shell, whose
+   * PresentationController gives Present mode its Exit button. The /join
+   * page (a promoted visitor host) has no shell, so on a phone nothing
+   * could close it there: it stays off.
+   */
+  bigScreen?: boolean;
 }
 
 /**
@@ -55,9 +62,11 @@ export function PokerRoomBar({
   keepsSession = false,
   extras = null,
   session = null,
+  bigScreen = false,
 }: PokerRoomBarProps) {
   const [confirmEndOpen, setConfirmEndOpen] = useState(false);
   const big = useBigScreen();
+  const offerBigScreen = bigScreen && isHost && session !== null;
   // Before the first presence sync this person is still in the room.
   const members = Math.max(1, memberCount);
   return (
@@ -69,7 +78,7 @@ export function PokerRoomBar({
         isHost={isHost}
         onEnd={onEnd ? () => setConfirmEndOpen(true) : undefined}
         onLeave={onLeave}
-        onBigScreen={isHost && session ? big.show : undefined}
+        onBigScreen={offerBigScreen ? big.show : undefined}
         className="self-start"
       />
       {extras &&
@@ -112,7 +121,7 @@ export function PokerRoomBar({
           onConfirm={onEnd}
         />
       )}
-      {isHost && session && (
+      {offerBigScreen && session && (
         <RoomBigScreen
           {...big.props}
           tool="planning-poker"

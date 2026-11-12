@@ -1,14 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { useState } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 
 /**
  * "Big screen": Present mode with the room's code large and grouped, a QR
  * code holding the join link (host key included), how many are in the
- * room, the countdown and the round, and nothing to press. It closes when
- * Present mode ends, and a typed code is offered only for the rooms it can
- * open (Poker and Retro).
+ * room, the countdown and the round, and nothing to press. It is a dialog
+ * over an inert page, closes when Present mode ends (or fullscreen does),
+ * gives focus back to the Big screen button, and a typed code is offered
+ * only for the rooms it can open (Poker and Retro). Poker offers it only on
+ * the tool page, where the shell can close it.
  */
 
 const alarm = vi.hoisted(() => ({ timesUp: vi.fn() }));
@@ -23,7 +27,7 @@ import {
   PresentationController,
   usePresentation,
 } from "@/components/presentation/presentation-mode";
-import { PokerBigScreenRound } from "@/app/(tools)/planning-poker/poker-room-bar";
+import { PokerBigScreenRound, PokerRoomBar } from "@/app/(tools)/planning-poker/poker-room-bar";
 import { startRoomTimer } from "@/lib/realtime/room-timer";
 import type { FloatingReaction } from "@/lib/realtime/room-reactions";
 import type { Session } from "@/app/(tools)/planning-poker/types";
@@ -32,8 +36,10 @@ import { decodeQr, rasterisePath, stripQuietZone } from "../qr/decoder";
 
 const CODE = "ABCDEFGHJKMN";
 const FP = "abcdefghijklmnopqrstuv";
-/** The view loads on first open (next/dynamic). */
+/** The view loads on first open (next/dynamic); `beforeAll` warms its import. */
 const LAZY = { timeout: 10_000 };
+/** Each test may wait for the lazy view: longer than the 5 s default. */
+const SLOW = { timeout: 20_000 };
 
 function readQr(svg: Element): string {
   const side = Number(svg.getAttribute("viewBox")?.split(" ")[2]);
@@ -45,23 +51,30 @@ function Host({
   tool = "quick-vote" as const,
   reactions = [] as FloatingReaction[],
   children = <p>3 of 5 answered</p>,
+  shell = true,
 }: {
   tool?: "quick-vote" | "retro" | "planning-poker";
   reactions?: FloatingReaction[];
   children?: React.ReactNode;
+  /** Mount the shell's PresentationController (the tool page). */
+  shell?: boolean;
 }) {
   const big = useBigScreen();
   const [timer] = useState(() => startRoomTimer(120, Date.now()));
   return (
     <LiveAnnouncerProvider>
-      <VisitorRoomChip
-        tool={tool}
-        code={CODE}
-        memberCount={6}
-        isHost
-        linkFragment={tool === "quick-vote" ? `#k=${FP}` : undefined}
-        onBigScreen={big.show}
-      />
+      {/* The shell's page area: the big screen makes it inert. */}
+      <main id="main-content">
+        <VisitorRoomChip
+          tool={tool}
+          code={CODE}
+          memberCount={6}
+          isHost
+          linkFragment={tool === "quick-vote" ? `#k=${FP}` : undefined}
+          onBigScreen={big.show}
+        />
+        <button type="button">End room</button>
+      </main>
       <RoomBigScreen
         {...big.props}
         tool={tool}
@@ -74,10 +87,14 @@ function Host({
       >
         {children}
       </RoomBigScreen>
-      <PresentationController />
+      {shell && <PresentationController />}
     </LiveAnnouncerProvider>
   );
 }
+
+beforeAll(async () => {
+  await import("@/components/collab/room-big-screen-view");
+}, 30_000);
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", "1");
@@ -94,7 +111,7 @@ async function openBigScreen() {
   return screen.findByRole("heading", { name: "Live Quick Vote" }, LAZY);
 }
 
-describe("the room on the big screen", () => {
+describe("the room on the big screen", SLOW, () => {
   it("enters Present mode with the grouped code, the QR code, the count, the timer and the round", async () => {
     render(<Host />);
     expect(document.querySelector("[data-big-screen]")).toBeNull();
@@ -113,11 +130,61 @@ describe("the room on the big screen", () => {
     // A vote room can't be joined by typing the code.
     expect(within(view).queryByText(/type the code/)).toBeNull();
     expect(
-      within(view).getByText("Scan the code with a phone camera to join.")
+      within(view).getByText("Scan the QR code with a phone camera to join.")
     ).toBeInTheDocument();
     // Nothing on it to press, and focus on its heading.
     expect(within(view).queryAllByRole("button")).toHaveLength(0);
     expect(heading).toHaveFocus();
+  });
+
+  it("is a dialog over an inert page, and gives focus back to Big screen on Exit and on Escape", async () => {
+    render(<Host />);
+    const page = document.getElementById("main-content")!;
+    const opener = screen.getByRole("button", { name: "Big screen" });
+    opener.focus();
+    await openBigScreen();
+    expect(screen.getByRole("dialog", { name: "Live Quick Vote" })).toBe(
+      document.querySelector("[data-big-screen]")
+    );
+    // The room's own controls underneath can't be reached.
+    expect(page).toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: /Exit presentation/ }));
+    expect(page).not.toHaveAttribute("inert");
+    expect(opener).toHaveFocus();
+
+    opener.focus();
+    await openBigScreen();
+    expect(page).toHaveAttribute("inert");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.querySelector("[data-big-screen]")).toBeNull();
+    expect(page).not.toHaveAttribute("inert");
+    expect(opener).toHaveFocus();
+  });
+
+  it("closes when the browser leaves fullscreen, even with no shell around it", async () => {
+    let fullscreen: Element | null = null;
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      get: () => fullscreen,
+    });
+    try {
+      render(<Host shell={false} />);
+      await openBigScreen();
+      act(() => {
+        fullscreen = document.documentElement;
+        document.dispatchEvent(new Event("fullscreenchange"));
+      });
+      expect(document.querySelector("[data-big-screen]")).not.toBeNull();
+      // A phone's back gesture, with no Exit presentation button to press.
+      act(() => {
+        fullscreen = null;
+        document.dispatchEvent(new Event("fullscreenchange"));
+      });
+      expect(document.querySelector("[data-big-screen]")).toBeNull();
+      expect(usePresentation.getState().presenting).toBe(false);
+    } finally {
+      delete (document as unknown as { fullscreenElement?: unknown }).fullscreenElement;
+    }
   });
 
   it("tells people they can type a Poker or Retro code at /join", async () => {
@@ -154,8 +221,11 @@ describe("the room on the big screen", () => {
     await openBigScreen();
     const band = document.querySelector("[data-big-screen] [data-reaction-layer]");
     expect(band).toHaveAttribute("aria-hidden", "true");
-    expect(band?.querySelectorAll("[data-reaction]")).toHaveLength(2);
+    const shown = Array.from(band?.querySelectorAll<HTMLElement>("[data-reaction]") ?? []);
+    expect(shown).toHaveLength(2);
     expect(band?.textContent).toBe("👍❤️");
+    // Still while presenting: spread up the band by lane, not rising.
+    expect(shown.map((s) => s.style.bottom)).toEqual(["10%", "30%"]);
   });
 
   it("draws Poker's round large: the story, then how many chose each card", async () => {
@@ -186,5 +256,46 @@ describe("the room on the big screen", () => {
     expect(cards.map((c) => c.textContent)).toEqual(["32 votes", "51 vote"]);
     // Names never reach the big screen.
     expect(screen.queryByText(/Alex|Bo|Cy/)).toBeNull();
+  });
+});
+
+describe("the Poker room bar's Big screen", () => {
+  const session: Session = {
+    roomCode: CODE,
+    sessionName: "Planning",
+    scale: ["1", "2", "3"],
+    scaleType: "fibonacci",
+    host: "Hana",
+    hostId: "host_00000000000",
+    participants: [{ id: "host_00000000000", name: "Hana", vote: null }],
+    stories: [],
+    currentStoryIdx: 0,
+    revealed: false,
+  };
+
+  it("is offered only where the page asks for it (the tool page, inside the shell)", () => {
+    const { rerender } = render(
+      <LiveAnnouncerProvider>
+        <PokerRoomBar code={CODE} memberCount={2} isHost session={session} />
+      </LiveAnnouncerProvider>
+    );
+    // A promoted visitor host on /join has no shell, so no way out on a phone.
+    expect(screen.queryByRole("button", { name: "Big screen" })).toBeNull();
+    rerender(
+      <LiveAnnouncerProvider>
+        <PokerRoomBar code={CODE} memberCount={2} isHost session={session} bigScreen />
+      </LiveAnnouncerProvider>
+    );
+    expect(screen.getByRole("button", { name: "Big screen" })).toBeInTheDocument();
+  });
+
+  it("stays off in the visitor room the /join page mounts", () => {
+    const src = readFileSync(
+      join(__dirname, "..", "..", "src/app/(tools)/planning-poker/visitor-poker-room.tsx"),
+      "utf8"
+    );
+    const bar = src.match(/<PokerRoomBar[\s\S]*?\/>/)?.[0] ?? "";
+    expect(bar).not.toBe("");
+    expect(bar).not.toMatch(/\bbigScreen\b/);
   });
 });

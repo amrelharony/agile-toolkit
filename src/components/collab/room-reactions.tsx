@@ -9,7 +9,8 @@
  *
  * The band sits inside the room's own panel (never fixed or full-screen),
  * is decorative (`aria-hidden`, click-through) and keeps nothing: each emoji
- * rises for 2.4 s and is gone. Under reduced motion they show still, spread
+ * rises for 2.4 s and is gone. Under reduced motion, and on the big screen
+ * (`still`: Present mode doesn't move by itself), they show still, spread
  * along the band, for the same time. They carry no names.
  */
 
@@ -60,6 +61,8 @@ export interface ReactionLayerProps {
   className?: string;
   /** "md": a 10rem band of small emoji; "lg": a 18rem band of big ones (the big screen). */
   size?: "md" | "lg";
+  /** Show them still, as under reduced motion (the big screen, while presenting). */
+  still?: boolean;
 }
 
 const BAND = {
@@ -82,8 +85,13 @@ function usePrefersReducedMotion(): boolean {
 }
 
 /** The band the reactions rise through, and out of. Decorative and click-through. */
-export function ReactionLayer({ reactions, className, size = "md" }: ReactionLayerProps) {
-  const reduce = usePrefersReducedMotion();
+export function ReactionLayer({
+  reactions,
+  className,
+  size = "md",
+  still = false,
+}: ReactionLayerProps) {
+  const reduce = usePrefersReducedMotion() || still;
   const band = BAND[size];
   return (
     <div

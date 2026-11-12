@@ -561,6 +561,7 @@ export function PlanningPokerClient() {
                 keepsSession
                 extras={roomExtras}
                 session={session}
+                bigScreen
               />
             )}
             <SessionScreen

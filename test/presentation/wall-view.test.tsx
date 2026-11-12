@@ -37,6 +37,8 @@ function advance(ms: number) {
   });
 }
 
+const edit = vi.fn();
+
 /** An example dashboard: what the Cockpit would put on the wall. */
 function ExampleTiles({ n, now }: { n: number; now: number }) {
   return (
@@ -44,7 +46,9 @@ function ExampleTiles({ n, now }: { n: number; now: number }) {
       <li>Done: {12 + n} points</li>
       <li>Refreshed {new Date(now).toISOString()}</li>
       <li>
-        <button type="button">Edit</button>
+        <button type="button" onClick={edit}>
+          Edit
+        </button>
       </li>
     </ul>
   );
@@ -52,6 +56,7 @@ function ExampleTiles({ n, now }: { n: number; now: number }) {
 
 describe("WallViewButton", () => {
   it("opens the wall in Present mode, large, with nothing to press", () => {
+    edit.mockClear();
     render(
       <>
         <WallViewButton title="Sprint 42">
@@ -63,11 +68,77 @@ describe("WallViewButton", () => {
     expect(document.querySelector("[data-wall-view]")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Wall mode" }));
     expect(usePresentation.getState().presenting).toBe(true);
-    expect(screen.getByRole("heading", { name: "Sprint 42" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Sprint 42" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Sprint 42" })).toHaveFocus();
     const content = document.querySelector("[data-wall-content]") as HTMLElement;
-    expect(content).toHaveAttribute("inert");
     expect(content).toHaveClass("pointer-events-none", "select-none");
     expect(content).toHaveTextContent("Done: 12 points");
+    // A screen reader still reads it (not inert), but nothing takes focus or a click.
+    expect(content).not.toHaveAttribute("inert");
+    expect(screen.getByRole("list", { name: "Sprint tiles" })).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: "Edit" });
+    expect(button).toHaveAttribute("tabindex", "-1");
+    fireEvent.click(button);
+    expect(edit).not.toHaveBeenCalled();
+  });
+
+  it("keeps re-rendered content out of the Tab order too", async () => {
+    function Grows({ n }: { n: number }) {
+      return (
+        <div>
+          {n > 0 && (
+            <a href="/sprint" data-testid="later">
+              Sprint
+            </a>
+          )}
+        </div>
+      );
+    }
+    render(
+      <WallViewButton title="Sprint 42" refreshMs={5_000}>
+        {({ n }) => <Grows n={n} />}
+      </WallViewButton>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Wall mode" }));
+    advance(5_000);
+    // MutationObserver callbacks run as a microtask.
+    await act(async () => {});
+    expect(screen.getByTestId("later")).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("makes the page underneath inert, and gives focus back to its button on close", () => {
+    render(
+      <>
+        <main id="main-content">
+          <WallViewButton title="Sprint 42">
+            <p>Tiles</p>
+          </WallViewButton>
+        </main>
+        <PresentationController />
+      </>
+    );
+    const page = document.getElementById("main-content")!;
+    const opener = screen.getByRole("button", { name: "Wall mode" });
+    opener.focus();
+    fireEvent.click(opener);
+    expect(page).toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: /Exit presentation/ }));
+    expect(page).not.toHaveAttribute("inert");
+    expect(opener).toHaveFocus();
+  });
+
+  it("scrolls below lg instead of cutting the content off", () => {
+    render(
+      <WallViewButton title="Sprint 42">
+        <p>Tiles</p>
+      </WallViewButton>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Wall mode" }));
+    expect(document.querySelector("[data-wall-view]")).toHaveClass(
+      "overflow-y-auto",
+      "lg:overflow-hidden"
+    );
+    expect(document.querySelector("[data-wall-content]")).not.toHaveClass("overflow-hidden");
   });
 
   it("refreshes by itself on its interval, and tells the page to re-read", () => {

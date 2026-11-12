@@ -7,9 +7,14 @@
  * the tool's round, in a portal over the page. While open it keeps Present
  * mode on, and closes when Present mode ends (Exit, Escape, leaving
  * fullscreen) or the room goes.
+ *
+ * It is a dialog over an inert page (`usePresentingLayer`): Tab and a screen
+ * reader stay out of the room's controls underneath, and focus goes back to
+ * the Big screen button when it closes. The reactions show still here, as
+ * under reduced motion: Present mode doesn't move by itself (DNA-SPEC §8).
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Radio, Users } from "lucide-react";
 import { QrCode } from "@/components/collab/qr-code";
@@ -27,6 +32,7 @@ import {
   roomNeedsHostKey,
 } from "@/lib/realtime/visitor-rooms";
 import { groupRoomCode } from "@/lib/realtime/visitor-code";
+import { usePresentingLayer } from "@/components/presentation/presenting-layer";
 import { cn } from "@/lib/utils";
 import type { RoomBigScreenProps } from "./room-big-screen";
 
@@ -34,6 +40,7 @@ const LINK_FRAGMENT_RE = /^#[A-Za-z0-9=_-]{1,64}$/;
 
 export function RoomBigScreenView({
   open,
+  onClose,
   tool,
   toolName,
   code,
@@ -44,6 +51,7 @@ export function RoomBigScreenView({
   children,
 }: RoomBigScreenProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const headingId = useId();
 
   // Open: present (if `show` didn't already). Closed or gone: stop presenting.
   // (`RoomBigScreen` closes it when Present mode ends some other way.)
@@ -53,9 +61,9 @@ export function RoomBigScreenView({
     return () => stopPresenting();
   }, [open]);
 
-  useEffect(() => {
-    if (open) headingRef.current?.focus();
-  }, [open]);
+  // The page underneath goes inert, focus moves to the heading and comes
+  // back to the opener on close; leaving fullscreen closes it too.
+  usePresentingLayer(open, headingRef, onClose);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -71,12 +79,15 @@ export function RoomBigScreenView({
   return createPortal(
     <div
       data-big-screen
+      role="dialog"
+      aria-labelledby={headingId}
       className="fixed inset-0 z-[90] overflow-y-auto overflow-x-hidden bg-bg text-text"
     >
       <div className="relative mx-auto flex min-h-full max-w-7xl flex-col gap-6 px-4 py-6 sm:gap-8 sm:px-10 sm:py-10">
         {/* Clear of the Exit presentation button, top right. */}
         <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 pr-14 sm:pr-48">
           <h1
+            id={headingId}
             ref={headingRef}
             tabIndex={-1}
             className="flex items-center gap-3 text-2xl font-bold outline-none sm:text-4xl"
@@ -103,7 +114,7 @@ export function RoomBigScreenView({
             <p className="text-lg text-sub sm:text-xl">
               {typeable
                 ? `Scan to join, or open ${host}/join and type the code:`
-                : "Scan the code with a phone camera to join."}
+                : "Scan the QR code with a phone camera to join."}
             </p>
             <p className="break-words font-data text-4xl font-bold tracking-wider sm:text-6xl">
               <span className="sr-only">Room code </span>
@@ -118,7 +129,7 @@ export function RoomBigScreenView({
           </section>
         </div>
 
-        <ReactionLayer reactions={reactions} size="lg" className="inset-x-0 bottom-0" />
+        <ReactionLayer reactions={reactions} size="lg" still className="inset-x-0 bottom-0" />
       </div>
     </div>,
     document.body
