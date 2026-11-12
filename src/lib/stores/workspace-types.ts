@@ -3491,7 +3491,12 @@ export interface NotebookEntry {
   tags: string[];
   /** The Scrum event it came from, such as "daily-scrum" or "retro". */
   event?: string;
-  /** The tool it is about, by tool id (src/lib/constants/tools.ts), such as "impediments". */
+  /**
+   * The tool it is about, by tool id (src/lib/constants/tools.ts), such as
+   * "impediments". The agents' schema takes only a tool id's shape
+   * (lowercase words joined by hyphens), but not only ids the registry has:
+   * link it through getToolById, and show no link for an unknown id.
+   */
   linkedTool?: string;
   /** Where it was sent (an impediment, a retro action). */
   sentTo?: HandoffLink[];

@@ -37,6 +37,7 @@ import {
   type ProductGoal,
   type Workspace,
 } from "@/lib/stores/workspace-types";
+import { tools } from "@/lib/constants/tools";
 import "@/lib/actions/workspace";
 import {
   ANALYSIS,
@@ -294,6 +295,27 @@ describe("bounds", () => {
     rejects("workspace.meeting_audit", { ...MEETING, minutes: 0 });
     rejects("workspace.meeting_audit", { ...MEETING, attendees: 0 });
     rejects("workspace.meeting_audit", { ...MEETING, verdict: "maybe" });
+  });
+
+  it("take a notebook entry's linked tool only as a tool id, so its link stays on the site", () => {
+    for (const bad of [
+      "//evil.example",
+      "/impediments",
+      "https://evil.example",
+      "../admin",
+      "Impediments",
+      "sm notebook",
+      "sm--notebook",
+      "-impediments",
+      "",
+    ]) {
+      rejects("workspace.notebook_entry", { ...NOTE, linkedTool: bad });
+    }
+    for (const { id } of tools) {
+      expect(parseCreate("workspace.notebook_entry", { ...NOTE, linkedTool: id }).success, id).toBe(
+        true
+      );
+    }
   });
 });
 

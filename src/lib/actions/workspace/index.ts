@@ -4097,6 +4097,9 @@ const StampedAt = z
 /** A time an agent may write: an ISO timestamp such as "2026-11-12T09:30:00Z", any UTC offset. */
 const IsoTime = z.iso.datetime({ offset: true });
 
+/** The shape of every id in the tool registry (lib/constants/tools.ts): "sm-notebook". */
+const TOOL_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 /**
  * The record with createdAt kept (now on create, or when the stored record
  * has none) and updatedAt now: what these CRUDs save. A createdAt or
@@ -4314,9 +4317,13 @@ const NotebookEntrySchema = z.object({
     .max(TOOL_TEXT_MAX.short)
     .optional()
     .describe('The Scrum event it came from, such as "daily-scrum" or "retro".'),
+  // A tool id only (lowercase words joined by hyphens): the page links to
+  // `/<id>`, so nothing written here may turn that into a link off the site
+  // ("//evil.example") or into another path.
   linkedTool: z
     .string()
     .max(TOOL_TEXT_MAX.short)
+    .regex(TOOL_ID_PATTERN, "a tool id, such as impediments")
     .optional()
     .describe('The tool it is about, by tool id, such as "impediments".'),
   sentTo: z
