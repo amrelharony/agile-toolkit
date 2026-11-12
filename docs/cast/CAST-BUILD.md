@@ -79,7 +79,7 @@ Every command takes `--sources <dir>` (default `D:\Claude Desktop\Agile_At_Work_
 3. **Candidate.** `candidate <AAW-NN | A..E | all>` builds into `review/<batch>/AAW-NN/` only, in this order:
    1. key-out with despill, and the palette lock (the master onto the private swatches, every later sheet onto the master's own colours; it moves colour only, so it runs here);
    2. slice;
-   3. assign pieces;
+   3. assign pieces: name each piece by where imageParts lays it (a tail anywhere at the sides) and by generic bands of size and shape, with a pair's two pieces alike and its right piece on your left (parts2 in the order of its list);
    4. register each piece onto the approved master;
    5. find pivots from the cap circles;
    6. cut the pupils from the master and build the face patches;
