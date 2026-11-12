@@ -23,7 +23,13 @@
  *     ones included, which keeps the remembered locks bounded); taken back
  *     only with the key behind that vote's lock;
  *  6. a take-back of a post only with the key behind its lock;
- *  7. a hand: up or down, the sender's own.
+ *  7. a hand: up or down, the sender's own;
+ *  8. a "Yes, and…" post (`re`): only in a brainwriting round, on a post
+ *     that is on the wall and shown; it is linked to that post's thread
+ *     (a reply to a reply joins the first post's);
+ *  9. a 25/10 score: only while scoring is open, 1 to 5, on a post on the
+ *     wall that isn't the scorer's own, on at most five posts per member;
+ *     a score is changed only with the key behind its lock.
  *
  * `by` is self-declared, and every member receives every request, but the
  * requests are encrypted to the host and the keys behind the locks never
@@ -41,9 +47,11 @@ import {
   type WallMode,
   type WallPost,
   type WallRefusal,
+  type WallResultPost,
   type WallRoomTool,
   type WallRoundResult,
   type WallRoundView,
+  type WallScoring,
 } from "./protocol";
 
 // ── Shapes ───────────────────────────────────────────────────────────
@@ -63,6 +71,18 @@ export interface HostPost {
   mergedInto: string | null;
   /** Posts merged into this one, oldest first. */
   merged: readonly { pid: string; text: string }[];
+  /** Brainwriting: the post this one builds on, or null. */
+  re?: string | null;
+  /** The host marked it answered. */
+  answered?: boolean;
+  /** 25/10: member id → their score and the lock its change must open. In memory only. */
+  scores?: ReadonlyMap<string, { value: number; lock: string }>;
+}
+
+/** The round's options when it opens. */
+export interface WallRoundOptions {
+  /** Brainwriting: take "Yes, and…" posts on the posts on the wall. */
+  build?: boolean;
 }
 
 export interface HostWallRound {
@@ -71,6 +91,10 @@ export interface HostWallRound {
   open: boolean;
   mode: WallMode;
   revealed: boolean;
+  /** Brainwriting: "Yes, and…" posts are taken. */
+  build?: boolean;
+  /** 25/10 scoring, or null/absent for a round that isn't scored. */
+  scoring?: WallScoring | null;
   /** In the order they came in. */
   posts: ReadonlyMap<string, HostPost>;
   /** Posts each member made this round. */
@@ -139,7 +163,8 @@ export function openWallRound(
   wall: HostWall,
   id: string,
   prompt: string,
-  mode: WallMode
+  mode: WallMode,
+  options: WallRoundOptions = {}
 ): HostWall | null {
   // The host's own words: hidden characters stripped, not refused.
   const clean = shareableText(String(prompt ?? ""), WALL_LIMITS.maxPromptChars);
@@ -152,6 +177,8 @@ export function openWallRound(
       open: true,
       mode,
       revealed: false,
+      build: options.build === true,
+      scoring: null,
       posts: new Map(),
       postsBy: new Map(),
       lastPostAt: new Map(),
@@ -163,10 +190,46 @@ export function openWallRound(
   };
 }
 
-/** Open or close the round (closed: no new posts or votes; take-backs still work). */
+/**
+ * Open or close the round (closed: no new posts or votes; take-backs still
+ * work). A scored round stays closed: its posts are fixed while people
+ * score them.
+ */
 export function setWallOpen(wall: HostWall, open: boolean): HostWall {
   if (!wall.round || wall.round.open === open) return wall;
+  if (open && wall.round.scoring) return wall;
   return { ...wall, round: { ...wall.round, open } };
+}
+
+/** Brainwriting on or off: whether "Yes, and…" posts are taken. */
+export function setWallBuild(wall: HostWall, build: boolean): HostWall {
+  if (!wall.round || (wall.round.build === true) === build) return wall;
+  return { ...wall, round: { ...wall.round, build } };
+}
+
+/**
+ * 25/10, forward only: "open" starts the scoring (it stops new posts and
+ * shows the posts, so everyone can score them), "shown" stops it and
+ * shares each post's total. Anything else leaves the wall as it is.
+ */
+export function setWallScoring(wall: HostWall, scoring: WallScoring): HostWall {
+  const r = wall.round;
+  if (!r) return wall;
+  const now = r.scoring ?? null;
+  if (scoring === "open" && now === null) {
+    return { ...wall, round: { ...r, scoring, open: false, revealed: true } };
+  }
+  if (scoring === "shown" && now === "open") {
+    return { ...wall, round: { ...r, scoring } };
+  }
+  return wall;
+}
+
+/** Mark a question answered, or not. Only a post on the wall. */
+export function markWallAnswered(wall: HostWall, pid: string, answered: boolean): HostWall {
+  const post = wall.round?.posts.get(pid);
+  if (!wall.round || !post || !onWall(post) || (post.answered === true) === answered) return wall;
+  return { ...wall, round: withPost(wall.round, { ...post, answered }) };
 }
 
 /**
@@ -203,13 +266,14 @@ export function hideWallPost(wall: HostWall, pid: string, hidden: boolean): Host
  * goes under `into`'s, its upvotes join `into`'s (a person who upvoted both
  * counts once; `into`'s writer's own vote is dropped), and it no longer
  * shows on its own. Unchanged when either isn't on the wall, they're the
- * same, or `into` would hold more than `WALL_LIMITS.maxMergedTexts` texts.
+ * same, `into` would hold more than `WALL_LIMITS.maxMergedTexts` texts, or
+ * the round is scored (scores don't merge).
  */
 export function mergeWallPosts(wall: HostWall, from: string, into: string): HostWall {
   const r = wall.round;
   const a = r?.posts.get(into);
   const b = r?.posts.get(from);
-  if (!r || !a || !b || a === b || !onWall(a) || !onWall(b)) return wall;
+  if (!r || !a || !b || a === b || !onWall(a) || !onWall(b) || r.scoring) return wall;
   const merged = [...a.merged, { pid: b.pid, text: b.text }, ...b.merged];
   if (merged.length > WALL_LIMITS.maxMergedTexts) return wall;
   const voters = new Map(a.voters);
@@ -234,6 +298,11 @@ export function lowerHand(wall: HostWall, id: string): HostWall {
   return { ...wall, hands: wall.hands.filter((h) => h.id !== id) };
 }
 
+/** Lower every raised hand. */
+export function lowerAllHands(wall: HostWall): HostWall {
+  return wall.hands.length === 0 ? wall : { ...wall, hands: [] };
+}
+
 /** Drop the hands of people no longer in the room. */
 export function keepPresentHands(wall: HostWall, present: ReadonlySet<string>): HostWall {
   if (wall.hands.every((h) => present.has(h.id))) return wall;
@@ -249,6 +318,21 @@ function landing(round: HostWallRound, pid: string): HostPost | null {
     post = round.posts.get(post.mergedInto) ?? null;
   }
   return post;
+}
+
+/**
+ * The first post of `post`'s thread on the wall: the post it builds on
+ * (through merges, a few hops at most), or null when it builds on none
+ * that is on the wall. Threads are one level deep.
+ */
+function threadOf(round: HostWallRound, post: HostPost): HostPost | null {
+  let cur: HostPost = post;
+  for (let hops = 0; cur.re && hops < 4; hops++) {
+    const parent = landing(round, cur.re);
+    if (!parent || parent.pid === post.pid || !onWall(parent)) break;
+    cur = parent;
+  }
+  return cur === post ? null : cur;
 }
 
 /** Apply one participant's request. Never mutates `wall`. */
@@ -299,6 +383,14 @@ export function applyWallIntent(
       if (r.accepted >= WALL_LIMITS.maxPostsPerRound) return refuseOnce("round-full");
       // Taken back once: a replay of the old request can't put it back.
       if (r.posts.has(intent.pid) || r.withdrawn.has(intent.pid)) return refuseOnce("already");
+      let re: string | null = null;
+      if (intent.re !== undefined) {
+        // "Yes, and…": only while the host runs brainwriting, on a post people can see.
+        if (!r.build || !wallShown(r)) return refuseOnce("closed");
+        const parent = landing(r, intent.re);
+        if (!parent || !onWall(parent)) return refuseOnce("gone");
+        re = (threadOf(r, parent) ?? parent).pid;
+      }
       const post: HostPost = {
         pid: intent.pid,
         text,
@@ -308,6 +400,7 @@ export function applyWallIntent(
         hidden: false,
         mergedInto: null,
         merged: [],
+        re,
       };
       const round = withPost(r, post);
       return accept({
@@ -377,24 +470,111 @@ export function applyWallIntent(
       for (const lock of locks) spentLocks.add(lock);
       return accept({ ...wall, round: { ...withPost(r, { ...post, voters }), spentLocks } });
     }
+
+    case "score": {
+      if (r.scoring !== "open") return refuseOnce("closed");
+      const post = r.posts.get(intent.pid);
+      if (!post || !onWall(post)) return refuseOnce("gone");
+      if (post.author === by) return refuseOnce("own-post");
+      const scores = post.scores ?? new Map<string, { value: number; lock: string }>();
+      const given = scores.get(by);
+      if (given) {
+        // A change: only with the key behind the first score's lock.
+        if (intent.key === undefined || lockOf(intent.key) !== given.lock) {
+          return refuseOnce("not-yours");
+        }
+        if (given.value === intent.value) return accept(wall);
+        const next = new Map(scores).set(by, { value: intent.value, lock: given.lock });
+        return accept({ ...wall, round: withPost(r, { ...post, scores: next }) });
+      }
+      let scored = 0;
+      r.posts.forEach((p) => {
+        if (p.scores?.has(by)) scored += 1;
+      });
+      if (scored >= WALL_LIMITS.scoresPerMember) return refuseOnce("member-cap");
+      const next = new Map(scores).set(by, { value: intent.value, lock: intent.lock });
+      return accept({ ...wall, round: withPost(r, { ...post, scores: next }) });
+    }
   }
 }
 
 // ── What the room sees, and what is saved ────────────────────────────
 
-/** Posts on the wall, shared: no author, no voter, most votes first (ties by id, not arrival). */
+/** A post's 25/10 totals: the sum of its scores and how many scored it. */
+function totals(p: HostPost): { score: number; scorers: number } {
+  let score = 0;
+  p.scores?.forEach((s) => {
+    score += s.value;
+  });
+  return { score, scorers: p.scores?.size ?? 0 };
+}
+
+const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/** One post as the room shares it, with what the round's kind adds. */
+function sharedPost(round: HostWallRound, p: HostPost): WallPost {
+  const out: WallPost = {
+    id: p.pid,
+    text: p.text,
+    votes: p.voters.size,
+    merged: p.merged.map((m) => m.text),
+  };
+  const thread = onWall(p) ? threadOf(round, p) : null;
+  if (thread) out.re = thread.pid;
+  if (p.answered) out.answered = true;
+  if (round.scoring === "shown") Object.assign(out, totals(p));
+  return out;
+}
+
+/**
+ * 25/10: a post's average score, or -1 when nobody scored it. Each person
+ * scores five posts picked at random, so posts get different numbers of
+ * scores, and the average (not the sum) ranks them fairly.
+ */
+export function scoreAverage(p: { score?: number; scorers?: number }): number {
+  return p.scorers ? (p.score ?? 0) / p.scorers : -1;
+}
+
+/**
+ * Posts on the wall, shared: no author, no voter, no score while scoring
+ * is open. Most votes first (ties by id, not arrival), answered questions
+ * after the rest; once 25/10 totals are shown, the best average first.
+ */
 function sharedPosts(round: HostWallRound): WallPost[] {
   const out: WallPost[] = [];
   round.posts.forEach((p) => {
-    if (!onWall(p)) return;
-    out.push({
-      id: p.pid,
-      text: p.text,
-      votes: p.voters.size,
-      merged: p.merged.map((m) => m.text),
-    });
+    if (onWall(p)) out.push(sharedPost(round, p));
   });
-  return out.sort((a, b) => b.votes - a.votes || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // Threads are one level deep on the wire: a "Yes, and…" whose post is
+  // itself one (after a hide and a show) stands on its own instead.
+  const shared = new Map(out.map((p) => [p.id, p]));
+  for (const p of out) {
+    if (p.re === undefined) continue;
+    const parent = shared.get(p.re);
+    if (!parent || parent === p || parent.re !== undefined) delete p.re;
+  }
+  if (round.scoring === "shown") {
+    return out.sort(
+      (a, b) =>
+        scoreAverage(b) - scoreAverage(a) ||
+        (b.scorers ?? 0) - (a.scorers ?? 0) ||
+        b.votes - a.votes ||
+        byId(a, b)
+    );
+  }
+  return out.sort(
+    (a, b) =>
+      Number(a.answered === true) - Number(b.answered === true) || b.votes - a.votes || byId(a, b)
+  );
+}
+
+/** 25/10: the scores given so far on the posts on the wall. */
+function scoresGiven(round: HostWallRound): number {
+  let n = 0;
+  round.posts.forEach((p) => {
+    if (onWall(p)) n += p.scores?.size ?? 0;
+  });
+  return n;
 }
 
 /** The round and hands as the state shares them: posts only once shown. */
@@ -403,18 +583,21 @@ export function wallView(wall: HostWall): { round: WallRoundView | null; hands: 
   const r = wall.round;
   if (!r) return { round: null, hands };
   const posts = sharedPosts(r);
-  return {
-    round: {
-      id: r.id,
-      prompt: r.prompt,
-      open: r.open,
-      mode: r.mode,
-      revealed: r.revealed,
-      count: posts.length,
-      posts: wallShown(r) ? posts : null,
-    },
-    hands,
+  const round: WallRoundView = {
+    id: r.id,
+    prompt: r.prompt,
+    open: r.open,
+    mode: r.mode,
+    revealed: r.revealed,
+    count: posts.length,
+    posts: wallShown(r) ? posts : null,
   };
+  if (r.build) round.build = true;
+  if (r.scoring) {
+    round.scoring = r.scoring;
+    round.scored = scoresGiven(r);
+  }
+  return { round, hands };
 }
 
 /** A post as the host's own screen lists it: the shared post, plus whether the host hid it. */
@@ -433,15 +616,7 @@ export function hostWallPosts(wall: HostWall): HostWallPost[] | null {
   const shown: HostWallPost[] = sharedPosts(r).map((p) => ({ ...p, hidden: false }));
   const hidden: HostWallPost[] = [];
   r.posts.forEach((p) => {
-    if (p.hidden && p.mergedInto === null) {
-      hidden.push({
-        id: p.pid,
-        text: p.text,
-        votes: p.voters.size,
-        merged: p.merged.map((m) => m.text),
-        hidden: true,
-      });
-    }
+    if (p.hidden && p.mergedInto === null) hidden.push({ ...sharedPost(r, p), hidden: true });
   });
   return [...shown, ...hidden];
 }
@@ -449,9 +624,11 @@ export function hostWallPosts(wall: HostWall): HostWallPost[] | null {
 /**
  * The round as the tool's onSave gets it: the prompt, and each post on the
  * wall (not the ones the host hid) with its text, votes and merged texts,
- * most votes first. No post id, no member id, no name. Null without a
- * round, with nothing on the wall, or while the round is hidden until
- * reveal: the host keeps only posts it has seen.
+ * most votes first. No post id, no member id, no name: a "Yes, and…"
+ * post points at the post it builds on by its place in the list, and 25/10
+ * totals come only once they were shown. Null without a round, with
+ * nothing on the wall, or while the round is hidden until reveal: the host
+ * keeps only posts it has seen.
  */
 export function toWallResult(
   wall: HostWall,
@@ -460,11 +637,19 @@ export function toWallResult(
 ): WallRoundResult | null {
   const r = wall.round;
   if (!r || !wallShown(r)) return null;
-  const posts = sharedPosts(r).map((p) => ({
-    text: p.text,
-    votes: p.votes,
-    merged: p.merged.slice(),
-  }));
+  const shared = sharedPosts(r);
+  const place = new Map(shared.map((p, i) => [p.id, i]));
+  const posts = shared.map((p) => {
+    const out: WallResultPost = { text: p.text, votes: p.votes, merged: p.merged.slice() };
+    const re = p.re === undefined ? undefined : place.get(p.re);
+    if (re !== undefined) out.re = re;
+    if (p.answered) out.answered = true;
+    if (p.score !== undefined) {
+      out.score = p.score;
+      out.scorers = p.scorers ?? 0;
+    }
+    return out;
+  });
   if (posts.length === 0) return null;
   return { roundId: r.id, tool, prompt: r.prompt, closedAt, mode: r.mode, posts };
 }
