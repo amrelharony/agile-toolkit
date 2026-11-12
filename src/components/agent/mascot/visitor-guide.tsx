@@ -17,7 +17,7 @@ import { getGuide, type ToolGuide } from "@/lib/tools/guides";
 import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { closeAmrSheet } from "@/lib/layout/amr-sheet";
-import { DOCK_END, useAmrPanel } from "./panel-context";
+import { DOCK_END_FULL, useAmrPanel } from "./panel-context";
 
 /** A search with no match, left alone this long, gets a shrug from Amr. */
 export const SHRUG_AFTER_MS = 900;
@@ -210,9 +210,9 @@ export function VisitorGuide({
       ref={guideRef}
       tabIndex={-1}
       data-testid="mascot-visitor-guide"
-      // Its last rows scroll clear of Amr docked in the phone's sheet.
+      // It ends above Amr docked in the phone's sheet: no tile scrolls under him.
       data-amr-scroll=""
-      className={`flex h-full flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-3 focus:outline-none ${DOCK_END}`}
+      className={`flex h-full flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-3 focus:outline-none ${DOCK_END_FULL}`}
     >
       {note}
       {/* The search comes first. A phone shows about 360 px of this panel, and

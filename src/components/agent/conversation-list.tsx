@@ -279,7 +279,7 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
           />
         </div>
       )}
-      {/* Its last rows scroll clear of Amr docked in the phone's sheet. */}
+      {/* It ends above Amr docked in the phone's sheet: no row scrolls under him. */}
       <div
         data-amr-scroll=""
         className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2 ${DOCK_END}`}

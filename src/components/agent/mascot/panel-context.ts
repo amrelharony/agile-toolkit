@@ -97,8 +97,16 @@ export const DOCK_FOOTER =
 export const DOCK_FOOTER_IN_PX3 =
   "group-data-[amr-dock=right]/amr:pr-[calc(var(--amr-dock-gutter)-0.75rem)] group-data-[amr-dock=left]/amr:pl-[calc(var(--amr-dock-gutter)-0.75rem)] group-data-[amr-dock]/amr:min-h-[var(--amr-dock-footer)]";
 
-/** A scroller that runs to the panel's bottom (no footer): room at its end, so its last row scrolls clear of docked Amr. */
-export const DOCK_END = "group-data-[amr-dock]/amr:pb-[var(--amr-dock-footer)]";
+/**
+ * A scroller that runs to the panel's bottom (no footer), as a flex item that
+ * may shrink: while Amr is docked it ends above him, so the band beside him is
+ * an empty footer (as tall as a footer view's) and no row, tile or focused
+ * control ever scrolls under him. Its own padding still ends the list.
+ */
+export const DOCK_END = "group-data-[amr-dock]/amr:mb-[var(--amr-dock-footer)]";
+
+/** DOCK_END for a scroller sized h-full (a margin wouldn't shrink it): its height gives way instead. */
+export const DOCK_END_FULL = "group-data-[amr-dock]/amr:h-[calc(100%-var(--amr-dock-footer))]";
 
 /** A touch screen: a field taking focus there raises the keyboard. */
 function onTouchScreen(): boolean {

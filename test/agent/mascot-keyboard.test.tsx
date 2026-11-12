@@ -69,7 +69,8 @@ import {
   MASCOT_BOX_PHONE,
 } from "@/components/agent/mascot/amr-geometry";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "@/components/agent/mascot/engine/figure-metrics";
-import { COMPACT_HIDDEN, COMPACT_LOG } from "@/components/agent/mascot/panel-context";
+import { COMPACT_HIDDEN, COMPACT_LOG, DOCK_END } from "@/components/agent/mascot/panel-context";
+import { listConversations } from "@/lib/agent/persist";
 import { VISIBLE_GAP } from "@/lib/layout/use-visible-area";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
@@ -705,6 +706,92 @@ describe("docked Amr and the keyboard", () => {
           }
         });
       }
+    }
+  }
+
+  /** Twelve saved threads: more than History's list shows at once. */
+  const threads = Array.from({ length: 12 }, (_, i) => ({
+    id: `t${i}`,
+    title: `Thread ${i}`,
+    toolId: null,
+    createdAt: "2026-11-01T10:00:00.000Z",
+    updatedAt: "2026-11-01T10:00:00.000Z",
+    lastMessageAt: "2026-11-01T10:00:00.000Z",
+  }));
+
+  for (const w of [320, 375]) {
+    for (const side of ["right", "left"] as const) {
+      it(`at ${w} px wide, docked ${side}: History's list ends above him, so no row's action is his`, async () => {
+        vi.mocked(listConversations).mockImplementation(async () => threads);
+        try {
+          screenAt(w, 667);
+          await openChat();
+          if (side === "left") {
+            act(() => amr().focus());
+            fireEvent.keyDown(amr(), { key: "ArrowLeft" });
+            await frames();
+          }
+          fireEvent.click(within(dialog()).getByRole("button", { name: "Conversation history" }));
+          const deletes = await within(dialog()).findAllByRole("button", {
+            name: "Delete conversation",
+          });
+          expect(deletes).toHaveLength(threads.length);
+          const panel = dialog();
+          const button = amr();
+          expect(panel).toHaveAttribute("data-amr-dock", side);
+
+          // The list ends DOCK_END above the sheet's foot: the band beside him
+          // is an empty footer, as tall as the composer's in the chat.
+          const list = deletes[0].closest<HTMLElement>("[data-amr-scroll]")!;
+          expect(list.className).toContain(DOCK_END);
+          const footer = Number(
+            /^calc\((\d+)px/.exec(panel.style.getPropertyValue("--amr-dock-footer"))![1]
+          );
+          const listBottom = 667 - px(panel, "--amr-vv-bottom") - footer;
+
+          // His figure, where the shell docked him.
+          const dockBottom = px(button, "--amr-dock-bottom");
+          const dockInline = px(button, "--amr-dock-inline");
+          const boxSide = side === "right" ? w - dockInline - MASCOT_BOX_PHONE.w : dockInline;
+          const hitBox = {
+            left: boxSide + MASCOT_BOX_PHONE.w * HIT_SIDE,
+            right: boxSide + MASCOT_BOX_PHONE.w * (1 - HIT_SIDE),
+            top: 667 - dockBottom - MASCOT_BOX_PHONE.h + FIGURE_TOP * scale,
+            bottom: 667 - dockBottom - MASCOT_BOX_PHONE.h + FIGURE_BOTTOM * scale,
+          };
+          expect(listBottom).toBeLessThanOrEqual(hitBox.top);
+
+          // The lowest row the list shows, whatever its scroll: its actions
+          // sit at the row's end (px-2 in a px-2 list, 44 px each), and the
+          // thread's own button at its start.
+          const right = w - px(panel, "--amr-vv-right") - FRAME - 8 - 8;
+          const left = px(panel, "--amr-vv-left") + FRAME + 8 + 8;
+          const rowY = listBottom - 22;
+          const deleteX = right - 22;
+          const openX = left + 22;
+          const hit = button.querySelector<HTMLElement>("[data-mascot-hit]")!;
+          const row = deletes[deletes.length - 1];
+          Object.defineProperty(document, "elementFromPoint", {
+            configurable: true,
+            value: (x: number, y: number) =>
+              x >= hitBox.left && x <= hitBox.right && y >= hitBox.top && y <= hitBox.bottom
+                ? hit
+                : row,
+          });
+          try {
+            expect(document.elementFromPoint(deleteX, rowY)).toBe(row);
+            expect(document.elementFromPoint(openX, rowY)).toBe(row);
+            // Not even at the very last pixel of the list, anywhere across it.
+            for (let x = left; x <= right; x += 4) {
+              expect(document.elementFromPoint(x, listBottom - 0.5)).not.toBe(hit);
+            }
+          } finally {
+            delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+          }
+        } finally {
+          vi.mocked(listConversations).mockImplementation(async () => []);
+        }
+      });
     }
   }
 });

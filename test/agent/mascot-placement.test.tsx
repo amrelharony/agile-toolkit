@@ -76,6 +76,7 @@ import {
   type PanelSizeName,
 } from "@/components/agent/mascot/amr-geometry";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "@/components/agent/mascot/engine/figure-metrics";
+import { DOCK_END_FULL } from "@/components/agent/mascot/panel-context";
 import { VISIBLE_GAP } from "@/lib/layout/use-visible-area";
 import { useAgentStore } from "@/lib/agent/store";
 import { useBubbleStore } from "@/lib/agent/mascot/bubble";
@@ -1300,6 +1301,34 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
     expect(document.documentElement).toHaveAttribute("data-amr-sheet");
     expect(main).toHaveAttribute("inert");
   });
+
+  for (const w of [320, 360, 375]) {
+    for (const inset of [0, 34]) {
+      for (const figure of [true, false]) {
+        it(`${w}x812${inset ? ", home indicator" : ""}, ${figure ? "his figure" : "the launcher plate"} docked: the tool finder ends above him, so no tile is his`, async () => {
+          screenAt(w, 812, { insetTop: inset ? 44 : 0, insetBottom: inset, header: HEADER_H });
+          render(<MascotAssistant />);
+          if (figure) await withFigure();
+          const panel = openPanel();
+          const finder = await guide();
+          await frames();
+          const button = amrButton();
+          expect(button).toHaveAttribute("data-amr-docked");
+          // Sized h-full, so its height gives way while he is docked.
+          expect(finder.className).toContain(DOCK_END_FULL);
+          expect(finder.className).not.toContain("pb-[var(--amr-dock-footer)]");
+          // Its foot on the screen: the sheet's, less the footer's room.
+          const finderBottom =
+            812 - px(panel, "--amr-vv-bottom") - dockRoom(panel, "--amr-dock-footer");
+          const dockBottom = px(button, "--amr-dock-bottom");
+          const top = figure
+            ? 812 - dockBottom - MASCOT_BOX_PHONE.h + FIGURE_TOP * scale
+            : 812 - dockBottom - LAUNCHER_PLATE.h;
+          expect(finderBottom).toBeLessThanOrEqual(top + 1e-6);
+        });
+      }
+    }
+  }
 
   /**
    * A dock variable's room, px from the sheet's outer edge (its line and
