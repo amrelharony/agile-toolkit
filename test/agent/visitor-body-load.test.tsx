@@ -62,6 +62,7 @@ const visitorBody = vi.hoisted(() => async () => {
 vi.mock("@/components/agent/mascot/visitor-body", visitorBody);
 
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
+import { AMR_PANEL_TITLE_ID } from "@/components/agent/mascot/panel-header";
 import { useAgentStore } from "@/lib/agent/store";
 
 const VISITOR = { status: "anonymous", user: null };
@@ -272,5 +273,65 @@ describe("LazyVisitorBody", () => {
     expect(document.querySelector(".comic-caption")).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(h.imports).toBe(2);
+  });
+
+  it("keeps focus in the panel when Try again goes: on the name plate, then the next Try again", async () => {
+    const { LazyVisitorBody, LiveAnnouncerProvider } = await freshLoader();
+    h.fail = true;
+    render(
+      <LiveAnnouncerProvider>
+        <h2 id={AMR_PANEL_TITLE_ID} tabIndex={-1}>
+          Amr
+        </h2>
+        <LazyVisitorBody ai={false} onNavigate={() => {}} />
+      </LiveAnnouncerProvider>
+    );
+    const plate = screen.getByRole("heading", { name: "Amr" });
+
+    // Pressed with focus on it: the button goes, focus waits on the plate.
+    const first = await screen.findByRole("button", { name: "Try again" });
+    first.focus();
+    fireEvent.click(first);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(plate).toHaveFocus();
+
+    // It fails again: the new Try again takes focus back.
+    const second = await screen.findByRole("button", { name: "Try again" });
+    expect(second).not.toBe(first);
+    await waitFor(() => expect(second).toHaveFocus());
+
+    // It loads: focus stays on the plate, never the page.
+    h.fail = false;
+    fireEvent.click(second);
+    expect(await screen.findByTestId("visitor-body")).toBeInTheDocument();
+    expect(plate).toHaveFocus();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(h.imports).toBe(3);
+  });
+
+  it("leaves focus alone after a failed retry when the visitor has moved it on", async () => {
+    const { LazyVisitorBody } = await freshLoader();
+    h.fail = true;
+    let release = () => {};
+    render(
+      <>
+        <h2 id={AMR_PANEL_TITLE_ID} tabIndex={-1}>
+          Amr
+        </h2>
+        <input aria-label="Elsewhere" />
+        <LazyVisitorBody ai={false} onNavigate={() => {}} />
+      </>
+    );
+    const first = await screen.findByRole("button", { name: "Try again" });
+    // The retry is held back, so focus can move on before it fails.
+    h.gate = new Promise<void>((resolve) => (release = resolve));
+    first.focus();
+    fireEvent.click(first);
+    const elsewhere = screen.getByLabelText("Elsewhere");
+    elsewhere.focus();
+
+    release();
+    await screen.findByRole("button", { name: "Try again" });
+    expect(elsewhere).toHaveFocus();
   });
 });

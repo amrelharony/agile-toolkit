@@ -13,13 +13,15 @@
  * named for screen readers. If the import fails (offline, or a tab left open
  * across a deploy), a narration caption says so and Try again imports it
  * again; a failed import is never kept, so the next try or prefetch starts
- * afresh.
+ * afresh. Try again goes when pressed, so it hands focus to Amr's name plate
+ * first, and to the new Try again if the import fails once more.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { Button } from "@/components/ui/button";
+import { AMR_PANEL_TITLE_ID } from "./panel-header";
 import type { VisitorBodyProps } from "./visitor-body";
 
 type VisitorBodyModule = typeof import("./visitor-body");
@@ -57,6 +59,9 @@ export function LazyVisitorBody(props: VisitorBodyProps) {
   const [body, setBody] = useState(() => loaded);
   const [failed, setFailed] = useState(false);
   const announce = useAnnounce();
+  /** Try again had focus when pressed: the next Try again takes it back. */
+  const retried = useRef(false);
+  const retryRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (body || failed) return;
@@ -76,6 +81,16 @@ export function LazyVisitorBody(props: VisitorBodyProps) {
     };
   }, [body, failed, announce]);
 
+  // A Try again that failed once more: focus back on the new Try again, from
+  // the name plate that held it (or the page, with no plate), unless the
+  // visitor has moved it on since.
+  useEffect(() => {
+    if (!failed || !retried.current) return;
+    retried.current = false;
+    const at = document.activeElement;
+    if (!at || at === document.body || at.id === AMR_PANEL_TITLE_ID) retryRef.current?.focus();
+  }, [failed]);
+
   if (body) return <body.VisitorBody {...props} />;
   if (failed) {
     return (
@@ -83,7 +98,21 @@ export function LazyVisitorBody(props: VisitorBodyProps) {
         <Narration
           tone="error"
           actions={
-            <Button type="button" variant="outline" size="sm" onClick={() => setFailed(false)}>
+            <Button
+              ref={retryRef}
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                // The button is about to go: hand focus to the name plate
+                // (tabIndex -1), so it never drops to the page.
+                if (document.activeElement === e.currentTarget) {
+                  retried.current = true;
+                  document.getElementById(AMR_PANEL_TITLE_ID)?.focus();
+                }
+                setFailed(false);
+              }}
+            >
               Try again
             </Button>
           }
