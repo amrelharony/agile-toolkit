@@ -127,7 +127,7 @@ const OUTPUT_START =
   /^(build|implement|develop|create|add|ship|release|launch|deliver|make|code|migrate|integrate|rewrite|refactor|finish|complete)\b/i;
 /** Words that name an outcome for someone. */
 const OUTCOME_WORDS =
-  /\b(so that|so|customers?|users?|people|teams?|patients?|shoppers?|members?|clients?|can|able|without|faster|fewer|less|more|reduce|increase|grow|halve|double|trust|choose|keep|stay|reach|become|be)\b/i;
+  /\b(so that|so|customers?|users?|people|teams?|patients?|shoppers?|members?|clients?|owners?|buyers?|sellers?|staff|employees?|students?|readers?|players?|guests?|drivers?|riders?|everyone|anyone|anywhere|can|able|without|faster|fewer|less|more|reduce|increase|grow|halve|double|trust|choose|keep|stay|reach|become|be)\b/i;
 /** A number, a percentage or a money amount: something to measure against. */
 const MEASURE_HINT = /\d|%|\b(half|double|twice|triple|zero|none|every|all)\b/i;
 
