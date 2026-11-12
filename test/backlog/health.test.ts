@@ -226,6 +226,6 @@ describe("splits and scenarios without AI", () => {
     ]);
     const plain = draftScenarios("Refund a payment");
     expect(plain).toHaveLength(2);
-    expect(plain[0].when).toBe("someone tries to refund a payment");
+    expect(plain[0].when).toBe("someone uses “Refund a payment”");
   });
 });

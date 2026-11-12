@@ -112,10 +112,13 @@ const pct = (share: number) => `${Math.round(share * 100)}%`;
 /** The backlog's stories, in the shared order: not done, in no sprint, no example rows. */
 export function backlogForHealth(
   stories: readonly Story[],
-  backlogItems?: readonly Pick<BacklogItem, "id" | "rank">[]
+  backlogItems?: readonly Pick<BacklogItem, "id" | "rank">[],
+  { withExamples = false }: { withExamples?: boolean } = {}
 ): Story[] {
   return withLiveBacklogRank(
-    stories.filter((s) => !s.sprintId && s.status === "backlog" && !isExampleId(s.id)),
+    stories.filter(
+      (s) => !s.sprintId && s.status === "backlog" && (withExamples || !isExampleId(s.id))
+    ),
     backlogItems
   ).sort(compareBacklogOrder);
 }
@@ -445,16 +448,16 @@ export function draftScenarios(title: string): { given: string; when: string; th
       },
     ];
   }
-  const action = t.charAt(0).toLowerCase() + t.slice(1);
+  const what = cap(t, 180);
   return [
     {
       given: "the starting situation for this story",
-      when: cap(`someone tries to ${action}`, 200),
+      when: `someone uses “${what}”`,
       then: "it works, and they can see that it did",
     },
     {
       given: "something goes wrong on the way",
-      when: cap(`someone tries to ${action}`, 200),
+      when: `someone uses “${what}”`,
       then: "they are told what happened and what to do next",
     },
   ];
