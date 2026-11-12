@@ -13,15 +13,22 @@ import {
   type StageId,
 } from "@/lib/flow";
 import { cn } from "@/lib/utils";
-import { barLabel, efficiencySentence } from "../stage-text";
+import { barLabel, efficiencySentence, stageSplit } from "../stage-text";
 
-/** Each status's colour in the bars and the legend (theme tokens, solid). */
+/**
+ * Each status's colour in the bars and the legend (theme tokens, solid).
+ * The statuses a cycle can hold (In progress, Review, a stint in Done) each
+ * get their own token, of clearly different hues in every theme (In
+ * progress orange or yellow, Review blue, Done green). Colour is never the
+ * only clue: a gap splits the bar's parts, and each bar says its split in
+ * words under it. The queues never fall inside a cycle (lib/flow stages).
+ */
 export const STAGE_SWATCH: Record<StageId, string> = {
   backlog: "bg-sub",
   todo: "bg-sub",
-  ready: "bg-info",
+  ready: "bg-sub",
   in_progress: "bg-accent",
-  review: "bg-accent-amber",
+  review: "bg-info",
   done: "bg-accent-green",
 };
 
@@ -210,16 +217,18 @@ export function StageSection({
                       </span>
                     </div>
                     <div className="mt-1 h-3 w-full rounded-full bg-surface-deep">
+                      {/* A gap between the parts, so they read apart without their colours. */}
                       <div
                         role="img"
                         aria-label={barLabel(item)}
-                        className="flex h-3 overflow-hidden rounded-full"
+                        className="flex h-3 gap-0.5 overflow-hidden rounded-full"
                         style={{ width: `${width}%` }}
                       >
                         {item.stages.map((s) => (
                           <span
                             key={s.stage}
-                            className={cn("h-full", STAGE_SWATCH[s.stage])}
+                            data-stage={s.stage}
+                            className={cn("h-full min-w-0.5", STAGE_SWATCH[s.stage])}
                             style={{
                               width: `${item.elapsedDays > 0 ? (s.days / item.elapsedDays) * 100 : 100 / item.stages.length}%`,
                             }}
@@ -227,6 +236,10 @@ export function StageSection({
                         ))}
                       </div>
                     </div>
+                    {/* The split in words, for eyes; a screen reader hears it in the bar's label. */}
+                    <p aria-hidden="true" className="mt-0.5 break-words text-xs text-sub">
+                      {stageSplit(item)}
+                    </p>
                   </li>
                 );
               })}

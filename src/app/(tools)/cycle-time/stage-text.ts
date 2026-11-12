@@ -42,6 +42,11 @@ export function efficiencySentence(b: StageBreakdown): string | null {
   return `Flow efficiency ${e.pct}%: from start to done, work was in an active status ${e.pct}% of the time and waiting in ${listed(waitingNames(b))} the rest.`;
 }
 
+/** An item's split, under its bar: "In progress 5.5 days · Review 4 days". */
+export function stageSplit(item: Pick<ItemStageTimes, "stages">): string {
+  return item.stages.map((s) => `${STAGE_LABEL[s.stage]} ${stageDuration(s.days)}`).join(" · ");
+}
+
 /** An item's bar, read out: "Saved addresses: 9.5 days, In progress 5.5 days, Review 4 days." */
 export function barLabel(item: ItemStageTimes): string {
   const parts = item.stages.map((s) => `${STAGE_LABEL[s.stage]} ${stageDuration(s.days)}`);

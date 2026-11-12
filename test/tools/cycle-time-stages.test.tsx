@@ -49,7 +49,7 @@ import {
 import { boardStages } from "@/app/(tools)/cycle-time/helpers";
 import { buildExample } from "@/app/(tools)/cycle-time/example";
 import { barLabel, efficiencySentence, stageMarkdown } from "@/app/(tools)/cycle-time/stage-text";
-import { BARS_SHOWN } from "@/app/(tools)/cycle-time/components/stage-section";
+import { BARS_SHOWN, STAGE_SWATCH } from "@/app/(tools)/cycle-time/components/stage-section";
 import type { CycleSource } from "@/app/(tools)/cycle-time/types";
 
 // The first render imports the whole page; on a loaded machine that alone can pass 5 s.
@@ -196,10 +196,17 @@ describe("Time in each status, on the page", () => {
     // s0 was done most recently.
     expect(bars[0]).toHaveAccessibleName(barLabel(b.items[b.items.length - 1]));
     expect(bars[0].getAttribute("aria-label")).toMatch(/^Story s0: .*In progress .*, Review /);
+    // The split in words under each bar too, so the colours are never the only clue.
+    const first = bars[0].closest("li")!;
+    expect(first).toHaveTextContent("In progress 1 day · Review 1 day");
+    expect(Array.from(bars[0].querySelectorAll("[data-stage]")).map((e) => e.className)).toEqual([
+      expect.stringContaining(STAGE_SWATCH.in_progress),
+      expect.stringContaining(STAGE_SWATCH.review),
+    ]);
     fireEvent.click(screen.getByRole("button", { name: `Show all ${BARS_SHOWN + 2}` }));
     expect(within(list).getAllByRole("img")).toHaveLength(BARS_SHOWN + 2);
     expect(
-      within(screen.getByRole("list", { name: "Statuses in the bars" })).getByText("Review")
+      within(screen.getByRole("list", { name: "Statuses in the bars" })).getByText(/^Review/)
     ).toBeInTheDocument();
   });
 
@@ -319,6 +326,11 @@ describe("Time in each status, kept and shared", () => {
     expect(agent.flowEfficiency.pct).toBe(page.efficiency.pct);
     const median = page.stages.find((s) => s.stage === "review")!.median!;
     expect(agent.stages.find((s) => s.stage === "review")!.median).toBeCloseTo(median, 2);
+  });
+
+  it("gives every status a cycle can hold its own colour", () => {
+    const held = ["in_progress", "review", "done"] as const;
+    expect(new Set(held.map((s) => STAGE_SWATCH[s])).size).toBe(held.length);
   });
 
   it("writes nothing for a board with no recorded moves", () => {
