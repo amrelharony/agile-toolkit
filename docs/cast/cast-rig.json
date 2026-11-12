@@ -1,0 +1,630 @@
+{
+  "about": "The public half of the cast puppet spec: body families, the images each character's ChatGPT chat makes, batches, background keys, the tolerances the brief states and the builder checks, and budgets. Character canon (looks, colours, references) lives only in the private sources folder; see docs/cast/CAST-BUILD.md.",
+  "brief_version": 1,
+  "keys": {
+    "magenta": "#FF00FF",
+    "green": "#00FF00"
+  },
+  "tolerances": {
+    "canvas_w": 1536,
+    "canvas_h": 1024,
+    "master_height_px": 880,
+    "sole_px": 70,
+    "face_head_px": 300,
+    "scale_min": 0.6,
+    "scale_max": 1.1,
+    "tilt_deg": 10,
+    "speck_px": 12,
+    "margin_ask_px": 48,
+    "margin_fail_px": 24,
+    "gap_ask_px": 32,
+    "gap_fail_px": 12,
+    "pupil_min_px": 16,
+    "de00_fix": 8,
+    "de00_regen": 10,
+    "key_de00_min": 24,
+    "ncc_min": 0.8,
+    "ncc_warn": 0.85,
+    "iou_rest": 0.95,
+    "iou_rest_complex": 0.93,
+    "cap_residual": 0.08,
+    "cap_cover": 0.9,
+    "joint_cover": 0.99,
+    "bg_transparent_min": 0.25,
+    "despill_residue_max": 0.005
+  },
+  "shown_to_chatgpt": [
+    "canvas_w",
+    "canvas_h",
+    "master_height_px",
+    "sole_px",
+    "face_head_px",
+    "scale_min",
+    "scale_max",
+    "tilt_deg",
+    "speck_px",
+    "margin_ask_px",
+    "gap_ask_px",
+    "pupil_min_px"
+  ],
+  "families": {
+    "human": {
+      "arms": "human"
+    },
+    "biped": {
+      "arms": "human"
+    },
+    "shelled": {
+      "arms": "human"
+    },
+    "bird": {
+      "arms": "wing"
+    },
+    "quadruped": {
+      "arms": null
+    },
+    "object": {
+      "arms": "tube"
+    },
+    "floating": {
+      "arms": "mitten"
+    },
+    "octopus": {
+      "arms": "tentacle"
+    },
+    "spider": {
+      "arms": "spider"
+    },
+    "insect": {
+      "arms": "human"
+    }
+  },
+  "batches": {
+    "A": ["AAW-01", "AAW-04", "AAW-05", "AAW-18", "AAW-22", "AAW-25"],
+    "B": ["AAW-08", "AAW-09", "AAW-10", "AAW-17", "AAW-19", "AAW-23"],
+    "C": ["AAW-15", "AAW-16", "AAW-20", "AAW-21", "AAW-24", "AAW-27"],
+    "D": ["AAW-07", "AAW-11", "AAW-13", "AAW-14", "AAW-29", "AAW-30"],
+    "E": ["AAW-02", "AAW-03", "AAW-06", "AAW-12", "AAW-26", "AAW-28"]
+  },
+  "characters": [
+    {
+      "id": "AAW-01",
+      "name": "Amr",
+      "family": "human",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "face2", "arms"],
+      "parts": ["head", "torso", "cord", "arm-r", "arm-l", "leg-r", "leg-l"]
+    },
+    {
+      "id": "AAW-02",
+      "name": "Ahwa Cup",
+      "family": "object",
+      "key": "magenta",
+      "card": false,
+      "images": ["master", "parts", "face", "arms"],
+      "parts": ["torso", "pupil-r", "pupil-l", "arm-r", "arm-l", "leg-r", "leg-l"]
+    },
+    {
+      "id": "AAW-03",
+      "name": "Zombie Backlog",
+      "family": "human",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l"
+      ]
+    },
+    {
+      "id": "AAW-04",
+      "name": "Dependable Beaver",
+      "family": "biped",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-05",
+      "name": "Capacity Camel",
+      "family": "quadruped",
+      "key": "magenta",
+      "images": ["master", "parts", "parts2", "face"],
+      "parts": ["head", "pupil-r", "pupil-l", "neck", "torso", "load", "tie", "cord"],
+      "parts2": ["leg-fr", "leg-fl", "leg-hr", "leg-hl", "tail"]
+    },
+    {
+      "id": "AAW-06",
+      "name": "Scope Creep Cat",
+      "family": "biped",
+      "key": "green",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "ear-r",
+        "ear-l",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-07",
+      "name": "Requirement Chameleon",
+      "family": "biped",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-08",
+      "name": "Dinosaur",
+      "family": "biped",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-09",
+      "name": "Rubber Duck Analyst",
+      "family": "bird",
+      "key": "magenta",
+      "arms": "glove",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": ["head", "pupil-r", "pupil-l", "torso", "cord", "arm-r", "arm-l", "leg-r", "leg-l"]
+    },
+    {
+      "id": "AAW-10",
+      "name": "Value Falcon",
+      "family": "bird",
+      "key": "magenta",
+      "arms": "human",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-11",
+      "name": "Firefighter Fox",
+      "family": "biped",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "ear-r",
+        "ear-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-12",
+      "name": "Data Ghost",
+      "family": "floating",
+      "key": "green",
+      "arms": "soft",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": ["torso", "pupil-r", "pupil-l", "arm-r", "arm-l", "cord"]
+    },
+    {
+      "id": "AAW-13",
+      "name": "Feature Factory Hamster",
+      "family": "biped",
+      "key": "green",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-14",
+      "name": "Silo Hedgehog",
+      "family": "biped",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "quills"
+      ]
+    },
+    {
+      "id": "AAW-15",
+      "name": "HiPPO",
+      "family": "biped",
+      "key": "green",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l"
+      ]
+    },
+    {
+      "id": "AAW-16",
+      "name": "Meeting Monkey",
+      "family": "biped",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-17",
+      "name": "Experiment Mouse",
+      "family": "biped",
+      "key": "green",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "ear-r",
+        "ear-l",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-18",
+      "name": "Overengineering Octopus",
+      "family": "octopus",
+      "key": "green",
+      "images": ["master", "parts", "parts2", "face", "arms"],
+      "parts": ["head", "pupil-r", "pupil-l", "torso", "cord", "leg-r", "leg-l"],
+      "parts2": [
+        "tentacle-1",
+        "tentacle-2",
+        "tentacle-3",
+        "tentacle-4",
+        "tentacle-5",
+        "tentacle-6",
+        "tentacle-7",
+        "tentacle-8"
+      ]
+    },
+    {
+      "id": "AAW-19",
+      "name": "Perfectionist Owl",
+      "family": "bird",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-20",
+      "name": "Captain Blocker Ox",
+      "family": "biped",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-21",
+      "name": "Customer Voice Parrot",
+      "family": "bird",
+      "key": "magenta",
+      "arms": "feathered",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-22",
+      "name": "Vanity Metrics Peacock",
+      "family": "bird",
+      "key": "magenta",
+      "arms": "human",
+      "images": ["master", "parts", "parts2", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l"
+      ],
+      "parts2": ["fan-open", "fan-closed"]
+    },
+    {
+      "id": "AAW-23",
+      "name": "Deadline Rabbit",
+      "family": "biped",
+      "key": "green",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "ear-r",
+        "ear-l",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-24",
+      "name": "Dependency Spider",
+      "family": "spider",
+      "key": "green",
+      "images": ["master", "parts", "parts2", "face", "arms"],
+      "parts": ["head", "pupil-r", "pupil-l", "torso", "tie", "cord", "abdomen"],
+      "parts2": ["limb-1", "limb-2", "limb-3", "limb-4", "limb-5", "limb-6", "limb-7", "limb-8"]
+    },
+    {
+      "id": "AAW-25",
+      "name": "Agile Sticky",
+      "family": "object",
+      "key": "magenta",
+      "card": false,
+      "images": ["master", "parts", "face", "arms"],
+      "parts": ["torso", "flap", "pupil-r", "pupil-l", "arm-r", "arm-l", "leg-r", "leg-l"]
+    },
+    {
+      "id": "AAW-26",
+      "name": "Technical Debt Termite",
+      "family": "insect",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "arm-r",
+        "arm-l",
+        "limb-mid-r",
+        "limb-mid-l",
+        "leg-r",
+        "leg-l"
+      ]
+    },
+    {
+      "id": "AAW-27",
+      "name": "Retrospective Turtle",
+      "family": "shelled",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "collar",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-28",
+      "name": "Blame Game Wolf",
+      "family": "biped",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "ear-r",
+        "ear-l",
+        "torso",
+        "tie",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-29",
+      "name": "Assurance Badger",
+      "family": "biped",
+      "key": "magenta",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    },
+    {
+      "id": "AAW-30",
+      "name": "Automation Raccoon",
+      "family": "biped",
+      "key": "green",
+      "images": ["master", "parts", "face", "arms"],
+      "parts": [
+        "head",
+        "pupil-r",
+        "pupil-l",
+        "torso",
+        "cord",
+        "arm-r",
+        "arm-l",
+        "leg-r",
+        "leg-l",
+        "tail"
+      ]
+    }
+  ],
+  "budgets": {
+    "atlas_1x_kb": 24,
+    "atlas_2x_kb": 60,
+    "atlas_complex_1x_kb": 32,
+    "atlas_complex_2x_kb": 80,
+    "complex": ["AAW-05", "AAW-18", "AAW-22", "AAW-24"],
+    "figure_css_px_max": 240,
+    "rig_nodes_max": 48,
+    "rig_animated_max": 10,
+    "note": "Provisional. The pilot (batch A) measures real atlases and rewrites these numbers; the tests follow."
+  }
+}

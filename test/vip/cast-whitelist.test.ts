@@ -18,6 +18,7 @@ import {
 } from "../../scripts/cast-whitelist.mjs";
 import { CAST } from "@/lib/vip/cast.generated";
 import { castAnchor, filterCast, hookTargets } from "@/lib/vip/cast";
+import { PRIVATE_FIELDS } from "./private-fields";
 
 const fixture = JSON.parse(
   readFileSync(path.join(__dirname, "fixtures/canon-fixture.json"), "utf8")
@@ -25,22 +26,6 @@ const fixture = JSON.parse(
 
 const CARD_KEYS = [...CAST_FIELDS, "relationship_hooks"].sort();
 const HOOK_KEYS = [...HOOK_FIELDS].sort();
-
-const PRIVATE_FIELDS = [
-  "research_source_ids",
-  "safe_comic_engine",
-  "growth_arc",
-  "expanded_story_uses",
-  "avoid",
-  "canonical_visual_preserve",
-  "asset_path",
-  "asset_sha256",
-  "legacy_aliases",
-  "voice",
-  "visual_status",
-  "palette",
-  "lanyard",
-];
 
 describe("pickCast", () => {
   const cards = pickCast(fixture);
