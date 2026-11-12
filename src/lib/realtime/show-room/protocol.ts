@@ -91,7 +91,7 @@ export function isFrameKind(v: unknown): v is string {
 
 /** One frame as it travels: the payload is JSON text, validated by the tool's parser. */
 export interface ShowFrameWire {
-  /** Rises with every frame the host shows (a new spin is a new frame). */
+  /** Rises with every frame the host shows (a new spin is a new frame); Clear doesn't reset it. */
   n: number;
   kind: string;
   /** The payload as JSON text. */

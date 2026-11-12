@@ -7,8 +7,8 @@
  * doesn't know, from a newer build, or a payload its parser refused) gets
  * a "reload" line instead of anything from the wire.
  *
- * A new frame is announced politely, once, by number, so the same spin
- * twice is two announcements.
+ * A new frame is announced politely, once, by number and time, so the
+ * same spin twice is two announcements.
  */
 
 import { useEffect, useRef } from "react";
@@ -36,14 +36,16 @@ export function ShowFrameView({
   className,
 }: ShowFrameViewProps) {
   const announce = useAnnounce();
-  const lastN = useRef<number | null>(null);
+  const lastKey = useRef<string | null>(null);
+  // A frame's number and the host's time for it: a new frame always differs.
+  const frameKey = frame ? `${frame.n}-${frame.at}` : null;
   useEffect(() => {
-    if (surface !== "phone" || !frame) return;
-    if (lastN.current === frame.n) return;
-    const first = lastN.current === null;
-    lastN.current = frame.n;
+    if (surface !== "phone" || frameKey === null) return;
+    if (lastKey.current === frameKey) return;
+    const first = lastKey.current === null;
+    lastKey.current = frameKey;
     if (!first) announce("The host showed something new.");
-  }, [frame, surface, announce]);
+  }, [frameKey, surface, announce]);
 
   const Renderer = frame?.supported ? showRendererFor(tool, frame.kind) : null;
 
@@ -62,7 +64,7 @@ export function ShowFrameView({
       ) : Renderer ? (
         <Renderer
           // A new frame mounts afresh, so a renderer's own reveal plays again.
-          key={frame.n}
+          key={frameKey}
           payload={frame.payload}
           frame={{ n: frame.n, kind: frame.kind, at: frame.at }}
           surface={surface}

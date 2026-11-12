@@ -150,6 +150,32 @@ describe("useShowRoom: host", () => {
     expect(result.current.frame).toBeNull();
   });
 
+  it("keeps numbering frames after Clear, even when Clear and the next frame go out together", async () => {
+    const { ch, result } = await startHost();
+    act(() => {
+      result.current.show("text", { title: "Alex" });
+    });
+    await tick(400);
+    expect(states(ch).at(-1)!.frame).toMatchObject({ n: 1 });
+    // Clear, then a new frame within the same throttle window: the clear
+    // never goes out on its own, so the new frame must still be a new number.
+    act(() => {
+      result.current.clear();
+      result.current.show("text", { title: "Bo" });
+    });
+    await tick(400);
+    expect(states(ch).at(-1)!.frame).toMatchObject({ n: 2, data: '{"title":"Bo","body":""}' });
+    act(() => result.current.clear());
+    await tick(400);
+    expect(states(ch).at(-1)!.frame).toBeNull();
+    act(() => {
+      result.current.show("text", { title: "Cy" });
+    });
+    await tick(400);
+    expect(states(ch).at(-1)!.frame).toMatchObject({ n: 3 });
+    expect(result.current.frame).toMatchObject({ n: 3, payload: { title: "Cy" } });
+  });
+
   it("sends the latest frame to someone who joins late", async () => {
     const { ch, result } = await startHost([HOST, A]);
     act(() => {
@@ -286,6 +312,46 @@ describe("useShowRoom: participant", () => {
     expect(result.current.hereCount).toBe(1);
   });
 
+  it("shows a new frame after a missed Clear, and keeps the parsed one on a keepalive", async () => {
+    const { result } = joined();
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, A]);
+    });
+    await flush();
+    const alex = { n: 1, kind: "text", data: '{"title":"Alex","body":""}', at: NOW };
+    await deliver(ch, SHOW_ROOM_EVENTS.state, await signed({ seq: 1, frame: alex }));
+    expect(result.current.frame).toMatchObject({ n: 1, payload: { title: "Alex" } });
+    const shown = result.current.frame;
+    // The 30 s keepalive carries the same frame: nothing changes on screen.
+    await deliver(ch, SHOW_ROOM_EVENTS.state, await signed({ seq: 2, frame: alex }));
+    expect(result.current.frame).toBe(shown);
+    // The state with the Clear was lost; the next frame still replaces the old one.
+    await deliver(
+      ch,
+      SHOW_ROOM_EVENTS.state,
+      await signed({
+        seq: 4,
+        frame: { n: 2, kind: "text", data: '{"title":"Bo","body":""}', at: NOW + 1_000 },
+      })
+    );
+    expect(result.current.frame).toMatchObject({ n: 2, payload: { title: "Bo" } });
+    // Even a frame that reuses a number (a host on an older build) replaces it
+    // when its payload differs.
+    await deliver(
+      ch,
+      SHOW_ROOM_EVENTS.state,
+      await signed({
+        seq: 5,
+        frame: { n: 2, kind: "text", data: '{"title":"Cy","body":""}', at: NOW + 2_000 },
+      })
+    );
+    expect(result.current.frame).toMatchObject({ n: 2, payload: { title: "Cy" } });
+    await deliver(ch, SHOW_ROOM_EVENTS.state, await signed({ seq: 6, frame: null }));
+    expect(result.current.frame).toBeNull();
+  });
+
   it("says I'm here, and sends nothing else", async () => {
     const { result } = joined();
     const ch = fakeRealtime.last();
@@ -338,5 +404,31 @@ describe("ShowFrameView", () => {
       </LiveAnnouncerProvider>
     );
     expect(screen.getByText(/can't display\. Reload the page/)).toBeInTheDocument();
+  });
+
+  it("announces a new frame even when it reuses the last number", async () => {
+    const frame = (n: number, at: number, title: string) => ({
+      n,
+      kind: "text",
+      payload: { title, body: "" },
+      supported: true,
+      at,
+    });
+    const { rerender } = render(
+      <LiveAnnouncerProvider>
+        <ShowFrameView tool="picker" frame={frame(1, NOW, "Alex")} />
+      </LiveAnnouncerProvider>
+    );
+    expect(screen.getByTestId("live-polite")).toHaveTextContent("");
+    rerender(
+      <LiveAnnouncerProvider>
+        <ShowFrameView tool="picker" frame={frame(1, NOW + 1_000, "Bo")} />
+      </LiveAnnouncerProvider>
+    );
+    expect(screen.getByText("Bo")).toBeInTheDocument();
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(screen.getByTestId("live-polite")).toHaveTextContent("The host showed something new.");
   });
 });

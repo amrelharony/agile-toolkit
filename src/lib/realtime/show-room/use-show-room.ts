@@ -10,13 +10,16 @@
  *    goes through the tool's parser first (`frames.ts`) and is refused
  *    (false) when the parser refuses it, the kind is unknown, or it is too
  *    big. Each frame gets the next number, so the same spin twice is two
- *    frames. `clear()` takes it down;
+ *    frames. `clear()` takes it down; numbers keep rising after a Clear, so
+ *    a phone that missed the Clear still sees the next frame as new;
  *  - counts who said "I'm here": the ids are kept in memory only, to count
  *    each seat once, and only seats still in the room count.
  *
  * Participant:
  *  - renders the pinned host's latest frame, its payload parsed by the
- *    tool's parser (a kind this page doesn't know shows `unsupported`);
+ *    tool's parser (a kind this page doesn't know shows `unsupported`); a
+ *    state carrying the frame on screen again (a keepalive) keeps it, and
+ *    anything else in it (number, kind, payload or time) makes a new frame;
  *  - `sayHere(here)` tells the host "I'm here" (or not any more). That is
  *    all a participant sends.
  *
@@ -112,6 +115,11 @@ export interface ShowRoom extends Pick<
   clear: () => void;
 }
 
+/** The same frame as it travels: number, kind, payload and time all match. */
+function sameWire(a: ShowFrameWire, b: ShowFrameWire): boolean {
+  return a.n === b.n && a.kind === b.kind && a.data === b.data && a.at === b.at;
+}
+
 function frameOf(tool: ShowRoomTool, wire: ShowFrameWire): ShowFrame {
   const payload = parseShowPayload(tool, wire.kind, wire.data);
   return { n: wire.n, kind: wire.kind, payload, supported: payload !== null, at: wire.at };
@@ -119,8 +127,12 @@ function frameOf(tool: ShowRoomTool, wire: ShowFrameWire): ShowFrame {
 
 export function useShowRoom(opts: UseShowRoomOptions): ShowRoom {
   const { tool, role } = opts;
-  // Host: the frame as sent, and the seats that said "I'm here".
+  // Host: the frame as sent, the last frame number used (never reset, not
+  // even by Clear), and the seats that said "I'm here".
   const frameRef = useRef<ShowFrameWire | null>(null);
+  const lastNRef = useRef(0);
+  // Participant: the frame on screen as it came, to tell a keepalive from a new frame.
+  const wireRef = useRef<ShowFrameWire | null>(null);
   const hereRef = useRef<Set<string>>(new Set());
   const [frame, setFrame] = useState<ShowFrame | null>(null);
   const [hereCount, setHereCount] = useState(0);
@@ -153,12 +165,12 @@ export function useShowRoom(opts: UseShowRoomOptions): ShowRoom {
     buildBody: () => ({ here: countHere(), frame: frameRef.current }),
     onState: (msg) => {
       setHereCount(msg.here);
-      setFrame((prev) => {
-        if (!msg.frame) return null;
-        // The same frame again (a keepalive): keep the parsed one.
-        if (prev && prev.n === msg.frame.n && prev.kind === msg.frame.kind) return prev;
-        return frameOf(tool, msg.frame);
-      });
+      const next = msg.frame;
+      const prev = wireRef.current;
+      // The same frame again (a keepalive): keep the parsed one.
+      if (next && prev && sameWire(prev, next)) return;
+      wireRef.current = next;
+      setFrame(next ? frameOf(tool, next) : null);
     },
     tooBigMessage: "That's too much to show live. Show less at once.",
   });
@@ -195,8 +207,9 @@ export function useShowRoom(opts: UseShowRoomOptions): ShowRoom {
       if (role !== "host" || !activeRef.current) return false;
       const data = encodeShowPayload(tool, kind, payload);
       if (data === null) return false;
+      lastNRef.current += 1;
       const wire: ShowFrameWire = {
-        n: (frameRef.current?.n ?? 0) + 1,
+        n: lastNRef.current,
         kind,
         data,
         at: Date.now(),
