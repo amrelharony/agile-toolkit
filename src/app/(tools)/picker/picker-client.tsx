@@ -108,10 +108,15 @@ export function PickerClient() {
   const announce = useAnnounce();
 
   // ── Saved state ───────────────────────────────────────────
+  // The store loads this browser's copy as soon as it is created
+  // (lib/picker/store), but the first render shows the defaults, as the
+  // server render did, so the two agree.
   const raw = usePickerStore();
-  const state = useMemo(() => normalizePickerState(raw), [raw]);
+  const [mounted, setMounted] = useState(false);
+  const state = useMemo(() => normalizePickerState(mounted ? raw : PICKER_INITIAL), [raw, mounted]);
   useEffect(() => {
     void ensurePickerHydrated();
+    setMounted(true);
   }, []);
 
   const roster = useTeamRoster();
