@@ -29,6 +29,7 @@
     "reg_keep_min_px": 16,
     "reg_unexplained_max": 0.25,
     "reg_coverage_min": 0.6,
+    "own_visible_min_px": 200,
     "iou_rest": 0.95,
     "iou_rest_complex": 0.93,
     "cap_residual": 0.08,

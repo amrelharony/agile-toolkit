@@ -137,6 +137,26 @@ class Stacking(unittest.TestCase):
         self.assertLess(got.index("b"), got.index("a"))
 
 
+class OwnPixels(unittest.TestCase):
+    def test_a_piece_lying_on_another_of_its_colours_explains_nothing_of_its_own(self):
+        size = (400, 400)
+        body = flat((150, 60, 250, 300), Stacking.RED, size=400)
+        arm = flat((80, 100, 140, 330), Stacking.BLUE, size=400)  # an arm beside the body
+        # A tail in the arm's colours behind the body, only its tip showing below it.
+        tail = flat((170, 220, 230, 360), Stacking.BLUE, size=400)
+        master = rig.compose({"tail": tail, "body": body, "arm": arm}, ["tail", "body", "arm"])
+        right = rig.own_pixels({"body": body, "arm": arm, "tail": tail}, master)
+        self.assertEqual(right["tail"], 60 * 60)  # the tip below the body is its own
+        self.assertGreaterEqual(right["tail"], spec.TOL["own_visible_min_px"])
+        # The same tail laid on the arm: every pixel it matches, the arm shows too.
+        wrong = rig.own_pixels({"body": body, "arm": arm, "tail": flat((85, 150, 135, 290), Stacking.BLUE, size=400)}, master)
+        self.assertEqual(wrong["tail"], 0)
+        self.assertLess(wrong["tail"], spec.TOL["own_visible_min_px"])
+        self.assertEqual(wrong["body"], right["body"])  # the body keeps its own
+        self.assertGreater(wrong["arm"], 0)
+        self.assertEqual(rig.own_pixels({}, master), {})
+
+
 class Fold(unittest.TestCase):
     """A folded corner joins the body along a straight fold with no round cap: the
     body is cut away along the fold, and the corner lies over the body with its

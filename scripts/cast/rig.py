@@ -229,6 +229,24 @@ def face_piece(c: dict, baked: dict, tree: dict, z: dict, pupils: list) -> np.nd
     return compose(piece, order)
 
 
+def own_pixels(baked: dict, master: np.ndarray) -> dict:
+    """{piece: the master pixels it alone explains}: on the figure, drawn there in
+    the piece's own colours (within diff_de00) and in no other placed piece's. A
+    mostly hidden piece laid on another of the same colours (a tail on an arm
+    drawn in its colours) explains nothing of its own, where its visible tip,
+    placed right, does."""
+    solid = master[..., 3] >= SOLID_ALPHA
+    match = {}
+    for pid, b in baked.items():
+        ys, xs = np.nonzero((b[..., 3] >= SOLID_ALPHA) & solid)
+        same = im.de00(im.lab(b[ys, xs, :3].astype(float)), im.lab(master[ys, xs, :3].astype(float))) <= TOL["diff_de00"]
+        m = np.zeros(solid.shape, bool)
+        m[ys[same], xs[same]] = True
+        match[pid] = m
+    count = sum(m.astype(np.int16) for m in match.values()) if match else None
+    return {pid: int((m & (count == 1)).sum()) for pid, m in match.items()}
+
+
 def iou(a: np.ndarray, b: np.ndarray) -> float:
     u = (a | b).sum()
     return float((a & b).sum() / u) if u else 1.0
@@ -352,6 +370,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     c6 = {"parts": {}, "status": "pass", "notes": []}
     # How many placed pieces cover each pixel, so each piece sees the others' union.
     layers = sum((b[..., 3] >= SOLID_ALPHA).astype(np.int16) for b in baked.values()) if baked else None
+    alone = own_pixels(baked, master)
     for pid, reg in regs.items():
         st = "pass"
         if reg.ncc < TOL["ncc_min"]:
@@ -375,6 +394,12 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         if reg.coverage < TOL["reg_coverage_min"]:
             st = "fail"
             c6["notes"].append(f"{pid}: only {reg.coverage:.0%} of it lands on the figure")
+        # Coverage and unexplained both forgive what lies under another piece: a
+        # piece must also explain some of the master that no other piece does.
+        row["own_px"] = alone[pid]
+        if alone[pid] < TOL["own_visible_min_px"]:
+            st = "fail"
+            c6["notes"].append(f"{pid}: only {alone[pid]} px of the master are its own; it lies on what other pieces show")
         c6["parts"][pid] = {**row, "status": st}
         c6["status"] = checks.worst(c6["status"], st)
     lost = [i for i in ids_all if i not in named and not i.startswith("pupil-")]
