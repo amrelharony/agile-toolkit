@@ -8,7 +8,7 @@
  * a guess, or save value poker's agreed value to its backlog item (with Undo).
  */
 
-import { useId, useState } from "react";
+import { useId, useState, type RefObject } from "react";
 import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,8 +28,13 @@ import {
 } from "@/lib/quick-vote/results";
 import { asKitResult, resultHandoff } from "./model";
 
+/** Each row's delete button: focus moves to the next one when a row goes. */
+export const DELETE_RESULT_SELECTOR = 'button[aria-label^="Delete the result"]';
+
 export interface ResultsListProps {
   results: readonly SavedResult[];
+  /** The list, for moving focus after a delete. */
+  listRef?: RefObject<HTMLUListElement>;
   readOnly: boolean;
   /** Backlog item names by id, for value poker. */
   itemName: (id: string) => string | null;
@@ -53,7 +58,7 @@ function when(iso: string): string {
 
 export function ResultsList(props: ResultsListProps) {
   return (
-    <ul className="space-y-3" aria-label="Saved results, newest first">
+    <ul ref={props.listRef} className="space-y-3" aria-label="Saved results, newest first">
       {props.results.map((saved) => (
         <ResultRow key={saved.id} saved={saved} {...props} />
       ))}
@@ -191,10 +196,9 @@ function RealAnswer({
           {error}
         </p>
       )}
+      {/* Announced by the page when it's added (a live region mounted with its text often isn't read). */}
       {saved.realAnswer !== undefined && !error && (
-        <p role="status" className="text-sm text-text">
-          {guessVerdict(r, saved.realAnswer)}
-        </p>
+        <p className="text-sm text-text">{guessVerdict(r, saved.realAnswer)}</p>
       )}
     </div>
   );

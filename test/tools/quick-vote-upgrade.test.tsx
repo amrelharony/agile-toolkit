@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -80,6 +80,9 @@ async function renderPage() {
 
 const format = (name: string) => screen.getByRole("button", { name: new RegExp(`^${name}`) });
 const pickFormat = (name: string) => fireEvent.click(format(name));
+
+/** Let focusAfterRemoval's timer run. */
+const settle = () => act(async () => new Promise((r) => setTimeout(r, 0)));
 
 /** Click Undo on the latest toast labelled `label`. */
 function undo(label: string) {
@@ -583,8 +586,21 @@ describe("saved results", () => {
       })
     );
     expect(qv().results.map((r) => r.id)).toEqual(["qvr-0", "qvr-1", "qvr-3"]);
+    // The pressed button went with its row: the next row's delete takes focus.
+    await settle();
+    expect(document.activeElement?.getAttribute("aria-label")).toMatch(
+      /^Delete the result “How much was this Sprint Review/
+    );
     undo("Deleted the result “Which retro topics should we talk about first?”");
     expect(qv().results.map((r) => r.id)).toEqual(["qvr-0", "qvr-1", "qvr-2", "qvr-3"]);
+  });
+
+  it("puts focus on Load an example when the last result goes", async () => {
+    useQuickVote.setState({ results: [stored[0]] });
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Delete the result/ }));
+    await settle();
+    expect(screen.getByRole("button", { name: "Load an example" })).toHaveFocus();
   });
 
   it("sends a result to the Decision Log as a proposed record, with its options in order", async () => {
@@ -637,6 +653,10 @@ describe("saved results", () => {
     expect(
       screen.getAllByText(/The real answer was 14 days: the median guess was 6 days low \(43%\)\./)
     ).toHaveLength(3);
+    // Said once it's added: a live region mounted with its text often isn't read.
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(/The real answer was 14 days/)
+    );
   });
 
   it("saves value poker's value to its backlog item only on Save, with Undo", async () => {
@@ -729,6 +749,11 @@ describe("the host's own formats", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save as my format" }));
     expect(qv().customPresets).toHaveLength(1);
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Saved “Review ROTI” under Your formats."
+      )
+    );
     expect(logs.at(-1)).toMatchObject({ action: "poll_saved", payload: { preset: "roti" } });
     pickFormat("Poll");
     fireEvent.click(screen.getByRole("button", { name: /^Review ROTI/ }));
@@ -736,6 +761,9 @@ describe("the host's own formats", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete the format “Review ROTI”" }));
     expect(qv().customPresets).toEqual([]);
     expect(logs.at(-1)).toMatchObject({ action: "poll_removed" });
+    // The last saved format went: focus goes to the format set up now.
+    await settle();
+    expect(format("ROTI")).toHaveFocus();
     undo("Deleted the format “Review ROTI”");
     expect(qv().customPresets).toHaveLength(1);
   });

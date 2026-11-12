@@ -80,11 +80,8 @@ export function SaveFormatForm({
           />
         )}
       </Field>
-      {saved && (
-        <p role="status" className="text-xs text-success">
-          Saved “{saved}” under Your formats.
-        </p>
-      )}
+      {/* Announced by the page (a live region mounted with its text often isn't read). */}
+      {saved && <p className="text-xs text-success">Saved “{saved}” under Your formats.</p>}
     </ItemForm>
   );
 }

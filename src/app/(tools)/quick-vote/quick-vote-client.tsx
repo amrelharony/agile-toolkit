@@ -21,6 +21,7 @@ import { QUICK_VOTE_ACTIONS } from "@/lib/history/event-actions";
 import { cheer } from "@/lib/celebrate/cheer";
 import { generateQuickVotePrompts } from "@/lib/ai-prompts/quick-vote";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
+import { focusAfterRemoval } from "@/app/(tools)/sprint-goal/focus";
 import { toast } from "@/lib/utils/toast";
 import { VOTE_LIMITS } from "@/lib/realtime/vote-room/protocol";
 import { presetById, type QuickVotePreset } from "@/lib/quick-vote/presets";
@@ -34,6 +35,7 @@ import {
 } from "@/lib/quick-vote/draft";
 import { roundFor } from "@/lib/quick-vote/sheets";
 import {
+  guessVerdict,
   latestVerdict,
   normalizeResults,
   presetName,
@@ -41,6 +43,7 @@ import {
   resultSummary,
   showsAgreement,
   type SavedResult,
+  type StoredNumberResult,
 } from "@/lib/quick-vote/results";
 import {
   MAX_CUSTOM_PRESETS,
@@ -59,10 +62,10 @@ import {
 import { buildExample, type QuickVoteExample } from "./example";
 import { toMarkdown } from "./markdown";
 import { composerSources, savedFromRound } from "./model";
-import { PresetPicker } from "./preset-picker";
+import { DELETE_FORMAT_SELECTOR, PresetPicker } from "./preset-picker";
 import { RoundComposer, addToList } from "./round-composer";
 import { RunRound } from "./run-round";
-import { ResultsList } from "./results-list";
+import { DELETE_RESULT_SELECTOR, ResultsList } from "./results-list";
 import { SaveFormatForm } from "./save-format-form";
 
 const DEFAULT_PRESET = presetById("fist-of-five") as QuickVotePreset;
@@ -126,6 +129,9 @@ export function QuickVoteClient() {
   const { log } = useHistoryLogger("quick-vote");
   const announce = useAnnounce();
   const exportRef = useRef<HTMLDivElement>(null);
+  const resultsRef = useRef<HTMLUListElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const formatsRef = useRef<HTMLUListElement>(null);
 
   /* ── The round being set up ─────────────────────────────────────────── */
 
@@ -213,10 +219,12 @@ export function QuickVoteClient() {
     updateCustomPresets((list) => [...list, saved]);
     setDraft(saved.draft);
     log(QUICK_VOTE_ACTIONS.POLL_SAVED, { preset: saved.draft.presetId, kind: preset.kind });
+    announce(`Saved “${name}” under Your formats.`);
   };
 
   const deleteFormat = (c: CustomPreset) => {
     if (readOnly) return;
+    const index = customPresets.findIndex((x) => x.id === c.id);
     removeWithUndo<CustomPreset>({
       label: `Deleted the format “${c.name}”`,
       update: updateCustomPresets,
@@ -224,6 +232,16 @@ export function QuickVoteClient() {
     });
     if (draft.customId === c.id) setDraft({ ...freshDraft(draft), customId: null });
     log(QUICK_VOTE_ACTIONS.POLL_REMOVED, { preset: c.draft.presetId });
+    // The pressed button went with its row: the next format's delete takes
+    // focus, or, with none left, the format set up now.
+    focusAfterRemoval(
+      formatsRef,
+      DELETE_FORMAT_SELECTOR,
+      Math.max(0, index),
+      () =>
+        gridRef.current?.querySelector<HTMLElement>('button[aria-pressed="true"]') ??
+        gridRef.current?.querySelector<HTMLElement>("button")
+    );
   };
 
   /* ── Results ────────────────────────────────────────────────────────── */
@@ -275,11 +293,16 @@ export function QuickVoteClient() {
 
   const deleteResult = (saved: SavedResult) => {
     if (readOnly) return;
+    const index = results.findIndex((x) => x.id === saved.id);
     removeWithUndo<SavedResult>({
       label: `Deleted the result “${saved.result.title}”`,
       update: updateResults,
       match: (x) => x.id === saved.id,
     });
+    // The next row's delete takes focus, or, with none left, Load an example.
+    focusAfterRemoval(resultsRef, DELETE_RESULT_SELECTOR, Math.max(0, index), () =>
+      exportRef.current?.querySelector<HTMLElement>("button")
+    );
   };
 
   const getLinks = (id: string) => quickVoteState().results.find((x) => x.id === id)?.sentTo;
@@ -300,6 +323,7 @@ export function QuickVoteClient() {
     const n = Number(t);
     if (!Number.isFinite(n) || Math.abs(n) > 1e9) return "The real answer needs to be a number.";
     updateResults((list) => list.map((x) => (x.id === saved.id ? { ...x, realAnswer: n } : x)));
+    announce(guessVerdict(saved.result as StoredNumberResult, n));
     return null;
   };
 
@@ -417,6 +441,8 @@ export function QuickVoteClient() {
               onPickCustom={pickCustom}
               onDeleteCustom={deleteFormat}
               readOnly={readOnly}
+              gridRef={gridRef}
+              formatsRef={formatsRef}
             />
           </SectionCard>
 
@@ -472,6 +498,7 @@ export function QuickVoteClient() {
                 </EmptyState>
               ) : (
                 <ResultsList
+                  listRef={resultsRef}
                   results={results}
                   readOnly={readOnly}
                   itemName={itemName}

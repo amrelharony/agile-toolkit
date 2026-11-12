@@ -6,11 +6,15 @@
  * reader hears which one is set up; a saved format can be deleted with Undo.
  */
 
+import type { RefObject } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { QUICK_VOTE_PRESETS, type QuickVotePreset } from "@/lib/quick-vote/presets";
 import type { CustomPreset } from "@/lib/quick-vote/state";
+
+/** Each saved format's delete button: focus moves to the next one when a format goes. */
+export const DELETE_FORMAT_SELECTOR = 'button[aria-label^="Delete the format"]';
 
 const KIND_WORD: Record<QuickVotePreset["kind"], string> = {
   scale: "Scale",
@@ -27,6 +31,8 @@ export function PresetPicker({
   onPickCustom,
   onDeleteCustom,
   readOnly = false,
+  gridRef,
+  formatsRef,
 }: {
   presetId: string | null;
   customId: string | null;
@@ -35,10 +41,14 @@ export function PresetPicker({
   onPickCustom: (preset: CustomPreset) => void;
   onDeleteCustom: (preset: CustomPreset) => void;
   readOnly?: boolean;
+  /** The built-in formats' grid and the saved formats' list, for focus after a delete. */
+  gridRef?: RefObject<HTMLDivElement>;
+  formatsRef?: RefObject<HTMLUListElement>;
 }) {
   return (
     <div className="space-y-4">
       <div
+        ref={gridRef}
         role="group"
         aria-label="Formats"
         className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
@@ -69,7 +79,7 @@ export function PresetPicker({
       {customPresets.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-text">Your formats</h3>
-          <ul className="space-y-2">
+          <ul ref={formatsRef} className="space-y-2">
             {customPresets.map((p) => {
               const on = customId === p.id;
               const base = QUICK_VOTE_PRESETS.find((x) => x.id === p.draft.presetId);
