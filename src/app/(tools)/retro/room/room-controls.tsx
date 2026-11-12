@@ -14,17 +14,19 @@
  * control and bidi characters, and render as React text only.
  */
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Timer } from "lucide-react";
 import {
   IdlePromptDialog as SharedIdlePromptDialog,
   type IdlePromptDialogProps,
 } from "@/components/collab/room-controls";
+import { RoomCountdown } from "@/components/collab/room-countdown";
+import { ChimeToggle } from "@/components/timer/chime-toggle";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import type { RoomTimer } from "@/lib/realtime/room-timer";
 import { PHASES, type BoardPhase } from "../types";
-import { formatTimer } from "../helpers";
 import { timerRemaining, type RoomTimerView } from "./use-retro-room";
 
 export { RoomMemberList, type RoomMemberListProps } from "@/components/collab/room-controls";
@@ -107,26 +109,49 @@ export function useRoomCountdown(timer: RoomTimerView | null): number | null {
   return timer ? timerRemaining(timer, Math.max(now, timer.anchoredAt)) : null;
 }
 
-/** The host's countdown, as a participant sees it. */
+/**
+ * The room's countdown as a room timer (`lib/realtime/room-timer`), for the
+ * shared `RoomCountdown`: running, it ends `remaining` seconds after it was
+ * anchored. Once it reaches zero this device remembers when, so the
+ * overtime counts up from there; a device that only ever saw it at zero
+ * shows time's up without a count.
+ */
+export function useRetroRoomTimer(timer: RoomTimerView | null): RoomTimer | null {
+  const endRef = useRef<number | null>(null);
+  const running = timer?.running ?? false;
+  const remaining = timer?.remaining ?? 0;
+  const anchoredAt = timer?.anchoredAt ?? 0;
+  const present = timer !== null;
+  return useMemo(() => {
+    if (!present) {
+      endRef.current = null;
+      return null;
+    }
+    const base = { totalSeconds: Math.max(1, remaining), label: "", autoReveal: false };
+    if (running) {
+      endRef.current = anchoredAt + remaining * 1000;
+      return { ...base, endsAt: endRef.current, pausedSeconds: remaining };
+    }
+    if (remaining === 0 && endRef.current !== null) {
+      return { ...base, endsAt: endRef.current, pausedSeconds: 0 };
+    }
+    endRef.current = null;
+    return { ...base, endsAt: null, pausedSeconds: remaining };
+  }, [present, running, remaining, anchoredAt]);
+}
+
+/**
+ * The host's countdown, as a participant sees it: the shared countdown,
+ * which rings the time's-up alarm here and counts the overtime up.
+ */
 export function RoomTimerReadout({ timer }: { timer: RoomTimerView | null }) {
-  const remaining = useRoomCountdown(timer);
-  if (!timer || remaining === null) return null;
-  const running = timer.running && remaining > 0;
+  const roomTimer = useRetroRoomTimer(timer);
+  if (!roomTimer) return null;
   return (
-    <p className="flex items-center gap-2 text-sm">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
       <Timer className="w-4 h-4 text-sub" aria-hidden="true" />
-      <span className="sr-only">Time left: </span>
-      <span
-        className={cn(
-          "font-mono text-base font-bold tabular-nums",
-          running && remaining <= 60 ? "text-status-red" : running ? "text-accent" : "text-sub"
-        )}
-      >
-        {formatTimer(remaining)}
-      </span>
-      {!running && (
-        <span className="text-xs text-sub">{remaining === 0 ? "Time's up" : "Paused"}</span>
-      )}
-    </p>
+      <RoomCountdown timer={roomTimer} alarm size="sm" />
+      <ChimeToggle />
+    </div>
   );
 }

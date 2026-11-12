@@ -36,7 +36,9 @@ import { Check, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
+import { RoomReactions } from "@/components/collab/room-reactions";
 import { useAnnounce } from "@/components/a11y/live-announcer";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { SNAPSHOT_IMPORTERS } from "@/lib/share/snapshot-import";
 import {
   VISITOR_LIMITS,
@@ -170,6 +172,8 @@ function closedCopy(
 
 function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
   const room = useRetroRoom({ code, identity, role: "participant" });
+  // Reactions only: the countdown travels in the snapshot.
+  const extras = useRoomExtras(room.extras, { timer: false });
   const announce = useAnnounce();
   const [saved, setSaved] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -528,6 +532,8 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
             onUnvote={handleUnvote}
             onEdit={hosting ? handleEdit : undefined}
           />
+
+          {status === "live" && <RoomReactions extras={extras} className="pt-2" />}
 
           {active && (
             <footer className="flex flex-wrap items-center gap-3 border-t border-border pt-2">
