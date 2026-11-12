@@ -36,6 +36,7 @@ import { InkScribble } from "@/components/ink/ink-scribble";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AMR_PANEL_TITLE_ID } from "./panel-header";
+import { DOCK_END } from "./panel-context";
 
 /** What the launcher plate says, and its button's name: the same words, so the name is what's seen. */
 export const LAUNCHER_LABEL = "Ask Amr";
@@ -102,7 +103,11 @@ export function PanelFailed({ onNewChat, onReload = reloadPage }: PanelFailedPro
   }, []);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" data-panel-failed="">
+    <div
+      className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3", DOCK_END)}
+      data-panel-failed=""
+      data-amr-scroll=""
+    >
       {/* Takes focus from code only (tabIndex -1), so it never joins the tab order. */}
       <div ref={noteRef} tabIndex={-1} className="focus:outline-none">
         <Narration

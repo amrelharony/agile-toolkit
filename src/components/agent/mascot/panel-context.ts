@@ -22,6 +22,9 @@
  * around it to place it. The shell (mascot-assistant) gives the real panel's:
  * its layout, its close for a link, and replaceOnNavigate from the phone
  * sheet's Back (lib/agent/mascot/use-back-closes).
+ *
+ * It also holds the class names a view uses to follow the panel's compact
+ * mode and the docked Amr (below), read off the panel's own attributes.
  */
 
 import { createContext, useContext, useEffect, type RefObject } from "react";
@@ -55,6 +58,42 @@ AmrPanelContext.displayName = "AmrPanelContext";
 export function useAmrPanel(): AmrPanelContextValue {
   return useContext(AmrPanelContext);
 }
+
+/*
+ * What the views read off the panel's root (a `group/amr`), as class names, so
+ * a keyboard rising never re-renders a view:
+ *   data-amr-compact  compact mode (a phone's keyboard is up, or little room),
+ *                     written by the shell's viewport reading
+ *   data-amr-dock     the side Amr is docked on in the phone's sheet; the
+ *                     root's --amr-dock-gutter and --amr-dock-footer say how
+ *                     much room he needs, from the inner frame's edge
+ * And what the views mark for the shell's sheet CSS (globals.css "AMR SHEET"):
+ *   data-amr-scroll   a scroller: in the sheet it pans up and down and keeps
+ *                     its scrolling to itself
+ *   data-amr-composer the chat's message box: docked Amr rides the keyboard
+ *                     beside it while it has focus
+ */
+
+/** Chrome that waits while the panel is compact: status lines, usage, follow-ups. */
+export const COMPACT_HIDDEN = "group-data-[amr-compact]/amr:hidden";
+
+/** A log's floor in compact mode, where the panel's ground scrolls instead. */
+export const COMPACT_LOG = "group-data-[amr-compact]/amr:min-h-[3rem]";
+
+/**
+ * A footer (the composer's row) flush with the panel's inner frame: its own
+ * padding on Amr's side gives way to his gutter while he is docked, and it is
+ * at least as tall as he is, so he stands beside it, never over the log.
+ */
+export const DOCK_FOOTER =
+  "group-data-[amr-dock=right]/amr:pr-[var(--amr-dock-gutter)] group-data-[amr-dock=left]/amr:pl-[var(--amr-dock-gutter)] group-data-[amr-dock]/amr:min-h-[var(--amr-dock-footer)]";
+
+/** DOCK_FOOTER for a footer inside a view's px-3: that padding already counts toward the gutter. */
+export const DOCK_FOOTER_IN_PX3 =
+  "group-data-[amr-dock=right]/amr:pr-[calc(var(--amr-dock-gutter)-0.75rem)] group-data-[amr-dock=left]/amr:pl-[calc(var(--amr-dock-gutter)-0.75rem)] group-data-[amr-dock]/amr:min-h-[var(--amr-dock-footer)]";
+
+/** A scroller that runs to the panel's bottom (no footer): room at its end, so its last row scrolls clear of docked Amr. */
+export const DOCK_END = "group-data-[amr-dock]/amr:pb-[var(--amr-dock-footer)]";
 
 /** A touch screen: a field taking focus there raises the keyboard. */
 function onTouchScreen(): boolean {

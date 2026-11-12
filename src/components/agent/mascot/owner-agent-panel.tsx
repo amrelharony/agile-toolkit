@@ -31,6 +31,7 @@ import { AMR_WAITING_FOR_OK } from "@/lib/agent/mascot/outside-narration";
 import { useAgentStore } from "@/lib/agent/store";
 import { RateLimitBar } from "./rate-limit-bar";
 import { PANEL_SUBTITLE, PanelActions, PanelIconButton, PanelSubtitle } from "./panel-chrome";
+import { COMPACT_HIDDEN } from "./panel-context";
 import { AgentConversation } from "../agent-conversation";
 import { ConversationList } from "../conversation-list";
 
@@ -111,8 +112,13 @@ export default function OwnerAgentPanel({
         </div>
       ) : (
         <>
-          <RateLimitBar />
-          <div className="min-h-0 flex-1 px-3 py-2">
+          {/* The usage line waits while the panel is compact (a keyboard is up). */}
+          <div className={COMPACT_HIDDEN}>
+            <RateLimitBar />
+          </div>
+          {/* A flex column that may shrink (min-h-0), so a short panel squeezes
+              the log, never the composer. */}
+          <div className="flex min-h-0 flex-1 flex-col px-3 py-2">
             <AgentConversation />
           </div>
         </>

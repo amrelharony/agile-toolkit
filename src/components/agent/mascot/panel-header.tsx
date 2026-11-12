@@ -24,7 +24,12 @@
  *
  * At least 52 px tall. Icons are ghost Buttons, 44 px on touch screens. The
  * slots fill only inside a <PanelChrome> (panel-chrome.tsx); without one the
- * header shows its defaults. Small on purpose: it ships in the mascot chunk.
+ * header shows its defaults.
+ *
+ * In compact mode (the panel's data-amr-compact: a phone's keyboard is up, or
+ * there is little room) it folds to one 44 px row: the back slot, the plate
+ * and Close; the subtitle, the view's icons, More and Enlarge wait until
+ * there is room again. Small on purpose: it ships in the mascot chunk.
  * The menu is the site's dropdown (ui/dropdown-menu), which the page header's
  * account menu already loads on every page.
  */
@@ -41,8 +46,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import { AMR_CORNERS, cornerName, type AmrCorner } from "./amr-geometry";
 import { PanelIconButton, usePanelHosts } from "./panel-chrome";
+import { COMPACT_HIDDEN } from "./panel-context";
 import { platformShortcut } from "./panel-ids";
 
 /** The plate's id unless the shell gives one: the dialog's aria-labelledby. */
@@ -118,7 +125,7 @@ export function PanelHeader({
   return (
     <div
       data-panel-header=""
-      className="flex min-h-[52px] shrink-0 items-center gap-1 border-b border-border px-3 py-1"
+      className="flex min-h-[52px] shrink-0 items-center gap-1 border-b border-border px-3 py-1 group-data-[amr-compact]/amr:min-h-11 group-data-[amr-compact]/amr:py-0"
     >
       <span
         ref={slots.ref("back")}
@@ -129,7 +136,7 @@ export function PanelHeader({
         <h2 id={plateId} className="comic-name-plate" tabIndex={-1}>
           Amr
         </h2>
-        <p className="w-full truncate text-xs text-sub">
+        <p className={cn("w-full truncate text-xs text-sub", COMPACT_HIDDEN)}>
           {!filled && subtitle}
           {/* dir=auto: a thread title in Arabic keeps its own direction. */}
           <span ref={slots.ref("subtitle")} data-panel-slot="subtitle" dir="auto" />
@@ -145,7 +152,7 @@ export function PanelHeader({
         <span
           ref={slots.ref("actions")}
           data-panel-slot="actions"
-          className="flex items-center gap-0.5 empty:hidden"
+          className={cn("flex items-center gap-0.5 empty:hidden", COMPACT_HIDDEN)}
         />
         {controls}
         {hasMenu && <PanelMore shortcut={shortcut} tilt={tilt} move={move} />}
@@ -155,7 +162,7 @@ export function PanelHeader({
             title={enlarged ? "Make chat smaller" : "Enlarge chat"}
             aria-pressed={enlarged}
             onClick={onToggleEnlarge}
-            className="hidden md:inline-flex"
+            className={cn("hidden md:inline-flex", COMPACT_HIDDEN)}
           >
             {enlarged ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
           </PanelIconButton>
@@ -194,7 +201,7 @@ function PanelMore({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <PanelIconButton label="More">
+        <PanelIconButton label="More" className={COMPACT_HIDDEN}>
           <Ellipsis aria-hidden="true" />
         </PanelIconButton>
       </DropdownMenuTrigger>

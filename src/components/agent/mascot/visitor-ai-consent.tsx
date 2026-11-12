@@ -23,10 +23,11 @@ import { ShieldCheck } from "lucide-react";
 import { YouCaption } from "@/components/agent/comic/comic-parts";
 import { FormPrivacyNote } from "@/components/data/form-privacy-note";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { VISITOR_AI_CONSENT_TEXT, VISITOR_AI_DAILY_MESSAGES } from "@/lib/site/disclosures";
 import { storeVisitorAiConsent } from "@/lib/visitor-ai/consent";
 import { awaitDecision } from "@/lib/agent/mascot/companion";
-import { useAmrPanel } from "./panel-context";
+import { DOCK_FOOTER, useAmrPanel } from "./panel-context";
 
 // The key, its version and the storage helpers live in lib/visitor-ai/consent.ts,
 // which the tools' compact card uses too; re-exported here for the panel and
@@ -80,6 +81,7 @@ export function VisitorAiConsent({
       <div
         ref={cardRef}
         tabIndex={-1}
+        data-amr-scroll=""
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-2 pt-3 focus:outline-none"
       >
         <div className="panel flex flex-col gap-3 px-3 py-3">
@@ -107,8 +109,14 @@ export function VisitorAiConsent({
         </div>
       </div>
       {/* Never scrolls: both choices stay in view. Size "default" is 44 px on
-          touch and on narrow screens. */}
-      <div className="flex shrink-0 flex-wrap gap-2 border-t border-border px-4 py-3">
+          touch and on narrow screens. Docked Amr (the phone's sheet) stands
+          beside them, in his gutter. */}
+      <div
+        className={cn(
+          "flex shrink-0 flex-wrap gap-2 border-t border-border px-4 py-3",
+          DOCK_FOOTER
+        )}
+      >
         <Button
           type="button"
           onClick={() => {

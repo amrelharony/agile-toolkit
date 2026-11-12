@@ -33,11 +33,12 @@ import { toolIdForPath } from "@/lib/agent/page-tool";
 import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import { formatPeakTime, peakWindow } from "@/lib/visitor-ai/peak";
+import { cn } from "@/lib/utils";
 import { useChatVisible } from "../chat-visibility";
 import { ConfirmCard } from "../chat/confirm-card";
 import { MessageBubble, useToolSteps } from "../message-bubble";
 import { handleMascotCommand } from "./engine/customization/commands";
-import { useInitialFocus } from "./panel-context";
+import { COMPACT_HIDDEN, COMPACT_LOG, DOCK_FOOTER_IN_PX3, useInitialFocus } from "./panel-context";
 import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
 
 /** The per-window allowance the busy-hours note names before the route reports one. */
@@ -292,13 +293,21 @@ export default function VisitorAgentPanel({
     // floor and the footer keeps its height, so in a short panel this root
     // scrolls and the composer and buttons stay in reach. In a tall panel
     // nothing overflows here: the log takes the rest and scrolls inside itself.
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto px-3 py-2">
+    // Compact (a phone's keyboard up) the log's floor drops to 3rem.
+    <div
+      data-amr-scroll=""
+      className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain px-3 py-2"
+    >
       <div
         ref={scrollRef}
         role="log"
         aria-live="polite"
         aria-label="Conversation"
-        className="min-h-[6rem] flex-1 space-y-3 overflow-y-auto px-1 py-2"
+        data-amr-scroll=""
+        className={cn(
+          "min-h-[6rem] flex-1 space-y-3 overflow-y-auto overscroll-contain px-1 py-2",
+          COMPACT_LOG
+        )}
       >
         {messages.length === 0 && !busy && (
           <div className="space-y-2 py-10 text-center text-sm text-sub">
@@ -351,7 +360,8 @@ export default function VisitorAgentPanel({
         )}
       </div>
 
-      <div className="mt-2 shrink-0 border-t border-border pt-3">
+      {/* Docked Amr (the phone's sheet) stands beside this, in its gutter. */}
+      <div className={cn("mt-2 shrink-0 border-t border-border pt-3", DOCK_FOOTER_IN_PX3)}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -361,6 +371,7 @@ export default function VisitorAgentPanel({
         >
           <textarea
             ref={composerRef}
+            data-amr-composer=""
             value={input}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -396,13 +407,14 @@ export default function VisitorAgentPanel({
             </Button>
           )}
         </form>
-        <p className="mt-1.5 text-xs text-sub" data-testid="visitor-ai-quota">
+        {/* The status lines wait while the panel is compact. */}
+        <p className={cn("mt-1.5 text-xs text-sub", COMPACT_HIDDEN)} data-testid="visitor-ai-quota">
           {quota
             ? `${quota.remaining} of ${quota.limit} left today`
             : `${VISITOR_AI_DAILY_MESSAGES} AI uses a day`}
           {inLiveRoom ? " · Not saved" : " · Amr asks before changing anything · Not saved"}
         </p>
-        {peak && <p className="mt-1 text-xs text-sub">{peak}</p>}
+        {peak && <p className={cn("mt-1 text-xs text-sub", COMPACT_HIDDEN)}>{peak}</p>}
         {inLiveRoom && (
           <p className="mt-1 text-xs text-sub" data-testid="visitor-ai-live-room">
             You&apos;re in a live room, so Amr only answers questions here: he won&apos;t read or

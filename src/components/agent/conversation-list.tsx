@@ -23,6 +23,7 @@ import {
 import type { ConversationMeta } from "@/lib/agent/types";
 import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
+import { DOCK_END } from "./mascot/panel-context";
 
 /** How long a deleted thread can still come back with Undo. */
 export const DELETE_UNDO_MS = 8000;
@@ -278,7 +279,11 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
           />
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      {/* Its last rows scroll clear of Amr docked in the phone's sheet. */}
+      <div
+        data-amr-scroll=""
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2 ${DOCK_END}`}
+      >
         {items === null && <p className="px-2 py-4 text-xs text-sub">Loading…</p>}
         {items?.length === 0 && <p className="px-2 py-4 text-xs text-sub">No conversations yet.</p>}
         {items && items.length > 0 && filtered.length === 0 && (
