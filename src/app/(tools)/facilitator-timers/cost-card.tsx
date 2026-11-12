@@ -97,7 +97,7 @@ export function CostCard({
             aria-label={`Meeting cost so far: ${formatMoney(meetingCost(attendees!, hourlyRate!, seconds), currency)}`}
             className={cn(
               "font-data font-bold tabular-nums text-text",
-              big ? "text-6xl sm:text-7xl" : "text-4xl"
+              big ? "text-5xl sm:text-7xl" : "text-3xl sm:text-4xl"
             )}
           >
             {formatMoney(meetingCost(attendees!, hourlyRate!, seconds), currency)}

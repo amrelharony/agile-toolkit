@@ -340,9 +340,10 @@ describe("Pomodoro", () => {
     pickTimer("Crazy 8s");
     click("Start Crazy 8s");
     expect(useDockTimer.getState().timer?.label).toBe("Pomodoro · Focus 1 of 4");
-    expect(
-      screen.getAllByText("Pomodoro is on. Stop it to start another timer.").length
-    ).toBeGreaterThan(0);
+    expect(screen.getByText("Pomodoro is on. Stop it to start another timer.")).toHaveAttribute(
+      "role",
+      "status"
+    );
   });
 
   it("waits on return when a step ran out while the page was closed", () => {

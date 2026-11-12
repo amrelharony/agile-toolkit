@@ -245,10 +245,9 @@ export function FacilitatorTimersClient() {
         ? holderText(other)
         : null;
 
-  /** Start `next` on the dock; says why when it can't. */
+  /** Start `next` on the dock; says why when it can't (the setup card shows `busy` already). */
   const begin = (next: TimerRun): boolean => {
     if (busy) {
-      setStatus(busy);
       announce(busy);
       return false;
     }
