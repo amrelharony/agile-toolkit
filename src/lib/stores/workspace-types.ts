@@ -3430,7 +3430,11 @@ export interface ProductGoal {
   /** "YYYY-MM-DD" it should be reached by. */
   targetDate?: ISODateString;
   status: ProductGoalStatus;
-  /** When it was marked achieved or abandoned (cleared if it is made active again). */
+  /**
+   * When it was marked achieved or abandoned (cleared if it is made active
+   * again): a full ISO timestamp (toISOString), as the agents' schema
+   * accepts no other form.
+   */
   closedAt?: ISODateString;
   /** A note on the outcome, such as why it was abandoned. */
   note?: string;
@@ -3458,7 +3462,13 @@ export interface InterruptItem {
   size?: number;
   /** It couldn't wait: the team stopped other work for it. */
   emergency: boolean;
+  /**
+   * When it landed, a full ISO timestamp (toISOString; it can be backdated).
+   * The agents' schema accepts no other form, so a page that lets someone
+   * pick a time turns the picker's value into one before saving.
+   */
   loggedAt: ISODateString;
+  /** When it was resolved, a full ISO timestamp; absent while it is open (never ""). */
   resolvedAt?: ISODateString;
   /** Where it was sent (the backlog, the Impediment Tracker). */
   sentTo?: HandoffLink[];

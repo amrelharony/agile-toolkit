@@ -182,6 +182,64 @@ describe("times", () => {
     })) as typeof INTERRUPT;
     expect(backdated.loggedAt).toBe("2026-11-11T16:00:00.000Z");
   });
+
+  it("ignore a createdAt sent on create, and on an update to a record saved without one", async () => {
+    const { id } = (await create("workspace.root_cause_analysis", {
+      ...ANALYSIS,
+      id: undefined,
+      createdAt: "1999-01-01T00:00:00.000Z",
+      updatedAt: "1999-01-01T00:00:00.000Z",
+    })) as { id: string };
+    const made = useWorkspaceStore.getState().rootCauseAnalyses!.find((a) => a.id === id)!;
+    expect(made.createdAt).toBe("2026-11-13T08:00:00.000Z");
+    expect(made.updatedAt).toBe("2026-11-13T08:00:00.000Z");
+
+    // A page's store write stamps nothing, so a stored row can lack createdAt.
+    const { createdAt: _c, ...unstampedNote } = NOTE;
+    void _c;
+    const stored = (await update(
+      "workspace.notebook_entry",
+      "notebookEntries",
+      unstampedNote as Doc,
+      { createdAt: "yesterday" }
+    )) as typeof NOTE;
+    expect(stored.createdAt).toBe("2026-11-13T08:00:00.000Z");
+  });
+
+  it("an agent writes only as ISO timestamps, any UTC offset", async () => {
+    for (const bad of ["last Tuesday", "2026-11-12", "2026-11-12T09:00", "12/11/2026 09:00", ""]) {
+      rejects("workspace.interrupt_item", { ...INTERRUPT, loggedAt: bad });
+      rejects("workspace.product_goal", { ...GOAL, closedAt: bad });
+    }
+    rejects("workspace.interrupt_item", { ...INTERRUPT, resolvedAt: "soon" });
+    expect(
+      parseCreate("workspace.interrupt_item", {
+        ...INTERRUPT,
+        loggedAt: "2026-11-12T11:00:00+02:00",
+      }).success
+    ).toBe(true);
+    await expect(
+      update("workspace.interrupt_item", "interruptItems", INTERRUPT, { loggedAt: "last Tuesday" })
+    ).rejects.toThrow(/Patch produces invalid/);
+    expect(useWorkspaceStore.getState().interruptItems).toEqual([INTERRUPT]);
+  });
+
+  it('reopen an interrupt when an agent sends resolvedAt ""', async () => {
+    const reopened = (await update("workspace.interrupt_item", "interruptItems", INTERRUPT, {
+      resolvedAt: "",
+    })) as typeof INTERRUPT;
+    expect(reopened).not.toHaveProperty("resolvedAt");
+    expect(reopened.loggedAt).toBe(INTERRUPT.loggedAt);
+
+    const { id } = (await create("workspace.interrupt_item", {
+      title: "Status page is down",
+      kind: "incident",
+      emergency: true,
+      resolvedAt: "",
+    })) as { id: string };
+    const open = useWorkspaceStore.getState().interruptItems!.find((i) => i.id === id)!;
+    expect(open).not.toHaveProperty("resolvedAt");
+  });
 });
 
 describe("bounds", () => {

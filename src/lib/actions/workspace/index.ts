@@ -4073,9 +4073,12 @@ defineCrudActions<ValueStreamStage>({
  * New collections with no older rows, so each schema holds the caps the
  * pages use too (TOOL_TEXT_MAX, TOOL_LIST_MAX): a record a page saved always
  * validates, and an agent can't write one the page couldn't show. Every
- * field is listed, since update writes what the schema parsed. Times are
- * stamped on create and update, so an agent needn't send them. Each toolId's
- * suffix camelCases to its registered kind (PARKING_LOT_ITEM_KIND, …), so no
+ * field is listed, since update writes what the schema parsed. createdAt and
+ * updatedAt are stamped on create and update (a value sent is ignored), so an
+ * agent needn't send them. The times an agent may write (an interrupt's
+ * loggedAt and resolvedAt, a goal's closedAt) must be ISO timestamps, so the
+ * pages' gauges and sorting never meet "last Tuesday". Each toolId's suffix
+ * camelCases to its registered kind (PARKING_LOT_ITEM_KIND, …), so no
  * serverKind override.
  * ────────────────────────────────────────────────────────────────── */
 
@@ -4091,13 +4094,20 @@ const StampedAt = z
   .optional()
   .describe("ISO timestamp, stamped by every create and update (a value given is ignored).");
 
-/** The record with createdAt kept (now on create) and updatedAt now: what these CRUDs save. */
+/** A time an agent may write: an ISO timestamp such as "2026-11-12T09:30:00Z", any UTC offset. */
+const IsoTime = z.iso.datetime({ offset: true });
+
+/**
+ * The record with createdAt kept (now on create, or when the stored record
+ * has none) and updatedAt now: what these CRUDs save. A createdAt or
+ * updatedAt the caller sent is never kept.
+ */
 function stampedTimes<T extends { createdAt?: string; updatedAt?: string }>(
   next: T,
   current: T | undefined
 ): T {
   const now = new Date().toISOString();
-  return { ...next, createdAt: current?.createdAt ?? next.createdAt ?? now, updatedAt: now };
+  return { ...next, createdAt: current?.createdAt ?? now, updatedAt: now };
 }
 
 const ParkingLotItemSchema = z.object({
@@ -4192,10 +4202,9 @@ const ProductGoalSchema = z.object({
     .describe(
       'At most one goal is "active": close the active one (achieved or abandoned) before making another active.'
     ),
-  closedAt: z
-    .string()
-    .optional()
-    .describe("When it was marked achieved or abandoned; stamped when the status closes it."),
+  closedAt: IsoTime.optional().describe(
+    "ISO time it was marked achieved or abandoned; stamped when the status closes it, cleared when it is active."
+  ),
   note: z
     .string()
     .max(TOOL_TEXT_MAX.text)
@@ -4253,16 +4262,35 @@ const InterruptItemSchema = z.object({
   kind: z.enum(INTERRUPT_KINDS),
   size: z.number().min(0).optional().describe("Its size in points, when known."),
   emergency: z.boolean().describe("It couldn't wait: the team stopped other work for it."),
-  loggedAt: z
-    .string()
+  loggedAt: IsoTime.optional().describe(
+    'ISO time it landed, such as "2026-11-12T09:30:00Z"; can be backdated. Stamped now on create when not given.'
+  ),
+  resolvedAt: z
+    .union([IsoTime, z.literal("")])
     .optional()
-    .describe("ISO time it landed; can be backdated. Stamped now on create when not given."),
-  resolvedAt: z.string().optional().describe("ISO time it was resolved; absent while open."),
+    .describe('ISO time it was resolved; absent while open. "" reopens a resolved one.'),
   sentTo: z
     .array(HandoffLinkSchema)
     .optional()
     .describe("Where it was sent (the backlog, the Impediment Tracker)."),
 }) as unknown as z.ZodType<InterruptItem>;
+
+/**
+ * loggedAt: a value sent (backdating) wins; otherwise the stored one, or now
+ * on create. resolvedAt "" is how an agent reopens it (JSON has no
+ * undefined), so the key goes: an open interrupt never holds one.
+ */
+function prepareInterruptItem(
+  next: InterruptItem,
+  current: InterruptItem | undefined
+): InterruptItem {
+  const { resolvedAt, ...rest } = next;
+  const out: InterruptItem = {
+    ...rest,
+    loggedAt: next.loggedAt ?? current?.loggedAt ?? new Date().toISOString(),
+  };
+  return resolvedAt ? { ...out, resolvedAt } : out;
+}
 
 defineCrudActions<InterruptItem>({
   toolId: "workspace.interrupt_item",
@@ -4272,11 +4300,7 @@ defineCrudActions<InterruptItem>({
   upsert: (x) => ws().upsertInterruptItem(x),
   remove: (id) => ws().removeInterruptItem(id),
   generateId: () => `interrupt_${nanoid(8)}`,
-  prepare: (next, current) => ({
-    ...next,
-    // A value sent (backdating) wins; otherwise the stored one, or now on create.
-    loggedAt: next.loggedAt ?? current?.loggedAt ?? new Date().toISOString(),
-  }),
+  prepare: prepareInterruptItem,
 });
 
 const NotebookEntrySchema = z.object({
