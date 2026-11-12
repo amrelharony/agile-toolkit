@@ -4,12 +4,16 @@
  * What the Retro host's big screen shows (`RoomBigScreen`): the phase, how
  * many cards each column holds, and from Discuss on the top-voted cards.
  * While cards are hidden in Write, only the counts show, as on everyone's
- * phone. Card text renders as React text only.
+ * phone. A Lean Coffee thumbs vote shows above them: how many voted while
+ * it's open, the totals once it's closed. Card text renders as React text
+ * only.
  */
 
 import { useMemo, useRef } from "react";
 import type { RoomTimer } from "@/lib/realtime/room-timer";
 import { PHASES, type BoardState, type RetroCard } from "../types";
+import type { RoomPoll } from "./protocol";
+import { thumbsVerdict } from "./thumbs-vote-card";
 
 /** Top cards the big screen lists from Discuss on. */
 const TOP_CARDS = 6;
@@ -42,13 +46,39 @@ export function useBoardTimer(board: Pick<BoardState, "timerSeconds" | "timerRun
   }, [running, seconds]);
 }
 
+/** The thumbs vote on the big screen: the question, then a count or the totals. */
+function BigScreenPoll({ poll }: { poll: RoomPoll }) {
+  return (
+    <section
+      aria-label="Keep going or move on?"
+      className="space-y-1 rounded-lg border border-accent/40 bg-card px-5 py-4"
+    >
+      <p className="text-2xl font-bold">Keep going or move on?</p>
+      <p className="break-words text-xl text-sub">{poll.topic}</p>
+      <p className="font-data text-3xl">
+        {poll.open
+          ? `${poll.voters} ${poll.voters === 1 ? "person has" : "people have"} voted`
+          : `Keep going ${poll.keep ?? 0} · Move on ${poll.move ?? 0}`}
+      </p>
+      {!poll.open && (
+        <p className="text-xl text-sub">
+          {thumbsVerdict({ keep: poll.keep ?? 0, move: poll.move ?? 0 })}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function RetroBigScreenRound({
   board,
   hidesCard,
+  poll = null,
 }: {
   board: BoardState;
   /** The room's check for the others' cards hidden on this screen (Write), or null. */
   hidesCard: ((cardId: string) => boolean) | null;
+  /** The Lean Coffee thumbs vote running, as the room shares it. */
+  poll?: RoomPoll | null;
 }) {
   const phase = PHASES.find((p) => p.key === board.phase);
   const counts = board.format.columns.map((col) => ({
@@ -67,6 +97,7 @@ export function RetroBigScreenRound({
     <div className="space-y-5">
       <h2 className="text-3xl font-bold">{phase ? `${phase.label} phase` : "Retro"}</h2>
       {phase && <p className="text-2xl text-sub">{phase.description}</p>}
+      {poll && <BigScreenPoll poll={poll} />}
       {later && top.length > 0 ? (
         <ol aria-label="Top cards" className="space-y-2">
           {top.map((c) => (

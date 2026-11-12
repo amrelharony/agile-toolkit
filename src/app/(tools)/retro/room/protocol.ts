@@ -22,6 +22,20 @@
  * A tab on version 1 refuses every version 2 message on its `v`, and this
  * version refuses theirs the same way.
  *
+ * Revision 2 of version 2 adds the Lean Coffee thumbs vote ("keep going or
+ * move on?") without changing `v`, so tabs on either build of version 2
+ * keep sharing a room. Both new parts are optional and additive:
+ *  - the snapshot's `poll` (`RoomPoll`), present only while the host runs a
+ *    vote: the topic, whether it is open, how many voted, and once it is
+ *    closed the totals, never who voted what. A tab on the earlier build
+ *    rebuilds its snapshot from known fields only, so it ignores `poll`,
+ *    and this build leaves out a poll it can't read rather than the room;
+ *  - the intent `thumb`, which a host on the earlier build refuses on its
+ *    `t` like any unknown intent. A tab only sends one while the host's
+ *    snapshot carries an open poll, which only this build's host sends.
+ * A thumb sends a lock like a vote does; changing it sends the key behind
+ * that lock and a new lock, so only the voter's tab can change it.
+ *
  * No message the host sends says who wrote a card or cast a vote. Who owns
  * what is a host-side record in memory (`intents.ts`), never shared or
  * saved. A card added through the room takes its add request's id as its
@@ -88,6 +102,10 @@ export const MAX_COLUMN_LABEL_CHARS = 200;
 export const MAX_FORMAT_NAME_CHARS = 200;
 /** Most votes a snapshot may give each person. */
 export const MAX_VOTES_PER_PERSON = 20;
+/** The revision of version 2 this build speaks (2: the thumbs vote). */
+export const RETRO_ROOM_REVISION = 2 as const;
+/** A thumbs vote's topic, as the room shares it. */
+export const MAX_POLL_TOPIC_CHARS = 500;
 
 // ── Messages ─────────────────────────────────────────────────────────
 
@@ -101,7 +119,32 @@ export type RetroIntent =
   | { t: "card:add"; iid: string; columnKey: string; text: string; lock: string }
   | { t: "card:delete"; iid: string; cardId: string; key: string }
   | { t: "vote"; iid: string; cardId: string; lock: string }
-  | { t: "vote:undo"; iid: string; cardId: string; key: string };
+  | { t: "vote:undo"; iid: string; cardId: string; key: string }
+  /**
+   * Revision 2: a thumb on the open poll. A first thumb sends its `lock`; a
+   * change sends the `key` behind the lock it replaces, and a new `lock`.
+   */
+  | { t: "thumb"; iid: string; pollId: string; choice: ThumbChoice; lock: string; key?: string };
+
+/** A thumbs vote's answer: thumb up keeps going, thumb down moves on. */
+export type ThumbChoice = "keep" | "move";
+
+/**
+ * Revision 2: the host's thumbs vote as the room shares it. While open it
+ * says only how many have voted; once closed, the totals as well. Never
+ * who voted, or what.
+ */
+export interface RoomPoll {
+  /** The poll's id (an intent-id-shaped random id). */
+  id: string;
+  /** The topic it asks about. */
+  topic: string;
+  open: boolean;
+  voters: number;
+  /** Closed polls only. */
+  keep?: number;
+  move?: number;
+}
 
 export interface IntentEnv {
   v: typeof RETRO_ROOM_PROTOCOL_VERSION;
@@ -170,6 +213,8 @@ export interface RoomSnapshot {
   votesUsed: Record<string, number>;
   /** Votes each person has. */
   votesPerPerson: number;
+  /** Revision 2: the thumbs vote the host is running, if any. */
+  poll?: RoomPoll;
 }
 
 /** Whether a snapshot hides the cards: Write, with the host's hiding on. */
@@ -265,6 +310,23 @@ export function readIntentEnv(raw: unknown): IntentEnv | null {
     case "vote:undo":
       if (!isShortStr(i.cardId, MAX_KEY_CHARS) || !isKey(i.key)) return null;
       return { v, by, intent: { t: "vote:undo", iid, cardId: i.cardId, key: i.key } };
+    case "thumb": {
+      if (!isIntentId(i.pollId) || (i.choice !== "keep" && i.choice !== "move")) return null;
+      if (!isLock(i.lock)) return null;
+      if (i.key !== undefined && !isKey(i.key)) return null;
+      return {
+        v,
+        by,
+        intent: {
+          t: "thumb",
+          iid,
+          pollId: i.pollId,
+          choice: i.choice,
+          lock: i.lock,
+          ...(i.key !== undefined ? { key: i.key } : {}),
+        },
+      };
+    }
     default:
       return null;
   }

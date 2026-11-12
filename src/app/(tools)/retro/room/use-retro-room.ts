@@ -27,7 +27,11 @@
  *  - ends the room at its 3-hour limit, and after 30 minutes with no
  *    activity asks first, then ends it a minute later;
  *  - can remove a member: a blocklist (their intents are dropped) plus a
- *    `retro:kick` asking their client to leave. Soft: a new tab gets a new id.
+ *    `retro:kick` asking their client to leave. Soft: a new tab gets a new id;
+ *  - runs the Lean Coffee thumbs vote (protocol revision 2, `thumbs`): who
+ *    put which thumb stays in memory here (thumbs.ts); a snapshot says how
+ *    many voted, and the totals once the vote is closed. A member who leaves
+ *    or is removed takes their thumb with them.
  *
  * Participant:
  *  - trusts the first host it hears from that is in presence, then only that
@@ -48,6 +52,8 @@
  *    the host still has (the delete was refused) comes back. A deleted card
  *    stays in memory until then, so Undo puts it back rather than adding a
  *    copy;
+ *  - puts a thumb up or down on the host's open vote (`thumb`), and may
+ *    change it: the key behind the first thumb's lock stays in this tab;
  *  - leaves at the room's 3-hour limit (its own join time + 3 h, or the
  *    host's `endsAt` if sooner): `useRoom` doesn't enforce `hardTtlMs`;
  *  - when elected, continues hosting from the last snapshot, still in memory,
@@ -104,10 +110,21 @@ import {
   type IntentEnv,
   type RetroIntent,
   type RoomMember,
+  type RoomPoll,
   type RoomSnapshot,
+  type ThumbChoice,
 } from "./protocol";
 import { boardFromSnapshot, readRoomSnapshot, roomSignature, toRoomSnapshot } from "./snapshot";
 import { hideCards, hiddenTotal } from "./hidden";
+import {
+  applyThumb,
+  closeThumbPoll,
+  openThumbPoll,
+  thumbTally,
+  toRoomPoll,
+  withoutVoters,
+  type ThumbPoll,
+} from "./thumbs";
 
 /** How often the host checks whether the room has gone idle. */
 const IDLE_CHECK_MS = 30_000;
@@ -201,6 +218,37 @@ interface RoomView {
   /** While the host hides the cards: the ids of every card it holds. */
   ids: ReadonlySet<string> | null;
   votesPerPerson: number;
+  /** Revision 2: the host's thumbs vote, as its snapshot carries it. */
+  poll: RoomPoll | null;
+}
+
+/** A thumbs vote as its host sees it: the totals while it's open too. */
+export interface ThumbPollView {
+  id: string;
+  topic: string;
+  open: boolean;
+  keep: number;
+  move: number;
+  voters: number;
+}
+
+/** Hosting: the Lean Coffee thumbs vote ("keep going or move on?"). */
+export interface RetroThumbsHost {
+  /** The vote running, with its totals; null when none is. */
+  poll: ThumbPollView | null;
+  /** Ask the room about `topic`: a new, open vote (any earlier one is dropped). */
+  open: (topic: string) => void;
+  /** Stop taking thumbs and show everyone the totals. */
+  close: () => void;
+  /** Take the vote off everyone's screen. */
+  clear: () => void;
+}
+
+/** A participant's own thumb, with the key that changes it (the thumb sent its lock). */
+interface HeldThumb {
+  pollId: string;
+  choice: ThumbChoice;
+  key: string;
 }
 
 export type AddCardResult =
@@ -335,6 +383,21 @@ export interface RetroRoom {
    * takes, unsigned, as the snapshot does.
    */
   extras: RoomExtrasPort;
+  /**
+   * Revision 2, the thumbs vote. Participant: the host's vote from its last
+   * snapshot (how many voted; the totals once it's closed). Hosting: the
+   * vote this client runs, as the room sees it. Null when none is running.
+   */
+  poll: RoomPoll | null;
+  /** Participant: this tab's thumb on the current vote, or null. */
+  myThumb: ThumbChoice | null;
+  /**
+   * Participant: thumb up ("keep") or down ("move") on the open vote, or
+   * change it. False when there is no open vote or no seat.
+   */
+  thumb: (choice: ThumbChoice) => boolean;
+  /** Hosting: run the thumbs vote. */
+  thumbs: RetroThumbsHost;
 }
 
 const TERMINAL: ReadonlySet<RetroRoomStatus> = new Set<RetroRoomStatus>([
@@ -416,6 +479,10 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const [cardsLost, setCardsLost] = useState(false);
   /** Participant: the host's state is of another protocol version (a tab on another build). */
   const [otherVersion, setOtherVersion] = useState(false);
+  /** Hosting: bumped when the thumbs vote (in a ref) changes, so its view re-renders. */
+  const [pollVersion, setPollVersion] = useState(0);
+  /** Participant: this tab's thumb on the host's current vote. */
+  const [myThumbState, setMyThumbState] = useState<HeldThumb | null>(null);
 
   const active = !TERMINAL.has(status);
   const isHost = role === "host" || promoted;
@@ -474,6 +541,20 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
   const deletesSinceSnapRef = useRef(0);
   /** Participant: the host cleared the board since the last settled snapshot. */
   const clearedRef = useRef(false);
+  /** Hosting: the thumbs vote, who voted what included. In memory only. */
+  const pollRef = useRef<ThumbPoll | null>(null);
+  /** Participant: its own thumb, with its key. */
+  const myThumbRef = useRef<HeldThumb | null>(null);
+
+  const setPoll = useCallback((next: ThumbPoll | null) => {
+    if (next === pollRef.current) return;
+    pollRef.current = next;
+    setPollVersion((n) => n + 1);
+  }, []);
+  const setMyThumb = useCallback((next: HeldThumb | null) => {
+    myThumbRef.current = next;
+    setMyThumbState(next);
+  }, []);
 
   // Each memory list has a ref (read by handlers) and state (renders); set both together.
   const setOwnCards = useCallback((next: HeldCard[]) => {
@@ -579,6 +660,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       now,
       hideWhileWriting: hideRef.current,
       votesPerPerson: budget(),
+      poll: pollRef.current ? toRoomPoll(pollRef.current) : null,
     };
     const snap = toRoomSnapshot(board, meta);
     // Participants refuse anything bigger, so don't spend the quota sending it.
@@ -734,9 +816,12 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
         counts: hidden ? snap.counts : null,
         ids: hidden ? new Set(snap.ids) : null,
         votesPerPerson: snap.votesPerPerson,
+        poll: snap.poll ?? null,
       };
       viewRef.current = next;
       setView(next);
+      // A thumb belongs to one vote: a new vote, or none, starts this tab afresh.
+      if (myThumbRef.current && myThumbRef.current.pollId !== snap.poll?.id) setMyThumb(null);
       setHostId(snap.hostId);
       setPendingVotes(0);
       setOtherVersion(false);
@@ -770,7 +855,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       }
       setStatus((s) => (s === "connecting" ? "live" : s));
     },
-    [reconcile, setDeleting, setMyVotes, setOwnCards, setUnshared]
+    [reconcile, setDeleting, setMyThumb, setMyVotes, setOwnCards, setUnshared]
   );
 
   /**
@@ -812,6 +897,18 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       if (!board) return;
       const admitted = new Set<string>();
       for (const m of roomRef.current.members) if (m.id !== selfId) admitted.add(m.id);
+      if (env.intent.t === "thumb") {
+        // Revision 2: a thumb changes the host's vote, never the board.
+        const voted = applyThumb(pollRef.current, env, {
+          admitted,
+          removed: blockedRef.current,
+        });
+        if (!voted.ok) return;
+        setPoll(voted.poll);
+        touch();
+        scheduleSnapshot();
+        return;
+      }
       const res = applyIntent(board, ledgerRef.current, env, {
         admitted,
         removed: blockedRef.current,
@@ -878,6 +975,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     scheduleSnapshot,
     selfId,
     setLedger,
+    setPoll,
     touch,
     trusts,
   ]);
@@ -966,8 +1064,17 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     const left = Array.from(seenMembersRef.current).some((id) => !ids.has(id));
     seenMembersRef.current = ids;
     if (joined || left) touch();
+    // Someone who left takes their thumb with them: the totals count who's here.
+    const poll = pollRef.current;
+    if (left && poll) {
+      const next = withoutVoters(poll, (id) => !ids.has(id));
+      if (next !== poll) {
+        setPoll(next);
+        scheduleSnapshot();
+      }
+    }
     if (joined) scheduleSnapshot();
-  }, [room.members, room.isConnected, isHost, active, touch, scheduleSnapshot]);
+  }, [room.members, room.isConnected, isHost, active, touch, scheduleSnapshot, setPoll]);
 
   useEffect(() => {
     if (!isHost || !active || !room.isConnected) return;
@@ -1104,7 +1211,10 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       isHostRef.current = true;
       hideRef.current = v.hideWhileWriting;
       setHide(v.hideWhileWriting);
-      updateView((cur) => ({ ...cur, board, hostId: selfId, counts: null, ids: null }));
+      // The old host's thumbs vote went with it: nobody's thumb is known here.
+      setPoll(null);
+      setMyThumb(null);
+      updateView((cur) => ({ ...cur, board, hostId: selfId, counts: null, ids: null, poll: null }));
       setOwnCards([]);
       setDeleting([]);
       setMyVotes([]);
@@ -1123,8 +1233,10 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     selfId,
     setDeleting,
     setLedger,
+    setMyThumb,
     setMyVotes,
     setOwnCards,
+    setPoll,
     updateView,
   ]);
 
@@ -1314,10 +1426,71 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       blockedRef.current.add(id);
       setRemovedVersion((n) => n + 1);
       roomRef.current.broadcast(RETRO_ROOM_EVENTS.kick, { by: selfId, id });
+      // A removed member's thumb no longer counts.
+      if (pollRef.current) setPoll(withoutVoters(pollRef.current, (m) => m === id));
       scheduleSnapshot();
     },
-    [scheduleSnapshot, selfId]
+    [scheduleSnapshot, selfId, setPoll]
   );
+
+  // ── The thumbs vote (revision 2) ─────────────────────────────────
+
+  const thumb = useCallback(
+    (choice: ThumbChoice): boolean => {
+      if (!activeRef.current || isHostRef.current) return false;
+      const v = viewRef.current;
+      const poll = v?.poll;
+      if (!v || !poll || !poll.open || !v.members.some((m) => m.id === selfId)) return false;
+      const mine = myThumbRef.current?.pollId === poll.id ? myThumbRef.current : null;
+      if (mine?.choice === choice) return true;
+      // A change proves it's this tab's thumb with the key behind the first lock.
+      const key = newKey();
+      send({
+        t: "thumb",
+        iid: nanoid(12),
+        pollId: poll.id,
+        choice,
+        lock: lockOf(key),
+        ...(mine ? { key: mine.key } : {}),
+      });
+      setMyThumb({ pollId: poll.id, choice, key });
+      return true;
+    },
+    [selfId, send, setMyThumb]
+  );
+
+  const openPoll = useCallback(
+    (topic: string) => {
+      if (!isHostRef.current || !activeRef.current) return;
+      setPoll(openThumbPoll(nanoid(10), topic));
+      touch();
+      scheduleSnapshot();
+    },
+    [scheduleSnapshot, setPoll, touch]
+  );
+
+  const closePoll = useCallback(() => {
+    if (!isHostRef.current || !pollRef.current?.open) return;
+    setPoll(closeThumbPoll(pollRef.current));
+    touch();
+    scheduleSnapshot();
+  }, [scheduleSnapshot, setPoll, touch]);
+
+  const clearPoll = useCallback(() => {
+    if (!isHostRef.current || !pollRef.current) return;
+    setPoll(null);
+    scheduleSnapshot();
+  }, [scheduleSnapshot, setPoll]);
+
+  const thumbs = useMemo((): RetroThumbsHost => {
+    const p = pollRef.current;
+    const view: ThumbPollView | null = p
+      ? { id: p.id, topic: p.topic, open: p.open, ...thumbTally(p) }
+      : null;
+    return { poll: view, open: openPoll, close: closePoll, clear: clearPoll };
+    // `pollVersion` stands for the poll, which lives in a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollVersion, openPoll, closePoll, clearPoll]);
 
   const leave = useCallback(() => {
     if (!activeRef.current) return;
@@ -1535,5 +1708,10 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       signer: null,
       blocked: (id) => blockedRef.current.has(id),
     },
+    poll: isHost ? (pollRef.current ? toRoomPoll(pollRef.current) : null) : (view?.poll ?? null),
+    myThumb:
+      !isHost && view?.poll && myThumbState?.pollId === view.poll.id ? myThumbState.choice : null,
+    thumb,
+    thumbs,
   };
 }

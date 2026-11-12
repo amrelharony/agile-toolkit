@@ -60,6 +60,7 @@ import { TimerWidget } from "../components/timer-widget";
 import { hiddenTotal } from "./hidden";
 import { MEMBER_CARD_CAP } from "./protocol";
 import { ParticipantBoard } from "./participant-board";
+import { ThumbsVoteCard } from "./thumbs-vote-card";
 import {
   HideCardsSetting,
   IdlePromptDialog,
@@ -530,6 +531,15 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
                     }
                   : undefined
               }
+            />
+          )}
+
+          {active && !hosting && room.poll && (
+            <ThumbsVoteCard
+              poll={room.poll}
+              myThumb={room.myThumb}
+              canVote={room.admitted}
+              onThumb={room.thumb}
             />
           )}
 
