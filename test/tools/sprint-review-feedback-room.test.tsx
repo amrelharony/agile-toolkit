@@ -174,13 +174,15 @@ describe("the Feedback tab", () => {
     view.unmount();
 
     const real = source();
-    wrap(<FeedbackTab source={real.src} />);
+    const onRoomOpen = vi.fn();
+    wrap(<FeedbackTab source={real.src} onRoomOpen={onRoomOpen} />);
     const run = screen.getByRole("button", { name: "Run a feedback room" });
-    expect(run).toHaveAttribute("aria-expanded", "false");
     await act(async () => {
       fireEvent.click(run);
     });
-    expect(run).toHaveAttribute("aria-expanded", "true");
+    // Not a toggle: once open, the panel stays, and the page keeps the tab mounted.
+    expect(screen.queryByRole("button", { name: "Run a feedback room" })).toBeNull();
+    expect(onRoomOpen).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByText("Loading the feedback room…")).toBeNull());
     vi.unstubAllEnvs();
   });

@@ -7,7 +7,10 @@
  * feedback becomes a backlog story through the backlog-story hand-off
  * (never from the example), and the item then links to that story.
  * "Run a feedback room" opens an Audience Wall room for the stakeholders
- * (feedback-room.tsx); its posts join the feedback only on Save round.
+ * (feedback-room.tsx); its posts join the feedback only on Save round. Once
+ * opened, the room's panel stays (its own End room and Close end it), and
+ * the page keeps this tab mounted while another tab shows (`onRoomOpen`),
+ * so a look at the Demo Script between rounds loses nothing.
  */
 
 import { useRef, useState } from "react";
@@ -58,13 +61,21 @@ const FeedbackRoomLazy = dynamic(() => import("./feedback-room").then((m) => m.F
   ),
 });
 
-export function FeedbackTab({ source }: { source: ReviewSource }) {
+export function FeedbackTab({
+  source,
+  onRoomOpen,
+}: {
+  source: ReviewSource;
+  /** The feedback room's panel opened: the page keeps this tab mounted from now on. */
+  onRoomOpen?: () => void;
+}) {
   const { doc, writer, sprint, example, stored } = source;
   const items = doc.feedbackItems;
   const { log } = useHistoryLogger("sprint-review");
   const announce = useAnnounce();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [roomOpen, setRoomOpen] = useState(false);
+  const roomHeadingRef = useRef<HTMLHeadingElement>(null);
   const addRef = useRef<HTMLDivElement>(null);
 
   const updateItems = (fn: (list: readonly FeedbackItem[]) => FeedbackItem[]) =>
@@ -184,25 +195,35 @@ export function FeedbackTab({ source }: { source: ReviewSource }) {
         )}
 
         <div className="space-y-3 border-t border-border pt-4">
-          <h3 className="text-sm font-medium text-text">Feedback room</h3>
+          <h3
+            ref={roomHeadingRef}
+            tabIndex={-1}
+            className="text-sm font-medium text-text outline-none"
+          >
+            Feedback room
+          </h3>
           {example ? (
             <p className="text-sm text-sub">
               Pick your own sprint&apos;s review to run a feedback room: the example keeps nothing.
             </p>
+          ) : roomOpen ? (
+            // Stays once opened: a live room ends only through its own End room.
+            <FeedbackRoomLazy source={source} />
           ) : (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-1.5"
-                aria-expanded={roomOpen}
-                onClick={() => setRoomOpen((v) => !v)}
-              >
-                <MessagesSquare className="h-4 w-4" aria-hidden="true" />
-                Run a feedback room
-              </Button>
-              {roomOpen && <FeedbackRoomLazy source={source} />}
-            </>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => {
+                setRoomOpen(true);
+                onRoomOpen?.();
+                // The button gives way to the room's panel: focus its heading.
+                window.setTimeout(() => roomHeadingRef.current?.focus(), 0);
+              }}
+            >
+              <MessagesSquare className="h-4 w-4" aria-hidden="true" />
+              Run a feedback room
+            </Button>
           )}
         </div>
 
@@ -296,7 +317,7 @@ function FeedbackRow({
         {link && (
           <Link
             href={getHandoffRoute("backlog-story").targetHref(link.targetId)}
-            className="inline-flex items-center gap-1 text-xs text-success underline-offset-2 hover:underline"
+            className="min-touch-coarse inline-flex items-center gap-1 py-1 text-xs text-success underline-offset-2 hover:underline"
           >
             <BookCheck className="h-3.5 w-3.5" aria-hidden="true" />
             {story ? `On the backlog: “${shortName(story.title, 60)}”` : "On the backlog"}
