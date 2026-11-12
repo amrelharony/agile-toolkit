@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { registry } from "@/lib/actions/registry";
-import { executeToolUse, isDestructiveAction } from "@/lib/agent/execute-tool";
+import "@/lib/actions/register-all";
+import { confirmWords, executeToolUse, isDestructiveAction } from "@/lib/agent/execute-tool";
 import type { ToolUseBlock } from "@/lib/agent/types";
 
 /**
@@ -729,5 +730,59 @@ describe("executeToolUse — the confirm card (ConfirmPrompt) and the destructiv
     }
     // A read never asks.
     expect(isDestructiveAction({ name: "delete_preview", category: "read" })).toBe(false);
+  });
+});
+
+describe("confirmWords — every registered change asks a plain question", () => {
+  /** The question a card asks before `id` runs. */
+  const ask = (id: string) => {
+    const action = registry.get(id);
+    expect(action, id).toBeDefined();
+    return confirmWords(action!).question;
+  };
+
+  it("asks for every write and intent in plain words", () => {
+    const changes = registry.list().filter((a) => a.category !== "read");
+    expect(changes.length).toBeGreaterThan(300);
+    for (const action of changes) {
+      const { question } = confirmWords(action);
+      expect(question, action.id).toMatch(/^[A-Z].*\?$/);
+      // A two-word verb split by an article: "Score this and persist".
+      expect(question, action.id).not.toContain(" this and ");
+      // A word for code, not for a person.
+      expect(question, action.id).not.toMatch(/persist/i);
+      // A word said twice: "Check this in in". "check-in in" is not a repeat.
+      expect(question, action.id).not.toMatch(/(?:^|\s)(\S+) \1(?=[\s?])/i);
+    }
+  });
+
+  it("keeps a verb that is a phrase of its own whole", () => {
+    expect(ask("tool.rice_scoring.score_and_persist")).toBe(
+      "Score and save in RICE Scoring Calculator?"
+    );
+    expect(ask("tool.moscow.classify_and_persist")).toBe("Classify and save in MoSCoW Matrix?");
+    expect(ask("tool.wsjf.persist_to_prioritization")).toBe(
+      "Save to prioritization in WSJF Calculator?"
+    );
+    expect(ask("tool.okrs.check_in")).toBe("Check in on OKR Tracker?");
+    expect(ask("tool.working_agreement.record_check_in")).toBe(
+      "Record a check-in in Working Agreement Builder?"
+    );
+    expect(ask("tool.adkar.step_back")).toBe("Step back in ADKAR Change Tracker?");
+  });
+
+  it("gives a thing of more than one word its article, even one that starts like a participle", () => {
+    expect(ask("workspace.weighted_criterion.create")).toBe(
+      "Create a weighted criterion in your workspace?"
+    );
+    expect(ask("workspace.red_team_finding.delete")).toBe(
+      "Delete this red team finding from your workspace?"
+    );
+    expect(ask("workspace.working_agreement.update")).toBe(
+      "Update this working agreement in your workspace?"
+    );
+    expect(ask("tool.code_review_metrics.set_working_window")).toBe(
+      "Set the working window in Code Review Metrics?"
+    );
   });
 });

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { claudeNameFromId, registry } from "@/lib/actions/registry";
 import "@/lib/actions/register-all";
 import { getToolById } from "@/lib/constants/tools";
-import { toolLabel } from "@/lib/agent/tool-label";
+import { phrase, toolLabel, verbPhrase } from "@/lib/agent/tool-label";
 
 /**
  * toolLabel turns a call's wire name into the words a step row shows:
@@ -88,6 +88,24 @@ describe("toolLabel", () => {
     expect(toolLabel("tool_moscow_list_items").verb).toBe("List items");
   });
 
+  it("says persist as save, and a check-in as a person would", () => {
+    expect(toolLabel("tool_rice_scoring_score_and_persist").verb).toBe("Score and save");
+    expect(toolLabel("tool.moscow.classify_and_persist").verb).toBe("Classify and save");
+    expect(toolLabel("tool.wsjf.persist_to_prioritization").verb).toBe("Save to prioritization");
+    expect(toolLabel("tool.weighted_decision.score_and_persist_option").verb).toBe(
+      "Score and save an option"
+    );
+    expect(toolLabel("tool.okrs.check_in").verb).toBe("Check in");
+    expect(toolLabel("tool.working_agreement.record_check_in").verb).toBe("Record a check-in");
+    expect(toolLabel("tool.working_agreement.remove_check_in").verb).toBe("Remove check-in");
+  });
+
+  it("keeps the plainer verbs for verbs: an argument's words are said as written", () => {
+    expect(phrase(["list", "state"])).toBe("List state");
+    expect(phrase(["check", "in"])).toBe("Check in");
+    expect(verbPhrase(["list", "state"])).toBe("Read");
+  });
+
   it("files intents under Workspace too", () => {
     expect(toolLabel("intent_plan_sprint")).toEqual({ tool: "Workspace", verb: "Plan sprint" });
     expect(toolLabel("intent.create_okr_for_sprint")).toEqual({
@@ -150,6 +168,7 @@ describe("toolLabel", () => {
         expect(shown, name).not.toMatch(/[_]/);
         expect(label.tool, name).not.toBe("");
         expect(label.verb, name).not.toBe("");
+        expect(label.verb, name).not.toMatch(/persist/i);
         // A tool the catalog lists is always named from the catalog: the
         // longest-run match never splits a name in the wrong place.
         const [group, segment] = action.id.split(".");

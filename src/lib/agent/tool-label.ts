@@ -103,8 +103,23 @@ const SPELLED: Readonly<Record<string, string>> = {
 /** Workspace entity words said another way ("scalars" holds the team's name and maturity level). */
 const ENTITY_WORDS: Readonly<Record<string, string>> = { scalars: "settings" };
 
-/** Whole verbs said more plainly: every tool's read of its own data is `list_state`. */
-const VERB_PHRASES: Readonly<Record<string, string>> = { "list state": "Read" };
+/**
+ * Whole verbs said more plainly: every tool's read of its own data is
+ * `list_state`, and "persist" is a word for code, not for a person. The
+ * confirm card asks with these too ("Score and save in RICE Scoring
+ * Calculator?"), so each reads as a command. Verbs only: an argument's name
+ * or value never goes through this.
+ */
+const VERB_PHRASES: Readonly<Record<string, string>> = {
+  "classify and persist": "Classify and save",
+  "list state": "Read",
+  "persist options": "Save options",
+  "persist to prioritization": "Save to prioritization",
+  "record check in": "Record a check-in",
+  "remove check in": "Remove check-in",
+  "score and persist": "Score and save",
+  "score and persist option": "Score and save an option",
+};
 
 /** Plurals English doesn't make with an s. */
 const IRREGULAR_PLURALS: Readonly<Record<string, string>> = {
@@ -189,8 +204,6 @@ function wordsOf(text: string): string[] {
  * (["okr", "title"] → "OKR title"). The confirm card names arguments with it.
  */
 export function phrase(words: readonly string[]): string {
-  const plain = VERB_PHRASES[words.join(" ")];
-  if (plain) return plain;
   return words
     .map((word, i) => {
       const spelled = SPELLED[word] ?? word;
@@ -199,6 +212,11 @@ export function phrase(words: readonly string[]): string {
       return spelled.charAt(0).toUpperCase() + spelled.slice(1);
     })
     .join(" ");
+}
+
+/** A verb's words as a phrase, or its plainer form from VERB_PHRASES ("list state" → "Read"). */
+export function verbPhrase(words: readonly string[]): string {
+  return VERB_PHRASES[words.join(" ")] ?? phrase(words);
 }
 
 /** One English plural, for a list's entity ("story" → "stories", "series" stays). */
@@ -235,16 +253,16 @@ function longestTool(words: readonly string[]): { name: string; rest: string[] }
 function toolGroup(words: string[], segment: string[] | null, after: string[] | null): ToolLabel {
   if (segment && after) {
     const tool = getToolById(segment.join("-"));
-    if (tool) return { tool: tool.name, verb: phrase(after) };
-    if (segment.length > 0) return { tool: phrase(segment), verb: phrase(after) };
+    if (tool) return { tool: tool.name, verb: verbPhrase(after) };
+    if (segment.length > 0) return { tool: phrase(segment), verb: verbPhrase(after) };
   }
   const found = longestTool(words);
-  if (found) return { tool: found.name, verb: phrase(found.rest) };
+  if (found) return { tool: found.name, verb: verbPhrase(found.rest) };
   if (words.length === 0) return NO_NAME;
   // A tool the catalog doesn't list: its words run up to the first verb word.
   const at = words.findIndex((word, i) => i > 0 && VERBS.has(word));
   const cut = at === -1 ? 1 : at;
-  return { tool: phrase(words.slice(0, cut)), verb: phrase(words.slice(cut)) };
+  return { tool: phrase(words.slice(0, cut)), verb: verbPhrase(words.slice(cut)) };
 }
 
 /**
@@ -275,10 +293,11 @@ function workspaceGroup(
     action = at === -1 ? [] : words.slice(at);
   }
   entity = entity.map((word) => ENTITY_WORDS[word] ?? word);
-  if (action.length === 0) return { tool: WORKSPACE, verb: phrase(entity) };
-  if (action.length > 1 || entity.length === 0) return { tool: WORKSPACE, verb: phrase(action) };
+  if (action.length === 0) return { tool: WORKSPACE, verb: verbPhrase(entity) };
+  if (action.length > 1 || entity.length === 0)
+    return { tool: WORKSPACE, verb: verbPhrase(action) };
   const object = action[0] === "list" ? plural(entity) : entity;
-  return { tool: WORKSPACE, verb: phrase([action[0], ...object]) };
+  return { tool: WORKSPACE, verb: verbPhrase([action[0], ...object]) };
 }
 
 /** Plain words for a tool call's wire name (underscored or dotted). Never a raw id. */
@@ -295,9 +314,9 @@ export function toolLabel(wireName: string): ToolLabel {
 
   if (group === "tool") return toolGroup(rest, segment, after);
   if (group === "workspace") return workspaceGroup(rest, segment, after);
-  if (group === "intent") return { tool: WORKSPACE, verb: phrase(rest) };
+  if (group === "intent") return { tool: WORKSPACE, verb: verbPhrase(rest) };
   // No known group: a tool's own words first ("retro_add_card"), else just words.
   const found = longestTool(words);
-  if (found) return { tool: found.name, verb: phrase(found.rest) };
-  return { tool: NO_NAME.tool, verb: phrase(words) };
+  if (found) return { tool: found.name, verb: verbPhrase(found.rest) };
+  return { tool: NO_NAME.tool, verb: verbPhrase(words) };
 }

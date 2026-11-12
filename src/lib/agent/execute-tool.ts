@@ -2,7 +2,7 @@ import { z } from "zod";
 import { registry } from "@/lib/actions/registry";
 import { makeContext } from "@/lib/actions/context";
 import type { AnyToolAction } from "@/lib/actions/types";
-import { phrase, toolLabel } from "./tool-label";
+import { phrase, toolLabel, verbPhrase } from "./tool-label";
 import type { ConfirmPrompt, ToolResultBlock, ToolUseBlock } from "./types";
 
 interface ExecuteOptions {
@@ -277,6 +277,21 @@ const NEW_VERBS: ReadonlySet<string> = new Set([
   "start",
   "suggest",
 ]);
+/**
+ * Second words that make a verb one phrase of its own: "Score and save",
+ * "Check in", "Save to prioritization", "Step back". Such a verb gets no
+ * "this" or "a" put inside it.
+ */
+const PARTICLES: ReadonlySet<string> = new Set([
+  "and",
+  "back",
+  "by",
+  "in",
+  "on",
+  "out",
+  "to",
+  "up",
+]);
 /** First words that already say which one, or read better bare ("Toggle done"). */
 const NO_ARTICLE: ReadonlySet<string> = new Set([
   "a",
@@ -314,15 +329,30 @@ function describeAction(
   input: unknown,
   destructive: boolean
 ): ConfirmPrompt {
+  const { confirmLabel, ...words } = confirmWords(action);
+  return {
+    ...words,
+    detail: describeParams(input, action.paramsSchema),
+    destructive,
+    ...(confirmLabel ? { confirmLabel } : {}),
+  };
+}
+
+/**
+ * The card's words that come from the action alone: the verb, the tool's
+ * name and the question. Exported so a test can read every registered
+ * action's question without building its arguments.
+ */
+export function confirmWords(
+  action: Pick<AnyToolAction, "id" | "name" | "confirmLabel">
+): Pick<ConfirmPrompt, "verb" | "title" | "question" | "confirmLabel"> {
   const label = toolLabel(action.id);
-  const verb = label.verb || phrase(keyWords(action.name)) || "Go ahead";
+  const verb = label.verb || verbPhrase(keyWords(action.name)) || "Go ahead";
   const confirmLabel = action.confirmLabel?.trim() || undefined;
   return {
     verb,
     title: label.tool,
     question: confirmLabel ? `${confirmLabel}?` : askQuestion(label.tool, verb),
-    detail: describeParams(input, action.paramsSchema),
-    destructive,
     ...(confirmLabel ? { confirmLabel } : {}),
   };
 }
@@ -337,6 +367,12 @@ function askQuestion(tool: string, verb: string): string {
     if (FROM_VERBS.has(lead)) return `${head} this from ${where}?`;
     return `${head} in ${where}?`;
   }
+  // A phrase of its own, whole: "Score and save in RICE Scoring Calculator?".
+  // One that ends in "in" takes "on": "Check in on OKR Tracker?", not "in in".
+  if (PARTICLES.has(object[0].toLowerCase())) {
+    const last = object[object.length - 1].toLowerCase();
+    return `${verb} ${last === "in" ? "on" : "in"} ${where}?`;
+  }
   const into = TO_VERBS.has(lead) ? "to" : FROM_VERBS.has(lead) ? "from" : "in";
   return `${head} ${withArticle(lead, object)} ${into} ${where}?`;
 }
@@ -346,8 +382,10 @@ function withArticle(verb: string, object: string[]): string {
   const thing = object.join(" ");
   const first = object[0].toLowerCase();
   const last = object[object.length - 1].toLowerCase();
-  // Already says which, a participle ("Mark resolved"), or a plural ("Add stories").
-  if (NO_ARTICLE.has(first) || /(?:ed|ing)$/.test(first) || /[^s]s$/.test(last)) return thing;
+  // Already says which, a participle on its own ("Mark resolved", not "a
+  // weighted criterion" or "this red team finding"), or a plural ("Add stories").
+  const participle = object.length === 1 && /(?:ed|ing)$/.test(first);
+  if (NO_ARTICLE.has(first) || participle || /[^s]s$/.test(last)) return thing;
   if (verb === "set") return `the ${thing}`;
   if (!NEW_VERBS.has(verb)) return `this ${thing}`;
   return `${indefinite(object[0])} ${thing}`;
