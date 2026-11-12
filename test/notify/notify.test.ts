@@ -426,6 +426,40 @@ describe("context", () => {
     expect(readPolicyContext().dialogOpen).toBe(false);
   });
 
+  it("sees Amr's phone sheet, which is not a dialog", () => {
+    __setPolicyContextForTests(null);
+    const html = document.documentElement;
+    html.setAttribute("data-amr-sheet", "");
+    try {
+      expect(readPolicyContext()).toMatchObject({ amrSheet: true, dialogOpen: false });
+    } finally {
+      html.removeAttribute("data-amr-sheet");
+    }
+    expect(readPolicyContext().amrSheet).toBe(false);
+  });
+
+  it("holds a success while Amr's phone sheet is open and shows it once it closes; errors and Undo show at once", () => {
+    __setPolicyContextForTests(null);
+    setNotifyPathname("/");
+    const html = document.documentElement;
+    html.setAttribute("data-amr-sheet", "");
+    try {
+      notify("success", "Card added");
+      advance(5000);
+      vi.advanceTimersByTime(5000);
+      expect(h.sonner.success).not.toHaveBeenCalled();
+      notify("error", "Couldn't save");
+      expect(h.sonner.error).toHaveBeenCalledTimes(1);
+      notify("plain", "Card deleted", { kind: "undo", action: { label: "Undo", onClick() {} } });
+      expect(h.sonner).toHaveBeenCalledTimes(1);
+    } finally {
+      html.removeAttribute("data-amr-sheet");
+    }
+    advance(1000);
+    vi.advanceTimersByTime(1000);
+    expect(calls(h.sonner.success).map(([m]) => m)).toEqual(["Card added"]);
+  });
+
   it("holds a success while a hand-built aria-modal dialog is open; errors still show", () => {
     __setPolicyContextForTests(null);
     setNotifyPathname("/");
