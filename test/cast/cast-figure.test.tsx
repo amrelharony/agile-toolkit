@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { CAST_MAX_CSS_PX, CastFigure } from "@/components/cast/cast-figure";
 import styles from "@/components/cast/cast-figure.module.css";
-import { ARMLESS_PUPPET, TEST_PUPPET } from "./fixtures/rig-fixture";
+import { ARMLESS_PUPPET, FAN_PUPPET, TEST_PUPPET } from "./fixtures/rig-fixture";
 
 const SOURCE = readFileSync(
   path.join(process.cwd(), "src/components/cast/cast-figure.tsx"),
@@ -113,7 +113,7 @@ describe("the skeleton", () => {
   });
 
   it("renders exactly the nodes its manifest counts, within the budget", () => {
-    for (const rig of [TEST_PUPPET, ARMLESS_PUPPET]) {
+    for (const rig of [TEST_PUPPET, ARMLESS_PUPPET, FAN_PUPPET]) {
       const { container } = render(<CastFigure rig={rig} height="120px" ground />);
       const nodes = container.querySelectorAll("[data-cast], [data-cast] *").length;
       expect(nodes, rig.id).toBe(rig.counts.nodes);

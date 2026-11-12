@@ -330,11 +330,12 @@ export const CLIPS: Readonly<Record<ClipId, Clip>> = {
     ms: 900,
     tracks: [track("head", "settle", { t: 0.3, y: 6 }, { t: 0.75, y: 6 })],
   },
+  // A fan rests open: the move folds it and spreads it again.
   "sig.fan": {
     id: "sig.fan",
     ms: 900,
     tracks: [track("body", "settle", { t: 0.2, sy: 1.01 })],
-    swaps: [{ key: "fan.open", from: 0.08, to: 0.9 }],
+    swaps: [{ key: "fan.closed", from: 0.1, to: 0.55 }],
   },
   "sig.load": {
     id: "sig.load",

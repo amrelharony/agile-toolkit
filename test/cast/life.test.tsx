@@ -15,7 +15,7 @@ import { CLIPS, LIMITS, PACE } from "@/lib/cast/clips";
 import type { RigManifest } from "@/lib/cast/rig-types";
 import { REACT_EVENT, isCastDialogOpen, lifeEnv, startLife, type LifeEnv } from "@/lib/cast/life";
 import { EASE } from "@/lib/motion/tokens";
-import { ARMLESS_PUPPET, TEST_PUPPET } from "./fixtures/rig-fixture";
+import { ARMLESS_PUPPET, FAN_PUPPET, TEST_PUPPET } from "./fixtures/rig-fixture";
 
 const quiet = vi.hoisted(() => ({
   isQuietNow: vi.fn<(path: string | null) => boolean>(() => true),
@@ -480,6 +480,19 @@ describe("taps", () => {
     expect(on(fig, "arm-r")).toEqual(["wave"]);
     vi.advanceTimersByTime(CLIPS["sig.wave"].ms);
     expect(on(fig, "arm-r")).toEqual(["rest"]);
+  });
+
+  it("fold a fan that rests open and spread it again, open by the move's end", () => {
+    const { figs } = stage([FAN_PUPPET]);
+    const fig = figs[0];
+    const shown = [on(fig, "fan").join()];
+    fig.click();
+    for (let ms = 0; ms < CLIPS["sig.fan"].ms; ms += 10) {
+      vi.advanceTimersByTime(10);
+      const now = on(fig, "fan").join();
+      if (now !== shown[shown.length - 1]) shown.push(now);
+    }
+    expect(shown).toEqual(["open", "closed", "open"]);
   });
 
   it("wait out the cooldown, and a burst of three in 2 s is ignored for 2 s", () => {

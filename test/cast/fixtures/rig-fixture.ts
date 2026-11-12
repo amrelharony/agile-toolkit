@@ -2,7 +2,7 @@
  * Synthetic rigs for the runtime tests: made-up characters with made-up
  * geometry, no canon (no looks, no colours, no real atlas). One with arms,
  * eyes, a mouth, a hand at the chin drawn over the head, a tail, a cord and a
- * drawn extra; one without arms.
+ * drawn extra; one without arms; one with a fan that rests open.
  */
 
 import type { RigManifest } from "@/lib/cast/rig-types";
@@ -192,4 +192,38 @@ export const ARMLESS_PUPPET: RigManifest = {
   swaps: TEST_PUPPET.swaps.filter((s) => s.id === "eyes" || s.id === "mouth"),
   signature: ["sig.nod"],
   counts: { nodes: 27, animated: 6 },
+};
+
+/**
+ * The first puppet with a fan behind the torso, drawn open at rest; its
+ * closed choice is pinned at the open fan's base. Three more nodes: the
+ * slot and its two choices.
+ */
+export const FAN_PUPPET: RigManifest = {
+  ...TEST_PUPPET,
+  id: "AAW-92",
+  name: "Fan Puppet",
+  atlas: {
+    x1: "/cast/aaw-92.13579bdf.webp",
+    x2: "/cast/aaw-92@2x.2468ace0.webp",
+    bytes1: 16_000,
+    bytes2: 40_000,
+  },
+  swaps: [
+    ...TEST_PUPPET.swaps,
+    {
+      id: "fan",
+      on: "torso",
+      box: [-50, -60, 200, 150],
+      pivot: [50, 90],
+      z: -3,
+      rest: "open",
+      choices: [
+        { id: "open", box: [0, 0, 100, 100], sprite: { bg: [250, 330, 10, 95] } },
+        { id: "closed", box: [40, 50, 20, 50], sprite: { bg: [1250, 1000, 20, 95] } },
+      ],
+    },
+  ],
+  signature: ["sig.fan"],
+  counts: { nodes: 45, animated: 6 },
 };

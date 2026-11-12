@@ -15,7 +15,7 @@ import type { RigManifest } from "@/lib/cast/rig-types";
 import { RIGS } from "@/lib/cast/rigs.generated";
 import { CAST } from "@/lib/vip/cast.generated";
 import spec from "../../docs/cast/cast-rig.json";
-import { ARMLESS_PUPPET, TEST_PUPPET } from "./fixtures/rig-fixture";
+import { ARMLESS_PUPPET, FAN_PUPPET, TEST_PUPPET } from "./fixtures/rig-fixture";
 
 /** Amr, whose rig carries no tap move of its own. */
 const AMR = "AAW-01";
@@ -107,9 +107,8 @@ function movedAtOnce(rig: RigManifest): number {
 
 describe("the rig checks", () => {
   it("pass the synthetic fixtures", () => {
-    expect(problems(TEST_PUPPET)).toEqual([]);
-    expect(problems(ARMLESS_PUPPET)).toEqual([]);
-    for (const rig of [TEST_PUPPET, ARMLESS_PUPPET]) {
+    for (const rig of [TEST_PUPPET, ARMLESS_PUPPET, FAN_PUPPET]) {
+      expect(problems(rig), rig.id).toEqual([]);
       expect(movedAtOnce(rig), rig.id).toBeLessThanOrEqual(rig.counts.animated);
     }
   });
