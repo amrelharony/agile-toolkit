@@ -7,7 +7,7 @@
  * the export; and the history it logs.
  */
 
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -177,6 +177,23 @@ describe("the buffer", () => {
     expect(ws().sprints[0].interruptBuffer).toBeUndefined();
   });
 
+  it("reads a saved share back as a share", async () => {
+    seed([sprint({ interruptBuffer: { pct: 20 } })]);
+    renderPage();
+    expect(await screen.findByLabelText("Keep it as")).toHaveValue("pct");
+    expect(screen.getByLabelText("Share")).toHaveValue(20);
+    expect(screen.getByText(/A share of the 30 points planned for Sprint 7/)).toBeInTheDocument();
+  });
+
+  it("weighs a share above 90% that was stored elsewhere, so the warning still comes", async () => {
+    seed([sprint({ interruptBuffer: { pct: 95 } })], [item({ size: 40 })]);
+    renderPage();
+    expect(
+      await screen.findByText("40 of 28.5 points used: 11.5 points over the buffer.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Emergency Procedure" })).toBeInTheDocument();
+  });
+
   it("suggests a size from the finished sprints' interrupts", async () => {
     seed(
       [
@@ -259,6 +276,50 @@ describe("interrupts", () => {
     expect(logs.at(-1)?.action).toBe(INTERRUPT_BUFFER_ACTIONS.INTERRUPT_UPDATED);
   });
 
+  it("put focus back on the row's Edit after Save or Cancel", async () => {
+    seed([sprint()], [item()]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^Edit “/ }));
+    const list = screen.getByRole("list", { name: "Interrupts in Sprint 7" });
+    fireEvent.click(within(list).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Edit “/ })).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: /^Edit “/ }));
+    fireEvent.click(within(list).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Edit “/ })).toHaveFocus());
+  });
+
+  it("move focus to the next row after a delete, then to the empty list", async () => {
+    seed(
+      [sprint()],
+      [
+        item({ id: "a", title: "Login broken", loggedAt: "2026-11-05T09:00:00.000Z" }),
+        item({ id: "b", title: "Sales asks for an export", kind: "request" }),
+      ]
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete “Login broken”" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Resolve “Sales asks for an export”" })
+      ).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete “Sales asks for an export”" }));
+    await waitFor(() => expect(screen.getByText(/Nothing logged in Sprint 7 yet/)).toHaveFocus());
+  });
+
+  it("count only the sprint's own, and say how many have no size", async () => {
+    seed(
+      [sprint({ interruptBuffer: { points: 8 } })],
+      [item({ size: undefined }), item({ id: "other", sprintId: "s9", title: "Elsewhere" })]
+    );
+    renderPage();
+    expect(
+      await screen.findByText("0 of 8 points used, 8 points left. 1 has no size yet.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Elsewhere")).toBeNull();
+    expect(screen.getByText(/no size · logged/)).toBeInTheDocument();
+  });
+
   it("are deleted with Undo", async () => {
     seed([sprint()], [item()]);
     renderPage();
@@ -300,6 +361,15 @@ describe("over the buffer", () => {
       "inform",
     ]);
     expect(within(panel).getByText(/1 of 6 steps done/)).toBeInTheDocument();
+  });
+
+  it("moves focus to the first step once it is started", async () => {
+    seed([sprint({ interruptBuffer: { points: 2 } })], [item({ size: 3 })]);
+    renderPage();
+    const panel = await screen.findByRole("region", { name: "Emergency Procedure" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Start the Emergency Procedure" }));
+    await waitFor(() => expect(within(panel).getByLabelText(/Stop and look/)).toHaveFocus());
+    expect(within(panel).queryByRole("button", { name: /Start the Emergency/ })).toBeNull();
   });
 
   it("is quiet while there is buffer left", async () => {

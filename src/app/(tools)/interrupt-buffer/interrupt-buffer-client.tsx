@@ -13,7 +13,7 @@
  * memory and never reaches the workspace.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { nanoid } from "nanoid";
 import { useStore } from "zustand";
@@ -291,6 +291,33 @@ export function BufferBoard({
   const suggested = useMemo(() => suggestedBufferPoints(sprints, items), [sprints, items]);
   const [editing, setEditing] = useState<string | null>(null);
   const [announce, setAnnounce] = useState("");
+  // The interrupts' list, for where focus goes once a row's controls go away.
+  const listRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * After the list redraws, focus the control `action` of the row for
+   * `itemId` ("edit", or "first" for its first button), else the list's
+   * empty text.
+   */
+  const focusRow = (itemId: string | null, action: "edit" | "first") =>
+    requestAnimationFrame(() => {
+      const root = listRef.current;
+      if (!root) return;
+      const row = itemId
+        ? Array.from(root.querySelectorAll<HTMLElement>("[data-interrupt]")).find(
+            (el) => el.dataset.interrupt === itemId
+          )
+        : undefined;
+      const target = row
+        ? row.querySelector<HTMLElement>(action === "edit" ? '[data-action="edit"]' : "button")
+        : root.querySelector<HTMLElement>('[data-field="no-interrupts"]');
+      target?.focus();
+    });
+
+  const closeEdit = (id: string) => {
+    setEditing(null);
+    focusRow(id, "edit");
+  };
   const [kinds, setKinds] = useState<{ items: KindSuggestion[]; source: AiSource } | null>(null);
 
   const markdown = useMemo(
@@ -370,7 +397,7 @@ export function BufferBoard({
     else delete next.size;
     writer.putItem(next);
     log(INTERRUPT_BUFFER_ACTIONS.INTERRUPT_UPDATED, { interruptId: id });
-    setEditing(null);
+    closeEdit(id);
     setAnnounce("Interrupt saved.");
   };
 
@@ -391,6 +418,9 @@ export function BufferBoard({
 
   const removeItem = (item: InterruptItem) => {
     const before = fresh(item.id) ?? item;
+    // Focus goes to the next row (or the one before), else the empty list's text.
+    const at = mine.findIndex((i) => i.id === item.id);
+    const neighbour = mine[at + 1] ?? mine[at - 1] ?? null;
     undoable({
       label: `Deleted “${short(item.title)}”`,
       apply: () => writer.removeItem(item.id),
@@ -398,6 +428,7 @@ export function BufferBoard({
     });
     log(INTERRUPT_BUFFER_ACTIONS.INTERRUPT_REMOVED, { interruptId: item.id });
     setAnnounce("");
+    focusRow(neighbour?.id ?? null, "first");
   };
 
   const startEmergency = () => {
@@ -524,7 +555,7 @@ export function BufferBoard({
           ) : undefined
         }
       >
-        <div className="space-y-3">
+        <div className="space-y-3" ref={listRef}>
           {kinds && kinds.items.length > 0 && (
             <AiSuggestions
               items={kinds.items}
@@ -540,7 +571,11 @@ export function BufferBoard({
             />
           )}
           {mine.length === 0 ? (
-            <p className="text-sm text-sub">
+            <p
+              className="text-sm text-sub focus:outline-none"
+              tabIndex={-1}
+              data-field="no-interrupts"
+            >
               Nothing logged in {sprint.name} yet. Log each piece of unplanned work as it lands.
             </p>
           ) : (
@@ -549,13 +584,13 @@ export function BufferBoard({
               aria-label={`Interrupts in ${sprint.name}`}
             >
               {mine.map((item) => (
-                <li key={item.id} className="px-3 py-2">
+                <li key={item.id} className="px-3 py-2" data-interrupt={item.id}>
                   {editing === item.id ? (
                     <InterruptForm
                       initial={draftFor(item)}
                       submitLabel="Save"
                       onSave={(v) => saveEdit(item.id, v)}
-                      onCancel={() => setEditing(null)}
+                      onCancel={() => closeEdit(item.id)}
                       focusOnMount
                     />
                   ) : (
@@ -599,6 +634,7 @@ export function BufferBoard({
                           onClick={() => toggleResolved(item)}
                         />
                         <IconButton
+                          data-action="edit"
                           label={`Edit “${short(item.title)}”`}
                           icon={<Pencil className="h-4 w-4" aria-hidden="true" />}
                           onClick={() => setEditing(item.id)}

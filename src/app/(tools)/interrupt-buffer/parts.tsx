@@ -300,6 +300,14 @@ export function EmergencyPanel({
   onStart: () => void;
   onToggle: (stepId: string) => void;
 }) {
+  // Start goes away once pressed: focus moves to the first step's box.
+  const list = useRef<HTMLOListElement>(null);
+  const started = useRef(false);
+  useEffect(() => {
+    if (!run || !started.current) return;
+    started.current = false;
+    list.current?.querySelector<HTMLInputElement>('input[type="checkbox"]')?.focus();
+  }, [run]);
   return (
     <section
       aria-label="Emergency Procedure"
@@ -315,7 +323,14 @@ export function EmergencyPanel({
             Unplanned work now eats into the sprint goal. Take the steps below in order, with the
             Product Owner.
           </p>
-          <Button type="button" size="sm" onClick={onStart}>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              started.current = true;
+              onStart();
+            }}
+          >
             Start the Emergency Procedure
           </Button>
         </>
@@ -325,7 +340,7 @@ export function EmergencyPanel({
           done.
         </p>
       )}
-      <ol className="space-y-2">
+      <ol className="space-y-2" ref={list}>
         {EMERGENCY_STEPS.map((step, i) => {
           const done = run?.done.includes(step.id) ?? false;
           const text = (
