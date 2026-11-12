@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 // Owner state comes from useAuthOptional (via useOwnerState); the chat
 // pieces that talk to Supabase / the agent API are replaced by markers so
@@ -44,6 +44,7 @@ import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
 import {
   VISITOR_AI_CONSENT_KEY,
   VISITOR_AI_CONSENT_TEXT,
+  VISITOR_AI_CONSENT_VERSION,
 } from "@/components/agent/mascot/visitor-ai-consent";
 import {
   VISITOR_FALLBACK_NOTE,
@@ -316,7 +317,7 @@ describe("MascotAssistant — visitor AI", () => {
     askAbout("retro");
     fireEvent.click(screen.getByRole("button", { name: "Agree and ask" }));
 
-    expect(window.localStorage.getItem(VISITOR_AI_CONSENT_KEY)).toBe("v1");
+    expect(window.localStorage.getItem(VISITOR_AI_CONSENT_KEY)).toBe("v2");
     await waitFor(() =>
       expect(h.sendVisitorMessage).toHaveBeenCalledWith("retro", { toolId: "retro" })
     );
@@ -328,7 +329,7 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   it("skips the card once consent is stored, and opens an empty chat from the link", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
 
@@ -339,14 +340,19 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   it("asks again when the stored consent is for an older card", () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v0");
-    render(<MascotAssistant />);
-    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    expect(screen.getByText(/Before you chat with Amr/)).toBeInTheDocument();
+    // v1 agreed to the chat only; v2 adds the tools' Ask Amr buttons.
+    expect(VISITOR_AI_CONSENT_VERSION).toBe("v2");
+    for (const older of ["v0", "v1"]) {
+      window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, older);
+      render(<MascotAssistant />);
+      fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+      expect(screen.getByText(/Before you chat with Amr/)).toBeInTheDocument();
+      cleanup();
+    }
   });
 
   it("shows the visitor's allowance in the chat", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Offline guide" });
@@ -364,7 +370,7 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   it("goes back to the offline guide when Amr can't answer any more", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Offline guide" });
@@ -379,7 +385,7 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   it("says when the busy hours end, in the visitor's own time, at a busy-hours limit", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Offline guide" });
@@ -404,7 +410,7 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   it("asking again after a fallback is a fresh try", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     useAgentStore.setState({ visitorFallback: "site_busy" });
     render(<MascotAssistant />);
     expect(screen.getByText(/Amr is too busy/)).toBeInTheDocument();
@@ -417,7 +423,7 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   it("reopening the panel mid-chat goes straight back to the chat", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     useAgentStore.setState({
       chatProfile: "visitor",
       messages: [
@@ -459,7 +465,7 @@ describe("MascotAssistant — visitor AI", () => {
 
   // jsdom has no layout, so this checks the classes, not the scrolling itself.
   it("gives the chat the classes that keep the composer in reach in a short panel", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     const log = await screen.findByRole("log", { name: "Conversation" });
@@ -480,7 +486,7 @@ describe("MascotAssistant — visitor AI", () => {
     const before = Object.getOwnPropertyDescriptor(proto, "scrollIntoView");
     proto.scrollIntoView = scrollIntoView;
     try {
-      window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+      window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
       render(<MascotAssistant />);
       fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
       const log = await screen.findByRole("log", { name: "Conversation" });
@@ -505,7 +511,7 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   it("says Amr only answers questions while the visitor is in a live room", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Offline guide" });
@@ -541,7 +547,7 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   it("says the same when the live room is open in another tab of this browser", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Offline guide" });

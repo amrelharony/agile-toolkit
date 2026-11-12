@@ -111,13 +111,18 @@ export function ownKeyProviders(): string[] {
  * when this build has them on.
  */
 export function privacyRows(): PrivacyRow[] {
+  // With Amr's AI on, a tool's Ask Amr button is the one way a tool sends
+  // anything: only when pressed, and only after the card's agreement.
+  const toolsLeave = visitorAiEnabled()
+    ? "Nothing you type or make, unless you press Ask Amr in a tool. Then the content that button names goes to Amr's AI, as its row below says."
+    : "Nothing you type or make.";
   const rows: PrivacyRow[] = [
     {
       id: "tools",
       part: "The tools",
       when: "Always",
       leaves: [
-        { text: "Nothing you type or make." },
+        { text: toolsLeave },
         {
           says: 'Behind "Saved in this browser", beside every tool\'s title, the site says:',
           text: `${YOUR_DATA_SAVED_HERE}.`,
@@ -212,7 +217,12 @@ export function privacyRows(): PrivacyRow[] {
       id: "amr-ai",
       part: "Amr's AI",
       when: "Only if you agree on the card he shows first",
-      leaves: [{ says: "The card before your first message says:", text: VISITOR_AI_SENT }],
+      leaves: [
+        {
+          says: "The card before your first message or your first Ask Amr says:",
+          text: VISITOR_AI_SENT,
+        },
+      ],
       kept: [
         { says: "The same card says:", text: VISITOR_AI_KEPT },
         {
@@ -314,7 +324,7 @@ const EDGE_CODE =
 export function processors(): Processor[] {
   const { code, place } = hostingRegion();
   const where = place ? `${place} (Vercel region ${code})` : `Vercel region ${code}`;
-  const aiCounts = visitorAiEnabled() ? ", the daily message counts for Amr's AI" : "";
+  const aiCounts = visitorAiEnabled() ? ", the daily counts of Amr's AI uses" : "";
   // Without live rooms, only the owner's devices and invited squad guests use realtime.
   const realtime = visitorRoomsEnabled()
     ? "the realtime channels live rooms pass through"
@@ -387,7 +397,11 @@ export function securityChecks(): LabelledLine[] {
     },
     {
       label: "See it in the Network tab",
-      text: "Open your browser's developer tools, choose Network, then use a tool and type something. No request carries what you typed. Amr's one question to the server, /api/mascot/weather, has no body.",
+      text: `Open your browser's developer tools, choose Network, then use a tool and type something. No request carries what you typed. Amr's one question to the server, /api/mascot/weather, has no body.${
+        visitorAiEnabled()
+          ? " Pressing Ask Amr in a tool is the one exception: it sends the content it names to /api/ai/tool/visitor."
+          : ""
+      }`,
     },
   ];
 }
