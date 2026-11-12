@@ -1443,6 +1443,9 @@ export function MascotAssistant({
   const coarsePointer = useMediaQuery("(pointer: coarse)");
   // A page field has a phone's keyboard: he stays, and his bubble waits.
   const pageFieldFocus = usePageFieldFocus(isPhone);
+  // Under 360 px wide the header has no room for New chat beside History:
+  // it moves into the More menu (the owner's icon hides at the same width).
+  const narrow = useMediaQuery("(max-width: 359px)");
   const box = isPhone ? MASCOT_BOX_PHONE : MASCOT_BOX;
   const panelSize = usePanelSize();
 
@@ -2227,6 +2230,16 @@ export function MascotAssistant({
                   // Only the floating card has two sizes: the sheet and the
                   // side panel fill the room they are given.
                   onToggleEnlarge={layout === "float" ? panelSize.toggle : undefined}
+                  // Under 360 px, New chat moves from the owner's icons into More.
+                  onNewChat={
+                    narrow && settled && isOwner
+                      ? () => {
+                          // Stops an answer under way too (the store's reset aborts the turn).
+                          useAgentStore.getState().reset();
+                          setShowHistory(false);
+                        }
+                      : undefined
+                  }
                   onClose={() => closePanel("close-button")}
                 />
                 {/* The strip's ground: the page's paper, so card balloons stand

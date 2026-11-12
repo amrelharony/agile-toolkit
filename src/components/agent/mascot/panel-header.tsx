@@ -29,17 +29,20 @@
  * In compact mode (the panel's data-amr-compact: a phone's keyboard is up, or
  * there is little room) it folds to one 44 px row: the back slot, the plate
  * and Close; the subtitle, the view's icons, More and Enlarge wait until
- * there is room again. Small on purpose: it ships in the mascot chunk.
+ * there is room again. Under 360 px wide, the shell can hand it New chat
+ * (onNewChat), which then heads the More menu instead of sitting beside
+ * History. Small on purpose: it ships in the mascot chunk.
  * The menu is the site's dropdown (ui/dropdown-menu), which the page header's
  * account menu already loads on every page.
  */
 
 import { useId, type ReactNode } from "react";
-import { Ellipsis, Maximize2, Minimize2, X } from "lucide-react";
+import { Ellipsis, Maximize2, Minimize2, Plus, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -102,6 +105,11 @@ export interface PanelHeaderProps {
   enlarged?: boolean;
   /** Toggles the enlarged size. Without it there is no Enlarge button. */
   onToggleEnlarge?: () => void;
+  /**
+   * New chat, at the head of the More menu: the shell passes it under 360 px
+   * wide, where the owner's own New chat icon hides. Without it, none.
+   */
+  onNewChat?: () => void;
   onClose: () => void;
 }
 
@@ -114,6 +122,7 @@ export function PanelHeader({
   move,
   enlarged = false,
   onToggleEnlarge,
+  onNewChat,
   onClose,
 }: PanelHeaderProps) {
   const slots = usePanelHosts();
@@ -155,7 +164,7 @@ export function PanelHeader({
           className={cn("flex items-center gap-0.5 empty:hidden", COMPACT_HIDDEN)}
         />
         {controls}
-        {hasMenu && <PanelMore shortcut={shortcut} tilt={tilt} move={move} />}
+        {hasMenu && <PanelMore shortcut={shortcut} tilt={tilt} move={move} onNewChat={onNewChat} />}
         {onToggleEnlarge && (
           <PanelIconButton
             label="Enlarge chat"
@@ -192,10 +201,12 @@ function PanelMore({
   shortcut,
   tilt,
   move,
+  onNewChat,
 }: {
   shortcut?: string;
   tilt?: PanelTilt;
   move?: PanelMove;
+  onNewChat?: () => void;
 }) {
   const moveLabelId = useId();
   return (
@@ -206,6 +217,15 @@ function PanelMore({
         </PanelIconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
+        {onNewChat && (
+          <>
+            <DropdownMenuItem onSelect={onNewChat}>
+              <Plus aria-hidden="true" className="h-4 w-4" />
+              New chat
+            </DropdownMenuItem>
+            {(move || tilt) && <DropdownMenuSeparator />}
+          </>
+        )}
         {move && (
           <>
             <DropdownMenuLabel id={moveLabelId} className="text-xs text-sub">

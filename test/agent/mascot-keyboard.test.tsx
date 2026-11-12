@@ -576,3 +576,31 @@ describe("the viewport listener", () => {
     expect(rendered.mock.calls.length).toBe(commits);
   });
 });
+
+// ── Narrow screens ───────────────────────────────────────────────────────
+
+describe("under 360 px wide", () => {
+  it("moves New chat into More, and the subtitle truncates", async () => {
+    screenAt(320, 568);
+    await openChat();
+    const panel = dialog();
+    // The header's own New chat hides at this width...
+    const icon = within(panel).getByRole("button", { name: "New chat" });
+    expect(icon).toHaveClass("max-[359px]:hidden");
+    // ...and heads the More menu instead.
+    fireEvent.keyDown(within(panel).getByRole("button", { name: "More" }), { key: "Enter" });
+    const menu = screen.getByRole("menu");
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items[0]).toHaveTextContent("New chat");
+    const subtitle = panel.querySelector('[data-panel-slot="subtitle"]')!.parentElement!;
+    expect(subtitle).toHaveClass("truncate");
+  });
+
+  it("keeps New chat beside History from 360 px", async () => {
+    screenAt(375, 667);
+    await openChat();
+    fireEvent.keyDown(within(dialog()).getByRole("button", { name: "More" }), { key: "Enter" });
+    const menu = screen.getByRole("menu");
+    expect(within(menu).queryByRole("menuitem", { name: /New chat/ })).toBeNull();
+  });
+});

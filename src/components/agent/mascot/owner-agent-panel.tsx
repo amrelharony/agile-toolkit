@@ -67,6 +67,9 @@ export default function OwnerAgentPanel({
             useAgentStore.getState().reset();
             onCloseHistory();
           }}
+          // Under 360 px wide there's no room beside History: New chat heads
+          // the header's More menu instead (the shell's onNewChat).
+          className="max-[359px]:hidden"
         >
           <Plus aria-hidden="true" />
         </PanelIconButton>
