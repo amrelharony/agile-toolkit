@@ -97,7 +97,11 @@ export interface QuickVotePreset {
   standing?: boolean;
   /** Guess the number: the range a round starts with. */
   range?: { min: number; max: number; decimals: 0 | 1 | 2; unit: string };
-  /** Whether hold-up cards can show its answers (scale and choice formats). */
+  /**
+   * Whether hold-up cards can show its answers: scale and choice formats,
+   * never one whose answers stay anonymous (ESVP, the safety check), as a
+   * card held up shows the room who picked what.
+   */
   cards: boolean;
   /** How to run it well, in a sentence. */
   tip: string;
@@ -326,7 +330,7 @@ export const QUICK_VOTE_PRESETS: readonly QuickVotePreset[] = [
       { text: "Vacationer", hint: "Glad of a break from the day job" },
       { text: "Prisoner", hint: "I'd rather be somewhere else" },
     ],
-    cards: true,
+    cards: false,
     tip: "Results show from 5 answers. Talk about the room, never about who picked what.",
   },
   {
@@ -347,7 +351,7 @@ export const QUICK_VOTE_PRESETS: readonly QuickVotePreset[] = [
       ],
       1
     ),
-    cards: true,
+    cards: false,
     tip: "Results show from 5 answers. A low score changes how you run the session, not who you ask.",
   },
   {

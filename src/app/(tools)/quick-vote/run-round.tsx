@@ -25,7 +25,7 @@ import { VoteRoundPanel, type VoteRoundPanelProps } from "@/components/collab/vo
 import type { RoundResult } from "@/lib/realtime/vote-room/kinds";
 import { useVoteRoomsAvailable } from "@/lib/realtime/vote-room/use-vote-room";
 import type { ChoiceRoundResult } from "@/lib/realtime/vote-room/choice";
-import { presetMinN } from "@/lib/quick-vote/draft";
+import { DEFAULT_MIN_N, presetMinN } from "@/lib/quick-vote/draft";
 import { setQuickVoteRoom } from "@/lib/quick-vote/live-room";
 import { readSheetId, type QuickVoteRound } from "@/lib/quick-vote/sheets";
 import type { QuickVotePreset } from "@/lib/quick-vote/presets";
@@ -79,6 +79,9 @@ export function RunRound({
   const [counting, setCounting] = useState(false);
   const [cardsOpen, setCardsOpen] = useState(false);
   const formatMinN = presetMinN(preset);
+  // ESVP and the safety check: each answer stays anonymous, so no hands or
+  // cards held up, only paper slips the host collects and counts.
+  const anonymous = formatMinN > DEFAULT_MIN_N;
   const { roomMinN, onLiveChange } = usePageRoom();
   const need = roomMinN ?? formatMinN;
   // A stricter format waits for a room of its own.
@@ -118,7 +121,9 @@ export function RunRound({
         kind: "choice",
         sheet: roundForPanel?.kind === "choice" ? roundForPanel.sheet : null,
         oneScreen: {
-          description: "Count hands, or the cards people hold up, then type the totals here.",
+          description: anonymous
+            ? "Collect paper slips, so nobody's answer is seen, count them, then type the totals here."
+            : "Count hands, or the cards people hold up, then type the totals here.",
           action: (
             <Button
               type="button"
@@ -128,7 +133,7 @@ export function RunRound({
               onClick={() => setCounting((c) => !c)}
             >
               <Calculator aria-hidden="true" />
-              {counting ? "Hide count entry" : "Count hands"}
+              {counting ? "Hide count entry" : anonymous ? "Count the slips" : "Count hands"}
             </Button>
           ),
         },
@@ -175,6 +180,7 @@ export function RunRound({
           key={choice.id + choice.options.map((o) => o.text).join("|")}
           sheet={choice}
           minN={formatMinN}
+          slips={anonymous}
           onSave={onSaveCounts}
           disabled={readOnly}
         />
@@ -188,7 +194,9 @@ export function RunRound({
         <p className="text-sm text-sub">
           {preset.cards
             ? "No room and no network: each person opens this page, picks a card, and holds the phone up when you say show. Count them, then type the totals above."
-            : `${preset.name} needs each person's own answer, so it runs in a live room rather than on cards.`}
+            : anonymous
+              ? `${preset.name} keeps each answer anonymous, and a card held up shows the room who picked what. Run it in a live room, or on paper slips you collect and count.`
+              : `${preset.name} needs each person's own answer, so it runs in a live room rather than on cards.`}
         </p>
         {preset.cards && (
           <Button

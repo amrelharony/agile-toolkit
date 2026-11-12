@@ -6,6 +6,7 @@
  * each option. The same rules as a live round: totals only, shown and saved
  * from the round's minimum (3, or 5 for the formats that ask about people),
  * and totals real answers could give. Nothing is kept until Save round.
+ * A format whose answers stay anonymous (ESVP) is counted from paper slips.
  */
 
 import { useId, useState } from "react";
@@ -19,11 +20,14 @@ import { handCountResult, validateHandCounts, type HandCounts } from "./model";
 export function CountHands({
   sheet,
   minN,
+  slips = false,
   onSave,
   disabled = false,
 }: {
   sheet: ChoiceSheet;
   minN: number;
+  /** Counted from paper slips, never a show of hands: the answers stay anonymous. */
+  slips?: boolean;
   /** Returns false when nothing was stored (the tool said why). */
   onSave: (result: ChoiceRoundResult) => boolean;
   disabled?: boolean;
@@ -62,14 +66,16 @@ export function CountHands({
       className="space-y-3 rounded-lg border border-border bg-surface-deep p-3"
     >
       <h3 id={`${formId}-title`} className="text-sm font-semibold text-text">
-        Count hands: {sheet.title}
+        {slips ? "Count the slips" : "Count hands"}: {sheet.title}
       </h3>
       <p className="text-xs text-sub">
         {sheet.mode === "dots"
           ? `Count the dots on each option (${sheet.limit} each).`
           : sheet.mode === "multi"
             ? `Count the people who picked each option (up to ${sheet.limit} each).`
-            : "Count the people who picked each option."}{" "}
+            : slips
+              ? "Count the slips for each option."
+              : "Count the people who picked each option."}{" "}
         Totals show from {minN} people.
       </p>
       <ul className="space-y-2">

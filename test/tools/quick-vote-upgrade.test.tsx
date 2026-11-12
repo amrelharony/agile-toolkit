@@ -479,6 +479,18 @@ describe("hold-up cards", () => {
     expect(dialog.getByRole("button", { name: /^Your card: Focused/ })).toBeInTheDocument();
   });
 
+  it("isn't offered for ESVP or the safety check, whose answers stay anonymous", async () => {
+    await renderPage();
+    pickFormat("ESVP");
+    expect(screen.queryByRole("button", { name: "Open the cards" })).toBeNull();
+    expect(screen.getByText(/ESVP keeps each answer anonymous/)).toBeInTheDocument();
+    // Counted from paper slips, never a show of hands.
+    expect(screen.getByRole("heading", { name: /^Count the slips: / })).toBeInTheDocument();
+    pickFormat("Safety check");
+    expect(screen.queryByRole("button", { name: "Open the cards" })).toBeNull();
+    expect(screen.getByText(/Safety check keeps each answer anonymous/)).toBeInTheDocument();
+  });
+
   it("isn't offered where each person needs their own answer", async () => {
     await renderPage();
     pickFormat("Ranking");
