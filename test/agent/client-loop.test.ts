@@ -23,6 +23,9 @@ import { z } from "zod";
 const h = vi.hoisted(() => ({
   recordChatUsage: vi.fn<(tokens: number, model: string) => Promise<void>>(async () => {}),
   appendMessages: vi.fn<(conversationId: string, msgs: unknown[]) => Promise<void>>(async () => {}),
+  deleteMessagesBetween: vi.fn<
+    (conversationId: string, afterIso: string, throughIso: string) => Promise<void>
+  >(async () => {}),
   executeToolUse: vi.fn<
     (
       tu: { id: string; input?: Record<string, unknown> },
@@ -40,6 +43,7 @@ vi.mock("@/lib/agent/persist", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/agent/persist")>()),
   recordChatUsage: h.recordChatUsage,
   appendMessages: h.appendMessages,
+  deleteMessagesBetween: h.deleteMessagesBetween,
 }));
 vi.mock("@/lib/agent/execute-tool", () => ({ executeToolUse: h.executeToolUse }));
 vi.mock("@/lib/tools/guides", async (importOriginal) => {
@@ -56,8 +60,11 @@ import { registry } from "@/lib/actions/registry";
 import { getToolById } from "@/lib/constants/tools";
 import {
   NOTICE_TEXT,
+  canRetryLastTurn,
   endNoteFor,
+  goOn,
   ownerRefusalNotice,
+  retryLastTurn,
   roundLimitNote,
   roundLimitNotice,
   sendUserMessage,
@@ -134,6 +141,7 @@ beforeEach(() => {
   h.guideFails = false;
   h.recordChatUsage.mockClear();
   h.appendMessages.mockClear();
+  h.deleteMessagesBetween.mockClear();
   h.executeToolUse.mockClear();
   useAgentStore.getState().reset();
   useAgentStore.setState({ lastTurnTokens: null });
@@ -1262,5 +1270,154 @@ describe("a refusal of the owner's request", () => {
     expect(ownerRefusalNotice(403, true).text).toBe(NOTICE_TEXT.keyRefused);
     expect(ownerRefusalNotice(429, true).kind).toBe("upstream_busy");
     expect(ownerRefusalNotice(413, true).kind).toBe("too_large");
+  });
+});
+
+describe("Try again", () => {
+  const WRITE_PROBE = "tool_loop_probe_write_state";
+  beforeEach(() => {
+    if (!registry.resolve(WRITE_PROBE)) {
+      registry.register({
+        id: "tool.loop_probe.write_state",
+        toolId: "tool.loop_probe",
+        name: "write_state",
+        category: "write",
+        description: "Change the loop probe's state.",
+        paramsSchema: z.object({}),
+        handler: async () => ({}),
+      });
+    }
+  });
+
+  const opts = { userId: "owner-1", toolId: null, conversationId: "conv-1" };
+  const question = (id = "u1") => at(id, "user", [{ type: "text", text: "change the probe" }]);
+  const callTo = (name: string, id = "c1") =>
+    at(`a_${id}`, "assistant", [{ type: "tool_use", id, name, input: {} }]);
+  const resultOf = (content: string, is_error?: boolean, id = "c1") =>
+    at(`t_${id}`, "tool", [
+      { type: "tool_result", tool_use_id: id, content, ...(is_error ? { is_error } : {}) },
+    ]);
+
+  it("runs the question again after a refusal, without a second copy of it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      queue = [new Response("bad gateway", { status: 502 })];
+      await sendIn("conv-1", "read the probe state");
+      expect(useAgentStore.getState().notice?.kind).toBe("upstream_error");
+      expect(canRetryLastTurn(useAgentStore.getState().messages)).toBe(true);
+
+      queue = [textTurn("The probe is empty.")];
+      expect(await retryLastTurn(opts)).toBe(true);
+      const s = useAgentStore.getState();
+      expect(posts).toHaveLength(2);
+      expect(posts[1].messages.slice(1)).toEqual([
+        { role: "user", content: "read the probe state" },
+      ]);
+      expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+      expect(s.notice).toBeNull();
+      // The question was saved once; the new answer joins it.
+      expect(savedTo("conv-1").map((m) => m.role)).toEqual(["user", "assistant"]);
+      expect(h.deleteMessagesBetween).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("drops what a read-only turn left, here and in the saved thread, and asks again", async () => {
+    queue = [
+      toolTurn("call_1"),
+      sse(delta({ content: "The probe" }), delta({}, "length"), "[DONE]"),
+    ];
+    await sendIn("conv-1", "read the probe state", "loop-probe");
+    const before = useAgentStore.getState().messages;
+    expect(before.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant"]);
+    expect(useAgentStore.getState().notice?.kind).toBe("cut_off");
+
+    queue = [textTurn("The probe is empty.")];
+    expect(await retryLastTurn({ ...opts, toolId: "loop-probe" })).toBe(true);
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(s.messages[0]).toBe(before[0]);
+    expect(textOf(s.messages[1])).toBe("The probe is empty.");
+    expect(posts[2].messages.slice(1)).toEqual([{ role: "user", content: "read the probe state" }]);
+    // Everything after the question, up to the last of it, goes from the saved thread.
+    const latest = Math.max(...before.slice(1).map((m) => Date.parse(m.createdAt)));
+    expect(h.deleteMessagesBetween).toHaveBeenCalledWith(
+      "conv-1",
+      new Date(Date.parse(before[0].createdAt)).toISOString(),
+      new Date(latest).toISOString()
+    );
+  });
+
+  it("is refused once the turn ran a change, and sends nothing", async () => {
+    const msgs = [question(), callTo(WRITE_PROBE), resultOf('{"ok":true}')];
+    useAgentStore.setState({ messages: msgs });
+    expect(canRetryLastTurn(msgs)).toBe(false);
+    expect(await retryLastTurn(opts)).toBe(false);
+    expect(posts).toHaveLength(0);
+    expect(useAgentStore.getState().messages).toBe(msgs);
+  });
+
+  it("counts a change that failed inside its handler as run, and one denied or never valid as not", () => {
+    const after = (content: string, is_error?: boolean) => [
+      question(),
+      callTo(WRITE_PROBE),
+      resultOf(content, is_error),
+    ];
+    expect(canRetryLastTurn(after("Handler error: half way", true))).toBe(false);
+    expect(
+      canRetryLastTurn(after("User denied execution of tool.loop_probe.write_state.", true))
+    ).toBe(true);
+    expect(
+      canRetryLastTurn(after("Invalid input for tool.loop_probe.write_state: bad", true))
+    ).toBe(true);
+    // Reads may run again; an action the registry doesn't know may not.
+    expect(canRetryLastTurn([question(), callTo(PROBE_TOOL), resultOf("{}")])).toBe(true);
+    expect(canRetryLastTurn([question(), callTo("tool_gone_away"), resultOf("{}")])).toBe(false);
+    // Only the last turn counts, and there has to be one.
+    expect(
+      canRetryLastTurn([question("u0"), callTo(WRITE_PROBE), resultOf("{}"), question("u1")])
+    ).toBe(true);
+    expect(canRetryLastTurn([])).toBe(false);
+  });
+
+  it("does nothing while a turn is running", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const turn = send("tell me about retros", null);
+    await vi.waitFor(() => expect(lastAssistant()).toBeDefined());
+    expect(await retryLastTurn(opts)).toBe(false);
+    expect(await goOn(opts)).toBe(false);
+    body.send(delta({ content: "Retros are" }), delta({}, "stop"), "[DONE]");
+    body.end();
+    await turn;
+    expect(posts).toHaveLength(1);
+    expect(useAgentStore.getState().messages.filter((m) => m.role === "user")).toHaveLength(1);
+  });
+});
+
+describe("Go on", () => {
+  it("sends a real user message, once, after an answer cut short", async () => {
+    queue = [sse(delta({ content: "Retros are" }), delta({}, "length"), "[DONE]")];
+    await sendIn("conv-1", "tell me about retros");
+    expect(useAgentStore.getState().notice?.kind).toBe("cut_off");
+
+    queue = [textTurn("a team's look back.")];
+    expect(await goOn({ userId: "owner-1", toolId: null, conversationId: "conv-1" })).toBe(true);
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(textOf(s.messages[2])).toBe("Go on");
+    expect(posts[1].messages.slice(1)).toEqual([
+      { role: "user", content: "tell me about retros" },
+      { role: "assistant", content: "Retros are" },
+      { role: "user", content: "Go on" },
+    ]);
+    expect(s.notice).toBeNull();
+    expect(savedTo("conv-1").map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
   });
 });

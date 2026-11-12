@@ -30,7 +30,7 @@ import { parseRateLimitHeaders, parseVisitorQuota } from "./rate-limit";
 import { executeToolUse } from "./execute-tool";
 import { buildVisitorTurnTools } from "./visitor-tools";
 import { inLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
-import { appendMessages, recordChatUsage } from "./persist";
+import { appendMessages, deleteMessagesBetween, recordChatUsage } from "./persist";
 import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "./types";
 
 /** Text of the most recent user message (joined text blocks), or "" if none. */
@@ -288,7 +288,10 @@ export function visitorRefusalNotice(code: VisitorErrorCode | null, status: numb
   return asError("request_failed", NOTICE_TEXT.requestFailed);
 }
 
-interface StreamOptions {
+/** What "Go on" sends: a real message of the user's (see goOn). */
+export const GO_ON_TEXT = "Go on";
+
+export interface StreamOptions {
   userId: string;
   toolId?: string | null;
   /** When provided, the client persists every new message into this
@@ -338,6 +341,122 @@ export function ownsStreamingReset(
 }
 
 export async function sendUserMessage(text: string, opts: StreamOptions): Promise<void> {
+  const visitor = opts.profile === "visitor";
+  const userMsg: ChatMessage = {
+    id: msgId(),
+    role: "user",
+    // The visitor route refuses a longer message, so keep what's shown and
+    // what's sent the same.
+    content: [{ type: "text", text: visitor ? text.slice(0, VISITOR_LIMITS.userChars) : text }],
+    createdAt: new Date().toISOString(),
+  };
+  await runTurn(opts, userMsg);
+}
+
+/**
+ * "Go on", after an answer that stops short: sends the user's own "Go on", so
+ * the model picks up where it stopped. It is a real message, never a resend
+ * of the last turn: the visitor route takes only a body that ends on the
+ * user's message or a tool result (request.ts), and both meters count it as a
+ * new turn. Resolves false, sending nothing, while a turn is still running.
+ */
+export async function goOn(opts: StreamOptions): Promise<boolean> {
+  if (useAgentStore.getState().streaming || currentController) return false;
+  await sendUserMessage(GO_ON_TEXT, opts);
+  return true;
+}
+
+/** Index of the chat's last user message, or -1. */
+function lastUserIndex(messages: ChatMessage[]): number {
+  return messages.map((m) => m.role).lastIndexOf("user");
+}
+
+/**
+ * Whether a tool result says its action ran: it answered, or it failed inside
+ * its handler, which may have written before it failed. A call that was
+ * denied, refused, or never valid ran nothing (see executeToolUse).
+ */
+function resultRan(c: ToolResultBlock): boolean {
+  if (!c.is_error) return true;
+  const text = typeof c.content === "string" ? c.content : c.content.map((b) => b.text).join("");
+  return text.startsWith("Handler error:");
+}
+
+/**
+ * Whether the chat's last turn may run again (retryLastTurn): there is a
+ * question, and nothing after it ran a change. Reads may run again; a write
+ * or an intent that ran (or an action the registry no longer knows) may not,
+ * so trying again never repeats a change. Exported for the chat's "Try again".
+ */
+export function canRetryLastTurn(messages: ChatMessage[]): boolean {
+  const at = lastUserIndex(messages);
+  if (at === -1) return false;
+  const turn = messages.slice(at + 1);
+  const nameOf = new Map<string, string>();
+  for (const m of turn) {
+    if (m.role !== "assistant") continue;
+    for (const c of m.content) if (c.type === "tool_use") nameOf.set(c.id, c.name);
+  }
+  for (const m of turn) {
+    if (m.role !== "tool") continue;
+    for (const c of m.content) {
+      if (c.type !== "tool_result" || !resultRan(c)) continue;
+      const name = nameOf.get(c.tool_use_id);
+      if (!name || registry.resolve(name)?.category !== "read") return false;
+    }
+  }
+  return true;
+}
+
+/** The latest of these messages' times, as ISO 8601, or null when one can't be read. */
+function latestTime(messages: ChatMessage[]): string | null {
+  let latest = -Infinity;
+  for (const m of messages) {
+    const t = Date.parse(m.createdAt);
+    if (Number.isNaN(t)) return null;
+    latest = Math.max(latest, t);
+  }
+  return Number.isFinite(latest) ? new Date(latest).toISOString() : null;
+}
+
+/**
+ * "Try again": run the chat's last turn again from its question, without a
+ * second copy of it. What the turn left after the question (a reply cut
+ * short, the reads it ran) goes, from the chat and from the owner's saved
+ * thread, and the question goes out as it did. Only a turn that ran no change
+ * may run again (canRetryLastTurn). It counts as a new turn: the owner's
+ * meter, the visitor's allowance. Resolves false, doing nothing, when it may
+ * not, while a turn is running, or when the chat on screen is the other
+ * profile's; true once the new turn is over.
+ */
+export async function retryLastTurn(opts: StreamOptions): Promise<boolean> {
+  const store = useAgentStore.getState();
+  const visitor = opts.profile === "visitor";
+  if (store.streaming || currentController) return false;
+  if (store.chatProfile !== (visitor ? "visitor" : "owner")) return false;
+  const { messages } = store;
+  const at = lastUserIndex(messages);
+  if (at === -1 || !canRetryLastTurn(messages)) return false;
+  const question = messages[at];
+  const after = messages.slice(at + 1);
+  for (const m of after) store.removeMessage(m.id);
+  // The saved thread loses the same messages: everything after the question,
+  // up to the last of them. A message of the new turn is later than that, so
+  // the delete never takes it, whenever it lands. Best-effort, like every write.
+  const through = latestTime(after);
+  const since = latestTime([question]);
+  if (!visitor && opts.conversationId && after.length > 0 && through && since) {
+    void deleteMessagesBetween(opts.conversationId, since, through);
+  }
+  await runTurn(opts, null);
+  return true;
+}
+
+/**
+ * Run one turn: with `userMsg`, a new question added to the chat (and saved);
+ * with null, the chat's last question again (retryLastTurn).
+ */
+async function runTurn(opts: StreamOptions, userMsg: ChatMessage | null): Promise<void> {
   const store = useAgentStore.getState();
   const visitor = opts.profile === "visitor";
   store.setChatProfile(visitor ? "visitor" : "owner");
@@ -366,19 +485,13 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
     ...(visitor ? { conversationId: null } : {}),
   };
 
-  const userMsg: ChatMessage = {
-    id: msgId(),
-    role: "user",
-    // The visitor route refuses a longer message, so keep what's shown and
-    // what's sent the same.
-    content: [{ type: "text", text: visitor ? text.slice(0, VISITOR_LIMITS.userChars) : text }],
-    createdAt: new Date().toISOString(),
-  };
-  store.appendMessage(userMsg);
+  if (userMsg) store.appendMessage(userMsg);
   store.setNotice(null);
   store.setStreaming(true);
 
-  if (optsWithSignal.conversationId) void appendMessages(optsWithSignal.conversationId, [userMsg]);
+  if (userMsg && optsWithSignal.conversationId) {
+    void appendMessages(optsWithSignal.conversationId, [userMsg]);
+  }
 
   try {
     await (visitor ? runVisitorLoop(optsWithSignal) : runToolUseLoop(optsWithSignal));
@@ -1151,7 +1264,7 @@ export function roundLimitNote(
   messages: ChatMessage[],
   rounds: number = MAX_TOOL_USE_ROUNDS
 ): string {
-  const turn = messages.slice(messages.map((m) => m.role).lastIndexOf("user") + 1);
+  const turn = messages.slice(lastUserIndex(messages) + 1);
   const actionOf = new Map<string, string>();
   for (const m of turn) {
     if (m.role !== "assistant") continue;

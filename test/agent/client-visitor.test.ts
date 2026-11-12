@@ -58,6 +58,8 @@ import { resetRegistryKbIndex } from "@/lib/agent/mascot/kb";
 import {
   abortInFlight,
   cutToolResult,
+  goOn,
+  retryLastTurn,
   sendUserMessage,
   trimVisitorHistory,
 } from "@/lib/agent/client";
@@ -1993,5 +1995,51 @@ describe("the owner's path", () => {
     const body = JSON.parse(String(calls[1].init?.body)) as { messages: Array<{ role: string }> };
     expect(body.messages[0].role).toBe("system");
     expect(useAgentStore.getState().chatProfile).toBe("owner");
+  });
+});
+
+describe("a visitor's Try again and Go on", () => {
+  const visitorOpts = { userId: "visitor", profile: "visitor" as const, toolId: null };
+
+  it("asks the same question again as a new message of theirs, once, and saves nothing", async () => {
+    queue.push(refusal(502, "upstream_error"), textTurn("Start with what went well."));
+    await askVisitor("How do I run a retro?");
+    expect(useAgentStore.getState().notice?.kind).toBe("upstream_error");
+
+    expect(await retryLastTurn(visitorOpts)).toBe(true);
+    const second = posts()[1];
+    expect(second.messages).toEqual([{ role: "user", content: "How do I run a retro?" }]);
+    // The route counts it as a new message (it uses one of their allowance).
+    const parsed = parseVisitorBody(second);
+    expect(parsed.ok && parsed.body.newTurn).toBe(true);
+    expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    for (const [name, fn] of Object.entries(h.persist)) expect(fn, name).not.toHaveBeenCalled();
+    expect(h.getAuthBrowserClient).not.toHaveBeenCalled();
+  });
+
+  it("is refused once the turn made a change", async () => {
+    queue.push(toolTurn("c1", "tool_zorblax_add_card", { text: "flaky CI" }), textTurn("Added."));
+    const turn = askVisitor("add a zorblax card saying flaky CI");
+    (await confirmation()).resolve(true);
+    await turn;
+    expect(h.added).toEqual(["flaky CI"]);
+    expect(await retryLastTurn(visitorOpts)).toBe(false);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("goes on with a real message of theirs that the route takes", async () => {
+    queue.push(
+      sse([delta({ content: "Start with what" }), delta({}, "length"), "[DONE]"]),
+      textTurn(" went well.")
+    );
+    await askVisitor("How do I run a retro?");
+    expect(useAgentStore.getState().notice?.kind).toBe("cut_off");
+
+    expect(await goOn(visitorOpts)).toBe(true);
+    const next = posts()[1];
+    expect(next.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(next.messages.at(-1)).toEqual({ role: "user", content: "Go on" });
+    // afterEach checks the route's own parser takes the body, too.
+    expect(useAgentStore.getState().notice).toBeNull();
   });
 });
