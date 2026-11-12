@@ -90,9 +90,13 @@ import { RetroSprintPicker } from "./retro-sprint-picker";
 import { RetroFactsPanel } from "./retro-facts";
 import { CommonWords } from "./common-words";
 import { KudosSeed } from "./kudos-seed";
+import { LeanCoffeeRunner } from "./lean-coffee-runner";
+import { RetroPlanNote } from "./retro-plan-note";
 import { toMarkdown } from "../markdown";
 import { RetroGoLive, type LiveRoomHandle } from "../room/host-live-room";
 import { hideCards } from "../room/hidden";
+import type { RetroThumbsHost } from "../room/use-retro-room";
+import { isLeanCoffee } from "@/lib/retro/lean-coffee";
 
 /** A fresh card in `columnKey`. */
 function newCard(columnKey: string, text: string): RetroCard {
@@ -186,6 +190,9 @@ export function Board({
   }, [roomHides, state.phase, state.cards]);
   const hiddenView = useMemo(() => hideCards(state.cards, roomHidden), [state.cards, roomHidden]);
   const shownCards = hiddenView.shown;
+  // A live room's thumbs vote, for the Lean Coffee runner (null on one screen).
+  const [roomThumbs, setRoomThumbs] = useState<RetroThumbsHost | null>(null);
+  const leanCoffee = isLeanCoffee(state);
 
   // Team names for "Voting as" (Vote phase).
   const teamNames = useWorkspaceStore(
@@ -856,6 +863,7 @@ export function Board({
               onUpdate={onUpdate}
               handleRef={liveRoomRef}
               onHiddenChange={onRoomHidden}
+              onThumbsChange={setRoomThumbs}
             />
             <TimerWidget
               seconds={state.timerSeconds}
@@ -924,6 +932,21 @@ export function Board({
             )}
           </p>
         </div>
+
+        {/* ── The Surprise plan's opening or closing ──────── */}
+        <RetroPlanNote formatId={state.format.id} phase={state.phase} />
+
+        {/* ── Lean Coffee: topics in vote order, one timebox each ── */}
+        {leanCoffee && (
+          <LeanCoffeeRunner
+            state={state}
+            shownCards={shownCards}
+            onUpdate={onUpdate}
+            timeUp={overSince !== null}
+            thumbs={roomThumbs}
+            log={log}
+          />
+        )}
 
         {/* ── Voting as (facilitator mode, Vote phase) ─────── */}
         {state.phase === "vote" && (
