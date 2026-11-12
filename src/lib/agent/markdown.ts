@@ -13,10 +13,11 @@
  *
  * Streaming: a reply is re-rendered on every chunk, so the text is cut into
  * segments at blank lines outside code fences (never inside a list that the
- * next lines continue), and `createBlockParser` keeps each finished segment's
- * blocks. Only the trailing segment, the one still growing, is parsed again.
- * Cutting there never changes the result: every block the parser makes ends
- * at such a blank line, so `parseBlocks` is the same parse in one go.
+ * next lines continue), and `parseBlocks` with a cache (`createBlockCache`)
+ * keeps each finished segment's blocks. Only the trailing segment, the one
+ * still growing, is parsed again. Cutting there never changes the result:
+ * every block the parser makes ends at such a blank line, so `parseBlocks`
+ * without a cache is the same parse in one go.
  */
 
 export type InlineToken =
@@ -526,28 +527,40 @@ export function numberLists(blocks: Block[]): Block[] {
 }
 
 /**
- * A parser that remembers each segment's blocks from its last call, so a
- * streaming reply re-parses only the segment still growing. Each call keeps
- * only the segments it saw, so the cache never outgrows one reply.
+ * The blocks of each segment from the last parse, so a streaming reply
+ * re-parses only the segment still growing. Each parse keeps only the
+ * segments it saw, so the cache never outgrows one reply.
  */
-export function createBlockParser(): (src: string) => Block[] {
-  let cache = new Map<string, Block[]>();
-  return (src) => {
-    const seen = new Map<string, Block[]>();
-    const blocks: Block[] = [];
-    for (const segment of splitSegments(src)) {
-      const parsed = seen.get(segment) ?? cache.get(segment) ?? parseSegment(segment);
-      seen.set(segment, parsed);
-      blocks.push(...parsed);
-    }
-    cache = seen;
-    return numberLists(blocks);
-  };
+export interface BlockCache {
+  segments: Map<string, Block[]>;
 }
 
-/** Parse text into block-level markdown structures. */
-export function parseBlocks(src: string): Block[] {
-  return numberLists(splitSegments(src).flatMap(parseSegment));
+export function createBlockCache(): BlockCache {
+  return { segments: new Map() };
+}
+
+/**
+ * Parse text into block-level markdown structures. With a cache, a segment
+ * parsed last time is reused rather than parsed again; the result is the
+ * same either way.
+ */
+export function parseBlocks(src: string, cache?: BlockCache): Block[] {
+  if (!cache) return numberLists(splitSegments(src).flatMap(parseSegment));
+  const seen = new Map<string, Block[]>();
+  const blocks: Block[] = [];
+  for (const segment of splitSegments(src)) {
+    const parsed = seen.get(segment) ?? cache.segments.get(segment) ?? parseSegment(segment);
+    seen.set(segment, parsed);
+    blocks.push(...parsed);
+  }
+  cache.segments = seen;
+  return numberLists(blocks);
+}
+
+/** A parser with its own cache: `parseBlocks` for one streaming reply. */
+export function createBlockParser(): (src: string) => Block[] {
+  const cache = createBlockCache();
+  return (src) => parseBlocks(src, cache);
 }
 
 // ── Direction ───────────────────────────────────────────────────────────

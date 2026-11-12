@@ -27,6 +27,7 @@ vi.mock("next/link", async (importOriginal) => {
   };
 });
 import {
+  createBlockCache,
   createBlockParser,
   numberLists,
   parseBlocks,
@@ -671,6 +672,25 @@ describe("createBlockParser", () => {
     const b = parse("1. a\n\nwhy\n\n1. b");
     expect(a[2]).toEqual({ type: "ol", start: 2, items: [{ text: "b" }] });
     expect(b[2]).toEqual({ type: "ol", start: 2, items: [{ text: "b" }] });
+  });
+});
+
+describe("parseBlocks with a cache", () => {
+  it("reuses a finished segment's blocks and parses the same as without one", () => {
+    const cache = createBlockCache();
+    const first = parseBlocks("Intro.\n\n- a\n- b\n\nThen", cache);
+    const nextSrc = "Intro.\n\n- a\n- b\n\nThen more";
+    const next = parseBlocks(nextSrc, cache);
+    expect(next[0]).toBe(first[0]);
+    expect(next[1]).toBe(first[1]);
+    expect(next).toEqual(parseBlocks(nextSrc));
+  });
+
+  it("keeps only the segments of the last parse", () => {
+    const cache = createBlockCache();
+    parseBlocks("One.\n\nTwo.", cache);
+    parseBlocks("Three.", cache);
+    expect([...cache.segments.keys()]).toEqual(["Three."]);
   });
 });
 

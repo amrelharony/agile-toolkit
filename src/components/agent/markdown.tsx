@@ -18,17 +18,18 @@
  *   is always left to right.
  * - An external link has an icon and "(opens in a new tab)" for screen readers.
  * - Each block renders through a memo, and the parser keeps finished blocks
- *   (createBlockParser), so while a reply streams only its last block
+ *   (parseBlocks with a cache), so while a reply streams only its last block
  *   re-renders.
  */
 
-import { Fragment, memo, useMemo, useState } from "react";
+import { Fragment } from "react";
 import Link from "next/link";
+import { parseBlocks, tokenizeInline } from "@/lib/agent/markdown";
+import { memo, useMemo, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import {
-  createBlockParser,
+  createBlockCache,
   textDirection,
-  tokenizeInline,
   type Block,
   type ListBlock,
   type ListItem,
@@ -253,10 +254,10 @@ const BlockView = memo(function BlockView({ block }: { block: Block }) {
 });
 
 export function Markdown({ source }: { source: string }) {
-  // One parser per reply: it keeps the finished blocks, so each streamed
+  // One cache per reply: it keeps the finished blocks, so each streamed
   // chunk parses only the last one, and the memo skips the rest.
-  const [parse] = useState(createBlockParser);
-  const blocks = useMemo(() => parse(source), [parse, source]);
+  const [cache] = useState(createBlockCache);
+  const blocks = useMemo(() => parseBlocks(source, cache), [cache, source]);
   return (
     <div className="space-y-2">
       {blocks.map((block, i) => (
