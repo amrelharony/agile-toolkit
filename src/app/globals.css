@@ -2157,6 +2157,25 @@ body:has(dialog[open]) [data-sonner-toaster] {
   }
 }
 
+/* AMR SHEET — Amr's chat as the phone's full-height sheet (components/agent/
+   mascot/mascot-assistant sets html[data-amr-sheet] while it is open in that
+   layout, and makes main inert). The sheet covers the page, so the page
+   holds still behind it: the document doesn't scroll, and a swipe on the
+   sheet's own chrome (its header, a footer) moves nothing. Its scrollers
+   ([data-amr-scroll]) pan up and down and keep their scrolling to
+   themselves, never handing it on to the page. The floating card and the
+   side panel leave the page live, so none of this applies to them. */
+html[data-amr-sheet] {
+  overflow: hidden;
+}
+html[data-amr-sheet] [data-agent-sheet-root] {
+  touch-action: none;
+}
+html[data-amr-sheet] [data-agent-sheet-root] [data-amr-scroll] {
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
 /* Presentation mode (components/presentation/presentation-mode): bigger
    type for a shared screen, and the app's own chrome out of the way. */
 html[data-presenting="true"] {

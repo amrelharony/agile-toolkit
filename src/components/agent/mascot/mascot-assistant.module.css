@@ -270,6 +270,29 @@
       scale: 0.96;
     }
   }
+
+  /* The phone's full-height sheet slides up from its bottom edge instead
+     (DNA-SPEC §8: a sheet slides from its edge), on the translate property,
+     at the sheet's own pace. Nothing scales it. */
+  .panelEnter[data-amr-layout="sheet"] {
+    transition:
+      opacity var(--dur-sheet-in) var(--ease-calm),
+      translate var(--dur-sheet-in) var(--ease-calm);
+  }
+
+  @starting-style {
+    .panelEnter[data-amr-layout="sheet"] {
+      opacity: 0;
+      scale: none;
+      translate: 0 100%;
+    }
+  }
+}
+
+/* Docked in the phone's sheet he stands at his phone size and is never
+   scaled: no hover lift there (a tap can leave :hover stuck on a phone). */
+.bob[data-amr-docked]:hover {
+  transform: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
