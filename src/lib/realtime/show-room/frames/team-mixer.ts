@@ -10,8 +10,10 @@
  * be drawn, rebuilt field by field with every string run through
  * `cleanText` and cut to a cap, or null. The builders clean the host's own
  * text the same way (hidden characters stripped, not refused), so the host
- * never sends what a phone would refuse. The caps keep the biggest mix
- * (120 people) well inside `SHOW_LIMITS.maxPayloadChars`.
+ * never sends what a phone would refuse. Names go as the page keeps them
+ * (up to 60 characters), so everyone can find their full name; only a mix
+ * that would not fit `SHOW_LIMITS.maxPayloadChars` that way has its names
+ * cut to 32, which keeps the biggest mix (120 people) inside it.
  *
  * Pure and server-safe: no React, no browser globals.
  */
@@ -19,12 +21,16 @@
 import { cleanText, shareableText } from "../../sanitize";
 import { obj } from "../../vote-room/wire";
 import type { ShowFrameParsers } from "../frames";
+import { SHOW_LIMITS } from "../protocol";
 
 export const TEAM_MIXER_FRAME_KINDS = { groups: "groups", cafe: "cafe" } as const;
 
 export const TEAM_MIXER_FRAME_LIMITS = {
   maxTitleChars: 120,
-  maxNameChars: 32,
+  /** A person's name, as long as the page keeps one (MIXER_LIMITS.name). */
+  maxNameChars: 60,
+  /** Names are cut to this only when a frame with full names is too big to send. */
+  shortNameChars: 32,
   maxGroupNameChars: 32,
   maxGroups: 60,
   /** Everyone in one frame, across all its groups (or tables, hosts included). */
@@ -147,13 +153,21 @@ export const TEAM_MIXER_FRAMES: ShowFrameParsers = {
 // ── The host's builders ──────────────────────────────────────────────
 
 const share = (text: string | undefined, max: number) => shareableText(text ?? "", max);
-const shareNames = (list: readonly string[]) =>
-  list.map((n) => share(n, L.maxNameChars)).filter(Boolean);
+const shareNames = (list: readonly string[], max: number) =>
+  list.map((n) => share(n, max)).filter(Boolean);
+const fits = (frame: unknown) => JSON.stringify(frame).length <= SHOW_LIMITS.maxPayloadChars;
+
+/** The frame with full names, or with names cut short when that's too big to send. */
+function withNamesThatFit<F>(build: (nameMax: number) => F | null): F | null {
+  const full = build(L.maxNameChars);
+  return full && !fits(full) ? build(L.shortNameChars) : full;
+}
 
 /**
- * A groups frame from the host's own mix: text cleaned and cut to the caps,
- * empty groups dropped. Null when nothing is left to show, or the mix is
- * bigger than a frame holds.
+ * A groups frame from the host's own mix: text cleaned and cut to the caps
+ * (names cut short only when that's what makes it fit), empty groups
+ * dropped. Null when nothing is left to show, or the mix is bigger than a
+ * frame holds.
  */
 export function groupsFrame(input: {
   title?: string;
@@ -162,17 +176,21 @@ export function groupsFrame(input: {
   groups: readonly { name?: string; people: readonly string[] }[];
   sitOut?: readonly string[];
 }): GroupsFrame | null {
-  const groups = input.groups
-    .map((g) => ({ name: share(g.name, L.maxGroupNameChars), people: shareNames(g.people) }))
-    .filter((g) => g.people.length > 0);
-  const frame: GroupsFrame = {
-    title: share(input.title, L.maxTitleChars),
-    round: Math.min(L.maxRound, Math.max(1, Math.floor(input.round))),
-    unit: input.unit,
-    groups,
-    sitOut: shareNames(input.sitOut ?? []),
-  };
-  return parseGroupsFrame(frame);
+  return withNamesThatFit((nameMax) => {
+    const groups = input.groups
+      .map((g) => ({
+        name: share(g.name, L.maxGroupNameChars),
+        people: shareNames(g.people, nameMax),
+      }))
+      .filter((g) => g.people.length > 0);
+    return parseGroupsFrame({
+      title: share(input.title, L.maxTitleChars),
+      round: Math.min(L.maxRound, Math.max(1, Math.floor(input.round))),
+      unit: input.unit,
+      groups,
+      sitOut: shareNames(input.sitOut ?? [], nameMax),
+    } satisfies GroupsFrame);
+  });
 }
 
 /** A café frame for round `round` (from 1) of the host's plan, or null. */
@@ -182,15 +200,16 @@ export function cafeFrame(input: {
   rounds: number;
   tables: readonly { name?: string; host: string; guests: readonly string[] }[];
 }): CafeFrame | null {
-  const frame: CafeFrame = {
-    title: share(input.title, L.maxTitleChars),
-    round: Math.min(L.maxRound, Math.max(1, Math.floor(input.round))),
-    rounds: Math.min(L.maxRound, Math.max(1, Math.floor(input.rounds))),
-    tables: input.tables.map((t) => ({
-      name: share(t.name, L.maxGroupNameChars),
-      host: share(t.host, L.maxNameChars),
-      guests: shareNames(t.guests),
-    })),
-  };
-  return parseCafeFrame(frame);
+  return withNamesThatFit((nameMax) =>
+    parseCafeFrame({
+      title: share(input.title, L.maxTitleChars),
+      round: Math.min(L.maxRound, Math.max(1, Math.floor(input.round))),
+      rounds: Math.min(L.maxRound, Math.max(1, Math.floor(input.rounds))),
+      tables: input.tables.map((t) => ({
+        name: share(t.name, L.maxGroupNameChars),
+        host: share(t.host, nameMax),
+        guests: shareNames(t.guests, nameMax),
+      })),
+    } satisfies CafeFrame)
+  );
 }

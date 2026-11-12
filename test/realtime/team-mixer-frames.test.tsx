@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { ShowFrameView } from "@/components/collab/show-room/show-frame-view";
+import { MIXER_LIMITS } from "@/lib/team-mixer/model";
 import {
   TEAM_MIXER_FRAME_LIMITS,
   cafeFrame,
@@ -85,7 +86,7 @@ describe("parseGroupsFrame", () => {
     const r = parseGroupsFrame({
       ...GROUPS,
       extra: 1,
-      groups: [{ name: "x".repeat(60), people: ["y".repeat(60)], secret: true }],
+      groups: [{ name: "x".repeat(60), people: ["y".repeat(80)], secret: true }],
     })!;
     expect(r).not.toHaveProperty("extra");
     expect(r.groups[0]).toEqual({
@@ -130,6 +131,21 @@ describe("the host's builders", () => {
     const data = encodeShowPayload("team-mixer", "groups", frame);
     expect(data).not.toBeNull();
     expect(parseShowPayload("team-mixer", "groups", data)).toEqual(frame);
+    // Full names would not fit, so these are cut short.
+    expect(frame.groups[0].people[0]).toHaveLength(TEAM_MIXER_FRAME_LIMITS.shortNameChars);
+  });
+
+  it("send a name in full, as the page keeps it, when the frame fits", () => {
+    expect(TEAM_MIXER_FRAME_LIMITS.maxNameChars).toBe(MIXER_LIMITS.name);
+    const long = "Maria Fernanda Rodriguez-Gonzalez de la Cruz";
+    const f = groupsFrame({ round: 1, unit: "group", groups: [{ people: [long, "Bo"] }] })!;
+    expect(f.groups[0].people).toEqual([long, "Bo"]);
+    const c = cafeFrame({
+      round: 1,
+      rounds: 1,
+      tables: [{ host: long, guests: ["Bo"] }, CAFE.tables[1]],
+    })!;
+    expect(c.tables[0].host).toBe(long);
   });
 });
 
@@ -179,6 +195,65 @@ describe("the groups view", () => {
     ).toBeInTheDocument();
     fireEvent.change(box, { target: { value: "zed" } });
     expect(screen.getByText("Nobody by that name in this round.")).toBeInTheDocument();
+  });
+
+  it("finds a long name by its last word, or typed in full when names were cut", () => {
+    const long = "Maria Fernanda Rodriguez-Gonzalez de la Cruz";
+    const view = renderFrame(
+      frameOf(
+        "groups",
+        groupsFrame({ round: 1, unit: "group", groups: [{ people: [long, "Bo"] }] })
+      )
+    );
+    const box = screen.getByLabelText("Find your name");
+    fireEvent.change(box, { target: { value: "cruz" } });
+    expect(screen.getByText(`${long} is in Group 1.`)).toBeInTheDocument();
+    view.unmount();
+    // The biggest mixes go with names cut short; the full name still finds its own.
+    const cut = long.slice(0, TEAM_MIXER_FRAME_LIMITS.shortNameChars);
+    renderFrame(
+      frameOf("groups", {
+        round: 1,
+        unit: "group",
+        groups: [{ name: "", people: [cut, "Bo"] }],
+        sitOut: [],
+      })
+    );
+    fireEvent.change(screen.getByLabelText("Find your name"), { target: { value: long } });
+    expect(screen.getByText(`${cut} is in Group 1.`)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Find your name"), { target: { value: "" } });
+  });
+
+  it("keeps the typed name, and the box's focus, when the next round comes", () => {
+    const view = render(
+      <LiveAnnouncerProvider>
+        <ShowFrameView tool="team-mixer" frame={frameOf("groups", GROUPS, 1)} surface="phone" />
+      </LiveAnnouncerProvider>
+    );
+    const box = screen.getByLabelText("Find your name");
+    box.focus();
+    fireEvent.change(box, { target: { value: "bo" } });
+    expect(screen.getByText("Bo is in Oak.")).toBeInTheDocument();
+    const next = {
+      ...GROUPS,
+      round: 3,
+      groups: [
+        { name: "", people: ["Cy", "Bo"] },
+        { name: "Oak", people: ["Ana", "Dee"] },
+      ],
+    };
+    view.rerender(
+      <LiveAnnouncerProvider>
+        <ShowFrameView tool="team-mixer" frame={frameOf("groups", next, 2)} surface="phone" />
+      </LiveAnnouncerProvider>
+    );
+    const again = screen.getByLabelText("Find your name");
+    expect(again).not.toBe(box);
+    expect(again).toHaveValue("bo");
+    expect(again).toHaveFocus();
+    expect(screen.getByText("Bo is in Group 1.")).toBeInTheDocument();
+    fireEvent.change(again, { target: { value: "" } });
+    again.blur();
   });
 
   it("has no find box on the host's preview", () => {

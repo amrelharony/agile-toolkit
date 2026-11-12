@@ -5,19 +5,44 @@
  *
  * On a phone each frame has a "Find your name" box, so in a room of forty
  * everyone finds their own group in a second; the match is said politely
- * (and shown in bold, with its group outlined). Nothing typed is sent.
+ * (and shown in bold, with its group outlined). What was typed stays for
+ * the next frame (each frame mounts its view afresh), so nobody types
+ * their name again every round. Nothing typed is sent.
  */
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { TEAM_MIXER_FRAME_KINDS, type CafeFrame, type GroupsFrame } from "../frames/team-mixer";
+import {
+  TEAM_MIXER_FRAME_KINDS,
+  TEAM_MIXER_FRAME_LIMITS,
+  type CafeFrame,
+  type GroupsFrame,
+} from "../frames/team-mixer";
 import { defineShowRenderer, type ShowRendererProps, type ShowRenderers } from "./types";
 
-/** At least two letters, so one keystroke doesn't light up half the room. */
-function useFind() {
-  const [text, setText] = useState("");
-  const key = text.trim().toLowerCase();
+/**
+ * This phone's "Find your name" box across frames: what was typed, and
+ * whether the box had focus when the frame changed. Only in this page's
+ * memory, never sent or stored.
+ */
+const remembered = { text: "", focused: false };
+
+/**
+ * At least two letters, so one keystroke doesn't light up half the room.
+ * The typed text is cut to the short name length too: a mix too big for
+ * full names shows them cut, and a full name typed in should still find it.
+ * Only phones find; the host's preview lights up nobody.
+ */
+function useFind(phone: boolean) {
+  const [text, setTextState] = useState(() => (phone ? remembered.text : ""));
+  const setText = (next: string) => {
+    remembered.text = next;
+    setTextState(next);
+  };
+  const key = phone
+    ? text.trim().toLowerCase().slice(0, TEAM_MIXER_FRAME_LIMITS.shortNameChars).trim()
+    : "";
   const hit = (name: string) => key.length >= 2 && name.toLowerCase().includes(key);
   return { text, setText, key, hit };
 }
@@ -33,6 +58,11 @@ function findStatus(key: string, matches: readonly string[], none: string): stri
 
 function FindBox({ find, status }: { find: ReturnType<typeof useFind>; status: string }) {
   const id = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Typing when the next frame came: carry on in the new box.
+  useEffect(() => {
+    if (remembered.focused) inputRef.current?.focus();
+  }, []);
   return (
     <div className="space-y-1.5">
       <label htmlFor={id} className="text-sm font-medium text-text">
@@ -42,8 +72,15 @@ function FindBox({ find, status }: { find: ReturnType<typeof useFind>; status: s
         id={id}
         type="search"
         autoComplete="off"
+        ref={inputRef}
         value={find.text}
         onChange={(e) => find.setText(e.target.value)}
+        onFocus={() => {
+          remembered.focused = true;
+        }}
+        onBlur={() => {
+          remembered.focused = false;
+        }}
       />
       <p role="status" aria-live="polite" className="min-h-5 text-sm text-text">
         {status}
@@ -53,8 +90,8 @@ function FindBox({ find, status }: { find: ReturnType<typeof useFind>; status: s
 }
 
 export function GroupsFrameView({ payload, surface }: ShowRendererProps<GroupsFrame>) {
-  const find = useFind();
   const phone = surface === "phone";
+  const find = useFind(phone);
   const word = payload.unit === "pair" ? "Pair" : "Group";
   const label = (i: number) => payload.groups[i].name || `${word} ${i + 1}`;
   const count = payload.groups.length;
@@ -123,8 +160,8 @@ export function GroupsFrameView({ payload, surface }: ShowRendererProps<GroupsFr
 }
 
 export function CafeFrameView({ payload, surface }: ShowRendererProps<CafeFrame>) {
-  const find = useFind();
   const phone = surface === "phone";
+  const find = useFind(phone);
   const label = (i: number) => payload.tables[i].name || `Table ${i + 1}`;
   const matches: string[] = [];
   payload.tables.forEach((t, i) => {
