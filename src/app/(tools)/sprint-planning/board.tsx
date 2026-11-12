@@ -697,6 +697,11 @@ export function PlanningBoard({
   const saveBuffer = (buffer: SprintInterruptBuffer | undefined) => {
     if (closed) return;
     writer.updateSprint(sprint.id, { interruptBuffer: buffer });
+    log(SPRINT_PLANNING_ACTIONS.BUFFER_SET, {
+      sprintId: sprint.id,
+      pct: buffer?.pct ?? null,
+      points: buffer?.points ?? null,
+    });
     setAnnouncement(buffer ? "Interrupt buffer saved." : "Interrupt buffer cleared.");
   };
 
