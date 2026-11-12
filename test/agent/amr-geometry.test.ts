@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   BUTTON_INSET,
   BUTTON_SIDE,
+  COMPACT_BELOW_H,
+  COMPACT_TOP,
+  DOCK_GAP,
+  DOCK_INSET,
   FEET_TRIM,
   HEAD_TRIM,
   HIT_SIDE,
@@ -14,18 +18,32 @@ import {
   PANEL_MARGIN,
   PANEL_MIN_H,
   PANEL_SIDE,
+  SHEET_LAYOUT_MAX_W,
+  SIDE_LAYOUT_MAX_H,
+  SIDE_PANEL_MAX_W,
   amrCentreInPanel,
   amrEdge,
   amrSide,
   bubbleTail,
   cornerAt,
+  dockInsets,
+  dockedButtonPos,
+  isCompact,
   otherSide,
+  panelLayout,
   panelOrigin,
   panelTail,
+  sheetPos,
+  sidePos,
+  visibleBox,
   type AmrCorner,
+  type AmrLayout,
+  type VisibleBox,
 } from "@/components/agent/mascot/amr-geometry";
 import * as metrics from "@/components/agent/mascot/engine/figure-metrics";
 import * as poses from "@/components/agent/mascot/engine/sprite-poses";
+import { PHONE_MAX_PX } from "@/lib/layout/breakpoints";
+import { readVisibleArea } from "@/lib/layout/use-visible-area";
 
 /**
  * Amr's geometry (chat revamp PR 1): the sizes that place him and his panel,
@@ -257,5 +275,436 @@ describe("panelOrigin", () => {
     expect(panelOrigin(otherSide("topLeft"), { phone: true, figure: true })).toBe(
       "calc(100% - 40px) 0%"
     );
+  });
+});
+
+/*
+ * Phone layouts (chat revamp PR 8, audits phone-sheet-layout,
+ * phone-keyboard-covers-composer, owner-chat-clips-when-short): the layout is
+ * picked by height first, the sheet fills the visible box under the header and
+ * above the keyboard, and Amr docks full size in its bottom corner beside the
+ * composer, with a gutter and a footer kept for him.
+ */
+
+/** The header's bottom on these phones: --header-h, 3.5rem with no top safe area. */
+const HEADER = 56;
+
+interface Screen {
+  name: string;
+  width: number;
+  height: number;
+  /** The home indicator's inset. */
+  safeBottom?: number;
+  /** A keyboard this tall, px. */
+  kb?: number;
+  sides?: { left: number; right: number };
+}
+
+const PHONES: Screen[] = [
+  { name: "320x568", width: 320, height: 568 },
+  { name: "360x640", width: 360, height: 640 },
+  { name: "375x812", width: 375, height: 812 },
+  { name: "375x812 inset 34", width: 375, height: 812, safeBottom: 34 },
+  { name: "375x812 inset 34, keyboard 300", width: 375, height: 812, safeBottom: 34, kb: 300 },
+  { name: "375x667, keyboard 300", width: 375, height: 667, kb: 300 },
+];
+
+/** The visible area the keyboard helper reads on this screen (no pan, no zoom). */
+function areaOf(s: Screen) {
+  return readVisibleArea({
+    clientHeight: s.height,
+    viewport: { height: s.height - (s.kb ?? 0), offsetTop: 0, scale: 1 },
+    headerBottom: HEADER,
+    safeBottom: s.safeBottom ?? 0,
+  });
+}
+
+function boxOf(s: Screen): VisibleBox {
+  return visibleBox(s, areaOf(s), s.sides);
+}
+
+interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** The sheet on screen, from its offsets. */
+function sheetRect(s: Screen, compact: boolean): Rect {
+  const area = areaOf(s);
+  const pos = sheetPos(boxOf(s), { compact, viewTop: area.viewTop });
+  return {
+    left: pos.left,
+    top: pos.top,
+    right: s.width - pos.right,
+    bottom: s.height - pos.bottom,
+  };
+}
+
+/** The docked figure's hit span on screen: his button at MASCOT_BOX_PHONE, from its offsets. */
+function dockedHit(c: AmrCorner, s: Screen, box: Parameters<typeof dockedButtonPos>[1]): Rect {
+  const pos = dockedButtonPos(c, box);
+  const { w, h } = MASCOT_BOX_PHONE;
+  const scale = h / metrics.SHEET.cellH;
+  const left = pos.left ?? s.width - pos.right! - w;
+  const top = s.height - pos.bottom - h;
+  return {
+    left: left + w * HIT_SIDE,
+    right: left + w * (1 - HIT_SIDE),
+    top: top + metrics.FIGURE_TOP * scale,
+    bottom: top + metrics.FIGURE_BOTTOM * scale,
+  };
+}
+
+function overlaps(a: Rect, b: Rect): boolean {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+describe("panelLayout: height first, then width", () => {
+  const cases: [number, number, AmrLayout][] = [
+    [320, 568, "sheet"],
+    [360, 640, "sheet"],
+    [375, 667, "sheet"],
+    [375, 812, "sheet"],
+    [639, 900, "sheet"],
+    [639, 501, "sheet"],
+    [640, 900, "float"],
+    [768, 1024, "float"],
+    [1440, 900, "float"],
+    [1440, 501, "float"],
+    [812, 375, "side"],
+    [568, 320, "side"],
+    [844, 390, "side"],
+    [639, 500, "side"],
+    [1440, 500, "side"],
+    [320, 480, "side"],
+  ];
+  for (const [width, height, layout] of cases) {
+    it(`${width}x${height}: ${layout}`, () => {
+      expect(panelLayout({ width, height })).toBe(layout);
+    });
+  }
+
+  it("draws its lines at 500 px tall and at phone width", () => {
+    expect(SIDE_LAYOUT_MAX_H).toBe(500);
+    expect(SHEET_LAYOUT_MAX_W).toBe(PHONE_MAX_PX);
+  });
+});
+
+describe("visibleBox", () => {
+  it("runs from under the header to above the home indicator, in line with his button at the sides", () => {
+    expect(boxOf({ name: "", width: 375, height: 812, safeBottom: 34 })).toEqual({
+      top: 64,
+      right: 8,
+      bottom: 42,
+      left: 8,
+      width: 359,
+      height: 706,
+    });
+    expect(boxOf({ name: "", width: 320, height: 568 })).toEqual({
+      top: 64,
+      right: 8,
+      bottom: 8,
+      left: 8,
+      width: 304,
+      height: 496,
+    });
+    expect(BUTTON_SIDE).toBe(8);
+  });
+
+  it("stops above a keyboard", () => {
+    const box = boxOf({ name: "", width: 375, height: 812, safeBottom: 34, kb: 300 });
+    expect(box.bottom).toBe(308);
+    expect(box.height).toBe(812 - 64 - 308);
+  });
+
+  it("keeps clear of a landscape notch on either side, as his button does", () => {
+    const box = boxOf({ name: "", width: 812, height: 375, sides: { left: 44, right: 0 } });
+    expect(box.left).toBe(BUTTON_SIDE + 44);
+    expect(box.right).toBe(BUTTON_SIDE);
+    expect(box.width).toBe(812 - 52 - 8);
+  });
+
+  it("is never negative in size", () => {
+    expect(visibleBox({ width: 10, height: 40 }, { top: 64, bottom: 8 })).toMatchObject({
+      width: 0,
+      height: 0,
+    });
+  });
+});
+
+describe("isCompact", () => {
+  it("whenever the keyboard is up", () => {
+    expect(isCompact(true, { height: 700 })).toBe(true);
+    const s = { name: "", width: 375, height: 812, safeBottom: 34, kb: 300 };
+    expect(isCompact(areaOf(s).keyboardUp, boxOf(s))).toBe(true);
+  });
+
+  it(`when the visible box is under ${COMPACT_BELOW_H} px tall`, () => {
+    expect(COMPACT_BELOW_H).toBe(360);
+    expect(isCompact(false, { height: 359.5 })).toBe(true);
+    expect(isCompact(false, { height: 360 })).toBe(false);
+    // Landscape phones are always compact: 303 and 248 px of room.
+    for (const [width, height] of [
+      [812, 375],
+      [568, 320],
+    ]) {
+      const s = { name: "", width, height };
+      expect(isCompact(false, boxOf(s)), `${width}x${height}`).toBe(true);
+    }
+  });
+
+  it("not on an upright phone with no keyboard", () => {
+    for (const s of PHONES.filter((p) => !p.kb)) {
+      expect(isCompact(areaOf(s).keyboardUp, boxOf(s)), s.name).toBe(false);
+    }
+  });
+});
+
+describe("sheetPos", () => {
+  for (const s of PHONES) {
+    it(`${s.name}: fills the visible box, under the header and above the keyboard or home indicator`, () => {
+      const box = boxOf(s);
+      expect(sheetPos(box, { compact: false, viewTop: 0 })).toEqual({
+        top: box.top,
+        right: box.right,
+        bottom: box.bottom,
+        left: box.left,
+      });
+      const r = sheetRect(s, false);
+      expect(r.top).toBeGreaterThanOrEqual(HEADER + 8);
+      expect(s.height - r.bottom).toBeGreaterThanOrEqual((s.kb ?? 0) + 8);
+      expect(s.height - r.bottom).toBeGreaterThanOrEqual((s.safeBottom ?? 0) + 8);
+    });
+  }
+
+  it("compact: from just below the top of what can be seen, over the site header", () => {
+    expect(COMPACT_TOP).toBe(4);
+    const box = boxOf({ name: "", width: 375, height: 812, kb: 300 });
+    expect(sheetPos(box, { compact: true, viewTop: 0 }).top).toBe(4);
+    // iOS panned the page 180 px down to the field.
+    expect(sheetPos(box, { compact: true, viewTop: 180 }).top).toBe(184);
+    // Only the top moves.
+    expect(sheetPos(box, { compact: true, viewTop: 0 })).toMatchObject({
+      right: 8,
+      bottom: 308,
+      left: 8,
+    });
+  });
+});
+
+describe("dockedButtonPos", () => {
+  const scale = MASCOT_BOX_PHONE.h / metrics.SHEET.cellH;
+
+  for (const s of PHONES) {
+    for (const c of CORNERS) {
+      it(`${s.name}, ${c}: the sheet's bottom ${amrSide(c)} corner, full phone size, inside the sheet`, () => {
+        const box = boxOf(s);
+        const pos = dockedButtonPos(c, box);
+        const side = amrSide(c);
+        expect(pos.position).toBe("fixed");
+        expect(pos.bottom).toBeCloseTo(box.bottom + DOCK_INSET - FEET_TRIM * scale, 6);
+        expect(pos[side]).toBeCloseTo(box[side] + DOCK_INSET - MASCOT_BOX_PHONE.w * HIT_SIDE, 6);
+        expect(pos[side === "left" ? "right" : "left"]).toBeUndefined();
+
+        // His figure stands DOCK_INSET inside the sheet's bottom corner...
+        const compact = isCompact(areaOf(s).keyboardUp, box);
+        const sheet = sheetRect(s, compact);
+        const hit = dockedHit(c, s, box);
+        expect(hit.bottom).toBeCloseTo(sheet.bottom - DOCK_INSET, 6);
+        if (side === "left") expect(hit.left).toBeCloseTo(sheet.left + DOCK_INSET, 6);
+        else expect(hit.right).toBeCloseTo(sheet.right - DOCK_INSET, 6);
+        // ...and the whole figure is on the sheet, whatever the keyboard leaves of it.
+        expect(hit.top).toBeGreaterThanOrEqual(sheet.top);
+        expect(hit.left).toBeGreaterThanOrEqual(sheet.left);
+        expect(hit.right).toBeLessThanOrEqual(sheet.right);
+      });
+    }
+  }
+
+  it("docks a top corner at the bottom too, on the same side", () => {
+    const box = boxOf(PHONES[1]);
+    expect(dockedButtonPos("topRight", box)).toEqual(dockedButtonPos("bottomRight", box));
+    expect(dockedButtonPos("topLeft", box)).toEqual(dockedButtonPos("bottomLeft", box));
+  });
+
+  it("rides the keyboard with the visible box, or stays put at its rest", () => {
+    const s = { name: "", width: 375, height: 812, safeBottom: 34, kb: 300 };
+    const area = areaOf(s);
+    const box = boxOf(s);
+    expect(dockedButtonPos("bottomRight", box).bottom).toBeCloseTo(308 + DOCK_INSET - 3, 6);
+    const rest = dockedButtonPos("bottomRight", { ...box, bottom: area.restBottom });
+    expect(rest.bottom).toBeCloseTo(42 + DOCK_INSET - 3, 6);
+    expect(rest.right).toBe(dockedButtonPos("bottomRight", box).right);
+  });
+
+  it("follows the flipped corner", () => {
+    const box = boxOf(PHONES[0]);
+    expect(dockedButtonPos(otherSide("bottomRight"), box)).toEqual(
+      dockedButtonPos("bottomLeft", box)
+    );
+  });
+});
+
+describe("dockInsets", () => {
+  const scale = MASCOT_BOX_PHONE.h / metrics.SHEET.cellH;
+  const hitWidth = MASCOT_BOX_PHONE.w * (1 - 2 * HIT_SIDE);
+  const figureHeight = (metrics.FIGURE_BOTTOM - metrics.FIGURE_TOP) * scale;
+
+  it("a gutter on his side as wide as his figure plus 8 px, and a footer as tall as him", () => {
+    expect(DOCK_INSET).toBe(BUTTON_INSET);
+    expect(DOCK_GAP).toBe(8);
+    for (const c of CORNERS) {
+      const d = dockInsets(c);
+      expect(d.side).toBe(amrSide(c));
+      expect(d.gutter).toBe(55);
+      expect(d.gutter).toBeGreaterThanOrEqual(DOCK_INSET + hitWidth + DOCK_GAP);
+      expect(d.footer).toBe(93);
+      expect(d.footer).toBeGreaterThanOrEqual(DOCK_INSET + figureHeight);
+    }
+  });
+
+  it("follows the flipped corner", () => {
+    expect(dockInsets(otherSide("bottomRight")).side).toBe("left");
+  });
+
+  for (const s of PHONES) {
+    for (const c of ["bottomLeft", "bottomRight"] as const) {
+      it(`${s.name}, ${c}: Send at the gutter's edge is never under him, and the footer holds him`, () => {
+        const box = boxOf(s);
+        const compact = isCompact(areaOf(s).keyboardUp, box);
+        const sheet = sheetRect(s, compact);
+        const { gutter, footer } = dockInsets(c);
+        const hit = dockedHit(c, s, box);
+        // A 44 px Send at the end of the composer's row, on his side, past the gutter.
+        const edge = amrSide(c) === "right" ? sheet.right - gutter : sheet.left + gutter;
+        const send: Rect = {
+          left: amrSide(c) === "right" ? edge - 44 : edge,
+          right: amrSide(c) === "right" ? edge : edge + 44,
+          top: sheet.bottom - 8 - 44,
+          bottom: sheet.bottom - 8,
+        };
+        expect(overlaps(send, hit)).toBe(false);
+        const cx = (send.left + send.right) / 2;
+        const cy = (send.top + send.bottom) / 2;
+        const onHim = cx >= hit.left && cx <= hit.right && cy >= hit.top && cy <= hit.bottom;
+        expect(onHim).toBe(false);
+        // DOCK_GAP between him and the gutter's edge.
+        const gap = amrSide(c) === "right" ? hit.left - edge : edge - hit.right;
+        expect(gap).toBeGreaterThanOrEqual(DOCK_GAP);
+        // He stands within the footer's height, never over the log above it.
+        expect(hit.top).toBeGreaterThanOrEqual(sheet.bottom - footer);
+        // Room is left for the composer beside him.
+        expect(sheet.right - sheet.left - gutter).toBeGreaterThan(200);
+      });
+    }
+  }
+});
+
+describe("sidePos", () => {
+  const LANDSCAPE = { name: "812x375", width: 812, height: 375 };
+  const SMALL = { name: "568x320", width: 568, height: 320 };
+
+  for (const c of CORNERS) {
+    it(`812x375, ${c}: top to bottom beside his desktop figure, ${SIDE_PANEL_MAX_W} px wide`, () => {
+      const box = boxOf(LANDSCAPE);
+      const top = { compact: isCompact(false, box), viewTop: 0 };
+      expect(top.compact).toBe(true);
+      const pos = sidePos(c, box, { phone: false, figure: true }, top);
+      const side = amrSide(c);
+      expect(pos.top).toBe(COMPACT_TOP);
+      expect(pos.bottom).toBe(8);
+      expect(pos.width).toBe(SIDE_PANEL_MAX_W);
+      expect(pos[side]).toBeCloseTo(8 + MASCOT_BOX.w * (1 - HIT_SIDE) + PANEL_GAP, 6);
+      expect(pos[side === "left" ? "right" : "left"]).toBeUndefined();
+    });
+  }
+
+  it("568x320: beside his phone figure", () => {
+    const box = boxOf(SMALL);
+    const pos = sidePos(
+      "bottomLeft",
+      box,
+      { phone: true, figure: true },
+      {
+        compact: true,
+        viewTop: 0,
+      }
+    );
+    expect(pos.left).toBeCloseTo(8 + MASCOT_BOX_PHONE.w * (1 - HIT_SIDE) + PANEL_GAP, 6);
+    expect(pos.width).toBe(SIDE_PANEL_MAX_W);
+  });
+
+  it("clears the launcher plate when that stands in for him", () => {
+    const pos = sidePos(
+      "bottomRight",
+      boxOf(SMALL),
+      { phone: true, figure: false },
+      {
+        compact: true,
+        viewTop: 0,
+      }
+    );
+    expect(pos.right).toBe(8 + LAUNCHER_PLATE.w + PANEL_GAP);
+  });
+
+  it("stays PANEL_GAP clear of his figure, and never runs past the box's far side", () => {
+    for (const s of [LANDSCAPE, SMALL, { name: "320x480", width: 320, height: 480 }]) {
+      for (const phone of [false, true]) {
+        const box = boxOf(s);
+        const w = (phone ? MASCOT_BOX_PHONE : MASCOT_BOX).w;
+        const pos = sidePos(
+          "bottomRight",
+          box,
+          { phone, figure: true },
+          {
+            compact: true,
+            viewTop: 0,
+          }
+        );
+        // His figure's inner edge, from the screen's right: his button's offset plus the hit span.
+        const figureEdge = box.right + w * (1 - HIT_SIDE);
+        expect(pos.right! - figureEdge).toBeCloseTo(PANEL_GAP, 6);
+        const panelLeft = s.width - pos.right! - pos.width;
+        expect(panelLeft).toBeGreaterThanOrEqual(box.left - 1e-9);
+      }
+    }
+    // A narrow short screen: the room past him, not the cap.
+    const narrow = sidePos(
+      "bottomRight",
+      boxOf({ name: "", width: 320, height: 480 }),
+      { phone: true, figure: true },
+      { compact: true, viewTop: 0 }
+    );
+    expect(narrow.width).toBeCloseTo(304 - MASCOT_BOX_PHONE.w * (1 - HIT_SIDE) - PANEL_GAP, 6);
+  });
+
+  it("keeps clear of a landscape notch on his side", () => {
+    const box = boxOf({ ...LANDSCAPE, sides: { left: 0, right: 44 } });
+    const pos = sidePos(
+      "topRight",
+      box,
+      { phone: false, figure: true },
+      {
+        compact: true,
+        viewTop: 0,
+      }
+    );
+    expect(pos.right).toBeCloseTo(52 + MASCOT_BOX.w * (1 - HIT_SIDE) + PANEL_GAP, 6);
+  });
+
+  it("starts under the header when there's room (not compact), and above a keyboard at the bottom", () => {
+    const tall = boxOf({ name: "", width: 1440, height: 500 });
+    expect(isCompact(false, tall)).toBe(false);
+    expect(
+      sidePos("bottomRight", tall, { phone: false, figure: true }, { compact: false, viewTop: 0 })
+        .top
+    ).toBe(64);
+    const typing = boxOf({ ...LANDSCAPE, kb: 200 });
+    expect(
+      sidePos("bottomRight", typing, { phone: false, figure: true }, { compact: true, viewTop: 0 })
+        .bottom
+    ).toBe(208);
   });
 });

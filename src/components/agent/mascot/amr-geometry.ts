@@ -6,7 +6,9 @@
  * the screen he's on, which edge of the panel faces him and how far along it his
  * centre line runs, which way his outside bubble's tail points, and where the
  * panel's entrance grows from. And his corners as Move Amr offers them: in
- * words, and where an arrow key sends him.
+ * words, and where an arrow key sends him. And the panel's layouts on short and
+ * narrow screens (float, phone sheet, side), the visible box they fit in, and
+ * where Amr docks in the sheet.
  *
  * Pure numbers and strings, no React and no DOM. It imports only
  * engine/figure-metrics.ts (which has no imports), so code in the static shell
@@ -17,7 +19,7 @@
  * tails with him.
  */
 
-import { FIGURE_BOTTOM, SHEET } from "./engine/figure-metrics";
+import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "./engine/figure-metrics";
 
 /**
  * The corner Amr is parked in. The same union as MascotCorner in the mascot
@@ -220,4 +222,239 @@ export function panelOrigin(c: AmrCorner, s: Pick<PanelTailState, "phone" | "fig
   const at = amrCentreInPanel(s.phone, s.figure);
   const x = amrSide(c) === "right" ? `calc(100% - ${at}px)` : `${at}px`;
   return `${x} ${amrEdge(c) === "top" ? "0%" : "100%"}`;
+}
+
+// ---------------------------------------------------------------------------
+// Phone layouts: the sheet, the side panel, the visible box, Amr's dock.
+// ---------------------------------------------------------------------------
+
+/**
+ * How the panel is laid out on this screen, height first:
+ * - `side`: a short screen (a landscape phone, or a desktop zoomed far in). The
+ *   panel runs from top to bottom beside Amr, who stays in his corner.
+ * - `sheet`: a phone held upright. The panel fills the visible box, and Amr
+ *   docks in its bottom corner.
+ * - `float`: everything else. The card above or below him (panelPos).
+ */
+export type AmrLayout = "float" | "sheet" | "side";
+
+/** A screen this short or shorter, px, gets the side layout, whatever its width. */
+export const SIDE_LAYOUT_MAX_H = 500;
+/** A screen this narrow or narrower, px, gets the sheet: phone width (breakpoints.ts PHONE_MAX_PX). */
+export const SHEET_LAYOUT_MAX_W = 639;
+
+/**
+ * The layout for a screen of this size, px. Pass its size without a keyboard
+ * (the layout viewport), so a keyboard coming up never changes the layout.
+ */
+export function panelLayout(viewport: Readonly<{ width: number; height: number }>): AmrLayout {
+  if (viewport.height <= SIDE_LAYOUT_MAX_H) return "side";
+  if (viewport.width <= SHEET_LAYOUT_MAX_W) return "sheet";
+  return "float";
+}
+
+/**
+ * The visible area's top and bottom edges, px, as use-visible-area's
+ * readVisibleArea gives them: `top` from the screen's top (under the header),
+ * `bottom` from its bottom (above the keyboard or the home indicator), each
+ * with its gap. Spelled out here so this file stays free of imports.
+ */
+export interface VisibleInsets {
+  top: number;
+  bottom: number;
+}
+
+/** The screen's side safe areas, px: a landscape phone's notch or camera cutout. */
+export interface SideSafeArea {
+  left: number;
+  right: number;
+}
+
+/**
+ * The box the panel and the docked Amr fit in: each edge's distance from the
+ * screen's edge, px (the way a fixed box's top, right, bottom and left read),
+ * and its size.
+ */
+export interface VisibleBox {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The visible box on a screen of this size (the layout viewport, px): from the
+ * visible area's top to its bottom, and BUTTON_SIDE in from each side past the
+ * side safe areas, in line with Amr's button, so the sheet's edge and his side
+ * offset agree.
+ */
+export function visibleBox(
+  viewport: Readonly<{ width: number; height: number }>,
+  insets: Readonly<VisibleInsets>,
+  sides: Readonly<SideSafeArea> = { left: 0, right: 0 }
+): VisibleBox {
+  const left = BUTTON_SIDE + Math.max(0, sides.left);
+  const right = BUTTON_SIDE + Math.max(0, sides.right);
+  return {
+    top: insets.top,
+    right,
+    bottom: insets.bottom,
+    left,
+    width: Math.max(0, viewport.width - left - right),
+    height: Math.max(0, viewport.height - insets.top - insets.bottom),
+  };
+}
+
+/** Under this visible height, px, the panel goes compact even with no keyboard up. */
+export const COMPACT_BELOW_H = 360;
+
+/**
+ * Compact mode: the keyboard is up, or the visible box is short. The panel then
+ * starts from the top of what can be seen, over the site header, and its header
+ * shrinks to one row.
+ */
+export function isCompact(keyboardUp: boolean, box: Readonly<Pick<VisibleBox, "height">>): boolean {
+  return keyboardUp || box.height < COMPACT_BELOW_H;
+}
+
+/** In compact mode the panel starts this far below the top of what can be seen, px. */
+export const COMPACT_TOP = 4;
+
+/**
+ * Where the panel's top goes: compact (isCompact), and the top of what can be
+ * seen (use-visible-area's `viewTop`: iOS pans it down to a focused field).
+ */
+export interface PanelTop {
+  compact: boolean;
+  viewTop: number;
+}
+
+function panelTopPx(box: Readonly<VisibleBox>, top: Readonly<PanelTop>): number {
+  return top.compact ? top.viewTop + COMPACT_TOP : box.top;
+}
+
+/** A fixed box's offsets from the screen's edges, px, as a style object takes them. */
+export interface SheetPos {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/**
+ * The phone sheet: the visible box, under the header and above the keyboard or
+ * home indicator. Compact, it starts COMPACT_TOP below the top of what can be
+ * seen instead, over the site header.
+ */
+export function sheetPos(box: Readonly<VisibleBox>, top: Readonly<PanelTop>): SheetPos {
+  return { top: panelTopPx(box, top), right: box.right, bottom: box.bottom, left: box.left };
+}
+
+/** The most a side-layout panel spans across the screen, px. */
+export const SIDE_PANEL_MAX_W = 420;
+
+/** The side-layout panel: anchored top and bottom, on his side, with its width. */
+export interface SidePos {
+  top: number;
+  bottom: number;
+  left?: number;
+  right?: number;
+  width: number;
+}
+
+/**
+ * The side layout's panel: from the visible box's top (or, compact, from the
+ * top of what can be seen) to its bottom, beside Amr in his corner, PANEL_GAP
+ * clear of his figure (or of the launcher plate when that stands in for him),
+ * and as wide as the room past him allows, up to SIDE_PANEL_MAX_W. He stays in
+ * his corner at his usual size: `phone` picks MASCOT_BOX_PHONE, as panelTail
+ * and panelOrigin do.
+ */
+export function sidePos(
+  c: AmrCorner,
+  box: Readonly<VisibleBox>,
+  amr: Readonly<Pick<PanelTailState, "phone" | "figure">>,
+  top: Readonly<PanelTop>
+): SidePos {
+  const side = amrSide(c);
+  const w = (amr.phone ? MASCOT_BOX_PHONE : MASCOT_BOX).w;
+  // From his side of the box (where his button stands) to his figure's inner edge.
+  const reach = amr.figure ? w * (1 - HIT_SIDE) : LAUNCHER_PLATE.w;
+  const offset = box[side] + reach + PANEL_GAP;
+  const width = Math.max(0, Math.min(SIDE_PANEL_MAX_W, box.width - reach - PANEL_GAP));
+  const vertical = { top: panelTopPx(box, top), bottom: box.bottom, width };
+  return side === "left" ? { ...vertical, left: offset } : { ...vertical, right: offset };
+}
+
+/**
+ * How far inside the sheet's edges the docked Amr stands, px: his feet above its
+ * bottom edge, his figure in from its side edge.
+ */
+export const DOCK_INSET = BUTTON_INSET;
+/** Room kept between the docked Amr's figure and the views beside him, px. */
+export const DOCK_GAP = 8;
+
+/** The docked button's place: fixed, offset from the screen's bottom and his side. */
+export interface DockedButtonPos {
+  position: "fixed";
+  bottom: number;
+  left?: number;
+  right?: number;
+}
+
+/**
+ * Amr docked in the sheet: in its bottom corner on his side (a top corner docks
+ * at the bottom too, so he never covers Close; his chosen corner returns when
+ * the sheet closes), at MASCOT_BOX_PHONE, never scaled. His feet stand
+ * DOCK_INSET above the box's bottom edge, and his figure (the hit span, not the
+ * box's clear sides, which may run past the screen's edge) DOCK_INSET in from
+ * its side edge.
+ *
+ * `box` is the visible box while he rides the keyboard (the composer has
+ * focus). Otherwise pass its `bottom` at use-visible-area's `restBottom`, where
+ * the box's bottom is with no keyboard: he stays put.
+ */
+export function dockedButtonPos(
+  c: AmrCorner,
+  box: Readonly<Pick<VisibleBox, "left" | "right" | "bottom">>
+): DockedButtonPos {
+  const scale = MASCOT_BOX_PHONE.h / SHEET.cellH;
+  const bottom = box.bottom + DOCK_INSET - FEET_TRIM * scale;
+  const side = amrSide(c);
+  const offset = box[side] + DOCK_INSET - MASCOT_BOX_PHONE.w * HIT_SIDE;
+  return side === "left"
+    ? { position: "fixed", bottom, left: offset }
+    : { position: "fixed", bottom, right: offset };
+}
+
+/** What the sheet's views keep clear for the docked Amr. */
+export interface DockInsets {
+  /** The side he docks on: the gutter goes on this side. */
+  side: AmrSide;
+  /**
+   * px to keep clear on that side, from the sheet's outer edge: his figure (its
+   * hit span, DOCK_INSET in from the edge) plus DOCK_GAP. The views' own
+   * padding and the panel's line only add to the room.
+   */
+  gutter: number;
+  /**
+   * The least height of the views' footer (the composer's row), px from the
+   * sheet's bottom edge: his feet's inset plus his figure's height, so he stands
+   * beside the composer, never over the log.
+   */
+  footer: number;
+}
+
+/** The gutter and footer the sheet's views keep for Amr docked on `c`'s side. */
+export function dockInsets(c: AmrCorner): DockInsets {
+  const scale = MASCOT_BOX_PHONE.h / SHEET.cellH;
+  const hitWidth = MASCOT_BOX_PHONE.w * (1 - 2 * HIT_SIDE);
+  const figureHeight = (FIGURE_BOTTOM - FIGURE_TOP) * scale;
+  return {
+    side: amrSide(c),
+    gutter: Math.ceil(DOCK_INSET + hitWidth + DOCK_GAP),
+    footer: Math.ceil(DOCK_INSET + figureHeight),
+  };
 }
