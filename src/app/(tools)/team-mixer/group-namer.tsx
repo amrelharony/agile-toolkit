@@ -111,10 +111,9 @@ export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
           acceptLabel="Use"
           render={(it) => ({ title: it.name, detail: `For ${unit} ${it.index + 1}` })}
           onAccept={(it) => apply([it])}
-          onAcceptAll={(items) => {
-            apply(items);
-            setSuggested(null);
-          }}
+          // The list stays: it hides what was used, says "All added." and
+          // takes focus on its heading; Dismiss clears it.
+          onAcceptAll={(items) => apply(items)}
           onDismiss={() => setSuggested(null)}
         />
       )}

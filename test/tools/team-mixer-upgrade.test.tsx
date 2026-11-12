@@ -510,6 +510,9 @@ describe("after a mix", () => {
     fireEvent.click(screen.getByRole("button", { name: "Suggest names" }));
     expect(screen.getByText(/^Suggested without AI/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Use all 2" }));
+    // The list stays to say so, and keeps keyboard focus on its heading.
+    expect(screen.getByText("All added.")).toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: /Suggested names/ }));
     const names = state().rounds[0].groups.map((g) => g.name);
     expect(names.every((n) => typeof n === "string" && n.length > 0)).toBe(true);
     expect(screen.getByRole("list", { name: names[0]! })).toBeInTheDocument();
