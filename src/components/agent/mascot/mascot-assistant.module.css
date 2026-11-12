@@ -207,6 +207,33 @@
   animation: amrEnter 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* His chat panel's entrance (DNA-SPEC §8: a surface opened on request may fade
+   and scale from 96%). It grows from where its tail meets the panel, the
+   --panel-origin the panel sets from amr-geometry's panelOrigin, so it comes
+   out of Amr. Opacity and the scale property only, never transform, so it
+   can't fight anything that places the panel. The finished state is the
+   fallback: without @starting-style the panel is simply there. Closing is
+   instant. Nothing moves for readers who ask for less motion: both the
+   transition and its starting point live only under no-preference. */
+.panelEnter {
+  transform-origin: var(--panel-origin, 50% 100%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .panelEnter {
+    transition:
+      opacity var(--dur-surface-in) var(--ease-calm),
+      scale var(--dur-surface-in) var(--ease-calm);
+  }
+
+  @starting-style {
+    .panelEnter {
+      opacity: 0;
+      scale: 0.96;
+    }
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .float,
   .framesA,
