@@ -291,14 +291,6 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             crops[pid] = crop
             regs[pid] = reg
             baked[pid] = rg.bake(crop, reg, shape)
-    # The character's own right lands on the viewer's left of the master.
-    mid = (mfig.box[0] + mfig.box[2]) / 2
-    for a, b in (("arm-r", "arm-l"), ("leg-r", "leg-l"), ("ear-r", "ear-l")):
-        if a in regs and b in regs and regs[a].cx > mid > regs[b].cx:
-            for d in (named, regs, baked, crops):
-                d[a], d[b] = d[b], d[a]
-            report["notes"].append(f"{a} and {b} swapped: each landed on the other's side")
-
     # C5 separation, C6 registration.
     c5 = {"status": "pass", "notes": []}
     for img, g in gaps.items():
@@ -308,13 +300,13 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         if g["spare"]:
             c5["notes"].append(f"{img}: {len(g['spare'])} spare piece(s)")
     for img, s in sheets.items():
-        if s["checks"]["C4"]["count"] < s["checks"]["C4"]["expected"]:
-            biggest = max(p.area for p in s["pieces"]) if s["pieces"] else 0
-            for pid, (im_, i) in named.items():
-                shp = parts.shape_of(pid)
-                if im_ == img and shp and s["pieces"][i].area / max(biggest, 1) > TOL["fused_area_max"] * shp[0]:
-                    c5["status"] = "fail"
-                    c5["notes"].append(f"{pid} looks fused (too big for one piece)")
+        short = s["checks"]["C4"]["expected"] - s["checks"]["C4"]["count"]
+        if short > 0:
+            # Fewer drawings than pieces: name the ones most likely drawn as one.
+            mine = {p: i for p, (im_, i) in named.items() if im_ == img}
+            for pid, ratio in parts.fused(s["pieces"], mine, c[img], short):
+                c5["status"] = "fail"
+                c5["notes"].append(f"{pid} looks fused: {ratio:.1f}x the area one piece of it takes")
     report["checks"]["C5"] = c5
     c6 = {"parts": {}, "status": "pass", "notes": []}
     # How many placed pieces cover each pixel, so each piece sees the others' union.

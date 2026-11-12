@@ -224,6 +224,28 @@ def shape_of(part_id: str) -> tuple[float, float] | None:
     return None
 
 
+def fused(pieces: list[Island], named: dict, ids: list[str], short: int = 1) -> list[tuple[str, float]]:
+    """For a sheet `short` drawings short of its pieces: the named pieces ({part
+    id: piece index}) most likely to be two drawn as one, as (id, times its
+    expected area). A piece's expected area is its share of all the sheet's
+    drawing by the generic SHAPES of every id the sheet should hold, so a fusion
+    with the biggest piece (a torso with an arm) shows too. Every piece over
+    fused_area_max times is named, and at least the `short` biggest by that ratio.
+    The pupils are left out: their size follows the eyes, not the body, so their
+    share says nothing (the synthetic ones read 2.4x)."""
+    total = sum(p.area for p in pieces)
+    weight = sum(shape_of(i)[0] for i in ids if shape_of(i))
+    if not total or not weight:
+        return []
+    ratios = []
+    for pid, i in named.items():
+        shp = shape_of(pid)
+        if shp and not pid.startswith("pupil-"):
+            ratios.append((pid, pieces[i].area / (total * shp[0] / weight)))
+    ratios.sort(key=lambda t: -t[1])
+    return [t for n, t in enumerate(ratios) if t[1] > TOL["fused_area_max"] or n < short]
+
+
 def reading_order(pieces: list[Island]) -> list[int]:
     """Each piece's rank in reading order: rows by centre height (a new row when a
     piece's centre is below the current row's lowest top), then left to right."""

@@ -92,6 +92,25 @@ class Naming(unittest.TestCase):
             ex, ey = cs.PARTS_AT[pid]
             self.assertLess(np.hypot(cx - ex, cy - ey), 60, pid)
 
+    def test_a_fusion_with_the_biggest_piece_is_named(self):
+        sticky = spec.character("AAW-25")
+        intact, _ = parts.islands(key.cut(cs.parts_sheet()[0], cs.MAGENTA)[0])
+        got, _, _ = parts.assign(intact, sticky["parts"])
+        self.assertEqual(parts.fused(intact, got, sticky["parts"], short=0), [])
+        # The right arm drawn touching the body: one drawing where two should be.
+        canvas = np.zeros((cs.H, cs.W, 4), np.uint8)
+        layers = cs.part_layers()
+        for pid, (x, y) in cs.PARTS_AT.items():
+            if pid == "arm-r":
+                x = 768 - 0.85 * (cs.TORSO[2] - cs.TORSO[0]) / 2 - 40  # against the torso's left side
+            s = 1.0 if pid.startswith("pupil") else cs.PARTS_R
+            cs.place(canvas, cs.scaled(cs.crop(layers[pid]), s), x, y)
+        pieces, _ = parts.islands(key.cut(cs.on_key(canvas), cs.MAGENTA)[0])
+        self.assertEqual(len(pieces), len(sticky["parts"]) - 1)
+        got, _, _ = parts.assign(pieces, sticky["parts"])
+        named = parts.fused(pieces, got, sticky["parts"], short=1)
+        self.assertEqual(named[0][0], "torso")
+
     def test_reading_order(self):
         def piece(x, y, w=40, h=40):
             ys, xs = np.mgrid[y : y + h, x : x + w]
