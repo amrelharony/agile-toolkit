@@ -497,4 +497,73 @@ export const GUIDES: ToolGuide[] = [
       "ADKAR describes individuals. Score a group by how many people in it are there, and follow up with the rest.",
     ],
   },
+  // ── Phase 42: the meeting widgets and the research top 10 (Team & people) ──
+  {
+    toolId: "team-mixer",
+    summary:
+      "Team Mixer splits people into random groups or pairs, balanced by role or skill, keeping apart the people you say, with a new mix each round so nobody always works with the same people.",
+    whenToUse: [
+      "Breakout groups in a workshop or a retro.",
+      "Pairing rotations and coffee chats across a team, or across teams.",
+      "World Café, where people move between tables each round.",
+    ],
+    steps: [
+      "Start from the team on the Team page, or paste names. Each person can bring their role and skills from the roster.",
+      "Choose a group size or a number of groups, and whether to balance by role or by skill.",
+      "Add keep-apart rules for people who shouldn't share a group, such as a manager and their report.",
+      "Mix the groups. Mix again for the next round: Team Mixer avoids pairs who have already worked together.",
+      "For World Café, set the tables and the rounds, and each round shows who moves where.",
+      "Share the groups to a live room so everyone sees their own group on their phone. Amr can make or redo the groups when you ask him.",
+    ],
+    tips: [
+      "Balanced groups feel fairer than random ones, and new pairs share what they know faster.",
+      "Keep the rules few: each one makes the mix less random.",
+    ],
+    timebox: "Seconds.",
+  },
+  {
+    toolId: "sm-notebook",
+    summary:
+      "The Scrum Master Notebook is your own place for notes on the team: what you saw, what you tried and what to follow up, dated and tagged by event. Each week it shows patterns and suggests tools to try.",
+    whenToUse: [
+      "After a Daily Scrum or a retro, to write down what you noticed while it's fresh.",
+      "Before a 1:1 or a coaching conversation, to look back at what came up.",
+      "At the end of the week, to see patterns you miss day to day.",
+    ],
+    steps: [
+      "Write a note: the date, a title if you like, and what happened. Tag it, and pick the event it came from, such as the Daily Scrum or the retro.",
+      "Link a note to the tool it's about, such as the Impediment Tracker or Retro Actions, and send a note on as an impediment or a retro action when it needs one.",
+      "Search, or filter by tag or event, to find notes again.",
+      "Read the week's notes together at the end of the week.",
+      "Ask Amr writes a weekly summary, points out patterns across your notes and suggests tools that could help. You read it first and keep only what you choose.",
+    ],
+    tips: [
+      "Write what you saw, not what you think of people: notes can be read later.",
+      "Your notes stay in this browser and in your backups; signed in, they sync to your own account.",
+    ],
+    timebox: "Two minutes per note; ten minutes at the end of the week.",
+  },
+  {
+    toolId: "meeting-audit",
+    summary:
+      "Meeting Audit looks at your recurring meetings one by one: how long, how often and how many people, what each costs in hours, whether it does what it's for, and a verdict to keep, change or drop it.",
+    whenToUse: [
+      "When calendars are full and the team has no time left to work.",
+      "Once a quarter, as a ritual reset.",
+      "When a new team, or a change in the team, brings meetings nobody questions.",
+    ],
+    steps: [
+      "Add each recurring meeting: its name, how often it happens, how many minutes it takes, how many people attend and what it's for.",
+      "The audit works out how many hours each meeting takes from the team.",
+      "Rate each meeting with the team: does it meet its purpose, are the right people there, is it the right length?",
+      "Give each meeting a verdict, keep, change or drop, with a note on what to change.",
+      "Ask Amr suggests changes from a meeting's ratings, such as a shorter slot, fewer people or going async. You decide what to keep.",
+      "Export the audit as Markdown to share the proposal with the team.",
+    ],
+    tips: [
+      "Try a change for a few weeks before judging it.",
+      "The Scrum events each have a purpose: change how you run one before you drop it.",
+    ],
+    timebox: "Thirty to sixty minutes, once a quarter.",
+  },
 ];

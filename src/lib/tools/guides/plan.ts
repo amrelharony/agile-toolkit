@@ -301,4 +301,50 @@ export const GUIDES: ToolGuide[] = [
       "Dependencies from PI Planning and the Scrum of Scrums land here too and link back. Take overdue ones to the next Scrum of Scrums.",
     ],
   },
+  // ── Phase 42: the research top 10 (Plan) ──
+  {
+    toolId: "product-goal",
+    summary:
+      "Product Goal holds the one long-term goal your sprints work towards, with why it matters and how you'll know you're there. It shows on Sprint Goal, Sprint Planning and the team charter, so each sprint can say how it moves the goal.",
+    whenToUse: [
+      "When the Product Owner sets or revisits where the product is going.",
+      "At Sprint Planning, to check that the sprint goal moves the Product Goal.",
+      "When a goal is reached or stops being worth chasing, to record that and set the next one.",
+    ],
+    steps: [
+      "Write the goal as one sentence about the outcome you want, not a list of features.",
+      "Add why it matters and two or three measures that show progress, and a target date if there is one.",
+      "Keep one goal active at a time. Earlier goals stay listed as achieved or abandoned, with their dates.",
+      "Sprint Goal and Sprint Planning show the active goal beside the sprint goal you're writing.",
+      "When the goal is reached, mark it achieved. If it stops making sense, mark it abandoned and say why.",
+      "Ask Amr drafts a goal from your product vision and backlog. You change it or start again, and nothing is saved until you save it.",
+    ],
+    tips: [
+      "The Product Goal is what the Product Backlog commits to: the backlog should be the work that gets you there.",
+      "If a sprint can't say how it moves the goal, ask whether the goal or the sprint is wrong.",
+    ],
+    timebox: "Thirty minutes to write; a minute at each Sprint Planning.",
+  },
+  {
+    toolId: "backlog-health",
+    summary:
+      "Backlog Health checks whether your backlog is DEEP: detailed enough near the top, estimated, emergent and prioritized. It flags vague, unsized and stale stories, suggests splits and helps write acceptance criteria as Given, When, Then.",
+    whenToUse: [
+      "Before refinement, to choose the stories that need the team's time.",
+      "Before Sprint Planning, to check the top of the backlog can be pulled in.",
+      "When the backlog has grown so long that nobody trusts it.",
+    ],
+    steps: [
+      "Open it: it reads the stories and backlog items you already have, so there's nothing to type.",
+      "Read each of the four DEEP checks and the stories behind its flags: no points, no acceptance criteria, too big, untouched for a long time, or out of order.",
+      "Open a flagged story to fix it: give it points, split it with a suggested pattern, or write its criteria as Given, When, Then. Each line is saved on the story, beside its free-text acceptance criteria.",
+      "Drop stale stories, with Undo, or leave them for the Product Owner to decide.",
+      "Ask Amr flags vague stories, suggests splits and drafts Given, When, Then lines. You accept the ones you want, and each change goes through the story with Undo.",
+    ],
+    tips: [
+      "Only the top of the backlog needs detail; stories further down can stay rough.",
+      "A long tail of stale items is a decision waiting to be made, usually to drop them.",
+    ],
+    timebox: "Ten minutes before each refinement.",
+  },
 ];

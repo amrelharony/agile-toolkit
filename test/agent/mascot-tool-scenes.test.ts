@@ -1,7 +1,8 @@
 /**
  * Amr's tool table (context/tool-scenes.ts): every row is a real tool, every
- * action one that tool logs, every scene one its sheet asks for, and opening a
- * tool greets you with its props once those are drawn.
+ * action one that tool logs (or, for his cheer and dance, one it asks for
+ * with cheer()), every scene one its sheet asks for, and opening a tool greets
+ * you with its props once those are drawn.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -18,6 +19,8 @@ import {
   toolPageScenes,
 } from "@/lib/agent/mascot/context/tool-scenes";
 import { momentsNow, TOOL_PRIORITY } from "@/lib/agent/mascot/context/moments";
+import { CHEER_MOMENTS } from "@/lib/agent/mascot/tool-moments";
+import { cheerMoment, type CheerReason } from "@/lib/celebrate/cheer";
 import { SCENES } from "@/components/agent/mascot/engine/scenes";
 import { PACKS } from "@/components/agent/mascot/mascot-packs";
 
@@ -67,6 +70,29 @@ function toolSource(toolId: string): string {
   return parts.join("\n");
 }
 
+const CHEERS: ReadonlySet<string> = new Set(Object.values(CHEER_MOMENTS));
+const REASONS: readonly CheerReason[] = ["result", "agreed", "done", "milestone"];
+
+/**
+ * The cheer moments a source announces: each `cheer(tool, reason)` call
+ * (lib/celebrate/cheer.ts) gives the one its reason leads to, and a call with
+ * no reason the default "done"'s. A reason chosen at run time may be any.
+ */
+function cheerMomentsIn(source: string): Set<string> {
+  const out = new Set<string>();
+  for (const [, args] of Array.from(source.matchAll(/\bcheer\(([^()]*)\)/g))) {
+    const reason = args
+      .split(",")
+      .map((a) => a.trim())
+      .filter(Boolean)[1];
+    const literal = REASONS.find((r) => reason === `"${r}"`);
+    if (reason === undefined || reason === "undefined") out.add(cheerMoment("done"));
+    else if (literal) out.add(cheerMoment(literal));
+    else for (const m of Array.from(CHEERS)) out.add(m);
+  }
+  return out;
+}
+
 describe("the tool table", () => {
   it("lists each tool once, and only tools the site has at /<id>", () => {
     const ids = TOOL_SCENES.map((t) => t.toolId);
@@ -102,6 +128,31 @@ describe("the tool table", () => {
     }
     expect(notCatalogued).toEqual([]);
     expect(notLogged).toEqual([]);
+  });
+
+  it("reads which of Amr's celebrations a tool's cheer() call asks for", () => {
+    expect(cheerMomentsIn('cheer("picker");')).toEqual(new Set([CHEER_MOMENTS.cheer]));
+    expect(cheerMomentsIn('cheer("quick-vote", "agreed")')).toEqual(new Set([CHEER_MOMENTS.cheer]));
+    expect(cheerMomentsIn('cheer(\n  TOOL_ID,\n  "milestone",\n  { sound: true }\n)')).toEqual(
+      new Set([CHEER_MOMENTS.dance])
+    );
+    expect(cheerMomentsIn("cheer(TOOL_ID, reason)")).toEqual(CHEERS);
+    expect(cheerMomentsIn('import { cheer } from "@/lib/celebrate/cheer"; cheerful(1)')).toEqual(
+      new Set()
+    );
+  });
+
+  it("gives Amr's cheer or dance a scene only in a tool whose cheer() asks for it", () => {
+    // Emitted, so the logged-action check above leaves them to this one.
+    for (const m of Array.from(CHEERS)) expect(EMITTED.has(m), m).toBe(true);
+    const unasked: string[] = [];
+    for (const t of TOOL_SCENES) {
+      const named = Object.keys(t.actions).filter((a) => CHEERS.has(a));
+      if (named.length === 0) continue;
+      const asked = cheerMomentsIn(toolSource(t.toolId));
+      for (const m of named) if (!asked.has(m)) unasked.push(`${t.toolId}: ${m}`);
+    }
+    expect(unasked).toEqual([]);
   });
 
   it("names scenes from the sheets, and every one already built exists", () => {

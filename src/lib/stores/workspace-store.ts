@@ -126,6 +126,13 @@ import type {
   KanbanBoard,
   DependencyMap,
   ValueStreamStage,
+  // Phase 42 — the tools plan's phase 1
+  ParkingLotItem,
+  RootCauseAnalysis,
+  ProductGoal,
+  InterruptItem,
+  NotebookEntry,
+  MeetingAudit,
 } from "./workspace-types";
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -365,6 +372,19 @@ interface WorkspaceActions {
   removeDependencyMap: (id: string) => void;
   upsertValueStreamStage: (x: ValueStreamStage) => void;
   removeValueStreamStage: (id: string) => void;
+  // Phase 42 — the tools plan's phase 1
+  upsertParkingLotItem: (x: ParkingLotItem) => void;
+  removeParkingLotItem: (id: string) => void;
+  upsertRootCauseAnalysis: (x: RootCauseAnalysis) => void;
+  removeRootCauseAnalysis: (id: string) => void;
+  upsertProductGoal: (x: ProductGoal) => void;
+  removeProductGoal: (id: string) => void;
+  upsertInterruptItem: (x: InterruptItem) => void;
+  removeInterruptItem: (id: string) => void;
+  upsertNotebookEntry: (x: NotebookEntry) => void;
+  removeNotebookEntry: (id: string) => void;
+  upsertMeetingAudit: (x: MeetingAudit) => void;
+  removeMeetingAudit: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert, stamped and cleaned as `upsertStory` does each one. Use
@@ -1555,6 +1575,31 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ valueStreamStages: replaceById(_st.valueStreamStages ?? [], x) })),
       removeValueStreamStage: (id) =>
         set((s) => ({ valueStreamStages: (s.valueStreamStages ?? []).filter((y) => y.id !== id) })),
+      // Phase 42 — the tools plan's phase 1
+      upsertParkingLotItem: (x) =>
+        set((_st) => ({ parkingLotItems: replaceById(_st.parkingLotItems ?? [], x) })),
+      removeParkingLotItem: (id) =>
+        set((s) => ({ parkingLotItems: (s.parkingLotItems ?? []).filter((y) => y.id !== id) })),
+      upsertRootCauseAnalysis: (x) =>
+        set((_st) => ({ rootCauseAnalyses: replaceById(_st.rootCauseAnalyses ?? [], x) })),
+      removeRootCauseAnalysis: (id) =>
+        set((s) => ({ rootCauseAnalyses: (s.rootCauseAnalyses ?? []).filter((y) => y.id !== id) })),
+      upsertProductGoal: (x) =>
+        set((_st) => ({ productGoals: replaceById(_st.productGoals ?? [], x) })),
+      removeProductGoal: (id) =>
+        set((s) => ({ productGoals: (s.productGoals ?? []).filter((y) => y.id !== id) })),
+      upsertInterruptItem: (x) =>
+        set((_st) => ({ interruptItems: replaceById(_st.interruptItems ?? [], x) })),
+      removeInterruptItem: (id) =>
+        set((s) => ({ interruptItems: (s.interruptItems ?? []).filter((y) => y.id !== id) })),
+      upsertNotebookEntry: (x) =>
+        set((_st) => ({ notebookEntries: replaceById(_st.notebookEntries ?? [], x) })),
+      removeNotebookEntry: (id) =>
+        set((s) => ({ notebookEntries: (s.notebookEntries ?? []).filter((y) => y.id !== id) })),
+      upsertMeetingAudit: (x) =>
+        set((_st) => ({ meetingAudits: replaceById(_st.meetingAudits ?? [], x) })),
+      removeMeetingAudit: (id) =>
+        set((s) => ({ meetingAudits: (s.meetingAudits ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1663,6 +1708,13 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           kanbanBoards: s.kanbanBoards,
           dependencyMaps: s.dependencyMaps,
           valueStreamStages: s.valueStreamStages,
+          // Phase 42 — the tools plan's phase 1
+          parkingLotItems: s.parkingLotItems,
+          rootCauseAnalyses: s.rootCauseAnalyses,
+          productGoals: s.productGoals,
+          interruptItems: s.interruptItems,
+          notebookEntries: s.notebookEntries,
+          meetingAudits: s.meetingAudits,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1805,6 +1857,13 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           kanbanBoards: arr("kanbanBoards"),
           dependencyMaps: arr("dependencyMaps"),
           valueStreamStages: arr("valueStreamStages"),
+          // Phase 42 — the tools plan's phase 1
+          parkingLotItems: arr("parkingLotItems"),
+          rootCauseAnalyses: arr("rootCauseAnalyses"),
+          productGoals: arr("productGoals"),
+          interruptItems: arr("interruptItems"),
+          notebookEntries: arr("notebookEntries"),
+          meetingAudits: arr("meetingAudits"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -2160,6 +2219,17 @@ if (typeof window !== "undefined") {
     registerCollection("kanbanBoard", "kanbanBoards");
     registerCollection("dependencyMap", "dependencyMaps");
     registerCollection("valueStreamStage", "valueStreamStages");
+    // Phase 42 — the tools plan's phase 1. Each kind is what kindFromToolId
+    // derives from its workspace.* CRUD (workspace.parking_lot_item →
+    // parkingLotItem, …), and server-side code names them by the
+    // workspace-types constants (PARKING_LOT_ITEM_KIND, …); a test keeps the
+    // three in step.
+    registerCollection("parkingLotItem", "parkingLotItems");
+    registerCollection("rootCauseAnalysis", "rootCauseAnalyses");
+    registerCollection("productGoal", "productGoals");
+    registerCollection("interruptItem", "interruptItems");
+    registerCollection("notebookEntry", "notebookEntries");
+    registerCollection("meetingAudit", "meetingAudits");
     // Kudos wall — was localStorage-only + ephemeral realtime broadcast; now
     // also a per-entity synced collection so the agent (tool.kudos.*) can read
     // + post and the wall cloud-persists cross-device. The realtime broadcast
@@ -2332,6 +2402,12 @@ export function getWorkspaceSnapshot(): Workspace {
     kanbanBoards: state.kanbanBoards,
     dependencyMaps: state.dependencyMaps,
     valueStreamStages: state.valueStreamStages,
+    parkingLotItems: state.parkingLotItems,
+    rootCauseAnalyses: state.rootCauseAnalyses,
+    productGoals: state.productGoals,
+    interruptItems: state.interruptItems,
+    notebookEntries: state.notebookEntries,
+    meetingAudits: state.meetingAudits,
   };
 }
 

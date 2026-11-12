@@ -462,6 +462,30 @@ const gamification: ToolPalette = {
   },
 };
 
+/**
+ * A celebration a tool asks for (lib/celebrate/cheer.ts), only when the call
+ * asks for a sound: a short rising chord for a cheer, a longer one for a
+ * milestone's dance. Pseudo-tool, so it plays in Full sound mode only.
+ */
+const celebrate: ToolPalette = {
+  cheer: {
+    voice: "chord",
+    steps: [0, 4, 7, 12],
+    octave: 5,
+    duration: 0.7,
+    velocity: 0.45,
+    filter: "bright",
+  },
+  dance: {
+    voice: "chord",
+    steps: [0, 2, 4, 7, 12],
+    octave: 5,
+    duration: 1.1,
+    velocity: 0.45,
+    filter: "bright",
+  },
+};
+
 export const palette: PaletteMap = {
   "planning-poker": planningPoker,
   retro,
@@ -508,6 +532,7 @@ export const palette: PaletteMap = {
   kudos,
   mascot,
   gamification,
+  celebrate,
   // pseudo-tools for universal surfaces
   ui,
   rt,

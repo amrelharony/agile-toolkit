@@ -20,6 +20,18 @@ export interface Sprint {
   pointsPlanned: number;
   pointsCompleted?: number;
   status: "planned" | "active" | "completed" | "cancelled";
+  /**
+   * Capacity kept free for unplanned work (Interrupt Buffer): a share of the
+   * sprint's capacity (`pct`, 0–100), points (`points`, 0 or more), or both.
+   * Absent: no buffer set.
+   */
+  interruptBuffer?: SprintInterruptBuffer;
+}
+
+/** A sprint's buffer for unplanned work (see `Sprint.interruptBuffer`). */
+export interface SprintInterruptBuffer {
+  pct?: number;
+  points?: number;
 }
 
 /**
@@ -160,10 +172,25 @@ export interface Story {
   notes?: string;
   /** How the team will know it is done right (at most 2,000 characters). */
   acceptanceCriteria?: string;
+  /**
+   * Structured acceptance criteria, Given/When/Then, in order (Backlog
+   * Health). They sit beside the free-text `acceptanceCriteria`, which stays
+   * as it is: neither is derived from the other. At most TOOL_LIST_MAX.gwt
+   * rows, each part at most TOOL_TEXT_MAX.text.
+   */
+  gwt?: StoryGwt[];
   /** Its issue in the team's tracker: an http or https address (at most 500 characters). */
   link?: string;
   /** Its key in the team's tracker, such as "PAY-12" (at most 50 characters). */
   ticketKey?: string;
+}
+
+/** One Given/When/Then acceptance criterion on a story (see `Story.gwt`). */
+export interface StoryGwt {
+  id: string;
+  given: string;
+  when: string;
+  then: string;
 }
 
 /**
@@ -3279,6 +3306,237 @@ export interface PokerRound {
   startedAt: ISODateString | null;
 }
 
+/* ── Phase 42: the tools plan's phase 1 ───────────────────────────────
+ * Parking Lot, Root Cause, Product Goal, Interrupt Buffer, the Scrum Master
+ * Notebook and Meeting Audit keep their records here, so agents and other
+ * tools read the same data the pages show. Each syncs under the kind its
+ * workspace.* CRUD derives (the *_KIND constants below). The agents' schemas
+ * cap text and lists at TOOL_TEXT_MAX and TOOL_LIST_MAX; the pages' forms use
+ * the same caps, so a record a page saved is always one an agent can update. */
+
+/** Text caps for the Phase 42 records: a label, a sentence or two, notes. */
+export const TOOL_TEXT_MAX = { short: 200, text: 1000, long: 5000 } as const;
+
+/** List caps for the Phase 42 records. */
+export const TOOL_LIST_MAX = {
+  /** A 5 Whys chain. */
+  whys: 20,
+  /** Fishbone causes. */
+  causes: 100,
+  /** A Product Goal's measures. */
+  measures: 10,
+  /** A notebook entry's tags. */
+  tags: 20,
+  /** A meeting audit's ratings. */
+  ratings: 20,
+  /** A story's Given/When/Then criteria. */
+  gwt: 20,
+} as const;
+
+export const PARKING_LOT_STATUSES = ["open", "discussed", "sent", "dropped"] as const;
+export type ParkingLotStatus = (typeof PARKING_LOT_STATUSES)[number];
+
+/**
+ * A point parked during a meeting (Parking Lot), to be discussed later, sent
+ * to another tool or dropped. Where it was sent is recorded the way every
+ * hand-off source records it (`sentTo`, lib/handoffs), so sendHandoff and
+ * liveLink work on it: the backlog ("backlog-story"), the Impediment Tracker
+ * ("impediment") or Retro Actions ("retro-action").
+ */
+export interface ParkingLotItem {
+  id: string;
+  /** The point, as raised (at most TOOL_TEXT_MAX.text). */
+  text: string;
+  /** The meeting it came up in, as typed, such as "Daily Scrum". */
+  meeting?: string;
+  /** Who raised it: the roster's spelling when they're on the team. */
+  raisedBy?: string;
+  status: ParkingLotStatus;
+  /** Where it was sent ("sent" status): one link per route. */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+/** The kind it syncs under (user_entities), for server-side reads and writes. */
+export const PARKING_LOT_ITEM_KIND = "workspace:parkingLotItem";
+
+export const ROOT_CAUSE_METHODS = ["five-whys", "fishbone"] as const;
+export type RootCauseMethod = (typeof ROOT_CAUSE_METHODS)[number];
+
+/** One answer in a 5 Whys chain, in order: the first answers why the problem happened. */
+export interface RootCauseWhy {
+  id: string;
+  text: string;
+}
+
+/** One cause on a fishbone, under a category (people, process, tools…), with how often it happens. */
+export interface RootCauseCause {
+  id: string;
+  category: string;
+  text: string;
+  /** How many times it happened: the Pareto chart orders causes by it. A whole number, 0 or more. */
+  count: number;
+}
+
+/**
+ * A root-cause analysis (Root Cause): a problem taken back to its causes by
+ * 5 Whys or a fishbone, the root cause the team settled on and the
+ * countermeasure it agreed. `method` is the view it was started in; both
+ * lists are kept whichever it is.
+ */
+export interface RootCauseAnalysis {
+  id: string;
+  title: string;
+  /** The problem as a fact: what happened, where and how often. */
+  problem: string;
+  method: RootCauseMethod;
+  whys: RootCauseWhy[];
+  causes: RootCauseCause[];
+  rootCause?: string;
+  countermeasure?: string;
+  /** The retro board it came from or was raised at. */
+  retroBoardId?: string;
+  /** The post-mortem it came from (Post-Mortem's record id). */
+  postMortemId?: string;
+  /** The item this analysis was sent from (a retro card, a post-mortem). */
+  sourceRef?: HandoffRef;
+  /** Where its countermeasure was sent (Retro Actions: "retro-action"). */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const ROOT_CAUSE_ANALYSIS_KIND = "workspace:rootCauseAnalysis";
+
+export const PRODUCT_GOAL_STATUSES = ["active", "achieved", "abandoned"] as const;
+export type ProductGoalStatus = (typeof PRODUCT_GOAL_STATUSES)[number];
+
+/**
+ * The Product Goal (Product Goal): the long-term objective the Scrum Team's
+ * sprints work towards. At most one goal is "active" at a time: the tool
+ * and its agent verbs close the active one (achieved or abandoned) before
+ * another becomes active, and readers that find two take the latest
+ * `updatedAt`. Earlier goals stay as the team's record.
+ */
+export interface ProductGoal {
+  id: string;
+  /** The goal, one sentence about the outcome (at most TOOL_TEXT_MAX.text). */
+  statement: string;
+  /** Why it matters. */
+  why?: string;
+  /** How progress is measured: up to TOOL_LIST_MAX.measures short lines. */
+  measures: string[];
+  /** "YYYY-MM-DD" it should be reached by. */
+  targetDate?: ISODateString;
+  status: ProductGoalStatus;
+  /**
+   * When it was marked achieved or abandoned (cleared if it is made active
+   * again): a full ISO timestamp (toISOString), as the agents' schema
+   * accepts no other form.
+   */
+  closedAt?: ISODateString;
+  /** A note on the outcome, such as why it was abandoned. */
+  note?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const PRODUCT_GOAL_KIND = "workspace:productGoal";
+
+export const INTERRUPT_KINDS = ["bug", "support", "request", "incident", "other"] as const;
+export type InterruptKind = (typeof INTERRUPT_KINDS)[number];
+
+/**
+ * Unplanned work that landed in a sprint (Interrupt Buffer). It counts
+ * against the sprint's `interruptBuffer` until it is resolved; `size` is in
+ * the team's points when known.
+ */
+export interface InterruptItem {
+  id: string;
+  /** The sprint it landed in; absent: logged with no sprint running. */
+  sprintId?: string;
+  title: string;
+  kind: InterruptKind;
+  /** Its size in points, 0 or more, when known. */
+  size?: number;
+  /** It couldn't wait: the team stopped other work for it. */
+  emergency: boolean;
+  /**
+   * When it landed, a full ISO timestamp (toISOString; it can be backdated).
+   * The agents' schema accepts no other form, so a page that lets someone
+   * pick a time turns the picker's value into one before saving.
+   */
+  loggedAt: ISODateString;
+  /** When it was resolved, a full ISO timestamp; absent while it is open (never ""). */
+  resolvedAt?: ISODateString;
+  /** Where it was sent (the backlog, the Impediment Tracker). */
+  sentTo?: HandoffLink[];
+}
+
+export const INTERRUPT_ITEM_KIND = "workspace:interruptItem";
+
+/**
+ * A note in the Scrum Master Notebook: the coach's own record of what they
+ * saw and tried. Private to the owner's workspace like everything else here.
+ */
+export interface NotebookEntry {
+  id: string;
+  /** "YYYY-MM-DD" the note is about. */
+  date: ISODateString;
+  title?: string;
+  /** The note itself (at most TOOL_TEXT_MAX.long). */
+  body: string;
+  /** Free tags, each at most TOOL_TEXT_MAX.short. */
+  tags: string[];
+  /** The Scrum event it came from, such as "daily-scrum" or "retro". */
+  event?: string;
+  /**
+   * The tool it is about, by tool id (src/lib/constants/tools.ts), such as
+   * "impediments". The agents' schema takes only a tool id's shape
+   * (lowercase words joined by hyphens), but not only ids the registry has:
+   * link it through getToolById, and show no link for an unknown id.
+   */
+  linkedTool?: string;
+  /** Where it was sent (an impediment, a retro action). */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const NOTEBOOK_ENTRY_KIND = "workspace:notebookEntry";
+
+export const MEETING_CADENCES = ["daily", "weekly", "fortnightly", "monthly", "quarterly"] as const;
+export type MeetingCadence = (typeof MEETING_CADENCES)[number];
+
+export const MEETING_VERDICTS = ["keep", "change", "drop"] as const;
+export type MeetingVerdict = (typeof MEETING_VERDICTS)[number];
+
+/**
+ * One recurring meeting under review (Meeting Audit): how often, how long and
+ * for how many, what it's for, the team's ratings and a verdict.
+ */
+export interface MeetingAudit {
+  id: string;
+  /** The meeting's name. */
+  meeting: string;
+  cadence: MeetingCadence;
+  /** Length of one occurrence in minutes, more than 0. */
+  minutes: number;
+  /** How many people attend, 1 or more. */
+  attendees: number;
+  /** What it is for. */
+  purpose: string;
+  /** The team's ratings by question id (the tool's own questions), each a number. */
+  ratings: Record<string, number>;
+  verdict?: MeetingVerdict;
+  notes?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const MEETING_AUDIT_KIND = "workspace:meetingAudit";
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -3416,6 +3674,14 @@ export interface Workspace {
   kanbanBoards?: KanbanBoard[];
   dependencyMaps?: DependencyMap[];
   valueStreamStages?: ValueStreamStage[];
+  // Phase 42 — the tools plan's phase 1
+  parkingLotItems?: ParkingLotItem[];
+  rootCauseAnalyses?: RootCauseAnalysis[];
+  /** At most one "active" (see `ProductGoal`). */
+  productGoals?: ProductGoal[];
+  interruptItems?: InterruptItem[];
+  notebookEntries?: NotebookEntry[];
+  meetingAudits?: MeetingAudit[];
 }
 
 /**
@@ -3691,6 +3957,13 @@ export const emptyWorkspace = {
   kanbanBoards: [],
   dependencyMaps: [],
   valueStreamStages: [],
+  // Phase 42 — the tools plan's phase 1
+  parkingLotItems: [],
+  rootCauseAnalyses: [],
+  productGoals: [],
+  interruptItems: [],
+  notebookEntries: [],
+  meetingAudits: [],
 } satisfies Workspace;
 
 /**
