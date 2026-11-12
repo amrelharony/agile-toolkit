@@ -6,7 +6,7 @@
  * an editor).
  */
 
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -93,14 +93,12 @@ describe("cleaning the scenarios", () => {
   });
 
   it("the store cleans them on every write and leaves the free text alone", () => {
-    useWorkspaceStore
-      .getState()
-      .upsertStory(
-        story({
-          acceptanceCriteria: "Works on any card.",
-          gwt: [{ ...ROW, given: "  a saved card " }],
-        })
-      );
+    useWorkspaceStore.getState().upsertStory(
+      story({
+        acceptanceCriteria: "Works on any card.",
+        gwt: [{ ...ROW, given: "  a saved card " }],
+      })
+    );
     const saved = useWorkspaceStore.getState().stories[0];
     expect(saved.gwt).toEqual([ROW]);
     expect(saved.acceptanceCriteria).toBe("Works on any card.");
@@ -254,6 +252,63 @@ describe("the details panel's scenarios", () => {
     expect(screen.getByText("a saved card")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add a scenario/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Delete scenario/ })).toBeNull();
+  });
+
+  it("puts focus back on the scenario's Edit after Save or Cancel", async () => {
+    wrap(<Harness initial={story({ gwt: [ROW, { ...ROW, id: "g2" }] })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit scenario 2" }));
+    fireEvent.change(screen.getByLabelText("Then"), { target: { value: "I get a receipt" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save scenario" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit scenario 2" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit scenario 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit scenario 1" })).toHaveFocus()
+    );
+    expect(rows().map((r) => r.then)).toEqual(["I'm charged once", "I get a receipt"]);
+  });
+
+  it("offers scenarios while the free-text form is open; one added keeps the panel on Cancel", () => {
+    const onEmpty = vi.fn();
+    function Open() {
+      const [s, setS] = useState(story());
+      return (
+        <>
+          <StoryDetailsPanel
+            story={s}
+            startEditing
+            onSave={() => {}}
+            onSaveGwt={(gwt) => setS((cur) => withStoryGwt(cur, gwt))}
+            onEmpty={onEmpty}
+          />
+          <pre data-testid="gwt">{JSON.stringify(s.gwt ?? [])}</pre>
+        </>
+      );
+    }
+    const { unmount } = wrap(<Open />);
+    // The free-text form is open, and the scenario editor sits under it.
+    expect(screen.getByRole("button", { name: "Save details" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Add a scenario/ }));
+    fireEvent.change(screen.getByLabelText("Given"), { target: { value: "a saved card" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "I pay" } });
+    fireEvent.change(screen.getByLabelText("Then"), { target: { value: "I'm charged once" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add scenario" }));
+    expect(rows()).toHaveLength(1);
+    // Nothing in the four fields, but the panel stays: it has the scenarios to show.
+    const cancel = screen.getAllByRole("button", { name: "Cancel" })[0];
+    fireEvent.click(cancel);
+    expect(onEmpty).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Add details/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("list", { name: "Scenarios for Pay with a saved card" })
+    ).toBeInTheDocument();
+    unmount();
+    // With nothing written either way, Cancel still hands the empty panel back.
+    wrap(<Open />);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onEmpty).toHaveBeenCalledTimes(1);
   });
 
   it("stops adding at the cap", () => {

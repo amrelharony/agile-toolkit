@@ -10,7 +10,9 @@
  *
  * The structured criteria, Given/When/Then scenarios (`Story.gwt`), show
  * beside the free text and have their own editor when the page passes
- * `onSaveGwt`; the free text stays exactly as it is.
+ * `onSaveGwt`; the free text stays exactly as it is. That editor is there
+ * whether the four fields are being read or edited, so a story with no
+ * free text yet can get a scenario straight away.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -226,7 +228,8 @@ export interface StoryDetailsPanelProps {
   /**
    * The form closed with nothing to show: cancelled, or saved empty, on a
    * story that has none of the four. A page that opens the panel on demand
-   * closes it; one that always shows it leaves this out.
+   * closes it; one that always shows it leaves this out. A story with
+   * scenarios has something to show, so this isn't called for it.
    */
   onEmpty?: () => void;
   id?: string;
@@ -303,12 +306,12 @@ export function StoryDetailsPanel({
             {has ? "Edit details" : "Add details"}
             <span className="sr-only">: {story.title}</span>
           </Button>
-          {onSaveGwt && (
-            <div className="border-t border-border pt-3">
-              <GwtEditor title={story.title} gwt={story.gwt} onChange={onSaveGwt} />
-            </div>
-          )}
         </>
+      )}
+      {onSaveGwt && (
+        <div className="border-t border-border pt-3">
+          <GwtEditor title={story.title} gwt={story.gwt} onChange={onSaveGwt} />
+        </div>
       )}
     </div>
   );

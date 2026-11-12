@@ -128,8 +128,15 @@ export function GwtEditor({ title, gwt, onChange }: GwtEditorProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
+  // Each scenario's Edit button, by id: focus goes back to it once its form closes.
+  const editButtons = useRef(new Map<string, HTMLButtonElement>());
   const headingId = useId();
   const full = rows.length >= STORY_GWT_MAX;
+
+  const closeEdit = (id: string) => {
+    setEditing(null);
+    requestAnimationFrame(() => (editButtons.current.get(id) ?? addButton.current)?.focus());
+  };
 
   const closeAdd = () => {
     setAdding(false);
@@ -144,7 +151,7 @@ export function GwtEditor({ title, gwt, onChange }: GwtEditorProps) {
 
   const save = (id: string, values: GwtDraft) => {
     onChange(latest.current.map((r) => (r.id === id ? { ...r, ...values } : r)));
-    setEditing(null);
+    closeEdit(id);
   };
 
   const remove = (row: StoryGwt, index: number) => {
@@ -182,7 +189,7 @@ export function GwtEditor({ title, gwt, onChange }: GwtEditorProps) {
                   initial={{ given: row.given, when: row.when, then: row.then }}
                   submitLabel="Save scenario"
                   onSave={(values) => save(row.id, values)}
-                  onCancel={() => setEditing(null)}
+                  onCancel={() => closeEdit(row.id)}
                 />
               ) : (
                 <div className="flex items-start gap-2">
@@ -192,6 +199,10 @@ export function GwtEditor({ title, gwt, onChange }: GwtEditorProps) {
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <IconButton
+                      ref={(el) => {
+                        if (el) editButtons.current.set(row.id, el);
+                        else editButtons.current.delete(row.id);
+                      }}
                       label={`Edit scenario ${i + 1}`}
                       icon={<Pencil className="h-4 w-4" aria-hidden="true" />}
                       onClick={() => setEditing(row.id)}
