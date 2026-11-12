@@ -302,6 +302,12 @@ describe("the page", () => {
     expect(
       screen.getByText(/saved in this browser only\. They never go to a live room\./)
     ).toBeInTheDocument();
+    // Every way they leave, the AI prompts run with a personal key included.
+    expect(
+      screen.getByText(
+        /ask Amr's AI about them, or run one of the AI prompts with your own AI key\./
+      )
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     expect(stored().length).toBeGreaterThanOrEqual(8);
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
@@ -732,6 +738,29 @@ describe("the week", () => {
     fireEvent.click(dismiss);
     expect(screen.queryByTestId("weekly-review")).not.toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sum up this week" }));
+  });
+
+  it("says nothing leaves the browser when the week is summed up without AI", () => {
+    seed(WEEK);
+    renderPage();
+    openWeek();
+    expect(
+      screen.getByText(
+        /^Sum up this week reads your notes here in this browser; nothing leaves it\./
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^Ask Amr sends this week's notes/)).not.toBeInTheDocument();
+  });
+
+  it("says what Ask Amr sends when it will send it", () => {
+    h.auth = { status: "authenticated", user: { id: "owner" } };
+    seed(WEEK);
+    renderPage();
+    openWeek();
+    expect(
+      screen.getByText(/^Ask Amr sends this week's notes, each cut to 800 characters/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/nothing leaves it/)).not.toBeInTheDocument();
   });
 
   it("reads the week without AI, and keeps it as a note only on request, with Undo", () => {

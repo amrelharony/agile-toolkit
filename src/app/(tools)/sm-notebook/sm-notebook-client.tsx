@@ -283,7 +283,8 @@ export function SmNotebookClient() {
           <p>
             Your notes are saved in this browser
             {isOwner ? " and synced to your own account" : " only"}. They never go to a live room.
-            They leave only when you export or share them, or ask Amr&apos;s AI about them.
+            They leave only when you export or share them, ask Amr&apos;s AI about them, or run one
+            of the AI prompts with your own AI key.
           </p>
         </div>
 

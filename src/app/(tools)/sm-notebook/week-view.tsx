@@ -25,6 +25,7 @@ import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import type { AiSource } from "@/lib/ai/task-types";
 import { notebookWeeklySummaryTask } from "@/lib/ai/tasks/sm-notebook";
+import { useToolAi } from "@/lib/ai/use-tool-ai";
 import { cn } from "@/lib/utils";
 import {
   NOTE_BODY_MAX,
@@ -253,6 +254,9 @@ export function WeekView({
   const range = rangeOf(weekStart);
   const atThisWeek = weekStart >= thisWeek;
   const announce = useAnnounce();
+  // Whether "Ask Amr" will really send the notes to Amr's AI, or the
+  // button sums the week up here without AI (it is hidden while loading).
+  const ai = useToolAi(notebookWeeklySummaryTask);
 
   const askRef = useRef<HTMLDivElement>(null);
   const prevRef = useRef<HTMLButtonElement>(null);
@@ -370,10 +374,19 @@ export function WeekView({
             disabledReason={week.notes.length === 0 ? "Write a note in this week first." : null}
           />
         </div>
-        <p className="text-xs text-sub">
-          Ask Amr sends this week&apos;s notes, each cut to {WEEKLY_BODY_MAX} characters, to
-          Amr&apos;s AI. Nothing is kept until you keep it.
-        </p>
+        {ai.available ? (
+          <p className="text-xs text-sub">
+            Ask Amr sends this week&apos;s notes, each cut to {WEEKLY_BODY_MAX} characters, to
+            Amr&apos;s AI. Nothing is kept until you keep it.
+          </p>
+        ) : (
+          ai.reason !== "loading" && (
+            <p className="text-xs text-sub">
+              Sum up this week reads your notes here in this browser; nothing leaves it. Nothing is
+              kept until you keep it.
+            </p>
+          )
+        )}
       </div>
 
       {shown && (
