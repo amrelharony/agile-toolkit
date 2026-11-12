@@ -6,9 +6,13 @@
 import "server-only";
 import type { AiTaskPrompt } from "../task-types";
 import { suggestOptionsPrompt } from "./_example.server";
+import { cardForMoodPrompt, generateCardsPrompt } from "./card-decks.server";
 
 // See index.ts on `any`: each prompt's input is checked by its task's schema first.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   suggestOptionsPrompt,
+  // card-decks
+  generateCardsPrompt,
+  cardForMoodPrompt,
 ];

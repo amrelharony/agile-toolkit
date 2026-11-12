@@ -6,8 +6,14 @@
 
 import type { AiTaskDef } from "../task-types";
 import { suggestOptionsTask } from "./_example";
+import { cardForMoodTask, generateCardsTask } from "./card-decks";
 
 // `any` here only erases each task's own input/output types for the list; the
 // routes check every input and output against the task's schemas at run time.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const AI_TASKS: readonly AiTaskDef<any, any>[] = [suggestOptionsTask];
+export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
+  suggestOptionsTask,
+  // card-decks
+  generateCardsTask,
+  cardForMoodTask,
+];
