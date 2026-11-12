@@ -545,6 +545,23 @@ describe("dockedButtonPos", () => {
       dockedButtonPos("bottomLeft", box)
     );
   });
+
+  for (const s of PHONES) {
+    for (const c of CORNERS) {
+      it(`${s.name}, ${c}: the launcher plate, standing in for him, docks DOCK_INSET inside the corner, never off the screen`, () => {
+        const box = boxOf(s);
+        const pos = dockedButtonPos(c, box, false);
+        const side = amrSide(c);
+        expect(pos.bottom).toBe(box.bottom + DOCK_INSET);
+        expect(pos[side]).toBe(box[side] + DOCK_INSET);
+        expect(pos[side]).toBeGreaterThanOrEqual(BUTTON_SIDE + DOCK_INSET);
+        expect(pos[side === "left" ? "right" : "left"]).toBeUndefined();
+        // Its inner edge stays in the plate's gutter, DOCK_GAP clear of the views.
+        const { gutter } = dockInsets(c, false);
+        expect(pos[side]! + LAUNCHER_PLATE.w + DOCK_GAP).toBeLessThanOrEqual(box[side] + gutter);
+      });
+    }
+  }
 });
 
 describe("dockInsets", () => {
@@ -567,6 +584,17 @@ describe("dockInsets", () => {
 
   it("follows the flipped corner", () => {
     expect(dockInsets(otherSide("bottomRight")).side).toBe("left");
+  });
+
+  it("keeps the launcher plate's room while it stands in for him", () => {
+    for (const c of CORNERS) {
+      const d = dockInsets(c, false);
+      expect(d.side).toBe(amrSide(c));
+      expect(d.gutter).toBe(120);
+      expect(d.gutter).toBeGreaterThanOrEqual(DOCK_INSET + LAUNCHER_PLATE.w + DOCK_GAP);
+      expect(d.footer).toBe(48);
+      expect(d.footer).toBeGreaterThanOrEqual(DOCK_INSET + LAUNCHER_PLATE.h);
+    }
   });
 
   for (const s of PHONES) {

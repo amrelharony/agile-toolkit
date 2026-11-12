@@ -415,15 +415,21 @@ export interface DockedButtonPos {
  * `box` is the visible box while he rides the keyboard (the composer has
  * focus). Otherwise pass its `bottom` at use-visible-area's `restBottom`, where
  * the box's bottom is with no keyboard: he stays put.
+ *
+ * With `figure` false the launcher plate stands in for him (his figure still
+ * loading, Data Saver, or one that gave up): its whole box is drawn, so it
+ * stands DOCK_INSET inside the corner itself, with no clear sides or feet to
+ * trim.
  */
 export function dockedButtonPos(
   c: AmrCorner,
-  box: Readonly<Pick<VisibleBox, "left" | "right" | "bottom">>
+  box: Readonly<Pick<VisibleBox, "left" | "right" | "bottom">>,
+  figure = true
 ): DockedButtonPos {
   const scale = MASCOT_BOX_PHONE.h / SHEET.cellH;
-  const bottom = box.bottom + DOCK_INSET - FEET_TRIM * scale;
+  const bottom = box.bottom + DOCK_INSET - (figure ? FEET_TRIM * scale : 0);
   const side = amrSide(c);
-  const offset = box[side] + DOCK_INSET - MASCOT_BOX_PHONE.w * HIT_SIDE;
+  const offset = box[side] + DOCK_INSET - (figure ? MASCOT_BOX_PHONE.w * HIT_SIDE : 0);
   return side === "left"
     ? { position: "fixed", bottom, left: offset }
     : { position: "fixed", bottom, right: offset };
@@ -435,20 +441,32 @@ export interface DockInsets {
   side: AmrSide;
   /**
    * px to keep clear on that side, from the sheet's outer edge: his figure (its
-   * hit span, DOCK_INSET in from the edge) plus DOCK_GAP. The views' own
-   * padding and the panel's line only add to the room.
+   * hit span, DOCK_INSET in from the edge), or the launcher plate standing in
+   * for it, plus DOCK_GAP. The views' own padding and the panel's line only
+   * add to the room.
    */
   gutter: number;
   /**
    * The least height of the views' footer (the composer's row), px from the
-   * sheet's bottom edge: his feet's inset plus his figure's height, so he stands
-   * beside the composer, never over the log.
+   * sheet's bottom edge: his feet's inset plus his figure's height (or the
+   * plate's), so he stands beside the composer, never over the log.
    */
   footer: number;
 }
 
-/** The gutter and footer the sheet's views keep for Amr docked on `c`'s side. */
-export function dockInsets(c: AmrCorner): DockInsets {
+/**
+ * The gutter and footer the sheet's views keep for Amr docked on `c`'s side:
+ * for his figure, or (`figure` false) the launcher plate, as dockedButtonPos
+ * stands it.
+ */
+export function dockInsets(c: AmrCorner, figure = true): DockInsets {
+  if (!figure) {
+    return {
+      side: amrSide(c),
+      gutter: Math.ceil(DOCK_INSET + LAUNCHER_PLATE.w + DOCK_GAP),
+      footer: Math.ceil(DOCK_INSET + LAUNCHER_PLATE.h),
+    };
+  }
   const scale = MASCOT_BOX_PHONE.h / SHEET.cellH;
   const hitWidth = MASCOT_BOX_PHONE.w * (1 - 2 * HIT_SIDE);
   const figureHeight = (FIGURE_BOTTOM - FIGURE_TOP) * scale;

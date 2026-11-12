@@ -946,6 +946,7 @@ function usePanelViewport({
   placed,
   phone,
   figure,
+  shown,
 }: {
   open: boolean;
   panelRef: RefObject<HTMLDivElement | null>;
@@ -955,8 +956,13 @@ function usePanelViewport({
   placed: Corner;
   /** The side panel clears a phone's figure (MASCOT_BOX_PHONE) or the desktop one. */
   phone: boolean;
-  /** His figure, or the launcher plate standing in for it. */
+  /**
+   * His figure, or the launcher plate standing in for it, for the side panel:
+   * the figure's place is kept while one is coming.
+   */
   figure: boolean;
+  /** Whether his figure is drawn now (not the plate): where he docks in the sheet. */
+  shown: boolean;
 }): { layout: AmrLayout; keyboardUp: boolean } {
   const [layout, setLayout] = useState<AmrLayout>(readLayout);
   const [keyboardUp, setKeyboardUp] = useState(false);
@@ -968,8 +974,8 @@ function usePanelViewport({
     const fresh = open ? readLayout() : layout;
     if (fresh !== layout) setLayout(fresh);
   }
-  const latest = useRef({ placed, phone, figure, layout, keyboardUp });
-  latest.current = { placed, phone, figure, layout, keyboardUp };
+  const latest = useRef({ placed, phone, figure, shown, layout, keyboardUp });
+  latest.current = { placed, phone, figure, shown, layout, keyboardUp };
 
   // Reads the page and writes the variables. Stable: it reads everything off refs.
   const write = useCallback(
@@ -1014,7 +1020,11 @@ function usePanelViewport({
         // sheet's bottom rests, so a search field's keyboard leaves him be.
         const held = document.activeElement;
         const rides = !!held && panel.contains(held) && !!held.closest(COMPOSER);
-        const dock = dockedButtonPos(now.placed, rides ? box : { ...box, bottom: area.restBottom });
+        const dock = dockedButtonPos(
+          now.placed,
+          rides ? box : { ...box, bottom: area.restBottom },
+          now.shown
+        );
         setPx(button, "--amr-dock-bottom", dock.bottom);
         setPx(button, "--amr-dock-inline", dock.left ?? dock.right ?? 0);
       } else if (button) {
@@ -1079,7 +1089,7 @@ function usePanelViewport({
   // Where he stands, or the layout, changed while open: read again before paint.
   useIsomorphicLayoutEffect(() => {
     if (open) write("none");
-  }, [open, layout, placed, phone, figure, write]);
+  }, [open, layout, placed, phone, figure, shown, write]);
 
   return { layout, keyboardUp };
 }
@@ -1687,6 +1697,7 @@ export function MascotAssistant({
     placed,
     phone: isPhone,
     figure: !figureFailed,
+    shown: showFigure,
   });
   // In the sheet he docks in its bottom corner on his side, a phone's figure
   // and never smaller, still draggable; his chosen corner returns on close.
@@ -2126,8 +2137,9 @@ export function MascotAssistant({
           // width short of it, counted inside the panel's line.
           at: `calc(${cornerTail.at}px - 0.4rem - var(--panel-w))`,
         };
-  // Docked in the sheet: the views keep a gutter and a footer clear of him.
-  const dock = docked ? dockInsets(placed) : null;
+  // Docked in the sheet: the views keep a gutter and a footer clear of him,
+  // or of the launcher plate while it stands in for him.
+  const dock = docked ? dockInsets(placed, showFigure) : null;
   const size = PANEL_SIZE[panelSize.size];
   const panelStyle: StyleWithVars = {
     ...(layout === "sheet"
@@ -2166,11 +2178,11 @@ export function MascotAssistant({
   };
   // His button, docked: where usePanelViewport says, or, until its first
   // reading, the sheet's bottom corner at rest.
-  const dockAt = dockedButtonPos(placed, {
-    left: BUTTON_SIDE,
-    right: BUTTON_SIDE,
-    bottom: VISIBLE_GAP,
-  });
+  const dockAt = dockedButtonPos(
+    placed,
+    { left: BUTTON_SIDE, right: BUTTON_SIDE, bottom: VISIBLE_GAP },
+    showFigure
+  );
   const dockSide = amrSide(placed);
   const dockStyle: CSSProperties = {
     position: "fixed",

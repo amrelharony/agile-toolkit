@@ -1277,6 +1277,92 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
     }
   }
 
+  /** The launcher plate docked in the sheet's bottom right corner: on the screen, clear of the views. */
+  function expectPlateDocked(w: number, h: number, inset: number) {
+    const panel = dialog();
+    const button = amrButton();
+    expect(button).toHaveAttribute("data-launcher");
+    expect(button).toHaveAttribute("data-amr-docked");
+    const inline = px(button, "--amr-dock-inline");
+    const bottom = px(button, "--amr-dock-bottom");
+    // Its whole box is drawn: DOCK_INSET inside the corner, never off the screen.
+    expect(inline).toBeGreaterThanOrEqual(0);
+    expect(inline).toBeCloseTo(BUTTON_SIDE + DOCK_INSET, 1);
+    expect(bottom).toBeCloseTo(inset + VISIBLE_GAP + DOCK_INSET, 1);
+    // The views keep the plate's gutter and footer: its inner edge stays
+    // DOCK_GAP clear of them, and it stands beside the composer's row.
+    const plate = dockInsets("bottomRight", false);
+    expect(plate.gutter).toBeGreaterThanOrEqual(DOCK_INSET + LAUNCHER_PLATE.w + DOCK_GAP);
+    expect(plate.footer).toBeGreaterThanOrEqual(DOCK_INSET + LAUNCHER_PLATE.h);
+    expect(w - inline - LAUNCHER_PLATE.w).toBeGreaterThanOrEqual(
+      w - BUTTON_SIDE - plate.gutter + DOCK_GAP
+    );
+    const sheetBottom = h - inset - VISIBLE_GAP;
+    expect(h - bottom - LAUNCHER_PLATE.h).toBeGreaterThanOrEqual(sheetBottom - plate.footer);
+    expect(panel.style.getPropertyValue("--amr-dock-gutter")).toBe(
+      `calc(${plate.gutter}px - var(--panel-w) - 0.375rem)`
+    );
+    expect(panel.style.getPropertyValue("--amr-dock-footer")).toBe(
+      `calc(${plate.footer}px - var(--panel-w) - 0.375rem)`
+    );
+  }
+
+  for (const inset of [0, 34]) {
+    it(`375x812${inset ? ", notch and home indicator" : ""}: the launcher plate docks inside the sheet's corner until his figure comes, then he takes its place`, async () => {
+      const header = (inset ? 44 : 0) + HEADER_H;
+      screenAt(375, 812, { insetTop: inset ? 44 : 0, insetBottom: inset, header });
+      render(<MascotAssistant />);
+      openPanel();
+      await frames();
+      expectPlateDocked(375, 812, inset);
+
+      // His figure comes while the sheet is open: the dock moves to it.
+      await withFigure();
+      await frames();
+      const panel = dialog();
+      const button = amrButton();
+      expect(button).not.toHaveAttribute("data-launcher");
+      expect(px(button, "--amr-dock-inline")).toBeCloseTo(
+        BUTTON_SIDE + DOCK_INSET - MASCOT_BOX_PHONE.w * HIT_SIDE,
+        1
+      );
+      expect(px(button, "--amr-dock-bottom")).toBeCloseTo(
+        inset + VISIBLE_GAP + DOCK_INSET - FEET_TRIM * scale,
+        1
+      );
+      const fig = dockInsets("bottomRight");
+      expect(panel.style.getPropertyValue("--amr-dock-gutter")).toBe(
+        `calc(${fig.gutter}px - var(--panel-w) - 0.375rem)`
+      );
+      expect(panel.style.getPropertyValue("--amr-dock-footer")).toBe(
+        `calc(${fig.footer}px - var(--panel-w) - 0.375rem)`
+      );
+    });
+  }
+
+  it("keeps the launcher plate docked inside the sheet's corner while his figure is tried again and after it gives up", async () => {
+    sprite.fail = true;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      screenAt(375, 812, { insetTop: 44, insetBottom: 34, header: 44 + HEADER_H });
+      render(<MascotAssistant />);
+      openPanel();
+      act(() => {
+        window.dispatchEvent(new Event("pointerdown"));
+      });
+      // (the idle moment, then the sheet fails, and each try after it)
+      await act(() => vi.advanceTimersByTimeAsync(300));
+      for (const wait of FIGURE_RETRY_MS) {
+        expectPlateDocked(375, 812, 34);
+        await act(() => vi.advanceTimersByTimeAsync(wait));
+      }
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expectPlateDocked(375, 812, 34);
+    } finally {
+      sprite.fail = false;
+    }
+  });
+
   for (const s of [
     { w: 812, h: 375, phone: false, box: MASCOT_BOX },
     { w: 568, h: 320, phone: true, box: MASCOT_BOX_PHONE },
