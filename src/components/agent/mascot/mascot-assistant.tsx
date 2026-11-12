@@ -50,6 +50,12 @@
  * composer, on a fine pointer); a pointer open leaves focus where it is; a
  * close brings it back to the opener or to Amr's button, except after a link.
  *
+ * Escape belongs to the panel only when it is meant for it: pressed inside it,
+ * with nothing focused, or on Amr or the header's opener. It goes in one
+ * order: a field's own Escape first (the tool finder's search clears, History's
+ * rename cancels), then a waiting card is denied, then History goes back to
+ * the chat, and only then does the panel close.
+ *
  * Those visitor views (the guide, the visitor panel, the consent card and the
  * guide's data) are a chunk of their own too, not part of this one, which
  * every page loads: lazy-visitor-body imports them ahead of time, once the
@@ -161,6 +167,20 @@ const TAP_TOGGLE_GAP_MS = 600;
 const THROW_SPEED = 1100;
 /** He points at the panel when it opens, at most this often. */
 const POINT_AT_PANEL_MS = 60_000;
+
+/** History's own button (owner-agent-panel), where focus goes when Escape leaves History. */
+const HISTORY_BUTTON = "[data-panel-history]";
+/**
+ * What opens the panel, outside it: Amr himself and, while the panel is open,
+ * the header's opener (both name it in aria-controls). An Escape there is
+ * meant for the panel.
+ */
+const PANEL_OPENERS = `[data-amr-button], [aria-controls="${AMR_PANEL_ID}"]`;
+
+/** An input method is composing: its key presses end or change the composition, nothing else. */
+function composing(e: KeyboardEvent): boolean {
+  return e.isComposing || e.keyCode === 229;
+}
 
 /** A layout effect in the browser, a plain one on the server (no SSR warning). */
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -1243,27 +1263,53 @@ export function MascotAssistant() {
     return () => window.removeEventListener("keydown", handler);
   }, [togglePanel]);
 
-  // Escape closes the panel — unless a confirm card is up (it owns Escape to
-  // deny) or focus is in the rename field (it stops propagation to cancel edit).
+  // Escape leaves History for the chat. Focus goes to History's own button,
+  // which stays as the list goes (it turns back into "Conversation history"),
+  // unless it is on something outside the panel (Amr himself), which keeps it.
+  const leaveHistory = useCallback(() => {
+    const panel = panelRef.current;
+    const held = document.activeElement;
+    if (panel && (!held || held === document.body || panel.contains(held))) {
+      panel.querySelector<HTMLElement>(HISTORY_BUTTON)?.focus({ preventScroll: true });
+    }
+    setShowHistory(false);
+  }, []);
+  // Escape, in one order (design §1.3 item 10), wherever the panel takes it:
+  //   0. an input method composing: its own (it ends the composition);
+  //   1. one a field inside the panel has used (the tool finder's search
+  //      clearing itself, History's rename field cancelling): the field's;
+  //   2. a card waiting for the OK: denied (the card has no Escape of its own);
+  //   3. History: back to the chat;
+  //   4. otherwise the panel closes.
+  // Every step it takes calls preventDefault, so nothing else acts on it too.
+  const panelEscape = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || composing(e) || e.defaultPrevented) return;
+      const agent = useAgentStore.getState();
+      if (!agent.open) return;
+      e.preventDefault();
+      if (agent.pendingToolUse) agent.pendingToolUse.resolve(false);
+      else if (showHistory) leaveHistory();
+      else closePanel("escape");
+    },
+    [showHistory, leaveHistory, closePanel]
+  );
+  // The panel takes Escape from inside it through its own onKeyDown (below),
+  // after the fields in it have had theirs. Outside it, only an Escape meant
+  // for it: with nothing focused, or on Amr or the header's opener. A page
+  // field's or overlay's stays theirs: the panel floats over the tool page,
+  // not as a modal.
   useEffect(() => {
     if (!open) return;
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // An input method is composing: Escape cancels the composition, not the
-      // panel (keyCode 229 is how older browsers say so).
-      if (e.isComposing || e.keyCode === 229) return;
-      // A field inside the panel already used this Escape (the guide's search
-      // clears itself first); the next one closes.
-      if (e.defaultPrevented) return;
-      if (useAgentStore.getState().pendingToolUse) return;
-      // Renaming a thread: Escape cancels that edit, not the whole panel.
-      const ae = document.activeElement;
-      if (ae?.getAttribute("aria-label") === "Rename conversation") return;
-      closePanel("escape");
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target;
+      if (t instanceof Node && panelRef.current?.contains(t)) return; // its onKeyDown's
+      if (t instanceof Element && t !== document.body && !t.closest(PANEL_OPENERS)) return;
+      panelEscape(e);
     };
-    document.addEventListener("keydown", onEsc);
-    return () => document.removeEventListener("keydown", onEsc);
-  }, [open, closePanel]);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, panelEscape]);
 
   // What the views inside the panel may ask of it. A link followed closes it,
   // as a page change does, with no focus brought back; a view's first focus
@@ -1311,6 +1357,10 @@ export function MascotAssistant() {
     <>
       <MascotChatReactions />
       {open && (
+        // The dialog takes Escape from inside it (panelEscape) in a React
+        // handler, so the fields in it, React handlers too, have had theirs
+        // first; a native listener on it would run before them.
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
         <div
           ref={panelRef}
           id={AMR_PANEL_ID}
@@ -1319,6 +1369,7 @@ export function MascotAssistant() {
           role="dialog"
           aria-labelledby={AMR_PANEL_TITLE_ID}
           aria-modal={false}
+          onKeyDown={(e) => panelEscape(e.nativeEvent)}
           data-tail={tail?.tail ?? "none"}
           data-tail-from={tail?.from}
           data-amr-side={amrSide(placed)}

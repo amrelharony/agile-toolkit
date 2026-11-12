@@ -80,6 +80,8 @@ export default function OwnerAgentPanel({
           }
           onClick={onToggleHistory}
           className="relative"
+          // Where focus goes when Escape takes the owner back from History.
+          data-panel-history=""
         >
           {showHistory ? <ArrowLeft aria-hidden="true" /> : <History aria-hidden="true" />}
           {cardWaits && (
