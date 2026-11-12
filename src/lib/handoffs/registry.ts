@@ -112,6 +112,14 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   "squad-session": { name: "Squad Session Kit", href: "/squad-session" },
   // A story's question for the team, sent from the story's page.
   comics: { name: "Agile at Work", href: "/comics" },
+  // Phase 42, the tools plan's phase 1: listed ahead of their senders, which
+  // each tool's builder adds (a parked point, a countermeasure, wall feedback
+  // turned into backlog items, an interrupt, a note).
+  "parking-lot": { name: "parking lot", href: "/parking-lot" },
+  "root-cause": { name: "root-cause analysis", href: "/root-cause" },
+  "audience-wall": { name: "Audience Wall", href: "/audience-wall" },
+  "interrupt-buffer": { name: "interrupt buffer", href: "/interrupt-buffer" },
+  "sm-notebook": { name: "Scrum Master Notebook", href: "/sm-notebook" },
 };
 
 /** The sending tool, or undefined for one not listed (never an inherited key like "constructor"). */

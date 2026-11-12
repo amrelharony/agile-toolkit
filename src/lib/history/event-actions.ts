@@ -1039,6 +1039,143 @@ export const CANVAS_ACTIONS = {
   CANVAS_RESET: "canvas_reset", // milestone
 } as const;
 
+// ════════════════════════════════════════════════════════════════════
+// Phase 42 — the tools plan's phase 1. Named ahead of the tools, so each
+// builder logs these. Amr answers an action by its last word (applause for
+// "resolved" or "finished", a nod for ordinary work, nothing for "removed"
+// or "reset"), and a few shared names play a scene of their own
+// (mascot/use-tool-reactions.ts ACTION_SCENES): timer_started is the timer.
+// ════════════════════════════════════════════════════════════════════
+export const PICKER_ACTIONS = {
+  LIST_SAVED: "list_saved",
+  LIST_REMOVED: "list_removed",
+  /** A spin, a draw, a roll or a flip. Payload: the mode and the list's size, never the names. */
+  PICK_RAN: "pick_ran",
+  /** A standing role (facilitator, scribe) moved to its next person. */
+  ROTATION_ADVANCED: "rotation_advanced",
+  PICKER_RESET: "picker_reset",
+} as const;
+
+export const QUICK_VOTE_ACTIONS = {
+  POLL_SAVED: "poll_saved",
+  POLL_REMOVED: "poll_removed",
+  ROUND_STARTED: "round_started",
+  /** The totals were shown. Payload: format and counts only, never who voted what. */
+  ROUND_REVEALED: "round_revealed",
+  RESULT_SAVED: "result_saved",
+  ROUND_RESET: "round_reset",
+} as const;
+
+export const AUDIENCE_WALL_ACTIONS = {
+  WALL_OPENED: "wall_opened",
+  /** Payload: the mode and the number of posts, never their text. */
+  WALL_SAVED: "wall_saved",
+  WALL_REMOVED: "wall_removed",
+  /** The host accepted a grouping or merge (AI or by hand) after previewing it. */
+  THEMES_ACCEPTED: "themes_accepted",
+  /** Posts turned into backlog items. Payload: how many. */
+  ITEMS_SENT: "items_sent",
+  WALL_RESET: "wall_reset",
+} as const;
+
+export const PARKING_LOT_ACTIONS = {
+  ITEM_PARKED: "item_parked",
+  ITEM_UPDATED: "item_updated",
+  ITEM_DISCUSSED: "item_discussed",
+  /** Sent to the backlog, the Impediment Tracker or Retro Actions. Payload: route. */
+  ITEM_SENT: "item_sent",
+  ITEM_DROPPED: "item_dropped",
+  ITEM_REMOVED: "item_removed",
+  PARKING_LOT_RESET: "parking_lot_reset",
+} as const;
+
+export const FACILITATOR_TIMERS_ACTIONS = {
+  /** Payload: which timer (pomodoro, break, crazy-8s, cost) and its length. */
+  TIMER_STARTED: "timer_started",
+  TIMER_PAUSED: "timer_paused",
+  TIMER_FINISHED: "timer_finished",
+  BREAK_STARTED: "break_started",
+  SETTINGS_SAVED: "settings_saved",
+} as const;
+
+export const INTERRUPT_BUFFER_ACTIONS = {
+  /** The sprint's buffer was set or changed. Payload: sprintId, pct, points. */
+  BUFFER_SET: "buffer_set",
+  INTERRUPT_LOGGED: "interrupt_logged",
+  INTERRUPT_UPDATED: "interrupt_updated",
+  INTERRUPT_RESOLVED: "interrupt_resolved",
+  INTERRUPT_REMOVED: "interrupt_removed",
+  INTERRUPT_SENT: "interrupt_sent",
+  /** The buffer ran out and the team started its emergency procedure. */
+  EMERGENCY_STARTED: "emergency_started", // milestone
+} as const;
+
+export const PRODUCT_GOAL_ACTIONS = {
+  GOAL_CREATED: "goal_created",
+  GOAL_UPDATED: "goal_updated",
+  GOAL_ACHIEVED: "goal_achieved", // milestone
+  GOAL_ABANDONED: "goal_abandoned",
+  GOAL_REMOVED: "goal_removed",
+} as const;
+
+export const BACKLOG_HEALTH_ACTIONS = {
+  /** The DEEP checks ran. Payload: the four scores and the number of flags. */
+  SCAN_RAN: "scan_ran",
+  STORY_UPDATED: "story_updated",
+  STORY_SPLIT: "story_split",
+  /** Given/When/Then lines were added to a story. Payload: storyId, how many. */
+  CRITERIA_ADDED: "criteria_added",
+  STORY_DROPPED: "story_dropped",
+} as const;
+
+export const ROOT_CAUSE_ACTIONS = {
+  ANALYSIS_CREATED: "analysis_created",
+  ANALYSIS_UPDATED: "analysis_updated",
+  ANALYSIS_REMOVED: "analysis_removed",
+  WHY_ADDED: "why_added",
+  CAUSE_ADDED: "cause_added",
+  ROOT_CAUSE_FOUND: "root_cause_found", // milestone
+  /** The countermeasure went to Retro Actions. */
+  COUNTERMEASURE_SENT: "countermeasure_sent",
+} as const;
+
+export const CARD_DECKS_ACTIONS = {
+  CARD_DEALT: "card_dealt",
+  DECK_SHUFFLED: "deck_shuffled",
+  DECK_SAVED: "deck_saved",
+  DECK_REMOVED: "deck_removed",
+  CARD_STARRED: "card_starred",
+} as const;
+
+export const TEAM_MIXER_ACTIONS = {
+  /** Payload: group count and size, the balance used, the round; never the names. */
+  GROUPS_MIXED: "groups_mixed",
+  MIX_SAVED: "mix_saved",
+  RULE_ADDED: "rule_added",
+  RULE_REMOVED: "rule_removed",
+  MIXER_RESET: "mixer_reset",
+} as const;
+
+export const SM_NOTEBOOK_ACTIONS = {
+  /** Payload: the note's id, tags and event, never its text. */
+  NOTE_ADDED: "note_added",
+  NOTE_UPDATED: "note_updated",
+  NOTE_REMOVED: "note_removed",
+  NOTE_SENT: "note_sent",
+  /** A weekly summary was kept (written by hand or accepted from Amr). */
+  SUMMARY_SAVED: "summary_saved",
+} as const;
+
+export const MEETING_AUDIT_ACTIONS = {
+  MEETING_ADDED: "meeting_added",
+  MEETING_UPDATED: "meeting_updated",
+  MEETING_REMOVED: "meeting_removed",
+  MEETING_RATED: "meeting_rated",
+  /** Keep, change or drop. Payload: meetingId, verdict. */
+  VERDICT_SET: "verdict_set",
+  AUDIT_RESET: "audit_reset",
+} as const;
+
 /**
  * Set of (toolId, action) pairs that should be marked as milestones —
  * used by the logger to auto-flag without each call site having to know.
@@ -1156,6 +1293,10 @@ const MILESTONE_PAIRS: ReadonlySet<string> = new Set([
   `canvas:${CANVAS_ACTIONS.IMPORT_PERFORMED}`,
   `canvas:${CANVAS_ACTIONS.CANVAS_RESET}`,
   `kudos:${KUDOS_ACTIONS.KUDOS_SENT}`,
+  // Phase 42 — the tools plan's phase 1
+  `interrupt-buffer:${INTERRUPT_BUFFER_ACTIONS.EMERGENCY_STARTED}`,
+  `product-goal:${PRODUCT_GOAL_ACTIONS.GOAL_ACHIEVED}`,
+  `root-cause:${ROOT_CAUSE_ACTIONS.ROOT_CAUSE_FOUND}`,
 ]);
 
 export function isMilestoneAction(toolId: string, action: string): boolean {
