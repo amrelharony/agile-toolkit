@@ -1,11 +1,16 @@
 /**
  * Mascot slash-command parser. A claimed command never reaches the agent, so
  * anything it doesn't recognise (including the retired hats) must pass through.
+ * The Konami sweep paints his aura in theme tokens, never pure neon hexes.
  */
 
-import { beforeEach, describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import {
+  RAINBOW,
   handleMascotCommand,
+  installKonami,
   storyFor,
 } from "@/components/agent/mascot/engine/customization/commands";
 import { COMPANION_SCENES } from "@/components/agent/mascot/engine/scenes";
@@ -63,5 +68,84 @@ describe("handleMascotCommand", () => {
     expect(handleMascotCommand("/dance")).toBe(true);
     expect(handleMascotCommand("/mascot-aura #ff8800")).toBe(true);
     expect(handleMascotCommand("create a sprint called Sprint 47")).toBe(false);
+  });
+
+  it("keeps a typed aura as its hex (the sprite themes it), and clears it with none", () => {
+    useMascotStore.getState().reset();
+    handleMascotCommand("/mascot-aura 22C55E");
+    expect(useMascotStore.getState().auraColor).toBe("#22c55e");
+    handleMascotCommand("/mascot-aura none");
+    expect(useMascotStore.getState().auraColor).toBeNull();
+  });
+});
+
+describe("the Konami rainbow", () => {
+  const globals = readFileSync(path.resolve(__dirname, "../../src/app/globals.css"), "utf8");
+  /** The custom properties a theme block declares. */
+  function declared(selector: string): Set<string> {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const block = globals.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`));
+    if (!block) throw new Error(`no ${selector} block in globals.css`);
+    return new Set(Array.from(block[1].matchAll(/--([\w-]+):/g), (m) => m[1]));
+  }
+
+  it("is six theme tokens, red to violet, with no hex", () => {
+    expect(RAINBOW).toEqual([
+      "var(--danger)",
+      "var(--neon-amber)",
+      "var(--warning)",
+      "var(--success)",
+      "var(--info)",
+      "var(--accent3)",
+    ]);
+    for (const c of RAINBOW) expect(c).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+  });
+
+  it("names only tokens every theme defines: night, comic and high contrast", () => {
+    const themes = [":root", '[data-theme="light"]', '[data-theme="hc"]'].map(declared);
+    for (const c of RAINBOW) {
+      const name = c.match(/^var\(--([\w-]+)\)$/)![1];
+      for (const t of themes) expect(t.has(name), name).toBe(true);
+    }
+  });
+
+  describe("the sweep", () => {
+    let uninstall: () => void = () => {};
+    beforeEach(() => {
+      vi.useFakeTimers();
+      useMascotStore.getState().reset();
+    });
+    afterEach(() => {
+      uninstall();
+      vi.useRealTimers();
+      useMascotStore.getState().reset();
+    });
+
+    it("steps the aura through the tokens, then clears it", () => {
+      const seen: (string | null)[] = [];
+      const unsubscribe = useMascotStore.subscribe((s, prev) => {
+        if (s.auraColor !== prev.auraColor) seen.push(s.auraColor);
+      });
+      const onActivate = vi.fn();
+      uninstall = installKonami(onActivate);
+      for (const key of [
+        "ArrowUp",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowLeft",
+        "ArrowRight",
+        "b",
+        "a",
+      ]) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key }));
+      }
+      expect(onActivate).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(200 * (RAINBOW.length + 1));
+      unsubscribe();
+      expect(seen).toEqual([...RAINBOW, null]);
+    });
   });
 });

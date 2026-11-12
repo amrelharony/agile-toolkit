@@ -1524,13 +1524,14 @@ export function MascotAssistant() {
               : buttonPos(placed, showFigure, box.h, isPhone, nudge.lift)
           }
           className={cn(
-            "z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-            !dragPos && styles.float,
+            "z-50 cursor-pointer",
+            !dragPos && styles.bob,
             // The figure's box is mostly transparent: let clicks there
-            // reach the page, and take them only on the figure (below).
-            showFigure && "pointer-events-none",
+            // reach the page, and take them only on the figure (below). Focus
+            // is drawn on the figure too (styles.figure), not around the box.
+            showFigure && [styles.figure, "pointer-events-none"],
             !showFigure &&
-              "flex h-12 w-12 items-center justify-center border border-border bg-card shadow-lg"
+              "flex h-12 w-12 items-center justify-center rounded-full border border-border bg-card shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           )}
         >
           {!showFigure && <Sparkles className="h-5 w-5 text-accent" aria-hidden="true" />}
@@ -1539,7 +1540,7 @@ export function MascotAssistant() {
               ref={hitRef}
               aria-hidden="true"
               data-mascot-hit
-              className="pointer-events-auto absolute z-10 select-none rounded-full"
+              className="pointer-events-auto absolute z-10 select-none"
               style={{
                 ...hitBox(box),
                 // His figure is his own: a finger on him pets or carries him, never scrolls.

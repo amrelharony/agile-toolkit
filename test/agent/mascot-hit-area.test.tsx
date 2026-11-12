@@ -19,6 +19,7 @@ vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
 }));
 
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
+import styles from "@/components/agent/mascot/mascot-assistant.module.css";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 
@@ -73,5 +74,27 @@ describe("mascot hit area", () => {
     // Clicking the figure still opens the assistant.
     fireEvent.click(hit!);
     expect(useAgentStore.getState().open).toBe(true);
+  });
+
+  it("draws focus on the figure, not as a round ring around his mostly empty box", async () => {
+    render(<MascotAssistant />);
+    // The round launcher keeps its ring until the figure is in.
+    const launcher = screen.getByRole("button", { name: "Ask Amr" });
+    expect(launcher).toHaveClass("rounded-full", "focus-visible:ring-2", styles.bob);
+    expect(launcher).not.toHaveClass(styles.figure);
+
+    act(() => {
+      window.dispatchEvent(new Event("pointerdown"));
+    });
+    await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
+
+    const button = screen.getByRole("button", { name: "Ask Amr" });
+    // The module draws the outline on the hit span (test/design/comic-chat-css.test.ts).
+    expect(button).toHaveClass(styles.figure, styles.bob);
+    for (const c of button.className.split(/\s+/)) {
+      expect(c).not.toMatch(/^(?:[\w-]+:)*(?:rounded-full|ring|outline-none|shadow|drop-shadow)/);
+    }
+    const hit = button.querySelector<HTMLElement>("[data-mascot-hit]")!;
+    expect(hit).not.toHaveClass("rounded-full");
   });
 });
