@@ -80,16 +80,23 @@ const EXAMPLE_BLOCKED =
 const nowIso = () => new Date().toISOString();
 const fresh = (id: string) => normalizeParkingItem(findParkingItem(id));
 
-/** Focus the text of the point with `id` (or `fallback`) once React has re-rendered. */
-function focusSoon(id: string | null, fallback?: HTMLElement | null) {
-  requestAnimationFrame(() => {
-    const el = id
-      ? Array.from(document.querySelectorAll<HTMLElement>("[data-parking-text]")).find(
-          (e) => e.getAttribute("data-parking-text") === id
-        )
-      : undefined;
-    (el ?? fallback)?.focus();
-  });
+/**
+ * Focus the text of the point with `id` (or `fallback`) once React has
+ * re-rendered. `afterMenu` waits for a closing menu to hand focus back first
+ * (to a trigger that may be gone), then takes it.
+ */
+function focusSoon(id: string | null, fallback?: HTMLElement | null, afterMenu = false) {
+  const go = () =>
+    requestAnimationFrame(() => {
+      const el = id
+        ? Array.from(document.querySelectorAll<HTMLElement>("[data-parking-text]")).find(
+            (e) => e.getAttribute("data-parking-text") === id
+          )
+        : undefined;
+      (el ?? fallback)?.focus();
+    });
+  if (afterMenu) window.setTimeout(go, 0);
+  else go();
 }
 
 /**
@@ -274,9 +281,12 @@ export function ParkingLotClient() {
     return true;
   };
 
-  const sendFromMenu = (item: ParkingLotItem, route: ParkingRoute) => {
+  /** "Send to…" in the list; true when the point was sent. */
+  const sendFromMenu = (item: ParkingLotItem, route: ParkingRoute): boolean => {
     const wasOpen = item.status === "open";
-    if (send(item, route) && wasOpen) cheerIfClear(item);
+    const sent = send(item, route);
+    if (sent && wasOpen) cheerIfClear(item);
+    return sent;
   };
 
   /** One decision from the review or an accepted suggestion. */
@@ -431,13 +441,41 @@ export function ParkingLotClient() {
     cleared.current = [];
   };
 
+  /**
+   * After a status change in the list, keep focus on the page. A point that
+   * moves between the open and decided lists is mounted afresh, and the
+   * button pressed goes with it: focus moves to the next point in the list it
+   * left (or the one before), else to the point itself. A point that stays
+   * put loses the button pressed (Drop, Reopen): focus goes to its text.
+   */
+  const focusAfter = (item: ParkingLotItem, next: ParkingLotStatus, afterMenu = false) => {
+    const moves = (item.status === "open") !== (next === "open");
+    const list = item.status === "open" ? open : decided;
+    const at = list.findIndex((x) => x.id === item.id);
+    const neighbour = moves && at >= 0 ? (list[at + 1] ?? list[at - 1]) : undefined;
+    focusSoon(neighbour?.id ?? item.id, captureRef.current, afterMenu);
+  };
+
   const rowProps = {
     now,
     offerAddToRoster: !exampleOnly,
-    onDiscussed: markDiscussed,
-    onDrop: drop,
-    onReopen: reopen,
-    onSend: sendFromMenu,
+    onDiscussed: (item: ParkingLotItem) => {
+      markDiscussed(item);
+      focusAfter(item, "discussed");
+    },
+    onDrop: (item: ParkingLotItem) => {
+      drop(item);
+      focusAfter(item, "dropped");
+    },
+    onReopen: (item: ParkingLotItem) => {
+      reopen(item);
+      focusAfter(item, "open");
+    },
+    // A send from a decided point keeps its row (and the menu gives focus
+    // back to its trigger); a send from an open one moves it.
+    onSend: (item: ParkingLotItem, route: ParkingRoute) => {
+      if (sendFromMenu(item, route) && item.status === "open") focusAfter(item, "sent", true);
+    },
     onEdit: startEdit,
     onSave: save,
     onDelete: remove,
