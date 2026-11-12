@@ -74,7 +74,11 @@ export function useAmrPanel(): AmrPanelContextValue {
  *                     beside it while it has focus
  */
 
-/** Chrome that waits while the panel is compact: status lines, usage, follow-ups. */
+/**
+ * Chrome that waits while the panel is compact: status lines, usage,
+ * follow-ups and the header's subtitle line. Never a control: the header's
+ * icons, More and Close all stay in its one row.
+ */
 export const COMPACT_HIDDEN = "group-data-[amr-compact]/amr:hidden";
 
 /** A log's floor in compact mode, where the panel's ground scrolls instead. */

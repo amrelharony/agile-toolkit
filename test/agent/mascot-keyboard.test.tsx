@@ -357,8 +357,13 @@ describe("compact mode", () => {
     // The views read the attribute: nothing re-renders for it.
     const header = panel.querySelector<HTMLElement>("[data-panel-header]")!;
     expect(header.className).toContain("group-data-[amr-compact]/amr:min-h-11");
-    expect(within(panel).getByRole("button", { name: "More" })).toHaveClass(COMPACT_HIDDEN);
-    expect(panel.querySelector('[data-panel-slot="actions"]') as HTMLElement).toHaveClass(
+    // The one row keeps every control: the view's icons and More stay, only
+    // the subtitle's line waits.
+    expect(within(panel).getByRole("button", { name: "More" })).not.toHaveClass(COMPACT_HIDDEN);
+    expect(panel.querySelector('[data-panel-slot="actions"]') as HTMLElement).not.toHaveClass(
+      COMPACT_HIDDEN
+    );
+    expect(panel.querySelector('[data-panel-slot="subtitle"]')!.parentElement).toHaveClass(
       COMPACT_HIDDEN
     );
     expect(screen.getByText(/Amr asks before deleting or resetting anything/)).toHaveClass(
@@ -398,6 +403,61 @@ describe("compact mode", () => {
     expect(dialog()).toHaveAttribute("data-amr-layout", "float");
     expect(dialog()).not.toHaveAttribute("data-amr-compact");
     expect(amr()).not.toHaveAttribute("data-amr-compact");
+  });
+
+  /** Neither the element nor any ancestor in the panel waits while compact. */
+  function inReach(el: HTMLElement) {
+    for (let at: HTMLElement | null = el; at && at !== dialog(); at = at.parentElement) {
+      expect(at).not.toHaveClass(COMPACT_HIDDEN);
+    }
+  }
+
+  for (const s of [
+    { w: 812, h: 375, name: "a landscape phone (812x375)", coarse: true },
+    { w: 640, h: 360, name: "a desktop at 200% zoom (640x360, a fine pointer)", coarse: false },
+  ]) {
+    it(`keeps History, New chat and More in reach on ${s.name}, compact with no keyboard`, async () => {
+      screenAt(s.w, s.h);
+      if (!s.coarse) {
+        const coarse = window.matchMedia;
+        vi.stubGlobal("matchMedia", (query: string) => ({
+          ...coarse(query),
+          matches: query.includes("coarse") ? false : coarse(query).matches,
+        }));
+      }
+      await openChat();
+      const panel = dialog();
+      expect(panel).toHaveAttribute("data-amr-layout", "side");
+      expect(panel).toHaveAttribute("data-amr-compact");
+      const header = panel.querySelector<HTMLElement>("[data-panel-header]")!;
+      for (const name of ["Conversation history", "New chat", "More", "Close assistant"]) {
+        inReach(within(header).getByRole("button", { name }));
+      }
+    });
+  }
+
+  it("keeps History's way back in reach while its search has the keyboard", async () => {
+    const { listConversations } = await import("@/lib/agent/persist");
+    const stamp = new Date(0).toISOString();
+    vi.mocked(listConversations).mockResolvedValueOnce(
+      [1, 2, 3, 4].map((n) => ({
+        id: `c${n}`,
+        title: `Thread ${n}`,
+        toolId: null,
+        createdAt: stamp,
+        updatedAt: stamp,
+        lastMessageAt: stamp,
+      }))
+    );
+    screenAt(375, 667);
+    await openChat();
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Conversation history" }));
+    const search = await screen.findByLabelText("Search conversations");
+    act(() => search.focus());
+    keyboard(300);
+    await frames();
+    expect(dialog()).toHaveAttribute("data-amr-compact");
+    inReach(within(dialog()).getByRole("button", { name: "Back to chat" }));
   });
 });
 

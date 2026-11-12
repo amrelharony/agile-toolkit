@@ -27,9 +27,11 @@
  * header shows its defaults.
  *
  * In compact mode (the panel's data-amr-compact: a phone's keyboard is up, or
- * there is little room) it folds to one 44 px row: the back slot, the plate
- * and Close; the subtitle, the view's icons, More and Enlarge wait until
- * there is room again. Under 360 px wide, the shell can hand it New chat
+ * there is little room) it folds to one 44 px row: the back slot, the plate,
+ * the view's icons, More and Close, every one still in reach (a landscape
+ * phone is always compact, and History, New chat and Move Amr live there);
+ * only the subtitle's line (and Enlarge, float-only anyway) waits until there
+ * is room again. Under 360 px wide, the shell can hand it New chat
  * (onNewChat), which then heads the More menu instead of sitting beside
  * History. Small on purpose: it ships in the mascot chunk.
  * The menu is the site's dropdown (ui/dropdown-menu), which the page header's
@@ -161,7 +163,7 @@ export function PanelHeader({
         <span
           ref={slots.ref("actions")}
           data-panel-slot="actions"
-          className={cn("flex items-center gap-0.5 empty:hidden", COMPACT_HIDDEN)}
+          className="flex items-center gap-0.5 empty:hidden"
         />
         {controls}
         {hasMenu && <PanelMore shortcut={shortcut} tilt={tilt} move={move} onNewChat={onNewChat} />}
@@ -212,7 +214,7 @@ function PanelMore({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <PanelIconButton label="More" className={COMPACT_HIDDEN}>
+        <PanelIconButton label="More">
           <Ellipsis aria-hidden="true" />
         </PanelIconButton>
       </DropdownMenuTrigger>
