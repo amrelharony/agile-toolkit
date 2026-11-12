@@ -36,6 +36,7 @@ import { Check, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
+import { TypedCodeHint } from "@/components/collab/typed-code-hint";
 import { RoomReactions } from "@/components/collab/room-reactions";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { useRoomExtras } from "@/lib/realtime/use-room-extras";
@@ -170,6 +171,9 @@ function closedCopy(
       };
   }
 }
+
+/** A room with no host this long may be the wrong pick of a typed code. */
+const TYPED_CODE_HINT_MS = 20_000;
 
 function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
   const room = useRetroRoom({ code, identity, role: "participant" });
@@ -402,6 +406,9 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
               ? "This room runs on a different version of the Agile Toolkit, so its board can't open here. Ask the host to reload their page, then reload this one."
               : "Connecting to the room…"}
           </p>
+          {!room.otherVersion && (
+            <TypedCodeHint code={code} toolName="Retro" afterMs={TYPED_CODE_HINT_MS} />
+          )}
           <Button type="button" variant="outline" onClick={handleLeave}>
             Leave
           </Button>

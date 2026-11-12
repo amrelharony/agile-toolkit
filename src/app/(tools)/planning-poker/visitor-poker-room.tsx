@@ -24,6 +24,7 @@ import { useFlash } from "@/hooks/use-flash";
 import { VISITOR_LIMITS, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
 import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { RoomReactions } from "@/components/collab/room-reactions";
+import { TypedCodeHint } from "@/components/collab/typed-code-hint";
 import { SessionScreen } from "./session-screen";
 import { usePokerSession, type VisitorLeaveReason } from "./use-poker-session";
 import { useAutoSeat } from "./use-auto-seat";
@@ -113,10 +114,13 @@ export function VisitorPokerRoom({ code, identity, onLeave }: VisitorPokerRoomPr
           {isConnected ? "Waiting for the host to share the session…" : "Connecting to the room…"}
         </div>
         {waitingLong && (
-          <p className="max-w-sm text-sm text-sub">
-            Still waiting? The room may have ended, or the host&apos;s screen may be asleep. Ask the
-            host for the link again.
-          </p>
+          <>
+            <p className="max-w-sm text-sm text-sub">
+              Still waiting? The room may have ended, or the host&apos;s screen may be asleep. Ask
+              the host for the link again.
+            </p>
+            <TypedCodeHint code={code} toolName="Planning Poker" />
+          </>
         )}
         <Button type="button" variant="ghost" size="sm" onClick={onLeave}>
           Leave
