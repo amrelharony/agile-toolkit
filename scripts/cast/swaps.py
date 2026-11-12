@@ -284,7 +284,7 @@ def face_patches(
             out["neutral"][slot] = placed[(slot, state)][0]
     # The face piece as far as the cells show it: a piece that carries more (a neck
     # past the chin, the body below a face cut under the mouth) counts only where the
-    # neutral cells lie, for the bands and for the share a state may change.
+    # neutral cells lie, for the share a state may change outside its band.
     shown = np.zeros_like(hm)
     for b in out["neutral"].values():
         shown |= b[..., 3] >= SOLID_ALPHA
@@ -292,7 +292,7 @@ def face_patches(
     area = face.sum() or area
     changed = {k: changes(b, out["neutral"].get(k[0], head)) for k, (b, _, _) in placed.items()}
     if bands is None:
-        bands, why = face_bands(changed, _box_of(face) or hb, band_box)
+        bands, why = face_bands(changed, hb, band_box)
         if why:
             out["report"]["notes"].append(f"face bands from the fixed shares of the head: {why}")
     out["bands"] = bands

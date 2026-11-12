@@ -259,6 +259,27 @@ class Face(unittest.TestCase):
         self.assertEqual(sorted(got["mouth"]["choices"]), ["o", "open", "smile"])
         self.assertEqual(sorted(got["eyes"]["choices"]), ["happy", "wide"])
 
+    def test_an_open_jaw_may_drop_over_the_neck_its_piece_carries(self):
+        # A head piece that carries its neck past the chin: the open mouth's jaw
+        # drops below the chin the cells show, over the neck, and is still the mouth's.
+        p = cs.Pen()
+        p.rect((700, cs.TORSO[3] - 10, 836, 960), cs.FLAP)
+        neck = p.done()
+
+        def cell(**cfg):
+            img = cs.torso(pupils=cfg["eyes"] in ("open", "wide"), **cfg)
+            if cfg["mouth"] == "open":
+                q = cs.Pen()
+                q.ellipse((668, cs.TORSO[3] - 40, 868, cs.TORSO[3] + 60), cs.BODY)
+                img = cs.over(q.done(), img)
+            return cs.scaled(cs.crop(img), 0.62)
+
+        base = cs.over(neck, cs.torso(pupils=True))
+        got = swaps.face_patches([cell(**cfg) for cfg in cs.FACE_CELLS], self.STATES, base)
+        for row in got["report"]["cells"]:
+            self.assertEqual(row["status"], "pass", row)
+        self.assertGreater(got["mouth"]["box"][3], cs.TORSO[3] + 40)
+
     def test_bands_stand_in_from_the_hosts_box_when_the_cells_cant_show_them(self):
         def rows(a, b):
             m = np.zeros((400, 300), bool)
