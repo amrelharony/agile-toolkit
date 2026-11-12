@@ -318,7 +318,7 @@ export function mixGroups(input: MixInput): MixOutcome {
       kind: "repeat",
       text:
         mode === "pairs" && thisRound > fresh
-          ? `With ${n} people there are ${plural(fresh, "round")} of new pairs, and this is the ${ordinal(thisRound)} round, so some meet again: ${names}.`
+          ? `With ${n} people there ${fresh === 1 ? "is" : "are"} ${plural(fresh, "round")} of new pairs, and this is the ${ordinal(thisRound)} round, so some meet again: ${names}.`
           : `${plural(again.length, "pair")} ${again.length === 1 ? "has" : "have"} been together before: ${names}.`,
     });
   }

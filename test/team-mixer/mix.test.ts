@@ -351,6 +351,19 @@ describe("rounds with no repeat pairings", () => {
     );
   });
 
+  it("says it in good English for two people", () => {
+    const two = people("Ana", "Bo");
+    const r = ok(
+      mixGroups({ people: two, mode: "pairs", history: [{ groups: [["Ana", "Bo"]] }], seed: 1 })
+    );
+    expect(r.issues).toEqual([
+      {
+        kind: "repeat",
+        text: "With 2 people there is 1 round of new pairs, and this is the 2nd round, so some meet again: Ana with Bo.",
+      },
+    ]);
+  });
+
   it("mixes groups that avoid who met in earlier rounds", () => {
     const history: PastRound[] = [
       {
