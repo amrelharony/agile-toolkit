@@ -443,6 +443,55 @@ describe("the break screen", () => {
     expect(useDockTimer.getState().timer).toBeNull();
   });
 
+  it("pauses on its clock: the countdown and the dock stop, and the return time moves on resume", () => {
+    useFacilitatorSettings.setState({ chime: true });
+    renderPage();
+    pickTimer("Break");
+    type(field(/^Break minutes/), "10");
+    click("Start the break");
+    tick(60);
+    click("Pause");
+    expect(useDockTimer.getState().timer).toMatchObject({ endsAt: null, pausedRemaining: 540 });
+    tick(120);
+    expect(timerText()).toBe("09:00");
+    expect(screen.getByText("Break paused")).toBeInTheDocument();
+    expect(exported.markdown).toContain("- Break: paused, 9 min left.");
+    // Back at 10:10 when it started; two minutes paused make it 10:12.
+    click("Resume");
+    expect(screen.getByText("Back at 10:12")).toBeInTheDocument();
+    expect(useFtSession.getState().run?.backAt).toBe(T0 + 12 * 60_000);
+    tick(539);
+    expect(timerText()).toBe("00:01");
+    expect(logged(FACILITATOR_TIMERS_ACTIONS.TIMER_FINISHED)).toEqual([]);
+    tick(1);
+    expect(screen.getByText("Time's up: welcome back.")).toBeInTheDocument();
+    expect(alarm.flashTitle).toHaveBeenCalledWith("Time's up");
+    expect(alarm.playChime).toHaveBeenCalledWith(3);
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(screen.getByTestId("live-polite")).toHaveTextContent("Break's over: welcome back.");
+    expect(logged(FACILITATOR_TIMERS_ACTIONS.TIMER_FINISHED)).toEqual([
+      ["timer_finished", { timer: "break", seconds: 600 }],
+    ]);
+    tick(29.9);
+    expect(timerText()).toBe("+0:30");
+  });
+
+  it("follows a pause and resume on the pill on another page", () => {
+    useFtSession.setState({ run: breakRun(T0 + 600_000, T0) });
+    useDockTimer.setState({ timer: stepDock(breakRun(T0 + 600_000, T0), T0) });
+    renderPage();
+    tick(60);
+    act(() => useDockTimer.getState().pause());
+    tick(300);
+    expect(timerText()).toBe("09:00");
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+    act(() => useDockTimer.getState().resume());
+    expect(screen.getByText("Back at 10:15")).toBeInTheDocument();
+    expect(useFtSession.getState().run?.backAt).toBe(T0 + 15 * 60_000);
+  });
+
   it("fills the big screen with the break while presenting", () => {
     useFtSession.setState({ run: breakRun(T0 + 600_000, T0) });
     useDockTimer.setState({ timer: stepDock(breakRun(T0 + 600_000, T0), T0) });

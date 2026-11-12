@@ -37,13 +37,16 @@ export function toMarkdown(
     settings,
     run,
     remainingSeconds,
+    paused = false,
     cost,
     agenda,
   }: {
     settings: Pick<FacilitatorSettings, "pomodoro" | "crazy8s" | "breakMinutes">;
-    /** The timer on, if any. */
+    /** The timer on, if any (a break's `backAt` as its clock says now). */
     run: TimerRun | null;
     remainingSeconds: number;
+    /** The step is paused, with time to go. */
+    paused?: boolean;
     /** The cost ticker's people and time, once it has run (no money). */
     cost: { attendees: number; seconds: number } | null;
     agenda: AgendaDraftState;
@@ -58,7 +61,9 @@ export function toMarkdown(
   if (run && (step || run.finished)) {
     lines.push("", "## On now", "");
     if (run.finished) lines.push(`- ${run.title}: done, all ${run.steps.length} steps.`);
-    else if (run.kind === "break" && run.backAt !== undefined) {
+    else if (run.kind === "break" && paused) {
+      lines.push(`- Break: paused, ${lengthText(remainingSeconds)} left.`);
+    } else if (run.kind === "break" && run.backAt !== undefined) {
       lines.push(
         `- Break: back at ${clockTime(run.backAt)} (${lengthText(remainingSeconds)} left).`
       );

@@ -40,6 +40,7 @@ export function TimerPanel({
   run,
   dock,
   remaining,
+  backAt,
   now,
   big,
   controlsRef,
@@ -53,6 +54,8 @@ export function TimerPanel({
   /** The dock's countdown for the step; null once the run is finished. */
   dock: DockedTimer | null;
   remaining: number;
+  /** A break's return time, as its clock says now (it moves with a pause). */
+  backAt?: number;
   now: number;
   /** Presenting: the timer fills the screen. */
   big: boolean;
@@ -67,6 +70,7 @@ export function TimerPanel({
   const step = currentStep(run);
   const running = Boolean(dock && dock.endsAt !== null && remaining > 0);
   const done = remaining <= 0;
+  const paused = !run.finished && !done && !running;
   const last = run.index >= run.steps.length - 1;
   const isBreak = run.kind === "break";
   const next = run.steps[run.index + 1];
@@ -122,8 +126,8 @@ export function TimerPanel({
     </div>
   );
 
-  if (isBreak && run.backAt !== undefined) {
-    const over = Math.max(0, (now - run.backAt) / 1000);
+  if (isBreak) {
+    const over = backAt === undefined ? 0 : Math.max(0, (now - backAt) / 1000);
     return (
       <SectionCard title="Break" icon={Coffee} titleSize="sm">
         <div className="flex flex-col items-center gap-4 py-4 text-center">
@@ -133,14 +137,18 @@ export function TimerPanel({
               big ? "text-5xl sm:text-7xl" : "text-3xl sm:text-4xl"
             )}
           >
-            Back at {clockTime(run.backAt)}
+            {paused
+              ? "Break paused"
+              : backAt === undefined
+                ? "Break"
+                : `Back at ${clockTime(backAt)}`}
           </p>
           <span
             role="timer"
             aria-label={
               done
                 ? `Break: time's up, ${overText(over)} over`
-                : `Break: ${formatClock(remaining)} left`
+                : `Break: ${formatClock(remaining)} left${paused ? ", paused" : ""}`
             }
             className={cn(
               "font-data font-bold tabular-nums",
@@ -154,7 +162,9 @@ export function TimerPanel({
           <p className="text-sm text-sub">
             {done
               ? "Time's up: welcome back."
-              : "Enjoy the break. The clock keeps going on other pages."}
+              : paused
+                ? "Paused. Resume to count down to the return time again."
+                : "Enjoy the break. The clock keeps going on other pages."}
           </p>
           {controls}
         </div>

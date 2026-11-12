@@ -24,11 +24,13 @@ import {
   FT_HREF,
   autoAdvances,
   backAtFromMinutes,
+  breakEndsAt,
   breakRun,
   clockTime,
   costElapsedMs,
   crazy8sSteps,
   currentStep,
+  dockPaused,
   lengthText,
   newRun,
   pauseCostClock,
@@ -54,6 +56,7 @@ import {
   resumeTimerRun,
   startTimerRun,
   stopTimerRun,
+  syncBreakBackAt,
   useCostTicker,
   useFacilitatorSettings,
   useFtSession,
@@ -162,8 +165,12 @@ export function FacilitatorTimersClient() {
   useVisibilityTick(running || costRunning || run?.kind === "break", 1000, () =>
     setNow(Date.now())
   );
-  // A pause, resume or new step shows at once, not on the next tick.
-  useEffect(() => setNow(Date.now()), [dockTimer]);
+  // A pause, resume or new step shows at once, not on the next tick; a
+  // break resumed on the pill moves its time to be back with the clock.
+  useEffect(() => {
+    setNow(Date.now());
+    syncBreakBackAt(dockTimer);
+  }, [dockTimer]);
   // The tick stops while the tab is hidden; this wakes the page when the
   // step ends anyway, so the cue, the flashing title and the next round
   // still come on time for a facilitator in another window.
@@ -485,24 +492,27 @@ export function FacilitatorTimersClient() {
   // Export and prompts
   // ---------------------------------------------------------------------------
 
-  const left =
-    run?.kind === "break" && run.backAt !== undefined
-      ? Math.max(0, Math.ceil((run.backAt - now) / 1000))
-      : remaining;
+  // The docked timer is every step's clock, a break's too: a pause there (or
+  // on the pill on another page) pauses the countdown here, and the time to
+  // be back moves with it.
+  const left = remaining;
+  const backAt = run ? breakEndsAt(run, ours, now) : undefined;
+  const paused = Boolean(run && !run.finished && dockPaused(ours));
   const costSeconds = cost.clock ? Math.floor(costElapsedMs(cost.clock, now) / 1000) : 0;
   const markdown = useMemo(
     () =>
       toMarkdown({
         settings,
-        run,
+        run: run && backAt !== undefined ? { ...run, backAt } : run,
         remainingSeconds: left,
+        paused,
         cost:
           cost.attendees !== null && costSeconds > 0
             ? { attendees: cost.attendees, seconds: costSeconds }
             : null,
         agenda,
       }),
-    [settings, run, left, cost.attendees, costSeconds, agenda]
+    [settings, run, backAt, left, paused, cost.attendees, costSeconds, agenda]
   );
   const promptConfig = useMemo(
     () => ({
@@ -526,6 +536,7 @@ export function FacilitatorTimersClient() {
       run={run}
       dock={ours}
       remaining={left}
+      backAt={backAt}
       now={now}
       big={presenting}
       controlsRef={controlsRef}

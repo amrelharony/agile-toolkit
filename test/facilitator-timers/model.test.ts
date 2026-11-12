@@ -11,6 +11,7 @@ import {
   autoAdvances,
   backAtFromClock,
   backAtFromMinutes,
+  breakEndsAt,
   breakRun,
   clockTime,
   costElapsedMs,
@@ -19,6 +20,7 @@ import {
   currencyCode,
   currentStep,
   dockLabel,
+  dockPaused,
   formatMoney,
   lengthText,
   meetingCost,
@@ -43,6 +45,8 @@ import {
   normalizeAgendaDraft,
   normalizeCost,
   normalizeSettings,
+  pauseTimerRun,
+  resumeTimerRun,
   startTimerRun,
   stopTimerRun,
   useFtSession,
@@ -223,6 +227,31 @@ describe("Back at 10:45", () => {
   it("adds minutes to now", () => {
     expect(backAtFromMinutes(10, T0)).toBe(T0 + 600_000);
     expect(breakRun(T0 + 600_000, T0).steps[0].seconds).toBe(600);
+  });
+
+  it("ends a break when its clock (the dock) says, so a pause moves the time to be back", () => {
+    const run = breakRun(T0 + 600_000, T0);
+    const dock = stepDock(run, T0)!;
+    expect(breakEndsAt(run, dock, T0)).toBe(T0 + 600_000);
+    const paused = { ...dock, endsAt: null, pausedRemaining: 540 };
+    expect(dockPaused(paused)).toBe(true);
+    // Paused: where it would end if resumed now.
+    expect(breakEndsAt(run, paused, T0 + 120_000)).toBe(T0 + 660_000);
+    // At zero, or with no dock: the time the run keeps.
+    expect(breakEndsAt(run, { ...dock, endsAt: null, pausedRemaining: 0 }, T0)).toBe(T0 + 600_000);
+    expect(dockPaused({ ...dock, endsAt: null, pausedRemaining: 0 })).toBe(false);
+    expect(breakEndsAt(run, null, T0)).toBe(T0 + 600_000);
+    expect(
+      breakEndsAt(newRun("pomodoro", pomodoroSteps(FT_SETTINGS_INITIAL.pomodoro)), dock, T0)
+    ).toBeUndefined();
+  });
+
+  it("moves the run's return time on resume", () => {
+    startTimerRun(breakRun(T0 + 600_000, T0), T0);
+    pauseTimerRun(T0 + 60_000);
+    resumeTimerRun(T0 + 180_000);
+    expect(useDockTimer.getState().timer?.endsAt).toBe(T0 + 720_000);
+    expect(useFtSession.getState().run?.backAt).toBe(T0 + 720_000);
   });
 });
 

@@ -243,6 +243,19 @@ export function pauseTimerRun(now: number = Date.now()): void {
 export function resumeTimerRun(now: number = Date.now()): void {
   const dock = useDockTimer.getState();
   if (dock.timer?.href === FT_HREF) dock.resume(now);
+  syncBreakBackAt();
+}
+
+/**
+ * Keep a break's return time with its clock: the docked timer is the
+ * break's clock, so a pause and resume (here, or on the pill on another
+ * page) moves the time to be back by the length of the pause.
+ */
+export function syncBreakBackAt(timer: DockedTimer | null = useDockTimer.getState().timer): void {
+  const { run } = useFtSession.getState();
+  if (!run || run.kind !== "break" || run.finished) return;
+  if (timer?.href !== FT_HREF || timer.endsAt === null || run.backAt === timer.endsAt) return;
+  useFtSession.setState({ run: { ...run, backAt: timer.endsAt } });
 }
 
 /** End the run and free the dock (another page's timer is left alone). */

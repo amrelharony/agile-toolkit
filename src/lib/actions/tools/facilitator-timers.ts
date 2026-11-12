@@ -34,6 +34,7 @@ import {
   TIMER_KINDS,
   backAtFromClock,
   backAtFromMinutes,
+  breakEndsAt,
   breakRun,
   clockTime,
   costElapsedMs,
@@ -94,6 +95,8 @@ function runSummary(run: TimerRun, now: number) {
   const dock = useDockTimer.getState().timer;
   const ours = dock?.href === FT_HREF ? dock : null;
   const step = currentStep(run);
+  // A break's clock is the dock: a pause moves the time to be back.
+  const backAt = breakEndsAt(run, ours, now) ?? run.backAt;
   return {
     kind: run.kind,
     title: run.title,
@@ -103,7 +106,7 @@ function runSummary(run: TimerRun, now: number) {
     steps: run.steps.length,
     remainingSeconds: ours ? timerRemaining(ours, now) : 0,
     paused: Boolean(ours && ours.endsAt === null),
-    ...(run.backAt !== undefined ? { backAt: clockTime(run.backAt) } : {}),
+    ...(backAt !== undefined ? { backAt: clockTime(backAt) } : {}),
   };
 }
 

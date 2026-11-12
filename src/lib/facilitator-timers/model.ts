@@ -257,6 +257,30 @@ export function normalizeRun(raw: unknown): TimerRun | null {
 }
 
 /**
+ * When a break ends, as its clock (the docked timer) says: the dock's end
+ * while it runs; while paused, now plus the time left, which is where it
+ * would end if resumed now; at zero, or without the dock, the return time
+ * the run keeps (moved on each resume, so it is the real end).
+ */
+export function breakEndsAt(
+  run: TimerRun,
+  dock: DockedTimer | null,
+  now: number
+): number | undefined {
+  if (run.kind !== "break") return undefined;
+  if (dock?.href === FT_HREF) {
+    if (dock.endsAt !== null) return dock.endsAt;
+    if (dock.pausedRemaining > 0) return now + dock.pausedRemaining * 1000;
+  }
+  return run.backAt;
+}
+
+/** Whether the run's step is paused on the dock with time still to go. */
+export function dockPaused(dock: DockedTimer | null): boolean {
+  return Boolean(dock?.href === FT_HREF && dock.endsAt === null && dock.pausedRemaining > 0);
+}
+
+/**
  * Whether a stored run is still on: one whose dock is no longer this
  * page's was stopped from the pill on another page, or replaced there. A
  * finished run has no dock and stays until it is closed.

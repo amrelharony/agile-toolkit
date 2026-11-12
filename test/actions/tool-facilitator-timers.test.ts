@@ -115,6 +115,19 @@ describe("list_state", () => {
     expect(JSON.stringify(state)).not.toMatch(/75|EUR|hourlyRate/);
   });
 
+  it("reports a paused break by its clock: the time left holds and the return time moves", async () => {
+    await run("start_timer", { kind: "break", minutes: 10 });
+    vi.setSystemTime(T0 + 60_000);
+    useDockTimer.getState().pause();
+    vi.setSystemTime(T0 + 180_000);
+    expect((await run("list_state", {})).running).toMatchObject({
+      kind: "break",
+      remainingSeconds: 540,
+      paused: true,
+      backAt: "10:12",
+    });
+  });
+
   it("reads the synced settings over MCP, with no tab to run anything in", async () => {
     blob.value = { pomodoro: { workMinutes: 50, breakMinutes: 10, rounds: 2 }, chime: true };
     const state = await runMcp("list_state", {});
