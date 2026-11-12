@@ -95,6 +95,8 @@ export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
         <Button type="button" size="sm" variant="outline" onClick={suggestBuiltIn}>
           Suggest names
         </Button>
+        {/* No fallbackLabel: "Suggest names" beside it is the no-AI path, and
+            works with no theme too, so AI being off shows one button, not two. */}
         {ai && (
           <AiButton
             task={ai.task}

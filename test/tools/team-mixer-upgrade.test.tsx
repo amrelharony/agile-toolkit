@@ -597,6 +597,9 @@ describe("after a mix", () => {
     const ask = () => screen.getByRole("button", { name: "Ask Amr for names" });
     // Picker's task takes a theme of 2 letters or more.
     expect(ask()).toBeDisabled();
+    // The no-AI path stays beside it (the AI button has no fallback of its
+    // own, so AI being off never shows two buttons doing the same).
+    expect(screen.getByRole("button", { name: "Suggest names" })).toBeEnabled();
     fireEvent.change(screen.getByLabelText("Theme (optional)"), { target: { value: "s" } });
     expect(ask()).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Theme (optional)"), { target: { value: "space" } });
