@@ -932,7 +932,8 @@ type LayoutCheck = "none" | "resize" | "rotate";
  *   then, and its own resize comes once it has.
  * - Compact (keyboard up, or a visible box under 360 px; sheet and side only):
  *   the panel starts just under the top of what can be seen, over the site
- *   header, and its views fold their chrome (data-amr-compact).
+ *   header, and its views fold their chrome (data-amr-compact, on his button
+ *   too: both are lifted to the header's layer then).
  * - Docked in the sheet, Amr stands in its bottom corner on his side, and
  *   rides up with the keyboard only while the composer has focus.
  * Nothing listens while the panel is shut.
@@ -1005,6 +1006,9 @@ function usePanelViewport({
       }
       panel.toggleAttribute("data-amr-compact", compact);
       const button = buttonRef.current;
+      // His button too: compact, the panel is lifted over the site header, and
+      // he is lifted with it, so it never covers him (their classes).
+      button?.toggleAttribute("data-amr-compact", compact);
       if (button && current === "sheet") {
         // Beside the composer while it has the keyboard; otherwise where the
         // sheet's bottom rests, so a search field's keyboard leaves him be.
@@ -1066,6 +1070,7 @@ function usePanelViewport({
       document.removeEventListener("focusin", onFocus);
       document.removeEventListener("focusout", onFocus);
       for (const name of DOCK_VARS) button?.style.removeProperty(name);
+      button?.removeAttribute("data-amr-compact");
       latest.current.keyboardUp = false;
       setKeyboardUp(false);
     };
@@ -2200,6 +2205,11 @@ export function MascotAssistant({
           style={panelStyle}
           className={cn(
             "group/amr panel comic-tailed fixed z-50 flex h-[var(--amr-panel-height)] w-[var(--amr-panel-width)] flex-col bg-card shadow-xl",
+            // Compact, it starts over the sticky site header (z-header), so it
+            // takes the header's own layer: MascotAssistant comes after the
+            // Header in app-shell's tree, so at the same z-index it paints over
+            // it, and the nav drawer (101, 102), toasts and menus stay above.
+            "data-[amr-compact]:z-header",
             styles.panelEnter
           )}
         >
@@ -2396,7 +2406,9 @@ export function MascotAssistant({
           ...(!showFigure && { minWidth: LAUNCHER_PLATE.w, minHeight: LAUNCHER_PLATE.h }),
         }}
         className={cn(
-          "z-50 cursor-pointer",
+          // Lifted with his compact panel (usePanelViewport marks both); he
+          // comes after it in the page, so he still stands over the sheet.
+          "z-50 cursor-pointer data-[amr-compact]:z-header",
           !dragPos && styles.bob,
           // The figure's box is mostly transparent: let clicks there
           // reach the page, and take them only on the figure (below). Focus

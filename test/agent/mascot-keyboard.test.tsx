@@ -397,6 +397,76 @@ describe("compact mode", () => {
     await frames();
     expect(dialog()).toHaveAttribute("data-amr-layout", "float");
     expect(dialog()).not.toHaveAttribute("data-amr-compact");
+    expect(amr()).not.toHaveAttribute("data-amr-compact");
+  });
+});
+
+// ── The compact panel's layer ────────────────────────────────────────────
+
+describe("the compact panel over the site header", () => {
+  /** The class that lifts an element to the header's layer while it is marked compact. */
+  const LIFT = "data-[amr-compact]:z-header";
+
+  /** Both are lifted while compact, and only then: Amr still above the panel. */
+  function expectLifted(lifted: boolean) {
+    for (const el of [dialog(), amr()]) {
+      expect(el.className).toContain(LIFT);
+      expect(el.className).toContain("z-50");
+      expect(el.hasAttribute("data-amr-compact")).toBe(lifted);
+    }
+    // He comes after the panel in the page: at the same layer, he is drawn over it.
+    expect(dialog().compareDocumentPosition(amr()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+
+  it("takes the header's layer in the sheet while the keyboard is up, with Amr, and gives it back", async () => {
+    screenAt(375, 667);
+    const box = await openChat();
+    expectLifted(false);
+    act(() => box.focus());
+    keyboard(300);
+    await frames();
+    expectLifted(true);
+    act(() => box.blur());
+    keyboard(0);
+    await frames();
+    expectLifted(false);
+
+    // Closed: his button keeps no mark.
+    act(() => box.focus());
+    keyboard(300);
+    await frames();
+    act(() => useAgentStore.getState().closeSheet());
+    expect(amr()).not.toHaveAttribute("data-amr-compact");
+  });
+
+  it("takes it down the side of a landscape phone, keyboard or none", async () => {
+    screenAt(844, 390);
+    const box = await openChat();
+    expect(dialog()).toHaveAttribute("data-amr-layout", "side");
+    expectLifted(true);
+    act(() => box.focus());
+    keyboard(200);
+    await frames();
+    expectLifted(true);
+  });
+
+  it("leans on the header's token and on the shell's order: the header first, then Amr", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const root = process.cwd();
+    const config = fs.readFileSync(path.join(root, "tailwind.config.ts"), "utf8");
+    // The header's layer is the panel's when compact: under the nav drawer
+    // (z-[101] and z-[102]) and the toast layer.
+    const header = Number(/\bheader:\s*"(\d+)"/.exec(config)![1]);
+    const toast = Number(/\btoast:\s*"(\d+)"/.exec(config)![1]);
+    expect(header).toBe(100);
+    expect(header).toBeLessThan(101);
+    expect(toast).toBeGreaterThan(header);
+    const shell = fs.readFileSync(path.join(root, "src/components/layout/app-shell.tsx"), "utf8");
+    const headerAt = shell.indexOf("<Header");
+    const amrAt = shell.indexOf("<MascotAssistant");
+    expect(headerAt).toBeGreaterThan(-1);
+    expect(amrAt).toBeGreaterThan(headerAt);
   });
 });
 
