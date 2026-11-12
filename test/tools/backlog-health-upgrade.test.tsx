@@ -338,6 +338,20 @@ describe("fixing a story", () => {
     expect(within(row("st1")).getByText("No flags.")).toBeInTheDocument();
   });
 
+  it("counts a fix in the example as refining too, in memory", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "See an example backlog" }));
+    const loyalty = () => row("example-loyalty");
+    expect(within(loyalty()).getByText(/Not changed for/)).toBeInTheDocument();
+    const input = within(loyalty()).getByLabelText(
+      "Points for Loyalty stamps for regular shoppers"
+    );
+    fireEvent.change(input, { target: { value: "5" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(within(loyalty()).queryByText(/Not changed for/)).toBeNull();
+    expect(ws().stories).toEqual([]);
+  });
+
   it("splits a big one by a pattern, with Undo, keeping the original", async () => {
     seed([BIG()]);
     renderPage();

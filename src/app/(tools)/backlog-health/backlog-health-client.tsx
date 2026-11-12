@@ -44,6 +44,7 @@ import {
 import { STORY_TITLE_MAX } from "@/lib/handoffs/targets/backlog-story";
 import { undoable } from "@/lib/utils/undoable";
 import { todayIso } from "@/lib/sprints/series";
+import { stampRefinedWrite } from "@/lib/sprints/story-status";
 import type { AiSource } from "@/lib/ai/task-types";
 import {
   REVIEW_FLAG_LABEL,
@@ -88,8 +89,12 @@ export const liveWriter: StoryWriter = {
 type ExampleStore = StoreApi<{ stories: Story[] }>;
 
 function exampleWriter(store: ExampleStore): StoryWriter {
-  const put = (list: Story[], s: Story) =>
-    list.some((x) => x.id === s.id) ? list.map((x) => (x.id === s.id ? s : x)) : [...list, s];
+  // Refined as the workspace store stamps it, so a fix in the example clears "stale" too.
+  const put = (list: Story[], s: Story) => {
+    const prev = list.find((x) => x.id === s.id);
+    const next = stampRefinedWrite(s, prev);
+    return prev ? list.map((x) => (x.id === s.id ? next : x)) : [...list, next];
+  };
   return {
     stories: () => store.getState().stories,
     upsertStory: (s) => store.setState((st) => ({ stories: put(st.stories, s) })),
