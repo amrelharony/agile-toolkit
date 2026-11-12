@@ -11,8 +11,10 @@
  * It fills the panel header (panel-chrome) from here, so New chat goes through
  * this chunk's store and the header icons arrive with the chat:
  *  - actions: New chat, then History. In History that button is "Back to chat"
- *    with an arrow, the same button (focus stays on it across the switch), and
- *    it carries a dot while a confirm card waits in the chat behind it.
+ *    with an arrow, the same button (focus stays on it going into History; on
+ *    the way back the chat's own mount focus takes it to the composer until
+ *    PR 6's focus owner sends it to this button), and it carries a dot while a
+ *    confirm card waits in the chat behind it.
  *  - subtitle: the open thread's title, or "New chat"; "Your chats" in History.
  * Whether History shows is kept by the shell, so it outlasts the panel closing.
  *
@@ -65,8 +67,8 @@ export default function OwnerAgentPanel({
         >
           <Plus aria-hidden="true" />
         </PanelIconButton>
-        {/* One button both ways, so focus stays on it when it swaps. Its name
-            says where it goes, so it is not a toggle (no aria-pressed). */}
+        {/* One button both ways, so focus stays on it when History opens. Its
+            name says where it goes, so it is not a toggle (no aria-pressed). */}
         <PanelIconButton
           label={showHistory ? "Back to chat" : "Conversation history"}
           title={
