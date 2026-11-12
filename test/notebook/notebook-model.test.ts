@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import type { NotebookEntry } from "@/lib/stores/workspace-types";
 import { getToolById } from "@/lib/constants/tools";
 import {
+  KIND_TAGS,
   NOTEBOOK_EVENTS,
   SUMMARY_TAG,
   addedLinks,
@@ -38,7 +39,9 @@ import {
   keywordTags,
   noteThemes,
   themeCounts,
+  themeOf,
   themeTool,
+  withoutPrompts,
 } from "@/lib/notebook/themes";
 import {
   linkableTool,
@@ -252,6 +255,44 @@ describe("themes without AI", () => {
       keywordTags("Blocked again, estimates far apart.", { current: ["blocker", "estimation"] })
     ).toEqual([]);
     expect(keywordTags("blocked", { max: 0 })).toEqual([]);
+  });
+
+  it("reads no theme and suggests no tag from a template's own prompts", () => {
+    for (const t of NOTE_TEMPLATES) {
+      expect(noteThemes({ body: t.body, tags: [] }), t.id).toEqual([]);
+      expect(keywordTags(t.body), t.id).toEqual([]);
+      expect(keywordTags(t.body, { known: ["help", "follow up", "next"] }), t.id).toEqual([]);
+      // With its tags, a template's note is about those alone.
+      const own = Array.from(
+        new Set(t.tags.map((tag) => themeOf(tag)?.tag ?? tag).filter((tag) => !KIND_TAGS.has(tag)))
+      );
+      expect(noteThemes({ body: t.body, tags: [...t.tags] }).sort(), t.id).toEqual(own.sort());
+    }
+  });
+
+  it("still reads what was written after a prompt, and curly apostrophes alike", () => {
+    const oneOnOne = NOTE_TEMPLATES.find((t) => t.id === "one-on-one")!;
+    const filled = oneOnOne.body.replace(
+      "What I'll follow up:",
+      "What I’ll follow up: chase the retro actions from last sprint"
+    );
+    expect(withoutPrompts(filled)).not.toMatch(/follow up/i);
+    expect(noteThemes({ body: filled, tags: [] })).toEqual(["follow-through"]);
+    // A prompt in the middle of a line is the person's own words.
+    expect(noteThemes({ body: "I asked what I'll follow up: nothing.", tags: [] })).toEqual([
+      "follow-through",
+    ]);
+  });
+
+  it("makes no pattern or next step from three 1:1 notes started from the template", () => {
+    const t = NOTE_TEMPLATES.find((x) => x.id === "one-on-one")!;
+    const notes = ["2026-11-09", "2026-11-10", "2026-11-11"].map((d, i) =>
+      note(`o${i}`, d, { body: t.body, tags: [...t.tags], event: "one-on-one" })
+    );
+    expect(notebookNextSteps(notes, "2026-11-12")).toEqual([]);
+    const read = weeklyFallback(weeklyInput(notes, "2026-11-09")!);
+    expect(read.patterns.join(" ")).not.toMatch(/follow/);
+    expect(read.tools).toEqual([]);
   });
 
   it("counts themes per note with the events they came from", () => {

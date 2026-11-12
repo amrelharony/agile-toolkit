@@ -28,6 +28,13 @@ export const NOTEBOOK_TOOL_CATALOG = tools
   .map((t) => `${t.id} (${t.name})`)
   .join(", ");
 
+/**
+ * A note started from a template holds its questions ("What I'll follow
+ * up:"), answered or not: only the answers are the note.
+ */
+const TEMPLATE_PROMPT_RULE =
+  "A note may hold a template's questions ending in a colon, such as \"What I'll follow up:\": they are headings, not what happened, so use only what was written after them.";
+
 export const notebookWeeklySummaryPrompt = defineAiPrompt(notebookWeeklySummaryTask, {
   system: [
     "You help a Scrum Master read their own coaching notes from one week, all together.",
@@ -38,6 +45,7 @@ export const notebookWeeklySummaryPrompt = defineAiPrompt(notebookWeeklySummaryT
     `Use only these tool ids, exactly as written: ${NOTEBOOK_TOOL_CATALOG}.`,
     "Describe what was observed, never judge or label anyone, and leave people's names out.",
     "Use only what the notes say: don't invent events, numbers or people.",
+    TEMPLATE_PROMPT_RULE,
   ].join(" "),
   user: ({ weekStart, notes }) =>
     [
@@ -63,6 +71,7 @@ export const notebookTagPrompt = defineAiPrompt(notebookTagTask, {
     `Suggest up to ${TAG_SUGGEST_MAX} short tags, one to three words each, in lower case, that name what the note is about, such as blockers, participation or estimation.`,
     "Reuse the notebook's existing tags when one fits, spelled the same way.",
     "Never repeat a tag the note already has, and never use a person's name as a tag.",
+    TEMPLATE_PROMPT_RULE,
   ].join(" "),
   user: ({ title, body, known, current }) =>
     [

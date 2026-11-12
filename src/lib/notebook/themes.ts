@@ -13,6 +13,7 @@
 
 import type { NotebookEntry } from "@/lib/stores/workspace-types";
 import { KIND_TAGS, eventLabel, normTag, normTags } from "./model";
+import { NOTE_TEMPLATES } from "./templates";
 
 export interface NoteTheme {
   /** The tag the theme goes by. */
@@ -200,6 +201,36 @@ export function themeOf(tag: string): NoteTheme | undefined {
 /** The tool id that helps with a tag's theme, if the theme names one. */
 export const themeTool = (tag: string): string | undefined => themeOf(tag)?.tool;
 
+/** A line as prompts are matched: lower case, curly apostrophes made straight (same length). */
+const promptKey = (s: string) => s.toLowerCase().replace(/[‘’]/g, "'");
+
+/** The templates' prompts ("what i'll follow up:"), longest first. */
+const TEMPLATE_PROMPTS: readonly string[] = Array.from(
+  new Set(
+    NOTE_TEMPLATES.flatMap((t) => t.body.split("\n"))
+      .map((l) => promptKey(l.trim()))
+      .filter(Boolean)
+  )
+).sort((a, b) => b.length - a.length);
+
+/**
+ * A note's words without the templates' prompts: a line that starts with
+ * one ("What I'll follow up: chase the sandbox") keeps only what was written
+ * after it, so a prompt alone never makes a theme or a tag ("follow up" is
+ * the template's question, not something that happened).
+ */
+export function withoutPrompts(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => {
+      const rest = line.trimStart();
+      const key = promptKey(rest);
+      const prompt = TEMPLATE_PROMPTS.find((p) => key.startsWith(p));
+      return prompt ? rest.slice(prompt.length) : line;
+    })
+    .join("\n");
+}
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Whether `phrase` appears in `text` as whole words ("ux" in "the UX review", not in "luxury"). */
@@ -209,9 +240,10 @@ function mentions(text: string, phrase: string): boolean {
   return re.test(text);
 }
 
-/** The themes a note's words point to, by tag, in the themes' order. */
+/** The themes a note's words point to, by tag, in the themes' order. Template prompts don't count. */
 export function keywordThemes(text: string): string[] {
-  return NOTE_THEMES.filter((t) => t.words.test(text)).map((t) => t.tag);
+  const words = withoutPrompts(text);
+  return NOTE_THEMES.filter((t) => t.words.test(words)).map((t) => t.tag);
 }
 
 /**
@@ -219,6 +251,7 @@ export function keywordThemes(text: string): string[] {
  * mentions (so the notebook keeps one vocabulary), then the themes its words
  * point to. Tags the note has already, kind tags, and a theme it already has
  * under another name ("blocker" for "blockers") are left out. At most `max`.
+ * A template's prompts are not the note's words, so they suggest nothing.
  */
 export function keywordTags(
   text: string,
@@ -238,8 +271,9 @@ export function keywordTags(
     if (theme && (haveThemes.has(theme) || out.some((o) => themeOf(o)?.tag === theme))) return;
     out.push(t);
   };
-  for (const tag of normTags(known)) if (mentions(text, tag)) add(tag);
-  for (const tag of keywordThemes(text)) add(tag);
+  const words = withoutPrompts(text);
+  for (const tag of normTags(known)) if (mentions(words, tag)) add(tag);
+  for (const tag of keywordThemes(words)) add(tag);
   return out.slice(0, Math.max(0, max));
 }
 
