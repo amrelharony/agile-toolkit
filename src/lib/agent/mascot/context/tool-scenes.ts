@@ -29,7 +29,8 @@ const STICKY = ["sticky", "sticky.think", "sticky.goofy"] as const;
  * The emitted events Amr answers. Only these: most emitted sounds echo an action
  * the tool also logs, and he shouldn't react twice. The last two are the
  * celebrations a tool asks for (lib/celebrate/cheer.ts, CHEER_MOMENTS): a row
- * may give them a scene; without one he cheers or dances.
+ * may give them a scene, but only for a tool whose cheer() call asks for that
+ * one (its tests check); without a scene he cheers or dances.
  */
 export const EMITTED: ReadonlySet<string> = new Set([
   "okr_achieved",
