@@ -20,7 +20,12 @@ const h = vi.hoisted(() => ({
   log: vi.fn(),
   cheer: vi.fn(),
   exportProps: { current: null as null | { markdown?: string; jsonData?: unknown } },
-  room: { live: false, show: vi.fn<(kind: string, payload: unknown) => boolean>(() => true) },
+  room: {
+    live: false,
+    status: "live",
+    show: vi.fn<(kind: string, payload: unknown) => boolean>(() => true),
+    hostProps: null as null | { tool?: string; toolName?: string; description?: unknown },
+  },
   auth: null as null | { status: string; user: { id: string } | null },
 }));
 
@@ -44,12 +49,22 @@ vi.mock("@/components/shared/export-button", () => ({
 vi.mock("@/lib/history/use-history-logger", () => ({ useHistoryLogger: () => ({ log: h.log }) }));
 vi.mock("@/lib/celebrate/cheer", () => ({ cheer: h.cheer }));
 vi.mock("@/components/collab/show-room", () => ({
-  ShowRoomHost: ({ children }: { children?: (room: unknown) => ReactNode }) =>
-    h.room.live ? (
-      <div data-testid="room">{children?.({ status: "live", show: h.room.show })}</div>
+  ShowRoomHost: ({
+    children,
+    ...props
+  }: {
+    children?: (room: unknown) => ReactNode;
+    tool?: string;
+    toolName?: string;
+    description?: unknown;
+  }) => {
+    h.room.hostProps = props;
+    return h.room.live ? (
+      <div data-testid="room">{children?.({ status: h.room.status, show: h.room.show })}</div>
     ) : (
       <button type="button">Show on everyone&apos;s phones</button>
-    ),
+    );
+  },
 }));
 
 import { CardDecksClient } from "@/app/(tools)/card-decks/card-decks-client";
@@ -112,6 +127,8 @@ const undoOf = (label: string) => {
   return () => act(() => (call![1] as { action: { onClick: () => void } }).action.onClick());
 };
 const logged = (action: string) => h.log.mock.calls.filter((c) => c[0] === action);
+/** A card's remove button in the card list. */
+const REMOVE_CARD = "Remove the card";
 /** The deck form's cards box (its label reads "Cards*": the star marks it required). */
 const cardsField = () => screen.getByRole("textbox", { name: /^Cards\*?$/ });
 
@@ -123,6 +140,8 @@ beforeEach(() => {
   h.log.mockClear();
   h.cheer.mockClear();
   h.room.live = false;
+  h.room.status = "live";
+  h.room.hostProps = null;
   h.room.show.mockClear();
   h.room.show.mockImplementation(() => true);
   h.auth = null;
@@ -372,15 +391,31 @@ describe("the team's own decks", () => {
     expect(readCardDecks().decks[0].cards).toEqual(OWN.cards);
   });
 
-  it("deletes a deck with Undo, and logs it", async () => {
-    useCardDecks.setState({ decks: [OWN], deckId: "deck_own" });
+  it("deletes a deck with Undo, which puts back its round and its place on the table", async () => {
+    useCardDecks.setState({ decks: [OWN], deckId: "deck_own", rounds: { deck_own: [["c1"]] } });
     await mount();
     click(button("Delete Offsite"));
     expect(readCardDecks().decks).toEqual([]);
     expect(readCardDecks().deckId).toBe("retro");
+    expect(readCardDecks().rounds.deck_own).toBeUndefined();
     expect(logged(CARD_DECKS_ACTIONS.DECK_REMOVED)).toHaveLength(1);
     await undoOf("Deleted Offsite")();
-    expect(readCardDecks().decks.map((d) => d.id)).toEqual(["deck_own"]);
+    const state = readCardDecks();
+    expect(state.decks.map((d) => d.id)).toEqual(["deck_own"]);
+    expect(state.deckId).toBe("deck_own");
+    expect(state.rounds.deck_own).toEqual([["c1"]]);
+    expect(dealt()).toEqual(["First question?"]);
+  });
+
+  it("puts a removed card back as dealt this round when Undo comes before another deal", async () => {
+    useCardDecks.setState({ decks: [OWN], deckId: "deck_own", rounds: { deck_own: [["c1"]] } });
+    await mount();
+    const list = screen.getByRole("region", { name: "Cards in Offsite" });
+    click(within(list).getAllByRole("button", { name: REMOVE_CARD })[0]);
+    expect(readCardDecks().rounds.deck_own).toBeUndefined();
+    await undoOf("Removed a card from Offsite")();
+    expect(readCardDecks().decks[0].cards).toEqual(OWN.cards);
+    expect(readCardDecks().rounds.deck_own).toEqual([["c1"]]);
   });
 
   it("adds a card to the deck on the table (no repeats) and removes one with Undo", async () => {
@@ -611,10 +646,87 @@ describe("Ask Amr: a deck on a theme", () => {
   });
 });
 
-describe("dealing for the room", () => {
-  it("offers to open a room, and deals straight onto everyone's screen once it is live", async () => {
+describe("Ask Amr: when the cards can't go in", () => {
+  const answer = (cards: string[]) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: true, data: { name: "More", cards }, source: "ai" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+      )
+    );
+  const ask = async () => {
+    fireEvent.change(screen.getByLabelText("Theme"), { target: { value: "More of these" } });
+    await act(async () => {
+      click(button("Ask Amr for cards"));
+    });
+    await flush();
+    return screen.getByTestId("ai-suggestions");
+  };
+
+  it("says so when the deck on the table holds the cards already", async () => {
+    h.auth = { status: "authenticated", user: { id: "owner" } };
+    answer(["first question?"]);
+    useCardDecks.setState({ decks: [OWN], deckId: "deck_own" });
     await mount();
-    expect(button("Show on everyone's phones")).toBeTruthy();
+    click(screen.getByRole("radio", { name: "Into Offsite" }));
+    const panel = await ask();
+    click(within(panel).getByRole("button", { name: /^Add: / }));
+    expect(readCardDecks().decks[0].cards).toEqual(OWN.cards);
+    expect(screen.getByText("Nothing added. Offsite has that card already.")).toBeTruthy();
+  });
+
+  it("says so when the deck on the table is full", async () => {
+    h.auth = { status: "authenticated", user: { id: "owner" } };
+    answer(["A brand new one?"]);
+    const cards = Array.from({ length: 80 }, (_, i) => ({ id: `f${i}`, text: `Card ${i}?` }));
+    useCardDecks.setState({ decks: [{ ...OWN, cards }], deckId: "deck_own" });
+    await mount();
+    click(screen.getByRole("radio", { name: "Into Offsite" }));
+    const panel = await ask();
+    click(within(panel).getByRole("button", { name: /^Add: / }));
+    expect(readCardDecks().decks[0].cards).toHaveLength(80);
+    expect(screen.getByText("Nothing added. Offsite is full: a deck holds 80 cards.")).toBeTruthy();
+  });
+
+  it("makes no 41st deck: a late accept is refused, and the next ask says why", async () => {
+    h.auth = { status: "authenticated", user: { id: "owner" } };
+    answer(["A brand new one?"]);
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ ...OWN, id: `deck_${i}`, name: `Deck ${i}` }));
+    useCardDecks.setState({ decks: many(39) });
+    await mount();
+    const panel = await ask();
+    // A 40th deck arrives (Amr, another tab) before the person adds the cards.
+    act(() => useCardDecks.setState({ decks: many(40) }));
+    click(within(panel).getByRole("button", { name: /^Add: / }));
+    expect(readCardDecks().decks).toHaveLength(40);
+    expect(readCardDecks().decks.some((d) => d.name === "More")).toBe(false);
+    expect(screen.getAllByText(/You have 40 decks of your own/).length).toBeGreaterThan(0);
+    expect(h.toast.mock.calls.some((c) => String(c[0]).startsWith("Made "))).toBe(false);
+  });
+});
+
+describe("dealing for the room", () => {
+  it("hands the show room Card Decks and says what is sent, before a room is open", async () => {
+    await mount();
+    expect(h.room.hostProps).toMatchObject({ tool: "card-decks", toolName: "Card Decks" });
+    expect(String(h.room.hostProps?.description)).toContain("with the deck's name");
+    expect(screen.queryByRole("button", { name: /for the room$/ })).toBeNull();
+  });
+
+  it("keeps the room's buttons off until the room is live", async () => {
+    h.room.live = true;
+    h.room.status = "connecting";
+    await mount();
+    const room = screen.getByTestId("room");
+    const off = (name: string) =>
+      (within(room).getByRole("button", { name }) as HTMLButtonElement).disabled;
+    expect(off("Deal a card for the room")).toBe(true);
+    expect(off("Show the table to the room")).toBe(true);
   });
 
   it("sends the dealt card as a cards frame, and the table again on request", async () => {
@@ -632,12 +744,18 @@ describe("dealing for the room", () => {
     expect(h.room.show).toHaveBeenCalledTimes(2);
   });
 
-  it("says so when the room can't take the frame", async () => {
+  it("deals nothing when the room can't take the frame, and says so", async () => {
     h.room.live = true;
     h.room.show.mockImplementation(() => false);
     await mount();
     const room = screen.getByTestId("room");
     click(within(room).getByRole("button", { name: "Deal a card for the room" }));
-    expect(room.textContent).toContain("Couldn't show that to the room.");
+    expect(h.room.show).toHaveBeenCalledTimes(1);
+    expect(room.textContent).toContain(
+      "Couldn't show that to the room, so nothing was dealt. Try again in a moment."
+    );
+    expect(readCardDecks().rounds.retro).toBeUndefined();
+    expect(logged(CARD_DECKS_ACTIONS.CARD_DEALT)).toHaveLength(0);
+    expect(screen.getByText(/Nothing dealt yet/)).toBeTruthy();
   });
 });

@@ -55,7 +55,7 @@ import { MoodPick, ThemeDeck, type AcceptedCards } from "./components/ask-amr";
 import { DeckBrowser } from "./components/deck-browser";
 import { DeckForm } from "./components/deck-form";
 import { DeckTable } from "./components/deck-table";
-import { RoomDeal } from "./components/room-deal";
+import { RoomDeal, type RoomDealResult } from "./components/room-deal";
 import { EXAMPLE_DECK_ID, buildExample } from "./example";
 import { toMarkdown } from "./markdown";
 import { teamMood } from "./mood";
@@ -92,6 +92,8 @@ const updateDeckCards = (deckId: string, fn: (list: readonly DeckCard[]) => Deck
   }));
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+const DECK_CAP_NOTE = `You have ${CARD_DECK_LIMITS.decks} decks of your own, the most Card Decks keeps. Delete one first, or put the cards into one of your decks.`;
 
 export function CardDecksClient() {
   const { log } = useHistoryLogger("card-decks");
@@ -160,13 +162,19 @@ export function CardDecksClient() {
     announce(`${next.name}: ${plural(next.cards.length, "card")}.`);
   };
 
-  /** Deal onto the table; what was dealt (none when the round is done). */
-  const deal = (count: number, forRoom = false): DeckCard[] => {
+  /**
+   * Deal onto the table. With `send` (a deal for the room), the cards are
+   * shown to the room first, and the deal only counts once they were: a
+   * frame the room can't take leaves the round and the history as they were.
+   */
+  const deal = (count: number, send?: (cards: DeckCard[]) => boolean): RoomDealResult => {
+    const forRoom = send !== undefined;
     const result = dealCards(deck, marks, round, count, Math.random, starredOnly);
     if (result.cards.length === 0) {
       setStatus("No cards left to deal this round. Shuffle to start again.");
-      return [];
+      return { status: "empty" };
     }
+    if (send && !send(result.cards)) return { status: "unsent" };
     setRound(deck.id, result.round);
     const left = dealable.length - result.cards.length;
     const what = result.cards.length === 1 ? `Dealt a card` : `Dealt ${result.cards.length} cards`;
@@ -184,7 +192,7 @@ export function CardDecksClient() {
       left,
     });
     if (left === 0) cheer("card-decks", "done");
-    return result.cards;
+    return { status: "dealt", cards: result.cards };
   };
 
   const back = () => {
@@ -278,10 +286,28 @@ export function CardDecksClient() {
   };
 
   const removeDeck = (d: CustomDeck) => {
-    removeWithUndo<CustomDeck>({
+    // The save drops a deleted deck's round and moves the table off it, so
+    // Undo puts back the deck, its round and (when it was) its place on the table.
+    const before = normalizeCardDecks(useCardDecks.getState());
+    const index = before.decks.findIndex((x) => x.id === d.id);
+    if (index < 0) return;
+    const saved = before.decks[index];
+    const savedRound = before.rounds[d.id];
+    const wasOnTable = before.deckId === d.id;
+    undoable({
       label: `Deleted ${d.name}`,
-      update: updateDecks,
-      match: (x) => x.id === d.id,
+      apply: () => updateDecks((list) => list.filter((x) => x.id !== d.id)),
+      revert: () =>
+        updateCardDecks((s) => {
+          if (s.decks.some((x) => x.id === d.id)) return {};
+          const decks = [...s.decks];
+          decks.splice(Math.min(index, decks.length), 0, saved);
+          return {
+            decks,
+            ...(savedRound ? { rounds: { ...s.rounds, [d.id]: savedRound } } : {}),
+            ...(wasOnTable ? { deckId: d.id } : {}),
+          };
+        }),
     });
     setEditing(null);
     log(CARD_DECKS_ACTIONS.DECK_REMOVED, { deckId: d.id, cards: d.cards.length });
@@ -295,10 +321,35 @@ export function CardDecksClient() {
 
   const removeCard = (card: DeckCard) => {
     if (!ownDeck) return;
-    removeWithUndo<DeckCard>({
+    const deckId = ownDeck.id;
+    const index = ownDeck.cards.findIndex((c) => c.id === card.id);
+    if (index < 0) return;
+    // The save drops the card from this round's deals; Undo deals it back,
+    // when the round hasn't moved on since.
+    const roundBefore = normalizeCardDecks(useCardDecks.getState()).rounds[deckId] ?? [];
+    const roundWithout = JSON.stringify(
+      roundBefore.map((d) => d.filter((id) => id !== card.id)).filter((d) => d.length > 0)
+    );
+    undoable({
       label: `Removed a card from ${ownDeck.name}`,
-      update: (fn) => updateDeckCards(ownDeck.id, fn),
-      match: (c) => c.id === card.id,
+      apply: () => updateDeckCards(deckId, (list) => list.filter((c) => c.id !== card.id)),
+      revert: () =>
+        updateCardDecks((s) => {
+          const d = s.decks.find((x) => x.id === deckId);
+          if (!d || d.cards.some((c) => c.id === card.id)) return {};
+          const cards = [...d.cards];
+          cards.splice(Math.min(index, cards.length), 0, card);
+          const now = s.rounds[deckId] ?? [];
+          const sameRound = JSON.stringify(now) === roundWithout;
+          return {
+            decks: s.decks.map((x) =>
+              x.id === deckId ? { ...x, cards, updatedAt: new Date().toISOString() } : x
+            ),
+            ...(sameRound && roundBefore.length > 0
+              ? { rounds: { ...s.rounds, [deckId]: roundBefore } }
+              : {}),
+          };
+        }),
     });
   };
 
@@ -331,8 +382,9 @@ export function CardDecksClient() {
   /** Answer → the deck its cards went into (so one answer fills one deck). */
   const batchDecks = useRef(new Map<number, string>());
 
+  /** Add Amr's cards; a line saying what wasn't added, or null when all were. */
   const acceptCards = useCallback(
-    ({ cards, name, theme, batch, target }: AcceptedCards) => {
+    ({ cards, name, theme, batch, target }: AcceptedCards): string | null => {
       const current = normalizeCardDecks(useCardDecks.getState());
       const into =
         target !== "new"
@@ -354,7 +406,14 @@ export function CardDecksClient() {
 
       if (into) {
         const added = fresh(into.cards);
-        if (added.length === 0) return;
+        const skipped = cards.length - added.length;
+        const full = into.cards.length + added.length >= CARD_DECK_LIMITS.deckCards;
+        const why = full
+          ? `${into.name} is full: a deck holds ${CARD_DECK_LIMITS.deckCards} cards.`
+          : `${into.name} has ${skipped === 1 ? "that card" : "those cards"} already.`;
+        if (added.length === 0) {
+          return `Nothing added. ${why}`;
+        }
         const ids = new Set(added.map((c) => c.id));
         undoable({
           kind: "success",
@@ -368,11 +427,13 @@ export function CardDecksClient() {
           cards: into.cards.length + added.length,
           how: "ai",
         });
-        return;
+        return skipped > 0 ? `${plural(skipped, "card")} not added. ${why}` : null;
       }
 
+      // One more deck than the store keeps would be cut when it is saved.
+      if (current.decks.length >= CARD_DECK_LIMITS.decks) return DECK_CAP_NOTE;
       const added = fresh([]);
-      if (added.length === 0) return;
+      if (added.length === 0) return "Nothing added: those cards were blank.";
       const made: CustomDeck = {
         id: newDeckId(),
         name: freeName(name, current.decks),
@@ -393,6 +454,7 @@ export function CardDecksClient() {
         },
       });
       log(CARD_DECKS_ACTIONS.DECK_SAVED, { deckId: made.id, cards: added.length, how: "ai" });
+      return null;
     },
     [log]
   );
@@ -514,7 +576,7 @@ export function CardDecksClient() {
         <ShowRoomHost
           tool="card-decks"
           toolName="Card Decks"
-          description="Everyone opens your link on their phone and sees each card you deal. Only the cards travel; your decks and marks stay here."
+          description="Everyone opens your link on their phone and sees the cards you deal for the room, with the deck's name. Your other decks and your marks aren't sent."
         >
           {(room) => (
             <RoomDeal
@@ -522,7 +584,7 @@ export function CardDecksClient() {
               deckName={deck.name}
               hand={hand}
               handSize={handSize}
-              onDealForRoom={(n) => deal(n, true)}
+              onDealForRoom={deal}
             />
           )}
         </ShowRoomHost>
@@ -541,7 +603,11 @@ export function CardDecksClient() {
           Suggestions only: nothing is added or dealt until you choose it.
         </p>
         <MoodPick deck={deck} dealable={dealable} mood={mood} onDeal={dealPicked} />
-        <ThemeDeck ownDeck={deck.source === "custom" ? deck : null} onAccept={acceptCards} />
+        <ThemeDeck
+          ownDeck={deck.source === "custom" ? deck : null}
+          newDeckBlocked={state.decks.length >= CARD_DECK_LIMITS.decks ? DECK_CAP_NOTE : null}
+          onAccept={acceptCards}
+        />
       </section>
 
       <DeckBrowser

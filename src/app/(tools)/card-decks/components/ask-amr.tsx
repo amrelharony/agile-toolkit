@@ -120,18 +120,24 @@ export interface AcceptedCards {
 /**
  * Ask Amr for a deck on a theme. Without AI, the answer is cards from the
  * nearest built-in deck. The person adds the cards they want (one or all),
- * into a new deck or the team's deck on the table, with Undo.
+ * into a new deck or the team's deck on the table, with Undo. When some
+ * can't go in (the deck is full, or holds them already), a line says so.
  */
 export function ThemeDeck({
   ownDeck,
+  newDeckBlocked,
   onAccept,
 }: {
   /** The team's own deck on the table, which the cards may go into; null for a built-in one. */
   ownDeck: Deck | null;
-  onAccept: (accepted: AcceptedCards) => void;
+  /** Why a new deck can't be made (the team has the most decks it keeps); null when it can. */
+  newDeckBlocked: string | null;
+  /** Add the cards; a line saying what wasn't added, or null. */
+  onAccept: (accepted: AcceptedCards) => string | null;
 }) {
   const [draft, setDraft] = useState<ThemeDraft>({ theme: "", count: "12" });
   const [into, setInto] = useState<"new" | "this">("new");
+  const [note, setNote] = useState<string | null>(null);
   const [answer, setAnswer] = useState<{
     name: string;
     cards: string[];
@@ -202,10 +208,15 @@ export function ThemeDeck({
         label="Ask Amr for cards"
         fallbackLabel="Suggest cards from the built-in decks"
         disabledReason={
-          check.ok ? null : (check.errors.theme ?? check.errors.count ?? "Fill in the theme first.")
+          !check.ok
+            ? (check.errors.theme ?? check.errors.count ?? "Fill in the theme first.")
+            : target === "new"
+              ? newDeckBlocked
+              : null
         }
         onResult={(data, meta) => {
           batches.current += 1;
+          setNote(null);
           setAnswer({
             name: data.name,
             cards: data.cards,
@@ -222,11 +233,17 @@ export function ThemeDeck({
           title={`Cards for “${answer.name}”`}
           source={answer.source}
           acceptLabel="Add"
-          onAccept={(card) => onAccept({ ...answer, cards: [card] })}
-          onAcceptAll={(cards) => onAccept({ ...answer, cards })}
-          onDismiss={() => setAnswer(null)}
+          onAccept={(card) => setNote(onAccept({ ...answer, cards: [card] }))}
+          onAcceptAll={(cards) => setNote(onAccept({ ...answer, cards }))}
+          onDismiss={() => {
+            setAnswer(null);
+            setNote(null);
+          }}
         />
       )}
+      <p role="status" className={note ? "text-sm text-sub" : "sr-only"}>
+        {note ?? ""}
+      </p>
     </div>
   );
 }
