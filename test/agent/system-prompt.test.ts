@@ -4,8 +4,9 @@
  * the prompt now carries today's date and an instruction to compute from it.
  *
  * Also the one Amr voice and the shared reply rules (reply-format.ts): the
- * prompt opens "You are Amr", asks for lists and no tables, emoji, backticked
- * ids or dashes, and is written without them itself, since the model copies it.
+ * prompt opens "You are Amr", asks for lists and only small tables (the chat
+ * shows them, but it is narrow), no emoji, backticked ids or dashes, and is
+ * written without them itself, since the model copies it.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -59,10 +60,12 @@ function fullPrompt(): string {
 }
 
 describe("REPLY_FORMAT_RULES", () => {
-  it("asks for plain sentences and lists, with no tables, emoji, ids or dashes", () => {
+  it("asks for plain sentences, lists and small tables, with no emoji, ids or dashes", () => {
     expect(REPLY_FORMAT_RULES).toMatch(/plain sentences in short paragraphs/);
     expect(REPLY_FORMAT_RULES).toMatch(/bulleted or numbered list/);
-    expect(REPLY_FORMAT_RULES).toMatch(/lists, no tables/i);
+    expect(REPLY_FORMAT_RULES).toMatch(/A small table is fine/);
+    expect(REPLY_FORMAT_RULES).toMatch(/at most 3 short columns/);
+    expect(REPLY_FORMAT_RULES).not.toMatch(/no tables/i);
     expect(REPLY_FORMAT_RULES).toMatch(/No emoji\./);
     expect(REPLY_FORMAT_RULES).toMatch(/Never show an action id or a tool id/);
     expect(REPLY_FORMAT_RULES).toMatch(/in backticks or otherwise/);
@@ -93,12 +96,12 @@ describe("buildSystemPrompt formatting guidance", () => {
     expect(p).not.toMatch(/Use emojis/i);
   });
 
-  it("carries the shared reply rules under Formatting: lists, no tables", () => {
+  it("carries the shared reply rules under Formatting: lists, small tables", () => {
     const p = buildSystemPrompt();
     expect(p).toContain(REPLY_FORMAT_RULES);
     expect(p.indexOf(REPLY_FORMAT_RULES)).toBeGreaterThan(p.indexOf("Formatting:"));
     expect(p.indexOf(REPLY_FORMAT_RULES)).toBeLessThan(p.indexOf("Current context:"));
-    expect(p).toMatch(/no tables/i);
+    expect(p).toMatch(/at most 3 short columns/);
   });
 
   it("no longer asks for backticked ids", () => {
