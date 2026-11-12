@@ -456,6 +456,22 @@ describe("MascotAssistant — visitor AI", () => {
     expect(h.sendVisitorMessage).not.toHaveBeenCalled();
   });
 
+  it("says in the panel header which step the visitor is on", async () => {
+    await renderAmr();
+    const header = screen
+      .getByRole("dialog", { name: "Amr" })
+      .querySelector<HTMLElement>("[data-panel-header]")!;
+    expect(within(header).getByText("Find the right tool")).toBeInTheDocument();
+
+    askAbout("retro");
+    expect(within(header).getByText("Before you chat")).toBeInTheDocument();
+    expect(within(header).queryByText("Find the right tool")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Agree and ask" }));
+    expect(await within(header).findByText("Chat · not saved")).toBeInTheDocument();
+    expect(within(header).queryByText("Before you chat")).toBeNull();
+  });
+
   it("offers to ask Amr when the search finds nothing", async () => {
     await renderAmr();
     askAbout("zzqx");
