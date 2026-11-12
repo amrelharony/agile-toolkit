@@ -23,9 +23,10 @@
  * beside himself waits instead (usePageFieldFocus, MascotBubble `waiting`).
  *
  * The panel is laid out by the screen's height first (amr-geometry's
- * panelLayout, from its size without the keyboard): a short screen (500 px or
- * less: a landscape phone) gets it down one side beside him, a phone held
- * upright the full-height sheet, everything else the floating card. In the
+ * panelLayout, from its size without the keyboard): a short, wide screen (500
+ * px or less and wider than tall: a landscape phone) gets it down one side
+ * beside him, a phone held upright the full-height sheet, everything else the
+ * floating card. In the
  * sheet, the visible box between the header and the keyboard, Amr docks in
  * its bottom corner on his side (still draggable; a drop or Move Amr picks his
  * side now and his corner for when it closes), the views keep a gutter and a

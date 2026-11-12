@@ -1277,6 +1277,30 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
     }
   }
 
+  it("320x460, an upright phone under Safari's bars: still the sheet, with him docked in it", async () => {
+    // Its layout height is the screen less the browser's bars, 500 px or
+    // less, but it is taller than it is wide: never the side panel.
+    screenAt(320, 460);
+    const main = pageMain();
+    render(<MascotAssistant />);
+    await withFigure();
+    const panel = openPanel();
+    expect(panel).toHaveAttribute("data-amr-layout", "sheet");
+    expect(px(panel, "--amr-vv-top")).toBeGreaterThanOrEqual(VISIBLE_GAP);
+    expect(px(panel, "--amr-vv-top")).toBe(HEADER_H + VISIBLE_GAP);
+    expect(px(panel, "--amr-vv-bottom")).toBe(VISIBLE_GAP);
+    const button = amrButton();
+    expect(button).toHaveAttribute("data-amr-docked");
+    expect(screen.getByTestId("mascot-sprite")).toHaveAttribute(
+      "data-w",
+      String(MASCOT_BOX_PHONE.w)
+    );
+    expect(panel.style.getPropertyValue("--amr-dock-gutter")).not.toBe("");
+    expect(panel.style.getPropertyValue("--amr-dock-footer")).not.toBe("");
+    expect(document.documentElement).toHaveAttribute("data-amr-sheet");
+    expect(main).toHaveAttribute("inert");
+  });
+
   /** The launcher plate docked in the sheet's bottom right corner: on the screen, clear of the views. */
   function expectPlateDocked(w: number, h: number, inset: number) {
     const panel = dialog();

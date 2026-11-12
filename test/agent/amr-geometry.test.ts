@@ -361,7 +361,7 @@ function overlaps(a: Rect, b: Rect): boolean {
   return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 }
 
-describe("panelLayout: height first, then width", () => {
+describe("panelLayout: height first (when wider than tall), then width", () => {
   const cases: [number, number, AmrLayout][] = [
     [320, 568, "sheet"],
     [360, 640, "sheet"],
@@ -378,7 +378,17 @@ describe("panelLayout: height first, then width", () => {
     [844, 390, "side"],
     [639, 500, "side"],
     [1440, 500, "side"],
-    [320, 480, "side"],
+    [640, 360, "side"],
+    [320, 256, "side"],
+    [501, 500, "side"],
+    // A short phone held upright: its layout height is the screen less the
+    // browser's bars (Safari on a 320x568, Samsung Internet on a 360x640) or
+    // a page zoom (a 375x667 at 125%). It keeps the sheet.
+    [320, 480, "sheet"],
+    [320, 460, "sheet"],
+    [360, 464, "sheet"],
+    [300, 442, "sheet"],
+    [500, 500, "sheet"],
   ];
   for (const [width, height, layout] of cases) {
     it(`${width}x${height}: ${layout}`, () => {

@@ -230,15 +230,21 @@ export function panelOrigin(c: AmrCorner, s: Pick<PanelTailState, "phone" | "fig
 
 /**
  * How the panel is laid out on this screen, height first:
- * - `side`: a short screen (a landscape phone, or a desktop zoomed far in). The
- *   panel runs from top to bottom beside Amr, who stays in his corner.
- * - `sheet`: a phone held upright. The panel fills the visible box, and Amr
- *   docks in its bottom corner.
+ * - `side`: a short screen wider than it is tall (a landscape phone, or a
+ *   desktop zoomed far in). The panel runs from top to bottom beside Amr, who
+ *   stays in his corner.
+ * - `sheet`: a phone held upright, even one whose browser bars or zoom leave
+ *   it 500 px tall or less. The panel fills the visible box, and Amr docks in
+ *   its bottom corner.
  * - `float`: everything else. The card above or below him (panelPos).
  */
 export type AmrLayout = "float" | "sheet" | "side";
 
-/** A screen this short or shorter, px, gets the side layout, whatever its width. */
+/**
+ * A screen wider than it is tall and this short or shorter, px, gets the side
+ * layout. A short upright phone (its layout height is the screen less the
+ * browser's bars: a 320x568 one in Safari is about 460-498 px) keeps the sheet.
+ */
 export const SIDE_LAYOUT_MAX_H = 500;
 /** A screen this narrow or narrower, px, gets the sheet: phone width (breakpoints.ts PHONE_MAX_PX). */
 export const SHEET_LAYOUT_MAX_W = 639;
@@ -248,7 +254,7 @@ export const SHEET_LAYOUT_MAX_W = 639;
  * (the layout viewport), so a keyboard coming up never changes the layout.
  */
 export function panelLayout(viewport: Readonly<{ width: number; height: number }>): AmrLayout {
-  if (viewport.height <= SIDE_LAYOUT_MAX_H) return "side";
+  if (viewport.height <= SIDE_LAYOUT_MAX_H && viewport.width > viewport.height) return "side";
   if (viewport.width <= SHEET_LAYOUT_MAX_W) return "sheet";
   return "float";
 }
