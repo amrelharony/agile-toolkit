@@ -43,7 +43,7 @@ function limits(): string[] {
   if (visitorRoomsEnabled()) {
     const hours = Math.round(VISITOR_LIMITS.hardTtlMs / 3_600_000);
     lines.push(
-      `Live rooms: a team can run ${anyOf(roomTools("poker", "retro"))} live from a shared link, or an anonymous vote in ${anyOf(roomTools("vote"))}. A room holds up to ${VISITOR_LIMITS.maxMembers} people, the host included, and closes after ${hours} hours at most. What people type passes through a realtime provider (Supabase) to everyone with the link, and the site stores none of it.`
+      `Live rooms: a team can run ${anyOf(roomTools("poker", "retro"))} live from a shared link, or an anonymous vote in ${anyOf(roomTools("vote"))}; a host can show ${anyOf(roomTools("show"))} on everyone's phone, or open an anonymous wall in ${anyOf(roomTools("wall"))}. A room holds up to ${VISITOR_LIMITS.maxMembers} people, the host included, and closes after ${hours} hours at most. What people type passes through a realtime provider (Supabase) to everyone with the link, and the site stores none of it.`
     );
   }
   return lines;

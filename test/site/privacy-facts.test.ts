@@ -27,6 +27,7 @@ import {
   VISITOR_AI_SENT,
   VISITOR_ROOM_CONSENT_TEXT,
   VOTE_ROOM_CONSENT_TEXT,
+  WALL_ROOM_CONSENT_TEXT,
   YOUR_DATA_SAVED_HERE,
 } from "@/lib/site/disclosures";
 import { CONTACT_EMAIL, PRIVACY_PATH } from "@/lib/site/owner";
@@ -173,9 +174,13 @@ describe("each row, against the site", () => {
     );
   });
 
-  it("live rooms and vote rounds: both consent texts, the tools and the limits", () => {
+  it("live rooms, vote rounds and walls: their consent texts, the tools and the limits", () => {
     const rooms = row("rooms");
-    expect(quoted(rooms)).toEqual([VISITOR_ROOM_CONSENT_TEXT, VOTE_ROOM_CONSENT_TEXT]);
+    expect(quoted(rooms)).toEqual([
+      VISITOR_ROOM_CONSENT_TEXT,
+      VOTE_ROOM_CONSENT_TEXT,
+      WALL_ROOM_CONSENT_TEXT,
+    ]);
     for (const id of VISITOR_TOOLS) expect(said(rooms), id).toContain(getToolById(id)!.name);
     expect(said(rooms)).toContain("Live rooms run in Planning Poker and Retro Board.");
     expect(VISITOR_LIMITS.maxMembers).toBe(20);
