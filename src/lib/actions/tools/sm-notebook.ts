@@ -123,8 +123,14 @@ function shown(e: NotebookEntry, bodyMax: number) {
 
 /* ── list_state ──────────────────────────────────────────────────────── */
 
-function summarize(entries: NotebookEntry[]) {
-  const today = todayLocalISO();
+const ListStateSchema = z.object({
+  today: IsoDay.optional().describe(
+    "The user's local day, YYYY-MM-DD, that thisWeek is counted from. Default today; over MCP that is the server's (UTC) day, which can be a day behind or ahead of the user's, so send it."
+  ),
+});
+
+function summarize(entries: NotebookEntry[], p: z.infer<typeof ListStateSchema>) {
+  const today = p.today && isDay(p.today) ? p.today : todayLocalISO();
   const weekStart = weekStartOf(today);
   const week = notesOfWeek(entries, weekStart);
   return {
@@ -150,10 +156,10 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the Scrum Master Notebook (the user's own private notes). Returns {total, examples (notes from the page's example, ids starting 'example-'), thisWeek: {weekStart (Monday), weekEnd, notes, summaries (kept weekly summaries, tagged 'weekly-summary')}, tags: [{tag, count}] (most first, up to 30), events: [{event, label, count}], recent: the 10 newest notes [{id, date, name, title?, body (cut at 300 characters; bodyCut says so), tags, event?, eventLabel?, linkedTool? {id, name, href}, sentTo, example?, summary?}]}. Use search for more.",
-  paramsSchema: z.object({}),
-  handler: async () => summarize(await browserStore.all()),
-  mcpHandler: async (_params, ctx) => summarize(await serverStore(ctx.userId).all()),
+    "Summarise the Scrum Master Notebook (the user's own private notes). thisWeek is the week of today (the user's local day; over MCP pass today, as the server's day is UTC). Returns {total, examples (notes from the page's example, ids starting 'example-'), thisWeek: {weekStart (Monday), weekEnd, notes, summaries (kept weekly summaries, tagged 'weekly-summary')}, tags: [{tag, count}] (most first, up to 30), events: [{event, label, count}], recent: the 10 newest notes [{id, date, name, title?, body (cut at 300 characters; bodyCut says so), tags, event?, eventLabel?, linkedTool? {id, name, href}, sentTo, example?, summary?}]}. Use search for more.",
+  paramsSchema: ListStateSchema,
+  handler: async (params) => summarize(await browserStore.all(), params),
+  mcpHandler: async (params, ctx) => summarize(await serverStore(ctx.userId).all(), params),
 });
 
 /* ── search ──────────────────────────────────────────────────────────── */
@@ -203,7 +209,9 @@ registry.register({
 /* ── weekly_summary ──────────────────────────────────────────────────── */
 
 const WeeklySchema = z.object({
-  weekOf: IsoDay.optional().describe("Any day in the week (YYYY-MM-DD); default today."),
+  weekOf: IsoDay.optional().describe(
+    "Any day in the week (YYYY-MM-DD). Default today; over MCP that is the server's (UTC) day, which can be a day behind or ahead of the user's, so send the user's local day."
+  ),
 });
 
 async function weekly(store: NotebookStore, p: z.infer<typeof WeeklySchema>) {
@@ -233,7 +241,7 @@ registry.register({
   name: "weekly_summary",
   category: "read",
   description:
-    "Read one week of the notebook together, without AI (the page's 'Sum up this week'; the page's Ask Amr can write a fuller one). The week runs Monday to Sunday around weekOf (default today); kept summaries are left out of the counts. Returns {weekStart, weekEnd, notes (count), tags: [{tag, count}], events: [{event, label, count}], summary (counts and the themes that came up most), patterns (themes in two notes or more, from tags and the notes' words), suggestedTools: [{id, name, href, why}] (only real toolkit tools), keptSummaries: [{id, date, name}], source: 'fallback'}. To keep a summary, add_note with tags ['weekly-summary'].",
+    "Read one week of the notebook together, without AI (the page's 'Sum up this week'; the page's Ask Amr can write a fuller one). The week runs Monday to Sunday around weekOf (default today; over MCP pass weekOf, as the server's day is UTC); kept summaries are left out of the counts. Returns {weekStart, weekEnd, notes (count), tags: [{tag, count}], events: [{event, label, count}], summary (counts and the themes that came up most), patterns (themes in two notes or more, from tags and the notes' words), suggestedTools: [{id, name, href, why}] (only real toolkit tools), keptSummaries: [{id, date, name}], source: 'fallback'}. To keep a summary, add_note with tags ['weekly-summary'].",
   paramsSchema: WeeklySchema,
   handler: async (params) => weekly(browserStore, params),
   mcpHandler: async (params, ctx) => weekly(serverStore(ctx.userId), params),

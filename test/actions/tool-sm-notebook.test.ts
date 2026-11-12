@@ -159,6 +159,20 @@ describe.each(TRANSPORTS)("over %s", (path) => {
     expect(r.recent.find((n) => n.id === "d")!.linkedTool).toBeUndefined();
   });
 
+  it("list_state counts this week from the user's own day when the agent sends it", async () => {
+    seed(path, WEEK);
+    // Early Monday for the user, still Sunday on a UTC server: the user's week is the next one.
+    const r = await run<{ thisWeek: { weekStart: string; notes: number } }>(path, "list_state", {
+      today: "2026-11-16",
+    });
+    expect(r.thisWeek).toMatchObject({ weekStart: "2026-11-16", notes: 0 });
+    const desc = registry.get("tool.sm_notebook.list_state")!.description;
+    expect(desc).toMatch(/over MCP pass today/);
+    expect(registry.get("tool.sm_notebook.weekly_summary")!.description).toMatch(
+      /over MCP pass weekOf/
+    );
+  });
+
   it("search finds by words, tags, event and days, newest first, with a cut text", async () => {
     seed(path, [...WEEK, note("long", "2026-11-05", { body: "blocked ".repeat(200) })]);
     const words = await run<{ matches: number; notes: { id: string; bodyCut: boolean }[] }>(
