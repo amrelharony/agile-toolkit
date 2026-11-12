@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import type { HostKeyPair } from "@/lib/realtime/vote-room/crypto";
 import {
   WALL_LIMITS,
@@ -444,6 +444,8 @@ describe("WallRoomHost: hidden until reveal", () => {
     await tick(600);
     expect(screen.getByText(/1 post so far\. They stay hidden, here too/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("The release date");
+    // Not in any attribute, label or option either.
+    expect(document.body.innerHTML).not.toContain("The release date");
     expect(screen.queryByRole("button", { name: "Save round" })).toBeNull();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Reveal posts" }));
@@ -461,5 +463,101 @@ describe("WallRoomHost: hidden until reveal", () => {
     });
     expect(JSON.stringify(saved)).not.toContain(A.id);
     expect(JSON.stringify(saved)).not.toContain(hostId);
+  });
+});
+
+describe("WallRoomHost: merging", () => {
+  it("merges only from the Merge button, after asking, never from picking in the list", async () => {
+    const crypto = fakeVoteCrypto();
+    render(
+      <LiveAnnouncerProvider>
+        <WallRoomHost
+          tool="audience-wall"
+          toolName="Audience Wall"
+          onSave={() => undefined}
+          defaultMode="live"
+          crypto={crypto}
+        />
+      </LiveAnnouncerProvider>
+    );
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open a live wall" }));
+    });
+    const dialog = screen.getByRole("dialog");
+    const name = dialog.querySelector("input:not([type=checkbox])") as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(name, { target: { value: "Hana Ito" } });
+      fireEvent.click(dialog.querySelector("input[type=checkbox]")!);
+      fireEvent.click(screen.getByRole("button", { name: "Start room" }));
+    });
+    await flush();
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+    });
+    await flush();
+    const hostId = (ch.track.mock.calls.at(-1) as unknown as [{ id: string }])[0].id;
+    act(() => {
+      ch.setPresence([{ ...HOST, id: hostId }, A, B]);
+    });
+    await flush();
+    await tick(600);
+    fireEvent.change(screen.getByLabelText(/Prompt/), { target: { value: "Questions?" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open the wall" }));
+    });
+    await tick(600);
+    const s = states(ch).at(-1)!;
+    for (const [m, id, text, key] of [
+      [A, "pid_00000001", "When is the release?", "keyA_0123456789abcdef"],
+      [B, "pid_00000002", "Release date?", "keyB_0123456789abcdef"],
+    ] as const) {
+      await deliver(
+        ch,
+        WALL_ROOM_EVENTS.intent,
+        await request(crypto, s, m.id, {
+          t: "post",
+          r: s.round!.id,
+          pid: id,
+          text,
+          lock: lockOf(key),
+        })
+      );
+    }
+    await tick(600);
+    expect(screen.getByText("When is the release?", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("Release date?", { selector: "p" })).toBeInTheDocument();
+
+    const [firstList] = screen.getAllByLabelText("Merge into");
+    const firstMerge = screen.getAllByRole("button", { name: /^Merge:/ })[0];
+    expect(firstMerge).toBeDisabled();
+    // Choosing in the list (as arrowing through it does) changes nothing yet.
+    fireEvent.change(firstList, {
+      target: { value: (firstList as HTMLSelectElement).options[1].value },
+    });
+    await tick(600);
+    expect(screen.getAllByRole("listitem").filter((li) => li.closest("ol"))).toHaveLength(2);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(firstMerge).toBeEnabled();
+
+    // The button asks first; Cancel leaves both posts.
+    fireEvent.click(firstMerge);
+    let confirm = screen.getByRole("dialog", { name: "Merge these posts?" });
+    expect(confirm).toHaveTextContent("You can't split them again.");
+    fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+    await tick(600);
+    expect(screen.getAllByRole("button", { name: /^Merge:/ })).toHaveLength(2);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Merge:/ })[0]);
+    confirm = screen.getByRole("dialog", { name: "Merge these posts?" });
+    await act(async () => {
+      fireEvent.click(within(confirm).getByRole("button", { name: "Merge posts" }));
+    });
+    await tick(600);
+    expect(screen.getByText("Merged the post into the one you picked.")).toBeInTheDocument();
+    const round = states(ch).at(-1)!.round!;
+    expect(round.count).toBe(1);
+    expect(round.posts![0].merged).toHaveLength(1);
   });
 });
