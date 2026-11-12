@@ -326,18 +326,22 @@ export function movePerson(
   return { ...state, rounds };
 }
 
-/** Give a saved round's groups names, in order (a blank name clears one). */
+/**
+ * Give a saved round's groups names, by place: a blank name clears one, and
+ * null (or a place past the list) leaves one as it is.
+ */
 export function nameGroups(
   state: MixerState,
   roundId: string,
-  names: readonly string[]
+  names: readonly (string | null)[]
 ): MixerState {
   const at = state.rounds.findIndex((r) => r.id === roundId);
   if (at < 0) return state;
   const round = state.rounds[at];
   const groups = round.groups.map((g, i) => {
-    if (i >= names.length) return g;
-    const name = cleanLine(names[i], MIXER_LIMITS.groupName);
+    const typed = names[i];
+    if (typed === null || typed === undefined) return g;
+    const name = cleanLine(typed, MIXER_LIMITS.groupName);
     return name ? { name, people: g.people } : { people: g.people };
   });
   const rounds = state.rounds.slice();

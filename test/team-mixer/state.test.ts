@@ -271,13 +271,13 @@ describe("mixing and saving", () => {
   it("saves a round, and the next one avoids its pairs", () => {
     const first = ok(mixNow({ ...six(), mode: "pairs" }, [], { seed: 1, id: "r1" }));
     expect(first.state.rounds).toHaveLength(1);
-    expect(first.round.mode).toBe("pairs");
+    expect(first.round!.mode).toBe("pairs");
     expect(first.state.seriesSeed).toBe(1);
     const second = ok(mixNow(first.state, [], { seed: 2, id: "r2" }));
     expect(second.state.rounds.map((r) => r.id)).toEqual(["r1", "r2"]);
     expect(second.state.seriesSeed).toBe(1);
-    const before = new Set(first.round.groups.flatMap((g) => [pairKey(g.people[0], g.people[1])]));
-    for (const g of second.round.groups)
+    const before = new Set(first.round!.groups.flatMap((g) => [pairKey(g.people[0], g.people[1])]));
+    for (const g of second.round!.groups)
       expect(before.has(pairKey(g.people[0], g.people[1]))).toBe(false);
     expect(latestRound(second.state)?.id).toBe("r2");
     expect(pairingCount(second.state)).toBe(6);
@@ -285,15 +285,15 @@ describe("mixing and saving", () => {
 
   it("keeps the title with the round", () => {
     const r = ok(mixNow({ ...six(), title: "Retro breakouts" }, [], { seed: 1 }));
-    expect(r.round.title).toBe("Retro breakouts");
+    expect(r.round!.title).toBe("Retro breakouts");
   });
 
   it("plans a World Café and steps through its rounds", () => {
     const r = ok(
       mixNow({ ...six(), mode: "cafe", tables: 2, cafeRounds: 2 }, [], { seed: 3, id: "c1" })
     );
-    expect(r.cafe.id).toBe("c1");
-    expect(r.cafe.rounds).toHaveLength(2);
+    expect(r.cafe!.id).toBe("c1");
+    expect(r.cafe!.rounds).toHaveLength(2);
     expect(r.state.rounds).toEqual([]);
     expect(showCafeRound(r.state, 1).cafe?.current).toBe(1);
     expect(showCafeRound(r.state, 9).cafe?.current).toBe(1);
@@ -309,7 +309,7 @@ describe("mixing and saving", () => {
 
   it("moves a person to another group, and drops a group left empty", () => {
     const r = ok(mixNow({ ...six(), split: "count", count: 3 }, [], { seed: 4, id: "r1" }));
-    const [first, second] = r.round.groups;
+    const [first, second] = r.round!.groups;
     const who = first.people[0];
     const moved = movePerson(r.state, "r1", who, 1);
     const round = moved.rounds[0];
@@ -332,6 +332,9 @@ describe("mixing and saving", () => {
     const cleared = nameGroups(named, "r1", [""]);
     expect(cleared.rounds[0].groups[0].name).toBeUndefined();
     expect(cleared.rounds[0].groups[1].name).toBe("Elm");
+    // null leaves a group's name as it is.
+    const one = nameGroups(named, "r1", [null, "Ash"]);
+    expect(one.rounds[0].groups.map((g) => g.name)).toEqual(["Oak", "Ash"]);
   });
 });
 

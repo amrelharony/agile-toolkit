@@ -1,0 +1,117 @@
+"use client";
+
+import { useState } from "react";
+import { Tags } from "lucide-react";
+import { AiButton, AiSuggestions } from "@/components/ai";
+import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import type { AiSource } from "@/lib/ai/task-types";
+import { MIXER_LIMITS } from "@/lib/team-mixer/model";
+import { suggestGroupNames } from "@/lib/team-mixer/names";
+import { GROUP_NAME_AI } from "./group-name-task";
+
+const THEME_MAX = 60;
+
+interface Suggestion {
+  name: string;
+  /** The group it would name, from 0. */
+  index: number;
+}
+
+export interface GroupNamerProps {
+  /** How many groups there are to name. */
+  count: number;
+  /** "Group", "Pair" or "Table", for the words. */
+  unit: string;
+  /** Name groups by place: null leaves one as it is (Undo is the caller's). */
+  onApply: (names: (string | null)[]) => void;
+}
+
+/**
+ * Fun names for the groups. "Suggest names" picks from short built-in
+ * lists (no AI); where Amr's AI is on, "Ask Amr for names" asks it for a
+ * theme. Either way the names are only suggestions: they reach the groups
+ * when the person uses them, with Undo. The AI gets the theme and a count,
+ * never who is in a group.
+ */
+export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
+  const [theme, setTheme] = useState("");
+  const [suggested, setSuggested] = useState<{ items: Suggestion[]; source: AiSource } | null>(
+    null
+  );
+  const ai = GROUP_NAME_AI;
+  const wanted = Math.min(count, MIXER_LIMITS.groups);
+
+  // Each suggestion keeps its group's place, so "Use all" after one "Use"
+  // still names the right groups.
+  const show = (names: readonly string[], source: AiSource) =>
+    setSuggested({ items: names.map((name, index) => ({ name, index })), source });
+  const apply = (items: readonly Suggestion[]) => {
+    const names: (string | null)[] = Array.from({ length: wanted }, () => null);
+    for (const it of items) names[it.index] = it.name;
+    onApply(names);
+  };
+
+  return (
+    <div className="space-y-3 rounded-md border border-border p-3">
+      <div className="flex items-center gap-2">
+        <Tags className="h-4 w-4 text-sub" aria-hidden="true" />
+        <p className="text-sm font-medium text-text">Name the {unit.toLowerCase()}s</p>
+      </div>
+      <Field label="Theme (optional)" hint="Planets, rivers, trees, birds, colours, spices…">
+        {(props) => (
+          <Input
+            {...props}
+            value={theme}
+            maxLength={THEME_MAX}
+            onChange={(e) => setTheme(e.target.value)}
+          />
+        )}
+      </Field>
+      <div className="flex flex-wrap items-start gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => show(suggestGroupNames(theme, wanted).names, "fallback")}
+        >
+          Suggest names
+        </Button>
+        {ai && (
+          <AiButton
+            task={ai.task}
+            input={() => ai.input(theme.trim(), Math.min(wanted, ai.max))}
+            disabledReason={theme.trim() ? null : "Type a theme first, such as planets or rivers."}
+            label="Ask Amr for names"
+            onResult={(data, meta) =>
+              show(
+                ai
+                  .names(data)
+                  .map((n) => n.trim().slice(0, MIXER_LIMITS.groupName))
+                  .filter(Boolean)
+                  .slice(0, wanted),
+                meta.source
+              )
+            }
+          />
+        )}
+      </div>
+      {suggested && suggested.items.length > 0 && (
+        <AiSuggestions
+          items={suggested.items}
+          source={suggested.source}
+          title="Suggested names"
+          acceptLabel="Use"
+          render={(it) => ({ title: it.name, detail: `For ${unit} ${it.index + 1}` })}
+          onAccept={(it) => apply([it])}
+          onAcceptAll={(items) => {
+            apply(items);
+            setSuggested(null);
+          }}
+          onDismiss={() => setSuggested(null)}
+        />
+      )}
+    </div>
+  );
+}
