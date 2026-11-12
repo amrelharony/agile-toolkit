@@ -713,6 +713,30 @@ describe("the live room", () => {
     );
   });
 
+  it("says when a move leaves the room showing the round as it was", async () => {
+    seed(SIX, { split: "count", count: 2 });
+    await mount();
+    fireEvent.click(mixButton());
+    fireEvent.click(screen.getByRole("button", { name: "Show round 1" }));
+    const who = state().rounds[0].groups[0].people[0];
+    fireEvent.change(screen.getByLabelText("Who"), { target: { value: who } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Move" }));
+    expect(
+      screen.getByText("The room shows round 1 as it was before your changes.")
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show the changes" }));
+    expect(spies.show).toHaveBeenCalledTimes(2);
+    const payload = spies.show.mock.calls[1][1] as { groups: { people: string[] }[] };
+    expect(payload.groups[1].people).toContain(who);
+    expect(screen.getByText("Round 1 is on everyone's screen.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show round 1" })).toBeInTheDocument();
+    // A new round is not a change to the one shown: the room's line stays true.
+    fireEvent.click(mixButton());
+    expect(screen.getByRole("button", { name: "Show round 2" })).toBeInTheDocument();
+    expect(screen.queryByText(/as it was before your changes/)).toBeNull();
+  });
+
   it("puts the café round on screen", async () => {
     seed(["A1", "B2", "C3", "D4"], { mode: "cafe", tables: 2, cafeRounds: 1 });
     await mount();
