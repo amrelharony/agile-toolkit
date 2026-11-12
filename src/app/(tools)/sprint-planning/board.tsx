@@ -34,6 +34,7 @@ import type {
   Sprint,
   Story,
   StoryGwt,
+  SprintInterruptBuffer,
 } from "@/lib/stores/workspace-types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { SPRINT_PLANNING_ACTIONS } from "@/lib/history/event-actions";
@@ -95,6 +96,8 @@ import { JiraImport } from "./jira-import";
 import { jiraImportToast, jiraStories, type JiraImportPreview } from "./jira";
 import { StoryList, focusAfterMove, type FocusTarget } from "./story-list";
 import { placeStory, restoreStories, type PlanningWriter } from "./writer";
+import { PlanningBuffer } from "./buffer-field";
+import { ProductGoalLine, useActiveProductGoal } from "@/components/product-goal/product-goal-line";
 
 export interface PlanningData {
   /** Every sprint, newest first. */
@@ -687,6 +690,16 @@ export function PlanningBoard({
     );
   };
 
+  // The team's Product Goal, read only, beside the sprint goal being written.
+  const productGoal = useActiveProductGoal();
+
+  /** The sprint's interrupt buffer (Interrupt Buffer reads it and logs what lands in it). */
+  const saveBuffer = (buffer: SprintInterruptBuffer | undefined) => {
+    if (closed) return;
+    writer.updateSprint(sprint.id, { interruptBuffer: buffer });
+    setAnnouncement(buffer ? "Interrupt buffer saved." : "Interrupt buffer cleared.");
+  };
+
   const saveGoal = (value: string) => {
     const goal = value.trim();
     if (goal !== (sprint.goal ?? "").trim()) {
@@ -833,10 +846,18 @@ export function PlanningBoard({
         <p className="mt-4 text-sm text-text" data-field="forecast">
           {forecastText(capacity, velocity.average)}
         </p>
+        <PlanningBuffer
+          sprint={sprint}
+          targetPoints={targetPoints}
+          disabled={closed}
+          example={example}
+          onSave={saveBuffer}
+        />
       </SectionCard>
 
       {/* 2. Goal */}
       <SectionCard title="2. Sprint goal" icon={Target}>
+        {!example && <ProductGoalLine goal={productGoal} className="mb-3" />}
         <GoalEditor key={sprint.id} goal={sprint.goal ?? ""} onSave={saveGoal} />
         <p className="mt-2 text-xs text-sub">
           Want help wording it? The{" "}
