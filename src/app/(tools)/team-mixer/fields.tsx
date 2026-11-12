@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -23,7 +23,9 @@ export function validateWhole(
 /**
  * A whole-number setting: what's typed stays as typed, and only a valid
  * number reaches `onChange` (a blank or out-of-range one shows why instead
- * of saving a default).
+ * of saving a default). `onValidity` hears the error while one shows, and
+ * null once the number is good again or the field goes, so the card can
+ * hold its Mix button rather than mix with the last good number unseen.
  */
 export function WholeNumberField({
   label,
@@ -32,6 +34,7 @@ export function WholeNumberField({
   max,
   hint,
   onChange,
+  onValidity,
   className,
 }: {
   label: string;
@@ -40,12 +43,23 @@ export function WholeNumberField({
   max: number;
   hint?: ReactNode;
   onChange: (n: number) => void;
+  onValidity?: (error: string | null) => void;
   className?: string;
 }) {
   const [text, setText] = useState(String(value));
   // A change from elsewhere (the example, Amr) shows up here.
   useEffect(() => setText(String(value)), [value]);
   const checked = validateWhole(text, min, max);
+  const error = checked.ok ? null : checked.error;
+  // The latest callback, so a new one each render doesn't re-report.
+  const report = useRef(onValidity);
+  useEffect(() => {
+    report.current = onValidity;
+  });
+  useEffect(() => {
+    report.current?.(error);
+  }, [error]);
+  useEffect(() => () => report.current?.(null), []);
   return (
     <Field
       label={label}

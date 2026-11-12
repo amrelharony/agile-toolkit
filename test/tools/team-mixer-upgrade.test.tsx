@@ -313,6 +313,36 @@ describe("mixing groups", () => {
     expect(validateWhole("2.5", 2, 60).ok).toBe(false);
   });
 
+  it("holds Mix while a number field shows an error, instead of mixing with the old number", async () => {
+    seed(SIX);
+    await mount();
+    fireEvent.change(screen.getByLabelText("People in each group"), { target: { value: "1" } });
+    expect(mixButton()).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByText("People in each group: Enter a whole number from 2 to 60.")
+    ).toBeInTheDocument();
+    fireEvent.click(mixButton());
+    expect(state().rounds).toEqual([]);
+    expect(spies.log).not.toHaveBeenCalled();
+    // A good number lets it mix again; so does leaving the field behind.
+    fireEvent.change(screen.getByLabelText("People in each group"), { target: { value: "3" } });
+    expect(mixButton()).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByText("2 groups of 3.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("People in each group"), { target: { value: "70" } });
+    fireEvent.click(radio("Split by", "Number of groups"));
+    fireEvent.click(mixButton());
+    expect(state().rounds).toHaveLength(1);
+  });
+
+  it("holds Plan the café while Tables shows an error", async () => {
+    seed(["A1", "B2", "C3", "D4", "E5", "F6", "G7", "H8"], { mode: "cafe", tables: 2 });
+    await mount();
+    fireEvent.change(screen.getByLabelText("Tables"), { target: { value: "25" } });
+    expect(screen.getByText("Tables: Enter a whole number from 2 to 20.")).toBeInTheDocument();
+    fireEvent.click(mixButton());
+    expect(state().cafe).toBeNull();
+  });
+
   it("says plainly what stops a mix, and saves nothing", async () => {
     seed(["Ana"]);
     await mount();

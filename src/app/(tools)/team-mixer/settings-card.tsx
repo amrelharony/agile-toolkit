@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Shuffle, SlidersHorizontal } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -88,9 +89,33 @@ function TitleField({ value, onCommit }: { value: string; onCommit: (title: stri
   );
 }
 
-/** How to mix: groups, pairs or a World Café, the sizes, the balance, and the Mix button. */
+/**
+ * How to mix: groups, pairs or a World Café, the sizes, the balance, and
+ * the Mix button. While a number field shows an error, Mix waits and says
+ * which field: the saved number is the last good one, and mixing with it
+ * unseen would not be what the field shows.
+ */
 export function SettingsCard({ state, onChange, onMix, problem, preview }: SettingsCardProps) {
   const id = useId();
+  const announce = useAnnounce();
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string | null>>({});
+  const fieldValidity = useCallback(
+    (label: string) => (error: string | null) =>
+      setFieldErrors((prev) =>
+        (prev[label] ?? null) === error ? prev : { ...prev, [label]: error }
+      ),
+    []
+  );
+  const fieldLabel = Object.keys(fieldErrors).find((label) => fieldErrors[label]);
+  const fieldError = fieldLabel ? `${fieldLabel}: ${fieldErrors[fieldLabel]}` : null;
+  const blocked = fieldError ?? problem;
+  const mix = () => {
+    if (fieldError) {
+      announce(fieldError);
+      return;
+    }
+    onMix();
+  };
   const mixed = state.mode === "cafe" ? state.cafe !== null : state.rounds.length > 0;
   const label =
     state.mode === "cafe"
@@ -128,21 +153,26 @@ export function SettingsCard({ state, onChange, onMix, problem, preview }: Setti
                 onValueChange={(split) => onChange({ split })}
               />
             </div>
+            {/* Keyed: each field is its own, with its own typed text and error. */}
             {state.split === "size" ? (
               <WholeNumberField
+                key="size"
                 label="People in each group"
                 value={state.size}
                 min={2}
                 max={MIXER_LIMITS.groupSize}
                 onChange={(size) => onChange({ size })}
+                onValidity={fieldValidity("People in each group")}
               />
             ) : (
               <WholeNumberField
+                key="count"
                 label="Number of groups"
                 value={state.count}
                 min={2}
                 max={MIXER_LIMITS.groups}
                 onChange={(count) => onChange({ count })}
+                onValidity={fieldValidity("Number of groups")}
               />
             )}
           </div>
@@ -170,6 +200,7 @@ export function SettingsCard({ state, onChange, onMix, problem, preview }: Setti
                 min={2}
                 max={MIXER_LIMITS.tables}
                 onChange={(tables) => onChange({ tables })}
+                onValidity={fieldValidity("Tables")}
               />
               <WholeNumberField
                 label="Rounds"
@@ -177,6 +208,7 @@ export function SettingsCard({ state, onChange, onMix, problem, preview }: Setti
                 min={1}
                 max={MIXER_LIMITS.cafeRounds}
                 onChange={(cafeRounds) => onChange({ cafeRounds })}
+                onValidity={fieldValidity("Rounds")}
               />
             </div>
             <fieldset className="space-y-2">
@@ -232,9 +264,9 @@ export function SettingsCard({ state, onChange, onMix, problem, preview }: Setti
             type="button"
             variant="toolkit"
             className="gap-1.5"
-            aria-disabled={problem ? true : undefined}
+            aria-disabled={blocked ? true : undefined}
             aria-describedby={`${id}-preview`}
-            onClick={onMix}
+            onClick={mix}
           >
             <Shuffle className="h-4 w-4" aria-hidden="true" />
             {label}
@@ -244,7 +276,7 @@ export function SettingsCard({ state, onChange, onMix, problem, preview }: Setti
             role="status"
             className="min-w-0 flex-1 basis-48 text-sm text-text"
           >
-            {problem ?? preview ?? ""}
+            {blocked ?? preview ?? ""}
           </p>
         </div>
       </div>
