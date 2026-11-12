@@ -321,6 +321,25 @@ describe("his balloon's tail", () => {
     expect(region().style.bottom).toBe("");
   });
 
+  it("hides while he is carried: it would point at the spot he left", () => {
+    // At his usual corner, bottom right: the tail on the balloon's right edge.
+    render(<MascotBubble />);
+    act(() => useBubbleStore.getState().show({ id: "hi", text: "Welcome back" }));
+    expect(bubble()).toHaveAttribute("data-tail", "right");
+    expect(bubble()).toHaveAttribute("data-tail-from", "bottom");
+
+    act(() => useMascotStore.getState().setDrag(120));
+    expect(bubble()).toHaveAttribute("data-tail", "none");
+    expect(bubble()).not.toHaveAttribute("data-tail-from");
+    expect(bubble()).toHaveClass("balloon");
+    expect(status()).toHaveTextContent("Welcome back");
+
+    // Dropped: it points at him again.
+    act(() => useMascotStore.getState().setDrag(null));
+    expect(bubble()).toHaveAttribute("data-tail", "right");
+    expect(bubble()).toHaveAttribute("data-tail-from", "bottom");
+  });
+
   it("follows a flip and a lift on a phone too", () => {
     stubMedia((q) => q === PHONE_MEDIA_QUERY);
     render(<MascotBubble />);

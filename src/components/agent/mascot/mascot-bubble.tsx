@@ -7,7 +7,8 @@
  *
  * - His line or question: a speech balloon with the chat's capped corners
  *   (`.balloon[data-tail]`, DNA-SPEC §6 "Chat strip") whose tail points at him
- *   (amr-geometry's bubbleTail). A line fades on its own after about 4 s, and
+ *   (amr-geometry's bubbleTail). While he is carried the tail hides, as his
+ *   panel's does: it would point at the spot he left. A line fades on its own after about 4 s, and
  *   stays while the pointer or focus is on it. A question waits for its
  *   answer: it goes when it is answered, when his panel opens (the panel holds
  *   the same choice) or when a new line replaces it.
@@ -84,6 +85,7 @@ export function MascotBubble() {
   const dismiss = useBubbleStore((s) => s.dismiss);
   const placed = useMascotStore((s) => s.placed);
   const lift = useMascotStore((s) => s.lift);
+  const carried = useMascotStore((s) => s.drag !== null);
   const momentUp = useMomentStore((s) => s.current !== null);
   const panelOpen = useAgentStore((s) => s.open);
   const phase = useAgentStore(outsidePhase);
@@ -146,8 +148,8 @@ export function MascotBubble() {
       <div
         data-amr-bubble={narration !== null ? "narration" : line?.id}
         data-voice={narration !== null ? "narration" : undefined}
-        data-tail={line ? tail.tail : undefined}
-        data-tail-from={line ? tail.from : undefined}
+        data-tail={line ? (carried ? "none" : tail.tail) : undefined}
+        data-tail-from={line && !carried ? tail.from : undefined}
         className={
           shown
             ? cn(
