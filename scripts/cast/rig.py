@@ -236,6 +236,12 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         colours = palette.block_colours(sources, cid)
     except FileNotFoundError:
         colours = None
+    # The character's own eye-white and pupil colours, read from its block now and
+    # never kept: what C10 and the pupils take as an eye (generic tests without them).
+    eyes = None
+    if colours:
+        roles = palette.eye_roles(sources, cid)
+        eyes = swaps.Eyes.of([im.hex_lab(h) for _, h in colours], roles["white"], roles["pupil"])
 
     # Master: cut, C1–C4, C9 against the private swatches, then locked to them.
     mrep, mextra = checks.check_master(files["master"], c, colours)
@@ -469,7 +475,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     c10 = {"status": "skip", "notes": []}
     pupils = []
     if host in baked and any(i.startswith("pupil-") for i in ids_all):
-        pupils = swaps.pupils_from_master(master, baked[host])
+        pupils = swaps.pupils_from_master(master, baked[host], eyes)
         if len(pupils) != 2:
             c10["status"] = "fail"
             c10["notes"].append(f"found {len(pupils)} pupil(s) in the master, expected 2")
@@ -494,7 +500,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         cols = len(states) // rows
         order = swaps.grid_order(s["pieces"], rows, cols, s["cut"].shape)
         cells = [s["pieces"][i].crop(s["cut"])[0] if i is not None else None for i in order]
-        got = swaps.face_patches(cells, states, face_base, neutral)
+        got = swaps.face_patches(cells, states, face_base, neutral, eyes=eyes)
         neutral = got["neutral"]  # face2 has no neutral heads of its own
         for slot in ("eyes", "mouth"):
             if slot in got:
@@ -518,14 +524,15 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         hb = im.mask_bbox(baked[host][..., 3] >= SOLID_ALPHA)
         top, bottom = swaps.head_bands(hb)["eyes"]
         eyes_box = face_out["eyes"]["box"] if "eyes" in face_out else (hb[0], int(top), hb[2], int(np.ceil(bottom)))
-        if swaps.drawn_pupils(baked[host], eyes_box):
+        host_area = float((baked[host][..., 3] >= SOLID_ALPHA).sum())
+        if swaps.drawn_pupils(baked[host], eyes_box, eyes, host_area):
             c10["status"] = "fail"
             c10["notes"].append("eyes.open: the parts sheet's eyes hold pupils; they must be empty whites")
         wide = face_out.get("eyes", {}).get("choices", {}).get("wide")
-        if wide is not None and swaps.drawn_pupils(wide, eyes_box):
+        if wide is not None and swaps.drawn_pupils(wide, eyes_box, eyes, host_area):
             c10["status"] = "fail"
             c10["notes"].append("eyes.wide: a pupil is left in the white")
-        light = swaps.whites(baked[host])
+        light = swaps.whites(baked[host], eyes, host_area)
         for n, p in enumerate(pupils):
             if 0 in swaps.pupil_travel(p["mask"], light):
                 c10["status"] = "fail"
@@ -628,7 +635,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     report["checks"]["C9"] = c9
 
     # Sprites, atlas, manifest.
-    man, sprites = manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources, clips)
+    man, sprites = manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources, clips, eye_colours=eyes)
     # The rig as the runtime plays it: its tap moves move something, and the counts fit.
     rchk = {"status": "pass", "notes": cast_clips.unplayable(man, clips)}
     for key, cap in (("nodes", "rig_nodes_max"), ("animated", "rig_animated_max")):
@@ -710,7 +717,7 @@ def _sprite(rgba: np.ndarray, k2: float) -> tuple[tuple[float, float, float, flo
     return (x0, y0, x0 + bw, y0 + bh), np.array(cut.convert("RGBA"))
 
 
-def manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources, clips) -> tuple[dict, list]:
+def manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources, clips, eye_colours=None) -> tuple[dict, list]:
     """(RigManifest with sprite slots unfilled, [(sprite key, 2x RGBA)]).
 
     The shape CastFigure draws (src/lib/cast/rig-types.ts): the arms and the fan
@@ -857,7 +864,7 @@ def manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources,
     eyes = next((s for s in swaps_out if s["id"] == "eyes"), None)
     if len(pupil_ids) == 2 and eyes is not None:
         tx, ty = [], []
-        light = swaps.whites(baked[host])
+        light = swaps.whites(baked[host], eye_colours, float((baked[host][..., 3] >= SOLID_ALPHA).sum()))
         for p in pupils[:2]:
             ax, ay = swaps.pupil_travel(p["mask"], light)
             b = p["box"]

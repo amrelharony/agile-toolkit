@@ -162,6 +162,53 @@ class Face(unittest.TestCase):
         self.assertEqual(swaps.drawn_pupils(cs.torso(pupils=False), box), [])
 
 
+# A made-up face for the eye tests, in colours of its own (no character's): a pale
+# near-grey fur and a cream blaze both pass the generic white test, as a pale
+# yellow eye white does not.
+FUR = (196, 192, 204)
+CREAM = (236, 232, 214)
+EYE = (250, 250, 250)
+YELLOW_EYE, YELLOW_LOW = (246, 232, 150), (236, 190, 90)
+GREENISH = (128, 168, 120)
+IRIS = (150, 96, 40)  # L* about 45: above dark_l_max
+TEAL_IRIS = (40, 170, 120)  # L* about 61, strongly coloured
+BLUSH = (210, 120, 160)
+EYES_AT, EYE_R2, IRIS_R, CENTRE_R = ((140, 160), (280, 160)), 44, 24, 10
+EYES_BOX = (70, 70, 350, 230)
+
+
+def lab_of(*rgbs):
+    return np.array([im.lab(np.array(c, float)) for c in rgbs])
+
+
+def eye_head(skin, white, lower=None, blaze=None, pupils=None, iris=None, brows=True, size=(420, 360)):
+    """The test face: a round head in `skin` (a blaze between the eyes when given),
+    two ink-outlined eyes in `white` (their lower part in `lower`), ink brows and
+    whiskers on the skin, a mouth; pupils "dark" (an ink disc), "iris" (an `iris`
+    disc round an ink centre with a white highlight) or "blob" (an `iris` disc, no
+    dark core)."""
+    p = cs.Pen(*size)
+    p.ellipse((20, 20, size[0] - 20, size[1] - 20), skin)
+    if blaze:
+        p.ellipse((180, 110, 240, 300), blaze, outline=None)
+    for x, y in EYES_AT:
+        r = EYE_R2
+        p.ellipse((x - r, y - r, x + r, y + r), white, width=5)
+        if lower:
+            p.d.chord([v * cs.SS for v in (x - r + 5, y - r + 5, x + r - 5, y + r - 5)], 30, 150, fill=lower + (255,))
+        if pupils in ("iris", "blob"):
+            p.ellipse((x - IRIS_R, y - IRIS_R, x + IRIS_R, y + IRIS_R), iris, outline=None)
+        if pupils in ("dark", "iris"):
+            p.ellipse((x - CENTRE_R, y - CENTRE_R, x + CENTRE_R, y + CENTRE_R), cs.INK, outline=None)
+        if pupils == "iris":
+            p.ellipse((x + 4, y - 9, x + 10, y - 3), EYE, outline=None)
+        if brows:
+            p.arc((x - 40, y - 86, x + 40, y - 40), 200, 340, width=8)
+        p.line([(x - 70 if x < 210 else x + 40, y + 70), (x - 30 if x < 210 else x + 80, y + 64)], width=4)
+    p.arc((170, 230, 250, 290), 20, 160, width=8)
+    return p.done()
+
+
 class EyeColours(unittest.TestCase):
     def block(self, text):
         root = Path(self.tmp.name)
@@ -194,6 +241,96 @@ class EyeColours(unittest.TestCase):
         self.assertEqual(palette.eye_roles(src, "AAW-25"), {"white": [2], "pupil": [0, 1]})
         src = self.block(f"COLOURS\n- Body {hx[0]}, shade {hx[1]}.\n")
         self.assertEqual(palette.eye_roles(src, "AAW-25"), {"white": [], "pupil": []})
+        self.assertIsNone(swaps.Eyes.of(lab_of(cs.BODY, cs.INK), [], [1]))
+
+    def test_tinted_whites_are_found_by_the_characters_own_colour(self):
+        # Pale yellow whites, shaded deeper below: no generic white at all.
+        head = eye_head(GREENISH, YELLOW_EYE, lower=YELLOW_LOW)
+        master = eye_head(GREENISH, YELLOW_EYE, lower=YELLOW_LOW, pupils="dark")
+        self.assertEqual(swaps.pupils_from_master(master, head), [])
+        eyes = swaps.Eyes.of(lab_of(GREENISH, YELLOW_EYE, YELLOW_LOW, cs.INK), [1, 2], [3])
+        got = swaps.pupils_from_master(master, head, eyes)
+        self.assertEqual(len(got), 2)
+        for p, (x, y) in zip(got, EYES_AT):
+            self.assertGreaterEqual(p["diameter"], TOL["pupil_min_px"])
+            self.assertTrue(p["mask"][y, x])
+        self.assertEqual(swaps.drawn_pupils(head, EYES_BOX, eyes), [])
+        self.assertEqual(len(swaps.drawn_pupils(master, EYES_BOX, eyes)), 2)
+        light = swaps.whites(head, eyes)
+        self.assertTrue(light[EYES_AT[0][1] + 30, EYES_AT[0][0]])  # the shaded lower part too
+        for p in got:
+            self.assertNotIn(0, swaps.pupil_travel(p["mask"], light))
+
+    def test_pale_fur_brows_and_outlines_are_no_pupils(self):
+        # The fur and the blaze both pass the generic white test.
+        self.assertTrue(swaps._light(lab_of(FUR, CREAM)).all())
+        eyes = swaps.Eyes.of(lab_of(FUR, CREAM, EYE, cs.INK), [2], [3])
+        empty = eye_head(FUR, EYE, blaze=CREAM)
+        drawn = eye_head(FUR, EYE, blaze=CREAM, pupils="dark")
+        for e in (None, eyes):  # by its own colours, and by size where it has none
+            self.assertEqual(swaps.drawn_pupils(empty, EYES_BOX, e), [], e)
+            np.testing.assert_array_equal(swaps.fill_whites(empty, EYES_BOX, e), empty)
+            self.assertEqual(len(swaps.drawn_pupils(drawn, EYES_BOX, e)), 2)
+            filled = swaps.fill_whites(drawn, EYES_BOX, e)
+            self.assertEqual(swaps.drawn_pupils(filled, EYES_BOX, e), [])
+            x, y = EYES_AT[0]
+            np.testing.assert_array_equal(filled[y - 70 : y - 40, x - 40 : x + 40], drawn[y - 70 : y - 40, x - 40 : x + 40])  # the brow
+            got = swaps.pupils_from_master(drawn, empty, e)
+            self.assertEqual([bool(p["mask"][y, x]) for p, (x, y) in zip(got, EYES_AT)], [True, True])
+
+    def test_a_near_white_fur_the_eye_white_shares_is_no_eye(self):
+        # Fur within eye_same_de00 of the eye white: colour can't tell them apart, so
+        # the fur, one big patch, is left out by its size.
+        fur = (246, 244, 240)
+        self.assertLess(float(im.de00(lab_of(fur)[0], lab_of(EYE)[0])), TOL["eye_same_de00"])
+        eyes = swaps.Eyes.of(lab_of(fur, EYE, cs.INK), [1], [2])
+        empty, drawn = eye_head(fur, EYE), eye_head(fur, EYE, pupils="dark")
+        self.assertEqual(swaps.drawn_pupils(empty, EYES_BOX, eyes), [])
+        self.assertEqual(len(swaps.drawn_pupils(drawn, EYES_BOX, eyes)), 2)
+        light = swaps.whites(empty, eyes)
+        self.assertFalse(light[60, 210])  # the fur on the forehead
+        self.assertTrue(light[EYES_AT[0][1], EYES_AT[0][0]])
+
+    def test_brows_raised_onto_a_pale_glass_band_stay(self):
+        # A body host whose pale glass passes the generic test, a coloured band below
+        # it holding the eyes, and the brows raised up onto the glass.
+        glass, tea = (226, 228, 224), (150, 90, 50)
+        p = cs.Pen(420, 360)
+        p.rect((20, 20, 400, 340), glass, radius=10)
+        p.rect((26, 120, 394, 334), tea, outline=None)
+        p.line([(26, 120), (394, 120)], width=5)
+        for x, y in EYES_AT:
+            p.ellipse((x - 30, y - 10, x + 30, y + 50), EYE, width=5)
+            p.arc((x - 30, y - 80, x + 30, y - 40), 200, 340, width=8)  # on the glass
+        cup = p.done()
+        eyes = swaps.Eyes.of(lab_of(glass, tea, EYE, cs.INK), [2], [3])
+        np.testing.assert_array_equal(swaps.fill_whites(cup, (60, 60, 360, 230), eyes), cup)
+        self.assertEqual(swaps.drawn_pupils(cup, (60, 60, 360, 230), eyes), [])
+
+    def test_an_iris_lighter_than_the_dark_cut_comes_whole(self):
+        for iris in (IRIS, TEAL_IRIS):
+            self.assertGreater(lab_of(iris)[0][0], TOL["dark_l_max"])
+            eyes = swaps.Eyes.of(lab_of(FUR, EYE, cs.INK, iris), [1], [2, 3])
+            head, master = eye_head(FUR, EYE), eye_head(FUR, EYE, pupils="iris", iris=iris)
+            for e in (None, eyes):
+                got = swaps.pupils_from_master(master, head, e)
+                self.assertEqual(len(got), 2, (iris, e))
+                for p, (x, y) in zip(got, EYES_AT):
+                    disc = np.pi * IRIS_R**2
+                    self.assertGreater(p["mask"].sum(), 0.85 * disc, (iris, e))  # the iris, not its centre
+                    self.assertTrue(p["mask"][y - 6, x + 7])  # the highlight moves with it
+                    self.assertEqual(int(p["sprite"][y, x + IRIS_R - 4, 3]), 255)
+                    self.assertGreaterEqual(p["diameter"], 2 * IRIS_R)
+                # The wide eyes' iris and centre are painted out together.
+                self.assertEqual(len(swaps.drawn_pupils(master, EYES_BOX, e)), 2)
+                filled = swaps.fill_whites(master, EYES_BOX, e)
+                self.assertEqual(swaps.drawn_pupils(filled, EYES_BOX, e), [])
+                x, y = EYES_AT[0]
+                ring = filled[y - IRIS_R + 3 : y + IRIS_R - 3, x - IRIS_R + 3 : x + IRIS_R - 3]
+                self.assertTrue(swaps._light(im.lab(ring[..., :3].reshape(-1, 3).astype(float))).all())
+        # A coloured mark with no dark core in an eye is no pupil.
+        blob = eye_head(FUR, EYE, pupils="blob", iris=BLUSH)
+        self.assertEqual(swaps.drawn_pupils(blob, EYES_BOX), [])
 
     @unittest.skipUnless((spec.DEFAULT_SOURCES / "sources" / "blocks").is_dir(), "the private sources are not on this machine")
     def test_every_private_block_names_its_eye_colours(self):
@@ -206,6 +343,11 @@ class EyeColours(unittest.TestCase):
             print(f"{cid}: {len(roles['white'])} eye-white and {len(roles['pupil'])} pupil colour(s) of {len(colours)}")
             if not roles["white"] or not roles["pupil"]:
                 missing.append(cid)
+                continue
+            lab = np.array([im.hex_lab(h) for _, h in colours])
+            eyes = swaps.Eyes.of(lab, roles["white"], roles["pupil"])
+            self.assertTrue(swaps.white_px(lab[roles["white"]], eyes).all(), f"{cid}: its own eye white is no white")
+            self.assertTrue(swaps.pupil_px(lab[roles["pupil"]], eyes).all(), f"{cid}: its own pupil is no pupil")
         self.assertEqual(missing, [], "these blocks name no eye white or no pupil: the generic tests stand in")
 
 

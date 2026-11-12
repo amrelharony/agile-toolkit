@@ -5,6 +5,7 @@ and the pupils cut from the master.
     face_patches(cells, states, head)    edit-then-diff patches for the eyes and mouth slots
     pupils_from_master(master, head)     the pupils the master shows where the rig head's
                                          eyes are empty whites
+    whites(rgba, eyes)                   a drawing's eye whites
     fill_whites(rgba, box)               a face patch's pupils painted out with the white
     shoulder_ball(rest, pivot, r)        the rest arm's shoulder end, as a template
     pin_arm(pose, ball, rest, ...)       find the ball in a pose and pin it on the pivot
@@ -16,9 +17,18 @@ height is that slot's patch, the union over its states, grown by patch_dilate_px
 and cut to the head. Each state's crop is moved in Lab so its ring_px border ring
 matches the rig head's, and feathered over feather_px. A state that changed more
 than face_outside_max of the head outside its band is refused.
+
+Eyes: an eye white is a pixel nearest the character's own eye-white swatches
+(read from its private block at run time; `Eyes`), in a patch no bigger than
+eye_white_max of the host, so near-white fur, a pale face or a glass body is never
+one; a block with no eye white falls back to light and nearly grey. A pupil is
+whatever is not eye white inside an eye white and holds a dark or pupil-coloured
+seed, so an iris drawn lighter than the dark cut comes whole.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -143,7 +153,7 @@ def feather(patch: np.ndarray, box) -> np.ndarray:
 REST_STATE = {"eyes": "open", "mouth": "rest"}
 
 
-def face_patches(cells: list[np.ndarray | None], states: tuple, head: np.ndarray, neutral: dict | None = None) -> dict:
+def face_patches(cells: list[np.ndarray | None], states: tuple, head: np.ndarray, neutral: dict | None = None, *, eyes: Eyes | None = None) -> dict:
     """{slot: {"box": (x0, y0, x1, y1), "choices": {state: rgba master frame},
     "ring": {...}}, "neutral": {...}, "report": {...}} from the cut face-sheet
     heads in brief order. `head` is the rig head (the face piece, master frame).
@@ -212,7 +222,7 @@ def face_patches(cells: list[np.ndarray | None], states: tuple, head: np.ndarray
         for s in states_here:
             p = baked[(slot, s)].copy()
             if slot == "eyes" and s == "wide":
-                p = fill_whites(p, box)
+                p = fill_whites(p, box, eyes, area)
             p, ring = ring_match(p, head, box)
             choices[s] = feather(p, box)
             rings[s] = round(ring, 2)
@@ -220,84 +230,193 @@ def face_patches(cells: list[np.ndarray | None], states: tuple, head: np.ndarray
     return out
 
 
+@dataclass(frozen=True)
+class Eyes:
+    """A character's eye colours in Lab, read from its private block at run time
+    (palette.eye_roles), never kept in the repo. `white` is its eye-white swatches
+    and `pupil` its pupil and iris swatches, each with every swatch nearer one of
+    them than eye_same_de00 (colours no drawing can tell apart); `white_rest` and
+    `pupil_rest` are the character's other swatches."""
+
+    white: np.ndarray
+    pupil: np.ndarray
+    white_rest: np.ndarray
+    pupil_rest: np.ndarray
+
+    @staticmethod
+    def of(swatches, white_ids, pupil_ids) -> "Eyes | None":
+        """From the block's swatches (Lab) and eye_roles' indices; None when the
+        block names no eye white (the generic tests stand in)."""
+        S = np.asarray(swatches, float).reshape(-1, 3)
+        if not list(white_ids):
+            return None
+
+        def group(ids):
+            if not list(ids):
+                return np.zeros((0, 3)), S
+            d = np.min([im.de00(S, S[i]) for i in ids], axis=0)
+            near = d <= TOL["eye_same_de00"]
+            return S[near], S[~near]
+
+        white, white_rest = group(white_ids)
+        pupil, pupil_rest = group(pupil_ids)
+        return Eyes(white, pupil, white_rest, pupil_rest)
+
+
+def _nearest(lab: np.ndarray, mine: np.ndarray, rest: np.ndarray) -> np.ndarray:
+    """Pixels within eye_de00 of one of `mine` and no nearer any of `rest`."""
+    lab = lab.reshape(-1, 3)
+    if len(mine) == 0 or len(lab) == 0:
+        return np.zeros(len(lab), bool)
+    d = np.min([im.de00(lab, c) for c in mine], axis=0)
+    ok = d <= TOL["eye_de00"]
+    if len(rest) and ok.any():
+        idx = np.nonzero(ok)[0]  # only the pixels still in the running meet the rest
+        ok[idx] = d[idx] <= np.min([im.de00(lab[idx], c) for c in rest], axis=0)
+    return ok
+
+
 def _light(lab: np.ndarray) -> np.ndarray:
-    """An eye's white: light (L* at least white_l_min) and nearly grey
-    (chroma under white_c_max), so a pale yellow body is not one."""
+    """The generic eye white, for a character whose block names none: light (L* at
+    least white_l_min) and nearly grey (chroma under white_c_max)."""
     return (lab[..., 0] >= TOL["white_l_min"]) & (np.hypot(lab[..., 1], lab[..., 2]) <= TOL["white_c_max"])
 
 
-def whites(rgba: np.ndarray) -> np.ndarray:
-    """The eye whites of a drawing (see _light), as a mask."""
-    out = np.zeros(rgba.shape[:2], bool)
-    ys, xs = np.nonzero(rgba[..., 3] >= SOLID_ALPHA)
-    out[ys, xs] = _light(im.lab(rgba[ys, xs, :3].astype(float)))
+def white_px(lab: np.ndarray, eyes: Eyes | None = None) -> np.ndarray:
+    """Pixels in an eye-white colour: nearest the character's eye-white swatches
+    (within eye_de00, and no nearer any other swatch), or the generic test."""
+    if eyes is None:
+        return _light(lab)
+    return _nearest(lab, eyes.white, eyes.white_rest).reshape(lab.shape[:-1])
+
+
+def pupil_px(lab: np.ndarray, eyes: Eyes | None = None) -> np.ndarray:
+    """Pixels a pupil may be seeded from: dark (L* under dark_l_max), or in one of
+    the character's pupil or iris colours (an iris drawn lighter than the dark cut)."""
+    dark = lab[..., 0] < TOL["dark_l_max"]
+    if eyes is None or len(eyes.pupil) == 0:
+        return dark
+    return dark | _nearest(lab, eyes.pupil, eyes.pupil_rest).reshape(lab.shape[:-1])
+
+
+def _filled(m: np.ndarray) -> np.ndarray:
+    """m with its holes filled, worked on m's box (a highlight inside an iris)."""
+    box = im.mask_bbox(m)
+    if box is None:
+        return m.copy()
+    x0, y0, x1, y1 = box
+    out = m.copy()
+    out[y0:y1, x0:x1] = heads.fill_holes(np.pad(m[y0:y1, x0:x1], 1))[1:-1, 1:-1]
     return out
 
 
-def drawn_pupils(rgba: np.ndarray, box) -> list[np.ndarray]:
-    """The dark blobs enclosed by white inside `box` (x0, y0, x1, y1): pupils drawn
-    into an eye. Each as a mask of the box, with its 1-px ring's light pixels."""
+def whites(rgba: np.ndarray, eyes: Eyes | None = None, area: float | None = None) -> np.ndarray:
+    """The eye whites of a drawing, as a mask: the connected patches in an
+    eye-white colour (white_px), each no bigger than eye_white_max of `area` (the
+    host piece's drawn area; the drawing's own when not given), so fur, a face or
+    a body in a near-white colour is never an eye. Specks of other colour inside a
+    white (under speck_area_px) count as white."""
+    drawn = rgba[..., 3] >= SOLID_ALPHA
+    light = np.zeros(drawn.shape, bool)
+    ys, xs = np.nonzero(drawn)
+    light[ys, xs] = white_px(im.lab(rgba[ys, xs, :3].astype(float)), eyes)
+    cap = TOL["eye_white_max"] * (area if area else drawn.sum())
+    out = np.zeros_like(light)
+    for cys, cxs in im.components(light):
+        if len(cys) <= cap:
+            out[cys, cxs] = True
+    H, W = out.shape
+    for cys, cxs in im.components(~out):
+        if len(cys) < TOL["speck_area_px"] and cys.min() > 0 and cxs.min() > 0 and cys.max() < H - 1 and cxs.max() < W - 1:
+            out[cys, cxs] = True
+    return out
+
+
+def drawn_pupils(rgba: np.ndarray, box, eyes: Eyes | None = None, area: float | None = None) -> list[np.ndarray]:
+    """The pupils drawn into an eye inside `box` (x0, y0, x1, y1): each patch not
+    in an eye-white colour that holds a pupil seed (pupil_px), lies inside the box
+    and the drawing, and is ringed by the eye whites (whites(), at least
+    pupil_ring_light of its ring). So an iris comes with its dark centre, and an
+    eye outline, a brow or a whisker on fur or a pale face is never one. Each as a
+    mask of the box, its holes (a highlight) filled."""
     x0, y0, x1, y1 = box
+    white = whites(rgba, eyes, area)[y0:y1, x0:x1]
     sub = rgba[y0:y1, x0:x1]
     lab = im.lab(sub[..., :3].astype(float))
     drawn = sub[..., 3] >= SOLID_ALPHA
-    dark = (lab[..., 0] < TOL["dark_l_max"]) & drawn
-    light = _light(lab) & drawn
+    seed = pupil_px(lab, eyes) & drawn
+    other = drawn & ~white_px(lab, eyes)
+    h, w = other.shape
     out = []
-    for ys, xs in im.components(dark):
-        m = np.zeros(dark.shape, bool)
+    for ys, xs in im.components(other):
+        if ys.min() == 0 or xs.min() == 0 or ys.max() == h - 1 or xs.max() == w - 1 or not seed[ys, xs].any():
+            continue
+        m = np.zeros(other.shape, bool)
         m[ys, xs] = True
+        if (im.dilate(m, 1) & ~drawn).any():
+            continue
+        m = _filled(m)
         ring = im.dilate(m, 2) & ~im.dilate(m, 1)
-        if ring.sum() and light[ring].mean() >= TOL["pupil_ring_light"]:
+        if ring.sum() and white[ring].mean() >= TOL["pupil_ring_light"]:
             out.append(m)
     return out
 
 
-def fill_whites(rgba: np.ndarray, box) -> np.ndarray:
-    """rgba with every dark blob enclosed by white inside `box` (a drawn pupil)
-    painted with the white around it, so an eye can show the moving pupils."""
+def fill_whites(rgba: np.ndarray, box, eyes: Eyes | None = None, area: float | None = None) -> np.ndarray:
+    """rgba with every pupil drawn into an eye inside `box` (drawn_pupils, iris and
+    highlight included) painted with the eye white around it, so an eye can show
+    the moving pupils."""
     x0, y0, x1, y1 = box
     sub = rgba[y0:y1, x0:x1].copy()
-    lab = im.lab(sub[..., :3].astype(float))
+    white = whites(rgba, eyes, area)[y0:y1, x0:x1]
     drawn = sub[..., 3] >= SOLID_ALPHA
-    light = _light(lab) & drawn
-    for m in drawn_pupils(rgba, box):
-        ring = im.dilate(m, 2) & ~im.dilate(m, 1)
-        fill = np.median(sub[ring & light][:, :3], axis=0) if (ring & light).any() else (255, 255, 255)
+    for m in drawn_pupils(rgba, box, eyes, area):
+        ring = im.dilate(m, 2) & ~im.dilate(m, 1) & white
+        fill = np.median(sub[ring][:, :3], axis=0) if ring.any() else (255, 255, 255)
         sub[im.dilate(m, 1) & drawn, :3] = fill
     out = rgba.copy()
     out[y0:y1, x0:x1] = sub
     return out
 
 
-def pupils_from_master(master: np.ndarray, head: np.ndarray) -> list[dict]:
-    """The pupils: where the rig head (parts sheet, empty whites) is light and the
-    master is dark. Up to two blobs, viewer's left first (pupil-r then pupil-l),
-    each cut from the master with its soft edge unmixed against the white."""
+def pupils_from_master(master: np.ndarray, head: np.ndarray, eyes: Eyes | None = None, area: float | None = None) -> list[dict]:
+    """The pupils: whatever the master paints inside the rig head's empty eye
+    whites (parts sheet) that is not eye white, in patches that hold a pupil seed
+    (pupil_px), so an iris comes whole with its centre and its highlight. Up to
+    two, the biggest, viewer's left first (pupil-r then pupil-l), each cut from the
+    master solid, with a 1-px soft edge unmixed in Lab against the white around it."""
     hm = head[..., 3] >= SOLID_ALPHA
     if not hm.any():
         return []
-    ys, xs = np.nonzero(hm)
-    hl = im.lab(head[ys, xs, :3].astype(float))
+    white = whites(head, eyes, area or hm.sum())
+    ys, xs = np.nonzero(white & (master[..., 3] >= SOLID_ALPHA))
     ml = im.lab(master[ys, xs, :3].astype(float))
     cand = np.zeros(hm.shape, bool)
-    cand[ys, xs] = _light(hl) & (ml[:, 0] < TOL["dark_l_max"]) & (master[ys, xs, 3] >= SOLID_ALPHA)
-    blobs = [c for c in im.components(cand) if len(c[0]) >= TOL["speck_area_px"]][:2]
+    seed = np.zeros(hm.shape, bool)
+    cand[ys, xs] = ~white_px(ml, eyes)
+    seed[ys, xs] = pupil_px(ml, eyes) & cand[ys, xs]
+    blobs = [c for c in im.components(cand) if len(c[0]) >= TOL["speck_area_px"] and seed[c].any()][:2]
     out = []
     for bys, bxs in sorted(blobs, key=lambda c: c[1].mean()):
         m = np.zeros(hm.shape, bool)
         m[bys, bxs] = True
-        grow = im.dilate(m, 1)
-        gy, gx = np.nonzero(grow)
-        L = im.lab(master[gy, gx, :3].astype(float))[:, 0]
-        white = float(np.median(im.lab(head[gy, gx, :3].astype(float))[:, 0]))
-        core = float(np.percentile(L, 10))
-        alpha = np.clip((white - L) / max(white - core, 1e-6), 0, 1)
+        m = _filled(m)
+        edge = im.dilate(m, 1) & ~m
+        ey, ex = np.nonzero(edge)
+        ref = np.median(im.lab(head[ey, ex, :3].astype(float)), axis=0)  # the eye white around it
+        rim = m & im.dilate(edge, 1)
+        ry, rx = np.nonzero(rim)
+        own = np.median(im.lab(master[ry, rx, :3].astype(float)), axis=0)  # the pupil at its edge
+        span = own - ref
+        px = im.lab(master[ey, ex, :3].astype(float))
+        alpha = np.clip(((px - ref) @ span) / max(float(span @ span), 1e-6), 0, 1)
         sprite = np.zeros_like(master)
-        sprite[gy, gx, :3] = master[gy, gx, :3]
-        sprite[gy, gx, 3] = np.clip(alpha * 255 + 0.5, 0, 255).astype(np.uint8)
-        sprite[bys, bxs, 3] = 255
-        box = im.bbox(gy, gx)
+        my, mx = np.nonzero(m)
+        sprite[my, mx, :3] = master[my, mx, :3]
+        sprite[my, mx, 3] = 255
+        sprite[ey, ex, :3] = master[ey, ex, :3]
+        sprite[ey, ex, 3] = np.clip(alpha * 255 + 0.5, 0, 255).astype(np.uint8)
+        box = im.bbox(*np.nonzero(m | edge))
         out.append({"sprite": sprite, "box": box, "diameter": max(box[2] - box[0], box[3] - box[1]), "mask": m})
     return out
 

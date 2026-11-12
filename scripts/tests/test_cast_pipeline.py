@@ -30,7 +30,16 @@ from cast.spec import BUDGETS, TOL  # noqa: E402
 
 CID = "AAW-25"
 OWNER_TYPED = lambda cid, what, sha: True  # noqa: E731 - the owner typing it, as the CLI asks
-COLOURS = [("Body", cs.BODY), ("Flap", cs.FLAP), ("Limbs", cs.LIMB), ("Gloves", cs.GLOVE), ("Ink", cs.INK)]
+# The eye colours named as a block names them, so the candidate takes its eyes from
+# the block (swaps.Eyes) the way it does for a real character.
+COLOURS = [
+    ("Body", cs.BODY),
+    ("Flap", cs.FLAP),
+    ("Limbs", cs.LIMB),
+    ("Gloves", cs.GLOVE),
+    ("Eye whites", cs.WHITE),
+    ("Pupils and outlines", cs.INK),
+]
 
 
 def sources_with_art(root: Path) -> Path:
