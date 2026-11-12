@@ -133,6 +133,23 @@ class Face(unittest.TestCase):
             self.assertTrue(near.any())
             self.assertGreater(L[near].min(), TOL["white_l_min"])
 
+    def test_a_rig_with_no_pupils_keeps_its_drawn_wide_eyes(self):
+        # Amr's eyes are drawn whole in his head, with no pupil pieces to show in an
+        # emptied white: his wide eyes keep the iris and pupil they are drawn with.
+        states = (("eyes", "open"), ("eyes", "closed"), ("eyes", "happy"), ("eyes", "wide"),
+                  ("mouth", "rest"), ("mouth", "smile"), ("mouth", "open"), ("mouth", "o"))
+        got = swaps.face_patches(self.cells(cs.FACE_CELLS), states, self.base, empty_whites=False)
+        wide = got["eyes"]["choices"]["wide"]
+        ys, xs = np.nonzero(wide[..., 3] > 200)
+        L = im.lab(wide[ys, xs, :3].astype(float))[:, 0]
+        for i, (x, y) in enumerate(cs.EYES):
+            d = 8 if i == 0 else -8  # where cast_synth draws each pupil
+            near = np.hypot(xs - (x + d), ys - (y + 4)) < cs.PUPIL_R - 4
+            self.assertTrue(near.any())
+            self.assertLess(L[near].max(), TOL["dark_l_max"])
+        area = (self.base[..., 3] >= spec.SOLID_ALPHA).sum()
+        self.assertEqual(len(swaps.drawn_pupils(wide, got["eyes"]["box"], area=area)), 2)
+
     def test_a_state_that_redraws_the_head_outside_its_band_is_refused(self):
         bad = [dict(c) for c in cs.FACE_CELLS]
         cells = self.cells(bad)

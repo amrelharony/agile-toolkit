@@ -500,7 +500,9 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         cols = len(states) // rows
         order = swaps.grid_order(s["pieces"], rows, cols, s["cut"].shape)
         cells = [s["pieces"][i].crop(s["cut"])[0] if i is not None else None for i in order]
-        got = swaps.face_patches(cells, states, face_base, neutral, eyes=eyes)
+        # A rig with no pupil pieces (Amr) keeps the eyes its face sheet draws.
+        has_pupils = any(i.startswith("pupil-") for i in ids_all)
+        got = swaps.face_patches(cells, states, face_base, neutral, eyes=eyes, empty_whites=has_pupils)
         neutral = got["neutral"]  # face2 has no neutral heads of its own
         for slot in ("eyes", "mouth"):
             if slot in got:

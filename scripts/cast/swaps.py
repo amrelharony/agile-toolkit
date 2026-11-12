@@ -153,7 +153,15 @@ def feather(patch: np.ndarray, box) -> np.ndarray:
 REST_STATE = {"eyes": "open", "mouth": "rest"}
 
 
-def face_patches(cells: list[np.ndarray | None], states: tuple, head: np.ndarray, neutral: dict | None = None, *, eyes: Eyes | None = None) -> dict:
+def face_patches(
+    cells: list[np.ndarray | None],
+    states: tuple,
+    head: np.ndarray,
+    neutral: dict | None = None,
+    *,
+    eyes: Eyes | None = None,
+    empty_whites: bool = True,
+) -> dict:
     """{slot: {"box": (x0, y0, x1, y1), "choices": {state: rgba master frame},
     "ring": {...}}, "neutral": {...}, "report": {...}} from the cut face-sheet
     heads in brief order. `head` is the rig head (the face piece, master frame).
@@ -163,7 +171,9 @@ def face_patches(cells: list[np.ndarray | None], states: tuple, head: np.ndarray
     mouth.rest), both resampled the same way, so only the edit shows. `neutral`
     passes those neutral heads on to a sheet without them (face2). The neutral
     cells themselves are the head's own art: they are measured against the rig
-    head (NCC ≥ face_ncc_min), not cut."""
+    head (NCC ≥ face_ncc_min), not cut. The wide eyes' drawn pupils are painted
+    out (the moving pupils show there) unless `empty_whites` is False: a rig with
+    no pupil pieces keeps the eyes its sheet draws."""
     hm = head[..., 3] >= SOLID_ALPHA
     hb = _box_of(hm)
     out: dict = {"report": {"cells": []}, "neutral": dict(neutral or {})}
@@ -221,7 +231,7 @@ def face_patches(cells: list[np.ndarray | None], states: tuple, head: np.ndarray
         choices, rings = {}, {}
         for s in states_here:
             p = baked[(slot, s)].copy()
-            if slot == "eyes" and s == "wide":
+            if slot == "eyes" and s == "wide" and empty_whites:
                 p = fill_whites(p, box, eyes, area)
             p, ring = ring_match(p, head, box)
             choices[s] = feather(p, box)
