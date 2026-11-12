@@ -161,7 +161,7 @@ function runThresholds(
     let done = 0;
     let week = 0;
     // The thresholds already reached in this run.
-    const reached = thresholds.map((t) => (t <= 0 ? 0 : -1));
+    const reached: number[] = thresholds.map((t) => (t <= 0 ? 0 : -1));
     while (done < top && week < maxWeeks && !neverDone) {
       done += draws[Math.floor(rng() * draws.length)];
       week++;
