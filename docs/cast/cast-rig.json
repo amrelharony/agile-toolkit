@@ -654,7 +654,7 @@
       "parts2": ["limb-1", "limb-2", "limb-3", "limb-4", "limb-5", "limb-6", "limb-7", "limb-8"],
       "arm_parts": {
         "arm-r": "limb-1",
-        "arm-l": "limb-2"
+        "arm-l": "limb-5"
       },
       "face_base": "head",
       "signature": ["sig.ripple"]

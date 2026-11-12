@@ -132,6 +132,23 @@ class TapMovesAndRenderSettings(unittest.TestCase):
             self.assertLessEqual(set(arm_parts.values()), {*c["parts"], *(c.get("parts2") or [])}, c["id"])
             self.assertNotIn("arm-r", c["parts"], c["id"])
 
+    @unittest.skipUnless((spec.DEFAULT_SOURCES / "brief").is_dir(), "the private briefs are not on this machine")
+    def test_arm_parts_are_the_pieces_the_brief_copies_the_arms_from(self):
+        # Each brief's ARMS line names the two more-parts pieces its arms are copied
+        # from, by number: its right arm's first, its left arm's second.
+        # Numbers only are read and printed, never a brief's words.
+        seen = 0
+        for c in SPEC["characters"]:
+            if not c.get("arm_parts"):
+                continue
+            brief = (spec.DEFAULT_SOURCES / "brief" / f"CAST-{c['id']}.md").read_text(encoding="utf-8")
+            m = re.search(r"^ARMS \(image 4\):.*?copied from [a-z]+ (\d+) and (\d+)", brief, re.M)
+            self.assertIsNotNone(m, c["id"])
+            got = [c["arm_parts"][s].rsplit("-", 1)[1] for s in ("arm-r", "arm-l")]
+            self.assertEqual(got, [m.group(1), m.group(2)], c["id"])
+            seen += 1
+        self.assertGreater(seen, 0)
+
     def test_every_face_base_names_pieces_the_character_has(self):
         # face_base says what the face cells hold, from each brief's FACE PIECE: the
         # head (ears drawn on it or left off), the head with its ear pieces, the
