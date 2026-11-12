@@ -19,6 +19,7 @@ import {
   calmBlocker,
   capPending,
   installMomentScheduler,
+  isAmrBusy,
   isMomentTimerArmed,
   isMomentWorthy,
   kickMoments,
@@ -142,6 +143,7 @@ beforeEach(async () => {
   useHapticsStore.setState({ enabled: true, mode: "essential" });
   useMascotStore.getState().reset();
   useMascotStore.getState().setReady(true);
+  useAgentStore.setState({ open: false, streaming: false });
   useInboxStore.setState({ items: [], seeded: true });
   await useInboxStore.persist.rehydrate();
   vi.mocked(emitFeedback).mockClear();
@@ -357,6 +359,56 @@ describe("held, never dropped", () => {
     } finally {
       useAgentStore.setState({ streaming: false });
     }
+  });
+
+  it("holds while his chat panel is open, and plays soon after it closes", () => {
+    // The chip would land on the open panel (on phones, on its composer), and
+    // the panel isn't a modal, so the dialog check doesn't see it.
+    useAgentStore.getState().openSheet();
+    try {
+      levelUp(8);
+      advance(RETRY_MIN_MS); // first check: Amr is busy
+      advance(2_000);
+      advance(4_000); // the back-off has grown to 8 s
+      expect(current()).toBeNull();
+      expect(pending()).toHaveLength(1);
+      expect(rows().filter((r) => r.kind === "level-up")).toHaveLength(1);
+      // Closing kicks a short check, well inside the 8 s back-off.
+      useAgentStore.getState().closeSheet();
+      advance(RETRY_MIN_MS);
+      expect(current()?.title).toBe("Level 8");
+    } finally {
+      useAgentStore.setState({ open: false });
+    }
+  });
+
+  it("a chat turn ending kicks a short check too", () => {
+    useAgentStore.setState({ streaming: true });
+    try {
+      levelUp(8);
+      advance(RETRY_MIN_MS);
+      advance(2_000);
+      advance(4_000);
+      expect(current()).toBeNull();
+      useAgentStore.setState({ streaming: false });
+      advance(RETRY_MIN_MS);
+      expect(current()?.title).toBe("Level 8");
+    } finally {
+      useAgentStore.setState({ streaming: false });
+    }
+  });
+
+  it("isAmrBusy: his panel open or a chat turn running counts, as do his own reactions", () => {
+    expect(isAmrBusy()).toBe(false);
+    useAgentStore.setState({ open: true });
+    expect(isAmrBusy()).toBe(true);
+    useAgentStore.setState({ open: false, streaming: true });
+    expect(isAmrBusy()).toBe(true);
+    useAgentStore.setState({ streaming: false });
+    useMascotStore.getState().setTalking(true);
+    expect(isAmrBusy()).toBe(true);
+    useMascotStore.getState().setTalking(false);
+    expect(isAmrBusy()).toBe(false);
   });
 
   it("waits out typing with a 2 s → 15 s back-off", () => {

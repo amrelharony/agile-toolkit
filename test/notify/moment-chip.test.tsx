@@ -9,6 +9,7 @@ import {
 } from "@/lib/notify/moment-scheduler";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
+import { useAgentStore } from "@/lib/agent/store";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 
 /**
@@ -38,6 +39,7 @@ beforeEach(() => {
   __resetMomentsForTests();
   useActivityUiStore.setState({ activityOpen: false, trophyOpen: false });
   useMascotStore.getState().reset();
+  useAgentStore.setState({ open: false, openedVia: null });
 });
 
 afterEach(() => {
@@ -203,6 +205,21 @@ describe("MomentChip", () => {
     expect(style.bottom).toContain("--amr-band-bottom");
     expect(style.bottom).toContain("104px");
     expect(style.right).toBe("16px");
+  });
+
+  it("goes when his chat panel opens, so it never sits on the panel", () => {
+    render(<MomentChip />);
+    show();
+    const region = screen.getByRole("status");
+    expect(region).toHaveTextContent("Level 8 · tap to see");
+    act(() => useAgentStore.getState().openSheet({ via: "pointer" }));
+    expect(useMomentStore.getState().current).toBeNull();
+    expect(region).toBeEmptyDOMElement();
+    // Nothing opened Activity: the row is waiting there.
+    expect(useActivityUiStore.getState().activityOpen).toBe(false);
+    // A preview asked for while it is open (Settings) still shows.
+    act(() => previewMoment());
+    expect(region).toHaveTextContent("Level 8 · tap to see");
   });
 
   it("previewMoment() shows it", () => {

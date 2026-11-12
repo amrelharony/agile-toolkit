@@ -12,6 +12,7 @@ import { Award, Crown, Flag, Sparkles, TrendingUp, X, type LucideIcon } from "lu
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
+import { useAgentStore } from "@/lib/agent/store";
 import { cornerAt } from "@/components/agent/mascot/amr-geometry";
 import { CHIP_MS, useMomentStore, type MomentShown } from "@/lib/notify/moment-scheduler";
 import { momentChipText } from "@/lib/notify/copy";
@@ -74,6 +75,10 @@ export function momentChipPosition(corner: MascotCorner, phone: boolean, lift = 
  * side when he has stepped aside for a control) and as far off his edge as he
  * has stepped (`lift`): the same spot as his outside bubble, which waits while
  * the chip is up. When he steps up or aside, the chip goes with him.
+ *
+ * His open chat panel has that spot first: the scheduler holds a moment while
+ * the panel is open (isAmrBusy), and a chip still up when it opens goes (its
+ * row is in Activity), so it never sits on the panel.
  */
 export function MomentChip() {
   const moment = useMomentStore((s) => s.current);
@@ -82,8 +87,14 @@ export function MomentChip() {
   const lift = useMascotStore((s) => s.lift);
   const phone = useMediaQuery(PHONE_MEDIA_QUERY);
   const openActivity = useActivityUiStore((s) => s.openActivity);
+  const panelOpen = useAgentStore((s) => s.open);
   const [held, setHeld] = useState(false);
   const swipeFrom = useRef<number | null>(null);
+
+  // His panel opening takes the spot beside him: a chip still up goes.
+  useEffect(() => {
+    if (panelOpen) dismiss();
+  }, [panelOpen, dismiss]);
 
   // Fade after CHIP_MS, unless the pointer or focus is on it.
   useEffect(() => {

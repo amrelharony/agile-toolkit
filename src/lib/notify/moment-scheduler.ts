@@ -11,8 +11,8 @@
  * **Calm** means all of: not quiet (ceremony route, presenting, the intro,
  * Focus, quiet hours) and celebrations not paused; the page is visible; not
  * typing and 1.5 s since the last input; no dialog open; no toast showing;
- * Amr idle (nothing queued, not carried, not talking, no chat turn running);
- * no drag in progress;
+ * Amr idle (nothing queued, not carried, not talking, his chat panel shut and
+ * no chat turn running: see isAmrBusy); no drag in progress;
  * 10 min since the last moment (2 min in Lively); fewer than 3 moments today
  * (10 in Lively).
  *
@@ -20,7 +20,9 @@
  * a playable item waits. Waiting on something that ends at a known time
  * (the gap, Focus, a pause, quiet hours) sleeps until then instead; waiting
  * on something that announces its end (route, presenting, the intro,
- * visibility, Settings) sleeps until that event kicks it.
+ * visibility, Settings) sleeps until that event kicks it. His panel closing
+ * and a chat turn ending kick it too, so a moment held by them plays soon
+ * after instead of at the next back-off.
  *
  * **When it fires** the rarest fresh item plays. Everything else that was
  * held becomes one recap row named after what it waited through ("While you
@@ -347,6 +349,22 @@ export interface MomentEnv {
   dom: () => { dataset: { intro?: string; presenting?: string } } | null;
 }
 
+/**
+ * Amr is busy, so a moment waits: a reaction is queued, he is carried or
+ * talking, his chat panel is open, or a chat turn runs.
+ * - The panel: the chip would land on it (on phones, on the composer), and
+ *   the panel is his own dialog, which isDialogOpen doesn't count (it is not
+ *   modal). The moment plays once it closes.
+ * - A turn counts with the panel shut too: it outlives the panel, and
+ *   `talking` covers only the moments his words stream (not a tool run, the
+ *   gap between rounds, or a card waiting for the user's OK).
+ */
+export function isAmrBusy(): boolean {
+  const m = useMascotStore.getState();
+  const chat = useAgentStore.getState();
+  return m.reactionQueue.length > 0 || m.drag !== null || m.talking || chat.open || chat.streaming;
+}
+
 const LIVE_ENV: MomentEnv = {
   now: () => Date.now(),
   visible: () => typeof document === "undefined" || document.visibilityState !== "hidden",
@@ -355,18 +373,7 @@ const LIVE_ENV: MomentEnv = {
   dialogOpen: () => isDialogOpen(),
   toastShowing: () =>
     typeof document !== "undefined" && document.querySelector("[data-sonner-toast]") !== null,
-  // A chat turn counts with the panel shut too: it outlives the panel, and
-  // `talking` covers only the moments his words stream (not a tool run, the
-  // gap between rounds, or a card waiting for the user's OK).
-  amrBusy: () => {
-    const m = useMascotStore.getState();
-    return (
-      m.reactionQueue.length > 0 ||
-      m.drag !== null ||
-      m.talking ||
-      useAgentStore.getState().streaming
-    );
-  },
+  amrBusy: () => isAmrBusy(),
   dragging: () => isDragInProgress(),
   dom: () => defaultQuietDom(),
 };
@@ -779,6 +786,11 @@ export function installMomentScheduler(): () => void {
     attributeFilter: ["data-presenting", "data-intro"],
   });
 
+  // His panel closing or a chat turn ending can end an "amr" wait.
+  const offChat = useAgentStore.subscribe((s, prev) => {
+    if ((prev.open && !s.open) || (prev.streaming && !s.streaming)) kickMoments();
+  });
+
   const offPrefs = useNotificationPrefsStore.subscribe((s, prev) => {
     if (
       s.focusUntil !== prev.focusUntil ||
@@ -796,6 +808,7 @@ export function installMomentScheduler(): () => void {
     offCelebrations();
     document.removeEventListener("visibilitychange", onVisibility);
     observer?.disconnect();
+    offChat();
     offPrefs();
     clearTimer();
   };
