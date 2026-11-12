@@ -61,7 +61,7 @@ Every image is `AAW-NN_<image>.png`, at `canvas_w` × `canvas_h` (1536 × 1024),
 | `face2`  | 2 heads: curious, mid-word talk                                                                                                                                                                 | Amr                             |
 | `arms`   | 8 whole arms. Top row own right: wave, up, open, point. Bottom row own left: up, open, chin, signature. Amr has 4: right wave, right up, right open, left up                                    | all but Camel                   |
 
-The arm wording follows the body family (`families[*].arms`): human, wing, tube (with a glove), mitten, tentacle or spider leg.
+The arm wording follows the body family (`families[*].arms`) unless the character names its own `arms`, and the Opus appendix names the same arms: human, wing, tube (with a glove), glove, soft, mitten, tentacle or spider leg.
 
 ## Taking a return in
 
