@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { useDockTimer } from "@/lib/timer/dock-timer";
+import { usePresentation } from "@/components/presentation/presentation-mode";
 import { createRng } from "@/lib/utils/random";
 
 /**
@@ -159,6 +160,7 @@ beforeEach(() => {
   useDockTimer.setState({ timer: null });
   useTimerSession.setState({ agendaId: null, run: null });
   useTimerSettings.setState({ ...SETTINGS_INITIAL });
+  usePresentation.getState().set(false);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -676,8 +678,16 @@ describe("speaking time across runs", () => {
     const shares = screen.getByRole("list", { name: "Speaking shares", hidden: true });
     expect(within(shares).getByText("Ann")).toBeInTheDocument();
     expect(within(shares).getByText(/^80%/)).toBeInTheDocument();
-    expect(exported.markdown).toContain("shares ran from 20% to 80%");
-    expect(exported.markdown).not.toContain("| Ann | 80%");
+    // Well above an even share is said in words, not by its colour alone.
+    expect(within(shares).getByText(/well above/)).toBeInTheDocument();
+    // With names off, the section across meetings names nobody; the card
+    // says the meeting on screen still lists its own turns by name.
+    const across = exported.markdown.split("## Speaking time across runs")[1] ?? "";
+    expect(across).toContain("shares ran from 20% to 80%");
+    expect(across).not.toMatch(/Ann|Bo/);
+    expect(
+      screen.getByText(/The meeting on screen still lists its own turns by name/)
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("switch", { name: "Name people in the export" }));
     expect(exported.markdown).toContain("| Ann | 80% | 50% | 1 of 1 |");
@@ -686,6 +696,27 @@ describe("speaking time across runs", () => {
     act(() => finish![1].action.onClick());
     expect(useTimerSettings.getState().history).toEqual([]);
     expect(screen.queryByRole("heading", { name: "Speaking time across runs" })).toBeNull();
+  });
+
+  it("keeps the speaking shares off the room's screen while presenting", () => {
+    useTimerSettings.setState({
+      history: [
+        kept(
+          1,
+          dailyReport([
+            ["Ann", 120],
+            ["Bo", 60],
+          ])
+        ),
+      ],
+    });
+    renderTimer();
+    expect(screen.getByRole("heading", { name: "Speaking time across runs" })).toBeInTheDocument();
+    act(() => usePresentation.getState().set(true));
+    expect(screen.queryByRole("heading", { name: "Speaking time across runs" })).toBeNull();
+    expect(screen.queryByText("Ann")).toBeNull();
+    act(() => usePresentation.getState().set(false));
+    expect(screen.getByRole("heading", { name: "Speaking time across runs" })).toBeInTheDocument();
   });
 
   it("clears the kept meetings with confirm and Undo", () => {

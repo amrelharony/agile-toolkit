@@ -82,7 +82,9 @@ export function SpeakingTimeCard({
             columns: ["Speaker", "Share", "Even share", "Meetings"],
             rows: shares.people.map((p) => [
               p.name,
-              percent(p.share),
+              p.share - p.even >= WELL_ABOVE
+                ? `${percent(p.share)}, well above even`
+                : percent(p.share),
               percent(p.even),
               `${p.runs} of ${shares.runs}`,
             ]),
@@ -97,6 +99,8 @@ export function SpeakingTimeCard({
                     <span className="min-w-0 truncate text-text">{p.name}</span>
                     <span className={cn("shrink-0 font-data", above ? "text-warning" : "text-sub")}>
                       {percent(p.share)}
+                      {/* Said in words too, not by the colour alone. */}
+                      {above && <span> · well above</span>}
                       <span className="text-sub"> · even {percent(p.even)}</span>
                       {shares.runs > 1 && (
                         <span className="text-sub">
@@ -137,7 +141,8 @@ export function SpeakingTimeCard({
         </div>
         {!exportNames && (
           <p className="text-xs text-sub">
-            The export gives the range of shares, with no names, unless you turn this on.
+            The export gives the range of shares across meetings, with no names, unless you turn
+            this on. The meeting on screen still lists its own turns by name.
           </p>
         )}
       </div>

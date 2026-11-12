@@ -5,6 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { Timer } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { usePresentation } from "@/components/presentation/presentation-mode";
 import { ActionRow } from "@/components/shared/action-row";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
@@ -223,6 +224,8 @@ export function CeremonyTimerClient() {
     [run, agenda, speakers, now]
   );
 
+  // Names and shares are for the facilitator, never the room's screen.
+  const presenting = usePresentation((s) => s.presenting);
   const sonify = useToolSonification("ceremony-timer");
   const { log } = useHistoryLogger("ceremony-timer");
   const announce = useAnnounce();
@@ -836,7 +839,7 @@ export function CeremonyTimerClient() {
             onRemove={removeSpeaker}
             onLoadTeam={loadTeam}
           />
-          {shares.runs > 0 && (
+          {shares.runs > 0 && !presenting && (
             <SpeakingTimeCard
               shares={shares}
               kept={history.length}
