@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Cast } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ShowRoomHost } from "@/components/collab/show-room";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,12 @@ const TOO_BIG = "This mix is too big to show at once. Show fewer people, or shor
 /** The buttons inside a live room: put the newest round, or the café round, on everyone's phone. */
 function LiveControls({ room, mode, round, cafe }: LiveCardProps & { room: ShowRoom }) {
   const number = round?.number ?? 0;
+  const announce = useAnnounce();
   const [status, setStatus] = useState<string | null>(null);
+  const say = (text: string) => {
+    setStatus(text);
+    announce(text);
+  };
 
   const showRound = () => {
     if (!round) return;
@@ -36,7 +42,7 @@ function LiveControls({ room, mode, round, cafe }: LiveCardProps & { room: ShowR
       sitOut: round.sitOut,
     });
     const ok = frame !== null && room.show(TEAM_MIXER_FRAME_KINDS.groups, frame);
-    setStatus(ok ? `Round ${number} is on everyone's screen.` : TOO_BIG);
+    say(ok ? `Round ${number} is on everyone's screen.` : TOO_BIG);
   };
 
   const showCafe = () => {
@@ -48,7 +54,7 @@ function LiveControls({ room, mode, round, cafe }: LiveCardProps & { room: ShowR
       tables: cafe.rounds[cafe.current],
     });
     const ok = frame !== null && room.show(TEAM_MIXER_FRAME_KINDS.cafe, frame);
-    setStatus(ok ? `Café round ${cafe.current + 1} is on everyone's screen.` : TOO_BIG);
+    say(ok ? `Café round ${cafe.current + 1} is on everyone's screen.` : TOO_BIG);
   };
 
   const live = room.status === "live";
@@ -70,11 +76,9 @@ function LiveControls({ room, mode, round, cafe }: LiveCardProps & { room: ShowR
           {cafeMode ? "Plan the café first, above." : "Mix a round first, above."}
         </p>
       )}
-      {status && (
-        <p role="status" className="text-sm text-text">
-          {status}
-        </p>
-      )}
+      {/* Said through the app's live region too (useAnnounce), which a
+          screen reader hears even though this line appears with its text. */}
+      {status && <p className="text-sm text-text">{status}</p>}
     </div>
   );
 }

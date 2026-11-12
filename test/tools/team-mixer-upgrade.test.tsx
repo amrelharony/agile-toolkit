@@ -249,6 +249,9 @@ describe("who is in the mix", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add these names" }));
     expect(state().people.map((p) => p.name)).toEqual(["Ana", "Bo", "Cy", "Dee"]);
     expect(screen.getByText("Added 4 people.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent("Added 4 people.")
+    );
   });
 
   it("takes someone out with Undo, and clears the list with Undo", async () => {
@@ -629,6 +632,13 @@ describe("the live room", () => {
       [...SIX].sort()
     );
     expect(screen.getByText("Round 1 is on everyone's screen.")).toBeInTheDocument();
+    // Read out through the app's live region: a status line that appears
+    // with its text is often missed.
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Round 1 is on everyone's screen."
+      )
+    );
   });
 
   it("puts the café round on screen", async () => {
@@ -646,6 +656,9 @@ describe("the live room", () => {
     fireEvent.click(mixButton());
     fireEvent.click(screen.getByRole("button", { name: "Show round 1" }));
     expect(screen.getByText(/too big to show at once/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(/too big to show at once/)
+    );
   });
 });
 

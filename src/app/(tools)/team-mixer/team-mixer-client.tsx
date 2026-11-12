@@ -116,6 +116,7 @@ export function TeamMixerClient() {
           : `Added ${plural(r.added.length, "person", "people")}.`
         : null;
     setPeopleNotice(notice);
+    if (notice) announce(notice);
   };
 
   const removePerson = (p: MixerPersonRow) =>

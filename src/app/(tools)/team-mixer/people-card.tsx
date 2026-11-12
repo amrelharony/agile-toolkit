@@ -23,7 +23,7 @@ export interface PeopleCardProps {
   onRemove: (person: MixerPersonRow) => void;
   onClear: () => void;
   onLoadExample: () => void;
-  /** A line after an add (how many came in, or that the list is full). */
+  /** A line after an add (how many came in, or that the list is full); the page announces it. */
   notice: string | null;
 }
 
@@ -149,11 +149,9 @@ export function PeopleCard({
             </div>
           )}
         </div>
-        {notice && (
-          <p role="status" className="text-sm text-text">
-            {notice}
-          </p>
-        )}
+        {/* Announced by the page (useAnnounce) when it changes: a live
+            region that appears with its text is often not read out. */}
+        {notice && <p className="text-sm text-text">{notice}</p>}
         {people.length > 0 && (
           <p className="text-xs text-sub">
             {withTraits === 0
