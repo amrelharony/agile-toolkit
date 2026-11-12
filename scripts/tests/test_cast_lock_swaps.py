@@ -199,6 +199,66 @@ class Face(unittest.TestCase):
         fixed = swaps.face_patches(cells, self.STATES, base, bands=swaps.head_bands(hb))
         self.assertTrue(all(r["status"] == "fail" for r in fixed["report"]["cells"] if r["slot"] == "eyes" and r["state"] != "open"))
 
+    def test_a_face_cell_finds_its_place_on_a_piece_that_carries_more(self):
+        # The face cells hold the head; the piece they are laid on goes on below them:
+        # a narrower neck past the chin, or the body under a face cut below the mouth
+        # that widens toward its hem.
+        def neck():
+            p = cs.Pen()
+            p.rect((700, cs.TORSO[3] - 10, 836, 960), cs.FLAP)
+            return p.done()
+
+        def hem():
+            p = cs.Pen()
+            x0, y0, x1, y1 = cs.TORSO
+            p.poly([(x0, y1 - 60), (x1, y1 - 60), (x1 + 110, 990), (x0 - 110, 990)], cs.BODY)
+            return p.done()
+
+        cut = cs.TORSO[3] - 70  # a little below the mouth
+        for name, under in (("neck", neck()), ("hem", hem())):
+            base = cs.over(under, cs.torso(pupils=True))
+            cell = cs.torso(pupils=True)
+            if name == "hem":
+                cell[cut:] = 0
+            cell = cs.scaled(cs.crop(cell), 0.62)
+            hb = im.mask_bbox(base[..., 3] >= spec.SOLID_ALPHA)
+            # The boxes' height ratio alone starts the search far off the cell's scale.
+            self.assertLess(cell.shape[0] / (hb[3] - hb[1]), 0.62 * (1 - TOL["face_scale_search"]), name)
+            self.assertAlmostEqual(swaps.seed_scale(cell, base[..., 3] >= spec.SOLID_ALPHA, hb), 0.62, delta=0.62 * TOL["face_scale_search"])
+            reg = swaps.register_head(cell, base)
+            self.assertIsNotNone(reg, name)
+            self.assertAlmostEqual(reg.r, 0.62, delta=0.01, msg=name)
+            self.assertGreaterEqual(reg.ncc, TOL["face_ncc_min"], name)
+            top = cs.TORSO[1] + (cs.crop(cell).shape[0] / reg.r) / 2
+            self.assertAlmostEqual(reg.cy, top, delta=6, msg=name)
+
+    def test_a_face_cut_below_the_mouth_patches_the_top_of_its_body(self):
+        # The face cells are the top of a tall body (cut a little below the mouth);
+        # they are laid on its top, and what a state may change outside its band is
+        # a share of the face they show, not of the whole body.
+        p = cs.Pen()
+        x0, y0, x1, y1 = cs.TORSO
+        p.poly([(x0, y1 - 60), (x1, y1 - 60), (x1 + 110, 990), (x0 - 110, 990)], cs.BODY)
+        hem = p.done()
+        cut = y1 - 70
+
+        def top(**cfg):
+            img = cs.torso(pupils=cfg.get("eyes", "open") in ("open", "wide"), **cfg)
+            img[cut:] = 0
+            return cs.scaled(cs.crop(img), 0.62)
+
+        base = cs.over(hem, cs.torso(pupils=True))
+        cells = [top(**cfg) for cfg in cs.FACE_CELLS]
+        cells[1] = top(eyes="closed", mouth="open")  # a blink that opened the mouth too
+        got = swaps.face_patches(cells, self.STATES, base)
+        self.assertEqual(got["report"]["notes"], [])
+        rows = got["report"]["cells"]
+        for n, row in enumerate(rows):
+            self.assertEqual(row["status"], "fail" if n == 1 else "pass", row)
+        self.assertGreater(rows[1]["outside"], TOL["face_outside_max"])
+        self.assertEqual(sorted(got["mouth"]["choices"]), ["o", "open", "smile"])
+        self.assertEqual(sorted(got["eyes"]["choices"]), ["happy", "wide"])
+
     def test_bands_stand_in_from_the_hosts_box_when_the_cells_cant_show_them(self):
         def rows(a, b):
             m = np.zeros((400, 300), bool)

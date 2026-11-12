@@ -12,12 +12,13 @@ and the pupils cut from the master.
 
 Face patches (C10): every head is registered onto the rig head (scale within
 ±face_scale_search, turn within ±face_rot_search, after a first scale from the
-boxes). What changed (ΔE00 over diff_de00, or alpha) inside a slot's band is that
-slot's patch, the union over its states, grown by patch_dilate_px and cut to the
-head. The bands come from the cells: the rows the eye states agree they change
-and the rows the mouth states do, split between them (face_bands). Each state's crop is moved in Lab so its ring_px border ring
-matches the rig head's, and feathered over feather_px. A state that changed more
-than face_outside_max of the head outside its band is refused.
+face piece's top rows the cell spans: seed_scale). What changed (ΔE00 over
+diff_de00, or alpha) inside a slot's band is that slot's patch, the union over its
+states, grown by patch_dilate_px and cut to the head. The bands come from the
+cells: the rows the eye states agree they change and the rows the mouth states do,
+split between them (face_bands). Each state's crop is moved in Lab so its ring_px
+border ring matches the rig head's, and feathered over feather_px. A state that
+changed more than face_outside_max of the head outside its band is refused.
 
 Eyes: an eye white is a pixel nearest the character's own eye-white swatches
 (read from its private block at run time; `Eyes`), in a patch no bigger than
@@ -117,10 +118,33 @@ def face_bands(changed: dict, face_box, band_box=None) -> tuple[dict, str | None
     return {"eyes": (float(y0), mid + reach), "mouth": (mid - reach, float(y1))}, None
 
 
+SEED_ROUNDS = 8  # rounds of the face cell's first scale (seed_scale); it settles in two or three
+
+
+def seed_scale(cell: np.ndarray, hm: np.ndarray, hb) -> float:
+    """The scale a face cell (cut to its box) is drawn at against the face piece
+    (`hm`, its box `hb`): the larger of the boxes' height and width ratios, then
+    raised to the cell's width over the width of the piece's rows the cell spans
+    from its top, until it holds. A cell holds the top of its piece: a piece that
+    carries more than the cells (a neck past the chin, the body below a face cut
+    under the mouth) only adds rows below them, which this leaves out."""
+    ch, cw = cell.shape[:2]
+    x0, y0, x1, y1 = hb
+    r = max(ch / max(y1 - y0, 1), cw / max(x1 - x0, 1))
+    piece = hm[y0:y1, x0:x1]
+    for _ in range(SEED_ROUNDS):
+        xs = np.nonzero(piece[: max(1, int(np.ceil(ch / r)))].any(axis=0))[0]
+        if len(xs):
+            r = max(r, cw / (xs[-1] - xs[0] + 1))
+    return r
+
+
 def register_head(cell: np.ndarray, head: np.ndarray, start: rg.Reg | None = None) -> rg.Reg | None:
     """A face-sheet head (cut to its box) onto the rig head (master frame). The
-    first head is searched from the boxes' scale; the others start from it."""
-    hb = _box_of(head[..., 3] >= SOLID_ALPHA)
+    first head is searched from seed_scale, its centre near the middle of the
+    piece's top rows that the cell spans; the others start from it."""
+    hm = head[..., 3] >= SOLID_ALPHA
+    hb = _box_of(hm)
     if hb is None:
         return None
     rot = TOL["face_rot_search"]
@@ -128,10 +152,11 @@ def register_head(cell: np.ndarray, head: np.ndarray, start: rg.Reg | None = Non
         reg = rg.register(cell, head, rot=rot, start=rg.Reg(start.r, start.theta, start.cx, start.cy, start.ncc))
         if reg is not None and reg.ncc >= TOL["ncc_min"]:
             return reg
-    r0 = cell.shape[0] / max(hb[3] - hb[1], 1)
+    r0 = seed_scale(cell, hm, hb)
     lo, hi = r0 * (1 - TOL["face_scale_search"]), r0 * (1 + TOL["face_scale_search"])
-    cx, cy = (hb[0] + hb[2]) / 2, (hb[1] + hb[3]) / 2
-    reach = TOL["face_reach"] * (hb[3] - hb[1])
+    tall = cell.shape[0] / r0  # the cell's height on the master
+    cx, cy = (hb[0] + hb[2]) / 2, hb[1] + tall / 2
+    reach = TOL["face_reach"] * tall
     return rg.register(cell, head, near=(cx - reach, cy - reach, cx + reach, cy + reach), r_range=(lo, hi), rot=rot)
 
 
@@ -257,9 +282,17 @@ def face_patches(
         placed[(slot, state)] = (rg.bake(cell, reg, head.shape), reg, row)
         if state == REST_STATE[slot]:
             out["neutral"][slot] = placed[(slot, state)][0]
+    # The face piece as far as the cells show it: a piece that carries more (a neck
+    # past the chin, the body below a face cut under the mouth) counts only where the
+    # neutral cells lie, for the bands and for the share a state may change.
+    shown = np.zeros_like(hm)
+    for b in out["neutral"].values():
+        shown |= b[..., 3] >= SOLID_ALPHA
+    face = hm & im.dilate(shown, TOL["patch_dilate_px"]) if shown.any() else hm
+    area = face.sum() or area
     changed = {k: changes(b, out["neutral"].get(k[0], head)) for k, (b, _, _) in placed.items()}
     if bands is None:
-        bands, why = face_bands(changed, hb, band_box)
+        bands, why = face_bands(changed, _box_of(face) or hb, band_box)
         if why:
             out["report"]["notes"].append(f"face bands from the fixed shares of the head: {why}")
     out["bands"] = bands
