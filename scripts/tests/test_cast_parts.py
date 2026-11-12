@@ -258,6 +258,22 @@ class NamingTheBriefsPieces(unittest.TestCase):
             order = [str(k) for k in rng.permutation(list(sheet))]
             self.assertNamed(sheet, SIX_LIMBS, order, order=order)
 
+    def test_a_tail_between_an_arm_and_the_body_keeps_its_name(self):
+        # Laid where the arm's own point is, a tail is still no pair with the other arm.
+        for x, y in ((560, 540), (560, 860)):
+            for tail in (oval(x, y, 90, 90), oval(x, y, 80, 120), tufted(x, y, 300, 12)):
+                self.assertNamed(figure(TAILED, tail=tail), TAILED, (x, y))
+            self.assertNamed(figure(EARED, "long", tail=oval(x, y, 90, 90)), EARED, ("long ears", x, y))
+
+    def test_a_pairs_right_piece_is_the_one_on_your_left(self):
+        # A coat far out at one side stretches the sheet's box, so both legs sit to
+        # one side of both leg points, and one leg drawn higher than the other is
+        # then nearer the wrong point: the side decides.
+        for x in (160, 1385):
+            for high in ("leg-r", "leg-l"):
+                sheet = figure(COATED, quills=oval(x, 500, 300, 800))
+                sheet[high] = bar(700 if high == "leg-r" else 836, 790, 80, 240)
+                self.assertNamed(sheet, COATED, (x, high))
 
 if __name__ == "__main__":
     unittest.main()

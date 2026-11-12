@@ -2,7 +2,8 @@
 
     islands(rgba)                 the drawings after a `close_px` closing, specks apart
     sort_image(c, rgba)           which image a loose PNG is, from what it holds
-    assign(pieces, ids, ...)      Hungarian matching of pieces to part ids
+    assign(pieces, ids, ...)      Hungarian matching of pieces to part ids, then
+                                  each pair drawn alike and its right piece on your left
     LAYOUT, SIDES, SHAPES         where the parts brief lays each piece out, and
                                   what any puppet's pieces can look like
 
@@ -21,7 +22,9 @@ Every id has a generic shape: bands of area against the biggest piece and of
 height over width, free inside, so a long ear and a round one, or a thin tail and
 a ball of one, are all named by where they lie; an arm, a leg and a tie hang
 straight down, so they stand taller than wide, and a collar is a band, wider than
-tall.
+tall. The two pieces of a pair (ears, pupils, arms, legs) are one piece drawn for
+each side, so they are alike, and the right one is on your left whatever the
+sheet's box does to the points.
 """
 
 from __future__ import annotations
@@ -88,7 +91,9 @@ SHAPES = {
     "limb": (0.12, (0.02, 0.5), (1 / 8, 8.0)),
     "fan": (1.2, (0.1, 1.0), (1 / 6, 6.0)),
 }
-W_POS, W_AREA, W_ASPECT, W_NCC = 3.0, 1.0, 0.5, 2.0  # cost = 3·place + area + 0.5·(height over width) + 2·(1 − NCC)
+# cost = 3·place + area + 0.5·(height over width) + 2·(1 − NCC), and 1·how unlike
+# the two pieces named as a pair are.
+W_POS, W_AREA, W_ASPECT, W_NCC, W_PAIR = 3.0, 1.0, 0.5, 2.0, 1.0
 
 
 @dataclass(eq=False)
@@ -304,6 +309,12 @@ def _tall(p: Island) -> float:
     return max(h, 1) / max(w, 1)
 
 
+def unlike(a: Island, b: Island) -> float:
+    """How differently two pieces are drawn, by area and height over width (a
+    mirror image is drawn the same)."""
+    return abs(float(np.log(a.area / b.area))) + W_ASPECT * abs(float(np.log(_tall(a) / _tall(b))))
+
+
 def cost_matrix(
     pieces: list[Island], ids: list[str], image: str = "parts", ncc: np.ndarray | None = None
 ) -> np.ndarray:
@@ -382,11 +393,56 @@ def hungarian(C: np.ndarray) -> list[tuple[int, int]]:
 
 def assign(pieces, ids, image="parts", ncc=None) -> tuple[dict, list[int], float]:
     """({part id: piece index}, spare piece indices, total cost). An empty sheet
-    names nothing."""
+    names nothing.
+
+    The Hungarian match of the cost matrix; then, on a parts sheet, each pair's
+    two pieces are kept alike: a piece of a pair trades names with any other piece
+    (or a spare) while that lowers the cost plus W_PAIR times how unlike each
+    pair's pieces are, so a ball of a tail laid where an ear or an arm would go
+    doesn't take its name. Last, each pair's right piece is the one on your left.
+    parts2, in the order of its list, has no pairs to keep."""
     if not pieces or not ids:
         return {}, list(range(len(pieces))), 0.0
     C = cost_matrix(pieces, ids, image, ncc)
-    pairs = hungarian(C)
-    got = {ids[c]: r for r, c in pairs}
-    used = set(got.values())
-    return got, [i for i in range(len(pieces)) if i not in used], float(sum(C[r, c] for r, c in pairs))
+    n, m = C.shape
+    at: list = [None] * m  # the piece each id column holds
+    for r, c in hungarian(C):
+        at[c] = r
+    col = {pid: j for j, pid in enumerate(ids)}
+    pairs = [] if image == "parts2" else [(col[p], col[p[:-2] + "-l"]) for p in ids if p.endswith("-r") and p[:-2] + "-l" in col]
+
+    def total(at):
+        s = sum(C[r, c] for c, r in enumerate(at) if r is not None)
+        for a, b in pairs:
+            if at[a] is not None and at[b] is not None:
+                s += W_PAIR * unlike(pieces[at[a]], pieces[at[b]])
+        return float(s)
+
+    def moves(at, a):
+        """Column a's piece traded with another column's, or for a spare."""
+        for b in range(m):
+            if b != a:
+                trial = list(at)
+                trial[a], trial[b] = at[b], at[a]
+                yield trial
+        for i in range(n):
+            if i not in at:
+                trial = list(at)
+                trial[a] = i
+                yield trial
+
+    best = total(at)
+    moved = bool(pairs)
+    while moved:  # every move lowers the total, so this ends
+        moved = False
+        for a in [c for ab in pairs for c in ab]:
+            for trial in moves(at, a):
+                v = total(trial)
+                if v < best - 1e-9:
+                    at, best, moved = trial, v, True
+                    break
+    for a, b in pairs:
+        if at[a] is not None and at[b] is not None and pieces[at[a]].centroid[0] > pieces[at[b]].centroid[0]:
+            at[a], at[b] = at[b], at[a]
+    got = {ids[c]: r for c, r in enumerate(at) if r is not None}
+    return got, [i for i in range(n) if i not in at], total(at)
