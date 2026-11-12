@@ -43,6 +43,13 @@
  * this browser remembers. Where he is drawn goes to the mascot store
  * (setPlacement), for the things beside him to follow.
  *
+ * Every close goes through closePanel(reason): Amr's button, Ctrl/Cmd+J,
+ * Escape, the Close button and a link followed alike, and a second call does
+ * nothing. Focus has one owner (lib/agent/mascot/use-panel-focus): a keyboard
+ * open goes to the name plate, then to a view's registered target (the
+ * composer, on a fine pointer); a pointer open leaves focus where it is; a
+ * close brings it back to the opener or to Amr's button, except after a link.
+ *
  * Those visitor views (the guide, the visitor panel, the consent card and the
  * guide's data) are a chunk of their own too, not part of this one, which
  * every page loads: lazy-visitor-body imports them ahead of time, once the
@@ -54,6 +61,7 @@
  */
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -67,7 +75,7 @@ import {
 import dynamic from "next/dynamic";
 import { Sparkles, Smartphone, Clapperboard } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAgentStore } from "@/lib/agent/store";
+import { useAgentStore, type PanelOpenVia } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { ChatVisibleContext } from "../chat-visibility";
 import { visitorAiEnabled } from "@/lib/visitor-ai/contract";
@@ -78,6 +86,7 @@ import { useMascotCelebrationReactions } from "@/lib/agent/mascot/use-celebratio
 import { useQuietCompanion } from "@/lib/agent/mascot/use-quiet-companion";
 import { useMuteScene } from "@/lib/agent/mascot/use-mute-scene";
 import { playEventScene } from "@/lib/agent/mascot/event-scenes";
+import { usePanelFocus, type PanelCloseReason } from "@/lib/agent/mascot/use-panel-focus";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { createTouchInteraction, zoneAt, type TouchPoint } from "./engine/interactions/touch";
 import {
@@ -741,8 +750,7 @@ function UnverifiedOwnerNote() {
 
 export function MascotAssistant() {
   const open = useAgentStore((s) => s.open);
-  const toggleSheet = useAgentStore((s) => s.toggleSheet);
-  const closeSheet = useAgentStore((s) => s.closeSheet);
+  const openedVia = useAgentStore((s) => s.openedVia);
   const [showHistory, setShowHistory] = useState(false);
   const [showScenes, setShowScenes] = useState(false);
   // A write waiting for a yes: its card has to be seen (scenesOpen, below).
@@ -800,7 +808,7 @@ export function MascotAssistant() {
   const onScenePlayed = () => {
     const { streaming, pendingToolUse } = useAgentStore.getState();
     if (streaming || pendingToolUse) setShowScenes(false);
-    else closeSheet();
+    else useAgentStore.getState().closeSheet();
   };
 
   // Owner signed out mid-session: drop the conversation from memory (reset
@@ -853,7 +861,43 @@ export function MascotAssistant() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const hitRef = useRef<HTMLSpanElement>(null);
   const insetProbeRef = useRef<HTMLSpanElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef(0);
+
+  // Focus has one owner: where it goes as the panel opens (the plate for a
+  // keyboard open, a view's target), the safety net while it is open, and
+  // the way back to the opener (or Amr's button) when it closes.
+  const panelFocus = usePanelFocus({
+    open,
+    openedVia,
+    rootRef: panelRef,
+    plateId: AMR_PANEL_TITLE_ID,
+    fallbackRef: buttonRef,
+  });
+  // The one way the panel closes, whatever closes it: it tells the focus
+  // owner why (a link followed gets no focus back), then closes the store
+  // (closeSheet clears Approve all and denies a waiting card). Safe to call
+  // twice: once the panel is closed it does nothing.
+  const closePanel = useCallback(
+    (reason: PanelCloseReason) => {
+      const agent = useAgentStore.getState();
+      if (!agent.open) return;
+      panelFocus.willClose(reason);
+      agent.closeSheet();
+    },
+    [panelFocus]
+  );
+  // Amr's button and Ctrl/Cmd+J: open, saying how, or close through closePanel.
+  const togglePanel = useCallback(
+    (via: PanelOpenVia, reason: PanelCloseReason) => {
+      const agent = useAgentStore.getState();
+      if (agent.open) closePanel(reason);
+      else agent.openSheet({ via });
+    },
+    [closePanel]
+  );
+  // A link or a tool followed from inside the panel: no focus comes back.
+  const navigateAway = useCallback(() => closePanel("navigate"), [closePanel]);
   const draggedRef = useRef(false);
   const onMascotClick = (e: ReactMouseEvent<HTMLButtonElement>) => {
     if (draggedRef.current) return; // a drag-release or a high five, not a click
@@ -879,7 +923,7 @@ export function MascotAssistant() {
     const now = Date.now();
     const gap = now - lastTapRef.current;
     lastTapRef.current = now;
-    if (gap > TAP_TOGGLE_GAP_MS) toggleSheet({ via: e.detail === 0 ? "keyboard" : "pointer" });
+    if (gap > TAP_TOGGLE_GAP_MS) togglePanel(e.detail === 0 ? "keyboard" : "pointer", "toggle");
   };
   useEffect(
     () => () => {
@@ -1193,11 +1237,11 @@ export function MascotAssistant() {
       }
       if (e.repeat) return;
       e.preventDefault();
-      toggleSheet({ via: "keyboard" });
+      togglePanel("keyboard", "shortcut");
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [toggleSheet]);
+  }, [togglePanel]);
 
   // Escape closes the panel — unless a confirm card is up (it owns Escape to
   // deny) or focus is in the rename field (it stops propagation to cancel edit).
@@ -1215,18 +1259,24 @@ export function MascotAssistant() {
       // Renaming a thread: Escape cancels that edit, not the whole panel.
       const ae = document.activeElement;
       if (ae?.getAttribute("aria-label") === "Rename conversation") return;
-      closeSheet();
+      closePanel("escape");
     };
     document.addEventListener("keydown", onEsc);
     return () => document.removeEventListener("keydown", onEsc);
-  }, [open, closeSheet]);
+  }, [open, closePanel]);
 
   // What the views inside the panel may ask of it. A link followed closes it,
-  // as a page change does; focus and Back aren't handled here yet, so those
-  // stay the safe no-ops.
+  // as a page change does, with no focus brought back; a view's first focus
+  // target goes to the focus owner. Back isn't handled here yet, so that
+  // stays the safe default.
   const panelContext = useMemo<AmrPanelContextValue>(
-    () => ({ ...NO_AMR_PANEL, layout, onNavigate: closeSheet }),
-    [layout, closeSheet]
+    () => ({
+      ...NO_AMR_PANEL,
+      layout,
+      onNavigate: navigateAway,
+      registerInitialFocus: panelFocus.registerInitialFocus,
+    }),
+    [layout, navigateAway, panelFocus]
   );
 
   // The panel's tail points at his figure: none while the launcher stands in for
@@ -1262,6 +1312,7 @@ export function MascotAssistant() {
       <MascotChatReactions />
       {open && (
         <div
+          ref={panelRef}
           id={AMR_PANEL_ID}
           data-agent-sheet-root
           data-vt-hold="amr-panel"
@@ -1331,7 +1382,7 @@ export function MascotAssistant() {
                   }
                   enlarged={panelSize.enlarged}
                   onToggleEnlarge={panelSize.toggle}
-                  onClose={closeSheet}
+                  onClose={() => closePanel("close-button")}
                 />
                 {/* The strip's ground: the page's paper, so card balloons stand out. */}
                 <div className="flex min-h-0 flex-1 flex-col bg-bg">
@@ -1345,7 +1396,7 @@ export function MascotAssistant() {
                           {settled && (
                             <LazyVisitorBody
                               ai={visitorAi}
-                              onNavigate={closeSheet}
+                              onNavigate={navigateAway}
                               note={unverified ? <UnverifiedOwnerNote /> : undefined}
                             />
                           )}

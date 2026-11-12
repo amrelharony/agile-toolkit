@@ -10,15 +10,20 @@
  *                         entry, so a link should replace it, not stack on it
  *   registerInitialFocus  the element focus goes to when the panel opens (the
  *                         composer, a search); a view registers it instead of
- *                         calling focus() in its own mount effect
+ *                         calling focus() in its own mount effect, and the
+ *                         panel's focus owner (lib/agent/mascot/use-panel-focus)
+ *                         decides whether it takes focus. useInitialFocus
+ *                         below does this for a text field.
  *
  * Runtime-free on purpose: React only, no store or agent code, so every view
  * and the mascot chunk can read it at no cost. Without a provider a view gets
- * the safe default below: a floating panel whose callbacks do nothing. The
- * panel's behaviour (focus, Back, the phone sheet) fills it in later.
+ * the safe default below: a floating panel whose onNavigate does nothing, and
+ * whose registered target takes focus at once, since there is no focus owner
+ * around it to place it. The panel's behaviour (Back, the phone sheet) fills
+ * the rest in later.
  */
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect, type RefObject } from "react";
 
 export type AmrPanelLayout = "float" | "sheet" | "side";
 
@@ -31,12 +36,15 @@ export interface AmrPanelContextValue {
 
 const nothing = () => {};
 
-/** No panel around the view: a floating card, and every callback does nothing. */
+/**
+ * No panel around the view: a floating card, onNavigate does nothing, and a
+ * registered target takes focus at once (no focus owner would place it).
+ */
 export const NO_AMR_PANEL: AmrPanelContextValue = Object.freeze({
   layout: "float",
   onNavigate: nothing,
   replaceOnNavigate: false,
-  registerInitialFocus: nothing,
+  registerInitialFocus: (el: HTMLElement | null) => el?.focus(),
 });
 
 export const AmrPanelContext = createContext<AmrPanelContextValue>(NO_AMR_PANEL);
@@ -45,4 +53,25 @@ AmrPanelContext.displayName = "AmrPanelContext";
 /** The panel around this view, or the safe default when there is none. */
 export function useAmrPanel(): AmrPanelContextValue {
   return useContext(AmrPanelContext);
+}
+
+/** A touch screen: a field taking focus there raises the keyboard. */
+function onTouchScreen(): boolean {
+  return window.matchMedia?.("(pointer: coarse)").matches === true;
+}
+
+/**
+ * Offers a text field (the composer) as this view's first target, when it
+ * mounts, to the panel's focus owner, and withdraws it when it goes. Only on
+ * a fine pointer (or none): on a touch screen the field would raise the
+ * keyboard over the panel before anyone chose to type, so the view offers
+ * nothing there and focus stays where the open left it.
+ */
+export function useInitialFocus(ref: RefObject<HTMLElement | null>): void {
+  const { registerInitialFocus } = useAmrPanel();
+  useEffect(() => {
+    if (onTouchScreen()) return;
+    registerInitialFocus(ref.current);
+    return () => registerInitialFocus(null);
+  }, [ref, registerInitialFocus]);
 }
