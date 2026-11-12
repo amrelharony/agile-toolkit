@@ -11,6 +11,7 @@
  */
 
 import type { HandoffLink } from "@/lib/stores/workspace-types";
+import { hashSeed } from "@/lib/utils/random";
 
 // ── Kinds ────────────────────────────────────────────────────────────
 
@@ -74,13 +75,15 @@ export interface WallSessionPost {
 
 /** A group of posts the host accepted (Amr's grouping or the keyword one). */
 export interface WallTheme {
+  /** Made when the host accepts it, so Undo takes back that theme and no other. */
+  id?: string;
   name: string;
   postIds: string[];
 }
 
 /** One backlog item sent from the wall, with its hand-off link. */
 export interface WallSentItem {
-  /** Stable key for the item (its title, slugged). */
+  /** Stable key for the item (`sentKey` of its title). */
   key: string;
   title: string;
   sentTo: HandoffLink[];
@@ -195,6 +198,7 @@ export function normalizeSession(raw: unknown): WallSession | null {
   }
   const themes: WallTheme[] = [];
   const themed = new Set<string>();
+  const themeIds = new Set<string>();
   for (const rawTheme of Array.isArray(s.themes) ? s.themes : []) {
     const t = obj(rawTheme);
     const name = t ? oneLine(t.name, WALL_THEME_NAME_MAX) : "";
@@ -204,7 +208,12 @@ export function normalizeSession(raw: unknown): WallSession | null {
     );
     postIds.forEach((id) => themed.add(id));
     if (postIds.length === 0) continue;
-    themes.push({ name, postIds });
+    const theme: WallTheme = { name, postIds };
+    if (typeof t.id === "string" && POST_ID_RE.test(t.id) && !themeIds.has(t.id)) {
+      theme.id = t.id;
+      themeIds.add(t.id);
+    }
+    themes.push(theme);
     if (themes.length >= WALL_THEMES_MAX) break;
   }
   const sent: WallSentItem[] = [];
@@ -461,18 +470,106 @@ export function mergeSessionPosts(s: WallSession, fromId: string, intoId: string
   return normalizeSession({ ...s, posts, themes }) ?? s;
 }
 
+/**
+ * Undo of `mergeSessionPosts(…, fromId, keep)` for each of `mergedIds`, on
+ * the wall as it is `now`, with `before` the wall as it was just before
+ * that merge. Only what the merge touched goes back: the merged-away posts
+ * return to their old places with their own votes, texts and links; the
+ * kept post loses the texts, votes and Answered they brought; posts that
+ * built on them point at them again; and the themes hold them (and the
+ * kept post) as they did. Everything else stays as it is now: other
+ * merges, later themes, items sent to the backlog. Unchanged when the kept
+ * post is gone since (merged on into another), or when nothing is left to
+ * put back.
+ */
+export function unmergeSessionPosts(
+  now: WallSession,
+  before: WallSession,
+  keep: string,
+  mergedIds: readonly string[]
+): WallSession {
+  const into = now.posts.find((p) => p.id === keep);
+  const intoBefore = before.posts.find((p) => p.id === keep);
+  if (!into || !intoBefore) return now;
+  const nowIds = new Set(now.posts.map((p) => p.id));
+  const back = before.posts.filter((p) => mergedIds.includes(p.id) && !nowIds.has(p.id));
+  if (back.length === 0) return now;
+  const backIds = new Set(back.map((p) => p.id));
+  // What the merge put under the kept post, in the order it did.
+  const added = back.flatMap((p) => [p.text, ...p.merged]);
+  const base = intoBefore.merged.length;
+  const lifted = into.merged.slice(base, base + added.length);
+  const merged =
+    lifted.length === added.length && lifted.every((t, i) => t === added[i])
+      ? [...into.merged.slice(0, base), ...into.merged.slice(base + added.length)]
+      : into.merged.filter((t, i) => i < base || !added.includes(t));
+  const votes = Math.max(0, into.votes - back.reduce((n, p) => n + p.votes, 0));
+  const restoredInto: WallSessionPost = { ...into, merged, votes };
+  if (intoBefore.answered) restoredInto.answered = true;
+  else delete restoredInto.answered;
+  if (intoBefore.re !== undefined) restoredInto.re = intoBefore.re;
+  // The merge pointed the posts that built on these at the kept post's thread.
+  const reBefore = new Map(before.posts.map((p) => [p.id, p.re]));
+  const current = new Map(now.posts.map((p) => [p.id, p]));
+  current.set(keep, restoredInto);
+  for (const [id, p] of Array.from(current)) {
+    const was = reBefore.get(id);
+    if (id !== keep && was !== undefined && backIds.has(was)) current.set(id, { ...p, re: was });
+  }
+  // Each comes back where it was: right after the post that came before it then.
+  const order = now.posts.map((p) => p.id);
+  for (const p of back) {
+    const at = before.posts.findIndex((x) => x.id === p.id);
+    let after = -1;
+    for (let i = at - 1; i >= 0 && after < 0; i--) after = order.indexOf(before.posts[i].id);
+    order.splice(after + 1, 0, p.id);
+    current.set(p.id, { ...p, merged: p.merged.slice() });
+  }
+  const posts = order.map((id) => current.get(id)!);
+  // Themes: the posts this touched sit in the themes they sat in before.
+  const touched = new Set([keep, ...Array.from(backIds)]);
+  const sameTheme = (a: WallTheme, b: WallTheme) =>
+    a.id && b.id ? a.id === b.id : a.name === b.name;
+  const themes = now.themes.map((t) => {
+    const was = before.themes.find((b) => sameTheme(b, t));
+    if (!was) return t;
+    const kept = t.postIds.filter((id) => !touched.has(id) || was.postIds.includes(id));
+    const returning = was.postIds.filter((id) => touched.has(id) && !kept.includes(id));
+    return { ...t, postIds: [...kept, ...returning] };
+  });
+  // A theme the merge emptied (it held only these posts) comes back.
+  for (const b of before.themes) {
+    if (themes.some((t) => sameTheme(b, t))) continue;
+    if (b.postIds.length > 0 && b.postIds.every((id) => touched.has(id))) themes.push(b);
+  }
+  return normalizeSession({ ...now, posts, themes }) ?? now;
+}
+
 /** The wall with `themes` (each post in one theme at most, the first that names it). */
 export function withThemes(s: WallSession, themes: readonly WallTheme[]): WallSession {
   return normalizeSession({ ...s, themes }) ?? s;
 }
 
-/** "Fix the flaky build!" → "fix-the-flaky-build", for a sent item's key. */
+/** Anything but a letter or digit, in any script (built at run time: tsconfig targets ES5). */
+const NOT_LETTER_OR_DIGIT = new RegExp("[^\\p{L}\\p{N}]+", "gu");
+
+/**
+ * A backlog item's key, from its title: its letters and digits in any
+ * script, lower case, and a hash of the whole of them, so two items differ
+ * whenever their words do ("تسهيل العثور على كود الخصم" and "توضيح رسائل خطأ
+ * البطاقة" get two keys), while "Fix CI" and "fix CI!" are the same item on
+ * purpose (sent once). A title with no letter or digit hashes as typed.
+ */
 export function sentKey(title: string): string {
-  return (
-    title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "item"
-  );
+  const words = title
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(NOT_LETTER_OR_DIGIT, "-")
+    .replace(/^-+|-+$/g, "");
+  const hash = hashSeed(words || title.trim())
+    .toString(36)
+    .padStart(7, "0");
+  // At most 32 characters of the words (by code point): the key stays under 80.
+  const head = Array.from(words).slice(0, 32).join("") || "item";
+  return `${head}-${hash}`;
 }

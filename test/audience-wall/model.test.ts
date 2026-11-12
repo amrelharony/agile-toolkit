@@ -11,6 +11,7 @@ import {
   sessionFromDraft,
   sessionFromResult,
   topTen,
+  unmergeSessionPosts,
   validateWallDraft,
   withThemes,
   type WallSession,
@@ -174,9 +175,77 @@ describe("a saved wall's views and changes", () => {
     expect(s.themes).toEqual([{ name: "Releases", postIds: ["p1", "p2"] }]);
   });
 
-  it("makes a stable key of a title", () => {
-    expect(sentKey("Fix the flaky build!")).toBe("fix-the-flaky-build");
-    expect(sentKey("¿?")).toBe("item");
+  it("makes a stable key of a title, in any script, one per item", () => {
+    expect(sentKey("Fix the flaky build!")).toMatch(/^fix-the-flaky-build-[0-9a-z]{7}$/);
+    expect(sentKey("Fix the flaky build!")).toBe(sentKey("Fix the flaky build!"));
+    // Two Arabic items and a Cyrillic one: three keys, none of them a lossy "item".
+    const keys = [
+      sentKey("تسهيل العثور على كود الخصم"),
+      sentKey("توضيح رسائل خطأ البطاقة"),
+      sentKey("Ускорить проверку"),
+    ];
+    expect(new Set(keys).size).toBe(3);
+    expect(keys[0].startsWith("تسهيل-العثور")).toBe(true);
+    // Case and punctuation alone make the same item, on purpose: sent once.
+    expect(sentKey("Fix CI")).toBe(sentKey("fix CI!"));
+    expect(sentKey("Fix CI")).not.toBe(sentKey("Fix CD"));
+    // No letter at all: still one key per title, and every key fits the stored cap.
+    expect(sentKey("¿?")).not.toBe(sentKey("!!"));
+    expect(sentKey("ж".repeat(200)).length).toBeLessThanOrEqual(80);
+  });
+
+  it("undoes one merge only: later merges, themes and sent items stay", () => {
+    const s = wall({
+      posts: [
+        { id: "p1", text: "When is the next release?", votes: 4, merged: [] },
+        { id: "p2", text: "When do we release next?", votes: 1, merged: ["Release date?"] },
+        { id: "p3", text: "Who owns onboarding?", votes: 2, merged: [], answered: true },
+        { id: "p4", text: "Who runs onboarding?", votes: 3, merged: [] },
+        { id: "p5", text: "and the date after that?", votes: 0, merged: [], re: "p2" },
+      ],
+      themes: [{ id: "t_rel", name: "Releases", postIds: ["p2"] }],
+    });
+    const before1 = s;
+    const one = mergeSessionPosts(s, "p2", "p1");
+    const before2 = one;
+    const two = mergeSessionPosts(one, "p4", "p3");
+    // Something else changed after both: an item went to the backlog.
+    const later: WallSession = {
+      ...two,
+      sent: [{ key: "k", title: "Pick a release date", sentTo: [] }],
+    };
+    const undone = unmergeSessionPosts(later, before1, "p1", ["p2"]);
+    expect(undone.posts.map((p) => p.id)).toEqual(["p1", "p2", "p3", "p5"]);
+    expect(undone.posts[0]).toMatchObject({ votes: 4, merged: [] });
+    expect(undone.posts[0].answered).toBeUndefined();
+    expect(undone.posts[1]).toMatchObject({ votes: 1, merged: ["Release date?"] });
+    expect(undone.posts[3].re).toBe("p2");
+    expect(undone.themes).toEqual([{ id: "t_rel", name: "Releases", postIds: ["p2"] }]);
+    // The second merge and the sent item are still there.
+    expect(undone.posts[2]).toMatchObject({ votes: 5, merged: ["Who runs onboarding?"] });
+    expect(undone.sent).toHaveLength(1);
+    // Then the second one's Undo: the first stays undone.
+    const both = unmergeSessionPosts(undone, before2, "p3", ["p4"]);
+    expect(both.posts.map((p) => p.id)).toEqual(["p1", "p2", "p3", "p4", "p5"]);
+    expect(both.posts[2]).toMatchObject({ votes: 2, merged: [], answered: true });
+    expect(both.posts[3]).toMatchObject({ votes: 3, merged: [] });
+    // Nothing to put back, or the kept post merged on since: unchanged.
+    expect(unmergeSessionPosts(both, before2, "p3", ["p4"])).toBe(both);
+    const gone = mergeSessionPosts(two, "p1", "p3");
+    expect(unmergeSessionPosts(gone, before1, "p1", ["p2"])).toBe(gone);
+  });
+
+  it("keeps a theme's id, once each, so Undo can take back that theme alone", () => {
+    const s = withThemes(wall(), [
+      { id: "t_a", name: "Releases", postIds: ["p1"] },
+      { id: "t_a", name: "Releases", postIds: ["p2"] },
+      { id: "bad id!", name: "Owners", postIds: ["p3"] },
+    ]);
+    expect(s.themes).toEqual([
+      { id: "t_a", name: "Releases", postIds: ["p1"] },
+      { name: "Releases", postIds: ["p2"] },
+      { name: "Owners", postIds: ["p3"] },
+    ]);
   });
 });
 

@@ -6,10 +6,12 @@
  * export it, delete it (with Undo), and three helpers that draft and wait
  * for the host to accept: themes, duplicates to merge, and backlog items
  * (sent through the backlog-story hand-off, with Undo). Amr drafts them
- * when he can; the word rules draft them when he can't.
+ * when he can; the word rules draft them when he can't. Each Undo takes
+ * back its own change only, never a later one.
  */
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { nanoid } from "nanoid";
 import Link from "next/link";
 import { BookCheck, ChevronDown, Cloud, List, Tags, Trash2, Trophy, X } from "lucide-react";
 import { AiButton, AiSuggestions } from "@/components/ai";
@@ -37,6 +39,7 @@ import {
   repliesByPost,
   sentKey,
   topTen,
+  unmergeSessionPosts,
   wallCounts,
   withThemes,
   type WallSession,
@@ -72,12 +75,31 @@ function average(p: WallSessionPost): string {
   return `${avg} average, ${plural(p.scorers, "score")}`;
 }
 
-export function SavedWalls({ sessions, log }: { sessions: readonly WallSession[]; log: Log }) {
+export function SavedWalls({
+  sessions,
+  log,
+  onEmptied,
+}: {
+  sessions: readonly WallSession[];
+  log: Log;
+  /** The last wall was deleted: the page puts focus somewhere sensible. */
+  onEmptied?: () => void;
+}) {
+  const listRef = useRef<HTMLUListElement>(null);
+  /** After a delete: the next wall's Open button, or the one before, or the page's choice. */
+  const focusAfterDelete = (index: number) => {
+    window.setTimeout(() => {
+      const opens = listRef.current?.querySelectorAll<HTMLElement>("[data-wall-open]");
+      const target = opens?.[index] ?? opens?.[index - 1];
+      if (target) target.focus();
+      else onEmptied?.();
+    }, 0);
+  };
   return (
-    <ul className="space-y-3" aria-label="Saved walls">
-      {sessions.map((s) => (
+    <ul ref={listRef} className="space-y-3" aria-label="Saved walls">
+      {sessions.map((s, i) => (
         <li key={s.id}>
-          <WallCard session={s} log={log} />
+          <WallCard session={s} log={log} onDeleted={() => focusAfterDelete(i)} />
         </li>
       ))}
     </ul>
@@ -86,7 +108,15 @@ export function SavedWalls({ sessions, log }: { sessions: readonly WallSession[]
 
 type View = "posts" | "cloud" | "top";
 
-function WallCard({ session, log }: { session: WallSession; log: Log }) {
+function WallCard({
+  session,
+  log,
+  onDeleted,
+}: {
+  session: WallSession;
+  log: Log;
+  onDeleted: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("posts");
   const bodyId = useId();
@@ -102,6 +132,7 @@ function WallCard({ session, log }: { session: WallSession; log: Log }) {
       match: (s) => s.id === session.id,
     });
     if (!example) log(AUDIENCE_WALL_ACTIONS.WALL_REMOVED, { kind: session.kind, posts: c.posts });
+    onDeleted();
   };
 
   return (
@@ -125,6 +156,7 @@ function WallCard({ session, log }: { session: WallSession; log: Log }) {
             className="gap-1"
             aria-expanded={open}
             aria-controls={bodyId}
+            data-wall-open=""
             onClick={() => setOpen((v) => !v)}
           >
             <ChevronDown
@@ -134,7 +166,11 @@ function WallCard({ session, log }: { session: WallSession; log: Log }) {
             {open ? "Close" : "Open"}
             <span className="sr-only">: {short(session.prompt)}</span>
           </Button>
-          <ExportButton filename={wallFilename(session)} markdown={wallMarkdown(session)} />
+          <ExportButton
+            filename={wallFilename(session)}
+            markdown={wallMarkdown(session)}
+            context={short(session.prompt)}
+          />
           <IconButton
             label={`Delete the wall “${short(session.prompt)}”`}
             icon={<Trash2 className="h-4 w-4" />}
@@ -217,9 +253,11 @@ function PostList({ session }: { session: WallSession }) {
   const line = (p: WallSessionPost, reply: boolean) => (
     <li key={p.id} className="space-y-1 rounded-lg border border-border bg-surface-deep/50 p-2.5">
       {reply && <p className="text-xs font-medium text-accent">Yes, and…</p>}
-      <div className="flex min-w-0 items-start gap-3">
-        <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-text">{p.text}</p>
-        <span className="shrink-0 text-xs text-sub">
+      <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-start sm:gap-3">
+        <p className="min-w-0 whitespace-pre-wrap break-words text-sm text-text sm:flex-1">
+          {p.text}
+        </p>
+        <span className="text-xs text-sub sm:shrink-0">
           {scored && !reply ? average(p) : plural(p.votes, "vote")}
         </span>
       </div>
@@ -251,8 +289,10 @@ function TopTenList({ session }: { session: WallSession }) {
       {top.map((p, i) => (
         <li key={p.id} className="flex min-w-0 items-baseline gap-2 text-sm">
           <span className="w-6 shrink-0 text-right font-data text-sub">{i + 1}.</span>
-          <span className="min-w-0 flex-1 break-words text-text">{p.text}</span>
-          <span className="shrink-0 text-xs text-sub">{average(p)}</span>
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+            <span className="min-w-0 break-words text-text sm:flex-1">{p.text}</span>
+            <span className="text-xs text-sub sm:shrink-0">{average(p)}</span>
+          </span>
         </li>
       ))}
     </ol>
@@ -291,28 +331,27 @@ function Themes({ session, log }: { session: WallSession; log: Log }) {
       )
     : [];
   const example = isExampleId(session.id);
+  const groupRef = useRef<HTMLDivElement>(null);
 
   const addThemes = (themes: ClusterOutput["themes"]) => {
     if (themes.length === 0) return;
-    const before = readWalls().find((s) => s.id === session.id);
+    // Each accepted theme gets its own id: Undo takes back these, and only these.
+    const added = themes.map((t) => ({ ...t, id: `t_${nanoid(8)}` }));
+    const ids = new Set(added.map((t) => t.id));
     undoable({
       label:
         themes.length === 1
           ? `Added the theme “${short(themes[0].name, 30)}”`
           : `Added ${themes.length} themes`,
       kind: "success",
-      apply: () => updateWall(session.id, (s) => withThemes(s, [...s.themes, ...themes])),
-      revert: () => {
-        const names = new Set(themes.map((t) => t.name));
+      apply: () => updateWall(session.id, (s) => withThemes(s, [...s.themes, ...added])),
+      revert: () =>
         updateWall(session.id, (s) =>
           withThemes(
             s,
-            s.themes.filter(
-              (t) => !names.has(t.name) || before?.themes.some((b) => b.name === t.name)
-            )
+            s.themes.filter((t) => !t.id || !ids.has(t.id))
           )
-        );
-      },
+        ),
     });
     if (!example) log(AUDIENCE_WALL_ACTIONS.THEMES_ACCEPTED, { themes: themes.length });
   };
@@ -322,8 +361,11 @@ function Themes({ session, log }: { session: WallSession; log: Log }) {
     undoable({
       label: "Cleared the themes",
       apply: () => updateWall(session.id, (s) => withThemes(s, [])),
-      revert: () => updateWall(session.id, (s) => withThemes(s, kept)),
+      // Themes added since stay first: the cleared ones get back the posts still free.
+      revert: () => updateWall(session.id, (s) => withThemes(s, [...s.themes, ...kept])),
     });
+    // The button goes with the themes: focus the one that groups them again.
+    window.setTimeout(() => groupRef.current?.querySelector<HTMLElement>("button")?.focus(), 0);
   };
 
   return (
@@ -335,8 +377,8 @@ function Themes({ session, log }: { session: WallSession; log: Log }) {
       {session.themes.length > 0 ? (
         <>
           <ul className="space-y-2">
-            {session.themes.map((t) => (
-              <li key={t.name} className="space-y-1">
+            {session.themes.map((t, i) => (
+              <li key={t.id ?? `${i}-${t.name}`} className="space-y-1">
                 <p className="text-sm font-medium text-text">
                   {t.name}{" "}
                   <span className="text-xs font-normal text-sub">
@@ -363,20 +405,22 @@ function Themes({ session, log }: { session: WallSession; log: Log }) {
           No themes yet. Group the posts to see what keeps coming up.
         </p>
       )}
-      <AiButton
-        task={clusterTask}
-        label="Group into themes"
-        fallbackLabel="Group by shared words"
-        disabledReason={session.posts.length < 2 ? "A wall needs two posts or more." : null}
-        input={() => ({
-          prompt: session.prompt,
-          posts: forAi.posts.map((p) => ({ id: p.id, text: p.text })),
-        })}
-        onResult={(data, meta) => {
-          setDraft({ themes: data.themes, source: meta.source });
-          announce(`${plural(data.themes.length, "theme")} to review.`);
-        }}
-      />
+      <div ref={groupRef}>
+        <AiButton
+          task={clusterTask}
+          label="Group into themes"
+          fallbackLabel="Group by shared words"
+          disabledReason={session.posts.length < 2 ? "A wall needs two posts or more." : null}
+          input={() => ({
+            prompt: session.prompt,
+            posts: forAi.posts.map((p) => ({ id: p.id, text: p.text })),
+          })}
+          onResult={(data, meta) => {
+            setDraft({ themes: data.themes, source: meta.source });
+            announce(`${plural(data.themes.length, "theme")} to review.`);
+          }}
+        />
+      </div>
       <LeftOut left={forAi.left} shown={forAi.posts.length} />
       {draft && suggestions.length === 0 && (
         <p role="status" className="text-sm text-sub">
@@ -424,7 +468,8 @@ function Duplicates({ session }: { session: WallSession }) {
         updateWall(session.id, (s) =>
           g.merge.reduce((acc, id) => mergeSessionPosts(acc, id, g.keep), s)
         ),
-      revert: () => updateWall(session.id, () => before),
+      // This group's posts come back; other merges, themes and sent items stay.
+      revert: () => updateWall(session.id, (s) => unmergeSessionPosts(s, before, g.keep, g.merge)),
     });
   };
 
@@ -562,14 +607,14 @@ function ToBacklog({
         </>
       )}
       {sent.length > 0 && (
-        <ul className="space-y-1" aria-label="Sent to the backlog">
+        <ul className="space-y-0.5" aria-label="Sent to the backlog">
           {sent.map((x) => {
             const link = liveLink(x.sentTo, "backlog-story")!;
             return (
               <li key={x.key}>
                 <Link
                   href={getHandoffRoute("backlog-story").targetHref(link.targetId)}
-                  className="inline-flex items-center gap-1 text-xs text-success underline-offset-2 hover:underline"
+                  className="min-touch-coarse inline-flex items-center gap-1 py-1 text-xs text-success underline-offset-2 hover:underline"
                 >
                   <BookCheck className="h-3.5 w-3.5" aria-hidden="true" />
                   On the backlog: “{short(x.title, 60)}”

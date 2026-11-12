@@ -36,7 +36,14 @@ export function WordCloud({
       className="flex min-w-0 flex-wrap items-baseline justify-center gap-x-4 gap-y-2 rounded-lg border border-border bg-surface-deep px-3 py-4"
     >
       {words.map((w) => (
-        <li key={w.word} className={cn("break-words leading-tight", SIZE[w.weight])}>
+        // A long top word wraps anywhere rather than run past the card on a phone.
+        <li
+          key={w.word}
+          className={cn(
+            "min-w-0 max-w-full leading-tight [overflow-wrap:anywhere]",
+            SIZE[w.weight]
+          )}
+        >
           {w.word}
           <span className="sr-only">
             : {w.count} {w.count === 1 ? "post" : "posts"}
