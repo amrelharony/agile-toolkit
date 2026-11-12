@@ -26,7 +26,11 @@ import { useAnnounce } from "@/components/a11y/live-announcer";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
 import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
 import { IdlePromptDialog, RoomMemberList } from "@/components/collab/room-controls";
+import { RoomBigScreen, useBigScreen } from "@/components/collab/room-big-screen";
+import { RoomTimerControls } from "@/components/collab/room-countdown";
+import { RoomReactions } from "@/components/collab/room-reactions";
 import { LiveRoomLimits } from "@/components/collab/run-modes";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { liveOnlyReason } from "@/components/collab/live-room-reasons";
 import { useSaveRound, type SaveRound } from "@/components/collab/vote-room/save-round";
 import { signalGamification } from "@/lib/gamification/signal";
@@ -200,6 +204,8 @@ function HostWallRoom({
     startedAt: session.startedAt,
     crypto,
   });
+  const extras = useRoomExtras(room.extras);
+  const big = useBigScreen();
   const announce = useAnnounce();
   const { save, isSaved } = useSaveRound<WallRoundResult>(onSave);
   const [prompt, setPrompt] = useState(defaultPrompt);
@@ -327,6 +333,7 @@ function HostWallRoom({
             isHost
             onEnd={() => setConfirmEnd(true)}
             linkFragment={fingerprint ? `#k=${fingerprint}` : undefined}
+            onBigScreen={big.show}
           />
           <p className="text-xs text-sub">
             Share it with Copy link or Show QR code: both carry the key that shows the wall comes
@@ -334,6 +341,35 @@ function HostWallRoom({
           </p>
         </div>
       )}
+      <RoomBigScreen
+        {...big.props}
+        tool={tool}
+        toolName={toolName}
+        code={session.code}
+        linkFragment={fingerprint ? `#k=${fingerprint}` : undefined}
+        memberCount={room.members.length}
+        timer={extras.timer}
+        reactions={extras.reactions}
+      >
+        {round ? (
+          <div className="space-y-3">
+            <h2 className="break-words text-2xl font-semibold">{round.prompt}</h2>
+            {round.posts === null ? (
+              <p className="text-lg text-sub">
+                {round.count} {round.count === 1 ? "post" : "posts"} so far, hidden until the host
+                reveals them.
+              </p>
+            ) : (
+              <WallPostList
+                posts={round.posts.filter((p) => !p.hidden)}
+                emptyText="No posts yet."
+              />
+            )}
+          </div>
+        ) : (
+          <p className="text-lg text-sub">The wall opens in a moment.</p>
+        )}
+      </RoomBigScreen>
 
       {setup || !round ? (
         <form
@@ -519,6 +555,13 @@ function HostWallRoom({
           </ol>
         </section>
       )}
+
+      <RoomTimerControls
+        timer={extras.timer}
+        onChange={extras.setTimer}
+        disabled={!extras.canSetTimer || status !== "live"}
+      />
+      <RoomReactions extras={extras} />
 
       {others.length > 0 && (
         <RoomMemberList
