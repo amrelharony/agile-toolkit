@@ -311,16 +311,31 @@ describe("fixing a story", () => {
     expect(within(row("vague")).queryByRole("button", { name: "Split it" })).toBeNull();
   });
 
-  it("says a stale story needs Refinement's check, not just an edit here", async () => {
+  it("says how long a stale story has gone unchanged", async () => {
     seed([story({ createdAt: new Date(Date.now() - 20 * 7 * 86_400_000).toISOString() })]);
     renderPage();
     expect(
       await within(await screen.findByRole("list", { name: "Backlog stories" })).findByText(
-        /No status change, sprint move or ready check for 20 weeks\. Walk it through Refinement/
+        /Not changed for 20 weeks\. Refine it or drop it\./
       )
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByText("What counts as the top, too big and stale"));
-    expect(screen.getByText(/Points and criteria fixed here don.t reset it/)).toBeInTheDocument();
+  });
+
+  it("counts a fix here as refining, so a stale story stops being stale", async () => {
+    seed([
+      story({
+        points: undefined,
+        createdAt: new Date(Date.now() - 20 * 7 * 86_400_000).toISOString(),
+      }),
+    ]);
+    renderPage();
+    const input = await screen.findByLabelText("Points for Pay with a saved card");
+    expect(within(row("st1")).getByText(/Not changed for 20 weeks/)).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "3" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(find("st1")?.refinedAt).toEqual(expect.any(String));
+    expect(within(row("st1")).queryByText(/Not changed for/)).toBeNull();
+    expect(within(row("st1")).getByText("No flags.")).toBeInTheDocument();
   });
 
   it("splits a big one by a pattern, with Undo, keeping the original", async () => {
