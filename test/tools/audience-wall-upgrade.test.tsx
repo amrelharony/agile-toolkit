@@ -158,6 +158,15 @@ describe("the page", () => {
     expect(screen.queryByText("Example data.")).toBeNull();
   });
 
+  it("offers no wall typed in by hand for a raise-hand queue", async () => {
+    await mount();
+    expect(screen.getByRole("button", { name: "Add a wall by hand" })).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("radio", { name: /^Raised hands/ }));
+    });
+    expect(screen.queryByRole("button", { name: "Add a wall by hand" })).toBeNull();
+  });
+
   it("offers the five kinds of wall, each with what it does", async () => {
     await mount();
     const kinds = screen.getByRole("group", { name: "Kind of wall" });
@@ -239,6 +248,21 @@ describe("a saved wall", () => {
     expect(rows[0]).toHaveTextContent("4.4 average, 5 scores");
   });
 
+  it("moves focus to the next wall after a delete", async () => {
+    const second: WallSession = { ...OWN, id: "wall_two", prompt: "What slows us down?" };
+    useAudienceWallStore.setState({ sessions: [OWN, second] });
+    await mount();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Delete the wall “What should we ask/ }));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(document.activeElement).toBe(
+      within(card("What slows us down?")).getByRole("button", { name: /^Open/ })
+    );
+  });
+
   it("deletes a wall with Undo", async () => {
     useAudienceWallStore.setState({ sessions: [OWN] });
     await mount();
@@ -284,6 +308,35 @@ describe("a saved wall", () => {
     expect(walls()[0].themes).toEqual([]);
   });
 
+  it("undoes the theme it added only, even when an older theme has the same name", async () => {
+    const wall: WallSession = {
+      ...OWN,
+      id: "wall_names",
+      kind: "answers",
+      prompt: "What slows us down?",
+      posts: [
+        { id: "p1", text: "Code reviews take days", votes: 2, merged: [] },
+        { id: "p2", text: "Waiting on reviews", votes: 1, merged: [] },
+        { id: "p3", text: "Flaky tests on CI", votes: 3, merged: [] },
+        { id: "p4", text: "The tests are flaky", votes: 0, merged: [] },
+      ],
+      themes: [{ name: "reviews", postIds: ["p3"] }],
+    };
+    useAudienceWallStore.setState({ sessions: [wall] });
+    await mount();
+    const c = await openCard("What slows us down?");
+    await act(async () => {
+      fireEvent.click(within(c).getByRole("button", { name: "Group by shared words" }));
+    });
+    const draft = within(c).getByRole("heading", { name: "Themes to add" }).closest("section")!;
+    await act(async () => {
+      fireEvent.click(within(draft as HTMLElement).getAllByRole("button", { name: /^Add/ })[0]);
+    });
+    expect(walls()[0].themes).toHaveLength(2);
+    undoOf(/^Added the theme/)();
+    expect(walls()[0].themes).toEqual([{ name: "reviews", postIds: ["p3"] }]);
+  });
+
   it("clears a wall's themes with Undo", async () => {
     useAudienceWallStore.setState({ sessions: buildExample(new Date(NOW)) });
     await mount();
@@ -321,8 +374,54 @@ describe("a saved wall", () => {
       "Who owns onboarding?",
     ]);
     expect(walls()[0].posts[0]).toMatchObject({ votes: 5, merged: ["When do we release next?"] });
+    // Something else happens to the wall after the merge: Undo keeps it.
+    act(() =>
+      useAudienceWallStore.setState({
+        sessions: [{ ...walls()[0], themes: [{ id: "t_later", name: "Later", postIds: ["p3"] }] }],
+      })
+    );
     undoOf(/^Merged 1 post/)();
     expect(walls()[0].posts).toHaveLength(3);
+    expect(walls()[0].posts[0]).toMatchObject({ votes: 4, merged: [] });
+    expect(walls()[0].themes).toEqual([{ id: "t_later", name: "Later", postIds: ["p3"] }]);
+  });
+
+  it("sends two items in another script as two stories, both listed", async () => {
+    const arabic: WallSession = {
+      ...OWN,
+      id: "wall_ar",
+      kind: "answers",
+      prompt: "ما الذي يجب أن نحسنه؟",
+      posts: [
+        { id: "p1", text: "تسهيل العثور على كود الخصم", votes: 3, merged: [] },
+        { id: "p2", text: "توضيح رسائل خطأ البطاقة", votes: 2, merged: [] },
+      ],
+    };
+    useAudienceWallStore.setState({ sessions: [arabic] });
+    await mount();
+    const c = await openCard("ما الذي يجب أن نحسنه؟");
+    await act(async () => {
+      fireEvent.click(within(c).getByRole("button", { name: "Draft items without AI" }));
+    });
+    const draft = () =>
+      within(c).getByRole("heading", { name: "Backlog items to add" }).closest("section")!;
+    await act(async () => {
+      fireEvent.click(
+        within(draft() as HTMLElement).getAllByRole("button", { name: /^Add to backlog/ })[0]
+      );
+    });
+    await act(async () => {
+      fireEvent.click(
+        within(draft() as HTMLElement).getAllByRole("button", { name: /^Add to backlog/ })[0]
+      );
+    });
+    const stories = useWorkspaceStore.getState().stories;
+    expect(stories.map((st) => st.title)).toEqual([
+      "تسهيل العثور على كود الخصم",
+      "توضيح رسائل خطأ البطاقة",
+    ]);
+    expect(walls()[0].sent).toHaveLength(2);
+    expect(within(c).getAllByRole("link", { name: /^On the backlog/ })).toHaveLength(2);
   });
 
   it("sends feedback to the backlog through the hand-off, never from the example", async () => {
@@ -405,6 +504,7 @@ describe("saving a live round and the kinds' setup", () => {
   it("sets each kind up as it runs: questions live and answerable, brainwriting building, 25/10 hidden", () => {
     expect(WALL_KIND_SETUP.questions).toMatchObject({ mode: "live", answerable: true });
     expect(WALL_KIND_SETUP.brainwriting.roundOptions).toEqual({ build: true });
+    expect(WALL_KIND_SETUP.hands.roundOptions).toEqual({ takePosts: false });
     expect(WALL_KIND_SETUP.crowd.mode).toBe("hidden");
     expect(WALL_KIND_SETUP.answers.starters).toContain(
       "What would make this session a ten for you?"
@@ -552,9 +652,27 @@ describe("the live wall", () => {
     });
     expect(screen.getByText(/Only you see this draft/)).toBeInTheDocument();
     expect(states(ch).at(-1)!.round!.count).toBe(2);
-    const draft = screen.getByRole("heading", { name: "Duplicates to merge" }).closest("section")!;
+    const draft = () =>
+      screen.getByRole("heading", { name: "Duplicates to merge" }).closest("section")!;
+    // Merge asks first, naming the posts: a merge can't be split again.
     await act(async () => {
-      fireEvent.click(within(draft as HTMLElement).getByRole("button", { name: /^Merge/ }));
+      fireEvent.click(within(draft() as HTMLElement).getByRole("button", { name: /^Merge/ }));
+    });
+    let dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("Merge these questions for everyone?");
+    expect(dialog).toHaveTextContent(/can't be split again/);
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    });
+    await tick(600);
+    expect(states(ch).at(-1)!.round!.count).toBe(2);
+    // A "no" puts the group back in the draft.
+    await act(async () => {
+      fireEvent.click(within(draft() as HTMLElement).getByRole("button", { name: /^Merge/ }));
+    });
+    dialog = screen.getByRole("dialog");
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Merge questions" }));
     });
     await tick(600);
     const shared = states(ch).at(-1)!.round!;
@@ -562,16 +680,46 @@ describe("the live wall", () => {
     expect(shared.posts![0].merged).toHaveLength(1);
   });
 
+  it("tells Amr the round isn't saved, until Save round", async () => {
+    const { ch, crypto, round } = await openLive("questions");
+    expect(liveWall()!.status().unsaved).toBe(false);
+    await send(
+      ch,
+      crypto,
+      A.id,
+      post(round, "pid_q0000001", "When is the next release?", "keyA_0123456789abcdef")
+    );
+    expect(liveWall()!.status().unsaved).toBe(true);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+    });
+    expect(liveWall()!.status().unsaved).toBe(false);
+  });
+
   it("shows the next speaker, and lowers their hand when done", async () => {
     const { ch, crypto } = await openLive("hands");
+    // A queue to speak: phones get Raise my hand, not a post box.
+    expect(states(ch).at(-1)!.round!.open).toBe(false);
     await send(ch, crypto, A.id, { t: "hand", up: true });
+    expect(screen.getByTestId("live-polite")).toHaveTextContent(
+      "Alex raised a hand: 1 in the queue."
+    );
     await send(ch, crypto, B.id, { t: "hand", up: true });
     expect(screen.getByText("Next: Alex")).toBeInTheDocument();
+    expect(screen.getByText("Then: Bo")).toBeInTheDocument();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Done, next is Bo" }));
+      // The name stays out of the button, so a long one can't push it past a phone's edge.
+      fireEvent.click(screen.getByRole("button", { name: "Done, call the next" }));
     });
     await tick(600);
     expect(states(ch).at(-1)!.hands).toEqual([B.id]);
+    // The last one: the button goes, and focus stays on the queue's line.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    });
+    await tick(600);
+    expect(document.activeElement).toHaveTextContent(/^No hands up/);
+    await send(ch, crypto, B.id, { t: "hand", up: true });
     await send(ch, crypto, A.id, { t: "hand", up: true });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Lower all" }));
@@ -642,7 +790,7 @@ describe("the live wall", () => {
       value: 5,
       lock: lockOf("keyB2_0123456789abcd"),
     });
-    expect(screen.getByText(/1 score in/)).toBeInTheDocument();
+    expect(screen.getByText(/1 of up to 10 scores in/)).toBeInTheDocument();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Show the top ten" }));
     });
@@ -650,12 +798,58 @@ describe("the live wall", () => {
     const top = screen.getByRole("region", { name: "Top ten" });
     expect(within(top).getByText("Ship every day")).toBeInTheDocument();
     expect(within(top).getByText("5 on average from 1 person")).toBeInTheDocument();
+    // The button went: focus is on the list's heading.
+    expect(document.activeElement).toBe(within(top).getByRole("heading", { name: "Top ten" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Save round" }));
     });
     const saved = (onSave.mock.calls[0] as unknown as [{ posts: object[] }])[0];
     expect(saved.posts[0]).toMatchObject({ text: "Ship every day", score: 5, scorers: 1 });
     expect(JSON.stringify(saved)).not.toContain(A.id);
+  });
+
+  it("keeps a scored post the host hid off the top ten", async () => {
+    const { ch, crypto, round } = await openLive("crowd");
+    await send(
+      ch,
+      crypto,
+      A.id,
+      post(round, "pid_c0000001", "Ship every day", "keyA_0123456789abcdef")
+    );
+    await send(
+      ch,
+      crypto,
+      B.id,
+      post(round, "pid_c0000002", "No meetings on Wednesdays", "keyB_0123456789abcdef")
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Start the scoring" }));
+    });
+    await tick(600);
+    await send(ch, crypto, B.id, {
+      t: "score",
+      r: round,
+      pid: "pid_c0000001",
+      value: 5,
+      lock: lockOf("keyB2_0123456789abcd"),
+    });
+    await send(ch, crypto, A.id, {
+      t: "score",
+      r: round,
+      pid: "pid_c0000002",
+      value: 3,
+      lock: lockOf("keyA2_0123456789abcd"),
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Hide: Ship every day" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show the top ten" }));
+    });
+    await tick(600);
+    const top = screen.getByRole("region", { name: "Top ten" });
+    expect(within(top).queryByText("Ship every day")).toBeNull();
+    expect(within(top).getByText("No meetings on Wednesdays")).toBeInTheDocument();
   });
 
   it("shows the word cloud of open answers on demand", async () => {

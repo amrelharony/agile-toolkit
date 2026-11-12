@@ -58,6 +58,7 @@ export function AudienceWallClient() {
   // The kind the live room opened with: a save after it closed still uses it.
   const liveKindRef = useRef<WallKind | null>(null);
   const kindName = useId();
+  const savedRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let alive = true;
@@ -159,48 +160,57 @@ export function AudienceWallClient() {
 
           <LiveWall kind={kind} onSave={saveRound} onLiveChange={onLiveChange} />
 
-          <div className="space-y-3 border-t border-border pt-4">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="gap-1.5"
-              aria-expanded={byHand}
-              onClick={() => setByHand((v) => !v)}
-            >
-              <PenLine className="h-4 w-4" aria-hidden="true" />
-              Add a wall by hand
-            </Button>
-            {byHand && (
-              <>
-                <p className="text-xs text-sub">
-                  For sticky notes on a real wall, or answers from a chat: type the question and one
-                  answer per line.
-                </p>
-                <ManualWallForm kind={kind} onSave={saveDraft} />
-              </>
-            )}
-          </div>
+          {/* A raise-hand queue has nothing to type in. */}
+          {kind !== "hands" && (
+            <div className="space-y-3 border-t border-border pt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="gap-1.5"
+                aria-expanded={byHand}
+                onClick={() => setByHand((v) => !v)}
+              >
+                <PenLine className="h-4 w-4" aria-hidden="true" />
+                Add a wall by hand
+              </Button>
+              {byHand && (
+                <>
+                  <p className="text-xs text-sub">
+                    For sticky notes on a real wall, or answers from a chat: type the question and
+                    one answer per line.
+                  </p>
+                  <ManualWallForm kind={kind} onSave={saveDraft} />
+                </>
+              )}
+            </div>
+          )}
         </SectionCard>
 
-        {ready && sessions.length === 0 ? (
-          <EmptyState
-            icon={MessagesSquare}
-            action={<LoadExampleButton onLoad={loadExample} className="mt-4" />}
-          >
-            No saved walls yet. Open a live wall above and save its round, or add one by hand.
-          </EmptyState>
-        ) : (
-          ready && (
-            <SectionCard
-              title={`Saved walls (${sessions.length})`}
+        <div ref={savedRef}>
+          {ready && sessions.length === 0 ? (
+            <EmptyState
               icon={MessagesSquare}
-              contentClassName="space-y-3"
+              action={<LoadExampleButton onLoad={loadExample} className="mt-4" />}
             >
-              <SavedWalls sessions={sessions} log={log} />
-            </SectionCard>
-          )
-        )}
+              No saved walls yet. Open a live wall above and save its round, or add one by hand.
+            </EmptyState>
+          ) : (
+            ready && (
+              <SectionCard
+                title={`Saved walls (${sessions.length})`}
+                icon={MessagesSquare}
+                contentClassName="space-y-3"
+              >
+                <SavedWalls
+                  sessions={sessions}
+                  log={log}
+                  onEmptied={() => savedRef.current?.querySelector<HTMLElement>("button")?.focus()}
+                />
+              </SectionCard>
+            )
+          )}
+        </div>
       </div>
     </ToolPageWrapper>
   );

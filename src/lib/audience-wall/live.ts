@@ -28,11 +28,19 @@ export interface LiveWallStatus {
   scoring: "open" | "shown" | null;
   /** The page's kind of wall. */
   kind: string;
+  /**
+   * The round holds posts a new round would clear: not saved yet, or hidden
+   * until reveal. Amr's open_round refuses then, unless told to discard them.
+   */
+  unsaved: boolean;
 }
 
 export interface LiveWallControl {
   status(): LiveWallStatus;
-  /** Put a new prompt up (the round before goes, unsaved). False if it can't. */
+  /**
+   * Put a new prompt up. The round before goes, saved or not, so a caller
+   * checks `status().unsaved` first. False if it can't.
+   */
   openRound(prompt: string, mode: "live" | "hidden"): boolean;
   setOpen(open: boolean): void;
   reveal(): void;

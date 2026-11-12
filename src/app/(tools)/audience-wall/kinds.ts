@@ -50,6 +50,8 @@ export const WALL_KIND_SETUP: Record<WallKind, WallKindSetup> = {
   hands: {
     prompt: "Raise your hand to speak",
     mode: "live",
+    // A queue to speak: phones show Raise my hand, not a post box.
+    roundOptions: { takePosts: false },
     answerable: false,
     startLabel: "Open a raise-hand queue",
     starters: ["Raise your hand to speak", "Raise your hand for the open floor"],
@@ -86,7 +88,7 @@ export const WALL_KIND_HOW: Record<WallKind, string> = {
   questions:
     "People post questions and upvote others' as they go. Take the most wanted first and mark each one answered.",
   hands:
-    "People raise a hand from their phone and join the queue. Call on the first in line, then lower their hand.",
+    "People raise a hand from their phone and join the queue. Call on the first in line, then lower their hand. The wall takes no posts until you press Take posts again.",
   brainwriting:
     "Everyone writes ideas, then builds on each other's with Yes, and…. The replies show under the post they build on.",
   crowd:
