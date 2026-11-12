@@ -22,6 +22,19 @@
  * taken off the page: while a page field has a phone's keyboard, what he says
  * beside himself waits instead (usePageFieldFocus, MascotBubble `waiting`).
  *
+ * The panel is laid out by the screen's height first (amr-geometry's
+ * panelLayout, from its size without the keyboard): a short screen (500 px or
+ * less: a landscape phone) gets it down one side beside him, a phone held
+ * upright the full-height sheet, everything else the floating card. In the
+ * sheet, the visible box between the header and the keyboard, Amr docks in
+ * its bottom corner on his side (still draggable; a drop or Move Amr picks his
+ * side now and his corner for when it closes), the views keep a gutter and a
+ * footer clear of him, and the page behind is inert and holds still
+ * (useSheetLock). With the keyboard up, or little room, the panel goes compact:
+ * it starts at the top of what can be seen and folds its chrome. The visual
+ * viewport is read in one animation frame and written as CSS variables
+ * (usePanelViewport), so a rising keyboard never re-renders this shell.
+ *
  * The owner's agent is owner-only. Visitors keep the mascot (clicks, Konami,
  * Cmd/Ctrl+J) but the panel shows <VisitorGuide/> — a tool finder — instead
  * of the chat, so their panel never touches /api/agent/stream or the agent
@@ -164,21 +177,38 @@ import {
   PANEL_MIN_H,
   PANEL_SIDE,
   PANEL_SIZE,
+  SIDE_PANEL_MAX_W,
   amrEdge,
   amrSide,
   cornerAfterKey,
   cornerName,
+  dockInsets,
+  dockedButtonPos,
+  isCompact,
   otherSide,
+  panelLayout,
   panelOrigin,
   panelTail,
+  sheetPos,
+  sidePos,
+  visibleBox,
+  type AmrLayout,
   type PanelSizeName,
 } from "./amr-geometry";
+import {
+  SAFE_AREA_PROBE_STYLE,
+  VISIBLE_GAP,
+  readHeaderBottom,
+  readSafeArea,
+  readVisibleArea,
+  type VisibleAreaReading,
+} from "@/lib/layout/use-visible-area";
 import { LazyVisitorBody, prefetchVisitorBody } from "./lazy-visitor-body";
 import { AMR_PANEL_TITLE_ID, PanelHeader, shortcutLabel } from "./panel-header";
 import { FigureFailed, LAUNCHER_LABEL, PanelFailed, PanelLoading } from "./panel-parts";
 import { AMR_PANEL_ID } from "./panel-ids";
 import { PANEL_SUBTITLE, PanelChrome, PanelIconButton } from "./panel-chrome";
-import { AmrPanelContext, type AmrPanelContextValue, type AmrPanelLayout } from "./panel-context";
+import { AmrPanelContext, type AmrPanelContextValue } from "./panel-context";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import {
@@ -208,6 +238,11 @@ const POINT_AT_PANEL_MS = 60_000;
 
 /** History's rename field (conversation-list): it keeps Ctrl/Cmd+J, so an edit isn't lost. */
 const RENAME_FIELD = "[data-agent-rename]";
+/**
+ * The chat's message box (agent-conversation, visitor-agent-panel). While it
+ * has focus on the phone's sheet, the docked Amr rides the keyboard beside it.
+ */
+const COMPOSER = "[data-amr-composer]";
 /** History's own button (owner-agent-panel), where focus goes when Escape leaves History. */
 const HISTORY_BUTTON = "[data-panel-history]";
 /**
@@ -230,6 +265,12 @@ function typesInto(el: Element): boolean {
     el.tagName === "TEXTAREA" ||
     el.tagName === "SELECT"
   );
+}
+
+/** A field inside his panel that types has focus: a phone's keyboard is up for it. */
+function panelFieldHasFocus(panel: HTMLElement | null): boolean {
+  const el = document.activeElement;
+  return !!panel && !!el && panel.contains(el) && typesInto(el);
 }
 
 /** A layout effect in the browser, a plain one on the server (no SSR warning). */
@@ -274,6 +315,19 @@ function glideFrom(el: HTMLElement | null, from: DOMRect | null): void {
  */
 export const MOVE_HINT = "Arrow keys move him";
 const MOVE_HINT_ID = "amr-move-hint";
+
+/**
+ * What a move by Move Amr or an arrow key announces: narration, never an Amr
+ * line. Docked in the phone's sheet he stands at its bottom whatever corner is
+ * picked, so a top corner is where he goes once the chat closes.
+ */
+export function moveNote(next: Corner, moves: boolean, docked: boolean): string {
+  const where = cornerName(next).toLowerCase();
+  if (!moves) return `Amr is already in the ${where}`;
+  if (docked && amrEdge(next) === "top")
+    return `Amr will stand in the ${where} once the chat closes`;
+  return `Amr moved to the ${where}`;
+}
 
 /** A pointer event as a point on his figure (the hit box), for the touch tracker. */
 function touchPoint(
@@ -413,6 +467,63 @@ export function panelPos(
     ...sideOffset(c, PANEL_SIDE),
     maxHeight: `max(${PANEL_MIN_H}px, calc(${room} - ${offset}))`,
   };
+}
+
+/** An inline style that sets CSS variables too (the panel's, read by its classes and CSS). */
+type StyleWithVars = CSSProperties & { [name: `--${string}`]: string };
+
+/** The top edge of the sheet and the side panel, until usePanelViewport's first reading: under the header. */
+const PLACE_TOP = `var(--amr-vv-top, calc(var(--header-h, 56px) + ${VISIBLE_GAP}px))`;
+/** Their bottom edge likewise: clear of the home indicator. */
+const PLACE_BOTTOM = `var(--amr-vv-bottom, calc(${VISIBLE_GAP}px + env(safe-area-inset-bottom, 0px)))`;
+
+/**
+ * The phone's sheet: the visible box (amr-geometry's sheetPos), from the
+ * variables usePanelViewport writes. Its own width and height go (auto): the
+ * four edges size it.
+ */
+function sheetPlace(): CSSProperties {
+  return {
+    top: PLACE_TOP,
+    bottom: PLACE_BOTTOM,
+    left: `var(--amr-vv-left, calc(${BUTTON_SIDE}px + env(safe-area-inset-left, 0px)))`,
+    right: `var(--amr-vv-right, calc(${BUTTON_SIDE}px + env(safe-area-inset-right, 0px)))`,
+  };
+}
+
+/**
+ * The side layout's panel (amr-geometry's sidePos): top to bottom beside him,
+ * from the variables usePanelViewport writes; until its first reading, clear
+ * of his figure (or the launcher plate) and up to SIDE_PANEL_MAX_W wide.
+ */
+function sidePlace(c: Corner, phone: boolean, figure: boolean): StyleWithVars {
+  const side = amrSide(c);
+  const w = (phone ? MASCOT_BOX_PHONE : MASCOT_BOX).w;
+  const inline = BUTTON_SIDE + (figure ? w * (1 - HIT_SIDE) : LAUNCHER_PLATE.w) + PANEL_GAP;
+  return {
+    top: PLACE_TOP,
+    bottom: PLACE_BOTTOM,
+    [side]: `var(--amr-vv-inline, calc(${inline}px + env(safe-area-inset-${side}, 0px)))`,
+    "--amr-panel-width": `var(--amr-vv-width, min(${SIDE_PANEL_MAX_W}px, calc(100vw - ${inline + BUTTON_SIDE}px)))`,
+    "--amr-panel-height": "auto",
+  };
+}
+
+/**
+ * The side layout's tail, on the panel's edge facing him: its near side, so
+ * its tip is level with the middle of his figure. Counted from the panel's
+ * end at his edge (its bottom for a bottom corner), where his button and the
+ * panel are both measured from, so the safe area falls out.
+ */
+function sideTailAt(c: Corner, boxH: number, lift: number, phone: boolean): string {
+  const scale = boxH / SHEET.cellH;
+  const middle = ((FIGURE_TOP + FIGURE_BOTTOM) / 2) * scale;
+  const atTop = c.startsWith("top");
+  const raw = edgeOffset(c, edgeInset(c, true, boxH) + lift, phone);
+  const button = typeof raw === "number" ? `${raw}px` : raw;
+  const panel = atTop ? "var(--amr-vv-top, 0px)" : "var(--amr-vv-bottom, 0px)";
+  const fromEdge = atTop ? middle : boxH - middle;
+  return `calc(${button} + ${fromEdge.toFixed(2)}px - ${panel} - 0.4rem - var(--panel-w))`;
 }
 
 /** Whether a media query matches, kept up to date (false on the server). */
@@ -737,6 +848,257 @@ function usePageFieldFocus(isPhone: boolean): boolean {
     };
   }, [isPhone]);
   return focused;
+}
+
+/**
+ * The screen's size without the keyboard: the layout viewport's height, which
+ * a keyboard never shrinks in Safari or Chrome (Firefox's does, so the layout
+ * is held while a field in the panel has focus: usePanelViewport), and its
+ * width as the media queries read it (with any scrollbar), or, while
+ * pinch-zoomed, the layout viewport's own width, which the zoom leaves be.
+ */
+function layoutViewport(): { width: number; height: number } {
+  const root = document.documentElement;
+  const vv = window.visualViewport;
+  const zoomed = !!vv && Math.abs(vv.scale - 1) > 0.01;
+  return {
+    width: (zoomed && root.clientWidth) || window.innerWidth,
+    height: root.clientHeight || window.innerHeight,
+  };
+}
+
+/** How the panel is laid out on this screen now (amr-geometry's panelLayout, height first). */
+function readLayout(): AmrLayout {
+  return typeof window === "undefined" ? "float" : panelLayout(layoutViewport());
+}
+
+/** The visible area and the box the sheet fits in, read off the page as it is now. */
+function measureBox(probe: Element | null): {
+  area: VisibleAreaReading;
+  box: ReturnType<typeof visibleBox>;
+  width: number;
+  height: number;
+} {
+  const safe = readSafeArea(probe);
+  const root = document.documentElement;
+  const width = root.clientWidth || window.innerWidth;
+  const height = root.clientHeight || window.innerHeight;
+  const area = readVisibleArea({
+    clientHeight: height,
+    viewport: window.visualViewport,
+    headerBottom: readHeaderBottom(),
+    safeTop: safe.top,
+    safeBottom: safe.bottom,
+  });
+  return { area, box: visibleBox({ width, height }, area, safe), width, height };
+}
+
+/**
+ * What usePanelViewport writes, as CSS variables, so a keyboard rising (a
+ * reading every frame) never re-renders the shell. On the panel:
+ *   --amr-vv-top, --amr-vv-bottom   its top and bottom edges, px from the
+ *                                   screen's (the sheet and the side layout)
+ *   --amr-vv-left, --amr-vv-right   the sheet's side edges
+ *   --amr-vv-inline, --amr-vv-width the side layout's offset from his side and its width
+ *   --amr-kb, --amr-visible-h       the keyboard's height and the visible box's
+ * and on his button, docked in the sheet (DOCK_VARS):
+ *   --amr-dock-bottom, --amr-dock-inline
+ * The panel's go with it when it closes; his are taken off.
+ */
+const DOCK_VARS = ["--amr-dock-bottom", "--amr-dock-inline"] as const;
+
+function setPx(el: HTMLElement, name: string, px: number): void {
+  el.style.setProperty(name, `${Math.round(px * 100) / 100}px`);
+}
+
+/** Why a reading is taken: nothing about the layout, a resize, or a turn of the phone. */
+type LayoutCheck = "none" | "resize" | "rotate";
+
+/**
+ * The panel's layout (float, phone sheet, side) and whether a keyboard is up,
+ * kept while the panel is open: the only two things React holds. Everything
+ * else a reading gives (where the sheet or the side panel sits, where the
+ * docked Amr stands, compact mode) is written straight onto the panel and his
+ * button (the variables above, data-amr-compact), from one animation frame
+ * however many viewport events come in it.
+ *
+ * - The layout comes from the screen's size without the keyboard, read afresh
+ *   as the panel opens (in that render, so nothing acts on last time's). It
+ *   is held while a field in the panel has focus (Firefox shrinks the layout
+ *   viewport for the keyboard, which would read as a short screen), and
+ *   checked again on a resize with no such field focused and on every turn of
+ *   the phone. Not as a field lets go: Firefox's keyboard is still closing
+ *   then, and its own resize comes once it has.
+ * - Compact (keyboard up, or a visible box under 360 px; sheet and side only):
+ *   the panel starts just under the top of what can be seen, over the site
+ *   header, and its views fold their chrome (data-amr-compact).
+ * - Docked in the sheet, Amr stands in its bottom corner on his side, and
+ *   rides up with the keyboard only while the composer has focus.
+ * Nothing listens while the panel is shut.
+ */
+function usePanelViewport({
+  open,
+  panelRef,
+  buttonRef,
+  probeRef,
+  placed,
+  phone,
+  figure,
+}: {
+  open: boolean;
+  panelRef: RefObject<HTMLDivElement | null>;
+  buttonRef: RefObject<HTMLButtonElement | null>;
+  probeRef: RefObject<HTMLSpanElement | null>;
+  /** The corner he's drawn in: the side panel's side, and the side he docks on. */
+  placed: Corner;
+  /** The side panel clears a phone's figure (MASCOT_BOX_PHONE) or the desktop one. */
+  phone: boolean;
+  /** His figure, or the launcher plate standing in for it. */
+  figure: boolean;
+}): { layout: AmrLayout; keyboardUp: boolean } {
+  const [layout, setLayout] = useState<AmrLayout>(readLayout);
+  const [keyboardUp, setKeyboardUp] = useState(false);
+  // The panel opening: its layout read now, in this render, so Back's hook
+  // and the sheet's lock below never act on the layout it had last time.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    const fresh = open ? readLayout() : layout;
+    if (fresh !== layout) setLayout(fresh);
+  }
+  const latest = useRef({ placed, phone, figure, layout, keyboardUp });
+  latest.current = { placed, phone, figure, layout, keyboardUp };
+
+  // Reads the page and writes the variables. Stable: it reads everything off refs.
+  const write = useCallback(
+    (check: LayoutCheck) => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      const now = latest.current;
+      let current = now.layout;
+      if (check !== "none") {
+        const next = readLayout();
+        if (next !== current && (check === "rotate" || !panelFieldHasFocus(panel))) {
+          current = next;
+          now.layout = next;
+          setLayout(next);
+        }
+      }
+      const { area, box } = measureBox(probeRef.current);
+      setPx(panel, "--amr-kb", area.kb);
+      setPx(panel, "--amr-visible-h", box.height);
+      const compact = current !== "float" && isCompact(area.keyboardUp, box);
+      const top = { compact, viewTop: area.viewTop };
+      if (current === "sheet") {
+        const pos = sheetPos(box, top);
+        setPx(panel, "--amr-vv-top", pos.top);
+        setPx(panel, "--amr-vv-bottom", pos.bottom);
+        setPx(panel, "--amr-vv-left", pos.left);
+        setPx(panel, "--amr-vv-right", pos.right);
+      } else if (current === "side") {
+        const pos = sidePos(now.placed, box, { phone: now.phone, figure: now.figure }, top);
+        setPx(panel, "--amr-vv-top", pos.top);
+        setPx(panel, "--amr-vv-bottom", pos.bottom);
+        setPx(panel, "--amr-vv-inline", pos.left ?? pos.right ?? 0);
+        setPx(panel, "--amr-vv-width", pos.width);
+      }
+      panel.toggleAttribute("data-amr-compact", compact);
+      const button = buttonRef.current;
+      if (button && current === "sheet") {
+        // Beside the composer while it has the keyboard; otherwise where the
+        // sheet's bottom rests, so a search field's keyboard leaves him be.
+        const held = document.activeElement;
+        const rides = !!held && panel.contains(held) && !!held.closest(COMPOSER);
+        const dock = dockedButtonPos(now.placed, rides ? box : { ...box, bottom: area.restBottom });
+        setPx(button, "--amr-dock-bottom", dock.bottom);
+        setPx(button, "--amr-dock-inline", dock.left ?? dock.right ?? 0);
+      } else if (button) {
+        for (const name of DOCK_VARS) button.style.removeProperty(name);
+      }
+      // Only a change: a keyboard rising frame by frame never asks React to render.
+      if (area.keyboardUp !== now.keyboardUp) {
+        now.keyboardUp = area.keyboardUp;
+        setKeyboardUp(area.keyboardUp);
+      }
+    },
+    [panelRef, buttonRef, probeRef]
+  );
+
+  useIsomorphicLayoutEffect(() => {
+    if (!open) return;
+    // A fresh reading as it opens, before it paints: never last time's keyboard.
+    write("none");
+    let frame = 0;
+    let pending: LayoutCheck = "none";
+    const schedule = (check: LayoutCheck) => {
+      if (check === "rotate" || (check === "resize" && pending === "none")) pending = check;
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const why = pending;
+        pending = "none";
+        write(why);
+      });
+    };
+    const onResize = () => schedule("resize");
+    const onScroll = () => schedule("none");
+    const onRotate = () => schedule("rotate");
+    // A panel field taking focus starts the composer's ride; one letting go ends it.
+    const onFocus = (e: FocusEvent) => {
+      const t = e.target;
+      if (t instanceof Element && typesInto(t) && panelRef.current?.contains(t)) schedule("none");
+    };
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", onResize);
+    vv?.addEventListener("scroll", onScroll);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onRotate);
+    document.addEventListener("focusin", onFocus);
+    document.addEventListener("focusout", onFocus);
+    const button = buttonRef.current;
+    return () => {
+      window.cancelAnimationFrame(frame);
+      vv?.removeEventListener("resize", onResize);
+      vv?.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onRotate);
+      document.removeEventListener("focusin", onFocus);
+      document.removeEventListener("focusout", onFocus);
+      for (const name of DOCK_VARS) button?.style.removeProperty(name);
+      latest.current.keyboardUp = false;
+      setKeyboardUp(false);
+    };
+  }, [open, write, panelRef, buttonRef]);
+
+  // Where he stands, or the layout, changed while open: read again before paint.
+  useIsomorphicLayoutEffect(() => {
+    if (open) write("none");
+  }, [open, layout, placed, phone, figure, write]);
+
+  return { layout, keyboardUp };
+}
+
+/**
+ * The phone's sheet covers the page, so while it is open (and only in that
+ * layout) the page behind is out of reach: main is inert, the document
+ * doesn't scroll and the sheet's chrome takes no swipe (html[data-amr-sheet],
+ * globals.css "AMR SHEET"). A layout effect, so a close removes it before
+ * focus goes back to an opener in main.
+ */
+function useSheetLock(on: boolean): void {
+  useIsomorphicLayoutEffect(() => {
+    if (!on) return;
+    const html = document.documentElement;
+    html.setAttribute("data-amr-sheet", "");
+    const main = document.getElementById("main-content") ?? document.querySelector("main");
+    // Only what this made inert is let go (something else may hold it too).
+    const madeInert = main && !main.hasAttribute("inert") ? main : null;
+    madeInert?.setAttribute("inert", "");
+    return () => {
+      html.removeAttribute("data-amr-sheet");
+      madeInert?.removeAttribute("inert");
+    };
+  }, [on]);
 }
 
 /** How long the page must be still (no scroll, resize, tap or change) before he looks under him. */
@@ -1083,10 +1445,6 @@ export function MascotAssistant({
   const pageFieldFocus = usePageFieldFocus(isPhone);
   const box = isPhone ? MASCOT_BOX_PHONE : MASCOT_BOX;
   const panelSize = usePanelSize();
-  // How the panel sits. The phone's full-height sheet and the short landscape
-  // panel down one side come with the phone layouts; until then it floats
-  // beside him everywhere.
-  const layout = "float" as AmrPanelLayout;
 
   // The figure loads after the page is idle; until it's ready (or while it
   // can't load) the "Ask Amr" plate keeps him one click away without an
@@ -1299,13 +1657,33 @@ export function MascotAssistant({
     insetProbeRef,
   });
   const placed = nudge.flip ? otherSide(corner) : corner;
+
+  // How the panel sits on this screen (float, the phone's sheet, or down one
+  // side of a short one) and whether a keyboard is up; the rest of what the
+  // visual viewport says is written as CSS variables, not React state.
+  const { layout, keyboardUp } = usePanelViewport({
+    open,
+    panelRef,
+    buttonRef,
+    probeRef: insetProbeRef,
+    placed,
+    phone: isPhone,
+    figure: !figureFailed,
+  });
+  // In the sheet he docks in its bottom corner on his side, a phone's figure
+  // and never smaller, still draggable; his chosen corner returns on close.
+  const docked = open && layout === "sheet";
+  const figureBox = docked ? MASCOT_BOX_PHONE : box;
+  useSheetLock(docked);
+
   // Where he is drawn and how far he has stepped up, worked out with his panel's
   // place: his bubble and the moment chip follow these, not his chosen corner.
+  // Docked, that's the sheet's bottom corner on his side.
+  const drawnEdge = docked ? "bottom" : amrEdge(placed);
+  const drawnLift = docked ? 0 : nudge.lift;
   useEffect(() => {
-    useMascotStore
-      .getState()
-      .setPlacement({ side: amrSide(placed), edge: amrEdge(placed) }, nudge.lift);
-  }, [placed, nudge.lift]);
+    useMascotStore.getState().setPlacement({ side: amrSide(placed), edge: drawnEdge }, drawnLift);
+  }, [placed, drawnEdge, drawnLift]);
 
   // Moving him, by a drop, Move Amr or an arrow key: all one way. The corner
   // becomes his chosen one (not where he'd stepped aside to), and he keeps to
@@ -1333,10 +1711,7 @@ export function MascotAssistant({
     resetNudge();
     setSideChosen(true);
     // Narration, not an Amr line (decision 6). A drop is seen where it lands.
-    if (how !== "drop") {
-      const where = cornerName(next).toLowerCase();
-      announce(moves ? `Amr moved to the ${where}` : `Amr is already in the ${where}`);
-    }
+    if (how !== "drop") announce(moveNote(next, moves, docked));
   };
   // The arrow keys on his focused button: up or down picks the edge, left or
   // right the side. Only bare arrows; held down, one move.
@@ -1426,6 +1801,10 @@ export function MascotAssistant({
 
   const onPointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0) return;
+    // A finger on him while the composer (or another field in his panel) has
+    // the keyboard: the field keeps focus, so the keyboard stays up and the
+    // sheet doesn't jump. The tap still toggles and the drag still carries.
+    if (panelFieldHasFocus(panelRef.current)) e.preventDefault();
     dragCleanupRef.current?.(); // tidy any prior unfinished drag
     const el = e.currentTarget;
     const start = { x: e.clientX, y: e.clientY };
@@ -1433,6 +1812,14 @@ export function MascotAssistant({
     const offset = { x: rect.left - e.clientX, y: rect.top - e.clientY };
     const w = el.offsetWidth;
     const h = el.offsetHeight;
+    // The part of the screen that can be seen, read once as the drag starts: he
+    // is carried within it (never under the keyboard), and dropped into the
+    // corner of the visible box nearest to where he is let go.
+    const seen = measureBox(insetProbeRef.current);
+    const minTop = seen.area.viewTop;
+    const maxTop = seen.height - seen.area.kb - h;
+    const midX = (seen.box.left + seen.width - seen.box.right) / 2;
+    const midY = (seen.box.top + seen.height - seen.box.bottom) / 2;
     const touch = touchRef.current;
     const onFigure = !!(e.target as HTMLElement).closest?.("[data-mascot-hit]");
     const p = onFigure ? touchPoint(e, hitRef.current) : null;
@@ -1456,8 +1843,8 @@ export function MascotAssistant({
         return;
       }
       last = {
-        left: Math.max(0, Math.min(window.innerWidth - w, ev.clientX + offset.x)),
-        top: Math.max(0, Math.min(window.innerHeight - h, ev.clientY + offset.y)),
+        left: Math.max(0, Math.min(seen.width - w, ev.clientX + offset.x)),
+        top: Math.max(minTop, Math.min(maxTop, ev.clientY + offset.y)),
       };
       setDragPos(last);
       // He hangs from the collar and swings with the drag's sideways speed.
@@ -1496,10 +1883,10 @@ export function MascotAssistant({
         // DOM rect may still read the start position here).
         const cx = last.left + w / 2;
         const cy = last.top + h / 2;
-        const next = `${cy < window.innerHeight / 2 ? "top" : "bottom"}${
-          cx < window.innerWidth / 2 ? "Left" : "Right"
-        }` as Corner;
+        const next = `${cy < midY ? "top" : "bottom"}${cx < midX ? "Left" : "Right"}` as Corner;
         // Dropped where the visitor wants him: the same path as Move Amr.
+        // Docked in the sheet, the drop picks his side now and the edge for
+        // when it closes.
         moveAmr(next, "drop");
         // Suppress the click that fires right after a drag-release.
         draggedRef.current = true;
@@ -1674,7 +2061,8 @@ export function MascotAssistant({
   // as a page change does, with no focus brought back, and while Back's
   // marker is the newest history entry its page takes the marker's place
   // (replaceOnNavigate); a view's first focus target goes to the focus
-  // owner.
+  // owner; the layout tells the views how the panel sits (the phone's sheet,
+  // a short screen's side panel).
   const panelContext = useMemo<AmrPanelContextValue>(
     () => ({
       layout,
@@ -1686,36 +2074,81 @@ export function MascotAssistant({
   );
 
   // The panel's tail points at his figure: none while the launcher stands in for
-  // him, while he's off the page for the keyboard (a page field has focus on a
-  // phone), while he's carried (the panel stays at his corner until the drop,
-  // then glides), or in the phone's sheet (it covers the screen; there is
-  // nothing beside it to point at). Its growth point stays on showFigure, so the
-  // card doesn't move while he steps aside and still matches where he comes back.
-  const tail =
-    layout === "sheet"
+  // him, while he's carried (the panel stays at his corner until the drop,
+  // then glides), while a keyboard is up (the panel has moved above it, away
+  // from him), or in the phone's sheet (he is docked inside it). Down the side
+  // of a short screen it is on the edge facing him, level with his middle.
+  // Its growth point stays on showFigure, so the card doesn't move while he
+  // steps aside and still matches where he comes back.
+  const cornerTail =
+    layout === "sheet" || keyboardUp
       ? null
-      : panelTail(placed, {
-          phone: isPhone,
-          figure: showFigure,
-          dragging: dragPos !== null,
-        });
+      : panelTail(placed, { phone: isPhone, figure: showFigure, dragging: dragPos !== null });
+  const tail =
+    cornerTail && layout === "side"
+      ? {
+          tail: amrSide(placed),
+          from: amrEdge(placed),
+          at: sideTailAt(placed, figureBox.h, nudge.lift, isPhone),
+        }
+      : cornerTail && {
+          tail: cornerTail.tail,
+          from: cornerTail.from,
+          // Its near side, so its tip lands on his centre line: half the tail's
+          // width short of it, counted inside the panel's line.
+          at: `calc(${cornerTail.at}px - 0.4rem - var(--panel-w))`,
+        };
+  // Docked in the sheet: the views keep a gutter and a footer clear of him.
+  const dock = docked ? dockInsets(placed) : null;
   const size = PANEL_SIZE[panelSize.size];
-  const panelStyle = {
-    // Its place is the figure's whenever one is coming, as the phone band's is,
-    // so an open panel doesn't jump when the plate gives way to him, or as his
-    // figure is tried again (until then it stands where he will). Only a
-    // figure that can't load, with no try left, puts it back by the plate.
-    ...panelPos(placed, !figureFailed, box.h, isPhone, nudge.lift, panelSize.size),
-    // Its size, read by its w-/h- classes: as variables, a layout rule in CSS
-    // can still replace them, which an inline width or height would beat.
-    "--amr-panel-width": size.width,
-    "--amr-panel-height": size.height,
-    // The entrance grows from where the tail meets the panel.
-    "--panel-origin": panelOrigin(placed, { phone: isPhone, figure: showFigure }),
-    // The tail's near side, so its tip lands on his centre line: half the
-    // tail's width short of it, counted inside the panel's line.
-    ...(tail && { "--tail-at": `calc(${tail.at}px - 0.4rem - var(--panel-w))` }),
-  } as CSSProperties;
+  const panelStyle: StyleWithVars = {
+    ...(layout === "sheet"
+      ? {
+          ...sheetPlace(),
+          "--amr-panel-width": "auto",
+          "--amr-panel-height": "auto",
+        }
+      : layout === "side"
+        ? sidePlace(placed, isPhone, !figureFailed)
+        : {
+            // Its place is the figure's whenever one is coming, as the phone
+            // band's is, so an open panel doesn't jump when the plate gives way
+            // to him, or as his figure is tried again (until then it stands
+            // where he will). Only a figure that can't load, with no try left,
+            // puts it back by the plate.
+            ...panelPos(placed, !figureFailed, box.h, isPhone, nudge.lift, panelSize.size),
+            // Its size, read by its w-/h- classes: as variables, a layout rule
+            // in CSS can still replace them, which an inline width or height
+            // would beat.
+            "--amr-panel-width": size.width,
+            "--amr-panel-height": size.height,
+          }),
+    // The entrance grows from where the tail meets the panel (the sheet slides
+    // up from its edge instead).
+    "--panel-origin":
+      layout === "side"
+        ? `${amrSide(placed) === "right" ? "100%" : "0%"} ${amrEdge(placed) === "top" ? "0%" : "100%"}`
+        : panelOrigin(placed, { phone: isPhone, figure: showFigure }),
+    ...(tail && { "--tail-at": tail.at }),
+    // The gutter and footer from the inner frame (its line and padding off).
+    ...(dock && {
+      "--amr-dock-gutter": `calc(${dock.gutter}px - var(--panel-w) - 0.375rem)`,
+      "--amr-dock-footer": `calc(${dock.footer}px - var(--panel-w) - 0.375rem)`,
+    }),
+  };
+  // His button, docked: where usePanelViewport says, or, until its first
+  // reading, the sheet's bottom corner at rest.
+  const dockAt = dockedButtonPos(placed, {
+    left: BUTTON_SIDE,
+    right: BUTTON_SIDE,
+    bottom: VISIBLE_GAP,
+  });
+  const dockSide = amrSide(placed);
+  const dockStyle: CSSProperties = {
+    position: "fixed",
+    bottom: `var(--amr-dock-bottom, calc(${dockAt.bottom}px + env(safe-area-inset-bottom, 0px)))`,
+    [dockSide]: `var(--amr-dock-inline, calc(${dockAt[dockSide] ?? 0}px + env(safe-area-inset-${dockSide}, 0px)))`,
+  };
 
   return (
     <>
@@ -1739,6 +2172,9 @@ export function MascotAssistant({
           data-amr-side={amrSide(placed)}
           data-amr-edge={amrEdge(placed)}
           data-amr-layout={layout}
+          // Docked in the sheet: the side his gutter is on (the views read it).
+          // data-amr-compact is written by usePanelViewport, not here.
+          data-amr-dock={dock?.side}
           style={panelStyle}
           className={cn(
             "group/amr panel comic-tailed fixed z-50 flex h-[var(--amr-panel-height)] w-[var(--amr-panel-width)] flex-col bg-card shadow-xl",
@@ -1788,11 +2224,19 @@ export function MascotAssistant({
                       : undefined
                   }
                   enlarged={panelSize.enlarged}
-                  onToggleEnlarge={panelSize.toggle}
+                  // Only the floating card has two sizes: the sheet and the
+                  // side panel fill the room they are given.
+                  onToggleEnlarge={layout === "float" ? panelSize.toggle : undefined}
                   onClose={() => closePanel("close-button")}
                 />
-                {/* The strip's ground: the page's paper, so card balloons stand out. */}
-                <div className="flex min-h-0 flex-1 flex-col bg-bg">
+                {/* The strip's ground: the page's paper, so card balloons stand
+                    out. In compact mode it is the one scroller, so with the
+                    keyboard up nothing is clipped: the log keeps a floor and
+                    the footer its height, and this scrolls past them. */}
+                <div
+                  data-amr-scroll=""
+                  className="flex min-h-0 flex-1 flex-col bg-bg group-data-[amr-compact]/amr:overflow-y-auto group-data-[amr-compact]/amr:overscroll-contain"
+                >
                   {/* A crash in the body (or its code not loading) stops here,
                       not at the app shell's boundary, which would replace the
                       page: a narration caption takes the body's place, under
@@ -1866,16 +2310,14 @@ export function MascotAssistant({
           field has a phone's keyboard; he stays. */}
       <MascotBubble waiting={pageFieldFocus} />
 
-      {/* The screen's side safe areas, for stepping aside to the other side (readSideInsets). */}
+      {/* The screen's safe areas: the sides for stepping aside to the other
+          side (readSideInsets), all four for the visible box (measureBox). */}
       <span
         ref={insetProbeRef}
         aria-hidden="true"
         data-amr-inset-probe
         className="pointer-events-none invisible fixed left-0 top-0 h-0 w-0"
-        style={{
-          paddingLeft: "env(safe-area-inset-left, 0px)",
-          paddingRight: "env(safe-area-inset-right, 0px)",
-        }}
+        style={SAFE_AREA_PROBE_STYLE}
       />
 
       {/* How to move him without dragging, as his button's description.
@@ -1910,10 +2352,14 @@ export function MascotAssistant({
         title="Ask Amr · drag him, or use the arrow keys, to move him"
         // Until his figure is in, and while it can't load: the launcher plate.
         data-launcher={showFigure ? undefined : ""}
+        // Docked in the phone's sheet (usePanelViewport places him).
+        data-amr-docked={docked ? "" : undefined}
         style={{
           ...(dragPos
             ? { position: "fixed", left: dragPos.left, top: dragPos.top }
-            : buttonPos(placed, showFigure, box.h, isPhone, nudge.lift)),
+            : docked
+              ? dockStyle
+              : buttonPos(placed, showFigure, figureBox.h, isPhone, nudge.lift)),
           // The plate's box, as amr-geometry has it (larger text grows it).
           ...(!showFigure && { minWidth: LAUNCHER_PLATE.w, minHeight: LAUNCHER_PLATE.h }),
         }}
@@ -1938,7 +2384,7 @@ export function MascotAssistant({
             data-mascot-hit
             className="pointer-events-auto absolute z-10 select-none"
             style={{
-              ...hitBox(box),
+              ...hitBox(figureBox),
               // His figure is his own: a finger on him pets or carries him, never scrolls.
               touchAction: "none",
               WebkitTouchCallout: "none",
@@ -1967,8 +2413,8 @@ export function MascotAssistant({
             >
               <Suspense fallback={null}>
                 <Sprite
-                  width={box.w}
-                  height={box.h}
+                  width={figureBox.w}
+                  height={figureBox.h}
                   moveRef={buttonRef}
                   onLoadError={figure.fail}
                 />

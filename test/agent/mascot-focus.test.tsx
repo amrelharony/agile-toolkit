@@ -406,6 +406,46 @@ describe("closing", () => {
     expect(opener).toHaveFocus();
   });
 
+  it("in the phone's sheet, lets the page go before focus comes back to the opener in it", async () => {
+    // A phone held upright: the panel is the full-height sheet, and the page's
+    // main (where the opener is) is inert behind it.
+    window.innerWidth = 375;
+    window.innerHeight = 812;
+    try {
+      const main = document.createElement("main");
+      main.id = "main-content";
+      document.body.appendChild(main);
+      const opener = document.createElement("button");
+      opener.type = "button";
+      opener.textContent = "Somewhere";
+      main.appendChild(opener);
+      const inertWhenFocused: boolean[] = [];
+      opener.addEventListener("focus", () => {
+        inertWhenFocused.push(main.hasAttribute("inert"));
+      });
+      opener.focus();
+      inertWhenFocused.length = 0;
+      render(<MascotAssistant />);
+      fireEvent.keyDown(opener, { key: "j", ctrlKey: true });
+      await guideLoaded();
+      expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute(
+        "data-amr-layout",
+        "sheet"
+      );
+      expect(main).toHaveAttribute("inert");
+      expect(document.documentElement).toHaveAttribute("data-amr-sheet");
+
+      fireEvent.click(screen.getByRole("button", { name: "Close assistant" }));
+      expect(opener).toHaveFocus();
+      // Focus came back once, to a live page: inert was already gone.
+      expect(inertWhenFocused).toEqual([false]);
+      expect(document.documentElement).not.toHaveAttribute("data-amr-sheet");
+    } finally {
+      window.innerWidth = 1024;
+      window.innerHeight = 768;
+    }
+  });
+
   it("falls back to Amr's button when nothing held focus at the open", async () => {
     render(<MascotAssistant />);
     expect(document.body).toHaveFocus();

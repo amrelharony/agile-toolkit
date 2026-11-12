@@ -7,7 +7,7 @@ import { act, render, screen } from "@testing-library/react";
  * shrinking to a launcher, and nothing is drawn behind him: an opaque strip there
  * read as a bar across the bottom of the screen (8 November 2026). He and his
  * space stay while a page field has the keyboard (chat revamp PR 8: he used to
- * step off the page then).
+ * step off the page then), and behind the open phone sheet.
  */
 
 vi.mock("@/lib/auth/auth-provider", () => ({
@@ -85,6 +85,28 @@ describe("Amr's space on phones", () => {
     act(() => field.blur());
     expect(screen.getByRole("button", { name: "Ask Amr" })).toBe(button);
     expect(document.documentElement.style.getPropertyValue("--amr-band-bottom")).toBe(before);
+  });
+
+  it("keeps his space behind the open phone sheet, where he stands docked", () => {
+    stubWidth(true);
+    window.innerWidth = 360;
+    window.innerHeight = 640;
+    try {
+      render(<MascotAssistant />);
+      const before = document.documentElement.style.getPropertyValue("--amr-band-bottom");
+      act(() => useAgentStore.setState({ open: true }));
+      expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute(
+        "data-amr-layout",
+        "sheet"
+      );
+      expect(screen.getByRole("button", { name: "Ask Amr" })).toHaveAttribute("data-amr-docked");
+      // The page's padding under the sheet doesn't move while it is open.
+      expect(document.documentElement.style.getPropertyValue("--amr-band-bottom")).toBe(before);
+    } finally {
+      act(() => useAgentStore.setState({ open: false }));
+      window.innerWidth = 1024;
+      window.innerHeight = 768;
+    }
   });
 
   it("leaves wider screens alone", () => {
