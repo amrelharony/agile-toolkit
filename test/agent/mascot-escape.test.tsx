@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import type { ConfirmPrompt, ConversationMeta } from "@/lib/agent/types";
 
 /**
- * Escape belongs to Amr's panel only when it is meant for it
+ * Escape and Ctrl/Cmd+J belong to Amr's panel only when they are meant for it
  * (design §1.3 item 10; audit escape-handling, critic2-4,
  * shortcut-and-header-polish). Escape goes in one order, wherever the panel
  * takes it:
@@ -15,7 +15,8 @@ import type { ConfirmPrompt, ConversationMeta } from "@/lib/agent/types";
  *   4. the panel closes.
  * Every step the panel takes calls preventDefault (fireEvent returns false).
  * Outside the panel it answers only with nothing focused or on Amr; a page
- * field's Escape stays the page's.
+ * field's Escape stays the page's. Ctrl/Cmd+J closes the panel from anywhere
+ * inside it, its composer too, except History's rename field.
  */
 
 const h = vi.hoisted(() => ({
@@ -80,6 +81,9 @@ const isOpen = () => useAgentStore.getState().open;
 /** Escape on `el`; true when nothing prevented it (fireEvent's own return). */
 const escape = (el: Element | Document, init: KeyboardEventInit = {}) =>
   fireEvent.keyDown(el, { key: "Escape", ...init });
+/** Ctrl+J (or Cmd+J with `meta`) on `el`; true when nothing prevented it. */
+const ctrlJ = (el: Element | Document, init: KeyboardEventInit = {}) =>
+  fireEvent.keyDown(el, { key: "j", ctrlKey: true, ...init });
 
 /**
  * A change waiting for the OK. Like the client's, its resolver settles once
@@ -323,5 +327,72 @@ describe("Escape outside the panel", () => {
     render(<MascotAssistant />);
     expect(escape(document.body)).toBe(true);
     expect(isOpen()).toBe(false);
+  });
+});
+
+describe("Ctrl/Cmd+J", () => {
+  it("closes the panel from its composer, keeping the browser's own Ctrl+J away", async () => {
+    const box = await openOwnerChat();
+    expect(ctrlJ(box)).toBe(false);
+    expect(isOpen()).toBe(false);
+    expect(dialog()).toBeNull();
+  });
+
+  it("closes it with Cmd+J from History's search too", async () => {
+    h.conversations = ["a", "b", "c", "d"].map((id) => ({
+      id,
+      title: `Thread ${id}`,
+      toolId: null,
+      createdAt: "2026-11-10T09:00:00Z",
+      updatedAt: "2026-11-10T09:00:00Z",
+      lastMessageAt: "2026-11-10T09:00:00Z",
+    }));
+    await openOwnerChat();
+    await openHistory();
+    const search = await screen.findByLabelText("Search conversations");
+    expect(fireEvent.keyDown(search, { key: "J", metaKey: true })).toBe(false);
+    expect(isOpen()).toBe(false);
+  });
+
+  it("leaves History's rename field alone, so a name being typed isn't lost", async () => {
+    await openOwnerChat();
+    await openHistory();
+    fireEvent.click(await screen.findByRole("button", { name: "Rename conversation" }));
+    const field = screen.getByRole("textbox", { name: "Rename conversation" });
+    fireEvent.change(field, { target: { value: "Sprint plan v2" } });
+
+    expect(ctrlJ(field)).toBe(true);
+    expect(fireEvent.keyDown(field, { key: "j", metaKey: true })).toBe(true);
+    expect(isOpen()).toBe(true);
+    expect(screen.getByRole("textbox", { name: "Rename conversation" })).toHaveValue(
+      "Sprint plan v2"
+    );
+  });
+
+  it("is an input method's while it composes", async () => {
+    const box = await openOwnerChat();
+    expect(ctrlJ(box, { isComposing: true })).toBe(true);
+    expect(ctrlJ(box, { keyCode: 229 })).toBe(true);
+    expect(isOpen()).toBe(true);
+  });
+
+  it("still leaves a field on the page alone, open or closed", async () => {
+    const box = await openOwnerChat();
+    const field = pageField();
+    field.focus();
+    expect(ctrlJ(field)).toBe(true);
+    expect(isOpen()).toBe(true);
+
+    expect(ctrlJ(box)).toBe(false);
+    expect(isOpen()).toBe(false);
+    field.focus();
+    expect(ctrlJ(field)).toBe(true);
+    expect(isOpen()).toBe(false);
+  });
+
+  it("toggles once when held down", async () => {
+    const box = await openOwnerChat();
+    expect(ctrlJ(box, { repeat: true })).toBe(false);
+    expect(isOpen()).toBe(true);
   });
 });

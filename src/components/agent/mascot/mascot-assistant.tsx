@@ -54,7 +54,8 @@
  * with nothing focused, or on Amr or the header's opener. It goes in one
  * order: a field's own Escape first (the tool finder's search clears, History's
  * rename cancels), then a waiting card is denied, then History goes back to
- * the chat, and only then does the panel close.
+ * the chat, and only then does the panel close. Ctrl/Cmd+J closes it from
+ * anywhere inside, its composer too, except History's rename field.
  *
  * Those visitor views (the guide, the visitor panel, the consent card and the
  * guide's data) are a chunk of their own too, not part of this one, which
@@ -168,6 +169,8 @@ const THROW_SPEED = 1100;
 /** He points at the panel when it opens, at most this often. */
 const POINT_AT_PANEL_MS = 60_000;
 
+/** History's rename field (conversation-list): it keeps Ctrl/Cmd+J, so an edit isn't lost. */
+const RENAME_FIELD = "[data-agent-rename]";
 /** History's own button (owner-agent-panel), where focus goes when Escape leaves History. */
 const HISTORY_BUTTON = "[data-panel-history]";
 /**
@@ -180,6 +183,16 @@ const PANEL_OPENERS = `[data-amr-button], [aria-controls="${AMR_PANEL_ID}"]`;
 /** An input method is composing: its key presses end or change the composition, nothing else. */
 function composing(e: KeyboardEvent): boolean {
   return e.isComposing || e.keyCode === 229;
+}
+
+/** A field that types: a key press there is the field's. */
+function typesInto(el: Element): boolean {
+  return (
+    (el as HTMLElement).isContentEditable ||
+    el.tagName === "INPUT" ||
+    el.tagName === "TEXTAREA" ||
+    el.tagName === "SELECT"
+  );
 }
 
 /** A layout effect in the browser, a plain one on the server (no SSR warning). */
@@ -1239,24 +1252,22 @@ export function MascotAssistant() {
   // The visitor switches the sounds off: he sleeves his tuning fork (X109), once a page.
   useMuteScene();
 
-  // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
-  // Skip when typing in an editable element so it can't steal focus mid-edit.
+  // Cmd/Ctrl+J toggles, the de-facto AI-chat shortcut. In a field on the page
+  // it does nothing (the key is the field's, and it can't take focus from an
+  // edit), but anywhere inside the panel, its composer included, it closes it
+  // (Chrome, Edge and Firefox would open Downloads instead). Only History's
+  // rename field keeps it, so a name being typed isn't lost. While an input
+  // method composes, the key is its own.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
       if (e.key !== "j" && e.key !== "J") return;
-      const t = e.target as HTMLElement | null;
-      if (
-        t &&
-        (t.isContentEditable ||
-          t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          t.tagName === "SELECT")
-      ) {
-        return;
-      }
-      if (e.repeat) return;
+      if (composing(e)) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t && (panelRef.current?.contains(t) ? t.closest(RENAME_FIELD) : typesInto(t))) return;
       e.preventDefault();
+      // Held down: one toggle, not a flicker.
+      if (e.repeat) return;
       togglePanel("keyboard", "shortcut");
     };
     window.addEventListener("keydown", handler);
