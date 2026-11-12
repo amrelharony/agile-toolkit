@@ -6,8 +6,9 @@
  * when AI is off), keep the ones the team likes on a shortlist, then vote on
  * it in Quick Vote or spin it on the wheel.
  *
- * AI only suggests: nothing reaches the shortlist until someone adds it, and
- * a name taken off the shortlist comes back with Undo (the page's).
+ * AI only suggests: nothing reaches the shortlist until someone adds it,
+ * adding offers Undo, and a name taken off the shortlist comes back with
+ * Undo (both the page's).
  */
 
 import { useState } from "react";
@@ -24,6 +25,7 @@ import { THEME_TEXT_CHARS, themeNamesTask } from "@/lib/ai/tasks/picker";
 import { PICKER_LIMITS } from "@/lib/picker/model";
 import { MAX_THEME_DRAW, NAME_THEMES, drawThemeNames, themeById } from "@/lib/picker/themes";
 import { nameKey } from "@/lib/team/names";
+import { byId, focusSoon } from "./focus";
 import { validateCount } from "./forms";
 
 export interface NamesPanelProps {
@@ -39,7 +41,15 @@ interface Suggestions {
   title: string;
 }
 
-/** Quick Vote's poll, filled in from the shortlist. */
+const SHORTLIST_HEADING_ID = "picker-shortlist-heading";
+const shortlistRemoveId = (name: string) =>
+  `picker-shortlist-remove-${encodeURIComponent(nameKey(name))}`;
+
+/**
+ * Quick Vote with a poll asked for: the question and the shortlist as its
+ * options. Quick Vote may not read these yet, so the page never promises a
+ * filled-in poll: it offers the copied list to paste as the options.
+ */
 export function quickVoteHref(shortlist: readonly string[]): string {
   const params = new URLSearchParams({
     preset: "poll",
@@ -196,21 +206,31 @@ export function NamesPanel({
         ))}
 
       <div className="space-y-3 rounded-lg border border-border bg-card p-3 sm:p-4">
-        <h3 className="text-sm font-semibold text-text">Shortlist</h3>
+        <h3 id={SHORTLIST_HEADING_ID} tabIndex={-1} className="text-sm font-semibold text-text">
+          Shortlist
+        </h3>
         {shortlist.length === 0 ? (
           <p className="text-sm text-sub">Nothing shortlisted yet.</p>
         ) : (
           <>
             <ul className="divide-y divide-rule">
-              {shortlist.map((name) => (
+              {shortlist.map((name, i) => (
                 <li key={nameKey(name)} className="flex items-center justify-between gap-2 py-1">
                   <span className="min-w-0 truncate text-sm text-text">{name}</span>
                   <Button
+                    id={shortlistRemoveId(name)}
                     type="button"
                     size="icon"
                     variant="danger-ghost"
                     aria-label={`Take ${name} off the shortlist`}
-                    onClick={() => onRemoveShortlist(name)}
+                    onClick={() => {
+                      const neighbour = shortlist[i + 1] ?? shortlist[i - 1];
+                      onRemoveShortlist(name);
+                      focusSoon(
+                        ...(neighbour ? [byId(shortlistRemoveId(neighbour))] : []),
+                        byId(SHORTLIST_HEADING_ID)
+                      );
+                    }}
                   >
                     <Trash2 aria-hidden="true" />
                   </Button>
@@ -223,11 +243,12 @@ export function NamesPanel({
               </p>
             )}
             <div className="flex flex-wrap gap-2">
+              <CopyButton text={shortlist.join("\n")} label="Copy the list" />
               {shortlist.length >= 2 && (
-                <Button asChild size="sm" variant="toolkit" className="gap-1.5">
+                <Button asChild size="sm" variant="outline" className="gap-1.5">
                   <Link href={quickVoteHref(shortlist)}>
                     <Vote aria-hidden="true" />
-                    Vote in Quick Vote
+                    Open Quick Vote
                   </Link>
                 </Button>
               )}
@@ -243,8 +264,12 @@ export function NamesPanel({
                   Spin the shortlist
                 </Button>
               )}
-              <CopyButton text={shortlist.join("\n")} label="Copy the list" />
             </div>
+            {shortlist.length >= 2 && (
+              <p className="text-xs text-sub">
+                To vote on it, copy the list and paste it as the options of a poll in Quick Vote.
+              </p>
+            )}
           </>
         )}
       </div>

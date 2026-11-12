@@ -172,7 +172,6 @@ export function QuickPanel({ last, roomLive, onResult, onShow }: QuickPanelProps
               {(p) => (
                 <Input
                   {...p}
-                  inputMode="numeric"
                   value={range.draft.min}
                   onChange={(e) => range.update({ min: e.target.value })}
                 />
@@ -182,13 +181,13 @@ export function QuickPanel({ last, roomLive, onResult, onShow }: QuickPanelProps
               {(p) => (
                 <Input
                   {...p}
-                  inputMode="numeric"
                   value={range.draft.max}
                   onChange={(e) => range.update({ max: e.target.value })}
                 />
               )}
             </Field>
           </div>
+          {/* No numeric keypad here: an iPhone's has no minus key, and these may be negative. */}
           <p className="text-xs text-sub">
             Whole numbers, both ends included, within {NUMBER_RANGE_LIMIT.toLocaleString("en-GB")}{" "}
             either side of zero.

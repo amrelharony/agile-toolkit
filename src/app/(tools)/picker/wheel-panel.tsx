@@ -25,7 +25,12 @@ import {
   type PickerState,
   type WheelView,
 } from "@/lib/picker/model";
+import { SPIN_BUTTON_ID, byId, focusSoon } from "./focus";
 import type { WheelSpin } from "./use-wheel-spin";
+
+const RESTART_ID = "picker-restart-round";
+const PUT_BACK_ID = "picker-put-back";
+const REMOVE_PICKED_ID = "picker-remove-picked";
 
 export interface WheelPanelProps {
   state: PickerState;
@@ -87,6 +92,12 @@ export function WheelPanel({
         ? `Everyone has had a turn. The next spin starts round ${view.round + 1}.`
         : `Round ${view.round}: ${view.left} of ${view.shown.length} still to come up.`
       : `${poolLabel(sourceLabel(state), view.shown.length, team)}. Anyone can come up.`;
+  // Who already came up this round, in words: the wheel only greys them out.
+  const hadTurn =
+    state.everyoneOnce && !view.roundOver
+      ? view.shown.filter((_, i) => !eligible.has(i)).map((e) => e.name)
+      : [];
+  const hadTurnKeys = new Set(hadTurn.map(nameKey));
 
   return (
     <section aria-labelledby="picker-wheel-heading" className="space-y-4">
@@ -157,8 +168,12 @@ export function WheelPanel({
             {spin.spinning ? "…" : (result ?? "")}
           </p>
           {status && <p className="text-center text-sm text-sub">{status}</p>}
+          {hadTurn.length > 0 && (
+            <p className="text-center text-sm text-sub">Had a turn: {hadTurn.join(", ")}.</p>
+          )}
           <div className="flex flex-wrap justify-center gap-2">
             <Button
+              id={SPIN_BUTTON_ID}
               type="button"
               size="lg"
               variant="toolkit"
@@ -201,7 +216,7 @@ export function WheelPanel({
           onChange={(v) => onRules({ everyoneOnce: v })}
         />
         <RuleSwitch
-          id="picker-remove-picked"
+          id={REMOVE_PICKED_ID}
           label="Take a name off after it's picked"
           hint="It stays off the wheel until you put it back."
           checked={state.removePicked}
@@ -210,11 +225,16 @@ export function WheelPanel({
         <div className="flex flex-wrap gap-2">
           {state.everyoneOnce && view.left < view.shown.length && !view.roundOver && (
             <Button
+              id={RESTART_ID}
               type="button"
               size="sm"
               variant="ghost"
               className="gap-1.5"
-              onClick={onRestartRound}
+              onClick={() => {
+                onRestartRound();
+                // The button goes once the round restarts: its neighbour takes focus.
+                focusSoon(byId(PUT_BACK_ID), byId(REMOVE_PICKED_ID));
+              }}
             >
               <RotateCcw aria-hidden="true" />
               Start the round again
@@ -222,11 +242,15 @@ export function WheelPanel({
           )}
           {view.removed.length > 0 && (
             <Button
+              id={PUT_BACK_ID}
               type="button"
               size="sm"
               variant="outline"
               className="gap-1.5"
-              onClick={onPutBack}
+              onClick={() => {
+                onPutBack();
+                focusSoon(byId(RESTART_ID), byId(REMOVE_PICKED_ID));
+              }}
             >
               <Undo2 aria-hidden="true" />
               Put {view.removed.length === 1 ? view.removed[0] : `all ${view.removed.length}`} back
@@ -239,45 +263,62 @@ export function WheelPanel({
       </div>
 
       {view.shown.length > 0 && (
-        <details className="rounded-lg border border-border bg-card p-3 sm:p-4">
-          <summary className="cursor-pointer text-sm font-semibold text-text">Weights</summary>
-          <p className="mt-2 text-xs text-sub">
+        <details className="rounded-lg border border-border bg-card px-3 pb-3 sm:px-4 sm:pb-4">
+          <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold text-text">
+            Weights
+          </summary>
+          <p className="text-xs text-sub">
             A weight of 2 comes up twice as often as 1. Weights change the odds, nothing else.
           </p>
           <ul className="mt-2 divide-y divide-rule">
-            {view.shown.map((e) => (
-              <li key={nameKey(e.name)} className="flex items-center justify-between gap-2 py-1.5">
-                <span className="min-w-0 truncate text-sm text-text">{e.name}</span>
-                <span className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    aria-label={`Less weight for ${e.name}`}
-                    disabled={e.weight <= PICKER_LIMITS.minWeight || spin.spinning}
-                    onClick={() => onWeight(e.name, e.weight - 1)}
-                  >
-                    <Minus aria-hidden="true" />
-                  </Button>
-                  <span
-                    className="w-6 text-center font-data text-sm text-text"
-                    aria-label={`Weight ${e.weight}`}
-                  >
-                    {e.weight}
+            {view.shown.map((e) => {
+              // At a limit the button stays focusable (aria-disabled), so
+              // focus doesn't fall out of the list under the keyboard.
+              const atMin = e.weight <= PICKER_LIMITS.minWeight;
+              const atMax = e.weight >= PICKER_LIMITS.maxWeight;
+              return (
+                <li
+                  key={nameKey(e.name)}
+                  className="flex items-center justify-between gap-2 py-1.5"
+                >
+                  <span className="min-w-0 truncate text-sm text-text">
+                    {e.name}
+                    {hadTurnKeys.has(nameKey(e.name)) && (
+                      <span className="ml-1 text-xs text-sub">(had a turn)</span>
+                    )}
                   </span>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    aria-label={`More weight for ${e.name}`}
-                    disabled={e.weight >= PICKER_LIMITS.maxWeight || spin.spinning}
-                    onClick={() => onWeight(e.name, e.weight + 1)}
-                  >
-                    <Plus aria-hidden="true" />
-                  </Button>
-                </span>
-              </li>
-            ))}
+                  <span className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="aria-disabled:opacity-50"
+                      aria-label={`Less weight for ${e.name}`}
+                      aria-disabled={atMin || spin.spinning || undefined}
+                      onClick={() => {
+                        if (!atMin && !spin.spinning) onWeight(e.name, e.weight - 1);
+                      }}
+                    >
+                      <Minus aria-hidden="true" />
+                    </Button>
+                    <span className="w-6 text-center font-data text-sm text-text">{e.weight}</span>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="aria-disabled:opacity-50"
+                      aria-label={`More weight for ${e.name}`}
+                      aria-disabled={atMax || spin.spinning || undefined}
+                      onClick={() => {
+                        if (!atMax && !spin.spinning) onWeight(e.name, e.weight + 1);
+                      }}
+                    >
+                      <Plus aria-hidden="true" />
+                    </Button>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
           {entries.length > view.shown.length && (
             <p className="mt-2 text-xs text-sub">Names off the wheel keep their weights.</p>

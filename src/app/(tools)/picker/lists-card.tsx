@@ -4,9 +4,14 @@
  * Saved lists: anything worth spinning that isn't the team (topics, other
  * squads, places). Make one by typing or pasting names, spin it, edit it,
  * delete it with Undo. A list never changes the team on the Team page.
+ *
+ * Focus follows the work: a form opens on its first field, saving or
+ * cancelling returns to the button that opened it, a delete lands on the
+ * next list (else New list, else the heading), and "Spin this" goes to the
+ * wheel's Spin button.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Disc3, ListPlus, Pencil, Trash2 } from "lucide-react";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";
@@ -14,6 +19,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PICKER_LIMITS, type PickerList } from "@/lib/picker/model";
+import { byId, focusSoon, spinButton } from "./focus";
 import { EMPTY_LIST_DRAFT, validateListDraft, type ListDraft } from "./forms";
 
 export interface ListsCardProps {
@@ -26,22 +32,40 @@ export interface ListsCardProps {
   onDelete: (list: PickerList) => void;
 }
 
+const HEADING_ID = "picker-lists-heading";
+const NEW_LIST_ID = "picker-new-list";
+const editId = (listId: string) => `picker-edit-${listId}`;
+
 export function ListsCard({ lists, activeId, busy, onSave, onUse, onDelete }: ListsCardProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const full = lists.length >= PICKER_LIMITS.maxLists;
+  const backToNew = () => focusSoon(byId(NEW_LIST_ID), byId(HEADING_ID));
+  const backToRow = (id: string) => focusSoon(byId(editId(id)), byId(HEADING_ID));
+
+  const remove = (list: PickerList) => {
+    const at = lists.findIndex((l) => l.id === list.id);
+    const neighbour = lists[at + 1] ?? lists[at - 1];
+    onDelete(list);
+    focusSoon(
+      ...(neighbour ? [byId(editId(neighbour.id))] : []),
+      byId(NEW_LIST_ID),
+      byId(HEADING_ID)
+    );
+  };
 
   return (
     <section
-      aria-labelledby="picker-lists-heading"
+      aria-labelledby={HEADING_ID}
       className="space-y-3 rounded-lg border border-border bg-card p-3 sm:p-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="picker-lists-heading" className="text-base font-semibold text-text">
+        <h2 id={HEADING_ID} tabIndex={-1} className="text-base font-semibold text-text">
           Your lists
         </h2>
         {!adding && (
           <Button
+            id={NEW_LIST_ID}
             type="button"
             size="sm"
             variant="outline"
@@ -67,10 +91,14 @@ export function ListsCard({ lists, activeId, busy, onSave, onUse, onDelete }: Li
         <ListForm
           lists={lists}
           submitLabel="Save list"
-          onCancel={() => setAdding(false)}
+          onCancel={() => {
+            setAdding(false);
+            backToNew();
+          }}
           onSave={(values) => {
             onSave(values);
             setAdding(false);
+            backToNew();
           }}
         />
       )}
@@ -89,10 +117,14 @@ export function ListsCard({ lists, activeId, busy, onSave, onUse, onDelete }: Li
                   lists={lists}
                   editing={list}
                   submitLabel="Save changes"
-                  onCancel={() => setEditing(null)}
+                  onCancel={() => {
+                    setEditing(null);
+                    backToRow(list.id);
+                  }}
                   onSave={(values) => {
                     onSave(values, list.id);
                     setEditing(null);
+                    backToRow(list.id);
                   }}
                 />
               </li>
@@ -118,13 +150,18 @@ export function ListsCard({ lists, activeId, busy, onSave, onUse, onDelete }: Li
                       variant="ghost"
                       className="gap-1.5"
                       disabled={busy}
-                      onClick={() => onUse(list.id)}
+                      onClick={() => {
+                        onUse(list.id);
+                        // This button goes once the list is on the wheel.
+                        focusSoon(spinButton, byId(editId(list.id)));
+                      }}
                     >
                       <Disc3 aria-hidden="true" />
                       Spin this
                     </Button>
                   )}
                   <Button
+                    id={editId(list.id)}
                     type="button"
                     size="icon"
                     variant="ghost"
@@ -143,7 +180,7 @@ export function ListsCard({ lists, activeId, busy, onSave, onUse, onDelete }: Li
                     variant="danger-ghost"
                     aria-label={`Delete ${list.name}`}
                     disabled={busy}
-                    onClick={() => onDelete(list)}
+                    onClick={() => remove(list)}
                   >
                     <Trash2 aria-hidden="true" />
                   </Button>
@@ -177,6 +214,11 @@ function ListForm({
     validate: (d) => validateListDraft(d, lists, editing?.id),
     onSave: (values) => onSave(values),
   });
+  // Opening the form starts on its first field.
+  const nameRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    nameRef.current?.focus();
+  }, []);
   const count = form.draft.names.split(/\r?\n/).filter((l) => l.trim()).length;
   return (
     <ItemForm form={form} submitLabel={submitLabel} onCancel={onCancel}>
@@ -184,6 +226,7 @@ function ListForm({
         {(p) => (
           <Input
             {...p}
+            ref={nameRef}
             value={form.draft.name}
             maxLength={PICKER_LIMITS.maxListNameChars + 20}
             placeholder="Retro topics"

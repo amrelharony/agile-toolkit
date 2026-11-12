@@ -2,13 +2,17 @@
 
 /**
  * The last thirty picks, newest first: spins, rolls, flips, numbers and role
- * turns, with what each came from. Clearing them offers Undo.
+ * turns, with what each came from. Clearing them offers Undo, and focus
+ * moves to the heading, since the Clear button goes with them.
  */
 
 import { CaseUpper, Coins, Dices, Disc3, Eraser, Hash, HelpCircle, UserCheck } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { timeAgo, type PickKind, type PickerRecent } from "@/lib/picker/model";
+import { byId, focusSoon } from "./focus";
+
+const HEADING_ID = "picker-recent-heading";
 
 const ICON: Record<PickKind, LucideIcon> = {
   wheel: Disc3,
@@ -41,15 +45,25 @@ export function RecentPicks({
 }) {
   return (
     <section
-      aria-labelledby="picker-recent-heading"
+      aria-labelledby={HEADING_ID}
       className="space-y-2 rounded-lg border border-border bg-card p-3 sm:p-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="picker-recent-heading" className="text-base font-semibold text-text">
+        <h2 id={HEADING_ID} tabIndex={-1} className="text-base font-semibold text-text">
           Recent picks
         </h2>
         {recent.length > 0 && (
-          <Button type="button" size="sm" variant="ghost" className="gap-1.5" onClick={onClear}>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="gap-1.5"
+            onClick={() => {
+              onClear();
+              // The button goes with the picks: focus the heading instead.
+              focusSoon(byId(HEADING_ID));
+            }}
+          >
             <Eraser aria-hidden="true" />
             Clear
           </Button>
