@@ -7,6 +7,10 @@
  * being refined. Both save through `onSave` with the cleaned values, so the
  * same caps and the same link rule hold on either page
  * (lib/stories/fields.ts).
+ *
+ * The structured criteria, Given/When/Then scenarios (`Story.gwt`), show
+ * beside the free text and have their own editor when the page passes
+ * `onSaveGwt`; the free text stays exactly as it is.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -16,13 +20,14 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { Story } from "@/lib/stores/workspace-types";
+import type { Story, StoryGwt } from "@/lib/stores/workspace-types";
 import {
   STORY_CRITERIA_MAX,
   STORY_LINK_MAX,
   STORY_NOTES_MAX,
   STORY_TICKET_KEY_MAX,
   hasStoryDetails,
+  hasStoryGwt,
   storyDetailsDraft,
   storyLink,
   validateStoryDetails,
@@ -31,8 +36,9 @@ import {
   type StoryTextField,
 } from "@/lib/stories/fields";
 import { cn } from "@/lib/utils";
+import { GwtEditor, GwtList } from "./story-gwt";
 
-type DetailedStory = Pick<Story, "title" | StoryTextField>;
+type DetailedStory = Pick<Story, "title" | StoryTextField> & Pick<Partial<Story>, "gwt">;
 
 /**
  * The story's ticket: its key as a link to the issue in the team's tracker,
@@ -78,18 +84,31 @@ export function StoryTicket({ story, className }: { story: DetailedStory; classN
 const TEXT = "mt-0.5 whitespace-pre-wrap break-words text-sm text-text";
 const TERM = "text-xs font-medium text-sub";
 
-/** The four fields as text. Renders nothing for a story with none of them. */
-function DetailsView({ story }: { story: DetailedStory }) {
+/**
+ * The four fields as text, and the Given/When/Then scenarios beside the
+ * free-text criteria when `showGwt` (a page with no scenario editor).
+ * Renders nothing for a story with none of them.
+ */
+function DetailsView({ story, showGwt }: { story: DetailedStory; showGwt: boolean }) {
   const criteria = story.acceptanceCriteria?.trim();
   const notes = story.notes?.trim();
   const ticket = Boolean(story.ticketKey?.trim() || storyLink(story.link));
-  if (!criteria && !notes && !ticket) return null;
+  const gwt = showGwt && hasStoryGwt(story);
+  if (!criteria && !notes && !ticket && !gwt) return null;
   return (
     <dl className="space-y-3">
       {criteria && (
         <div>
           <dt className={TERM}>Acceptance criteria</dt>
           <dd className={TEXT}>{criteria}</dd>
+        </div>
+      )}
+      {gwt && (
+        <div>
+          <dt className={TERM}>Given / When / Then</dt>
+          <dd className="mt-1">
+            <GwtList gwt={story.gwt} />
+          </dd>
         </div>
       )}
       {notes && (
@@ -197,6 +216,11 @@ export interface StoryDetailsPanelProps {
   story: DetailedStory;
   /** Save the four fields: a field left out of `details` was cleared. */
   onSave: (details: StoryDetails) => void;
+  /**
+   * Save the Given/When/Then scenarios (the whole list). Without it they are
+   * shown read only, beside the free-text criteria.
+   */
+  onSaveGwt?: (gwt: StoryGwt[]) => void;
   /** Open on the form instead of the text (a story with nothing to read yet). */
   startEditing?: boolean;
   /**
@@ -216,6 +240,7 @@ export interface StoryDetailsPanelProps {
 export function StoryDetailsPanel({
   story,
   onSave,
+  onSaveGwt,
   startEditing = false,
   onEmpty,
   id,
@@ -231,10 +256,12 @@ export function StoryDetailsPanel({
   }, [editing]);
 
   const has = hasStoryDetails(story);
+  // Scenarios are something to show too: the panel stays open for them.
+  const hasGwt = hasStoryGwt(story);
   const close = (stillHas: boolean) => {
     refocus.current = true;
     setEditing(false);
-    if (!stillHas) onEmpty?.();
+    if (!stillHas && !hasGwt) onEmpty?.();
   };
 
   return (
@@ -255,10 +282,14 @@ export function StoryDetailsPanel({
         />
       ) : (
         <>
-          {has ? (
-            <DetailsView story={story} />
+          {has || (hasGwt && !onSaveGwt) ? (
+            <DetailsView story={story} showGwt={!onSaveGwt} />
           ) : (
-            <p className="text-sm text-sub">No acceptance criteria, notes or link yet.</p>
+            <p className="text-sm text-sub">
+              {hasGwt
+                ? "No free-text criteria, notes or link yet."
+                : "No acceptance criteria, notes or link yet."}
+            </p>
           )}
           <Button
             ref={editButton}
@@ -272,6 +303,11 @@ export function StoryDetailsPanel({
             {has ? "Edit details" : "Add details"}
             <span className="sr-only">: {story.title}</span>
           </Button>
+          {onSaveGwt && (
+            <div className="border-t border-border pt-3">
+              <GwtEditor title={story.title} gwt={story.gwt} onChange={onSaveGwt} />
+            </div>
+          )}
         </>
       )}
     </div>

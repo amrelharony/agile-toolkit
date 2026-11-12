@@ -33,6 +33,7 @@ import type {
   RetroBoard,
   Sprint,
   Story,
+  StoryGwt,
 } from "@/lib/stores/workspace-types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { SPRINT_PLANNING_ACTIONS } from "@/lib/history/event-actions";
@@ -48,7 +49,7 @@ import {
   pokerQueueRoute,
   storyQueueSource,
 } from "@/lib/handoffs/targets/poker-queue";
-import { withStoryDetails, type StoryDetails } from "@/lib/stories/fields";
+import { withStoryDetails, withStoryGwt, type StoryDetails } from "@/lib/stories/fields";
 import { keptForSprintNote, sprintKeepingStory, storyRemoval } from "@/lib/stories/removal";
 import { leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
 import { undoable } from "@/lib/utils/undoable";
@@ -87,7 +88,7 @@ import {
   type StoryField,
   type StoryValues,
 } from "./view";
-import { planToMarkdown } from "./markdown";
+import { planCsv, planToMarkdown } from "./markdown";
 import { ImprovementsPanel } from "./improvements";
 import { PasteStories } from "./paste-stories";
 import { JiraImport } from "./jira-import";
@@ -312,6 +313,10 @@ export function PlanningBoard({
   /** The story's acceptance criteria, notes, ticket key and link, as its Details form saved them. */
   const saveDetails = (story: Story, details: StoryDetails) =>
     writer.upsertStory(withStoryDetails(fresh(story), details));
+
+  /** The story's Given/When/Then scenarios, beside its free-text criteria. */
+  const saveGwt = (story: Story, gwt: StoryGwt[]) =>
+    writer.upsertStory(withStoryGwt(fresh(story), gwt));
 
   /** What a row's remove control may do: delete, leave a running sprint, or nothing. */
   const removalOf = (story: Story) => storyRemoval(story, sprints);
@@ -752,6 +757,7 @@ export function PlanningBoard({
           filename={`sprint-plan-${slug(sprint.name)}`}
           markdown={markdown}
           clipboardText={markdown}
+          csvData={planCsv(inSprint)}
           jsonData={{ sprint, stories: inSprint }}
         />
       </div>
@@ -941,6 +947,7 @@ export function PlanningBoard({
                 onPoints={setPoints}
                 onRename={rename}
                 onDetails={saveDetails}
+                onGwt={saveGwt}
                 onDelete={deleteStory("sprint", sprintHeadingId)}
                 removalOf={removalOf}
                 keptNoteOf={keptNoteOf}
@@ -1019,6 +1026,7 @@ export function PlanningBoard({
                 onPoints={setPoints}
                 onRename={rename}
                 onDetails={saveDetails}
+                onGwt={saveGwt}
                 // A closed sprint's stories are locked: no bin, here or once
                 // they are carried over or sent back (the sprint still counts them).
                 removalOf={removalOf}
@@ -1066,6 +1074,7 @@ export function PlanningBoard({
                 onPoints={setPoints}
                 onRename={rename}
                 onDetails={saveDetails}
+                onGwt={saveGwt}
                 onDelete={deleteStory("backlog", backlogHeadingId)}
                 removalOf={removalOf}
                 keptNoteOf={keptNoteOf}
