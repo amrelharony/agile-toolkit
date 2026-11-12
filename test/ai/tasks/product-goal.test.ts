@@ -76,6 +76,26 @@ describe("product-goal.draft", () => {
     expect(commonTheme(["One", "Two"])).toBe("");
   });
 
+  it("keeps every fallback draft inside the output's caps, whatever the input holds", () => {
+    // A long word in two titles is no theme; long titles and a long vision are cut.
+    const long = "x".repeat(190);
+    const codes = fallbackGoals({ vision: "", stories: [`Pay ${long}`, `Refund ${long}`] });
+    expect(task.output.safeParse({ goals: codes }).success).toBe(true);
+    expect(codes).toHaveLength(2);
+    expect(commonTheme([`Pay ${long}`, `Refund ${long}`])).toBe("");
+    const word = "y".repeat(30);
+    const themed = fallbackGoals({
+      vision: `${"Shops ".repeat(330)}take payments.`,
+      stories: [`Pay ${word}`, `Refund ${word}`],
+    });
+    expect(task.output.safeParse({ goals: themed }).success).toBe(true);
+    expect(themed[2].measures[0]).toBe(`Customers who use ${word} each month`);
+    for (const g of themed) {
+      expect(g.statement.length).toBeLessThanOrEqual(300);
+      expect(g.measures.every((m) => m.length <= 200)).toBe(true);
+    }
+  });
+
   it("builds the prompt on the server, the data inside the block", () => {
     const system = buildTaskSystem(task, productGoalDraftPrompt);
     expect(system).toContain("Product Goal");

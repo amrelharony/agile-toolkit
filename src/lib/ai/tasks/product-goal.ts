@@ -11,6 +11,12 @@ import { defineAiTask } from "../define-task";
 export const GOAL_DRAFT_MAX = 3;
 export const GOAL_DRAFT_STORIES_MAX = 30;
 export const GOAL_DRAFT_MEASURES_MAX = 4;
+/** The output's caps: a statement, its why and each measure. */
+const STATEMENT_MAX = 300;
+const WHY_MAX = 500;
+const MEASURE_MAX = 200;
+/** The longest word the backlog theme may be: past it, it is a pasted code, not a theme. */
+const THEME_WORD_MAX = 30;
 
 const input = z.object({
   vision: z.string().trim().max(2000),
@@ -23,9 +29,9 @@ const output = z.object({
   goals: z
     .array(
       z.object({
-        statement: z.string().trim().min(1).max(300),
-        why: z.string().trim().max(500).optional(),
-        measures: z.array(z.string().trim().min(1).max(200)).max(GOAL_DRAFT_MEASURES_MAX),
+        statement: z.string().trim().min(1).max(STATEMENT_MAX),
+        why: z.string().trim().max(WHY_MAX).optional(),
+        measures: z.array(z.string().trim().min(1).max(MEASURE_MAX)).max(GOAL_DRAFT_MEASURES_MAX),
       })
     )
     .min(1)
@@ -49,10 +55,18 @@ function visionClause(vision: string): string {
   return clause ? clause.charAt(0).toLowerCase() + clause.slice(1) : "";
 }
 
+/** A draft cut to the output's caps, whatever the vision or the titles held. */
+const capped = (g: DraftedGoal): DraftedGoal => ({
+  statement: cut(g.statement, STATEMENT_MAX),
+  ...(g.why !== undefined ? { why: cut(g.why, WHY_MAX) } : {}),
+  measures: g.measures.map((m) => cut(m, MEASURE_MAX)).slice(0, GOAL_DRAFT_MEASURES_MAX),
+});
+
 /**
  * Drafts without AI: two templates to fill in, built from the vision's
  * first sentence when there is one, plus one shaped by the backlog's most
  * common words. Plain, so the person rewrites them in their own terms.
+ * Every draft fits the output's caps.
  */
 export function fallbackGoals({ vision, stories }: GoalDraftInput): DraftedGoal[] {
   const clause = visionClause(vision);
@@ -95,7 +109,7 @@ export function fallbackGoals({ vision, stories }: GoalDraftInput): DraftedGoal[
       ],
     });
   }
-  return goals.slice(0, GOAL_DRAFT_MAX);
+  return goals.slice(0, GOAL_DRAFT_MAX).map(capped);
 }
 
 const STOP = new Set(
@@ -104,13 +118,13 @@ const STOP = new Set(
   )
 );
 
-/** The word the story titles use most (4 letters or more, at least twice), or "". */
+/** The word the story titles use most (4 to 30 letters, at least twice), or "". */
 export function commonTheme(stories: readonly string[]): string {
   const counts = new Map<string, number>();
   for (const title of stories) {
     const seen = new Set<string>();
     for (const w of title.toLowerCase().split(/[^a-z0-9]+/)) {
-      if (w.length < 4 || STOP.has(w) || seen.has(w)) continue;
+      if (w.length < 4 || w.length > THEME_WORD_MAX || STOP.has(w) || seen.has(w)) continue;
       seen.add(w);
       counts.set(w, (counts.get(w) ?? 0) + 1);
     }
