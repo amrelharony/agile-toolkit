@@ -424,13 +424,15 @@ describe("import graph walk (self-tests)", () => {
     const mascot = importsOf(MASCOT);
     expect(mascot.static).toEqual(
       expect.arrayContaining([
-        "next/dynamic",
+        "react",
         "./mascot-bubble",
+        "./panel-parts",
         "./lazy-visitor-body",
         "./engine/figure-metrics",
         "./mascot-assistant.module.css",
       ])
     );
+    // React.lazy, through loaders that can try again after a failed import.
     expect(mascot.lazy).toEqual(expect.arrayContaining(["./mascot-sprite", "./owner-agent-panel"]));
     expect(mascot.static).not.toContain("./owner-agent-panel");
     expect(mascot.static).not.toContain("./mascot-sprite");

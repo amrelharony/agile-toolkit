@@ -406,6 +406,87 @@ describe("MascotAssistant — owner gating", () => {
     expect(screen.getByRole("button", { name: "Conversation history" })).toBeInTheDocument();
   });
 
+  describe("the owner's chat chunk", () => {
+    /** Collects requestIdleCallback callbacks, so the test decides when the browser is idle. */
+    function stubIdle() {
+      const callbacks: Array<() => void> = [];
+      vi.stubGlobal("requestIdleCallback", (cb: () => void) => callbacks.push(cb));
+      vi.stubGlobal("cancelIdleCallback", vi.fn());
+      return () => act(() => callbacks.splice(0).forEach((cb) => cb()));
+    }
+    const ownerLoader = () => vi.fn(() => import("@/components/agent/mascot/owner-agent-panel"));
+    /** Everything that could fetch it: idle time, reaching for Amr, his panel open. */
+    async function tryEverything(idle: () => void) {
+      idle();
+      const amr = screen.getByRole("button", { name: "Ask Amr" });
+      fireEvent.pointerEnter(amr);
+      fireEvent.touchStart(amr);
+      fireEvent.focus(amr);
+      act(() => useAgentStore.setState({ open: true }));
+      await waitFor(() => expect(screen.queryByText(VISITOR_BODY_LOADING)).toBeNull());
+    }
+
+    afterEach(() => {
+      delete (navigator as { connection?: unknown }).connection;
+    });
+
+    for (const [who, auth] of [
+      ["a visitor", { status: "anonymous", user: null }],
+      ["a page with no auth at all", null],
+      [
+        "an owner session not verified yet",
+        { status: "error", user: null, error: OWNER_UNVERIFIED },
+      ],
+      ["a sign-in still loading", { status: "loading", user: null }],
+    ] as const) {
+      it(`is never asked for by ${who}: not idle, not reached for, not with the panel open`, async () => {
+        h.auth = auth;
+        useAgentStore.setState({ open: false });
+        const idle = stubIdle();
+        const loadOwnerPanel = ownerLoader();
+        render(<MascotAssistant loadOwnerPanel={loadOwnerPanel} />);
+        await tryEverything(idle);
+        expect(screen.getByRole("dialog", { name: "Amr" })).toBeInTheDocument();
+        expect(loadOwnerPanel).not.toHaveBeenCalled();
+      });
+    }
+
+    it("is fetched ahead for a settled owner once the browser is idle, once", async () => {
+      h.auth = OWNER;
+      useAgentStore.setState({ open: false });
+      const idle = stubIdle();
+      const loadOwnerPanel = ownerLoader();
+      render(<MascotAssistant loadOwnerPanel={loadOwnerPanel} />);
+      expect(loadOwnerPanel).not.toHaveBeenCalled();
+      idle();
+      expect(loadOwnerPanel).toHaveBeenCalledTimes(1);
+      // Reaching for Amr and opening the panel share that one import.
+      fireEvent.pointerEnter(screen.getByRole("button", { name: "Ask Amr" }));
+      act(() => useAgentStore.setState({ open: true }));
+      expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
+      expect(loadOwnerPanel).toHaveBeenCalledTimes(1);
+    });
+
+    it("is never fetched ahead with Data Saver on: it loads when the owner opens the panel", async () => {
+      Object.defineProperty(navigator, "connection", {
+        configurable: true,
+        value: { saveData: true },
+      });
+      h.auth = OWNER;
+      useAgentStore.setState({ open: false });
+      const idle = stubIdle();
+      const loadOwnerPanel = ownerLoader();
+      render(<MascotAssistant loadOwnerPanel={loadOwnerPanel} />);
+      idle();
+      fireEvent.pointerEnter(screen.getByRole("button", { name: "Ask Amr" }));
+      expect(loadOwnerPanel).not.toHaveBeenCalled();
+
+      act(() => useAgentStore.setState({ open: true }));
+      expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
+      expect(loadOwnerPanel).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("drops the owner's conversation when the owner signs out", async () => {
     h.auth = OWNER;
     const { rerender } = await renderAmr();

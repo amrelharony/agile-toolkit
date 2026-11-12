@@ -83,6 +83,12 @@
  *    due offline or in a hidden tab waits for it), and at once when the plate
  *    is tapped. The phone band and an open panel keep his figure's place
  *    while a try is to come, and go by the plate only once none is left.
+ *  - The panel's body has a boundary of its own: a crash there leaves a
+ *    narration caption in the panel (PanelFailed), not the app's error page.
+ *  - The owner's chat is a lazy chunk, tried once more before it gives up,
+ *    fetched ahead only for a settled owner and never with Data Saver on. A
+ *    visitor's page never asks for it. While it, or the sign-in check, is on
+ *    its way, a pen scribbles in the body's place (PanelLoading).
  */
 
 import {
@@ -95,6 +101,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ComponentProps,
   type ComponentType,
   type KeyboardEvent as ReactKeyboardEvent,
   type LazyExoticComponent,
@@ -161,7 +168,7 @@ import {
 } from "./amr-geometry";
 import { LazyVisitorBody, prefetchVisitorBody } from "./lazy-visitor-body";
 import { AMR_PANEL_TITLE_ID, PanelHeader, shortcutLabel } from "./panel-header";
-import { FigureFailed, LAUNCHER_LABEL } from "./panel-parts";
+import { FigureFailed, LAUNCHER_LABEL, PanelFailed, PanelLoading } from "./panel-parts";
 import { AMR_PANEL_ID } from "./panel-ids";
 import { PANEL_SUBTITLE, PanelChrome, PanelIconButton } from "./panel-chrome";
 import {
@@ -527,18 +534,18 @@ type IdleWindow = Window & {
   cancelIdleCallback?: (id: number) => void;
 };
 
-/** The visitor body is fetched by this long after load, idle or not. */
+/** The panel's body is fetched by this long after load, idle or not. */
 const BODY_IDLE_TIMEOUT_MS = 4000;
-/** Without an idle callback, the visitor body is fetched this long after load. */
+/** Without an idle callback, the panel's body is fetched this long after load. */
 const BODY_PREFETCH_DELAY_MS = 1500;
 
 /**
- * Fetch the open panel's visitor body (lazy-visitor-body) once the page has
- * loaded and the browser is idle, so opening the panel almost never waits for
- * it. Not when the visitor asked to save data: the body then loads when the
- * panel opens.
+ * Fetch the open panel's body ahead (the visitor body, or the owner's chat)
+ * once the page has loaded and the browser is idle, so opening the panel
+ * almost never waits for it. Not when the visitor asked to save data: the body
+ * then loads when the panel opens. `prefetch` must be stable.
  */
-function usePrefetchVisitorBody(enabled: boolean) {
+function usePrefetchWhenIdle(enabled: boolean, prefetch: () => void) {
   useEffect(() => {
     if (!enabled || savesData()) return;
     const w = window as IdleWindow;
@@ -546,8 +553,8 @@ function usePrefetchVisitorBody(enabled: boolean) {
     let timer: number | undefined;
     const schedule = () => {
       if (w.requestIdleCallback)
-        idleId = w.requestIdleCallback(prefetchVisitorBody, { timeout: BODY_IDLE_TIMEOUT_MS });
-      else timer = window.setTimeout(prefetchVisitorBody, BODY_PREFETCH_DELAY_MS);
+        idleId = w.requestIdleCallback(prefetch, { timeout: BODY_IDLE_TIMEOUT_MS });
+      else timer = window.setTimeout(prefetch, BODY_PREFETCH_DELAY_MS);
     };
     if (document.readyState === "complete") schedule();
     else window.addEventListener("load", schedule, { once: true });
@@ -556,7 +563,7 @@ function usePrefetchVisitorBody(enabled: boolean) {
       window.clearTimeout(timer);
       if (idleId !== undefined) w.cancelIdleCallback?.(idleId);
     };
-  }, [enabled]);
+  }, [enabled, prefetch]);
 }
 
 /**
@@ -907,10 +914,14 @@ function useStepAside({
 }
 
 type SpriteModule = typeof import("./mascot-sprite");
+type OwnerModule = typeof import("./owner-agent-panel");
 /** Imports his figure (the sprite engine): its own chunk. */
 export type LoadSprite = () => Promise<SpriteModule>;
+/** Imports the owner's chat (the agent runtime): its own chunk, only ever for the owner. */
+export type LoadOwnerPanel = () => Promise<OwnerModule>;
 
 const importSprite: LoadSprite = () => import("./mascot-sprite");
+const importOwnerPanel: LoadOwnerPanel = () => import("./owner-agent-panel");
 
 /**
  * One lazy component per loader, shared by every mount, so once its code is in
@@ -918,8 +929,8 @@ const importSprite: LoadSprite = () => import("./mascot-sprite");
  * with ssr: false). React.lazy keeps a rejection for good, so one whose import
  * failed is never drawn again: the next call makes a new one, which imports
  * the chunk again (webpack forgets a chunk that failed to load). The failure
- * is noted on the import itself, so a figure gone by the time it fails still
- * leaves the next try a fresh one. `importWith` calls the loader.
+ * is noted on the import itself, so a figure or panel gone by the time it
+ * fails still leaves the next try a fresh one. `importWith` calls the loader.
  */
 function retryableLazy<L extends object, P>(
   importWith: (load: L) => Promise<{ default: ComponentType<P> }>
@@ -945,15 +956,61 @@ function retryableLazy<L extends object, P>(
 
 const spriteFor = retryableLazy((load: LoadSprite) => load());
 
-const OwnerAgentPanel = dynamic(() => import("./owner-agent-panel"), {
-  ssr: false,
-  loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
-});
 // Amr's scenes: its titles and thumbnail atlas load only when the view first opens.
 const ScenesTab = dynamic(() => import("./scenes-tab"), {
   ssr: false,
   loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
 });
+
+/** After the owner's chat fails to import, it is tried once more, this long after. */
+export const OWNER_RETRY_MS = 1000;
+
+/** Each loader's import of the owner's chat, under way or done. A failed one is forgotten. */
+const ownerImports = new WeakMap<LoadOwnerPanel, Promise<OwnerModule>>();
+
+/**
+ * Imports the owner's chat, once per loader: the prefetch and the panel share
+ * it. A failed import is tried once more after OWNER_RETRY_MS (a blip in the
+ * connection); when that fails too, the panel's boundary says so, and the
+ * import is forgotten, so the next open, prefetch or Start a new chat imports
+ * again.
+ */
+function loadOwner(load: LoadOwnerPanel): Promise<OwnerModule> {
+  const known = ownerImports.get(load);
+  if (known) return known;
+  const next = load()
+    .catch(() => new Promise<void>((done) => window.setTimeout(done, OWNER_RETRY_MS)).then(load))
+    .catch((err: unknown) => {
+      ownerImports.delete(load);
+      throw err;
+    });
+  ownerImports.set(load, next);
+  return next;
+}
+
+const ownerPanelFor = retryableLazy(loadOwner);
+
+/** Fetches the owner's chat ahead of the panel. A failure waits for the panel to try again. */
+function prefetchOwnerPanel(load: LoadOwnerPanel): void {
+  loadOwner(load).catch(() => {});
+}
+
+type OwnerPanelProps = ComponentProps<OwnerModule["default"]>;
+
+/**
+ * The owner's chat in the panel's body: a pen scribbles in its place until its
+ * chunk is in (the panel keeps its size). Asked for on each render, so after a
+ * failed import the next one (Start a new chat, the panel opening again) is a
+ * fresh try.
+ */
+function OwnerBody({ load, ...props }: OwnerPanelProps & { load: LoadOwnerPanel }) {
+  const OwnerPanel = ownerPanelFor(load);
+  return (
+    <Suspense fallback={<PanelLoading />}>
+      <OwnerPanel {...props} />
+    </Suspense>
+  );
+}
 
 /**
  * Over the tool finder while a signed-in session waits on the owner check
@@ -969,9 +1026,12 @@ function UnverifiedOwnerNote() {
 
 export function MascotAssistant({
   loadSprite = importSprite,
+  loadOwnerPanel = importOwnerPanel,
 }: {
   /** Imports his figure. Tests pass their own. */
   loadSprite?: LoadSprite;
+  /** Imports the owner's chat, for the owner only. Tests pass their own. */
+  loadOwnerPanel?: LoadOwnerPanel;
 } = {}) {
   const open = useAgentStore((s) => s.open);
   const openedVia = useAgentStore((s) => s.openedVia);
@@ -986,14 +1046,19 @@ export function MascotAssistant({
   const { isOwner, settled, unverified, visitor } = useOwnerState();
   // Amr's AI for visitors: a confirmed visitor only, and only in a build that has it on.
   const visitorAi = visitor && visitorAiEnabled();
-  // Everyone but the owner opens the panel on the visitor body: fetch it ahead.
-  usePrefetchVisitorBody(settled && !isOwner);
+  // Everyone but the owner opens the panel on the visitor body, and the owner
+  // on the chat: each fetches its own ahead, and only once auth has settled
+  // (isOwner reads false until then), so a visitor never asks for the owner's.
+  usePrefetchWhenIdle(settled && !isOwner, prefetchVisitorBody);
+  const prefetchOwner = useCallback(() => prefetchOwnerPanel(loadOwnerPanel), [loadOwnerPanel]);
+  usePrefetchWhenIdle(settled && isOwner, prefetchOwner);
   // Reaching for Amr (a pointer over him, a finger on him, focus on him): fetch
   // it now if it isn't here yet (Data Saver waits for the panel to open). Like
-  // the idle fetch, it waits for auth to settle (isOwner reads false until then)
-  // and never runs for the owner. Once fetched, this does nothing.
+  // the idle fetch, it waits for auth to settle. Once fetched, this does nothing.
   const reachForAmr = () => {
-    if (settled && !isOwner && !savesData()) prefetchVisitorBody();
+    if (!settled || savesData()) return;
+    if (isOwner) prefetchOwner();
+    else prefetchVisitorBody();
   };
   const isPhone = useIsPhone();
   // Touch screens of any width (a landscape phone, a tablet): his figure there is
@@ -1691,39 +1756,68 @@ export function MascotAssistant({
                 />
                 {/* The strip's ground: the page's paper, so card balloons stand out. */}
                 <div className="flex min-h-0 flex-1 flex-col bg-bg">
-                  {scenesOpen && <ScenesTab onPlay={onScenePlayed} />}
-                  {/* Under the scenes the chat or guide stays mounted (a turn in flight goes on),
-                      hidden, and knows it; otherwise `contents` keeps its layout exactly as before. */}
-                  <ChatVisibleContext.Provider value={!scenesOpen}>
-                    <div hidden={scenesOpen} className={scenesOpen ? "hidden" : "contents"}>
-                      {!isOwner ? (
-                        <div className="min-h-0 flex-1" aria-busy={!settled}>
-                          {settled && (
+                  {/* A crash in the body (or its code not loading) stops here,
+                      not at the app shell's boundary, which would replace the
+                      page: a narration caption takes the body's place, under
+                      the header, so Close and Move Amr still work. A new
+                      person (auth settling, signing in or out) starts afresh.
+                      Amr's scenes are in the body too, so a crash there stops
+                      here as well. */}
+                  <ErrorBoundary
+                    key={!settled ? "settling" : isOwner ? "owner" : "visitor"}
+                    name="Amr's panel"
+                    fallback={(_error, tryAgain) => (
+                      <PanelFailed
+                        onNewChat={
+                          isOwner
+                            ? () => {
+                                // A saved reply that crashes when drawn goes with the old chat.
+                                // The new chat shows, out from under History and the scenes.
+                                useAgentStore.getState().reset();
+                                setShowHistory(false);
+                                setShowScenes(false);
+                                tryAgain();
+                              }
+                            : undefined
+                        }
+                      />
+                    )}
+                  >
+                    {scenesOpen && <ScenesTab onPlay={onScenePlayed} />}
+                    {/* Under the scenes the chat or guide stays mounted (a turn in flight goes on),
+                        hidden, and knows it; otherwise `contents` keeps its layout exactly as before. */}
+                    <ChatVisibleContext.Provider value={!scenesOpen}>
+                      <div hidden={scenesOpen} className={scenesOpen ? "hidden" : "contents"}>
+                        {!settled ? (
+                          <PanelLoading />
+                        ) : isOwner ? (
+                          <OwnerBody
+                            load={loadOwnerPanel}
+                            showHistory={showHistory}
+                            // History and the scenes take turns.
+                            onToggleHistory={() => {
+                              setShowHistory((v) => !v);
+                              setShowScenes(false);
+                            }}
+                            // New chat (or a thread picked in History) shows the chat,
+                            // out from under the scenes too.
+                            onCloseHistory={() => {
+                              setShowHistory(false);
+                              setShowScenes(false);
+                            }}
+                          />
+                        ) : (
+                          <div className="min-h-0 flex-1">
                             <LazyVisitorBody
                               ai={visitorAi}
                               onNavigate={navigateAway}
                               note={unverified ? <UnverifiedOwnerNote /> : undefined}
                             />
-                          )}
-                        </div>
-                      ) : (
-                        <OwnerAgentPanel
-                          showHistory={showHistory}
-                          // History and the scenes take turns.
-                          onToggleHistory={() => {
-                            setShowHistory((v) => !v);
-                            setShowScenes(false);
-                          }}
-                          // New chat (or a thread picked in History) shows the chat,
-                          // out from under the scenes too.
-                          onCloseHistory={() => {
-                            setShowHistory(false);
-                            setShowScenes(false);
-                          }}
-                        />
-                      )}
-                    </div>
-                  </ChatVisibleContext.Provider>
+                          </div>
+                        )}
+                      </div>
+                    </ChatVisibleContext.Provider>
+                  </ErrorBoundary>
                 </div>
               </AmrPanelContext.Provider>
             </PanelChrome>
