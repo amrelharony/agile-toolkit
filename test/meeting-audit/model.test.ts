@@ -372,6 +372,27 @@ describe("the next step", () => {
     });
     expect(meetingAuditSteps([old], NOW).map((s) => s.id)).toEqual(["meeting-audit-again"]);
   });
+
+  it("stops asking for the retro once one is held after the verdicts, or the audit is due", () => {
+    const planned = audit({
+      ratings: { purpose: 2 },
+      verdict: "change",
+      updatedAt: "2026-11-05T09:00:00.000Z",
+    });
+    const retro = (archivedAt?: string) => ({
+      id: "r",
+      cards: [],
+      ...(archivedAt ? { archivedAt } : {}),
+    });
+    const ids = (retros?: unknown[]) => meetingAuditSteps([planned], NOW, retros).map((s) => s.id);
+    expect(ids()).toEqual(["meeting-audit-retro"]);
+    // The current board (not archived) and a retro held before the verdict don't count.
+    expect(ids([retro(), retro("2026-11-01T15:00:00.000Z")])).toEqual(["meeting-audit-retro"]);
+    expect(ids([retro("2026-11-09T15:00:00.000Z")])).toEqual([]);
+    // A quarter on, the new round replaces it.
+    const stale = { ...planned, updatedAt: "2026-08-01T09:00:00.000Z" };
+    expect(meetingAuditSteps([stale], NOW).map((s) => s.id)).toEqual(["meeting-audit-again"]);
+  });
 });
 
 describe("the export and what Amr is asked", () => {

@@ -662,15 +662,36 @@ export interface AuditStep {
   href: string;
 }
 
+/** When a stored row says it was last changed, in ms (0 when it can't say). */
+const changedAt = (a: Pick<MeetingAudit, "updatedAt" | "createdAt">): number =>
+  Date.parse(a.updatedAt || a.createdAt) || 0;
+
+/** The newest time a retro board (workspace.retroBoards) was archived, in ms; 0 for none. */
+function lastRetroHeld(retros: readonly unknown[] | undefined): number {
+  let newest = 0;
+  for (const b of retros ?? []) {
+    const at = b && typeof b === "object" ? (b as { archivedAt?: unknown }).archivedAt : undefined;
+    const ms = typeof at === "string" ? Date.parse(at) : NaN;
+    if (Number.isFinite(ms) && ms > newest) newest = ms;
+  }
+  return newest;
+}
+
 /**
  * Where the audit should go next (lib/tools/next-steps reads it): rate the
  * meetings not rated yet, give the rated ones a verdict, take the changes to
  * the next retro, and run it again once a quarter has passed. Example
  * meetings are left out; nothing when there are none.
+ *
+ * The retro step ends once it is acted on: when a retro was held (a board
+ * archived, from `retros`, the workspace's retro boards) after the newest
+ * meeting marked to change or drop was last changed, or when the audit is
+ * due again, which starts a new round.
  */
 export function meetingAuditSteps(
   raw: readonly unknown[] | undefined,
-  now: Date = new Date()
+  now: Date = new Date(),
+  retros?: readonly unknown[]
 ): AuditStep[] {
   const audits = meetingAudits(raw).filter((a) => !isExampleId(a.id));
   if (audits.length === 0) return [];
@@ -700,7 +721,12 @@ export function meetingAuditSteps(
     });
   }
   const s = auditSummary(audits);
-  if (s.verdicts.change + s.verdicts.drop > 0) {
+  const newest = Math.max(...audits.map(changedAt));
+  const due = newest > 0 && now.getTime() - newest >= AUDIT_STALE_DAYS * 86_400_000;
+  const planned = audits.filter((a) => a.verdict === "change" || a.verdict === "drop");
+  const plannedAt = Math.max(0, ...planned.map(changedAt));
+  const heldSince = lastRetroHeld(retros) > plannedAt;
+  if (planned.length > 0 && !due && !heldSince) {
     const parts = [
       s.verdicts.change > 0 ? plural(s.verdicts.change, "meeting") + " to change" : null,
       s.verdicts.drop > 0 ? plural(s.verdicts.drop, "meeting") + " to drop" : null,
@@ -716,8 +742,7 @@ export function meetingAuditSteps(
       href: "/retro",
     });
   }
-  const newest = Math.max(...audits.map((a) => Date.parse(a.updatedAt || a.createdAt) || 0));
-  if (newest > 0 && now.getTime() - newest >= AUDIT_STALE_DAYS * 86_400_000) {
+  if (due) {
     steps.push({
       id: "meeting-audit-again",
       label: "Run the meeting audit again",
