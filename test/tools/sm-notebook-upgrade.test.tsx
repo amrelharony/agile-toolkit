@@ -296,24 +296,29 @@ describe("the example and the export", () => {
 /* ── The page ──────────────────────────────────────────────────────── */
 
 describe("the page", () => {
-  it("starts empty with an example to load, and says where notes are kept", () => {
-    renderPage();
-    expect(screen.getByText(/No notes yet\./)).toBeInTheDocument();
-    expect(
-      screen.getByText(/saved in this browser only\. They never go to a live room\./)
-    ).toBeInTheDocument();
-    // Every way they leave, the AI prompts run with a personal key included.
-    expect(
-      screen.getByText(
-        /ask Amr's AI about them, or run one of the AI prompts with your own AI key\./
-      )
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
-    expect(stored().length).toBeGreaterThanOrEqual(8);
-    expect(screen.getByText(/Example data\./)).toBeInTheDocument();
-    expect(screen.getByTestId("export-markdown").textContent).toMatch(/^# Scrum Master Notebook/);
-    expect(screen.getByTestId("ai-prompt").textContent).toContain("notebook-patterns");
-  });
+  // The file's first render warms the page's modules up: slow on a loaded runner.
+  it(
+    "starts empty with an example to load, and says where notes are kept",
+    { timeout: 15_000 },
+    () => {
+      renderPage();
+      expect(screen.getByText(/No notes yet\./)).toBeInTheDocument();
+      expect(
+        screen.getByText(/saved in this browser only\. They never go to a live room\./)
+      ).toBeInTheDocument();
+      // Every way they leave, the AI prompts run with a personal key included.
+      expect(
+        screen.getByText(
+          /ask Amr's AI about them, or run one of the AI prompts with your own AI key\./
+        )
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+      expect(stored().length).toBeGreaterThanOrEqual(8);
+      expect(screen.getByText(/Example data\./)).toBeInTheDocument();
+      expect(screen.getByTestId("export-markdown").textContent).toMatch(/^# Scrum Master Notebook/);
+      expect(screen.getByTestId("ai-prompt").textContent).toContain("notebook-patterns");
+    }
+  );
 
   it("clears only the example's notes", () => {
     seed([...buildExample(TODAY), note("mine", TODAY)]);
