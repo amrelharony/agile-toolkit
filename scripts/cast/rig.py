@@ -43,6 +43,7 @@ from .spec import (
     character,
     cell_count,
     is_complex,
+    node_cap,
     private_dir,
     range_for,
     signature_problem,
@@ -671,13 +672,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
 
     # Sprites, atlas, manifest.
     man, sprites = manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources, clips, eye_colours=eyes)
-    # The rig as the runtime plays it: its tap moves move something, and the counts fit.
-    rchk = {"status": "pass", "notes": cast_clips.unplayable(man, clips)}
-    for key, cap in (("nodes", "rig_nodes_max"), ("animated", "rig_animated_max")):
-        if man["counts"][key] > BUDGETS[cap]:
-            rchk["notes"].append(f"{man['counts'][key]} {key}, over {BUDGETS[cap]}")
-    rchk["status"] = "fail" if rchk["notes"] else "pass"
-    report["checks"]["rig"] = rchk
+    report["checks"]["rig"] = rig_check(man, clips)
     atlas2x, rects = atlas.compose_atlas([s for _, s in sprites])
     keys = [k for k, _ in sprites]
     fill_sprites(man, keys, rects, (atlas2x.size[0] // 2, atlas2x.size[1] // 2))
@@ -704,6 +699,16 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     )
     out(f"{cid}: candidate {report['status']} -> review/{batch}/{cid}/ (rig {cand['rig_sha256'][:12]})")
     return report
+
+
+def rig_check(man: dict, clips: dict) -> dict:
+    """The rig as the runtime plays it: its tap moves move something, and its counts
+    fit their caps (a complex rig's nodes under the larger one, spec.node_cap)."""
+    notes = cast_clips.unplayable(man, clips)
+    for key, cap in (("nodes", node_cap(man["id"])), ("animated", BUDGETS["rig_animated_max"])):
+        if man["counts"][key] > cap:
+            notes.append(f"{man['counts'][key]} {key}, over {cap}")
+    return {"status": "fail" if notes else "pass", "notes": notes}
 
 
 def rig_sha(cand: dict) -> str:

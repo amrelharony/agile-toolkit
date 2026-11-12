@@ -239,6 +239,28 @@ class RuntimeChecks(unittest.TestCase):
         self.assertEqual(contract.problems(contract.TEST_PUPPET), [])
         self.assertEqual(contract.problems(contract.ARMLESS_PUPPET), [])
 
+    def test_a_complex_rig_has_the_larger_node_cap(self):
+        # rig-manifest.test.tsx reads both caps from the spec; the builder's rig check
+        # and this port of the runtime's checks hold a rig to the same one.
+        cap, big = spec.BUDGETS["rig_nodes_max"], spec.BUDGETS["rig_nodes_max_complex"]
+        self.assertGreater(big, cap)
+        self.assertNotIn(contract.TEST_PUPPET["id"], spec.BUDGETS["complex"])
+
+        def nodes(cid, n):
+            return {**contract.TEST_PUPPET, "id": cid, "counts": {**contract.TEST_PUPPET["counts"], "nodes": n}}
+
+        plain = contract.TEST_PUPPET["id"]
+        self.assertEqual(spec.node_cap(plain), cap)
+        self.assertEqual(contract.problems(nodes(plain, cap)), [])
+        self.assertEqual(contract.problems(nodes(plain, cap + 1)), ["nodes"])
+        self.assertEqual(rig.rig_check(nodes(plain, cap + 1), contract.CLIPS)["notes"], [f"{cap + 1} nodes, over {cap}"])
+        for cid in spec.BUDGETS["complex"]:
+            self.assertEqual(spec.node_cap(cid), big, cid)
+            self.assertEqual(contract.problems(nodes(cid, big)), [], cid)
+            self.assertEqual(contract.problems(nodes(cid, big + 1)), ["nodes"], cid)
+            self.assertEqual(rig.rig_check(nodes(cid, big), contract.CLIPS)["status"], "pass", cid)
+            self.assertEqual(rig.rig_check(nodes(cid, big + 1), contract.CLIPS)["status"], "fail", cid)
+
     def test_a_broken_rig_is_caught(self):
         p = contract.TEST_PUPPET["parts"]
         broken = {

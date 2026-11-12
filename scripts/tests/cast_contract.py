@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import re
 
+from cast.spec import node_cap
+
 # clips.ts turnLimit(): the most a clip turns a socket, either way.
 TURN = {
     "body": 4,
@@ -80,7 +82,8 @@ def problems(rig: dict, clips: dict | None = None) -> list[str]:
         too_long = clips is not None and clip is not None and clip["ms"] > clips["maxMs"]
         if clip is None or not sid.startswith("sig.") or too_long:
             out.append(f"signature {sid}")
-    if rig["counts"]["nodes"] > 48:
+    # The runtime reads both caps from the spec: a complex rig's is the larger.
+    if rig["counts"]["nodes"] > node_cap(rig["id"]):
         out.append("nodes")
     if rig["counts"]["animated"] > 10:
         out.append("animated")

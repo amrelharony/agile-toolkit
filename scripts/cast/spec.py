@@ -146,6 +146,13 @@ def is_complex(cid: str) -> bool:
     return cid in BUDGETS["complex"]
 
 
+def node_cap(cid: str) -> int:
+    """The most nodes a rig may render: `rig_nodes_max_complex` for a complex rig
+    (budgets.complex: the extra legs, tentacles or fan), `rig_nodes_max` for any
+    other. The candidate's rig check, C16 and the runtime's rig test hold the same."""
+    return BUDGETS["rig_nodes_max_complex" if is_complex(cid) else "rig_nodes_max"]
+
+
 def signature_problem(sig, cid: str | None = None) -> str | None:
     """Why a tap-move list isn't one or two `sig.*` clip ids (None when it is):
     the runtime plays a tap's signature from src/lib/cast/clips.ts. Amr's may be

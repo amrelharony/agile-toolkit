@@ -26,7 +26,7 @@ from PIL import Image
 
 from . import atlas, fmt, ledger, rig
 from . import imaging as im
-from .spec import AMR, BUDGETS, ROOT, SPEC_PATH, batch_of, character, is_complex, load_spec, signature_problem
+from .spec import AMR, BUDGETS, ROOT, SPEC_PATH, batch_of, character, is_complex, load_spec, node_cap, signature_problem
 
 PUBLIC = ROOT / "public" / "cast"
 TS_PATH = ROOT / "src" / "lib" / "cast" / "rigs.generated.ts"
@@ -266,8 +266,8 @@ def c16_bytes(
         rects = [(round(x), round(y), round(w), round(h)) for x, y, w, h in _rects(man, sizes["1x"])]
         if not atlas.rects_ok(rects, sizes["1x"]):
             notes.append("sprite rects leave the atlas or overlap")
-    if man["counts"]["nodes"] > BUDGETS["rig_nodes_max"]:
-        notes.append(f"{man['counts']['nodes']} nodes, over {BUDGETS['rig_nodes_max']}")
+    if man["counts"]["nodes"] > node_cap(cid):
+        notes.append(f"{man['counts']['nodes']} nodes, over {node_cap(cid)}")
     if man["counts"]["animated"] > BUDGETS["rig_animated_max"]:
         notes.append(f"{man['counts']['animated']} animated parts, over {BUDGETS['rig_animated_max']}")
     why = signature_problem(man.get("signature"), cid)

@@ -252,6 +252,15 @@ class Pipeline(unittest.TestCase):
             with self.assertRaises(SystemExit) as e:
                 publish.build(CID, self.src, public, ts, spec_path=self.spec_path, out=lambda *a: None)
         self.assertIn("C16 would fail", str(e.exception))
+        # C16 holds a complex rig to the larger node cap and any other to rig_nodes_max.
+        man = rig.read_ts(ts)[CID]
+        files = {p.name: p.read_bytes() for p in public.iterdir()}
+        n = BUDGETS["rig_nodes_max"] + 1
+        over = {**man, "counts": {**man["counts"], "nodes": n}}
+        self.assertIn(f"{n} nodes, over {BUDGETS['rig_nodes_max']}", publish.c16_bytes(over, files)["notes"])
+        for cid in BUDGETS["complex"]:
+            notes = publish.c16_bytes({**over, "id": cid}, files)["notes"]
+            self.assertEqual([x for x in notes if "nodes" in x], [], cid)
         # A module it can't read back: stopped before anything is written.
         ts.write_text("export const RIGS = load();\n", encoding="utf-8")
         with self.assertRaises(SystemExit):
