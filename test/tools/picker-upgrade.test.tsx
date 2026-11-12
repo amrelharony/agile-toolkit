@@ -150,6 +150,8 @@ describe("the wheel", () => {
   });
 
   it("turns for about 2.5 s before it lands, when motion is allowed", async () => {
+    expect(SPIN_MS).toBeGreaterThanOrEqual(2000);
+    expect(SPIN_MS).toBeLessThanOrEqual(3000);
     setReducedMotion(false);
     vi.useFakeTimers();
     await mount();
@@ -159,7 +161,11 @@ describe("the wheel", () => {
       "true"
     );
     expect(readPicker().recent).toHaveLength(0);
-    act(() => vi.advanceTimersByTime(SPIN_MS + 50));
+    // Still turning just before the end.
+    act(() => vi.advanceTimersByTime(SPIN_MS - 100));
+    expect(readPicker().recent).toHaveLength(0);
+    expect(screen.getByRole("button", { name: /Spinning/ })).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(150));
     expect(readPicker().recent).toHaveLength(1);
     expect(result().textContent).toBe(readPicker().recent[0].result);
   });
@@ -176,6 +182,41 @@ describe("the wheel", () => {
     expect(
       screen.getByText(/Everyone has had a turn. The next spin starts round 2./)
     ).toBeInTheDocument();
+  });
+
+  it("says in words who has had a turn, not only by greying the slice", async () => {
+    await mount();
+    fireEvent.click(spinButton());
+    const name = result().textContent!;
+    expect(screen.getByText(`Had a turn: ${name}.`)).toBeInTheDocument();
+    expect(screen.getByText("(had a turn)")).toBeInTheDocument();
+  });
+
+  it("keeps the team's round while the wheel spins a list and comes back, even by arrow keys", async () => {
+    usePickerStore.setState({
+      lists: [
+        {
+          id: "l1",
+          name: "Lunch",
+          entries: [
+            { name: "Pizza", weight: 1 },
+            { name: "Tacos", weight: 1 },
+          ],
+          updatedAt: "2026-11-01T00:00:00Z",
+        },
+      ],
+    });
+    await mount();
+    fireEvent.click(screen.getByRole("switch", { name: "Take a name off after it's picked" }));
+    fireEvent.click(spinButton());
+    const name = result().textContent!;
+    const team = screen.getByRole("radio", { name: "Team" });
+    fireEvent.keyDown(team, { key: "ArrowRight" });
+    expect(readPicker().source).toBe("l1");
+    fireEvent.keyDown(screen.getByRole("radio", { name: "Lunch" }), { key: "ArrowLeft" });
+    expect(readPicker().source).toBe("team");
+    expect(readPicker().progress.removed).toEqual([name.toLowerCase()]);
+    expect(screen.getByText(`Off the wheel: ${name}.`)).toBeInTheDocument();
   });
 
   it("lets anyone come up again with everyone once off", async () => {
@@ -198,13 +239,19 @@ describe("the wheel", () => {
     expect(readPicker().progress.removed).toEqual([name.toLowerCase()]);
   });
 
-  it("weighs a name up and down, between 1 and 5", async () => {
+  it("weighs a name up and down, between 1 and 5, and says the new weight", async () => {
     await mount();
     fireEvent.click(screen.getByRole("button", { name: "More weight for Ben" }));
     expect(readPicker().teamWeights).toEqual({ ben: 2 });
-    fireEvent.click(screen.getByRole("button", { name: "Less weight for Ben" }));
+    await waitFor(() => expect(polite()).toHaveTextContent("Ben: weight 2."));
+    const less = screen.getByRole("button", { name: "Less weight for Ben" });
+    fireEvent.click(less);
     expect(readPicker().teamWeights).toEqual({});
-    expect(screen.getByRole("button", { name: "Less weight for Ben" })).toBeDisabled();
+    // At the limit it stays focusable, and does nothing.
+    expect(less).toHaveAttribute("aria-disabled", "true");
+    expect(less).not.toBeDisabled();
+    fireEvent.click(less);
+    expect(readPicker().teamWeights).toEqual({});
   });
 
   it("offers the Team page and the example when there's nobody to spin", async () => {
@@ -225,6 +272,21 @@ describe("saved lists", () => {
     fireEvent.change(screen.getByLabelText(/List name/), { target: { value: name } });
     fireEvent.change(screen.getByRole("textbox", { name: /^Names/ }), { target: { value: names } });
   };
+
+  it("opens the form on its first field and goes back to New list after", async () => {
+    await mount();
+    newList();
+    expect(screen.getByLabelText(/List name/)).toHaveFocus();
+    fill("Lunch spots", "Pizza\nTacos");
+    fireEvent.click(screen.getByRole("button", { name: "Save list" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "New list" })).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Edit Lunch spots" }));
+    expect(screen.getByLabelText(/List name/)).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit Lunch spots" })).toHaveFocus()
+    );
+  });
 
   it("checks the list before saving, then spins it", async () => {
     await mount();
@@ -249,6 +311,8 @@ describe("saved lists", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete Lunch spots" }));
     expect(readPicker().lists).toEqual([]);
     expect(readPicker().source).toBe("team");
+    // The row went: focus lands on New list, not the page.
+    await waitFor(() => expect(screen.getByRole("button", { name: "New list" })).toHaveFocus());
     undoOf("Deleted “Lunch spots”")();
     expect(readPicker().lists.map((l) => l.name)).toEqual(["Lunch spots"]);
   });
@@ -265,7 +329,7 @@ describe("saved lists", () => {
 });
 
 describe("rotating roles", () => {
-  it("gives a role to the fairest person, then moves on", async () => {
+  it("gives a role to the fairest person, then moves on, logging no role name", async () => {
     await mount();
     tab("Roles");
     const card = screen.getByRole("article", { name: "Facilitator" });
@@ -274,9 +338,73 @@ describe("rotating roles", () => {
     await waitFor(() => expect(polite()).toHaveTextContent("Amina is the Facilitator."));
     expect(within(card).getByRole("button", { name: "Give Ben the role" })).toBeInTheDocument();
     expect(logSpy).toHaveBeenCalledWith(PICKER_ACTIONS.ROTATION_ADVANCED, {
-      role: "Facilitator",
+      role: "role-facilitator",
       people: 3,
     });
+  });
+
+  it("never gives a second role to someone who has one today while others are free", async () => {
+    await mount();
+    tab("Roles");
+    const facilitator = screen.getByRole("article", { name: "Facilitator" });
+    fireEvent.click(within(facilitator).getByRole("button", { name: "Give Amina the role" }));
+    const scribe = screen.getByRole("article", { name: "Scribe" });
+    expect(within(scribe).getByRole("button", { name: "Give Ben the role" })).toBeInTheDocument();
+    expect(within(scribe).getByText("(Facilitator today)")).toBeInTheDocument();
+  });
+
+  it("gives out every role at once to different people, with Undo", async () => {
+    await mount();
+    tab("Roles");
+    expect(
+      screen.getByText(
+        (_, el) => el?.tagName === "P" && /^Not given out today:/.test(el.textContent ?? "")
+      )
+    ).toHaveTextContent("Amina as Facilitator, Ben as Scribe, Chloé as Timekeeper.");
+    fireEvent.click(screen.getByRole("button", { name: "Give out 3 roles" }));
+    expect(readPicker().roleTurns.map((t) => t.person)).toEqual(["Amina", "Ben", "Chloé"]);
+    expect(screen.queryByRole("button", { name: /Give out/ })).toBeNull();
+    undoOf("Gave out 3 roles")();
+    expect(readPicker().roleTurns).toEqual([]);
+  });
+
+  it("rotates among the team, whatever the wheel spins", async () => {
+    usePickerStore.setState({ shortlist: ["Nile", "Amazon"] });
+    await mount();
+    tab("Names");
+    fireEvent.click(screen.getByRole("button", { name: "Spin the shortlist" }));
+    expect(readPicker().source).not.toBe("team");
+    tab("Roles");
+    const card = screen.getByRole("article", { name: "Facilitator" });
+    expect(within(card).getByRole("button", { name: "Give Amina the role" })).toBeInTheDocument();
+    expect(screen.getByText(/^From Team \(3 people\)\./)).toBeInTheDocument();
+  });
+
+  it("rotates among a saved list when it's chosen for the roles", async () => {
+    usePickerStore.setState({
+      lists: [
+        {
+          id: "l1",
+          name: "Guests",
+          entries: [
+            { name: "Gus", weight: 1 },
+            { name: "Hana", weight: 1 },
+          ],
+          updatedAt: "2026-11-01T00:00:00Z",
+        },
+      ],
+    });
+    await mount();
+    tab("Roles");
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: "Who takes the roles" })).getByRole("radio", {
+        name: "Guests",
+      })
+    );
+    expect(readPicker().roleSource).toBe("l1");
+    expect(readPicker().source).toBe("team");
+    const card = screen.getByRole("article", { name: "Scribe" });
+    expect(within(card).getByRole("button", { name: "Give Gus the role" })).toBeInTheDocument();
   });
 
   it("skips someone away today without counting it, and brings them back", async () => {
@@ -286,8 +414,15 @@ describe("rotating roles", () => {
     fireEvent.click(within(card).getByRole("button", { name: "Skip Amina, away today" }));
     expect(within(card).getByRole("button", { name: "Give Ben the role" })).toBeInTheDocument();
     expect(readPicker().roleTurns).toEqual([]);
-    fireEvent.click(within(card).getByRole("button", { name: "Amina is back today" }));
+    const toggle = within(card).getByRole("button", { name: "Away today: Amina" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(within(card).getByRole("button", { name: "Away today: Ben" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+    fireEvent.click(toggle);
     expect(within(card).getByRole("button", { name: "Give Amina the role" })).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
   });
 
   it("takes a turn back out of the history with Undo", async () => {
@@ -316,6 +451,8 @@ describe("rotating roles", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove the Scribe role" }));
     expect(readPicker().roles.map((r) => r.name)).not.toContain("Scribe");
     expect(readPicker().roleTurns).toEqual([]);
+    // Its card went: focus moves to the next role's heading.
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Timekeeper" })).toHaveFocus());
     undoOf("Removed the Scribe role")();
     expect(readPicker().roles.map((r) => r.name)).toEqual([
       "Facilitator",
@@ -369,7 +506,8 @@ describe("quick answers", () => {
 });
 
 describe("team and sprint names", () => {
-  it("draws themed names, shortlists them, and links the shortlist to Quick Vote", async () => {
+  it("draws themed names, shortlists them with Undo, and points to Quick Vote", async () => {
+    usePickerStore.setState({ shortlist: ["Volga"] });
     await mount();
     tab("Names");
     fireEvent.change(screen.getByLabelText("How many names"), { target: { value: "3" } });
@@ -378,9 +516,27 @@ describe("team and sprint names", () => {
     const adds = within(list).getAllByRole("button", { name: /^Shortlist: / });
     expect(adds).toHaveLength(3);
     fireEvent.click(within(list).getByRole("button", { name: "Shortlist all 3" }));
-    expect(readPicker().shortlist).toHaveLength(3);
-    const link = screen.getByRole("link", { name: "Vote in Quick Vote" });
+    expect(readPicker().shortlist).toHaveLength(4);
+    const link = screen.getByRole("link", { name: "Open Quick Vote" });
     expect(link.getAttribute("href")).toBe(quickVoteHref(readPicker().shortlist));
+    expect(screen.getByText(/paste it as the options of a poll/)).toBeInTheDocument();
+    // Accepted suggestions come back off with Undo; what was there stays.
+    undoOf("Shortlisted 3 names")();
+    expect(readPicker().shortlist).toEqual(["Volga"]);
+  });
+
+  it("shortlists one suggestion at a time, with Undo", async () => {
+    await mount();
+    tab("Names");
+    fireEvent.change(screen.getByLabelText("How many names"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Draw names" }));
+    const list = screen.getByRole("region", { name: /Planets and moons/ });
+    const [first] = within(list).getAllByRole("button", { name: /^Shortlist: / });
+    const name = first.getAttribute("aria-label")!.replace(/^Shortlist: /, "");
+    fireEvent.click(first);
+    expect(readPicker().shortlist).toEqual([name]);
+    undoOf(`Shortlisted ${name}`)();
+    expect(readPicker().shortlist).toEqual([]);
   });
 
   it("refuses a count out of range", async () => {
@@ -409,11 +565,45 @@ describe("team and sprint names", () => {
     tab("Names");
     fireEvent.click(screen.getByRole("button", { name: "Take Volga off the shortlist" }));
     expect(readPicker().shortlist).toEqual(["Nile", "Amazon"]);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Take Amazon off the shortlist" })).toHaveFocus()
+    );
     undoOf("Took Volga off the shortlist")();
     expect(readPicker().shortlist).toEqual(["Nile", "Amazon", "Volga"]);
     fireEvent.click(screen.getByRole("button", { name: "Spin the shortlist" }));
     expect(readPicker().lists[0]).toMatchObject({ name: "Name shortlist" });
     expect(screen.getByRole("img", { name: "Wheel with 3 names" })).toBeInTheDocument();
+    // The Names tab went: focus is on the wheel's Spin button.
+    await waitFor(() => expect(spinButton()).toHaveFocus());
+  });
+
+  it("puts back a hand-edited shortlist list it replaced, with Undo", async () => {
+    usePickerStore.setState({
+      shortlist: ["Nile", "Amazon"],
+      lists: [
+        {
+          id: "l1",
+          name: "Name shortlist",
+          entries: [
+            { name: "Nile", weight: 3 },
+            { name: "Rhine", weight: 1 },
+          ],
+          updatedAt: "2026-11-01T00:00:00Z",
+        },
+      ],
+    });
+    await mount();
+    tab("Names");
+    fireEvent.click(screen.getByRole("button", { name: "Spin the shortlist" }));
+    // Nile keeps its weight; Rhine, not on the shortlist, went.
+    expect(readPicker().lists[0].entries).toEqual([
+      { name: "Nile", weight: 3 },
+      { name: "Amazon", weight: 1 },
+    ]);
+    expect(readPicker().source).toBe("l1");
+    undoOf("Put the shortlist on “Name shortlist”")();
+    expect(readPicker().lists[0].entries.map((e) => e.name)).toEqual(["Nile", "Rhine"]);
+    expect(readPicker().source).toBe("team");
   });
 });
 
@@ -465,6 +655,9 @@ describe("history, example, export and reset", () => {
     fireEvent.click(spinButton());
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
     expect(readPicker().recent).toEqual([]);
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Recent picks" })).toHaveFocus()
+    );
     undoOf("Cleared the recent picks")();
     expect(readPicker().recent).toHaveLength(1);
   });
@@ -549,12 +742,15 @@ describe("pure parts", () => {
     const state = normalizePickerState({
       lists: [ex.list],
       source: ex.list.id,
+      roleSource: ex.list.id,
       roleTurns: ex.roleTurns,
     });
+    expect(sourceEntries(state, [])).toHaveLength(7);
     const md = toMarkdown(
-      { state, entries: sourceEntries(state, []), today: "2026-11-12" },
+      { state, roster: [], today: "2026-11-12" },
       new Date("2026-11-12T10:00:00Z")
     );
+    expect(md).toContain("From Aurora squad.");
     expect(md).toContain("### Facilitator\n\nNext up: Dev.");
     expect(md).toContain("| Gus | 2 | Yes |");
     expect(md).toContain("| Amina | 1 | 3 weeks ago |");

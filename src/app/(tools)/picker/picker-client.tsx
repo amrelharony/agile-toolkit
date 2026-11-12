@@ -66,6 +66,7 @@ import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster"
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import { EXAMPLE_LIST_ID, buildExample } from "./example";
+import { focusSoon, spinButton } from "./focus";
 import { editedEntries } from "./forms";
 import { ListsCard } from "./lists-card";
 import { toMarkdown } from "./markdown";
@@ -451,19 +452,38 @@ export function PickerClient() {
   };
 
   // ── Names ─────────────────────────────────────────────────
+  /** Accepted name ideas (AI or the built-in lists) go on the shortlist, with Undo. */
   const addToShortlist = (names: string[]) => {
     const before = readPicker().shortlist;
+    const had = new Set(before.map(nameKey));
     const next = normalizeShortlist([...before, ...names]);
-    const added = next.length - before.length;
-    updatePicker((s) => ({ ...s, shortlist: normalizeShortlist([...s.shortlist, ...names]) }));
-    const left = names.length - added;
+    const fresh = next.filter((n) => !had.has(nameKey(n)));
+    const left = names.length - fresh.length;
     setNotice(
       left > 0 && next.length >= PICKER_LIMITS.maxShortlist
         ? `The shortlist is full at ${PICKER_LIMITS.maxShortlist} names, so ${left} didn't fit.`
         : null
     );
-    if (added > 0)
-      announce(added === 1 ? "Added to the shortlist." : `Added ${added} names to the shortlist.`);
+    if (fresh.length === 0) return;
+    const keys = new Set(fresh.map(nameKey));
+    undoable({
+      kind: "success",
+      // One toast for a run of single accepts: its Undo takes them all back.
+      id: "picker-shortlist",
+      label: fresh.length === 1 ? `Shortlisted ${fresh[0]}` : `Shortlisted ${fresh.length} names`,
+      apply: () =>
+        updatePicker((s) => ({ ...s, shortlist: normalizeShortlist([...s.shortlist, ...fresh]) })),
+      revert: () =>
+        updatePicker((s) => ({
+          ...s,
+          shortlist: s.shortlist.filter((n) => !keys.has(nameKey(n))),
+        })),
+    });
+    announce(
+      fresh.length === 1
+        ? "Added to the shortlist."
+        : `Added ${fresh.length} names to the shortlist.`
+    );
   };
 
   const removeFromShortlist = (name: string) =>
@@ -482,20 +502,51 @@ export function PickerClient() {
       );
       return;
     }
+    // Names kept from an earlier shortlist keep their weights.
+    const entries = editedEntries(existing?.entries ?? [], current.shortlist);
     const list: PickerList = {
       id: existing?.id ?? `list_${crypto.randomUUID()}`,
       name: existing?.name ?? SHORTLIST_LIST_NAME,
-      entries: current.shortlist.map((name) => ({ name, weight: 1 })),
+      entries,
       updatedAt: new Date().toISOString(),
     };
-    updatePicker((s) => ({
-      ...s,
-      lists: existing ? s.lists.map((l) => (l.id === list.id ? list : l)) : [...s.lists, list],
-      source: list.id,
-    }));
+    const write = () =>
+      updatePicker((s) => ({
+        ...s,
+        lists: s.lists.some((l) => l.id === list.id)
+          ? s.lists.map((l) => (l.id === list.id ? list : l))
+          : [...s.lists, list],
+        source: list.id,
+      }));
+    const same =
+      existing &&
+      existing.entries.length === entries.length &&
+      existing.entries.every(
+        (e, i) => e.name === entries[i].name && e.weight === entries[i].weight
+      );
+    if (existing && !same) {
+      // The list was there with other names (perhaps edited by hand): Undo puts it back.
+      const sourceBefore = current.source;
+      undoable({
+        label: `Put the shortlist on “${existing.name}”`,
+        description: "Its old names were replaced.",
+        apply: write,
+        revert: () =>
+          updatePicker((s) => ({
+            ...s,
+            lists: s.lists.map((l) => (l.id === existing.id ? existing : l)),
+            source: s.source === list.id ? sourceBefore : s.source,
+          })),
+      });
+    } else if (existing) {
+      updatePicker((s) => ({ ...s, source: list.id }));
+    } else {
+      write();
+    }
     setNotice(null);
     setTab("wheel");
     announce(`The wheel spins the ${list.name} now.`);
+    focusSoon(spinButton);
   };
 
   // ── Live room ─────────────────────────────────────────────
