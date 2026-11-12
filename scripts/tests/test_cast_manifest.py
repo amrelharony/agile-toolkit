@@ -18,6 +18,7 @@ import numpy as np  # noqa: E402
 
 from cast import clips as cast_clips  # noqa: E402
 from cast import rig  # noqa: E402
+from cast import spec  # noqa: E402
 from cast.spec import SPEC  # noqa: E402
 
 
@@ -131,6 +132,64 @@ class Stacking(unittest.TestCase):
         self.assertEqual(sorted(got), ["a", "b", "c"])
         self.assertEqual(got[-1], "c")
         self.assertLess(got.index("b"), got.index("a"))
+
+
+class Slots(unittest.TestCase):
+    """manifest() on made-up placed pieces: the fan and an octopus's front pair
+    become slots that draw their own rest pieces, and no part repeats them."""
+
+    def place(self, box, rgb, size=(600, 900)):
+        a = np.zeros((*size, 4), np.uint8)
+        x0, y0, x1, y1 = box
+        a[y0:y1, x0:x1] = (*rgb, 255)
+        return a
+
+    def build(self, c, pieces, z, pinned):
+        baked = {pid: self.place(box, rgb) for pid, (box, rgb) in pieces.items()}
+        tree = {"torso": [p for p in pieces if p != "torso"]}
+        pivots = {p: {"x": (b[0] + b[2]) / 2, "y": b[1], "r": None} for p, (b, _) in pieces.items() if p != "torso"}
+        rest = rig.compose(baked, ["torso", *tree["torso"]])
+        man, sprites = rig.manifest(c, baked, tree, z, pivots, {}, [], pinned, rest, Path("nowhere"), contract.CLIPS)
+        return man, [k for k, _ in sprites]
+
+    def test_the_fan_is_a_slot_closed_at_rest(self):
+        c = {**spec.character("AAW-22"), "signature": ["sig.fan"]}
+        pieces = {"torso": ((300, 300, 600, 700), (120, 210, 200)), "fan-closed": ((350, 150, 550, 400), (60, 140, 150))}
+        opened = self.place((150, 50, 750, 420), (60, 140, 150))
+        pinned = {"fan": {"rest": "fan-closed", "rest_id": "closed", "poses": {"open": opened}}}
+        man, keys = self.build(c, pieces, {"torso": 0, "fan-closed": -1}, pinned)
+        self.assertEqual([p["id"] for p in man["parts"]], ["torso"])
+        fan = next(s for s in man["swaps"] if s["id"] == "fan")
+        self.assertEqual((fan["on"], fan["rest"], fan["z"]), ("torso", "closed", -1))
+        self.assertEqual([ch["id"] for ch in fan["choices"]], ["closed", "open"])
+        self.assertTrue(all(ch["sprite"] for ch in fan["choices"]))
+        self.assertIn("fan:closed", keys)
+        self.assertNotIn("part:fan-closed", keys)
+        self.assertEqual(contract.problems(man, contract.CLIPS), [])
+        self.assertEqual(cast_clips.unplayable(man, contract.CLIPS), [])  # sig.fan shows fan.open
+
+    def test_an_octopus_front_pair_are_its_arm_slots(self):
+        c = {**spec.character("AAW-18"), "signature": ["sig.ripple"]}
+        pieces = {"torso": ((300, 200, 600, 500), (120, 210, 200))}
+        for i in range(1, 9):
+            pieces[f"tentacle-{i}"] = ((280 + 30 * i, 450, 300 + 30 * i, 800), (98, 46, 88))
+        z = {"torso": 0, **{f"tentacle-{i}": -i for i in range(1, 9)}}
+        wave = self.place((180, 150, 320, 470), (98, 46, 88))
+        pinned = {
+            "arm-r": {"rest": "tentacle-1", "rest_id": "rest", "poses": {"wave": wave}},
+            "arm-l": {"rest": "tentacle-2", "rest_id": "rest", "poses": {}},
+        }
+        man, _ = self.build(c, pieces, z, pinned)
+        ids = [p["id"] for p in man["parts"]]
+        self.assertNotIn("tentacle-1", ids)
+        self.assertNotIn("tentacle-2", ids)
+        self.assertEqual(len([i for i in ids if i.startswith("tentacle-")]), 6)
+        slots = {s["id"]: s for s in man["swaps"]}
+        self.assertEqual(slots["arm-r"]["z"], -1)
+        self.assertEqual([ch["id"] for ch in slots["arm-r"]["choices"]], ["rest", "wave"])
+        self.assertEqual(man["counts"]["animated"], 6)  # ripple turns the six tentacles that are parts
+        self.assertEqual(contract.problems(man, contract.CLIPS), [])
+        self.assertEqual(man["counts"]["nodes"], rig.count_nodes(man))
 
 
 class RuntimeChecks(unittest.TestCase):
