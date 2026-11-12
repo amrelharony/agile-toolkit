@@ -241,6 +241,11 @@ import {
   workingBasisLabel,
 } from "@/lib/quality/review";
 import { isIsoDate } from "@/lib/sprints/calendar";
+import {
+  backlogHealthSteps,
+  interruptBufferSteps,
+  productGoalSteps,
+} from "@/lib/tools/next-steps-phase42";
 import type {
   AdkarElement,
   Assumption,
@@ -1658,6 +1663,22 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Tools plan, phase 1. The logic and its tests are in lib/tools/next-steps-phase42.
+  "product-goal": rule({
+    select: (ws) => ({ goals: ws.productGoals, sprints: ws.sprints, stories: ws.stories }),
+    steps: ({ goals, sprints, stories }) => productGoalSteps({ goals, sprints, stories }),
+  }),
+
+  "backlog-health": rule({
+    select: (ws) => ({
+      stories: ws.stories,
+      backlogItems: ws.backlogItems,
+      goals: ws.productGoals,
+    }),
+    steps: ({ stories, backlogItems, goals }) =>
+      backlogHealthSteps({ stories, backlogItems, goals }),
+  }),
+
   // Run the sprint.
   kanban: rule({
     select: (ws) => ({
@@ -1920,6 +1941,12 @@ const RULES: Record<string, NextStepRule<object>> = {
       }
       return steps;
     },
+  }),
+
+  // Tools plan, phase 1. The logic and its tests are in lib/tools/next-steps-phase42.
+  "interrupt-buffer": rule({
+    select: (ws) => ({ sprints: ws.sprints, items: ws.interruptItems }),
+    steps: ({ sprints, items }) => interruptBufferSteps({ sprints, items }),
   }),
 
   // Retrospect & improve.
