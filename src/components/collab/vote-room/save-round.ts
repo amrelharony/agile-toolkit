@@ -16,7 +16,10 @@
 import { useCallback, useRef, useState } from "react";
 import type { VoteRoundResult } from "@/lib/realtime/vote-room/aggregate";
 import type { AllocationRoundResult } from "@/lib/realtime/vote-room/allocation";
+import type { ChoiceRoundResult } from "@/lib/realtime/vote-room/choice";
+import type { NumberRoundResult } from "@/lib/realtime/vote-room/number";
 import type { PairRoundResult } from "@/lib/realtime/vote-room/pair";
+import type { RankRoundResult } from "@/lib/realtime/vote-room/rank";
 import { undoable } from "@/lib/utils/undoable";
 
 /**
@@ -31,6 +34,12 @@ export type SaveVoteRound = SaveRound<VoteRoundResult>;
 export type SavePairRound = SaveRound<PairRoundResult>;
 /** Allocation rounds (Buy-a-Feature, the $100 Test). */
 export type SaveAllocationRound = SaveRound<AllocationRoundResult>;
+/** Choice rounds (Quick Vote). */
+export type SaveChoiceRound = SaveRound<ChoiceRoundResult>;
+/** Rank rounds (Quick Vote). */
+export type SaveRankRound = SaveRound<RankRoundResult>;
+/** Number rounds (Quick Vote). */
+export type SaveNumberRound = SaveRound<NumberRoundResult>;
 
 export interface SaveRoundState<R extends { roundId: string } = VoteRoundResult> {
   /** Save `result` unless that round is already saved. */

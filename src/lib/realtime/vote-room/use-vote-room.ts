@@ -49,12 +49,16 @@
  * `result`, and only when the host asks.
  *
  * Every kind of round runs this one state machine (`kinds.ts` holds the
- * kind-aware steps): a tool's kind (`VOTE_ROUND_KIND`) decides which of
- * `questionnaire` (scale), `pairSheet` (pair, Kano) or `sheet` (allocation,
- * Buy-a-Feature and the $100 Test) the host must give, the size every
- * ballot must have, how a plaintext is read and counted, what Reveal shows,
- * and which result comes out (`result`, `pairResult`, `allocationResult`).
- * Ballots, kicks, ends, seats, acks and the warnings are the same for all.
+ * kind-aware steps). Each round is of one kind the tool may run
+ * (`VOTE_ROUND_KINDS`): the host names it with `round` (a `RoundSpec`), or,
+ * for the six tools from before, gives `questionnaire` (scale), `pairSheet`
+ * (pair, Kano) or `sheet` (allocation, Buy-a-Feature and the $100 Test).
+ * The round's kind decides the size every ballot must have, how a
+ * plaintext is read and counted, what Reveal shows, and which result comes
+ * out (`result`, `pairResult`, `allocationResult`, or any kind's
+ * `roundResult`). New round may change the kind, to another the tool may
+ * run; participants read only states of their tool's kinds. Ballots,
+ * kicks, ends, seats, acks and the warnings are the same for all.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -76,6 +80,7 @@ import { toast } from "@/lib/utils/toast";
 import {
   VOTE_LIMITS,
   VOTE_ROOM_EVENTS,
+  defaultRoundKind,
   isVoteRoomTool,
   readBallotEnvelope,
   readVoteEnd,
@@ -108,17 +113,18 @@ import {
   encodeDraft,
   isAllocationResult,
   isPairResult,
+  isRoundSpecLike,
   isScaleResult,
   openPlain,
   readRoundState,
   revealCounts,
   revealedOfState,
-  roundKindOf,
   roundResult,
   specCiphertextChars,
   specOfState,
   stateBodyFor,
   wireSpec,
+  wireSpecFor,
   type RoundCounts,
   type RoundDraft,
   type RoundInput,
@@ -199,18 +205,24 @@ interface VoteRoomBaseOptions {
 }
 
 /**
- * The host gives exactly one of `questionnaire`, `pairSheet` and `sheet`:
- * the one its tool's kind asks (`VOTE_ROUND_KIND`). Anything else (none,
- * two, or another kind's) makes the room "unavailable" before any key or
- * channel exists.
+ * The host gives exactly one of `round`, `questionnaire`, `pairSheet` and
+ * `sheet`, for a kind its tool may run (`VOTE_ROUND_KINDS`). Anything else
+ * (none, two, or a kind the tool doesn't run) makes the room "unavailable"
+ * before any key or channel exists.
  */
 export interface UseVoteRoomHostOptions extends VoteRoomBaseOptions {
   role: "host";
-  /** Scale tools: the first round's questions. Later changes need `newRound(next)`. */
+  /**
+   * The first round, any kind the tool may run, named: `{ kind: "choice",
+   * sheet }`, `{ kind: "scale", questionnaire }`, … Later rounds come
+   * through `newRound(next)`.
+   */
+  round?: RoundSpec;
+  /** Scale rounds: the first round's questions. Later changes need `newRound(next)`. */
   questionnaire?: Questionnaire;
-  /** Pair tools (Kano): the first round's sheet. */
+  /** Pair rounds (Kano): the first round's sheet. */
   pairSheet?: PairSheet;
-  /** Allocation tools (Buy-a-Feature, the $100 Test): the first round's sheet. */
+  /** Allocation rounds (Buy-a-Feature, the $100 Test): the first round's sheet. */
   sheet?: AllocationSheet;
   /** Ballots needed to reveal (clamped by `effectiveMinN`, never under the tool's floor). */
   minN?: number;
@@ -238,8 +250,14 @@ export interface VoteRoom {
   members: PresenceMember[];
   /** Ids the host removed (host only). */
   removedIds: ReadonlySet<string>;
-  /** The kind of round this tool runs (`VOTE_ROUND_KIND`); null for a tool outside the kit. */
+  /**
+   * The current round's kind; before the first round, the tool's usual one
+   * (the only one for the six tools from before). Null for a tool outside
+   * the kit.
+   */
   kind: VoteRoundKind | null;
+  /** What the current round asks, any kind; null before the host's first state. */
+  spec: RoundSpec | null;
   /** Scale rounds: the questions. Null for other kinds. */
   questionnaire: Questionnaire | null;
   /** Pair rounds (Kano): the sheet. Null for other kinds. */
@@ -272,6 +290,8 @@ export interface VoteRoom {
   pairRevealed: readonly RevealedPair[] | null;
   /** Allocation rounds, after Reveal: per item, its total; who backed it and the bands from 5 answers. */
   allocationRevealed: readonly RevealedAllocation[] | null;
+  /** Any kind, after Reveal: what the state carries, tagged with its kind. Null while open. */
+  revealedRound: RoundRevealed | null;
   /** When the room closes for everyone (epoch ms), once known. */
   endsAt: number | null;
   /**
@@ -293,11 +313,15 @@ export interface VoteRoom {
   pairResult: PairRoundResult | null;
   /** Allocation rounds, after Reveal: totals only, ready for the tool's `onSave`. */
   allocationResult: AllocationRoundResult | null;
+  /** Any kind, after Reveal: the result for the tool's `onSave` (`resultKind` says which). */
+  roundResult: RoundResult | null;
   /**
-   * Host: start a new round (new round id and key), optionally with new
-   * questions or a new sheet of the same kind (another kind is refused).
+   * Host: start a new round (new round id and key). With nothing, the same
+   * questions again; with a questionnaire or sheet, those, of the current
+   * round's kind (another kind is refused); with a `RoundSpec`, a round of
+   * any kind the tool may run.
    */
-  newRound: (next?: RoundInput) => void;
+  newRound: (next?: RoundInput | RoundSpec) => void;
   /** Host: remove a member (soft). */
   kick: (id: string) => void;
   /** Host: end the room for everyone. */
@@ -482,18 +506,25 @@ interface PendingBallot {
 }
 
 /**
- * The host's first round, from its options: exactly one of `questionnaire`,
- * `pairSheet` and `sheet`, the one the tool's kind asks for, and shareable.
- * Null otherwise (the room is then "unavailable").
+ * The host's first round, from its options: exactly one of `round`,
+ * `questionnaire`, `pairSheet` and `sheet`, of a kind the tool may run, and
+ * shareable. Null otherwise (the room is then "unavailable"). The three
+ * named sheets keep the kind they always had: `questionnaire` is scale,
+ * `pairSheet` pair, `sheet` allocation.
  */
 function firstSpecFor(opts: UseVoteRoomHostOptions): RoundSpec | null {
-  const kind = roundKindOf(opts.tool);
-  const given = [opts.questionnaire, opts.pairSheet, opts.sheet].filter((x) => x !== undefined);
-  if (!kind || given.length !== 1) return null;
-  const input =
-    kind === "scale" ? opts.questionnaire : kind === "pair" ? opts.pairSheet : opts.sheet;
-  if (input === undefined) return null;
-  const checked = wireSpec(kind, input);
+  if (!isVoteRoomTool(opts.tool)) return null;
+  const given = [opts.round, opts.questionnaire, opts.pairSheet, opts.sheet].filter(
+    (x) => x !== undefined
+  );
+  if (given.length !== 1) return null;
+  let spec: RoundSpec | null = null;
+  if (opts.round !== undefined) spec = isRoundSpecLike(opts.round) ? opts.round : null;
+  else if (opts.questionnaire) spec = { kind: "scale", questionnaire: opts.questionnaire };
+  else if (opts.pairSheet) spec = { kind: "pair", sheet: opts.pairSheet };
+  else if (opts.sheet) spec = { kind: "allocation", sheet: opts.sheet };
+  if (!spec) return null;
+  const checked = wireSpecFor(opts.tool, spec);
   return checked.ok ? checked.spec : null;
 }
 
@@ -524,7 +555,6 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   const [firstSpec] = useState<RoundSpec | null>(() =>
     opts.role === "host" ? firstSpecFor(opts) : null
   );
-  const roundKind = roundKindOf(tool);
   const [hostMinN] = useState(() =>
     effectiveMinN(
       opts.role === "host" ? opts.minN : undefined,
@@ -1402,7 +1432,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     const round = hostRoundRef.current;
     if (role !== "host" || !activeRef.current || !round || round.phase !== "open") return;
     if (!isVoteRoomTool(tool) || !canRevealCounts(round.counts, hostMinN)) return;
-    const revealed = revealCounts(round.counts, hostMinN);
+    const revealed = revealCounts(round.counts, hostMinN, round.spec);
     if (!revealed) return;
     const closedAt = new Date().toISOString();
     const ballots = round.counts.tally.ballots;
@@ -1440,17 +1470,22 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   }, [hostMinN, publishHost, role, sendState, tool, touch]);
 
   const newRound = useCallback(
-    (next?: RoundInput) => {
+    (next?: RoundInput | RoundSpec) => {
       const keys = keysRef.current;
       const current = hostRoundRef.current;
       if (role !== "host" || !activeRef.current || !keys || !current || !cryptoImpl) return;
+      if (!isVoteRoomTool(tool)) return;
       let spec = current.spec;
       if (next) {
-        // The same kind as the room's first round: another kind is refused.
-        const wire = wireSpec(current.spec.kind, next);
+        // A named round may be any kind the tool runs; bare questions or a
+        // bare sheet keep the current round's kind (another is refused).
+        const wire = isRoundSpecLike(next)
+          ? wireSpecFor(tool, next)
+          : wireSpec(current.spec.kind, next);
         if (!wire.ok) {
+          const kind = isRoundSpecLike(next) ? next.kind : current.spec.kind;
           toast.error(
-            current.spec.kind === "scale"
+            kind === "scale"
               ? `These questions can't be shared live. ${wire.problem}`
               : `This round can't be shared live. ${wire.problem}`
           );
@@ -1475,7 +1510,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
         })
         .catch(() => toast.error("Couldn't start a new round. Try again."));
     },
-    [cryptoImpl, publishHost, role, selfId, sendState, touch]
+    [cryptoImpl, publishHost, role, selfId, sendState, tool, touch]
   );
 
   const kick = useCallback(
@@ -1579,7 +1614,8 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     hostName,
     members: room.members,
     removedIds,
-    kind: roundKind,
+    kind: view?.spec.kind ?? firstSpec?.kind ?? defaultRoundKind(tool),
+    spec: view?.spec ?? null,
     questionnaire: view?.spec.kind === "scale" ? view.spec.questionnaire : null,
     pairSheet: view?.spec.kind === "pair" ? view.spec.sheet : null,
     sheet: view?.spec.kind === "allocation" ? view.spec.sheet : null,
@@ -1594,6 +1630,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     revealed: view?.revealed?.kind === "scale" ? view.revealed.rows : null,
     pairRevealed: view?.revealed?.kind === "pair" ? view.revealed.rows : null,
     allocationRevealed: view?.revealed?.kind === "allocation" ? view.revealed.rows : null,
+    revealedRound: view?.revealed ?? null,
     endsAt: role === "host" ? endsAtRef.current : (view?.endsAt ?? null),
     submit,
     joinPath,
@@ -1603,6 +1640,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     result: isScaleResult(anyResult) ? anyResult : null,
     pairResult: isPairResult(anyResult) ? anyResult : null,
     allocationResult: isAllocationResult(anyResult) ? anyResult : null,
+    roundResult: anyResult,
     newRound,
     kick,
     end,

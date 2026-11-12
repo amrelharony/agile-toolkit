@@ -39,6 +39,7 @@ import {
   VISITOR_AI_SENT,
   VISITOR_ROOM_CONSENT_TEXT,
   VOTE_ROOM_CONSENT_TEXT,
+  WALL_ROOM_CONSENT_TEXT,
   YOUR_DATA_SAVED_HERE,
 } from "@/lib/site/disclosures";
 import { CONTACT_EMAIL } from "@/lib/site/owner";
@@ -177,14 +178,15 @@ export function privacyRows(): PrivacyRow[] {
       when: "Only if you start or join one",
       leaves: [
         {
-          text: `What you type in the room, once you have given a name and ticked the consent box. Live rooms run in ${listOf(roomTools("poker", "retro"))}. Vote rounds run in ${listOf(roomTools("vote"))}.`,
+          text: `What you type in the room, once you have given a name and ticked the consent box. Live rooms run in ${listOf(roomTools("poker", "retro"))}. Vote rounds run in ${listOf(roomTools("vote"))}. Show rooms, where only the host shows anything, run in ${listOf(roomTools("show"))}. Wall rooms, where posts show without names, run in ${listOf(roomTools("wall"))}.`,
         },
         { says: "Before a live room opens, the site says:", text: VISITOR_ROOM_CONSENT_TEXT },
         { says: "Before a vote round:", text: VOTE_ROOM_CONSENT_TEXT },
+        { says: "Before a wall room:", text: WALL_ROOM_CONSENT_TEXT },
       ],
       kept: [
         {
-          text: `Nothing by us. A room is a Supabase Realtime channel, and nothing in it is written to a database. The host's own browser keeps the board, or a vote round's totals. A room holds up to ${VISITOR_LIMITS.maxMembers} people and closes after ${hours} hours at most.`,
+          text: `Nothing by us. A room is a Supabase Realtime channel, and nothing in it is written to a database. The host's own browser keeps the board, a vote round's totals, or a wall's posts (as anonymous text, if the host saves them). A room holds up to ${VISITOR_LIMITS.maxMembers} people and closes after ${hours} hours at most.`,
         },
       ],
     });

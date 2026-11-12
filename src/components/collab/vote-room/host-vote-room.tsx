@@ -19,10 +19,13 @@
  * host's own answers, New round), focus moves to what replaced it and the
  * change is announced.
  *
- * Every kind of round runs here: `round` is the tool's questionnaire or
- * sheet (`VOTE_ROUND_KIND` says which), and the form, the results and the
- * saved result follow its kind (`round-views.tsx`). `VoteRoundPanel` hands
- * each tool its own typed `onSave`.
+ * Every kind of round runs here: `round` is the questionnaire or sheet for
+ * `kind` (the tool's usual kind when unset; the only one for the six tools
+ * from before), and the form, the results and the saved result follow the
+ * kind of the round that is running (`round-views.tsx`). New round uses
+ * the `round` and `kind` given now, so a tool that runs several kinds
+ * (Quick Vote) can switch kind between rounds. `VoteRoundPanel` hands each
+ * tool its own typed `onSave`.
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -33,16 +36,11 @@ import { useAnnounce } from "@/components/a11y/live-announcer";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
 import { IdlePromptDialog, RoomMemberList } from "@/components/collab/room-controls";
 import type { VisitorIdentity } from "@/lib/realtime/visitor-rooms";
-import {
-  VOTE_LIMITS,
-  type Questionnaire,
-  type VoteRoomTool,
-} from "@/lib/realtime/vote-room/protocol";
-import type { AllocationSheet } from "@/lib/realtime/vote-room/allocation";
-import type { PairSheet } from "@/lib/realtime/vote-room/pair";
+import type { VoteRoomTool, VoteRoundKind } from "@/lib/realtime/vote-room/protocol";
 import {
   resultKind,
   roundKindOf,
+  specOf,
   type RoundInput,
   type RoundResult,
 } from "@/lib/realtime/vote-room/kinds";
@@ -59,7 +57,7 @@ import {
   SavedRoundResults,
   resultKeepable,
   roomResult,
-  spreadNote,
+  roomSpreadNote,
 } from "./round-views";
 import { announceToolMoment } from "@/lib/agent/mascot/tool-moments";
 import { useSaveRound, type SaveRound } from "./save-round";
@@ -76,11 +74,17 @@ export interface HostVoteRoomProps {
   toolName: string;
   session: HostVoteSession;
   /**
-   * What the round asks now, of the tool's kind: a `Questionnaire` (scale),
-   * a `PairSheet` or an `AllocationSheet`. The first round's, and what New
-   * round uses.
+   * What the round asks now, of `kind`: a `Questionnaire` (scale), a
+   * `PairSheet`, an `AllocationSheet`, a `ChoiceSheet`, a `RankSheet` or a
+   * `NumberSheet`. The first round's, and what New round uses.
    */
   round: RoundInput;
+  /**
+   * The kind of round `round` is, one the tool may run. Defaults to the
+   * tool's usual kind (`roundKindOf`), the only one for the six tools from
+   * before.
+   */
+  kind?: VoteRoundKind;
   minN?: number;
   /**
    * Save round: totals only, once per round. Return an undo to get Undo in
@@ -126,26 +130,27 @@ export function HostVoteRoom({
   toolName,
   session,
   round,
+  kind: kindProp,
   minN,
   onSave,
   renderResults,
   onClosed,
   crypto,
 }: HostVoteRoomProps) {
-  // The tool's kind picks which option carries the round; the hook checks it.
-  const kind = roundKindOf(tool);
+  // The round goes in named by its kind; the hook checks the tool runs it.
+  const kindAsked = kindProp ?? roundKindOf(tool);
   const room = useVoteRoom({
     role: "host",
     tool,
     code: session.code,
     identity: session.identity,
-    questionnaire: kind === "scale" ? (round as Questionnaire) : undefined,
-    pairSheet: kind === "pair" ? (round as PairSheet) : undefined,
-    sheet: kind === "allocation" ? (round as AllocationSheet) : undefined,
+    round: kindAsked ? specOf(kindAsked, round) : undefined,
     minN,
     startedAt: session.startedAt,
     crypto,
   });
+  // The running round's kind (New round may have changed it).
+  const kind = room.kind;
   const announce = useAnnounce();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
@@ -208,7 +213,8 @@ export function HostVoteRoom({
     announce("Your own answers are counted.");
   }, [focusCounted, room.answered, announce]);
 
-  const startNewRound = () => room.newRound(round);
+  // The round and kind the tool gives now: a tool with several kinds may switch.
+  const startNewRound = () => room.newRound(kindAsked ? specOf(kindAsked, round) : round);
 
   if (!live) {
     return (
@@ -226,9 +232,10 @@ export function HostVoteRoom({
   const hash = room.joinPath ? room.joinPath.slice(room.joinPath.indexOf("#")) : "";
   const fingerprint = readVoteLinkFragment(hash);
   const others = room.members.filter((m) => m.id !== room.selfId);
-  // Allocation rounds have a second threshold; say it by Reveal until it is met.
-  const spreadNeed = Math.max(room.minN, VOTE_LIMITS.minNSpread);
-  const spreadHint = kind === "allocation" && room.ballots < spreadNeed;
+  // Allocation, dot and number rounds have a second threshold; say it by
+  // Reveal until it is met.
+  const spreadText = roomSpreadNote(room);
+  const spreadHint = spreadText !== null;
   const revealDescribedBy =
     [room.revealBlockedReason ? revealHintId : null, spreadHint ? spreadHintId : null]
       .filter(Boolean)
@@ -318,7 +325,7 @@ export function HostVoteRoom({
           )}
           {spreadHint && (
             <p id={spreadHintId} className="text-xs text-sub">
-              {spreadNote(spreadNeed)}
+              {spreadText}
             </p>
           )}
           {room.answered && (
@@ -330,7 +337,15 @@ export function HostVoteRoom({
             <RoundAnswerForm
               key={roundId ?? "none"}
               room={room}
-              submitLabel={kind === "allocation" ? "Count my split" : "Count my answers"}
+              submitLabel={
+                kind === "allocation"
+                  ? "Count my split"
+                  : kind === "scale" || kind === "pair"
+                    ? "Count my answers"
+                    : kind === "rank"
+                      ? "Count my order"
+                      : "Count my answer"
+              }
               onSubmit={async (draft) => {
                 const res = await room.submit(draft);
                 if (res === "sent") {
