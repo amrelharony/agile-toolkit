@@ -227,11 +227,12 @@ describe("MascotAssistant — owner gating", () => {
     expect(settings).toHaveAttribute("data-variant", "ghost");
   });
 
-  it("hides the Cmd/Ctrl+J hint on touch screens", async () => {
+  it("hides the Ctrl+J hint on touch screens", async () => {
     h.auth = { status: "anonymous", user: null };
     await renderAmr();
 
-    const hint = screen.getByText(/Cmd\/Ctrl\+J/);
+    // jsdom is no Mac, so Ctrl; a Mac shows ⌘J (panel-header's shortcutLabel).
+    const hint = screen.getByText(/Ctrl\+J/);
     expect(hint).toHaveClass("pointer-coarse:hidden");
     expect(screen.getByText("Find the right tool")).not.toHaveClass("pointer-coarse:hidden");
   });
@@ -262,7 +263,7 @@ describe("MascotAssistant — owner gating", () => {
         "justify-center"
       );
     }
-    expect(screen.getByText(/Cmd\/Ctrl\+J/)).toHaveClass("pointer-coarse:hidden");
+    expect(screen.getByText(/Ctrl\+J/)).toHaveClass("pointer-coarse:hidden");
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
   });
 

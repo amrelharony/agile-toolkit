@@ -28,12 +28,27 @@ import { PanelIconButton, usePanelHosts } from "./panel-chrome";
 /** The plate's id unless the shell gives one: the dialog's aria-labelledby. */
 export const AMR_PANEL_TITLE_ID = "amr-panel-title";
 
+/**
+ * Apple keyboards say ⌘ where others say Ctrl. The same test as the site
+ * header's ⌘K, so the two hints agree. Read while rendering: Amr's chunk never
+ * renders on the server (app-shell loads it with ssr: false).
+ */
+function onApple(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return navigator.platform.toUpperCase().includes("MAC") || navigator.userAgent.includes("Mac");
+}
+
+/** A Ctrl/⌘ shortcut as this platform writes it: "⌘J" on Apple, "Ctrl+J" elsewhere. */
+export function shortcutLabel(key: string, apple: boolean = onApple()): string {
+  return apple ? `⌘${key}` : `Ctrl+${key}`;
+}
+
 export interface PanelHeaderProps {
   /** The name plate's id, for the dialog's aria-labelledby. */
   plateId?: string;
   /** What the panel shows at this step, until the view fills the subtitle. */
   subtitle?: ReactNode;
-  /** A keyboard shortcut after the subtitle ("Cmd/Ctrl+J"), hidden on touch. */
+  /** The open/close shortcut as this platform writes it (shortcutLabel("J")), hidden on touch. */
   shortcut?: string;
   /** The shell's own controls, after the view's actions and before Enlarge. */
   controls?: ReactNode;

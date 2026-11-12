@@ -9,12 +9,13 @@
  */
 
 import { useState, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   AMR_PANEL_TITLE_ID,
   PanelHeader,
+  shortcutLabel,
   type PanelHeaderProps,
 } from "@/components/agent/mascot/panel-header";
 import {
@@ -133,19 +134,44 @@ describe("the subtitle", () => {
 
   it("follows the subtitle with the shortcut, hidden on touch screens", () => {
     render(
-      <Panel subtitle="Find the right tool" shortcut="Cmd/Ctrl+J">
+      <Panel subtitle="Find the right tool" shortcut="Ctrl+J">
         <span />
       </Panel>
     );
-    const hint = screen.getByText(/Cmd\/Ctrl\+J/);
+    const hint = screen.getByText(/Ctrl\+J/);
     expect(hint).toHaveClass("pointer-coarse:hidden");
-    expect(hint.textContent).toBe(" · Cmd/Ctrl+J");
+    expect(hint.textContent).toBe(" · Ctrl+J");
     expect(screen.getByText("Find the right tool")).not.toHaveClass("pointer-coarse:hidden");
   });
 
   it("drops the separator when there is no subtitle before the shortcut", () => {
-    render(<Panel shortcut="Cmd/Ctrl+J" />);
-    expect(screen.getByText("Cmd/Ctrl+J").textContent).toBe("Cmd/Ctrl+J");
+    render(<Panel shortcut="Ctrl+J" />);
+    expect(screen.getByText("Ctrl+J").textContent).toBe("Ctrl+J");
+  });
+});
+
+describe("the shortcut's label", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("says ⌘ on Apple keyboards and Ctrl elsewhere", () => {
+    expect(shortcutLabel("J", true)).toBe("⌘J");
+    expect(shortcutLabel("J", false)).toBe("Ctrl+J");
+  });
+
+  it("reads the platform the way the site header does", () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+    expect(shortcutLabel("J")).toBe("⌘J");
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("Win32");
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
+    );
+    expect(shortcutLabel("J")).toBe("Ctrl+J");
+    // iPhones and iPads report themselves as Mac in the user agent.
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("iPhone");
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+    );
+    expect(shortcutLabel("J")).toBe("⌘J");
   });
 });
 
@@ -314,12 +340,7 @@ describe("Enlarge and Close", () => {
 describe("the brand", () => {
   it("sets nothing in capitals", () => {
     render(
-      <Panel
-        subtitle="Find the right tool"
-        shortcut="Cmd/Ctrl+J"
-        onToggleEnlarge={() => {}}
-        enlarged
-      >
+      <Panel subtitle="Find the right tool" shortcut="Ctrl+J" onToggleEnlarge={() => {}} enlarged>
         <PanelSubtitle>Chat · not saved</PanelSubtitle>
       </Panel>
     );

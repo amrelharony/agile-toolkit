@@ -133,7 +133,7 @@ import {
   type PanelSizeName,
 } from "./amr-geometry";
 import { LazyVisitorBody, prefetchVisitorBody } from "./lazy-visitor-body";
-import { AMR_PANEL_TITLE_ID, PanelHeader } from "./panel-header";
+import { AMR_PANEL_TITLE_ID, PanelHeader, shortcutLabel } from "./panel-header";
 import { AMR_PANEL_ID } from "./panel-ids";
 import { PANEL_SUBTITLE, PanelChrome, PanelIconButton } from "./panel-chrome";
 import {
@@ -1404,7 +1404,7 @@ export function MascotAssistant() {
                   subtitle={
                     settled ? (isOwner ? PANEL_SUBTITLE.owner : PANEL_SUBTITLE.guide) : undefined
                   }
-                  shortcut="Cmd/Ctrl+J"
+                  shortcut={shortcutLabel("J")}
                   controls={
                     <>
                       {/* No figure, no one to act a scene out; a confirmation waiting comes first. */}
