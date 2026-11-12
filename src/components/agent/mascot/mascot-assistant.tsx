@@ -927,9 +927,12 @@ type LayoutCheck = "none" | "resize" | "rotate";
  *   as the panel opens (in that render, so nothing acts on last time's). It
  *   is held while a field in the panel has focus (Firefox shrinks the layout
  *   viewport for the keyboard, which would read as a short screen), and
- *   checked again on a resize with no such field focused and on every turn of
- *   the phone. Not as a field lets go: Firefox's keyboard is still closing
- *   then, and its own resize comes once it has.
+ *   checked again on a resize with no such field focused, and on every turn of
+ *   the phone: an orientationchange, or any reading whose width has changed
+ *   since the last check, which a keyboard never does (Android Chrome and
+ *   older iOS send orientationchange before the resize with the new size).
+ *   Not as a field lets go: Firefox's keyboard is still closing then, and its
+ *   own resize comes once it has.
  * - Compact (keyboard up, or a visible box under 360 px; sheet and side only):
  *   the panel starts just under the top of what can be seen, over the site
  *   header, and its views fold their chrome (data-amr-compact, on his button
@@ -976,6 +979,8 @@ function usePanelViewport({
   }
   const latest = useRef({ placed, phone, figure, shown, layout, keyboardUp });
   latest.current = { placed, phone, figure, shown, layout, keyboardUp };
+  // The layout viewport's width at the last layout check: a new one is a turn.
+  const decidedWidth = useRef<number | null>(null);
 
   // Reads the page and writes the variables. Stable: it reads everything off refs.
   const write = useCallback(
@@ -985,8 +990,17 @@ function usePanelViewport({
       const now = latest.current;
       let current = now.layout;
       if (check !== "none") {
-        const next = readLayout();
-        if (next !== current && (check === "rotate" || !panelFieldHasFocus(panel))) {
+        const vp = layoutViewport();
+        // A keyboard never changes the width (Firefox's shrink is height only),
+        // so a new width is a turn of the phone, even when its orientationchange
+        // came frames before the size did. Kept only on layout checks, so a
+        // visualViewport scroll can't take it in before the resize arrives.
+        const turned =
+          check === "rotate" ||
+          (decidedWidth.current !== null && vp.width !== decidedWidth.current);
+        decidedWidth.current = vp.width;
+        const next = panelLayout(vp);
+        if (next !== current && (turned || !panelFieldHasFocus(panel))) {
           current = next;
           now.layout = next;
           setLayout(next);
@@ -1042,6 +1056,7 @@ function usePanelViewport({
   useIsomorphicLayoutEffect(() => {
     if (!open) return;
     // A fresh reading as it opens, before it paints: never last time's keyboard.
+    decidedWidth.current = layoutViewport().width;
     write("none");
     let frame = 0;
     let pending: LayoutCheck = "none";

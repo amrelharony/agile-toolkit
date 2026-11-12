@@ -1455,6 +1455,33 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
     expect(amrButton()).not.toHaveAttribute("data-amr-docked");
   });
 
+  it("lays out again when the turn's new size comes only after its orientationchange, a panel field focused", async () => {
+    screenAt(360, 640);
+    render(<MascotAssistant />);
+    await withFigure();
+    openPanel();
+    await guide();
+    act(() => screen.getByLabelText("What do you need to do?").focus());
+
+    // Android Chrome and older iOS: orientationchange first, still at the old size...
+    window.dispatchEvent(new Event("orientationchange"));
+    await frames();
+    expect(dialog()).toHaveAttribute("data-amr-layout", "sheet");
+
+    // ...then the resize that carries the new one: a new width is a turn,
+    // never a keyboard, so it lays out again with the field still focused.
+    vi.stubGlobal("innerWidth", 640);
+    vi.stubGlobal("innerHeight", 360);
+    vv.width = 640;
+    vv.height = 360;
+    window.dispatchEvent(new Event("resize"));
+    vv.dispatchEvent(new Event("resize"));
+    await frames();
+    expect(dialog()).toHaveAttribute("data-amr-layout", "side");
+    expect(amrButton()).not.toHaveAttribute("data-amr-docked");
+    expect(document.documentElement).not.toHaveAttribute("data-amr-sheet");
+  });
+
   const corners: { keys: string[]; corner: AmrCorner; side: "left" | "right" }[] = [
     { keys: [], corner: "bottomRight", side: "right" },
     { keys: ["ArrowUp"], corner: "topRight", side: "right" },
