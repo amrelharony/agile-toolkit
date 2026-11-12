@@ -22,6 +22,8 @@ import { useAnnounce } from "@/components/a11y/live-announcer";
 import { exportToMarkdown } from "@/lib/utils/export";
 import { useFlash } from "@/hooks/use-flash";
 import { VISITOR_LIMITS, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
+import { RoomReactions } from "@/components/collab/room-reactions";
 import { SessionScreen } from "./session-screen";
 import { usePokerSession, type VisitorLeaveReason } from "./use-poker-session";
 import { useAutoSeat } from "./use-auto-seat";
@@ -54,7 +56,9 @@ export function VisitorPokerRoom({ code, identity, onLeave }: VisitorPokerRoomPr
     endRoom,
     idleWarning,
     keepRoomOpen,
+    extras: extrasPort,
   } = usePokerSession(code, /* isHost */ false, { visitor: true, identity });
+  const extras = useRoomExtras(extrasPort);
 
   // Sit down in the host's session; never again once removed or out.
   useAutoSeat({
@@ -131,6 +135,8 @@ export function VisitorPokerRoom({ code, identity, onLeave }: VisitorPokerRoomPr
           onEnd={isHost ? endRoom : undefined}
           idleWarning={idleWarning}
           onKeepOpen={keepRoomOpen}
+          extras={extras}
+          session={session}
         />
         <SessionScreen
           session={session}
@@ -145,7 +151,9 @@ export function VisitorPokerRoom({ code, identity, onLeave }: VisitorPokerRoomPr
           showRoomCode={false}
           recordHistory={false}
           onRemoveParticipant={isHost ? (p) => kick(p.id) : undefined}
+          revealAtZero={isHost ? extras.timer : null}
         />
+        <RoomReactions extras={extras} className="pt-2" />
       </div>
     </div>
   );
