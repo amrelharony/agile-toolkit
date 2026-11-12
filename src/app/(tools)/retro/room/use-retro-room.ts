@@ -1533,6 +1533,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       live: active,
       channel: room,
       signer: null,
+      blocked: (id) => blockedRef.current.has(id),
     },
   };
 }

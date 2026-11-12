@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 
 /**
  * The reaction bar and the band reactions rise through: six named buttons,
@@ -7,8 +8,9 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
  * still (no rise) under reduced motion.
  */
 
-import { ReactionBar, ReactionLayer } from "@/components/collab/room-reactions";
+import { ReactionBar, ReactionLayer, RoomReactions } from "@/components/collab/room-reactions";
 import type { FloatingReaction } from "@/lib/realtime/room-reactions";
+import type { RoomExtras } from "@/lib/realtime/use-room-extras";
 
 const REACTIONS: FloatingReaction[] = [
   { key: "a", r: 0, lane: 0.25, at: 0 },
@@ -55,6 +57,43 @@ describe("ReactionBar", () => {
   });
 });
 
+describe("RoomReactions", () => {
+  it("says whether a press went out, since the band is hidden from screen readers", () => {
+    vi.useFakeTimers();
+    try {
+      let allowed = true;
+      const extras: RoomExtras = {
+        timer: null,
+        setTimer: () => {},
+        canSetTimer: false,
+        reactions: [],
+        react: () => allowed,
+        live: true,
+        role: "participant",
+      };
+      render(
+        <LiveAnnouncerProvider>
+          <RoomReactions extras={extras} />
+        </LiveAnnouncerProvider>
+      );
+      const polite = screen.getByTestId("live-polite");
+      fireEvent.click(screen.getByRole("button", { name: "React: Applause" }));
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(polite).toHaveTextContent("Sent: Applause");
+      allowed = false;
+      fireEvent.click(screen.getByRole("button", { name: "React: Applause" }));
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(polite).toHaveTextContent("Wait a moment before the next reaction");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("ReactionLayer", () => {
   it("draws each reaction's emoji in a decorative, click-through band", () => {
     setReducedMotion(false);
@@ -77,5 +116,13 @@ describe("ReactionLayer", () => {
       expect(s.style.transform).toBe("");
       expect(s).toHaveClass("-translate-x-1/2");
     }
+  });
+
+  it("shows them still when asked (the big screen, while presenting)", () => {
+    setReducedMotion(false);
+    const { container } = render(<ReactionLayer reactions={REACTIONS} still />);
+    const spans = Array.from(container.querySelectorAll("[data-reaction]")) as HTMLElement[];
+    expect(spans.map((s) => s.style.bottom)).toEqual(["13%", "38%"]);
+    for (const s of spans) expect(s.style.transform).toBe("");
   });
 });

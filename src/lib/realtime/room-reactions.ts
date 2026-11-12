@@ -4,10 +4,16 @@
  *
  * A reaction is an index into `ROOM_REACTIONS`, nothing else: no text from
  * the wire is ever shown. The screen shows the emoji without a name. Each
- * member may send a short burst, then one every couple of seconds; every
- * receiver applies the same limit per sender (`createReactionLimiter`), so a
- * script can't flood anyone's screen, and the screen holds a fixed number at
- * once.
+ * member may send a short burst, then one every couple of seconds. Every
+ * receiver holds each sender to a little more than that (so network jitter
+ * never drops a fair reaction), drops reactions from members the host
+ * removed, and holds the whole room to a few a second. The sender id is
+ * self-declared, so the per-sender limit keeps honest screens fair but is
+ * not a defence: a script can claim other members' ids. The room-wide limit
+ * is what bounds a flood, and the screen holds a fixed number at once.
+ *
+ * Reactions are not anonymous on the wire: each carries the sender's room
+ * id, which anyone reading the channel can match to a name in presence.
  *
  * Pure and server-safe: no React, no browser globals.
  */
@@ -34,6 +40,16 @@ export const REACTION_LIMITS = {
   burst: 3,
   /** Then one more per this many ms. */
   refillMs: 2000,
+  /**
+   * What a receiver allows each sender: a little more than the sender's own
+   * limit, so a reaction that arrives sooner than the one before it (network
+   * jitter) still shows.
+   */
+  receiveBurst: 4,
+  receiveRefillMs: 1600,
+  /** What one screen shows from the whole room: a burst, then one per this many ms. */
+  roomBurst: 12,
+  roomRefillMs: 250,
   /** How long a reaction stays on screen. */
   showMs: 2400,
   /** Reactions on screen at once; the oldest goes first. */

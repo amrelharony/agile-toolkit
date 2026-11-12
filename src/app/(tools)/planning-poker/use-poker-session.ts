@@ -623,6 +623,8 @@ export function usePokerSession(
             live: !room.isLocalOnly && !room.roomFull && leftReason === null,
             channel: room,
             signer: null,
+            // Removed members, from the host's kicks (participants keep the list too).
+            blocked: (id: string) => blockedRef.current.has(id),
           }
         : null,
   };

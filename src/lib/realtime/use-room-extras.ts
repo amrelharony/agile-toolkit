@@ -24,13 +24,18 @@
  * Poker), newer than the last, and in a signed room only with a signature
  * that checks against the pinned key. A timer that beat the host's first
  * state waits for it. The end time moves onto this device's clock. When
- * the trusted host changes, the old host's timer goes.
+ * the trusted host changes, the old host's timer goes. When this side's
+ * own role changes (Poker's host migration), what it showed goes too: a
+ * promoted host starts without a timer instead of counting down, and
+ * auto-revealing at, one nobody else sees.
  *
  * Reactions: anyone in the room sends an index (never text). This device
  * shows its own at once (a broadcast doesn't come back to its sender) and
- * everyone else's from members present in the room, each sender held to a
- * short burst and then one every 2 s. Nothing is kept: each leaves the
- * screen after 2.4 s.
+ * everyone else's from members present in the room and not removed by the
+ * host (`port.blocked`), each sender held to a short burst and then about
+ * one every 2 s, and the whole room to a few a second. The sender id is
+ * self-declared, so only the room-wide limit bounds a script that claims
+ * other members' ids. Nothing is kept: each leaves the screen after 2.4 s.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -85,6 +90,12 @@ export interface RoomExtrasPort {
   channel: RoomExtrasChannel;
   /** Signed rooms (vote, show, wall). Null for Poker and Retro. */
   signer: RoomExtrasSigner | null;
+  /**
+   * Members the host removed who may still be connected: their reactions
+   * are dropped. The host always knows; Poker's participants learn it from
+   * the host's kick messages.
+   */
+  blocked?: (id: string) => boolean;
 }
 
 export interface RoomExtras {
@@ -193,8 +204,11 @@ export function useRoomExtras(
     sendTimer();
   }, [timerOn, role, connected, sendTimer]);
 
-  // Someone joined: send it again shortly, after the room's own state.
+  // Someone joined: send it again shortly, after the room's own state. One
+  // send after the last of a burst of joins; someone leaving meanwhile
+  // doesn't cancel it (only a fresh join re-arms it).
   const seenRef = useRef<Set<string>>(new Set());
+  const joinSendRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const memberKey = port ? port.channel.members.map((m) => m.id).join(",") : "";
   useEffect(() => {
     if (!timerOn || role !== "host" || !connected) return;
@@ -203,9 +217,18 @@ export function useRoomExtras(
     const fresh = ids.some((id) => id !== self && !seenRef.current.has(id));
     seenRef.current = new Set(ids);
     if (!fresh || !everSetRef.current) return;
-    const t = setTimeout(sendTimer, ROOM_TIMER_JOIN_DELAY_MS);
-    return () => clearTimeout(t);
+    if (joinSendRef.current !== null) clearTimeout(joinSendRef.current);
+    joinSendRef.current = setTimeout(() => {
+      joinSendRef.current = null;
+      sendTimer();
+    }, ROOM_TIMER_JOIN_DELAY_MS);
   }, [timerOn, role, connected, memberKey, sendTimer]);
+  useEffect(
+    () => () => {
+      if (joinSendRef.current !== null) clearTimeout(joinSendRef.current);
+    },
+    []
+  );
 
   // Keepalive.
   useEffect(() => {
@@ -253,6 +276,21 @@ export function useRoomExtras(
     });
   }, [timerOn, role, live, subscribe, accept]);
 
+  // This side's role changed (a participant promoted to host, or a host
+  // back to participant): what it showed belonged to the old host. Start
+  // clean; a participant then takes the trusted host's next timer.
+  const roleRef = useRef(role);
+  useEffect(() => {
+    const before = roleRef.current;
+    roleRef.current = role;
+    if (before === role) return;
+    everSetRef.current = false;
+    lastSeqRef.current = -1;
+    trustedRef.current = null;
+    pendingRef.current = null;
+    showTimer(null);
+  }, [role, showTimer]);
+
   // The trusted host is known (or changed): a held timer may now count, an old host's goes.
   useEffect(() => {
     if (!timerOn || role !== "participant") return;
@@ -279,7 +317,19 @@ export function useRoomExtras(
   // ── Reactions ────────────────────────────────────────────────────
 
   const [reactions, setReactions] = useState<FloatingReaction[]>([]);
-  const inLimiterRef = useRef(createReactionLimiter());
+  const inLimiterRef = useRef(
+    createReactionLimiter({
+      burst: REACTION_LIMITS.receiveBurst,
+      refillMs: REACTION_LIMITS.receiveRefillMs,
+    })
+  );
+  const roomLimiterRef = useRef(
+    createReactionLimiter({
+      burst: REACTION_LIMITS.roomBurst,
+      refillMs: REACTION_LIMITS.roomRefillMs,
+      maxSenders: 1,
+    })
+  );
   const outLimiterRef = useRef(createReactionLimiter());
   const shownRef = useRef(0);
   const clearTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
@@ -323,7 +373,10 @@ export function useRoomExtras(
       const msg = readReactionMessage(raw);
       if (!msg || msg.by === p.selfId) return;
       if (!p.channel.members.some((m) => m.id === msg.by)) return;
-      if (!inLimiterRef.current.allow(msg.by, nowRef.current())) return;
+      if (p.blocked?.(msg.by)) return;
+      const now = nowRef.current();
+      if (!inLimiterRef.current.allow(msg.by, now)) return;
+      if (!roomLimiterRef.current.allow("room", now)) return;
       showReaction(msg.r);
     });
   }, [reactOn, live, subscribe, showReaction]);

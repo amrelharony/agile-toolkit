@@ -13,7 +13,11 @@ import {
   startRoomTimer,
   type RoomTimerMessage,
 } from "@/lib/realtime/room-timer";
-import { REACTION_LIMITS, ROOM_REACT_EVENT } from "@/lib/realtime/room-reactions";
+import {
+  REACTION_LIMITS,
+  ROOM_REACT_EVENT,
+  createReactionLimiter,
+} from "@/lib/realtime/room-reactions";
 import {
   ROOM_TIMER_JOIN_DELAY_MS,
   ROOM_TIMER_RESEND_MS,
@@ -262,6 +266,83 @@ describe("the room timer, synced from the end time", () => {
     expect(phone.result.current.timer).toBeNull();
   });
 
+  it("sends after a join even when someone leaves before the resend", async () => {
+    const b = bus();
+    b.members.push({ id: HOST_ID }, { id: A_ID });
+    const { result, rerender } = renderHook(() => useRoomExtras(port(b, HOST_ID, "host")));
+    act(() => result.current.setTimer(startRoomTimer(300, Date.now())));
+    await flush();
+    expect(b.sent(ROOM_TIMER_EVENT)).toHaveLength(1);
+    b.members.push({ id: B_ID });
+    rerender();
+    await tick(400);
+    // Alice leaves 0.4 s after Bob joined: Bob must still get the timer.
+    b.members.splice(1, 1);
+    rerender();
+    await tick(ROOM_TIMER_JOIN_DELAY_MS);
+    expect(b.sent(ROOM_TIMER_EVENT)).toHaveLength(2);
+  });
+
+  it("a participant promoted to host drops the old host's timer, sends nothing, and starts clean", async () => {
+    const b = bus();
+    b.members.push({ id: HOST_ID }, { id: A_ID }, { id: B_ID });
+    let role: "host" | "participant" = "participant";
+    const phone = renderHook(() =>
+      useRoomExtras(port(b, A_ID, role, { hostId: role === "host" ? A_ID : HOST_ID }))
+    );
+    act(() =>
+      b.channel(HOST_ID).broadcast(ROOM_TIMER_EVENT, {
+        v: 1,
+        by: HOST_ID,
+        seq: 7,
+        at: Date.now(),
+        timer: startRoomTimer(60, Date.now(), { autoReveal: true }),
+      })
+    );
+    await flush();
+    expect(phone.result.current.timer?.autoReveal).toBe(true);
+    // The host left; this phone takes over (Poker's host migration).
+    b.members.splice(0, 1);
+    role = "host";
+    phone.rerender();
+    await flush();
+    expect(phone.result.current.timer).toBeNull();
+    expect(phone.result.current.canSetTimer).toBe(true);
+    await tick(ROOM_TIMER_RESEND_MS + ROOM_TIMER_JOIN_DELAY_MS);
+    expect(b.sent(ROOM_TIMER_EVENT).filter((m) => m.from === A_ID)).toHaveLength(0);
+    // Its own timer goes out from seq 1, and the others take it.
+    const other = renderHook(() => useRoomExtras(port(b, B_ID, "participant", { hostId: A_ID })));
+    act(() => phone.result.current.setTimer(startRoomTimer(120, Date.now())));
+    await flush();
+    expect(other.result.current.timer?.totalSeconds).toBe(120);
+  });
+
+  it("a host back to participant drops its own timer and waits for the host's", async () => {
+    const b = bus();
+    b.members.push({ id: HOST_ID }, { id: A_ID });
+    let role: "host" | "participant" = "host";
+    const tab = renderHook(() =>
+      useRoomExtras(port(b, A_ID, role, { hostId: role === "host" ? A_ID : HOST_ID }))
+    );
+    act(() => tab.result.current.setTimer(startRoomTimer(300, Date.now())));
+    await flush();
+    role = "participant";
+    tab.rerender();
+    await flush();
+    expect(tab.result.current.timer).toBeNull();
+    act(() =>
+      b.channel(HOST_ID).broadcast(ROOM_TIMER_EVENT, {
+        v: 1,
+        by: HOST_ID,
+        seq: 1,
+        at: Date.now(),
+        timer: startRoomTimer(45, Date.now()),
+      })
+    );
+    await flush();
+    expect(tab.result.current.timer?.totalSeconds).toBe(45);
+  });
+
   it("can't be set by a participant, nor once the room is over", async () => {
     const b = bus();
     const phone = renderHook(() => useRoomExtras(port(b, A_ID, "participant")));
@@ -333,8 +414,75 @@ describe("reactions", () => {
       b.channel(A_ID).broadcast(ROOM_REACT_EVENT, { v: 1, by: A_ID, r: 9 });
       b.channel(A_ID).broadcast(ROOM_REACT_EVENT, { v: 1, by: A_ID, text: "<b>hi</b>" });
     });
-    expect(host.result.current.reactions).toHaveLength(REACTION_LIMITS.burst);
+    expect(host.result.current.reactions).toHaveLength(REACTION_LIMITS.receiveBurst);
     expect(host.result.current.reactions.every((r) => r.r === 2)).toBe(true);
+  });
+
+  it("drop reactions from members the host removed, though they stay connected", async () => {
+    const b = bus();
+    b.members.push({ id: HOST_ID }, { id: A_ID }, { id: B_ID });
+    const removed = new Set<string>();
+    const host = renderHook(() =>
+      useRoomExtras(port(b, HOST_ID, "host", { blocked: (id) => removed.has(id) }))
+    );
+    const bob = renderHook(() => useRoomExtras(port(b, B_ID, "participant")));
+    act(() => {
+      bob.result.current.react(0);
+    });
+    expect(host.result.current.reactions).toHaveLength(1);
+    // The host removes Bob; his tab ignores the kick and keeps reacting.
+    removed.add(B_ID);
+    await tick(REACTION_LIMITS.showMs + 10);
+    act(() => {
+      for (let i = 0; i < 3; i++)
+        b.channel(B_ID).broadcast(ROOM_REACT_EVENT, { v: 1, by: B_ID, r: 1 });
+    });
+    expect(host.result.current.reactions).toHaveLength(0);
+    // Alice still gets through.
+    act(() => b.channel(A_ID).broadcast(ROOM_REACT_EVENT, { v: 1, by: A_ID, r: 4 }));
+    expect(host.result.current.reactions.map((r) => r.r)).toEqual([4]);
+  });
+
+  it("hold the whole room to a few a second, whoever a script claims to be", async () => {
+    const b = bus();
+    const ids = Array.from({ length: 20 }, (_, i) => `member_${String(i).padStart(9, "0")}`);
+    b.members.push({ id: HOST_ID }, ...ids.map((id) => ({ id })));
+    const host = renderHook(() => useRoomExtras(port(b, HOST_ID, "host")));
+    // One script, sending as every member in the room.
+    act(() => {
+      for (const id of ids)
+        for (let i = 0; i < 4; i++)
+          b.channel(ids[0]).broadcast(ROOM_REACT_EVENT, { v: 1, by: id, r: 3 });
+    });
+    expect(host.result.current.reactions).toHaveLength(REACTION_LIMITS.roomBurst);
+    // A second later: a few more, not another burst per claimed id.
+    await tick(1000);
+    act(() => {
+      for (const id of ids) b.channel(ids[0]).broadcast(ROOM_REACT_EVENT, { v: 1, by: id, r: 3 });
+    });
+    expect(host.result.current.reactions.length).toBeLessThanOrEqual(
+      REACTION_LIMITS.roomBurst + Math.ceil(1000 / REACTION_LIMITS.roomRefillMs)
+    );
+  });
+
+  it("show every reaction a sender's own limit let out, even when arrivals jitter", () => {
+    // The sender taps every 100 ms for 10 s; its own limit lets 8 out.
+    const out = createReactionLimiter();
+    const sentAt: number[] = [];
+    for (let t = 0; t <= 10_000; t += 100) if (out.allow("a", t)) sentAt.push(t);
+    expect(sentAt).toEqual([0, 100, 200, 2000, 4000, 6000, 8000, 10_000]);
+    // The first is slow on the network (80 ms), the rest quick (30 ms).
+    const inbound = createReactionLimiter({
+      burst: REACTION_LIMITS.receiveBurst,
+      refillMs: REACTION_LIMITS.receiveRefillMs,
+    });
+    const shown = sentAt.filter((t, i) => inbound.allow("a", t + (i === 0 ? 80 : 30)));
+    expect(shown).toEqual(sentAt);
+    // The same bucket on both ends would have dropped one.
+    const same = createReactionLimiter();
+    expect(sentAt.filter((t, i) => same.allow("a", t + (i === 0 ? 80 : 30))).length).toBeLessThan(
+      sentAt.length
+    );
   });
 
   it("can't be sent once the room is over", () => {

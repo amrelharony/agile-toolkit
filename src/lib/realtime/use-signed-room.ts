@@ -718,6 +718,8 @@ export function useSignedRoom<S extends SignedRoomHead>(config: SignedRoomConfig
       live: active && status !== "preparing",
       channel: room,
       signer: extrasSigner,
+      // The host's list; that's the screen the room sees, big screen included.
+      blocked: (id) => removedRef.current.has(id),
     },
     room,
     activeRef,

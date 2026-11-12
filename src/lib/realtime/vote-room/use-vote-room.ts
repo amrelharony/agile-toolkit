@@ -1681,6 +1681,8 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
       live: active && status !== "preparing",
       channel: room,
       signer: extrasSigner,
+      // The host's list; that's the screen the room sees, big screen included.
+      blocked: (id) => removedRef.current.has(id),
     },
     stuffingSuspected: role === "host" && (view?.suspicious ?? false),
     duplicateBallots: role === "host" ? (view?.duplicates ?? 0) : 0,

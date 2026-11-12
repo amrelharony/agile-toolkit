@@ -12,10 +12,15 @@
  * rises for 2.4 s and is gone. Under reduced motion, and on the big screen
  * (`still`: Present mode doesn't move by itself), they show still, spread
  * along the band, for the same time. They carry no names.
+ *
+ * The bar says politely whether each press went out ("Sent", or "Wait a
+ * moment" when the per-person limit holds it back), since the band itself
+ * is hidden from screen readers.
  */
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import {
   ROOM_REACTIONS,
   REACTION_LIMITS,
@@ -138,10 +143,17 @@ export function ReactionLayer({
  * band rises over the room's content just above the bar.
  */
 export function RoomReactions({ extras, className }: { extras: RoomExtras; className?: string }) {
+  const announce = useAnnounce();
   return (
     <div className={cn("relative", className)}>
       <ReactionLayer reactions={extras.reactions} className="inset-x-0 bottom-full" />
-      <ReactionBar onReact={(r) => extras.react(r)} disabled={!extras.live} />
+      <ReactionBar
+        onReact={(r) => {
+          const label = ROOM_REACTIONS[r]?.label ?? "Reaction";
+          announce(extras.react(r) ? `Sent: ${label}` : "Wait a moment before the next reaction");
+        }}
+        disabled={!extras.live}
+      />
     </div>
   );
 }
