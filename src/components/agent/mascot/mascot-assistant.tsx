@@ -211,6 +211,7 @@ import { PANEL_SUBTITLE, PanelChrome, PanelIconButton } from "./panel-chrome";
 import { AmrPanelContext, type AmrPanelContextValue } from "./panel-context";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
+import { AMR_SHEET_ATTR, AMR_SHEET_CLOSE_EVENT } from "@/lib/layout/amr-sheet";
 import {
   HOME,
   chooseNudge,
@@ -1084,18 +1085,27 @@ function usePanelViewport({
  * doesn't scroll and the sheet's chrome takes no swipe (html[data-amr-sheet],
  * globals.css "AMR SHEET"). A layout effect, so a close removes it before
  * focus goes back to an opener in main.
+ *
+ * Another full-screen surface opening over it (the sidebar, search, Activity:
+ * lib/layout/amr-sheet's closeAmrSheet) closes it first through `onOutside`,
+ * so two never stack.
  */
-function useSheetLock(on: boolean): void {
+function useSheetLock(on: boolean, onOutside: () => void): void {
+  const outside = useRef(onOutside);
+  outside.current = onOutside;
   useIsomorphicLayoutEffect(() => {
     if (!on) return;
     const html = document.documentElement;
-    html.setAttribute("data-amr-sheet", "");
+    html.setAttribute(AMR_SHEET_ATTR, "");
     const main = document.getElementById("main-content") ?? document.querySelector("main");
     // Only what this made inert is let go (something else may hold it too).
     const madeInert = main && !main.hasAttribute("inert") ? main : null;
     madeInert?.setAttribute("inert", "");
+    const close = () => outside.current();
+    document.addEventListener(AMR_SHEET_CLOSE_EVENT, close);
     return () => {
-      html.removeAttribute("data-amr-sheet");
+      document.removeEventListener(AMR_SHEET_CLOSE_EVENT, close);
+      html.removeAttribute(AMR_SHEET_ATTR);
       madeInert?.removeAttribute("inert");
     };
   }, [on]);
@@ -1677,7 +1687,7 @@ export function MascotAssistant({
   // and never smaller, still draggable; his chosen corner returns on close.
   const docked = open && layout === "sheet";
   const figureBox = docked ? MASCOT_BOX_PHONE : box;
-  useSheetLock(docked);
+  useSheetLock(docked, () => closePanel("outside"));
 
   // Where he is drawn and how far he has stepped up, worked out with his panel's
   // place: his bubble and the moment chip follow these, not his chosen corner.

@@ -82,6 +82,7 @@ import {
 } from "@/components/agent/mascot/visitor-ai-consent";
 import { EXPANSION_TITLES } from "@/components/agent/mascot/engine/expansion-titles";
 import { useAgentStore } from "@/lib/agent/store";
+import { closeAmrSheet } from "@/lib/layout/amr-sheet";
 
 const OWNER = { status: "authenticated", user: { id: "owner-1" } };
 const VISITOR = { status: "anonymous", user: null };
@@ -444,6 +445,55 @@ describe("closing", () => {
       window.innerWidth = 1024;
       window.innerHeight = 768;
     }
+  });
+
+  it("in the phone's sheet, closed by a surface opening over it, leaves focus to that surface", async () => {
+    // The sidebar, search or Activity opening over the sheet closes it first
+    // (lib/layout/amr-sheet): the page is let go, and nothing is focused for
+    // it, since the surface that is opening takes focus itself.
+    window.innerWidth = 375;
+    window.innerHeight = 812;
+    try {
+      const main = document.createElement("main");
+      main.id = "main-content";
+      document.body.appendChild(main);
+      const opener = document.createElement("button");
+      opener.type = "button";
+      opener.textContent = "Somewhere";
+      main.appendChild(opener);
+      const focused: Element[] = [];
+      opener.addEventListener("focus", () => focused.push(opener));
+      opener.focus();
+      focused.length = 0;
+      render(<MascotAssistant />);
+      fireEvent.keyDown(opener, { key: "j", ctrlKey: true });
+      await guideLoaded();
+      expect(plate()).toHaveFocus();
+      expect(main).toHaveAttribute("inert");
+
+      act(() => closeAmrSheet());
+      expect(useAgentStore.getState().open).toBe(false);
+      expect(screen.queryByRole("dialog", { name: "Amr" })).toBeNull();
+      expect(main).not.toHaveAttribute("inert");
+      expect(document.documentElement).not.toHaveAttribute("data-amr-sheet");
+      // Not handed back to the opener, nor to Amr's button.
+      expect(focused).toEqual([]);
+      expect(amr()).not.toHaveFocus();
+    } finally {
+      window.innerWidth = 1024;
+      window.innerHeight = 768;
+    }
+  });
+
+  it("outside the phone's sheet, a surface opening leaves the floating panel open", async () => {
+    render(<MascotAssistant />);
+    pressAmr("pointer");
+    await guideLoaded();
+    expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute("data-amr-layout", "float");
+    expect(document.documentElement).not.toHaveAttribute("data-amr-sheet");
+
+    act(() => closeAmrSheet());
+    expect(useAgentStore.getState().open).toBe(true);
   });
 
   it("falls back to Amr's button when nothing held focus at the open", async () => {
