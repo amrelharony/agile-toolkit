@@ -275,6 +275,81 @@ describe("votes and take-backs", () => {
     expect(wallView(res.wall).round!.count).toBe(0);
   });
 
+  it("keeps a taken-back post or vote taken back when its old request is replayed later", () => {
+    let wall = open();
+    const mine = pid();
+    const postIntent: WallIntent = {
+      t: "post",
+      r: RID,
+      pid: mine,
+      text: "Retract me",
+      lock: lockOf(KEY_A),
+    };
+    let res = applyWallIntent(wall, A, "iid_post0001", postIntent, ctx());
+    expect(res.ok).toBe(true);
+    now += WALL_LIMITS.postIntervalMs;
+    const other = post(res.wall, C, "Keep me", "keyC_0123456789abcdef");
+    wall = other.wall;
+    const voteIntent: WallIntent = { t: "vote", r: RID, pid: other.id, lock: lockOf(KEY_B) };
+    res = applyWallIntent(wall, B, "iid_vote0001", voteIntent, ctx());
+    expect(res.ok).toBe(true);
+    res = apply(res.wall, B, { t: "unvote", r: RID, pid: other.id, key: KEY_B });
+    expect(res.ok).toBe(true);
+    res = apply(res.wall, A, { t: "withdraw", r: RID, pid: mine, key: KEY_A });
+    expect(res.ok).toBe(true);
+    wall = res.wall;
+    // Enough other requests that the short ring of request ids forgets both.
+    for (let i = 0; i <= WALL_LIMITS.recentRing; i++) {
+      wall = apply(wall, C, { t: "hand", up: i % 2 === 0 }).wall;
+    }
+    expect(wall.recent).not.toContain(`${A}:iid_post0001`);
+    expect(wall.recent).not.toContain(`${B}:iid_vote0001`);
+
+    const replayedPost = applyWallIntent(wall, A, "iid_post0001", postIntent, ctx());
+    expect(replayedPost).toMatchObject({ ok: false, why: "already" });
+    expect(wallView(replayedPost.wall).round!.posts!.map((p) => p.text)).toEqual(["Keep me"]);
+    // The same post id under a fresh request is refused too.
+    expect(
+      apply(wall, A, { t: "post", r: RID, pid: mine, text: "Back again", lock: lockOf(KEY_A) })
+    ).toMatchObject({ ok: false, why: "already" });
+
+    const replayedVote = applyWallIntent(wall, B, "iid_vote0001", voteIntent, ctx());
+    expect(replayedVote).toMatchObject({ ok: false, why: "already" });
+    expect(wallView(replayedVote.wall).round!.posts![0].votes).toBe(0);
+    // B can still upvote it again, with a new key.
+    const again = apply(wall, B, {
+      t: "vote",
+      r: RID,
+      pid: other.id,
+      lock: lockOf("keyB2_0123456789abcd"),
+    });
+    expect(again.ok).toBe(true);
+    expect(wallView(again.wall).round!.posts![0].votes).toBe(1);
+  });
+
+  it("caps one member's upvotes in a round, taken-back ones included", () => {
+    const posted = post(open(), A, "Vote on me");
+    let wall = posted.wall;
+    for (let i = 0; i < WALL_LIMITS.maxVotesPerMember; i++) {
+      const key = `keyB_${String(i).padStart(16, "0")}`;
+      const voted = apply(wall, B, { t: "vote", r: RID, pid: posted.id, lock: lockOf(key) });
+      expect(voted.ok).toBe(true);
+      wall = apply(voted.wall, B, { t: "unvote", r: RID, pid: posted.id, key }).wall;
+    }
+    expect(
+      apply(wall, B, { t: "vote", r: RID, pid: posted.id, lock: lockOf("keyB_last_0123456789") })
+    ).toMatchObject({ ok: false, why: "member-cap" });
+    // Others can still vote.
+    expect(apply(wall, C, { t: "vote", r: RID, pid: posted.id, lock: lockOf(KEY_B) }).ok).toBe(
+      true
+    );
+    // A new round starts everyone afresh.
+    const next = openWallRound(wall, "round_000002", "Next question", "live")!;
+    expect(next.round!.votesBy.size).toBe(0);
+    expect(next.round!.spentLocks.size).toBe(0);
+    expect(next.round!.withdrawn.size).toBe(0);
+  });
+
   it("takes no votes while posts are hidden until reveal", () => {
     const posted = post(open("hidden"), A, "Secret");
     const id = posted.id;

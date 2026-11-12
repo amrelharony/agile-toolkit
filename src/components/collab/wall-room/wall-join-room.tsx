@@ -45,7 +45,7 @@ export function wallRefusalText(why: WallRefusal): string {
     case "rate":
       return "One post every 5 seconds: wait a moment and send it again.";
     case "member-cap":
-      return "You've posted as much as one person can in this round.";
+      return "You've posted or upvoted as much as one person can in this round.";
     case "round-full":
       return "The wall is full for this round.";
     case "bad-text":

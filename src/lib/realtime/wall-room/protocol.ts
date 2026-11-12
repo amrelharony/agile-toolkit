@@ -104,13 +104,22 @@ export const WALL_LIMITS = {
   maxMergedTexts: 10,
   /** Upvotes one post can hold (three per seat, as a vote round's ballots). */
   maxVotesPerPost: VISITOR_LIMITS.maxMembers * 3,
+  /**
+   * Upvotes one member may give in a round, taken-back ones included: two
+   * for every post a round can hold. It bounds the taken-back votes the
+   * host remembers (so replaying one can't bring it back).
+   */
+  maxVotesPerMember: 400,
   /** Every request's plaintext is padded to this many UTF-8 bytes. */
   intentBytes: 1_200,
   /** Request ids the host acknowledges in one state. */
   maxAcks: 64,
   /** Refused request ids (with why) in one state. */
   maxNacks: 32,
-  /** Requests whose ids the host remembers, to apply each once. */
+  /**
+   * Requests whose ids the host remembers, to apply each once. What a
+   * take-back undid is remembered for the whole round besides (`host.ts`).
+   */
   recentRing: 512,
   /** Largest wall message accepted or sent, in JSON characters. */
   maxStateChars: VISITOR_LIMITS.maxPayloadChars,

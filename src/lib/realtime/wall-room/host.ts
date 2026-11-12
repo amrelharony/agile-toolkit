@@ -7,15 +7,21 @@
  * Rules for a participant's request (`applyWallIntent`), in order:
  *  1. the sender must not have been removed, and must hold a seat;
  *  2. the same sender's request id is applied once (a resend changes
- *     nothing; the hook sends the acks again);
+ *     nothing; the hook sends the acks again). That ring is short, so what
+ *     a take-back undid is also remembered for the whole round: a
+ *     taken-back post's id and a taken-back vote's lock are never taken
+ *     again, so replaying an old request can't bring either back;
  *  3. posts, votes and take-backs need the round they name to be the open
  *     one (a take-back works on a closed round too);
  *  4. a post: cleaned to 1–280 characters with no control or bidi
  *     characters, at most one every 5 seconds and 30 a round per member,
- *     200 a round in all, and a post id nobody used this round;
+ *     200 a round in all, and a post id nobody used this round (taken-back
+ *     ones included);
  *  5. a vote: the post must be on the wall and shown (not hidden until
- *     reveal), not the voter's own, one per member per post; taken back only
- *     with the key behind that vote's lock;
+ *     reveal), not the voter's own, one per member per post, with a lock
+ *     no taken-back vote had, and at most 400 a round per member (taken-back
+ *     ones included, which keeps the remembered locks bounded); taken back
+ *     only with the key behind that vote's lock;
  *  6. a take-back of a post only with the key behind its lock;
  *  7. a hand: up or down, the sender's own.
  *
@@ -73,6 +79,12 @@ export interface HostWallRound {
   lastPostAt: ReadonlyMap<string, number>;
   /** Posts this round took, taken-back ones included. */
   accepted: number;
+  /** Ids of posts taken back this round: never taken again. */
+  withdrawn: ReadonlySet<string>;
+  /** Upvotes each member gave this round, taken-back ones included. */
+  votesBy: ReadonlyMap<string, number>;
+  /** Locks of upvotes taken back this round: a vote carrying one is refused. */
+  spentLocks: ReadonlySet<string>;
 }
 
 export interface HostWall {
@@ -144,6 +156,9 @@ export function openWallRound(
       postsBy: new Map(),
       lastPostAt: new Map(),
       accepted: 0,
+      withdrawn: new Set(),
+      votesBy: new Map(),
+      spentLocks: new Set(),
     },
   };
 }
@@ -282,7 +297,8 @@ export function applyWallIntent(
         return refuseOnce("rate");
       }
       if (r.accepted >= WALL_LIMITS.maxPostsPerRound) return refuseOnce("round-full");
-      if (r.posts.has(intent.pid)) return refuseOnce("already");
+      // Taken back once: a replay of the old request can't put it back.
+      if (r.posts.has(intent.pid) || r.withdrawn.has(intent.pid)) return refuseOnce("already");
       const post: HostPost = {
         pid: intent.pid,
         text,
@@ -323,7 +339,10 @@ export function applyWallIntent(
         const c = posts.get(child.pid);
         if (c) posts.set(c.pid, { ...c, mergedInto: null });
       }
-      return accept({ ...wall, round: { ...r, posts } });
+      return accept({
+        ...wall,
+        round: { ...r, posts, withdrawn: new Set(r.withdrawn).add(post.pid) },
+      });
     }
 
     case "vote": {
@@ -332,9 +351,19 @@ export function applyWallIntent(
       if (!post || !onWall(post)) return refuseOnce("gone");
       if (post.author === by) return refuseOnce("own-post");
       if (post.voters.has(by)) return refuseOnce("already");
+      // A taken-back vote's request, replayed: it stays taken back.
+      if (r.spentLocks.has(intent.lock)) return refuseOnce("already");
+      const given = r.votesBy.get(by) ?? 0;
+      if (given >= WALL_LIMITS.maxVotesPerMember) return refuseOnce("member-cap");
       if (post.voters.size >= WALL_LIMITS.maxVotesPerPost) return refuseOnce("round-full");
       const voters = new Map(post.voters).set(by, [intent.lock]);
-      return accept({ ...wall, round: withPost(r, { ...post, voters }) });
+      return accept({
+        ...wall,
+        round: {
+          ...withPost(r, { ...post, voters }),
+          votesBy: new Map(r.votesBy).set(by, given + 1),
+        },
+      });
     }
 
     case "unvote": {
@@ -344,7 +373,9 @@ export function applyWallIntent(
       if (!locks || !locks.includes(lockOf(intent.key))) return refuseOnce("not-yours");
       const voters = new Map(post.voters);
       voters.delete(by);
-      return accept({ ...wall, round: withPost(r, { ...post, voters }) });
+      const spentLocks = new Set(r.spentLocks);
+      for (const lock of locks) spentLocks.add(lock);
+      return accept({ ...wall, round: { ...withPost(r, { ...post, voters }), spentLocks } });
     }
   }
 }
