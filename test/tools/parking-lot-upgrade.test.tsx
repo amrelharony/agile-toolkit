@@ -466,6 +466,20 @@ describe("more ways to decide", () => {
     expect(screen.queryByRole("button", { name: /^Drop: Still on/ })).toBeNull();
   });
 
+  it("opens a reopened point again when its second send is undone", async () => {
+    const dead = { route: "backlog-story" as const, targetId: "gone", at: "2026-11-12T09:30:00Z" };
+    seed([item({ status: "sent", sentTo: [dead] })]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^Reopen: Who owns/ }));
+    openSendTo(/^Send to… Who owns/);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Backlog story" }));
+    expect(ws().stories).toHaveLength(1);
+    expect(point("p1")?.status).toBe("sent");
+    undoLast();
+    expect(ws().stories).toEqual([]);
+    expect(point("p1")).toMatchObject({ status: "open", sentTo: [dead] });
+  });
+
   it("filters to the points parked with no meeting, and names that in the export", async () => {
     seed([item(), item({ id: "p2", text: "Loose point", meeting: undefined })]);
     renderPage();

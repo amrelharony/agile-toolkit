@@ -171,6 +171,20 @@ describe("sending", () => {
     expect(withParkingLinks(sent, [], "sent", at).status).toBe("open");
   });
 
+  it("is sent only while a link's item lives: Undo puts back the status before", () => {
+    const at = "2026-11-12T10:00:00.000Z";
+    const dead = link("backlog-story", "gone");
+    const live = link("backlog-story", "s2");
+    const isLive = (l: HandoffLink) => l.targetId !== "gone";
+    // Reopened after its story was removed, sent again, then the send undone.
+    const resent = withParkingLinks(item({ sentTo: [dead] }), [live], "open", at, isLive);
+    expect(resent.status).toBe("sent");
+    const undone = withParkingLinks(resent, [dead], "open", at, isLive);
+    expect(undone).toMatchObject({ status: "open", sentTo: [dead] });
+    // Sent with a removed item, sent again, undone: sent as it was.
+    expect(withParkingLinks(resent, [dead], "sent", at, isLive).status).toBe("sent");
+  });
+
   it("hands over its words, where it came up and who raised it, with a link back", () => {
     expect(parkingSource(item({ meeting: "Daily Scrum", raisedBy: "Priya" }))).toEqual({
       title: "Who owns the release checklist?",

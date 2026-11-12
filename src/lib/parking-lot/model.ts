@@ -261,21 +261,26 @@ export function parkingSource(
 }
 
 /**
- * The item with `links` recorded: "sent" while it has any; when the last
- * goes (an Undo), back to what it was before the send (`before`), or open.
- * Stamps updatedAt.
+ * The item with `links` recorded: "sent" while any of them is live; when
+ * none is (an Undo), back to what it was before the send (`before`), or open
+ * when it has no link at all. `isLive` says whether a link's item still
+ * exists (default: every link does). So the Undo of a second send, from a
+ * point reopened after its first item was removed, opens it again rather
+ * than marking it sent to an item that is gone. Stamps updatedAt.
  */
 export function withParkingLinks(
   item: ParkingLotItem,
   links: readonly HandoffLink[],
   before: ParkingLotStatus,
-  now: string = new Date().toISOString()
+  now: string = new Date().toISOString(),
+  isLive: (link: HandoffLink) => boolean = () => true
 ): ParkingLotItem {
-  if (links.length > 0) return { ...item, sentTo: [...links], status: "sent", updatedAt: now };
-  const status: ParkingLotStatus =
-    item.status === "sent" ? (before === "sent" ? "open" : before) : item.status;
+  if (links.some(isLive)) return { ...item, sentTo: [...links], status: "sent", updatedAt: now };
+  const back: ParkingLotStatus = links.length === 0 && before === "sent" ? "open" : before;
+  const status: ParkingLotStatus = item.status === "sent" ? back : item.status;
   const next: ParkingLotItem = { ...item, status, updatedAt: now };
-  delete next.sentTo;
+  if (links.length > 0) next.sentTo = [...links];
+  else delete next.sentTo;
   return next;
 }
 

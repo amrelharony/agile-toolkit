@@ -21,12 +21,12 @@ import {
 import { ToggleGroup } from "@/components/ui/toggle-group";
 import { generateParkingLotPrompts } from "@/lib/ai-prompts/parking-lot";
 import { cheer } from "@/lib/celebrate/cheer";
-import { findLink } from "@/lib/handoffs/registry";
+import { findLink, getHandoffRoute } from "@/lib/handoffs/registry";
 import { sendHandoff, sendHandoffBatch, type HandoffLinkStore } from "@/lib/handoffs/send";
 import { PARKING_LOT_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { ParkingLotItem, ParkingLotStatus } from "@/lib/stores/workspace-types";
+import type { HandoffLink, ParkingLotItem, ParkingLotStatus } from "@/lib/stores/workspace-types";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { undoable } from "@/lib/utils/undoable";
 import {
@@ -36,6 +36,7 @@ import {
   changedFields,
   countedItems,
   editedParkingItem,
+  isParkingRoute,
   matchesMeeting,
   meetingsOf,
   newParkingItem,
@@ -78,6 +79,9 @@ const EXAMPLE_BLOCKED =
   "Example points stay here: clear the example and park your own to send them on.";
 
 const nowIso = () => new Date().toISOString();
+/** Whether the item a send made still exists there. */
+const linkLive = (l: HandoffLink) =>
+  isParkingRoute(l.route) && getHandoffRoute(l.route).exists(l.targetId);
 const fresh = (id: string) => normalizeParkingItem(findParkingItem(id));
 
 /**
@@ -249,12 +253,15 @@ export function ParkingLotClient() {
 
   /**
    * The links store a send writes through: the point turns "sent" with its
-   * first link, and Undo puts back the status it had before (`before`).
+   * first live link, and Undo puts back the status it had before (`before`),
+   * even when a link to a removed item comes back with it.
    */
   const linkStore = (id: string, before: ParkingLotStatus): HandoffLinkStore => ({
     getLinks: () => findParkingItem(id)?.sentTo,
     setLinks: (update) => {
-      patchParkingItem(id, (x) => withParkingLinks(x, update(x.sentTo), before));
+      patchParkingItem(id, (x) =>
+        withParkingLinks(x, update(x.sentTo), before, nowIso(), linkLive)
+      );
     },
   });
 
