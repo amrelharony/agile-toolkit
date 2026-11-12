@@ -94,7 +94,7 @@ select tablename from pg_tables where schemaname = 'public' order by tablename;
 4. You should land back where you started, with your avatar in the header (the server confirmed you as the owner) — cloud sync is running.
 5. Try a write through the chat agent (header → message-square icon, or Cmd/Ctrl+K twice):
    - Ask: _"Create a sprint called Sprint 47 starting today for 2 weeks at 30 points."_
-   - Expect a "Confirm action" card for `workspace.sprint.create`. Click **Approve**.
+   - Expect a card asking "Create a sprint in your workspace?" (its tab reads "Workspace · Create sprint"). Click **Create sprint** ("Not now" denies it).
    - Navigate to `/sprint-goal` → the sprint should appear.
 6. Reload the page → sprint persists (came back from Supabase, not just localStorage).
 7. Open the same URL in a second browser (Chrome + Firefox, or one normal + one private window) → sign in same account → the sprint appears within ~2 s.
