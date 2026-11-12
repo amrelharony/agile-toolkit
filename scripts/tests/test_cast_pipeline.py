@@ -20,6 +20,7 @@ sys.path.insert(0, str(HERE))
 
 import cast_contract as contract  # noqa: E402
 import cast_synth as cs  # noqa: E402
+import numpy as np  # noqa: E402
 from test_cast_atlas import RUNTIME_FORM  # noqa: E402
 from PIL import Image  # noqa: E402
 
@@ -268,6 +269,36 @@ class Pipeline(unittest.TestCase):
         self.assertEqual({p.name: p.read_bytes() for p in public.iterdir()}, before)
         ts.write_text(text, encoding="utf-8")
         self.assertFalse(ts.with_name(ts.name + ".tmp").exists())
+
+
+class NamedByLanding(unittest.TestCase):
+    def test_the_candidate_names_its_parts_sheet_by_where_the_pieces_land(self):
+        # The puppet given a stiff tail as long and as thick as its arm, hanging from
+        # its hips on the body's left (your right): its parts sheet lays the tail
+        # between the right arm and the body, where the sheet alone names it the right
+        # arm. The candidate names the two again by where they land on the master, and
+        # every piece registers (C6). Only the master and the parts sheet are read: the
+        # face and arms sheets have no say in the naming, and skipping them halves the time.
+        root = Path(tempfile.mkdtemp(prefix="cast-landing-"))
+        src = sources_with_art(root)
+        acc = ledger.accepted_dir(src, CID)
+        pen = cs.Pen()
+        pen.capsule((896, 560), (976, 800), 24, cs.FLAP)
+        tail = pen.done()
+        cs.save(acc / f"{CID}_master.png", cs.on_key(cs.over(tail, cs.master_rgba())), "RGB")
+        at = {**cs.PARTS_AT, "arm-r": (200, 420), "tail": (460, 430)}
+        canvas = np.zeros((cs.H, cs.W, 4), np.uint8)
+        for pid, layer in {**cs.part_layers(), "tail": tail}.items():
+            cs.place(canvas, cs.scaled(cs.crop(layer), 1.0 if pid.startswith("pupil") else cs.PARTS_R), *at[pid])
+        cs.save(acc / f"{CID}_parts.png", cs.on_key(canvas), "RGB")
+        c = spec.character(CID)
+        tailed = {**c, "parts": [*c["parts"], "tail"], "images": ["master", "parts"]}
+        with mock.patch.object(rig, "character", lambda cid: tailed):
+            r = rig.candidate(CID, src, out=lambda *a: None, clips=contract.CLIPS)
+        self.assertEqual(r["images"]["parts"]["checks"]["C4"]["status"], "pass")
+        self.assertIn("parts: named by where they land on the master: arm-r (first named tail), tail (first named arm-r)", r["notes"])
+        self.assertEqual(r["checks"]["C6"]["status"], "pass", r["checks"]["C6"])
+        self.assertEqual(sorted(r["checks"]["C6"]["parts"]), sorted(p for p in tailed["parts"] if not p.startswith("pupil")))
 
 
 if __name__ == "__main__":

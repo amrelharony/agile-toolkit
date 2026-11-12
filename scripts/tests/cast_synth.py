@@ -171,11 +171,11 @@ def pupil_piece() -> np.ndarray:
     return p.done()
 
 
-def arm(side: str, angle: float = 0.0) -> np.ndarray:
+def arm(side: str, angle: float = 0.0, shoulder=None, hand=None) -> np.ndarray:
     """The arm in master coordinates, turned by `angle` degrees about its shoulder
-    (counter-clockwise as the eye sees it)."""
-    sx, sy = SHOULDER[side]
-    hx, hy = HAND[side]
+    (counter-clockwise as the eye sees it); `shoulder` and `hand` move its ends."""
+    sx, sy = shoulder or SHOULDER[side]
+    hx, hy = hand or HAND[side]
     t = math.radians(angle)
     dx, dy = hx - sx, hy - sy
     ex, ey = sx + dx * math.cos(t) + dy * math.sin(t), sy - dx * math.sin(t) + dy * math.cos(t)
