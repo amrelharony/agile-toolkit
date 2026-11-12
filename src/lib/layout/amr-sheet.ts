@@ -4,9 +4,9 @@
  * `html[data-amr-sheet]` while his panel is open in that layout (and only
  * then), and closes the sheet when asked to here.
  *
- * Another full-screen surface opening over the sheet (the sidebar, search,
- * the trophy case, AI settings, Activity, the account menu) closes it first,
- * so two never stack. Where the toast stack goes beside his open panel is
+ * Another surface opening over the sheet (the sidebar, search, the trophy
+ * case, AI settings, Activity, the account menu, the Kudos beacon) closes it
+ * first, so two never stack. Where the toast stack goes beside his open panel is
  * published here too (below). No "use client" and no imports: on the server
  * the sheet is never open.
  */

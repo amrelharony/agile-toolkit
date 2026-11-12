@@ -317,6 +317,7 @@ describe("lib/layout/amr-sheet", () => {
       "src/components/layout/shell-dialogs.tsx",
       "src/components/notify/activity-panel.tsx",
       "src/components/auth/user-menu.tsx",
+      "src/lib/kudos/beacon/header-beacon.tsx",
     ]) {
       const src = read(file);
       expect(src, file).toContain('from "@/lib/layout/amr-sheet"');
