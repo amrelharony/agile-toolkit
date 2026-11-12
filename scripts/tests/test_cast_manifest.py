@@ -17,6 +17,7 @@ import cast_contract as contract  # noqa: E402
 import numpy as np  # noqa: E402
 
 from cast import clips as cast_clips  # noqa: E402
+from cast import register  # noqa: E402
 from cast import rig  # noqa: E402
 from cast import spec  # noqa: E402
 from cast.spec import SPEC  # noqa: E402
@@ -134,6 +135,49 @@ class Stacking(unittest.TestCase):
         self.assertEqual(sorted(got), ["a", "b", "c"])
         self.assertEqual(got[-1], "c")
         self.assertLess(got.index("b"), got.index("a"))
+
+
+class Fold(unittest.TestCase):
+    """A folded corner joins the body along a straight fold with no round cap: the
+    body is cut away along the fold, and the corner lies over the body with its
+    fold edge on that cut."""
+
+    def note(self, inset=0):
+        H, W = 700, 600
+        yy, xx = np.mgrid[0:H, 0:W]
+        x, y = xx + 0.5, yy + 0.5
+        # The fold runs from (400, 100) to (500, 200): x - y = 300.
+        body = (xx >= 100) & (xx < 500) & (yy >= 100) & (yy < 600) & (x - y <= 300)
+        flap = (x >= 400 + inset) & (y <= 200 - inset) & (x - y <= 300 - 2 * inset)
+        return body, flap
+
+    def test_the_corner_turns_about_the_middle_of_its_fold(self):
+        for inset in (0, 2):  # laid exactly on the cut, and placed a little inside it
+            body, flap = self.note(inset)
+            pv = rig.fold_pivot(flap, body)
+            self.assertEqual(pv["kind"], "fold", inset)
+            # On its fold edge, near the middle (450, 150), r half the edge's length.
+            self.assertLess(abs(pv["x"] - pv["y"] - (300 - 2 * inset)) / np.sqrt(2), 2, inset)
+            self.assertLess(np.hypot(pv["x"] - 450, pv["y"] - 150), 6, inset)
+            self.assertAlmostEqual(pv["r"], (100 - 4 * inset) / np.sqrt(2), delta=3)
+        # A circle fit finds no cap on a straight fold: its joint falls inside the corner.
+        body, flap = self.note()
+        cap = register.pivot(body, flap)
+        self.assertGreater(abs(cap["x"] - cap["y"] - 300) / np.sqrt(2), 10)
+        # C7 tests no cap on a fold, only that the turn keeps the joint covered.
+        pv = {**rig.fold_pivot(flap, body), "tucked": False}
+        j, notes = rig.joint_check("flap", pv, flap, body, spec.range_for("flap"))
+        self.assertEqual((j["kind"], j["status"], notes), ("fold", "pass", []))
+        self.assertNotIn("residual", j)
+        self.assertEqual(j["joint_cover"], 1.0)
+        self.assertIsNone(rig.fold_pivot(np.zeros_like(flap), body))
+
+    def test_a_joint_that_turns_with_no_cap_still_fails(self):
+        body, flap = self.note()
+        j, notes = rig.joint_check("leg-r", {"kind": "no_cap", "x": 1, "y": 1, "r": None, "tucked": True}, flap, body, 10)
+        self.assertEqual((j["status"], notes), ("fail", ["leg-r has no cap to turn on"]))
+        j, _ = rig.joint_check("flap", {"kind": "overlap", "x": 1, "y": 1, "r": None, "tucked": False}, flap, body, 20)
+        self.assertEqual(j["status"], "warn")
 
 
 class NeckStub(unittest.TestCase):

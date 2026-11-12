@@ -401,6 +401,9 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             # The cap is on the piece that tucks under: the child's own, or the parent's
             # (a neck under the head).
             pivots[k] = rg.pivot(a, b) if tucked else rg.pivot(b, a)
+            if socket_of(k) == "flap":
+                # A folded corner meets the body along a straight fold: no round cap.
+                pivots[k] = fold_pivot(a, b) or pivots[k]
             pivots[k]["tucked"] = tucked
         # Siblings in the order the master shows them where they overlap.
         for n, k in enumerate(stack(over, baked, master)):
@@ -414,47 +417,10 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         pivots[fan] = {**rg.base_point(baked[fan][..., 3] >= SOLID_ALPHA), "tucked": pivots[fan]["tucked"]}
     for k, pv in pivots.items():
         par = parent_of(k, present)
-        rng = range_for(k)
-        j = {"kind": pv["kind"], "range": rng}
-        st = "pass"
-        if pv["kind"] == "cap":
-            j["residual"] = round(pv["residual"], 4)
-            if pv["residual"] > TOL["cap_residual"]:
-                st = "fail"
-            disc = np.zeros(shape[:2], bool)
-            yy, xx = np.ogrid[: shape[0], : shape[1]]
-            disc = np.hypot(xx + 0.5 - pv["x"], yy + 0.5 - pv["y"]) <= pv["r"]
-            child = baked[k][..., 3] >= SOLID_ALPHA
-            parent = baked[par][..., 3] >= SOLID_ALPHA
-            low, high = (child, parent) if pv["tucked"] else (parent, child)
-            # The cap: the under piece's round end, past the joint toward the piece on top.
-            ly, lx = np.nonzero(low)
-            ux, uy = pv["x"] - (lx.mean() + 0.5), pv["y"] - (ly.mean() + 0.5)
-            beyond = (xx + 0.5 - pv["x"]) * ux + (yy + 0.5 - pv["y"]) * uy > 0
-            cap = low & disc & beyond
-            if cap.any():
-                cover = float((cap & high).sum() / cap.sum())
-                j["cap_cover"] = round(cover, 4)
-                if cover < TOL["cap_cover"]:
-                    st = checks.worst(st, "fail")
-            if rng:
-                worst_cover = 1.0
-                for deg in (-rng, rng):
-                    turned = rotate_about(child, pv["x"], pv["y"], deg)
-                    kept = disc & (child | parent)
-                    covered = (disc & (turned | parent) & kept).sum() / max(kept.sum(), 1)
-                    worst_cover = min(worst_cover, float(covered))
-                j["joint_cover"] = round(worst_cover, 4)
-                if worst_cover < TOL["joint_cover"]:
-                    st = checks.worst(st, "fail")
-        elif rng and pv["kind"] in ("no_cap", "none"):
-            st = "fail"
-            c7["notes"].append(f"{k} has no cap to turn on")
-        elif rng:
-            st = "warn"
-        j["status"] = st
+        j, notes = joint_check(k, pv, baked[k][..., 3] >= SOLID_ALPHA, baked[par][..., 3] >= SOLID_ALPHA, range_for(k))
         c7["joints"][k] = j
-        c7["status"] = checks.worst(c7["status"], st)
+        c7["notes"] += notes
+        c7["status"] = checks.worst(c7["status"], j["status"])
     report["checks"]["C7"] = c7
 
     # Root pivot: bottom centre on the floor.
@@ -707,6 +673,94 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     )
     out(f"{cid}: candidate {report['status']} -> review/{batch}/{cid}/ (rig {cand['rig_sha256'][:12]})")
     return report
+
+
+def fold_pivot(flap: np.ndarray, body: np.ndarray) -> dict | None:
+    """A folded corner's joint (masks, master frame): the middle of its straight
+    fold edge, with r half the edge's length. The body is cut away along the fold
+    and the corner's fold edge lies on that cut, so the fold edge is the stretch
+    of the corner's outline nearest the body's outside (within
+    fold_band_px of the nearest, so a corner placed a little inside the cut still
+    has one). A fold has no round cap: no circle fits it. None when the stretch
+    holds fewer than fit_points_min pixels."""
+    box = im.mask_bbox(flap)
+    if box is None:
+        return None
+    x0, y0, x1, y1 = box
+    most = max(x1 - x0, y1 - y0)
+    # A crop around the corner, with room around it to measure in.
+    cx0, cy0 = max(0, x0 - most), max(0, y0 - most)
+    cx1, cy1 = min(flap.shape[1], x1 + most), min(flap.shape[0], y1 + most)
+    a, b = flap[cy0:cy1, cx0:cx1], body[cy0:cy1, cx0:cx1]
+    edge = a & ~im.erode(a, 1)
+    out = im.distance_in(b, most)[edge]  # 0 outside the body, 1 on its outline, and so on
+    ey, ex = np.nonzero(edge)
+    keep = out <= out.min() + TOL["fold_band_px"]
+    if keep.sum() < TOL["fit_points_min"]:
+        return None
+    pts = np.stack([ex[keep] + cx0 + 0.5, ey[keep] + cy0 + 0.5], 1)
+    mid = pts.mean(0)
+    axis = np.linalg.svd(pts - mid, full_matrices=False)[2][0]
+    t = (pts - mid) @ axis
+    p, q = mid + t.min() * axis, mid + t.max() * axis
+    return {"kind": "fold", "x": float((p[0] + q[0]) / 2), "y": float((p[1] + q[1]) / 2), "r": float(np.hypot(*(q - p)) / 2), "residual": None}
+
+
+def sweep_cover(child: np.ndarray, parent: np.ndarray, pv: dict, rng: float) -> float:
+    """How much of the joint disc stays covered, at worst, with the child turned
+    either way across its range about the pivot (of what child or parent covers at rest)."""
+    yy, xx = np.ogrid[: child.shape[0], : child.shape[1]]
+    disc = np.hypot(xx + 0.5 - pv["x"], yy + 0.5 - pv["y"]) <= pv["r"]
+    kept = disc & (child | parent)
+    worst = 1.0
+    for deg in (-rng, rng):
+        turned = rotate_about(child, pv["x"], pv["y"], deg)
+        worst = min(worst, float((disc & (turned | parent) & kept).sum() / max(kept.sum(), 1)))
+    return worst
+
+
+def joint_check(k: str, pv: dict, child: np.ndarray, parent: np.ndarray, rng: float) -> tuple[dict, list[str]]:
+    """C7 on one joint: (its row, notes). A cap: its circle's residual, the share
+    of the cap under the piece on top at rest, and the joint disc kept covered
+    across the range. A fold (a folded corner's straight edge) has no cap to test:
+    only the disc's cover, a warning when the turn opens it. A joint that turns
+    with no cap fails, and one turning about an overlap's centroid warns."""
+    j = {"kind": pv["kind"], "range": rng}
+    st, notes = "pass", []
+    if pv["kind"] == "cap":
+        j["residual"] = round(pv["residual"], 4)
+        if pv["residual"] > TOL["cap_residual"]:
+            st = "fail"
+        yy, xx = np.ogrid[: child.shape[0], : child.shape[1]]
+        disc = np.hypot(xx + 0.5 - pv["x"], yy + 0.5 - pv["y"]) <= pv["r"]
+        low, high = (child, parent) if pv["tucked"] else (parent, child)
+        # The cap: the under piece's round end, past the joint toward the piece on top.
+        ly, lx = np.nonzero(low)
+        ux, uy = pv["x"] - (lx.mean() + 0.5), pv["y"] - (ly.mean() + 0.5)
+        beyond = (xx + 0.5 - pv["x"]) * ux + (yy + 0.5 - pv["y"]) * uy > 0
+        cap = low & disc & beyond
+        if cap.any():
+            cover = float((cap & high).sum() / cap.sum())
+            j["cap_cover"] = round(cover, 4)
+            if cover < TOL["cap_cover"]:
+                st = checks.worst(st, "fail")
+        if rng:
+            j["joint_cover"] = round(sweep_cover(child, parent, pv, rng), 4)
+            if j["joint_cover"] < TOL["joint_cover"]:
+                st = checks.worst(st, "fail")
+    elif pv["kind"] == "fold":
+        if rng:
+            j["joint_cover"] = round(sweep_cover(child, parent, pv, rng), 4)
+            if j["joint_cover"] < TOL["joint_cover"]:
+                st = "warn"
+                notes.append(f"{k}: turning about its fold opens the joint")
+    elif rng and pv["kind"] in ("no_cap", "none"):
+        st = "fail"
+        notes.append(f"{k} has no cap to turn on")
+    elif rng:
+        st = "warn"
+    j["status"] = st
+    return j, notes
 
 
 def neck_stub(baked: dict, pivots: dict, present: list[str]) -> float | None:

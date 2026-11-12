@@ -57,6 +57,7 @@
     "cap_outline_reach": 1.4,
     "cap_outline_back": 0.1,
     "fit_points_min": 8,
+    "fold_band_px": 2,
     "neck_stub_min": 0.06,
     "torso_fill_min": 0.97,
     "z_overlap_min_px": 4,
