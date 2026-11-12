@@ -358,6 +358,7 @@ registry.register({
   name: "reset",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Clear the maturity assessment",
   description:
     "Clear the assessment: the draft, every saved assessment, and the target back to 4. The team becomes unassessed (maturity level cleared). Returns {reset: true}.",
   paramsSchema: z.object({}),

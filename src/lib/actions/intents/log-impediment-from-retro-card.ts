@@ -21,6 +21,7 @@ registry.register({
   toolId: "intent",
   name: "log_impediment_from_retro_card",
   category: "intent",
+  confirmLabel: "Log this as an impediment",
   description:
     "Create a workspace impediment from a retro card's text. Defaults severity to 'medium' and source to 'retro'. Returns the new impedimentId.",
   paramsSchema: z.object({
