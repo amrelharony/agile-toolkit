@@ -17,7 +17,6 @@ import { cornerAt } from "@/components/agent/mascot/amr-geometry";
 import { CHIP_MS, useMomentStore, type MomentShown } from "@/lib/notify/moment-scheduler";
 import { momentChipText } from "@/lib/notify/copy";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
-import { cn } from "@/lib/utils";
 import { InkTick } from "@/components/ink/ink-tick";
 
 /** Moments that mean something got finished get a tick written by hand. */
@@ -67,9 +66,10 @@ export function momentChipPosition(corner: MascotCorner, phone: boolean, lift = 
 /**
  * The moment chip: "Level 8 · tap to see", beside Amr for about 4 s while he
  * cheers. Tapping it opens Activity; the X or a sideways swipe closes it.
- * It stays while hovered or focused, and has no animation under reduced
- * motion. Mounted once in app-shell.tsx; between moments only its empty live
- * region is in the page.
+ * It stays while hovered or focused, and appears as drawn, with no entrance
+ * animation (DNA-SPEC §8), as his outside bubble does in the same spot.
+ * Mounted once in app-shell.tsx; between moments only its empty live region is
+ * in the page.
  *
  * It stands beside where he is drawn (the mascot store's `placed`: the other
  * side when he has stepped aside for a control) and as far off his edge as he
@@ -167,10 +167,7 @@ function ChipBody({
     <div
       data-moment-chip
       data-rarity={moment.rarity}
-      className={cn(
-        "pointer-events-auto flex max-w-full items-center gap-1 rounded-[var(--panel-radius)] border border-border bg-surface py-1 pl-3 pr-1 text-sm text-text shadow-lg",
-        "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-reduce:animate-none"
-      )}
+      className="pointer-events-auto flex max-w-full items-center gap-1 rounded-[var(--panel-radius)] border border-border bg-surface py-1 pl-3 pr-1 text-sm text-text shadow-lg"
     >
       <button
         type="button"

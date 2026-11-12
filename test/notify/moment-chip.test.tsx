@@ -15,8 +15,8 @@ import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 /**
  * The moment chip beside Amr: its copy, the ~4 s fade (held while hovered),
  * tap → Activity, X and swipe to dismiss, its place beside where Amr is drawn
- * (and as far up as he has stepped) on phones and desktop, and no animation
- * under reduced motion.
+ * (and as far up as he has stepped) on phones and desktop, and that it
+ * appears with no animation.
  */
 
 const h = vi.hoisted(() => ({ phone: false }));
@@ -130,13 +130,17 @@ describe("MomentChip", () => {
     expect(useMomentStore.getState().current).toBeNull();
   });
 
-  it("has no animation under reduced motion and never exceeds the screen", () => {
+  it("appears as drawn, with no entrance animation, and never exceeds the screen", () => {
     render(<MomentChip />);
     show();
-    const cls = document.querySelector("[data-moment-chip]")!.className;
-    expect(cls).toContain("motion-reduce:animate-none");
-    expect(cls).toMatch(/motion-safe:animate-in/);
-    expect(cls).not.toMatch(/(?<!motion-safe:)animate-in/);
+    const chip = document.querySelector<HTMLElement>("[data-moment-chip]")!;
+    // DNA-SPEC §8: what enters on its own never fades in, and his bubble in the
+    // same spot appears as drawn too.
+    for (const el of [chip, ...Array.from(chip.querySelectorAll<HTMLElement>("*"))]) {
+      expect(el.getAttribute("class") ?? "").not.toMatch(
+        /(^|[\s:])(animate-in|fade-in|zoom-in|slide-in-from-\S+|animate-pulse)(\s|$)/
+      );
+    }
     const region = screen.getByRole("status").className;
     expect(region).toContain("max-w-[min(18rem,calc(100vw-32px))]");
     expect(region).toContain("z-[55]");
