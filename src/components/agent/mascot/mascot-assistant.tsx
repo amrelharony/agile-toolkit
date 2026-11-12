@@ -1688,6 +1688,15 @@ export function MascotAssistant({
   const docked = open && layout === "sheet";
   const figureBox = docked ? MASCOT_BOX_PHONE : box;
   useSheetLock(docked, () => closePanel("outside"));
+  // The layout his panel is open in, for the toaster: over the site header in
+  // the sheet, across from him in the others (layout/app-toaster).
+  const openLayout = open ? layout : null;
+  useIsomorphicLayoutEffect(() => {
+    if (!openLayout) return;
+    const { setPanel } = useMascotStore.getState();
+    setPanel(openLayout);
+    return () => setPanel(null);
+  }, [openLayout]);
 
   // Where he is drawn and how far he has stepped up, worked out with his panel's
   // place: his bubble and the moment chip follow these, not his chosen corner.

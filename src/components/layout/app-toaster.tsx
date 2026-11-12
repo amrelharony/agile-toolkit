@@ -5,6 +5,11 @@ import { usePathname } from "next/navigation";
 import { Toaster } from "@/components/ui/sonner";
 import { isComicRoute } from "@/lib/comics/entry";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
+import {
+  useMascotStore,
+  type MascotPanelLayout,
+  type MascotPlacement,
+} from "@/lib/agent/mascot/store";
 
 type ToasterProps = React.ComponentProps<typeof Toaster>;
 type Offset = NonNullable<ToasterProps["offset"]>;
@@ -37,6 +42,20 @@ export const COMICS_OFFSET: Offset = {
   ...SIDES,
 };
 
+/**
+ * Amr's chat open as the phone's full-height sheet, which fills the screen
+ * from just under the header: the stack goes over the site header, from the
+ * notch down (8 px without one). A toast there is one row no taller than the
+ * header's 56 px row (globals.css "AMR SHEET" trims its padding around a
+ * 44 px Undo), so it ends above the sheet's own header.
+ */
+export const SHEET_OFFSET: Offset = { top: "max(8px, env(safe-area-inset-top, 0px))", ...SIDES };
+
+/** Where Amr's chat panel is open: its layout, and the side and edge he is drawn on. */
+export interface AmrPanelSpot extends MascotPlacement {
+  layout: MascotPanelLayout;
+}
+
 function subscribePhone(onChange: () => void): () => void {
   if (typeof window === "undefined" || !window.matchMedia) return () => undefined;
   const mq = window.matchMedia(PHONE_MEDIA_QUERY);
@@ -54,8 +73,40 @@ function useIsPhone(): boolean {
   return useSyncExternalStore(subscribePhone, readPhone, () => false);
 }
 
-/** The props for the app's toast stack on this route and screen. */
-export function toasterLayout(pathname: string | null, phone: boolean): Partial<ToasterProps> {
+/**
+ * The props for the app's toast stack on this route and screen, with Amr's
+ * chat panel open (`amr`) or not (null).
+ */
+export function toasterLayout(
+  pathname: string | null,
+  phone: boolean,
+  amr: AmrPanelSpot | null = null
+): Partial<ToasterProps> {
+  if (amr?.layout === "sheet") {
+    // The sheet covers both ends of the screen below the header: one toast
+    // at a time, over the header. (The policy holds what can wait meanwhile.)
+    return {
+      position: "top-center",
+      offset: SHEET_OFFSET,
+      mobileOffset: SHEET_OFFSET,
+      swipeDirections: ["top", "left", "right"],
+      visibleToasts: 1,
+    };
+  }
+  if (amr) {
+    // The floating card or the side panel stands by him: the corner across
+    // from his, at the other edge and on the other side.
+    const y = amr.edge === "top" ? "bottom" : "top";
+    const x = amr.side === "left" ? "right" : "left";
+    const offset = y === "top" ? COMICS_OFFSET : phone ? PHONE_OFFSET : DESKTOP_OFFSET;
+    return {
+      position: `${y}-${x}`,
+      offset,
+      mobileOffset: offset,
+      swipeDirections: [y, x],
+      visibleToasts: phone ? 2 : 3,
+    };
+  }
   if (isComicRoute(pathname)) {
     // Someone reading a comic has panels and story controls at the bottom,
     // and sonner pauses its timers while hovered, so a toast could sit there
@@ -82,13 +133,18 @@ export function toasterLayout(pathname: string | null, phone: boolean): Partial<
 
 /**
  * The app-wide toast stack. Bottom-centre and above Amr's band on phones,
- * bottom-centre 24 px up on larger screens, at the top under /comics.
- * Toasts can be swiped away; the policy (lib/notify/policy.ts) decides which
- * get a close button. Its z-index (the `toast` token, below modals) and the
- * rule that lifts it over an open dialog live in globals.css.
+ * bottom-centre 24 px up on larger screens, at the top under /comics. While
+ * Amr's chat panel is open it keeps off the panel: over the site header in the
+ * phone's sheet, in the corner across from him otherwise (the mascot store's
+ * `panel` and `placed`). Toasts can be swiped away; the policy
+ * (lib/notify/policy.ts) decides which get a close button. Its z-index (the
+ * `toast` token, below modals) and the rule that lifts it over an open dialog
+ * live in globals.css.
  */
 export function AppToaster() {
   const pathname = usePathname();
   const phone = useIsPhone();
-  return <Toaster {...toasterLayout(pathname, phone)} />;
+  const layout = useMascotStore((s) => s.panel);
+  const placed = useMascotStore((s) => s.placed);
+  return <Toaster {...toasterLayout(pathname, phone, layout && { layout, ...placed })} />;
 }

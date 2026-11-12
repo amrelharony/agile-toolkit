@@ -9,7 +9,8 @@ import { useState } from "react";
  * open, so two never stack. They only read `html[data-amr-sheet]` and send
  * lib/layout/amr-sheet's close event, importing none of Amr's code. Outside
  * the sheet layout (the floating card, the side panel) the page stays live
- * beside the panel, and they leave it open.
+ * beside the panel, and they leave it open. The panel also tells the toaster
+ * where it is open (the mascot store's `panel`), so toasts keep off it.
  */
 
 const h = vi.hoisted(() => ({
@@ -67,6 +68,9 @@ import { ActivityPanel } from "@/components/notify/activity-panel";
 import { useAgentStore } from "@/lib/agent/store";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { AMR_SHEET_ATTR, AMR_SHEET_CLOSE_EVENT, closeAmrSheet } from "@/lib/layout/amr-sheet";
+import { AppToaster } from "@/components/layout/app-toaster";
+import { useMascotStore } from "@/lib/agent/mascot/store";
+import { toast } from "sonner";
 
 /** A phone held upright (the sheet layout), or a laptop (the floating card). */
 function screenAt(w: number, hgt: number) {
@@ -156,6 +160,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useAgentStore.getState().closeSheet();
+  useMascotStore.getState().reset();
   useActivityUiStore.setState({ activityOpen: false, trophyOpen: false });
   document.body.replaceChildren();
   vi.unstubAllGlobals();
@@ -245,6 +250,46 @@ describe("outside the sheet layout", () => {
     act(() => useActivityUiStore.getState().openActivity());
     expect(useAgentStore.getState().open).toBe(true);
     expect(dialog()).not.toBeNull();
+  });
+});
+
+describe("the toast stack beside the open panel", () => {
+  const stack = () => {
+    const list = document.querySelector<HTMLElement>("[data-sonner-toaster]");
+    return `${list?.getAttribute("data-y-position")}-${list?.getAttribute("data-x-position")}`;
+  };
+
+  afterEach(() => {
+    act(() => {
+      toast.dismiss();
+    });
+  });
+
+  it.each([
+    [375, 812, "sheet", "top-center"],
+    // He stands bottom right by default: the corner across is top left.
+    [1024, 768, "float", "top-left"],
+  ] as const)("at %i×%i, the %s: %s, and back as it closes", async (w, hgt, layout, at) => {
+    screenAt(w, hgt);
+    render(
+      <>
+        <main id="main-content" />
+        <MascotAssistant />
+        <AppToaster />
+      </>
+    );
+    act(() => {
+      toast("Saved");
+    });
+    await waitFor(() => expect(stack()).toBe("bottom-center"));
+
+    await openAmr();
+    expect(useMascotStore.getState().panel).toBe(layout);
+    await waitFor(() => expect(stack()).toBe(at));
+
+    fireEvent.click(screen.getByRole("button", { name: "Close assistant" }));
+    expect(useMascotStore.getState().panel).toBeNull();
+    await waitFor(() => expect(stack()).toBe("bottom-center"));
   });
 });
 

@@ -128,6 +128,9 @@ export interface MascotPlacement {
   edge: "top" | "bottom";
 }
 
+/** How his chat panel is laid out on this screen (amr-geometry's panelLayout). */
+export type MascotPanelLayout = "float" | "sheet" | "side";
+
 interface MascotState {
   /** True once the sprite sheet has loaded and Amr is on screen. */
   ready: boolean;
@@ -171,6 +174,8 @@ interface MascotState {
   placed: MascotPlacement;
   /** How far (px) he has stepped up off his edge: his bubble and chips rise this much with him. */
   lift: number;
+  /** The layout his chat panel is open in, null while it is closed: the toaster keeps off it. */
+  panel: MascotPanelLayout | null;
 }
 
 interface MascotActions {
@@ -206,6 +211,8 @@ interface MascotActions {
    * isn't a positive number counts as 0. Unchanged values change nothing.
    */
   setPlacement(placed: MascotPlacement, lift: number): void;
+  /** Report the layout his panel is open in, or null as it closes (the assistant calls it). */
+  setPanel(panel: MascotPanelLayout | null): void;
   /** Load the persisted aura and motion choice from localStorage. */
   hydrateAppearance(): void;
   reset(): void;
@@ -228,6 +235,7 @@ const INITIAL: MascotState = {
   corner: "bottomRight",
   placed: { side: "right", edge: "bottom" },
   lift: 0,
+  panel: null,
 };
 
 const APPEARANCE_KEY = "mascot_appearance";
@@ -305,6 +313,7 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
       if (s.placed.side === side && s.placed.edge === edge && s.lift === up) return s;
       return { placed: { side, edge }, lift: up };
     }),
+  setPanel: (panel) => set((s) => (s.panel === panel ? s : { panel })),
   hydrateAppearance: () => {
     try {
       const raw = localStorage.getItem(APPEARANCE_KEY);
