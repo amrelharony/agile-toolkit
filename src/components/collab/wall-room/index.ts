@@ -9,3 +9,4 @@ export { WallRoomHost, type WallRoomHostProps } from "./wall-room-host";
 export { WallJoinRoom, wallRefusalText, type WallJoinRoomProps } from "./wall-join-room";
 export { WallPostList, type WallPostListProps, type ListedPost } from "./wall-post-list";
 export { WallPostForm, wallSendError, type WallPostFormProps } from "./wall-post-form";
+export { WallScoreCard, WALL_SCORE_STEPS, type WallScoreCardProps } from "./wall-score-card";

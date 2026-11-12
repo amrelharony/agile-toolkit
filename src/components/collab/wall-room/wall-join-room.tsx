@@ -9,7 +9,9 @@
  *
  * While the host keeps posts hidden until reveal, this tab shows its own
  * posts (from memory) and how many there are in all; nobody else's text
- * reaches it until then. It renders its own end states, focused and
+ * reaches it until then. In a brainwriting round each post offers "Yes,
+ * and…", which puts the post above the box; in a 25/10 round the box gives
+ * way to five posts to score. It renders its own end states, focused and
  * announced.
  */
 
@@ -25,6 +27,7 @@ import type { WallPost, WallRefusal, WallRoomTool } from "@/lib/realtime/wall-ro
 import { useWallRoom, type MyPost } from "@/lib/realtime/wall-room/use-wall-room";
 import { WallPostForm } from "./wall-post-form";
 import { WallPostList } from "./wall-post-list";
+import { WallScoreCard } from "./wall-score-card";
 
 export interface WallJoinRoomProps {
   tool: WallRoomTool;
@@ -148,6 +151,13 @@ function ParticipantWallRoom({
   const closed = isSignedRoomClosed(status);
   const mine = new Set(room.mine.map((p) => p.id));
   const queuePlace = room.hands.findIndex((h) => h.id === room.selfId);
+  // Brainwriting: the post this person is saying "Yes, and…" to.
+  const [replyPick, setReplyPick] = useState<{ id: string; round: string } | null>(null);
+  const canBuild = Boolean(round?.build && round.open && round.posts);
+  const replyTo =
+    canBuild && replyPick && replyPick.round === round?.id
+      ? (round?.posts?.find((p) => p.id === replyPick.id) ?? null)
+      : null;
 
   const handleLeave = () => {
     room.leave();
@@ -199,8 +209,23 @@ function ParticipantWallRoom({
             </p>
           ) : (
             <>
-              {round.open ? (
-                <WallPostForm onPost={room.post} />
+              {round.scoring === "open" && round.posts ? (
+                <WallScoreCard
+                  posts={round.posts}
+                  toScore={room.toScore}
+                  myScores={room.myScores}
+                  onScore={(id, v) => void room.score(id, v)}
+                />
+              ) : round.scoring === "shown" ? (
+                <p className="text-sm text-sub">
+                  The host is showing the totals: the best-scored posts come first.
+                </p>
+              ) : round.open ? (
+                <WallPostForm
+                  onPost={(text) => room.post(text, replyTo?.id)}
+                  replyTo={replyTo}
+                  onCancelReply={() => setReplyPick(null)}
+                />
               ) : (
                 <p className="text-sm text-sub">The host isn&apos;t taking posts right now.</p>
               )}
@@ -252,6 +277,11 @@ function ParticipantWallRoom({
                     onVote={(id) => void room.vote(id)}
                     onUnvote={(id) => void room.unvote(id)}
                     onWithdraw={(id) => void room.withdraw(id)}
+                    onBuild={
+                      canBuild && round.id
+                        ? (p) => setReplyPick({ id: p.id, round: round.id })
+                        : undefined
+                    }
                     emptyText="Nothing on the wall yet."
                   />
                   {room.mine
