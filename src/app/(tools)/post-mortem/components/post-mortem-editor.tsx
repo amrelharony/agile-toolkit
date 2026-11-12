@@ -4,9 +4,14 @@
  * Editor card for one post-mortem: status select + delete, summary, contributing
  * factors, incident timeline, and action items. All mutations bubble up through
  * the parent-supplied callbacks (the parent owns the synced store).
+ *
+ * Each contributing factor can be analysed in Root Cause (`onAnalyze`): once
+ * it has been, the factor links to its analysis instead. Analyses linked to
+ * this post-mortem from Root Cause are listed under the factors.
  */
 
 import { useEffect, useId, useMemo, useState } from "react";
+import Link from "next/link";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,11 +25,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, ScrollText, ListChecks, X } from "lucide-react";
+import { Plus, Trash2, ScrollText, ListChecks, Search, X } from "lucide-react";
 import type { ActionItem, PMStatus, PostMortem } from "../types";
 import { STATUS_BADGE } from "../constants";
 import { isOverdue, sortByEventTime } from "../helpers";
 import { ActionItemRow } from "./action-item-row";
+
+/** An analysis in Root Cause, as the post-mortem links to it. */
+export interface LinkedAnalysis {
+  id: string;
+  title: string;
+  /** Where it stands: "Root cause named", … */
+  stage: string;
+  href: string;
+}
 
 export function PostMortemEditor({
   pm,
@@ -38,6 +52,9 @@ export function PostMortemEditor({
   onAddAction,
   onUpdateAction,
   onRemoveAction,
+  analysisOf,
+  onAnalyze,
+  analyses = [],
 }: {
   pm: PostMortem;
   onUpdate: (patch: Partial<PostMortem>) => void;
@@ -51,6 +68,12 @@ export function PostMortemEditor({
   onAddAction: (text: string) => void;
   onUpdateAction: (id: string, patch: Partial<ActionItem>) => void;
   onRemoveAction: (id: string) => void;
+  /** The Root Cause analysis already made from this factor, if any. */
+  analysisOf?: (factor: string) => LinkedAnalysis | undefined;
+  /** Open this factor in Root Cause. */
+  onAnalyze?: (factor: string) => void;
+  /** Analyses linked to this post-mortem. */
+  analyses?: readonly LinkedAnalysis[];
 }) {
   const [summaryDraft, setSummaryDraft] = useState(pm.summary ?? "");
   const summaryId = useId();
@@ -164,6 +187,32 @@ export function PostMortemEditor({
                 >
                   <span className="font-data text-sub shrink-0">{i + 1}.</span>
                   <span className="flex-1 text-text whitespace-pre-wrap break-words">{f}</span>
+                  {(() => {
+                    const linked = analysisOf?.(f);
+                    if (linked) {
+                      return (
+                        <Link
+                          href={linked.href}
+                          className="shrink-0 font-medium text-accent hover:underline"
+                          aria-label={`Open the analysis of factor ${i + 1} in Root Cause`}
+                        >
+                          Analysis · Open
+                        </Link>
+                      );
+                    }
+                    return onAnalyze ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onAnalyze(f)}
+                        className="h-6 shrink-0 gap-1 px-1.5 text-xs text-sub hover:text-accent min-touch-coarse"
+                        aria-label={`Analyze factor ${i + 1} in Root Cause`}
+                      >
+                        <Search className="w-3 h-3" aria-hidden="true" />
+                        Analyze in Root Cause
+                      </Button>
+                    ) : null;
+                  })()}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -202,6 +251,21 @@ export function PostMortemEditor({
               <Plus className="w-4 h-4 mr-1" aria-hidden="true" /> Factor
             </Button>
           </div>
+          {analyses.length > 0 && (
+            <div className="mt-3 space-y-1">
+              <p className="text-xs uppercase tracking-wider text-sub">Root-cause analyses</p>
+              <ul className="space-y-1">
+                {analyses.map((a) => (
+                  <li key={a.id} className="flex flex-wrap items-center gap-x-2 text-xs">
+                    <Link href={a.href} className="font-medium text-accent hover:underline">
+                      {a.title}
+                    </Link>
+                    <span className="text-sub">{a.stage}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         <div>
