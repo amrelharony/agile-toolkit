@@ -12,6 +12,11 @@ import type { ConversationMeta } from "@/lib/agent/types";
 const h = vi.hoisted(() => ({
   conversations: [] as ConversationMeta[],
   deleteConversation: vi.fn<(id: string) => Promise<void>>(async () => {}),
+  createConversation: vi.fn<(opts: unknown) => Promise<ConversationMeta | null>>(async () => null),
+  sendUserMessage: vi.fn<(text: string, opts: unknown) => Promise<void>>(async () => {}),
+  retryLastTurn: vi.fn<(opts: unknown) => Promise<boolean>>(async () => true),
+  goOn: vi.fn<(opts: unknown) => Promise<boolean>>(async () => true),
+  canRetryLastTurn: vi.fn<(messages: unknown) => boolean>(() => true),
   toast: Object.assign(
     vi.fn<(label: unknown, opts?: unknown) => string>(() => "toast-1"),
     { dismiss: vi.fn(), error: vi.fn() }
@@ -23,7 +28,7 @@ vi.mock("@/lib/agent/persist", () => ({
   loadMessages: vi.fn(async () => []),
   deleteConversation: h.deleteConversation,
   renameConversation: vi.fn(async () => {}),
-  createConversation: vi.fn(async () => null),
+  createConversation: h.createConversation,
   conversationTitle: (t: string) => t,
   conversationToMarkdown: () => "",
   titleSlug: () => "thread",
@@ -33,9 +38,12 @@ vi.mock("@/lib/utils/toast", () => ({ toast: h.toast }));
 vi.mock("@/lib/auth/auth-provider", () => ({ useAuth: () => ({ user: { id: "owner-1" } }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/sprint" }));
 vi.mock("@/lib/agent/client", () => ({
-  sendUserMessage: vi.fn(),
+  sendUserMessage: h.sendUserMessage,
   abortInFlight: vi.fn(),
   generateTitle: vi.fn(async () => null),
+  retryLastTurn: h.retryLastTurn,
+  goOn: h.goOn,
+  canRetryLastTurn: h.canRetryLastTurn,
 }));
 
 import { ConversationList, DELETE_UNDO_MS } from "@/components/agent/conversation-list";
@@ -454,5 +462,175 @@ describe("ConversationList and the answer under way", () => {
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
     expect(abortTurn).toHaveBeenCalledWith("reset");
     expect(useAgentStore.getState().messages).toEqual([]);
+  });
+});
+
+describe("AgentConversation: notices, the draft and a new thread", () => {
+  beforeEach(() => {
+    h.conversations = [];
+    h.sendUserMessage.mockClear();
+    h.retryLastTurn.mockClear();
+    h.goOn.mockClear();
+    h.canRetryLastTurn.mockReset();
+    h.canRetryLastTurn.mockReturnValue(true);
+    h.createConversation.mockReset();
+    h.createConversation.mockResolvedValue(null);
+    h.deleteConversation.mockReset();
+    if (typeof Element.prototype.scrollTo !== "function") {
+      Element.prototype.scrollTo = () => {};
+    }
+  });
+
+  afterEach(() => {
+    useAgentStore.getState().reset();
+  });
+
+  const box = () => screen.getByRole("textbox", { name: "Message" });
+
+  it("asks Amr, not the agent", () => {
+    render(<AgentConversation />);
+    expect(box()).toHaveAttribute("placeholder", "Ask Amr…");
+  });
+
+  it("shows a note as a narration caption, with Go on sending the owner's own Go on", () => {
+    useAgentStore.getState().setActiveConversation(THREADS[0], [userMsg("m1", "plan it")]);
+    useAgentStore.getState().setNotice({
+      tone: "note",
+      kind: "cut_off",
+      text: "Amr's answer was cut short. Ask him to go on.",
+    });
+    render(<AgentConversation />);
+    const caption = screen
+      .getByText("Amr's answer was cut short. Ask him to go on.")
+      .closest('[data-voice="narration"]');
+    expect(caption).toHaveAttribute("data-tone", "note");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Go on" }));
+    expect(h.goOn).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "owner-1", conversationId: "c1" })
+    );
+    expect(box()).toHaveFocus();
+  });
+
+  it("offers Go on when every tool round was used", () => {
+    useAgentStore.getState().setNotice({
+      tone: "note",
+      kind: "round_limit",
+      text: "Amr reached his limit of 10 tool rounds for one request. Send a follow-up and he'll carry on.",
+    });
+    render(<AgentConversation />);
+    expect(screen.getByRole("button", { name: "Go on" })).toBeInTheDocument();
+  });
+
+  it("shows an error with the danger line, and Try again only when the last turn may run again", () => {
+    useAgentStore.getState().setActiveConversation(THREADS[0], [userMsg("m1", "plan it")]);
+    h.canRetryLastTurn.mockReturnValue(false);
+    useAgentStore.getState().setNotice({
+      tone: "error",
+      kind: "upstream_error",
+      text: "Amr's AI service hit an error. Try again in a moment.",
+    });
+    const view = render(<AgentConversation />);
+    const caption = screen
+      .getByText("Amr's AI service hit an error. Try again in a moment.")
+      .closest('[data-voice="narration"]');
+    expect(caption).toHaveAttribute("data-tone", "error");
+    expect(document.querySelector('[class*="bg-destructive/10"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    view.unmount();
+
+    h.canRetryLastTurn.mockReturnValue(true);
+    render(<AgentConversation />);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(h.retryLastTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "owner-1", conversationId: "c1" })
+    );
+    expect(screen.queryByRole("button", { name: "Go on" })).toBeNull();
+  });
+
+  it("offers nothing to press when asking again won't help", () => {
+    useAgentStore.getState().setNotice({
+      tone: "error",
+      kind: "signed_out",
+      text: "Amr couldn't confirm it's you. Sign out and back in, then try again.",
+    });
+    render(<AgentConversation />);
+    expect(screen.getByText(/couldn't confirm it's you/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Go on" })).toBeNull();
+  });
+
+  it("stays focusable while Amr answers: read-only, never disabled", () => {
+    useAgentStore.setState({ streaming: true });
+    render(<AgentConversation />);
+    expect(box()).not.toBeDisabled();
+    expect(box()).toHaveAttribute("readonly");
+  });
+
+  it("keeps the draft when the panel closes and opens again", () => {
+    const first = render(<AgentConversation />);
+    fireEvent.change(box(), { target: { value: "rename the sprint to" } });
+    first.unmount();
+
+    render(<AgentConversation />);
+    expect(box()).toHaveValue("rename the sprint to");
+    expect(useAgentStore.getState().drafts.owner).toBe("rename the sprint to");
+  });
+
+  it("gives the chat its new thread without a switch, and empties the draft", async () => {
+    h.createConversation.mockResolvedValue(meta("c9", "Plan the sprint"));
+    render(<AgentConversation />);
+    fireEvent.change(box(), { target: { value: "Plan the sprint" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(box()).toHaveValue("");
+    await waitFor(() => expect(h.sendUserMessage).toHaveBeenCalledTimes(1));
+    expect(h.sendUserMessage).toHaveBeenCalledWith(
+      "Plan the sprint",
+      expect.objectContaining({ userId: "owner-1", conversationId: "c9" })
+    );
+    expect(useAgentStore.getState().activeConversationId).toBe("c9");
+    expect(h.deleteConversation).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing when another thread opened while the new one was being made", async () => {
+    let made: (m: ConversationMeta) => void = () => {};
+    h.createConversation.mockImplementation(
+      () => new Promise<ConversationMeta>((resolve) => (made = resolve))
+    );
+    render(<AgentConversation />);
+    fireEvent.change(box(), { target: { value: "Plan the sprint" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(h.createConversation).toHaveBeenCalledTimes(1));
+
+    act(() => useAgentStore.getState().setActiveConversation(THREADS[1], [userMsg("o1", "hi")]));
+    await act(async () => made(meta("c9", "Plan the sprint")));
+
+    expect(h.sendUserMessage).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().activeConversationId).toBe("c2");
+    // The question goes back in the box, and the empty thread made for it goes.
+    expect(box()).toHaveValue("Plan the sprint");
+    expect(h.deleteConversation).toHaveBeenCalledWith("c9");
+  });
+
+  it("sends nothing when New chat emptied the chat the new thread was made for", async () => {
+    let made: (m: ConversationMeta | null) => void = () => {};
+    h.createConversation.mockImplementation(
+      () => new Promise<ConversationMeta | null>((resolve) => (made = resolve))
+    );
+    // A chat with no saved thread yet (an earlier create failed).
+    useAgentStore.getState().appendMessage(userMsg("m1", "earlier"));
+    render(<AgentConversation />);
+    fireEvent.change(box(), { target: { value: "and then?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(h.createConversation).toHaveBeenCalledTimes(1));
+
+    act(() => useAgentStore.getState().reset());
+    await act(async () => made(null));
+
+    expect(h.sendUserMessage).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().messages).toEqual([]);
+    expect(box()).toHaveValue("and then?");
   });
 });

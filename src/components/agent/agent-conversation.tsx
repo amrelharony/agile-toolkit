@@ -1,26 +1,37 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { useAgentStore } from "@/lib/agent/store";
+import { noticeAction } from "@/lib/agent/notice-actions";
 import { toolIdForPath } from "@/lib/agent/page-tool";
 import { useAuth } from "@/lib/auth/auth-provider";
-import { sendUserMessage, abortInFlight, generateTitle } from "@/lib/agent/client";
+import {
+  sendUserMessage,
+  abortInFlight,
+  canRetryLastTurn,
+  generateTitle,
+  goOn,
+  retryLastTurn,
+  type StreamOptions,
+} from "@/lib/agent/client";
 import {
   createConversation,
+  deleteConversation,
   listConversations,
   loadMessages,
   renameConversation,
   conversationTitle,
 } from "@/lib/agent/persist";
 import { Button } from "@/components/ui/button";
+import { Narration } from "./comic/comic-parts";
 import { ConfirmAction } from "./confirm-action";
 import { useChatVisible } from "./chat-visibility";
 import { MessageBubble } from "./message-bubble";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
-import { Send, AlertTriangle, Mic, Square } from "lucide-react";
-import type { ChatMessage } from "@/lib/agent/types";
+import { Send, Mic, Square } from "lucide-react";
+import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 
 /** Resume the most recent thread at most once per page load (not on every
  *  panel reopen — that would override an intentional "New chat"). */
@@ -30,6 +41,9 @@ let resumedThisLoad = false;
  *  title (resumed threads are never re-titled). */
 const freshConvos = new Set<string>();
 
+/** Keep what the owner typed but hasn't sent (drafts.owner). */
+const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", text);
+
 /**
  * Active conversation view: message list + composer + confirmation card.
  *
@@ -37,15 +51,22 @@ const freshConvos = new Set<string>();
  * message is persisted (via the client orchestrator's conversationId path), so
  * the thread survives reload; the most recent thread auto-resumes on open. The
  * conversation list (switch / rename / delete) lives in ConversationList.
+ *
+ * Closing the panel unmounts this and stops nothing: the turn and what the
+ * owner has typed but not sent (drafts.owner) live in the agent store. Notes
+ * and errors show as a narration caption, with "Try again" or "Go on" when
+ * the notice calls for one (lib/agent/notice-actions).
  */
 export function AgentConversation() {
   const { user } = useAuth();
   const messages = useAgentStore((s) => s.messages);
   const streaming = useAgentStore((s) => s.streaming);
-  const error = useAgentStore((s) => s.error);
-  const [input, setInput] = useState("");
+  const notice = useAgentStore((s) => s.notice);
+  const input = useAgentStore((s) => s.drafts.owner);
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // A send waiting for its new conversation: a second one waits its turn.
+  const sendingRef = useRef(false);
   const pathname = usePathname();
   // False while Amr's Scenes view covers the chat (mounted, hidden).
   const visible = useChatVisible();
@@ -56,7 +77,7 @@ export function AgentConversation() {
     if (visible) composerRef.current?.focus();
   }, [visible]);
   // Voice dictation fills the composer; the user reviews + sends.
-  const voice = useVoiceInput((text) => setInput(text));
+  const voice = useVoiceInput((text) => setDraft(text));
 
   useEffect(() => {
     // A hidden log can't scroll: it catches up when it's in view again.
@@ -112,22 +133,43 @@ export function AgentConversation() {
   }, [streaming]);
 
   const onSend = async () => {
-    const text = input.trim();
-    if (!text || streaming || !user) return;
+    const raw = input;
+    const text = raw.trim();
+    if (!text || streaming || !user || sendingRef.current) return;
+    setDraft("");
     // Mascot commands (/mascot-aura, /dance) run locally, not the agent.
-    if (handleMascotCommand(text)) {
-      setInput("");
-      return;
-    }
-    setInput("");
+    if (handleMascotCommand(text)) return;
     // The registry's id for this page's tool (a sub-page counts), or null.
     const toolId = toolIdForPath(pathname);
     // Ensure a persisted conversation exists so the thread survives reload.
     let convId = useAgentStore.getState().activeConversationId;
     if (!convId) {
-      const meta = await createConversation({ title: conversationTitle(text), toolId });
+      // The chat this conversation is made for, known by its last message
+      // (none while it is empty).
+      const holding = useAgentStore.getState().messages.at(-1)?.id;
+      let meta: ConversationMeta | null = null;
+      sendingRef.current = true;
+      try {
+        meta = await createConversation({ title: conversationTitle(text), toolId });
+      } finally {
+        sendingRef.current = false;
+      }
+      const store = useAgentStore.getState();
+      // Attached, never swapped in: the chat keeps its messages, and nothing
+      // of a turn is stopped (setActiveConversation would count a switch).
+      const sameChat = meta
+        ? store.attachConversation(meta, holding)
+        : store.activeConversationId === null &&
+          (holding === undefined || store.messages.some((m) => m.id === holding));
+      if (!sameChat) {
+        // New chat, or another thread opened, while it was being made: the
+        // question isn't for the chat now showing. It goes back in the box,
+        // unless something new is there, and the empty thread goes.
+        if (meta) void deleteConversation(meta.id);
+        if (!store.drafts.owner) setDraft(raw);
+        return;
+      }
       if (meta) {
-        useAgentStore.getState().setActiveConversation(meta, useAgentStore.getState().messages);
         convId = meta.id;
         freshConvos.add(meta.id); // upgrade to a model-generated title after turn 1
       }
@@ -135,10 +177,37 @@ export function AgentConversation() {
     void sendUserMessage(text, { userId: user.id, toolId, conversationId: convId ?? undefined });
   };
 
+  /** What Try again and Go on run with: this page's tool and the open thread. */
+  const turnOptions = (): StreamOptions | null =>
+    user
+      ? {
+          userId: user.id,
+          toolId: toolIdForPath(pathname),
+          conversationId: useAgentStore.getState().activeConversationId ?? undefined,
+        }
+      : null;
+  // The notice's buttons go with it once the turn starts, so focus moves to
+  // the message box first (read-only, never disabled, while Amr answers).
+  const tryAgain = () => {
+    const opts = turnOptions();
+    if (!opts) return;
+    composerRef.current?.focus();
+    void retryLastTurn(opts);
+  };
+  const goOnNow = () => {
+    const opts = turnOptions();
+    if (!opts) return;
+    composerRef.current?.focus();
+    void goOn(opts);
+  };
+
   // Show a "thinking" row while a turn is streaming but the assistant hasn't
   // produced visible content yet (just sent, between tool rounds, or pre-token).
   const last = messages[messages.length - 1];
   const awaiting = streaming && (!last || last.role !== "assistant" || last.content.length === 0);
+  // Try again only when the last turn ran no change; nothing to press while Amr answers.
+  const action = streaming || !user ? null : noticeAction(notice, "owner");
+  const canRetry = action === "retry" && canRetryLastTurn(messages);
 
   return (
     <div className="flex flex-col h-full">
@@ -174,11 +243,24 @@ export function AgentConversation() {
           </div>
         )}
         <ConfirmAction />
-        {error && (
-          <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2">
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
-            <span>{error}</span>
-          </div>
+        {notice && (
+          <Narration
+            tone={notice.tone}
+            data-notice-kind={notice.kind}
+            actions={
+              canRetry ? (
+                <Button type="button" variant="outline" size="sm" onClick={tryAgain}>
+                  Try again
+                </Button>
+              ) : action === "go_on" ? (
+                <Button type="button" variant="outline" size="sm" onClick={goOnNow}>
+                  Go on
+                </Button>
+              ) : null
+            }
+          >
+            {notice.text}
+          </Narration>
         )}
       </div>
 
@@ -193,17 +275,19 @@ export function AgentConversation() {
           <textarea
             ref={composerRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 void onSend();
               }
             }}
-            placeholder="Ask the agent…"
+            placeholder="Ask Amr…"
             rows={2}
             className="flex-1 resize-none rounded-md border border-border bg-[var(--card)] px-3 py-2 text-sm text-text placeholder:text-sub focus:outline-none focus:ring-1 focus:ring-accent"
-            disabled={streaming}
+            // Read-only while Amr answers, not disabled: a disabled box drops
+            // its focus, and Try again and Go on hand focus to it.
+            readOnly={streaming}
             aria-label="Message"
           />
           {voice.supported && (

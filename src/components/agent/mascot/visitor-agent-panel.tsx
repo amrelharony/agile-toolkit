@@ -11,14 +11,21 @@
  * The chat lives in memory (useAgentStore) and is never saved. Leaving it, by
  * closing the panel or going back to the tool finder, stops nothing: an
  * answer under way goes on in the store, and the chat shows it when it opens
- * again. Stop and Clear chat stop it.
+ * again. Stop and Clear chat stop it. What the visitor has typed but not sent
+ * stays in the store too (drafts.visitor), so it survives the same trips.
+ *
+ * Notes and errors show as a narration caption, the narrator's line and never
+ * Amr's own words, with "Try again" or "Go on" when the notice calls for one
+ * (lib/agent/notice-actions).
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
-import { AlertTriangle, BookOpen, Eraser, Send, Square } from "lucide-react";
+import { BookOpen, Eraser, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Narration } from "@/components/agent/comic/comic-parts";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
+import { noticeAction } from "@/lib/agent/notice-actions";
 import { toolIdForPath } from "@/lib/agent/page-tool";
 import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
@@ -33,6 +40,9 @@ import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
 const PEAK_MESSAGES = 25;
 /** How often the busy-hours note re-checks the clock. */
 const CLOCK_TICK_MS = 60_000;
+/** Said when the runtime can't load: nothing was sent. */
+export const VISITOR_RUNTIME_LOAD_ERROR =
+  "Amr's chat couldn't load. Check your connection and try again.";
 
 type Runtime = typeof import("@/lib/agent/visitor-runtime");
 
@@ -105,15 +115,18 @@ interface VisitorAgentPanelProps {
   onOfflineGuide: () => void;
 }
 
+/** Keep what the visitor typed but hasn't sent (drafts.visitor). */
+const setDraft = (text: string) => useAgentStore.getState().setDraft("visitor", text);
+
 export default function VisitorAgentPanel({
   initialQuestion,
   onOfflineGuide,
 }: VisitorAgentPanelProps) {
   const messages = useAgentStore((s) => s.messages);
   const streaming = useAgentStore((s) => s.streaming);
-  const error = useAgentStore((s) => s.error);
+  const notice = useAgentStore((s) => s.notice);
   const quota = useAgentStore((s) => s.visitorQuota);
-  const [input, setInput] = useState("");
+  const input = useAgentStore((s) => s.drafts.visitor);
   const [loading, setLoading] = useState(false);
   const pathname = usePathname();
   const now = useNow(CLOCK_TICK_MS);
@@ -126,29 +139,56 @@ export default function VisitorAgentPanel({
   const sentInitialRef = useRef(false);
   const sendingRef = useRef(false);
 
-  const send = async (raw: string) => {
-    const text = raw.trim().slice(0, VISITOR_LIMITS.userChars);
-    if (!text || sendingRef.current || useAgentStore.getState().streaming) return;
-    // Mascot commands (/dance, /mascot-aura, /play) run locally, never through the AI.
-    if (handleMascotCommand(text)) {
-      setInput("");
-      return;
-    }
-    setInput("");
+  /**
+   * Load the runtime (once) and start a turn with it. `typed` is the text the
+   * visitor typed for it, put back in the box if the runtime can't load and
+   * the box is still empty: nothing was sent.
+   */
+  const startTurn = async (start: (runtime: Runtime) => unknown, typed: string | null) => {
+    if (sendingRef.current || useAgentStore.getState().streaming) return;
     sendingRef.current = true;
     setLoading(true);
     try {
       const runtime = await loadRuntime();
       // A turn outlives the chat: one asked as the panel closed still goes out.
-      void runtime.sendVisitorMessage(text, { toolId: toolIdForPath(pathname) });
+      void start(runtime);
     } catch {
-      useAgentStore
-        .getState()
-        .setError("Amr's chat couldn't load. Check your connection and try again.");
+      if (typed && !useAgentStore.getState().drafts.visitor) setDraft(typed);
+      useAgentStore.getState().setError(VISITOR_RUNTIME_LOAD_ERROR);
     } finally {
       sendingRef.current = false;
       setLoading(false);
     }
+  };
+
+  /**
+   * Send a message: the box's draft (`fromBox`), which then empties, or the
+   * question the chat opened with, which leaves a draft alone.
+   */
+  const send = async (raw: string, fromBox: boolean) => {
+    const text = raw.trim().slice(0, VISITOR_LIMITS.userChars);
+    if (!text || sendingRef.current || useAgentStore.getState().streaming) return;
+    if (fromBox) setDraft("");
+    // Mascot commands (/dance, /mascot-aura, /play) run locally, never through the AI.
+    if (handleMascotCommand(text)) return;
+    await startTurn(
+      (runtime) => runtime.sendVisitorMessage(text, { toolId: toolIdForPath(pathname) }),
+      fromBox ? raw : null
+    );
+  };
+
+  // The notice's buttons go with it once the turn starts, so focus moves to
+  // the message box first (read-only, never disabled, while Amr answers).
+  const tryAgain = () => {
+    composerRef.current?.focus();
+    void startTurn(
+      (runtime) => runtime.retryVisitorTurn({ toolId: toolIdForPath(pathname) }),
+      null
+    );
+  };
+  const goOn = () => {
+    composerRef.current?.focus();
+    void startTurn((runtime) => runtime.visitorGoOn({ toolId: toolIdForPath(pathname) }), null);
   };
 
   // The message box takes focus on mount, and again when the chat comes back
@@ -162,7 +202,7 @@ export default function VisitorAgentPanel({
   useEffect(() => {
     if (sentInitialRef.current || !initialQuestion) return;
     sentInitialRef.current = true;
-    void send(initialQuestion);
+    void send(initialQuestion, false);
     // send reads the latest state itself; this runs once per panel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuestion]);
@@ -184,6 +224,10 @@ export default function VisitorAgentPanel({
   const last = messages[messages.length - 1];
   const awaiting = busy && (!last || last.role !== "assistant" || last.content.length === 0);
   const peak = peakNote(quota, now);
+  // Try again only when the last turn ran no change; the runtime that ran it
+  // knows (it holds the registry). Nothing to press while Amr answers.
+  const action = busy ? null : noticeAction(notice, "visitor");
+  const canRetry = action === "retry" && (loadedRuntime?.canRetryLastTurn(messages) ?? false);
 
   return (
     // The panel can be as short as 160 px (a landscape phone). The log keeps a
@@ -227,11 +271,24 @@ export default function VisitorAgentPanel({
           </div>
         )}
         <ConfirmAction allowApproveAll={false} />
-        {error && (
-          <div className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>{error}</span>
-          </div>
+        {notice && (
+          <Narration
+            tone={notice.tone}
+            data-notice-kind={notice.kind}
+            actions={
+              canRetry ? (
+                <Button type="button" variant="outline" size="sm" onClick={tryAgain}>
+                  Try again
+                </Button>
+              ) : action === "go_on" ? (
+                <Button type="button" variant="outline" size="sm" onClick={goOn}>
+                  Go on
+                </Button>
+              ) : null
+            }
+          >
+            {notice.text}
+          </Narration>
         )}
       </div>
 
@@ -239,18 +296,18 @@ export default function VisitorAgentPanel({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void send(input);
+            void send(input, true);
           }}
           className="flex items-end gap-2"
         >
           <textarea
             ref={composerRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                void send(input);
+                void send(input, true);
               }
             }}
             maxLength={VISITOR_LIMITS.userChars}

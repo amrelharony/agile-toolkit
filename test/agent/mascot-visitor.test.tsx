@@ -9,6 +9,9 @@ const h = vi.hoisted(() => ({
   pathname: "/",
   sendVisitorMessage: vi.fn(async () => {}),
   abortVisitor: vi.fn(),
+  retryVisitorTurn: vi.fn(async () => true),
+  visitorGoOn: vi.fn(async () => true),
+  canRetryLastTurn: vi.fn(() => true),
 }));
 
 vi.mock("@/lib/auth/auth-provider", () => ({
@@ -26,6 +29,9 @@ vi.mock("@/lib/actions/register-all", () => ({}));
 vi.mock("@/lib/agent/visitor-runtime", () => ({
   sendVisitorMessage: h.sendVisitorMessage,
   abortInFlight: h.abortVisitor,
+  retryVisitorTurn: h.retryVisitorTurn,
+  visitorGoOn: h.visitorGoOn,
+  canRetryLastTurn: h.canRetryLastTurn,
 }));
 vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
   default: () => <div data-testid="mascot-sprite" />,
@@ -346,6 +352,10 @@ describe("MascotAssistant — visitor AI", () => {
     h.pathname = "/retro";
     h.sendVisitorMessage.mockClear();
     h.abortVisitor.mockClear();
+    h.retryVisitorTurn.mockClear();
+    h.visitorGoOn.mockClear();
+    h.canRetryLastTurn.mockReset();
+    h.canRetryLastTurn.mockReturnValue(true);
     fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
@@ -867,6 +877,120 @@ describe("MascotAssistant — visitor AI", () => {
       expect(abortTurn).not.toHaveBeenCalled();
       expect(h.abortVisitor).not.toHaveBeenCalled();
       expect(useAgentStore.getState().streaming).toBe(true);
+    });
+
+    it("keeps what the visitor typed when the panel closes and opens again", async () => {
+      await openChatWithQuestion();
+      act(() => {
+        useAgentStore.setState({
+          chatProfile: "visitor",
+          messages: [
+            {
+              id: "v1",
+              role: "user",
+              content: [{ type: "text", text: "retro" }],
+              createdAt: "2026-11-09T08:00:00Z",
+            },
+          ],
+        });
+      });
+      fireEvent.change(screen.getByLabelText("Message"), {
+        target: { value: "and how long should it" },
+      });
+      expect(useAgentStore.getState().drafts.visitor).toBe("and how long should it");
+
+      act(() => useAgentStore.getState().closeSheet());
+      expect(screen.queryByLabelText("Message")).toBeNull();
+      act(() => useAgentStore.getState().openSheet());
+      expect(await screen.findByLabelText("Message")).toHaveValue("and how long should it");
+    });
+
+    it("sends the draft and empties it", async () => {
+      await openChatWithQuestion();
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "what next?" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() =>
+        expect(h.sendVisitorMessage).toHaveBeenLastCalledWith("what next?", { toolId: "retro" })
+      );
+      expect(screen.getByLabelText("Message")).toHaveValue("");
+      expect(useAgentStore.getState().drafts.visitor).toBe("");
+    });
+
+    it("shows a note as a narration caption with Go on, which sends the visitor's own Go on", async () => {
+      await openChatWithQuestion();
+      act(() => {
+        useAgentStore.getState().setNotice({
+          tone: "note",
+          kind: "cut_off",
+          text: "Amr's answer was cut short. Ask him to go on.",
+        });
+      });
+      const caption = screen
+        .getByText("Amr's answer was cut short. Ask him to go on.")
+        .closest('[data-voice="narration"]');
+      expect(caption).toHaveAttribute("data-tone", "note");
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Go on" }));
+      await waitFor(() => expect(h.visitorGoOn).toHaveBeenCalledWith({ toolId: "retro" }));
+      // Its button goes with the notice: focus waits in the message box.
+      expect(screen.getByLabelText("Message")).toHaveFocus();
+    });
+
+    it("shows an error with the danger line, and Try again only when the last turn may run again", async () => {
+      await openChatWithQuestion();
+      h.canRetryLastTurn.mockReturnValue(false);
+      act(() => {
+        useAgentStore.getState().setNotice({
+          tone: "error",
+          kind: "upstream_error",
+          text: "Amr's AI service hit an error. Try again in a moment.",
+        });
+      });
+      const caption = screen
+        .getByText("Amr's AI service hit an error. Try again in a moment.")
+        .closest('[data-voice="narration"]');
+      expect(caption).toHaveAttribute("data-tone", "error");
+      // The old red box is gone.
+      expect(document.querySelector('[class*="bg-destructive/10"]')).toBeNull();
+      // A change ran in that turn: trying again would repeat it.
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+
+      h.canRetryLastTurn.mockReturnValue(true);
+      act(() => {
+        useAgentStore.getState().setNotice({
+          tone: "error",
+          kind: "upstream_error",
+          text: "Amr's AI service hit an error. Try again in a moment.",
+        });
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await waitFor(() => expect(h.retryVisitorTurn).toHaveBeenCalledWith({ toolId: "retro" }));
+      expect(screen.queryByRole("button", { name: "Go on" })).toBeNull();
+    });
+
+    it("offers nothing to press for a notice that asking again won't fix, or while Amr answers", async () => {
+      await openChatWithQuestion();
+      act(() => {
+        useAgentStore.getState().setNotice({
+          tone: "error",
+          kind: "too_large",
+          text: "That conversation got too long to send. Clear the chat and ask again.",
+        });
+      });
+      expect(screen.getByText(/got too long to send/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Go on" })).toBeNull();
+
+      act(() => {
+        useAgentStore.getState().setNotice({
+          tone: "note",
+          kind: "cut_off",
+          text: "Amr's answer was cut short. Ask him to go on.",
+        });
+        useAgentStore.setState({ streaming: true });
+      });
+      expect(screen.queryByRole("button", { name: "Go on" })).toBeNull();
     });
   });
 
