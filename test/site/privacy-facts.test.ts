@@ -132,10 +132,12 @@ describe("each row, against the site", () => {
     expect(tools.leaves[0].text).toBe(
       "Nothing you type or make, unless you press Ask Amr in a tool. Then the content that button names goes to Amr's AI, as its row below says."
     );
-    // The visitor route is the one a visitor's Ask Amr reaches, and it is metered like the chat.
-    expect(read("src/app/api/ai/tool/visitor/route.ts")).toMatch(
-      /Each use counts against the same daily\s+\*\s+allowance as Amr's chat/
-    );
+    // The visitor route is the one a visitor's Ask Amr reaches, and it is metered
+    // like the chat: the chat's own meter, each use a new turn. (The route test,
+    // test/api/ai-tool-visitor-route.test.ts, checks the call itself.)
+    const visitorRoute = read("src/app/api/ai/tool/visitor/route.ts");
+    expect(visitorRoute).toContain('from "@/lib/visitor-ai/meter"');
+    expect(visitorRoute).toContain("meterVisitor(admin, key, true)");
     flags(true, false);
     expect(row("tools").leaves[0].text).toBe("Nothing you type or make.");
     flags(true, true);
