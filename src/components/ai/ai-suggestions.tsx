@@ -10,9 +10,13 @@
  * link and never dangerouslySetInnerHTML, so an answer can't inject anything
  * into the page. When the list came from the task's fallback, it says
  * "Suggested without AI".
+ *
+ * Keyboard focus never falls back to the page: adding an item moves focus to
+ * the next item's Add button (or the one before), and when none is left, or
+ * after "Add all", to the list's heading, with "All added." announced.
  */
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Check, PenLine, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -60,6 +64,9 @@ export function AiSuggestions<T>({
   className,
 }: AiSuggestionsProps<T>) {
   const headingId = useId();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  /** Each shown item's Add button, by the item's index. */
+  const addButtons = useRef(new Map<number, HTMLButtonElement>());
   // Items already added, by index. A list with different contents starts
   // afresh; the same contents passed again (a new array each render) don't.
   const [taken, setTaken] = useState<ReadonlySet<number>>(() => new Set());
@@ -84,12 +91,19 @@ export function AiSuggestions<T>({
 
   const acceptOne = (item: T, index: number) => {
     onAccept(item, index);
+    // The focused Add button is about to go: focus the next one first.
+    const at = left.findIndex((entry) => entry.index === index);
+    const next = left[at + 1] ?? left[at - 1];
+    const target = next ? addButtons.current.get(next.index) : null;
+    if (target) target.focus();
+    else headingRef.current?.focus();
     setTaken((prev) => new Set(prev).add(index));
   };
   const acceptAll = () => {
     const rest = left.map(({ item }) => item);
     if (onAcceptAll) onAcceptAll(rest);
     else left.forEach(({ item, index }) => onAccept(item, index));
+    headingRef.current?.focus();
     setTaken(new Set(items.map((_, index) => index)));
   };
 
@@ -101,7 +115,12 @@ export function AiSuggestions<T>({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 id={headingId} className="flex items-center gap-1.5 text-sm font-semibold text-text">
+          <h3
+            id={headingId}
+            ref={headingRef}
+            tabIndex={-1}
+            className="flex items-center gap-1.5 rounded-sm text-sm font-semibold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             <PenLine className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
             {title}
           </h3>
@@ -144,6 +163,10 @@ export function AiSuggestions<T>({
                     {detail && <p className="mt-0.5 text-xs text-sub">{detail}</p>}
                   </div>
                   <Button
+                    ref={(el) => {
+                      if (el) addButtons.current.set(index, el);
+                      else addButtons.current.delete(index);
+                    }}
                     type="button"
                     size="sm"
                     variant="outline"

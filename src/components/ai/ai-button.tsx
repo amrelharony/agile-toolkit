@@ -12,12 +12,15 @@
  *     here (a tooltip, and a line under the button when it is pressed);
  *   - a visitor's first use: the compact consent card, then the run;
  *   - the running state, with Stop;
+ *   - keyboard focus: the button stays focusable while it runs (aria-disabled,
+ *     not disabled, which would drop focus to the page), and focus comes back
+ *     to it when Stop, the consent card or "Suggest without AI" goes away;
  *   - errors in plain words, with the task's answer without AI on offer.
  * With `fallbackLabel`, a page where AI is off still gets the button, which
  * then answers with the task's fallback straight away.
  */
 
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { Loader2, PenLine, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -74,6 +77,9 @@ export function AiButton<I, O>({
   const noteId = useId();
   const [note, setNote] = useState<string | null>(null);
   const [offer, setOffer] = useState(false);
+  const mainRef = useRef<HTMLButtonElement>(null);
+  /** Put focus back on Ask Amr before the control that has it goes away. */
+  const focusMain = useCallback(() => mainRef.current?.focus(), []);
 
   const finish = useCallback(
     (result: ToolAiRunResult<O> | null) => {
@@ -110,6 +116,8 @@ export function AiButton<I, O>({
   }, [task, input, onResult]);
 
   const press = useCallback(async () => {
+    // Still focusable while it runs; a second press does nothing.
+    if (ai.status === "running") return;
     setNote(null);
     setOffer(false);
     if (disabledReason) {
@@ -149,11 +157,12 @@ export function AiButton<I, O>({
       type="button"
       size={size}
       variant={variant}
+      ref={mainRef}
       onClick={press}
-      disabled={running}
-      aria-disabled={blockedReason ? true : undefined}
+      aria-disabled={blockedReason || running ? true : undefined}
+      aria-busy={running || undefined}
       aria-describedby={blockedReason || note ? noteId : undefined}
-      className={cn("gap-1.5", blockedReason && "opacity-60", className)}
+      className={cn("gap-1.5", (blockedReason || running) && "opacity-60", className)}
       data-testid="ai-button"
     >
       {running ? (
@@ -183,7 +192,10 @@ export function AiButton<I, O>({
             type="button"
             size={size}
             variant="outline"
-            onClick={ai.cancel}
+            onClick={() => {
+              focusMain();
+              ai.cancel();
+            }}
             className="gap-1.5"
           >
             <Square aria-hidden="true" />
@@ -195,9 +207,13 @@ export function AiButton<I, O>({
       {ai.status === "needs_consent" && (
         <AiConsentCompact
           onAgree={() => {
+            focusMain();
             void ai.agree().then(finish);
           }}
-          onDecline={ai.decline}
+          onDecline={() => {
+            focusMain();
+            ai.decline();
+          }}
         />
       )}
 
@@ -210,7 +226,15 @@ export function AiButton<I, O>({
       </p>
       {offer && (
         <div>
-          <Button type="button" size={size} variant="outline" onClick={answerWithFallback}>
+          <Button
+            type="button"
+            size={size}
+            variant="outline"
+            onClick={() => {
+              focusMain();
+              answerWithFallback();
+            }}
+          >
             Suggest without AI
           </Button>
         </div>

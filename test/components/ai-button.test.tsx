@@ -170,6 +170,48 @@ describe("AiButton", () => {
     expect((fetchMock.mock.calls[0] as [string])[0]).toBe("/api/ai/tool");
   });
 
+  it("shows Stop while asking: Stop cancels, hands nothing over, and keeps focus on Ask Amr", async () => {
+    h.auth = { status: "authenticated", user: { id: "owner-1" } };
+    fetchMock.mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError"))
+          );
+        })
+    );
+    const onResult = ask();
+    const main = screen.getByTestId("ai-button");
+    main.focus();
+    fireEvent.click(main);
+    expect(await screen.findByRole("button", { name: "Asking Amr…" })).toBe(main);
+    // Still focusable while it runs (aria-disabled, not disabled), so focus stays put.
+    expect(main).not.toBeDisabled();
+    expect(main).toHaveAttribute("aria-disabled", "true");
+    expect(document.activeElement).toBe(main);
+    // A second press while it runs sends nothing more.
+    fireEvent.click(main);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(await screen.findByRole("button", { name: "Ask Amr" })).toBe(main);
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(document.activeElement).toBe(main);
+    expect(main).not.toHaveAttribute("aria-disabled");
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.signal?.aborted).toBe(true);
+    expect(onResult).not.toHaveBeenCalled();
+  });
+
+  it("puts focus back on Ask Amr when the consent card goes", async () => {
+    ask();
+    const main = screen.getByTestId("ai-button");
+    fireEvent.click(main);
+    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
+    expect(screen.queryByTestId("ai-consent-compact")).toBeNull();
+    expect(document.activeElement).toBe(main);
+  });
+
   it("shows the tool's own reason when there is nothing to ask about yet", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     ask(vi.fn(), { disabledReason: "Type a question first." });

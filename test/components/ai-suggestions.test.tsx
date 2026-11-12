@@ -123,6 +123,31 @@ describe("AiSuggestions", () => {
     expect(screen.getByRole("button", { name: "Use: Split by workflow step" })).toBeInTheDocument();
   });
 
+  it("keeps keyboard focus in the list: next Add button, then the one before, then the heading", () => {
+    render(<AiSuggestions items={ITEMS} onAccept={() => {}} onDismiss={() => {}} source="ai" />);
+    const tuesday = screen.getByRole("button", { name: "Add: Tuesday" });
+    tuesday.focus();
+    fireEvent.click(tuesday);
+    // The next one along.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add: Thursday" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add: Thursday" }));
+    // Nothing after it: the one before.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add: Monday" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add: Monday" }));
+    // None left: the heading, with "All added." announced.
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Amr's suggestions" }));
+    expect(screen.getByRole("status")).toHaveTextContent("All added.");
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("moves focus to the heading after Add all", () => {
+    render(<AiSuggestions items={ITEMS} onAccept={() => {}} onDismiss={() => {}} source="ai" />);
+    const all = screen.getByRole("button", { name: "Add all 3" });
+    all.focus();
+    fireEvent.click(all);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Amr's suggestions" }));
+  });
+
   it("renders nothing for an empty list", () => {
     const { container } = render(
       <AiSuggestions items={[]} onAccept={() => {}} onDismiss={() => {}} source="ai" />
