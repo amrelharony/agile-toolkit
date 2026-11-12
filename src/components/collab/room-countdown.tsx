@@ -190,7 +190,11 @@ export function useHostTimerNotes(timer: RoomTimer | null): void {
     } else if (prev.endsAt !== null && timer.endsAt === null) {
       note = `The host paused the timer: ${left} left.`;
     } else if (prev.endsAt === null && timer.endsAt !== null) {
-      note = `The timer is running again: ${left} left.`;
+      // Never run yet (all of it left, as a Retro timebox sits): a start, not a resume.
+      note =
+        prev.pausedSeconds >= prev.totalSeconds
+          ? `The host started the timer: ${left} left.`
+          : `The timer is running again: ${left} left.`;
     } else if (timer.totalSeconds > prev.totalSeconds || isRoomTimerUp(prev, now)) {
       note = `The host added time: ${left} left.`;
     }

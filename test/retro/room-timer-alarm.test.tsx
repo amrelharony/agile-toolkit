@@ -177,6 +177,15 @@ describe("a Retro participant's view of the room timer", () => {
     expect(alarm.timesUp).not.toHaveBeenCalled();
   });
 
+  it("says politely when the host starts a timebox, as a start rather than a resume", () => {
+    const { rerender } = render(<Readout timer={view({ running: false, remaining: 300 })} />);
+    rerender(<Readout timer={view({ running: true, remaining: 300, anchoredAt: Date.now() })} />);
+    advance(100);
+    expect(screen.getByTestId("live-polite")).toHaveTextContent(
+      "The host started the timer: 5 minutes left."
+    );
+  });
+
   it("says politely when the host pauses the timer", () => {
     const { rerender } = render(<Readout timer={view({ remaining: 120 })} />);
     advance(30_000);
