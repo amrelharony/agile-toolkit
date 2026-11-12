@@ -15,7 +15,7 @@ import {
   type VisitorRequestBody,
   type VisitorWireMessage,
 } from "@/lib/visitor-ai/contract";
-import { useAgentStore, type TurnAbort } from "./store";
+import { useAgentStore, type AgentNotice, type TurnAbort } from "./store";
 import { buildSystemPrompt } from "./system-prompt";
 import { composeGrounding } from "./grounding";
 import { resolvePageTool } from "./page-tool";
@@ -89,6 +89,204 @@ const WRAP_UP_INSTRUCTION =
 /** Guard against schema-violation wedges: if the same action returns
  *  is_error twice in a row with the same arg-shape, stop retrying. */
 const MAX_SAME_ERROR_REPEATS = 2;
+
+/**
+ * What a notice is about (AgentNotice.kind): the chat decides from it which
+ * button to offer ("Try again" when nothing ran, "Go on" after an answer that
+ * stops short) and whether Amr frowns.
+ *
+ *  - Notes, gentle: "cut_off" (an answer that stops short), "no_answer" (a
+ *    round with no reply), "round_limit" (every tool round used),
+ *    "repeated_failure" (an action kept failing, so the turn stopped),
+ *    "cant_do_here" and "live_room" (visitors).
+ *  - Errors, real failures: the rest. A refusal of the visitor route keeps
+ *    its own code as its kind ("round_limit" is a note there too).
+ */
+export type ChatNoticeKind =
+  | "cut_off"
+  | "no_answer"
+  | "round_limit"
+  | "repeated_failure"
+  | "cant_do_here"
+  | "live_room"
+  | "stream_failed"
+  | "too_large"
+  | "signed_out"
+  | "key_refused"
+  | "usage_limit"
+  | "upstream_busy"
+  | "upstream_error"
+  | "timeout"
+  | "request_failed"
+  | "unreachable"
+  | "no_key"
+  | VisitorErrorCode;
+
+/** A notice this client shows, typed by its kind. */
+export interface ChatNotice extends AgentNotice {
+  kind: ChatNoticeKind;
+}
+
+const asNote = (kind: ChatNoticeKind, text: string): ChatNotice => ({ tone: "note", kind, text });
+const asError = (kind: ChatNoticeKind, text: string): ChatNotice => ({
+  tone: "error",
+  kind,
+  text,
+});
+
+/**
+ * What a visitor is told for each refusal the visitor route can send.
+ * Exported for test/agent/notice-copy.test.ts.
+ */
+export const VISITOR_ERROR_TEXT: Record<VisitorErrorCode, string> = {
+  disabled: "Amr's AI is switched off right now.",
+  forbidden: "That request didn't come from this site, so Amr couldn't answer it.",
+  slow_down: "That's a lot of messages at once. Wait a few seconds, then try again.",
+  too_large: "That conversation got too long to send. Clear the chat and ask again.",
+  bad_request: "Amr couldn't read that request. Clear the chat and try again.",
+  round_limit: "That took Amr too many steps. Ask again in smaller pieces.",
+  meter_unavailable: "Amr can't check today's message count right now.",
+  visitor_limit: "You've used all of today's messages with Amr.",
+  visitor_peak_limit: "You've used all your messages for these busy hours.",
+  site_limit: "Amr has answered all he can for today.",
+  site_peak_limit: "Amr has answered all he can for these busy hours.",
+  site_busy: "Amr is too busy to answer right now.",
+  upstream_busy: "Amr's AI service is busy. Try again in a minute.",
+  upstream_error: "Amr's AI service hit an error. Try again in a moment.",
+  timeout: "Amr's AI service took too long to answer. Try again in a moment.",
+};
+
+/**
+ * The chat's own lines, for the owner and visitors alike. They are narration
+ * about Amr, in the third person, never his words: none says I, me or my, and
+ * none uses a dash (test/agent/notice-copy.test.ts). The technical detail
+ * behind an error goes to the console, never here.
+ */
+export const NOTICE_TEXT = {
+  /**
+   * A request that never got through, or a stream that broke half way. It may
+   * be the reader's connection or the server's side (a gateway gone silent),
+   * so it blames neither.
+   */
+  streamFailed:
+    "Amr couldn't finish answering. Try again, and check your connection if it keeps happening.",
+  cutShort: "Amr's answer was cut short. Ask him to go on.",
+  timeCut: "Amr ran out of time, so his answer stops here. Ask him to go on.",
+  mayBeCut: "Amr's answer may have been cut off. Ask him to go on.",
+  noRoom: "Amr ran out of room thinking before he could answer. Try a shorter or simpler question.",
+  noTime: "Amr ran out of time before he could answer. Try a shorter or simpler question.",
+  noAnswer: "Amr didn't manage an answer that time. Try asking again.",
+  repeatedFailure: "An action kept failing the same way, so Amr stopped. Try asking another way.",
+  cantDoHere: "Amr tried something he can't do here. Try asking another way.",
+  /**
+   * Shown when this browser has a visitor live room open and Amr asks for a
+   * tool, or a room opened while he was using them.
+   */
+  liveRoom: "Amr uses no tools while you're in a live room.",
+  tooLarge:
+    "That conversation got too long for Amr. Start a new chat, or shorten the message, and ask again.",
+  signedOut: "Amr couldn't confirm it's you. Sign out and back in, then try again.",
+  keyRefused:
+    "The AI service turned down the GLM key in AI Settings. Check the key there, then try again.",
+  usageLimit: "You've reached Amr's usage limit for now. Try again later.",
+  requestFailed: "Amr couldn't answer that. Try again in a moment.",
+  unreachable: "Amr can't reach the server right now. Try again in a moment.",
+  noKey: "Amr has no AI key to answer with. Add a GLM key in AI Settings, then try again.",
+} as const;
+
+/** The note for a turn that used every tool round (beside roundLimitNote's facts, when that stands in). */
+export function roundLimitNotice(rounds: number = MAX_TOOL_USE_ROUNDS): ChatNotice {
+  return asNote(
+    "round_limit",
+    `Amr reached his limit of ${rounds} tool rounds for one request. Send a follow-up and he'll carry on.`
+  );
+}
+
+/**
+ * finish_reasons that mean the reply was stopped before its end by something
+ * other than its length: OpenAI's "content_filter", and GLM's own "sensitive"
+ * and "network_error" (the model's side failed half way).
+ */
+const STOPPED_EARLY: ReadonlySet<string> = new Set([
+  "content_filter",
+  "sensitive",
+  "network_error",
+]);
+
+/**
+ * The note for a round that ended without a usable answer, or with one that
+ * stops short, or null. An answer stops short when the model ran out of
+ * tokens ("length"), when the visitor route ended it at its time limit
+ * (VISITOR_TIME_LIMIT_FINISH, visitors only), when the model's side stopped
+ * it early (STOPPED_EARLY), or when the stream just ended (`cut`: no
+ * finish_reason, and either no [DONE], so something between the model and the
+ * browser closed it, or an error event of the stream's own). With no text at
+ * all (all reasoning, or a call cut off half way) it says there was no
+ * answer. Exported for tests.
+ */
+export function endNoteFor(round: {
+  hasText: boolean;
+  finishReason: string | null;
+  cut: boolean;
+  visitor: boolean;
+}): ChatNotice | null {
+  const { hasText, finishReason, cut, visitor } = round;
+  const timeLimit = visitor && finishReason === VISITOR_TIME_LIMIT_FINISH;
+  if (!hasText) {
+    if (finishReason === "length") return asNote("no_answer", NOTICE_TEXT.noRoom);
+    if (timeLimit) return asNote("no_answer", NOTICE_TEXT.noTime);
+    return asNote("no_answer", NOTICE_TEXT.noAnswer);
+  }
+  if (finishReason === "length") return asNote("cut_off", NOTICE_TEXT.cutShort);
+  if (timeLimit) return asNote("cut_off", NOTICE_TEXT.timeCut);
+  if (cut || (finishReason !== null && STOPPED_EARLY.has(finishReason))) {
+    return asNote("cut_off", NOTICE_TEXT.mayBeCut);
+  }
+  return null;
+}
+
+/**
+ * The owner's notice for a response the agent route refused, by its status,
+ * or, with a key of the owner's own (`byok`), one GLM refused. `code` is the
+ * route's own error code from the body, when it sent one: "upstream" means
+ * the gateway behind the route refused, so a 429 is the AI service being busy
+ * rather than the owner's usage limit, and a 401 is not the owner's sign-in.
+ * Exported for tests.
+ */
+export function ownerRefusalNotice(
+  status: number,
+  byok: boolean,
+  code: string | null = null
+): ChatNotice {
+  const upstream = byok || code === "upstream";
+  if (status === 413) return asError("too_large", NOTICE_TEXT.tooLarge);
+  if (status === 401 || status === 403) {
+    if (byok) return asError("key_refused", NOTICE_TEXT.keyRefused);
+    return upstream
+      ? asError("request_failed", NOTICE_TEXT.requestFailed)
+      : asError("signed_out", NOTICE_TEXT.signedOut);
+  }
+  if (status === 429) {
+    return upstream
+      ? asError("upstream_busy", VISITOR_ERROR_TEXT.upstream_busy)
+      : asError("usage_limit", NOTICE_TEXT.usageLimit);
+  }
+  if (status === 504) return asError("timeout", VISITOR_ERROR_TEXT.timeout);
+  if (status >= 500) return asError("upstream_error", VISITOR_ERROR_TEXT.upstream_error);
+  return asError("request_failed", NOTICE_TEXT.requestFailed);
+}
+
+/**
+ * A visitor's notice for a refusal of the visitor route: its code's text, or,
+ * with no code, by its status. "round_limit" (the turn took too many steps)
+ * is a note, not a failure. Exported for tests.
+ */
+export function visitorRefusalNotice(code: VisitorErrorCode | null, status: number): ChatNotice {
+  if (code === "round_limit") return asNote("round_limit", VISITOR_ERROR_TEXT.round_limit);
+  if (code) return asError(code, VISITOR_ERROR_TEXT[code]);
+  if (status >= 500) return asError("upstream_error", VISITOR_ERROR_TEXT.upstream_error);
+  return asError("request_failed", NOTICE_TEXT.requestFailed);
+}
 
 interface StreamOptions {
   userId: string;
@@ -177,7 +375,7 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
     createdAt: new Date().toISOString(),
   };
   store.appendMessage(userMsg);
-  store.setError(null);
+  store.setNotice(null);
   store.setStreaming(true);
 
   if (optsWithSignal.conversationId) void appendMessages(optsWithSignal.conversationId, [userMsg]);
@@ -195,13 +393,17 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
     const stopped =
       controller.signal.aborted || (err instanceof Error && err.name === "AbortError");
     if (!stopped) {
-      // A visitor's request that never got through, or an answer whose stream
-      // broke half way (their network, or the route's 30 s without a chunk),
-      // reaches here as the browser's own "Failed to fetch" / "network error".
-      // Say what happened in plain words instead; any text that did arrive
-      // stays. The real error goes to the console, for whoever is looking into it.
-      if (visitor) console.warn("[visitor-ai] the answer stopped:", msg);
-      store.setError(visitor ? VISITOR_STREAM_FAILED_TEXT : msg);
+      // A request that never got through, or an answer whose stream broke
+      // half way (the network, or the route's 30 s without a chunk), reaches
+      // here as the browser's own "Failed to fetch" / "network error", or the
+      // stream's own words ("upstream_idle_timeout"). Say what happened in
+      // plain words instead; any text that did arrive stays. The real error
+      // goes to the console, for whoever is looking into it.
+      console.warn(
+        visitor ? "[visitor-ai] the answer stopped:" : "[agent] the answer stopped:",
+        msg
+      );
+      store.setNotice(asError("stream_failed", NOTICE_TEXT.streamFailed));
     }
   } finally {
     // The turn is over: the store has nothing of it left to stop (a newer
@@ -289,8 +491,49 @@ async function ownerGrounding(
   }
 }
 
+/** Whether AI Settings holds a GLM key of the owner's own (openStream's BYOK). */
+function hasByokGlm(): boolean {
+  return getActiveConfig()?.provider === "glm";
+}
+
+/**
+ * The owner's backend for this turn, or null when there is none to send to,
+ * and the chat says why: the route has no AI key and AI Settings no GLM key,
+ * or the route couldn't be reached (asked twice: one failed probe is often a
+ * cold start) and there is no key of the owner's to fall back on. The setup
+ * detail goes to the console.
+ */
+async function ownerBackend(signal: AbortSignal | undefined): Promise<ModeProbe | null> {
+  let probe = await detectMode();
+  if (probe.mode === "server" || hasByokGlm()) return probe;
+  if (probe.failed !== undefined) {
+    probe = await detectMode();
+    if (probe.mode === "server") return probe;
+  }
+  if (signal?.aborted) return null;
+  const { failed } = probe;
+  if (failed === undefined) {
+    console.warn(
+      "[agent] no AI key: the agent route has none (GLM_API_KEY on the server) and AI Settings has no GLM key"
+    );
+    useAgentStore.getState().setNotice(asError("no_key", NOTICE_TEXT.noKey));
+  } else {
+    console.warn(`[agent] the agent route's probe failed (${failed || "no answer"})`);
+    useAgentStore
+      .getState()
+      .setNotice(
+        failed === 401 || failed === 403
+          ? asError("signed_out", NOTICE_TEXT.signedOut)
+          : asError("unreachable", NOTICE_TEXT.unreachable)
+      );
+  }
+  return null;
+}
+
 async function runToolUseLoop(opts: StreamOptions): Promise<void> {
-  const { mode, serverModel } = await detectMode();
+  const backend = await ownerBackend(opts.signal);
+  if (!backend) return;
+  const { mode, serverModel } = backend;
   const model = pickModel(mode, serverModel);
   // One canonical id for the prompt, the grounding and the tool selection: a
   // path or slug (as older conversations stored it) resolves to the tool's id.
@@ -352,7 +595,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
 
     // Meter only the first round: a turn's later tool-use rounds are
     // continuations of an already-allowed turn (see the route's x-agent-new-turn).
-    const { stopReason, assistantId } = await openOneTurn(
+    const { stopReason, assistantId, finishReason, cut } = await openOneTurn(
       mode,
       body,
       opts.signal,
@@ -366,6 +609,15 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
       // blocks referencing tool_call_ids that don't exist in any preceding
       // assistant message).
       persistAssistant(conversationId, assistantId);
+      // An answer that stops short, or none at all (all reasoning, or a call
+      // cut off), says so, as a visitor's does: otherwise the owner can't tell
+      // it from a finished one, or sees nothing. A refusal (no assistantId)
+      // has said why already, and Stop (or the chat moving on) needs nothing.
+      const endNote =
+        assistantId && !opts.signal?.aborted
+          ? roundEndNote(assistantId, finishReason ?? null, cut === true, false)
+          : null;
+      if (endNote) useAgentStore.getState().setNotice(endNote);
       return;
     }
 
@@ -435,11 +687,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
       if (n >= MAX_SAME_ERROR_REPEATS) wedged = true;
     });
     if (wedged) {
-      useAgentStore
-        .getState()
-        .setError(
-          "An action kept failing the same way; stopping the tool-use loop to avoid burning tokens. Refine your request and try again."
-        );
+      useAgentStore.getState().setNotice(asNote("repeated_failure", NOTICE_TEXT.repeatedFailure));
       return;
     }
   }
@@ -498,9 +746,9 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   }
   wrapUpId = withWrapUpText(wrapUpId);
   persistAssistant(conversationId, wrapUpId);
-  useAgentStore
-    .getState()
-    .setError("Reached tool-use round limit (10). Send a follow-up if more is needed.");
+  // Replaces whatever the wrap-up's own round said (a refusal of it included):
+  // the turn's end is the round limit, and a follow-up carries on.
+  useAgentStore.getState().setNotice(roundLimitNotice());
 }
 
 /** Stands in for the part of a visitor's text that was cut. */
@@ -726,66 +974,19 @@ function chatStillHas(id: string): boolean {
 }
 
 /**
- * What a visitor is told when a request fails outright or its stream breaks
- * half way. It may be their connection or the server's side (the route gave up
- * on a silent gateway), so it blames neither.
+ * The note for a round that just ended (see endNoteFor), read from its reply
+ * in the store: settleAssistant has removed a reply with nothing to show.
  */
-const VISITOR_STREAM_FAILED_TEXT =
-  "Amr couldn't finish answering. Try again, and check your connection if it keeps happening.";
-
-/**
- * finish_reasons that mean the reply was stopped before its end by something
- * other than its length: OpenAI's "content_filter", and GLM's own "sensitive"
- * and "network_error" (the model's side failed half way).
- */
-const VISITOR_STOPPED_EARLY: ReadonlySet<string> = new Set([
-  "content_filter",
-  "sensitive",
-  "network_error",
-]);
-
-/**
- * The visitor's note for a round that ended without a usable answer, or with
- * one that stops short, or null. An answer stops short when the model ran out
- * of tokens ("length"), when the route ended it at its time limit
- * (VISITOR_TIME_LIMIT_FINISH), when the model's side stopped it early
- * (VISITOR_STOPPED_EARLY), or when the stream just ended (`cut`: no
- * finish_reason, and either no [DONE], so something between the model and the
- * browser closed it, or an error event of the stream's own).
- */
-function visitorEndNote(
+function roundEndNote(
   assistantId: string,
   finishReason: string | null,
-  cut: boolean
-): string | null {
+  cut: boolean,
+  visitor: boolean
+): ChatNotice | null {
   const msg = useAgentStore.getState().messages.find((m) => m.id === assistantId);
   const hasText = msg?.content.some((c) => c.type === "text" && c.text.trim().length > 0) ?? false;
-  const timeLimit = finishReason === VISITOR_TIME_LIMIT_FINISH;
-  if (!hasText) {
-    // All reasoning and no reply (the reply plus reasoning budget, or the time,
-    // ran out), or a tool call cut off half-way: settleAssistant removed the
-    // empty message.
-    if (finishReason === "length") {
-      return "Amr ran out of room thinking before he could answer. Try a shorter or simpler question.";
-    }
-    if (timeLimit) {
-      return "Amr ran out of time before he could answer. Try a shorter or simpler question.";
-    }
-    return "Amr didn't manage an answer that time. Try asking again.";
-  }
-  if (finishReason === "length") return "Amr's answer was cut short. Ask him to go on.";
-  if (timeLimit) return "Amr ran out of time, so his answer stops here. Ask him to go on.";
-  if (cut || (finishReason !== null && VISITOR_STOPPED_EARLY.has(finishReason))) {
-    return "Amr's answer may have been cut off. Ask him to go on.";
-  }
-  return null;
+  return endNoteFor({ hasText, finishReason, cut, visitor });
 }
-
-/**
- * Shown when this browser has a visitor live room open and Amr asks for a
- * tool, or a room opened while he was using them.
- */
-const LIVE_ROOM_NOTE = "Amr uses no tools while you're in a live room.";
 
 /** The tool id a visitor's request names: a released tool's, never a VIP one. */
 function visitorContextToolId(toolId: string | null | undefined): string | undefined {
@@ -815,7 +1016,7 @@ function visitorContextToolId(toolId: string | null | undefined): string | undef
  *    another (lib/realtime/live-visitor-room.ts), no tools are offered and
  *    none runs: not one offered before the room opened, and not one whose
  *    confirmation was still waiting. The turn stops there with
- *    LIVE_ROOM_NOTE. Amr still answers questions.
+ *    NOTICE_TEXT.liveRoom. Amr still answers questions.
  */
 async function runVisitorLoop(opts: StreamOptions): Promise<void> {
   const toolId = resolvePageTool(opts.toolId)?.id ?? null;
@@ -828,7 +1029,7 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
     if (opts.signal?.aborted) return;
     const history = trimVisitorHistory(useAgentStore.getState().messages);
     if (overVisitorLimits(history)) {
-      useAgentStore.getState().setError(VISITOR_ERROR_TEXT.round_limit);
+      useAgentStore.getState().setNotice(asNote("round_limit", VISITOR_ERROR_TEXT.round_limit));
       return;
     }
     const tools = buildVisitorTurnTools(rankText, history, toolId);
@@ -850,11 +1051,11 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
       // reply that stops short: the visitor can't tell it from a finished one.
       // A refusal (no assistantId) has already said why, and a visitor who
       // pressed Stop knows.
-      const note =
+      const endNote =
         assistantId && !opts.signal?.aborted
-          ? visitorEndNote(assistantId, finishReason ?? null, cut === true)
+          ? roundEndNote(assistantId, finishReason ?? null, cut === true, true)
           : null;
-      if (note) useAgentStore.getState().setError(note);
+      if (endNote) useAgentStore.getState().setNotice(endNote);
       return;
     }
 
@@ -874,8 +1075,10 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
       // the visitor's message and count as a new one. Stop here instead.
       useAgentStore
         .getState()
-        .setError(
-          live ? LIVE_ROOM_NOTE : "Amr tried something he can't do here. Try asking another way."
+        .setNotice(
+          live
+            ? asNote("live_room", NOTICE_TEXT.liveRoom)
+            : asNote("cant_do_here", NOTICE_TEXT.cantDoHere)
         );
       return;
     }
@@ -918,7 +1121,7 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
     // offer no tools, so it would leave this round's calls out and end on the
     // visitor's message, which counts as a new one. Stop and say why instead.
     if (inLiveVisitorRoom()) {
-      useAgentStore.getState().setError(LIVE_ROOM_NOTE);
+      useAgentStore.getState().setNotice(asNote("live_room", NOTICE_TEXT.liveRoom));
       return;
     }
 
@@ -927,21 +1130,22 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
       if (n >= MAX_SAME_ERROR_REPEATS) wedged = true;
     });
     if (wedged) {
-      useAgentStore
-        .getState()
-        .setError("An action kept failing the same way, so Amr stopped. Try asking another way.");
+      useAgentStore.getState().setNotice(asNote("repeated_failure", NOTICE_TEXT.repeatedFailure));
       return;
     }
   }
 
   // Every round ran tools: say what happened instead of asking for a wrap-up.
-  if (!opts.signal?.aborted) withWrapUpText(null, VISITOR_LIMITS.maxToolRounds);
+  if (opts.signal?.aborted) return;
+  withWrapUpText(null, VISITOR_LIMITS.maxToolRounds);
+  useAgentStore.getState().setNotice(roundLimitNotice(VISITOR_LIMITS.maxToolRounds));
 }
 
 /**
  * The note shown when a round-limit turn's wrap-up wrote no text: how many
  * tool calls this turn ran and which actions failed, read from the transcript
- * since the last user message. Exported for tests.
+ * since the last user message. It is narration about Amr, in the third
+ * person, not his own words. Exported for tests.
  */
 export function roundLimitNote(
   messages: ChatMessage[],
@@ -976,7 +1180,7 @@ export function roundLimitNote(
       : `${failed} failed (${Array.from(failedActions)
           .map((a) => `\`${a}\``)
           .join(", ")})`;
-  return `I used all ${rounds} tool rounds for this request before I could write a summary. This turn ran ${calls}; ${failures}. Send a follow-up and I'll carry on from there.`;
+  return `Amr used all ${rounds} tool rounds for this request before he could sum up. This turn ran ${calls}; ${failures}. Send a follow-up and he'll carry on.`;
 }
 
 /**
@@ -1054,7 +1258,7 @@ async function openOneTurn(
   const early =
     mode === "visitor"
       ? await handleVisitorResponse(response, signal)
-      : await handleOwnerResponse(response, signal);
+      : await handleOwnerResponse(response, signal, mode);
   if (early) return early;
   // Both checks end the round on a response without a body; this only narrows the type.
   const stream = response.body;
@@ -1223,71 +1427,49 @@ function frameFlusher(write: () => void): Flusher {
 }
 
 /**
+ * The error code a refusal's JSON body names (`{"error": "…"}`), or null when
+ * the body is not JSON or names none.
+ */
+function refusalCode(body: string): string | null {
+  try {
+    const json = JSON.parse(body) as { error?: unknown } | null;
+    return typeof json?.error === "string" ? json.error : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The owner's response checks, before its stream is read: update the usage bar
  * from the route's X-RateLimit-* headers (server mode, turn start), and turn a
- * refusal into a message. Returns the round's outcome when it ends here, or
- * null to read the stream. A refusal that lands after the turn was stopped
- * says nothing: the chat on screen may not be this turn's any more.
+ * refusal into a notice in plain words (ownerRefusalNotice), with its status
+ * and body for the console only. Returns the round's outcome when it ends
+ * here, or null to read the stream. A refusal that lands after the turn was
+ * stopped says nothing: the chat on screen may not be this turn's any more.
  */
 async function handleOwnerResponse(
   response: Response,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  mode: AgentMode
 ): Promise<TurnOutcome | null> {
-  // A 429 means a window cap was hit — surface it gently and stop the loop
-  // instead of throwing the generic "stream failed" error.
-  const rl = parseRateLimitHeaders(response.headers, response.status === 429);
-  if (rl) useAgentStore.getState().setRateLimit(rl);
-  if (signal?.aborted && (response.status === 429 || !response.ok || !response.body)) {
-    return { stopReason: "end_turn", assistantId: null };
+  const store = useAgentStore.getState();
+  if (response.ok && response.body) {
+    const rl = parseRateLimitHeaders(response.headers);
+    if (rl) store.setRateLimit(rl);
+    return null;
   }
-  if (response.status === 429) {
-    useAgentStore
-      .getState()
-      .setError("You've reached the agent usage limit for now. Please try again later.");
-    return { stopReason: "end_turn", assistantId: null };
-  }
-
-  if (!response.ok || !response.body) {
-    const detail = await response.text().catch(() => "");
-    if (signal?.aborted) return { stopReason: "end_turn", assistantId: null };
-    // Map the common upstream failures to a message a user can act on, instead
-    // of dumping the raw `agent stream failed (NNN): {json}` developer string
-    // into the chat's error banner.
-    const friendly =
-      response.status === 413
-        ? "That request was too large for the agent. Start a new conversation or shorten your message, then try again."
-        : response.status === 401 || response.status === 403
-          ? "The agent could not authenticate. Try signing out and back in."
-          : response.status >= 500
-            ? "The assistant is temporarily unavailable. Please try again in a moment."
-            : null;
-    if (friendly) {
-      useAgentStore.getState().setError(friendly);
-      return { stopReason: "end_turn", assistantId: null };
-    }
-    throw new Error(`agent stream failed (${response.status}): ${detail.slice(0, 200)}`);
-  }
-  return null;
+  const detail = await response.text().catch(() => "");
+  const code = refusalCode(detail);
+  // A 429 of the route's own means a window cap was hit; one the gateway
+  // behind it passed on ("upstream") is the AI service being busy.
+  const limited = response.status === 429 && code !== "upstream";
+  const rl = parseRateLimitHeaders(response.headers, limited);
+  if (rl) store.setRateLimit(rl);
+  if (signal?.aborted) return { stopReason: "end_turn", assistantId: null };
+  console.warn(`[agent] the request was refused (${response.status}):`, detail.slice(0, 200));
+  store.setNotice(ownerRefusalNotice(response.status, mode === "client", code));
+  return { stopReason: "end_turn", assistantId: null };
 }
-
-/** What a visitor is told for each refusal the visitor route can send. */
-const VISITOR_ERROR_TEXT: Record<VisitorErrorCode, string> = {
-  disabled: "Amr's AI is switched off right now.",
-  forbidden: "That request didn't come from this site, so Amr couldn't answer it.",
-  slow_down: "That's a lot of messages at once. Wait a few seconds, then try again.",
-  too_large: "That conversation got too long to send. Clear the chat and ask again.",
-  bad_request: "Amr couldn't read that request. Clear the chat and try again.",
-  round_limit: "That took Amr too many steps. Ask again in smaller pieces.",
-  meter_unavailable: "Amr can't check today's message count right now.",
-  visitor_limit: "You've used all of today's messages with Amr.",
-  visitor_peak_limit: "You've used all your messages for these busy hours.",
-  site_limit: "Amr has answered all he can for today.",
-  site_peak_limit: "Amr has answered all he can for these busy hours.",
-  site_busy: "Amr is too busy to answer right now.",
-  upstream_busy: "Amr's AI service is busy. Try again in a minute.",
-  upstream_error: "Amr's AI service hit an error. Try again in a moment.",
-  timeout: "Amr's AI service took too long to answer. Try again in a moment.",
-};
 
 function isVisitorErrorCode(v: unknown): v is VisitorErrorCode {
   return typeof v === "string" && Object.prototype.hasOwnProperty.call(VISITOR_ERROR_TEXT, v);
@@ -1299,11 +1481,11 @@ function isVisitorErrorCode(v: unknown): v is VisitorErrorCode {
  * response without them keeps the last one). A refusal whose code means "no
  * more AI for now" (VISITOR_FALLBACK_CODES) sets visitorFallback, so the panel
  * goes back to the tool finder; every other refusal (a busy or failing AI
- * service, a timeout, a bad request) only shows an error. A visitor who
- * pressed Stop while the refusal was still arriving is told nothing: they know
- * why there is no answer, and the abort has usually taken the refusal's reason
- * with it. Returns the round's outcome when it ends here, or null to read the
- * stream.
+ * service, a timeout, a bad request) only shows a notice (visitorRefusalNotice).
+ * A visitor who pressed Stop while the refusal was still arriving is told
+ * nothing: they know why there is no answer, and the abort has usually taken
+ * the refusal's reason with it. Returns the round's outcome when it ends here,
+ * or null to read the stream.
  */
 async function handleVisitorResponse(
   response: Response,
@@ -1322,17 +1504,10 @@ async function handleVisitorResponse(
     /* not JSON: fall back to the status below */
   }
   if (signal?.aborted) return { stopReason: "end_turn", assistantId: null };
-  if (code && VISITOR_FALLBACK_CODES.has(code)) {
-    store.setVisitorFallback(code);
-    store.setError(VISITOR_ERROR_TEXT[code]);
-    return { stopReason: "end_turn", assistantId: null };
-  }
-  const text = code
-    ? VISITOR_ERROR_TEXT[code]
-    : response.status >= 500
-      ? VISITOR_ERROR_TEXT.upstream_error
-      : `Amr couldn't answer that (error ${response.status}). Try again in a moment.`;
-  store.setError(text);
+  if (code && VISITOR_FALLBACK_CODES.has(code)) store.setVisitorFallback(code);
+  // A refusal with no code of the route's own: its status is for the console.
+  if (!code) console.warn(`[visitor-ai] the request was refused (${response.status})`);
+  store.setNotice(visitorRefusalNotice(code, response.status));
   return { stopReason: "end_turn", assistantId: null };
 }
 
@@ -1688,6 +1863,11 @@ type AgentMode = "server" | "client" | "visitor";
 interface ModeProbe {
   mode: AgentMode;
   serverModel: string | null;
+  /**
+   * The probe failed (then mode is "client", the fallback): the status it was
+   * refused with, or 0 when it got no answer at all.
+   */
+  failed?: number;
 }
 
 /**
@@ -1699,8 +1879,10 @@ interface ModeProbe {
 let cachedProbe: ModeProbe | null = null;
 async function detectMode(): Promise<ModeProbe> {
   if (cachedProbe) return cachedProbe;
+  let failed = 0;
   try {
     const res = await fetch("/api/agent/stream", { method: "GET" });
+    failed = res.status;
     if (res.ok) {
       const json = (await res.json()) as { mode?: string; model?: string | null };
       cachedProbe = {
@@ -1716,7 +1898,9 @@ async function detectMode(): Promise<ModeProbe> {
   // whole page session to BYOK after one cold-start 502 / transient offline /
   // expired session, throwing "No GLM key available…" on every send until a
   // reload. `use-agent-backend.ts` caches on success only for the same reason.
-  return { mode: "client", serverModel: null };
+  // `failed` lets an owner's turn with no key of its own ask once more, and
+  // then say the server couldn't be reached rather than that no key is set.
+  return { mode: "client", serverModel: null, failed };
 }
 
 function pickModel(mode: AgentMode, serverModel: string | null): string {

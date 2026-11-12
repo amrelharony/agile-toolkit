@@ -261,7 +261,7 @@ describe("the visitor's requests", () => {
     const s = useAgentStore.getState();
     expect(s.chatProfile).toBe("visitor");
     expect(s.streaming).toBe(false);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     const reply = s.messages.at(-1);
     expect(reply?.role).toBe("assistant");
     expect(reply?.content).toEqual([
@@ -385,14 +385,47 @@ describe("the visitor's allowance and refusals", () => {
     const s = useAgentStore.getState();
     expect(s.visitorFallback).toBeNull();
     expect(s.error).toBeTruthy();
+    expect(s.notice).toMatchObject({ tone: "error", kind: code });
     expect(s.streaming).toBe(false);
   });
 
   it("shows an error for a refusal without a code", async () => {
-    queue.push(new Response("gateway down", { status: 502 }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      queue.push(new Response("gateway down", { status: 502 }));
+      await askVisitor("What is WSJF?");
+      expect(useAgentStore.getState().visitorFallback).toBeNull();
+      expect(useAgentStore.getState().error).toMatch(/error/i);
+      expect(warn).toHaveBeenCalledWith("[visitor-ai] the request was refused (502)");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("names no status code in a refusal's words: that goes to the console", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      queue.push(new Response("not here", { status: 404 }));
+      await askVisitor("What is WSJF?");
+      const s = useAgentStore.getState();
+      expect(s.notice).toEqual({
+        tone: "error",
+        kind: "request_failed",
+        text: "Amr couldn't answer that. Try again in a moment.",
+      });
+      expect(s.notice?.text).not.toMatch(/d{3}/);
+      expect(warn).toHaveBeenCalledWith("[visitor-ai] the request was refused (404)");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("calls a turn that grew too long a note, not an error, when the route says so", async () => {
+    queue.push(refusal(413, "round_limit"));
     await askVisitor("What is WSJF?");
-    expect(useAgentStore.getState().visitorFallback).toBeNull();
-    expect(useAgentStore.getState().error).toMatch(/error/i);
+    const s = useAgentStore.getState();
+    expect(s.notice).toMatchObject({ tone: "note", kind: "round_limit" });
+    expect(s.error).toBeNull();
   });
 });
 
@@ -404,7 +437,10 @@ describe("a round with no usable reply", () => {
     await askVisitor("What is WSJF?");
     const s = useAgentStore.getState();
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
-    expect(s.error).toMatch(/ran out of room/);
+    expect(s.notice?.text).toMatch(/ran out of room/);
+    // A note, not an error: the store's error stays clear, so Amr doesn't frown.
+    expect(s.notice).toMatchObject({ tone: "note", kind: "no_answer" });
+    expect(s.error).toBeNull();
     expect(s.streaming).toBe(false);
   });
 
@@ -429,7 +465,7 @@ describe("a round with no usable reply", () => {
     expect(h.added).toEqual([]);
     expect(calls).toHaveLength(1);
     expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user"]);
-    expect(useAgentStore.getState().error).toMatch(/ran out of room/);
+    expect(useAgentStore.getState().notice?.text).toMatch(/ran out of room/);
   });
 
   it("keeps a reply cut off by length, and says it was cut", async () => {
@@ -437,13 +473,15 @@ describe("a round with no usable reply", () => {
     await askVisitor("How do I run a retro?");
     const s = useAgentStore.getState();
     expect(s.messages.at(-1)?.content).toEqual([{ type: "text", text: "Start with what" }]);
-    expect(s.error).toMatch(/cut short/);
+    expect(s.notice?.text).toMatch(/cut short/);
+    expect(s.notice).toMatchObject({ tone: "note", kind: "cut_off" });
+    expect(s.error).toBeNull();
   });
 
   it("says nothing extra after a complete reply", async () => {
     queue.push(textTurn("All good."));
     await askVisitor("How do I run a retro?");
-    expect(useAgentStore.getState().error).toBeNull();
+    expect(useAgentStore.getState().notice).toBeNull();
   });
 });
 
@@ -495,7 +533,7 @@ describe("an answer that stops before its end", () => {
     await askVisitor("How do I run a retro?");
     const s = useAgentStore.getState();
     expect(lastText()).toBe("Start with what");
-    expect(s.error).toMatch(/ran out of time, so his answer stops here/);
+    expect(s.notice?.text).toMatch(/ran out of time, so his answer stops here/);
     expect(s.streaming).toBe(false);
     expect(calls).toHaveLength(1);
   });
@@ -511,7 +549,7 @@ describe("an answer that stops before its end", () => {
     await askVisitor("What is WSJF?");
     const s = useAgentStore.getState();
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
-    expect(s.error).toMatch(/ran out of time before he could answer/);
+    expect(s.notice?.text).toMatch(/ran out of time before he could answer/);
   });
 
   it("reads the route's last bytes as they are sent, even after an event cut in half", async () => {
@@ -528,7 +566,9 @@ describe("an answer that stops before its end", () => {
     await askVisitor("How do I run a retro?");
     // The half event is dropped whole, never shown as broken text.
     expect(lastText()).toBe("Start with what");
-    expect(useAgentStore.getState().error).toMatch(/ran out of time, so his answer stops here/);
+    expect(useAgentStore.getState().notice?.text).toMatch(
+      /ran out of time, so his answer stops here/
+    );
   });
 
   // The limit can land when the gateway's last event is whole but its closing
@@ -550,7 +590,9 @@ describe("an answer that stops before its end", () => {
     );
     await askVisitor("How do I run a retro?");
     expect(lastText()).toBe("Start with what went well.");
-    expect(useAgentStore.getState().error).toMatch(/ran out of time, so his answer stops here/);
+    expect(useAgentStore.getState().notice?.text).toMatch(
+      /ran out of time, so his answer stops here/
+    );
   });
 
   it("drops a tool call the time limit cut off, and never runs it", async () => {
@@ -576,7 +618,7 @@ describe("an answer that stops before its end", () => {
     expect(s.pendingToolUse).toBeNull();
     expect(calls).toHaveLength(1);
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
-    expect(s.error).toMatch(/ran out of time before he could answer/);
+    expect(s.notice?.text).toMatch(/ran out of time before he could answer/);
   });
 
   it("takes a reply as complete when the time limit lands after the model's own finish", async () => {
@@ -590,7 +632,7 @@ describe("an answer that stops before its end", () => {
     );
     await askVisitor("How do I run a retro?");
     expect(lastText()).toBe("All good.");
-    expect(useAgentStore.getState().error).toBeNull();
+    expect(useAgentStore.getState().notice).toBeNull();
   });
 
   it("still says a reply was cut by length when the time limit lands after that", async () => {
@@ -603,7 +645,7 @@ describe("an answer that stops before its end", () => {
       ])
     );
     await askVisitor("How do I run a retro?");
-    expect(useAgentStore.getState().error).toMatch(/cut short/);
+    expect(useAgentStore.getState().notice?.text).toMatch(/cut short/);
   });
 
   it("still runs a finished round's tools when the time limit lands after its finish", async () => {
@@ -629,7 +671,7 @@ describe("an answer that stops before its end", () => {
     expect(calls).toHaveLength(2);
     expect(posts()[1].messages.at(-1)).toMatchObject({ role: "tool", tool_call_id: "c1" });
     expect(lastText()).toBe("Your board is empty.");
-    expect(useAgentStore.getState().error).toBeNull();
+    expect(useAgentStore.getState().notice).toBeNull();
   });
 
   it("says a reply may be cut off when the stream ends with neither a finish nor [DONE]", async () => {
@@ -637,7 +679,7 @@ describe("an answer that stops before its end", () => {
     queue.push(sse([delta({ content: "Start with what" })]));
     await askVisitor("How do I run a retro?");
     expect(lastText()).toBe("Start with what");
-    expect(useAgentStore.getState().error).toMatch(/may have been cut off/);
+    expect(useAgentStore.getState().notice?.text).toMatch(/may have been cut off/);
   });
 
   it("drops the tool call of a stream that just ends, and never runs it", async () => {
@@ -661,7 +703,7 @@ describe("an answer that stops before its end", () => {
     expect(useAgentStore.getState().messages.at(-1)?.content).toEqual([
       { type: "text", text: "Adding it." },
     ]);
-    expect(useAgentStore.getState().error).toMatch(/may have been cut off/);
+    expect(useAgentStore.getState().notice?.text).toMatch(/may have been cut off/);
   });
 
   it.each([
@@ -671,7 +713,7 @@ describe("an answer that stops before its end", () => {
     queue.push(sse(events));
     await askVisitor("How do I run a retro?");
     expect(lastText()).toBe("All good.");
-    expect(useAgentStore.getState().error).toBeNull();
+    expect(useAgentStore.getState().notice).toBeNull();
   });
 
   it("drops an event cut in half by a stream that just ends, and says the reply may be cut off", async () => {
@@ -686,7 +728,7 @@ describe("an answer that stops before its end", () => {
     );
     await askVisitor("How do I run a retro?");
     expect(lastText()).toBe("Start with what");
-    expect(useAgentStore.getState().error).toMatch(/may have been cut off/);
+    expect(useAgentStore.getState().notice?.text).toMatch(/may have been cut off/);
   });
 
   // The model's side can stop a reply early with a reason of its own
@@ -697,7 +739,7 @@ describe("an answer that stops before its end", () => {
       queue.push(sse([delta({ content: "Start with what" }), delta({}, reason), "[DONE]"]));
       await askVisitor("How do I run a retro?");
       expect(lastText()).toBe("Start with what");
-      expect(useAgentStore.getState().error).toMatch(/may have been cut off/);
+      expect(useAgentStore.getState().notice?.text).toMatch(/may have been cut off/);
     }
   );
 
@@ -706,7 +748,7 @@ describe("an answer that stops before its end", () => {
     await askVisitor("How do I run a retro?");
     const s = useAgentStore.getState();
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
-    expect(s.error).toMatch(/didn't manage an answer/);
+    expect(s.notice?.text).toMatch(/didn't manage an answer/);
   });
 
   // A broken stream is also what the route's 30 s without a chunk looks like
@@ -768,7 +810,7 @@ describe("an answer that stops before its end", () => {
     expect(s.pendingToolUse).toBeNull();
     expect(calls).toHaveLength(1);
     expect(s.messages.at(-1)?.content).toEqual([{ type: "text", text: "Adding it." }]);
-    expect(s.error).toMatch(/ran out of time, so his answer stops here/);
+    expect(s.notice?.text).toMatch(/ran out of time, so his answer stops here/);
   });
 
   it("takes the visitor's next message after the time ran out in the round that follows a tool", async () => {
@@ -778,7 +820,7 @@ describe("an answer that stops before its end", () => {
       textTurn("Your board is empty.")
     );
     await askVisitor("read my zorblax board");
-    expect(useAgentStore.getState().error).toMatch(/ran out of time before he could answer/);
+    expect(useAgentStore.getState().notice?.text).toMatch(/ran out of time before he could answer/);
 
     await askVisitor("go on");
     // A new message after a finished tool round: the route's own parser takes
@@ -788,7 +830,7 @@ describe("an answer that stops before its end", () => {
     const parsed = parseVisitorBody(next);
     expect(parsed.ok && parsed.body.newTurn).toBe(true);
     expect(lastText()).toBe("Your board is empty.");
-    expect(useAgentStore.getState().error).toBeNull();
+    expect(useAgentStore.getState().notice).toBeNull();
   });
 
   it("says nothing about a cut when the visitor pressed Stop", async () => {
@@ -829,7 +871,7 @@ describe("an answer that stops before its end", () => {
 
     const s = useAgentStore.getState();
     expect(lastText()).toBe("Start with what");
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.streaming).toBe(false);
   });
 
@@ -850,7 +892,7 @@ describe("an answer that stops before its end", () => {
 
     const s = useAgentStore.getState();
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.streaming).toBe(false);
     expect(warn).not.toHaveBeenCalled();
   });
@@ -862,7 +904,7 @@ describe("an answer that stops before its end", () => {
     await askVisitor("How do I run a retro?");
 
     const s = useAgentStore.getState();
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.streaming).toBe(false);
     expect(warn).not.toHaveBeenCalled();
   });
@@ -898,7 +940,7 @@ describe("an answer that stops before its end", () => {
 
       const s = useAgentStore.getState();
       expect(lastText()).toBe("Start with");
-      expect(s.error).toBeNull();
+      expect(s.notice).toBeNull();
       expect(s.streaming).toBe(false);
       expect(warn).not.toHaveBeenCalled();
     }
@@ -948,7 +990,7 @@ describe("an answer that stops before its end", () => {
 
     const s = useAgentStore.getState();
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.visitorFallback).toBeNull();
     expect(s.streaming).toBe(false);
     expect(warn).not.toHaveBeenCalled();
@@ -980,7 +1022,7 @@ describe("an answer that stops before its end", () => {
     await askVisitor("How do I run a retro?");
     const s = useAgentStore.getState();
     expect(lastText()).toBe("All good.");
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.streaming).toBe(false);
     expect(warn).not.toHaveBeenCalled();
   });
@@ -999,7 +1041,7 @@ describe("an answer that stops before its end", () => {
     expect(calls).toHaveLength(2);
     expect(posts()[1].messages.at(-1)).toMatchObject({ role: "tool", tool_call_id: "c1" });
     expect(lastText()).toBe("Your board is empty.");
-    expect(useAgentStore.getState().error).toBeNull();
+    expect(useAgentStore.getState().notice).toBeNull();
     expect(warn).not.toHaveBeenCalled();
   });
 
@@ -1056,7 +1098,7 @@ describe("an answer that stops before its end", () => {
     expect(ran).toBe(0);
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
     expect(calls).toHaveLength(1);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.streaming).toBe(false);
     expect(warn).not.toHaveBeenCalled();
   });
@@ -1098,7 +1140,7 @@ describe("an answer that stops before its end", () => {
     expect(ran).toBe(0);
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
     expect(calls).toHaveLength(1);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.streaming).toBe(false);
     expect(warn).not.toHaveBeenCalled();
   });
@@ -1121,7 +1163,7 @@ describe("an answer that stops before its end", () => {
 
     const s = useAgentStore.getState();
     expect(s.messages).toEqual([]);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.streaming).toBe(false);
     expect(s.abortHook).toBeNull();
     expect(calls).toHaveLength(1);
@@ -1139,7 +1181,7 @@ describe("an answer that stops before its end", () => {
       queue.push(sse([delta({ content: "Start with what" }), event, "[DONE]"]));
       await askVisitor("How do I run a retro?");
       expect(lastText()).toBe("Start with what");
-      expect(useAgentStore.getState().error).toMatch(/may have been cut off/);
+      expect(useAgentStore.getState().notice?.text).toMatch(/may have been cut off/);
       // Nothing was thrown, so there is no error of the browser's to log.
       expect(warn).not.toHaveBeenCalled();
     }
@@ -1156,7 +1198,7 @@ describe("an answer that stops before its end", () => {
     await askVisitor("How do I run a retro?");
     const s = useAgentStore.getState();
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
-    expect(s.error).toMatch(/didn't manage an answer/);
+    expect(s.notice?.text).toMatch(/didn't manage an answer/);
   });
 
   it("takes a reply as complete when an error event comes after the model's own finish", async () => {
@@ -1170,14 +1212,14 @@ describe("an answer that stops before its end", () => {
     );
     await askVisitor("How do I run a retro?");
     expect(lastText()).toBe("All good.");
-    expect(useAgentStore.getState().error).toBeNull();
+    expect(useAgentStore.getState().notice).toBeNull();
   });
 
   it("reads an event with `error: null` as no error at all", async () => {
     queue.push(sse([{ ...delta({ content: "All good." }), error: null }, "[DONE]"]));
     await askVisitor("How do I run a retro?");
     expect(lastText()).toBe("All good.");
-    expect(useAgentStore.getState().error).toBeNull();
+    expect(useAgentStore.getState().notice).toBeNull();
   });
 });
 
@@ -1233,7 +1275,7 @@ describe("the visitor's tool calls", () => {
     // Nothing ran, and nothing of the call is left: no result, no empty bubble.
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
     expect(s.pendingToolUse).toBeNull();
-    expect(s.error).toMatch(/can't do here/);
+    expect(s.notice?.text).toMatch(/can't do here/);
   });
 
   it("never offers a refused action later through the history", async () => {
@@ -1283,7 +1325,7 @@ describe("the visitor's tool calls", () => {
     expect(h.added).toEqual([]);
     expect(calls).toHaveLength(1);
     expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user"]);
-    expect(useAgentStore.getState().error).toBeTruthy();
+    expect(useAgentStore.getState().notice?.text).toBeTruthy();
 
     // The visitor's next message goes out cleanly.
     queue.push(textTurn("Shorter, then?"));
@@ -1421,7 +1463,7 @@ describe("the visitor's tool calls", () => {
     }
     await askVisitor("check my flimflam board for breakage");
     expect(calls.length).toBeLessThan(VISITOR_LIMITS.maxToolRounds);
-    expect(useAgentStore.getState().error).toMatch(/kept failing/);
+    expect(useAgentStore.getState().notice?.text).toMatch(/kept failing/);
   });
 
   it("stops before sending a turn grown past the route's limits", async () => {
@@ -1436,7 +1478,7 @@ describe("the visitor's tool calls", () => {
     queue.push(eight(0), eight(1), textTurn("never sent"));
     await askVisitor("read my zorblax board");
     expect(calls).toHaveLength(2);
-    expect(useAgentStore.getState().error).toMatch(/too many steps/);
+    expect(useAgentStore.getState().notice?.text).toMatch(/too many steps/);
   });
 
   it("falls back to the guide on a limit in the middle of a tool round", async () => {
@@ -1487,7 +1529,7 @@ describe("the visitor's tool calls", () => {
     const s = useAgentStore.getState();
     expect(h.added).toEqual([]);
     expect(s.messages).toEqual([]);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.pendingToolUse).toBeNull();
   });
 
@@ -1534,8 +1576,12 @@ describe("the visitor's tool calls", () => {
     const last = useAgentStore.getState().messages.at(-1);
     expect(last?.role).toBe("assistant");
     expect(JSON.stringify(last?.content)).toContain(
-      `I used all ${VISITOR_LIMITS.maxToolRounds} tool rounds`
+      `Amr used all ${VISITOR_LIMITS.maxToolRounds} tool rounds`
     );
+    // A gentle note, with "Go on" to come: never an error, so Amr doesn't frown.
+    const { notice, error } = useAgentStore.getState();
+    expect(notice).toMatchObject({ tone: "note", kind: "round_limit" });
+    expect(error).toBeNull();
   });
 });
 
@@ -1578,7 +1624,7 @@ describe("in a visitor live room", () => {
     expect(Object.keys(body).sort()).toEqual(["context", "messages"]);
     const s = useAgentStore.getState();
     expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
 
     // The same words bring the tools back once the room has closed.
     leave();
@@ -1601,7 +1647,7 @@ describe("in a visitor live room", () => {
       expect(calls).toHaveLength(1);
       const s = useAgentStore.getState();
       expect(s.pendingToolUse).toBeNull();
-      expect(s.error).toBe(LIVE_ROOM_NOTE);
+      expect(s.notice?.text).toBe(LIVE_ROOM_NOTE);
     } finally {
       window.localStorage.removeItem(key);
     }
@@ -1623,7 +1669,7 @@ describe("in a visitor live room", () => {
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
     expect(s.pendingToolUse).toBeNull();
     expect(s.streaming).toBe(false);
-    expect(s.error).toBe(LIVE_ROOM_NOTE);
+    expect(s.notice?.text).toBe(LIVE_ROOM_NOTE);
   });
 
   it("never runs a call offered before the room opened when the reply arrives after", async () => {
@@ -1653,7 +1699,7 @@ describe("in a visitor live room", () => {
     expect(calls).toHaveLength(1);
     const s = useAgentStore.getState();
     expect(s.pendingToolUse).toBeNull();
-    expect(s.error).toBe(LIVE_ROOM_NOTE);
+    expect(s.notice?.text).toBe(LIVE_ROOM_NOTE);
     // The reply's text stays; its calls are gone, so none waits for a result.
     expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(s.messages.at(-1)?.content).toEqual([{ type: "text", text: "Let me look." }]);
@@ -1687,7 +1733,7 @@ describe("in a visitor live room", () => {
     // The second call never asked.
     expect(s.pendingToolUse).toBeNull();
     expect(s.streaming).toBe(false);
-    expect(s.error).toBe(LIVE_ROOM_NOTE);
+    expect(s.notice?.text).toBe(LIVE_ROOM_NOTE);
     // Each call has its result, so the chat can carry on from here.
     expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
     expect(s.messages.at(-1)?.content).toEqual([
@@ -1737,7 +1783,7 @@ describe("in a visitor live room", () => {
     const s = useAgentStore.getState();
     expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
     expect(s.streaming).toBe(false);
-    expect(s.error).toBe(LIVE_ROOM_NOTE);
+    expect(s.notice?.text).toBe(LIVE_ROOM_NOTE);
   });
 
   it("sends a body the route takes when earlier turns used tools", async () => {
@@ -1774,7 +1820,7 @@ describe("in a visitor live room", () => {
       { role: "user", content: "What is a retro?" },
     ]);
     let s = useAgentStore.getState();
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.messages.at(-1)?.content).toEqual([
       { type: "text", text: "A retro looks back at the sprint." },
     ]);
@@ -1786,7 +1832,7 @@ describe("in a visitor live room", () => {
     expect(posts()[5].tools).toBeUndefined();
     expect(posts()[5].messages.every((m) => m.role !== "tool" && !("tool_calls" in m))).toBe(true);
     s = useAgentStore.getState();
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
 
     // The chat kept its calls and results: they go back once the room has closed.
     leave();

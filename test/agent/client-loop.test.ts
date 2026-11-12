@@ -17,7 +17,7 @@
  * real registry's tool sets are pinned in client-tools.test.ts).
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { z } from "zod";
 
 const h = vi.hoisted(() => ({
@@ -54,7 +54,15 @@ vi.mock("@/lib/tools/guides", async (importOriginal) => {
 import { renderHook } from "@testing-library/react";
 import { registry } from "@/lib/actions/registry";
 import { getToolById } from "@/lib/constants/tools";
-import { roundLimitNote, sendUserMessage, usageTotal } from "@/lib/agent/client";
+import {
+  NOTICE_TEXT,
+  endNoteFor,
+  ownerRefusalNotice,
+  roundLimitNote,
+  roundLimitNotice,
+  sendUserMessage,
+  usageTotal,
+} from "@/lib/agent/client";
 import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage, ConversationMeta, ToolUseBlock } from "@/lib/agent/types";
 
@@ -263,6 +271,15 @@ function everyToolCallAnswered(body: Body): boolean {
 }
 
 describe("a round that doesn't finish", () => {
+  /** The failure's own words go to the console, never to the chat. */
+  let warn: MockInstance<typeof console.warn>;
+  beforeEach(() => {
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
   it("drops a tool call whose stream failed before its finish, so the next turn is valid", async () => {
     queue = [brokenStream(probeCall("call_cut"))];
     // The call did stream in whole before the failure.
@@ -273,7 +290,7 @@ describe("a round that doesn't finish", () => {
     await send("read the probe state", null);
     unsub();
     expect(seen).toContain("call_cut");
-    expect(useAgentStore.getState().error).toContain("upstream_idle_timeout");
+    expect(useAgentStore.getState().error).toBe(NOTICE_TEXT.streamFailed);
     expect(h.executeToolUse).not.toHaveBeenCalled();
     // Nothing to show was left: no empty bubble, no orphan tool_use.
     expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user"]);
@@ -290,18 +307,20 @@ describe("a round that doesn't finish", () => {
     expect(lastAssistant()?.content).toEqual([{ type: "text", text: "Reading it now." }]);
   });
 
-  it("shows the owner the failure's own words, with no console line of the visitor's", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      queue = [brokenStream(delta({ content: "Reading it now." }))];
-      await send("read the probe state", null);
-      expect(useAgentStore.getState().error).toBe("upstream_idle_timeout");
-      // The plain-words note and the console line behind it are a visitor's only.
-      const visitorLines = warn.mock.calls.filter((c) => String(c[0]).includes("[visitor-ai]"));
-      expect(visitorLines).toEqual([]);
-    } finally {
-      warn.mockRestore();
-    }
+  it("tells the owner in plain words, with the failure's own words in an [agent] console line", async () => {
+    queue = [brokenStream(delta({ content: "Reading it now." }))];
+    await send("read the probe state", null);
+    const s = useAgentStore.getState();
+    expect(s.notice).toEqual({
+      tone: "error",
+      kind: "stream_failed",
+      text: "Amr couldn't finish answering. Try again, and check your connection if it keeps happening.",
+    });
+    expect(s.error).toBe(NOTICE_TEXT.streamFailed);
+    // What did arrive stays.
+    expect(textOf(lastAssistant())).toBe("Reading it now.");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("[agent] the answer stopped:", "upstream_idle_timeout");
   });
 
   // The connection can go down right after the stream's own [DONE]: the round
@@ -330,7 +349,7 @@ describe("a round that doesn't finish", () => {
     queue = [brokenStream(probeCall("call_cut"), delta({}, "tool_calls"))];
     await send("read the probe state", null);
     expect(h.executeToolUse).not.toHaveBeenCalled();
-    expect(useAgentStore.getState().error).toBe("upstream_idle_timeout");
+    expect(useAgentStore.getState().error).toBe(NOTICE_TEXT.streamFailed);
     expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user"]);
   });
 
@@ -507,12 +526,16 @@ describe("round-limit wrap-up", () => {
     expect(lastAssistant()?.content).toEqual([
       { type: "text", text: "Summary: read the state ten times." },
     ]);
-    expect(useAgentStore.getState().error).toBe(
-      "Reached tool-use round limit (10). Send a follow-up if more is needed."
-    );
+    // A gentle note, in the third person: never an error, so Amr doesn't frown.
+    expect(useAgentStore.getState().notice).toEqual({
+      tone: "note",
+      kind: "round_limit",
+      text: "Amr reached his limit of 10 tool rounds for one request. Send a follow-up and he'll carry on.",
+    });
+    expect(useAgentStore.getState().error).toBeNull();
   });
 
-  const NOTE_START = "I used all 10 tool rounds for this request";
+  const NOTE_START = "Amr used all 10 tool rounds for this request before he could sum up.";
 
   it("shows and saves a local note when the wrap-up answers with only a tool call", async () => {
     tenRoundsThen(
@@ -538,7 +561,8 @@ describe("round-limit wrap-up", () => {
     for (const m of useAgentStore.getState().messages) expect(m.content.length).toBeGreaterThan(0);
     const saved = h.appendMessages.mock.calls.at(-1)![1] as ChatMessage[];
     expect(saved).toEqual([last]);
-    expect(useAgentStore.getState().error).toContain("Reached tool-use round limit");
+    expect(note.endsWith("Send a follow-up and he'll carry on.")).toBe(true);
+    expect(useAgentStore.getState().notice).toEqual(roundLimitNotice());
   });
 
   it("shows the note when the wrap-up's reasoning uses up its tokens", async () => {
@@ -555,6 +579,8 @@ describe("round-limit wrap-up", () => {
     expect(text.startsWith(NOTE_START)).toBe(true);
     // The note answers after the last tool result.
     expect(useAgentStore.getState().messages.at(-1)?.role).toBe("assistant");
+    // The turn ends on the round limit, not on the wrap-up's own refusal.
+    expect(useAgentStore.getState().notice?.kind).toBe("round_limit");
   });
 
   it("names the actions that failed", async () => {
@@ -691,7 +717,7 @@ describe("a turn stays in its own thread", () => {
     expect(s.messages).toEqual([]);
     expect(s.streaming).toBe(false);
     expect(s.streamingMessageId).toBeNull();
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.abortHook).toBeNull();
     expect(posts).toHaveLength(1);
     // Only the question was saved: the cut reply reaches no conversation.
@@ -720,7 +746,7 @@ describe("a turn stays in its own thread", () => {
     expect(s.activeConversationId).toBe("conv-2");
     expect(s.messages).toEqual(otherThread());
     expect(s.streaming).toBe(false);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(savedTo("conv-1").map((m) => m.role)).toEqual(["user"]);
     expect(savedTo("conv-2")).toEqual([]);
   });
@@ -746,7 +772,7 @@ describe("a turn stays in its own thread", () => {
     expect(s.messages).toEqual(otherThread());
     expect(s.pendingToolUse).toBeNull();
     expect(s.streaming).toBe(false);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     // No next round went out from the other thread.
     expect(posts).toHaveLength(1);
     // The turn's own thread was saved with the call and its (denied) result.
@@ -758,7 +784,7 @@ describe("a turn stays in its own thread", () => {
     expect(savedTo("conv-2")).toEqual([]);
   });
 
-  it("Stop through the store ends the answer where it is, with no error", async () => {
+  it("Stop through the store ends the answer where it is, with no error and no note", async () => {
     const body = manualStream();
     queue = [(init) => body.respond(init)];
     const turn = sendIn("conv-1", "tell me about retros");
@@ -772,7 +798,7 @@ describe("a turn stays in its own thread", () => {
     expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(textOf(lastAssistant())).toBe("Retros are");
     expect(s.streaming).toBe(false);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.abortHook).toBeNull();
     expect(posts).toHaveLength(1);
   });
@@ -799,7 +825,7 @@ describe("a turn outlives the panel", () => {
     expect(s.open).toBe(false);
     expect(textOf(lastAssistant())).toBe("Retros are a team's look back.");
     expect(s.streaming).toBe(false);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(savedTo("conv-1").map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(textOf(savedTo("conv-1")[1])).toBe("Retros are a team's look back.");
   });
@@ -1068,5 +1094,173 @@ describe("a tool call's arguments", () => {
     expect(h.executeToolUse).not.toHaveBeenCalled();
     expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(toolUses().map((c) => c.input)).toEqual([{ _partial: true }]);
+  });
+});
+
+describe("the owner's end notes", () => {
+  it("says an answer cut by its length was cut short: a note, not an error", async () => {
+    queue = [sse(delta({ content: "Retros are" }), delta({}, "length"), "[DONE]")];
+    await send("tell me about retros", null);
+    const s = useAgentStore.getState();
+    expect(textOf(lastAssistant())).toBe("Retros are");
+    expect(s.notice).toEqual({ tone: "note", kind: "cut_off", text: NOTICE_TEXT.cutShort });
+    // Amr frowns only at errors: a note leaves the store's error clear.
+    expect(s.error).toBeNull();
+  });
+
+  it("says so when the whole budget went on reasoning, instead of ending on nothing", async () => {
+    queue = [sse(delta({ reasoning_content: "hmm" }), delta({}, "length"), "[DONE]")];
+    await send("tell me about retros", null);
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(s.notice).toEqual({ tone: "note", kind: "no_answer", text: NOTICE_TEXT.noRoom });
+  });
+
+  it("says he didn't manage an answer when the round ends with nothing to show", async () => {
+    // A "stop" that still carried a call: the call goes, and nothing is left.
+    queue = [sse(probeCall("call_x"), delta({}, "stop"), "[DONE]")];
+    await send("read the probe state", null);
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(s.notice).toEqual({ tone: "note", kind: "no_answer", text: NOTICE_TEXT.noAnswer });
+    expect(h.executeToolUse).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the stream just ends, with neither a finish nor [DONE]", [delta({ content: "Retros are" })]],
+    [
+      "the model's side stops it early",
+      [delta({ content: "Retros are" }), delta({}, "content_filter"), "[DONE]"],
+    ],
+  ])("says an answer may be cut off when %s", async (_what, events) => {
+    queue = [sse(...events)];
+    await send("tell me about retros", null);
+    expect(textOf(lastAssistant())).toBe("Retros are");
+    expect(useAgentStore.getState().notice).toEqual({
+      tone: "note",
+      kind: "cut_off",
+      text: NOTICE_TEXT.mayBeCut,
+    });
+  });
+
+  it("says nothing after a finished answer", async () => {
+    queue = [textTurn("Retros are a team's look back.")];
+    await send("tell me about retros", null);
+    expect(useAgentStore.getState().notice).toBeNull();
+  });
+
+  it("keeps the visitor route's time-limit words for visitors", () => {
+    const timeLimit = { hasText: true, finishReason: "time_limit", cut: false };
+    expect(endNoteFor({ ...timeLimit, visitor: true })?.text).toBe(NOTICE_TEXT.timeCut);
+    expect(endNoteFor({ ...timeLimit, visitor: false })).toBeNull();
+    expect(endNoteFor({ ...timeLimit, hasText: false, visitor: false })?.text).toBe(
+      NOTICE_TEXT.noAnswer
+    );
+  });
+
+  it("calls an action that kept failing a note, and stops", async () => {
+    const failing = async (tu: { id: string }) => ({
+      type: "tool_result" as const,
+      tool_use_id: tu.id,
+      content: "Invalid input for tool.loop_probe.read_state: bad",
+      is_error: true,
+    });
+    h.executeToolUse.mockImplementationOnce(failing).mockImplementationOnce(failing);
+    queue = [toolTurn("call_1"), toolTurn("call_2")];
+    await send("read the probe state");
+    const s = useAgentStore.getState();
+    expect(posts).toHaveLength(2);
+    expect(s.notice).toEqual({
+      tone: "note",
+      kind: "repeated_failure",
+      text: "An action kept failing the same way, so Amr stopped. Try asking another way.",
+    });
+    expect(s.error).toBeNull();
+  });
+});
+
+describe("a refusal of the owner's request", () => {
+  let warn: MockInstance<typeof console.warn>;
+  beforeEach(() => {
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  const RATE_HEADERS = { "x-ratelimit-daily": "50", "x-ratelimit-daily-max": "50" };
+  const SERVICE_ERROR = "Amr's AI service hit an error. Try again in a moment.";
+
+  it.each([
+    [413, { error: "payload_too_large" }, "too_large", NOTICE_TEXT.tooLarge],
+    [401, { error: "unauthorized" }, "signed_out", NOTICE_TEXT.signedOut],
+    [403, { error: "forbidden" }, "signed_out", NOTICE_TEXT.signedOut],
+    [429, { error: "rate_limited" }, "usage_limit", NOTICE_TEXT.usageLimit],
+    [
+      429,
+      { error: "upstream" },
+      "upstream_busy",
+      "Amr's AI service is busy. Try again in a minute.",
+    ],
+    [401, { error: "upstream" }, "request_failed", NOTICE_TEXT.requestFailed],
+    [500, { error: "upstream" }, "upstream_error", SERVICE_ERROR],
+    [502, { error: "upstream_unreachable" }, "upstream_error", SERVICE_ERROR],
+    [
+      504,
+      { error: "upstream_timeout" },
+      "timeout",
+      "Amr's AI service took too long to answer. Try again in a moment.",
+    ],
+    [400, { error: "invalid_body" }, "request_failed", NOTICE_TEXT.requestFailed],
+  ] as const)(
+    "turns a %i (%o) into plain words, with the detail for the console only",
+    async (status, body, kind, text) => {
+      queue = [Response.json(body, { status, headers: RATE_HEADERS })];
+      await send("tell me about retros", null);
+      const s = useAgentStore.getState();
+      expect(s.notice).toEqual({ tone: "error", kind, text });
+      expect(s.error).toBe(text);
+      // No status code, no JSON, no "agent" or "assistant" in what the owner reads.
+      expect(text).not.toMatch(/\d|\{|\bagent\b|\bassistant\b/i);
+      expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+      expect(s.streaming).toBe(false);
+      expect(warn).toHaveBeenCalledWith(
+        `[agent] the request was refused (${status}):`,
+        JSON.stringify(body)
+      );
+    }
+  );
+
+  it("marks the usage bar limited only for the route's own 429", async () => {
+    queue = [Response.json({ error: "rate_limited" }, { status: 429, headers: RATE_HEADERS })];
+    await send("tell me about retros", null);
+    expect(useAgentStore.getState().rateLimit?.limited).toBe(true);
+
+    queue = [Response.json({ error: "upstream" }, { status: 429, headers: RATE_HEADERS })];
+    await send("tell me about retros", null);
+    expect(useAgentStore.getState().rateLimit?.limited).toBe(false);
+  });
+
+  it("says nothing of a refusal that lands after Stop", async () => {
+    let release: ((r: Response) => void) | null = null;
+    vi.mocked(fetch).mockImplementation(async (_url, init) => {
+      if (!init || init.method === "GET")
+        return Response.json({ mode: "server", model: "openclaw" });
+      return new Promise<Response>((r) => (release = r));
+    });
+    const turn = send("tell me about retros", null);
+    await vi.waitFor(() => expect(release).not.toBeNull());
+    useAgentStore.getState().abortTurn("stop");
+    release!(Response.json({ error: "upstream" }, { status: 502 }));
+    await turn;
+    expect(useAgentStore.getState().notice).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("names a key of the owner's own, not the sign-in, when GLM turns it down", () => {
+    expect(ownerRefusalNotice(401, true)).toMatchObject({ tone: "error", kind: "key_refused" });
+    expect(ownerRefusalNotice(403, true).text).toBe(NOTICE_TEXT.keyRefused);
+    expect(ownerRefusalNotice(429, true).kind).toBe("upstream_busy");
+    expect(ownerRefusalNotice(413, true).kind).toBe("too_large");
   });
 });
