@@ -361,9 +361,10 @@ class Slots(unittest.TestCase):
             pieces[f"tentacle-{i}"] = ((280 + 30 * i, 450, 300 + 30 * i, 800), (98, 46, 88))
         z = {"torso": 0, **{f"tentacle-{i}": -i for i in range(1, 9)}}
         wave = self.place((180, 150, 320, 470), (98, 46, 88))
+        chin = self.place((360, 250, 440, 470), (98, 46, 88))
         pinned = {
             "arm-r": {"rest": "tentacle-1", "rest_id": "rest", "poses": {"wave": wave}},
-            "arm-l": {"rest": "tentacle-2", "rest_id": "rest", "poses": {}},
+            "arm-l": {"rest": "tentacle-2", "rest_id": "rest", "poses": {"chin": chin}},
         }
         man, _ = self.build(c, pieces, z, pinned)
         ids = [p["id"] for p in man["parts"]]
@@ -373,7 +374,11 @@ class Slots(unittest.TestCase):
         slots = {s["id"]: s for s in man["swaps"]}
         self.assertEqual(slots["arm-r"]["z"], -1)
         self.assertEqual([ch["id"] for ch in slots["arm-r"]["choices"]], ["rest", "wave"])
-        self.assertEqual(man["counts"]["animated"], 6)  # ripple turns the six tentacles that are parts
+        # Ripple sways the six tentacles that are parts and the front pair as the arm
+        # slots: one span for arm-r and two for arm-l, whose chin choice has its own z.
+        self.assertEqual(cast_clips.elements(man)["arm-l"], 2)
+        self.assertEqual(man["counts"]["animated"], 9)
+        self.assertLessEqual(man["counts"]["animated"], spec.BUDGETS["rig_animated_max"])
         self.assertEqual(contract.problems(man, contract.CLIPS), [])
         self.assertEqual(man["counts"]["nodes"], rig.count_nodes(man))
 

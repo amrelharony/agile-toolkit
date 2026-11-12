@@ -129,7 +129,9 @@ CLIPS = {
         "sig.chin": _clip(900, ["head"], ["arm-l.chin"]),
         "sig.retreat": _clip(900, ["head"]),
         "sig.fan": _clip(900, ["body"], ["fan.closed"]),
-        "sig.ripple": _clip(900, [f"limb-{i}" for i in range(1, 9)]),
+        # Each limb sways in turn, and the two front ones, an octopus's or a spider's
+        # arm slots, sway with limb-1 and limb-2 as the arms (an arm slot is no limb part).
+        "sig.ripple": _clip(900, ["limb-1", "arm-r", "limb-2", "arm-l", *(f"limb-{i}" for i in range(3, 9))]),
         "sig.flap": _clip(700, ["flap"]),
         "sig.eyes": _clip(900, ["pupils"]),
     },
