@@ -17,7 +17,7 @@ import numpy as np  # noqa: E402
 from test_cast_checks import shifted  # noqa: E402
 
 from cast import imaging as im  # noqa: E402
-from cast import checks, key, palette, parts, swaps  # noqa: E402
+from cast import checks, key, palette, parts, spec, swaps  # noqa: E402
 from cast.spec import TOL  # noqa: E402
 
 
@@ -160,6 +160,53 @@ class Face(unittest.TestCase):
         self.assertEqual(len(swaps.drawn_pupils(img, box)), 1)
         self.assertEqual(swaps.drawn_pupils(out, box), [])
         self.assertEqual(swaps.drawn_pupils(cs.torso(pupils=False), box), [])
+
+
+class EyeColours(unittest.TestCase):
+    def block(self, text):
+        root = Path(self.tmp.name)
+        path = palette.block_path(root, "AAW-25")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return root
+
+    def setUp(self):
+        import tempfile
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_the_block_names_its_eye_whites_and_pupils(self):
+        hx = ["#%06X" % (0x101010 * k + 0x0A0B0C) for k in range(1, 11)]
+        src = self.block(
+            "CHARACTER: TEST\nCOLOURS\n"
+            f"- Fur {hx[0]}, shade {hx[1]}.\n"
+            f"- Eye whites {hx[2]}, the lower part of each eye shaded {hx[3]}.\n"
+            f"- Pupils: plum iris {hx[4]} around a black {hx[5]} centre, with a white highlight.\n"
+            f"- Eyebrows {hx[6]}. Highlights white {hx[7]}.\n"
+            f"- Eyespot rings {hx[8]} around a navy centre {hx[9]}.\nNEVER\n- Nothing.\n"
+        )
+        self.assertEqual(len(palette.block_colours(src, "AAW-25")), 10)
+        self.assertEqual(palette.eye_roles(src, "AAW-25"), {"white": [2, 3], "pupil": [4, 5]})
+        src = self.block(f"COLOURS\n- Eyes white {hx[0]}. Pupils, eyebrows and outlines near-black {hx[1]}.\n")
+        self.assertEqual(palette.eye_roles(src, "AAW-25"), {"white": [0], "pupil": [1]})
+        src = self.block(f"COLOURS\n- Irises {hx[0]}, pupils {hx[1]}, eye whites {hx[2]}. Shirt white {hx[3]}.\n")
+        self.assertEqual(palette.eye_roles(src, "AAW-25"), {"white": [2], "pupil": [0, 1]})
+        src = self.block(f"COLOURS\n- Body {hx[0]}, shade {hx[1]}.\n")
+        self.assertEqual(palette.eye_roles(src, "AAW-25"), {"white": [], "pupil": []})
+
+    @unittest.skipUnless((spec.DEFAULT_SOURCES / "sources" / "blocks").is_dir(), "the private sources are not on this machine")
+    def test_every_private_block_names_its_eye_colours(self):
+        # Counts only: no label or swatch is printed, even when this fails.
+        missing = []
+        for c in spec.SPEC["characters"]:
+            cid = c["id"]
+            colours = palette.block_colours(spec.DEFAULT_SOURCES, cid)
+            roles = palette.eye_roles(spec.DEFAULT_SOURCES, cid)
+            print(f"{cid}: {len(roles['white'])} eye-white and {len(roles['pupil'])} pupil colour(s) of {len(colours)}")
+            if not roles["white"] or not roles["pupil"]:
+                missing.append(cid)
+        self.assertEqual(missing, [], "these blocks name no eye white or no pupil: the generic tests stand in")
 
 
 class Grid(unittest.TestCase):

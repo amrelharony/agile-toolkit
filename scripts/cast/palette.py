@@ -5,6 +5,8 @@ The swatches are read at run time from the private sources folder
 reports with them go only to the private review folder.
 
     block_colours(sources, id)        [(label, hex)] from the character's block
+    eye_roles(sources, id)            which of those swatches are its eye whites, and
+                                      which its pupils and irises, by the block's wording
     clusters(rgba, seeds)             deterministic k-means in Lab over the opaque drawing
     master_colours(rgba, colours)     per swatch: the nearest cluster, its ΔE00, a status
     lock(rgba, targets)               shift each cluster onto its target, keeping the shading
@@ -31,10 +33,8 @@ def block_path(sources: Path, cid: str) -> Path:
     return Path(sources) / "sources" / "blocks" / f"{cid}.txt"
 
 
-def block_colours(sources: Path, cid: str) -> list[tuple[str, str]]:
-    """The (label, #RRGGBB) pairs of the character's COLOURS section, in order. A
-    short lower-case label ("shade") takes the last capitalised one before it.
-    Falls back to every colour in the block when there's no section."""
+def _colours_text(sources: Path, cid: str) -> str:
+    """The block's COLOURS section, or the whole block when it has none."""
     lines = block_path(sources, cid).read_text(encoding="utf-8").splitlines()
     section, inside = [], False
     for line in lines:
@@ -45,7 +45,14 @@ def block_colours(sources: Path, cid: str) -> list[tuple[str, str]]:
             break
         if inside:
             section.append(line)
-    text = "\n".join(section) if section else "\n".join(lines)
+    return "\n".join(section) if section else "\n".join(lines)
+
+
+def block_colours(sources: Path, cid: str) -> list[tuple[str, str]]:
+    """The (label, #RRGGBB) pairs of the character's COLOURS section, in order. A
+    short lower-case label ("shade") takes the last capitalised one before it.
+    Falls back to every colour in the block when there's no section."""
+    text = _colours_text(sources, cid)
     out, main = [], ""
     for line in text.splitlines():
         last = 0
@@ -62,6 +69,47 @@ def block_colours(sources: Path, cid: str) -> list[tuple[str, str]]:
                 main = label
             out.append((label or "colour", m.group(0).upper()))
     return out
+
+
+# How a block names an eye's colours: "Eye whites #…", "Eyes white #…"; "pupils #…",
+# "irises #…". A swatch right after one of them in the same sentence keeps its role
+# when it is that colour's shade ("…, the lower part of each eye shaded #…") or, after
+# a pupil, its centre ("dark brown iris #… around a black #… centre").
+EYE_WHITE = re.compile(r"\beyes? whites?\b|\bwhites? of (?:the|his|her|its) eyes\b", re.I)
+EYE_DARK = re.compile(r"\b(?:pupils?|iris(?:es)?)\b", re.I)
+SHADE = re.compile(r"\bshade", re.I)
+CENTRE = re.compile(r"\bcent(?:re|er)\b", re.I)
+SENTENCE = re.compile(r"(?<=[.;])\s+|\n")
+
+
+def eye_roles(sources: Path, cid: str) -> dict:
+    """{"white": [i, …], "pupil": [i, …]}: which of block_colours' swatches (by
+    index) are the character's eye whites, and which its pupils and irises, read
+    from the wording of its COLOURS section. Either list is empty when the block
+    names no such colour (the builder then falls back to its generic tests)."""
+    roles: dict = {"white": [], "pupil": []}
+    i = 0
+    for sentence in SENTENCE.split(_colours_text(sources, cid)):
+        last, prev = 0, None
+        for m in HEX.finditer(sentence):
+            own = sentence[last : m.start()]
+            after = sentence[m.end() :].split()
+            last = m.end()
+            if EYE_WHITE.search(own):
+                role = "white"
+            elif EYE_DARK.search(own):
+                role = "pupil"
+            elif prev and SHADE.search(own):
+                role = prev
+            elif prev == "pupil" and (CENTRE.search(own) or (after and CENTRE.match(after[0]))):
+                role = "pupil"
+            else:
+                role = None
+            if role:
+                roles[role].append(i)
+            prev = role
+            i += 1
+    return roles
 
 
 def _pixels(rgba: np.ndarray) -> tuple[np.ndarray, int]:
