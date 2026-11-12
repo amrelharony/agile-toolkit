@@ -396,23 +396,25 @@ export function currencyCode(raw: string): string | null {
 
 /**
  * An amount in the person's currency: formatted by the browser for a code
- * it knows ("€1,234.50"), else the number with what they typed after it
- * ("1,234.50 credits").
+ * it knows ("€234.50"), else the number with what they typed after it
+ * ("234.50 credits"). Always two decimals below 1,000 and none from 1,000
+ * on ("€1,235"), so a ticking amount keeps its width from second to second.
  */
 export function formatMoney(amount: number, currency: string, locale?: string): string {
   const value = Number.isFinite(amount) ? amount : 0;
+  const digits = value >= 1000 ? 0 : 2;
   const code = currencyCode(currency);
   if (code) {
     return new Intl.NumberFormat(locale, {
       style: "currency",
       currency: code,
-      maximumFractionDigits: 2,
-      minimumFractionDigits: value >= 1000 ? 0 : 2,
+      maximumFractionDigits: digits,
+      minimumFractionDigits: digits,
     }).format(value);
   }
   const n = new Intl.NumberFormat(locale, {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: value >= 1000 ? 0 : 2,
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
   }).format(value);
   const unit = currency.trim();
   return unit ? `${n} ${unit}` : n;

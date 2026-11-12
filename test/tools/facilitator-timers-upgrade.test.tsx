@@ -573,6 +573,38 @@ describe("the meeting cost ticker", () => {
     expect(exported.markdown).not.toMatch(/€|EUR|60/);
   });
 
+  it("keeps focus on the ticker and the form as they swap", () => {
+    renderPage();
+    type(field(/^People/), "6");
+    type(field(/^Rough hourly rate/), "60");
+    type(screen.getByRole("textbox", { name: /^Currency/ }), "EUR");
+    click("Start the ticker");
+    expect(screen.getByRole("button", { name: "Pause" })).toHaveFocus();
+    click("Change the numbers");
+    expect(field(/^People/)).toHaveFocus();
+    click("Cancel");
+    expect(screen.getByRole("button", { name: "Change the numbers" })).toHaveFocus();
+    click("Change the numbers");
+    click("Save and carry on");
+    expect(screen.getByRole("button", { name: "Pause" })).toHaveFocus();
+  }, 15_000);
+
+  it("sizes the presented amount to the screen, so a long one fits a phone", () => {
+    useCostTicker.setState({
+      attendees: 12,
+      hourlyRate: 900,
+      currency: "EGP",
+      clock: { baseMs: 3_600_000, since: null },
+    });
+    renderPage();
+    act(() => usePresentation.getState().set(true));
+    const amount = screen.getAllByRole("timer").find((t) => t.textContent?.includes("EGP"));
+    expect(amount?.textContent).toMatch(/^EGP\s10,800$/);
+    expect(amount?.className).toContain("text-[clamp(");
+    expect(amount?.className).toContain("max-w-full");
+    expect(amount?.className).not.toMatch(/\btext-5xl\b/);
+  });
+
   it("pauses, carries on, and resets with Undo", () => {
     renderPage();
     type(field(/^People/), "4");

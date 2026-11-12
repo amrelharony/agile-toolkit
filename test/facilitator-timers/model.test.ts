@@ -279,7 +279,11 @@ describe("the meeting cost ticker", () => {
     expect(currencyCode(" eur ")).toBe("EUR");
     expect(currencyCode("credits")).toBeNull();
     expect(formatMoney(270, "EUR", "en")).toBe("€270.00");
-    expect(formatMoney(1234.5, "USD", "en")).toBe("$1,234.5");
+    // Two decimals below 1,000 and none from there, so the width holds.
+    expect(formatMoney(999.99, "EUR", "en")).toBe("€999.99");
+    expect(formatMoney(1234.5, "USD", "en")).toBe("$1,235");
+    expect(formatMoney(1234.56, "USD", "en")).toBe("$1,235");
+    expect(formatMoney(1500, "credits", "en")).toBe("1,500 credits");
     expect(formatMoney(12.5, "credits", "en")).toBe("12.50 credits");
   });
 

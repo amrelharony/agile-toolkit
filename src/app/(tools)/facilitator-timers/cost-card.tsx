@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Lock, Pause, Pencil, Play, Users, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -21,6 +21,13 @@ import type { CostTicker } from "@/lib/facilitator-timers/store";
 import { formatClock } from "@/lib/timer/dock-timer";
 import { cn } from "@/lib/utils";
 import { validateCost, type CostDraft, type CostValues } from "./forms";
+
+/**
+ * The presented amount: sized to the screen, so "EGP 12,345.67" (a code and
+ * a number the browser joins with a no-break space) stays inside a phone's
+ * width, and allowed to break as a last resort.
+ */
+const BIG_AMOUNT = "max-w-full break-words text-[clamp(1.75rem,8.5vw,4.5rem)]";
 
 /**
  * The meeting cost ticker: people × a rough hourly rate × the time so far,
@@ -57,6 +64,27 @@ export function CostCard({
   const showForm = !ready || !clock || editing;
   const seconds = clock ? Math.floor(costElapsedMs(clock, now) / 1000) : 0;
 
+  // Starting, saving, changing the numbers and resetting each swap the form
+  // and the ticker, and focus would otherwise drop to the page: where it
+  // goes next, once React has drawn the change.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const pauseRef = useRef<HTMLButtonElement>(null);
+  const changeRef = useRef<HTMLButtonElement>(null);
+  const focusNext = useRef<"ticker" | "change" | "form" | null>(null);
+  useEffect(() => {
+    const target = focusNext.current;
+    if (!target) return;
+    const el =
+      target === "ticker"
+        ? pauseRef.current
+        : target === "change"
+          ? changeRef.current
+          : bodyRef.current?.querySelector<HTMLElement>("input");
+    if (!el) return;
+    focusNext.current = null;
+    el.focus();
+  });
+
   return (
     <SectionCard
       title="Meeting cost"
@@ -71,7 +99,10 @@ export function CostCard({
             description="The time and the cost so far go back to zero. The numbers you entered stay."
             confirmLabel="Reset ticker"
             doneLabel="Reset the cost ticker"
-            onReset={onReset}
+            onReset={() => {
+              focusNext.current = "form";
+              onReset();
+            }}
             onUndo={onUndoReset}
             variant="ghost"
             size="sm"
@@ -79,61 +110,74 @@ export function CostCard({
         )
       }
     >
-      {showForm ? (
-        <CostForm
-          ticker={ticker}
-          rosterCount={rosterCount}
-          resume={Boolean(clock)}
-          onSave={(v) => {
-            onStart(v);
-            setEditing(false);
-          }}
-          onCancel={editing ? () => setEditing(false) : undefined}
-        />
-      ) : (
-        <div className="flex flex-col items-center gap-3 py-2 text-center">
-          <span
-            role="timer"
-            aria-label={`Meeting cost so far: ${formatMoney(meetingCost(attendees!, hourlyRate!, seconds), currency)}`}
-            className={cn(
-              "font-data font-bold tabular-nums text-text",
-              big ? "text-5xl sm:text-7xl" : "text-3xl sm:text-4xl"
-            )}
-          >
-            {formatMoney(meetingCost(attendees!, hourlyRate!, seconds), currency)}
-          </span>
-          <p className="text-sm text-sub">
-            {attendees} {attendees === 1 ? "person" : "people"} · {formatClock(seconds)} ·{" "}
-            {formatMoney(costPerMinute(attendees!, hourlyRate!), currency)} a minute
-          </p>
-          <p className="text-xs text-sub">
-            {personHoursText(personHours(attendees!, seconds))} so far.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1.5"
-              onClick={running ? onPause : onResume}
+      <div ref={bodyRef}>
+        {showForm ? (
+          <CostForm
+            ticker={ticker}
+            rosterCount={rosterCount}
+            resume={Boolean(clock)}
+            onSave={(v) => {
+              focusNext.current = "ticker";
+              onStart(v);
+              setEditing(false);
+            }}
+            onCancel={
+              editing
+                ? () => {
+                    focusNext.current = "change";
+                    setEditing(false);
+                  }
+                : undefined
+            }
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-2 text-center">
+            <span
+              role="timer"
+              aria-label={`Meeting cost so far: ${formatMoney(meetingCost(attendees!, hourlyRate!, seconds), currency)}`}
+              className={cn(
+                "font-data font-bold tabular-nums text-text",
+                big ? BIG_AMOUNT : "text-3xl sm:text-4xl"
+              )}
             >
-              {running ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-              {running ? "Pause" : "Resume"}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="gap-1.5"
-              onClick={() => {
-                if (running) onPause();
-                setEditing(true);
-              }}
-            >
-              <Pencil aria-hidden="true" />
-              Change the numbers
-            </Button>
+              {formatMoney(meetingCost(attendees!, hourlyRate!, seconds), currency)}
+            </span>
+            <p className="text-sm text-sub">
+              {attendees} {attendees === 1 ? "person" : "people"} · {formatClock(seconds)} ·{" "}
+              {formatMoney(costPerMinute(attendees!, hourlyRate!), currency)} a minute
+            </p>
+            <p className="text-xs text-sub">
+              {personHoursText(personHours(attendees!, seconds))} so far.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button
+                ref={pauseRef}
+                type="button"
+                variant="outline"
+                className="gap-1.5"
+                onClick={running ? onPause : onResume}
+              >
+                {running ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
+                {running ? "Pause" : "Resume"}
+              </Button>
+              <Button
+                ref={changeRef}
+                type="button"
+                variant="ghost"
+                className="gap-1.5"
+                onClick={() => {
+                  if (running) onPause();
+                  focusNext.current = "form";
+                  setEditing(true);
+                }}
+              >
+                <Pencil aria-hidden="true" />
+                Change the numbers
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
       <p className="mt-3 flex items-start gap-1.5 text-xs text-sub">
         <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         The rate stays in this browser tab: it isn&apos;t saved to your account, exported or sent
