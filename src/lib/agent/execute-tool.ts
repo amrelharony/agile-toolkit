@@ -379,9 +379,14 @@ function keyLabel(key: string): string {
   return phrase(words);
 }
 
-/** An id or a list of ids ("id", "sprintId", "ids", "item_ids"): no use to a person. */
+/** Arguments that hold a record's id under a name that doesn't say so. */
+const ID_VALUE_KEYS: ReadonlySet<string> = new Set(["supersededBy"]);
+/** A UUID: an id whatever key holds it ("chosenOption" takes an id or the option's text). */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** An id or a list of ids ("id", "sprintId", "parentID", "ids", "item_ids", "supersededBy"): no use to a person. */
 function isIdKey(key: string): boolean {
-  return /^ids?$/i.test(key) || /(?:Ids?|_ids?)$/.test(key);
+  return ID_VALUE_KEYS.has(key) || /^ids?$/i.test(key) || /(?:Ids?|IDs?|_ids?)$/.test(key);
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -396,9 +401,9 @@ function quoted(text: string): string {
   return `“${cut}”`;
 }
 
-/** One value in words: quoted text, a number, yes or no, a short list or a count; "" to leave it out. */
+/** One value in words: quoted text, a number, yes or no, a short list or a count; "" to leave it out (a UUID too). */
 function valueWords(v: unknown): string {
-  if (typeof v === "string") return quoted(v);
+  if (typeof v === "string") return UUID.test(v.trim()) ? "" : quoted(v);
   if (typeof v === "number") return Number.isFinite(v) ? String(v) : "";
   if (typeof v === "boolean") return v ? "yes" : "no";
   if (Array.isArray(v)) {
@@ -414,7 +419,8 @@ function valueWords(v: unknown): string {
 
 /**
  * The arguments as [name, value] pairs in words. Ids are left out (a list of
- * them is counted), and an object's own fields stand in for it one level down,
+ * them is counted), by their key or, under any key, when the value is a UUID,
+ * and an object's own fields stand in for it one level down,
  * so a workspace create's `entity` or an update's `patch` reads as its fields.
  */
 function fieldsOf(input: unknown, nested = false): Array<[string, string]> {

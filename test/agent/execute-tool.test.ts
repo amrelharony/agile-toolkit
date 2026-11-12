@@ -516,6 +516,32 @@ describe("executeToolUse — the confirm card (ConfirmPrompt) and the destructiv
       paramsSchema: z.object({ ids: z.array(z.string()) }),
       handler: async () => ({ ranked: 3 }),
     },
+    {
+      id: "tool.decision_log.supersede",
+      toolId: "tool.decision_log",
+      name: "supersede",
+      category: "write",
+      description: "probe",
+      paramsSchema: z.object({
+        id: z.string(),
+        supersededBy: z.string(),
+        reason: z.string().optional(),
+      }),
+      handler: async () => ({ superseded: true }),
+    },
+    {
+      id: "tool.decision_log.decide",
+      toolId: "tool.decision_log",
+      name: "decide",
+      category: "write",
+      description: "probe",
+      paramsSchema: z.object({
+        id: z.string(),
+        chosenOption: z.string().optional(),
+        parentID: z.string().optional(),
+      }),
+      handler: async () => ({ decided: true }),
+    },
   ];
   const handlers = new Map<string, ReturnType<typeof vi.fn>>();
 
@@ -583,6 +609,31 @@ describe("executeToolUse — the confirm card (ConfirmPrompt) and the destructiv
     const prompt = await promptFor("tool_prioritizer_set_order", { ids: ["a", "b", "c"] });
     expect(prompt.detail).toBe("Items: 3");
     expect(prompt.question).toBe("Set the order in Backlog Prioritizer?");
+  });
+
+  it("leaves out an id held under a key that doesn't say so", async () => {
+    const prompt = await promptFor("tool_decision_log_supersede", {
+      id: "a1b2c3d4",
+      supersededBy: "V1StGXR8",
+      reason: "new vendor",
+    });
+    expect(prompt.detail).toBe("Reason: “new vendor”");
+    expect(prompt.detail).not.toMatch(/a1b2c3d4|V1StGXR8|Superseded/);
+  });
+
+  it("leaves out a UUID under any key and an ID-suffixed key, and keeps an option's text", async () => {
+    const uuid = "3f2a9c1e-5b7d-4e8f-9a0b-1c2d3e4f5a6b";
+    const byId = await promptFor("tool_decision_log_decide", {
+      id: "d1",
+      chosenOption: uuid,
+      parentID: "p-77",
+    });
+    expect(byId.detail).toBe("");
+    const byText = await promptFor("tool_decision_log_decide", {
+      id: "d1",
+      chosenOption: "Move to Fly.io",
+    });
+    expect(byText.detail).toBe("Chosen option: “Move to Fly.io”");
   });
 
   it("asks the action's own confirmLabel, and the card's button says it", async () => {
