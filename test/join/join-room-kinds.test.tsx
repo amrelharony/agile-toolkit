@@ -78,6 +78,8 @@ import { JoinRoom } from "@/app/join/[tool]/[code]/join-room";
 
 const CODE = "ABCDEFGHJKMN";
 const LAZY = { timeout: 8000 };
+/** Each case's own limit: above LAZY, so the lazy room's wait can run out first. */
+const CASE_TIMEOUT = 15_000;
 const KEY_HASH = "#k=abcdefghijklmnopqrstuv";
 
 function consent(name: string) {
@@ -165,7 +167,8 @@ describe("join routing, for every kind of room", () => {
       consent("Sam");
       expect(await screen.findByTestId("room", {}, LAZY)).toHaveTextContent(EXPECTED[tool].room);
       expect(h.client.channel).not.toHaveBeenCalled();
-    }
+    },
+    CASE_TIMEOUT
   );
 
   it.each(["picker", "team-mixer", "card-decks", "audience-wall", "quick-vote"] as const)(
