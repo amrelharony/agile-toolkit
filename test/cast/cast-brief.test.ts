@@ -157,6 +157,12 @@ describe("the Opus appendix", () => {
       expect(file(c.id), c.id).toContain(ARM_WORDS[arms]);
     }
   });
+
+  it("prints only what the spec holds, never an empty field", () => {
+    expect(appendix).not.toMatch(/\b(undefined|null|NaN)\b/);
+    for (const c of spec.characters)
+      expect(entry(c.id), c.id).toMatch(/\n- Batch [A-Z]; family \w+; arms \w+\.\n/);
+  });
 });
 
 describe("the generator", () => {

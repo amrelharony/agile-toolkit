@@ -248,11 +248,10 @@ export function partsAppendix(spec, priv) {
   ];
   for (const c of spec.characters) {
     const p = priv.characters[c.id];
-    const fam = spec.families[c.family];
     const key = keyOf(spec, c);
     out.push(`## ${c.id} ${c.name}`, "");
     out.push(
-      `- Batch ${batchOf(spec, c.id)}; family ${c.family}; arms ${armsOf(spec, c) ?? "none"}; eyes ${fam.eyes}.`
+      `- Batch ${batchOf(spec, c.id)}; family ${c.family}; arms ${armsOf(spec, c) ?? "none"}.`
     );
     out.push(`- Images: ${c.images.map((i) => fileName(c.id, i)).join(", ")}.`);
     out.push(`- Background key: ${key.name} ${key.hex}.`);
