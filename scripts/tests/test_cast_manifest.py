@@ -136,6 +136,29 @@ class Stacking(unittest.TestCase):
         self.assertLess(got.index("b"), got.index("a"))
 
 
+class NeckStub(unittest.TestCase):
+    def test_the_stub_is_measured_on_what_the_head_hangs_on(self):
+        size = (700, 900)
+        torso = np.zeros((*size, 4), np.uint8)
+        torso[400:620, 100:420] = (*Stacking.RED, 255)  # a body with a stub
+        torso[370:400, 330:390] = (*Stacking.RED, 255)
+        neck = np.zeros_like(torso)  # a neck piece reaching away from it
+        for k in range(0, 300):
+            neck[380 - k : 420 - k, 340 + k : 380 + k] = (*Stacking.BLUE, 255)
+        head = np.zeros_like(torso)
+        head[60:160, 620:760] = (*Stacking.GREEN, 255)
+        baked = {"torso": torso, "neck": neck, "head": head}
+        pivots = {"head": {"x": 660.0, "y": 110.0}}  # the neck's top cap, under the head
+        stub = rig.neck_stub(baked, pivots, ["head", "neck", "torso"])
+        self.assertGreaterEqual(stub, spec.TOL["neck_stub_min"])
+        # The body has nothing under that pivot: measured there, correct art fails.
+        self.assertLess(rig.neck_stub(baked, pivots, ["head", "torso"]), spec.TOL["neck_stub_min"])
+        # A head on the body itself is measured on the body, as before.
+        baked2 = {"torso": torso, "head": head}
+        self.assertEqual(rig.neck_stub(baked2, {"head": {"x": 360.0, "y": 390.0}}, ["head", "torso"]), 20 / 100)
+        self.assertIsNone(rig.neck_stub(baked2, {"head": {"x": None, "y": None}}, ["head", "torso"]))
+
+
 class Sides(unittest.TestCase):
     def test_a_sided_piece_is_on_its_side_of_the_piece_it_hangs_from(self):
         # A figure box widened by a big piece on one side: its middle (500) is right

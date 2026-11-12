@@ -487,13 +487,9 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             fill = filled / max(hull, 1)
             c8["torso_fill"] = round(fill, 4)
             c8["status"] = "pass" if fill >= TOL["torso_fill_min"] else "fail"
-        if "head" in pivots and pivots["head"]["y"] is not None and "head" in baked:
-            hb = im.mask_bbox(baked["head"][..., 3] >= SOLID_ALPHA)
-            hx, hy = pivots["head"]["x"], pivots["head"]["y"]
-            col = t[:, int(np.clip(hx, 0, shape[1] - 1))]
-            top = np.nonzero(col)[0]
-            stub = (hy - top.min()) / max(hb[3] - hb[1], 1) if len(top) else 0
-            c8["neck_stub"] = round(float(stub), 4)
+        stub = neck_stub(baked, pivots, present)
+        if stub is not None:
+            c8["neck_stub"] = round(stub, 4)
             if stub < TOL["neck_stub_min"]:
                 c8["status"] = "fail"
                 c8["notes"].append("no neck stub under the head")
@@ -711,6 +707,23 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     )
     out(f"{cid}: candidate {report['status']} -> review/{batch}/{cid}/ (rig {cand['rig_sha256'][:12]})")
     return report
+
+
+def neck_stub(baked: dict, pivots: dict, present: list[str]) -> float | None:
+    """C8's neck stub: how far the piece the head hangs on (the torso, or a neck
+    piece that carries it) reaches up past the head's pivot, in head heights, in
+    the column under the pivot; None when the head has no pivot. A head on a neck
+    piece turns on the neck's top cap, which may sit far from the body's own stub."""
+    if "head" not in baked or pivots.get("head", {}).get("y") is None:
+        return None
+    on = baked.get(parent_of("head", present))
+    if on is None:
+        return None
+    hb = im.mask_bbox(baked["head"][..., 3] >= SOLID_ALPHA)
+    hx, hy = pivots["head"]["x"], pivots["head"]["y"]
+    col = (on[..., 3] >= SOLID_ALPHA)[:, int(np.clip(hx, 0, on.shape[1] - 1))]
+    top = np.nonzero(col)[0]
+    return float((hy - top.min()) / max(hb[3] - hb[1], 1)) if len(top) else 0.0
 
 
 def rig_check(man: dict, clips: dict) -> dict:
