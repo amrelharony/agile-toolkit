@@ -188,9 +188,12 @@ describe("the header's Amr opener", () => {
     render(<Header onOpenSearch={() => {}} />);
     const opener = screen.getByRole("button", { name: "Open agent chat" });
     fireEvent.click(opener, { detail: 1 });
+    const before = useAgentStore.getState().focusRequest;
     fireEvent.click(opener, { detail: 0 });
     expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: "keyboard" });
     expect(opener).toHaveAttribute("aria-expanded", "true");
+    // Not a dead end: the key press asks the panel's focus owner to bring focus in.
+    expect(useAgentStore.getState().focusRequest).toBe(before + 1);
   });
 });
 

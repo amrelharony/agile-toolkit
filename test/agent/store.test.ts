@@ -144,6 +144,47 @@ describe("useAgentStore – openedVia", () => {
 });
 
 /**
+ * The header's opener only opens. Pressed with a key while the panel is open,
+ * it bumps focusRequest, which the focus owner watches to bring focus in.
+ */
+describe("useAgentStore – focusRequest", () => {
+  beforeEach(() => {
+    useAgentStore.getState().closeSheet();
+  });
+
+  afterEach(() => {
+    useAgentStore.getState().closeSheet();
+  });
+
+  const request = () => useAgentStore.getState().focusRequest;
+
+  it("bumps on a keyboard open request while the panel is open", () => {
+    useAgentStore.getState().openSheet({ via: "pointer" });
+    const before = request();
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    expect(request()).toBe(before + 1);
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    expect(request()).toBe(before + 2);
+  });
+
+  it("stays put on the first open, a pointer request and a request that says nothing", () => {
+    const before = request();
+    // The first open: the [open] effect places focus, nothing to ask again.
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    expect(request()).toBe(before);
+    useAgentStore.getState().openSheet({ via: "pointer" });
+    useAgentStore.getState().openSheet();
+    useAgentStore.getState().openSheet({});
+    expect(request()).toBe(before);
+    // A toggle closes an open panel instead; opening a closed one is a first open.
+    useAgentStore.getState().toggleSheet({ via: "keyboard" });
+    useAgentStore.getState().toggleSheet({ via: "keyboard" });
+    expect(useAgentStore.getState().open).toBe(true);
+    expect(request()).toBe(before);
+  });
+});
+
+/**
  * Tapping Amr and Ctrl/Cmd+J close the panel through toggleSheet, so its
  * closing branch must do everything closeSheet does: clear "Approve all"
  * and deny a card that is still waiting (audit toggle-keeps-autoapprove).

@@ -83,6 +83,12 @@ interface AgentState {
    * closed and when code opened it without saying (a bubble's tap, a test).
    */
   openedVia: PanelOpenVia | null;
+  /**
+   * Bumped when a keyboard open request (the header's opener, pressed with a
+   * key) arrives while the panel is already open: the focus owner watches it
+   * and brings focus into the panel, so the press is never a dead end.
+   */
+  focusRequest: number;
   /** Currently-loaded conversation, or null for a fresh draft. */
   activeConversationId: string | null;
   activeMeta: ConversationMeta | null;
@@ -137,7 +143,8 @@ interface AgentState {
 interface AgentActions {
   /**
    * Open the panel, noting how (`via`) for the focus owner. Opening it again
-   * while it is open only records the newer request's way in.
+   * while it is open records the newer request's way in and, for a keyboard
+   * request, bumps `focusRequest` so focus moves into the panel.
    */
   openSheet(opts?: OpenSheetOptions): void;
   /** Close the panel: clears "Approve all" and denies a waiting card, but the turn goes on. */
@@ -201,6 +208,7 @@ interface AgentActions {
 export const useAgentStore = create<AgentState & AgentActions>()((set, get) => ({
   open: false,
   openedVia: null,
+  focusRequest: 0,
   activeConversationId: null,
   activeMeta: null,
   messages: [],
@@ -218,7 +226,12 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   visitorQuota: null,
   visitorFallback: null,
 
-  openSheet: ({ via }: OpenSheetOptions = {}) => set({ open: true, openedVia: via ?? null }),
+  openSheet: ({ via }: OpenSheetOptions = {}) =>
+    set((s) => ({
+      open: true,
+      openedVia: via ?? null,
+      focusRequest: s.open && via === "keyboard" ? s.focusRequest + 1 : s.focusRequest,
+    })),
   // BUG-G1: also reset autoApprove on close. The docstring promised
   // "until the sheet is closed" but the prior implementation kept the
   // flag set across close/reopen, silently widening write-approval

@@ -22,6 +22,12 @@
  *     until the visitor acts, are free for a target to take.
  *   - The dialog and the log are never focused.
  *
+ * Asked again: a key press on the header's opener while the panel is already
+ * open (the store's focusRequest) brings focus in, to the view's target, or
+ * the plate when there is none or it would raise a phone's keyboard. Focus
+ * already inside stays. That opener becomes the one closing returns to. A
+ * pointer press asks nothing: focus stays where the press put it.
+ *
  * Closing (closePanel(reason) in mascot-assistant, which says why first):
  *   - "navigate": nothing comes back; the next page takes focus.
  *   - Any other reason: when focus was left inside the panel (and so falls to
@@ -68,6 +74,8 @@ export interface PanelFocusOptions {
   open: boolean;
   /** How the latest open came (the store's `openedVia`); null when no opener said. */
   openedVia: PanelOpenVia | null;
+  /** The store's `focusRequest`: each change while open brings focus into the panel. */
+  focusRequest: number;
   /** The panel's dialog element. */
   rootRef: RefObject<HTMLElement | null>;
   /** The id of the name plate (the dialog's title, tabIndex -1). */
@@ -196,6 +204,24 @@ export function usePanelFocus(options: PanelFocusOptions): PanelFocus {
       if (s.via === "keyboard" && p && now !== p) focusOn(p, true);
     };
 
+    /** A key press on an opener while the panel is open: bring focus in. */
+    const summon = () => {
+      const panel = root();
+      const now = document.activeElement;
+      if (!s.live || !panel || (now && panel.contains(now))) return;
+      // Closing comes back to the control that asked.
+      if (now instanceof HTMLElement && !onPage(now)) s.opener = now;
+      s.via = "keyboard";
+      const el = candidate();
+      if (el && !(onTouchScreen() && typesText(el))) {
+        s.awaiting = false;
+        focusOn(el, false);
+        return;
+      }
+      const p = plate();
+      if (p) focusOn(p, true);
+    };
+
     /** The safety net: focus fell from inside the panel to the page. */
     const rescue = () => {
       if (!s.live || !s.inside || !onPage(document.activeElement)) return;
@@ -216,6 +242,7 @@ export function usePanelFocus(options: PanelFocusOptions): PanelFocus {
 
     return {
       place,
+      summon,
       rescue,
       restore,
       registerInitialFocus(el: HTMLElement | null) {
@@ -329,6 +356,15 @@ export function usePanelFocus(options: PanelFocusOptions): PanelFocus {
       window.clearTimeout(pointerTimer);
     };
   }, [open, api]);
+
+  // Asked again while open (after the effect above, so the panel is live).
+  const { focusRequest } = options;
+  const lastRequest = useRef(focusRequest);
+  useIsomorphicLayoutEffect(() => {
+    if (focusRequest === lastRequest.current) return;
+    lastRequest.current = focusRequest;
+    api.summon();
+  }, [focusRequest, api]);
 
   return useMemo(
     () => ({ registerInitialFocus: api.registerInitialFocus, willClose: api.willClose }),

@@ -784,6 +784,8 @@ function UnverifiedOwnerNote() {
 export function MascotAssistant() {
   const open = useAgentStore((s) => s.open);
   const openedVia = useAgentStore((s) => s.openedVia);
+  // Bumped by a key press on the header's opener while the panel is open.
+  const focusRequest = useAgentStore((s) => s.focusRequest);
   const [showHistory, setShowHistory] = useState(false);
   const [showScenes, setShowScenes] = useState(false);
   // A write waiting for a yes: its card has to be seen (scenesOpen, below).
@@ -903,6 +905,7 @@ export function MascotAssistant() {
   const panelFocus = usePanelFocus({
     open,
     openedVia,
+    focusRequest,
     rootRef: panelRef,
     plateId: AMR_PANEL_TITLE_ID,
     fallbackRef: buttonRef,

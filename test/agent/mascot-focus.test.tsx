@@ -122,6 +122,15 @@ function pageButton(name: string): HTMLButtonElement {
   return button;
 }
 
+/** A stand-in for the header's opener: open-only, and a key press clicks with detail 0. */
+function headerOpener(): HTMLButtonElement {
+  const button = pageButton("Open help");
+  button.addEventListener("click", (e) =>
+    useAgentStore.getState().openSheet({ via: e.detail === 0 ? "keyboard" : "pointer" })
+  );
+  return button;
+}
+
 function typesText(el: Element | null): boolean {
   return el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement;
 }
@@ -266,6 +275,79 @@ describe("a pointer open", () => {
     await act(() => sleep(20));
     expect(box).not.toHaveFocus();
     expect(field).toHaveFocus();
+  });
+});
+
+/**
+ * The header's opener only opens, and says aria-expanded="true" while the
+ * panel is open. A key press on it then must still do something: it brings
+ * focus into the panel, and closing returns there.
+ */
+describe("the header's opener pressed while the panel is open", () => {
+  it("with a key brings focus to the plate of the tool finder, and closing returns to it", async () => {
+    const opener = headerOpener();
+    render(<MascotAssistant />);
+    pressAmr("pointer");
+    await guideLoaded();
+    opener.focus();
+
+    fireEvent.click(opener, { detail: 0 });
+    expect(useAgentStore.getState().open).toBe(true);
+    expect(plate()).toHaveFocus();
+
+    fireEvent.keyDown(plate(), { key: "Escape" });
+    expect(useAgentStore.getState().open).toBe(false);
+    expect(opener).toHaveFocus();
+  });
+
+  it("with a key brings focus to the owner's composer", async () => {
+    h.auth = OWNER;
+    const opener = headerOpener();
+    render(<MascotAssistant />);
+    pressAmr("pointer");
+    await waitFor(() => expect(composer()).toHaveFocus());
+    opener.focus();
+
+    fireEvent.click(opener, { detail: 0 });
+    expect(composer()).toHaveFocus();
+  });
+
+  it("with a key on a touch screen goes to the plate, never into a text field", async () => {
+    stubPointer(true);
+    h.auth = OWNER;
+    const opener = headerOpener();
+    render(<MascotAssistant />);
+    pressAmr("pointer");
+    await screen.findByLabelText("Message");
+    opener.focus();
+
+    fireEvent.click(opener, { detail: 0 });
+    expect(typesText(document.activeElement)).toBe(false);
+    expect(plate()).toHaveFocus();
+  });
+
+  it("with a pointer leaves focus where the press put it", async () => {
+    const opener = headerOpener();
+    render(<MascotAssistant />);
+    pressAmr("pointer");
+    await guideLoaded();
+    opener.focus();
+
+    fireEvent.click(opener, { detail: 1 });
+    await act(() => sleep(20));
+    expect(useAgentStore.getState().open).toBe(true);
+    expect(opener).toHaveFocus();
+  });
+
+  it("with a key leaves focus that is already inside the panel alone", async () => {
+    render(<MascotAssistant />);
+    pressAmr("pointer");
+    await guideLoaded();
+    const search = screen.getByLabelText("What do you need to do?");
+    search.focus();
+
+    act(() => useAgentStore.getState().openSheet({ via: "keyboard" }));
+    expect(search).toHaveFocus();
   });
 });
 

@@ -364,7 +364,8 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
             the theme button are 36×36 for a mouse, 44×44 on touch. */}
         <button
           // A key press clicks with detail 0, so the focus owner of the panel
-          // can tell a keyboard open from a pointer one.
+          // can tell a keyboard open from a pointer one. It only opens: a key
+          // press while the panel is open brings focus into it instead.
           onClick={(e) => openAgent({ via: e.detail === 0 ? "keyboard" : "pointer" })}
           data-no-sound="true"
           className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
