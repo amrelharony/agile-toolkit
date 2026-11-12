@@ -1,13 +1,21 @@
 /**
- * Every notice the agent client can show is narration about Amr, in the third
- * person, never words of his own: none says I, me or my (one Amr voice, DNA
- * §6), and none uses an em or en dash. The strings are collected from the
- * client's exported constants and by calling every builder over the cases it
- * knows, including the round-limit note that stands in for a wrap-up (with and
- * without its follow-up line).
+ * Every notice the chat shows is narration about Amr, in the third person,
+ * never words of his own: none says I, me or my (one Amr voice, DNA §6), and
+ * none uses an em or en dash. The strings are collected from the client's
+ * exported constants and by calling every builder over the cases it knows,
+ * including the round-limit note that stands in for a wrap-up (with and
+ * without its follow-up line), and from the visitor's chat: the error when its
+ * runtime can't load, and the panel's narration notes over the tool finder.
  */
 
 import { describe, expect, it } from "vitest";
+import { VISITOR_RUNTIME_LOAD_ERROR } from "@/components/agent/mascot/visitor-agent-panel";
+import {
+  VISITOR_CHAT_ERROR_NOTE,
+  VISITOR_CHAT_LOAD_NOTE,
+  VISITOR_FALLBACK_NOTE,
+  visitorFallbackNote,
+} from "@/components/agent/mascot/visitor-panel";
 import {
   NOTICE_TEXT,
   VISITOR_ERROR_TEXT,
@@ -17,8 +25,13 @@ import {
   roundLimitNotice,
   visitorRefusalNotice,
 } from "@/lib/agent/client";
+import type { VisitorQuota } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
-import { VISITOR_LIMITS, VISITOR_TIME_LIMIT_FINISH } from "@/lib/visitor-ai/contract";
+import {
+  VISITOR_FALLBACK_CODES,
+  VISITOR_LIMITS,
+  VISITOR_TIME_LIMIT_FINISH,
+} from "@/lib/visitor-ai/contract";
 import type { VisitorErrorCode } from "@/lib/visitor-ai/contract";
 
 const FIRST_PERSON = /\b(I|I'm|I'll|I've|me|my)\b/i;
@@ -97,15 +110,36 @@ function everyNotice(): string[] {
       out.push(roundLimitNote(turn(ok, failed), rounds, false));
     }
   }
+  // The visitor's chat: its runtime-load error (a store notice), and the
+  // panel's notes over the tool finder, for every refusal it falls back on
+  // (and one it doesn't know), with and without busy hours under way.
+  out.push(VISITOR_RUNTIME_LOAD_ERROR);
+  out.push(VISITOR_FALLBACK_NOTE, VISITOR_CHAT_LOAD_NOTE, VISITOR_CHAT_ERROR_NOTE);
+  const now = new Date("2026-11-09T08:00:00Z");
+  const busy: VisitorQuota = {
+    remaining: 40,
+    limit: 100,
+    peak: true,
+    peakRemaining: 0,
+    peakLimit: 25,
+    peakEndsAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+  };
+  for (const code of [...Array.from(VISITOR_FALLBACK_CODES), "unknown" as VisitorErrorCode]) {
+    out.push(visitorFallbackNote(code, null, now), visitorFallbackNote(code, busy, now));
+  }
   return out;
 }
 
-describe("the client's notices", () => {
+describe("every notice the chat shows", () => {
   const notices = everyNotice();
 
   it("are collected from every builder", () => {
-    // The constants, the end notes, the refusals and the round-limit lines.
+    // The constants, the end notes, the refusals, the round-limit lines and
+    // the visitor chat's own notes.
     expect(notices.length).toBeGreaterThan(100);
+    expect(notices).toContain(VISITOR_RUNTIME_LOAD_ERROR);
+    // The busy-hours wording, with the time they end, is among them.
+    expect(notices.some((t) => /tool finder until \d/.test(t))).toBe(true);
     expect(notices.every((t) => typeof t === "string" && t.trim().length > 0)).toBe(true);
   });
 
