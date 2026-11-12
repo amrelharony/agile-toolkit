@@ -400,6 +400,59 @@ describe("the page", () => {
     expect(usePresentation.getState().presenting).toBe(false);
   });
 
+  it("makes the page under the wall inert, and gives it and focus back on close", () => {
+    seed();
+    // The shell's <main>: the page the wall covers.
+    const main = document.body.appendChild(document.createElement("main"));
+    main.id = "main-content";
+    try {
+      rtlRender(<SprintCockpit />, { wrapper: TooltipProvider, container: main });
+      const open = screen.getByRole("button", { name: "Wall mode" });
+      open.focus();
+      fireEvent.click(open);
+      const wall = screen.getByRole("dialog", { name: "Sprint 2" });
+      expect(main).toHaveAttribute("inert");
+      // The wall itself sits outside the page, so it stays readable.
+      expect(main.contains(wall)).toBe(false);
+      expect(document.activeElement).toBe(within(wall).getByRole("heading", { name: "Sprint 2" }));
+
+      act(() => {
+        fireEvent.keyDown(document, { key: "Escape" });
+      });
+      expect(main).not.toHaveAttribute("inert");
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Wall mode" }));
+    } finally {
+      main.remove();
+    }
+  });
+
+  it("moves the next ceremony and the day on while the wall stays up", () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(2026, 9, 22, 8, 0, 0));
+    seed();
+    render(<SprintCockpit />);
+    fireEvent.click(screen.getByRole("button", { name: "Wall mode" }));
+    const wall = () => screen.getByRole("dialog", { name: "Sprint 2" });
+    expect(within(wall()).getByText(/^Day 7 of 10 · 3 days left$/)).toBeInTheDocument();
+    expect(wall()).toHaveTextContent("Next: Daily Scrum · Today 09:30");
+
+    // Past the Daily Scrum: the next one is tomorrow's.
+    vi.setSystemTime(new Date(2026, 9, 22, 11, 0, 0));
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(wall()).toHaveTextContent("Next: Daily Scrum · Tomorrow 09:30");
+    expect(within(wall()).getByText(/^Day 7 of 10 · 3 days left$/)).toBeInTheDocument();
+
+    // Past midnight: the day line moves on too.
+    vi.setSystemTime(new Date(2026, 9, 23, 0, 5, 0));
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(within(wall()).getByText(/^Day 8 of 10 · 2 days left$/)).toBeInTheDocument();
+    expect(wall()).toHaveTextContent("Next: Daily Scrum · Today 09:30");
+  });
+
   it("closes the wall when Present mode ends some other way", () => {
     seed();
     render(<SprintCockpit />);

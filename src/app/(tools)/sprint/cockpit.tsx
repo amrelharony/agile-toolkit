@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -126,8 +126,16 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const interruptItems = useWorkspaceStore((s) => s.interruptItems) ?? NO_INTERRUPTS;
   const [cadence, updateCadence] = useCeremonyCadence();
   const { log } = useHistoryLogger(TOOL_ID);
-  const [today] = useState(() => todayIso());
-  const [now] = useState(() => new Date());
+  const [today, setToday] = useState(() => todayIso());
+  const [now, setNow] = useState(() => new Date());
+  // Wall mode moves the day and the clock on (as it opens and on every
+  // refresh), so the next ceremony, the day line and the goal check never
+  // freeze at the time the page was loaded. The day only changes at midnight,
+  // so the data is gathered again then, not every minute.
+  const moveClock = useCallback(() => {
+    setNow(new Date());
+    setToday(todayIso());
+  }, []);
   const [creating, setCreating] = useState(false);
   const [example, setExample] = useState<CockpitExample | null>(null);
   const calendar = useMemo(() => cadenceCalendar(cadence), [cadence]);
@@ -268,6 +276,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
         now={now}
         cadence={cadence}
         compact={compact}
+        onClock={moveClock}
         onStart={() => setCreating(true)}
         onExit={() => setExample(null)}
       />
@@ -285,6 +294,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
         onCadence={updateCadence}
         compact={compact}
         commands={commands}
+        onClock={moveClock}
         onNewSprint={() => setCreating(true)}
       />
     );
@@ -336,6 +346,7 @@ function CockpitBody({
   onCadence,
   compact,
   commands,
+  onClock,
   onNewSprint,
 }: {
   sprints: readonly Sprint[];
@@ -351,6 +362,8 @@ function CockpitBody({
   compact: boolean;
   /** Absent in the read-only example. */
   commands?: CockpitCommands;
+  /** Move `today` and `now` on: wall mode calls it as it opens and on every refresh. */
+  onClock?: () => void;
   onNewSprint?: () => void;
 }) {
   const { sprint } = data;
@@ -425,7 +438,12 @@ function CockpitBody({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <WallModeButton onOpen={() => setWall(true)} />
+            <WallModeButton
+              onOpen={() => {
+                onClock?.();
+                setWall(true);
+              }}
+            />
             <ExportButton
               filename={`sprint-report-${slug(sprint.name)}`}
               markdown={report}
@@ -524,7 +542,12 @@ function CockpitBody({
       )}
 
       {!compact && (
-        <CockpitWallView open={wall} onClose={() => setWall(false)} title={sprint.name || "Sprint"}>
+        <CockpitWallView
+          open={wall}
+          onClose={() => setWall(false)}
+          title={sprint.name || "Sprint"}
+          onRefresh={onClock}
+        >
           {(tick) => (
             <CockpitWallContent
               dayLine={daysLeftLine(sprintDayLine(sprint, today))}
@@ -570,6 +593,7 @@ function ExampleCockpit({
   now,
   cadence,
   compact,
+  onClock,
   onStart,
   onExit,
 }: {
@@ -578,6 +602,7 @@ function ExampleCockpit({
   now: Date;
   cadence: CeremonyCadence;
   compact: boolean;
+  onClock?: () => void;
   onStart: () => void;
   onExit: () => void;
 }) {
@@ -626,6 +651,7 @@ function ExampleCockpit({
         now={now}
         cadence={cadence}
         compact={compact}
+        onClock={onClock}
       />
     </div>
   );

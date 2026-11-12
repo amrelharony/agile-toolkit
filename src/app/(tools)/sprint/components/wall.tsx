@@ -12,7 +12,9 @@
  * starts presenting (the shell's chrome goes, the browser goes fullscreen
  * where it may), and leaving Present mode (Exit presentation, Escape,
  * leaving fullscreen) closes it. Nothing in the content takes a click or
- * focus; a screen reader still reads it.
+ * focus; a screen reader still reads it, and the page under it is inert.
+ * `onRefresh` runs on every refresh, not on opening (as WallView's does):
+ * the cockpit moves its day and clock on with it.
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -78,11 +80,19 @@ export function CockpitWallView({
   useEffect(() => {
     if (!open) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // The page under the wall is inert, as under the shared WallView: Tab and
+    // a screen reader's cursor can't reach the controls it hides. The shell's
+    // Exit presentation button sits outside #main-content, so it still works.
+    const page = document.getElementById("main-content");
+    // Another layer may have made it inert already: leave that one's to it.
+    const madeInert = page !== null && !page.hasAttribute("inert");
+    if (madeInert) page.setAttribute("inert", "");
     if (!usePresentation.getState().presenting) startPresenting();
     setTick({ now: Date.now(), n: 0 });
     headingRef.current?.focus();
     return () => {
       stopPresenting();
+      if (madeInert) page.removeAttribute("inert");
       if (opener?.isConnected) opener.focus({ preventScroll: true });
     };
   }, [open]);
