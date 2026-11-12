@@ -19,7 +19,6 @@
 
 import type { Rng } from "@/lib/utils/random";
 import type { Validation } from "@/lib/utils/form";
-import { CONTROL_OR_BIDI_RE } from "@/lib/realtime/sanitize";
 import {
   BUILT_IN_DECKS,
   DEFAULT_DECK_ID,
@@ -91,11 +90,15 @@ export const CARD_DECKS_STORE_KEY = `agile-toolkit:${CARD_DECKS_STORE}`;
 // ── Reading back ─────────────────────────────────────────────────────
 
 /**
- * Controls, bidi marks and zero-width characters (the room's own list plus
- * U+200B–U+200D and U+FEFF), from `\u` escapes so the source stays ASCII.
+ * Controls, bidi marks and zero-width characters: the live room's own list
+ * (CONTROL_OR_BIDI_RE in lib/realtime/sanitize) plus U+200B–U+200D and
+ * U+FEFF, from `\u` escapes so the source stays ASCII. Written out here
+ * because Amr's action modules, which import this one, may not import
+ * realtime code (test/agent/actions-visitor-safe); test/card-decks/model
+ * holds the two lists together.
  */
 const HIDDEN_CHARS = new RegExp(
-  `${CONTROL_OR_BIDI_RE.source.slice(0, -1)}\\u200B-\\u200D\\uFEFF]`,
+  "[\\u0000-\\u001F\\u007F\\u061C\\u200B-\\u200F\\u202A-\\u202E\\u2066-\\u2069\\uFEFF]",
   "g"
 );
 

@@ -36,6 +36,7 @@ import {
   validateDeckDraft,
   type CustomDeck,
 } from "@/lib/card-decks/model";
+import { CONTROL_OR_BIDI_RE, hasControlOrBidi } from "@/lib/realtime/sanitize";
 import { createRng } from "@/lib/utils/random";
 
 const deck = (id: string) => builtInDeck(id)!;
@@ -280,6 +281,20 @@ describe("the saved state, read back", () => {
     expect(cleanLine("  Hello​\n  world‮ ", 140)).toBe("Hello world");
     expect(cleanLine("ab😀", 3)).toBe("ab");
     expect(cleanLine(5, 10)).toBe("");
+  });
+
+  it("takes out every character the live room refuses, and the zero-width ones", () => {
+    // model.ts keeps its own copy of the room's list (an action module may
+    // not import realtime code): this holds the two together.
+    for (let code = 0; code <= 0xffff; code++) {
+      if (code >= 0xd800 && code <= 0xdfff) continue;
+      const ch = String.fromCharCode(code);
+      if (!CONTROL_OR_BIDI_RE.test(ch)) continue;
+      expect(hasControlOrBidi(cleanLine(`a${ch}b`, 140)), `U+${code.toString(16)}`).toBe(false);
+    }
+    for (const ch of ["​", "‌", "‍", "﻿"]) {
+      expect(cleanLine(`a${ch}b`, 140)).toBe("a b");
+    }
   });
 });
 
