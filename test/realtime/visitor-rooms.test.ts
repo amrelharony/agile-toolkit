@@ -11,6 +11,7 @@ import {
   joinUrl,
   newVisitorRoomCode,
   readVisitorIdentity,
+  roomNeedsHostKey,
   saveVisitorIdentity,
   visitorChannelName,
   visitorRoomsEnabled,
@@ -39,7 +40,7 @@ describe("visitorRoomsEnabled", () => {
 });
 
 describe("tools and codes", () => {
-  it("allows Planning Poker, Retro and the six vote-round tools", () => {
+  it("allows Planning Poker, Retro, the vote-round tools and the Phase 1 room tools", () => {
     expect(VISITOR_TOOLS).toEqual([
       "planning-poker",
       "retro",
@@ -49,11 +50,18 @@ describe("tools and codes", () => {
       "kano-model",
       "buy-a-feature",
       "hundred-dollar-test",
+      "quick-vote",
+      "audience-wall",
+      "picker",
+      "team-mixer",
+      "card-decks",
     ]);
     expect(isVisitorTool("retro")).toBe(true);
     expect(isVisitorTool("mood-tracker")).toBe(true);
     expect(isVisitorTool("kano-model")).toBe(true);
     expect(isVisitorTool("hundred-dollar-test")).toBe(true);
+    expect(isVisitorTool("audience-wall")).toBe(true);
+    expect(isVisitorTool("picker")).toBe(true);
     for (const t of ["canvas", "kudos", "Retro", "", null, 1]) expect(isVisitorTool(t)).toBe(false);
   });
 
@@ -67,8 +75,21 @@ describe("tools and codes", () => {
       "kano-model": "vote",
       "buy-a-feature": "vote",
       "hundred-dollar-test": "vote",
+      "quick-vote": "vote",
+      "audience-wall": "wall",
+      picker: "show",
+      "team-mixer": "show",
+      "card-decks": "show",
     });
     expect(Object.keys(VISITOR_ROOM_KIND).sort()).toEqual([...VISITOR_TOOLS].sort());
+  });
+
+  it("asks a signed room's link for the host key, and only theirs", () => {
+    expect(roomNeedsHostKey("vote")).toBe(true);
+    expect(roomNeedsHostKey("show")).toBe(true);
+    expect(roomNeedsHostKey("wall")).toBe(true);
+    expect(roomNeedsHostKey("poker")).toBe(false);
+    expect(roomNeedsHostKey("retro")).toBe(false);
   });
 
   it("generates 12-character codes from the unambiguous alphabet", () => {

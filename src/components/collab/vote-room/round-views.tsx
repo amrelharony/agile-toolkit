@@ -4,24 +4,39 @@
  * The live room's kind-aware pieces, for the host's and the participant's
  * side alike: the answer form, the revealed results, a closed round's
  * results, its Markdown, and whether it has anything a tool could keep.
- * Each picks the scale, pair or allocation component by the round's kind,
- * so `HostVoteRoom` and `VoteJoinRoom` stay one flow for every kind.
+ * Each picks the scale, pair, allocation, choice, rank or number component
+ * by the round's kind, so `HostVoteRoom` and `VoteJoinRoom` stay one flow
+ * for every kind.
  */
 
 import { voteRoundMarkdown } from "@/lib/realtime/vote-room/aggregate";
 import { allocationRoundMarkdown } from "@/lib/realtime/vote-room/allocation";
+import { choiceRoundMarkdown } from "@/lib/realtime/vote-room/choice";
+import { numberRoundMarkdown, numberSheetOf } from "@/lib/realtime/vote-room/number";
 import { pairRoundMarkdown } from "@/lib/realtime/vote-room/pair";
+import { VOTE_LIMITS, type VoteRoundKind } from "@/lib/realtime/vote-room/protocol";
+import { rankRoundMarkdown } from "@/lib/realtime/vote-room/rank";
 import {
   isAllocationResult,
+  isChoiceResult,
+  isNumberResult,
   isPairResult,
+  isRankResult,
+  specTitle,
   type RoundDraft,
   type RoundResult,
 } from "@/lib/realtime/vote-room/kinds";
 import type { VoteRoom, VoteSubmitResult } from "@/lib/realtime/vote-room/use-vote-room";
 import { AllocationAnswerForm } from "./allocation-answer-form";
 import { AllocationResults } from "./allocation-results";
+import { ChoiceAnswerForm } from "./choice-answer-form";
+import { ChoiceResults } from "./choice-results";
+import { NumberAnswerForm } from "./number-answer-form";
+import { NumberResults } from "./number-results";
 import { PairAnswerForm } from "./pair-answer-form";
 import { PairResults } from "./pair-results";
+import { RankAnswerForm } from "./rank-answer-form";
+import { RankResults } from "./rank-results";
 import { VoteAnswerForm } from "./vote-answer-form";
 import { VoteResults } from "./vote-results";
 
@@ -34,30 +49,58 @@ export function spreadNote(spreadNeed: number): string {
   return `Who gave each item something, and how the amounts were spread, show only from ${spreadNeed} answers, and Reveal closes the round: wait for ${spreadNeed} if you want them.`;
 }
 
+/**
+ * The second threshold of a round of `kind`, said to the host before
+ * Reveal, or null for a kind without one. Dot rounds show who put a dot
+ * where, and number rounds their spread, only from `spreadNeed` answers.
+ */
+export function kindSpreadNote(
+  kind: VoteRoundKind | null,
+  spreadNeed: number,
+  dots = false
+): string | null {
+  if (kind === "allocation") return spreadNote(spreadNeed);
+  if (kind === "choice" && dots) {
+    return `How many people put a dot on each option shows only from ${spreadNeed} answers, and Reveal closes the round: wait for ${spreadNeed} if you want it.`;
+  }
+  if (kind === "number") {
+    return `The lowest, the highest and the spread show only from ${spreadNeed} answers, and Reveal closes the round: wait for ${spreadNeed} if you want them.`;
+  }
+  return null;
+}
+
+/** The round's second threshold note for the room's current round, or null. */
+export function roomSpreadNote(room: VoteRoom): string | null {
+  const need = Math.max(room.minN, VOTE_LIMITS.minNSpread);
+  if (room.ballots >= need) return null;
+  const dots = room.spec?.kind === "choice" && room.spec.sheet.mode === "dots";
+  return kindSpreadNote(room.kind, need, dots);
+}
+
 /** The open round's title, whatever its kind; null before the first state. */
 export function roomTitle(room: VoteRoom): string | null {
-  return room.questionnaire?.title ?? room.pairSheet?.title ?? room.sheet?.title ?? null;
+  return room.spec ? specTitle(room.spec) : null;
 }
 
 /** Whether the room knows what this round asks (the host's first state has arrived). */
 export function roomHasRound(room: VoteRoom): boolean {
-  return room.questionnaire !== null || room.pairSheet !== null || room.sheet !== null;
+  return room.spec !== null;
 }
 
 /** The revealed round's result, whatever its kind. */
 export function roomResult(room: VoteRoom): RoundResult | null {
-  return room.result ?? room.pairResult ?? room.allocationResult;
+  return room.roundResult;
 }
 
 /**
  * Whether a closed round has totals a tool could keep: a scale or pair
  * round with every question or item withheld has none (each tool refuses
- * such a round); an allocation round always shows its totals.
+ * such a round); the other kinds always show their totals.
  */
 export function resultKeepable(r: RoundResult | null): boolean {
   if (!r) return false;
-  if (isAllocationResult(r)) return true;
   if (isPairResult(r)) return r.items.some((x) => x.joint !== null);
+  if ("kind" in r) return true;
   return r.questions.some((q) => q.distribution !== null);
 }
 
@@ -65,6 +108,9 @@ export function resultKeepable(r: RoundResult | null): boolean {
 export function roundMarkdown(r: RoundResult): string {
   if (isAllocationResult(r)) return allocationRoundMarkdown(r);
   if (isPairResult(r)) return pairRoundMarkdown(r);
+  if (isChoiceResult(r)) return choiceRoundMarkdown(r);
+  if (isRankResult(r)) return rankRoundMarkdown(r);
+  if (isNumberResult(r)) return numberRoundMarkdown(r);
   return voteRoundMarkdown(r);
 }
 
@@ -78,24 +124,30 @@ export function RoundAnswerForm({
   onSubmit: (draft: RoundDraft) => Promise<VoteSubmitResult>;
   submitLabel?: string;
 }) {
-  if (room.sheet) {
-    return (
-      <AllocationAnswerForm sheet={room.sheet} onSubmit={onSubmit} submitLabel={submitLabel} />
-    );
+  const spec = room.spec;
+  if (!spec) return null;
+  switch (spec.kind) {
+    case "allocation":
+      return (
+        <AllocationAnswerForm sheet={spec.sheet} onSubmit={onSubmit} submitLabel={submitLabel} />
+      );
+    case "pair":
+      return <PairAnswerForm sheet={spec.sheet} onSubmit={onSubmit} submitLabel={submitLabel} />;
+    case "scale":
+      return (
+        <VoteAnswerForm
+          questionnaire={spec.questionnaire}
+          onSubmit={onSubmit}
+          submitLabel={submitLabel}
+        />
+      );
+    case "choice":
+      return <ChoiceAnswerForm sheet={spec.sheet} onSubmit={onSubmit} submitLabel={submitLabel} />;
+    case "rank":
+      return <RankAnswerForm sheet={spec.sheet} onSubmit={onSubmit} submitLabel={submitLabel} />;
+    case "number":
+      return <NumberAnswerForm sheet={spec.sheet} onSubmit={onSubmit} submitLabel={submitLabel} />;
   }
-  if (room.pairSheet) {
-    return <PairAnswerForm sheet={room.pairSheet} onSubmit={onSubmit} submitLabel={submitLabel} />;
-  }
-  if (room.questionnaire) {
-    return (
-      <VoteAnswerForm
-        questionnaire={room.questionnaire}
-        onSubmit={onSubmit}
-        submitLabel={submitLabel}
-      />
-    );
-  }
-  return null;
 }
 
 /** The revealed round's results, by its kind; null while nothing is revealed. */
@@ -106,35 +158,69 @@ export function LiveRoundResults({
   room: VoteRoom;
   focusHeading?: boolean;
 }) {
-  if (room.sheet && room.allocationRevealed) {
+  const spec = room.spec;
+  const revealed = room.revealedRound;
+  if (!spec || !revealed) return null;
+  if (spec.kind === "allocation" && revealed.kind === "allocation") {
     return (
       <AllocationResults
-        sheet={room.sheet}
-        revealed={room.allocationRevealed}
+        sheet={spec.sheet}
+        revealed={revealed.rows}
         minN={room.minN}
         ballots={room.ballots}
         focusHeading={focusHeading}
       />
     );
   }
-  if (room.pairSheet && room.pairRevealed) {
+  if (spec.kind === "pair" && revealed.kind === "pair") {
     return (
       <PairResults
-        sheet={room.pairSheet}
-        revealed={room.pairRevealed}
+        sheet={spec.sheet}
+        revealed={revealed.rows}
         minN={room.minN}
         ballots={room.ballots}
         focusHeading={focusHeading}
       />
     );
   }
-  if (room.questionnaire && room.revealed) {
+  if (spec.kind === "scale" && revealed.kind === "scale") {
     return (
       <VoteResults
-        questionnaire={room.questionnaire}
-        revealed={room.revealed}
+        questionnaire={spec.questionnaire}
+        revealed={revealed.rows}
         minN={room.minN}
         ballots={room.ballots}
+        focusHeading={focusHeading}
+      />
+    );
+  }
+  if (spec.kind === "choice" && revealed.kind === "choice") {
+    return (
+      <ChoiceResults
+        sheet={spec.sheet}
+        revealed={revealed.rows}
+        minN={room.minN}
+        ballots={room.ballots}
+        focusHeading={focusHeading}
+      />
+    );
+  }
+  if (spec.kind === "rank" && revealed.kind === "rank") {
+    return (
+      <RankResults
+        sheet={spec.sheet}
+        revealed={revealed.rows}
+        ballots={room.ballots}
+        focusHeading={focusHeading}
+      />
+    );
+  }
+  if (spec.kind === "number" && revealed.kind === "number") {
+    return (
+      <NumberResults
+        sheet={spec.sheet}
+        revealed={revealed.value}
+        minN={room.minN}
         focusHeading={focusHeading}
       />
     );
@@ -179,6 +265,44 @@ export function SavedRoundResults({ result }: { result: RoundResult }) {
         revealed={result.items.map((x) => ({ responses: x.responses, joint: x.joint }))}
         minN={result.minN}
         ballots={result.ballots}
+      />
+    );
+  }
+  if (isChoiceResult(result)) {
+    return (
+      <ChoiceResults
+        sheet={{
+          id: result.sheetId,
+          title: result.title,
+          mode: result.mode,
+          limit: result.limit,
+          options: result.options.map((x) => ({ id: x.id, text: x.text })),
+        }}
+        revealed={result.options.map((x) => ({ total: x.total, backers: x.backers }))}
+        minN={result.minN}
+        ballots={result.ballots}
+      />
+    );
+  }
+  if (isRankResult(result)) {
+    return (
+      <RankResults
+        sheet={{
+          id: result.sheetId,
+          title: result.title,
+          options: result.options.map((x) => ({ id: x.id, text: x.text })),
+        }}
+        revealed={result.options.map((x) => ({ points: x.points }))}
+        ballots={result.ballots}
+      />
+    );
+  }
+  if (isNumberResult(result)) {
+    return (
+      <NumberResults
+        sheet={numberSheetOf(result)}
+        revealed={{ count: result.ballots, median: result.median, spread: result.spread }}
+        minN={result.minN}
       />
     );
   }

@@ -86,6 +86,11 @@ const TOOL_NAMES: Record<VisitorTool, string> = {
   "kano-model": "Kano survey",
   "buy-a-feature": "Buy-a-Feature",
   "hundred-dollar-test": "$100 Test",
+  "quick-vote": "Quick Vote",
+  "audience-wall": "Audience Wall",
+  picker: "Picker",
+  "team-mixer": "Team Mixer",
+  "card-decks": "Card Decks",
 };
 
 /** The room each kind of link opens (`VISITOR_ROOM_KIND`). */

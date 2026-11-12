@@ -4,17 +4,27 @@
  * A visitor (no owner sign-in, no squad invite) can run Planning Poker or
  * a Retro live with their team over a temporary Supabase broadcast and
  * presence channel, and anyone can run an anonymous vote round (Health
- * Check, Psych Safety, Mood Tracker; Kano; Buy-a-Feature, the $100 Test)
- * the same way. Nothing is written to a database. The whole feature is off
- * unless the build sets `NEXT_PUBLIC_VISITOR_ROOMS=1`.
+ * Check, Psych Safety, Mood Tracker; Kano; Buy-a-Feature, the $100 Test;
+ * Quick Vote), a show room (Picker, Team Mixer, Card Decks: the host
+ * shows, everyone watches) or a wall room (Audience Wall: short anonymous
+ * posts and upvotes) the same way. Nothing is written to a database. The
+ * whole feature is off unless the build sets `NEXT_PUBLIC_VISITOR_ROOMS=1`.
  *
  * Owners don't run Poker or Retro visitor rooms: strangers' cards and
- * votes would sync into the owner's workspace. Vote rounds are the one,
- * documented exception (RUNBOOK "Live vote rounds"): the owner hosts them
- * here too, because participants following a `/join` link hold only the
- * anon key, and they can send nothing but encrypted numbers (scale
- * indexes, answer pairs, or amounts), of which only the totals reach the
- * workspace, on an explicit Save (`vote-room/protocol.ts`).
+ * votes would sync into the owner's workspace. The signed rooms are the
+ * documented exceptions (RUNBOOK "Live vote rounds", "Show and wall
+ * rooms"): the owner hosts them here too, because in each of them nothing
+ * a stranger sends reaches the workspace by itself.
+ *  - Vote rounds: participants send nothing but encrypted numbers (scale
+ *    indexes, answer pairs, amounts, choices, an order or one number), of
+ *    which only the totals reach the workspace, on an explicit Save
+ *    (`vote-room/protocol.ts`).
+ *  - Show rooms: participants send nothing but "I'm here"; every frame
+ *    comes from the host's own tool (`show-room/protocol.ts`).
+ *  - Wall rooms: participants send short text, encrypted to the host. The
+ *    host sees every post on screen before anything is kept, and only an
+ *    explicit Save hands the tool the posts' text and vote counts, never a
+ *    member id or a name (`wall-room/protocol.ts`).
  *
  * Security model (see RUNBOOK "Visitor live rooms"): the anon key can open
  * any `visitor:` channel (public, or private through migration 0026/0027's
@@ -47,11 +57,14 @@ export function visitorRoomsEnabled(): boolean {
 // ── Tools and codes ──────────────────────────────────────────────────
 
 /**
- * The tools that can run a visitor room. Migration 0028 lists the same
- * tools, in this order, in the Realtime policy's visitor branch: change
- * both together, with a new migration (test/realtime/visitor-topic-migration.test.ts
- * checks the newest one agrees). Kano, Buy-a-Feature and the $100 Test
- * joined in 0028; until it is pushed, their private channels are refused.
+ * The tools that can run a visitor room. The newest migration that defines
+ * `realtime_room_allowed` (0039 today) lists the same tools, in this order,
+ * in the Realtime policy's visitor branch: change both together, with a new
+ * migration (test/realtime/visitor-topic-migration.test.ts checks the
+ * newest one agrees). Kano, Buy-a-Feature and the $100 Test joined in
+ * 0028; Quick Vote, Audience Wall, Picker, Team Mixer and Card Decks in
+ * 0039. Until a tool's migration is pushed, its private channels are
+ * refused.
  */
 export const VISITOR_TOOLS = [
   "planning-poker",
@@ -62,6 +75,11 @@ export const VISITOR_TOOLS = [
   "kano-model",
   "buy-a-feature",
   "hundred-dollar-test",
+  "quick-vote",
+  "audience-wall",
+  "picker",
+  "team-mixer",
+  "card-decks",
 ] as const;
 export type VisitorTool = (typeof VISITOR_TOOLS)[number];
 
@@ -69,8 +87,14 @@ export function isVisitorTool(value: unknown): value is VisitorTool {
   return typeof value === "string" && (VISITOR_TOOLS as readonly string[]).includes(value);
 }
 
-/** Which room a tool's `/join` link opens. */
-export type VisitorRoomKind = "poker" | "retro" | "vote";
+/**
+ * Which room a tool's `/join` link opens:
+ *  - "poker", "retro": host-authoritative boards (Planning Poker, Retro);
+ *  - "vote": an anonymous vote round (`vote-room/`);
+ *  - "show": the host shows, everyone watches (`show-room/`);
+ *  - "wall": short anonymous posts and upvotes (`wall-room/`).
+ */
+export type VisitorRoomKind = "poker" | "retro" | "vote" | "show" | "wall";
 
 /**
  * The room each visitor tool runs. `/join` routes on this, so a new tool
@@ -86,7 +110,21 @@ export const VISITOR_ROOM_KIND: Readonly<Record<VisitorTool, VisitorRoomKind>> =
   "kano-model": "vote",
   "buy-a-feature": "vote",
   "hundred-dollar-test": "vote",
+  "quick-vote": "vote",
+  "audience-wall": "wall",
+  picker: "show",
+  "team-mixer": "show",
+  "card-decks": "show",
 };
+
+/**
+ * Rooms whose join link must carry the host key's fingerprint (`#k=`): the
+ * host signs everything it sends, and participants trust only that key.
+ * `/join` says such a link is incomplete without it, before any consent.
+ */
+export function roomNeedsHostKey(kind: VisitorRoomKind): boolean {
+  return kind === "vote" || kind === "show" || kind === "wall";
+}
 
 /** The owner rooms' alphabet: no 0/O, 1/I/L, so codes read aloud cleanly. */
 export const VISITOR_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
