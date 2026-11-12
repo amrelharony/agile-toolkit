@@ -485,6 +485,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
                 c10["notes"].append(f"a pupil is {p['diameter']} px, under {TOL['pupil_min_px']}")
     face_out: dict = {}
     neutral: dict = {}
+    bands = None  # the face sheet's eyes and mouth bands, which face2 and C10 take too
     if host in baked:
         keep = [host] + [k for k in tree.get(host, []) if k.startswith(FACE_EXTRAS)]
         piece = {k: baked[k] for k in keep}
@@ -502,8 +503,21 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         cells = [s["pieces"][i].crop(s["cut"])[0] if i is not None else None for i in order]
         # A rig with no pupil pieces (Amr) keeps the eyes its face sheet draws.
         has_pupils = any(i.startswith("pupil-") for i in ids_all)
-        got = swaps.face_patches(cells, states, face_base, neutral, eyes=eyes, empty_whites=has_pupils)
+        got = swaps.face_patches(
+            cells,
+            states,
+            face_base,
+            neutral,
+            eyes=eyes,
+            empty_whites=has_pupils,
+            bands=bands,
+            band_box=im.mask_bbox(baked[host][..., 3] >= SOLID_ALPHA),
+        )
         neutral = got["neutral"]  # face2 has no neutral heads of its own
+        bands = got.get("bands", bands)
+        if got["report"]["notes"]:
+            c10["status"] = checks.worst(c10["status"], "warn")
+            c10["notes"] += [f"{img}: {n}" for n in got["report"]["notes"]]
         for slot in ("eyes", "mouth"):
             if slot in got:
                 face_out.setdefault(slot, {"box": got[slot]["box"], "choices": {}, "ring": {}})
@@ -524,7 +538,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     # room to move both ways in its white.
     if host in baked and pupils:
         hb = im.mask_bbox(baked[host][..., 3] >= SOLID_ALPHA)
-        top, bottom = swaps.head_bands(hb)["eyes"]
+        top, bottom = (bands or swaps.head_bands(hb))["eyes"]
         eyes_box = face_out["eyes"]["box"] if "eyes" in face_out else (hb[0], int(top), hb[2], int(np.ceil(bottom)))
         host_area = float((baked[host][..., 3] >= SOLID_ALPHA).sum())
         if swaps.drawn_pupils(baked[host], eyes_box, eyes, host_area):

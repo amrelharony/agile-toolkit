@@ -12,9 +12,10 @@ and the pupils cut from the master.
 
 Face patches (C10): every head is registered onto the rig head (scale within
 ±face_scale_search, turn within ±face_rot_search, after a first scale from the
-boxes). What changed (ΔE00 over diff_de00, or alpha) inside a slot's band of head
-height is that slot's patch, the union over its states, grown by patch_dilate_px
-and cut to the head. Each state's crop is moved in Lab so its ring_px border ring
+boxes). What changed (ΔE00 over diff_de00, or alpha) inside a slot's band is that
+slot's patch, the union over its states, grown by patch_dilate_px and cut to the
+head. The bands come from the cells: the rows the eye states agree they change
+and the rows the mouth states do, split between them (face_bands). Each state's crop is moved in Lab so its ring_px border ring
 matches the rig head's, and feathered over feather_px. A state that changed more
 than face_outside_max of the head outside its band is refused.
 
@@ -56,12 +57,64 @@ def _box_of(mask: np.ndarray):
 
 
 def head_bands(head_box) -> dict:
+    """The fixed bands (face_eyes_*, face_mouth_*), as shares of a head box's
+    height: the fallback when the face cells don't show where the eyes and the
+    mouth are (face_bands)."""
     x0, y0, x1, y1 = head_box
     h = y1 - y0
     return {
         "eyes": (y0 + TOL["face_eyes_top"] * h, y0 + TOL["face_eyes_bottom"] * h),
         "mouth": (y0 + TOL["face_mouth_top"] * h, y0 + TOL["face_mouth_bottom"] * h),
     }
+
+
+def _core(masks: list[np.ndarray], y0: int, y1: int) -> tuple[int, int] | None:
+    """The rows (y0..y1) that more than one of the masks changed, as the run of
+    them with the most changed pixels: where a slot's states agree it changes."""
+    rows = np.array([m[y0:y1].any(axis=1) for m in masks])
+    weight = np.sum([m[y0:y1].sum(axis=1) for m in masks], axis=0)
+    agree = rows.sum(axis=0) > 1
+    best, run = None, None
+    for y in range(len(agree) + 1):
+        if y < len(agree) and agree[y]:
+            run = y if run is None else run
+            continue
+        if run is not None:
+            w = weight[run:y].sum()
+            if best is None or w > best[0]:
+                best = (w, run, y)
+            run = None
+    return None if best is None else (y0 + best[1], y0 + best[2])
+
+
+def face_bands(changed: dict, face_box, band_box=None) -> tuple[dict, str | None]:
+    """(the eyes and mouth bands as (top, bottom) rows, why the fixed ones stand
+    in or None), from where the face cells differ once laid on the head.
+
+    `changed` is each state's change mask against its slot's neutral cell. A
+    slot's core is the rows its states agree they change (_core): the eyes
+    change only the eyes, the mouth row only the mouth. The two slots meet
+    halfway between their cores, each reaching face_band_overlap of the gap
+    past that; the eyes band runs up to the face's top (raised brows, a crest)
+    and the mouth band down to its bottom (an open jaw). With fewer than two
+    states to compare in a slot, no core, or cores whose middles don't clear each
+    other, the fixed head_bands of `band_box` (the host's own box) stand in."""
+    x0, y0, x1, y1 = face_box
+    fallback = head_bands(band_box or face_box)
+    cores = {}
+    for slot in ("eyes", "mouth"):
+        masks = [ch for (sl, st), ch in changed.items() if sl == slot and st != REST_STATE[slot]]
+        if len(masks) <= 1:
+            return fallback, f"{slot}: {len(masks)} state(s) to compare"
+        cores[slot] = _core(masks, y0, y1)
+        if cores[slot] is None:
+            return fallback, f"{slot}: no rows its states agree they change"
+    (e0, e1), (m0, m1) = cores["eyes"], cores["mouth"]
+    if not ((e0 + e1) / 2 < m0 and (m0 + m1) / 2 > e1):
+        return fallback, "the eyes' and the mouth's changes overlap"
+    mid = (e1 + m0) / 2
+    reach = TOL["face_band_overlap"] * max(m0 - e1, 0)
+    return {"eyes": (float(y0), mid + reach), "mouth": (mid - reach, float(y1))}, None
 
 
 def register_head(cell: np.ndarray, head: np.ndarray, start: rg.Reg | None = None) -> rg.Reg | None:
@@ -161,6 +214,8 @@ def face_patches(
     *,
     eyes: Eyes | None = None,
     empty_whites: bool = True,
+    bands: dict | None = None,
+    band_box=None,
 ) -> dict:
     """{slot: {"box": (x0, y0, x1, y1), "choices": {state: rgba master frame},
     "ring": {...}}, "neutral": {...}, "report": {...}} from the cut face-sheet
@@ -173,13 +228,17 @@ def face_patches(
     cells themselves are the head's own art: they are measured against the rig
     head (NCC ≥ face_ncc_min), not cut. The wide eyes' drawn pupils are painted
     out (the moving pupils show there) unless `empty_whites` is False: a rig with
-    no pupil pieces keeps the eyes its sheet draws."""
+    no pupil pieces keeps the eyes its sheet draws.
+
+    The eyes and mouth bands come from the cells themselves (face_bands), or
+    from `bands` (face2 takes the face sheet's); out["bands"] passes them on.
+    `band_box` is the host's own box, for the fixed bands when the cells can't
+    show them."""
     hm = head[..., 3] >= SOLID_ALPHA
     hb = _box_of(hm)
-    out: dict = {"report": {"cells": []}, "neutral": dict(neutral or {})}
+    out: dict = {"report": {"cells": [], "notes": []}, "neutral": dict(neutral or {})}
     if hb is None:
         return out
-    bands = head_bands(hb)
     area = hm.sum()
     placed: dict = {}
     first = None
@@ -198,11 +257,16 @@ def face_patches(
         placed[(slot, state)] = (rg.bake(cell, reg, head.shape), reg, row)
         if state == REST_STATE[slot]:
             out["neutral"][slot] = placed[(slot, state)][0]
+    changed = {k: changes(b, out["neutral"].get(k[0], head)) for k, (b, _, _) in placed.items()}
+    if bands is None:
+        bands, why = face_bands(changed, hb, band_box)
+        if why:
+            out["report"]["notes"].append(f"face bands from the fixed shares of the head: {why}")
+    out["bands"] = bands
     baked: dict = {}
     diffs: dict = {}
     for (slot, state), (b, reg, row) in placed.items():
-        base = out["neutral"].get(slot, head)
-        ch = changes(b, base)
+        ch = changed[(slot, state)]
         top, bottom = bands[slot]
         band = np.zeros_like(ch)
         band[int(top) : int(np.ceil(bottom)), hb[0] : hb[2]] = True

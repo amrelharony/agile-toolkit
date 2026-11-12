@@ -76,6 +76,7 @@
     "face_eyes_bottom": 0.62,
     "face_mouth_top": 0.48,
     "face_mouth_bottom": 0.96,
+    "face_band_overlap": 0.25,
     "patch_dilate_px": 3,
     "feather_px": 2,
     "ring_px": 2,

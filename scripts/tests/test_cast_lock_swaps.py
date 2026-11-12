@@ -99,6 +99,8 @@ class Lock(unittest.TestCase):
 
 
 class Face(unittest.TestCase):
+    STATES = tuple(spec.FACE_STATES)
+
     @classmethod
     def setUpClass(cls):
         cls.base = cs.torso(pupils=True, flap=True)
@@ -163,6 +165,67 @@ class Face(unittest.TestCase):
         self.assertEqual(row["status"], "fail")
         self.assertGreater(row["outside"], TOL["face_outside_max"])
         self.assertNotIn("closed", got["eyes"]["choices"])
+
+    def test_the_bands_follow_the_eyes_under_a_tall_crest(self):
+        # A face piece with a crest as tall as the head above it (an antenna, a
+        # crest, tall ears): its eyes sit below the fixed eyes band's share of the
+        # box, so only bands read from the cells keep them.
+        drop = 380
+
+        def head(**cfg):
+            img = np.zeros_like(cs.torso())
+            img[drop:] = cs.torso(**cfg)[:-drop]
+            p = cs.Pen()
+            p.line([(768, cs.TORSO[1] + drop + 4), (768, 44)], width=6)
+            p.ellipse((752, 24, 784, 56), cs.FLAP)
+            return cs.over(img, p.done())
+
+        base = head(pupils=True)
+        cells = [cs.scaled(cs.crop(head(pupils=cfg["eyes"] in ("open", "wide"), **cfg)), 0.62) for cfg in cs.FACE_CELLS]
+        hb = im.mask_bbox(base[..., 3] >= spec.SOLID_ALPHA)
+        eye_rows = (cs.EYES[0][1] - cs.EYE_R + drop - hb[1]) / (hb[3] - hb[1])
+        self.assertGreater(eye_rows, TOL["face_eyes_bottom"])  # the whole eye is below the fixed band
+        got = swaps.face_patches(cells, self.STATES, base)
+        self.assertEqual(got["report"]["notes"], [])
+        for row in got["report"]["cells"]:
+            self.assertEqual(row["status"], "pass", row)
+        self.assertEqual(sorted(got["eyes"]["choices"]), ["closed", "happy", "wide"])
+        ex0, ey0, ex1, ey1 = got["eyes"]["box"]
+        y = cs.EYES[0][1] + drop
+        self.assertLessEqual(ey0, y - cs.EYE_R - 12)  # the wide eye, whole
+        self.assertGreaterEqual(ey1, y + cs.EYE_R + 12)
+        self.assertLess(got["bands"]["eyes"][1], got["bands"]["mouth"][1])
+        # The fixed shares of the box would refuse every eye state.
+        fixed = swaps.face_patches(cells, self.STATES, base, bands=swaps.head_bands(hb))
+        self.assertTrue(all(r["status"] == "fail" for r in fixed["report"]["cells"] if r["slot"] == "eyes" and r["state"] != "open"))
+
+    def test_bands_stand_in_from_the_hosts_box_when_the_cells_cant_show_them(self):
+        def rows(a, b):
+            m = np.zeros((400, 300), bool)
+            m[a:b, 100:200] = True
+            return m
+
+        box, host = (0, 0, 300, 400), (0, 100, 300, 400)
+        eyes = {("eyes", s): rows(100, 140) for s in ("closed", "happy", "wide")}
+        mouth = {("mouth", s): rows(240, 280) for s in ("smile", "open", "o")}
+        bands, why = swaps.face_bands({**eyes, **mouth}, box, host)
+        self.assertIsNone(why)
+        self.assertEqual(bands["eyes"][0], 0)
+        self.assertLess(bands["eyes"][1], 240)
+        self.assertGreater(bands["mouth"][0], 140)
+        self.assertEqual(bands["mouth"][1], 400)
+        # One state per slot (face2 alone), or cores that overlap: the fixed shares
+        # of the host's own box (no ears), with the reason.
+        bands, why = swaps.face_bands({("eyes", "curious"): rows(100, 140), ("mouth", "talk"): rows(240, 280)}, box, host)
+        self.assertIn("eyes: 1 state(s)", why)
+        self.assertEqual(bands, swaps.head_bands(host))
+        bands, why = swaps.face_bands({**eyes, **{k: rows(110, 150) for k in mouth}}, box, host)
+        self.assertIn("overlap", why)
+        # A single state's stray change (a blink that also opened the mouth) is no core.
+        stray = {**eyes, ("eyes", "closed"): rows(100, 140) | rows(240, 290)}
+        bands, why = swaps.face_bands({**stray, **mouth}, box, host)
+        self.assertIsNone(why)
+        self.assertLess(bands["eyes"][1], 240)
 
     def test_fill_whites(self):
         img = cs.torso(pupils=True)
