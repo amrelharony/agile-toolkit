@@ -1,9 +1,10 @@
 """Assembling a candidate rig from the accepted images, and the rig manifest.
 
     candidate(cid, sources)    key-out (each sheet then locked to the master's
-                               colours) → slice → assign → register → z and pivots
-                               → pupils → face patches → arm swaps → compose →
-                               checks C1-C11, into review/<batch>/<id>/ only
+                               colours) → slice → assign → register → named again
+                               by where they land → z and pivots → pupils → face
+                               patches → arm swaps → compose → checks C1-C11,
+                               into review/<batch>/<id>/ only
     compose(parts, order)      the rest pose painted in draw order (local z)
     manifest(...)              the RigManifest of the design (E.1), sprites in %
     rig_sha(candidate)         what an owner's rig approval is bound to
@@ -280,6 +281,123 @@ def rotate_about(mask: np.ndarray, x: float, y: float, deg: float) -> np.ndarray
     return np.array(out) >= SOLID_ALPHA
 
 
+# ---------- naming a sheet's pieces by where they land ----------
+
+# What each kind of piece hangs from on the master, and in which half of it it joins:
+# an ear on the head; an arm at the shoulders, in the body's top half; a leg (a
+# middle or a hind one too) and a tail at the hips, in its bottom half. A parts sheet
+# can't always tell them apart (a stiff pointed tail is drawn like an arm), but where
+# each lands on the master can.
+JOINS = {"ear": ("head", None), "arm": ("torso", "top"), "leg": ("torso", "bottom"), "tail": ("torso", "bottom")}
+
+
+def kind_of(pid: str) -> str | None:
+    if pid.startswith("ear-"):
+        return "ear"
+    if pid in ARM_SLOTS:
+        return "arm"
+    if pid.startswith(("leg-", "limb-mid-")):
+        return "leg"
+    return "tail" if pid == "tail" else None
+
+
+def landing_misses(got: dict, landed: dict) -> set:
+    """The (piece index, id) pairs of a naming ({id: piece index}) whose piece lands
+    on the master (`landed`, {id: baked RGBA}) where that id doesn't join (JOINS): it
+    doesn't touch what it hangs from (2 px apart at most, as rg.pivot reads an
+    overlap, and at least z_overlap_min_px of it), or it touches the body only in the
+    other half: an arm all below the body's middle, a leg or a tail all above it."""
+    out = set()
+    hosts: dict = {}  # what each kind hangs from: (its mask grown 2 px, its middle row)
+    for pid, i in got.items():
+        kind = kind_of(pid)
+        if kind is None or pid not in landed or JOINS[kind][0] not in landed:
+            continue
+        on, half = JOINS[kind]
+        if on not in hosts:
+            host = landed[on][..., 3] >= SOLID_ALPHA
+            hb = im.mask_bbox(host)
+            hosts[on] = (im.dilate(host, 2), (hb[1] + hb[3]) / 2 if hb else 0.0)
+        grown, mid = hosts[on]
+        ys = np.nonzero((landed[pid][..., 3] >= SOLID_ALPHA) & grown)[0]
+        if len(ys) < TOL["z_overlap_min_px"]:
+            out.add((i, pid))
+            continue
+        if (half == "top" and ys.min() + 0.5 >= mid) or (half == "bottom" and ys.max() + 0.5 <= mid):
+            out.add((i, pid))
+    return out
+
+
+def place_named(got, pieces, cut, reg_ids, master, mfig, baked, side_of, ids_all, tgt, cache) -> dict:
+    """{id: [Reg, baked RGBA, crop, side window]} for a sheet's named pieces laid on
+    the master. Each sided piece registers in its side window (an arm or a leg of the
+    body, an ear of the head), split at what it hangs from when that is placed (on
+    this sheet or an earlier one, `baked`); then each piece that explains none of the
+    master on its own is searched again where the others leave it bare (place_again).
+    `cache` keeps each registration by (piece, window), so a sheet named again
+    registers only the pieces whose window moved."""
+    out: dict = {}
+    view = dict(baked)
+    for pid in reg_ids:
+        if pid not in got:
+            continue
+        i = got[pid]
+        side = side_of.get(pid, pid)
+        hang = view.get(parent_of(side, ids_all))
+        hb = im.mask_bbox(hang[..., 3] >= SOLID_ALPHA) if hang is not None else None
+        near = side_window(side, mfig.box, (hb[0] + hb[2]) / 2 if hb else None)
+        if (i, near) not in cache:
+            crop, _ = pieces[i].crop(cut)
+            reg = rg.register(crop, master, near=near, coarse_target=tgt)
+            cache[(i, near)] = (reg, rg.bake(crop, reg, master.shape) if reg is not None else None, crop)
+        reg, b, crop = cache[(i, near)]
+        if reg is None:
+            continue
+        out[pid] = [reg, b, crop, near]
+        view[pid] = b
+    # A mostly hidden piece (a tail with only its tip showing) scores badly where it
+    # belongs and may land where other pieces show the same, or anywhere: one that
+    # explains none of the master on its own is searched again where the placed
+    # pieces leave the master unexplained, and moves when it owns enough there.
+    alone = own_pixels(view, master)
+    for pid in [k for k in out if alone[k] < TOL["own_visible_min_px"]]:
+        again = place_again(out[pid][2], master, {k: v for k, v in view.items() if k != pid}, out[pid][3])
+        if again is not None:
+            out[pid][0], out[pid][1] = again
+            view[pid] = again[1]
+            alone = own_pixels(view, master)
+    return out
+
+
+def settle_names(pieces, ids, got, place, misses, image="parts") -> tuple[dict, dict, set]:
+    """(naming, placed, misses left): a parts sheet's naming checked against where its
+    pieces land. `place(naming)` lays the named pieces on the master; `misses(naming,
+    placed)` gives the (piece, id) pairs that land where the id doesn't join
+    (landing_misses). While the best naming so far has misses, every pair seen to
+    miss is ruled out and the sheet named again (parts.assign with them forbidden),
+    which undoes a swap of any number of pieces; a naming replaces the best only
+    when fewer of its pieces miss, so a sound naming whose piece joins oddly stays."""
+    placed = place(got)
+    best = (got, placed, misses(got, placed))
+    forbid = set(best[2])
+    seen = [got]
+    for _ in ids:  # each round rules out at least one more pair
+        if not best[2]:
+            break
+        trial, _, _ = parts.assign(pieces, ids, image, forbid=forbid)
+        if trial in seen:
+            break
+        seen.append(trial)
+        laid = place(trial)
+        bad = misses(trial, laid)
+        if len(bad) < len(best[2]):
+            best = (trial, laid, bad)
+        if bad <= forbid:
+            break
+        forbid |= bad
+    return best
+
+
 # ---------- the candidate ----------
 
 
@@ -345,45 +463,51 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     crops: dict = {}
     nears: dict = {}
     gaps = {}
+    misses_left: list = []
     for img, s in sheets.items():
         ids = list(c[img])
         # Pupils are cut from the master; the closed fan is pinned at the open one's base.
         reg_ids = [i for i in ids if not i.startswith("pupil-") and i not in PINNED_ONLY]
-        got, spare, cost = parts.assign(s["pieces"], ids, img)
+        first, _, cost = parts.assign(s["pieces"], ids, img)
         r, close = parts.min_gap(s["pieces"], s["cut"].shape)
-        gaps[img] = {"touching": close, "spare": spare, "cost": round(cost, 3)}
         tgt = rg.Target(rg.shrink(master, rg.COARSE))
+        cache: dict = {}
+
+        def place(g, s=s, reg_ids=reg_ids, tgt=tgt, cache=cache):
+            return place_named(g, s["pieces"], s["cut"], reg_ids, master, mfig, baked, side_of, ids_all, tgt, cache)
+
+        def missed(g, laid):
+            return landing_misses(g, {**baked, **{k: v[1] for k, v in laid.items()}})
+
+        if img == "parts2":
+            # Named in the order of its list, with no pairs: nothing to trade.
+            got, placed = first, place(first)
+        else:
+            # A naming is checked against where its pieces land on the master.
+            got, placed, left = settle_names(s["pieces"], ids, first, place, missed, img)
+            misses_left += sorted(pid for _, pid in left)
+            was = {i: pid for pid, i in first.items()}
+            moved = [f"{pid} (first named {was.get(i, 'nothing')})" for pid, i in got.items() if was.get(i) != pid]
+            if moved:
+                report["notes"].append(f"{img}: named by where they land on the master: " + ", ".join(moved))
+        spare = [i for i in range(len(s["pieces"])) if i not in got.values()]
+        gaps[img] = {"touching": close, "spare": spare, "cost": round(cost, 3)}
         for pid in ids:
             if pid in got and pid not in reg_ids:
                 named[pid] = (img, got[pid])
-        for pid in reg_ids:
-            if pid not in got:
-                continue
-            p = s["pieces"][got[pid]]
-            crop, _ = p.crop(s["cut"])
-            side = side_of.get(pid, pid)
-            # An arm or a leg is on its side of the body, an ear of the head.
-            hang = baked.get(parent_of(side, ids_all))
-            hb = im.mask_bbox(hang[..., 3] >= SOLID_ALPHA) if hang is not None else None
-            near = side_window(side, mfig.box, (hb[0] + hb[2]) / 2 if hb else None)
-            reg = rg.register(crop, master, near=near, coarse_target=tgt)
-            if reg is None:
-                continue
+        for pid, (reg, b, crop, near) in placed.items():
             named[pid] = (img, got[pid])
-            crops[pid] = crop
-            nears[pid] = near
-            regs[pid] = reg
-            baked[pid] = rg.bake(crop, reg, shape)
-    # A mostly hidden piece (a tail with only its tip showing) scores badly where it
-    # belongs and may land where other pieces show the same, or anywhere: one that
-    # explains none of the master on its own is searched again where the placed
-    # pieces leave the master unexplained, and moves when it owns enough there.
+            regs[pid], baked[pid], crops[pid], nears[pid] = reg, b, crop, near
+    if len(sheets) > 1:
+        # A later sheet's pieces explain some of the master too: search again any
+        # piece that now explains none of it on its own.
+        alone = own_pixels(baked, master)
+        for pid in [p for p in regs if alone[p] < TOL["own_visible_min_px"]]:
+            again = place_again(crops[pid], master, {k: v for k, v in baked.items() if k != pid}, nears[pid])
+            if again is not None:
+                regs[pid], baked[pid] = again
+                alone = own_pixels(baked, master)
     alone = own_pixels(baked, master)
-    for pid in [p for p in regs if alone[p] < TOL["own_visible_min_px"]]:
-        again = place_again(crops[pid], master, {k: v for k, v in baked.items() if k != pid}, nears[pid])
-        if again is not None:
-            regs[pid], baked[pid] = again
-            alone = own_pixels(baked, master)
     # C5 separation, C6 registration.
     c5 = {"status": "pass", "notes": []}
     for img, g in gaps.items():
@@ -435,6 +559,11 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             c6["notes"].append(f"{pid}: only {alone[pid]} px of the master are its own; it lies on what other pieces show")
         c6["parts"][pid] = {**row, "status": st}
         c6["status"] = checks.worst(c6["status"], st)
+    for pid in misses_left:
+        if pid in c6["parts"]:
+            c6["parts"][pid]["status"] = checks.worst(c6["parts"][pid]["status"], "warn")
+            c6["status"] = checks.worst(c6["status"], "warn")
+            c6["notes"].append(f"{pid}: lands on the master where no {kind_of(pid)} joins the {JOINS[kind_of(pid)][0]}")
     lost = [i for i in ids_all if i not in named and not i.startswith("pupil-")]
     if lost:
         c6["status"] = "fail"

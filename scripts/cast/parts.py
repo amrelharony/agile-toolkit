@@ -105,6 +105,10 @@ SHAPES = {
 # cost = 3·place + area + 0.5·(long over short, and how far it stands the wrong
 # way) + 2·(1 − NCC), and 1·how unlike the two pieces named as a pair are.
 W_POS, W_AREA, W_ASPECT, W_NCC, W_PAIR = 3.0, 1.0, 0.5, 2.0, 1.0
+# The cost of a (piece, id) pair ruled out (where the piece lands on the master is
+# not where that id joins): far above any naming's, so it is taken only when no
+# other naming is left.
+FORBIDDEN = 1e6
 
 
 @dataclass(eq=False)
@@ -407,9 +411,9 @@ def hungarian(C: np.ndarray) -> list[tuple[int, int]]:
     return sorted((r, c) for r, c in pairs if r < n0 and c < m0)
 
 
-def assign(pieces, ids, image="parts", ncc=None) -> tuple[dict, list[int], float]:
+def assign(pieces, ids, image="parts", ncc=None, forbid=()) -> tuple[dict, list[int], float]:
     """({part id: piece index}, spare piece indices, total cost). An empty sheet
-    names nothing.
+    names nothing. `forbid` holds (piece index, part id) pairs ruled out.
 
     The Hungarian match of the cost matrix; then, on a parts sheet, each pair's
     two pieces are kept alike: while it lowers the cost plus W_PAIR times how
@@ -422,10 +426,13 @@ def assign(pieces, ids, image="parts", ncc=None) -> tuple[dict, list[int], float
         return {}, list(range(len(pieces))), 0.0
     C = cost_matrix(pieces, ids, image, ncc)
     n, m = C.shape
+    col = {pid: j for j, pid in enumerate(ids)}
+    for i, pid in forbid:
+        if pid in col and 0 <= i < n:
+            C[i, col[pid]] = FORBIDDEN
     at: list = [None] * m  # the piece each id column holds
     for r, c in hungarian(C):
         at[c] = r
-    col = {pid: j for j, pid in enumerate(ids)}
     pairs = [] if image == "parts2" else [(col[p], col[p[:-2] + "-l"]) for p in ids if p.endswith("-r") and p[:-2] + "-l" in col]
 
     def total(at):

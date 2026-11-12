@@ -17,7 +17,9 @@ import cast_synth as cs  # noqa: E402
 import numpy as np  # noqa: E402
 from PIL import Image, ImageDraw  # noqa: E402
 
-from cast import key, parts, spec  # noqa: E402
+from cast import imaging as im  # noqa: E402
+from cast import key, parts, rig, spec  # noqa: E402
+from cast import register as rg  # noqa: E402
 from cast.spec import TOL  # noqa: E402
 
 STICKY = spec.character("AAW-25")
@@ -164,6 +166,17 @@ def curled(cx, cy, h, thick, reach=70, curl=30) -> parts.Island:
     a = np.linspace(0, 1.6 * np.pi, 40)
     pts = list(zip(np.r_[xs, xs[-1] - curl * (1 - np.cos(a))], np.r_[ys, ys[-1] - curl * np.sin(a)]))
     return drawn(lambda d: d.line(pts, fill=255, width=thick, joint="curve"))
+
+
+def tapered(cx, cy, w, h) -> parts.Island:
+    """A stiff, long pointed piece with a round cap at its top: a feather tail drawn
+    the way an arm is, as tall and as wide."""
+
+    def draw(d):
+        d.polygon([(cx - w / 2, cy - h / 2 + w / 2), (cx + w / 2, cy - h / 2 + w / 2), (cx, cy + h / 2)], fill=255)
+        d.ellipse((cx - w / 2, cy - h / 2, cx + w / 2, cy - h / 2 + w), fill=255)
+
+    return drawn(draw)
 
 
 def tufted(cx, cy, h, thick) -> parts.Island:
@@ -313,6 +326,166 @@ class NamingTheBriefsPieces(unittest.TestCase):
                 sheet = figure(COATED, quills=oval(x, 500, 300, 800))
                 sheet[high] = bar(700 if high == "leg-r" else 836, 790, 80, 240)
                 self.assertNamed(sheet, COATED, (x, high))
+
+    def test_a_pair_ruled_out_is_never_named_while_another_naming_is_left(self):
+        sheet = figure(TAILED, tail=oval(150, 520, 90, 90))
+        order = list(TAILED)
+        pieces = [sheet[k] for k in order]
+        got, _, _ = parts.assign(pieces, TAILED)
+        self.assertEqual(got, {k: n for n, k in enumerate(order)})
+        ruled = {(order.index("arm-r"), "arm-r"), (order.index("tail"), "tail")}
+        got, _, _ = parts.assign(pieces, TAILED, forbid=ruled)
+        self.assertFalse(ruled & {(i, pid) for pid, i in got.items()})
+        self.assertEqual(sorted(got), sorted(TAILED))
+
+
+# ---------- naming by where the pieces land on the master ----------
+# A made-up figure in master coordinates (no character's): where each true piece
+# lands, as boxes, and the parts sheet's naming checked against it. Each arm hangs
+# clear of the body with its shoulder cap tucked under it, as the master shows it.
+MASTER = (1024, 1536)
+LANDS = {
+    "head": [(628, 60, 908, 300)],
+    "ear-r": [(560, 40, 650, 150)],
+    "ear-l": [(886, 40, 976, 150)],
+    "torso": [(618, 280, 918, 640)],
+    "tie": [(748, 300, 788, 470)],
+    "cord": [(800, 300, 860, 520)],
+    "arm-r": [(540, 330, 600, 600), (580, 300, 640, 360)],
+    "arm-l": [(936, 330, 996, 600), (896, 300, 956, 360)],
+    "leg-r": [(660, 600, 740, 900)],
+    "leg-l": [(796, 600, 876, 900)],
+    "tail": [(500, 560, 650, 760)],
+}
+
+
+def lands(pid: str, at=None) -> np.ndarray:
+    a = np.zeros((*MASTER, 4), np.uint8)
+    for x0, y0, x1, y1 in (at or LANDS)[pid]:
+        a[y0:y1, x0:x1] = (60, 140, 150, 255)
+    return a
+
+
+class NamingByLanding(unittest.TestCase):
+    """Where a named piece lands on the master: an ear on the head, an arm joining
+    the body in its top half, a leg or a tail in its bottom half."""
+
+    def test_a_sound_naming_lands_where_its_ids_join(self):
+        got = {pid: n for n, pid in enumerate(EARED) if pid in LANDS}
+        landed = {pid: lands(pid) for pid in got}
+        self.assertEqual(rig.landing_misses(got, landed), set())
+
+    def test_a_swapped_piece_lands_where_its_name_doesnt_join(self):
+        order = [pid for pid in EARED if pid in LANDS]
+        true = {pid: n for n, pid in enumerate(order)}
+        for a, b in (("arm-r", "tail"), ("ear-l", "tail"), ("arm-l", "leg-l")):
+            got = {**true, a: true[b], b: true[a]}
+            # Each piece lands where it truly goes, whatever it is called.
+            landed = {pid: lands(order[i]) for pid, i in got.items()}
+            self.assertEqual(rig.landing_misses(got, landed), {(true[b], a), (true[a], b)}, (a, b))
+
+    def test_a_piece_named_by_the_sheet_alone_is_named_again_by_where_it_lands(self):
+        # A stiff pointed tail laid between the right arm and the body is drawn like
+        # the arm, and lies nearer the arm's place than the arm itself: the parts sheet
+        # alone names it the right arm.
+        sheet = figure(TAILED, tail=tapered(560, 540, 90, 330))
+        order = sorted(sheet, key=lambda k: -sheet[k].area)
+        pieces = [sheet[k] for k in order]
+        first, _, _ = parts.assign(pieces, TAILED)
+        given = {i: pid for pid, i in first.items()}
+        self.assertEqual({k: given[n] for n, k in enumerate(order) if given[n] != k}, {"arm-r": "tail", "tail": "arm-r"})
+        laid_out = []
+
+        def place(got):  # each piece lands where it truly goes on the master
+            laid_out.append(got)
+            return {pid: [None, lands(order[i]), None, None] for pid, i in got.items() if order[i] in LANDS}
+
+        def missed(got, laid):
+            return rig.landing_misses(got, {pid: v[1] for pid, v in laid.items()})
+
+        got, laid, left = rig.settle_names(pieces, TAILED, first, place, missed)
+        self.assertEqual({order[i]: pid for pid, i in got.items()}, {k: k for k in TAILED})
+        self.assertEqual(left, set())
+        self.assertEqual(len(laid_out), 2)
+
+    def test_a_cycle_of_any_length_is_undone(self):
+        order = list(EARED)
+        sheet = figure(EARED, "round", tail=oval(1390, 120, 300, 90))
+        pieces = [sheet[k] for k in order]
+        true = {k: n for n, k in enumerate(order)}
+        # Four pieces each holding the next one's name: no trade of two undoes it.
+        cycle = ["ear-l", "tail", "arm-l", "leg-l"]
+        start = {**true, **{a: true[b] for a, b in zip(cycle, cycle[1:] + cycle[:1])}}
+
+        def place(got):
+            return {pid: [None, lands(order[i]), None, None] for pid, i in got.items() if order[i] in LANDS}
+
+        def missed(got, laid):
+            return rig.landing_misses(got, {pid: v[1] for pid, v in laid.items()})
+
+        got, _, left = rig.settle_names(pieces, EARED, start, place, missed)
+        self.assertEqual(got, true)
+        self.assertEqual(left, set())
+
+    def test_a_naming_whose_piece_joins_oddly_stays_when_no_other_lands_better(self):
+        # A sound naming with one odd landing (a leg drawn reaching up the body's side)
+        # keeps its names: every other naming misses more.
+        order = [pid for pid in TAILED if pid in LANDS or pid.startswith("pupil")]
+        sheet = figure(TAILED, tail=oval(150, 520, 90, 90))
+        pieces = [sheet[k] for k in order]
+        true = {k: n for n, k in enumerate(order)}
+        odd = {**LANDS, "leg-l": [(796, 300, 876, 380)]}
+
+        def place(got):
+            return {pid: [None, lands(order[i], odd), None, None] for pid, i in got.items() if order[i] in odd}
+
+        def missed(got, laid):
+            return rig.landing_misses(got, {pid: v[1] for pid, v in laid.items()})
+
+        got, _, left = rig.settle_names(pieces, TAILED, true, place, missed)
+        self.assertEqual(got, true)
+        self.assertEqual(left, {(true["leg-l"], "leg-l")})
+
+    def test_a_tail_drawn_like_an_arm_is_named_by_where_it_lands_on_the_master(self):
+        # The synthetic puppet with a stiff tail hanging from its hips on its right
+        # (your left), as long and as thick as its arm: laid on the parts sheet
+        # between the right arm and the body, the sheet alone names it the right arm.
+        # Registered on the master, the piece called the right arm joins the body
+        # only below its middle and the one called the tail at the shoulder, so the
+        # sheet is named again with those two pairs ruled out.
+        tail = cs.Pen()
+        tail.capsule((640, 560), (560, 800), 24, cs.FLAP)
+        layers = {**cs.part_layers(), "tail": tail.done()}
+        master = cs.over(*(layers[k] for k in ("tail", "leg-r", "leg-l", "arm-r", "arm-l", "torso")))
+        ids = ["torso", "arm-r", "arm-l", "leg-r", "leg-l", "tail"]
+        at = {"torso": (768, 360), "arm-r": (200, 420), "arm-l": (1250, 420), "leg-r": (680, 800), "leg-l": (860, 800), "tail": (460, 430)}
+        canvas = np.zeros((cs.H, cs.W, 4), np.uint8)
+        for pid in ids:
+            cs.place(canvas, cs.scaled(cs.crop(layers[pid]), cs.PARTS_R), *at[pid])
+        cut, _ = key.cut(cs.on_key(canvas), cs.MAGENTA)
+        pieces, _ = parts.islands(cut)
+        truth = {pid: min(range(len(pieces)), key=lambda i: np.hypot(pieces[i].centroid[0] - x, pieces[i].centroid[1] - y)) for pid, (x, y) in at.items()}
+        first, _, _ = parts.assign(pieces, ids)
+        self.assertEqual((first["arm-r"], first["tail"]), (truth["tail"], truth["arm-r"]))
+        mcut, _ = key.cut(cs.on_key(master), cs.MAGENTA)
+
+        class Figure:
+            box = im.mask_bbox(mcut[..., 3] > 0)
+
+        tgt, cache = rg.Target(rg.shrink(mcut, rg.COARSE)), {}
+
+        def place(got):
+            return rig.place_named(got, pieces, cut, ids, mcut, Figure, {}, {}, ids, tgt, cache)
+
+        def missed(got, laid):
+            return rig.landing_misses(got, {pid: v[1] for pid, v in laid.items()})
+
+        got, laid, left = rig.settle_names(pieces, ids, first, place, missed)
+        self.assertEqual(got, truth)
+        self.assertEqual(left, set())
+        for pid in ids:
+            self.assertGreater(laid[pid][0].ncc, TOL["ncc_min"], pid)
+
 
 if __name__ == "__main__":
     unittest.main()
