@@ -14,8 +14,9 @@
  * | system      | 10 s              | yes        | —                | —      | held               | held         | held           |
  * | celebration | never a toast: the Activity inbox                                                                    |
  *
- * Amr's chat open as the phone's full-height sheet (`amrSheet`; not a dialog:
- * the toaster then sits over the site header, one at a time): a success waits
+ * Amr's chat open as the phone's full-height sheet, or down the side with too
+ * little room beside it for a toast (`amrSheet`; not a dialog: in the sheet
+ * the toaster sits over the site header, one at a time): a success waits
  * for it to close, up to a minute, after which one with no action is dropped
  * (the chat's own steps already show what Amr finished); info and system are
  * held as for a dialog. Error, warning, undo, progress and echo show as usual.

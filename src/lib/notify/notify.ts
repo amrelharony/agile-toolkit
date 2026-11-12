@@ -39,7 +39,7 @@ import {
   useNotificationPrefsStore,
 } from "@/lib/stores/notification-prefs-store";
 import { isPhoneViewport } from "@/lib/layout/breakpoints";
-import { isAmrSheetOpen } from "@/lib/layout/amr-sheet";
+import { amrHoldsToasts } from "@/lib/layout/amr-sheet";
 import { isTyping } from "./attention";
 import { isDialogOpen } from "./dialog-open";
 import { MUTABLE_KINDS, decide } from "./policy";
@@ -163,7 +163,7 @@ export function readPolicyContext(): PolicyContext {
   const ctx: PolicyContext = {
     quiet: getQuietState(Date.now(), readPathname(), defaultQuietDom(), prefs),
     dialogOpen: isDialogOpen(),
-    amrSheet: isAmrSheetOpen(),
+    amrSheet: amrHoldsToasts(),
     typing: isTyping(),
     phone: isPhoneViewport(),
     touch: isTouchScreen(),

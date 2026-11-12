@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Toaster } from "@/components/ui/sonner";
 import { isComicRoute } from "@/lib/comics/entry";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
+import { AMR_TOAST_ROOM_VAR, AMR_TOAST_TOP_VAR } from "@/lib/layout/amr-sheet";
 import {
   useMascotStore,
   type MascotPanelLayout,
@@ -47,9 +48,28 @@ export const COMICS_OFFSET: Offset = {
  * from just under the header: the stack goes over the site header, from the
  * notch down (8 px without one). A toast there is one row no taller than the
  * header's 56 px row (globals.css "AMR SHEET" trims its padding around a
- * 44 px Undo), so it ends above the sheet's own header.
+ * 44 px Undo), so it ends above the sheet's own header. Compact (a keyboard
+ * up, or little room), the sheet itself starts over the site header, so the
+ * stack goes just under the sheet's one header row instead, where the panel
+ * publishes it (--amr-toast-top, counted from the sheet's own top, so an iOS
+ * pan down to the field moves it too).
  */
-export const SHEET_OFFSET: Offset = { top: "max(8px, env(safe-area-inset-top, 0px))", ...SIDES };
+export const SHEET_OFFSET: Offset = {
+  top: `var(${AMR_TOAST_TOP_VAR}, max(8px, env(safe-area-inset-top, 0px)))`,
+  ...SIDES,
+};
+
+/** Sonner's own toast width, px: the most a toast takes beside the side panel. */
+const TOAST_W = 356;
+
+/**
+ * Beside the side panel: no wider than the room the panel leaves on the other
+ * side (--amr-toast-room, published only when a toast fits there; with less,
+ * the policy holds what can wait, and what can't keeps sonner's width).
+ */
+export const SIDE_TOAST_STYLE = {
+  "--width": `min(${TOAST_W}px, var(${AMR_TOAST_ROOM_VAR}, ${TOAST_W}px))`,
+} as React.CSSProperties;
 
 /** Where Amr's chat panel is open: its layout, and the side and edge he is drawn on. */
 export interface AmrPanelSpot extends MascotPlacement {
@@ -105,6 +125,9 @@ export function toasterLayout(
       mobileOffset: offset,
       swipeDirections: [y, x],
       visibleToasts: phone ? 2 : 3,
+      // Down the side of a short screen the panel spans it top to bottom: the
+      // stack keeps to the strip beside it.
+      ...(amr.layout === "side" && { style: SIDE_TOAST_STYLE }),
     };
   }
   if (isComicRoute(pathname)) {
@@ -135,11 +158,13 @@ export function toasterLayout(
  * The app-wide toast stack. Bottom-centre and above Amr's band on phones,
  * bottom-centre 24 px up on larger screens, at the top under /comics. While
  * Amr's chat panel is open it keeps off the panel: over the site header in the
- * phone's sheet, in the corner across from him otherwise (the mascot store's
- * `panel` and `placed`). Toasts can be swiped away; the policy
- * (lib/notify/policy.ts) decides which get a close button. Its z-index (the
- * `toast` token, below modals) and the rule that lifts it over an open dialog
- * live in globals.css.
+ * phone's sheet (under its header row while compact), in the corner across
+ * from him otherwise, in the strip beside the side panel (the mascot store's
+ * `panel` and `placed`, and what the panel publishes on <html>). Toasts can be
+ * swiped away; the policy (lib/notify/policy.ts) decides which get a close
+ * button, and holds what can wait while the panel leaves no room. Its z-index
+ * (the `toast` token, below modals) and the rule that lifts it over an open
+ * dialog live in globals.css.
  */
 export function AppToaster() {
   const pathname = usePathname();

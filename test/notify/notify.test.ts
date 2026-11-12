@@ -438,6 +438,28 @@ describe("context", () => {
     expect(readPolicyContext().amrSheet).toBe(false);
   });
 
+  it("holds what can wait beside a side panel that leaves no room for a toast, as in the sheet", () => {
+    __setPolicyContextForTests(null);
+    setNotifyPathname("/");
+    const html = document.documentElement;
+    html.setAttribute("data-amr-toasts-held", "");
+    try {
+      expect(readPolicyContext()).toMatchObject({ amrSheet: true, dialogOpen: false });
+      notify("success", "Card added");
+      advance(5000);
+      vi.advanceTimersByTime(5000);
+      expect(h.sonner.success).not.toHaveBeenCalled();
+      notify("error", "Couldn't save");
+      expect(h.sonner.error).toHaveBeenCalledTimes(1);
+    } finally {
+      html.removeAttribute("data-amr-toasts-held");
+    }
+    expect(readPolicyContext().amrSheet).toBe(false);
+    advance(1000);
+    vi.advanceTimersByTime(1000);
+    expect(calls(h.sonner.success).map(([m]) => m)).toEqual(["Card added"]);
+  });
+
   it("holds a success while Amr's phone sheet is open and shows it once it closes; errors and Undo show at once", () => {
     __setPolicyContextForTests(null);
     setNotifyPathname("/");

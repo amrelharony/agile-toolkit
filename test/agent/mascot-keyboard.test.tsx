@@ -510,6 +510,61 @@ describe("the compact panel over the site header", () => {
     expectLifted(true);
   });
 
+  it("publishes the toast stack's top under the compact sheet's header row, and takes it away", async () => {
+    screenAt(375, 812, { insetTop: 44, insetBottom: 34, header: 100 });
+    const html = document.documentElement;
+    const box = await openChat();
+    expect(html.style.getPropertyValue("--amr-toast-top")).toBe("");
+    act(() => box.focus());
+    keyboard(336, 120);
+    await frames();
+    // From the compact sheet's own top (the pan's, here), past its one row.
+    const top = px(dialog(), "--amr-vv-top");
+    expect(top).toBe(120 + COMPACT_TOP);
+    expect(html.style.getPropertyValue("--amr-toast-top")).toBe(
+      `calc(${top}px + var(--panel-w, 2px) + 0.375rem + 2.75rem + var(--line-w, 1px) + 8px)`
+    );
+    expect(html).not.toHaveAttribute("data-amr-toasts-held");
+
+    // The keyboard goes: over the site header again (the toaster's own fallback).
+    act(() => box.blur());
+    keyboard(0);
+    await frames();
+    expect(html.style.getPropertyValue("--amr-toast-top")).toBe("");
+
+    act(() => box.focus());
+    keyboard(336);
+    await frames();
+    expect(html.style.getPropertyValue("--amr-toast-top")).not.toBe("");
+    act(() => useAgentStore.getState().closeSheet());
+    expect(html.style.getPropertyValue("--amr-toast-top")).toBe("");
+  });
+
+  it("publishes the room beside the side panel for a toast, and holds what can wait where there is none", async () => {
+    const html = document.documentElement;
+    screenAt(844, 390);
+    await openChat();
+    expect(dialog()).toHaveAttribute("data-amr-layout", "side");
+    // 844 less his side, the panel's offset and width, the far gutter and the gap.
+    const inline = px(dialog(), "--amr-vv-inline");
+    const width = px(dialog(), "--amr-vv-width");
+    expect(px(html, "--amr-toast-room")).toBeCloseTo(844 - inline - width - 8 - 8, 1);
+    expect(html).not.toHaveAttribute("data-amr-toasts-held");
+    act(() => useAgentStore.getState().closeSheet());
+    expect(html.style.getPropertyValue("--amr-toast-room")).toBe("");
+    cleanup();
+    document.body.replaceChildren();
+
+    // 667x375: some 120 px beside it, too little for a toast.
+    screenAt(667, 375);
+    await openChat();
+    expect(dialog()).toHaveAttribute("data-amr-layout", "side");
+    expect(html.style.getPropertyValue("--amr-toast-room")).toBe("");
+    expect(html).toHaveAttribute("data-amr-toasts-held");
+    act(() => useAgentStore.getState().closeSheet());
+    expect(html).not.toHaveAttribute("data-amr-toasts-held");
+  });
+
   it("leans on the header's token and on the shell's order: the header first, then Amr", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");

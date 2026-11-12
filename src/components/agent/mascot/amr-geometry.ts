@@ -352,6 +352,24 @@ export function sheetPos(box: Readonly<VisibleBox>, top: Readonly<PanelTop>): Sh
   return { top: panelTopPx(box, top), right: box.right, bottom: box.bottom, left: box.left };
 }
 
+/** Room kept between the toast stack and Amr's panel, px. */
+export const TOAST_GAP = 8;
+/** The narrowest toast worth showing beside the side panel, px; with less room the toaster holds what can wait. */
+export const SIDE_TOAST_MIN_W = 240;
+
+/**
+ * The toast stack's top while the sheet is compact (layout/app-toaster), as CSS:
+ * just under the sheet's one header row, so a toast never covers its plate,
+ * back or Close. From the sheet's top edge: its line (--panel-w), the inner
+ * frame's p-1.5, the compact header row (panel-header's min-h-11, 44 px) and
+ * its border-b (--line-w), then TOAST_GAP. In rem where the panel is, so
+ * larger text moves it too.
+ */
+export function compactSheetToastTop(sheetTop: number): string {
+  const top = Math.round(sheetTop * 100) / 100;
+  return `calc(${top}px + var(--panel-w, 2px) + 0.375rem + 2.75rem + var(--line-w, 1px) + ${TOAST_GAP}px)`;
+}
+
 /** The most a side-layout panel spans across the screen, px. */
 export const SIDE_PANEL_MAX_W = 420;
 
@@ -386,6 +404,21 @@ export function sidePos(
   const width = Math.max(0, Math.min(SIDE_PANEL_MAX_W, box.width - reach - PANEL_GAP));
   const vertical = { top: panelTopPx(box, top), bottom: box.bottom, width };
   return side === "left" ? { ...vertical, left: offset } : { ...vertical, right: offset };
+}
+
+/**
+ * The width, px, the toast stack has beside the side panel (`pos`, from
+ * sidePos) on a screen `screenWidth` wide: from the box's far edge (no nearer
+ * than the toaster's own gutter) to TOAST_GAP short of the panel's inner edge.
+ */
+export function sideToastRoom(
+  screenWidth: number,
+  box: Readonly<Pick<VisibleBox, "left" | "right">>,
+  pos: Readonly<SidePos>
+): number {
+  const far = pos.left !== undefined ? box.right : box.left;
+  const inline = pos.left ?? pos.right ?? 0;
+  return Math.max(0, screenWidth - inline - pos.width - far - TOAST_GAP);
 }
 
 /**

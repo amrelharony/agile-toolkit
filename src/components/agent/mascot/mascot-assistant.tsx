@@ -178,8 +178,10 @@ import {
   PANEL_SIDE,
   PANEL_SIZE,
   SIDE_PANEL_MAX_W,
+  SIDE_TOAST_MIN_W,
   amrEdge,
   amrSide,
+  compactSheetToastTop,
   cornerAfterKey,
   cornerName,
   dockInsets,
@@ -191,6 +193,7 @@ import {
   panelTail,
   sheetPos,
   sidePos,
+  sideToastRoom,
   visibleBox,
   type AmrLayout,
   type PanelSizeName,
@@ -211,7 +214,13 @@ import { PANEL_SUBTITLE, PanelChrome, PanelIconButton } from "./panel-chrome";
 import { AmrPanelContext, type AmrPanelContextValue } from "./panel-context";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
-import { AMR_SHEET_ATTR, AMR_SHEET_CLOSE_EVENT } from "@/lib/layout/amr-sheet";
+import {
+  AMR_SHEET_ATTR,
+  AMR_SHEET_CLOSE_EVENT,
+  AMR_TOAST_ROOM_VAR,
+  AMR_TOAST_TOP_VAR,
+  AMR_TOASTS_HELD_ATTR,
+} from "@/lib/layout/amr-sheet";
 import {
   HOME,
   chooseNudge,
@@ -904,12 +913,30 @@ function measureBox(probe: Element | null): {
  *   --amr-kb, --amr-visible-h       the keyboard's height and the visible box's
  * and on his button, docked in the sheet (DOCK_VARS):
  *   --amr-dock-bottom, --amr-dock-inline
- * The panel's go with it when it closes; his are taken off.
+ * and on <html>, for the toaster (lib/layout/amr-sheet, setToastPlace):
+ *   --amr-toast-top, --amr-toast-room, data-amr-toasts-held
+ * The panel's go with it when it closes; his and the page's are taken off.
  */
 const DOCK_VARS = ["--amr-dock-bottom", "--amr-dock-inline"] as const;
 
 function setPx(el: HTMLElement, name: string, px: number): void {
   el.style.setProperty(name, `${Math.round(px * 100) / 100}px`);
+}
+
+/**
+ * Where the toast stack may go beside the open panel, on <html>: its top
+ * (`top`, CSS) while the sheet is compact, and the width beside the side
+ * panel (`room`, px): enough for a toast, or too little, when what can wait is
+ * held. Null for neither, and both as the panel closes.
+ */
+function setToastPlace(top: string | null, room: number | null): void {
+  const html = document.documentElement;
+  if (top === null) html.style.removeProperty(AMR_TOAST_TOP_VAR);
+  else html.style.setProperty(AMR_TOAST_TOP_VAR, top);
+  const roomy = room !== null && room >= SIDE_TOAST_MIN_W;
+  if (roomy) setPx(html, AMR_TOAST_ROOM_VAR, room);
+  else html.style.removeProperty(AMR_TOAST_ROOM_VAR);
+  html.toggleAttribute(AMR_TOASTS_HELD_ATTR, room !== null && !roomy);
 }
 
 /** Why a reading is taken: nothing about the layout, a resize, or a turn of the phone. */
@@ -1006,7 +1033,7 @@ function usePanelViewport({
           setLayout(next);
         }
       }
-      const { area, box } = measureBox(probeRef.current);
+      const { area, box, width } = measureBox(probeRef.current);
       setPx(panel, "--amr-kb", area.kb);
       setPx(panel, "--amr-visible-h", box.height);
       const compact = current !== "float" && isCompact(area.keyboardUp, box);
@@ -1017,12 +1044,17 @@ function usePanelViewport({
         setPx(panel, "--amr-vv-bottom", pos.bottom);
         setPx(panel, "--amr-vv-left", pos.left);
         setPx(panel, "--amr-vv-right", pos.right);
+        // Compact, the toasts go under its one header row, not over it.
+        setToastPlace(compact ? compactSheetToastTop(pos.top) : null, null);
       } else if (current === "side") {
         const pos = sidePos(now.placed, box, { phone: now.phone, figure: now.figure }, top);
         setPx(panel, "--amr-vv-top", pos.top);
         setPx(panel, "--amr-vv-bottom", pos.bottom);
         setPx(panel, "--amr-vv-inline", pos.left ?? pos.right ?? 0);
         setPx(panel, "--amr-vv-width", pos.width);
+        setToastPlace(null, sideToastRoom(width, box, pos));
+      } else {
+        setToastPlace(null, null);
       }
       panel.toggleAttribute("data-amr-compact", compact);
       const button = buttonRef.current;
@@ -1096,6 +1128,7 @@ function usePanelViewport({
       document.removeEventListener("focusout", onFocus);
       for (const name of DOCK_VARS) button?.style.removeProperty(name);
       button?.removeAttribute("data-amr-compact");
+      setToastPlace(null, null);
       latest.current.keyboardUp = false;
       setKeyboardUp(false);
     };
