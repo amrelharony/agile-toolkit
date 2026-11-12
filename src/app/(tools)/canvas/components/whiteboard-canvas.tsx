@@ -30,6 +30,7 @@ import { CommentPins } from "./comment-pins";
 import { clusterObjects } from "@/lib/whiteboard/cluster-bridge";
 import { boardInsights } from "@/lib/analytics/board-insights";
 import { useCanvasRoom } from "@/lib/whiteboard/use-canvas-room";
+import { pickRandomSticky, randomStickyPool } from "@/lib/whiteboard/random-sticky";
 import { useCanvasPresence } from "@/lib/whiteboard/use-canvas-presence";
 import { CursorOverlay } from "./cursor-overlay";
 import {
@@ -1088,6 +1089,20 @@ export function WhiteboardCanvas({
     [selection, objectsById]
   );
 
+  // "Pick a random sticky" from 2+ selected stickies or a selected frame's.
+  const randomStickies = useMemo(
+    () =>
+      randomStickyPool(
+        selection.map((id) => objectsById.get(id)).filter((o): o is WhiteboardObject => !!o),
+        objects
+      ),
+    [selection, objectsById, objects]
+  );
+  const onPickRandomSticky = useCallback(() => {
+    const id = pickRandomSticky(randomStickies);
+    if (id) setSelection([id]);
+  }, [randomStickies, setSelection]);
+
   const { onAlign, onDistribute } = useAlignDistribute({
     selection,
     objectsById,
@@ -1414,6 +1429,7 @@ export function WhiteboardCanvas({
             onPatch={onPatchStyles}
             onOpenCardDetail={setCardDetailId}
             objectActions={readOnly ? undefined : objectActions}
+            onPickRandomSticky={randomStickies.length >= 2 ? onPickRandomSticky : undefined}
             isCoarse={inputClass.isCoarse}
           />
         )}
