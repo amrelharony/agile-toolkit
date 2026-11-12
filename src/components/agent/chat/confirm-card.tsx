@@ -32,7 +32,7 @@
  * may not reach (test/agent/bundle-boundary.test.ts).
  */
 
-import { useEffect, useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { useAgentStore } from "@/lib/agent/store";
 
@@ -52,6 +52,7 @@ export function ConfirmCard({ allowApproveAll = false }: ConfirmCardProps) {
   const pending = useAgentStore((s) => s.pendingToolUse);
   const setAutoApprove = useAgentStore((s) => s.setAutoApprove);
   const id = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // Escape = deny. The store denies on closeSheet, setActiveConversation and
   // reset, but not when the reader just presses Escape while the card shows,
@@ -63,12 +64,15 @@ export function ConfirmCard({ allowApproveAll = false }: ConfirmCardProps) {
       // Only an Escape meant for Amr's chat denies: one from inside the panel,
       // from Amr himself, or with nothing focused. An Escape a page field or
       // overlay uses (a cycle-time cell, the comic overlay) leaves the change
-      // waiting.
+      // waiting. The panel is the dialog the card sits in; Amr's button
+      // carries data-amr-button (mascot-assistant).
       const t = e.target;
+      const panel = rootRef.current?.closest('[role="dialog"]');
       const ours =
         !(t instanceof Element) ||
         t === document.body ||
-        !!t.closest('[data-agent-sheet-root], [data-vt-hold="amr"]');
+        !!panel?.contains(t) ||
+        !!t.closest("[data-amr-button]");
       if (!ours) return;
       e.preventDefault();
       pending.resolve(false);
@@ -86,6 +90,7 @@ export function ConfirmCard({ allowApproveAll = false }: ConfirmCardProps) {
 
   return (
     <div
+      ref={rootRef}
       role="group"
       aria-labelledby={questionId}
       aria-describedby={prompt.detail ? detailId : undefined}

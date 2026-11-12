@@ -1236,6 +1236,7 @@ export function MascotAssistant() {
         <button
           ref={buttonRef}
           data-vt-hold="amr"
+          data-amr-button
           type="button"
           onClick={onMascotClick}
           onPointerDown={onPointerDown}

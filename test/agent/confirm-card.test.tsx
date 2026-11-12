@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { ConfirmCard } from "@/components/agent/chat/confirm-card";
@@ -157,7 +159,8 @@ describe("ConfirmCard", () => {
     const pageField = document.createElement("input");
     document.body.appendChild(pageField);
     render(
-      <div data-agent-sheet-root="">
+      <div role="dialog" aria-label="Amr assistant">
+        <textarea aria-label="Message Amr" />
         <ConfirmCard allowApproveAll />
       </div>
     );
@@ -165,8 +168,11 @@ describe("ConfirmCard", () => {
     try {
       fireEvent.keyDown(pageField, { key: "Escape" });
       expect(resolve).not.toHaveBeenCalled();
+      // The panel's own composer, outside the card but inside the dialog.
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "Message Amr" }), { key: "Escape" });
+      expect(resolve).toHaveBeenLastCalledWith(false);
       fireEvent.keyDown(screen.getByRole("button", { name: "Not now" }), { key: "Escape" });
-      expect(resolve).toHaveBeenCalledWith(false);
+      expect(resolve).toHaveBeenCalledTimes(2);
     } finally {
       pageField.remove();
     }
@@ -174,7 +180,7 @@ describe("ConfirmCard", () => {
 
   it("denies on an Escape from Amr himself or with nothing focused", () => {
     const amr = document.createElement("button");
-    amr.setAttribute("data-vt-hold", "amr");
+    amr.setAttribute("data-amr-button", "");
     document.body.appendChild(amr);
     render(<ConfirmCard />);
     const resolve = waiting(ADD);
@@ -186,5 +192,24 @@ describe("ConfirmCard", () => {
     } finally {
       amr.remove();
     }
+  });
+
+  it("knows Amr by the marker his real button carries, and the panel as its dialog", () => {
+    // Not by his view-transition hold name: held-layers-css.test.ts counts
+    // every data-vt-hold="…" in src as an element, so a selector naming it
+    // counts twice. Not by data-agent-sheet-root either: the bundle budget
+    // finds the mascot chunk by that string, and the card's chunk is not it.
+    const src = readFileSync(
+      path.resolve(__dirname, "../../src/components/agent/mascot/mascot-assistant.tsx"),
+      "utf8"
+    );
+    expect(src).toMatch(/data-vt-hold="amr"\s+data-amr-button\s/);
+    expect(src).toMatch(/data-agent-sheet-root\s+data-vt-hold="amr-panel"\s+role="dialog"\s/);
+    const card = readFileSync(
+      path.resolve(__dirname, "../../src/components/agent/chat/confirm-card.tsx"),
+      "utf8"
+    );
+    expect(card).not.toContain("data-vt-hold");
+    expect(card).not.toContain("data-agent-sheet-root");
   });
 });
