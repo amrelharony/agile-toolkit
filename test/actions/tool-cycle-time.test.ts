@@ -223,3 +223,136 @@ describe("tool.cycle_time.list_state", () => {
     expect(await list({ sprintId: "nope" })).toEqual({ found: false, reason: "sprint_not_found" });
   });
 });
+
+/* ── by_stage ───────────────────────────────────────────────────────── */
+
+type ByStageResult = {
+  found: boolean;
+  count: number;
+  approximate: number;
+  waiting: string[];
+  stages: {
+    stage: string;
+    items: number;
+    median: number | null;
+    p85: number | null;
+    share: number | null;
+    waiting: boolean;
+  }[];
+  flowEfficiency: { pct: number | null; reason: string; waitingDays: number };
+  items: {
+    id: string;
+    source: string;
+    cycleDays: number;
+    elapsedDays: number;
+    stages: { stage: string; days: number }[];
+    efficiency: number | null;
+  }[];
+};
+
+const byStage = (params: Record<string, unknown> = {}) =>
+  registry.get("tool.cycle_time.by_stage")!.handler(params, ctx()) as Promise<ByStageResult>;
+
+/**
+ * Noon on a day of July 2026, local time: fixed days in a month no time
+ * zone changes its clocks in, so elapsed days are whole on any machine.
+ */
+const jul = (d: number) => new Date(2026, 6, d, 12).toISOString();
+
+/** A story worked `progress` days, then in Review `review` days, done on July `done`. */
+const reviewed = (id: string, progress: number, review: number, done: number): Story => {
+  const started = done - review - progress;
+  return {
+    id,
+    title: id,
+    status: "done",
+    sprintId: "s-1",
+    startedAt: jul(started),
+    doneAt: jul(done),
+    statusHistory: [
+      { status: "in_progress", from: "todo", at: jul(started) },
+      { status: "review", from: "in_progress", at: jul(done - review) },
+      { status: "done", from: "review", at: jul(done) },
+    ],
+  };
+};
+
+describe("tool.cycle_time.by_stage", () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({ stories: [], sprints: [], kanbanBoards: [] });
+  });
+
+  it("is a read action with a server handler", () => {
+    const action = registry.get("tool.cycle_time.by_stage");
+    expect(action?.category).toBe("read");
+    expect(action?.mcpHandler).toBeTypeOf("function");
+  });
+
+  it("splits finished work into the time in each status, with each status's median and P85", async () => {
+    useWorkspaceStore.setState({
+      stories: [1, 2, 3, 4, 5].map((n) => reviewed(`s${n}`, n, 2, 20)),
+    });
+    const r = await byStage();
+    expect(r.count).toBe(5);
+    const progress = r.stages.find((s) => s.stage === "in_progress")!;
+    expect(r.stages.map((s) => s.stage)).toEqual(["in_progress", "review"]);
+    const review = r.stages.find((s) => s.stage === "review")!;
+    expect([progress.median, progress.p85]).toEqual([3, 5]);
+    expect([review.median, review.p85]).toEqual([2, 2]);
+    expect(progress.share! + review.share!).toBeCloseTo(100, 0);
+    // Newest first; a story's stages add up to the time it took.
+    expect(r.items[0].stages).toEqual([
+      { stage: "in_progress", days: 5 },
+      { stage: "review", days: 2 },
+    ]);
+    expect(r.items[0]).toMatchObject({ id: "s5", cycleDays: 8, elapsedDays: 7 });
+    expect(r.items.every((i) => i.source === "sprint")).toBe(true);
+  });
+
+  it("gives the flow efficiency only once a status holding time is waiting", async () => {
+    useWorkspaceStore.setState({
+      stories: [1, 2, 3].map((n) => reviewed(`s${n}`, 2, 2, 20 + n)),
+    });
+    const plain = await byStage();
+    expect(plain.flowEfficiency).toMatchObject({ pct: null, reason: "one_kind" });
+    expect(plain.waiting).toEqual(["backlog", "todo", "ready", "done"]);
+    const marked = await byStage({ waiting: ["review"] });
+    expect(marked.flowEfficiency).toMatchObject({ pct: 50, reason: "ok", waitingDays: 6 });
+    expect(marked.stages.find((s) => s.stage === "review")!.waiting).toBe(true);
+    expect(marked.items[0].efficiency).toBe(50);
+    // Below 3 items there's no efficiency to quote.
+    useWorkspaceStore.setState({ stories: [reviewed("a", 2, 2, 20)] });
+    expect((await byStage({ waiting: ["review"] })).flowEfficiency.reason).toBe("not_enough");
+  });
+
+  it("leaves out items with no recorded moves, and narrows like list_state", async () => {
+    useWorkspaceStore.setState({
+      sprints: [SPRINT],
+      stories: [reviewed("in", 1, 1, 9), { ...reviewed("out", 1, 1, 9), sprintId: "s-other" }],
+      kanbanBoards: [
+        {
+          id: KANBAN_BOARD_ID,
+          wipLimits: { backlog: 0, ready: 0, in_progress: 0, review: 0, done: 0 },
+          // From before the board kept a card's moves: its stages aren't known.
+          cards: [card("k", { startedAt: at(3), completedAt: at(1) })],
+        },
+      ],
+    });
+    const all = await byStage();
+    expect(all.count).toBe(2);
+    expect(all.approximate).toBe(1);
+    expect((await byStage({ sprintId: "s-1" })).items.map((i) => i.id)).toEqual(["in"]);
+    expect((await byStage({ source: "flow" })).count).toBe(0);
+    expect((await byStage({ sinceDays: 5 })).count).toBe(0);
+    expect(await byStage({ sprintId: "nope" })).toEqual({
+      found: false,
+      reason: "sprint_not_found",
+    });
+  });
+
+  it("refuses a status it doesn't know", () => {
+    const schema = registry.get("tool.cycle_time.by_stage")!.paramsSchema;
+    expect(schema.safeParse({ waiting: ["review"] }).success).toBe(true);
+    expect(schema.safeParse({ waiting: ["lunch"] }).success).toBe(false);
+  });
+});

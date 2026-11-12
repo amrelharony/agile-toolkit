@@ -11,6 +11,11 @@
  *      (storyItems / cardItems → finishedItems → cycleSummary, ageingWip),
  *      so the P85 here is the page's to the day.
  *   2. compute_percentiles — the same summary over durations the agent passes.
+ *   3. by_stage            — Time in each status, as the page reads it: the
+ *      finished items' elapsed time per status between the start and Done
+ *      from the boards' recorded moves, each status's median and P85, and
+ *      the flow efficiency with the statuses passed as waiting
+ *      (lib/flow stageBreakdown).
  *
  * One convention everywhere (lib/flow cycleDays): whole local calendar
  * days with the start and the finish both counted, so a same-day item took
@@ -33,11 +38,15 @@ import { MIN_SAMPLE, enoughData } from "@/lib/analytics/min-sample";
 import { percentile } from "@/lib/sprints/metrics";
 import { todayIso } from "@/lib/sprints/series";
 import {
+  DEFAULT_WAITING,
+  STAGE_ORDER,
   addDays,
   ageingWip,
   cardItems,
   cycleSummary,
   finishedItems,
+  itemEfficiency,
+  stageBreakdown,
   storyItems,
   type FlowItem,
 } from "@/lib/flow";
@@ -203,4 +212,90 @@ registry.register({
   paramsSchema: ListParams,
   handler: async (params) => listState(await browserData(), params, todayIso()),
   mcpHandler: async (params, ctx) => listState(await serverData(ctx.userId), params, todayIso()),
+});
+
+// ──────── tool.cycle_time.by_stage ────────
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+const ByStageParams = ListParams.extend({
+  waiting: z
+    .array(z.enum(STAGE_ORDER))
+    .max(STAGE_ORDER.length)
+    .optional()
+    .describe(
+      `The statuses to count as waiting for the flow efficiency (the rest count as active). Default: the page's default, ${DEFAULT_WAITING.map((s) => `'${s}'`).join(", ")} ('done' is a stint in Done before a reopen). Pass e.g. ['review'] when work in Review mostly waits for a reviewer. The page's own marking stays on the device that set it.`
+    ),
+});
+
+function byStage(data: BoardData, params: z.infer<typeof ByStageParams>, today: string) {
+  const source = params.source ?? "all";
+  const sprint = params.sprintId ? data.sprints.find((s) => s.id === params.sprintId) : undefined;
+  if (params.sprintId && !sprint)
+    return { found: false as const, reason: "sprint_not_found" as const };
+  const items: FlowItem[] = [
+    ...(source === "flow" ? [] : storyItems(data.stories, sprint ? { sprint } : {})),
+    ...(source === "sprint" || sprint ? [] : cardItems(data.board?.cards ?? [])),
+  ];
+  const from = params.sinceDays
+    ? (addDays(today, -(params.sinceDays - 1)) ?? undefined)
+    : undefined;
+  const b = stageBreakdown(items, { waiting: params.waiting ?? DEFAULT_WAITING, from, to: today });
+  const waiting = new Set<string>(b.waiting);
+  return {
+    found: true as const,
+    source,
+    sprintId: sprint?.id ?? null,
+    range: { from: from ?? null, to: today },
+    count: b.items.length,
+    approximate: b.approximate,
+    waiting: b.waiting,
+    totalDays: round2(b.totalDays),
+    stages: b.stages.map((s) => ({
+      stage: s.stage,
+      label: s.label,
+      items: s.items,
+      median: s.median === null ? null : round2(s.median),
+      p85: s.p85 === null ? null : round2(s.p85),
+      totalDays: round2(s.totalDays),
+      share: s.share === null ? null : round1(s.share),
+      waiting: s.waiting,
+    })),
+    flowEfficiency: {
+      pct: b.efficiency.pct,
+      activeDays: round2(b.efficiency.activeDays),
+      waitingDays: round2(b.efficiency.waitingDays),
+      reason: b.efficiency.reason,
+    },
+    minForPercentiles: MIN_SAMPLE.distribution,
+    minForEfficiency: MIN_SAMPLE.average,
+    items: b.items
+      .slice(-LATEST_ITEMS)
+      .reverse()
+      .map((it) => {
+        const eff = itemEfficiency(it, waiting);
+        return {
+          id: it.id,
+          title: it.title,
+          source: it.kind === "story" ? "sprint" : "flow",
+          startedOn: it.startedOn,
+          doneOn: it.doneOn,
+          cycleDays: it.cycleDays,
+          elapsedDays: round2(it.elapsedDays),
+          stages: it.stages.map((s) => ({ stage: s.stage, days: round2(s.days) })),
+          efficiency: eff === null ? null : round1(eff),
+        };
+      }),
+  };
+}
+
+registry.register({
+  id: "tool.cycle_time.by_stage",
+  toolId: "tool.cycle_time",
+  name: "by_stage",
+  category: "read",
+  description:
+    "Cycle time by stage, as the Cycle Time page's Time in each status reads it: for finished stories (Sprint board) and Flow-board cards whose moves were recorded, the elapsed time spent in each status from the start of work to Done (days with a fraction, so a same-day item adds up to less than a day; cycleDays keeps the page's whole-day count). Params: source? 'sprint' | 'flow' | 'all' (default), sprintId? (that sprint's stories only), sinceDays? 1–365 (finished in the last N days), waiting? stage ids counted as waiting ('backlog' | 'todo' | 'ready' | 'in_progress' | 'review' | 'done'; default backlog, todo, ready, done). Returns {found: true, source, sprintId, range {from | null, to}, count (items read), approximate (finished items with no recorded moves, left out), waiting, totalDays, stages: {stage, label, items, median, p85 (days; null below 5 items), totalDays, share (% of all the time), waiting}[] in board order, flowEfficiency {pct (active time %; null unless reason 'ok'), activeDays, waitingDays, reason 'ok' | 'not_enough' (below 3 items) | 'one_kind' (all the time is in active statuses, or all in waiting ones: mark a waiting one)}, minForPercentiles, minForEfficiency, items: {id, title, source, startedOn, doneOn, cycleDays, elapsedDays, stages {stage, days}[], efficiency (% active, null with no time)}[] (the latest 50, newest first)} or {found: false, reason: 'sprint_not_found'}. Read-only.",
+  paramsSchema: ByStageParams,
+  handler: async (params) => byStage(await browserData(), params, todayIso()),
+  mcpHandler: async (params, ctx) => byStage(await serverData(ctx.userId), params, todayIso()),
 });
