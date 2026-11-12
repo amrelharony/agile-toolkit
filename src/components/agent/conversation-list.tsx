@@ -296,11 +296,20 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
                 {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
                 <input
                   autoFocus
+                  // Marks the field for Amr's panel: Ctrl/Cmd+J leaves it alone here.
+                  data-agent-rename=""
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => {
+                    // An input method's Enter or Escape ends its composition, nothing else.
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                     if (e.key === "Enter") void commitRename(c.id);
-                    if (e.key === "Escape") setEditing(null);
+                    if (e.key === "Escape") {
+                      // Cancels the rename only: the panel's own Escape (deny a
+                      // waiting card, leave History, close) skips a used key.
+                      e.preventDefault();
+                      setEditing(null);
+                    }
                   }}
                   className="min-w-0 flex-1 rounded border border-border bg-surface-deep px-1.5 py-0.5 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent pointer-coarse:text-base"
                   aria-label="Rename conversation"
