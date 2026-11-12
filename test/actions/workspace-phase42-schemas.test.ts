@@ -52,6 +52,7 @@ import {
 
 const upsertEntity = vi.mocked(serverStore.serverUpsertEntity);
 const listEntities = vi.mocked(serverStore.serverListEntities);
+const getEntity = vi.mocked(serverStore.serverGetEntity);
 
 type Doc = { id: string };
 
@@ -113,6 +114,8 @@ beforeEach(() => {
   upsertEntity.mockClear();
   listEntities.mockReset();
   listEntities.mockResolvedValue([]);
+  getEntity.mockReset();
+  getEntity.mockResolvedValue(null);
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-13T08:00:00.000Z"));
 });
@@ -333,6 +336,26 @@ describe("the Product Goal", () => {
     await expect(
       create("workspace.product_goal", { ...GOAL, id: undefined, status: "active" }, true)
     ).rejects.toThrow(/one goal is active at a time/);
+    expect(listEntities).toHaveBeenCalledWith("u", PRODUCT_GOAL_KIND);
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
+
+  it("refuses to reopen a closed goal while another is active, in the tab and over MCP", async () => {
+    const closed: ProductGoal = { ...GOAL, id: "goal_closed" };
+    const reopen = { id: closed.id, patch: { status: "active" } };
+    useWorkspaceStore.setState({ productGoals: [active, closed] });
+    await expect(
+      action("workspace.product_goal.update").handler(reopen, makeContext("u", "agent"))
+    ).rejects.toThrow(/one goal is active at a time/);
+    expect(useWorkspaceStore.getState().productGoals).toEqual([active, closed]);
+
+    getEntity.mockResolvedValue(closed);
+    listEntities.mockResolvedValue([active, closed]);
+    await expect(
+      action("workspace.product_goal.update").mcpHandler!(reopen, makeContext("u", "mcp"))
+    ).rejects.toThrow(/one goal is active at a time/);
+    expect(getEntity).toHaveBeenCalledWith("u", PRODUCT_GOAL_KIND, closed.id);
+    expect(listEntities).toHaveBeenCalledWith("u", PRODUCT_GOAL_KIND);
     expect(upsertEntity).not.toHaveBeenCalled();
   });
 
