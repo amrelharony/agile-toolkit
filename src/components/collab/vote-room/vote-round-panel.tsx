@@ -12,7 +12,9 @@
  *     sheet={allocationSheet} onSave={saveAllocationRound} />
  *
  * The props are a union on the round's kind: `kind`, or the tool's usual
- * kind when unset (the only one for the six tools from before). A scale
+ * kind when unset (the only one for the six tools from before); a kind
+ * that isn't the tool's usual one must be named (Quick Vote's pair,
+ * choice, rank and number rounds). A scale
  * round gives a `questionnaire` and gets a `VoteRoundResult`, a pair round
  * a `PairSheet` and a `PairRoundResult`, an allocation round an
  * `AllocationSheet` and an `AllocationRoundResult`. Choice, rank and number
@@ -42,9 +44,16 @@
  * Save round available again; otherwise the tool says it saved. If it
  * returns false, it stored nothing (e.g. every question was withheld) and
  * says why itself: the kit shows nothing saved and keeps Save round.
+ *
+ * A tool that runs several kinds (Quick Vote) may change `kind`, `sheet`
+ * and `onSave` while a room is open. A revealed round is still saved, and
+ * previewed, with the `onSave` and `renderResults` the tool gave for that
+ * round's own kind; New round runs the kind and sheet the tool gives now,
+ * or, while the new kind has nothing to ask yet, the last kind and sheet
+ * that went together.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Calculator, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signalGamification } from "@/lib/gamification/signal";
@@ -67,6 +76,8 @@ import {
   type Questionnaire,
   type RankRoomTool,
   type ScaleRoomTool,
+  type VOTE_ROUND_KINDS,
+  type VoteRoomTool,
   type VoteRoundKind,
 } from "@/lib/realtime/vote-room/protocol";
 import type { ChoiceRoundResult, ChoiceSheet } from "@/lib/realtime/vote-room/choice";
@@ -135,47 +146,56 @@ interface VoteRoundPanelBase {
   oneScreen?: RunModeOption;
 }
 
-/** Health Check, Psych Safety, Mood Tracker (and Quick Vote): questions on one scale. */
-export interface ScaleVoteRoundPanelProps extends VoteRoundPanelBase {
-  tool: ScaleRoomTool;
-  /** The tool's usual kind is scale; a tool that runs several kinds may say so. */
-  kind?: "scale";
-  /** Null while the tool has nothing to ask (e.g. no dimensions yet). */
-  questionnaire: Questionnaire | null;
-  /**
-   * The host pressed Save round: totals only, once per round. Return an
-   * undo function to get the kit's "Saved the round" toast with Undo, or
-   * false when nothing was stored, so Save round stays available.
-   */
-  onSave: SaveVoteRound;
-  /** Shown under the results, before Save round. */
-  renderResults?: (result: VoteRoundResult) => ReactNode;
-}
+/**
+ * `tool` and `kind`: the kind may be left out only where it is the tool's
+ * usual one (its first in `VOTE_ROUND_KINDS`), so Quick Vote names every
+ * kind but scale.
+ */
+type ToolAndKind<T extends VoteRoomTool, K extends VoteRoundKind> = T extends unknown
+  ? (typeof VOTE_ROUND_KINDS)[T][0] extends K
+    ? { tool: T; kind?: K }
+    : { tool: T; kind: K }
+  : never;
 
-/** Kano (and Quick Vote's 2×2 polls): the same two questions about each item, kept as joint counts. */
-export interface PairVoteRoundPanelProps extends VoteRoundPanelBase {
-  tool: PairRoomTool;
-  /** Needed for a tool whose usual kind isn't pair (Quick Vote). */
-  kind?: "pair";
-  /** Null while the tool has nothing to ask (no features yet). */
-  sheet: PairSheet | null;
-  /** As for scale rounds, with the pair round's joint totals. */
-  onSave: SavePairRound;
-  /** Shown under the results, before Save round (Kano: each feature's category). */
-  renderResults?: (result: PairRoundResult) => ReactNode;
-}
+/** Health Check, Psych Safety, Mood Tracker (and Quick Vote): questions on one scale. */
+export type ScaleVoteRoundPanelProps = VoteRoundPanelBase &
+  ToolAndKind<ScaleRoomTool, "scale"> & {
+    /** Null while the tool has nothing to ask (e.g. no dimensions yet). */
+    questionnaire: Questionnaire | null;
+    /**
+     * The host pressed Save round: totals only, once per round. Return an
+     * undo function to get the kit's "Saved the round" toast with Undo, or
+     * false when nothing was stored, so Save round stays available.
+     */
+    onSave: SaveVoteRound;
+    /** Shown under the results, before Save round. */
+    renderResults?: (result: VoteRoundResult) => ReactNode;
+  };
+
+/**
+ * Kano (and Quick Vote's 2×2 polls): the same two questions about each
+ * item, kept as joint counts. Quick Vote must name the kind.
+ */
+export type PairVoteRoundPanelProps = VoteRoundPanelBase &
+  ToolAndKind<PairRoomTool, "pair"> & {
+    /** Null while the tool has nothing to ask (no features yet). */
+    sheet: PairSheet | null;
+    /** As for scale rounds, with the pair round's joint totals. */
+    onSave: SavePairRound;
+    /** Shown under the results, before Save round (Kano: each feature's category). */
+    renderResults?: (result: PairRoundResult) => ReactNode;
+  };
 
 /** Buy-a-Feature, the $100 Test: a budget split across items, kept as per-item totals. */
-export interface AllocationVoteRoundPanelProps extends VoteRoundPanelBase {
-  tool: AllocationRoomTool;
-  kind?: "allocation";
-  /** Null while the tool has nothing to split (fewer than two items, say). */
-  sheet: AllocationSheet | null;
-  /** As for scale rounds, with the allocation round's totals. */
-  onSave: SaveAllocationRound;
-  /** Shown under the results, before Save round (Buy-a-Feature: what gets funded). */
-  renderResults?: (result: AllocationRoundResult) => ReactNode;
-}
+export type AllocationVoteRoundPanelProps = VoteRoundPanelBase &
+  ToolAndKind<AllocationRoomTool, "allocation"> & {
+    /** Null while the tool has nothing to split (fewer than two items, say). */
+    sheet: AllocationSheet | null;
+    /** As for scale rounds, with the allocation round's totals. */
+    onSave: SaveAllocationRound;
+    /** Shown under the results, before Save round (Buy-a-Feature: what gets funded). */
+    renderResults?: (result: AllocationRoundResult) => ReactNode;
+  };
 
 /** Quick Vote's polls, multi-picks and dot voting: per-option totals. */
 export interface ChoiceVoteRoundPanelProps extends VoteRoundPanelBase {
@@ -316,6 +336,12 @@ function CountEntry({
   return null;
 }
 
+/** One kind's save and preview, as the tool gave them. */
+interface KindHandlers {
+  save: SaveRound<RoundResult>;
+  render?: (r: RoundResult) => ReactNode;
+}
+
 export function VoteRoundPanel(props: VoteRoundPanelProps) {
   const { tool, toolName, minN, crypto, blockedReason } = props;
   const availability = useVoteRoomsAvailable(crypto);
@@ -326,27 +352,34 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
   const refocus = useRef(false);
   const need = effectiveMinN(minN, tool);
   const round = roundOf(props);
-  // A live room keeps the last round it had if the tool's goes away mid-round.
-  const lastRound = useRef(round);
-  if (round) lastRound.current = round;
-
-  // The live room hands back any kind of result: each reaches the tool's own
-  // typed save (and preview) only when it is of the tool's kind, which is
-  // what makes the casts below sound.
   const { onSave, renderResults } = props;
   const kind = panelKind(props);
   const counted = hasCountEntry(kind);
-  const saveAny = useCallback<SaveRound<RoundResult>>(
-    (r) => (resultKind(r) === kind ? (onSave as SaveRound<RoundResult>)(r) : false),
-    [kind, onSave]
-  );
-  const renderAny = useMemo(
-    () =>
-      renderResults
-        ? (r: RoundResult) =>
-            resultKind(r) === kind ? (renderResults as (x: RoundResult) => ReactNode)(r) : null
-        : undefined,
-    [kind, renderResults]
+  // A live room keeps the last round it had, with the kind it was given
+  // for, if the tool's goes away mid-round: a sheet never goes out under
+  // another kind.
+  const lastRound = useRef<{ kind: VoteRoundKind | null; round: RoundInput } | null>(null);
+  if (round) lastRound.current = { kind, round };
+
+  // The live room hands back any kind of result. Each kind's save and
+  // preview are kept as the tool last gave them for that kind, so a round
+  // is saved with its own kind's even after the tool moved on to another;
+  // they are typed for that kind, which is what makes the casts sound.
+  const byKind = useRef(new Map<VoteRoundKind, KindHandlers>());
+  if (kind) {
+    byKind.current.set(kind, {
+      save: onSave as SaveRound<RoundResult>,
+      render: renderResults as ((r: RoundResult) => ReactNode) | undefined,
+    });
+  }
+  const saveAny = useCallback<SaveRound<RoundResult>>((r) => {
+    const handlers = byKind.current.get(resultKind(r));
+    // Keep a save that returns nothing (stored, and said so) apart from false.
+    return handlers ? handlers.save(r) : false;
+  }, []);
+  const renderAny = useCallback(
+    (r: RoundResult): ReactNode => byKind.current.get(resultKind(r))?.render?.(r) ?? null,
+    []
   );
 
   // After the room closes, put focus back on "Run a live round".
@@ -363,8 +396,8 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
         tool={tool}
         toolName={toolName}
         session={live}
-        round={lastRound.current}
-        kind={kind ?? undefined}
+        round={lastRound.current.round}
+        kind={lastRound.current.kind ?? undefined}
         minN={need}
         onSave={saveAny}
         renderResults={renderAny}
