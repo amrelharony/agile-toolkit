@@ -175,6 +175,17 @@ describe("the Opus appendix", () => {
   });
 });
 
+describe("the build rules", () => {
+  it("name every arm family the brief words", () => {
+    const rules = readFileSync(path.join(__dirname, "../../docs/cast/CAST-BUILD.md"), "utf8");
+    const line = rules.split("\n").find((l) => l.startsWith("The arm wording follows"));
+    expect(line).toBeDefined();
+    const named = line!.slice(line!.indexOf("names the same arms:"));
+    for (const family of Object.keys(ARM_WORDS))
+      expect(named, family).toMatch(new RegExp(`\\b${family}\\b`));
+  });
+});
+
 describe("the generator", () => {
   it("refuses a reference on the never-list", () => {
     const dir = path.join(tmp, "never");
