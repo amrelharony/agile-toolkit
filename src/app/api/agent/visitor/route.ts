@@ -11,9 +11,10 @@ import {
 import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
 import { clientIpOrNull, isSameOrigin, withinRateLimit } from "@/lib/server/public-guard";
 import { getSquadAdminClient } from "@/lib/squads/server";
-import { VISITOR_HEADERS, VISITOR_LIMITS, type VisitorErrorCode } from "@/lib/visitor-ai/contract";
-import { meterVisitor, type MeterResult } from "@/lib/visitor-ai/meter";
+import { VISITOR_LIMITS, type VisitorErrorCode } from "@/lib/visitor-ai/contract";
+import { meterVisitor } from "@/lib/visitor-ai/meter";
 import { buildVisitorSystemPrompt } from "@/lib/visitor-ai/prompt";
+import { quotaHeaders } from "@/lib/visitor-ai/quota-headers";
 import { parseVisitorBody } from "@/lib/visitor-ai/request";
 import {
   VISITOR_STREAM_DEADLINE_MS,
@@ -100,21 +101,6 @@ function refuse(
   headers: Record<string, string> = {}
 ): Response {
   return Response.json({ error }, { status, headers: { ...NO_STORE, ...headers } });
-}
-
-/** The quota headers for one meter answer. */
-function quotaHeaders(m: MeterResult): Record<string, string> {
-  const headers: Record<string, string> = {
-    [VISITOR_HEADERS.remaining]: String(Math.max(0, m.turnsMax - m.turnsUsed)),
-    [VISITOR_HEADERS.limit]: String(m.turnsMax),
-    [VISITOR_HEADERS.peak]: m.peak ? "1" : "0",
-    [VISITOR_HEADERS.peakLimit]: String(m.peakTurnsMax),
-  };
-  if (m.peak) {
-    headers[VISITOR_HEADERS.peakRemaining] = String(Math.max(0, m.peakTurnsMax - m.peakTurnsUsed));
-    if (m.peakEndsAt) headers[VISITOR_HEADERS.peakEnds] = m.peakEndsAt;
-  }
-  return headers;
 }
 
 export async function POST(req: NextRequest) {
