@@ -25,8 +25,8 @@ import {
 } from "@/lib/agent/persist";
 import { Button } from "@/components/ui/button";
 import { Narration } from "./comic/comic-parts";
-import { ConfirmAction } from "./confirm-action";
 import { useChatVisible } from "./chat-visibility";
+import { ConfirmCard } from "./chat/confirm-card";
 import { MessageBubble, useToolSteps } from "./message-bubble";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
@@ -243,7 +243,7 @@ export function AgentConversation() {
             Amr is thinking…
           </div>
         )}
-        <ConfirmAction />
+        <ConfirmCard allowApproveAll />
         {notice && (
           <Narration
             tone={notice.tone}

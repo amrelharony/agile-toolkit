@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { registry } from "@/lib/actions/registry";
-import { executeToolUse } from "@/lib/agent/execute-tool";
+import { executeToolUse, isDestructiveAction } from "@/lib/agent/execute-tool";
 import type { ToolUseBlock } from "@/lib/agent/types";
 
 /**
@@ -117,7 +117,12 @@ describe("executeToolUse — confirmation gating", () => {
       autoApprove: false,
     });
     expect(confirm).toHaveBeenCalledTimes(1);
-    expect(confirm.mock.calls[0][0]).toContain("__agentexec.do_write");
+    // The card's words, never the action id or JSON.
+    expect(confirm.mock.calls[0][0]).toMatchObject({
+      detail: "Value: “hello”",
+      destructive: false,
+    });
+    expect(JSON.stringify(confirm.mock.calls[0][0])).not.toContain("__agentexec");
     expect(res.is_error).toBeUndefined();
     expect(res.content).toContain('"stored":"hello"');
   });
@@ -452,5 +457,194 @@ describe("executeToolUse — isAllowed (only the tools offered this turn)", () =
       expect(res.content).toContain('"stored":"x"');
       expect(handler).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+/**
+ * The confirm card's words and who is asked. Probes take real catalog ids so
+ * tool-label names them; each replaces whatever holds the id and goes after.
+ */
+describe("executeToolUse — the confirm card (ConfirmPrompt) and the destructive gate", () => {
+  const PROBES: Array<Parameters<typeof registry.register>[0]> = [
+    {
+      id: "tool.retro.add_card",
+      toolId: "tool.retro",
+      name: "add_card",
+      category: "write",
+      requiresConfirmation: false,
+      description: "probe",
+      paramsSchema: z.object({ columnKey: z.string(), text: z.string() }),
+      handler: async () => ({ added: true }),
+    },
+    {
+      id: "tool.retro.delete_card",
+      toolId: "tool.retro",
+      name: "delete_card",
+      category: "write",
+      requiresConfirmation: false,
+      description: "probe",
+      paramsSchema: z.object({ cardId: z.string() }),
+      handler: async () => ({ deleted: true }),
+    },
+    {
+      id: "tool.risk_register.delete",
+      toolId: "tool.risk_register",
+      name: "delete",
+      category: "write",
+      requiresConfirmation: true,
+      confirmLabel: "Delete this risk",
+      description: "probe",
+      paramsSchema: z.object({ id: z.string() }),
+      handler: async () => ({ deleted: true }),
+    },
+    {
+      id: "workspace.sprint.create",
+      toolId: "workspace.sprint",
+      name: "create",
+      category: "write",
+      description: "probe",
+      paramsSchema: z.object({ entity: z.record(z.string(), z.unknown()) }),
+      handler: async () => ({ id: "s1" }),
+    },
+    {
+      id: "tool.prioritizer.set_order",
+      toolId: "tool.prioritizer",
+      name: "set_order",
+      category: "write",
+      requiresConfirmation: true,
+      description: "probe",
+      paramsSchema: z.object({ ids: z.array(z.string()) }),
+      handler: async () => ({ ranked: 3 }),
+    },
+  ];
+  const handlers = new Map<string, ReturnType<typeof vi.fn>>();
+
+  beforeEach(() => {
+    for (const probe of PROBES) {
+      const handler = vi.fn(probe.handler);
+      handlers.set(probe.id, handler);
+      registry.unregister(probe.id);
+      registry.register({ ...probe, handler });
+    }
+  });
+  afterEach(() => {
+    for (const probe of PROBES) registry.unregister(probe.id);
+  });
+
+  /** The prompt the card got for one call (the visitor's path, so every write asks). */
+  async function promptFor(name: string, input: Record<string, unknown>) {
+    const confirm = vi.fn().mockResolvedValue(false);
+    await executeToolUse(block(name, input), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: false,
+      forceConfirmWrites: true,
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    return confirm.mock.calls[0][0];
+  }
+
+  it("names the tool and the verb, asks a question and says the arguments in words", async () => {
+    const prompt = await promptFor("tool_retro_add_card", {
+      columnKey: "went-well",
+      text: "flaky CI",
+    });
+    expect(prompt).toEqual({
+      verb: "Add card",
+      title: "Retro Board",
+      question: "Add a card to Retro Board?",
+      detail: "Column: “went-well” · Text: “flaky CI”",
+      destructive: false,
+    });
+    // No id, key name or JSON reaches the card.
+    expect(Object.values(prompt).join(" ")).not.toMatch(/tool[._]retro|columnKey|add_card|[{}]/);
+  });
+
+  it("leaves ids out, reads an entity's own fields, shortens long text and counts the rest", async () => {
+    const prompt = await promptFor("workspace_sprint_create", {
+      entity: {
+        id: "s-123",
+        name: "Sprint 47",
+        goal: "x".repeat(60),
+        capacityPoints: 30,
+        tags: ["api", "ci"],
+      },
+    });
+    expect(prompt.verb).toBe("Create sprint");
+    expect(prompt.title).toBe("Workspace");
+    expect(prompt.question).toBe("Create a sprint in your workspace?");
+    expect(prompt.detail).toBe(
+      `Name: “Sprint 47” · Goal: “${"x".repeat(39)}…” · Capacity points: 30 · 1 more`
+    );
+    expect(prompt.detail).not.toContain("s-123");
+  });
+
+  it("says a list of ids as a count", async () => {
+    const prompt = await promptFor("tool_prioritizer_set_order", { ids: ["a", "b", "c"] });
+    expect(prompt.detail).toBe("Items: 3");
+    expect(prompt.question).toBe("Set the order in Backlog Prioritizer?");
+  });
+
+  it("asks the action's own confirmLabel, and the card's button says it", async () => {
+    const prompt = await promptFor("tool.risk_register.delete", { id: "r1" });
+    expect(prompt).toEqual({
+      verb: "Delete",
+      title: "Risk Register",
+      question: "Delete this risk?",
+      detail: "",
+      destructive: true,
+      confirmLabel: "Delete this risk",
+    });
+  });
+
+  it("asks before a delete even when it declares requiresConfirmation:false", async () => {
+    const confirm = vi.fn().mockResolvedValue(false);
+    const res = await executeToolUse(block("tool_retro_delete_card", { cardId: "c1" }), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: false,
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0][0]).toMatchObject({
+      destructive: true,
+      question: "Delete this card from Retro Board?",
+    });
+    expect(res.content).toBe("User denied execution of tool.retro.delete_card.");
+    expect(handlers.get("tool.retro.delete_card")).not.toHaveBeenCalled();
+  });
+
+  it("asks before a destructive change even under Approve all, and runs it once approved", async () => {
+    const confirm = vi.fn().mockResolvedValue(true);
+    const res = await executeToolUse(block("tool_risk_register_delete", { id: "r1" }), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: true,
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(res.content).toContain('"deleted":true');
+    expect(handlers.get("tool.risk_register.delete")).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets Approve all skip a change that isn't destructive", async () => {
+    const confirm = vi.fn().mockResolvedValue(false);
+    const res = await executeToolUse(block("tool_prioritizer_set_order", { ids: ["a"] }), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: true,
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(res.content).toContain('"ranked":3');
+  });
+
+  it("counts a write as destructive by the first word of its name only", () => {
+    for (const name of ["delete", "remove_check_in", "reset", "clear_all", "archive_dimension"]) {
+      expect(isDestructiveAction({ name, category: "write" }), name).toBe(true);
+    }
+    expect(isDestructiveAction({ name: "reset", category: "intent" })).toBe(true);
+    for (const name of ["unarchive", "add_card", "deleted_list", "mark_resolved", "set_order"]) {
+      expect(isDestructiveAction({ name, category: "write" }), name).toBe(false);
+    }
+    // A read never asks.
+    expect(isDestructiveAction({ name: "delete_preview", category: "read" })).toBe(false);
   });
 });

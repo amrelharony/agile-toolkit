@@ -16,7 +16,13 @@ function makePending(): PendingToolUse & { _resolved: boolean | null } {
     actionId: "ws.story.add",
     resolvedActionId: "workspace.stories.add",
     input: {},
-    summary: "Add story",
+    prompt: {
+      verb: "Add story",
+      title: "Workspace",
+      question: "Add a story to your workspace?",
+      detail: "",
+      destructive: false,
+    },
     _resolved: null,
     resolve: vi.fn((approved: boolean) => {
       stub._resolved = approved;

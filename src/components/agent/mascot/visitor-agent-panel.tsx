@@ -34,7 +34,7 @@ import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import { formatPeakTime, peakWindow } from "@/lib/visitor-ai/peak";
 import { useChatVisible } from "../chat-visibility";
-import { ConfirmAction } from "../confirm-action";
+import { ConfirmCard } from "../chat/confirm-card";
 import { MessageBubble, useToolSteps } from "../message-bubble";
 import { handleMascotCommand } from "./engine/customization/commands";
 import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
@@ -327,7 +327,8 @@ export default function VisitorAgentPanel({
             Amr is thinking…
           </div>
         )}
-        <ConfirmAction allowApproveAll={false} />
+        {/* A visitor approves every change: no Approve all. */}
+        <ConfirmCard />
         {notice && (
           <Narration
             tone={notice.tone}

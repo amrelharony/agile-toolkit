@@ -5,7 +5,7 @@
  *
  * Amr is always present (bottom-right). Clicking him — or the header
  * button, or Cmd/Ctrl+J — toggles a chat panel that binds to the SAME
- * useAgentStore + sendUserMessage + ConfirmAction as before, so the agent's
+ * useAgentStore + sendUserMessage + ConfirmCard as before, so the agent's
  * tool-calling brain, confirm cards, and persistence are unchanged; only the
  * shell is new. Amr "talks" (the review pose) while the agent streams.
  *

@@ -1,12 +1,17 @@
 import { registry } from "@/lib/actions/registry";
 import { makeContext } from "@/lib/actions/context";
-import type { ToolResultBlock, ToolUseBlock } from "./types";
+import type { AnyToolAction } from "@/lib/actions/types";
+import { phrase, toolLabel } from "./tool-label";
+import type { ConfirmPrompt, ToolResultBlock, ToolUseBlock } from "./types";
 
 interface ExecuteOptions {
   userId: string;
-  /** Resolves true to proceed with a write/intent action, false to deny. */
-  confirm: (summary: string) => Promise<boolean>;
-  /** When true, skip confirm() for write/intent actions. Read still no-prompt. */
+  /** Resolves true to proceed with a write/intent action, false to deny. `prompt` says what will run, in words. */
+  confirm: (prompt: ConfirmPrompt) => Promise<boolean>;
+  /**
+   * When true (Approve all), skip confirm() for write/intent actions, except a
+   * destructive one (isDestructiveAction), which always asks. Read still no-prompt.
+   */
   autoApprove: boolean;
   /** Turn abort signal — stopping the turn (Stop, New chat, a thread switch)
    *  cancels an in-flight handler so the loop doesn't stay parked (and
@@ -25,6 +30,29 @@ interface ExecuteOptions {
    * after a confirmation, since the answer can change while the card waits.
    */
   isAllowed?: (name: string) => boolean;
+}
+
+/** An action name's first word that makes the action destructive. */
+const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set([
+  "archive",
+  "clear",
+  "delete",
+  "remove",
+  "reset",
+]);
+
+/**
+ * A change the owner is always asked about: a write or intent whose name
+ * starts with delete, remove, reset, clear or archive (`delete`,
+ * `remove_check_in`, `archive_dimension`; not `unarchive`). It asks even when
+ * the action declares `requiresConfirmation: false` and even under Approve
+ * all, which is what lets the owner's chat say "Amr asks before deleting or
+ * resetting anything". A read never is.
+ */
+export function isDestructiveAction(action: Pick<AnyToolAction, "name" | "category">): boolean {
+  if (action.category === "read") return false;
+  const [first = ""] = action.name.toLowerCase().split(/[^a-z0-9]+/);
+  return DESTRUCTIVE_VERBS.has(first);
 }
 
 /**
@@ -138,16 +166,22 @@ export async function executeToolUse(
     };
   }
 
-  // Confirmation gate for write / intent. forceConfirmWrites (visitors) asks
-  // for every non-read action whatever it declares, and "approve all" can't
-  // switch that off.
+  // Confirmation gate for write / intent:
+  //  - an action asks when it declares requiresConfirmation (writes and
+  //    intents default to true), unless Approve all is on;
+  //  - a destructive one (delete, remove, reset, clear, archive) always asks,
+  //    whatever it declares, and Approve all can't switch that off;
+  //  - forceConfirmWrites (visitors) asks for every non-read action whatever
+  //    it declares, and Approve all can't switch that off either.
   const writes = action.category !== "read";
+  const destructive = isDestructiveAction(action);
   const needsConfirm =
-    (action.requiresConfirmation ?? writes) || (opts.forceConfirmWrites === true && writes);
-  const skipConfirm = opts.autoApprove && opts.forceConfirmWrites !== true;
+    destructive ||
+    (action.requiresConfirmation ?? writes) ||
+    (opts.forceConfirmWrites === true && writes);
+  const skipConfirm = opts.autoApprove && opts.forceConfirmWrites !== true && !destructive;
   if (needsConfirm && !skipConfirm) {
-    const summary = describeAction(action.id, parsed.data as Record<string, unknown>);
-    const ok = await opts.confirm(summary);
+    const ok = await opts.confirm(describeAction(action, parsed.data, destructive));
     if (!ok) {
       return {
         type: "tool_result",
@@ -201,24 +235,212 @@ export async function executeToolUse(
   }
 }
 
-function describeAction(actionId: string, input: Record<string, unknown>): string {
-  // Compact pretty-print of params: 1-line per top-level key. The UI shows
-  // the JSON anyway; this is what voice-overs and screen-readers narrate.
-  const keys = Object.keys(input);
-  if (keys.length === 0) return `Call ${actionId}`;
-  const sample = keys
-    .slice(0, 3)
-    .map((k) => `${k}=${shortValue(input[k])}`)
-    .join(", ");
-  const tail = keys.length > 3 ? `, +${keys.length - 3} more` : "";
-  return `Call ${actionId} with ${sample}${tail}`;
+// ── The confirm card's words ────────────────────────────────────────────
+
+/** The most arguments the card names; the rest are counted. */
+const DETAIL_FIELDS = 3;
+/** The longest a quoted value runs before it is cut, in characters. */
+const VALUE_MAX = 40;
+/** What the card names a list of ids by: their count, never the ids. */
+const ID_LIST_LABEL = "Items";
+
+/** Verbs whose thing goes into the tool ("Add a card to Retro Board?"). */
+const TO_VERBS: ReadonlySet<string> = new Set([
+  "add",
+  "assign",
+  "attach",
+  "invite",
+  "link",
+  "post",
+]);
+/** Verbs whose thing leaves the tool ("Delete this sprint from your workspace?"). */
+const FROM_VERBS: ReadonlySet<string> = new Set([
+  "archive",
+  "clear",
+  "delete",
+  "detach",
+  "remove",
+  "unlink",
+]);
+/** Verbs that, with nothing after them, act on the whole tool ("Reset Health Check?"). */
+const WHOLE_TOOL_VERBS: ReadonlySet<string> = new Set(["clear", "reset"]);
+/** Verbs that make something new: "a card", where any other verb says "this card". */
+const NEW_VERBS: ReadonlySet<string> = new Set([
+  "add",
+  "cast",
+  "create",
+  "log",
+  "post",
+  "raise",
+  "record",
+  "start",
+  "suggest",
+]);
+/** First words that already say which one, or read better bare ("Toggle done"). */
+const NO_ARTICLE: ReadonlySet<string> = new Set([
+  "a",
+  "all",
+  "an",
+  "current",
+  "done",
+  "each",
+  "every",
+  "its",
+  "my",
+  "new",
+  "next",
+  "our",
+  "settings",
+  "state",
+  "that",
+  "the",
+  "their",
+  "these",
+  "this",
+  "those",
+  "your",
+]);
+
+/**
+ * What a confirm card asks before `action` runs, in words: the tool's name and
+ * the verb from tool-label, a question, and the checked arguments humanised.
+ * The card, its step caption and a screen reader read these, so nothing here
+ * is an action id, a key name or JSON; the raw arguments are only in the
+ * owner's Details on the step, never on the card.
+ */
+function describeAction(
+  action: AnyToolAction,
+  input: unknown,
+  destructive: boolean
+): ConfirmPrompt {
+  const label = toolLabel(action.id);
+  const verb = label.verb || phrase(keyWords(action.name)) || "Go ahead";
+  const confirmLabel = action.confirmLabel?.trim() || undefined;
+  return {
+    verb,
+    title: label.tool,
+    question: confirmLabel ? `${confirmLabel}?` : askQuestion(label.tool, verb),
+    detail: describeParams(input),
+    destructive,
+    ...(confirmLabel ? { confirmLabel } : {}),
+  };
 }
 
-function shortValue(v: unknown): string {
-  if (v === null || v === undefined) return String(v);
-  if (typeof v === "string") return v.length > 40 ? `"${v.slice(0, 37)}…"` : `"${v}"`;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  if (Array.isArray(v)) return `[${v.length} item${v.length === 1 ? "" : "s"}]`;
-  if (typeof v === "object") return `{${Object.keys(v as object).length} keys}`;
-  return String(v);
+/** The question for a verb in a tool: "Add a card to Retro Board?", "Reset Health Check?". */
+function askQuestion(tool: string, verb: string): string {
+  const where = tool === "Workspace" ? "your workspace" : tool;
+  const [head = "", ...object] = verb.split(" ");
+  const lead = head.toLowerCase();
+  if (object.length === 0) {
+    if (WHOLE_TOOL_VERBS.has(lead)) return `${head} ${where}?`;
+    if (FROM_VERBS.has(lead)) return `${head} this from ${where}?`;
+    return `${head} in ${where}?`;
+  }
+  const into = TO_VERBS.has(lead) ? "to" : FROM_VERBS.has(lead) ? "from" : "in";
+  return `${head} ${withArticle(lead, object)} ${into} ${where}?`;
+}
+
+/** The verb's thing with the article it reads best with: "a card", "this card", "the order", "stories". */
+function withArticle(verb: string, object: string[]): string {
+  const thing = object.join(" ");
+  const first = object[0].toLowerCase();
+  const last = object[object.length - 1].toLowerCase();
+  // Already says which, a participle ("Mark resolved"), or a plural ("Add stories").
+  if (NO_ARTICLE.has(first) || /(?:ed|ing)$/.test(first) || /[^s]s$/.test(last)) return thing;
+  if (verb === "set") return `the ${thing}`;
+  if (!NEW_VERBS.has(verb)) return `this ${thing}`;
+  return `${indefinite(object[0])} ${thing}`;
+}
+
+/** "a" or "an", by the word's first sound: "an OKR", "an update", "a user". */
+function indefinite(word: string): "a" | "an" {
+  // An acronym is said letter by letter: "an RFC", "a KPI".
+  if (word.length > 1 && word === word.toUpperCase())
+    return /^[AEFHILMNORSX]/.test(word) ? "an" : "a";
+  return /^(?:[aeio]|u[b-df-hj-np-tv-z]{2})/i.test(word) ? "an" : "a";
+}
+
+/** A key's or a name's words in lower case: "columnKey" → column, key; "cast_vote" → cast, vote. */
+function keyWords(key: string): string[] {
+  return (
+    key
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+      .toLowerCase()
+      .match(/[a-z0-9]+/g) ?? []
+  );
+}
+
+/** An argument's name in words: "columnKey" → "Column", "capacityPoints" → "Capacity points". */
+function keyLabel(key: string): string {
+  const words = keyWords(key);
+  // "Key" says nothing a person needs ("columnKey" is the column).
+  if (words.length > 1 && words[words.length - 1] === "key") words.pop();
+  return phrase(words);
+}
+
+/** An id or a list of ids ("id", "sprintId", "ids", "item_ids"): no use to a person. */
+function isIdKey(key: string): boolean {
+  return /^ids?$/i.test(key) || /(?:Ids?|_ids?)$/.test(key);
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** A string quoted and cut to VALUE_MAX, or "" when it holds no words. */
+function quoted(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (!flat) return "";
+  const cut = flat.length > VALUE_MAX ? `${flat.slice(0, VALUE_MAX - 1).trimEnd()}…` : flat;
+  return `“${cut}”`;
+}
+
+/** One value in words: quoted text, a number, yes or no, a short list or a count; "" to leave it out. */
+function valueWords(v: unknown): string {
+  if (typeof v === "string") return quoted(v);
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : "";
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  if (Array.isArray(v)) {
+    if (v.length === 0) return "";
+    const scalars = v.every((x) => typeof x === "string" || typeof x === "number");
+    if (scalars && v.length <= DETAIL_FIELDS) {
+      return v.map(valueWords).filter(Boolean).join(", ");
+    }
+    return `${v.length} ${v.length === 1 ? "item" : "items"}`;
+  }
+  return "";
+}
+
+/**
+ * The arguments as [name, value] pairs in words. Ids are left out (a list of
+ * them is counted), and an object's own fields stand in for it one level down,
+ * so a workspace create's `entity` or an update's `patch` reads as its fields.
+ */
+function fieldsOf(input: unknown, nested = false): Array<[string, string]> {
+  if (!isPlainObject(input)) return [];
+  const out: Array<[string, string]> = [];
+  for (const [key, value] of Object.entries(input)) {
+    if (isIdKey(key)) {
+      if (Array.isArray(value) && value.length > 0) out.push([ID_LIST_LABEL, String(value.length)]);
+      continue;
+    }
+    if (isPlainObject(value)) {
+      if (!nested) out.push(...fieldsOf(value, true));
+      continue;
+    }
+    const words = valueWords(value);
+    const name = keyLabel(key);
+    if (words && name) out.push([name, words]);
+  }
+  return out;
+}
+
+/** The arguments in a line: `Text: “flaky CI” · Column: “went-well”`, at most DETAIL_FIELDS, then a count. */
+function describeParams(input: unknown): string {
+  const fields = fieldsOf(input);
+  const shown = fields.slice(0, DETAIL_FIELDS).map(([name, words]) => `${name}: ${words}`);
+  const more = fields.length - DETAIL_FIELDS;
+  if (more > 0) shown.push(`${more} more`);
+  return shown.join(" · ");
 }

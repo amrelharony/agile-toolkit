@@ -118,7 +118,13 @@ describe("MessageBubble step rows", () => {
         actionId: "tool_retro_add_card",
         resolvedActionId: "tool.retro.add_card",
         input: { text: "x" },
-        summary: "Add card",
+        prompt: {
+          verb: "Add card",
+          title: "Retro Board",
+          question: "Add a card to Retro Board?",
+          detail: "Text: “x”",
+          destructive: false,
+        },
         resolve: () => {},
       });
     });

@@ -184,8 +184,11 @@ function wordsOf(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
 }
 
-/** Words as a sentence-case phrase, acronyms and names kept as they are spelled. */
-function phrase(words: readonly string[]): string {
+/**
+ * Words as a sentence-case phrase, acronyms and names kept as they are spelled
+ * (["okr", "title"] → "OKR title"). The confirm card names arguments with it.
+ */
+export function phrase(words: readonly string[]): string {
   const plain = VERB_PHRASES[words.join(" ")];
   if (plain) return plain;
   return words

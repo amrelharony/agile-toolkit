@@ -35,6 +35,33 @@ export interface ConversationMeta {
   lastMessageAt: string;
 }
 
+/**
+ * What a confirm card asks before Amr runs a change, in words. Built by
+ * execute-tool's describeAction from the action and its checked arguments;
+ * never an action id, a key name or JSON.
+ */
+export interface ConfirmPrompt {
+  /** What the call does, in sentence case, from tool-label: "Add card". The step caption shows it. */
+  verb: string;
+  /** The tool's human name, from tool-label: "Retro Board" ("Workspace" for workspace data and intents). */
+  title: string;
+  /** The card's question, as a sentence: "Add a card to Retro Board?" */
+  question: string;
+  /**
+   * The arguments in words, values quoted and shortened: `Text: “flaky CI” ·
+   * Column: “went-well”`. Ids are left out. Empty when nothing is worth showing.
+   */
+  detail: string;
+  /**
+   * A delete, remove, reset, clear or archive (by the action's name). It always
+   * asks, whatever the action declares and even after Approve all, and its
+   * button is drawn as destructive.
+   */
+  destructive: boolean;
+  /** The action's own verb phrase ("Delete this risk"), when it has one: the button and the question use it. */
+  confirmLabel?: string;
+}
+
 /** Pending tool_use awaiting user approval. BUG-G9: the resolver lives
  *  on the pending object itself, not on globalThis, so concurrent
  *  confirmation requests can't orphan each other. */
@@ -43,7 +70,8 @@ export interface PendingToolUse {
   actionId: string; // e.g. "workspace_sprint_create" (Claude name)
   resolvedActionId: string; // e.g. "workspace.sprint.create" (registry id)
   input: Record<string, unknown>;
-  summary: string;
-  /** Called by the confirm dialog. Approves or denies the tool execution. */
+  /** What the card asks, in words. */
+  prompt: ConfirmPrompt;
+  /** Called by the confirm card. Approves or denies the tool execution. */
   resolve: (approved: boolean) => void;
 }
