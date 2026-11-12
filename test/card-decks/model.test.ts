@@ -99,11 +99,20 @@ describe("the built-in decks", () => {
         expect(ib, c.id).toBeDefined();
         // The same string: read, never a copy kept here.
         expect(c.text).toBe(ib.description);
-        expect(c.title).toBe(ib.name);
+        if (id === "check-in" || !/check[\s-]?in\b/i.test(ib.name)) expect(c.title).toBe(ib.name);
       }
     }
     expect(deck("check-in").cards.map((c) => c.id)).toContain("ib-q-7");
     expect(deck("check-out").cards.map((c) => c.id)).toContain("ib-a-7");
+  });
+
+  it("never puts a Check-In name on a check-out card", () => {
+    const out = deck("check-out").cards;
+    const oneWord = out.find((c) => c.id === "ib-q-7");
+    expect(oneWord).toBeDefined();
+    expect(oneWord?.title).toBeUndefined();
+    for (const c of out) expect(c.title ?? "", c.id).not.toMatch(/check[\s-]?in/i);
+    expect(deck("check-in").cards.find((c) => c.id === "ib-q-7")?.title).toBe("One Word Check-In");
   });
 
   it("split stories by every SPLIT_PATTERNS pattern, five worked examples each, with its how", () => {

@@ -259,15 +259,28 @@ const CHECK_OUT_IDS = [
 
 const ICEBREAKERS = new Map(icebreakers.map((ib) => [ib.id, ib]));
 
-/** The Ice Breaker activities `ids` names, as cards: their own description and name. */
-function fromIcebreakers(ids: readonly string[]): DeckCard[] {
+/**
+ * The Ice Breaker activities `ids` names, as cards: their own description and
+ * name. A name that `dropTitle` matches is left off: the Check-out deck holds
+ * "One Word Check-In", whose words close a meeting as well as they open one,
+ * but whose name would put "Check-In" on a closing card.
+ */
+function fromIcebreakers(ids: readonly string[], dropTitle?: RegExp): DeckCard[] {
   const out: DeckCard[] = [];
   for (const id of ids) {
     const ib = ICEBREAKERS.get(id);
-    if (ib) out.push({ id: `ib-${ib.id}`, title: ib.name, text: ib.description });
+    if (!ib) continue;
+    out.push({
+      id: `ib-${ib.id}`,
+      ...(dropTitle?.test(ib.name) ? {} : { title: ib.name }),
+      text: ib.description,
+    });
   }
   return out;
 }
+
+/** An activity name that says it opens a meeting. */
+const OPENER_NAME = /check[\s-]?in\b/i;
 
 // ── The decks ────────────────────────────────────────────────────────
 
@@ -327,7 +340,7 @@ export const BUILT_IN_DECKS: readonly Deck[] = [
     name: "Check-out",
     blurb: "Closers from the Ice Breaker: a look back before everyone leaves.",
     source: "icebreaker",
-    cards: fromIcebreakers(CHECK_OUT_IDS),
+    cards: fromIcebreakers(CHECK_OUT_IDS, OPENER_NAME),
     keywords: ["check-out", "checkout", "close", "closing", "end", "wrap up", "goodbye"],
   },
 ];
