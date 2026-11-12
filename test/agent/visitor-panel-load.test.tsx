@@ -18,7 +18,10 @@ vi.mock("@/components/a11y/live-announcer", () => ({
   useAnnounce: () => h.announce,
 }));
 
-import { VISITOR_AI_CONSENT_KEY } from "@/components/agent/mascot/visitor-ai-consent";
+import {
+  VISITOR_AI_CONSENT_KEY,
+  VISITOR_AI_CONSENT_VERSION,
+} from "@/components/agent/mascot/visitor-ai-consent";
 import {
   VISITOR_CHAT_ERROR_NOTE,
   VISITOR_CHAT_LOAD_NOTE,
@@ -37,7 +40,7 @@ describe("VisitorPanel: the chat's code can't load", () => {
   beforeEach(() => {
     h.announce.mockClear();
     h.sendVisitorMessage.mockClear();
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     useAgentStore.getState().reset();
     useAgentStore.setState({ chatProfile: "owner", visitorQuota: null });
     // React and the error boundary both log the error they caught.

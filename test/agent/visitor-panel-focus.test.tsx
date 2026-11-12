@@ -18,13 +18,16 @@ vi.mock("@/components/a11y/live-announcer", () => ({
   useAnnounce: () => h.announce,
 }));
 
-import { VISITOR_AI_CONSENT_KEY } from "@/components/agent/mascot/visitor-ai-consent";
+import {
+  VISITOR_AI_CONSENT_KEY,
+  VISITOR_AI_CONSENT_VERSION,
+} from "@/components/agent/mascot/visitor-ai-consent";
 import { VisitorPanel, visitorFallbackNote } from "@/components/agent/mascot/visitor-panel";
 import { useAgentStore } from "@/lib/agent/store";
 
 /** Open the chat from the guide (consent already stored). */
 async function openChat() {
-  window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+  window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
   render(<VisitorPanel />);
   fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
   await screen.findByRole("button", { name: "Offline guide" });
@@ -81,7 +84,7 @@ describe("VisitorPanel: focus and announcements", () => {
   });
 
   it("a question from the guide keeps focus in a message box that is not disabled", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<VisitorPanel />);
     fireEvent.change(screen.getByLabelText("What do you need to do?"), {
       target: { value: "retro" },

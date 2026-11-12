@@ -128,8 +128,20 @@ describe("the rows of the table", () => {
 
 describe("each row, against the site", () => {
   it("the tools: nothing leaves, in the words of Your data", () => {
+    // With Amr's AI on (as here), the Ask Amr button is the one way a tool sends anything.
     const tools = row("tools");
-    expect(tools.leaves[0].text).toBe("Nothing you type or make.");
+    expect(tools.leaves[0].text).toBe(
+      "Nothing you type or make, unless you press Ask Amr in a tool. Then the content that button names goes to Amr's AI, as its row below says."
+    );
+    // The visitor route is the one a visitor's Ask Amr reaches, and it is metered
+    // like the chat: the chat's own meter, each use a new turn. (The route test,
+    // test/api/ai-tool-visitor-route.test.ts, checks the call itself.)
+    const visitorRoute = read("src/app/api/ai/tool/visitor/route.ts");
+    expect(visitorRoute).toContain('from "@/lib/visitor-ai/meter"');
+    expect(visitorRoute).toContain("meterVisitor(admin, key, true)");
+    flags(true, false);
+    expect(row("tools").leaves[0].text).toBe("Nothing you type or make.");
+    flags(true, true);
     expect(quoted(tools)).toEqual([`${YOUR_DATA_SAVED_HERE}.`]);
     expect(said(tools)).toContain("backup file");
     // A Share link keeps the copy in the part after #, which a browser never sends.
@@ -207,6 +219,9 @@ describe("each row, against the site", () => {
   it("Amr's AI: what its card says is sent and kept, and the 30-day totals", () => {
     const ai = row("amr-ai");
     expect(quoted(ai)).toEqual([VISITOR_AI_SENT, VISITOR_AI_KEPT]);
+    expect(ai.leaves[0].says).toBe(
+      "The card before your first message or your first Ask Amr says:"
+    );
     expect(said(ai)).toContain("kept for 30 days");
     const migration = read("supabase/migrations/0037_visitor_ai_usage.sql");
     expect(migration).toMatch(
@@ -372,8 +387,8 @@ describe("who processes what, and where", () => {
     );
   });
 
-  it("names the AI message counts among what Supabase holds only while Amr's AI is on", () => {
-    expect(processors()[1].does).toContain("the daily message counts for Amr's AI");
+  it("names the AI use counts among what Supabase holds only while Amr's AI is on", () => {
+    expect(processors()[1].does).toContain("the daily counts of Amr's AI uses");
     expect(read("supabase/migrations/0037_visitor_ai_usage.sql")).toContain("visitor_ai_usage");
     flags(true, false);
     expect(processors()[1].does).not.toContain("Amr's AI");
@@ -531,6 +546,16 @@ describe("for your security team", () => {
 
   it("is right that the weather request is the one Amr makes, and that it has no body", () => {
     expect(securityChecks()[3].text).toContain("/api/mascot/weather");
+    // With Amr's AI on, Ask Amr is named as the one exception, by the route it reaches.
+    expect(securityChecks()[3].text).toContain(
+      "Pressing Ask Amr in a tool is the one exception: it sends the content it names to /api/ai/tool/visitor."
+    );
+    expect(read("src/lib/ai/contract.ts")).toContain(
+      'TOOL_AI_VISITOR_PATH = "/api/ai/tool/visitor"'
+    );
+    flags(true, false);
+    expect(securityChecks()[3].text).not.toContain("Ask Amr");
+    flags(true, true);
     expect(read("src/app/api/mascot/weather/route.ts")).toContain("export async function GET(");
     expect(read("src/app/api/mascot/weather/route.ts")).not.toContain(
       "export async function POST("
