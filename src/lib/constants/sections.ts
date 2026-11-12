@@ -54,6 +54,8 @@ export const SECTIONS: ToolSection[] = [
       "epic-roadmap",
       "scrum-of-scrums",
       "dependency-map",
+      "product-goal",
+      "backlog-health",
     ],
   },
   {
@@ -68,6 +70,12 @@ export const SECTIONS: ToolSection[] = [
       "kanban",
       "ceremony-timer",
       "sprint-review",
+      "picker",
+      "quick-vote",
+      "audience-wall",
+      "parking-lot",
+      "facilitator-timers",
+      "interrupt-buffer",
     ],
   },
   {
@@ -83,6 +91,8 @@ export const SECTIONS: ToolSection[] = [
       "six-hats",
       "canvas",
       "design-sprint",
+      "root-cause",
+      "card-decks",
     ],
   },
   {
@@ -125,6 +135,9 @@ export const SECTIONS: ToolSection[] = [
       "space-pulse",
       "devex-survey",
       "tech-radar",
+      "team-mixer",
+      "sm-notebook",
+      "meeting-audit",
     ],
   },
   {

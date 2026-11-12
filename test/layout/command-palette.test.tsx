@@ -27,7 +27,7 @@ describe("CommandPalette", () => {
   it("does not list categories that have no visible tools", () => {
     render(<CommandPalette open onOpenChange={() => {}} />);
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).queryByText("Root Cause Analysis")).toBeNull();
+    expect(within(dialog).queryByText("Experimentation & A/B")).toBeNull();
     expect(within(dialog).queryByText("Change Management")).toBeNull();
     expect(within(dialog).getByText("Ceremonies")).toBeInTheDocument();
   });

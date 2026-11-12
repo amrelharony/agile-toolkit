@@ -299,4 +299,187 @@ export const GUIDES: ToolGuide[] = [
       },
     ],
   },
+  // ── Phase 42: the meeting widgets and the research top 10 (Run and Retro) ──
+  {
+    toolId: "picker",
+    summary:
+      "Picker chooses fairly from your team or any list: spin a wheel, draw names so everyone goes once, or roll dice and flip a coin. Spin it in a live room and everyone sees the same result.",
+    whenToUse: [
+      "To pick who speaks first, who facilitates the next retro or who takes notes, without asking the same people every time.",
+      "To choose a team or sprint name, a topic or a winner at random, in front of the group.",
+    ],
+    steps: [
+      "Use the team from the Team page, or type or paste your own list. Give a name more weight if it should come up more often.",
+      "Turn on everyone once to take each name out after it is picked, until the whole list has had a turn.",
+      "Spin the wheel or draw a name. The wheel slows down and lands on one, and Amr cheers the result.",
+      "Keep standing roles such as facilitator and scribe on a rotation. Its fairness history shows who has had a turn and who is due.",
+      "Dice, a coin and a random number give a quick answer with no list at all.",
+      "To spin with the whole team, open a live room and share its code: everyone sees the same spin on their own screen.",
+      "Ask Amr for a themed list, such as team names from space or sprint names from rivers, and keep the names you like.",
+    ],
+    tips: [
+      "Every result is a fair random draw: weights change the odds, nothing else does.",
+      "Who was picked stays in this browser unless you open a live room.",
+    ],
+    timebox: "Seconds.",
+  },
+  {
+    toolId: "quick-vote",
+    summary:
+      "Quick Vote runs a fast poll in any meeting: fist of five, Roman vote, confidence, ROTI, a custom scale, multiple choice, dot votes or a ranking. Run it in a live room, where people see only the totals, or with hold-up cards on phones.",
+    whenToUse: [
+      "To check agreement before moving on: is everyone at least a three on this plan?",
+      "At the end of a meeting, to ask whether it was worth the time (ROTI).",
+      "To choose between options, or rank them, with the whole group.",
+    ],
+    steps: [
+      "Pick a format, such as fist of five, confidence, ROTI, a poll, a ranking, dot voting or guess the number.",
+      "Type the question and, for a poll or a ranking, its options. Ask Amr can suggest options from the question; you keep, change or drop each one.",
+      "Open a live room and share its code, or use phone cards: each person holds up their number or colour full screen and you count.",
+      "When everyone has voted, reveal the result. People see the totals, never who voted what.",
+      "Talk about the spread, not just the average: ask the lowest and the highest votes what they see.",
+      "Save the result with the meeting, or vote again after the discussion.",
+    ],
+    tips: [
+      "A vote starts a conversation. Agree what a low score means before you ask.",
+      "Run a confidence vote on the sprint plan before Sprint Planning ends.",
+    ],
+    timebox: "Two to five minutes per question.",
+  },
+  {
+    toolId: "audience-wall",
+    summary:
+      "Audience Wall collects open answers from the whole room: ideas on a wall or in a word cloud, questions with upvotes, and a queue for raised hands. People add to it from their phones in a live room.",
+    whenToUse: [
+      "Brainwriting, or a 1-2-4-All or 25/10 round, where everyone writes before anyone talks.",
+      "Questions at a Sprint Review, a town hall or a training, so the most wanted come first.",
+      "Feedback on a demo, or what would make a session a ten.",
+    ],
+    steps: [
+      "Type the question and choose the kind of wall: answers, questions or raised hands.",
+      "Open a live room and share its code. People join from their phones and post short answers; the wall doesn't show who wrote what.",
+      "For questions, everyone upvotes and the most wanted rise to the top. Mark a question answered once you've covered it.",
+      "For raised hands, people join a queue to speak and you call the next one.",
+      "Switch to the word cloud to see which words come up most.",
+      "Ask Amr groups the answers into themes, merges duplicate questions or turns feedback into backlog items. You see the draft first, and nothing reaches the room or the backlog until you accept it.",
+      "Export the wall as Markdown, or save it.",
+    ],
+    tips: [
+      "Ask for one idea per post: the answers are easier to group.",
+      "Time the writing, so it stops before the talking starts.",
+    ],
+    timebox: "Five to fifteen minutes per round.",
+  },
+  {
+    toolId: "parking-lot",
+    summary:
+      "Parking Lot keeps the points that come up off topic, so the meeting stays on track and nothing is forgotten. Afterwards each point goes where it belongs: the backlog, the impediments or the retro actions.",
+    whenToUse: [
+      "A Daily Scrum or a planning that keeps drifting into side discussions.",
+      "A workshop, where good ideas come up at the wrong time.",
+    ],
+    steps: [
+      "Type the point and park it. Add the meeting and who raised it if that will help later.",
+      "Keep the list on screen during the meeting, so people see their point was heard.",
+      "At the end, go through the open points: mark each one discussed, send it to the backlog, the Impediment Tracker or Retro Actions, or drop it.",
+      "A sent point links to where it went, and the item there links back to the parking lot.",
+      "Ask Amr suggests where each open point should go. You decide, one point at a time or all at once, and Undo takes a send back.",
+    ],
+    tips: [
+      "Agree when the parking lot is reviewed, such as the last five minutes, or points go there to be forgotten.",
+      "Drop points nobody cares about any more: an empty parking lot is the goal.",
+    ],
+    timebox: "Five minutes at the end of the meeting.",
+  },
+  {
+    toolId: "facilitator-timers",
+    summary:
+      "Facilitator Timers are the timers a session needs beyond its agenda: Pomodoro focus blocks, a big “Back at 10:45” break screen, Crazy 8s rounds, a meeting cost ticker and calm focus sounds made in the browser.",
+    whenToUse: [
+      "Workshops and long sessions that need breaks and focused rounds.",
+      "Design sessions with Crazy 8s: eight sketches in eight minutes.",
+      "When the people in a meeting should see what it costs.",
+    ],
+    steps: [
+      "Choose a timer: Pomodoro, break, Crazy 8s or meeting cost.",
+      "For a break, set the time to come back. The screen shows it in large type, ready to share or present.",
+      "For Crazy 8s, start the rounds: a chime marks each of the eight minutes.",
+      "For the cost ticker, enter how many people are there and an average hourly rate. The cost grows while the meeting runs.",
+      "Turn on a focus sound for quiet work, such as rain or a soft hum. The browser makes it, so nothing downloads.",
+      "In Present mode, the soundboard plays a drumroll, a gong, applause and a cheer from Amr.",
+      "Ask Amr drafts an agenda from the meeting's goal, which you can change and then run in the Ceremony Timer.",
+    ],
+    tips: [
+      "Sounds play only when you turn them on, and only after you press a button.",
+      "Keep the cost ticker friendly: it helps the room decide, it isn't there to blame anyone.",
+    ],
+    timebox: "As long as the session.",
+  },
+  {
+    toolId: "interrupt-buffer",
+    summary:
+      "Interrupt Buffer keeps part of each sprint free for unplanned work, logs every interrupt as it lands, and shows how much of the buffer is used. When it runs out, it walks the team through its emergency procedure.",
+    whenToUse: [
+      "A team that supports a live product and gets bugs, support requests and incidents during the sprint.",
+      "When the sprint goal keeps slipping because of work nobody planned.",
+    ],
+    steps: [
+      "Set the sprint's buffer, as a share of capacity or in points. Sprint Planning plans the rest.",
+      "Log each interrupt when it arrives: a title, its kind (bug, support, request, incident or other) and its size if you know it. Mark it an emergency if it can't wait.",
+      "Mark interrupts resolved once they're done. The gauge shows how much of the buffer they used.",
+      "When the buffer is gone, the emergency procedure takes the team through its options in order: change how the work is done, get help, cut scope with the Product Owner, and only then end the sprint early.",
+      "At the retro, look at the kinds of interrupts and where they came from, and decide what to fix at the source.",
+      "Ask Amr suggests the kind of each new interrupt from its title; you confirm or change it.",
+    ],
+    tips: [
+      "Start with the unplanned work of the last three sprints, then adjust.",
+      "An unused buffer isn't waste: pull in the next item from the backlog once it's clear nothing else is coming.",
+    ],
+    timebox: "Seconds per interrupt; ten minutes at planning and at the retro.",
+  },
+  {
+    toolId: "root-cause",
+    summary:
+      "Root Cause takes a problem back to its causes with 5 Whys or a fishbone diagram, shows which causes matter most on a Pareto chart, and ends with a countermeasure the team can act on.",
+    whenToUse: [
+      "A problem that keeps coming back after a retro said it was fixed.",
+      "After an incident or a missed sprint goal, before deciding what to change.",
+      "When the team disagrees about the cause and needs to see all of them.",
+    ],
+    steps: [
+      "Write the problem as a fact: what happened, where and how often, with no blame.",
+      "For 5 Whys, ask why it happened and write the answer, then ask why again, usually about five times, until you reach a cause the team can change.",
+      "For a fishbone, add causes under categories such as people, process, tools and environment, and count how often each one happens.",
+      "The Pareto chart puts the causes in order of their count, so you see the few behind most of the problem.",
+      "Mark the root cause and write a countermeasure. Send it to Retro Actions so someone owns it, and link the analysis to the retro or post-mortem it came from.",
+      "Ask Amr suggests the next why, categories for the fishbone or a countermeasure. You pick what fits; nothing is added on its own.",
+    ],
+    tips: [
+      "Stop at a cause you can act on. “People make mistakes” isn't a root cause; the process that let the mistake through is.",
+      "Most problems have more than one cause, and a fishbone shows them side by side.",
+    ],
+    timebox: "Twenty to forty-five minutes.",
+  },
+  {
+    toolId: "card-decks",
+    summary:
+      "Card Decks deals prompt cards one at a time: retro questions, coaching questions, storytelling prompts, story-splitting patterns and appreciation cards, all written for this toolkit. Deal them on your screen or to a live room.",
+    whenToUse: [
+      "To open a retro or a check-in with a fresh question.",
+      "In refinement, to try one splitting pattern at a time on a big story.",
+      "In a coaching conversation, when you need a good question.",
+    ],
+    steps: [
+      "Pick a deck: retro prompts, coaching, storytelling, story splitting, appreciation, or the check-in and check-out questions from the Ice Breaker.",
+      "Deal one card at a time, shuffle to mix the deck, or go back to the last card.",
+      "In a live room, everyone sees the card you deal on their own screen.",
+      "Star the cards you like to find them again, and hide the ones that don't fit your team.",
+      "Ask Amr writes a short deck on a theme you give, or picks a card that fits the team's mood. You keep the cards you want.",
+    ],
+    tips: [
+      "One good question beats five quick ones: give people time to think before anyone answers.",
+      "The story-splitting cards follow the SPIDR patterns: spikes, paths, interfaces, data and rules.",
+    ],
+    timebox: "Two to ten minutes per card.",
+  },
 ];
