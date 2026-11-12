@@ -632,8 +632,12 @@ export function HealthBoard({
           <Settings2 className="h-4 w-4 text-sub" aria-hidden="true" />
           What counts as the top, too big and stale
         </summary>
-        <div className="mt-3">
+        <div className="mt-3 space-y-2">
           <SettingsForm settings={settings} onSave={onSettings} />
+          <p className="text-xs text-sub">
+            A story counts as touched when it is added, changes status or sprint, or gets its ready
+            check in Refinement. Points and criteria fixed here don&apos;t reset it.
+          </p>
         </div>
       </details>
     </div>

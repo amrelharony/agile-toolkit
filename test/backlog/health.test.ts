@@ -151,7 +151,7 @@ describe("the DEEP scan", () => {
       "1 is above 13 points: split it.",
     ]);
     expect(byId.emergent.score).toBe(0.75);
-    expect(byId.emergent.reasons[2]).toBe("1 story is stale: refine or drop it.");
+    expect(byId.emergent.reasons[2]).toBe("1 story is stale: refine or drop it in Refinement.");
     // Two ranked 1: a tie; two with no place at all.
     expect(byId.prioritized.score).toBe(0);
     expect(byId.prioritized.reasons).toEqual([

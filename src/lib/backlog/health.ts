@@ -8,7 +8,11 @@
  *     that isn't vague. Stories further down may stay rough.
  *   - Estimated: the top stories have points, none of them too big.
  *   - Emergent: the backlog keeps changing: stories were added or touched
- *     in the last STALE_WEEKS weeks, and few are left untouched.
+ *     in the last STALE_WEEKS weeks, and few are left untouched. A story is
+ *     touched when it is added, changes status or sprint, or gets
+ *     Refinement's ready check or its Done ticks (`lastTouched`). Story has
+ *     no updatedAt, so a text or points edit alone doesn't count; the flag
+ *     and the reasons say which actions do.
  *   - Prioritized: an order exists (a decided rank or a priority score) and
  *     no two stories share a place.
  *
@@ -208,7 +212,7 @@ export function storyFlags(
   if (age !== null && age > staleWeeks * 7) {
     flags.push({
       id: "stale",
-      reason: `Not touched for ${plural(Math.floor(age / 7), "week")}. Refine it or drop it.`,
+      reason: `No status change, sprint move or ready check for ${plural(Math.floor(age / 7), "week")}. Walk it through Refinement, or drop it.`,
     });
   }
   return flags;
@@ -333,7 +337,7 @@ function emergentCheck(
   const stale = dated.length - fresh;
   const share = fresh / dated.length;
   const reasons = [
-    `${pct(share)} of the dated stories were added or changed in the last ${staleWeeks} weeks.`,
+    `${pct(share)} of the dated stories were added, moved or checked ready in the last ${staleWeeks} weeks.`,
   ];
   reasons.push(
     recent > 0
@@ -342,7 +346,7 @@ function emergentCheck(
   );
   if (stale > 0)
     reasons.push(
-      `${plural(stale, "story", "stories")} ${stale === 1 ? "is" : "are"} stale: refine or drop ${stale === 1 ? "it" : "them"}.`
+      `${plural(stale, "story", "stories")} ${stale === 1 ? "is" : "are"} stale: refine or drop ${stale === 1 ? "it" : "them"} in Refinement.`
     );
   return { id: "emergent", label: DEEP_LABEL.emergent, score: share, reasons };
 }
