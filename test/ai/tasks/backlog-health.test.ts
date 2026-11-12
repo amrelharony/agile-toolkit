@@ -9,7 +9,14 @@
 import { describe, expect, it } from "vitest";
 import { parseAnswer } from "@/lib/ai/parse-answer";
 import { buildTaskSystem, buildTaskUser } from "@/lib/ai/run-task.server";
-import { backlogHealthReviewTask, fallbackReview } from "@/lib/ai/tasks/backlog-health";
+import {
+  REVIEW_BODY_BUDGET,
+  REVIEW_STORIES_MAX,
+  backlogHealthReviewTask,
+  fallbackReview,
+  fitReviewInput,
+} from "@/lib/ai/tasks/backlog-health";
+import { TOOL_AI_VISITOR_MAX_BODY_BYTES } from "@/lib/ai/contract";
 import { backlogHealthReviewPrompt } from "@/lib/ai/tasks/backlog-health.server";
 
 const task = backlogHealthReviewTask;
@@ -101,8 +108,71 @@ describe("backlog-health.review", () => {
       task.input.parse({ stories: [{ id: "s1", title: "Pay", points: 3 }] })
     );
     expect(user).toBe(
-      "<user_content>\nStories, in backlog order:\n- id: s1\n  title: Pay\n  points: 3\n  acceptance criteria: none\n</user_content>"
+      "<user_content>\nThe top of the backlog: the first 10 stories. Too big: more than 13 points.\nStories, in backlog order:\n- id: s1\n  title: Pay\n  points: 3\n  acceptance criteria: none\n</user_content>"
     );
+    expect(
+      buildTaskUser(
+        backlogHealthReviewPrompt,
+        task.input.parse({ stories: [{ id: "s1", title: "Pay" }], topN: 3, tooBigPoints: 8 })
+      )
+    ).toContain("The top of the backlog: the first 3 stories. Too big: more than 8 points.");
+  });
+
+  it("flags missing criteria only near the top, and too big by the page's limit", () => {
+    const stories = [
+      { id: "a", title: "Pay with a saved card", points: 3 },
+      { id: "b", title: "Refund a payment from the phone", points: 11 },
+      { id: "c", title: "Export the takings as a file", points: 2 },
+    ];
+    const out = fallbackReview({ stories, topN: 1, tooBigPoints: 8 });
+    expect(task.output.safeParse(out).success).toBe(true);
+    const byId = Object.fromEntries(out.stories.map((s) => [s.id, s]));
+    expect(byId.a.flags.map((f) => f.flag)).toEqual(["no-criteria"]);
+    expect(byId.a.gwt.length).toBeGreaterThan(0);
+    // Below the top: no criteria is fine, so no flag and no drafted scenarios.
+    expect(byId.b.flags.map((f) => f.flag)).toEqual(["too-big"]);
+    expect(byId.b.gwt).toEqual([]);
+    expect(byId.c).toBeUndefined();
+    // With the defaults, 11 points fits a sprint.
+    expect(
+      fallbackReview({ stories: [{ ...stories[1], criteria: "Refunded once." }] }).stories
+    ).toEqual([]);
+  });
+
+  it("trims the largest valid input to fit a visitor's request, keeping the top", () => {
+    // 40 stories at every cap, in a 2-byte script, with lines in the text.
+    const wide = (n: number) => "ج\n".repeat(n).slice(0, n).replace(/\s+$/, "x");
+    const stories = Array.from({ length: REVIEW_STORIES_MAX }, (_, i) => ({
+      id: `story_${String(i).padStart(54, "0")}`,
+      title: `${i} ${wide(190)}`,
+      description: wide(500),
+      points: 3,
+      criteria: wide(500),
+    }));
+    const input = task.input.parse({ stories, topN: 10 });
+    const bytes = (v: unknown) => new TextEncoder().encode(JSON.stringify(v)).length;
+    expect(bytes({ task: task.id, input })).toBeGreaterThan(TOOL_AI_VISITOR_MAX_BODY_BYTES);
+    const fitted = fitReviewInput(input);
+    expect(task.input.safeParse(fitted).success).toBe(true);
+    expect(bytes({ task: task.id, input: fitted })).toBeLessThanOrEqual(REVIEW_BODY_BUDGET);
+    expect(REVIEW_BODY_BUDGET).toBeLessThan(TOOL_AI_VISITOR_MAX_BODY_BYTES);
+    // The top stories stay, with their criteria; descriptions went first, from the bottom.
+    expect(fitted.stories[0]).toMatchObject({
+      id: stories[0].id,
+      criteria: input.stories[0].criteria,
+    });
+    expect(fitted.stories.at(-1)?.description).toBeUndefined();
+    expect(fitted.stories.every((s, i) => s.criteria === input.stories[i].criteria)).toBe(true);
+    expect(fitted.stories.length).toBeGreaterThan(10);
+    expect(fitted.topN).toBe(10);
+    // Past the descriptions, whole stories go from the bottom, never the first.
+    const tight = fitReviewInput(input, 20_000);
+    expect(bytes({ task: task.id, input: tight })).toBeLessThanOrEqual(20_000);
+    expect(tight.stories.length).toBeLessThan(REVIEW_STORIES_MAX);
+    expect(tight.stories[0].id).toBe(stories[0].id);
+    // An input that already fits comes back as it is.
+    const small = task.input.parse(task.sample);
+    expect(fitReviewInput(small)).toBe(small);
   });
 
   it("caps its input at 40 stories", () => {

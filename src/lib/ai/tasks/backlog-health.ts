@@ -7,12 +7,19 @@
  *
  * Without AI it answers from the page's own rules (lib/backlog/health
  * `storyFlags`) and the five split patterns (refinement/invest
- * `SPLIT_PATTERNS`). The prompt lives in `backlog-health.server.ts`.
+ * `SPLIT_PATTERNS`), with the page's settings: only the top `topN` stories
+ * need criteria, and "too big" is above `tooBigPoints`. The prompt lives in
+ * `backlog-health.server.ts`.
+ *
+ * `fitReviewInput` trims what the page sends to fit the visitor route's
+ * body cap, which 40 long stories in a non-Latin script can pass.
  */
 
 import { z } from "zod";
 import { defineAiTask } from "../define-task";
+import { TOOL_AI_VISITOR_MAX_BODY_BYTES } from "../contract";
 import {
+  DEEP_TOP_N,
   STORY_FLAG_LABEL,
   TOO_BIG_POINTS,
   draftScenarios,
@@ -57,6 +64,10 @@ const input = z.object({
     )
     .min(1)
     .max(REVIEW_STORIES_MAX),
+  /** How many stories, from the first, count as the top: only they need criteria. */
+  topN: z.number().int().min(1).max(50).optional(),
+  /** Points above which a story is too big. */
+  tooBigPoints: z.number().int().min(1).max(100).optional(),
 });
 
 const part = z.string().trim().min(1).max(300);
@@ -84,18 +95,24 @@ export type ReviewedStory = ReviewOutput["stories"][number];
 
 /**
  * The review without AI: the page's rules for each story (a vague title,
- * no criteria, too many points), two split patterns' titles for a big
- * story, and starting scenarios for one with no criteria. Stories that
- * need nothing are left out.
+ * no criteria near the top, more points than `tooBigPoints`), two split
+ * patterns' titles for a big story, and starting scenarios for a top one
+ * with no criteria. Stories that need nothing are left out.
  */
-export function fallbackReview({ stories }: ReviewInput): ReviewOutput {
+export function fallbackReview({
+  stories,
+  topN = DEEP_TOP_N,
+  tooBigPoints = TOO_BIG_POINTS,
+}: ReviewInput): ReviewOutput {
   const out: ReviewedStory[] = [];
-  for (const s of stories) {
+  for (let i = 0; i < stories.length; i++) {
+    const s = stories[i];
     if (out.length >= REVIEW_ANSWERS_MAX) break;
     const flags: ReviewedStory["flags"] = [];
     const vague = isVagueTitle(s.title);
-    const noCriteria = !s.criteria?.trim();
-    const big = typeof s.points === "number" && s.points > TOO_BIG_POINTS;
+    // Only the top of the backlog needs criteria; further down can stay rough.
+    const noCriteria = i < topN && !s.criteria?.trim();
+    const big = typeof s.points === "number" && s.points > tooBigPoints;
     if (vague)
       flags.push({ flag: "vague", reason: "The title is too short or general to build from." });
     if (noCriteria)
@@ -118,6 +135,30 @@ export function fallbackReview({ stories }: ReviewInput): ReviewOutput {
     out.push({ id: s.id, flags, splits, gwt });
   }
   return { stories: out };
+}
+
+/** What a review request may weigh, in UTF-8 bytes: the visitor route's cap, less room for the envelope. */
+export const REVIEW_BODY_BUDGET = TOOL_AI_VISITOR_MAX_BODY_BYTES - 4 * 1024;
+
+const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+
+/**
+ * The review's input, trimmed until its request (`{task, input}`) fits
+ * `budget` bytes: descriptions go first, from the bottom of the backlog up,
+ * then whole stories from the bottom. The top stories keep their criteria,
+ * which the flags depend on. The input as it is when it already fits.
+ */
+export function fitReviewInput(input: ReviewInput, budget = REVIEW_BODY_BUDGET): ReviewInput {
+  const size = (stories: ReviewInput["stories"]) =>
+    bytes({ task: "backlog-health.review", input: { ...input, stories } });
+  let stories = input.stories;
+  if (size(stories) <= budget) return input;
+  stories = stories.map((s) => ({ ...s }));
+  for (let i = stories.length - 1; i >= 0 && size(stories) > budget; i--) {
+    delete stories[i].description;
+  }
+  while (stories.length > 1 && size(stories) > budget) stories = stories.slice(0, -1);
+  return { ...input, stories };
 }
 
 export const backlogHealthReviewTask = defineAiTask({

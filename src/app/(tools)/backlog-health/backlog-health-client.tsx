@@ -49,6 +49,7 @@ import {
   REVIEW_FLAG_LABEL,
   REVIEW_STORIES_MAX,
   backlogHealthReviewTask,
+  fitReviewInput,
   type ReviewOutput,
 } from "@/lib/ai/tasks/backlog-health";
 import { backlogForHealth, backlogHealth, type HealthVerdict } from "@/lib/backlog/health";
@@ -374,27 +375,32 @@ export function HealthBoard({
 
   /* ── Review with Amr ─────────────────────────────────────────────── */
 
-  const reviewInput = () => ({
-    stories: backlog.slice(0, REVIEW_STORIES_MAX).map((s) => ({
-      id: s.id.slice(0, 60),
-      title: s.title.slice(0, 200),
-      ...(s.notes?.trim() ? { description: s.notes.trim().slice(0, 500) } : {}),
-      ...(typeof s.points === "number" && s.points >= 0 && s.points <= 1000
-        ? { points: s.points }
-        : {}),
-      ...(s.acceptanceCriteria?.trim() || s.gwt?.length
-        ? {
-            criteria: [
-              s.acceptanceCriteria?.trim(),
-              ...(s.gwt ?? []).map((g) => `Given ${g.given}, when ${g.when}, then ${g.then}`),
-            ]
-              .filter(Boolean)
-              .join(" / ")
-              .slice(0, 500),
-          }
-        : {}),
-    })),
-  });
+  // The page's own settings go with it, so the rules (or Amr) flag what the
+  // page flags; trimmed to fit what a visitor's request may weigh.
+  const reviewInput = () =>
+    fitReviewInput({
+      topN: Math.min(settings.topN, REVIEW_STORIES_MAX),
+      tooBigPoints: settings.tooBigPoints,
+      stories: backlog.slice(0, REVIEW_STORIES_MAX).map((s) => ({
+        id: s.id.slice(0, 60),
+        title: s.title.slice(0, 200),
+        ...(s.notes?.trim() ? { description: s.notes.trim().slice(0, 500) } : {}),
+        ...(typeof s.points === "number" && s.points >= 0 && s.points <= 1000
+          ? { points: s.points }
+          : {}),
+        ...(s.acceptanceCriteria?.trim() || s.gwt?.length
+          ? {
+              criteria: [
+                s.acceptanceCriteria?.trim(),
+                ...(s.gwt ?? []).map((g) => `Given ${g.given}, when ${g.when}, then ${g.then}`),
+              ]
+                .filter(Boolean)
+                .join(" / ")
+                .slice(0, 500),
+            }
+          : {}),
+      })),
+    });
 
   // Only answers about stories still in the backlog count; their text is plain.
   const reviewed = (review?.data.stories ?? []).filter((r) => byId.has(r.id));
