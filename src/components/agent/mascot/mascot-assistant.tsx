@@ -32,6 +32,15 @@
  * Amr's AI through /api/agent/visitor (its own chunks, loaded on demand). An
  * unverified owner session (owner check unanswered) keeps the plain guide, with
  * a narration note that Amr's chat comes back once owner access is confirmed.
+ *
+ * Those visitor views (the guide, the visitor panel, the consent card and the
+ * guide's data) are a chunk of their own too, not part of this one, which
+ * every page loads: lazy-visitor-body imports them ahead of time, once the
+ * page has loaded and the browser is idle and when a pointer, a finger or
+ * focus first reaches Amr, so a tap almost never waits. Never for the owner,
+ * and never ahead of time with Data Saver on (they load when the panel opens).
+ * A panel opened before they arrive keeps its size and shows a plain
+ * placeholder until they do.
  */
 
 import {
@@ -90,8 +99,7 @@ import {
   PANEL_SIDE,
   otherSide,
 } from "./amr-geometry";
-import { VisitorGuide } from "./visitor-guide";
-import { VisitorPanel } from "./visitor-panel";
+import { LazyVisitorBody, prefetchVisitorBody } from "./lazy-visitor-body";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import {
@@ -331,6 +339,44 @@ function savesData(): boolean {
   return Boolean(nav.connection?.saveData);
 }
 
+/** The idle callback, where the browser has one (Safari has none). */
+type IdleWindow = Window & {
+  requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+  cancelIdleCallback?: (id: number) => void;
+};
+
+/** The visitor body is fetched by this long after load, idle or not. */
+const BODY_IDLE_TIMEOUT_MS = 4000;
+/** Without an idle callback, the visitor body is fetched this long after load. */
+const BODY_PREFETCH_DELAY_MS = 1500;
+
+/**
+ * Fetch the open panel's visitor body (lazy-visitor-body) once the page has
+ * loaded and the browser is idle, so opening the panel almost never waits for
+ * it. Not when the visitor asked to save data: the body then loads when the
+ * panel opens.
+ */
+function usePrefetchVisitorBody(enabled: boolean) {
+  useEffect(() => {
+    if (!enabled || savesData()) return;
+    const w = window as IdleWindow;
+    let idleId: number | undefined;
+    let timer: number | undefined;
+    const schedule = () => {
+      if (w.requestIdleCallback)
+        idleId = w.requestIdleCallback(prefetchVisitorBody, { timeout: BODY_IDLE_TIMEOUT_MS });
+      else timer = window.setTimeout(prefetchVisitorBody, BODY_PREFETCH_DELAY_MS);
+    };
+    if (document.readyState === "complete") schedule();
+    else window.addEventListener("load", schedule, { once: true });
+    return () => {
+      window.removeEventListener("load", schedule);
+      window.clearTimeout(timer);
+      if (idleId !== undefined) w.cancelIdleCallback?.(idleId);
+    };
+  }, [enabled]);
+}
+
 /**
  * Defer the figure (its chunk and the sprite sheet) until the visitor first
  * interacts (pointer, key, scroll) or a moment after the page has loaded,
@@ -343,10 +389,7 @@ function useDeferredFigure(): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     const interactionOnly = savesData();
-    const w = window as Window & {
-      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-      cancelIdleCallback?: (id: number) => void;
-    };
+    const w = window as IdleWindow;
     let idleId: number | undefined;
     let timer: number | undefined;
     let started = false;
@@ -633,6 +676,14 @@ export function MascotAssistant() {
   const { isOwner, settled, unverified, visitor } = useOwnerState();
   // Amr's AI for visitors: a confirmed visitor only, and only in a build that has it on.
   const visitorAi = visitor && visitorAiEnabled();
+  // Everyone but the owner opens the panel on the visitor body: fetch it ahead.
+  usePrefetchVisitorBody(settled && !isOwner);
+  // Reaching for Amr (a pointer over him, a finger on him, focus on him): fetch
+  // it now if it isn't here yet (Data Saver waits for the panel to open). Once
+  // fetched, this does nothing.
+  const reachForAmr = () => {
+    if (!isOwner && !savesData()) prefetchVisitorBody();
+  };
   const isPhone = useIsPhone();
   // Touch screens of any width (a landscape phone, a tablet): his figure there is
   // where a finger lands, so he steps aside for the page's controls.
@@ -1195,15 +1246,13 @@ export function MascotAssistant() {
             <div hidden={scenesOpen} className={scenesOpen ? "hidden" : "contents"}>
               {!isOwner ? (
                 <div className="min-h-0 flex-1" aria-busy={!settled}>
-                  {settled &&
-                    (visitorAi ? (
-                      <VisitorPanel onNavigate={closeSheet} />
-                    ) : (
-                      <VisitorGuide
-                        onNavigate={closeSheet}
-                        note={unverified ? <UnverifiedOwnerNote /> : undefined}
-                      />
-                    ))}
+                  {settled && (
+                    <LazyVisitorBody
+                      ai={visitorAi}
+                      onNavigate={closeSheet}
+                      note={unverified ? <UnverifiedOwnerNote /> : undefined}
+                    />
+                  )}
                 </div>
               ) : (
                 <OwnerAgentPanel
@@ -1240,6 +1289,9 @@ export function MascotAssistant() {
           type="button"
           onClick={onMascotClick}
           onPointerDown={onPointerDown}
+          onPointerEnter={reachForAmr}
+          onTouchStart={reachForAmr}
+          onFocus={reachForAmr}
           onContextMenu={(e) => showFigure && e.preventDefault()}
           aria-label={open ? "Close assistant" : "Open assistant"}
           title="Ask Amr · drag to reposition"

@@ -34,7 +34,8 @@
  * focus, or through the announcer when the guide was already showing and no
  * focus moves.
  *
- * This module stays light: it ships in every page with the mascot.
+ * This module stays light: every visitor fetches it, in the visitor body's
+ * chunk (visitor-body), which the mascot fetches ahead while the browser is idle.
  */
 
 import { Suspense, lazy, useEffect, useRef, useState, type LazyExoticComponent } from "react";

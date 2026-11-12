@@ -47,6 +47,7 @@ vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
 }));
 
 import { MascotAssistant, UNVERIFIED_OWNER_NOTE } from "@/components/agent/mascot/mascot-assistant";
+import { VISITOR_BODY_LOADING } from "@/components/agent/mascot/lazy-visitor-body";
 import {
   VISITOR_AI_CONSENT_KEY,
   VISITOR_AI_CONSENT_TEXT,
@@ -81,6 +82,18 @@ function stubPhoneWidth(isPhone: boolean) {
   }));
 }
 
+/**
+ * Amr, with his panel open when the store says so. The visitor views are a
+ * chunk of their own (lazy-visitor-body), so this waits until they have
+ * replaced the panel's loading placeholder; the owner's panel and a panel
+ * still waiting on auth never show one.
+ */
+async function renderAmr() {
+  const view = render(<MascotAssistant />);
+  await waitFor(() => expect(screen.queryByText(VISITOR_BODY_LOADING)).toBeNull());
+  return view;
+}
+
 describe("MascotAssistant — owner gating", () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 
@@ -100,9 +113,9 @@ describe("MascotAssistant — owner gating", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows visitors the tool guide instead of the chat, with no owner requests", () => {
+  it("shows visitors the tool guide instead of the chat, with no owner requests", async () => {
     h.auth = { status: "anonymous", user: null };
-    render(<MascotAssistant />);
+    await renderAmr();
 
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
     expect(screen.queryByTestId("agent-conversation")).toBeNull();
@@ -113,10 +126,10 @@ describe("MascotAssistant — owner gating", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("links visitors to AI settings, and leaves signing in to the account menu", () => {
+  it("links visitors to AI settings, and leaves signing in to the account menu", async () => {
     h.auth = null; // no AuthProvider at all reads as a visitor too
     h.pathname = "/kudos";
-    render(<MascotAssistant />);
+    await renderAmr();
 
     // A sign-in a visitor can't use has no place in Amr's help panel; the
     // owner signs in from the header's account menu.
@@ -128,9 +141,9 @@ describe("MascotAssistant — owner gating", () => {
     expect(useAgentStore.getState().open).toBe(false);
   });
 
-  it("tells an owner whose check is unanswered that the chat comes back, in narration", () => {
+  it("tells an owner whose check is unanswered that the chat comes back, in narration", async () => {
     h.auth = { status: "error", user: null, error: OWNER_UNVERIFIED };
-    render(<MascotAssistant />);
+    await renderAmr();
 
     const guide = screen.getByTestId("mascot-visitor-guide");
     const note = within(guide).getByText(UNVERIFIED_OWNER_NOTE);
@@ -141,24 +154,24 @@ describe("MascotAssistant — owner gating", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("shows a confirmed visitor no owner-check note", () => {
+  it("shows a confirmed visitor no owner-check note", async () => {
     h.auth = { status: "anonymous", user: null };
-    render(<MascotAssistant />);
+    await renderAmr();
     expect(screen.queryByText(UNVERIFIED_OWNER_NOTE)).toBeNull();
   });
 
-  it("mounts neither the notice nor the chat while auth is loading", () => {
+  it("mounts neither the notice nor the chat while auth is loading", async () => {
     h.auth = { status: "loading", user: null };
-    render(<MascotAssistant />);
+    await renderAmr();
 
     expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
     expect(screen.queryByTestId("agent-conversation")).toBeNull();
     expect(screen.queryByTestId("rate-limit-bar")).toBeNull();
   });
 
-  it("lets a visitor find a tool from the panel", () => {
+  it("lets a visitor find a tool from the panel", async () => {
     h.auth = { status: "anonymous", user: null };
-    render(<MascotAssistant />);
+    await renderAmr();
 
     fireEvent.change(screen.getByLabelText("What do you need to do?"), {
       target: { value: "retrospective" },
@@ -170,7 +183,7 @@ describe("MascotAssistant — owner gating", () => {
   it("shows a visitor how to run the tool they're on", async () => {
     h.auth = { status: "anonymous", user: null };
     h.pathname = "/wsjf";
-    render(<MascotAssistant />);
+    await renderAmr();
 
     const tool = screen.getByRole("region", { name: "This tool" });
     const howTo = await within(tool).findByText(/^How to run it \(\d+ steps\)$/);
@@ -183,7 +196,7 @@ describe("MascotAssistant — owner gating", () => {
   it("puts the tool search before the current tool's guide", async () => {
     h.auth = { status: "anonymous", user: null };
     h.pathname = "/wsjf";
-    render(<MascotAssistant />);
+    await renderAmr();
 
     const search = screen.getByLabelText("What do you need to do?");
     const tool = screen.getByRole("region", { name: "This tool" });
@@ -204,9 +217,9 @@ describe("MascotAssistant — owner gating", () => {
     expect(screen.queryByRole("list", { name: "Popular tasks" })).toBeNull();
   });
 
-  it("gives the quiet AI settings footer a 44 px target on touch", () => {
+  it("gives the quiet AI settings footer a 44 px target on touch", async () => {
     h.auth = { status: "anonymous", user: null };
-    render(<MascotAssistant />);
+    await renderAmr();
 
     const settings = screen.getByRole("button", { name: "AI settings" });
     expect(settings).toHaveClass("pointer-coarse:min-h-11");
@@ -214,9 +227,9 @@ describe("MascotAssistant — owner gating", () => {
     expect(settings).toHaveAttribute("data-variant", "ghost");
   });
 
-  it("hides the Cmd/Ctrl+J hint on touch screens", () => {
+  it("hides the Cmd/Ctrl+J hint on touch screens", async () => {
     h.auth = { status: "anonymous", user: null };
-    render(<MascotAssistant />);
+    await renderAmr();
 
     const hint = screen.getByText(/Cmd\/Ctrl\+J/);
     expect(hint).toHaveClass("pointer-coarse:hidden");
@@ -225,7 +238,7 @@ describe("MascotAssistant — owner gating", () => {
 
   it("gives the owner's New chat and History buttons a 44 px target on touch", async () => {
     h.auth = OWNER;
-    render(<MascotAssistant />);
+    await renderAmr();
 
     const panel = screen.getByRole("dialog", { name: "Amr assistant" });
     for (const name of ["New chat", "Conversation history", "Close assistant"]) {
@@ -242,7 +255,7 @@ describe("MascotAssistant — owner gating", () => {
 
   it("gives the owner the full chat panel", async () => {
     h.auth = OWNER;
-    render(<MascotAssistant />);
+    await renderAmr();
 
     expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
     // The chat is a lazily loaded chunk.
@@ -252,9 +265,9 @@ describe("MascotAssistant — owner gating", () => {
     expect(screen.getByRole("button", { name: "Conversation history" })).toBeInTheDocument();
   });
 
-  it("drops the owner's conversation when the owner signs out", () => {
+  it("drops the owner's conversation when the owner signs out", async () => {
     h.auth = OWNER;
-    const { rerender } = render(<MascotAssistant />);
+    const { rerender } = await renderAmr();
     act(() => {
       useAgentStore.setState({
         messages: [{ id: "m1", role: "user", content: [], createdAt: "2026-01-01T00:00:00Z" }],
@@ -265,7 +278,7 @@ describe("MascotAssistant — owner gating", () => {
     rerender(<MascotAssistant />);
 
     expect(useAgentStore.getState().messages).toEqual([]);
-    expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
+    expect(await screen.findByTestId("mascot-visitor-guide")).toBeInTheDocument();
   });
 });
 
@@ -286,15 +299,15 @@ describe("MascotAssistant — Escape", () => {
 
   const search = () => screen.getByLabelText("What do you need to do?");
 
-  it("closes the panel", () => {
-    render(<MascotAssistant />);
+  it("closes the panel", async () => {
+    await renderAmr();
     fireEvent.keyDown(search(), { key: "Escape" });
     expect(useAgentStore.getState().open).toBe(false);
     expect(screen.queryByRole("dialog", { name: "Amr assistant" })).toBeNull();
   });
 
-  it("leaves the panel open when a field inside it already used the Escape", () => {
-    render(<MascotAssistant />);
+  it("leaves the panel open when a field inside it already used the Escape", async () => {
+    await renderAmr();
     const field = search();
     // The field's own Escape (the guide's search clearing itself) runs first.
     const own = (e: KeyboardEvent) => {
@@ -311,8 +324,8 @@ describe("MascotAssistant — Escape", () => {
     expect(useAgentStore.getState().open).toBe(false);
   });
 
-  it("clears the tool finder's search on the first Escape, and closes on the next", () => {
-    render(<MascotAssistant />);
+  it("clears the tool finder's search on the first Escape, and closes on the next", async () => {
+    await renderAmr();
     fireEvent.change(search(), { target: { value: "retro" } });
 
     fireEvent.keyDown(search(), { key: "Escape" });
@@ -324,8 +337,8 @@ describe("MascotAssistant — Escape", () => {
     expect(useAgentStore.getState().open).toBe(false);
   });
 
-  it("ignores an Escape that ends an input method's composition", () => {
-    render(<MascotAssistant />);
+  it("ignores an Escape that ends an input method's composition", async () => {
+    await renderAmr();
     fireEvent.keyDown(search(), { key: "Escape", isComposing: true });
     expect(useAgentStore.getState().open).toBe(true);
     // Older browsers say "composing" with keyCode 229 instead.
@@ -373,9 +386,9 @@ describe("MascotAssistant — visitor AI", () => {
     vi.unstubAllGlobals();
   });
 
-  it("with the flag off, keeps the plain guide: no AI offers and no requests", () => {
+  it("with the flag off, keeps the plain guide: no AI offers and no requests", async () => {
     vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "");
-    render(<MascotAssistant />);
+    await renderAmr();
     fireEvent.change(screen.getByLabelText("What do you need to do?"), {
       target: { value: "zzqx" },
     });
@@ -385,8 +398,8 @@ describe("MascotAssistant — visitor AI", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("opens on the tool finder and sends nothing until the visitor agrees", () => {
-    render(<MascotAssistant />);
+  it("opens on the tool finder and sends nothing until the visitor agrees", async () => {
+    await renderAmr();
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Chat with Amr" })).toBeInTheDocument();
 
@@ -405,14 +418,14 @@ describe("MascotAssistant — visitor AI", () => {
     expect(h.sendVisitorMessage).not.toHaveBeenCalled();
   });
 
-  it("offers to ask Amr when the search finds nothing", () => {
-    render(<MascotAssistant />);
+  it("offers to ask Amr when the search finds nothing", async () => {
+    await renderAmr();
     askAbout("zzqx");
     expect(screen.getByRole("button", { name: "Agree and ask" })).toBeInTheDocument();
   });
 
   it("stores the consent and asks the question once the visitor agrees", async () => {
-    render(<MascotAssistant />);
+    await renderAmr();
     askAbout("retro");
     fireEvent.click(screen.getByRole("button", { name: "Agree and ask" }));
 
@@ -429,7 +442,7 @@ describe("MascotAssistant — visitor AI", () => {
 
   it("skips the card once consent is stored, and opens an empty chat from the link", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
-    render(<MascotAssistant />);
+    await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
 
     expect(screen.queryByText(/Before you chat with Amr/)).toBeNull();
@@ -438,20 +451,20 @@ describe("MascotAssistant — visitor AI", () => {
     expect(h.sendVisitorMessage).not.toHaveBeenCalled();
   });
 
-  it("asks again when the stored consent is for an older card", () => {
+  it("asks again when the stored consent is for an older card", async () => {
     // v1 agreed to the chat only; v2 adds the tools' Ask Amr buttons.
     expect(VISITOR_AI_CONSENT_VERSION).toBe("v2");
     for (const older of ["v0", "v1"]) {
       window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, older);
-      render(<MascotAssistant />);
+      await renderAmr();
       fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
       expect(screen.getByText(/Before you chat with Amr/)).toBeInTheDocument();
       cleanup();
     }
   });
 
-  it("says Agree and chat when nothing was asked, and shows a question in the visitor's caption", () => {
-    render(<MascotAssistant />);
+  it("says Agree and chat when nothing was asked, and shows a question in the visitor's caption", async () => {
+    await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     expect(screen.getByRole("button", { name: "Agree and chat" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Agree and ask" })).toBeNull();
@@ -468,8 +481,8 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   // jsdom has no layout, so this checks the structure and classes.
-  it("keeps the card's buttons in a footer that never scrolls, under a lettered title", () => {
-    render(<MascotAssistant />);
+  it("keeps the card's buttons in a footer that never scrolls, under a lettered title", async () => {
+    await renderAmr();
     askAbout("retro");
     const card = screen.getByRole("region", { name: "Before you chat with Amr's AI" });
     const title = within(card).getByRole("heading", {
@@ -498,8 +511,8 @@ describe("MascotAssistant — visitor AI", () => {
     for (const button of [agree, notNow]) expect(button).toHaveClass("min-h-[44px]");
   });
 
-  it("links the privacy page from the card, and closes the panel when it is followed", () => {
-    render(<MascotAssistant />);
+  it("links the privacy page from the card, and closes the panel when it is followed", async () => {
+    await renderAmr();
     askAbout("retro");
     const card = screen.getByRole("region", { name: "Before you chat with Amr's AI" });
     const link = within(card).getByRole("link", { name: PRIVACY_TITLE });
@@ -520,7 +533,7 @@ describe("MascotAssistant — visitor AI", () => {
 
   it("shows the visitor's allowance in the chat", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
-    render(<MascotAssistant />);
+    await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Tool finder" });
     act(() => {
@@ -538,7 +551,7 @@ describe("MascotAssistant — visitor AI", () => {
 
   it("goes back to the tool finder when Amr can't answer any more", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
-    render(<MascotAssistant />);
+    await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Tool finder" });
 
@@ -553,7 +566,7 @@ describe("MascotAssistant — visitor AI", () => {
 
   it("says when the busy hours end, in the visitor's own time, at a busy-hours limit", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
-    render(<MascotAssistant />);
+    await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Tool finder" });
 
@@ -579,7 +592,7 @@ describe("MascotAssistant — visitor AI", () => {
   it("asking again after a fallback is a fresh try", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     useAgentStore.setState({ visitorFallback: "site_busy" });
-    render(<MascotAssistant />);
+    await renderAmr();
     expect(screen.getByText(/Amr is too busy/)).toBeInTheDocument();
 
     askAbout("retro");
@@ -602,13 +615,13 @@ describe("MascotAssistant — visitor AI", () => {
         },
       ],
     });
-    render(<MascotAssistant />);
+    await renderAmr();
     expect(await screen.findByLabelText("Message")).toBeInTheDocument();
     expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
   });
 
-  it("offers one primary Ask button under the search, 44 px on touch", () => {
-    render(<MascotAssistant />);
+  it("offers one primary Ask button under the search, 44 px on touch", async () => {
+    await renderAmr();
     const ask = screen.getByRole("button", { name: "Chat with Amr" });
     expect(ask).toHaveClass("pointer-coarse:min-h-11", "inline-flex", "items-center");
     expect(ask).toHaveAttribute("data-variant", "default");
@@ -625,8 +638,8 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   // jsdom has no layout, so this checks the classes, not the wrapped text.
-  it("gives Ask Amr the classes that let a long search wrap, and keeps 44 px on touch", () => {
-    render(<MascotAssistant />);
+  it("gives Ask Amr the classes that let a long search wrap, and keeps 44 px on touch", async () => {
+    await renderAmr();
     fireEvent.change(screen.getByLabelText("What do you need to do?"), {
       target: { value: "how do I stop my team from skipping the retro" },
     });
@@ -641,7 +654,7 @@ describe("MascotAssistant — visitor AI", () => {
   // jsdom has no layout, so this checks the classes, not the scrolling itself.
   it("gives the chat the classes that keep the composer in reach in a short panel", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
-    render(<MascotAssistant />);
+    await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     const log = await screen.findByRole("log", { name: "Conversation" });
     // The log has a floor, and still takes the rest and scrolls inside itself.
@@ -662,7 +675,7 @@ describe("MascotAssistant — visitor AI", () => {
     proto.scrollIntoView = scrollIntoView;
     try {
       window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
-      render(<MascotAssistant />);
+      await renderAmr();
       fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
       const log = await screen.findByRole("log", { name: "Conversation" });
       // An empty chat stays on the message box.
@@ -687,7 +700,7 @@ describe("MascotAssistant — visitor AI", () => {
 
   it("says Amr only answers questions while the visitor is in a live room", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
-    render(<MascotAssistant />);
+    await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Tool finder" });
     expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
@@ -728,7 +741,7 @@ describe("MascotAssistant — visitor AI", () => {
 
   it("says the same when the live room is open in another tab of this browser", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
-    render(<MascotAssistant />);
+    await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Tool finder" });
     expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
@@ -758,7 +771,7 @@ describe("MascotAssistant — visitor AI", () => {
   describe("the visitor's chat", () => {
     /** Open the chat with a first question, so the (mocked) runtime is loaded. */
     async function openChatWithQuestion() {
-      const view = render(<MascotAssistant />);
+      const view = await renderAmr();
       askAbout("retro");
       fireEvent.click(screen.getByRole("button", { name: "Agree and ask" }));
       await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1));
@@ -1039,23 +1052,23 @@ describe("MascotAssistant — visitor AI", () => {
 
   it("never shows the owner the visitor AI", async () => {
     h.auth = OWNER;
-    render(<MascotAssistant />);
+    await renderAmr();
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
     expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
     expect(screen.queryByRole("button", { name: "Chat with Amr" })).toBeNull();
     expect(screen.queryByText(/Before you chat with Amr/)).toBeNull();
   });
 
-  it("keeps the plain guide for an owner session that isn't verified yet", () => {
+  it("keeps the plain guide for an owner session that isn't verified yet", async () => {
     h.auth = { status: "error", user: null, error: OWNER_UNVERIFIED };
-    render(<MascotAssistant />);
+    await renderAmr();
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Chat with Amr" })).toBeNull();
     expect(screen.getByText(UNVERIFIED_OWNER_NOTE)).toBeInTheDocument();
   });
 
-  it("drops the visitor's chat when the visitor turns out to be the owner", () => {
-    const { rerender } = render(<MascotAssistant />);
+  it("drops the visitor's chat when the visitor turns out to be the owner", async () => {
+    const { rerender } = await renderAmr();
     act(() => {
       useAgentStore.setState({
         chatProfile: "visitor",
@@ -1101,7 +1114,7 @@ describe("MascotAssistant — comic reader", () => {
   ])("keeps the mascot on %s", async (_label, pathname, isPhone) => {
     stubPhoneWidth(isPhone);
     h.pathname = pathname;
-    render(<MascotAssistant />);
+    await renderAmr();
     expect(screen.getByRole("button", { name: "Open assistant" })).toBeInTheDocument();
     // The figure waits for the first interaction (or a few seconds after
     // load), so it never competes with the page becoming usable.
