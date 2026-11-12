@@ -17,6 +17,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
   AsyncUpdate,
   Impediment,
+  InterruptItem,
   RetroBoard,
   Sprint,
   SprintGoal,
@@ -33,14 +34,21 @@ import { sprintHref, useSelectedSprint } from "@/lib/sprints/use-selected-sprint
 import { dayForDate, seriesFor, sprintLengthDays, todayIso } from "@/lib/sprints/series";
 import { withBurndownDay } from "@/lib/sprints/day-writes";
 import { averageScore, sprintScores } from "@/lib/sprints/compare";
-import { points, type TileId } from "@/lib/sprints/hub-view";
+import { points, sprintDayLine, type TileId } from "@/lib/sprints/hub-view";
 import { updateSeries, updateSprint } from "@/lib/sprints/store";
 import { cadenceCalendar, nextCeremonies, type CeremonyCadence } from "@/lib/sprints/cadence";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
-import { cockpitNotes, cockpitTiles, flowCards, gatherCockpitData, type CockpitData } from "./view";
+import {
+  cockpitNotes,
+  cockpitTiles,
+  daysLeftLine,
+  flowCards,
+  gatherCockpitData,
+  type CockpitData,
+} from "./view";
 import { cockpitVerdict } from "./verdict";
 import { cockpitMarkdown } from "./markdown";
 import { buildExample, type CockpitExample } from "./example";
@@ -52,6 +60,8 @@ import { Blockers } from "./components/blockers";
 import { MiniBurndown } from "./components/mini-burndown";
 import { CockpitNotes } from "./components/notes";
 import { StartFlow } from "./components/start-flow";
+import { CockpitRisk } from "./components/risk";
+import { CockpitWallContent, CockpitWallView, WallModeButton } from "./components/wall";
 
 export const TOOL_ID = "sprint";
 
@@ -64,6 +74,7 @@ const NO_MEMBERS: TeamMember[] = [];
 const NO_BOARDS: RetroBoard[] = [];
 const NO_REVIEWS: SprintReview[] = [];
 const NO_GOALS: SprintGoal[] = [];
+const NO_INTERRUPTS: InterruptItem[] = [];
 
 /** The tiles the home card keeps; the full page shows them all. */
 const COMPACT_TILES: readonly TileId[] = ["committed", "done", "remaining", "gap", "blockers"];
@@ -111,6 +122,8 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const reviews = useWorkspaceStore((s) => s.sprintReviews) ?? NO_REVIEWS;
   // For "Did we meet the sprint goal?" on a closed sprint.
   const sprintGoals = useWorkspaceStore((s) => s.sprintGoals) ?? NO_GOALS;
+  // The interrupt buffer's tile and the goal check read the logged interrupts.
+  const interruptItems = useWorkspaceStore((s) => s.interruptItems) ?? NO_INTERRUPTS;
   const [cadence, updateCadence] = useCeremonyCadence();
   const { log } = useHistoryLogger(TOOL_ID);
   const [today] = useState(() => todayIso());
@@ -143,6 +156,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
             targetDone: (link) => getHandoffRoute(link.route).isDone?.(link.targetId) ?? false,
             // The burndown's ideal line and projection count the team's working days.
             calendar,
+            interruptItems,
           })
         : null,
     [
@@ -159,6 +173,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
       today,
       sprintGoals,
       calendar,
+      interruptItems,
     ]
   );
 
@@ -342,6 +357,7 @@ function CockpitBody({
   const readOnly = !commands;
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [wall, setWall] = useState(false);
 
   const cards = useMemo(() => flowCards(data), [data]);
   // The rating is Sprint Comparison's computed average, so the two agree.
@@ -369,10 +385,14 @@ function CockpitBody({
           ),
     [readOnly, sprint, sprints, allStories, allSeries, goals, moodEntries, moodPulses, healthChecks]
   );
-  const tiles = useMemo(() => {
-    const all = cockpitTiles(data, sprints, today, { rating });
-    return compact ? all.filter((t) => COMPACT_TILES.includes(t.id)) : all;
-  }, [data, sprints, today, compact, rating]);
+  const allTiles = useMemo(
+    () => cockpitTiles(data, sprints, today, { rating }),
+    [data, sprints, today, rating]
+  );
+  const tiles = useMemo(
+    () => (compact ? allTiles.filter((t) => COMPACT_TILES.includes(t.id)) : allTiles),
+    [allTiles, compact]
+  );
   const verdict = useMemo(() => cockpitVerdict(data, today), [data, today]);
   const notes = useMemo(() => cockpitNotes(data), [data]);
   const upcoming = useMemo(() => nextCeremonies(sprint, cadence, now), [sprint, cadence, now]);
@@ -404,17 +424,20 @@ function CockpitBody({
               </Button>
             )}
           </div>
-          <ExportButton
-            filename={`sprint-report-${slug(sprint.name)}`}
-            markdown={report}
-            clipboardText={report}
-            jsonData={{
-              sprint,
-              series,
-              stories: data.sprintStories,
-              impediments: data.sprintImpediments,
-            }}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <WallModeButton onOpen={() => setWall(true)} />
+            <ExportButton
+              filename={`sprint-report-${slug(sprint.name)}`}
+              markdown={report}
+              clipboardText={report}
+              jsonData={{
+                sprint,
+                series,
+                stories: data.sprintStories,
+                impediments: data.sprintImpediments,
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -432,6 +455,15 @@ function CockpitBody({
       <p className="text-sm font-medium text-text" data-cockpit-verdict>
         {verdict}
       </p>
+
+      <CockpitRisk
+        risk={data.risk}
+        sprint={sprint}
+        day={data.burndown.todayDay}
+        length={data.burndown.length}
+        compact={compact}
+        withNote={!readOnly}
+      />
 
       <CockpitNotes notes={notes} />
 
@@ -489,6 +521,22 @@ function CockpitBody({
           </Link>
           <span className="text-sub"> — burndown, blockers, the sprint report.</span>
         </p>
+      )}
+
+      {!compact && (
+        <CockpitWallView open={wall} onClose={() => setWall(false)} title={sprint.name || "Sprint"}>
+          {(tick) => (
+            <CockpitWallContent
+              dayLine={daysLeftLine(sprintDayLine(sprint, today))}
+              goal={sprint.goal?.trim() || undefined}
+              verdict={verdict}
+              risk={data.risk}
+              tiles={allTiles}
+              next={upcoming[0]}
+              now={new Date(tick.now)}
+            />
+          )}
+        </CockpitWallView>
       )}
 
       {commands && (
@@ -549,6 +597,7 @@ function ExampleCockpit({
         sprints: example.sprints,
         today,
         calendar: cadenceCalendar(cadence),
+        interruptItems: example.interruptItems,
       }),
     [example, sprint, series, today, cadence]
   );
