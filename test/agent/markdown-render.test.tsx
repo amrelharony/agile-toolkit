@@ -204,6 +204,15 @@ describe("<Markdown> direction", () => {
     const { container } = render(<Markdown source={SOURCE} />);
     expect(container.querySelector("pre")).toHaveAttribute("dir", "ltr");
   });
+
+  it("isolates an inline code chip left to right inside an Arabic paragraph", () => {
+    const { container } = render(<Markdown source={"شغّل `--force` ثم احذف `.env`"} />);
+    const p = container.querySelector("p");
+    expect(p).toHaveAttribute("dir", "auto");
+    const chips = Array.from(container.querySelectorAll("p code"));
+    expect(chips.map((c) => c.textContent)).toEqual(["--force", ".env"]);
+    for (const chip of chips) expect(chip).toHaveAttribute("dir", "ltr");
+  });
 });
 
 describe("<Markdown> links", () => {

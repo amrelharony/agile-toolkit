@@ -15,7 +15,7 @@
  *   `dir="auto"` on the list would skip every li that had one. A table takes
  *   its header's direction (column order) and each cell its own.
  * - Code keeps its fence's language as `data-lang` and a small label; code
- *   is always left to right.
+ *   fences and inline code chips are always left to right.
  * - An external link has an icon and "(opens in a new tab)" for screen readers.
  * - Each block renders through a memo, and the parser keeps finished blocks
  *   (parseBlocks with a cache), so while a reply streams only its last block
@@ -50,9 +50,12 @@ function Inline({ text }: { text: string }) {
             return <em key={i}>{t.value}</em>;
           case "code":
             // On the reply's card a chip needs its own ground and line to show.
+            // Its own direction isolates it, so in a right-to-left reply
+            // `.env` stays `.env` and the text around it keeps its order.
             return (
               <code
                 key={i}
+                dir="ltr"
                 className="rounded border border-rule bg-surface-deep px-1 py-0.5 font-data text-[0.85em]"
               >
                 {t.value}
