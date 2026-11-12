@@ -18,7 +18,7 @@ vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
   default: () => <div data-testid="mascot-sprite" />,
 }));
 
-import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
+import { MOVE_HINT, MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
 import styles from "@/components/agent/mascot/mascot-assistant.module.css";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
@@ -96,5 +96,28 @@ describe("mascot hit area", () => {
     }
     const hit = button.querySelector<HTMLElement>("[data-mascot-hit]")!;
     expect(hit).not.toHaveClass("rounded-full");
+  });
+
+  it("moves by the arrow keys with the launcher and with his figure, and says so on his button", async () => {
+    render(<MascotAssistant />);
+    const launcher = screen.getByRole("button", { name: "Ask Amr" });
+    expect(launcher).toHaveAccessibleDescription(MOVE_HINT);
+    // His focused button takes the key, so the page doesn't scroll under him.
+    expect(fireEvent.keyDown(launcher, { key: "ArrowUp" })).toBe(false);
+    expect(launcher.style.top).not.toBe("");
+    expect(launcher.style.bottom).toBe("");
+
+    act(() => {
+      window.dispatchEvent(new Event("pointerdown"));
+    });
+    await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
+    const button = screen.getByRole("button", { name: "Ask Amr" });
+    // The same button, still described, still clear of the page's clicks.
+    expect(button).toBe(launcher);
+    expect(button).toHaveAccessibleDescription(MOVE_HINT);
+    expect(button).toHaveClass("pointer-events-none");
+    expect(fireEvent.keyDown(button, { key: "ArrowLeft" })).toBe(false);
+    expect(button.style.left).toContain("safe-area-inset-left");
+    expect(button.style.right).toBe("");
   });
 });

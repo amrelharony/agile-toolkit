@@ -231,11 +231,19 @@ describe("MascotAssistant — owner gating", () => {
   it("hides the Ctrl J hint on touch screens", async () => {
     h.auth = { status: "anonymous", user: null };
     await renderAmr();
-
-    // jsdom is no Mac, so Ctrl; a Mac shows ⌘J (panel-header's shortcutLabel).
-    const hint = screen.getByText(/Ctrl J/);
-    expect(hint).toHaveClass("pointer-coarse:hidden");
+    const header = screen
+      .getByRole("dialog", { name: "Amr" })
+      .querySelector<HTMLElement>("[data-panel-header]")!;
+    // Move Amr keeps the More menu up for everyone, so the hint is its last
+    // line, not a tail on the subtitle.
+    expect(within(header).queryByText(/Ctrl J/)).toBeNull();
     expect(screen.getByText("Find the right tool")).not.toHaveClass("pointer-coarse:hidden");
+
+    fireEvent.keyDown(within(header).getByRole("button", { name: "More" }), { key: "Enter" });
+    // jsdom is no Mac, so Ctrl; a Mac shows ⌘J (panel-header's shortcutLabel).
+    const hint = within(screen.getByRole("menu")).getByText(/opens and closes Amr$/);
+    expect(hint.textContent).toBe("Ctrl J opens and closes Amr");
+    expect(hint).toHaveClass("pointer-coarse:hidden");
   });
 
   it("keeps the tilt switch, labelled, in the header's More menu on a phone that can send its tilt", async () => {
@@ -271,11 +279,19 @@ describe("MascotAssistant — owner gating", () => {
         name: "Let Amr feel your phone's tilt",
       });
       expect(tilt).toHaveAttribute("aria-checked", "true");
+      // Move Amr comes first, ruled off from the switch.
+      const move = within(menu).getByRole("group", { name: "Move Amr" });
+      expect(Boolean(move.compareDocumentPosition(tilt) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+        true
+      );
       // In the page, but no Ctrl/⌘ key on this touch screen: hidden, like the subtitle's hint.
       const shortcut = within(menu).getByText(/opens and closes Amr$/);
       expect(shortcut.textContent).toBe("Ctrl J opens and closes Amr");
       expect(shortcut).toHaveClass("pointer-coarse:hidden");
-      expect(within(menu).getByRole("separator")).toHaveClass("pointer-coarse:hidden");
+      const rules = within(menu).getAllByRole("separator");
+      expect(rules).toHaveLength(2);
+      expect(rules[0]).not.toHaveClass("pointer-coarse:hidden");
+      expect(rules[1]).toHaveClass("pointer-coarse:hidden");
 
       fireEvent.click(tilt);
       await waitFor(() => expect(useMascotStore.getState().feelPhone).toBe(false));
@@ -313,7 +329,12 @@ describe("MascotAssistant — owner gating", () => {
         "justify-center"
       );
     }
-    expect(screen.getByText(/Ctrl J/)).toHaveClass("pointer-coarse:hidden");
+    // The shortcut is the More menu's last line, for the owner too.
+    expect(within(header).getByRole("button", { name: "More" })).toHaveClass(
+      "pointer-coarse:min-h-11",
+      "pointer-coarse:min-w-11"
+    );
+    expect(within(header).queryByText(/Ctrl J/)).toBeNull();
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
   });
 

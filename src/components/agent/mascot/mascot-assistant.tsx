@@ -43,6 +43,13 @@
  * this browser remembers. Where he is drawn goes to the mascot store
  * (setPlacement), for the things beside him to follow.
  *
+ * He moves without dragging too (WCAG 2.5.7): Move Amr in the header's More
+ * menu names his four corners, and the arrow keys move him while his button
+ * has focus (its description says so), each move announced. A drop and a move
+ * go the same way, and the panel glides after him to the new corner (it snaps
+ * for readers who ask for less motion). While he's carried the panel stays put
+ * and drops its tail.
+ *
  * Every close goes through closePanel(reason): Amr's button, Ctrl/Cmd+J,
  * Escape, the Close button, a link followed and a scene picked alike, and a
  * second call does nothing. Focus has one owner (lib/agent/mascot/use-panel-focus): a keyboard
@@ -75,6 +82,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
@@ -82,6 +90,7 @@ import {
 import dynamic from "next/dynamic";
 import { Sparkles, Clapperboard } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { useAgentStore, type PanelOpenVia } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { ChatVisibleContext } from "../chat-visibility";
@@ -127,6 +136,8 @@ import {
   PANEL_SIZE,
   amrEdge,
   amrSide,
+  cornerAfterKey,
+  cornerName,
   otherSide,
   panelOrigin,
   panelTail,
@@ -201,6 +212,42 @@ const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : us
 function prefersReducedMotion(): boolean {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 }
+
+/**
+ * How the panel (and, after a move, Amr) glides to a new corner: DNA-SPEC §8's
+ * travel duration and calm easing (lib/motion/tokens.ts DUR.travel, EASE.calm;
+ * --dur-travel, --ease-calm), written out so this chunk doesn't load the
+ * tokens' spring maths. test/agent/mascot-move.test.tsx holds them equal.
+ */
+export const GLIDE: Readonly<{ duration: number; easing: string }> = {
+  duration: 360,
+  easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+};
+
+/**
+ * FLIP: `el` has just been placed somewhere else, and `from` is where it was
+ * (its box before the move). It slides from there on the translate property,
+ * which nothing else sets on the panel and which composes with the entrance's
+ * scale. Never under reduced motion: it snaps, and animate() is never called.
+ */
+function glideFrom(el: HTMLElement | null, from: DOMRect | null): void {
+  if (!el || !from || prefersReducedMotion() || typeof el.animate !== "function") return;
+  const to = el.getBoundingClientRect();
+  const dx = from.left - to.left;
+  const dy = from.top - to.top;
+  if (Math.hypot(dx, dy) < 2) return;
+  el.animate(
+    [{ translate: `${dx.toFixed(1)}px ${dy.toFixed(1)}px` }, { translate: "0px 0px" }],
+    GLIDE
+  );
+}
+
+/**
+ * What Amr's button says about moving him, as its description (its title
+ * says it to a mouse): the keys that move him without dragging.
+ */
+export const MOVE_HINT = "Arrow keys move him";
+const MOVE_HINT_ID = "amr-move-hint";
 
 /** A pointer event as a point on his figure (the hit box), for the touch tracker. */
 function touchPoint(
@@ -1017,6 +1064,59 @@ export function MascotAssistant() {
       .getState()
       .setPlacement({ side: amrSide(placed), edge: amrEdge(placed) }, nudge.lift);
   }, [placed, nudge.lift]);
+
+  // Moving him, by a drop, Move Amr or an arrow key: all one way. The corner
+  // becomes his chosen one (not where he'd stepped aside to), and he keeps to
+  // that side from now on. Where the panel (and, after a move, he) stood is
+  // kept for the glide below; a drop has its own flight for him.
+  const announce = useAnnounce();
+  const glideRef = useRef<{ panel: DOMRect | null; amr: DOMRect | null } | null>(null);
+  const moveAmr = (next: Corner, how: "drop" | "menu" | "key") => {
+    const moves = next !== placed || nudge.lift !== 0;
+    if (moves) {
+      glideRef.current = {
+        panel: panelRef.current?.getBoundingClientRect() ?? null,
+        amr: how === "drop" ? null : (buttonRef.current?.getBoundingClientRect() ?? null),
+      };
+    }
+    setCorner(next);
+    // A real change, and the one X108 draws: from the bottom right where he
+    // stood (where a step aside had put him counts) to the bottom left. A drop
+    // waits for his landing (with reduced motion there's none to wait for);
+    // Move Amr and a key have no landing, so it plays at once.
+    if (placed === "bottomRight" && next === "bottomLeft") {
+      if (how === "drop" && flightRef.current) cornerScene.current.pending = true;
+      else playCornerScene();
+    }
+    resetNudge();
+    setSideChosen(true);
+    // Narration, not an Amr line (decision 6). A drop is seen where it lands.
+    if (how !== "drop") {
+      const where = cornerName(next).toLowerCase();
+      announce(moves ? `Amr moved to the ${where}` : `Amr is already in the ${where}`);
+    }
+  };
+  // The arrow keys on his focused button: up or down picks the edge, left or
+  // right the side. Only bare arrows; held down, one move.
+  const onMascotKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const next = cornerAfterKey(placed, e.key);
+    if (!next) return;
+    // An arrow on a button would only scroll the page under him.
+    e.preventDefault();
+    if (e.repeat) return;
+    moveAmr(next, "key");
+  };
+  // The glide (FLIP): once the panel and he are drawn at the new corner, each
+  // slides there from where it stood. It snaps under reduced motion (glideFrom
+  // never calls animate() then).
+  useIsomorphicLayoutEffect(() => {
+    const from = glideRef.current;
+    glideRef.current = null;
+    if (!from) return;
+    glideFrom(panelRef.current, from.panel);
+    glideFrom(buttonRef.current, from.amr);
+  }, [placed, nudge.lift]);
   // Removes the active drag's document listeners (called on pointerup, on a new
   // drag, or on unmount) so they never leak past an in-progress drag.
   const dragCleanupRef = useRef<(() => void) | null>(null);
@@ -1157,18 +1257,8 @@ export function MascotAssistant() {
         const next = `${cy < window.innerHeight / 2 ? "top" : "bottom"}${
           cx < window.innerWidth / 2 ? "Left" : "Right"
         }` as Corner;
-        setCorner(next);
-        // A real change, and the one X108 draws: from the bottom right where he
-        // stood (where a step aside had put him counts) to the bottom left. With
-        // reduced motion there's no landing to wait for.
-        if (placed === "bottomRight" && next === "bottomLeft") {
-          if (flightRef.current) cornerScene.current.pending = true;
-          else playCornerScene();
-        }
-        // Dropped where the visitor wants him: that corner, not where he'd
-        // stepped aside to, and he keeps to that side from now on.
-        resetNudge();
-        setSideChosen(true);
+        // Dropped where the visitor wants him: the same path as Move Amr.
+        moveAmr(next, "drop");
         // Suppress the click that fires right after a drag-release.
         draggedRef.current = true;
         setTimeout(() => (draggedRef.current = false), 60);
@@ -1342,10 +1432,10 @@ export function MascotAssistant() {
 
   // The panel's tail points at his figure: none while the launcher stands in for
   // him, while he's off the page for the keyboard (a page field has focus on a
-  // phone), while he's carried (the panel stays at his corner), or in the phone's
-  // sheet (it covers the screen; there is nothing beside it to point at). Its
-  // growth point stays on showFigure, so the card doesn't move while he steps
-  // aside and still matches where he comes back.
+  // phone), while he's carried (the panel stays at his corner until the drop,
+  // then glides), or in the phone's sheet (it covers the screen; there is
+  // nothing beside it to point at). Its growth point stays on showFigure, so the
+  // card doesn't move while he steps aside and still matches where he comes back.
   const tail =
     layout === "sheet"
       ? null
@@ -1434,6 +1524,8 @@ export function MascotAssistant() {
                       </PanelIconButton>
                     )
                   }
+                  // Move Amr, first in the More menu: the corner he's drawn in is checked.
+                  move={{ corner: placed, onMove: (c) => moveAmr(c, "menu") }}
                   // The tilt switch, labelled, in the header's More menu.
                   tilt={
                     motionAvailable
@@ -1501,6 +1593,15 @@ export function MascotAssistant() {
         }}
       />
 
+      {/* How to move him without dragging, as his button's description.
+          hidden, not sr-only: a description is still read from a hidden
+          element, and browse mode doesn't read it a second time as loose text. */}
+      {!hideFigure && (
+        <span id={MOVE_HINT_ID} hidden>
+          {MOVE_HINT}
+        </span>
+      )}
+
       {/* Floating mascot — click to toggle the chat. */}
       {!hideFigure && (
         <button
@@ -1509,6 +1610,7 @@ export function MascotAssistant() {
           data-amr-button
           type="button"
           onClick={onMascotClick}
+          onKeyDown={onMascotKeyDown}
           onPointerDown={onPointerDown}
           onPointerEnter={reachForAmr}
           onTouchStart={reachForAmr}
@@ -1521,7 +1623,8 @@ export function MascotAssistant() {
           aria-expanded={open}
           aria-controls={open ? AMR_PANEL_ID : undefined}
           aria-keyshortcuts="Control+J Meta+J"
-          title="Ask Amr · drag to reposition"
+          aria-describedby={MOVE_HINT_ID}
+          title="Ask Amr · drag him, or use the arrow keys, to move him"
           style={
             dragPos
               ? { position: "fixed", left: dragPos.left, top: dragPos.top }
