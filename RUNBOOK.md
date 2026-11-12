@@ -239,13 +239,13 @@ The fix for those is private rooms, below.
 
 ### Private rooms (Realtime Authorization)
 
-With `NEXT_PUBLIC_PRIVATE_ROOMS=1`, every room opens as a **private** channel, and Supabase checks each join against the policy in migration 0026 (its visitor branch narrowed by 0027, and given the Prioritize tools' vote rounds by 0028).
+With `NEXT_PUBLIC_PRIVATE_ROOMS=1`, every room opens as a **private** channel, and Supabase checks each join against the policy in migration 0026 (its visitor branch narrowed by 0027, given the Prioritize tools' vote rounds by 0028, and the Phase 1 room tools by 0039).
 
 **Who gets in:**
 
 - **Owner:** your browser fetches a short-lived room token from `/api/realtime/token` (owner only) that opens every tool room.
 - **Invited guest:** a guest's browser fetches one from `/api/guest/realtime-token` that lists exactly the rooms their invites cover.
-- **Visitor rooms** still open with the plain anon key. The code in the link is their only key, by design. Since migration 0027 the policy admits only the app's own shape, `visitor:<visitor tool>:<12-character code>`; 0026 admitted any topic starting with `visitor:`. Migration 0028 added Kano, Buy-a-Feature and the $100 Test to the visitor tools.
+- **Visitor rooms** still open with the plain anon key. The code in the link is their only key, by design. Since migration 0027 the policy admits only the app's own shape, `visitor:<visitor tool>:<12-character code>`; 0026 admitted any topic starting with `visitor:`. Migration 0028 added Kano, Buy-a-Feature and the $100 Test to the visitor tools; 0039 adds Quick Vote, Audience Wall, Picker, Team Mixer and Card Decks (its number may change when the phase merges; the newest migration that defines `realtime_room_allowed` is the one that counts, and `test/realtime/visitor-topic-migration.test.ts` finds it by content).
 - **Your sync, history and agent-conversation feeds** use private channels on your own signed-in session.
 
 **Tokens:**
@@ -259,16 +259,17 @@ A public channel and a private channel with the same name are separate on Supaba
 - old tabs (still running the build from before the flag) can't keep using public channels;
 - nobody can use the public key to run **public** channels of their own on the project's quota.
 
-It does **not** shut the anon key out of private channels the policy admits for it: visitor rooms. With the flag on, visitor rooms are private channels that the policy's visitor branch lets the plain anon key join, so they keep working with public access off, and so does anyone who uses the anon key to open a private channel of that shape. Migrations 0027 and 0028 narrow that branch from any `visitor:%` topic to the app's own tools and 12-character codes; to stop visitor rooms entirely, use the SQL step under "Emergency brake".
+It does **not** shut the anon key out of private channels the policy admits for it: visitor rooms. With the flag on, visitor rooms are private channels that the policy's visitor branch lets the plain anon key join, so they keep working with public access off, and so does anyone who uses the anon key to open a private channel of that shape. Migrations 0027, 0028 and 0039 narrow that branch from any `visitor:%` topic to the app's own tools and 12-character codes; to stop visitor rooms entirely, use the SQL step under "Emergency brake".
 
 **Turning it on (in this order):**
 
 1. **Secret:** put the legacy JWT secret in `SUPABASE_JWT_SECRET` in Vercel (Production) and `.env.local`. It's under Project Settings → JWT Keys → Legacy JWT Secret.
-2. **Migration:** run `supabase db push`, which applies 0026, 0027 and 0028. This is safe at any time, because public channels ignore the policy. After pushing, check:
+2. **Migration:** run `supabase db push`, which applies 0026, 0027, 0028 and 0039. This is safe at any time, because public channels ignore the policy. After pushing, check:
    - `select has_function_privilege('anon','public.realtime_room_allowed(text)','EXECUTE');` returns true;
    - two policies, `realtime_rooms_select` and `realtime_rooms_insert`, are on `realtime.messages`;
    - `select public.realtime_room_allowed('visitor:retro:ABCDEFGHJKMN'), public.realtime_room_allowed('visitor:anything');` returns `true, false` (0027 applied);
-   - `select public.realtime_room_allowed('visitor:kano-model:ABCDEFGHJKMN'), public.realtime_room_allowed('visitor:hundred-dollar-test:ABCDEFGHJKMN');` returns `true, true` (0028 applied).
+   - `select public.realtime_room_allowed('visitor:kano-model:ABCDEFGHJKMN'), public.realtime_room_allowed('visitor:hundred-dollar-test:ABCDEFGHJKMN');` returns `true, true` (0028 applied);
+   - `select public.realtime_room_allowed('visitor:quick-vote:ABCDEFGHJKMN'), public.realtime_room_allowed('visitor:audience-wall:ABCDEFGHJKMN'), public.realtime_room_allowed('visitor:picker:ABCDEFGHJKMN');` returns `true, true, true` (0039 applied).
 3. **Flag:** set `NEXT_PUBLIC_PRIVATE_ROOMS=1` in Vercel and **redeploy**. It's inlined at build time.
 4. **Check production:**
    - an owner Poker session and the kudos wall stay live (open them signed in);
@@ -278,7 +279,7 @@ It does **not** shut the anon key out of private channels the policy admits for 
 
    Ask anyone with the site open to reload: tabs still running the old build use public channels.
 
-5. **Lock it:** Supabase → Realtime → Settings → turn **off** "Allow public access". From then on public channels are refused entirely: an old tab can't keep using a public one, and nobody can run their own public channels on the anon key. The anon key still opens private visitor-room channels (`visitor:<visitor tool>:<code>`, per 0028): that is how visitor rooms and vote rounds work.
+5. **Lock it:** Supabase → Realtime → Settings → turn **off** "Allow public access". From then on public channels are refused entirely: an old tab can't keep using a public one, and nobody can run their own public channels on the anon key. The anon key still opens private visitor-room channels (`visitor:<visitor tool>:<code>`, per the newest policy migration, 0039 today): that is how visitor rooms, vote rounds, show rooms and wall rooms work.
 
 **Rolling back:** turn "Allow public access" back **on** first, then unset the flag and redeploy.
 
@@ -293,7 +294,7 @@ It does **not** shut the anon key out of private channels the policy admits for 
 
 ## Visitor live rooms
 
-Visitors (no sign-in, no squad invite) can run **Planning Poker** or a **Retro** live with their team, and anyone can run an anonymous **vote round** (Health Check, Psych Safety, Mood Tracker, Kano, Buy-a-Feature and the $100 Test, see "Live vote rounds" below). A room is a temporary Supabase Realtime broadcast + presence channel, `visitor:<tool>:<12-character code>`, joined through `/join/<tool>/<code>`. Nothing is written to a database, no server secret is involved, and the channel uses the same public anon key as owner rooms. Before any channel opens, the visitor gives a name and ticks a consent box under this text: _"What you type passes through our realtime provider (Supabase) to everyone with the link. We don't store it; the room disappears when everyone leaves. Share the link only with your team."_ (vote rounds have their own text, below). Owners don't get Poker or Retro visitor rooms (strangers' cards would sync into the owner's workspace); they keep using squad invites. **Vote rounds are the one exception:** the owner hosts them on a visitor channel too, because participants can send only encrypted numbers (scale answers, answer pairs or amounts) and nothing reaches the workspace except the totals, when the host presses Save round.
+Visitors (no sign-in, no squad invite) can run **Planning Poker** or a **Retro** live with their team, and anyone can run an anonymous **vote round** (Health Check, Psych Safety, Mood Tracker, Kano, Buy-a-Feature, the $100 Test and Quick Vote, see "Live vote rounds" below), a **show room** (Picker, Team Mixer, Card Decks) or a **wall room** (Audience Wall, see "Show and wall rooms" below). A room is a temporary Supabase Realtime broadcast + presence channel, `visitor:<tool>:<12-character code>`, joined through `/join/<tool>/<code>`. Nothing is written to a database, no server secret is involved, and the channel uses the same public anon key as owner rooms. Before any channel opens, the visitor gives a name and ticks a consent box under this text: _"What you type passes through our realtime provider (Supabase) to everyone with the link. We don't store it; the room disappears when everyone leaves. Share the link only with your team."_ (vote rounds have their own text, below). Owners don't get Poker or Retro visitor rooms (strangers' cards would sync into the owner's workspace); they keep using squad invites. **The signed rooms are the exceptions:** the owner hosts vote rounds, show rooms and wall rooms on a visitor channel too, because in each of them nothing a stranger sends reaches the workspace by itself. In a vote round participants send only encrypted numbers (scale answers, answer pairs, amounts, choices, an order or one number) and only the totals reach the workspace, when the host presses Save round; in a show room they send nothing but "I'm here"; in a wall room their posts reach the host's screen first, and only the posts' text and vote counts (no ids, no names) reach the workspace, when the host presses Save round.
 
 The feature is **off** unless the build has `NEXT_PUBLIC_VISITOR_ROOMS=1`. **Production has it on since 2026-11-10** (`NEXT_PUBLIC_VISITOR_ROOMS=1` for Production in Vercel; a two-tab test of a Planning Poker and a Retro room passed on the live site that day). Preview and Development don't set it.
 
@@ -342,17 +343,21 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
   - Retro, when the host leaves during Write with cards hidden: the new host only ever had counts, so the room stays in Write under the new host and carries on from the new host's own cards. If anyone else had written a card, everyone sees "The host left. Cards written so far were not shared; add yours again", with their own earlier cards listed and an **Add again** button for each. After any change of host, cards and votes from before can no longer be deleted or taken back, except the new host's own: it doesn't know whose the others were.
 - **Vote rounds** work differently (no host election, nothing shown before Reveal): see the next section.
 
-### Live vote rounds (Health Check, Psych Safety, Mood; Kano; Buy-a-Feature and the $100 Test)
+### Live vote rounds (Health Check, Psych Safety, Mood; Kano; Buy-a-Feature and the $100 Test; Quick Vote)
 
 **What it is:** the facilitator presses **Run a live round**, gives a name, and shares the link with **Copy link** or **Show QR code** (it ends in `#k=…`, and the QR code holds that part too). People open it on their phones, give a name and answer: with taps on a scale (scale rounds), two taps per feature (Kano), or by typing an amount per item (Buy-a-Feature, the $100 Test). The facilitator sees only how many people have answered. **Reveal results** needs 3 answers (5 for Psych Safety) and closes the round. It shows the totals per question (a question with fewer answers than that stays hidden, "withheld"), the answer-pair grid per feature (likewise per feature), or each item's total and average; in an allocation round who gave each item something, and the bands, show only if 5 had answered, so the host is told to wait for 5 before revealing if they want them. **Save round** stores the totals in the tool; **New round** starts again with a fresh key.
 
-**Three kinds of round** run on the same room, the same keys and the same messages. A tool's kind is fixed (`VOTE_ROUND_KIND` in `src/lib/realtime/vote-room/protocol.ts`):
+**Six kinds of round** run on the same room, the same keys and the same messages. A tool lists the kinds it may run (`VOTE_ROUND_KINDS` in `src/lib/realtime/vote-room/protocol.ts`), and each round's state names its kind: the host can start, and a participant will read, only a kind in its tool's list. The six tools above keep exactly their one kind; **Quick Vote** may run scale, choice, rank, number and pair rounds, one kind per round (New round may switch it):
 
 - **Scale** (Health Check, Psych Safety, Mood Tracker): one answer per question on one scale, kept as the count per answer. These rounds' messages are exactly as before (v1).
 - **Pair** (Kano): for each feature, two questions on Kano's five answers ("If it has this, how do you feel?" and "If it doesn't have this?": I like it / I expect it / I'm neutral / I can live with it / I dislike it). Each person's two answers about a feature travel as one number, so the host keeps only the 5 × 5 count of answer pairs per feature: never the answers alone, never one person's answers across features. A feature's grid shows from 3 answers.
 - **Allocation** (Buy-a-Feature, the $100 Test): each person splits a budget across 2 to 20 items, in whole amounts. The split travels as fixed-width digits (every ballot in a round is the same size), and the host keeps, per item, the total and how many people gave an amount in each of five bands of the budget (0, up to 10%, up to 25%, up to 50%, more than 50%), and nothing else: no sum of squares, no lowest or highest amount. Reveal shows each item's total and average from 3 answers; who gave an item anything, and the bands, only from 5. The $100 Test splits $100 and must give it all out; Buy-a-Feature splits each player's budget, caps each feature at what's left of its price, and refunds anything over it.
 
-Pair and allocation rounds send their state as a new version (v2, with its kind). A tab still running an older build can't join them: its tool list doesn't have these tools, so it opens nothing.
+- **Choice** (Quick Vote's polls, multi-picks and dot voting): pick one option, up to N of up to 12, or spread a budget of up to 10 dots. Each ballot is one character per option, so every ballot of a round is the same size; the host keeps per-option totals (people who picked it, or dots on it). Totals show from 3 answers; in a dot round, how many people put a dot on each option only from 5.
+- **Rank** (Quick Vote's ranking): put 2 to 10 options in order. The host turns each order into Borda points at once (with n options, n − 1 for first down to 0 for last) and keeps only the points per option, never anyone's order. Points show from 3 answers.
+- **Number** (Quick Vote's "guess the number", confidence): one number in the host's range, up to 2 decimal places. The host keeps the numbers sorted (no sender, no arrival order) until Reveal; the median shows from 3 answers, and the lowest, the quartiles, the highest and a 10-bucket histogram only from 5 (the lowest and highest are someone's exact answer). The saved result keeps those statistics, never the list.
+
+Pair and allocation rounds send their state as a new version (v2, with its kind), and choice, rank and number rounds as v3, each under its own signing domain. Scale states stay v1, so a tab still running an older build reads the six tools' rounds exactly as before after a deploy; it can't join Quick Vote at all (its tool list doesn't have it, so it opens nothing).
 
 **Who can host:** the owner or a visitor. Squad guests can't host (they get count entry instead). Participants need no account.
 
@@ -366,9 +371,9 @@ Pair and allocation rounds send their state as a new version (v2, with its kind)
 
 **Flags:** `NEXT_PUBLIC_VISITOR_ROOMS=1` is required. It works with `NEXT_PUBLIC_PRIVATE_ROOMS` on or off. It needs HTTPS (or localhost) for the browser's encryption.
 
-**Limits:** the visitor-room limits above, plus at most 60 answers (ballots) per round, 20,000 characters per message, 32 questions, 11 scale points, and numbers only from participants. Kano: at most 32 features and 5 answers per question. Allocation rounds: 2 to 20 items, a budget of 10 to 9,999 whole units, caps up to 1,000,000, a unit of at most 4 characters, and items × digits of the budget at most 80 (so every ballot fits the same 128-character envelope).
+**Limits:** the visitor-room limits above, plus at most 60 answers (ballots) per round, 20,000 characters per message, 32 questions, 11 scale points, and numbers only from participants. Kano: at most 32 features and 5 answers per question. Allocation rounds: 2 to 20 items, a budget of 10 to 9,999 whole units, caps up to 1,000,000, a unit of at most 4 characters, and items × digits of the budget at most 80 (so every ballot fits the same 128-character envelope). Choice rounds: 2 to 12 options of up to 120 characters, up to 10 dots. Rank rounds: 2 to 10 options. Number rounds: a range within ±1,000,000, 0 to 2 decimal places, at most 10,000,000 answers in the range, a unit of at most 8 characters.
 
-**Migrations:** these tools need 0027 and 0028, pushed together (one `supabase db push`, see "Private rooms"). Both are in production (pushed 2026-11-01; the two checks under "Private rooms" step 2 passed again against production on 2026-11-10), so production's policy admits these rooms and no other `visitor:` topic. On another project, push them before deploying these tools: until then 0026's visitor branch admits these rooms along with any other `visitor:` topic. Never leave 0027 applied without 0028: with `NEXT_PUBLIC_PRIVATE_ROOMS=1` the private channels of Kano, Buy-a-Feature and the $100 Test are then refused, so their live rounds can't connect (their count entry keeps working).
+**Migrations:** Quick Vote also needs 0039 (not pushed yet: ask the owner before `supabase db push`; until then, with `NEXT_PUBLIC_PRIVATE_ROOMS=1`, its private channels are refused). The six tools above need 0027 and 0028, pushed together (one `supabase db push`, see "Private rooms"). Both are in production (pushed 2026-11-01; the two checks under "Private rooms" step 2 passed again against production on 2026-11-10), so production's policy admits these rooms and no other `visitor:` topic. On another project, push them before deploying these tools: until then 0026's visitor branch admits these rooms along with any other `visitor:` topic. Never leave 0027 applied without 0028: with `NEXT_PUBLIC_PRIVATE_ROOMS=1` the private channels of Kano, Buy-a-Feature and the $100 Test are then refused, so their live rounds can't connect (their count entry keeps working).
 
 **Traffic:** each answer reaches every member, so about members × members deliveries per round (400 for a full room), plus the host's state at most every 0.5 s while answers arrive, after joins, and every 30 s.
 
@@ -385,6 +390,28 @@ Pair and allocation rounds send their state as a new version (v2, with its kind)
 
 **Turning it off:** unset the flag and redeploy, as above. Count entry (count hands or collect paper answers, then type the totals; the **Enter counts** button under "One screen" while live rounds are on, shown on its own once they are off) keeps working, with the same 3-or-5 rule. For Kano it is a 5 × 5 grid per feature (one tick per paper answer pair). For Buy-a-Feature and the $100 Test it is either **Paper splits** (type each paper split; it is added to the totals and cleared, so the spread shows from 5 as live) or **Totals only** (each item's total and the number of people; the spread is then unknown).
 
+### Show and wall rooms (Picker, Team Mixer, Card Decks; Audience Wall)
+
+Two newer kinds of visitor room, built on the same signed-room core (`src/lib/realtime/use-signed-room.ts`, `signed-room.ts`): the host makes a room key in its browser and signs every message, the link's `#k=` part is that key's fingerprint, and participants trust only messages signed by it, as in a vote round. A link without `#k=` says "This link is incomplete" and offers no consent. Both need `NEXT_PUBLIC_VISITOR_ROOMS=1`, HTTPS (or localhost) for the browser's crypto, and migration 0039 under `NEXT_PUBLIC_PRIVATE_ROOMS=1`.
+
+**Show rooms** (`src/lib/realtime/show-room/`): the host shows, everyone watches.
+
+- The host shows typed **frames** (a spin result, a groups reveal, a dealt card; every tool also has a plain text frame). A frame's payload is small JSON that the tool's parser (`frames.ts`, one file per tool under `frames/`) checks on the host before it goes and on every phone when it arrives; a phone draws it with the renderer registered for the tool and kind (`renderers/`, one small file per tool, loaded by `/join` without any tool page). A kind a phone doesn't know (a newer build) shows "Reload the page" instead.
+- The host re-sends its state when something changes (at most every 0.3 s), 0.5 s after anyone joins (so a late joiner gets the latest frame) and every 30 s.
+- Participants send nothing but **I'm here**. The host keeps who said so in memory, to count each seat once, and shows the count; nothing anyone sends is saved.
+- Consent: the live-room text above, with a box about the name only.
+
+**Wall rooms** (`src/lib/realtime/wall-room/`): short anonymous posts, upvotes and a raise-hand queue.
+
+- The host puts up a prompt and picks **Show posts as they arrive** or **Hidden until I reveal them**. In the hidden mode the host's state carries only the number of posts, every phone refuses a state that carries more, and the host's own page draws no post text until **Reveal posts**.
+- A participant can post (up to 280 characters, one every 5 seconds, 30 a round; 200 posts a round in all), take their own post back, upvote other people's posts (one each, and take it back; 400 upvotes a round, taken-back ones included) and raise or lower their hand. Each request is encrypted in their browser to the host's key and padded to one size, so others in the room see that someone sent something, never what. Posting and voting send a lock (the SHA-256 of a key that stays in the sender's tab); taking back sends the key, so nobody can take back someone else's post or vote even under their id.
+- Posts carry no name and no member id: a post's id is a random one its writer's tab made, inside the encrypted request. Who wrote or upvoted what lives in the host's memory only, to stop double votes and check take-backs. A raised hand does show the person's name: it is a queue to speak, and the consent says so.
+- The host can **Hide** a post (it leaves the wall and the save), **Merge** a duplicate into another (its text goes under the other, the upvotes join, someone who upvoted both counts once), **Lower** a hand, start a **New round** and **End room**.
+- **Save round** hands the tool the prompt and each post's text, vote count and merged texts: no ids, no names, and nothing from a round still hidden. Nothing is kept otherwise; revealed posts stay on the host's screen after End room until saved or closed.
+- Consent text for wall rooms: _"Your posts travel encrypted to the host's browser, which puts them on the wall without your name. Everyone in the room sees the wall, and the host can save the posts and their votes as anonymous text; no names are kept. Others in the room see your name, and see it in the queue if you raise your hand. It all passes through our realtime provider (Supabase), and we don't store it. The host may send the posts, without names, to an AI service, for example to group them. Share the link only with your team."_
+
+**If the host closes or reloads the tab:** the room is gone (it runs in that tab); participants see "The host left" after about 10 seconds, and a late link says "Nobody is hosting this room" after about 90 seconds.
+
 ### Watching the quota (Supabase free tier)
 
 Visitor rooms share the project's Realtime quota with owner rooms, squad-guest rooms and the live sync feeds (`user_state`, history, agent conversations). The free plan allows about **200 concurrent connections** and **2 million messages a month**; check current figures at supabase.com/pricing.
@@ -397,22 +424,22 @@ Visitor rooms share the project's Realtime quota with owner rooms, squad-guest r
 
 The anon key is public, and there are two ways a script can use it on the Realtime quota, **whatever `NEXT_PUBLIC_PRIVATE_ROOMS` says** (that flag only decides which channels the app's own build opens):
 
-- **Private `visitor:` channels.** The policy from 0026/0027/0028 is a database setting: once it is pushed, its visitor branch lets the plain anon key join any private channel of the visitor shape, even while the app's build uses public channels. Production has 0026, 0027 and 0028, so its visitor branch admits only `visitor:<visitor tool>:<12-character code>` (0026 alone admitted any topic starting with `visitor:`). The checks under "Private rooms" step 2 confirm it.
+- **Private `visitor:` channels.** The policy from 0026/0027/0028 (and 0039 once pushed) is a database setting: once it is pushed, its visitor branch lets the plain anon key join any private channel of the visitor shape, even while the app's build uses public channels. Production has 0026, 0027 and 0028, so its visitor branch admits only `visitor:<visitor tool>:<12-character code>` (0026 alone admitted any topic starting with `visitor:`). The checks under "Private rooms" step 2 confirm it.
 - **Public channels of any name**, `visitor:` ones included, for as long as "Allow public access" is on.
 
 A full brake against anon-key abuse therefore takes **both** steps:
 
-1. **No private visitor channels (SQL).** In the Supabase SQL editor, re-create `public.realtime_room_allowed` exactly as in migration 0028 but **without the visitor line** (the `topic ~ '^visitor:…'` line and the `or` that follows it; keep `set search_path = ''`, every other branch and the `grant execute … to anon, authenticated, service_role`). From then on nobody can join a private `visitor:` channel. Owner rooms, guest rooms and your sync feeds (private channels with tokens or your session) keep working.
+1. **No private visitor channels (SQL).** In the Supabase SQL editor, re-create `public.realtime_room_allowed` exactly as in the newest migration that defines it (0039 once pushed, 0028 before that) but **without the visitor line** (the `topic ~ '^visitor:…'` line and the `or` that follows it; keep `set search_path = ''`, every other branch and the `grant execute … to anon, authenticated, service_role`). From then on nobody can join a private `visitor:` channel. Owner rooms, guest rooms and your sync feeds (private channels with tokens or your session) keep working.
 2. **No public channels.** **Supabase → Realtime → Settings → Allow public access: off.** Supabase then refuses every join on a public channel.
 
 A tab that is already connected may keep its room until it reconnects or reaches the 3-hour limit.
 
 **What each step also stops:**
 
-- **With `NEXT_PUBLIC_PRIVATE_ROOMS=1` (production today):** the app's visitor rooms and vote rounds are private channels, so step 1 stops them; step 2 stops nothing the app still uses (all its channels are private), only old tabs on a build from before the flag.
+- **With `NEXT_PUBLIC_PRIVATE_ROOMS=1` (production today):** the app's visitor rooms, vote rounds, show rooms and wall rooms are private channels, so step 1 stops them all; step 2 stops nothing the app still uses (all its channels are private), only old tabs on a build from before the flag.
 - **With the flag unset:** the app's visitor rooms are public channels, so step 1 alone doesn't stop them; step 2 does, and it also stops **everything else that uses Realtime**, because all of the app's channels are then public: owner Poker/canvas/kudos rooms, squad-guest rooms, and the live push of sync, history and agent-conversation updates between your devices. Saving still works (it goes through the API, not Realtime); other devices just stop getting changes pushed until you turn public access back on.
 
-**To undo it:** re-run the function block of `supabase/migrations/0028_realtime_visitor_prioritize_tools.sql` (it is idempotent), and turn "Allow public access" back on if the build still uses public channels. Turn `NEXT_PUBLIC_VISITOR_ROOMS` off and redeploy as well if visitor rooms shouldn't come back.
+**To undo it:** re-run the function block of the newest migration that defines `realtime_room_allowed` (`supabase/migrations/0039_realtime_phase1_rooms.sql` once it is pushed; `0028_realtime_visitor_prioritize_tools.sql` before that: re-running an older one would leave out the tools added since, and their private channels would be refused). It is idempotent. Turn "Allow public access" back on if the build still uses public channels, and turn `NEXT_PUBLIC_VISITOR_ROOMS` off and redeploy as well if visitor rooms shouldn't come back.
 
 ### Residual risks (accepted for v1)
 
@@ -431,10 +458,18 @@ A tab that is already connected may keep its room until it reconnects or reaches
 4. **A member can spend someone else's ballot** by claiming their id, and can use that to **single out one person's answers**: answer under every other member's id before they do, and after Reveal the totals minus the attacker's own answers are the target's. The victim's own answers are then refused as a second answer. Both sides are warned: the victim's screen says someone sent answers under their name, and the host sees that answers came under names that had already answered. If either warning shows, end the room and share a new link.
 5. **Someone can answer again from a new tab** (a new tab is a new member). This is bounded by the 20 seats and 60 ballots per round, and the host sees a warning when answers outnumber the names in the room.
 6. **minN is a floor, not a guarantee:** if everyone gives the same answer, the totals reveal everyone's answer. In an allocation round the same goes for amounts: an item total of 0 says everyone gave it nothing, and in the $100 Test a total of people × $100 says everyone gave it everything. With exactly 3 answers, the host (who knows their own split) and one other member can work out the third person's split from the totals: the same small-round risk as risk 4.
-7. **The anon key can still open visitor-shaped channels** (0028 admits the app's tools and 12-character codes only), and public channels while public access is on. Watch the quota, and use both steps of the emergency brake above if it is abused.
+7. **The anon key can still open visitor-shaped channels** (the newest policy migration, 0028 in production and 0039 once pushed, admits the app's tools and 12-character codes only), and public channels while public access is on. Watch the quota, and use both steps of the emergency brake above if it is abused.
 8. **Two allocation rounds can be compared:** re-running the same sheet with nearly the same people, one person missing, lets the two sets of totals be subtracted to show that person's split. Reveal closes each round, and Buy-a-Feature's later rounds change the sheet (budgets, what's left of each price), but a facilitator re-running the $100 Test should expect this.
 9. **The spread waits for 5 answers, and no exact spread is kept, on purpose.** A person's bands are linked across items (in the $100 Test someone can be in the top band of at most one item), so at 3 answers the bands would narrow each split more than a scale answer does. An exact spread (a sum of squares) is never kept: with 3 answers and the host's own split known, the totals and the sums of squares would give both other splits.
 10. **A Kano grid shows how one feature's two answers went together** (that is what the Kano table needs), never one person's answers across features. At 3 answers a person who gave an unusual pair may still recognise it; it is the same floor as every vote round.
+11. **A number round's median at 3 or 4 answers is one person's exact answer** (not who gave it), and from 5 the lowest and highest are too; that is why the spread waits for 5. A dot round's "people with a dot" waits for 5 for the same reason as an allocation round's bands.
+
+**Show and wall rooms:**
+
+1. The host's browser sees each wall request with its sender for an instant before applying it, and keeps who wrote and who upvoted what in memory while the room is open (it needs that to stop double votes and check take-backs). It is never sent or saved.
+2. **With "Show posts as they arrive", timing can give a writer away:** someone watching the channel sees a member's encrypted request and then a new post. Use "Hidden until I reveal them" for anything sensitive: the posts then reach everyone at once, sorted by votes and a random id, not in the order they came.
+3. A member can spend someone else's upvote, or raise their hand, by claiming their id (the same as a vote round's risk 4): the real member's own upvote is then refused as already given, and the host can lower any hand. Taking back a post or a vote needs the key only its sender's tab holds, so that can't be forged, and it can't be undone by replaying the old request: the host remembers, for the whole round, the ids of posts taken back and the locks of votes taken back. That memory is bounded by the round's caps (200 posts, and 400 upvotes per member, taken-back ones included).
+4. Posts are short free text from anyone holding the link: the host can hide a post (it leaves every screen and the save) or remove the member, and the text is only ever drawn as plain text.
 
 If abuse shows up, the planned next step is short-lived room tokens minted by a server route with Realtime Authorization on private channels (that needs "Allow public access" off and the owner rooms moved to private channels first).
 

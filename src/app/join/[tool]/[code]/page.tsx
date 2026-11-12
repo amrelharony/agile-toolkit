@@ -30,8 +30,8 @@ interface Params {
  * 12-character room code is a 404. With `NEXT_PUBLIC_VISITOR_ROOMS` off,
  * the page says so and links home; no client code that could open a
  * channel is sent. With it on, the client asks for a name and consent
- * before it connects (and, for a vote round, first checks the link carries
- * the host's key).
+ * before it connects (and, for a signed room (a vote round, a show room or
+ * a wall room), first checks the link carries the host's key).
  */
 export default function JoinRoomPage({ params }: { params: Params }) {
   const { tool, code } = params;

@@ -11,12 +11,17 @@ import {
 } from "@/lib/realtime/visitor-rooms";
 
 /**
- * Migrations 0027 and 0028 narrow the Realtime policy's visitor branch to
- * the app's own topic shape. The regex in the NEWEST migration that sets it
- * must admit exactly what `visitorChannelName()` produces for every visitor
- * tool, so adding a tool without a migration fails here, and every other
- * branch must stay as 0026 wrote it. 0028 added Kano, Buy-a-Feature and the
- * $100 Test; 0027 stays as it shipped.
+ * Migrations from 0027 on narrow the Realtime policy's visitor branch to
+ * the app's own topic shape. The regex in the NEWEST migration that defines
+ * `realtime_room_allowed` with a visitor regex must list exactly
+ * `VISITOR_TOOLS`, in order, and admit exactly what `visitorChannelName()`
+ * produces for every visitor tool, so adding a tool without a migration
+ * fails here. Every other branch must stay as 0026 wrote it.
+ *
+ * The newest migration is found by its content, not its file name: a
+ * phase's migration is numbered when it merges. Each one only adds tools at
+ * the end of the list before it, so the migrations shipped earlier (0027,
+ * 0028, …) stay valid as they shipped.
  */
 
 const dir = path.resolve(__dirname, "../../supabase/migrations");
@@ -47,6 +52,13 @@ function visitorRegexSource(sql: string): string {
   return m[1];
 }
 
+/** The tools a visitor regex lists, in its order. */
+function regexTools(sql: string): string[] {
+  const m = /^\^visitor:\(([^)]+)\):/.exec(visitorRegexSource(sql));
+  if (!m) throw new Error("the visitor regex lists no tools");
+  return m[1].split("|");
+}
+
 /** The function block (create … $$;) with the visitor branch and its comment lines cut out. */
 function functionWithoutVisitorBranch(sql: string): string {
   const start = sql.indexOf("create or replace function public.realtime_room_allowed");
@@ -70,21 +82,18 @@ function tail(sql: string): string {
 const shape = (tools: readonly string[]) =>
   `^visitor:(${tools.join("|")}):[${VISITOR_CODE_ALPHABET}]{${VISITOR_CODE_LENGTH}}$`;
 
-const NEW_IN_0028 = ["kano-model", "buy-a-feature", "hundred-dollar-test"] as const;
-
 describe("the newest visitor-topic migration", () => {
   const source = visitorRegexSource(sqlNewest);
   const re = new RegExp(source);
 
-  it("is 0028, after 0027", () => {
-    expect(visitorMigrations).toEqual([
-      "0027_realtime_visitor_topic_shape.sql",
-      "0028_realtime_visitor_prioritize_tools.sql",
-    ]);
-    expect(newest).toBe("0028_realtime_visitor_prioritize_tools.sql");
+  it("comes after 0027, which started the narrowing", () => {
+    expect(visitorMigrations[0]).toBe("0027_realtime_visitor_topic_shape.sql");
+    expect(visitorMigrations.length).toBeGreaterThanOrEqual(2);
+    expect(newest > "0027").toBe(true);
   });
 
-  it("is derived from VISITOR_TOOLS and VISITOR_CODE_ALPHABET", () => {
+  it("lists exactly VISITOR_TOOLS, in order, with the 12-character code shape", () => {
+    expect(regexTools(sqlNewest)).toEqual([...VISITOR_TOOLS]);
     expect(source).toBe(shape(VISITOR_TOOLS));
   });
 
@@ -111,15 +120,20 @@ describe("the newest visitor-topic migration", () => {
     ["a new tool's prefix", "visitor:kano-model2:ABCDEFGHJKMN"],
     ["a new tool's stem", "visitor:kano:ABCDEFGHJKMN"],
     ["a prioritize tool without rounds", "visitor:moscow:ABCDEFGHJKMN"],
+    ["a show tool's stem", "visitor:pick:ABCDEFGHJKMN"],
+    ["a wall tool's prefix", "visitor:audience-wall2:ABCDEFGHJKMN"],
+    ["a tool joined to another", "visitor:picker|retro:ABCDEFGHJKMN"],
     ["a lowercase code", "visitor:retro:abcdefghjkmn"],
     ["an 11-character code", "visitor:retro:ABCDEFGHJKM"],
     ["a 13-character code", "visitor:retro:ABCDEFGHJKMNP"],
+    ["a 13-character code on a new tool", "visitor:quick-vote:ABCDEFGHJKMNP"],
     ["an ambiguous 0", "visitor:retro:ABCDEFGHJKM0"],
     ["an ambiguous O", "visitor:retro:ABCDEFGHJKMO"],
     ["an ambiguous 1", "visitor:retro:ABCDEFGHJKM1"],
     ["an ambiguous I", "visitor:retro:ABCDEFGHJKMI"],
     ["an ambiguous L", "visitor:retro:ABCDEFGHJKML"],
     ["a suffix", "visitor:hundred-dollar-test:ABCDEFGHJKMN:extra"],
+    ["a suffix on a new tool", "visitor:card-decks:ABCDEFGHJKMN:extra"],
     ["a trailing newline", "visitor:buy-a-feature:ABCDEFGHJKMN\n"],
     ["a prefix", "xvisitor:retro:ABCDEFGHJKMN"],
     ["no code", "visitor:retro:"],
@@ -159,23 +173,46 @@ describe("the newest visitor-topic migration", () => {
   });
 });
 
-describe("migration 0027, as it shipped", () => {
-  const re0027 = new RegExp(visitorRegexSource(sql0027));
+describe("every visitor-topic migration, as it shipped", () => {
+  const lists = visitorMigrations.map((f) => ({ file: f, tools: regexTools(read(f)) }));
 
-  it("still lists only the tools it shipped with (a new tool gets a new migration)", () => {
-    expect(visitorRegexSource(sql0027)).toBe(
-      shape(VISITOR_TOOLS.filter((t) => !(NEW_IN_0028 as readonly string[]).includes(t)))
-    );
+  it("lists a growing prefix of VISITOR_TOOLS: a new tool gets a new migration, at the end", () => {
+    let before = 0;
+    for (const { file, tools } of lists) {
+      expect(tools, file).toEqual(VISITOR_TOOLS.slice(0, tools.length));
+      expect(tools.length, file).toBeGreaterThan(before);
+      before = tools.length;
+    }
   });
 
-  it.each(NEW_IN_0028)("refuses %s's rooms, which 0028 admits", (tool) => {
-    const name = visitorChannelName(tool, "ABCDEFGHJKMN")!;
-    expect(re0027.test(name)).toBe(false);
-    expect(new RegExp(visitorRegexSource(sqlNewest)).test(name)).toBe(true);
+  it("keeps the 12-character code shape and every other branch of 0026 in each", () => {
+    for (const { file, tools } of lists) {
+      const sql = read(file);
+      expect(visitorRegexSource(sql), file).toBe(shape(tools));
+      expect(functionWithoutVisitorBranch(sql), file).toBe(functionWithoutVisitorBranch(sql0026));
+      expect(tail(sql), file).toBe(tail(sql0026));
+    }
   });
 
-  it("keeps every other branch of 0026 byte for byte", () => {
-    expect(functionWithoutVisitorBranch(sql0027)).toBe(functionWithoutVisitorBranch(sql0026));
-    expect(tail(sql0027)).toBe(tail(sql0026));
+  it("refuses, in each earlier migration, the rooms of tools a later one admits", () => {
+    const newestRe = new RegExp(visitorRegexSource(sqlNewest));
+    for (const { file, tools } of lists.slice(0, -1)) {
+      const re = new RegExp(visitorRegexSource(read(file)));
+      for (const tool of VISITOR_TOOLS.slice(tools.length)) {
+        const name = visitorChannelName(tool, "ABCDEFGHJKMN")!;
+        expect(re.test(name), `${file} ${tool}`).toBe(false);
+        expect(newestRe.test(name), tool).toBe(true);
+      }
+    }
+  });
+
+  it("0027 still lists only the tools it shipped with", () => {
+    expect(regexTools(sql0027)).toEqual([
+      "planning-poker",
+      "retro",
+      "health-check",
+      "psych-safety",
+      "mood-tracker",
+    ]);
   });
 });

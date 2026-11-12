@@ -1,17 +1,23 @@
 /**
  * Anonymous vote rounds (Health Check, Psych Safety, Mood Tracker; Kano;
- * Buy-a-Feature and the $100 Test): the wire protocol.
+ * Buy-a-Feature and the $100 Test; Quick Vote): the wire protocol.
  *
  * A host publishes a questionnaire (questions on one scale) in a visitor
  * room, `visitor:<tool>:<code>`. Participants answer with numbers only, and
- * the host keeps per-question counts. Two newer kinds of round ride the same
- * messages (`VOTE_ROUND_KIND` says which a tool runs): a "pair" round asks
- * two linked questions per item and keeps their joint counts (`pair.ts`),
- * and an "allocation" round has each person split a budget across items and
- * keeps per-item totals (`allocation.ts`). Their states are v2, with a
- * `kind`; scale states, ballots, kicks and ends stay v1 byte for byte, so a
- * Phase 6 client reads what it always read and ignores the rest. Nothing
- * else crosses the wire:
+ * the host keeps per-question counts. Newer kinds of round ride the same
+ * messages: a "pair" round asks two linked questions per item and keeps
+ * their joint counts (`pair.ts`), an "allocation" round has each person
+ * split a budget across items and keeps per-item totals (`allocation.ts`),
+ * a "choice" round picks from options (`choice.ts`), a "rank" round orders
+ * them (`rank.ts`) and a "number" round asks for one number (`number.ts`).
+ *
+ * A tool lists the kinds it may run (`VOTE_ROUND_KINDS`), and each round's
+ * state names its kind. The six tools from before keep exactly their one
+ * kind; Quick Vote may run several, one per round. Pair and allocation
+ * states are v2 (`KIND_STATE_VERSION`); choice, rank and number states are
+ * v3 (`PER_ROUND_STATE_VERSION`); scale states, ballots, kicks and ends
+ * stay v1 byte for byte, so a client from before reads what it always read
+ * and ignores the rest. Nothing else crosses the wire:
  *
  *   host → everyone      "vote:state"   Signed<VoteStateBody>  (throttled
  *                                       500 ms, 500 ms after a join, 30 s
@@ -73,7 +79,10 @@ import {
   obj,
 } from "./wire";
 import type { AllocationSheet, AllocationStateBody } from "./allocation";
+import type { ChoiceSheet, ChoiceStateBody } from "./choice";
+import type { NumberSheet, NumberStateBody } from "./number";
 import type { PairSheet, PairStateBody } from "./pair";
+import type { RankSheet, RankStateBody } from "./rank";
 
 export type { Signed } from "../room-control";
 
@@ -87,6 +96,7 @@ export const VOTE_ROOM_TOOLS = [
   "kano-model",
   "buy-a-feature",
   "hundred-dollar-test",
+  "quick-vote",
 ] as const satisfies readonly VisitorTool[];
 export type VoteRoomTool = (typeof VOTE_ROOM_TOOLS)[number];
 
@@ -100,45 +110,114 @@ export function isVoteRoomTool(v: unknown): v is VoteRoomTool {
  *  - "pair": two questions per item on one short scale, kept as their joint
  *    count per item (Kano's functional and dysfunctional questions, `PairSheet`);
  *  - "allocation": a budget each person splits across items, kept as
- *    per-item totals (Buy-a-Feature, the $100 Test, `AllocationSheet`).
+ *    per-item totals (Buy-a-Feature, the $100 Test, `AllocationSheet`);
+ *  - "choice": one option, several, or a budget of dots spread across up to
+ *    12 options, kept as per-option totals (`ChoiceSheet`);
+ *  - "rank": up to 10 options put in order, kept as Borda points per
+ *    option (`RankSheet`);
+ *  - "number": one number in a range, kept as its median, quartiles and a
+ *    10-bucket histogram (`NumberSheet`).
  */
-export type VoteRoundKind = "scale" | "pair" | "allocation";
+export type VoteRoundKind = "scale" | "pair" | "allocation" | "choice" | "rank" | "number";
+
+export const VOTE_ROUND_KIND_LIST = [
+  "scale",
+  "pair",
+  "allocation",
+  "choice",
+  "rank",
+  "number",
+] as const satisfies readonly VoteRoundKind[];
+
+export function isVoteRoundKind(v: unknown): v is VoteRoundKind {
+  return typeof v === "string" && (VOTE_ROUND_KIND_LIST as readonly string[]).includes(v);
+}
 
 /**
- * The kind of round each vote tool runs. A tool's kind is fixed: the host
- * can't start, and a participant won't read, a round of another kind for it.
+ * The kinds of round each vote tool may run, its usual kind first. Each
+ * round's state names its kind: the host can start, and a participant will
+ * read, only a kind in its tool's list. The six tools from before list
+ * exactly their one kind, so their rounds and messages are as they were.
+ * Quick Vote may run several, one per round (its 2×2 polls ride "pair").
  */
-export const VOTE_ROUND_KIND = {
-  "health-check": "scale",
-  "psych-safety": "scale",
-  "mood-tracker": "scale",
-  "kano-model": "pair",
-  "buy-a-feature": "allocation",
-  "hundred-dollar-test": "allocation",
-} as const satisfies Readonly<Record<VoteRoomTool, VoteRoundKind>>;
+export const VOTE_ROUND_KINDS = {
+  "health-check": ["scale"],
+  "psych-safety": ["scale"],
+  "mood-tracker": ["scale"],
+  "kano-model": ["pair"],
+  "buy-a-feature": ["allocation"],
+  "hundred-dollar-test": ["allocation"],
+  "quick-vote": ["scale", "choice", "rank", "number", "pair"],
+} as const satisfies Readonly<Record<VoteRoomTool, readonly VoteRoundKind[]>>;
 
-/** Vote tools whose rounds are of kind `K`. */
+/** Whether `tool` may run rounds of `kind`. False for anything outside the kit. */
+export function toolRunsKind(tool: unknown, kind: unknown): boolean {
+  return (
+    isVoteRoomTool(tool) &&
+    isVoteRoundKind(kind) &&
+    (VOTE_ROUND_KINDS[tool] as readonly VoteRoundKind[]).includes(kind)
+  );
+}
+
+/** The kinds `tool` may run, its usual kind first; [] for a tool outside the kit. */
+export function roundKindsOf(tool: unknown): readonly VoteRoundKind[] {
+  return isVoteRoomTool(tool) ? VOTE_ROUND_KINDS[tool] : [];
+}
+
+/**
+ * The kind a tool's round is when none is named: its usual one (the only
+ * one for the six tools from before). Null for a tool outside the kit.
+ */
+export function defaultRoundKind(tool: unknown): VoteRoundKind | null {
+  return isVoteRoomTool(tool) ? VOTE_ROUND_KINDS[tool][0] : null;
+}
+
+/** Vote tools that may run rounds of kind `K`. */
 type ToolsOfKind<K extends VoteRoundKind> = {
-  [T in VoteRoomTool]: (typeof VOTE_ROUND_KIND)[T] extends K ? T : never;
+  [T in VoteRoomTool]: K extends (typeof VOTE_ROUND_KINDS)[T][number] ? T : never;
 }[VoteRoomTool];
 
-/** The scale-round tools (Phase 6): Health Check, Psych Safety, Mood Tracker. */
+/** Tools that may run scale rounds: Health Check, Psych Safety, Mood Tracker, Quick Vote. */
 export type ScaleRoomTool = ToolsOfKind<"scale">;
-/** The pair-round tools: Kano. */
+/** Tools that may run pair rounds: Kano, Quick Vote. */
 export type PairRoomTool = ToolsOfKind<"pair">;
-/** The allocation-round tools: Buy-a-Feature and the $100 Test. */
+/** Tools that may run allocation rounds: Buy-a-Feature and the $100 Test. */
 export type AllocationRoomTool = ToolsOfKind<"allocation">;
+/** Tools that may run choice rounds: Quick Vote. */
+export type ChoiceRoomTool = ToolsOfKind<"choice">;
+/** Tools that may run rank rounds: Quick Vote. */
+export type RankRoomTool = ToolsOfKind<"rank">;
+/** Tools that may run number rounds: Quick Vote. */
+export type NumberRoomTool = ToolsOfKind<"number">;
 
+/** A tool that may run scale rounds. */
 export function isScaleRoomTool(v: unknown): v is ScaleRoomTool {
-  return isVoteRoomTool(v) && VOTE_ROUND_KIND[v] === "scale";
+  return toolRunsKind(v, "scale");
 }
 
+/** A tool that may run pair rounds. */
 export function isPairRoomTool(v: unknown): v is PairRoomTool {
-  return isVoteRoomTool(v) && VOTE_ROUND_KIND[v] === "pair";
+  return toolRunsKind(v, "pair");
 }
 
+/** A tool that may run allocation rounds. */
 export function isAllocationRoomTool(v: unknown): v is AllocationRoomTool {
-  return isVoteRoomTool(v) && VOTE_ROUND_KIND[v] === "allocation";
+  return toolRunsKind(v, "allocation");
+}
+
+/** A tool that may run choice rounds. */
+export function isChoiceRoomTool(v: unknown): v is ChoiceRoomTool {
+  return toolRunsKind(v, "choice");
+}
+
+/** A tool that may run rank rounds. */
+export function isRankRoomTool(v: unknown): v is RankRoomTool {
+  return toolRunsKind(v, "rank");
+}
+
+/** A tool that may run number rounds. */
+export function isNumberRoomTool(v: unknown): v is NumberRoomTool {
+  return toolRunsKind(v, "number");
 }
 
 export const VOTE_ROOM_EVENTS = {
@@ -158,6 +237,21 @@ export const VOTE_ROOM_PROTOCOL_VERSION = 1 as const;
  * so neither can pass for the other.
  */
 export const KIND_STATE_VERSION = 2 as const;
+
+/**
+ * The wire version of choice, rank and number states, which came with
+ * per-round kinds. A client from before refuses a v3 state on its `v` (it
+ * never joins those rounds anyway: its tool list has no Quick Vote), and a
+ * v3 state signs under its own domain.
+ */
+export const PER_ROUND_STATE_VERSION = 3 as const;
+
+/** The state version a round of `kind` travels as. */
+export function stateVersionOf(kind: VoteRoundKind): 1 | 2 | 3 {
+  if (kind === "scale") return VOTE_ROOM_PROTOCOL_VERSION;
+  if (kind === "pair" || kind === "allocation") return KIND_STATE_VERSION;
+  return PER_ROUND_STATE_VERSION;
+}
 
 export const VOTE_LIMITS = {
   maxQuestions: 32,
@@ -226,6 +320,32 @@ export const VOTE_LIMITS = {
    * narrow each person's split more than one scale answer does.
    */
   minNSpread: MIN_SAMPLE.distribution,
+
+  // Choice rounds (poll, multi-pick, dot voting): `choice.ts`.
+  minChoiceOptions: 2,
+  /** One answer character per option. */
+  maxChoiceOptions: 12,
+  /** Dots one person spreads; one option can take them all (one character, `ANSWER_ALPHABET`). */
+  maxDots: 10,
+  /** An option's text in a choice or rank round. */
+  maxOptionChars: 120,
+
+  // Rank rounds: `rank.ts`.
+  minRankOptions: 2,
+  /** One digit per place. */
+  maxRankOptions: 10,
+
+  // Number rounds (guess the number, confidence): `number.ts`.
+  /** The largest number either end of the range may be, either side of 0. */
+  maxNumberAbs: 1_000_000,
+  /** Decimal places an answer may have. */
+  maxNumberDecimals: 2,
+  /** Answers the range holds at its decimals, at most (8 digits on the wire). */
+  maxNumberSteps: 10_000_000,
+  /** The unit shown with numbers ("days", "%"). */
+  maxNumberUnitChars: 8,
+  /** Buckets in a number round's histogram. */
+  numberBuckets: 10,
 } as const;
 
 /**
@@ -425,18 +545,106 @@ function kindStateInput(event: VoteRoomEvent, body: PairStateBody | AllocationSt
   ]);
 }
 
+/** Choice, rank and number states: a domain of their own, so no v3 signature verifies as v1 or v2. */
+const SIGNING_DOMAIN_V3 = "agile-toolkit:vote-room:v3";
+
+type PerRoundStateBody = ChoiceStateBody | RankStateBody | NumberStateBody;
+
+function optionTuples(options: readonly { id: string; text: string; hint?: string }[]): unknown[] {
+  return options.map((x) => [x.id, x.text, x.hint ?? null]);
+}
+
+function choiceSheetTuple(s: ChoiceSheet): unknown[] {
+  return [s.id, s.title, s.mode, s.limit, optionTuples(s.options)];
+}
+
+function rankSheetTuple(s: RankSheet): unknown[] {
+  return [s.id, s.title, optionTuples(s.options)];
+}
+
+function numberSheetTuple(s: NumberSheet): unknown[] {
+  return [s.id, s.title, s.min, s.max, s.decimals, s.unit, s.hint ?? null];
+}
+
+/** A choice, rank or number state's signed text: the v2 order under the v3 domain. */
+function perRoundStateInput(event: VoteRoomEvent, body: PerRoundStateBody): string {
+  let sheet: unknown[];
+  let revealed: unknown = null;
+  switch (body.kind) {
+    case "choice":
+      sheet = choiceSheetTuple(body.sheet);
+      if (body.revealed !== null) revealed = body.revealed.map((r) => [r.total, r.backers]);
+      break;
+    case "rank":
+      sheet = rankSheetTuple(body.sheet);
+      if (body.revealed !== null) revealed = body.revealed.map((r) => [r.points]);
+      break;
+    case "number": {
+      sheet = numberSheetTuple(body.sheet);
+      const r = body.revealed;
+      if (r !== null) {
+        revealed = [
+          r.count,
+          r.median,
+          r.spread === null
+            ? null
+            : [r.spread.min, r.spread.q1, r.spread.q3, r.spread.max, r.spread.histogram],
+        ];
+      }
+      break;
+    }
+  }
+  return JSON.stringify([
+    SIGNING_DOMAIN_V3,
+    event,
+    body.v,
+    body.by,
+    body.seq,
+    body.tool,
+    body.roundId,
+    body.endsAt,
+    body.minN,
+    body.kind,
+    sheet,
+    body.keys.sig,
+    body.keys.ecdh,
+    body.phase,
+    body.ballots,
+    body.acks,
+    revealed,
+  ]);
+}
+
+function isPerRoundBody(
+  body: PairStateBody | AllocationStateBody | PerRoundStateBody
+): body is PerRoundStateBody {
+  return body.kind === "choice" || body.kind === "rank" || body.kind === "number";
+}
+
+/** Any host state body, of any kind. */
+export type AnyVoteStateBody =
+  | VoteStateBody
+  | PairStateBody
+  | AllocationStateBody
+  | ChoiceStateBody
+  | RankStateBody
+  | NumberStateBody;
+
 /**
  * The text the host signs for `event`: a JSON array of the field values in
  * a fixed order, so the signature never depends on key order, and the
  * event name is part of it, so a state's signature can't pass for a kick's.
  * Scale states sign exactly as in Phase 6; pair and allocation states sign
- * under the v2 domain with their kind.
+ * under the v2 domain with their kind; choice, rank and number states under
+ * the v3 domain with theirs.
  */
 export function signingInput(
   event: VoteRoomEvent,
-  body: VoteStateBody | PairStateBody | AllocationStateBody | VoteKickBody | VoteEndBody
+  body: AnyVoteStateBody | VoteKickBody | VoteEndBody
 ): string {
-  if (event === VOTE_ROOM_EVENTS.state && "kind" in body) return kindStateInput(event, body);
+  if (event === VOTE_ROOM_EVENTS.state && "kind" in body) {
+    return isPerRoundBody(body) ? perRoundStateInput(event, body) : kindStateInput(event, body);
+  }
   const head = [SIGNING_DOMAIN, event, body.v, body.by];
   if (event === VOTE_ROOM_EVENTS.state && "questionnaire" in body) {
     return JSON.stringify([
@@ -692,8 +900,9 @@ function readRevealed(
 /**
  * A host state for this page's `tool`, or null. Checks shape, caps and the
  * reveal rules; whether the signature is the pinned host's is the hook's
- * call (it needs WebCrypto). Scale rounds only: a tool whose rounds are of
- * another kind reads its states with `readPairState` / `readAllocationState`.
+ * call (it needs WebCrypto). Scale rounds only, for a tool that may run
+ * them: other kinds' states are read by their own readers (`readPairState`,
+ * `readAllocationState`, …; `readRoundState` picks).
  */
 export function readVoteState(raw: unknown, tool: VoteRoomTool): VoteStateMessage | null {
   if (!isWithinJsonSize(raw, VOTE_LIMITS.maxPayloadChars)) return null;
@@ -701,7 +910,7 @@ export function readVoteState(raw: unknown, tool: VoteRoomTool): VoteStateMessag
   if (!m || m.v !== VOTE_ROOM_PROTOCOL_VERSION || !isVisitorMemberId(m.by)) return null;
   if (typeof m.seq !== "number" || !Number.isSafeInteger(m.seq) || m.seq < 0) return null;
   if (m.tool !== tool || !isVoteRoomTool(m.tool)) return null;
-  if (VOTE_ROUND_KIND[m.tool] !== "scale") return null;
+  if (!toolRunsKind(m.tool, "scale")) return null;
   if (typeof m.roundId !== "string" || !ROUND_ID_RE.test(m.roundId)) return null;
   if (typeof m.endsAt !== "number" || !Number.isFinite(m.endsAt) || m.endsAt <= 0) return null;
   // The tool's floor, whatever the host claims: Psych Safety never shows fewer than 5.
@@ -755,7 +964,7 @@ export function readVoteState(raw: unknown, tool: VoteRoomTool): VoteStateMessag
   };
 }
 
-/** What every pair or allocation state carries besides its sheet and results. */
+/** What every state of a kind other than scale carries besides its sheet and results. */
 export interface KindStateHead {
   by: string;
   seq: number;
@@ -770,22 +979,23 @@ export interface KindStateHead {
 }
 
 /**
- * The common part of a v2 (pair or allocation) state for this page's
- * `tool`, read and checked as `readVoteState` checks a scale state's: the
- * version, the kind (which must be the tool's), sender, sequence, round,
- * minN (never under the tool's floor), keys, signature, phase, ballot
- * count and acks, and the reveal rules that don't depend on the sheet
- * (enough ballots, no acks once revealed). The kind's reader checks the
- * sheet and the revealed results. Null when anything is off.
+ * The common part of a v2 (pair, allocation) or v3 (choice, rank, number)
+ * state for this page's `tool`, read and checked as `readVoteState` checks
+ * a scale state's: the version (the kind's own, `stateVersionOf`), the kind
+ * (which must be one the tool may run), sender, sequence, round, minN
+ * (never under the tool's floor), keys, signature, phase, ballot count and
+ * acks, and the reveal rules that don't depend on the sheet (enough
+ * ballots, no acks once revealed). The kind's reader checks the sheet and
+ * the revealed results. Null when anything is off.
  */
 export function readKindStateHead(
   m: Record<string, unknown>,
   tool: VoteRoomTool,
   kind: Exclude<VoteRoundKind, "scale">
 ): KindStateHead | null {
-  if (m.v !== KIND_STATE_VERSION || m.kind !== kind || !isVisitorMemberId(m.by)) return null;
+  if (m.v !== stateVersionOf(kind) || m.kind !== kind || !isVisitorMemberId(m.by)) return null;
   if (typeof m.seq !== "number" || !Number.isSafeInteger(m.seq) || m.seq < 0) return null;
-  if (m.tool !== tool || !isVoteRoomTool(m.tool) || VOTE_ROUND_KIND[m.tool] !== kind) return null;
+  if (m.tool !== tool || !isVoteRoomTool(m.tool) || !toolRunsKind(m.tool, kind)) return null;
   if (typeof m.roundId !== "string" || !ROUND_ID_RE.test(m.roundId)) return null;
   if (typeof m.endsAt !== "number" || !Number.isFinite(m.endsAt) || m.endsAt <= 0) return null;
   if (

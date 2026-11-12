@@ -50,6 +50,22 @@ export const VOTE_ROOM_CONSENT_TEXT =
   "with enough answers; if everyone gives the same answer, the totals show it. " +
   "Share the link only with your team.";
 
+/**
+ * The wall-room variant (Audience Wall): people post short text, which the
+ * host's browser puts on the wall without a name, and the host may save
+ * the posts and their votes as anonymous text. A raised hand is named: it
+ * is a queue to speak. The AI sentence says what the host may do with the
+ * posts (Audience Wall groups them); keep it in step with the AI line the
+ * room and vote texts carry.
+ */
+export const WALL_ROOM_CONSENT_TEXT =
+  "Your posts travel encrypted to the host's browser, which puts them on the wall without your name. " +
+  "Everyone in the room sees the wall, and the host can save the posts and their votes as anonymous text; no names are kept. " +
+  "Others in the room see your name, and see it in the queue if you raise your hand. " +
+  "It all passes through our realtime provider (Supabase), and we don't store it. " +
+  "The host may send the posts, without names, to an AI service, for example to group them. " +
+  "Share the link only with your team.";
+
 // ── Amr's AI for visitors (components/agent/mascot/visitor-ai-consent.tsx) ──
 
 /** The daily allowance the card names (the server's config row is what counts). */
