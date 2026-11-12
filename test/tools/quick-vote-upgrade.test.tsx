@@ -322,12 +322,37 @@ describe("picking a format", () => {
     ).toBeInTheDocument();
   });
 
-  it("starts over from the format's own question and logs it", async () => {
+  it("starts over from the format's own question and logs it, with Undo", async () => {
     await renderPage();
     fireEvent.change(screen.getByLabelText(/^Question/), { target: { value: "Something else?" } });
     fireEvent.click(screen.getByRole("button", { name: "Start over" }));
     expect(screen.getByLabelText(/^Question/)).toHaveValue("How much do you support this plan?");
     expect(logs.at(-1)).toEqual({ action: "round_reset", payload: { preset: "fist-of-five" } });
+    undo("Started the round over");
+    expect(screen.getByLabelText(/^Question/)).toHaveValue("Something else?");
+  });
+
+  it("brings a typed round back with Undo when another format is tapped", async () => {
+    await renderPage();
+    pickFormat("Poll");
+    fireEvent.change(screen.getByLabelText(/Options, one per line/), {
+      target: { value: "Meeting room\nCafe\nOnline" },
+    });
+    pickFormat("Roman vote");
+    expect(qv().draft).toMatchObject({ presetId: "roman", optionsText: "" });
+    undo("Set up Roman vote in place of your round");
+    expect(format("Poll")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText(/Options, one per line/)).toHaveValue(
+      "Meeting room\nCafe\nOnline"
+    );
+  });
+
+  it("switches an untouched round without an Undo to offer", async () => {
+    await renderPage();
+    pickFormat("Roman vote");
+    pickFormat("ROTI");
+    expect(qv().draft).toMatchObject({ presetId: "roti" });
+    expect(toastSpy).not.toHaveBeenCalled();
   });
 });
 

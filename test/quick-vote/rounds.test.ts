@@ -9,6 +9,7 @@ import {
   presetById,
 } from "@/lib/quick-vote/presets";
 import {
+  draftEdited,
   draftFromPreset,
   normalizeDraft,
   parseLines,
@@ -231,5 +232,15 @@ describe("text and stored drafts", () => {
     const vp = normalizeDraft({ presetId: "roti", backlogItemId: "x", feelingsCore: "Glad" });
     expect(vp).toMatchObject({ backlogItemId: null, feelingsCore: null });
     expect(normalizeDraft({ presetId: "feelings", feelingsCore: "sad" })?.feelingsCore).toBe("Sad");
+  });
+
+  it("tells a round the host changed from the one its format starts with", () => {
+    const base = draftOf("poll");
+    expect(draftEdited(base, base)).toBe(false);
+    expect(draftEdited({ ...base, question: ` ${base.question} ` }, base)).toBe(false);
+    expect(draftEdited({ ...base, optionsText: "Cafe" }, base)).toBe(true);
+    expect(draftEdited({ ...base, mode: "multi" }, base)).toBe(true);
+    const g = draftOf("guess-number");
+    expect(draftEdited({ ...g, decimals: 1 }, g)).toBe(true);
   });
 });

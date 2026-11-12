@@ -172,6 +172,30 @@ export function draftFromPreset(preset: QuickVotePreset): RoundDraft {
   };
 }
 
+const EDITABLE_FIELDS = [
+  "question",
+  "optionsText",
+  "labelsText",
+  "mode",
+  "limit",
+  "min",
+  "max",
+  "decimals",
+  "unit",
+  "backlogItemId",
+  "feelingsCore",
+] as const satisfies readonly (keyof RoundDraft)[];
+
+/**
+ * Whether the host changed `draft` from `base`, the draft its format (or
+ * saved format) starts with: then replacing it loses typing, so it gets
+ * Undo. Spaces at the ends don't count.
+ */
+export function draftEdited(draft: RoundDraft, base: RoundDraft): boolean {
+  const same = (v: unknown) => (typeof v === "string" ? v.trim() : v);
+  return EDITABLE_FIELDS.some((k) => same(draft[k]) !== same(base[k]));
+}
+
 /** A draft read back from storage or an agent, or null when it can't be one. */
 export function normalizeDraft(raw: unknown): RoundDraft | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;

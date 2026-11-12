@@ -25,6 +25,7 @@ import { toast } from "@/lib/utils/toast";
 import { VOTE_LIMITS } from "@/lib/realtime/vote-room/protocol";
 import { presetById, type QuickVotePreset } from "@/lib/quick-vote/presets";
 import {
+  draftEdited,
   draftFromPreset,
   normalizeDraft,
   validateRoundDraft,
@@ -128,16 +129,34 @@ export function QuickVoteClient() {
 
   /* ── The round being set up ─────────────────────────────────────────── */
 
+  /** The draft `d`'s format, or saved format, starts with. */
+  const baseOf = (d: RoundDraft): RoundDraft => {
+    const custom = d.customId ? customPresets.find((c) => c.id === d.customId) : undefined;
+    if (custom) return { ...custom.draft, customId: custom.id };
+    return draftFromPreset(presetById(d.presetId) ?? DEFAULT_PRESET);
+  };
+
+  /** Replace the round being set up; when the host had changed it, Undo brings it back. */
+  const replaceDraft = (next: RoundDraft, label: string) => {
+    const before = freshDraft(draft);
+    if (!draftEdited(before, baseOf(before))) {
+      setDraft(next);
+      return;
+    }
+    undoable({ label, apply: () => setDraft(next), revert: () => setDraft(before) });
+  };
+
   const pick = (p: QuickVotePreset) => {
     if (readOnly) return;
     if (draft.presetId === p.id && draft.customId === null) return;
-    setDraft(draftFromPreset(p));
+    replaceDraft(draftFromPreset(p), `Set up ${p.name} in place of your round`);
     announce(`${p.name} set up. ${p.blurb}`);
   };
 
   const pickCustom = (c: CustomPreset) => {
     if (readOnly) return;
-    setDraft({ ...c.draft, customId: c.id });
+    if (draft.customId === c.id) return;
+    replaceDraft({ ...c.draft, customId: c.id }, `Set up “${c.name}” in place of your round`);
     announce(`${c.name} set up.`);
   };
 
@@ -177,8 +196,7 @@ export function QuickVoteClient() {
 
   const startOver = () => {
     if (readOnly) return;
-    const custom = customPresets.find((c) => c.id === draft.customId);
-    setDraft(custom ? { ...custom.draft, customId: custom.id } : draftFromPreset(preset));
+    replaceDraft(baseOf(freshDraft(draft)), "Started the round over");
     log(QUICK_VOTE_ACTIONS.ROUND_RESET, { preset: preset.id });
     announce("Back to the format's own question and answers.");
   };
