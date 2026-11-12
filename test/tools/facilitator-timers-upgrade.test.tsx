@@ -724,6 +724,115 @@ describe("drafting an agenda for the Ceremony Timer", () => {
     });
   });
 
+  it("fills the goal and minutes from the example, and leaving the goal keeps it", () => {
+    renderPage();
+    click("Load an example");
+    const goal = screen.getByRole("textbox", { name: /^What is the meeting for/ });
+    expect(goal).toHaveValue("Sketch ideas for a simpler sign-up flow");
+    expect(screen.getByRole("spinbutton", { name: /^Minutes/ })).toHaveValue(90);
+    fireEvent.focus(goal);
+    fireEvent.blur(goal);
+    expect(useFacilitatorSettings.getState().agenda).toMatchObject({
+      goal: "Sketch ideas for a simpler sign-up flow",
+      minutes: 90,
+    });
+    click("Clear example");
+    expect(goal).toHaveValue("");
+    // A goal typed here is kept when the field is left.
+    type(goal, "  Plan the release  ");
+    fireEvent.blur(goal);
+    expect(useFacilitatorSettings.getState().agenda.goal).toBe("Plan the release");
+  });
+
+  it("adds a suggestion with Undo, and Add all with Undo takes out only what it added", () => {
+    renderPage();
+    draftRetro();
+    fireEvent.click(screen.getByRole("button", { name: "Add: Set the stage · 7 min" }));
+    expect(lastToast().label).toBe("Added “Set the stage”");
+    lastToast().undo();
+    expect(useFacilitatorSettings.getState().agenda.segments).toEqual([]);
+    useFacilitatorSettings.setState((s) => ({
+      agenda: {
+        ...s.agenda,
+        segments: [{ id: "own-1", label: "Check-in", minutes: 5, hint: "" }],
+      },
+    }));
+    click(/^Add all/);
+    expect(lastToast().label).toBe("Added 4 segments");
+    expect(useFacilitatorSettings.getState().agenda.segments).toHaveLength(5);
+    lastToast().undo();
+    expect(useFacilitatorSettings.getState().agenda.segments.map((s) => s.label)).toEqual([
+      "Check-in",
+    ]);
+  });
+
+  it("never offers a suggestion twice near the 12-segment limit, and says when the draft is full", () => {
+    const own = Array.from({ length: 9 }, (_, i) => ({
+      id: `own-${i + 1}`,
+      label: `Part ${i + 1}`,
+      minutes: 5,
+      hint: "",
+    }));
+    useFacilitatorSettings.setState({
+      agenda: { goal: "Our sprint retrospective", minutes: 60, segments: own },
+    });
+    renderPage();
+    click("Suggest from a template");
+    const adds = () =>
+      screen.queryAllByRole("button", { name: /^Add: / }).map((b) => b.getAttribute("aria-label"));
+    expect(adds()).toHaveLength(5);
+    fireEvent.click(screen.getByRole("button", { name: "Add: Set the stage · 7 min" }));
+    expect(adds()).not.toContain("Add: Set the stage · 7 min");
+    expect(adds()).toHaveLength(4);
+    click(/^Add all/);
+    const labels = useFacilitatorSettings.getState().agenda.segments.map((s) => s.label);
+    expect(labels).toHaveLength(12);
+    expect(labels.slice(9)).toEqual(["Set the stage", "Gather data", "Generate insights"]);
+    const full = screen.getByText(/^The draft is full/);
+    expect(full).toHaveFocus();
+    // The rest wait, hidden, until there is room again.
+    expect(screen.getByTestId("ai-suggestions").closest(".hidden")).not.toBeNull();
+    click("Remove Part 1");
+    expect(screen.getByTestId("ai-suggestions").closest(".hidden")).toBeNull();
+    expect(adds()).toEqual(["Add: Decide what to do · 13 min", "Add: Close · 7 min"]);
+  }, 15_000);
+
+  it("keeps focus in the draft when a segment is removed or moved", () => {
+    useFacilitatorSettings.setState({ agenda: buildExample() });
+    renderPage();
+    const labels = useFacilitatorSettings.getState().agenda.segments.map((s) => s.label);
+    click(`Remove ${labels[1]}`);
+    expect(screen.getByRole("button", { name: `Remove ${labels[2]}` })).toHaveFocus();
+    click(`Move ${labels[2]} down`);
+    expect(screen.getByRole("button", { name: `Move ${labels[2]} down` })).toHaveFocus();
+    // At the top, the up arrow is switched off: focus goes to its down arrow.
+    click(`Move ${labels[3]} up`);
+    expect(screen.getByRole("button", { name: `Move ${labels[3]} up` })).toBeDisabled();
+    expect(screen.getByRole("button", { name: `Move ${labels[3]} down` })).toHaveFocus();
+  }, 15_000);
+
+  it("won't save a draft longer than the Ceremony Timer runs", () => {
+    useFacilitatorSettings.setState({
+      agenda: {
+        goal: "An offsite",
+        minutes: 480,
+        segments: [
+          { id: "day-1", label: "Morning", minutes: 300, hint: "" },
+          { id: "day-2", label: "Afternoon", minutes: 300, hint: "" },
+        ],
+      },
+    });
+    renderPage();
+    type(screen.getByRole("textbox", { name: /^Agenda name/ }), "Offsite");
+    click("Save to the Ceremony Timer");
+    expect(
+      screen.getByText(
+        "The Ceremony Timer runs agendas of up to 480 minutes. Remove or shorten a segment first."
+      )
+    ).toBeInTheDocument();
+    expect(useTimerSettings.getState().named).toEqual([]);
+  });
+
   it("reorders and removes draft segments, with Undo", () => {
     useFacilitatorSettings.setState({ agenda: buildExample() });
     renderPage();

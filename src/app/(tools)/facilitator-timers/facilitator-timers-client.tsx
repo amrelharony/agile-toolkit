@@ -69,9 +69,10 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 import { useTeamRoster } from "@/lib/team/use-team-roster";
 import { timerRemaining, useDockTimer, type DockedTimer } from "@/lib/timer/dock-timer";
-import { removeWithUndo } from "@/lib/utils/undoable";
+import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import {
   AGENDA_IDS,
+  MAX_AGENDA_MINUTES,
   agendaLabel,
   namedAgendaFrom,
   newSavedAgendaId,
@@ -422,16 +423,30 @@ export function FacilitatorTimersClient() {
     [named]
   );
 
-  const acceptSegments = (items: AgendaSegmentDraft[]) => {
-    setAgenda((a) => {
-      const ids = a.segments.map((s) => s.id);
-      const added: DraftSegment[] = items.map((s) => {
-        const id = newSegmentId(ids);
-        ids.push(id);
-        return { id, label: s.label, minutes: s.minutes, hint: s.hint };
-      });
-      return { ...a, segments: [...a.segments, ...added].slice(0, DRAFT_MAX_SEGMENTS) };
+  /** Add suggested segments, as many as the draft has room for, with Undo; how many were added. */
+  const acceptSegments = (items: AgendaSegmentDraft[]): number => {
+    const current = normalizeAgendaDraft(useFacilitatorSettings.getState().agenda);
+    const fit = items.slice(0, Math.max(0, DRAFT_MAX_SEGMENTS - current.segments.length));
+    if (fit.length === 0) return 0;
+    const ids = current.segments.map((s) => s.id);
+    const added: DraftSegment[] = fit.map((s) => {
+      const id = newSegmentId(ids);
+      ids.push(id);
+      return { id, label: s.label, minutes: s.minutes, hint: s.hint };
     });
+    const addedIds = new Set(added.map((s) => s.id));
+    undoable({
+      label: added.length === 1 ? `Added “${added[0].label}”` : `Added ${added.length} segments`,
+      apply: () =>
+        setAgenda((a) => ({
+          ...a,
+          segments: [...a.segments, ...added].slice(0, DRAFT_MAX_SEGMENTS),
+        })),
+      // Takes out exactly what this added, whatever else changed since.
+      revert: () =>
+        setAgenda((a) => ({ ...a, segments: a.segments.filter((s) => !addedIds.has(s.id)) })),
+    });
+    return added.length;
   };
   const removeSegment = (segment: DraftSegment) =>
     removeWithUndo<DraftSegment>({
@@ -458,6 +473,8 @@ export function FacilitatorTimersClient() {
 
   /** Save the draft as one of the Ceremony Timer's agendas, under `name`. */
   const saveToTimer = (name: string) => {
+    // The planner's form says so first; the Ceremony Timer edits nothing longer.
+    if (agenda.segments.reduce((sum, s) => sum + s.minutes, 0) > MAX_AGENDA_MINUTES) return;
     if (!useTimerSettings.persist.hasHydrated()) void useTimerSettings.persist.rehydrate();
     const id = newSavedAgendaId();
     const copy = namedAgendaFrom(
