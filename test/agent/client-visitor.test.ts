@@ -1580,9 +1580,11 @@ describe("the visitor's tool calls", () => {
     expect(JSON.stringify(last?.content)).toContain(
       `Amr used all ${VISITOR_LIMITS.maxToolRounds} tool rounds`
     );
-    // A gentle note, with "Go on" to come: never an error, so Amr doesn't frown.
+    expect(JSON.stringify(last?.content)).toContain("Send a follow-up and he'll carry on.");
+    // Said once, in the stand-in: no notice repeats it under the reply, and
+    // nothing is an error, so Amr doesn't frown.
     const { notice, error } = useAgentStore.getState();
-    expect(notice).toMatchObject({ tone: "note", kind: "round_limit" });
+    expect(notice).toBeNull();
     expect(error).toBeNull();
   });
 });

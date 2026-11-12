@@ -198,7 +198,11 @@ export const NOTICE_TEXT = {
   noKey: "Amr has no AI key to answer with. Add a GLM key in AI Settings, then try again.",
 } as const;
 
-/** The note for a turn that used every tool round (beside roundLimitNote's facts, when that stands in). */
+/**
+ * The note for an owner's turn that used every tool round, beside the
+ * wrap-up or roundLimitNote's facts when they stand in. A visitor's stand-in
+ * says it all itself.
+ */
 export function roundLimitNotice(rounds: number = MAX_TOOL_USE_ROUNDS): ChatNotice {
   return asNote(
     "round_limit",
@@ -877,7 +881,9 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     persistAssistant(conversationId, wrapUpId);
     return;
   }
-  wrapUpId = withWrapUpText(wrapUpId);
+  // A stand-in keeps to the facts: the notice below says once that a
+  // follow-up carries on, beside its Go on.
+  wrapUpId = withWrapUpText(wrapUpId, MAX_TOOL_USE_ROUNDS, false);
   persistAssistant(conversationId, wrapUpId);
   // Replaces whatever the wrap-up's own round said (a refusal of it included):
   // the turn's end is the round limit, and a follow-up carries on.
@@ -1269,20 +1275,24 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
   }
 
   // Every round ran tools: say what happened instead of asking for a wrap-up.
+  // The stand-in says it once, with its follow-up line, and no notice repeats
+  // it: a visitor's round_limit offers no Go on (notice-actions).
   if (opts.signal?.aborted) return;
   withWrapUpText(null, VISITOR_LIMITS.maxToolRounds);
-  useAgentStore.getState().setNotice(roundLimitNotice(VISITOR_LIMITS.maxToolRounds));
 }
 
 /**
  * The note shown when a round-limit turn's wrap-up wrote no text: how many
  * tool calls this turn ran and which actions failed, read from the transcript
  * since the last user message. It is narration about Amr, in the third
- * person, not his own words. Exported for tests.
+ * person, not his own words. `followUp` ends it with the line that a
+ * follow-up carries on; the owner's turn leaves that to its round-limit
+ * notice, so the chat says it once. Exported for tests.
  */
 export function roundLimitNote(
   messages: ChatMessage[],
-  rounds: number = MAX_TOOL_USE_ROUNDS
+  rounds: number = MAX_TOOL_USE_ROUNDS,
+  followUp = true
 ): string {
   const turn = messages.slice(lastUserIndex(messages) + 1);
   // As in canRetryLastTurn, each result is named from the calls of the
@@ -1316,20 +1326,28 @@ export function roundLimitNote(
       : `${failed} failed (${Array.from(failedActions)
           .map((a) => `\`${a}\``)
           .join(", ")})`;
-  return `Amr used all ${rounds} tool rounds for this request before he could sum up. This turn ran ${calls}; ${failures}. Send a follow-up and he'll carry on.`;
+  const facts = `Amr used all ${rounds} tool rounds for this request before he could sum up. This turn ran ${calls}; ${failures}.`;
+  return followUp ? `${facts} Send a follow-up and he'll carry on.` : facts;
 }
 
 /**
  * The wrap-up's message id, made to carry text: its own when the model wrote
  * some, otherwise roundLimitNote — in the wrap-up's message if it is still
  * there, or in a new assistant message when the wrap-up never made one (it
- * failed, or settleAssistant removed it as empty).
+ * failed, or settleAssistant removed it as empty). `followUp` as for
+ * roundLimitNote.
  */
-function withWrapUpText(assistantId: string | null, rounds: number = MAX_TOOL_USE_ROUNDS): string {
+function withWrapUpText(
+  assistantId: string | null,
+  rounds: number = MAX_TOOL_USE_ROUNDS,
+  followUp = true
+): string {
   const store = useAgentStore.getState();
   const msg = assistantId ? store.messages.find((m) => m.id === assistantId) : undefined;
   if (msg?.content.some((c) => c.type === "text" && c.text.trim().length > 0)) return msg.id;
-  const note: ContentBlock[] = [{ type: "text", text: roundLimitNote(store.messages, rounds) }];
+  const note: ContentBlock[] = [
+    { type: "text", text: roundLimitNote(store.messages, rounds, followUp) },
+  ];
   if (msg) {
     store.patchMessage(msg.id, note);
     return msg.id;

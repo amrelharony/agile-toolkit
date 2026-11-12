@@ -574,7 +574,10 @@ describe("round-limit wrap-up", () => {
     for (const m of useAgentStore.getState().messages) expect(m.content.length).toBeGreaterThan(0);
     const saved = h.appendMessages.mock.calls.at(-1)![1] as ChatMessage[];
     expect(saved).toEqual([last]);
-    expect(note.endsWith("Send a follow-up and he'll carry on.")).toBe(true);
+    // The note keeps to the facts; the notice under it says once that a
+    // follow-up carries on, beside its Go on.
+    expect(note.endsWith("This turn ran 10 tool calls; none failed.")).toBe(true);
+    expect(note).not.toContain("Send a follow-up");
     expect(useAgentStore.getState().notice).toEqual(roundLimitNotice());
   });
 
@@ -583,6 +586,8 @@ describe("round-limit wrap-up", () => {
     await send("keep reading the probe state");
     const text = (lastAssistant()!.content[0] as { text: string }).text;
     expect(text.startsWith(NOTE_START)).toBe(true);
+    expect(text).not.toContain("Send a follow-up");
+    expect(useAgentStore.getState().notice).toEqual(roundLimitNotice());
   });
 
   it("shows the note when the wrap-up request itself fails", async () => {

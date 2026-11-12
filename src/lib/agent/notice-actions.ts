@@ -14,9 +14,11 @@
  *    too long, signed out, a key refused, a limit reached, an action that
  *    keeps failing, something Amr can't do here), or the notice is plain.
  *
- * A visitor's "round_limit" offers nothing: it may mean the chat is over the
- * visitor route's limits, which a "Go on" would only add to, and each message
- * costs one of the day's allowance; its own words ask for smaller pieces.
+ * A visitor's "round_limit" offers nothing. It comes only from the chat being
+ * over the visitor route's limits (the client's own check, or the route's
+ * refusal), which a "Go on" would only add to, and each message costs one of
+ * the day's allowance; its own words ask for smaller pieces. A visitor's turn
+ * that used every tool round says so in its stand-in reply, with no notice.
  *
  * No runtime imports, so the visitor's chat chunk can use it without the agent
  * runtime (which loads on the first message).

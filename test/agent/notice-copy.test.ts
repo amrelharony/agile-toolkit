@@ -3,7 +3,8 @@
  * person, never words of his own: none says I, me or my (one Amr voice, DNA
  * §6), and none uses an em or en dash. The strings are collected from the
  * client's exported constants and by calling every builder over the cases it
- * knows, including the round-limit note that stands in for a wrap-up.
+ * knows, including the round-limit note that stands in for a wrap-up (with and
+ * without its follow-up line).
  */
 
 import { describe, expect, it } from "vitest";
@@ -93,6 +94,7 @@ function everyNotice(): string[] {
       [3, 2],
     ]) {
       out.push(roundLimitNote(turn(ok, failed), rounds));
+      out.push(roundLimitNote(turn(ok, failed), rounds, false));
     }
   }
   return out;
@@ -120,6 +122,10 @@ describe("the client's notices", () => {
     // The facts it has always reported stay.
     expect(text).toContain("This turn ran 3 tool calls; 1 failed (`tool_any_write`).");
     expect(text.endsWith("Send a follow-up and he'll carry on.")).toBe(true);
+    // Without its follow-up line (the owner's notice says that), it ends on the facts.
+    expect(roundLimitNote(turn(2, 1), 10, false)).toBe(
+      "Amr used all 10 tool rounds for this request before he could sum up. This turn ran 3 tool calls; 1 failed (`tool_any_write`)."
+    );
   });
 
   it("put no status code in what the reader sees", () => {
