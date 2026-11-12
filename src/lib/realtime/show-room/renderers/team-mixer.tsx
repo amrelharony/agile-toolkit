@@ -10,7 +10,7 @@
  * their name again every round. Nothing typed is sent.
  */
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
@@ -59,9 +59,16 @@ function findStatus(key: string, matches: readonly string[], none: string): stri
 function FindBox({ find, status }: { find: ReturnType<typeof useFind>; status: string }) {
   const id = useId();
   const inputRef = useRef<HTMLInputElement>(null);
-  // Typing when the next frame came: carry on in the new box.
-  useEffect(() => {
-    if (remembered.focused) inputRef.current?.focus();
+  // Typing when the next frame came: carry on in the new box. Whether this
+  // box had focus is read as it goes, before its node leaves the page (a
+  // layout cleanup runs first): some browsers fire blur on that removal,
+  // so an onBlur flag would say it never had focus.
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (remembered.focused) input?.focus();
+    return () => {
+      remembered.focused = input !== null && input.ownerDocument.activeElement === input;
+    };
   }, []);
   return (
     <div className="space-y-1.5">
@@ -75,12 +82,6 @@ function FindBox({ find, status }: { find: ReturnType<typeof useFind>; status: s
         ref={inputRef}
         value={find.text}
         onChange={(e) => find.setText(e.target.value)}
-        onFocus={() => {
-          remembered.focused = true;
-        }}
-        onBlur={() => {
-          remembered.focused = false;
-        }}
       />
       <p role="status" aria-live="polite" className="min-h-5 text-sm text-text">
         {status}

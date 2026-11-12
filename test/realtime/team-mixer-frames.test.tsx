@@ -252,8 +252,20 @@ describe("the groups view", () => {
     expect(again).toHaveValue("bo");
     expect(again).toHaveFocus();
     expect(screen.getByText("Bo is in Group 1.")).toBeInTheDocument();
-    fireEvent.change(again, { target: { value: "" } });
+    // Not typing when the round after comes: the name stays, and the new
+    // box leaves focus where it is.
     again.blur();
+    view.rerender(
+      <LiveAnnouncerProvider>
+        <ShowFrameView tool="team-mixer" frame={frameOf("groups", GROUPS, 3)} surface="phone" />
+      </LiveAnnouncerProvider>
+    );
+    const third = screen.getByLabelText("Find your name");
+    expect(third).not.toBe(again);
+    expect(third).toHaveValue("bo");
+    expect(third).not.toHaveFocus();
+    expect(screen.getByText("Bo is in Oak.")).toBeInTheDocument();
+    fireEvent.change(third, { target: { value: "" } });
   });
 
   it("has no find box on the host's preview", () => {
