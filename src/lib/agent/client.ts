@@ -762,7 +762,17 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     const toolUses = lastAssistant.content.filter(
       (c): c is ToolUseBlock => c.type === "tool_use" && !isPartialInput(c.input)
     );
-    if (toolUses.length === 0) return;
+    if (toolUses.length === 0) {
+      // Asked for tools, but no call parsed: nothing ran and nothing goes
+      // back. Say so, as a visitor's chat does, rather than end on a raw call:
+      // "no answer" (Try again) without text, "may have been cut off" (Go on)
+      // with it.
+      if (!opts.signal?.aborted) {
+        const note = roundEndNote(lastAssistant.id, null, true, false);
+        if (note) useAgentStore.getState().setNotice(note);
+      }
+      return;
+    }
 
     // Execute each tool_use in order, accumulating results as a single
     // tool-role message. wireMessages will fan this out to one OpenAI

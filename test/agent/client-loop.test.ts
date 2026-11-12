@@ -1120,6 +1120,41 @@ describe("a tool call's arguments", () => {
     expect(h.executeToolUse).not.toHaveBeenCalled();
     expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(toolUses().map((c) => c.input)).toEqual([{ _partial: true }]);
+    // Nothing ran and nothing came back: the turn says so rather than end silently.
+    expect(useAgentStore.getState().notice).toEqual({
+      tone: "note",
+      kind: "no_answer",
+      text: NOTICE_TEXT.noAnswer,
+    });
+    expect(useAgentStore.getState().error).toBeNull();
+  });
+
+  it("that never parse after some text say the answer may have been cut off", async () => {
+    queue = [
+      sse(
+        delta({ content: "Let me check the probe" }),
+        delta({
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_bad",
+              type: "function",
+              function: { name: PROBE_TOOL, arguments: '{"text": "cut' },
+            },
+          ],
+        }),
+        delta({}, "tool_calls"),
+        "[DONE]"
+      ),
+    ];
+    await send("read the probe state", null);
+    expect(h.executeToolUse).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().notice).toEqual({
+      tone: "note",
+      kind: "cut_off",
+      text: NOTICE_TEXT.mayBeCut,
+    });
+    expect(useAgentStore.getState().error).toBeNull();
   });
 });
 
