@@ -192,6 +192,23 @@ class Custody(unittest.TestCase):
         with self.assertRaises(SystemExit):
             spec.private_dir(repo_like / "review")
 
+    @unittest.skipUnless(
+        (spec.DEFAULT_SOURCES / "sources" / "blocks" / "AAW-25.txt").exists(), "the private sources are not on this machine"
+    )
+    def test_the_synthetic_puppet_is_painted_far_from_the_real_one(self):
+        # Distances only: no swatch is printed, even when this fails.
+        import numpy as np
+
+        import cast_synth as cs
+        from cast import imaging as im
+        from cast import palette
+
+        swatches = [im.hex_lab(h) for _, h in palette.block_colours(spec.DEFAULT_SOURCES, "AAW-25")]
+        self.assertTrue(swatches)
+        for name, rgb in cs.PALETTE.items():
+            near = min(float(im.de00(im.lab(np.array(rgb, float)), s)) for s in swatches)
+            self.assertTrue(near > spec.TOL["de00_regen"], f"cast_synth's {name} is within de00_regen of a swatch")
+
 
 if __name__ == "__main__":
     unittest.main()

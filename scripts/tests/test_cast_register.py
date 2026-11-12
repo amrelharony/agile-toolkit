@@ -85,7 +85,7 @@ class Register(unittest.TestCase):
         good = rg.register(cs.scaled(torso, 0.85), self.master)
         bad_art = torso.copy()
         body = np.all(np.abs(bad_art[..., :3].astype(int) - cs.BODY) < 40, axis=-1)
-        bad_art[body, :3] = (60, 170, 160)  # the body drawn in another colour
+        bad_art[body, :3] = (226, 128, 52)  # the body drawn in another colour
         bad = rg.register(cs.scaled(bad_art, 0.85), self.master)
         self.assertGreater(bad.ncc, TOL["ncc_warn"])  # the second pass alone would pass it
         self.assertGreater(bad.excluded, 0.5)

@@ -1,7 +1,8 @@
 """Synthetic cast art for the builder's tests: simple shapes drawn with Pillow, no
-canon. A made-up sticky-note puppet with the piece ids of an object-family rig
-(torso, flap, pupils, arms, legs), its master, parts, face and arms sheets, on a
-flat key or real alpha, plus loose helpers (specks, a checkerboard, margins).
+canon. A made-up note-shaped puppet built on AAW-25's public spec entry (the
+builder needs a real id: its piece list and images, nothing of its looks) in a
+palette of its own, its master, parts, face and arms sheets, on a flat key or real
+alpha, plus loose helpers (specks, a checkerboard, margins).
 
 Every drawing is supersampled twice and halved, so edges are antialiased the way
 real art is.
@@ -23,13 +24,19 @@ from PIL import Image, ImageDraw  # noqa: E402
 W, H = 1536, 1024
 MAGENTA = (255, 0, 255)
 GREEN = (0, 255, 0)
-INK = (34, 26, 22)
-BODY = (238, 196, 52)
-FLAP = (205, 160, 34)
-LIMB = (52, 52, 58)
-GLOVE = (250, 250, 246)
-WHITE = (252, 252, 250)
+# A palette of its own, clearly no character's: a pale teal note with a blue-teal flap,
+# navy ink, plum limbs, and gloves the grey of its whites. test_cast_spec.py holds every
+# colour here more than de00_regen from the real AAW-25 block's swatches, when the
+# private folder is on this machine (it prints no swatch).
+INK = (22, 30, 78)
+BODY = (120, 210, 200)
+FLAP = (60, 140, 150)
+LIMB = (98, 46, 88)
+GLOVE = (168, 174, 188)
+WHITE = (172, 178, 190)
 MOUTH = (150, 40, 40)
+BAND = (40, 180, 90)  # on arm-l only, so the two arms are not mirror images
+PALETTE = {"ink": INK, "body": BODY, "flap": FLAP, "limb": LIMB, "glove": GLOVE, "white": WHITE, "mouth": MOUTH, "band": BAND}
 SS = 2  # supersampling
 
 
@@ -177,7 +184,7 @@ def arm(side: str, angle: float = 0.0) -> np.ndarray:
     p.ellipse((ex - 34, ey - 34, ex + 34, ey + 34), GLOVE)
     if side == "arm-l":  # a band, so the two arms are not mirror images
         mx, my = sx + 0.6 * (ex - sx), sy + 0.6 * (ey - sy)
-        p.ellipse((mx - 12, my - 12, mx + 12, my + 12), (210, 60, 60), outline=None)
+        p.ellipse((mx - 12, my - 12, mx + 12, my + 12), BAND, outline=None)
     return p.done()
 
 

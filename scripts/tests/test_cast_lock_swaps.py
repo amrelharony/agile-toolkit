@@ -153,7 +153,8 @@ class Face(unittest.TestCase):
         box = (x0, y0, x0 + 120, y0 + 120)
         out = swaps.fill_whites(img, box)
         x, y = cs.EYES[0]
-        self.assertGreater(im.lab(out[y + 4, x + 8, :3].astype(float))[0], 90)
+        white = im.lab(np.array(cs.WHITE, float))[0]
+        self.assertAlmostEqual(im.lab(out[y + 4, x + 8, :3].astype(float))[0], white, delta=3)
         np.testing.assert_array_equal(out[:, x0 + 200 :], img[:, x0 + 200 :])  # nothing else
         # C10 reads the same: a pupil drawn into the eye, and none once painted out.
         self.assertEqual(len(swaps.drawn_pupils(img, box)), 1)
