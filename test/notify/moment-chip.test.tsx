@@ -13,8 +13,9 @@ import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 
 /**
  * The moment chip beside Amr: its copy, the ~4 s fade (held while hovered),
- * tap → Activity, X and swipe to dismiss, its place by Amr's corner on
- * phones and desktop, and no animation under reduced motion.
+ * tap → Activity, X and swipe to dismiss, its place beside where Amr is drawn
+ * (and as far up as he has stepped) on phones and desktop, and no animation
+ * under reduced motion.
  */
 
 const h = vi.hoisted(() => ({ phone: false }));
@@ -141,13 +142,53 @@ describe("MomentChip", () => {
 
   it("phones: just above Amr's band on his side", () => {
     h.phone = true;
-    useMascotStore.getState().setCorner("bottomLeft");
+    useMascotStore.getState().setPlacement({ side: "left", edge: "bottom" }, 0);
     render(<MomentChip />);
     show();
     const style = screen.getByRole("status").style;
     expect(style.position).toBe("fixed");
     expect(style.bottom).toContain("--amr-band-bottom");
     expect(style.left).toBe("16px");
+  });
+
+  it("stands beside where Amr is drawn, not the corner he was put in", () => {
+    // Put in the bottom right, but stepped aside to the left for a control.
+    useMascotStore.getState().setCorner("bottomRight");
+    useMascotStore.getState().setPlacement({ side: "left", edge: "bottom" }, 0);
+    render(<MomentChip />);
+    show();
+    const style = screen.getByRole("status").style;
+    expect(style.left).toBe("156px");
+    expect(style.right).toBe("");
+    expect(style.bottom).toBe("24px");
+  });
+
+  it("follows his lift, and moves with him while it is up", () => {
+    render(<MomentChip />);
+    show();
+    const region = screen.getByRole("status");
+    expect(region.style.bottom).toBe("24px");
+    expect(region.style.right).toBe("156px");
+    // He steps 48 px up off his edge: the chip rises with him, past him.
+    act(() => useMascotStore.getState().setPlacement({ side: "right", edge: "bottom" }, 48));
+    expect(region.style.bottom).toBe("72px");
+    expect(region).toHaveTextContent("Level 8 · tap to see");
+    // Back down, and to a top corner: level with him under the header.
+    act(() => useMascotStore.getState().setPlacement({ side: "left", edge: "top" }, 0));
+    expect(region.style.bottom).toBe("");
+    expect(region.style.top).toContain("--header-h");
+    expect(region.style.left).toBe("156px");
+  });
+
+  it("phones: follows his lift past his band", () => {
+    h.phone = true;
+    useMascotStore.getState().setPlacement({ side: "right", edge: "bottom" }, 96);
+    render(<MomentChip />);
+    show();
+    const style = screen.getByRole("status").style;
+    expect(style.bottom).toContain("--amr-band-bottom");
+    expect(style.bottom).toContain("104px");
+    expect(style.right).toBe("16px");
   });
 
   it("previewMoment() shows it", () => {

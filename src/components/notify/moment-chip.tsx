@@ -12,6 +12,7 @@ import { Award, Crown, Flag, Sparkles, TrendingUp, X, type LucideIcon } from "lu
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
+import { cornerAt } from "@/components/agent/mascot/amr-geometry";
 import { CHIP_MS, useMomentStore, type MomentShown } from "@/lib/notify/moment-scheduler";
 import { momentChipText } from "@/lib/notify/copy";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
@@ -68,11 +69,17 @@ export function momentChipPosition(corner: MascotCorner, phone: boolean, lift = 
  * It stays while hovered or focused, and has no animation under reduced
  * motion. Mounted once in app-shell.tsx; between moments only its empty live
  * region is in the page.
+ *
+ * It stands beside where he is drawn (the mascot store's `placed`: the other
+ * side when he has stepped aside for a control) and as far off his edge as he
+ * has stepped (`lift`): the same spot as his outside bubble, which waits while
+ * the chip is up. When he steps up or aside, the chip goes with him.
  */
 export function MomentChip() {
   const moment = useMomentStore((s) => s.current);
   const dismiss = useMomentStore((s) => s.dismiss);
-  const corner = useMascotStore((s) => s.corner);
+  const placed = useMascotStore((s) => s.placed);
+  const lift = useMascotStore((s) => s.lift);
   const phone = useMediaQuery(PHONE_MEDIA_QUERY);
   const openActivity = useActivityUiStore((s) => s.openActivity);
   const [held, setHeld] = useState(false);
@@ -103,7 +110,7 @@ export function MomentChip() {
       aria-live="polite"
       aria-atomic="true"
       data-moment-region
-      style={{ position: "fixed", ...momentChipPosition(corner, phone) }}
+      style={{ position: "fixed", ...momentChipPosition(cornerAt(placed), phone, lift) }}
       className="pointer-events-none z-[55] max-w-[min(18rem,calc(100vw-32px))]"
     >
       {moment ? (
