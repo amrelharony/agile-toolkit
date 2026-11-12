@@ -505,6 +505,24 @@ describe("prompt.run: the drawer's Run with AI", () => {
     expect(text.trim().endsWith("data: [DONE]")).toBe(true);
   });
 
+  it("records the token counts on the usage row before the stream ends", async () => {
+    let written = false;
+    h.rpc.mockImplementation(async (fn: string) => {
+      if (fn === "check_tool_ai_rate_limit") return { data: ALLOWED, error: null };
+      // A slow write: it must still be done by the time the body has ended.
+      await new Promise((r) => setTimeout(r, 30));
+      written = true;
+      return { data: null, error: null };
+    });
+    fetchMock.mockImplementation(async () => answer("Three themes stood out."));
+    const text = await readAll(await POST(post(RUN)));
+    expect(text.trim().endsWith("data: [DONE]")).toBe(true);
+    expect(written).toBe(true);
+    expect(rpcCalls("record_tool_ai_tokens")).toEqual([
+      ["record_tool_ai_tokens", { p_id: ALLOWED.id, p_tokens_in: 120, p_tokens_out: 30 }],
+    ]);
+  });
+
   it("refuses an empty or over-long prompt before the limiter", async () => {
     for (const prompt of ["", "x".repeat(24_001)]) {
       await expectRefusal(

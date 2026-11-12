@@ -35,8 +35,13 @@ export interface PromptRunArgs {
   startedAt?: number;
   fetchImpl?: typeof fetch;
   firstByteTimeoutMs?: number;
-  /** Called once when the stream is over, with the token counts if the gateway sent them. */
-  onDone?: (usage: AiUsage | undefined) => void;
+  /**
+   * Called once when the answer is over, with the token counts if the gateway
+   * sent them. Awaited before the stream's [DONE] and close, so its work (the
+   * owner's token write) finishes while the function is still serving the
+   * response; keep it short (the owner's write has its own 2.5 s timeout).
+   */
+  onDone?: (usage: AiUsage | undefined) => void | Promise<void>;
 }
 
 export type PromptRunResult =
@@ -192,6 +197,13 @@ export async function runPromptStream(args: PromptRunArgs): Promise<PromptRunRes
             ? "length"
             : null;
       if (ending) push(event({ error: ending }));
+      // Before the close: once the response ends, a serverless function can
+      // be frozen, and a write started after that may never land.
+      try {
+        await args.onDone?.(usage);
+      } catch {
+        /* best effort */
+      }
       push(DONE);
       if (!gone) {
         try {
@@ -201,11 +213,6 @@ export async function runPromptStream(args: PromptRunArgs): Promise<PromptRunRes
         }
       }
       log(ending ?? "ok", startedAt, usage);
-      try {
-        args.onDone?.(usage);
-      } catch {
-        /* best effort */
-      }
     },
     cancel() {
       // The browser stopped reading (Stop, or the drawer closed): stop paying for tokens.

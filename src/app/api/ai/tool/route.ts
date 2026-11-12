@@ -124,9 +124,11 @@ export async function POST(req: NextRequest) {
       signal: req.signal,
       startedAt,
       deadlineMs: TOOL_AI_DEADLINE_MS,
-      onDone: (usage) => {
-        if (usage && meter.id)
-          void recordOwnerTokens(supabase, meter.id, usage.tokensIn, usage.tokensOut);
+      // Awaited before the stream closes, so the write lands on serverless too.
+      onDone: async (usage) => {
+        if (usage && meter.id) {
+          await recordOwnerTokens(supabase, meter.id, usage.tokensIn, usage.tokensOut);
+        }
       },
     });
     if (!run.ok) {
