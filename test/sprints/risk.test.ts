@@ -57,7 +57,7 @@ describe("sprintRisk", () => {
     const blocked = sprintRisk(
       facts({ sprint: { name: "Sprint 7", status: "active" }, blockedStories: 1 })
     );
-    expect(blocked.headline).toBe("Worth watching: 1 sign could put Sprint 7 at risk.");
+    expect(blocked.headline).toBe("1 sign could put Sprint 7 at risk.");
   });
 
   it("is at risk when the projected finish is after the last day", () => {
@@ -181,7 +181,7 @@ describe("sprintRisk", () => {
     );
     expect(risk.reasons.map((r) => r.id)).toEqual(["interrupts", "blocked"]);
     const watch = sprintRisk(facts({ blockedStories: 1, burn: burn({ scopeAdded: 9 }) }));
-    expect(watch.headline).toBe("Worth watching: 2 signs could put the sprint goal at risk.");
+    expect(watch.headline).toBe("2 signs could put the sprint goal at risk.");
   });
 
   it("doesn't judge a sprint that isn't running", () => {

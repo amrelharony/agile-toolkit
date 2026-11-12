@@ -270,7 +270,11 @@ describe("the data", () => {
 
   it("puts the goal check and the buffer in the report", () => {
     const md = cockpitMarkdown({ data: gather(), series: SERIES, sprints: [S2], today: TODAY });
-    expect(md).toContain("**Goal check: Worth watching.** Worth watching:");
+    // The level once, then the headline in its own words.
+    expect(md).toContain(
+      "**Goal check: Worth watching.** 3 signs could put the sprint goal at risk."
+    );
+    expect(md).not.toContain("Worth watching: 3 signs");
     expect(md).toContain("- Worth watching: 1 story is blocked on the board. Try: Unblock");
     expect(md).toContain("## Interrupt buffer\n\n7 of 8 points used, 1 point left.");
     expect(md).toContain("| Interrupt buffer | 7 of 8 pts | 1 left · 2 interrupts · 1 open |");
@@ -298,12 +302,37 @@ describe("the page", () => {
     expect(within(card).getByText("1 story is blocked on the board.")).toBeInTheDocument();
     expect(within(card).getAllByText(/^Try:/)).toHaveLength(3);
 
-    fireEvent.click(within(card).getByRole("button", { name: "Sum it up without AI" }));
+    const ask = within(card).getByRole("button", { name: "Sum it up without AI" });
+    fireEvent.click(ask);
     const note = card.querySelector("[data-risk-note]") as HTMLElement;
     expect(note).toHaveTextContent("Summed up without AI");
-    expect(note).toHaveTextContent(/Worth watching: 3 signs .* Try this: /);
-    fireEvent.click(within(card).getByRole("button", { name: "Hide the note" }));
+    expect(note).toHaveTextContent(/3 signs could put the sprint goal at risk\. .* Try this: /);
+    const hide = within(card).getByRole("button", { name: "Hide the note" });
+    hide.focus();
+    fireEvent.click(hide);
     expect(card.querySelector("[data-risk-note]")).toBeNull();
+    // Focus goes back to the button that asked for the note, not to the page.
+    expect(document.activeElement).toBe(ask);
+  });
+
+  it("drops the note once the facts it was written from change", () => {
+    seed();
+    render(<SprintCockpit />);
+    const card = screen.getByRole("region", { name: "Goal check: worth watching" });
+    fireEvent.click(within(card).getByRole("button", { name: "Sum it up without AI" }));
+    expect(card.querySelector("[data-risk-note]")).toHaveTextContent("1 story is blocked");
+    // The story is unblocked: the note would now state a reason that's no longer true.
+    act(() =>
+      useWorkspaceStore.setState({ stories: STORIES.map((s) => ({ ...s, blocked: false })) })
+    );
+    const after = screen.getByRole("region", { name: "Goal check: worth watching" });
+    expect(after.querySelector('[data-risk-reason="blocked"]')).toBeNull();
+    expect(after.querySelector("[data-risk-note]")).toBeNull();
+    // Asked again, it reads the facts as they are now.
+    fireEvent.click(within(after).getByRole("button", { name: "Sum it up without AI" }));
+    const note = after.querySelector("[data-risk-note]") as HTMLElement;
+    expect(note).toHaveTextContent("2 signs could put the sprint goal at risk.");
+    expect(note).not.toHaveTextContent("blocked");
   });
 
   it("links the interrupt tile to the Interrupt Buffer on this sprint", () => {
@@ -352,9 +381,13 @@ describe("the page", () => {
     const wall = screen.getByRole("dialog", { name: "Sprint 2" });
     expect(within(wall).getByText("Goal: Checkout works end to end")).toBeInTheDocument();
     expect(within(wall).getByText(/^Day 7 of 10 · 3 days left$/)).toBeInTheDocument();
-    expect(wall.querySelector('[data-wall-risk="watch"]')).toHaveTextContent(
-      "Worth watching: Worth watching: 3 signs"
-    );
+    // The level once, then the headline.
+    const risk = wall.querySelector('[data-wall-risk="watch"]') as HTMLElement;
+    expect(within(risk).getByText("Goal check: Worth watching")).toBeInTheDocument();
+    expect(
+      within(risk).getByText("3 signs could put the sprint goal at risk.")
+    ).toBeInTheDocument();
+    expect(risk).not.toHaveTextContent("Worth watching: Worth watching");
     expect(within(wall).getByText("Interrupt buffer")).toBeInTheDocument();
     // Nothing in it is a control.
     expect(within(wall).queryByRole("button")).toBeNull();

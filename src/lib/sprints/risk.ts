@@ -65,7 +65,11 @@ export interface SprintRisk {
   level: RiskLevel;
   /** The worst first. */
   reasons: RiskReason[];
-  /** One sentence for the top of the card. */
+  /**
+   * One sentence for the top of the card. It says the level in its own words
+   * without the level's label ("3 signs could put …"), so it reads well after
+   * a "Goal check: Worth watching" heading.
+   */
   headline: string;
 }
 
@@ -306,7 +310,7 @@ export function sprintRisk(facts: SprintRiskFacts): SprintRisk {
     level === "at_risk"
       ? `${who.lead} is at risk.`
       : level === "watch"
-        ? `Worth watching: ${plural(reasons.length, "sign")} could put ${who.mid} at risk.`
+        ? `${plural(reasons.length, "sign")} could put ${who.mid} at risk.`
         : `${who.lead} looks on track: nothing puts it at risk today.`;
   return { applies: true, notApplicable: null, level, reasons, headline };
 }

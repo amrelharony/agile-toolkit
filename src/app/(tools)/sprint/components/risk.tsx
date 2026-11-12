@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Eye } from "lucide-react";
 import { AiButton } from "@/components/ai";
 import { Button } from "@/components/ui/button";
@@ -43,7 +43,10 @@ export function riskNoteInput(
  * The goal check: whether the sprint goal is at risk, the reasons the rule
  * found and a thing to try for each (lib/sprints/risk). "Why, and what to
  * try" asks Amr for a short plain note on top; it is only shown, nothing is
- * saved from it, and without AI the rule's own sentences answer. A sprint
+ * saved from it, and without AI the rule's own sentences answer. The note
+ * shows only while the facts it was written from still hold: unblock a
+ * story or resolve an impediment and it goes, so it never states a reason
+ * that is no longer true. A sprint
  * on track gets one quiet line; one that isn't running gets nothing (the
  * verdict says where it stands).
  */
@@ -67,9 +70,14 @@ export function CockpitRisk({
   withNote?: boolean;
 }) {
   const headingId = useId();
-  const [note, setNote] = useState<{ text: string; source: AiSource; sprintId: string } | null>(
-    null
-  );
+  const askRef = useRef<HTMLDivElement>(null);
+  const [note, setNote] = useState<{
+    text: string;
+    source: AiSource;
+    sprintId: string;
+    /** The facts the note was written from (riskNoteInput, as JSON). */
+    facts: string;
+  } | null>(null);
   if (!risk.applies) return null;
   if (risk.level === "none") {
     return (
@@ -81,8 +89,10 @@ export function CockpitRisk({
   }
   const atRisk = risk.level === "at_risk";
   const Icon = atRisk ? AlertTriangle : Eye;
-  // A note written for another sprint never shows on this one.
-  const shown = note && note.sprintId === sprint.id ? note : null;
+  const input = riskNoteInput(risk, sprint, day, length);
+  const facts = JSON.stringify(input);
+  // A note written for another sprint, or from facts that have changed since, never shows.
+  const shown = note && note.sprintId === sprint.id && note.facts === facts ? note : null;
   return (
     <section
       aria-labelledby={headingId}
@@ -121,14 +131,14 @@ export function CockpitRisk({
         ))}
       </ul>
       {!compact && withNote && (
-        <div className="space-y-2">
+        <div className="space-y-2" ref={askRef}>
           <AiButton
             task={sprintRiskNoteTask}
             label="Why, and what to try"
             fallbackLabel="Sum it up without AI"
-            input={() => riskNoteInput(risk, sprint, day, length)}
+            input={() => input}
             onResult={(data, meta) =>
-              setNote({ text: data.note, source: meta.source, sprintId: sprint.id })
+              setNote({ text: data.note, source: meta.source, sprintId: sprint.id, facts })
             }
           />
           {shown && (
@@ -144,7 +154,13 @@ export function CockpitRisk({
                 variant="ghost"
                 size="sm"
                 className="mt-1"
-                onClick={() => setNote(null)}
+                onClick={() => {
+                  // This button goes with the note: focus goes back to the one that asked for it.
+                  askRef.current
+                    ?.querySelector<HTMLElement>('[data-testid="ai-button"]')
+                    ?.focus({ preventScroll: true });
+                  setNote(null);
+                }}
               >
                 Hide the note
               </Button>

@@ -212,9 +212,9 @@ export function CockpitWallContent({
                 : "border-success/40 bg-success/5"
           )}
         >
-          <p className="font-semibold sm:text-3xl">
-            {RISK_LEVEL_LABEL[risk.level]}: {risk.headline}
-          </p>
+          {/* The label, then the headline: it says the level in its own words. */}
+          <p className="font-semibold sm:text-3xl">Goal check: {RISK_LEVEL_LABEL[risk.level]}</p>
+          <p className="sm:text-3xl">{risk.headline}</p>
           {risk.reasons.length > 0 && (
             <ul className="mt-2 list-disc space-y-1 pl-6">
               {risk.reasons.slice(0, 3).map((r) => (
