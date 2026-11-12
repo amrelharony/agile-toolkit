@@ -30,6 +30,7 @@ import { ConfirmCard } from "./chat/confirm-card";
 import { MessageBubble, useToolSteps } from "./message-bubble";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
+import { useInitialFocus } from "./mascot/panel-context";
 import { Send, Mic, Square } from "lucide-react";
 import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 
@@ -71,11 +72,12 @@ export function AgentConversation() {
   // False while Amr's Scenes view covers the chat (mounted, hidden).
   const visible = useChatVisible();
 
-  // Focus the composer when the panel opens (this component mounts on open), and
-  // again when the chat comes back from under the Scenes view.
-  useEffect(() => {
-    if (visible) composerRef.current?.focus();
-  }, [visible]);
+  // The composer is where the panel's focus owner puts focus when it opens
+  // (this component mounts on open), and again when the chat comes back from
+  // under the Scenes view, on a fine pointer only: a tap on a phone doesn't
+  // raise the keyboard. Focus someone placed (the History button, coming back
+  // from History) keeps it.
+  useInitialFocus(composerRef, visible);
   // Voice dictation fills the composer; the user reviews + sends.
   const voice = useVoiceInput((text) => setDraft(text));
 

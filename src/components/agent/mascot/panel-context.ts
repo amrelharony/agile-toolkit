@@ -66,12 +66,16 @@ function onTouchScreen(): boolean {
  * a fine pointer (or none): on a touch screen the field would raise the
  * keyboard over the panel before anyone chose to type, so the view offers
  * nothing there and focus stays where the open left it.
+ *
+ * `offered` is false while the view is mounted but hidden (under Amr's
+ * scenes): it is withdrawn then, and offered again as the view shows, so the
+ * focus owner places it as on an open, where focus is free to take.
  */
-export function useInitialFocus(ref: RefObject<HTMLElement | null>): void {
+export function useInitialFocus(ref: RefObject<HTMLElement | null>, offered = true): void {
   const { registerInitialFocus } = useAmrPanel();
   useEffect(() => {
-    if (onTouchScreen()) return;
+    if (!offered || onTouchScreen()) return;
     registerInitialFocus(ref.current);
     return () => registerInitialFocus(null);
-  }, [ref, registerInitialFocus]);
+  }, [ref, registerInitialFocus, offered]);
 }

@@ -75,6 +75,7 @@ vi.mock("@/components/agent/mascot/owner-agent-panel", async (importOriginal) =>
 import "@/components/agent/mascot/owner-agent-panel";
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
 import { VISITOR_BODY_LOADING } from "@/components/agent/mascot/lazy-visitor-body";
+import { VisitorPanel } from "@/components/agent/mascot/visitor-panel";
 import { VISITOR_AI_CONSENT_KEY } from "@/components/agent/mascot/visitor-ai-consent";
 import { useAgentStore } from "@/lib/agent/store";
 
@@ -99,6 +100,7 @@ function stubPointer(coarse: boolean) {
 
 const amr = () => screen.getByRole("button", { name: "Ask Amr" });
 const plate = () => screen.getByRole("heading", { name: "Amr" });
+const composer = () => screen.getByLabelText("Message");
 
 /** Enter or Space on Amr (a click with detail 0), or a mouse or finger on him. */
 function pressAmr(via: "keyboard" | "pointer") {
@@ -118,6 +120,10 @@ function pageButton(name: string): HTMLButtonElement {
   button.textContent = name;
   document.body.appendChild(button);
   return button;
+}
+
+function typesText(el: Element | null): boolean {
+  return el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement;
 }
 
 const originalCloseSheet = useAgentStore.getState().closeSheet;
@@ -199,6 +205,17 @@ describe("a keyboard open", () => {
     await guideLoaded();
     expect(plate()).toHaveFocus();
   });
+
+  it("on a touch screen goes to the plate, never into a text field", async () => {
+    stubPointer(true);
+    h.auth = OWNER;
+    render(<MascotAssistant />);
+    pressAmr("keyboard");
+    const box = await screen.findByLabelText("Message");
+    await act(() => sleep(20));
+    expect(box).not.toHaveFocus();
+    expect(plate()).toHaveFocus();
+  });
 });
 
 describe("a pointer open", () => {
@@ -211,6 +228,20 @@ describe("a pointer open", () => {
     await waitFor(() => expect(box).toHaveFocus());
   });
 
+  it("on a touch screen never puts focus in a text field", async () => {
+    stubPointer(true);
+    h.auth = OWNER;
+    render(<MascotAssistant />);
+    amr().focus();
+    pressAmr("pointer");
+    const box = await screen.findByLabelText("Message");
+    await act(() => sleep(20));
+    expect(box).not.toHaveFocus();
+    expect(typesText(document.activeElement)).toBe(false);
+    // Focus stays where the tap left it.
+    expect(amr()).toHaveFocus();
+  });
+
   it("of the tool finder leaves focus where it was", async () => {
     render(<MascotAssistant />);
     amr().focus();
@@ -219,6 +250,35 @@ describe("a pointer open", () => {
     await act(() => sleep(20));
     expect(amr()).toHaveFocus();
     expect(plate()).not.toHaveFocus();
+  });
+
+  it("doesn't take focus back from a page field the visitor moved to while the chunk loaded", async () => {
+    h.auth = OWNER;
+    h.chunkDelay = 100;
+    const field = document.createElement("input");
+    field.setAttribute("aria-label", "Page field");
+    document.body.appendChild(field);
+    render(<MascotAssistant />);
+    amr().focus();
+    pressAmr("pointer");
+    field.focus();
+    const box = await screen.findByLabelText("Message", undefined, { timeout: 2000 });
+    await act(() => sleep(20));
+    expect(box).not.toHaveFocus();
+    expect(field).toHaveFocus();
+  });
+});
+
+describe("the visitor's chat on a touch screen", () => {
+  it("opens without focusing its message box", async () => {
+    stubPointer(true);
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    render(<VisitorPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    const box = await screen.findByLabelText("Message");
+    await act(() => sleep(20));
+    expect(box).not.toHaveFocus();
+    expect(typesText(document.activeElement)).toBe(false);
   });
 });
 
@@ -389,5 +449,30 @@ describe("the safety net", () => {
     await act(() => sleep(20));
     expect(document.body).toHaveFocus();
     expect(plate()).not.toHaveFocus();
+  });
+});
+
+describe("History", () => {
+  it("keeps focus on its button on the way back to the chat", async () => {
+    h.auth = OWNER;
+    render(<MascotAssistant />);
+    pressAmr("pointer");
+    await waitFor(() => expect(composer()).toHaveFocus());
+
+    const history = await screen.findByRole("button", { name: "Conversation history" });
+    history.focus();
+    fireEvent.click(history);
+    await screen.findByTestId("conversation-list");
+    const back = screen.getByRole("button", { name: "Back to chat" });
+    // One button both ways: focus stays on it going in.
+    expect(back).toBe(history);
+    expect(back).toHaveFocus();
+
+    fireEvent.click(back);
+    await screen.findByLabelText("Message");
+    await act(() => sleep(20));
+    // The chat came back, and offered its composer: the button holds focus.
+    expect(screen.getByRole("button", { name: "Conversation history" })).toHaveFocus();
+    expect(composer()).not.toHaveFocus();
   });
 });
