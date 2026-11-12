@@ -191,6 +191,8 @@ export function FacilitatorTimersClient() {
     lastRef.current = { run, left: remaining };
     if (!prev || prev.run !== run || !(prev.left > 0 && remaining <= 0)) return;
 
+    // Said politely: the shell's docked timer says "<label>: time's up"
+    // assertively, on this page too, and this would cut it off.
     const step = currentStep(run);
     flashTitle("Time's up");
     if (run.kind === "break") {
@@ -198,7 +200,7 @@ export function FacilitatorTimersClient() {
         playChime(3);
         vibrate();
       }
-      announce("Break's over: welcome back.", "assertive");
+      announce("Break's over: welcome back.");
       log(FACILITATOR_TIMERS_ACTIONS.TIMER_FINISHED, {
         timer: "break",
         seconds: step?.seconds ?? 0,
@@ -217,7 +219,7 @@ export function FacilitatorTimersClient() {
         playChime(3);
         vibrate();
       }
-      announce(`${run.title} done.`, "assertive");
+      announce(`${run.title} done.`);
       log(FACILITATOR_TIMERS_ACTIONS.TIMER_FINISHED, {
         timer: run.kind,
         seconds: stepsSeconds(run.steps),
@@ -230,9 +232,29 @@ export function FacilitatorTimersClient() {
         vibrate([150]);
       }
       const next = currentStep(result.run);
-      if (next) announce(`${next.label}: ${lengthText(next.seconds)}.`, "assertive");
+      if (next) announce(`${next.label}: ${lengthText(next.seconds)}.`);
     }
   }, [run, remaining, chime, announce, log]);
+
+  // ---------------------------------------------------------------------------
+  // Keyboard focus: a start, a step or a stop changes the controls, and focus
+  // would otherwise drop to the page. Applied once React has drawn the change.
+  // ---------------------------------------------------------------------------
+
+  const controlsRef = useRef<HTMLButtonElement>(null);
+  const setupRef = useRef<HTMLDivElement>(null);
+  const focusNext = useRef<"controls" | "setup" | null>(null);
+  useEffect(() => {
+    const target = focusNext.current;
+    if (!target) return;
+    const el =
+      target === "controls"
+        ? controlsRef.current
+        : setupRef.current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
+    if (!el) return;
+    focusNext.current = null;
+    el.focus();
+  });
 
   // ---------------------------------------------------------------------------
   // Starting and running a timer
@@ -260,6 +282,7 @@ export function FacilitatorTimersClient() {
     }
     setStatus(null);
     setNow(Date.now());
+    focusNext.current = "controls";
     return true;
   };
 
@@ -326,6 +349,7 @@ export function FacilitatorTimersClient() {
       return;
     }
     setNow(Date.now());
+    focusNext.current = "controls";
     if (result.run.finished) {
       announce(`${run.title} done.`);
       log(FACILITATOR_TIMERS_ACTIONS.TIMER_FINISHED, {
@@ -342,7 +366,13 @@ export function FacilitatorTimersClient() {
     const title = run?.title;
     stopTimerRun();
     setStatus(null);
+    focusNext.current = "setup";
     if (title) announce(`${title} stopped.`);
+  };
+  const present = () => {
+    // "Show on the big screen" goes once presenting: focus its timer's controls.
+    focusNext.current = "controls";
+    startPresenting();
   };
 
   // ---------------------------------------------------------------------------
@@ -498,11 +528,12 @@ export function FacilitatorTimersClient() {
       remaining={left}
       now={now}
       big={presenting}
+      controlsRef={controlsRef}
       onPause={pause}
       onResume={resume}
       onNext={next}
       onStop={stop}
-      onPresent={startPresenting}
+      onPresent={present}
     />
   );
   const costCard = (
@@ -564,7 +595,7 @@ export function FacilitatorTimersClient() {
               {status}
             </p>
           )}
-          <div className={offStage}>
+          <div ref={setupRef} className={offStage}>
             <TimerSetup
               // The forms start from the saved lengths once they have loaded.
               key={ready ? "ready" : "loading"}

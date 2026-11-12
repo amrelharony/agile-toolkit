@@ -296,7 +296,34 @@ describe("Pomodoro", () => {
     });
     expect(alarm.playChime).not.toHaveBeenCalled();
     expect(alarm.flashTitle).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId("live-assertive")).toHaveTextContent("Short break 1 of 1: 1 min.");
+    // Politely: the shell's docked timer says "time's up" assertively first.
+    expect(screen.getByTestId("live-polite")).toHaveTextContent("Short break 1 of 1: 1 min.");
+    expect(screen.getByTestId("live-assertive")).not.toHaveTextContent("Short break");
+  });
+
+  it("keeps focus on its first control as a step runs out and the next one starts", () => {
+    useFacilitatorSettings.setState({ pomodoro: { workMinutes: 1, breakMinutes: 1, rounds: 2 } });
+    renderPage();
+    click("Start Pomodoro");
+    const pause = screen.getByRole("button", { name: "Pause" });
+    expect(pause).toHaveFocus();
+    tick(60);
+    expect(onStep()).toBe("Short break 1 of 1");
+    expect(screen.getByRole("button", { name: "Pause" })).toBe(pause);
+    expect(pause).toHaveFocus();
+    click("Stop");
+    expect(
+      within(screen.getByRole("radiogroup", { name: "Timer" })).getByRole("radio", {
+        name: "Pomodoro",
+      })
+    ).toHaveFocus();
+  });
+
+  it("moves focus to the timer's controls when it goes on the big screen", () => {
+    renderPage();
+    click("Start Pomodoro");
+    click("Show on the big screen");
+    expect(screen.getByRole("button", { name: "Pause" })).toHaveFocus();
   });
 
   it("pauses and resumes on the dock, and Stop frees it", () => {

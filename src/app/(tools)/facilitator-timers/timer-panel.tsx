@@ -21,10 +21,20 @@ function overText(seconds: number): string {
 }
 
 /**
+ * The big countdown while presenting: sized to the screen below `sm`, so
+ * "1:00:00" stays inside a phone's width, and capped to it in any case.
+ */
+export const BIG_CLOCK = "max-w-full break-words text-[clamp(2.5rem,15vw,4.5rem)] sm:text-8xl";
+
+/**
  * The timer that's on: the step's countdown in large type (a break shows
  * the time to be back, and counts up once it has passed), the steps done,
  * now and next, and the controls. The docked timer is its clock, so it
- * keeps counting on other pages.
+ * keeps counting on other pages, and a pause there pauses it here too.
+ *
+ * The first control is one button whose job follows the state (Pause,
+ * Resume, Start the next step, Finish, End break, Close), so keyboard
+ * focus stays on it as a step runs out and the next one starts.
  */
 export function TimerPanel({
   run,
@@ -46,6 +56,7 @@ export function TimerPanel({
   now: number;
   /** Presenting: the timer fills the screen. */
   big: boolean;
+  /** The first control, whatever it does now: where focus goes after a change. */
   controlsRef?: RefObject<HTMLButtonElement>;
   onPause: () => void;
   onResume: () => void;
@@ -60,42 +71,48 @@ export function TimerPanel({
   const isBreak = run.kind === "break";
   const next = run.steps[run.index + 1];
 
+  const primary = run.finished
+    ? { label: "Close", icon: <Square aria-hidden="true" />, onClick: onStop, solid: true }
+    : done && isBreak
+      ? { label: "End break", icon: <Square aria-hidden="true" />, onClick: onStop, solid: true }
+      : done
+        ? {
+            label: last ? "Finish" : next ? `Start ${next.label.toLowerCase()}` : "Next step",
+            icon: last ? <Check aria-hidden="true" /> : <SkipForward aria-hidden="true" />,
+            onClick: onNext,
+            solid: true,
+          }
+        : {
+            label: running ? "Pause" : "Resume",
+            icon: running ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />,
+            onClick: running ? onPause : onResume,
+            solid: false,
+          };
+
   const controls = (
     <div className="flex flex-wrap items-center justify-center gap-2">
-      {!run.finished && !done && (
-        <Button
-          ref={controlsRef}
-          type="button"
-          variant="outline"
-          className="gap-1.5"
-          onClick={running ? onPause : onResume}
-        >
-          {running ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-          {running ? "Pause" : "Resume"}
-        </Button>
-      )}
-      {!run.finished && !isBreak && (
-        <Button
-          ref={done ? controlsRef : undefined}
-          type="button"
-          variant={done ? "default" : "ghost"}
-          className="gap-1.5"
-          onClick={onNext}
-        >
-          {last ? <Check aria-hidden="true" /> : <SkipForward aria-hidden="true" />}
-          {last ? "Finish" : done && next ? `Start ${next.label.toLowerCase()}` : "Next step"}
-        </Button>
-      )}
       <Button
-        ref={run.finished || (isBreak && done) ? controlsRef : undefined}
+        ref={controlsRef}
         type="button"
-        variant="ghost"
+        variant={primary.solid ? "default" : "outline"}
         className="gap-1.5"
-        onClick={onStop}
+        onClick={primary.onClick}
       >
-        <Square aria-hidden="true" />
-        {run.finished ? "Close" : isBreak ? "End break" : "Stop"}
+        {primary.icon}
+        {primary.label}
       </Button>
+      {!run.finished && !done && !isBreak && (
+        <Button type="button" variant="ghost" className="gap-1.5" onClick={onNext}>
+          {last ? <Check aria-hidden="true" /> : <SkipForward aria-hidden="true" />}
+          {last ? "Finish" : "Next step"}
+        </Button>
+      )}
+      {!run.finished && !(isBreak && done) && (
+        <Button type="button" variant="ghost" className="gap-1.5" onClick={onStop}>
+          <Square aria-hidden="true" />
+          {isBreak ? "End break" : "Stop"}
+        </Button>
+      )}
       {!big && (
         <Button type="button" variant="ghost" className="gap-1.5" onClick={onPresent}>
           <MonitorPlay aria-hidden="true" />
@@ -127,13 +144,14 @@ export function TimerPanel({
             }
             className={cn(
               "font-data font-bold tabular-nums",
-              big ? "text-6xl sm:text-8xl" : "text-5xl",
+              big ? BIG_CLOCK : "text-5xl",
               done ? "text-warning" : "text-text"
             )}
           >
             {done ? overText(over) : formatClock(remaining)}
           </span>
-          <p className="text-sm text-sub" role="status">
+          {/* Said aloud by the page's announcement, so not a live region too. */}
+          <p className="text-sm text-sub">
             {done
               ? "Time's up: welcome back."
               : "Enjoy the break. The clock keeps going on other pages."}
@@ -148,7 +166,8 @@ export function TimerPanel({
     <SectionCard title={run.title} icon={Timer} titleSize="sm">
       <div className="flex flex-col items-center gap-3 py-2 text-center">
         {run.finished || !step ? (
-          <p className="text-base text-text" role="status">
+          // The page says it aloud as the run ends, so this isn't a live region too.
+          <p className="text-base text-text">
             {run.title} done: all {run.steps.length} steps ({lengthText(stepsSeconds(run.steps))}).
           </p>
         ) : (
@@ -164,7 +183,7 @@ export function TimerPanel({
               aria-label={`${step.label}: ${done ? "time's up" : `${formatClock(remaining)} left`}`}
               className={cn(
                 "font-data font-bold tabular-nums",
-                big ? "text-6xl sm:text-8xl" : "text-5xl",
+                big ? BIG_CLOCK : "text-5xl",
                 done ? "text-warning" : "text-text"
               )}
             >
