@@ -156,7 +156,8 @@ function settingsOut(s: MixerState) {
     odd: s.odd,
     tables: s.tables,
     cafeRounds: s.cafeRounds,
-    hosts: s.hosts.filter(Boolean),
+    // By table, as the page keeps them: null is a table whose host is picked at random.
+    hosts: Array.from({ length: s.tables }, (_, t) => s.hosts[t] || null),
     title: s.title || null,
   };
 }
@@ -185,7 +186,7 @@ registry.register({
   toolId: "tool.team_mixer",
   name: "list_state",
   category: "read",
-  description: `Read Team Mixer as the page shows it. Returns {people: names in the mix (up to ${MIXER_LIMITS.people}), settings: {mode: 'groups' | 'pairs' | 'cafe', split: 'size' | 'count', groupSize, groupCount, balance: 'none' | 'role' | 'skill', odd: 'trio' | 'sit-out' (pairs with an odd number), tables, cafeRounds, hosts, title | null}, preview (one line on what the settings make, e.g. '3 groups of 4') | null, problem (why the settings can't be mixed now) | null, rules: {id, kind: 'apart' | 'together', a, b}[], roundCount (rounds kept, up to ${MIXER_LIMITS.rounds}), rounds: the latest 10 rounds, oldest first, each {id, number (its number in the series, from 1; it goes on counting past the rounds kept), at, mode, title, balance, groups: {label, people}[], sitOut, issues (plain-words lines: broken rules, pairs who met before, who sits out)}, pairRotation (mode pairs: one line on what the rotation can promise with these people and rules) | null, cafe: {id, current (1-based round on screen), rounds, hosts, onScreen: {round, rounds, tables: {label, host, guests}[]}, whoGoesWhere: {name, tables: (number | null)[]}[], issues} | null, hasExample}. Roles and skills for balancing come from the Team page roster, matched by name.`,
+  description: `Read Team Mixer as the page shows it. Returns {people: names in the mix (up to ${MIXER_LIMITS.people}), settings: {mode: 'groups' | 'pairs' | 'cafe', split: 'size' | 'count', groupSize, groupCount, balance: 'none' | 'role' | 'skill', odd: 'trio' | 'sit-out' (pairs with an odd number), tables, cafeRounds, hosts (one per table, in table order: a name, or null where the host is picked at random), title | null}, preview (one line on what the settings make, e.g. '3 groups of 4') | null, problem (why the settings can't be mixed now) | null, rules: {id, kind: 'apart' | 'together', a, b}[], roundCount (rounds kept, up to ${MIXER_LIMITS.rounds}), rounds: the latest 10 rounds, oldest first, each {id, number (its number in the series, from 1; it goes on counting past the rounds kept), at, mode, title, balance, groups: {label, people}[], sitOut, issues (plain-words lines: broken rules, pairs who met before, who sits out)}, pairRotation (mode pairs: one line on what the rotation can promise with these people and rules) | null, cafe: {id, current (1-based round on screen), rounds, hosts, onScreen: {round, rounds, tables: {label, host, guests}[]}, whoGoesWhere: {name, tables: (number | null)[]}[], issues} | null, hasExample}. Roles and skills for balancing come from the Team page roster, matched by name.`,
   paramsSchema: z.object({}),
   handler: async () => listState(browserStore),
   mcpHandler: async (_params, ctx) => listState(serverStore(ctx.userId)),
@@ -246,10 +247,12 @@ const MakeGroupsParams = z
       .optional()
       .describe("World Café rounds."),
     hosts: z
-      .array(z.string().trim().max(MIXER_LIMITS.name))
+      .array(z.string().trim().max(MIXER_LIMITS.name).nullable())
       .max(MIXER_LIMITS.tables)
       .optional()
-      .describe("World Café hosts by table, in order; a blank one is picked at random."),
+      .describe(
+        "World Café hosts by table, in table order (as list_state gives them); a blank or null one is picked at random."
+      ),
     title: z
       .string()
       .trim()
@@ -300,7 +303,7 @@ async function makeGroups(store: MixerStore, p: MakeGroupsInput) {
     ...(p.odd ? { odd: p.odd } : {}),
     ...(p.tables !== undefined ? { tables: p.tables } : {}),
     ...(p.rounds !== undefined ? { cafeRounds: p.rounds } : {}),
-    ...(p.hosts ? { hosts: p.hosts.slice(0, MIXER_LIMITS.tables) } : {}),
+    ...(p.hosts ? { hosts: p.hosts.slice(0, MIXER_LIMITS.tables).map((h) => h ?? "") } : {}),
     ...(p.title !== undefined ? { title: p.title } : {}),
   };
   // Who: the names given, else the roster when asked (or when the mix is empty).

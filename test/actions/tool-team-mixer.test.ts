@@ -160,6 +160,23 @@ describe("make_groups", () => {
     expect(readMixer().cafe?.rounds).toHaveLength(2);
   });
 
+  it("reads the hosts by table, and takes them back the same way", async () => {
+    await run("make_groups", {
+      people: ["A", "B", "C", "D", "E", "F", "G", "H"],
+      mode: "cafe",
+      tables: 3,
+      rounds: 1,
+      hosts: [null, "B"],
+      seed: 5,
+    });
+    const s = await run<{ settings: { hosts: (string | null)[] } }>("list_state", {});
+    // Table 1 random, B hosts Table 2, Table 3 random: never shifted up.
+    expect(s.settings.hosts).toEqual([null, "B", null]);
+    const r = await run<RoundResult>("make_groups", { hosts: s.settings.hosts, seed: 6 });
+    expect(r.cafe!.onScreen.tables[1].host).toBe("B");
+    expect(readMixer().hosts.slice(0, 2)).toEqual(["", "B"]);
+  });
+
   it("says plainly what can't be mixed, and changes nothing else", async () => {
     useWorkspaceStore.setState({ teamMembers: [] });
     const r = await run<RoundResult>("make_groups", { people: ["Ana"] });
