@@ -150,4 +150,41 @@ describe("ConfirmCard", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(resolve).toHaveBeenCalledWith(false);
   });
+
+  it("leaves an Escape on the page behind the panel alone, and denies on one from inside it", () => {
+    // The owner's panel floats non-modal over the tool page: an Escape a page
+    // field uses must not answer the card.
+    const pageField = document.createElement("input");
+    document.body.appendChild(pageField);
+    render(
+      <div data-agent-sheet-root="">
+        <ConfirmCard allowApproveAll />
+      </div>
+    );
+    const resolve = waiting(ADD);
+    try {
+      fireEvent.keyDown(pageField, { key: "Escape" });
+      expect(resolve).not.toHaveBeenCalled();
+      fireEvent.keyDown(screen.getByRole("button", { name: "Not now" }), { key: "Escape" });
+      expect(resolve).toHaveBeenCalledWith(false);
+    } finally {
+      pageField.remove();
+    }
+  });
+
+  it("denies on an Escape from Amr himself or with nothing focused", () => {
+    const amr = document.createElement("button");
+    amr.setAttribute("data-vt-hold", "amr");
+    document.body.appendChild(amr);
+    render(<ConfirmCard />);
+    const resolve = waiting(ADD);
+    try {
+      fireEvent.keyDown(amr, { key: "Escape" });
+      expect(resolve).toHaveBeenLastCalledWith(false);
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(resolve).toHaveBeenCalledTimes(2);
+    } finally {
+      amr.remove();
+    }
+  });
 });

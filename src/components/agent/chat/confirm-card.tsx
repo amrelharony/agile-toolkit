@@ -22,8 +22,11 @@
  * Every button is 44 px on a coarse pointer (size "sm") and wraps a long label
  * rather than running out of the panel. Escape denies the change, as the store
  * does when the panel closes, until the panel's own Escape order takes this
- * over; it leaves an Escape alone that something else already handled or that
- * an input method is composing.
+ * over. Only an Escape meant for the chat denies: one from inside the panel,
+ * from Amr himself, or with nothing focused. It leaves page fields and
+ * overlays alone (the panel floats non-modal over the tool page), and an
+ * Escape that something else already handled or that an input method is
+ * composing.
  *
  * Runtime code (the agent store), so it lives in chat/, which every-page code
  * may not reach (test/agent/bundle-boundary.test.ts).
@@ -57,6 +60,16 @@ export function ConfirmCard({ allowApproveAll = false }: ConfirmCardProps) {
     if (!pending) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+      // Only an Escape meant for Amr's chat denies: one from inside the panel,
+      // from Amr himself, or with nothing focused. An Escape a page field or
+      // overlay uses (a cycle-time cell, the comic overlay) leaves the change
+      // waiting.
+      const t = e.target;
+      const ours =
+        !(t instanceof Element) ||
+        t === document.body ||
+        !!t.closest('[data-agent-sheet-root], [data-vt-hold="amr"]');
+      if (!ours) return;
       e.preventDefault();
       pending.resolve(false);
     };
