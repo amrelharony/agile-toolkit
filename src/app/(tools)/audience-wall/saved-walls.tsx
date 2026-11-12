@@ -1,0 +1,584 @@
+"use client";
+
+/**
+ * The saved walls: each one's prompt, kind and posts (threads, Answered,
+ * 25/10 averages), as a list, a word cloud or the top ten. Per wall:
+ * export it, delete it (with Undo), and three helpers that draft and wait
+ * for the host to accept: themes, duplicates to merge, and backlog items
+ * (sent through the backlog-story hand-off, with Undo). Amr drafts them
+ * when he can; the word rules draft them when he can't.
+ */
+
+import { useId, useState } from "react";
+import Link from "next/link";
+import { BookCheck, ChevronDown, Cloud, List, Tags, Trash2, Trophy, X } from "lucide-react";
+import { AiButton, AiSuggestions } from "@/components/ai";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { ExportButton } from "@/components/shared/export-button";
+import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
+import type { AiSource } from "@/lib/ai/task-types";
+import {
+  aiPosts,
+  cleanMerges,
+  cleanThemes,
+  clusterTask,
+  mergeQuestionsTask,
+  toBacklogTask,
+  type BacklogOutput,
+  type ClusterOutput,
+  type MergeOutput,
+} from "@/lib/ai/tasks/audience-wall";
+import {
+  WALL_KIND_LABEL,
+  isScored,
+  mergeSessionPosts,
+  rankedPosts,
+  repliesByPost,
+  sentKey,
+  topTen,
+  wallCounts,
+  withThemes,
+  type WallSession,
+  type WallSessionPost,
+} from "@/lib/audience-wall/model";
+import { readWalls, updateWall, updateWalls } from "@/lib/audience-wall/store";
+import { sendHandoff } from "@/lib/handoffs/send";
+import { getHandoffRoute, liveLink } from "@/lib/handoffs/registry";
+import { AUDIENCE_WALL_ACTIONS } from "@/lib/history/event-actions";
+import { isExampleId } from "@/lib/utils/example-id";
+import { removeWithUndo, undoable } from "@/lib/utils/undoable";
+import { cn } from "@/lib/utils";
+import { wallFilename, wallMarkdown } from "./markdown";
+import { WordCloud } from "./word-cloud";
+
+type Log = (action: string, payload?: Record<string, unknown>) => void;
+
+const short = (text: string, max = 48) =>
+  text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso.slice(0, 10)
+    : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+function average(p: WallSessionPost): string {
+  if (!p.scorers) return "not scored";
+  const avg = Math.round(((p.score ?? 0) / p.scorers) * 10) / 10;
+  return `${avg} average, ${plural(p.scorers, "score")}`;
+}
+
+export function SavedWalls({ sessions, log }: { sessions: readonly WallSession[]; log: Log }) {
+  return (
+    <ul className="space-y-3" aria-label="Saved walls">
+      {sessions.map((s) => (
+        <li key={s.id}>
+          <WallCard session={s} log={log} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+type View = "posts" | "cloud" | "top";
+
+function WallCard({ session, log }: { session: WallSession; log: Log }) {
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState<View>("posts");
+  const bodyId = useId();
+  const c = wallCounts(session);
+  const scored = isScored(session);
+  const example = isExampleId(session.id);
+  const shownView: View = view === "top" && !scored ? "posts" : view;
+
+  const remove = () => {
+    removeWithUndo<WallSession>({
+      label: `Deleted the wall “${short(session.prompt, 40)}”`,
+      update: updateWalls,
+      match: (s) => s.id === session.id,
+    });
+    if (!example) log(AUDIENCE_WALL_ACTIONS.WALL_REMOVED, { kind: session.kind, posts: c.posts });
+  };
+
+  return (
+    <article className="space-y-3 rounded-lg border border-border bg-card p-3 sm:p-4">
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1 basis-56 space-y-1">
+          <h3 className="break-words text-base font-semibold text-text">{session.prompt}</h3>
+          <p className="text-xs text-sub">
+            {WALL_KIND_LABEL[session.kind]} · {dayLabel(session.savedAt)} ·{" "}
+            {plural(c.posts, "post")}
+            {c.answered > 0 ? ` · ${c.answered} answered` : ""}
+            {c.replies > 0 ? ` · ${plural(c.replies, "Yes, and…", "Yes, and…s")}` : ""}
+            {session.source === "manual" ? " · typed in" : ""}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <ChevronDown
+              className={cn("h-4 w-4 transition-transform", open && "rotate-180")}
+              aria-hidden="true"
+            />
+            {open ? "Close" : "Open"}
+            <span className="sr-only">: {short(session.prompt)}</span>
+          </Button>
+          <ExportButton filename={wallFilename(session)} markdown={wallMarkdown(session)} />
+          <IconButton
+            label={`Delete the wall “${short(session.prompt)}”`}
+            icon={<Trash2 className="h-4 w-4" />}
+            className="text-sub hover:text-danger"
+            onClick={remove}
+          />
+        </div>
+      </div>
+
+      {open && (
+        <div id={bodyId} className="space-y-4">
+          <div role="group" aria-label="Show the wall as" className="flex flex-wrap gap-2">
+            <ViewButton current={shownView} value="posts" onPick={setView} icon={List}>
+              Posts
+            </ViewButton>
+            <ViewButton current={shownView} value="cloud" onPick={setView} icon={Cloud}>
+              Word cloud
+            </ViewButton>
+            {scored && (
+              <ViewButton current={shownView} value="top" onPick={setView} icon={Trophy}>
+                Top ten
+              </ViewButton>
+            )}
+          </div>
+
+          {shownView === "posts" && <PostList session={session} />}
+          {shownView === "cloud" && (
+            <WordCloud
+              texts={session.posts.map((p) => p.text)}
+              label={`Word cloud of “${short(session.prompt)}”`}
+            />
+          )}
+          {shownView === "top" && <TopTenList session={session} />}
+
+          <Themes session={session} log={log} />
+          <Duplicates session={session} />
+          <ToBacklog session={session} log={log} canSend={!example} />
+        </div>
+      )}
+    </article>
+  );
+}
+
+function ViewButton({
+  current,
+  value,
+  onPick,
+  icon: Icon,
+  children,
+}: {
+  current: View;
+  value: View;
+  onPick: (v: View) => void;
+  icon: typeof List;
+  children: string;
+}) {
+  const on = current === value;
+  return (
+    <Button
+      type="button"
+      variant={on ? "toolkit" : "outline"}
+      size="sm"
+      className="gap-1.5"
+      aria-pressed={on}
+      onClick={() => onPick(value)}
+    >
+      <Icon className="h-4 w-4" aria-hidden="true" />
+      {children}
+    </Button>
+  );
+}
+
+/** The posts best first, each "Yes, and…" under the post it builds on. */
+function PostList({ session }: { session: WallSession }) {
+  const scored = isScored(session);
+  const replies = repliesByPost(session);
+  const ids = new Set(session.posts.map((p) => p.id));
+  const top = rankedPosts(session).filter((p) => !(p.re && ids.has(p.re)));
+  if (top.length === 0) return <p className="text-sm text-sub">No posts on this wall.</p>;
+  const line = (p: WallSessionPost, reply: boolean) => (
+    <li key={p.id} className="space-y-1 rounded-lg border border-border bg-surface-deep/50 p-2.5">
+      {reply && <p className="text-xs font-medium text-accent">Yes, and…</p>}
+      <div className="flex min-w-0 items-start gap-3">
+        <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-text">{p.text}</p>
+        <span className="shrink-0 text-xs text-sub">
+          {scored && !reply ? average(p) : plural(p.votes, "vote")}
+        </span>
+      </div>
+      {p.answered && <p className="text-xs font-medium text-success">Answered</p>}
+      {p.merged.length > 0 && (
+        <ul className="space-y-0.5 border-l-2 border-border pl-2 text-xs text-sub">
+          {p.merged.map((t, i) => (
+            <li key={`${p.id}-m${i}`} className="break-words">
+              {t}
+            </li>
+          ))}
+        </ul>
+      )}
+      {(replies.get(p.id) ?? []).length > 0 && (
+        <ol className="space-y-1.5 border-l-2 border-accent/30 pl-2">
+          {(replies.get(p.id) ?? []).map((r) => line(r, true))}
+        </ol>
+      )}
+    </li>
+  );
+  return <ol className="space-y-2">{top.map((p) => line(p, false))}</ol>;
+}
+
+function TopTenList({ session }: { session: WallSession }) {
+  const top = topTen(session);
+  if (top.length === 0) return <p className="text-sm text-sub">Nobody scored a post.</p>;
+  return (
+    <ol className="space-y-1.5" aria-label="Top ten">
+      {top.map((p, i) => (
+        <li key={p.id} className="flex min-w-0 items-baseline gap-2 text-sm">
+          <span className="w-6 shrink-0 text-right font-data text-sub">{i + 1}.</span>
+          <span className="min-w-0 flex-1 break-words text-text">{p.text}</span>
+          <span className="shrink-0 text-xs text-sub">{average(p)}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** The posts Amr reads: the most upvoted that fit, by this wall's own ids. */
+function postsForAi(session: WallSession) {
+  return aiPosts(session.posts);
+}
+
+function LeftOut({ left, shown }: { left: number; shown: number }) {
+  if (left <= 0) return null;
+  return (
+    <p className="text-xs text-sub">
+      Amr reads the {shown} most upvoted posts; {left} more are left out.
+    </p>
+  );
+}
+
+/** Themes: Amr's (or the shared words') groups, each added by the host, with Undo. */
+function Themes({ session, log }: { session: WallSession; log: Log }) {
+  const announce = useAnnounce();
+  const [draft, setDraft] = useState<{ themes: ClusterOutput["themes"]; source: AiSource } | null>(
+    null
+  );
+  const known = new Set(session.posts.map((p) => p.id));
+  const textOf = (id: string) => session.posts.find((p) => p.id === id)?.text ?? "";
+  const forAi = postsForAi(session);
+  const taken = new Set(session.themes.flatMap((t) => t.postIds));
+  // Posts already in a theme drop out of the draft's themes.
+  const suggestions = draft
+    ? cleanThemes(
+        draft.themes.map((t) => ({ ...t, postIds: t.postIds.filter((id) => !taken.has(id)) })),
+        known
+      )
+    : [];
+  const example = isExampleId(session.id);
+
+  const addThemes = (themes: ClusterOutput["themes"]) => {
+    if (themes.length === 0) return;
+    const before = readWalls().find((s) => s.id === session.id);
+    undoable({
+      label:
+        themes.length === 1
+          ? `Added the theme “${short(themes[0].name, 30)}”`
+          : `Added ${themes.length} themes`,
+      kind: "success",
+      apply: () => updateWall(session.id, (s) => withThemes(s, [...s.themes, ...themes])),
+      revert: () => {
+        const names = new Set(themes.map((t) => t.name));
+        updateWall(session.id, (s) =>
+          withThemes(
+            s,
+            s.themes.filter(
+              (t) => !names.has(t.name) || before?.themes.some((b) => b.name === t.name)
+            )
+          )
+        );
+      },
+    });
+    if (!example) log(AUDIENCE_WALL_ACTIONS.THEMES_ACCEPTED, { themes: themes.length });
+  };
+
+  const clearThemes = () => {
+    const kept = session.themes;
+    undoable({
+      label: "Cleared the themes",
+      apply: () => updateWall(session.id, (s) => withThemes(s, [])),
+      revert: () => updateWall(session.id, (s) => withThemes(s, kept)),
+    });
+  };
+
+  return (
+    <section aria-label="Themes" className="space-y-2">
+      <h4 className="flex items-center gap-1.5 text-sm font-semibold text-text">
+        <Tags className="h-4 w-4 text-accent" aria-hidden="true" />
+        Themes
+      </h4>
+      {session.themes.length > 0 ? (
+        <>
+          <ul className="space-y-2">
+            {session.themes.map((t) => (
+              <li key={t.name} className="space-y-1">
+                <p className="text-sm font-medium text-text">
+                  {t.name}{" "}
+                  <span className="text-xs font-normal text-sub">
+                    ({plural(t.postIds.length, "post")})
+                  </span>
+                </p>
+                <ul className="space-y-0.5 border-l-2 border-border pl-2 text-xs text-sub">
+                  {t.postIds.map((id) => (
+                    <li key={id} className="break-words">
+                      {textOf(id)}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+          <Button type="button" variant="ghost" size="sm" className="gap-1" onClick={clearThemes}>
+            <X className="h-4 w-4" aria-hidden="true" />
+            Clear themes
+          </Button>
+        </>
+      ) : (
+        <p className="text-xs text-sub">
+          No themes yet. Group the posts to see what keeps coming up.
+        </p>
+      )}
+      <AiButton
+        task={clusterTask}
+        label="Group into themes"
+        fallbackLabel="Group by shared words"
+        disabledReason={session.posts.length < 2 ? "A wall needs two posts or more." : null}
+        input={() => ({
+          prompt: session.prompt,
+          posts: forAi.posts.map((p) => ({ id: p.id, text: p.text })),
+        })}
+        onResult={(data, meta) => {
+          setDraft({ themes: data.themes, source: meta.source });
+          announce(`${plural(data.themes.length, "theme")} to review.`);
+        }}
+      />
+      <LeftOut left={forAi.left} shown={forAi.posts.length} />
+      {draft && suggestions.length === 0 && (
+        <p role="status" className="text-sm text-sub">
+          Every post is in a theme already.
+        </p>
+      )}
+      {draft && suggestions.length > 0 && (
+        <AiSuggestions
+          items={suggestions}
+          source={draft.source}
+          title="Themes to add"
+          render={(t) => ({
+            title: t.name,
+            detail: `${plural(t.postIds.length, "post")}: ${t.postIds
+              .slice(0, 3)
+              .map((id) => short(textOf(id), 40))
+              .join(" · ")}${t.postIds.length > 3 ? " · …" : ""}`,
+          })}
+          onAccept={(t) => addThemes([t])}
+          onAcceptAll={(all) => addThemes(all)}
+          onDismiss={() => setDraft(null)}
+        />
+      )}
+    </section>
+  );
+}
+
+/** Duplicates: merge each group into the post that stays, with Undo. */
+function Duplicates({ session }: { session: WallSession }) {
+  const announce = useAnnounce();
+  const [draft, setDraft] = useState<{ groups: MergeOutput["groups"]; source: AiSource } | null>(
+    null
+  );
+  const known = new Set(session.posts.map((p) => p.id));
+  const textOf = (id: string) => session.posts.find((p) => p.id === id)?.text ?? "";
+  const groups = draft ? cleanMerges(draft.groups, known) : [];
+  const forAi = postsForAi(session);
+
+  const merge = (g: MergeOutput["groups"][number]) => {
+    const before = readWalls().find((s) => s.id === session.id);
+    if (!before) return;
+    undoable({
+      label: `Merged ${plural(g.merge.length, "post")} into “${short(textOf(g.keep), 30)}”`,
+      apply: () =>
+        updateWall(session.id, (s) =>
+          g.merge.reduce((acc, id) => mergeSessionPosts(acc, id, g.keep), s)
+        ),
+      revert: () => updateWall(session.id, () => before),
+    });
+  };
+
+  return (
+    <section aria-label="Duplicates" className="space-y-2">
+      <AiButton
+        task={mergeQuestionsTask}
+        label="Find duplicates"
+        fallbackLabel="Find duplicates without AI"
+        variant="outline"
+        disabledReason={session.posts.length < 2 ? "A wall needs two posts or more." : null}
+        input={() => ({ posts: forAi.posts.map((p) => ({ id: p.id, text: p.text })) })}
+        onResult={(data, meta) => {
+          const found = cleanMerges(data.groups, known);
+          setDraft({ groups: data.groups, source: meta.source });
+          announce(
+            found.length === 0
+              ? "No duplicates found."
+              : `${plural(found.length, "group")} of duplicates to review.`
+          );
+        }}
+      />
+      {draft && groups.length === 0 && (
+        <p role="status" className="text-sm text-sub">
+          No duplicates on this wall.
+        </p>
+      )}
+      {draft && groups.length > 0 && (
+        <AiSuggestions
+          items={groups}
+          source={draft.source}
+          title="Duplicates to merge"
+          acceptLabel="Merge"
+          render={(g) => ({
+            title: `Keep: ${short(textOf(g.keep), 60)}`,
+            detail: `Merge in: ${g.merge.map((id) => short(textOf(id), 40)).join(" · ")}${
+              g.reason ? `. ${g.reason}` : ""
+            }`,
+          })}
+          onAccept={(g) => merge(g)}
+          onDismiss={() => setDraft(null)}
+        />
+      )}
+    </section>
+  );
+}
+
+/** Backlog items from the wall's feedback, each sent by the host through the hand-off. */
+function ToBacklog({
+  session,
+  log,
+  canSend,
+}: {
+  session: WallSession;
+  log: Log;
+  canSend: boolean;
+}) {
+  const announce = useAnnounce();
+  const [draft, setDraft] = useState<{ items: BacklogOutput["items"]; source: AiSource } | null>(
+    null
+  );
+  const forAi = aiPosts(session.posts);
+  const sent = canSend ? session.sent.filter((x) => liveLink(x.sentTo, "backlog-story")) : [];
+  const sentKeys = new Set(sent.map((x) => x.key));
+  const items = (draft?.items ?? []).filter((i) => !sentKeys.has(sentKey(i.title)));
+
+  const send = (item: BacklogOutput["items"][number]) => {
+    const key = sentKey(item.title);
+    updateWall(session.id, (s) =>
+      s.sent.some((x) => x.key === key)
+        ? s
+        : { ...s, sent: [...s.sent, { key, title: item.title, sentTo: [] }] }
+    );
+    const link = sendHandoff(
+      "backlog-story",
+      {
+        title: item.title,
+        description: item.description,
+        sourceRef: { tool: "audience-wall", id: session.id },
+      },
+      {
+        getLinks: () =>
+          readWalls()
+            .find((s) => s.id === session.id)
+            ?.sent.find((x) => x.key === key)?.sentTo,
+        setLinks: (update) =>
+          updateWall(session.id, (s) => ({
+            ...s,
+            sent: s.sent.map((x) => (x.key === key ? { ...x, sentTo: update(x.sentTo) } : x)),
+          })),
+      }
+    );
+    if (link) log(AUDIENCE_WALL_ACTIONS.ITEMS_SENT, { count: 1 });
+  };
+
+  return (
+    <section aria-label="Backlog items" className="space-y-2">
+      <h4 className="flex items-center gap-1.5 text-sm font-semibold text-text">
+        <BookCheck className="h-4 w-4 text-accent" aria-hidden="true" />
+        To the backlog
+      </h4>
+      {!canSend ? (
+        <p className="text-xs text-sub">
+          The example&apos;s feedback doesn&apos;t go to your backlog.
+        </p>
+      ) : (
+        <>
+          <AiButton
+            task={toBacklogTask}
+            label="Draft backlog items"
+            fallbackLabel="Draft items without AI"
+            variant="outline"
+            disabledReason={session.posts.length === 0 ? "This wall has no posts." : null}
+            input={() => ({
+              prompt: session.prompt,
+              posts: forAi.posts.map((p) => ({ text: p.text, votes: p.votes })),
+            })}
+            onResult={(data, meta) => {
+              setDraft({ items: data.items, source: meta.source });
+              announce(`${plural(data.items.length, "item")} to review.`);
+            }}
+          />
+          <LeftOut left={forAi.left} shown={forAi.posts.length} />
+          {draft && items.length > 0 && (
+            <AiSuggestions
+              items={items}
+              source={draft.source}
+              title="Backlog items to add"
+              acceptLabel="Add to backlog"
+              render={(i) => ({ title: i.title, detail: i.description || undefined })}
+              onAccept={(i) => send(i)}
+              onDismiss={() => setDraft(null)}
+            />
+          )}
+        </>
+      )}
+      {sent.length > 0 && (
+        <ul className="space-y-1" aria-label="Sent to the backlog">
+          {sent.map((x) => {
+            const link = liveLink(x.sentTo, "backlog-story")!;
+            return (
+              <li key={x.key}>
+                <Link
+                  href={getHandoffRoute("backlog-story").targetHref(link.targetId)}
+                  className="inline-flex items-center gap-1 text-xs text-success underline-offset-2 hover:underline"
+                >
+                  <BookCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                  On the backlog: “{short(x.title, 60)}”
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
