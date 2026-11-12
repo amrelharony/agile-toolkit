@@ -121,7 +121,7 @@ interface FocusState {
   awaiting: boolean;
   /** The visitor has acted since the panel opened: a pointer down, or focus moved by them. */
   touched: boolean;
-  /** The last pointer down landed outside the panel. */
+  /** The last pointer down landed outside the panel, and focus hasn't come back inside since. */
   pointerOutside: boolean;
   /** A pointer went down in this task: a focus loss now is the visitor's click. */
   pointerNow: boolean;
@@ -284,6 +284,8 @@ export function usePanelFocus(options: PanelFocusOptions): PanelFocus {
     };
     const onFocusIn = (e: FocusEvent) => {
       s.inside = e.target instanceof Node && root.contains(e.target);
+      // Back inside the panel: an earlier click away no longer means the page holds focus.
+      if (s.inside) s.pointerOutside = false;
       if (e.target !== s.expected) s.touched = true;
       s.expected = null;
     };

@@ -450,6 +450,32 @@ describe("the safety net", () => {
     expect(document.body).toHaveFocus();
     expect(plate()).not.toHaveFocus();
   });
+
+  it("forgets a click away once the visitor is back in the panel: the chat's composer takes focus", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    // Warm the visitor's lazy chat, so it draws in the same commit as the swap.
+    render(<VisitorPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await screen.findByLabelText("Message");
+    cleanup();
+    useAgentStore.getState().reset();
+
+    render(<MascotAssistant />);
+    pressAmr("pointer");
+    await guideLoaded();
+    // A click on the page's plain text, away from the panel.
+    fireEvent.pointerDown(document.body);
+    fireEvent.mouseDown(document.body);
+    // Then Tab back in and Enter on "Chat with Amr": the button goes, and its
+    // focus falls to <body> as the chat arrives.
+    const chat = screen.getByRole("button", { name: "Chat with Amr" });
+    chat.focus();
+    fireEvent.click(chat, { detail: 0 });
+    await act(() => sleep(20));
+    expect(composer()).toHaveFocus();
+    expect(plate()).not.toHaveFocus();
+  });
 });
 
 describe("History", () => {
