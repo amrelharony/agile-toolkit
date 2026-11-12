@@ -873,10 +873,12 @@ export function MascotAssistant() {
       clickRef.current?.onClick(p ? zoneAt(p) : "body", side);
     }
     // The first tap of a burst opens or closes the panel; the rest are play.
+    // Enter or Space clicks with detail 0: a keyboard open, which the panel's
+    // focus owner treats apart from a pointer's.
     const now = Date.now();
     const gap = now - lastTapRef.current;
     lastTapRef.current = now;
-    if (gap > TAP_TOGGLE_GAP_MS) toggleSheet();
+    if (gap > TAP_TOGGLE_GAP_MS) toggleSheet({ via: e.detail === 0 ? "keyboard" : "pointer" });
   };
   useEffect(
     () => () => {
@@ -1190,7 +1192,7 @@ export function MascotAssistant() {
       }
       if (e.repeat) return;
       e.preventDefault();
-      toggleSheet();
+      toggleSheet({ via: "keyboard" });
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

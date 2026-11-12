@@ -359,7 +359,9 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
             hit Cmd/Ctrl+J to toggle (matches ChatGPT / Claude.ai). It and
             the theme button are 36×36 for a mouse, 44×44 on touch. */}
         <button
-          onClick={openAgent}
+          // A key press clicks with detail 0, so the focus owner of the panel
+          // can tell a keyboard open from a pointer one.
+          onClick={(e) => openAgent({ via: e.detail === 0 ? "keyboard" : "pointer" })}
           data-no-sound="true"
           className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
           aria-label={isOwner ? "Open agent chat" : "Open help"}

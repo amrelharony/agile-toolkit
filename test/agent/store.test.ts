@@ -86,6 +86,64 @@ describe("useAgentStore – pending tool resolution", () => {
 });
 
 /**
+ * How the panel was opened, for its focus owner (use-panel-focus): a key
+ * (Enter or Space on Amr or the header's opener, Ctrl/Cmd+J) or a pointer.
+ * Code that opens it without saying leaves it unknown.
+ */
+describe("useAgentStore – openedVia", () => {
+  beforeEach(() => {
+    useAgentStore.getState().closeSheet();
+  });
+
+  afterEach(() => {
+    useAgentStore.getState().closeSheet();
+  });
+
+  it("is unknown while the panel is closed", () => {
+    expect(useAgentStore.getState()).toMatchObject({ open: false, openedVia: null });
+  });
+
+  it.each(["keyboard", "pointer"] as const)("records a %s open", (via) => {
+    useAgentStore.getState().openSheet({ via });
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: via });
+  });
+
+  it("stays unknown when code opens the panel without saying how", () => {
+    useAgentStore.getState().openSheet();
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: null });
+    // An empty options object says nothing either.
+    useAgentStore.getState().closeSheet();
+    useAgentStore.getState().openSheet({});
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: null });
+  });
+
+  it("follows the newest open request while the panel is already open", () => {
+    useAgentStore.getState().openSheet({ via: "pointer" });
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: "keyboard" });
+  });
+
+  it("toggleSheet opens with the way in it is given", () => {
+    useAgentStore.getState().toggleSheet({ via: "keyboard" });
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: "keyboard" });
+    useAgentStore.getState().toggleSheet();
+    useAgentStore.getState().toggleSheet({ via: "pointer" });
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: "pointer" });
+  });
+
+  it("is forgotten by every close path", () => {
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    useAgentStore.getState().closeSheet();
+    expect(useAgentStore.getState()).toMatchObject({ open: false, openedVia: null });
+
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    // A toggle's closing branch, with a way in it has no use for.
+    useAgentStore.getState().toggleSheet({ via: "pointer" });
+    expect(useAgentStore.getState()).toMatchObject({ open: false, openedVia: null });
+  });
+});
+
+/**
  * Tapping Amr and Ctrl/Cmd+J close the panel through toggleSheet, so its
  * closing branch must do everything closeSheet does: clear "Approve all"
  * and deny a card that is still waiting (audit toggle-keeps-autoapprove).
@@ -125,6 +183,21 @@ describe("useAgentStore – toggleSheet", () => {
       // zustand copies state on every set, so put the real action back
       // explicitly rather than relying on a spy restore.
       useAgentStore.setState({ closeSheet: original });
+    }
+  });
+
+  it("toggling open goes through openSheet, with the way in", () => {
+    const original = useAgentStore.getState().openSheet;
+    const openSheet = vi.fn(original);
+    useAgentStore.setState({ openSheet });
+    try {
+      useAgentStore.getState().toggleSheet({ via: "keyboard" });
+      expect(openSheet).toHaveBeenCalledTimes(1);
+      expect(openSheet).toHaveBeenCalledWith({ via: "keyboard" });
+      expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: "keyboard" });
+    } finally {
+      useAgentStore.setState({ openSheet: original });
+      useAgentStore.getState().closeSheet();
     }
   });
 
