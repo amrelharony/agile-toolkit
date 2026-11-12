@@ -136,6 +136,46 @@ class Stacking(unittest.TestCase):
         self.assertLess(got.index("b"), got.index("a"))
 
 
+class FacePiece(unittest.TestCase):
+    """face_piece(): the face cells are laid on what the brief's face piece holds,
+    so a head drawn with its ear pieces keeps them, one drawn without leaves them
+    off, and a face cut above the lanyard never holds it."""
+
+    def place(self, box, size=(400, 400)):
+        a = np.zeros((*size, 4), np.uint8)
+        x0, y0, x1, y1 = box
+        a[y0:y1, x0:x1] = (120, 210, 200, 255)
+        return a
+
+    def test_the_face_piece_holds_what_the_cells_hold(self):
+        baked = {
+            "torso": self.place((100, 200, 300, 380)),
+            "head": self.place((120, 80, 280, 200)),
+            "ear-r": self.place((120, 20, 150, 90)),
+            "ear-l": self.place((250, 20, 280, 90)),
+            "cord": self.place((190, 200, 210, 396)),  # hanging below the body
+            "flap": self.place((280, 180, 330, 230)),  # a folded corner past the body
+        }
+        tree = {"head": ["ear-r", "ear-l"], "torso": ["head", "cord", "flap"]}
+        z = {"torso": 0, "head": 1, "ear-r": -1, "ear-l": -2, "cord": 2, "flap": 3}
+
+        def mask(kind):
+            got = rig.face_piece({"face_base": kind}, baked, tree, z, [])
+            return got[..., 3] >= spec.SOLID_ALPHA
+
+        on = lambda m, x, y: bool(m[y, x])  # noqa: E731
+        self.assertTrue(on(mask("head+ears"), 135, 40))
+        self.assertFalse(on(mask("head"), 135, 40))  # a face drawn without its ears
+        self.assertFalse(on(mask("head"), 200, 250))
+        self.assertTrue(on(mask("body"), 320, 200))  # the whole body, its folded corner too
+        self.assertTrue(on(mask("body"), 200, 300))
+        top = mask("body-top")
+        self.assertFalse(on(top, 320, 200))
+        self.assertTrue(on(top, 200, 250))
+        self.assertFalse(on(top, 200, 390))  # no face cell holds the lanyard
+        self.assertFalse(on(mask("body"), 200, 390))
+
+
 class Slots(unittest.TestCase):
     """manifest() on made-up placed pieces: the fan and an octopus's front pair
     become slots that draw their own rest pieces, and no part repeats them."""

@@ -132,6 +132,25 @@ class TapMovesAndRenderSettings(unittest.TestCase):
             self.assertLessEqual(set(arm_parts.values()), {*c["parts"], *(c.get("parts2") or [])}, c["id"])
             self.assertNotIn("arm-r", c["parts"], c["id"])
 
+    def test_every_face_base_names_pieces_the_character_has(self):
+        # face_base says what the face cells hold, from each brief's FACE PIECE: the
+        # head (ears drawn on it or left off), the head with its ear pieces, the
+        # whole body, or the top of the body. The builder lays the cells on exactly that.
+        from cast import rig
+
+        self.assertEqual(sorted(rig.FACE_BASE), ["body", "body-top", "head", "head+ears"])
+        for c in SPEC["characters"]:
+            kind = c.get("face_base")
+            self.assertIn(kind, rig.FACE_BASE, c["id"])
+            pieces = {*c["parts"], *(c.get("parts2") or [])}
+            self.assertIn(rig.FACE_BASE[kind][0], pieces, c["id"])
+            self.assertEqual(kind.startswith("body"), "head" not in pieces, c["id"])
+            if kind == "head+ears":
+                self.assertLessEqual({"ear-r", "ear-l"}, pieces, c["id"])
+        for host, extras in rig.FACE_BASE.values():
+            for pid in ("tie", "cord", "collar"):  # no face cell holds them
+                self.assertFalse(pid.startswith(extras), (host, pid))
+
     def test_translucency_is_an_opacity(self):
         for c in SPEC["characters"]:
             if "translucent" in c:

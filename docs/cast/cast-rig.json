@@ -1,5 +1,5 @@
 {
-  "about": "The public half of the cast puppet spec: body families, the images each character's ChatGPT chat makes, batches, background keys, the tolerances the brief states and the builder checks (every builder threshold is here; shown_to_chatgpt lists the ones the brief states), the joint ranges, each character's tap moves (`signature`, clip ids of src/lib/cast/clips.ts), the atlas settings and budgets, and the caps on what intake reads from a return. Character canon (looks, colours, references) lives only in the private sources folder; see docs/cast/CAST-BUILD.md.",
+  "about": "The public half of the cast puppet spec: body families, the images each character's ChatGPT chat makes, batches, background keys, the tolerances the brief states and the builder checks (every builder threshold is here; shown_to_chatgpt lists the ones the brief states), the joint ranges, what each character's face cells hold (`face_base`: its head, its head with its ear pieces, its whole body, or the top of its body), each character's tap moves (`signature`, clip ids of src/lib/cast/clips.ts), the atlas settings and budgets, and the caps on what intake reads from a return. Character canon (looks, colours, references) lives only in the private sources folder; see docs/cast/CAST-BUILD.md.",
   "brief_version": 1,
   "keys": {
     "magenta": "#FF00FF",
@@ -191,6 +191,7 @@
       "key": "magenta",
       "images": ["master", "parts", "face", "face2", "arms"],
       "parts": ["head", "torso", "cord", "arm-r", "arm-l", "leg-r", "leg-l"],
+      "face_base": "head",
       "signature": []
     },
     {
@@ -201,6 +202,7 @@
       "card": false,
       "images": ["master", "parts", "face", "arms"],
       "parts": ["torso", "pupil-r", "pupil-l", "arm-r", "arm-l", "leg-r", "leg-l"],
+      "face_base": "body",
       "signature": ["sig.hop"]
     },
     {
@@ -221,6 +223,7 @@
         "leg-r",
         "leg-l"
       ],
+      "face_base": "head",
       "signature": ["sig.prop"]
     },
     {
@@ -242,6 +245,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.prop", "sig.tail"]
     },
     {
@@ -252,6 +256,7 @@
       "images": ["master", "parts", "parts2", "face"],
       "parts": ["head", "pupil-r", "pupil-l", "neck", "torso", "load", "tie", "cord"],
       "parts2": ["leg-fr", "leg-fl", "leg-hr", "leg-hl", "tail"],
+      "face_base": "head",
       "signature": ["sig.load"]
     },
     {
@@ -275,6 +280,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head+ears",
       "signature": ["sig.prop", "sig.tail"]
     },
     {
@@ -296,6 +302,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.eyes", "sig.tail"]
     },
     {
@@ -317,6 +324,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.stomp"]
     },
     {
@@ -327,6 +335,7 @@
       "arms": "glove",
       "images": ["master", "parts", "face", "arms"],
       "parts": ["head", "pupil-r", "pupil-l", "torso", "cord", "arm-r", "arm-l", "leg-r", "leg-l"],
+      "face_base": "head",
       "signature": ["sig.chin"]
     },
     {
@@ -349,6 +358,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.point", "sig.snap"]
     },
     {
@@ -372,6 +382,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head+ears",
       "signature": ["sig.tail"]
     },
     {
@@ -382,6 +393,7 @@
       "arms": "soft",
       "images": ["master", "parts", "face", "arms"],
       "parts": ["torso", "pupil-r", "pupil-l", "arm-r", "arm-l", "cord"],
+      "face_base": "body-top",
       "signature": ["sig.float"],
       "translucent": 0.9
     },
@@ -404,6 +416,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.hop"]
     },
     {
@@ -425,6 +438,7 @@
         "leg-l",
         "quills"
       ],
+      "face_base": "head",
       "signature": ["sig.quills"]
     },
     {
@@ -445,6 +459,7 @@
         "leg-r",
         "leg-l"
       ],
+      "face_base": "head",
       "signature": ["sig.open"]
     },
     {
@@ -465,6 +480,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.wave"]
     },
     {
@@ -488,6 +504,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head+ears",
       "signature": ["sig.ears", "sig.prop"]
     },
     {
@@ -511,6 +528,7 @@
         "arm-r": "tentacle-1",
         "arm-l": "tentacle-2"
       },
+      "face_base": "head",
       "signature": ["sig.ripple"]
     },
     {
@@ -532,6 +550,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.swivel"]
     },
     {
@@ -553,6 +572,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.prop"]
     },
     {
@@ -574,6 +594,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.prop", "sig.nod"]
     },
     {
@@ -596,6 +617,7 @@
         "leg-l"
       ],
       "parts2": ["fan-open", "fan-closed"],
+      "face_base": "head",
       "signature": ["sig.fan"]
     },
     {
@@ -619,6 +641,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.ears", "sig.prop"]
     },
     {
@@ -633,6 +656,7 @@
         "arm-r": "limb-1",
         "arm-l": "limb-2"
       },
+      "face_base": "head",
       "signature": ["sig.ripple"]
     },
     {
@@ -643,6 +667,7 @@
       "card": false,
       "images": ["master", "parts", "face", "arms"],
       "parts": ["torso", "flap", "pupil-r", "pupil-l", "arm-r", "arm-l", "leg-r", "leg-l"],
+      "face_base": "body",
       "signature": ["sig.flap", "sig.hop"]
     },
     {
@@ -663,6 +688,7 @@
         "leg-r",
         "leg-l"
       ],
+      "face_base": "head",
       "signature": ["sig.prop"]
     },
     {
@@ -685,6 +711,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.retreat"]
     },
     {
@@ -708,6 +735,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head+ears",
       "signature": ["sig.point", "sig.ears"]
     },
     {
@@ -728,6 +756,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.prop"]
     },
     {
@@ -748,6 +777,7 @@
         "leg-l",
         "tail"
       ],
+      "face_base": "head",
       "signature": ["sig.prop"]
     }
   ],

@@ -48,8 +48,15 @@ from .spec import (
     signature_problem,
 )
 
-# What a face piece keeps with its head or body (the brief: ears, a flap, the tie).
-FACE_EXTRAS = ("ear-", "flap", "tie", "cord", "collar", "quills")
+# What each character's face cells hold (cast-rig.json `face_base`, from its brief's
+# FACE PIECE): the host piece the face is drawn on, and the pieces hanging from it
+# that the cells draw with it. No face cell holds a collar, a tie or a lanyard.
+FACE_BASE = {
+    "head": ("head", ()),  # a head, ears drawn on it or left off (and any neck past the chin)
+    "head+ears": ("head", ("ear-",)),  # a head with its ear pieces in place
+    "body": ("torso", ("flap",)),  # the whole body, a folded corner included
+    "body-top": ("torso", ()),  # the top of the body, cut a little below the mouth
+}
 SOCKETS = {"torso": "body", "head": "head", "tail": "tail", "tie": "tie", "cord": "cord", "neck": "neck"}
 ARM_SLOTS = ("arm-r", "arm-l")
 # The fan is a swap slot on the torso (src/lib/cast/rig-types.ts: "Arms and the fan
@@ -199,6 +206,19 @@ def compose(baked: dict, order: list[str]) -> np.ndarray:
         if pid in baked:
             canvas.alpha_composite(Image.fromarray(baked[pid], "RGBA"))
     return np.array(canvas)
+
+
+def face_piece(c: dict, baked: dict, tree: dict, z: dict, pupils: list) -> np.ndarray:
+    """The face piece the face cells are laid on (master frame): the host
+    FACE_BASE names for the character's `face_base`, the pieces hanging from it
+    that its cells draw with it (in their own z order), and the pupils on top."""
+    host, extras = FACE_BASE[c["face_base"]]
+    keep = [host] + [k for k in tree.get(host, []) if k.startswith(extras)]
+    piece = {k: baked[k] for k in keep}
+    for n, p in enumerate(pupils):
+        piece[f"pupil-{n}"] = p["sprite"]
+    order = [*draw_order({host: [k for k in keep if k != host]}, z, host), *[k for k in piece if k.startswith("pupil-")]]
+    return compose(piece, order)
 
 
 def iou(a: np.ndarray, b: np.ndarray) -> float:
@@ -469,10 +489,13 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     report["checks"]["C8"] = c8
 
     # Pupils cut from the master, then face patches against the face piece: the
-    # host (head, or the body of a character whose face is on it) with the extras
-    # the brief keeps on it, and the pupils.
-    host = "head" if "head" in baked else "torso"
+    # host (head, or the body of a character whose face is on it) with the pieces
+    # its face cells draw with it (FACE_BASE), and the pupils.
+    host, extras = FACE_BASE[c["face_base"]]
     c10 = {"status": "skip", "notes": []}
+    if host not in baked:
+        c10["status"] = "fail"
+        c10["notes"].append(f"the face is on the {host}, which was not placed")
     pupils = []
     if host in baked and any(i.startswith("pupil-") for i in ids_all):
         pupils = swaps.pupils_from_master(master, baked[host], eyes)
@@ -487,11 +510,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     neutral: dict = {}
     bands = None  # the face sheet's eyes and mouth bands, which face2 and C10 take too
     if host in baked:
-        keep = [host] + [k for k in tree.get(host, []) if k.startswith(FACE_EXTRAS)]
-        piece = {k: baked[k] for k in keep}
-        for n, p in enumerate(pupils):
-            piece[f"pupil-{n}"] = p["sprite"]
-        face_base = compose(piece, [*draw_order({host: [k for k in keep if k != host]}, z, host), *[k for k in piece if k.startswith("pupil-")]])
+        face_base = face_piece(c, baked, tree, z, pupils)
     for img, states, rows in (("face", FACE_STATES, 2), ("face2", FACE2_STATES, 1)):
         if img not in c["images"] or not files.get(img) or host not in baked:
             continue
