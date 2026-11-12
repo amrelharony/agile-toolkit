@@ -5,7 +5,9 @@
  * `workspace.story.*` actions stamp a change the same way. Its sprint moves
  * are stamped too (`stampStoryMembership`), by the workspace store on every
  * local write and by the agents' writes, so a burnup can tell when scope
- * joined or left a sprint.
+ * joined or left a sprint. So are its refinements (`stampRefinedWrite`): a
+ * write that changes what the story says stamps `refinedAt`, which Backlog
+ * Health's stale check reads.
  *
  *   - Into in progress, review or done from the backlog or to do: `startedAt`.
  *   - Back to the backlog or to do: `startedAt` and `doneAt` are cleared (the
@@ -177,20 +179,37 @@ function same(a: unknown, b: unknown): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
+const REFINED_FIELDS = ["title", "points", "notes", "acceptanceCriteria", "gwt"] as const;
+
+/** Stamps `refinedAt` when a write changes what the story says (not on create, nor when the write sets it itself). */
+export function stampRefinedWrite(
+  next: Story,
+  prev: Story | undefined,
+  at: string = new Date().toISOString()
+): Story {
+  if (!prev || next.refinedAt !== prev.refinedAt) return next;
+  return REFINED_FIELDS.some((k) => !same(next[k], prev[k])) ? { ...next, refinedAt: at } : next;
+}
+
 /**
  * Stamps for a story an agent wrote: `next` is the record about to be saved
  * and `prev` the stored one (undefined for a new story). A status change is
  * stamped like `withStoryStatus`, except that a stamp the write set itself
  * (a backfilled `doneAt`, say) is kept as written. A new story that starts
- * out in progress or done gets the start and done times it lacks; nothing
- * else changes.
+ * out in progress or done gets the start and done times it lacks. A change
+ * to its title, points, notes or criteria stamps `refinedAt`
+ * (`stampRefinedWrite`); nothing else changes.
  */
 export function stampStoryWrite(
   next: Story,
   prev: Story | undefined,
   at: string = new Date().toISOString()
 ): Story {
-  return stampStoryMembership(stampStatusWrite(next, prev, at), prev, at);
+  return stampRefinedWrite(
+    stampStoryMembership(stampStatusWrite(next, prev, at), prev, at),
+    prev,
+    at
+  );
 }
 
 function stampStatusWrite(next: Story, prev: Story | undefined, at: string): Story {

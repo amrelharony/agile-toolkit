@@ -462,6 +462,10 @@ const StorySchema = z.object({
     .describe(
       "Structured acceptance criteria, in order: {id, given, when, then} (at most 20, each part at most 1,000 characters). They sit beside acceptanceCriteria, which they don't change."
     ),
+  refinedAt: z
+    .string()
+    .optional()
+    .describe("When the story's text, points or criteria last changed (ISO). Stamped on write."),
   link: z
     .string()
     .max(STORY_LINK_MAX)

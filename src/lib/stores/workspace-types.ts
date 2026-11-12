@@ -180,6 +180,13 @@ export interface Story {
    * rows, each part at most TOOL_TEXT_MAX.text.
    */
   gwt?: StoryGwt[];
+  /**
+   * When the story was last refined: its title, points, notes or acceptance
+   * criteria (free text or Given/When/Then) changed. Stamped on write
+   * (lib/sprints/story-status `stampRefinedWrite`); Backlog Health's stale
+   * check reads it.
+   */
+  refinedAt?: ISODateString;
   /** Its issue in the team's tracker: an http or https address (at most 500 characters). */
   link?: string;
   /** Its key in the team's tracker, such as "PAY-12" (at most 50 characters). */
