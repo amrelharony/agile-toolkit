@@ -139,6 +139,8 @@ export const ARM_WORDS = {
   human:
     "A real arm: one upper arm, one forearm and one hand, bending only at the elbow and the wrist, never stretched, rubbery or twisted; the sleeve is continuous and the hand is attached at the wrist with the right number of fingers.",
   wing: "A real wing-arm, as this bird's arms are drawn on its model sheet: the feathered wing bends only where a wing bends, its tip feathers spread like fingers to wave, point or hold; never a human arm, never stretched or rubbery.",
+  feathered:
+    "A real wing-arm with its own hand, as on the model sheet: one upper arm and one forearm, bending only at the elbow and the wrist, ending in a feathered hand with the right number of feather-fingers that waves, points and holds; the wing never opens into a spread fan in place of the hand; never stretched, rubbery or twisted.",
   tube: "A real tube arm, as on the model sheet: one thin black tube that curves smoothly from the body to a white cartoon glove with the right number of fingers; it curves, it never has a sharp kink or a second elbow.",
   mitten:
     "A real mitten arm, as on the model sheet: one soft rounded arm ending in a mitten-like hand with no separate fingers; it curves smoothly, never stretched or twisted.",

@@ -438,6 +438,7 @@
       "name": "Customer Voice Parrot",
       "family": "bird",
       "key": "magenta",
+      "arms": "feathered",
       "images": ["master", "parts", "face", "arms"],
       "parts": [
         "head",

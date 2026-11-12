@@ -85,12 +85,21 @@ describe("the per-character brief", () => {
   });
 
   it("lets a character's own arms override its family's", () => {
-    // A suited bird with hands, a gloved bird and a ghost with fingers.
+    // A suited bird with hands, a gloved bird, a ghost with fingers and a bird
+    // whose wing-arms end in feathered hands.
     expect(file("AAW-22")).toContain("one upper arm, one forearm and one hand");
     expect(file("AAW-22")).not.toContain("A real wing-arm");
     expect(file("AAW-09")).toContain("ends in a white cartoon glove");
     expect(file("AAW-12")).toContain("ends in its own hand");
     expect(file("AAW-12")).not.toContain("A real mitten arm");
+    expect(file("AAW-21")).toContain("feather-fingers");
+    expect(file("AAW-21")).not.toContain("spread like fingers");
+  });
+
+  it("words the feathered hand as a hand that never opens into a fan", () => {
+    expect(ARM_WORDS.feathered).toContain("bending only at the elbow and the wrist");
+    expect(ARM_WORDS.feathered).toContain("never opens into a spread fan");
+    expect(ARM_WORDS.feathered).not.toContain("spread like fingers");
   });
 
   it("never asks a character without a card for one, or a camel for an arm", () => {
@@ -148,6 +157,7 @@ describe("the Opus appendix", () => {
     expect(entry("AAW-09")).toMatch(/; arms glove\b/);
     expect(entry("AAW-10")).toMatch(/; arms human\b/);
     expect(entry("AAW-12")).toMatch(/; arms soft\b/);
+    expect(entry("AAW-21")).toMatch(/; arms feathered\b/);
     expect(entry("AAW-22")).toMatch(/; arms human\b/);
     expect(entry("AAW-05")).toMatch(/; arms none\b/);
     for (const c of spec.characters) {
