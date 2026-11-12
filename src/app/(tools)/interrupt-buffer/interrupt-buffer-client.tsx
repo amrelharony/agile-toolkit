@@ -32,6 +32,8 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiButton, AiSuggestions } from "@/components/ai";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { generateInterruptBufferPrompts } from "@/lib/ai-prompts/interrupt-buffer";
 import { SectionCard } from "@/components/shared/section-card";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { SprintPicker } from "@/components/sprints/sprint-picker";
@@ -56,6 +58,7 @@ import {
   EMPTY_INTERRUPT_DRAFT,
   INTERRUPT_KIND_LABEL,
   bufferHistory,
+  bufferLabel,
   interruptBufferStatus,
   interruptSize,
   pointsText,
@@ -295,6 +298,30 @@ export function BufferBoard({
     [sprint, status, mine, history]
   );
 
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Interrupt Buffer",
+      prompts: generateInterruptBufferPrompts({
+        sprintName: sprint.name,
+        buffer: bufferLabel(sprint),
+        summary: status.summary,
+        interrupts: mine.map((i) => ({
+          title: i.title,
+          kind: i.kind,
+          size: i.size,
+          emergency: i.emergency,
+        })),
+        history: history.map((r) => ({
+          name: r.sprint.name,
+          bufferPoints: r.status.bufferPoints,
+          usedPoints: r.status.usedPoints,
+          total: r.status.total,
+        })),
+      }),
+    }),
+    [sprint, status, mine, history]
+  );
+
   const fresh = (id: string) => writer.items().find((i) => i.id === id);
 
   const saveBuffer = (buffer: SprintInterruptBuffer | undefined) => {
@@ -446,13 +473,16 @@ export function BufferBoard({
           onSelect={onSelect}
           allowCreate={!example}
         />
-        <ExportButton
-          filename={`interrupt-buffer-${sprint.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-          markdown={markdown}
-          clipboardText={markdown}
-          csvData={interruptsCsv(mine)}
-          jsonData={{ sprint: { id: sprint.id, name: sprint.name }, status, interrupts: mine }}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <AiPromptGenerator config={promptConfig} />
+          <ExportButton
+            filename={`interrupt-buffer-${sprint.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+            markdown={markdown}
+            clipboardText={markdown}
+            csvData={interruptsCsv(mine)}
+            jsonData={{ sprint: { id: sprint.id, name: sprint.name }, status, interrupts: mine }}
+          />
+        </div>
       </div>
 
       <SectionCard title="The buffer" icon={Shield}>

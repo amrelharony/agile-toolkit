@@ -23,6 +23,8 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiButton, AiSuggestions } from "@/components/ai";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { generateBacklogHealthPrompts } from "@/lib/ai-prompts/backlog-health";
 import { SectionCard } from "@/components/shared/section-card";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { Button } from "@/components/ui/button";
@@ -273,6 +275,24 @@ export function HealthBoard({
   }, [example, health, log]);
 
   const markdown = useMemo(() => toMarkdown(health, today), [health, today]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Backlog Health",
+      prompts: generateBacklogHealthPrompts({
+        score: health.score,
+        checks: health.checks,
+        stories: health.stories
+          .filter((s) => s.top)
+          .map((s) => ({
+            title: s.story.title,
+            points: s.story.points,
+            flags: s.flags.map((f) => f.id),
+            criteria: s.story.acceptanceCriteria,
+          })),
+      }),
+    }),
+    [health]
+  );
   const byId = useMemo(() => new Map(backlog.map((s) => [s.id, s])), [backlog]);
 
   const fresh = (id: string) => writer.stories().find((s) => s.id === id);
@@ -465,13 +485,16 @@ export function HealthBoard({
             {health.summary}
           </p>
         </div>
-        <ExportButton
-          filename="backlog-health"
-          markdown={markdown}
-          clipboardText={markdown}
-          csvData={healthCsv(health)}
-          jsonData={{ score: health.score, verdict: health.verdict, checks: health.checks }}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <AiPromptGenerator config={promptConfig} />
+          <ExportButton
+            filename="backlog-health"
+            markdown={markdown}
+            clipboardText={markdown}
+            csvData={healthCsv(health)}
+            jsonData={{ score: health.score, verdict: health.verdict, checks: health.checks }}
+          />
+        </div>
       </div>
 
       <ul className="grid gap-3 sm:grid-cols-2" aria-label="The four DEEP checks">

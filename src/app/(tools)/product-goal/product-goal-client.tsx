@@ -21,6 +21,8 @@ import { CalendarClock, Goal, History, Pencil, Plus, RotateCcw, Trash2 } from "l
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { generateProductGoalPrompts } from "@/lib/ai-prompts/product-goal";
 import { SectionCard } from "@/components/shared/section-card";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
@@ -228,6 +230,19 @@ export function GoalBoard({
     () => toMarkdown({ active, history, vision, today }),
     [active, history, vision, today]
   );
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Product Goal",
+      prompts: generateProductGoalPrompts({
+        vision,
+        statement: active?.statement ?? "",
+        why: active?.why ?? "",
+        measures: active?.measures ?? [],
+        stories: [...storyTitles],
+      }),
+    }),
+    [vision, active, storyTitles]
+  );
 
   /** A new goal, made active; the current one (and any extra) closed first, all with one Undo. */
   const saveNew = (values: GoalFormValues) => {
@@ -340,12 +355,15 @@ export function GoalBoard({
         >
           {active ? "The active goal" : "No goal is active"}
         </h2>
-        <ExportButton
-          filename="product-goal"
-          markdown={markdown}
-          clipboardText={markdown}
-          jsonData={{ active: active ?? null, history, vision }}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <AiPromptGenerator config={promptConfig} />
+          <ExportButton
+            filename="product-goal"
+            markdown={markdown}
+            clipboardText={markdown}
+            jsonData={{ active: active ?? null, history, vision }}
+          />
+        </div>
       </div>
 
       <VisionField vision={vision} onCommit={onVision} />
