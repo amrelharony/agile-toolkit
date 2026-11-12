@@ -299,6 +299,21 @@ class BriefAgreement(unittest.TestCase):
             seen += 1
         self.assertGreater(seen, 0)
 
+    @unittest.skipUnless((spec.DEFAULT_SOURCES / "brief").is_dir(), "the private briefs are not on this machine")
+    def test_an_eye_drawn_partly_hidden_keeps_white_round_its_pupil(self):
+        # C10 fails a pupil with no room to move inside its white, and the rig moves both
+        # pupils by the least room either has: a brief that hides part of an eye asks for
+        # white on every side of each pupil. Only whether the words are there is read.
+        seen = 0
+        for c in SPEC["characters"]:
+            if "pupil-r" not in c["parts"]:
+                continue
+            brief = (spec.DEFAULT_SOURCES / "brief" / f"CAST-{c['id']}.md").read_text(encoding="utf-8")
+            if re.search(r"\beyes? shows? partly behind\b", brief):
+                seen += 1
+                self.assertIn("white shows on every side of its round pupil", brief, c["id"])
+        self.assertGreater(seen, 0)
+
     def test_targets(self):
         self.assertEqual(spec.targets("A"), SPEC["batches"]["A"])
         self.assertEqual(spec.targets("AAW-04"), ["AAW-04"])
