@@ -219,7 +219,14 @@ describe("mixing groups", () => {
       ok: false,
       error: "Add at least 2 people to mix.",
     });
-    expect(mixProblem(4, "groups", { by: "size", n: 4 })).toMatch(/only one group/);
+    expect(mixProblem(4, "groups", { by: "size", n: 4 })).toBe(
+      "With 4 people, groups of 4 make only one group. Try a smaller size."
+    );
+    // The size can't go below 2, so with 3 people a smaller size is no help.
+    expect(mixProblem(3, "groups", { by: "size", n: 2 })).toBe(
+      "With 3 people, groups of 2 make only one group. Add more people, or mix pairs instead."
+    );
+    expect(mixProblem(3, "groups", { by: "size", n: 3 })).toMatch(/Add more people/);
     expect(mixProblem(4, "groups", { by: "count", n: 1 })).toBe("Ask for at least 2 groups.");
     expect(mixProblem(121, "pairs")).toMatch(/up to 120 people/);
   });

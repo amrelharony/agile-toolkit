@@ -111,9 +111,13 @@ export function mixProblem(
     return `Team Mixer mixes up to ${MIXER_LIMITS.people} people at a time.`;
   }
   if (mode === "groups" && split && groupSizes(people, split).length < 2) {
-    return split.by === "count"
-      ? "Ask for at least 2 groups."
-      : `With ${people} people, groups of ${split.n} make only one group. Try a smaller size.`;
+    if (split.by === "count") return "Ask for at least 2 groups.";
+    const one = `With ${people} people, groups of ${split.n} make only one group.`;
+    // A smaller size helps only where groups of 2 make two groups (the
+    // size can't go below 2).
+    return people >= 4 && split.n > 2
+      ? `${one} Try a smaller size.`
+      : `${one} Add more people, or mix pairs instead.`;
   }
   return null;
 }

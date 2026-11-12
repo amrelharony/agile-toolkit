@@ -24,6 +24,10 @@ describe("Team Mixer prompts", () => {
     const [p] = generateTeamMixerPrompts({ mode: "pairs", people: 8, groups: 4 });
     expect(p.id).toBe("team-mixer-pair-starters");
     expect(p.prompt).toContain("None should ask for anything private");
+    expect(p.prompt).toContain("(4 pairs)");
+    expect(generateTeamMixerPrompts({ mode: "pairs", people: 2, groups: 1 })[0].prompt).toContain(
+      "(1 pair)"
+    );
   });
 
   it("build World Café questions for each round", () => {

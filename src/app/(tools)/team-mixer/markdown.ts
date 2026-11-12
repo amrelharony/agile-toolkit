@@ -1,5 +1,5 @@
 import { cafeMoves } from "@/lib/team-mixer/cafe";
-import { groupLabel } from "@/lib/team-mixer/model";
+import { groupLabel, plural } from "@/lib/team-mixer/model";
 import { ruleText } from "@/lib/team-mixer/weights";
 import type { MixerCafe, MixerRound, MixerState } from "@/lib/team-mixer/state";
 
@@ -16,8 +16,8 @@ const line = (s: string) => s.replace(/\s+/g, " ").replace(/\|/g, "/").trim();
 
 function roundMarkdown(r: MixerRound, number: number): string[] {
   const out: string[] = [];
-  const unit = r.mode === "pairs" ? "pairs" : "groups";
-  out.push(`## Round ${number}: ${r.groups.length} ${unit}${r.at ? ` (${day(r.at)})` : ""}`, "");
+  const unit = plural(r.groups.length, r.mode === "pairs" ? "pair" : "group");
+  out.push(`## Round ${number}: ${unit}${r.at ? ` (${day(r.at)})` : ""}`, "");
   if (r.title) out.push(line(r.title), "");
   r.groups.forEach((g, i) => {
     const label = groupLabel(r.mode, i);

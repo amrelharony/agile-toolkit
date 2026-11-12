@@ -295,6 +295,7 @@ describe("mixing and saving", () => {
   it("says what the settings will make, and what stops them", () => {
     expect(settingsPreview(six())).toBe("2 groups of 3.");
     expect(settingsPreview({ ...six(), mode: "pairs" })).toBe("3 pairs.");
+    expect(settingsPreview({ ...withPeople(["A", "B"]), mode: "pairs" })).toBe("1 pair.");
     expect(settingsPreview({ ...withPeople(["A", "B", "C", "D", "E"]), mode: "pairs" })).toBe(
       "1 pair and a group of 3."
     );

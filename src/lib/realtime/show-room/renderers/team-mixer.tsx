@@ -57,6 +57,8 @@ export function GroupsFrameView({ payload, surface }: ShowRendererProps<GroupsFr
   const phone = surface === "phone";
   const word = payload.unit === "pair" ? "Pair" : "Group";
   const label = (i: number) => payload.groups[i].name || `${word} ${i + 1}`;
+  const count = payload.groups.length;
+  const heading = `Round ${payload.round}: ${count} ${word.toLowerCase()}${count === 1 ? "" : "s"}`;
   const matches: string[] = [];
   payload.groups.forEach((g, i) =>
     g.people.filter(find.hit).forEach((p) => matches.push(`${p} is in ${label(i)}.`))
@@ -72,8 +74,7 @@ export function GroupsFrameView({ payload, surface }: ShowRendererProps<GroupsFr
             phone ? "text-2xl font-bold text-text sm:text-3xl" : "text-lg font-semibold text-text"
           }
         >
-          Round {payload.round}: {payload.groups.length}{" "}
-          {payload.unit === "pair" ? "pairs" : "groups"}
+          {heading}
         </p>
       </div>
       {phone && (

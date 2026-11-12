@@ -6,7 +6,7 @@ import { focusAfterRemoval } from "@/app/(tools)/sprint-goal/focus";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
-import { groupLabel } from "@/lib/team-mixer/model";
+import { groupLabel, plural } from "@/lib/team-mixer/model";
 import type { MixerRound } from "@/lib/team-mixer/state";
 
 export interface HistoryCardProps {
@@ -63,7 +63,7 @@ export function HistoryCard({ rounds, onRemove, onStartOver, focusWhenEmpty }: H
               <p className="text-sm font-medium text-text">
                 Round {n}
                 <span className="ml-1.5 text-xs font-normal text-sub">
-                  {when(r.at)} · {r.groups.length} {r.mode === "pairs" ? "pairs" : "groups"}
+                  {when(r.at)} · {plural(r.groups.length, r.mode === "pairs" ? "pair" : "group")}
                 </span>
               </p>
               <p className="break-words text-xs text-sub">

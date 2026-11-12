@@ -6,7 +6,7 @@ import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import type { TeamMember } from "@/lib/stores/workspace-types";
-import { BROKEN_KINDS, groupLabel } from "@/lib/team-mixer/model";
+import { BROKEN_KINDS, groupLabel, plural } from "@/lib/team-mixer/model";
 import type { MixerRound } from "@/lib/team-mixer/state";
 import { findRosterMember } from "@/lib/team/names";
 import { cn } from "@/lib/utils";
@@ -61,7 +61,7 @@ export function RoundCard({ round, roster, onMove, onName }: RoundCardProps) {
 
   return (
     <SectionCard
-      title={`Round ${number}: ${round.groups.length} ${round.mode === "pairs" ? "pairs" : "groups"}`}
+      title={`Round ${number}: ${plural(round.groups.length, word.toLowerCase())}`}
       icon={LayoutGrid}
     >
       <div className="space-y-4">

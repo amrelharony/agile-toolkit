@@ -19,6 +19,7 @@ import {
   groupSizes,
   nameKey,
   pairKey,
+  plural,
   type MixPerson,
   type PastRound,
   type RuleKind,
@@ -82,7 +83,7 @@ export function settingsPreview(state: MixerState): string | null {
   if (n < 2) return null;
   if (state.mode === "pairs") {
     const pairs = Math.floor(n / 2);
-    if (n % 2 === 0) return `${pairs} pairs.`;
+    if (n % 2 === 0) return `${plural(pairs, "pair")}.`;
     if (state.odd === "sit-out") {
       return `${pairs} ${pairs === 1 ? "pair" : "pairs"}, and 1 person sits out each round.`;
     }

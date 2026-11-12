@@ -54,7 +54,7 @@ export function generateTeamMixerPrompts(input: TeamMixerPromptInput): PromptDef
         description: "Starters for coffee chats or a pair rotation, light to deeper.",
         prompt:
           coach +
-          `We pair ${input.people} colleagues for 15-minute conversations (${input.groups} pairs), with new partners every round.\n` +
+          `We pair ${input.people} colleagues for 15-minute conversations (${input.groups} ${input.groups === 1 ? "pair" : "pairs"}), with new partners every round.\n` +
           purpose +
           "\nSuggest 10 conversation starters, from light to deeper, that help people who don't usually work together find out how they could help each other. None should ask for anything private.",
       },

@@ -158,6 +158,13 @@ describe("the groups view", () => {
     expect(screen.getByText("Sitting out this round: Eve.")).toBeInTheDocument();
   });
 
+  it("says 1 pair, not 1 pairs", () => {
+    renderFrame(
+      frameOf("groups", { round: 1, unit: "pair", groups: [{ people: ["Ana", "Bo"] }], sitOut: [] })
+    );
+    expect(screen.getByText("Round 1: 1 pair")).toBeInTheDocument();
+  });
+
   it("finds a name and says which group it's in", () => {
     renderFrame(frameOf("groups", GROUPS));
     const box = screen.getByLabelText("Find your name");
