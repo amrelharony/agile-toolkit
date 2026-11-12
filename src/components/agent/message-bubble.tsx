@@ -57,6 +57,15 @@ export function useToolSteps(messages: ChatMessage[], busy: boolean): ToolSteps 
 /** A row's separator, as the chat's other plain lines write it ("Chat · not saved"). */
 const SEP = " · ";
 
+/**
+ * Which step a Details block belongs to, for a screen reader: "Retro Board ·
+ * Add card “flaky CI”". A plain string, so the memo below still holds.
+ */
+function stepName(label: ToolLabel, summary: string | null): string {
+  const name = label.verb ? `${label.tool}${SEP}${label.verb}` : label.tool;
+  return summary ? `${name} “${summary}”` : name;
+}
+
 /** Text for Details, cut to DETAILS_MAX. */
 function capped(text: string): string {
   return text.length > DETAILS_MAX ? `${text.slice(0, DETAILS_MAX)}…` : text;
@@ -75,14 +84,20 @@ function inputText(input: ToolUseBlock["input"] | undefined): string {
  * The owner's disclosure with the raw arguments and result, in the data face.
  * Each block scrolls past 160 px, so it is a named region a keyboard can
  * reach and scroll (the global focus ring shows it), as the markdown's code
- * blocks are. Memoised on the call's input and its result block (the store
- * keeps both until they change), so a streamed flush or a keystroke in the
- * composer doesn't write the raw JSON out again.
+ * blocks are. The disclosure and both regions carry the step's words for a
+ * screen reader (hidden on screen), so several steps don't all read
+ * "Details" or give the same "Input" and "Result" landmarks. Memoised on the
+ * call's input and its result block (the store keeps both until they
+ * change), so a streamed flush or a keystroke in the composer doesn't write
+ * the raw JSON out again.
  */
 const StepDetails = memo(function StepDetails({
+  step,
   input,
   result,
 }: {
+  /** The step in words (stepName). */
+  step: string;
   input?: ToolUseBlock["input"];
   result?: ToolResultBlock;
 }) {
@@ -93,7 +108,7 @@ const StepDetails = memo(function StepDetails({
   return (
     <details className="group/details mt-1">
       <summary className="flex w-fit cursor-pointer select-none list-none items-center gap-1 text-xs text-sub hover:text-text pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
-        Details
+        Details <span className="sr-only">for {step}</span>
         <ChevronDown
           className="h-3.5 w-3.5 shrink-0 group-open/details:rotate-180"
           aria-hidden="true"
@@ -103,7 +118,7 @@ const StepDetails = memo(function StepDetails({
         {input !== undefined && (
           <>
             <p id={inputId} className="text-xs text-sub">
-              Input
+              Input <span className="sr-only">for {step}</span>
             </p>
             <pre role="region" aria-labelledby={inputId} tabIndex={0} dir="ltr" className={block}>
               {capped(inputText(input))}
@@ -113,7 +128,7 @@ const StepDetails = memo(function StepDetails({
         {result && (
           <>
             <p id={resultId} className="text-xs text-sub">
-              Result
+              Result <span className="sr-only">for {step}</span>
             </p>
             <pre role="region" aria-labelledby={resultId} tabIndex={0} dir="ltr" className={block}>
               {capped(resultText(result))}
@@ -188,7 +203,7 @@ export function MessageBubble({
               label={UNPAIRED}
               state={stepState({ id: c.tool_use_id, input: {} }, c, {})}
               summary={null}
-              details={details ? <StepDetails result={c} /> : null}
+              details={details ? <StepDetails step={UNPAIRED.tool} result={c} /> : null}
             />,
           ]
         : []
@@ -220,15 +235,21 @@ export function MessageBubble({
           if (c.type === "tool_use") {
             const result = steps?.pairs.resultOf(message.id, c.id);
             const state = stepState(c, result, { pendingId: steps?.pendingId, live });
+            const label = toolLabel(c.name);
+            const summary = state === "preparing" ? null : stepSummary(c, result);
             return (
               <div key={i} className="mt-2 first:mt-0">
                 <StepRow
-                  label={toolLabel(c.name)}
+                  label={label}
                   state={state}
-                  summary={state === "preparing" ? null : stepSummary(c, result)}
+                  summary={summary}
                   details={
                     details && state !== "preparing" ? (
-                      <StepDetails input={c.input} result={result} />
+                      <StepDetails
+                        step={stepName(label, summary)}
+                        input={c.input}
+                        result={result}
+                      />
                     ) : null
                   }
                 />

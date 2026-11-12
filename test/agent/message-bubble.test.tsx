@@ -77,14 +77,55 @@ describe("MessageBubble step rows", () => {
     expect(raw[1].textContent).toBe('{"added":true}');
     // Each block scrolls past 160 px: a named region a keyboard can reach.
     act(() => summary.parentElement!.setAttribute("open", ""));
-    const input = screen.getByRole("region", { name: "Input" });
-    const output = screen.getByRole("region", { name: "Result" });
+    // Named for their step, so two steps' blocks are never the same landmark.
+    const input = screen.getByRole("region", {
+      name: "Input for Retro Board · Add card “flaky CI”",
+    });
+    const output = screen.getByRole("region", {
+      name: "Result for Retro Board · Add card “flaky CI”",
+    });
     expect(input).toBe(raw[0]);
     expect(output).toBe(raw[1]);
     for (const block of [input, output]) {
       expect(block).toHaveAttribute("tabindex", "0");
       expect(block).toHaveAttribute("dir", "ltr");
     }
+  });
+
+  it("names each step's Details for its step, so several steps read apart", () => {
+    const twoSteps: ChatMessage[] = [
+      {
+        id: "a1",
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "c1", name: "tool_retro_add_card", input: { text: "flaky CI" } },
+          {
+            type: "tool_use",
+            id: "c2",
+            name: "tool_retro_add_card",
+            input: { text: "slow build" },
+          },
+        ],
+        createdAt: at,
+      },
+      {
+        id: "t1",
+        role: "tool",
+        content: [
+          { type: "tool_result", tool_use_id: "c1", content: '{"added":true}' },
+          { type: "tool_result", tool_use_id: "c2", content: '{"added":true}' },
+        ],
+        createdAt: at,
+      },
+    ];
+    render(<Chat owner messages={twoSteps} />);
+    const summaries = screen.getAllByText("Details").map((el) => el.closest("summary")!);
+    expect(summaries.map((el) => el.textContent)).toEqual([
+      "Details for Retro Board · Add card “flaky CI”",
+      "Details for Retro Board · Add card “slow build”",
+    ]);
+    // The step's words are for a screen reader only: the screen still says "Details".
+    for (const el of summaries) expect(el.querySelector(".sr-only")).not.toBeNull();
   });
 
   it("gives a visitor no scrolling region to reach", () => {
