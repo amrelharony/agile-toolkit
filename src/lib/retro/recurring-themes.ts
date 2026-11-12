@@ -253,14 +253,27 @@ export interface ThemesInput {
  * The archived cards as Amr's task takes them: each retro numbered from 1
  * (oldest) with its date, each card by a short id ("c1"…) with its retro's
  * number and its text cut to THEME_CARD_TEXT_MAX, the newest
- * THEME_CARDS_MAX cards. `ids` maps the short ids back to the cards.
+ * THEME_CARDS_MAX cards that fit in THEMES_INPUT_BYTES. `ids` maps the
+ * short ids back to the cards.
  */
-export function themesInput(boards: readonly RetroBoard[]): {
+export function themesInput(
+  boards: readonly RetroBoard[],
+  budget: number = THEMES_INPUT_BYTES
+): {
   input: ThemesInput;
   ids: Map<string, string>;
 } {
   const all = archivedCards(boards);
-  const cards = all.slice(Math.max(0, all.length - THEME_CARDS_MAX));
+  // The newest cards first, while they fit the request: a team writing in a
+  // script of two or three bytes a letter gets fewer cards, not a refusal.
+  const cards: ArchivedCard[] = [];
+  let bytes = 0;
+  for (let i = all.length - 1; i >= 0 && cards.length < THEME_CARDS_MAX; i--) {
+    const size = utf8Bytes(clip(all[i].card.text)) + CARD_OVERHEAD_BYTES;
+    if (bytes + size > budget) break;
+    bytes += size;
+    cards.unshift(all[i]);
+  }
   const numbers = new Map<string, number>();
   const retros: ThemesInput["retros"] = [];
   for (const { board } of cards) {
@@ -272,14 +285,29 @@ export function themesInput(boards: readonly RetroBoard[]): {
   const list = cards.map(({ card, board }, i) => {
     const short = `c${i + 1}`;
     ids.set(short, card.id);
-    const t = card.text.replace(/\s+/g, " ").trim();
-    return {
-      id: short,
-      r: numbers.get(board.id) ?? 1,
-      text: t.length > THEME_CARD_TEXT_MAX ? `${t.slice(0, THEME_CARD_TEXT_MAX - 1)}…` : t,
-    };
+    return { id: short, r: numbers.get(board.id) ?? 1, text: clip(card.text) };
   });
   return { input: { retros, cards: list }, ids };
+}
+
+/**
+ * The cards' share of Amr's request, in bytes: under the visitor route's
+ * 64 KB body cap with room for the retros' dates and the envelope.
+ */
+export const THEMES_INPUT_BYTES = 56_000;
+
+/** What one card adds besides its text: `{"id":"c400","r":52,"text":""},`. */
+const CARD_OVERHEAD_BYTES = 32;
+
+/** One line of a card, cut to THEME_CARD_TEXT_MAX. */
+function clip(text: string): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length > THEME_CARD_TEXT_MAX ? `${t.slice(0, THEME_CARD_TEXT_MAX - 1)}…` : t;
+}
+
+/** The text's UTF-8 size (JSON escapes aside, which plain card text rarely needs). */
+function utf8Bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
 }
 
 /**
