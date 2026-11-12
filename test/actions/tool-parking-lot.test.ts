@@ -128,6 +128,26 @@ describe("list_state", () => {
     });
     expect(daily.items.map((i) => i.id)).toEqual(["example-1", "a"]);
   });
+
+  it("counts the example as the page does while it is all there is", async () => {
+    useWorkspaceStore.setState({
+      parkingLotItems: [
+        item({ id: "example-1" }),
+        item({ id: "example-2", meeting: "Sprint Planning", status: "discussed" }),
+      ],
+    });
+    const state = await run<{
+      counts: Record<string, number>;
+      meetings: { name: string | null; total: number; open: number }[];
+      rememberedMeeting: string | null;
+      examples: number;
+    }>("tool.parking_lot.list_state");
+    expect(state.counts).toEqual({ total: 2, open: 1, discussed: 1, sent: 0, dropped: 0 });
+    expect(state.meetings.map((m) => m.name).sort()).toEqual(["Daily Scrum", "Sprint Planning"]);
+    expect(state.examples).toBe(2);
+    // The next point is never parked in the example's meeting.
+    expect(state.rememberedMeeting).toBeNull();
+  });
 });
 
 describe("park and set_status", () => {

@@ -50,6 +50,7 @@ import { isExampleId } from "@/lib/utils/example-id";
 import {
   PARKING_ROUTES,
   ageDays,
+  countedItems,
   matchesMeeting,
   meetingKey,
   meetingsOf,
@@ -189,12 +190,18 @@ async function listState(store: ParkingStore, params: z.infer<typeof ListParams>
   const shown = items.filter(
     (i) => matchesMeeting(i, filter) && (status === "all" || i.status === status)
   );
-  const own = items.filter((i) => !isExampleId(i.id));
+  // Counted as the page counts them: the team's own points, the example's
+  // only while there are none.
+  const counted = countedItems(items);
   return {
-    counts: parkingSummary(own),
-    meetings: meetingsOf(own).map((m) => ({ name: m.name || null, total: m.total, open: m.open })),
+    counts: parkingSummary(counted),
+    meetings: meetingsOf(counted).map((m) => ({
+      name: m.name || null,
+      total: m.total,
+      open: m.open,
+    })),
     rememberedMeeting: rememberedMeeting(items) || null,
-    examples: items.length - own.length,
+    examples: items.filter((i) => isExampleId(i.id)).length,
     items: await Promise.all(
       shown.map(async (i) => ({
         id: i.id,
@@ -224,7 +231,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "List the Parking Lot as the page shows it: the points parked during meetings, oldest first. Params: meeting? (only that meeting, any case; '' for none), status? (open | discussed | sent | dropped | all; default all). Returns {counts: {total, open, discussed, sent, dropped} (the team's own points), meetings: {name | null, total, open}[] (most recent first), rememberedMeeting (the meeting the next point goes in) | null, examples (example points loaded), items: {id, text, meeting, raisedBy, status, ageDays, example, createdAt, sentTo: {route: 'backlog-story' | 'impediment' | 'retro-action', targetId, at, target: 'live' | 'done' | 'gone'}[]}[]}.",
+    "List the Parking Lot as the page shows it: the points parked during meetings, oldest first. Params: meeting? (only that meeting, any case; '' for none), status? (open | discussed | sent | dropped | all; default all). Returns {counts: {total, open, discussed, sent, dropped}, meetings: {name | null, total, open}[] (most recent first; counts and meetings are the team's own points, the example's only while there are none, as the page counts them), rememberedMeeting (the meeting the next point goes in) | null, examples (example points loaded), items: {id, text, meeting, raisedBy, status, ageDays, example, createdAt, sentTo: {route: 'backlog-story' | 'impediment' | 'retro-action', targetId, at, target: 'live' | 'done' | 'gone'}[]}[]}.",
   paramsSchema: ListParams,
   handler: async (params) => listState(browserStore, params),
   mcpHandler: async (params, ctx) => listState(serverStore(ctx.userId), params),
