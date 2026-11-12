@@ -15,7 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 import { TOOL_AI_DEADLINE_MS, TOOL_AI_OWNER_MAX_BODY_BYTES } from "@/lib/ai/contract";
-import { REPAIR_NOTE } from "@/lib/ai/run-task.server";
+import { REPAIR_NOTE, TOOL_AI_FIRST_BYTE_TIMEOUT_MS } from "@/lib/ai/run-task.server";
 import { fallbackOptions } from "@/lib/ai/tasks/_example";
 import { TOOL_TASK_SCOPE } from "@/lib/visitor-ai/scope";
 
@@ -71,6 +71,24 @@ function sse(
 
 function answer(content: string, finish?: string) {
   return new Response(sse(content, finish), { status: 200 });
+}
+
+/** One content chunk, then (once it was read) the connection resets, or hangs. */
+function breakingStream(content: string, then: "error" | "hang" = "error") {
+  const enc = new TextEncoder();
+  let pulls = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(c) {
+      pulls += 1;
+      if (pulls === 1) {
+        c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`));
+      } else if (then === "error") {
+        c.error(new Error("connection reset"));
+      } else {
+        return new Promise<void>(() => {});
+      }
+    },
+  });
 }
 
 function post(body: unknown, signal?: AbortSignal): NextRequest {
@@ -432,6 +450,44 @@ describe("the answer", () => {
     }
   });
 
+  it("answers 504 timeout when the gateway sends no headers in time", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let seen: AbortSignal | undefined;
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            seen = init.signal ?? undefined;
+            seen?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError"))
+            );
+          })
+      );
+      const pending = POST(post(ASK));
+      for (let i = 0; i < 200 && !seen; i++) await new Promise((r) => setImmediate(r));
+      expect(seen?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(TOOL_AI_FIRST_BYTE_TIMEOUT_MS);
+      await expectRefusal(await pending, 504, "timeout");
+      expect(seen?.aborted).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers the fallback, without a repair, when the gateway's stream breaks mid-answer", async () => {
+    fetchMock.mockImplementation(async () => new Response(breakingStream('{"options":["Mon')));
+    const res = await POST(post(ASK));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      data: { options: fallbackOptions(QUESTION) },
+      source: "fallback",
+      reason: "timeout",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("stops the gateway call when the owner leaves (499, upstream aborted)", async () => {
     let seen: AbortSignal | undefined;
     fetchMock.mockImplementation(
@@ -505,6 +561,13 @@ describe("prompt.run: the drawer's Run with AI", () => {
     expect(text.trim().endsWith("data: [DONE]")).toBe(true);
   });
 
+  it("says when the gateway's stream broke mid-answer", async () => {
+    fetchMock.mockImplementation(async () => new Response(breakingStream("Three themes")));
+    const text = await readAll(await POST(post(RUN)));
+    expect(text).toContain('data: {"text":"Three themes"}');
+    expect(text).toContain('data: {"error":"cut"}\n\ndata: [DONE]');
+  });
+
   it("records the token counts on the usage row before the stream ends", async () => {
     let written = false;
     h.rpc.mockImplementation(async (fn: string) => {
@@ -521,6 +584,21 @@ describe("prompt.run: the drawer's Run with AI", () => {
     expect(rpcCalls("record_tool_ai_tokens")).toEqual([
       ["record_tool_ai_tokens", { p_id: ALLOWED.id, p_tokens_in: 120, p_tokens_out: 30 }],
     ]);
+  });
+
+  it("stops the gateway call when the drawer stops reading", async () => {
+    let seen: AbortSignal | undefined;
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+      seen = init.signal ?? undefined;
+      return new Response(breakingStream("Three themes", "hang"));
+    });
+    const res = await POST(post(RUN));
+    const reader = res.body!.getReader();
+    const first = await reader.read();
+    expect(new TextDecoder().decode(first.value)).toContain("Three themes");
+    expect(seen?.aborted).toBe(false);
+    await reader.cancel();
+    expect(seen?.aborted).toBe(true);
   });
 
   it("refuses an empty or over-long prompt before the limiter", async () => {

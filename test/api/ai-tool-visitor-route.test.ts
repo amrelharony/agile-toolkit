@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { TOOL_AI_VISITOR_MAX_BODY_BYTES } from "@/lib/ai/contract";
+import { TOOL_AI_FIRST_BYTE_TIMEOUT_MS } from "@/lib/ai/run-task.server";
 import { fallbackOptions } from "@/lib/ai/tasks/_example";
 import { VISITOR_HEADERS } from "@/lib/visitor-ai/contract";
 import { cairoDay, visitorKey } from "@/lib/visitor-ai/visitor-key";
@@ -312,21 +313,24 @@ describe("the answer", () => {
     fetchMock
       .mockImplementationOnce(async () => new Response(sse("Yes or no, really")))
       .mockImplementationOnce(async () => new Response(sse('{"options":["Yes","No"]}')));
+    // The repair's own meter answer (a call more, the same turn count here
+    // made different on purpose) is the one the headers carry.
     h.rpc
       .mockResolvedValueOnce({ data: meterReply(), error: null })
-      .mockResolvedValueOnce({ data: meterReply({ turns_used: 38 }), error: null });
+      .mockResolvedValueOnce({ data: meterReply({ turns_used: 39 }), error: null });
     const res = await POST(post(ASK));
     expect(await res.json()).toMatchObject({ data: { options: ["Yes", "No"] }, source: "ai" });
     expect(
       h.rpc.mock.calls.map(([, args]) => (args as { p_new_turn: boolean }).p_new_turn)
     ).toEqual([true, false]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(res.headers.get(VISITOR_HEADERS.remaining)).toBe("61");
   });
 
   it("answers with the fallback, without a second call, when the meter refuses the repair", async () => {
     fetchMock.mockImplementation(async () => new Response(sse("not json")));
     h.rpc.mockResolvedValueOnce({ data: meterReply(), error: null }).mockResolvedValueOnce({
-      data: meterReply({ allowed: false, reason: "site_busy" }),
+      data: meterReply({ allowed: false, reason: "site_busy", turns_used: 39 }),
       error: null,
     });
     const res = await POST(post(ASK));
@@ -337,7 +341,35 @@ describe("the answer", () => {
       reason: "bad_answer",
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(res.headers.get(VISITOR_HEADERS.remaining)).toBe("62");
+    // The headers come from the latest meter answer, the refused repair's.
+    expect(res.headers.get(VISITOR_HEADERS.remaining)).toBe("61");
+  });
+
+  it("answers 504 timeout, with the quota headers, when the gateway sends no headers in time", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let seen: AbortSignal | undefined;
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            seen = init.signal ?? undefined;
+            seen?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError"))
+            );
+          })
+      );
+      const pending = POST(post(ASK));
+      for (let i = 0; i < 200 && !seen; i++) await new Promise((r) => setImmediate(r));
+      expect(seen?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(TOOL_AI_FIRST_BYTE_TIMEOUT_MS);
+      const res = await pending;
+      await expectRefusal(res, 504, "timeout");
+      expect(res.headers.get(VISITOR_HEADERS.remaining)).toBe("62");
+      expect(seen?.aborted).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("turns a gateway failure into a status, with the quota headers", async () => {
