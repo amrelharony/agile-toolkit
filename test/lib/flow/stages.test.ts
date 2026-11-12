@@ -28,6 +28,11 @@ import { momentOf } from "@/lib/flow/stages";
 import type { Story, StoryStatus } from "@/lib/stores/workspace-types";
 import { card, local, story } from "./fixtures";
 
+/*
+ * Every day here is in July 2026, a month no time zone changes its clocks
+ * in, so the elapsed days come out whole on any machine.
+ */
+
 /**
  * A story moved through `steps` ([status, day, hour]) from To do, with the
  * stamps setStoryStatus writes: the start of the last attempt, the done.
@@ -36,7 +41,7 @@ function moved(id: string, steps: [StoryStatus, string, number][]): Story {
   let from: StoryStatus = "todo";
   let startedAt: string | undefined;
   let doneAt: string | undefined;
-  const statusHistory = [{ status: "todo" as StoryStatus, at: local("2026-10-01", 9) }];
+  const statusHistory = [{ status: "todo" as StoryStatus, at: local("2026-07-01", 9) }];
   for (const [status, day, hour] of steps) {
     const at = local(day, hour);
     statusHistory.push({ status, from, at } as (typeof statusHistory)[number]);
@@ -61,9 +66,9 @@ describe("itemStageTimes", () => {
   it("splits the cycle into the stages it was in, in elapsed days", () => {
     const t = one(
       moved("a", [
-        ["in_progress", "2026-10-05", 9],
-        ["review", "2026-10-07", 9],
-        ["done", "2026-10-08", 21],
+        ["in_progress", "2026-07-05", 9],
+        ["review", "2026-07-07", 9],
+        ["done", "2026-07-08", 21],
       ])
     );
     expect(t).not.toBeNull();
@@ -73,18 +78,18 @@ describe("itemStageTimes", () => {
     expect(t!.elapsedDays).toBeCloseTo(3.5, 5);
     // The cycle time keeps its whole-day count: 5th to 8th, both counted.
     expect(t!.cycleDays).toBe(4);
-    expect(t!.startedOn).toBe("2026-10-05");
-    expect(t!.doneOn).toBe("2026-10-08");
+    expect(t!.startedOn).toBe("2026-07-05");
+    expect(t!.doneOn).toBe("2026-07-08");
   });
 
   it("adds up time spent going back and forth between active stages", () => {
     const t = one(
       moved("b", [
-        ["in_progress", "2026-10-05", 9],
-        ["review", "2026-10-06", 9],
-        ["in_progress", "2026-10-06", 21],
-        ["review", "2026-10-07", 9],
-        ["done", "2026-10-07", 21],
+        ["in_progress", "2026-07-05", 9],
+        ["review", "2026-07-06", 9],
+        ["in_progress", "2026-07-06", 21],
+        ["review", "2026-07-07", 9],
+        ["done", "2026-07-07", 21],
       ])
     );
     expect(t!.stages.find((s) => s.stage === "in_progress")!.days).toBeCloseTo(1.5, 5);
@@ -94,23 +99,23 @@ describe("itemStageTimes", () => {
   it("starts at the last attempt: a move back to To do starts the cycle afresh", () => {
     const t = one(
       moved("c", [
-        ["in_progress", "2026-10-02", 9],
-        ["todo", "2026-10-03", 9],
-        ["in_progress", "2026-10-06", 9],
-        ["done", "2026-10-07", 9],
+        ["in_progress", "2026-07-02", 9],
+        ["todo", "2026-07-03", 9],
+        ["in_progress", "2026-07-06", 9],
+        ["done", "2026-07-07", 9],
       ])
     );
-    expect(t!.startedOn).toBe("2026-10-06");
+    expect(t!.startedOn).toBe("2026-07-06");
     expect(t!.stages).toEqual([{ stage: "in_progress", days: 1 }]);
   });
 
   it("keeps a stint in Done before a reopen in the cycle", () => {
     const t = one(
       moved("d", [
-        ["in_progress", "2026-10-05", 9],
-        ["done", "2026-10-06", 9],
-        ["in_progress", "2026-10-08", 9],
-        ["done", "2026-10-08", 21],
+        ["in_progress", "2026-07-05", 9],
+        ["done", "2026-07-06", 9],
+        ["in_progress", "2026-07-08", 9],
+        ["done", "2026-07-08", 21],
       ])
     );
     expect(t!.stages.map((s) => [s.stage, s.days])).toEqual([
@@ -120,15 +125,15 @@ describe("itemStageTimes", () => {
   });
 
   it("reads nothing for work not finished, dropped straight into Done, or placed from stamps", () => {
-    expect(one(moved("e", [["in_progress", "2026-10-05", 9]]))).toBeNull();
+    expect(one(moved("e", [["in_progress", "2026-07-05", 9]]))).toBeNull();
     // To do straight to Done: no start, so no cycle (it still counts as throughput).
-    expect(one(moved("f", [["done", "2026-10-05", 9]]))).toBeNull();
+    expect(one(moved("f", [["done", "2026-07-05", 9]]))).toBeNull();
     // A story from before the history was kept: its stages would be a guess.
     const stamped = {
       ...story("g"),
       status: "done" as const,
-      startedAt: local("2026-10-01"),
-      doneAt: local("2026-10-04"),
+      startedAt: local("2026-07-01"),
+      doneAt: local("2026-07-04"),
     };
     expect(items([stamped])[0].basis).toBe("stamps");
     expect(one(stamped)).toBeNull();
@@ -137,13 +142,14 @@ describe("itemStageTimes", () => {
   it("reads Flow-board cards from their column history", () => {
     const c = card("k1", {
       column: "done",
-      startedAt: local("2026-10-05", 9),
-      completedAt: local("2026-10-09", 9),
+      createdAt: local("2026-07-01", 9),
+      startedAt: local("2026-07-05", 9),
+      completedAt: local("2026-07-09", 9),
       history: [
-        { column: "ready", from: "backlog", at: local("2026-10-02", 9) },
-        { column: "in_progress", from: "ready", at: local("2026-10-05", 9) },
-        { column: "review", from: "in_progress", at: local("2026-10-06", 9) },
-        { column: "done", from: "review", at: local("2026-10-09", 9) },
+        { column: "ready", from: "backlog", at: local("2026-07-02", 9) },
+        { column: "in_progress", from: "ready", at: local("2026-07-05", 9) },
+        { column: "review", from: "in_progress", at: local("2026-07-06", 9) },
+        { column: "done", from: "review", at: local("2026-07-09", 9) },
       ],
     });
     const t = itemStageTimes(cardItems([c])[0]);
@@ -156,7 +162,7 @@ describe("itemStageTimes", () => {
   });
 
   it("times a plain date from a date-only write from local midnight", () => {
-    expect(momentOf("2026-10-05")).toBe(new Date(2026, 9, 5).getTime());
+    expect(momentOf("2026-07-05")).toBe(new Date(2026, 6, 5).getTime());
     expect(momentOf("not a date")).toBeNull();
   });
 });
@@ -165,9 +171,9 @@ describe("stageBreakdown", () => {
   /** Five items: In progress 1–5 days, Review 2 days each. */
   const five = Array.from({ length: 5 }, (_, i) =>
     moved(`s${i}`, [
-      ["in_progress", "2026-10-05", 9],
-      ["review", `2026-10-${String(6 + i).padStart(2, "0")}`, 9],
-      ["done", `2026-10-${String(8 + i).padStart(2, "0")}`, 9],
+      ["in_progress", "2026-07-05", 9],
+      ["review", `2026-07-${String(6 + i).padStart(2, "0")}`, 9],
+      ["done", `2026-07-${String(8 + i).padStart(2, "0")}`, 9],
     ])
   );
 
@@ -216,14 +222,14 @@ describe("stageBreakdown", () => {
     const stamped: Story = {
       ...story("old"),
       status: "done",
-      startedAt: local("2026-10-01"),
-      doneAt: local("2026-10-04"),
+      startedAt: local("2026-07-01"),
+      doneAt: local("2026-07-04"),
     };
     const b = stageBreakdown(items([...five, stamped]));
     expect(b.approximate).toBe(1);
     expect(b.items).toHaveLength(5);
-    const ranged = stageBreakdown(items(five), { from: "2026-10-10", to: "2026-10-11" });
-    expect(ranged.items.map((i) => i.doneOn)).toEqual(["2026-10-10", "2026-10-11"]);
+    const ranged = stageBreakdown(items(five), { from: "2026-07-10", to: "2026-07-11" });
+    expect(ranged.items.map((i) => i.doneOn)).toEqual(["2026-07-10", "2026-07-11"]);
   });
 
   it("lists items oldest finish first, and gives each its own efficiency", () => {
@@ -252,9 +258,9 @@ describe("the words", () => {
       items(
         Array.from({ length: 5 }, (_, i) =>
           moved(`w${i}`, [
-            ["in_progress", "2026-10-05", 9],
-            ["review", "2026-10-06", 9],
-            ["done", "2026-10-09", 9],
+            ["in_progress", "2026-07-05", 9],
+            ["review", "2026-07-06", 9],
+            ["done", "2026-07-09", 9],
           ])
         )
       )
