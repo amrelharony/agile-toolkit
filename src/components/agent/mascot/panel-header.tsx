@@ -12,9 +12,10 @@
  *   actions     the view's own icons (<PanelActions>), then the shell's controls
  *               (Amr's scenes)
  *   More        a menu of Amr's own settings, when it has one to offer: the
- *               tilt switch (a phone that can send its tilt) and, at its foot,
- *               the open/close shortcut. Without a menu the shortcut follows
- *               the subtitle instead, hidden on touch screens.
+ *               tilt switch (a phone that can send its tilt) and, at its foot
+ *               on fine pointers only, the open/close shortcut. Without a menu
+ *               the shortcut follows the subtitle instead, also hidden on
+ *               touch screens.
  *   Enlarge     md and up only, when the shell offers it; a toggle (aria-pressed)
  *               whose name stays "Enlarge chat" whatever its state, as a toggle's
  *               name should; the mouse tooltip says what a press does
@@ -187,8 +188,9 @@ function PanelMore({ shortcut, tilt }: { shortcut?: string; tilt?: PanelTilt }) 
         )}
         {shortcut && (
           <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-xs font-normal text-sub">
+            {/* No Ctrl/⌘ key on a touch screen: hidden there, like the subtitle's hint. */}
+            <DropdownMenuSeparator className="pointer-coarse:hidden" />
+            <DropdownMenuLabel className="text-xs font-normal text-sub pointer-coarse:hidden">
               <kbd className="font-data">{shortcut}</kbd> opens and closes Amr
             </DropdownMenuLabel>
           </>

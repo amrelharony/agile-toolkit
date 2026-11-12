@@ -262,7 +262,7 @@ describe("MascotAssistant — owner gating", () => {
         .querySelector<HTMLElement>("[data-panel-header]")!;
       // No bare phone icon among the chat's controls any more.
       expect(within(header).queryByRole("button", { name: /feel your phone/i })).toBeNull();
-      // The shortcut moved into the menu with it.
+      // The shortcut moved into the menu with it (where a touch screen hides it).
       expect(within(header).queryByText(/Ctrl\+J/)).toBeNull();
 
       fireEvent.keyDown(within(header).getByRole("button", { name: "More" }), { key: "Enter" });
@@ -271,9 +271,11 @@ describe("MascotAssistant — owner gating", () => {
         name: "Let Amr feel your phone's tilt",
       });
       expect(tilt).toHaveAttribute("aria-checked", "true");
-      expect(within(menu).getByText(/opens and closes Amr$/).textContent).toBe(
-        "Ctrl+J opens and closes Amr"
-      );
+      // In the page, but no Ctrl/⌘ key on this touch screen: hidden, like the subtitle's hint.
+      const shortcut = within(menu).getByText(/opens and closes Amr$/);
+      expect(shortcut.textContent).toBe("Ctrl+J opens and closes Amr");
+      expect(shortcut).toHaveClass("pointer-coarse:hidden");
+      expect(within(menu).getByRole("separator")).toHaveClass("pointer-coarse:hidden");
 
       fireEvent.click(tilt);
       await waitFor(() => expect(useMascotStore.getState().feelPhone).toBe(false));

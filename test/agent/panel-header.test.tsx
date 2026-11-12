@@ -401,6 +401,10 @@ describe("the More menu", () => {
       "Ctrl+J opens and closes Amr"
     );
     expect(within(menu).getByText("Ctrl+J").tagName).toBe("KBD");
+    // No Ctrl/⌘ key on a touch screen: the line and its rule hide there, like
+    // the subtitle's hint (the tilt switch, a phone's, stays alone).
+    expect(within(menu).getByText(/opens and closes Amr$/)).toHaveClass("pointer-coarse:hidden");
+    expect(within(menu).getByRole("separator")).toHaveClass("pointer-coarse:hidden");
     // A line to read, not a choice: the arrows never stop on it.
     expect(within(menu).getAllByRole("menuitemcheckbox")).toHaveLength(1);
     expect(within(menu).queryByRole("menuitem")).toBeNull();
