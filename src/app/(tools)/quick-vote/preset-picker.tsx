@@ -53,12 +53,15 @@ export function PresetPicker({
               aria-pressed={on}
               onClick={() => onPick(p)}
               className={cn(
-                "h-auto min-w-0 flex-col items-start gap-0.5 whitespace-normal py-2 text-left",
+                // md-fine: the default size shrinks to 36 px on a desktop with a mouse.
+                "h-auto min-w-0 flex-col items-start gap-0.5 whitespace-normal py-2 text-left md-fine:h-auto",
                 on && "ring-1 ring-accent"
               )}
             >
-              <span className="text-sm font-semibold">{p.name}</span>
-              <span className="text-xs font-normal text-sub">{p.blurb}</span>
+              <span className="max-w-full text-sm font-semibold [overflow-wrap:anywhere]">
+                {p.name}
+              </span>
+              <span className="max-w-full text-xs font-normal text-sub">{p.blurb}</span>
             </Button>
           );
         })}
@@ -77,10 +80,12 @@ export function PresetPicker({
                     variant={on ? "toolkit" : "outline"}
                     aria-pressed={on}
                     onClick={() => onPickCustom(p)}
-                    className="h-auto min-w-0 flex-1 flex-col items-start gap-0.5 whitespace-normal py-2 text-left"
+                    className="h-auto min-w-0 flex-1 flex-col items-start gap-0.5 whitespace-normal py-2 text-left md-fine:h-auto"
                   >
-                    <span className="text-sm font-semibold">{p.name}</span>
-                    <span className="text-xs font-normal text-sub">
+                    <span className="max-w-full text-sm font-semibold [overflow-wrap:anywhere]">
+                      {p.name}
+                    </span>
+                    <span className="max-w-full text-xs font-normal text-sub [overflow-wrap:anywhere]">
                       {base ? `${base.name} · ${KIND_WORD[base.kind]}` : "Quick Vote"}
                       {p.draft.question.trim() ? `: ${p.draft.question.trim()}` : ""}
                     </span>

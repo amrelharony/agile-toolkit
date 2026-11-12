@@ -30,7 +30,7 @@ import { setQuickVoteRoom } from "@/lib/quick-vote/live-room";
 import { readSheetId, type QuickVoteRound } from "@/lib/quick-vote/sheets";
 import type { QuickVotePreset } from "@/lib/quick-vote/presets";
 import { CountHands } from "./count-hands";
-import { HoldUpCards } from "./hold-up-cards";
+import { HoldUpCards, type CardAnswer } from "./hold-up-cards";
 
 /**
  * The live room this page hosts: the answers it shows results from (fixed
@@ -155,11 +155,14 @@ export function RunRound({
       break;
   }
 
-  const cardAnswers =
+  // Each card keeps its option's hint (ESVP's, the Roman vote's, value poker's meanings).
+  const cardAnswers: CardAnswer[] =
     round?.kind === "scale"
-      ? round.questionnaire.scale.points.map((p) => p.label)
+      ? round.questionnaire.scale.points.map((p) => ({ text: p.label }))
       : round?.kind === "choice"
-        ? round.sheet.options.map((o) => o.text)
+        ? round.sheet.options.map((o) =>
+            o.hint ? { text: o.text, hint: o.hint } : { text: o.text }
+          )
         : [];
   const cardsOk = preset.cards && cardAnswers.length > 0 && !blockedReason;
 
@@ -193,7 +196,7 @@ export function RunRound({
         </h3>
         <p className="text-sm text-sub">
           {preset.cards
-            ? "No room and no network: each person opens this page, picks a card, and holds the phone up when you say show. Count them, then type the totals above."
+            ? `No room and no network: each person opens this page on their phone and sets up ${preset.name} too (for your own options, the same list), then opens the cards and picks one. They hold the phone up when you say show; count them, then type the totals above.`
             : anonymous
               ? `${preset.name} keeps each answer anonymous, and a card held up shows the room who picked what. Run it in a live room, or on paper slips you collect and count.`
               : `${preset.name} needs each person's own answer, so it runs in a live room rather than on cards.`}
@@ -235,6 +238,7 @@ export function RunRound({
         <HoldUpCards
           open={cardsOpen}
           onOpenChange={setCardsOpen}
+          formatName={preset.name}
           title={round.kind === "scale" ? round.questionnaire.title : round.sheet.title}
           answers={cardAnswers}
           feelings={preset.id === "feelings"}

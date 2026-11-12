@@ -57,7 +57,7 @@ vi.mock("@/components/shared/export-button", () => ({
 import { QuickVoteClient } from "@/app/(tools)/quick-vote/quick-vote-client";
 import { buildExample } from "@/app/(tools)/quick-vote/example";
 import { validateFormatName } from "@/app/(tools)/quick-vote/save-format-form";
-import { cardFace } from "@/app/(tools)/quick-vote/hold-up-cards";
+import { cardFace, faceBigClass, gridBigClass } from "@/app/(tools)/quick-vote/hold-up-cards";
 import "@/lib/actions/tools/quick-vote";
 
 /* ── Helpers ────────────────────────────────────────────────────────── */
@@ -456,14 +456,18 @@ describe("hold-up cards", () => {
       action: "round_started",
       payload: { preset: "confidence", kind: "scale", mode: "cards" },
     });
-    const dialog = within(screen.getByRole("dialog"));
+    // The format's name in the title: a phone set up for another one shows it.
+    const dialog = within(screen.getByRole("dialog", { name: "Hold-up cards: Confidence vote" }));
     fireEvent.click(dialog.getByRole("button", { name: /^4/ }));
     const card = dialog.getByRole("button", { name: "Your card, face down. Tap to show it." });
-    expect(card).toHaveAttribute("aria-pressed", "false");
+    // Not a toggle whose name changes with its state: the status line says it.
+    expect(card).not.toHaveAttribute("aria-pressed");
+    expect(dialog.getByRole("status")).toHaveTextContent("Face down.");
     fireEvent.click(card);
     expect(
       dialog.getByRole("button", { name: "Your card: 4: Very. Tap to turn it face down." })
     ).toHaveTextContent("4Very");
+    expect(dialog.getByRole("status")).toHaveTextContent("Shown: 4: Very.");
     fireEvent.click(dialog.getByRole("button", { name: "Pick another card" }));
     expect(dialog.getByRole("group", { name: "Cards" })).toBeInTheDocument();
   });
@@ -477,6 +481,39 @@ describe("hold-up cards", () => {
     fireEvent.click(dialog.getByRole("button", { name: "Focused" }));
     fireEvent.click(dialog.getByRole("button", { name: "Your card, face down. Tap to show it." }));
     expect(dialog.getByRole("button", { name: /^Your card: Focused/ })).toBeInTheDocument();
+  });
+
+  it("puts focus on the first core feeling after going back to them", async () => {
+    await renderPage();
+    pickFormat("Feelings wheel");
+    fireEvent.click(screen.getByRole("button", { name: "Open the cards" }));
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.click(dialog.getByRole("button", { name: "Calm" }));
+    fireEvent.click(dialog.getByRole("button", { name: "All core feelings" }));
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    });
+    expect(dialog.getByRole("button", { name: "Glad" })).toHaveFocus();
+  });
+
+  it("keeps each option's meaning on its card", async () => {
+    await renderPage();
+    pickFormat("Roman vote");
+    fireEvent.click(screen.getByRole("button", { name: "Open the cards" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Hold-up cards: Roman vote" }));
+    fireEvent.click(dialog.getByRole("button", { name: /^Sideways/ }));
+    fireEvent.click(dialog.getByRole("button", { name: "Your card, face down. Tap to show it." }));
+    expect(
+      dialog.getByRole("button", { name: "Your card: Sideways. Tap to turn it face down." })
+    ).toHaveTextContent("SidewaysI can go either way");
+  });
+
+  it("tells each phone to set up the same format first", async () => {
+    await renderPage();
+    pickFormat("Poll");
+    expect(
+      screen.getByText(/each person opens this page on their phone and sets up Poll too/)
+    ).toBeInTheDocument();
   });
 
   it("isn't offered for ESVP or the safety check, whose answers stay anonymous", async () => {
@@ -502,6 +539,22 @@ describe("hold-up cards", () => {
     expect(cardFace("3: I can go with it")).toEqual({ big: "3", small: "I can go with it" });
     expect(cardFace("Fist: I block this")).toEqual({ big: "Fist", small: "I block this" });
     expect(cardFace("Thumbs up")).toEqual({ big: "Thumbs up", small: null });
+    expect(cardFace("Explorer", "Keen to learn")).toEqual({
+      big: "Explorer",
+      small: "Keen to learn",
+    });
+    expect(cardFace("2: Some", "unused")).toEqual({ big: "2", small: "Some" });
+  });
+
+  it("sizes the big text by its longest word, so no word breaks in the middle at 375 px", () => {
+    expect(gridBigClass("Impatient")).toBe("text-2xl");
+    expect(gridBigClass("Disappointed")).toBe("text-lg");
+    expect(gridBigClass("Under pressure")).toBe("text-2xl");
+    expect(faceBigClass("Fist")).toBe("text-6xl sm:text-8xl");
+    expect(faceBigClass("Sideways")).toBe("text-5xl sm:text-7xl");
+    expect(faceBigClass("Vacationer")).toBe("text-5xl sm:text-7xl");
+    expect(faceBigClass("Overwhelmed")).toBe("text-4xl sm:text-6xl");
+    expect(faceBigClass("x".repeat(40))).toMatch(/overflow-wrap:anywhere/);
   });
 });
 
