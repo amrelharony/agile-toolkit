@@ -10,6 +10,11 @@
  * polite status line; under reduced motion it lands at once. A frame that
  * reaches a phone long after it was shown (someone joining late) lands at
  * once too, rather than spinning a result everyone else already saw.
+ *
+ * Landing at once still happens a render after the line mounts, so a
+ * screen reader hears the name (a live region whose text arrives with it
+ * is often missed). The host's own preview has no live line: the tool page
+ * already announces the result, and the host would hear it twice.
  */
 
 import { useEffect, useState } from "react";
@@ -37,7 +42,7 @@ export function WheelFrameView({ payload, frame, surface }: ShowRendererProps<Wh
     payload.offset
   );
   const [rotation, setRotation] = useState(still ? target : 0);
-  const [landed, setLanded] = useState(still);
+  const [landed, setLanded] = useState(false);
 
   useEffect(() => {
     if (still) {
@@ -78,7 +83,7 @@ export function WheelFrameView({ payload, frame, surface }: ShowRendererProps<Wh
         className={surface === "phone" ? "max-w-xs" : "max-w-48"}
       />
       <p
-        role="status"
+        role={surface === "phone" ? "status" : undefined}
         className={cn(
           "break-words",
           landed ? "font-bold text-text" : "text-sub",

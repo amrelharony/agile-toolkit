@@ -139,7 +139,10 @@ describe("the wheel on a phone", () => {
     );
     expect(rotation()).toBeCloseTo(target, 1);
     expect(sliceAtPointer(wheelSlices(FRAME.weights), target)).toBe(FRAME.winner);
-    act(() => vi.advanceTimersByTime(SPIN_MS));
+    // Still turning just before the end.
+    act(() => vi.advanceTimersByTime(SPIN_MS - 100));
+    expect(screen.getByRole("status")).toHaveTextContent("Spinning…");
+    act(() => vi.advanceTimersByTime(100));
     expect(screen.getByRole("status")).toHaveTextContent("Chloé");
   });
 
@@ -152,6 +155,19 @@ describe("the wheel on a phone", () => {
   it("lands at once for a frame that arrives long after it was shown", () => {
     draw(Date.now() - LATE_FRAME_MS - 1000);
     expect(screen.getByRole("status")).toHaveTextContent("Chloé");
+  });
+
+  it("has no live line on the host's preview, where the tool page says the result", () => {
+    setReducedMotion(true);
+    render(
+      <WheelFrameView
+        payload={FRAME}
+        frame={{ n: 1, kind: "wheel", at: Date.now() }}
+        surface="host"
+      />
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByText("Chloé", { selector: "p" })).toBeInTheDocument();
   });
 
   it("draws the wheel as one labelled image", () => {
