@@ -148,7 +148,17 @@ export function TeamMixerClient() {
       return;
     }
     setMixProblem(null);
-    writeMixer(step.state);
+    const prior = current.cafe;
+    if (step.cafe && prior) {
+      // A new plan replaces the old one: keep a way back.
+      undoable({
+        label: "Planned the café again",
+        apply: () => writeMixer(step.state),
+        revert: () => updateMixer((s) => ({ ...s, cafe: prior })),
+      });
+    } else {
+      writeMixer(step.state);
+    }
     const issues = step.round?.issues ?? step.cafe?.issues ?? [];
     const broken = issues.filter((i) => BROKEN_KINDS.has(i.kind)).length;
     if (step.round) {

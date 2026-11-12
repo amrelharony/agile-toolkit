@@ -517,6 +517,17 @@ describe("World Café", () => {
     );
   });
 
+  it("plans again with Undo, since a new plan replaces the old", async () => {
+    seed(EIGHT, { mode: "cafe", tables: 2, cafeRounds: 2 });
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Plan the café" }));
+    const first = state().cafe!;
+    fireEvent.click(screen.getByRole("button", { name: "Plan the café again" }));
+    expect(state().cafe!.id).not.toBe(first.id);
+    undoOf("Planned the café again")();
+    expect(state().cafe).toEqual(first);
+  });
+
   it("says when there are too few people for the tables", async () => {
     seed(EIGHT.slice(0, 5), { mode: "cafe", tables: 3 });
     await mount();

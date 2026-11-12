@@ -105,6 +105,7 @@ export function RoundCard({ round, number, roster, onMove, onName }: RoundCardPr
                   {broken ? (
                     <AlertTriangle
                       className="mt-0.5 h-4 w-4 shrink-0 text-warning"
+                      role="img"
                       aria-label="Rule broken"
                     />
                   ) : (
