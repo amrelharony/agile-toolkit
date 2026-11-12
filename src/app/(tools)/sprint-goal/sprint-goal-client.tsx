@@ -72,6 +72,8 @@ import { CriteriaStep } from "./criteria-step";
 import { OkrStep } from "./okr-step";
 import { OutcomeCard } from "./outcome-card";
 import { GoalConflictBanner, GoalNextStep, GoalScope } from "./goal-scope";
+import { ProductGoalLine, useActiveProductGoal } from "@/components/product-goal/product-goal-line";
+import { objectiveNamesGoal, objectiveServingGoal } from "@/lib/product-goal/model";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -225,6 +227,16 @@ export function SprintGoalClient() {
   }
 
   const setBusinessObjective = (v: string) => updateDoc((d) => ({ ...d, businessObjective: v }));
+
+  // The team's Product Goal, read only: the objective can name the part of it
+  // this sprint serves, as text (no field of its own).
+  const productGoal = useActiveProductGoal();
+  const serveProductGoal = () => {
+    if (!productGoal) return;
+    const before = freshDoc().businessObjective;
+    const next = objectiveServingGoal(before, productGoal);
+    if (next !== before) setBusinessObjective(next);
+  };
   const setGoalStatement = (v: string) =>
     mirrorToSprint(updateDoc((d) => ({ ...d, goal: v.slice(0, GOAL_MAX_CHARS) })));
 
@@ -534,8 +546,13 @@ export function SprintGoalClient() {
   );
 
   const markdown = useMemo(
-    () => toMarkdown(reported, new Date(), { sprint, okrs }),
-    [reported, sprint, okrs]
+    () =>
+      toMarkdown(reported, new Date(), {
+        sprint,
+        okrs,
+        productGoal: showsExample ? undefined : productGoal?.statement,
+      }),
+    [reported, sprint, okrs, productGoal, showsExample]
   );
 
   const jsonData = useMemo(
@@ -713,6 +730,18 @@ export function SprintGoalClient() {
                       What high-level business objective does this sprint serve? This provides
                       context for why the sprint work matters.
                     </p>
+                    <ProductGoalLine goal={productGoal} className="mb-4">
+                      {productGoal && !objectiveNamesGoal(businessObjective, productGoal) && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={serveProductGoal}
+                        >
+                          Say which part of it this sprint serves
+                        </Button>
+                      )}
+                    </ProductGoalLine>
                     <BlurTextarea
                       aria-label="Business objective"
                       placeholder="e.g., Increase user retention by streamlining the onboarding experience..."
