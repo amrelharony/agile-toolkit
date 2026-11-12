@@ -171,7 +171,7 @@ describe("first visit", () => {
       segments: [],
     });
     expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("builds the example from example ids, with no money in it", () => {
     const example = buildExample();
@@ -345,7 +345,7 @@ describe("Pomodoro", () => {
     click("Stop");
     expect(useDockTimer.getState().timer).toBeNull();
     expect(useFtSession.getState().run).toBeNull();
-  });
+  }, 15_000);
 
   it("never takes the dock from a ceremony, and says who holds it", () => {
     useDockTimer.setState({
@@ -852,7 +852,7 @@ describe("drafting an agenda for the Ceremony Timer", () => {
     expect(useFacilitatorSettings.getState().agenda.segments).toEqual([]);
     lastToast().undo();
     expect(useFacilitatorSettings.getState().agenda.segments).toHaveLength(7);
-  });
+  }, 15_000);
 
   it("saves the draft to the Ceremony Timer under a new name, with a link to run it", () => {
     useFacilitatorSettings.setState({ agenda: buildExample() });

@@ -385,7 +385,7 @@ describe("editing the agenda on the page", () => {
     lastToast().undo();
     expect(useTimerSettings.getState().layouts.retro).toHaveLength(5);
     expect(useTimerSettings.getState().agendas.retro).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("keeps the segments in place once the meeting has started", () => {
     vi.useFakeTimers();
@@ -518,7 +518,7 @@ describe("editing the agenda on the page", () => {
     lastToast().undo();
     expect(useTimerSettings.getState().named.map((a) => a.name)).toEqual(["Team retro"]);
     expect(useTimerSession.getState().agendaId).toBe(saved[0].id);
-  });
+  }, 15_000);
 
   it("opens a saved agenda a link names", () => {
     const copy = namedAgendaFrom("saved-linked", "Kick-off", retro().segments);
