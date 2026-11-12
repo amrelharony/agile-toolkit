@@ -73,6 +73,8 @@ export interface WallRoomHostProps {
   roundOptions?: WallRoundOptions;
   /** Questions: the host's list offers Answered on each post. */
   answerable?: boolean;
+  /** Prompts the host can pick under the Prompt field (a demo item each, a starter). */
+  promptSuggestions?: readonly string[];
   /** The start button's words. */
   startLabel?: string;
   /** One line under the start button. */
@@ -195,6 +197,7 @@ function HostWallRoom({
   defaultMode = "hidden",
   roundOptions,
   answerable = false,
+  promptSuggestions = [],
   children,
   crypto,
   onClosed,
@@ -378,6 +381,26 @@ function HostWallRoom({
               />
             )}
           </Field>
+          {promptSuggestions.length > 0 && (
+            <div role="group" aria-label="Suggested prompts" className="flex flex-wrap gap-1.5">
+              {promptSuggestions.map((s) => (
+                <Button
+                  key={s}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-auto max-w-full whitespace-normal py-1 text-left"
+                  aria-pressed={prompt === s}
+                  onClick={() => {
+                    setPrompt(s);
+                    if (promptError) setPromptError(null);
+                  }}
+                >
+                  {s}
+                </Button>
+              ))}
+            </div>
+          )}
           <fieldset className="min-w-0 space-y-2">
             <legend className="text-sm font-medium text-text">Posts</legend>
             {MODES.map((m) => (
