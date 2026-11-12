@@ -62,7 +62,10 @@ describe("the buffer in points", () => {
   });
 
   it("cleans what it reads and labels it", () => {
-    expect(cleanBuffer({ pct: 95, points: 4 })).toEqual({ points: 4 });
+    // A share past the forms' 90% that another writer stored is read back, never dropped.
+    expect(cleanBuffer({ pct: 95, points: 4 })).toEqual({ pct: 95, points: 4 });
+    expect(cleanBuffer({ pct: 100 })).toEqual({ pct: 100 });
+    expect(cleanBuffer({ pct: 100.5 })).toBeUndefined();
     expect(cleanBuffer({ pct: 0 })).toBeUndefined();
     expect(cleanBuffer(null)).toBeUndefined();
     expect(bufferLabel(sprint({ interruptBuffer: { pct: 20 } }))).toBe(
@@ -84,6 +87,16 @@ describe("the buffer in points", () => {
 
 describe("interruptBufferStatus", () => {
   const withBuffer = sprint({ interruptBuffer: { points: 8 } });
+
+  it("weighs a stored share above the forms' limit, so the over-buffer warning still comes", () => {
+    const st = interruptBufferStatus(sprint({ pointsPlanned: 30, interruptBuffer: { pct: 95 } }), [
+      item({ id: "a", size: 40 }),
+    ]);
+    expect(st).toMatchObject({ set: true, bufferPoints: 28.5, state: "over", over: true });
+    expect(bufferLabel(sprint({ pointsPlanned: 30, interruptBuffer: { pct: 95 } }))).toBe(
+      "95% of the sprint (28.5 points)"
+    );
+  });
 
   it("adds up the sprint's interrupts, open or resolved, and only the sprint's", () => {
     const st = interruptBufferStatus(withBuffer, [

@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * The sprint's interrupt buffer, set while planning: a share of the points
- * to commit to, or points, kept free for unplanned work. A share is saved
- * with the points it comes to at the commitment typed now
- * (`Sprint.interruptBuffer` {pct, points}), so the buffer stays what was
- * planned when the commitment later changes; the Interrupt Buffer tool
- * logs what lands in it.
+ * The sprint's interrupt buffer, set while planning: a share of the sprint's
+ * planned points, or points, kept free for unplanned work. It is saved the
+ * way the Interrupt Buffer page and Amr save it (`Sprint.interruptBuffer`,
+ * `{pct}` or `{points}`), so a share comes to the same points everywhere
+ * (lib/sprints/interrupts `bufferPoints`); the Interrupt Buffer tool logs
+ * what lands in it. The line under the field reads the points in the
+ * sprint now, before they are committed.
  */
 
 import { useEffect, useState } from "react";
@@ -21,6 +22,7 @@ import {
   bufferDraftFor,
   bufferLabel,
   bufferPoints,
+  cleanBuffer,
   pointsText,
   sameBuffer,
   validateBufferDraft,
@@ -34,42 +36,49 @@ const SELECT =
   "flex h-11 pointer-fine:md:h-9 w-full rounded-md border border-input bg-card px-3 text-base pointer-fine:md:text-sm text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 /**
- * What to store for the draft: a share also keeps the points it is of the
- * commitment, when there is one to take it of.
+ * What the buffer keeps with the points in the sprint now, and how much of
+ * the commitment that leaves for stories: "Keeps 6 points of the 30 for
+ * interrupts: plan about 24 points of stories." A share is of the planned
+ * points, so the stories that fit a target with it are target / (1 + share).
+ * Null with no buffer.
  */
-export function bufferToSave(
-  values: SprintInterruptBuffer | undefined,
-  targetPoints: number | null
-): SprintInterruptBuffer | undefined {
-  if (!values) return undefined;
-  if (values.pct !== undefined && targetPoints !== null && targetPoints > 0) {
-    return { pct: values.pct, points: round1((targetPoints * values.pct) / 100) };
-  }
-  return values;
-}
-
-/** "Keeps 6 points for interrupts: plan about 24 points of stories." */
 export function bufferPlanLine(
-  sprint: Pick<Sprint, "interruptBuffer" | "pointsPlanned">,
+  sprint: Pick<Sprint, "interruptBuffer">,
+  plannedPoints: number,
   targetPoints: number | null
 ): string | null {
-  const pts = bufferPoints(sprint);
-  if (pts === null) return null;
-  if (targetPoints === null || targetPoints <= 0) {
-    return `Keeps ${pointsText(pts)} for interrupts.`;
+  const buffer = cleanBuffer(sprint.interruptBuffer);
+  if (!buffer) return null;
+  const target = targetPoints !== null && targetPoints > 0 ? targetPoints : null;
+  if (buffer.points !== undefined) {
+    return target === null
+      ? `Keeps ${pointsText(buffer.points)} for interrupts.`
+      : `Keeps ${pointsText(buffer.points)} of the ${target} for interrupts: plan about ${pointsText(round1(Math.max(0, target - buffer.points)))} of stories.`;
   }
-  const rest = round1(Math.max(0, targetPoints - pts));
-  return `Keeps ${pointsText(pts)} of the ${targetPoints} for interrupts: plan about ${pointsText(rest)} of stories.`;
+  const pct = buffer.pct ?? 0;
+  const planned = Number.isFinite(plannedPoints) && plannedPoints > 0 ? plannedPoints : 0;
+  const now =
+    planned > 0 ? bufferPoints({ interruptBuffer: buffer, pointsPlanned: planned }) : null;
+  const kept =
+    now !== null
+      ? `${pct}% of the ${planned} points planned keeps ${pointsText(now)} for interrupts.`
+      : `${pct}% of the points planned is kept for interrupts, once stories are in.`;
+  return target === null
+    ? kept
+    : `${kept} To fit ${target} with it, plan about ${pointsText(round1(target / (1 + pct / 100)))} of stories.`;
 }
 
 export function PlanningBuffer({
   sprint,
+  plannedPoints,
   targetPoints,
   disabled,
   example,
   onSave,
 }: {
   sprint: Sprint;
+  /** The points of the stories in the sprint now (committed or not). */
+  plannedPoints: number;
   /** The points to commit to (typed or suggested), or null. */
   targetPoints: number | null;
   /** A closed sprint can't be planned. */
@@ -93,11 +102,10 @@ export function PlanningBuffer({
       return;
     }
     setError(undefined);
-    const next = bufferToSave(v.values, targetPoints);
-    if (!sameBuffer(next, sprint.interruptBuffer)) onSave(next);
+    if (!sameBuffer(v.values, sprint.interruptBuffer)) onSave(v.values);
   };
 
-  const line = bufferPlanLine(sprint, targetPoints);
+  const line = bufferPlanLine(sprint, plannedPoints, targetPoints);
   return (
     <div className="mt-4 rounded-lg border border-border bg-surface/40 p-3" data-field="buffer">
       <p className="flex items-center gap-1.5 text-sm font-medium text-text">
@@ -127,7 +135,7 @@ export function PlanningBuffer({
           )}
         </Field>
         <Field
-          label={draft.mode === "pct" ? "Share of the commitment" : "Buffer points"}
+          label={draft.mode === "pct" ? "Share of the points planned" : "Buffer points"}
           hideLabel
           className="w-28"
           error={error}

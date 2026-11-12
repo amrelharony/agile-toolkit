@@ -11,6 +11,11 @@
  *     to one decimal place, once the sprint has planned points;
  *   - else none can be worked out ("can't tell"): the interrupts are still
  *     counted, but not weighed against it.
+ * A share is always of the planned points, wherever it is set: this page,
+ * Sprint Planning and Amr all store it as `{pct}` alone, so 20% means the
+ * same number everywhere. The forms take 1 to BUFFER_PCT_MAX percent; a
+ * share up to 100% that another writer stored (the workspace.sprint CRUD
+ * takes 0–100) is read back as it is, never dropped.
  *
  * Every interrupt logged in the sprint (`sprintId`) uses the buffer, open or
  * resolved: resolving it means the work is done, not that the capacity came
@@ -32,8 +37,10 @@ import {
 } from "@/lib/stores/workspace-types";
 import type { Validation } from "@/lib/utils/form";
 
-/** The highest share a buffer may take: past it, nothing is left to plan. */
+/** The highest share the forms let a buffer take: past it, nothing is left to plan. */
 export const BUFFER_PCT_MAX = 90;
+/** The highest share read back from a stored buffer (what the sprint CRUD accepts). */
+export const BUFFER_PCT_STORED_MAX = 100;
 /** Used at or above this share of the buffer, it is worth watching. */
 export const BUFFER_WATCH_SHARE = 0.75;
 /** The largest interrupt size the form takes, in points. */
@@ -57,16 +64,16 @@ export function pointsText(n: number): string {
 }
 
 /**
- * The buffer as stored, cleaned: a pct inside 0–BUFFER_PCT_MAX is kept, a
- * points value of 0 or more is kept, anything else dropped. Undefined when
- * nothing is left (no buffer).
+ * The buffer as stored, cleaned: a pct above 0 and up to
+ * BUFFER_PCT_STORED_MAX is kept, a points value of 0 or more is kept,
+ * anything else dropped. Undefined when nothing is left (no buffer).
  */
 export function cleanBuffer(
   buffer: SprintInterruptBuffer | undefined | null
 ): SprintInterruptBuffer | undefined {
   if (!buffer || typeof buffer !== "object") return undefined;
   const out: SprintInterruptBuffer = {};
-  if (finite(buffer.pct) && buffer.pct > 0 && buffer.pct <= BUFFER_PCT_MAX) {
+  if (finite(buffer.pct) && buffer.pct > 0 && buffer.pct <= BUFFER_PCT_STORED_MAX) {
     out.pct = round1(buffer.pct);
   }
   if (finite(buffer.points) && buffer.points >= 0) out.points = round1(buffer.points);

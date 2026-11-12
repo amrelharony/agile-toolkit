@@ -72,7 +72,10 @@ vi.stubGlobal(
 import { SprintGoalClient } from "@/app/(tools)/sprint-goal/sprint-goal-client";
 import { toMarkdown as sprintGoalMarkdown } from "@/app/(tools)/sprint-goal/markdown";
 import { SprintPlanning } from "@/app/(tools)/sprint-planning/planning";
-import { bufferPlanLine, bufferToSave } from "@/app/(tools)/sprint-planning/buffer-field";
+import { bufferPlanLine } from "@/app/(tools)/sprint-planning/buffer-field";
+import { bufferPoints } from "@/lib/sprints/interrupts";
+import { registry } from "@/lib/actions/registry";
+import "@/lib/actions/tools/interrupt-buffer";
 import { charterCards, charterMarkdown, charterProductGoal } from "@/app/(meta)/team/charter-view";
 import { ProductGoalLine } from "@/components/product-goal/product-goal-line";
 import { SERVES_PREFIX } from "@/lib/product-goal/model";
@@ -177,39 +180,81 @@ describe("Sprint Planning", () => {
     expect(screen.getByText("Shop owners take payments anywhere")).toBeInTheDocument();
   });
 
-  it("sets the interrupt buffer as a share of the commitment, saved with its points", () => {
+  it("sets the interrupt buffer as a share of the points planned, and shows it as a share after", () => {
     wrap(<SprintPlanning />);
     fireEvent.change(screen.getByLabelText("Commit to"), { target: { value: "30" } });
-    fireEvent.change(screen.getByLabelText("Share of the commitment"), { target: { value: "20" } });
+    fireEvent.change(screen.getByLabelText("Share of the points planned"), {
+      target: { value: "20" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
-    expect(useWorkspaceStore.getState().sprints[0].interruptBuffer).toEqual({ pct: 20, points: 6 });
+    // Stored as the Interrupt Buffer page and Amr store it.
+    expect(useWorkspaceStore.getState().sprints[0].interruptBuffer).toEqual({ pct: 20 });
     expect(
-      screen.getByText(/Keeps 6 points of the 30 for interrupts: plan about 24 points of stories\./)
+      screen.getByText(
+        "20% of the points planned is kept for interrupts, once stories are in. To fit 30 with it, plan about 25 points of stories."
+      )
     ).toBeInTheDocument();
+    // The field still reads what was typed: a share, not points.
+    expect(screen.getByLabelText("Keep for interrupts")).toHaveValue("pct");
+    expect(screen.getByLabelText("Share of the points planned")).toHaveValue(20);
   });
 
   it("says what is wrong with a share out of range, and clears a blank buffer", () => {
     useWorkspaceStore.setState({ sprints: [{ ...SPRINT, interruptBuffer: { points: 4 } }] });
     wrap(<SprintPlanning />);
     fireEvent.change(screen.getByLabelText("Keep for interrupts"), { target: { value: "pct" } });
-    fireEvent.change(screen.getByLabelText("Share of the commitment"), { target: { value: "95" } });
+    fireEvent.change(screen.getByLabelText("Share of the points planned"), {
+      target: { value: "95" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
     expect(screen.getByText(/from 1 to 90%/)).toBeInTheDocument();
     expect(useWorkspaceStore.getState().sprints[0].interruptBuffer).toEqual({ points: 4 });
-    fireEvent.change(screen.getByLabelText("Share of the commitment"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Share of the points planned"), {
+      target: { value: "" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
     expect(useWorkspaceStore.getState().sprints[0].interruptBuffer).toBeUndefined();
   });
 
   it("works out what to keep and what to plan", () => {
-    expect(bufferToSave({ pct: 20 }, 30)).toEqual({ pct: 20, points: 6 });
-    expect(bufferToSave({ pct: 20 }, null)).toEqual({ pct: 20 });
-    expect(bufferToSave({ points: 3 }, 30)).toEqual({ points: 3 });
-    expect(bufferToSave(undefined, 30)).toBeUndefined();
-    expect(bufferPlanLine({ ...SPRINT, interruptBuffer: { points: 5 } }, null)).toBe(
+    expect(bufferPlanLine({ interruptBuffer: { points: 5 } }, 0, null)).toBe(
       "Keeps 5 points for interrupts."
     );
-    expect(bufferPlanLine(SPRINT, 30)).toBeNull();
+    expect(bufferPlanLine({ interruptBuffer: { points: 6 } }, 12, 30)).toBe(
+      "Keeps 6 points of the 30 for interrupts: plan about 24 points of stories."
+    );
+    expect(bufferPlanLine({ interruptBuffer: { pct: 20 } }, 24, null)).toBe(
+      "20% of the 24 points planned keeps 4.8 points for interrupts."
+    );
+    expect(bufferPlanLine({ interruptBuffer: { pct: 20 } }, 25, 30)).toBe(
+      "20% of the 25 points planned keeps 5 points for interrupts. To fit 30 with it, plan about 25 points of stories."
+    );
+    expect(bufferPlanLine(SPRINT, 0, 30)).toBeNull();
+  });
+
+  it("gives 20% the same points whether Sprint Planning, the Interrupt Buffer page or Amr set it", async () => {
+    const committed = { ...SPRINT, pointsPlanned: 24, status: "active" as const };
+    // Sprint Planning.
+    useWorkspaceStore.setState({ sprints: [committed] });
+    const { unmount } = wrap(<SprintPlanning />);
+    fireEvent.change(screen.getByLabelText("Share of the points planned"), {
+      target: { value: "20" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
+    const fromPlanning = useWorkspaceStore.getState().sprints[0];
+    unmount();
+    // Amr.
+    useWorkspaceStore.setState({ sprints: [committed] });
+    const setBuffer = registry.get("tool.interrupt_buffer.set_buffer")!;
+    await setBuffer.handler(setBuffer.paramsSchema.parse({ sprintId: "s2", pct: 20 }), {
+      userId: "u",
+      source: "agent",
+      squadProfileIds: [],
+    });
+    const fromAmr = useWorkspaceStore.getState().sprints[0];
+    expect(fromPlanning.interruptBuffer).toEqual(fromAmr.interruptBuffer);
+    expect(bufferPoints(fromPlanning)).toBe(4.8);
+    expect(bufferPoints(fromAmr)).toBe(4.8);
   });
 });
 

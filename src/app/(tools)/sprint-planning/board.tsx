@@ -848,6 +848,7 @@ export function PlanningBoard({
         </p>
         <PlanningBuffer
           sprint={sprint}
+          plannedPoints={planned}
           targetPoints={targetPoints}
           disabled={closed}
           example={example}
