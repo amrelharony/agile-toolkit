@@ -134,6 +134,47 @@ describe("the search", () => {
     expect(r.timedOut).toBe(false);
   });
 
+  it("matches an exhaustive search on small random problems, unary costs and moves included", () => {
+    const rng = createRng("brute");
+    for (let trial = 0; trial < 25; trial++) {
+      const n = 6 + (trial % 2);
+      const sizes = n === 6 ? [2, 2, 2] : [3, 2, 2];
+      const m = sizes.length;
+      const pair = new Float64Array(n * n);
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const w = Math.floor(rng() * 21) - 5;
+          pair[i * n + j] = w;
+          pair[j * n + i] = w;
+        }
+      }
+      const unary = new Float64Array(n * m).map(() => Math.floor(rng() * 7));
+      const p = { n, sizes, pair, unary };
+      // Every assignment of people to groups with these sizes (as a multiset).
+      let best = Infinity;
+      const assign = new Array<number>(n).fill(0);
+      const count = new Array<number>(m).fill(0);
+      const want = [...sizes].sort().join();
+      const walk = (i: number) => {
+        if (i === n) {
+          if ([...count].sort().join() === want) best = Math.min(best, assignmentCost(p, assign));
+          return;
+        }
+        for (let g = 0; g < m; g++) {
+          if (count[g] >= Math.max(...sizes)) continue;
+          assign[i] = g;
+          count[g]++;
+          walk(i + 1);
+          count[g]--;
+        }
+      };
+      walk(0);
+      const found = searchPartition(p, { rng: createRng(trial), timeLimitMs: 10_000 });
+      expect(found.cost, `trial ${trial}`).toBe(best);
+      expect(assignmentCost(p, found.assign)).toBe(found.cost);
+    }
+  });
+
   it("keeps the sizes it was given", () => {
     const n = 7;
     const r = searchPartition(
