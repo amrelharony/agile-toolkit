@@ -7,7 +7,7 @@
  * holding both kinds of criteria; and the history it logs.
  */
 
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -223,6 +223,42 @@ describe("fixing a story", () => {
       action: BACKLOG_HEALTH_ACTIONS.CRITERIA_ADDED,
       payload: { storyId: "vague", count: 1 },
     });
+  });
+
+  it("keeps a story whose last flag was fixed in the list, with focus where it was", async () => {
+    // Only flag: no criteria (it has points, a clear title and is new).
+    seed([story({ acceptanceCriteria: undefined })]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Criteria and details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a scenario/ }));
+    fireEvent.change(screen.getByLabelText("Given"), { target: { value: "a saved card" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "I pay" } });
+    fireEvent.change(screen.getByLabelText("Then"), { target: { value: "I'm charged once" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add scenario" }));
+    expect(find("st1")?.gwt).toHaveLength(1);
+    // The row stays, now with no flags, and its panel is still open.
+    expect(within(row("st1")).getByText("No flags.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(row("st1")).getByRole("button", { name: /Add a scenario/ })).toHaveFocus()
+    );
+    expect(screen.queryByText("No story is flagged.")).toBeNull();
+    // Changing the filter lets it go.
+    fireEvent.click(screen.getByRole("button", { name: "All 1 stories" }));
+    fireEvent.click(screen.getByRole("button", { name: "Only flagged stories" }));
+    expect(row("st1")).toBeNull();
+    expect(screen.getByText("No story is flagged.")).toBeInTheDocument();
+  });
+
+  it("keeps a story listed when Enter saves the points it lacked", async () => {
+    seed([story({ points: undefined })]);
+    renderPage();
+    const input = await screen.findByLabelText("Points for Pay with a saved card");
+    input.focus();
+    fireEvent.change(input, { target: { value: "3" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(find("st1")?.points).toBe(3);
+    expect(within(row("st1")).getByText("No flags.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Points for Pay with a saved card")).toHaveFocus();
   });
 
   it("splits a big one by a pattern, with Undo, keeping the original", async () => {

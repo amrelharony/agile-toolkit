@@ -171,6 +171,8 @@ function PointsField({
 
 export interface StoryRowProps {
   row: StoryHealth;
+  /** The row's details or split opened: the page keeps it listed while it is worked on. */
+  onOpen?: (storyId: string) => void;
   onPoints: (story: Story, points: number | undefined) => void;
   onDetails: (story: Story, details: StoryDetails) => void;
   onGwt: (story: Story, gwt: StoryGwt[]) => void;
@@ -178,14 +180,25 @@ export interface StoryRowProps {
   onDrop: (story: Story) => void;
 }
 
-export function StoryRow({ row, onPoints, onDetails, onGwt, onSplit, onDrop }: StoryRowProps) {
+export function StoryRow({
+  row,
+  onOpen,
+  onPoints,
+  onDetails,
+  onGwt,
+  onSplit,
+  onDrop,
+}: StoryRowProps) {
   const { story, flags, place } = row;
   const [open, setOpen] = useState<"details" | "split" | null>(null);
   const panelId = useId();
   const detailsButton = useRef<HTMLButtonElement>(null);
   const tooBig = flags.some((f) => f.id === "too-big");
   const splits = open === "split" ? splitPatternsFor(story.title) : [];
-  const toggle = (which: "details" | "split") => setOpen((o) => (o === which ? null : which));
+  const toggle = (which: "details" | "split") => {
+    if (open !== which) onOpen?.(story.id);
+    setOpen((o) => (o === which ? null : which));
+  };
 
   return (
     <li className="px-3 py-3" data-story={story.id}>

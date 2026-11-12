@@ -255,6 +255,11 @@ export function HealthBoard({
     [backlog, today, settings]
   );
   const [showAll, setShowAll] = useState(false);
+  // Stories fixed in place this visit: they stay in the flagged list (as
+  // "No flags.") until the filter changes, so a row never vanishes under the
+  // person's hands, taking its open panel and their focus with it.
+  const [kept, setKept] = useState<ReadonlySet<string>>(() => new Set());
+  const keep = (id: string) => setKept((s) => (s.has(id) ? s : new Set(s).add(id)));
   const [announce, setAnnounce] = useState("");
   const [review, setReview] = useState<{ data: ReviewOutput; source: AiSource } | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -300,6 +305,7 @@ export function HealthBoard({
   const setPoints = (story: Story, points: number | undefined) => {
     const current = fresh(story.id);
     if (!current) return;
+    keep(story.id);
     const next: Story = { ...current };
     if (points === undefined) delete next.points;
     else next.points = points;
@@ -311,6 +317,7 @@ export function HealthBoard({
   const saveDetails = (story: Story, details: StoryDetails) => {
     const current = fresh(story.id);
     if (!current) return;
+    keep(story.id);
     writer.upsertStory(withStoryDetails(current, details));
     log(BACKLOG_HEALTH_ACTIONS.STORY_UPDATED, { storyId: story.id, details: true });
   };
@@ -319,6 +326,7 @@ export function HealthBoard({
     const current = fresh(story.id);
     if (!current) return;
     const added = gwt.length - (current.gwt?.length ?? 0);
+    keep(story.id);
     writer.upsertStory(withStoryGwt(current, gwt));
     if (added > 0) log(BACKLOG_HEALTH_ACTIONS.CRITERIA_ADDED, { storyId: story.id, count: added });
     else log(BACKLOG_HEALTH_ACTIONS.STORY_UPDATED, { storyId: story.id, gwt: gwt.length });
@@ -462,7 +470,9 @@ export function HealthBoard({
     );
   }
 
-  const shown = showAll ? health.stories : health.stories.filter((s) => s.flags.length > 0);
+  const shown = showAll
+    ? health.stories
+    : health.stories.filter((s) => s.flags.length > 0 || kept.has(s.story.id));
 
   return (
     <div className="space-y-6">
@@ -567,7 +577,15 @@ export function HealthBoard({
         title={showAll ? "Every backlog story" : "Stories to look at"}
         icon={Stethoscope}
         actions={
-          <Button type="button" size="sm" variant="outline" onClick={() => setShowAll((v) => !v)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setShowAll((v) => !v);
+              setKept(new Set());
+            }}
+          >
             {showAll ? "Only flagged stories" : `All ${health.total} stories`}
           </Button>
         }
@@ -591,6 +609,7 @@ export function HealthBoard({
               <StoryRow
                 key={row.story.id}
                 row={row}
+                onOpen={keep}
                 onPoints={setPoints}
                 onDetails={saveDetails}
                 onGwt={saveGwt}
