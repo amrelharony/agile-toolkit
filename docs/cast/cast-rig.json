@@ -668,7 +668,7 @@
       "images": ["master", "parts", "face", "arms"],
       "parts": ["torso", "flap", "pupil-r", "pupil-l", "arm-r", "arm-l", "leg-r", "leg-l"],
       "face_base": "body",
-      "signature": ["sig.flap", "sig.hop"]
+      "signature": ["sig.flap", "sig.prop"]
     },
     {
       "id": "AAW-26",
@@ -712,7 +712,7 @@
         "tail"
       ],
       "face_base": "head",
-      "signature": ["sig.retreat"]
+      "signature": ["sig.retreat", "sig.prop"]
     },
     {
       "id": "AAW-28",

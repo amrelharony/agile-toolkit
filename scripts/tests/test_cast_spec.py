@@ -122,6 +122,23 @@ class TapMovesAndRenderSettings(unittest.TestCase):
         self.assertIsNotNone(spec.signature_problem(["hop"]))
         self.assertEqual(spec.character("AAW-01")["signature"], [])
 
+    @unittest.skipUnless((spec.DEFAULT_SOURCES / "brief").is_dir(), "the private briefs are not on this machine")
+    def test_a_prop_held_only_in_the_signature_arm_is_shown_by_a_tap_move(self):
+        # Arm 8, the signature arm, is the arm-l.sig choice, and only sig.prop shows
+        # it: a brief that keeps its prop to arm 8 alone would otherwise ship a prop
+        # no tap ever shows. Ids only are printed, never a brief's words.
+        import cast_contract as contract
+
+        shows = [cid for cid, clip in contract.CLIPS["clips"].items() if "arm-l.sig" in clip["main"]["swaps"]]
+        self.assertEqual(shows, ["sig.prop"])
+        held = []
+        for c in SPEC["characters"]:
+            brief = (spec.DEFAULT_SOURCES / "brief" / f"CAST-{c['id']}.md").read_text(encoding="utf-8")
+            if re.search(r"\bonly in arm 8\b", brief):
+                held.append(c["id"])
+                self.assertIn("sig.prop", c["signature"], c["id"])
+        self.assertGreater(len(held), 0)
+
     def test_arm_parts_name_a_front_pair_of_the_characters_own_pieces(self):
         for c in SPEC["characters"]:
             arm_parts = c.get("arm_parts")
