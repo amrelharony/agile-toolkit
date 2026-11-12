@@ -118,6 +118,7 @@ import {
 } from "./amr-geometry";
 import { LazyVisitorBody, prefetchVisitorBody } from "./lazy-visitor-body";
 import { AMR_PANEL_TITLE_ID, PanelHeader } from "./panel-header";
+import { AMR_PANEL_ID } from "./panel-ids";
 import { PANEL_SUBTITLE, PanelChrome, PanelIconButton } from "./panel-chrome";
 import {
   AmrPanelContext,
@@ -1261,6 +1262,7 @@ export function MascotAssistant() {
       <MascotChatReactions />
       {open && (
         <div
+          id={AMR_PANEL_ID}
           data-agent-sheet-root
           data-vt-hold="amr-panel"
           role="dialog"
@@ -1401,7 +1403,13 @@ export function MascotAssistant() {
           onTouchStart={reachForAmr}
           onFocus={reachForAmr}
           onContextMenu={(e) => showFigure && e.preventDefault()}
-          aria-label={open ? "Close assistant" : "Open assistant"}
+          // One name in every state (the panel has its own Close button);
+          // aria-expanded carries the state, and aria-controls names the panel
+          // only while it is in the page.
+          aria-label="Ask Amr"
+          aria-expanded={open}
+          aria-controls={open ? AMR_PANEL_ID : undefined}
+          aria-keyshortcuts="Control+J Meta+J"
           title="Ask Amr · drag to reposition"
           style={
             dragPos

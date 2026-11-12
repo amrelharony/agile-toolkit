@@ -1200,7 +1200,7 @@ describe("MascotAssistant — comic reader", () => {
     stubPhoneWidth(isPhone);
     h.pathname = pathname;
     await renderAmr();
-    expect(screen.getByRole("button", { name: "Open assistant" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ask Amr" })).toBeInTheDocument();
     // The figure waits for the first interaction (or a few seconds after
     // load), so it never competes with the page becoming usable.
     expect(screen.queryByTestId("mascot-sprite")).toBeNull();

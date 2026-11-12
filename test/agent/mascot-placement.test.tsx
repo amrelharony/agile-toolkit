@@ -115,7 +115,7 @@ function setSaveData(on: boolean | undefined) {
   });
 }
 
-const amrButton = () => screen.getByRole("button", { name: "Open assistant" });
+const amrButton = () => screen.getByRole("button", { name: "Ask Amr" });
 
 beforeEach(() => {
   useAgentStore.setState({ open: false });
