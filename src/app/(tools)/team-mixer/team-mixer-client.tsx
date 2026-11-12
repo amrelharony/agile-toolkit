@@ -261,11 +261,18 @@ export function TeamMixerClient() {
   const loadExample = () => {
     const ex = buildExample(new Date());
     const s = readMixer();
+    // The example's settings and rows join the person's own; their café
+    // plan, hosts and pair rotation stay as they were.
     writeMixer({
-      ...ex,
+      ...s,
+      mode: ex.mode,
+      split: ex.split,
+      size: ex.size,
+      title: s.title || ex.title,
       people: [...ex.people, ...s.people],
       rules: [...ex.rules, ...s.rules],
       rounds: [...ex.rounds, ...s.rounds],
+      seriesSeed: s.seriesSeed || ex.seriesSeed,
     });
     setPeopleNotice(null);
   };

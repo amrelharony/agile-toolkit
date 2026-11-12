@@ -182,6 +182,39 @@ describe("the example and the empty page", () => {
     expect(screen.queryByText(/Example data\./)).toBeNull();
   });
 
+  it("leaves a café plan already there as it was", async () => {
+    const plan = {
+      id: "cafe_mine",
+      at: "2026-11-01T10:00:00.000Z",
+      seed: 5,
+      balance: "none" as const,
+      rounds: [
+        [
+          { host: "A1", guests: ["C3"] },
+          { host: "B2", guests: ["D4"] },
+        ],
+      ],
+      issues: [],
+      current: 0,
+    };
+    // Everyone was taken out of the mix, but the café plan is still there.
+    useTeamMixerStore.setState({
+      ...MIXER_INITIAL,
+      mode: "cafe",
+      tables: 2,
+      cafeRounds: 2,
+      hosts: ["A1"],
+      cafe: plan,
+    });
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(state().people.map((p) => p.name)).toEqual([...EXAMPLE_PEOPLE]);
+    expect(state().cafe).toEqual(plan);
+    expect(state().hosts).toEqual(["A1"]);
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(state().cafe).toEqual(plan);
+  });
+
   it("keeps the example's rules in its first round", () => {
     const ex = buildExample(new Date());
     const groups = ex.rounds[0].groups.map((g) => g.people);
