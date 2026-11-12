@@ -103,7 +103,16 @@ export function WallPostForm({
             {replyTo.text}
           </p>
           {onCancelReply && (
-            <Button type="button" variant="ghost" size="sm" onClick={onCancelReply}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                onCancelReply();
+                // The bar goes with this button: back to the box, a plain post again.
+                boxRef.current?.focus();
+              }}
+            >
               Cancel <span className="sr-only">the Yes, and…</span>
             </Button>
           )}

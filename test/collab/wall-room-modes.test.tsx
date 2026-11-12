@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -371,5 +379,129 @@ describe("the participant's views", () => {
     expect(screen.queryByRole("region", { name: "Score these posts" })).toBeNull();
     expect(screen.getByText(/The host is showing the totals/)).toBeInTheDocument();
     expect(screen.getByText("Score: 4 on average from 1 person")).toBeInTheDocument();
+  });
+
+  const MANY = Array.from({ length: 8 }, (_, i) => ({
+    id: `pid_many${String(i).padStart(4, "0")}`,
+    text: `Idea number ${i + 1}`,
+    votes: 0,
+    merged: [],
+  }));
+  const groupNames = () =>
+    within(screen.getByRole("region", { name: "Score these posts" }))
+      .getAllByRole("radiogroup")
+      .map((g) => g.getAttribute("aria-label"));
+
+  it("keeps the same five, its own post out and its scores, after a refresh mid-scoring", async () => {
+    let ch = await joined({});
+    fireEvent.change(screen.getByLabelText(/Your post/), { target: { value: "My own idea" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Post" }));
+    });
+    await flush();
+    const mine = (await sentIntents(ch))[0] as Extract<WallIntent, { t: "post" }>;
+    const posts = [...MANY, { id: mine.pid, text: "My own idea", votes: 0, merged: [] }];
+    const scoring = {
+      open: false,
+      revealed: true,
+      count: posts.length,
+      posts,
+      scoring: "open" as const,
+      scored: 0,
+    };
+    await deliver(ch, WALL_ROOM_EVENTS.state, await wallState(scoring));
+    const first = groupNames();
+    expect(first).toHaveLength(5);
+    // Each scale is named after its post, never this tab's own.
+    expect(first.every((n) => /^Post \d of 5: Idea number \d$/.test(n ?? ""))).toBe(true);
+    const group = within(screen.getByRole("region", { name: "Score these posts" })).getAllByRole(
+      "radiogroup"
+    )[0];
+    await act(async () => {
+      fireEvent.click(within(group).getByRole("radio", { name: /^4/ }));
+    });
+    await flush();
+    const scored = (await sentIntents(ch)).at(-1) as Extract<WallIntent, { t: "score" }>;
+    expect(scored).toMatchObject({ t: "score", value: 4 });
+    expect(scored.key).toBeUndefined();
+
+    // A refresh: the tab's memo brings back the same five and the score.
+    cleanup();
+    ch = await joined(scoring);
+    expect(groupNames()).toEqual(first);
+    const again = within(screen.getByRole("region", { name: "Score these posts" })).getAllByRole(
+      "radiogroup"
+    )[0];
+    expect(within(again).getByRole("radio", { name: /^4/ })).toBeChecked();
+    await act(async () => {
+      fireEvent.click(within(again).getByRole("radio", { name: /^2/ }));
+    });
+    await flush();
+    // The change carries the key behind the first score's lock, so the host takes it.
+    const changed = (await sentIntents(ch)).at(-1) as Extract<WallIntent, { t: "score" }>;
+    expect(changed).toMatchObject({ t: "score", pid: scored.pid, value: 2 });
+    expect(lockOf(changed.key!)).toBe(scored.lock);
+  });
+
+  it("says when the scoring starts and when the totals show, with focus on what replaced the box", async () => {
+    const ch = await joined({ posts: [OTHER, ...MORE], count: 3 });
+    const box = screen.getByLabelText(/Your post/);
+    box.focus();
+    await deliver(
+      ch,
+      WALL_ROOM_EVENTS.state,
+      await wallState({
+        open: false,
+        revealed: true,
+        count: 3,
+        posts: [OTHER, ...MORE],
+        scoring: "open",
+        scored: 0,
+      })
+    );
+    await tick(60);
+    expect(screen.getByTestId("live-polite")).toHaveTextContent(
+      "Scoring started: score 3 posts from 1 to 5."
+    );
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Score these posts" }));
+    await deliver(
+      ch,
+      WALL_ROOM_EVENTS.state,
+      await wallState({
+        open: false,
+        revealed: true,
+        count: 3,
+        posts: [OTHER, ...MORE].map((p) => ({ ...p, score: 3, scorers: 1 })),
+        scoring: "shown",
+        scored: 3,
+      })
+    );
+    await tick(60);
+    expect(screen.getByTestId("live-polite")).toHaveTextContent("The host is showing the totals.");
+    expect(document.activeElement).toBe(
+      screen.getByText("The host is showing the totals: the best-scored posts come first.")
+    );
+  });
+
+  it("puts focus back in the box when a Yes, and… is cancelled", async () => {
+    await joined({ build: true });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Yes, and… on: Fewer meetings/ }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel the Yes, and…" }));
+    });
+    expect(screen.queryByText(/Yes, and… on:/)).toBeNull();
+    expect(document.activeElement).toBe(screen.getByLabelText(/Your post/));
+  });
+
+  it("puts Raise my hand first when the round takes no posts and has none", async () => {
+    await joined({ open: false, count: 0, posts: [] });
+    expect(screen.queryByLabelText(/Your post/)).toBeNull();
+    expect(screen.queryByText("Nothing on the wall yet.")).toBeNull();
+    // One Raise my hand, where the post box would be, and no empty wall under it.
+    expect(screen.getAllByRole("button", { name: "Raise my hand" })).toHaveLength(1);
+    expect(screen.queryByRole("region", { name: "The wall" })).toBeNull();
+    expect(screen.getByText("Raise your hand to join the queue to speak.")).toBeInTheDocument();
   });
 });

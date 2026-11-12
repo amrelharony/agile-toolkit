@@ -79,8 +79,12 @@ export interface WallRoomHostProps {
   startLabel?: string;
   /** One line under the start button. */
   description?: ReactNode;
-  /** The tool's own host controls while the room is live. */
-  children?: (room: WallRoom) => ReactNode;
+  /**
+   * The tool's own host controls while the room is live. `unsaved`: the
+   * round holds posts a new round would clear (not saved yet, or hidden
+   * until reveal), as New round's question to the host says.
+   */
+  children?: (room: WallRoom, round: { unsaved: boolean }) => ReactNode;
   /** Tests inject a fake (undefined: WebCrypto). */
   crypto?: VoteCrypto | null;
 }
@@ -546,7 +550,7 @@ function HostWallRoom({
         </div>
       )}
 
-      {children?.(room)}
+      {children?.(room, { unsaved: unsaved || (hiddenUntilReveal && (round?.count ?? 0) > 0) })}
 
       {room.hands.length > 0 && (
         <section aria-label="Raised hands" className="space-y-2">
