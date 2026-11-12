@@ -195,6 +195,35 @@ describe("the header's Amr opener", () => {
     // Not a dead end: the key press asks the panel's focus owner to bring focus in.
     expect(useAgentStore.getState().focusRequest).toBe(before + 1);
   });
+
+  it.each([
+    ["Open help", false, "Find a tool or get help"],
+    ["Open agent chat", true, "Open agent"],
+  ] as const)(
+    "%s spells Amr's shortcut the way the search keycap spells its own",
+    (name, owner, words) => {
+      h.owner = owner;
+      render(<Header onOpenSearch={() => {}} />);
+      // jsdom is no Mac: Ctrl, with a space, as in the keycap's "Ctrl K" and Amr's panel.
+      expect(screen.getByRole("button", { name })).toHaveAttribute("title", `${words} (Ctrl J)`);
+      expect(screen.getByText("Ctrl K").tagName).toBe("KBD");
+    }
+  );
+
+  it("says ⌘ for both shortcuts on a Mac once mounted", () => {
+    const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+    try {
+      h.owner = true;
+      render(<Header onOpenSearch={() => {}} />);
+      expect(screen.getByRole("button", { name: "Open agent chat" })).toHaveAttribute(
+        "title",
+        "Open agent (⌘J)"
+      );
+      expect(screen.getByText("⌘K").tagName).toBe("KBD");
+    } finally {
+      platform.mockRestore();
+    }
+  });
 });
 
 /** The page items in the bar's breadcrumb (BreadcrumbPage: aria-current="page"). */

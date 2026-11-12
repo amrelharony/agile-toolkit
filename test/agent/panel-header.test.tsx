@@ -20,6 +20,7 @@ import {
   type PanelHeaderProps,
   type PanelTilt,
 } from "@/components/agent/mascot/panel-header";
+import { platformShortcut } from "@/components/agent/mascot/panel-ids";
 import {
   PANEL_ICON,
   PanelActions,
@@ -145,25 +146,25 @@ describe("the subtitle", () => {
 
   it("follows the subtitle with the shortcut while there is no More menu, hidden on touch screens", () => {
     render(
-      <Panel subtitle="Find the right tool" shortcut="Ctrl+J">
+      <Panel subtitle="Find the right tool" shortcut="Ctrl J">
         <span />
       </Panel>
     );
-    const hint = screen.getByText(/Ctrl\+J/);
+    const hint = screen.getByText(/Ctrl J/);
     expect(hint).toHaveClass("pointer-coarse:hidden");
-    expect(hint.textContent).toBe(" · Ctrl+J");
+    expect(hint.textContent).toBe(" · Ctrl J");
     expect(screen.getByText("Find the right tool")).not.toHaveClass("pointer-coarse:hidden");
   });
 
   it("drops the separator when there is no subtitle before the shortcut", () => {
-    render(<Panel shortcut="Ctrl+J" />);
-    expect(screen.getByText("Ctrl+J").textContent).toBe("Ctrl+J");
+    render(<Panel shortcut="Ctrl J" />);
+    expect(screen.getByText("Ctrl J").textContent).toBe("Ctrl J");
   });
 
   it("leaves the shortcut to the More menu once there is one", () => {
-    render(<Panel subtitle="Find the right tool" shortcut="Ctrl+J" tilt={tiltOf()} />);
+    render(<Panel subtitle="Find the right tool" shortcut="Ctrl J" tilt={tiltOf()} />);
     expect(subtitleLine().textContent).toBe("Find the right tool");
-    expect(within(header()).queryByText(/Ctrl\+J/)).toBeNull();
+    expect(within(header()).queryByText(/Ctrl J/)).toBeNull();
   });
 });
 
@@ -172,7 +173,7 @@ describe("the shortcut's label", () => {
 
   it("says ⌘ on Apple keyboards and Ctrl elsewhere", () => {
     expect(shortcutLabel("J", true)).toBe("⌘J");
-    expect(shortcutLabel("J", false)).toBe("Ctrl+J");
+    expect(shortcutLabel("J", false)).toBe("Ctrl J");
   });
 
   it("reads the platform the way the site header does", () => {
@@ -182,13 +183,22 @@ describe("the shortcut's label", () => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
     );
-    expect(shortcutLabel("J")).toBe("Ctrl+J");
+    expect(shortcutLabel("J")).toBe("Ctrl J");
     // iPhones and iPads report themselves as Mac in the user agent.
     vi.spyOn(navigator, "platform", "get").mockReturnValue("iPhone");
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
       "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
     );
     expect(shortcutLabel("J")).toBe("⌘J");
+  });
+
+  it("is spelled by the one formatter the site header uses too", () => {
+    // The header's search keycap: "Ctrl K", or "⌘K" on a Mac.
+    expect(platformShortcut("K", false)).toBe("Ctrl K");
+    expect(platformShortcut("K", true)).toBe("⌘K");
+    for (const apple of [true, false]) {
+      expect(shortcutLabel("J", apple)).toBe(platformShortcut("J", apple));
+    }
   });
 });
 
@@ -293,10 +303,10 @@ describe("the back and action slots", () => {
 describe("the More menu", () => {
   it("is offered only with a choice in it", () => {
     // A menu with only the shortcut line would have no item to land on.
-    const { rerender } = render(<Panel shortcut="Ctrl+J" />);
+    const { rerender } = render(<Panel shortcut="Ctrl J" />);
     expect(within(header()).queryByRole("button", { name: "More" })).toBeNull();
 
-    rerender(<Panel shortcut="Ctrl+J" tilt={tiltOf()} />);
+    rerender(<Panel shortcut="Ctrl J" tilt={tiltOf()} />);
     expect(moreButton()).toBeInTheDocument();
   });
 
@@ -398,9 +408,9 @@ describe("the More menu", () => {
     const { unmount } = render(<Panel tilt={tiltOf()} shortcut={shortcutLabel("J", false)} />);
     let menu = openMore();
     expect(within(menu).getByText(/opens and closes Amr$/).textContent).toBe(
-      "Ctrl+J opens and closes Amr"
+      "Ctrl J opens and closes Amr"
     );
-    expect(within(menu).getByText("Ctrl+J").tagName).toBe("KBD");
+    expect(within(menu).getByText("Ctrl J").tagName).toBe("KBD");
     // No Ctrl/⌘ key on a touch screen: the line and its rule hide there, like
     // the subtitle's hint (the tilt switch, a phone's, stays alone).
     expect(within(menu).getByText(/opens and closes Amr$/)).toHaveClass("pointer-coarse:hidden");
@@ -418,7 +428,7 @@ describe("the More menu", () => {
   });
 
   it("sets nothing in its menu in capitals", () => {
-    render(<Panel tilt={tiltOf(true)} shortcut="Ctrl+J" />);
+    render(<Panel tilt={tiltOf(true)} shortcut="Ctrl J" />);
     const menu = openMore();
     for (const el of [menu, ...Array.from(menu.querySelectorAll("*"))]) {
       expect(classes(el)).not.toContain("uppercase");
@@ -502,7 +512,7 @@ describe("Enlarge and Close", () => {
 describe("the brand", () => {
   it("sets nothing in capitals", () => {
     render(
-      <Panel subtitle="Find the right tool" shortcut="Ctrl+J" onToggleEnlarge={() => {}} enlarged>
+      <Panel subtitle="Find the right tool" shortcut="Ctrl J" onToggleEnlarge={() => {}} enlarged>
         <PanelSubtitle>Chat · not saved</PanelSubtitle>
       </Panel>
     );

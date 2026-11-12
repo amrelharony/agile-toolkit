@@ -39,23 +39,26 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PanelIconButton, usePanelHosts } from "./panel-chrome";
+import { platformShortcut } from "./panel-ids";
 
 /** The plate's id unless the shell gives one: the dialog's aria-labelledby. */
 export const AMR_PANEL_TITLE_ID = "amr-panel-title";
 
 /**
  * Apple keyboards say ⌘ where others say Ctrl. The same test as the site
- * header's ⌘K, so the two hints agree. Read while rendering: Amr's chunk never
- * renders on the server (app-shell loads it with ssr: false).
+ * header's isMac, and the same spelling (panel-ids' platformShortcut) as its
+ * ⌘K keycap and its Amr opener's tooltip, so every hint on the screen agrees.
+ * Read while rendering: Amr's chunk never renders on the server (app-shell
+ * loads it with ssr: false).
  */
 function onApple(): boolean {
   if (typeof navigator === "undefined") return false;
   return navigator.platform.toUpperCase().includes("MAC") || navigator.userAgent.includes("Mac");
 }
 
-/** A Ctrl/⌘ shortcut as this platform writes it: "⌘J" on Apple, "Ctrl+J" elsewhere. */
+/** A Ctrl/⌘ shortcut as this platform writes it: "⌘J" on Apple, "Ctrl J" elsewhere. */
 export function shortcutLabel(key: string, apple: boolean = onApple()): string {
-  return apple ? `⌘${key}` : `Ctrl+${key}`;
+  return platformShortcut(key, apple);
 }
 
 /** Whether Amr feels the phone's tilt, and the switch's toggle. */

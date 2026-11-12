@@ -228,12 +228,12 @@ describe("MascotAssistant — owner gating", () => {
     expect(settings).toHaveAttribute("data-variant", "ghost");
   });
 
-  it("hides the Ctrl+J hint on touch screens", async () => {
+  it("hides the Ctrl J hint on touch screens", async () => {
     h.auth = { status: "anonymous", user: null };
     await renderAmr();
 
     // jsdom is no Mac, so Ctrl; a Mac shows ⌘J (panel-header's shortcutLabel).
-    const hint = screen.getByText(/Ctrl\+J/);
+    const hint = screen.getByText(/Ctrl J/);
     expect(hint).toHaveClass("pointer-coarse:hidden");
     expect(screen.getByText("Find the right tool")).not.toHaveClass("pointer-coarse:hidden");
   });
@@ -263,7 +263,7 @@ describe("MascotAssistant — owner gating", () => {
       // No bare phone icon among the chat's controls any more.
       expect(within(header).queryByRole("button", { name: /feel your phone/i })).toBeNull();
       // The shortcut moved into the menu with it (where a touch screen hides it).
-      expect(within(header).queryByText(/Ctrl\+J/)).toBeNull();
+      expect(within(header).queryByText(/Ctrl J/)).toBeNull();
 
       fireEvent.keyDown(within(header).getByRole("button", { name: "More" }), { key: "Enter" });
       const menu = screen.getByRole("menu");
@@ -273,7 +273,7 @@ describe("MascotAssistant — owner gating", () => {
       expect(tilt).toHaveAttribute("aria-checked", "true");
       // In the page, but no Ctrl/⌘ key on this touch screen: hidden, like the subtitle's hint.
       const shortcut = within(menu).getByText(/opens and closes Amr$/);
-      expect(shortcut.textContent).toBe("Ctrl+J opens and closes Amr");
+      expect(shortcut.textContent).toBe("Ctrl J opens and closes Amr");
       expect(shortcut).toHaveClass("pointer-coarse:hidden");
       expect(within(menu).getByRole("separator")).toHaveClass("pointer-coarse:hidden");
 
@@ -313,7 +313,7 @@ describe("MascotAssistant — owner gating", () => {
         "justify-center"
       );
     }
-    expect(screen.getByText(/Ctrl\+J/)).toHaveClass("pointer-coarse:hidden");
+    expect(screen.getByText(/Ctrl J/)).toHaveClass("pointer-coarse:hidden");
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
   });
 
