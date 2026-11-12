@@ -58,6 +58,8 @@ import { actionsToMarkdown } from "./markdown";
 import { EVERYONE, NO_OWNER, matchesOwner, ownerOptions } from "./owners";
 import { QuickAddForm } from "./quick-add";
 import { retroActionsVerdict } from "./verdict";
+import { RecurringThemesPanel } from "./recurring-themes-panel";
+import { archivedRetroCount, recurringThemes } from "@/lib/retro/recurring-themes";
 
 export const TOOL_ID = "retro-actions";
 
@@ -258,10 +260,20 @@ export function RetroActionsTracker() {
     if (last && last.boardId === a.boardId) last.actions.push(a);
     else groups.push({ boardId: a.boardId, label: a.retroLabel, actions: [a] });
   }
+  // Recurring themes across the past retros, named by sprint where there is one.
+  const pastCount = archivedRetroCount(boards);
+  const labelById = new Map(followThrough.map((r) => [r.boardId, r.retroLabel]));
+  const retroName = (boardId: string): string =>
+    sprintName(boards.find((b) => b.id === boardId)?.sprintId) ??
+    labelById.get(boardId) ??
+    "a past retro";
+  const themes = useMemo(() => recurringThemes(boards), [boards]);
   const markdown = actionsToMarkdown(actions, summary, {
     followThrough: settled,
     sprintName,
     verdict,
+    themes,
+    retroName,
   });
 
   /* ── Where a quick-added action goes ──────────────────────────────── */
@@ -603,6 +615,15 @@ export function RetroActionsTracker() {
             — the next retro opens with these actions to check.
           </p>
         </>
+      )}
+
+      {pastCount > 0 && (
+        <RecurringThemesPanel
+          boards={boards}
+          themes={themes}
+          retroName={retroName}
+          preview={preview}
+        />
       )}
     </div>
   );
