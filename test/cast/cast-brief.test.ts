@@ -11,6 +11,7 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 import * as gen from "../../scripts/build-cast-brief.mjs";
+import { ARM_WORDS } from "../../scripts/cast/brief-blocks.mjs";
 
 const spec = gen.loadSpec();
 const tmp = mkdtempSync(path.join(os.tmpdir(), "cast-brief-"));
@@ -131,6 +132,30 @@ describe("the per-character brief", () => {
   it("gives Amr nine master-check lines and everyone else five", () => {
     const data = gen.pageData(spec, priv);
     for (const c of data.characters) expect(c.check).toHaveLength(c.id === "AAW-01" ? 9 : 5);
+  });
+});
+
+describe("the Opus appendix", () => {
+  const appendix = gen.partsAppendix(spec, priv) as string;
+  /** One character's entry, from its heading to the next one. */
+  const entry = (id: string) => {
+    const start = appendix.indexOf(`\n## ${id} `);
+    expect(start, id).toBeGreaterThan(-1);
+    return appendix.slice(start, appendix.indexOf("\n## ", start + 1));
+  };
+
+  it("names a character's own arms over its family's, the ones its brief words", () => {
+    expect(entry("AAW-09")).toMatch(/; arms glove\b/);
+    expect(entry("AAW-10")).toMatch(/; arms human\b/);
+    expect(entry("AAW-12")).toMatch(/; arms soft\b/);
+    expect(entry("AAW-22")).toMatch(/; arms human\b/);
+    expect(entry("AAW-05")).toMatch(/; arms none\b/);
+    for (const c of spec.characters) {
+      if (!c.images.includes("arms")) continue;
+      const arms = /; arms (\w+)\b/.exec(entry(c.id))?.[1] as keyof typeof ARM_WORDS;
+      expect(ARM_WORDS[arms], c.id).toBeDefined();
+      expect(file(c.id), c.id).toContain(ARM_WORDS[arms]);
+    }
   });
 });
 

@@ -87,9 +87,11 @@ function keyOf(spec, c) {
   return { name, hex: spec.keys[name] };
 }
 
+/** The arms a character is drawn with: its own when the spec names them, else its family's. */
+const armsOf = (spec, c) => c.arms ?? spec.families[c.family].arms;
+
 function imageBlock(spec, c, image) {
   const tol = spec.tolerances;
-  const fam = spec.families[c.family];
   switch (image) {
     case "master":
       return imageMaster(c.id, tol);
@@ -102,7 +104,7 @@ function imageBlock(spec, c, image) {
     case "face2":
       return imageFace2(c.id, tol);
     case "arms":
-      return c.id === "AAW-01" ? imageArmsAmr(c.id, tol) : imageArms(c.id, tol, c.arms ?? fam.arms);
+      return c.id === "AAW-01" ? imageArmsAmr(c.id, tol) : imageArms(c.id, tol, armsOf(spec, c));
     default:
       throw new Error(`${c.id}: unknown image ${image}`);
   }
@@ -250,7 +252,7 @@ export function partsAppendix(spec, priv) {
     const key = keyOf(spec, c);
     out.push(`## ${c.id} ${c.name}`, "");
     out.push(
-      `- Batch ${batchOf(spec, c.id)}; family ${c.family}; arms ${fam.arms ?? "none"}; eyes ${fam.eyes}.`
+      `- Batch ${batchOf(spec, c.id)}; family ${c.family}; arms ${armsOf(spec, c) ?? "none"}; eyes ${fam.eyes}.`
     );
     out.push(`- Images: ${c.images.map((i) => fileName(c.id, i)).join(", ")}.`);
     out.push(`- Background key: ${key.name} ${key.hex}.`);
