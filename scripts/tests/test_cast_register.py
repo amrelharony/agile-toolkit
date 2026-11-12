@@ -136,6 +136,30 @@ class Joints(unittest.TestCase):
         far[250:280, 10:40] = True
         self.assertEqual(rg.pivot(far, body)["kind"], "no_cap")
 
+    def test_an_open_fan_hangs_from_its_base_not_from_the_body(self):
+        H, W = 700, 900
+        yy, xx = np.mgrid[0:H, 0:W]
+        # A synthetic fan: a sector spread up and out from a round end (r = 16) at
+        # its foot, its outer edges dipping below it, behind a body over the foot.
+        bx, by, r = 450.0, 520.0, 16.0
+        ang = np.degrees(np.arctan2(by - (yy + 0.5), xx + 0.5 - bx))  # 0 on your right, 90 up
+        d = np.hypot(xx + 0.5 - bx, yy + 0.5 - by)
+        spread = (d <= 380) & ((ang >= -15) | (ang <= -165))
+        fan = spread | (d <= r)
+        body = (xx >= 360) & (xx < 540) & (yy >= 250) & (yy < 560)
+        pv = rg.base_point(fan)
+        self.assertEqual(pv["kind"], "base")
+        self.assertLess(np.hypot(pv["x"] - bx, pv["y"] - by), 1.5)
+        self.assertAlmostEqual(pv["r"], r, delta=1.5)
+        # The overlap with the body is the whole body: a joint found there is far off.
+        lap = rg.pivot(fan, body)
+        self.assertGreater(np.hypot(lap["x"] - bx, lap["y"] - by), 3 * r)
+        # A fan whose sector meets in a point with no round end: the point, no radius.
+        bare = rg.base_point(spread)
+        self.assertIsNone(bare["r"])
+        self.assertLess(np.hypot(bare["x"] - bx, bare["y"] - by), 1.0)
+        self.assertEqual(rg.base_point(np.zeros_like(fan))["kind"], "none")
+
 
 if __name__ == "__main__":
     unittest.main()

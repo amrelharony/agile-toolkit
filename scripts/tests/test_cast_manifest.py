@@ -194,21 +194,27 @@ class Slots(unittest.TestCase):
         man, sprites = rig.manifest(c, baked, tree, z, pivots, {}, [], pinned, rest, Path("nowhere"), contract.CLIPS)
         return man, [k for k, _ in sprites]
 
-    def test_the_fan_is_a_slot_closed_at_rest(self):
+    def test_the_fan_is_a_slot_open_at_rest(self):
+        # The master shows the fan open: the open fan is the rest piece, registered
+        # like any piece; the closed fan is pinned at its base.
+        self.assertEqual(rig.FAN, {"slot": "fan", "rest": "open", "rest_piece": "fan-open", "pose": "closed", "pose_piece": "fan-closed"})
+        self.assertEqual(rig.PINNED_ONLY, ("fan-closed",))
         c = {**spec.character("AAW-22"), "signature": ["sig.fan"]}
-        pieces = {"torso": ((300, 300, 600, 700), (120, 210, 200)), "fan-closed": ((350, 150, 550, 400), (60, 140, 150))}
-        opened = self.place((150, 50, 750, 420), (60, 140, 150))
-        pinned = {"fan": {"rest": "fan-closed", "rest_id": "closed", "poses": {"open": opened}}}
-        man, keys = self.build(c, pieces, {"torso": 0, "fan-closed": -1}, pinned)
+        pieces = {"torso": ((300, 300, 600, 700), (120, 210, 200)), "fan-open": ((150, 50, 750, 420), (60, 140, 150))}
+        closed = self.place((350, 150, 550, 640), (60, 140, 150))
+        pinned = {"fan": {"rest": "fan-open", "rest_id": "open", "poses": {"closed": closed}}}
+        man, keys = self.build(c, pieces, {"torso": 0, "fan-open": -1}, pinned)
         self.assertEqual([p["id"] for p in man["parts"]], ["torso"])
         fan = next(s for s in man["swaps"] if s["id"] == "fan")
-        self.assertEqual((fan["on"], fan["rest"], fan["z"]), ("torso", "closed", -1))
-        self.assertEqual([ch["id"] for ch in fan["choices"]], ["closed", "open"])
+        self.assertEqual((fan["on"], fan["rest"], fan["z"]), ("torso", "open", -1))
+        self.assertEqual([ch["id"] for ch in fan["choices"]], ["open", "closed"])
         self.assertTrue(all(ch["sprite"] for ch in fan["choices"]))
-        self.assertIn("fan:closed", keys)
-        self.assertNotIn("part:fan-closed", keys)
+        self.assertIn("fan:open", keys)
+        self.assertNotIn("part:fan-open", keys)
         self.assertEqual(contract.problems(man, contract.CLIPS), [])
-        self.assertEqual(cast_clips.unplayable(man, contract.CLIPS), [])  # sig.fan shows fan.open
+        self.assertEqual(cast_clips.unplayable(man, contract.CLIPS), [])
+        # sig.fan folds the fan: it shows the closed choice, never the rest one.
+        self.assertEqual(contract.CLIPS["clips"]["sig.fan"]["main"]["swaps"], ["fan.closed"])
 
     def test_an_octopus_front_pair_are_its_arm_slots(self):
         c = {**spec.character("AAW-18"), "signature": ["sig.ripple"]}

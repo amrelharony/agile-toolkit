@@ -126,7 +126,7 @@ CLIPS = {
         "sig.nod": _clip(700, ["head"]),
         "sig.wave": _clip(900, ["arm-r"], ["arm-r.wave"]),
         "sig.chin": _clip(900, ["head"], ["arm-l.chin"]),
-        "sig.fan": _clip(900, ["body"], ["fan.open"]),
+        "sig.fan": _clip(900, ["body"], ["fan.closed"]),
         "sig.ripple": _clip(900, [f"limb-{i}" for i in range(1, 9)]),
         "sig.flap": _clip(700, ["flap"]),
         "sig.eyes": _clip(900, ["pupils"]),

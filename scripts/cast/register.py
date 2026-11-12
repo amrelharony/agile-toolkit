@@ -6,6 +6,7 @@
     register(piece, master, ...)         the pose that lays the piece on the master
     kasa(xs, ys, trim)                   least-squares circle through points
     pivot(under, over)                   the joint from the tucked piece's cap circle
+    base_point(mask)                     the small round end at the foot of a piece's middle
 
 A pose is (r, theta, cx, cy): the piece is drawn at r times its size in the
 master and tilted by theta degrees (counter-clockwise as the eye sees it); laid on
@@ -453,3 +454,34 @@ def pivot(under: np.ndarray, over: np.ndarray, short: float | None = None) -> di
     d = np.hypot(xs - pc[0], ys - pc[1])
     i = int(np.argmin(d))
     return {"kind": "no_cap", "x": float(xs[i] + 0.5), "y": float(ys[i] + 0.5), "r": None, "residual": None}
+
+
+def base_point(mask: np.ndarray) -> dict:
+    """The small round end at the foot of a piece's middle (master frame): the point
+    an open fan spreads from and its closed fan hangs from, which its
+    overlap with the body (the whole torso) can't give. A front view draws the fan
+    even about it, so it sits at the lowest pixel of the mask's middle column; its
+    radius is that of the biggest disc resting on that foot inside the mask, up to
+    ball_radius_default of the piece's smaller side. A foot no disc stops short of
+    that is no round end: then the foot itself, with no radius."""
+    box = im.mask_bbox(mask)
+    if box is None:
+        return {"kind": "none", "x": None, "y": None, "r": None, "residual": None}
+    ys, xs = np.nonzero(mask)
+    col = int(xs[np.argmin(np.abs(xs - xs.mean()))])  # the drawn column nearest the middle
+    foot = float(np.nonzero(mask[:, col])[0].max() + 1)  # its lowest pixel's lower edge
+    px = col + 0.5
+    most = int(TOL["ball_radius_default"] * min(box[2] - box[0], box[3] - box[1]))
+    y0, y1 = max(0, int(foot) - 2 * most - 2), min(mask.shape[0], int(foot) + 2)
+    x0, x1 = max(0, col - most - 2), min(mask.shape[1], col + most + 3)
+    oy, ox = np.nonzero(~mask[y0:y1, x0:x1])
+    oy, ox = oy + y0 + 0.5, ox + x0 + 0.5
+    r = None
+    for rho in range(1, most + 1):
+        # A disc of radius rho resting on the foot: no clear pixel inside it.
+        if len(ox) and float(np.min(np.hypot(ox - px, oy - (foot - rho)))) < rho:
+            break
+        r = float(rho)
+    if r is None or r >= most:
+        return {"kind": "base", "x": px, "y": foot, "r": None, "residual": None}
+    return {"kind": "base", "x": px, "y": foot - r, "r": r, "residual": None}

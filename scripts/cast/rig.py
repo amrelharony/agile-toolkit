@@ -61,9 +61,9 @@ FACE_BASE = {
 SOCKETS = {"torso": "body", "head": "head", "tail": "tail", "tie": "tie", "cord": "cord", "neck": "neck"}
 ARM_SLOTS = ("arm-r", "arm-l")
 # The fan is a swap slot on the torso (src/lib/cast/rig-types.ts: "Arms and the fan
-# are slots, not parts"): closed at rest, as the master shows it, and open pinned
-# at the closed fan's base the way an arm pose is pinned at the shoulder.
-FAN = {"slot": "fan", "rest": "closed", "rest_piece": "fan-closed", "pose": "open", "pose_piece": "fan-open"}
+# are slots, not parts"): open at rest, as the master shows it, and the closed fan
+# pinned at the open fan's base point the way an arm pose is pinned at the shoulder.
+FAN = {"slot": "fan", "rest": "open", "rest_piece": "fan-open", "pose": "closed", "pose_piece": "fan-closed"}
 PINNED_ONLY = (FAN["pose_piece"],)  # pieces the master doesn't show at rest: never registered
 
 
@@ -299,7 +299,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     gaps = {}
     for img, s in sheets.items():
         ids = list(c[img])
-        # Pupils are cut from the master; the open fan is pinned at the closed one's base.
+        # Pupils are cut from the master; the closed fan is pinned at the open one's base.
         reg_ids = [i for i in ids if not i.startswith("pupil-") and i not in PINNED_ONLY]
         got, spare, cost = parts.assign(s["pieces"], ids, img)
         r, close = parts.min_gap(s["pieces"], s["cut"].shape)
@@ -400,6 +400,10 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         under = stack(under, baked, master)
         for n, k in enumerate(under):
             z[k] = n - len(under)
+    if FAN["rest_piece"] in pivots:
+        # The open fan turns and pins at its base point, not where it overlaps the body.
+        fan = FAN["rest_piece"]
+        pivots[fan] = {**rg.base_point(baked[fan][..., 3] >= SOLID_ALPHA), "tucked": pivots[fan]["tucked"]}
     for k, pv in pivots.items():
         par = parent_of(k, present)
         rng = range_for(k)
@@ -576,7 +580,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     report["checks"]["C10"] = c10
 
     # Swaps pinned at a joint: each arm pose at the rest arm's shoulder ball, and the
-    # open fan at the closed fan's base. Each is (slot, choice, rest piece, sheet, cell).
+    # closed fan at the open fan's base. Each is (slot, choice, rest piece, sheet, cell).
     pinned: dict = {}  # slot -> {"rest": piece, "rest_id": choice, "poses": {choice: rgba}}
     c11 = {"status": "skip", "poses": [], "notes": []}
     pins = []
