@@ -5,6 +5,7 @@ import {
   auditVerdict,
   countedAudits,
   editedMeetingAudit,
+  isScrumEvent,
   matchChanges,
   meetingAuditSteps,
   meetingAudits,
@@ -194,6 +195,36 @@ describe("the rules behind 'Suggest changes'", () => {
     expect(trial("Architecture forum")).toBe(true);
     expect(trial("Sprint Review")).toBe(false);
     expect(trial("Retrospective")).toBe(false);
+  });
+
+  it("knows the Scrum events by their names, not by a word they share", () => {
+    for (const name of [
+      "Sprint Planning",
+      "Daily Scrum",
+      "Daily stand-up",
+      "Standup",
+      "Sprint Review",
+      "Retro",
+      "Sprint Retrospective",
+    ]) {
+      expect(isScrumEvent(name), name).toBe(true);
+    }
+    for (const name of [
+      "Design review",
+      "Code review sync",
+      "Release planning",
+      "Quarterly business review",
+      "Capacity planning",
+    ]) {
+      expect(isScrumEvent(name), name).toBe(false);
+    }
+    // So a poorly rated one gets the trial drop the Scrum events never get.
+    const low = { purpose: 1, people: 2, outcome: 2, length: 2, energy: 1 };
+    expect(
+      ruleChanges([audit({ meeting: "Design review", ratings: low })]).some((c) =>
+        c.change.startsWith("Try dropping")
+      )
+    ).toBe(true);
   });
 
   it("gives each meeting one change before any gets a second, at most five, never for a drop", () => {

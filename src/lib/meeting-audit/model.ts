@@ -352,11 +352,14 @@ interface Candidate extends MeetingChange {
 }
 
 /**
- * A Scrum event, by its name: the fallback suggests running it better,
- * never dropping it (the guide's tip: change how you run one first).
+ * A Scrum event, by its name: Sprint Planning, the Daily Scrum (or a
+ * stand-up), the Sprint Review and the retrospective. The fallback suggests
+ * running one better, never dropping it (the guide's tip: change how you run
+ * one first), as the AI prompt does. A meeting that only has "review" or
+ * "planning" in its name ("Design review", "Release planning") is not one.
  */
 export const isScrumEvent = (name: string): boolean =>
-  /\b(sprint planning|planning|daily scrum|daily stand-?up|stand-?up|sprint review|review|retro|retrospective)\b/i.test(
+  /\b(sprint planning|daily scrum|(?:daily )?stand-?ups?|sprint review|(?:sprint )?retros?|(?:sprint )?retrospectives?)\b/i.test(
     name
   );
 
