@@ -230,7 +230,11 @@ describe("ShellDialogs", () => {
   it("opens the tool finder on Ctrl+K with its search box focused", async () => {
     render(<Shell />);
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });
-    expect(await screen.findByRole("dialog", { name: "Search tools" })).toBeInTheDocument();
+    // The first open in this file loads the real palette's code (cmdk, the
+    // search synonyms): about a second cold, more on a busy machine.
+    expect(
+      await screen.findByRole("dialog", { name: "Search tools" }, { timeout: 5000 })
+    ).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("combobox")).toHaveFocus());
   });
 
