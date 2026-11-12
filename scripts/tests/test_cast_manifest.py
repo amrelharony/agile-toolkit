@@ -156,6 +156,39 @@ class OwnPixels(unittest.TestCase):
         self.assertGreater(wrong["arm"], 0)
         self.assertEqual(rig.own_pixels({}, master), {})
 
+    def test_a_mostly_hidden_piece_is_found_where_the_others_leave_the_master_unexplained(self):
+        import cast_synth as cs
+
+        def striped(box):
+            p = cs.Pen()
+            x0, y0, x1, y1 = box
+            p.rect(box, cs.LIMB, radius=20)
+            for y in range(y0 + 20, y1 - 10, 28):
+                p.line([(x0 + 10, y), ((x0 + x1) / 2, y + 14), (x1 - 10, y)], fill=cs.BAND, width=5)
+            return p.done()
+
+        body = cs.Pen()
+        body.rect((600, 200, 940, 640), cs.BODY, radius=18)
+        body = body.done()
+        arm = striped((470, 300, 570, 700))  # an arm beside the body
+        tail = striped((680, 420, 860, 760))  # the same stripes behind the body, its lower part showing
+        master = cs.over(tail, body, arm)
+        crop = cs.scaled(cs.crop(tail), cs.PARTS_R)
+        others = {"torso": body, "arm-r": arm}
+        # Searched on the whole master, the tail finds no place of its own...
+        plain = register.bake(crop, register.register(crop, master), master.shape)
+        self.assertLess(rig.own_pixels({**others, "tail": plain}, master)["tail"], spec.TOL["own_visible_min_px"])
+        # ...searched where the body and the arm leave the master unexplained, it lands
+        # where it is drawn, scored on the whole master.
+        reg, baked = rig.place_again(crop, master, others)
+        self.assertLess(np.hypot(reg.cx - 770, reg.cy - 590), 3)
+        self.assertAlmostEqual(reg.r, cs.PARTS_R, delta=0.02)
+        self.assertGreater(reg.ncc, spec.TOL["ncc_warn"])
+        self.assertGreater(reg.coverage, spec.TOL["reg_coverage_min"])
+        self.assertGreaterEqual(rig.own_pixels({**others, "tail": baked}, master)["tail"], spec.TOL["own_visible_min_px"])
+        # A piece with nothing of its own anywhere stays unplaced by it.
+        self.assertIsNone(rig.place_again(cs.scaled(cs.crop(arm), cs.PARTS_R), master, {**others, "tail": baked}))
+
 
 class Fold(unittest.TestCase):
     """A folded corner joins the body along a straight fold with no round cap: the

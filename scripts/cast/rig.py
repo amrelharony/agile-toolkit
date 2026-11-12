@@ -229,22 +229,44 @@ def face_piece(c: dict, baked: dict, tree: dict, z: dict, pupils: list) -> np.nd
     return compose(piece, order)
 
 
-def own_pixels(baked: dict, master: np.ndarray) -> dict:
-    """{piece: the master pixels it alone explains}: on the figure, drawn there in
-    the piece's own colours (within diff_de00) and in no other placed piece's. A
-    mostly hidden piece laid on another of the same colours (a tail on an arm
-    drawn in its colours) explains nothing of its own, where its visible tip,
-    placed right, does."""
+def explains(b: np.ndarray, master: np.ndarray) -> np.ndarray:
+    """Where a placed piece explains the master: on the figure, drawn there in the
+    piece's own colours (within diff_de00)."""
     solid = master[..., 3] >= SOLID_ALPHA
-    match = {}
-    for pid, b in baked.items():
-        ys, xs = np.nonzero((b[..., 3] >= SOLID_ALPHA) & solid)
-        same = im.de00(im.lab(b[ys, xs, :3].astype(float)), im.lab(master[ys, xs, :3].astype(float))) <= TOL["diff_de00"]
-        m = np.zeros(solid.shape, bool)
-        m[ys[same], xs[same]] = True
-        match[pid] = m
+    ys, xs = np.nonzero((b[..., 3] >= SOLID_ALPHA) & solid)
+    same = im.de00(im.lab(b[ys, xs, :3].astype(float)), im.lab(master[ys, xs, :3].astype(float))) <= TOL["diff_de00"]
+    m = np.zeros(solid.shape, bool)
+    m[ys[same], xs[same]] = True
+    return m
+
+
+def own_pixels(baked: dict, master: np.ndarray) -> dict:
+    """{piece: the master pixels it alone explains}: drawn in its own colours where
+    no other placed piece's are. A mostly hidden piece laid on another of the same
+    colours (a tail on an arm drawn in its colours) explains nothing of its own,
+    where its visible tip, placed right, does."""
+    match = {pid: explains(b, master) for pid, b in baked.items()}
     count = sum(m.astype(np.int16) for m in match.values()) if match else None
     return {pid: int((m & (count == 1)).sum()) for pid, m in match.items()}
+
+
+def place_again(crop: np.ndarray, master: np.ndarray, others: dict, near=None) -> tuple | None:
+    """(Reg, baked) for a piece searched again on the master with what the other
+    placed pieces explain cleared, re-scored on the whole master; None when it
+    finds no place there that it owns at least own_visible_min_px of."""
+    left = master.copy()
+    for b in others.values():
+        left[explains(b, master)] = 0
+    reg = rg.register(crop, left, near=near)
+    if reg is None:
+        return None
+    first = reg.ncc_first if reg.ncc_first is not None else reg.ncc
+    reg = rg.second_pass(crop, master, rg.Reg(r=reg.r, theta=reg.theta, cx=reg.cx, cy=reg.cy, ncc=first))
+    b = rg.bake(crop, reg, master.shape)
+    me = object()  # no piece's id
+    if own_pixels({**others, me: b}, master)[me] < TOL["own_visible_min_px"]:
+        return None
+    return reg, b
 
 
 def iou(a: np.ndarray, b: np.ndarray) -> float:
@@ -321,6 +343,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     regs: dict = {}
     baked: dict = {}
     crops: dict = {}
+    nears: dict = {}
     gaps = {}
     for img, s in sheets.items():
         ids = list(c[img])
@@ -348,8 +371,19 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
                 continue
             named[pid] = (img, got[pid])
             crops[pid] = crop
+            nears[pid] = near
             regs[pid] = reg
             baked[pid] = rg.bake(crop, reg, shape)
+    # A mostly hidden piece (a tail with only its tip showing) scores badly where it
+    # belongs and may land where other pieces show the same, or anywhere: one that
+    # explains none of the master on its own is searched again where the placed
+    # pieces leave the master unexplained, and moves when it owns enough there.
+    alone = own_pixels(baked, master)
+    for pid in [p for p in regs if alone[p] < TOL["own_visible_min_px"]]:
+        again = place_again(crops[pid], master, {k: v for k, v in baked.items() if k != pid}, nears[pid])
+        if again is not None:
+            regs[pid], baked[pid] = again
+            alone = own_pixels(baked, master)
     # C5 separation, C6 registration.
     c5 = {"status": "pass", "notes": []}
     for img, g in gaps.items():
@@ -370,7 +404,6 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     c6 = {"parts": {}, "status": "pass", "notes": []}
     # How many placed pieces cover each pixel, so each piece sees the others' union.
     layers = sum((b[..., 3] >= SOLID_ALPHA).astype(np.int16) for b in baked.values()) if baked else None
-    alone = own_pixels(baked, master)
     for pid, reg in regs.items():
         st = "pass"
         if reg.ncc < TOL["ncc_min"]:

@@ -80,8 +80,8 @@ Every command takes `--sources <dir>` (default `D:\Claude Desktop\Agile_At_Work_
    1. key-out with despill, and the palette lock (the master onto the private swatches, every later sheet onto the master's own colours; it moves colour only, so it runs here);
    2. slice;
    3. assign pieces: name each piece by where imageParts lays it (a tail anywhere at the sides) and by generic bands of size and shape, with a pair's two pieces alike and its right piece on your left (parts2 in the order of its list);
-   4. register each piece onto the approved master;
-   5. find pivots from the cap circles;
+   4. register each piece onto the approved master, and search a piece that explains none of the master on its own (a mostly hidden tail) again where the placed pieces leave the master unexplained;
+   5. find pivots from the cap circles (a folded corner from its fold edge, an open fan from its base point);
    6. cut the pupils from the master and build the face patches;
    7. pin the arm swaps;
    8. compose;
