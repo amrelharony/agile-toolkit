@@ -240,10 +240,23 @@ describe("MascotAssistant — owner gating", () => {
     h.auth = OWNER;
     await renderAmr();
 
-    const panel = screen.getByRole("dialog", { name: "Amr assistant" });
+    // The panel is named by Amr's name plate.
+    const panel = screen.getByRole("dialog", { name: "Amr" });
+    const header = panel.querySelector<HTMLElement>("[data-panel-header]")!;
+    expect(within(header).getByRole("heading", { level: 2, name: "Amr" })).toHaveAttribute(
+      "id",
+      panel.getAttribute("aria-labelledby")
+    );
+    // New chat and History come with the owner's chat (its own chunk), into
+    // the header's actions slot; Close is the shell's.
+    for (const name of ["New chat", "Conversation history"]) {
+      const button = await within(header).findByRole("button", { name });
+      expect(button.closest("[data-panel-slot='actions']")).not.toBeNull();
+    }
     for (const name of ["New chat", "Conversation history", "Close assistant"]) {
-      expect(within(panel).getByRole("button", { name })).toHaveClass(
-        "min-touch-coarse",
+      expect(within(header).getByRole("button", { name })).toHaveClass(
+        "pointer-coarse:min-h-11",
+        "pointer-coarse:min-w-11",
         "inline-flex",
         "items-center",
         "justify-center"
@@ -251,6 +264,31 @@ describe("MascotAssistant — owner gating", () => {
     }
     expect(screen.getByText(/Cmd\/Ctrl\+J/)).toHaveClass("pointer-coarse:hidden");
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
+  });
+
+  it("opens History from the owner's header, says so, and New chat goes back to the chat", async () => {
+    h.auth = OWNER;
+    await renderAmr();
+    const header = screen
+      .getByRole("dialog", { name: "Amr" })
+      .querySelector<HTMLElement>("[data-panel-header]")!;
+    // The shell's subtitle for the owner until the chat fills its own.
+    expect(within(header).getByText("New chat")).toBeInTheDocument();
+
+    const history = await within(header).findByRole("button", { name: "Conversation history" });
+    expect(history).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(history);
+    expect(await screen.findByTestId("conversation-list")).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "Conversation history" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(within(header).getByText("Your chats")).toBeInTheDocument();
+
+    fireEvent.click(within(header).getByRole("button", { name: "New chat" }));
+    expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
+    expect(screen.queryByTestId("conversation-list")).toBeNull();
+    expect(within(header).queryByText("Your chats")).toBeNull();
   });
 
   it("gives the owner the full chat panel", async () => {
@@ -303,7 +341,7 @@ describe("MascotAssistant — Escape", () => {
     await renderAmr();
     fireEvent.keyDown(search(), { key: "Escape" });
     expect(useAgentStore.getState().open).toBe(false);
-    expect(screen.queryByRole("dialog", { name: "Amr assistant" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Amr" })).toBeNull();
   });
 
   it("leaves the panel open when a field inside it already used the Escape", async () => {
@@ -331,7 +369,7 @@ describe("MascotAssistant — Escape", () => {
     fireEvent.keyDown(search(), { key: "Escape" });
     expect(search()).toHaveValue("");
     expect(useAgentStore.getState().open).toBe(true);
-    expect(screen.getByRole("dialog", { name: "Amr assistant" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Amr" })).toBeInTheDocument();
 
     fireEvent.keyDown(search(), { key: "Escape" });
     expect(useAgentStore.getState().open).toBe(false);
@@ -344,7 +382,7 @@ describe("MascotAssistant — Escape", () => {
     // Older browsers say "composing" with keyCode 229 instead.
     fireEvent.keyDown(search(), { key: "Escape", keyCode: 229 });
     expect(useAgentStore.getState().open).toBe(true);
-    expect(screen.getByRole("dialog", { name: "Amr assistant" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Amr" })).toBeInTheDocument();
   });
 });
 

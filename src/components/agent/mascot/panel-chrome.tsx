@@ -100,6 +100,20 @@ function PanelFill({ slot, children }: { slot: PanelSlot; children?: ReactNode }
   return given && host ? createPortal(children, host) : null;
 }
 
+/**
+ * The subtitle at each step, in one place: the shell shows its default for
+ * the step it knows (the owner's chat, or the tool finder), and a view fills
+ * its own as it moves on (History, the visitor's consent card and chat). The
+ * owner's open thread shows its own title instead of "New chat".
+ */
+export const PANEL_SUBTITLE = {
+  owner: "New chat",
+  history: "Your chats",
+  guide: "Find the right tool",
+  consent: "Before you chat",
+  chat: "Chat · not saved",
+} as const;
+
 type FillProps = { children?: ReactNode };
 
 /** The one-line context under the name plate: a thread title, "Your chats", a step. */
