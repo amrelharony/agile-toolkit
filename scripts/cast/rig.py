@@ -31,10 +31,12 @@ from . import clips as cast_clips
 from . import imaging as im
 from . import register as rg
 from .spec import (
+    ARM_CELLS,
     BUDGETS,
     BUILDER_VERSION,
     FACE2_STATES,
     FACE_STATES,
+    SOLID_ALPHA,
     TOL,
     arm_poses,
     batch_of,
@@ -139,7 +141,7 @@ def lock_to(sheet: np.ndarray, targets: np.ndarray) -> tuple[np.ndarray, list[di
 def on_top(a: str, b: str, baked: dict, master: np.ndarray) -> str | None:
     """Which of two placed pieces the master draws on top where they overlap (the
     one whose colours it shows there), or None when they barely touch."""
-    ov = (baked[a][..., 3] > 127) & (baked[b][..., 3] > 127)
+    ov = (baked[a][..., 3] >= SOLID_ALPHA) & (baked[b][..., 3] >= SOLID_ALPHA)
     if ov.sum() < TOL["z_overlap_min_px"]:
         return None
     ys, xs = np.nonzero(ov)
@@ -153,7 +155,7 @@ def stack(kids: list[str], baked: dict, master: np.ndarray) -> list[str]:
     """Sibling pieces bottom to top: each overlapping pair as the master shows it,
     and where nothing says (they don't touch, or the evidence goes round in a
     circle), the bigger piece lower, so a small tie or cord sits over a big leg."""
-    area = {k: int((baked[k][..., 3] > 127).sum()) for k in kids}
+    area = {k: int((baked[k][..., 3] >= SOLID_ALPHA).sum()) for k in kids}
     below = {k: set() for k in kids}  # what each must be drawn over
     for i, a in enumerate(kids):
         for b in kids[i + 1 :]:
@@ -207,7 +209,7 @@ def iou(a: np.ndarray, b: np.ndarray) -> float:
 def rotate_about(mask: np.ndarray, x: float, y: float, deg: float) -> np.ndarray:
     img = Image.fromarray(mask.astype(np.uint8) * 255)
     out = img.rotate(deg, resample=Image.BILINEAR, center=(x, y))
-    return np.array(out) > 127
+    return np.array(out) >= SOLID_ALPHA
 
 
 # ---------- the candidate ----------
@@ -310,7 +312,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     report["checks"]["C5"] = c5
     c6 = {"parts": {}, "status": "pass", "notes": []}
     # How many placed pieces cover each pixel, so each piece sees the others' union.
-    layers = sum((b[..., 3] > 127).astype(np.int16) for b in baked.values()) if baked else None
+    layers = sum((b[..., 3] >= SOLID_ALPHA).astype(np.int16) for b in baked.values()) if baked else None
     for pid, reg in regs.items():
         st = "pass"
         if reg.ncc < TOL["ncc_min"]:
@@ -323,7 +325,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         if abs(reg.theta) > TOL["tilt_deg"]:
             st = "fail"
             c6["notes"].append(f"{pid}: tilted {reg.theta:.1f} degrees, over {TOL['tilt_deg']}")
-        own = baked[pid][..., 3] > 127
+        own = baked[pid][..., 3] >= SOLID_ALPHA
         odd = rg.unexplained(baked[pid], master, (layers - own) > 0)
         row = {**reg.json(), "unexplained": round(odd, 4)}
         # The NCC is over what the second pass kept, so how much it left out, and
@@ -357,7 +359,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     for par, kids in tree.items():
         over, under = [], []
         for k in kids:
-            a, b = baked[k][..., 3] > 127, baked[par][..., 3] > 127
+            a, b = baked[k][..., 3] >= SOLID_ALPHA, baked[par][..., 3] >= SOLID_ALPHA
             # The child under its parent, as the master shows where they overlap.
             tucked = on_top(k, par, baked, master) == par  # a tie leaves the child on top
             (under if tucked else over).append(k)
@@ -383,8 +385,8 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             disc = np.zeros(shape[:2], bool)
             yy, xx = np.ogrid[: shape[0], : shape[1]]
             disc = np.hypot(xx + 0.5 - pv["x"], yy + 0.5 - pv["y"]) <= pv["r"]
-            child = baked[k][..., 3] > 127
-            parent = baked[par][..., 3] > 127
+            child = baked[k][..., 3] >= SOLID_ALPHA
+            parent = baked[par][..., 3] >= SOLID_ALPHA
             low, high = (child, parent) if pv["tucked"] else (parent, child)
             # The cap: the under piece's round end, past the joint toward the piece on top.
             ly, lx = np.nonzero(low)
@@ -431,7 +433,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     # C8 hidden fill: the torso solid between the shoulder and hip lines; a neck stub.
     c8 = {"status": "skip", "notes": []}
     if "torso" in baked:
-        t = baked["torso"][..., 3] > 127
+        t = baked["torso"][..., 3] >= SOLID_ALPHA
         arms_at = [arm_rest(c, s) for s in ARM_SLOTS]
         sh = [pivots[k]["y"] for k in arms_at if k in pivots and pivots[k]["y"] is not None]
         hp = [pivots[k]["y"] for k in ("leg-r", "leg-l") if k in pivots and pivots[k]["y"] is not None]
@@ -447,7 +449,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             c8["torso_fill"] = round(fill, 4)
             c8["status"] = "pass" if fill >= TOL["torso_fill_min"] else "fail"
         if "head" in pivots and pivots["head"]["y"] is not None and "head" in baked:
-            hb = im.mask_bbox(baked["head"][..., 3] > 127)
+            hb = im.mask_bbox(baked["head"][..., 3] >= SOLID_ALPHA)
             hx, hy = pivots["head"]["x"], pivots["head"]["y"]
             col = t[:, int(np.clip(hx, 0, shape[1] - 1))]
             top = np.nonzero(col)[0]
@@ -513,7 +515,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     # (open) and the wide patch once its pupils are painted out; and each pupil has
     # room to move both ways in its white.
     if host in baked and pupils:
-        hb = im.mask_bbox(baked[host][..., 3] > 127)
+        hb = im.mask_bbox(baked[host][..., 3] >= SOLID_ALPHA)
         top, bottom = swaps.head_bands(hb)["eyes"]
         eyes_box = face_out["eyes"]["box"] if "eyes" in face_out else (hb[0], int(top), hb[2], int(np.ceil(bottom)))
         if swaps.drawn_pupils(baked[host], eyes_box):
@@ -540,7 +542,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         s["cut"], locks["arms"] = lock_to(s["cut"], targets)
         report["images"]["arms"] = {"sha256": s["sha256"], "checks": s["checks"], "file": files["arms"].name}
         poses = arm_poses(c)
-        rows = 2 if len(poses) == 8 else 1
+        rows = 2 if len(poses) == ARM_CELLS else 1
         order = swaps.grid_order(s["pieces"], rows, len(poses) // rows, s["cut"].shape)
         for slot in ARM_SLOTS:
             if arm_rest(c, slot) in ids_all:
@@ -566,9 +568,9 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         # master = centre + m·Rf(-theta)·(p - c_p) → p = c_p + r·Rf(-theta)^T·(master - centre)
         px = cw / 2 + reg.r * (cth * dx - sth * dy)
         py = ch / 2 + reg.r * (sth * dx + cth * dy)
-        rr = (pv["r"] or 0.25 * min(cw, ch) / reg.r) * reg.r
+        rr = (pv["r"] or TOL["ball_radius_default"] * min(cw, ch) / reg.r) * reg.r
         ball, bp = swaps.shoulder_ball(crops[rp], (px, py), rr)
-        pose_crop, _ = s["pieces"][i].crop(s["cut"], pad=8)
+        pose_crop, _ = s["pieces"][i].crop(s["cut"], pad=TOL["arm_pad_px"])
         found = swaps.find_ball(pose_crop, ball, bp)
         if found is None:
             row.update(status="fail", notes=["shoulder ball not found"])
@@ -592,8 +594,8 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         phh, pww = pose_crop.shape[:2]
         centre = (pv["x"] + m * (pww / 2 - at[0]), pv["y"] + m * (phh / 2 - at[1]))
         placed = rg.warp(pose_crop, m, 0.0, (shape[1], shape[0]), centre)
-        pm = placed[..., 3] > 127
-        rest_len = swaps.arm_length(baked[rp][..., 3] > 127, (pv["x"], pv["y"]))
+        pm = placed[..., 3] >= SOLID_ALPHA
+        rest_len = swaps.arm_length(baked[rp][..., 3] >= SOLID_ALPHA, (pv["x"], pv["y"]))
         pose_len = swaps.arm_length(pm, (pv["x"], pv["y"]))
         row["length"] = round(pose_len / max(rest_len, 1e-6), 4)
         if pose in ("up", "point") and abs(row["length"] - 1) > TOL["arm_length_tol"]:
@@ -602,7 +604,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         yy, xx = np.ogrid[: shape[0], : shape[1]]
         ring = np.hypot(xx + 0.5 - pv["x"], yy + 0.5 - pv["y"]) <= (pv["r"] or rr / reg.r)
         a_ = ring & pm
-        b_ = ring & (baked[rp][..., 3] > 127)
+        b_ = ring & (baked[rp][..., 3] >= SOLID_ALPHA)
         if a_.any() and b_.any():
             sl = im.lab(np.median(placed[a_][:, :3], 0).astype(float))
             rl = im.lab(np.median(baked[rp][b_][:, :3], 0).astype(float))

@@ -26,7 +26,7 @@ import mascot_heads as heads
 
 from . import imaging as im
 from . import register as rg
-from .spec import TOL
+from .spec import SOLID_ALPHA, TOL
 
 
 def grid_order(pieces, rows: int, cols: int, shape) -> list[int | None]:
@@ -57,7 +57,7 @@ def head_bands(head_box) -> dict:
 def register_head(cell: np.ndarray, head: np.ndarray, start: rg.Reg | None = None) -> rg.Reg | None:
     """A face-sheet head (cut to its box) onto the rig head (master frame). The
     first head is searched from the boxes' scale; the others start from it."""
-    hb = _box_of(head[..., 3] > 127)
+    hb = _box_of(head[..., 3] >= SOLID_ALPHA)
     if hb is None:
         return None
     rot = TOL["face_rot_search"]
@@ -68,13 +68,13 @@ def register_head(cell: np.ndarray, head: np.ndarray, start: rg.Reg | None = Non
     r0 = cell.shape[0] / max(hb[3] - hb[1], 1)
     lo, hi = r0 * (1 - TOL["face_scale_search"]), r0 * (1 + TOL["face_scale_search"])
     cx, cy = (hb[0] + hb[2]) / 2, (hb[1] + hb[3]) / 2
-    reach = 0.25 * (hb[3] - hb[1])
+    reach = TOL["face_reach"] * (hb[3] - hb[1])
     return rg.register(cell, head, near=(cx - reach, cy - reach, cx + reach, cy + reach), r_range=(lo, hi), rot=rot)
 
 
 def changes(variant: np.ndarray, base: np.ndarray) -> np.ndarray:
     """Pixels where a variant differs from the base (both in the master frame)."""
-    va, ba = variant[..., 3] > 127, base[..., 3] > 127
+    va, ba = variant[..., 3] >= SOLID_ALPHA, base[..., 3] >= SOLID_ALPHA
     either = va | ba
     out = np.zeros(va.shape, bool)
     ys, xs = np.nonzero(either)
@@ -99,7 +99,7 @@ def changes(variant: np.ndarray, base: np.ndarray) -> np.ndarray:
     out = im.closing(out, TOL["close_px"])
     keep = np.zeros_like(out)
     for cys, cxs in im.components(out):
-        if len(cys) >= TOL["speck_px"]:
+        if len(cys) >= TOL["speck_area_px"]:
             keep[cys, cxs] = True
     return keep
 
@@ -111,7 +111,7 @@ def ring_match(patch: np.ndarray, base: np.ndarray, box) -> tuple[np.ndarray, fl
     ring = np.zeros(patch.shape[:2], bool)
     ring[y0:y1, x0:x1] = True
     ring &= ~im.erode(ring, TOL["ring_px"])
-    ring &= (patch[..., 3] > 127) & (base[..., 3] > 127)
+    ring &= (patch[..., 3] >= SOLID_ALPHA) & (base[..., 3] >= SOLID_ALPHA)
     if ring.sum() < 4:
         return patch, 0.0
     pl = im.lab(patch[ring][:, :3].astype(float)).mean(0)
@@ -154,7 +154,7 @@ def face_patches(cells: list[np.ndarray | None], states: tuple, head: np.ndarray
     passes those neutral heads on to a sheet without them (face2). The neutral
     cells themselves are the head's own art: they are measured against the rig
     head (NCC ≥ face_ncc_min), not cut."""
-    hm = head[..., 3] > 127
+    hm = head[..., 3] >= SOLID_ALPHA
     hb = _box_of(hm)
     out: dict = {"report": {"cells": []}, "neutral": dict(neutral or {})}
     if hb is None:
@@ -221,15 +221,15 @@ def face_patches(cells: list[np.ndarray | None], states: tuple, head: np.ndarray
 
 
 def _light(lab: np.ndarray) -> np.ndarray:
-    """An eye's white: light (L* at least 100 - white_l_min) and nearly grey
+    """An eye's white: light (L* at least white_l_min) and nearly grey
     (chroma under white_c_max), so a pale yellow body is not one."""
-    return (lab[..., 0] >= 100 - TOL["white_l_min"]) & (np.hypot(lab[..., 1], lab[..., 2]) <= TOL["white_c_max"])
+    return (lab[..., 0] >= TOL["white_l_min"]) & (np.hypot(lab[..., 1], lab[..., 2]) <= TOL["white_c_max"])
 
 
 def whites(rgba: np.ndarray) -> np.ndarray:
     """The eye whites of a drawing (see _light), as a mask."""
     out = np.zeros(rgba.shape[:2], bool)
-    ys, xs = np.nonzero(rgba[..., 3] > 127)
+    ys, xs = np.nonzero(rgba[..., 3] >= SOLID_ALPHA)
     out[ys, xs] = _light(im.lab(rgba[ys, xs, :3].astype(float)))
     return out
 
@@ -240,8 +240,8 @@ def drawn_pupils(rgba: np.ndarray, box) -> list[np.ndarray]:
     x0, y0, x1, y1 = box
     sub = rgba[y0:y1, x0:x1]
     lab = im.lab(sub[..., :3].astype(float))
-    drawn = sub[..., 3] > 127
-    dark = (lab[..., 0] < TOL["white_l_min"]) & drawn
+    drawn = sub[..., 3] >= SOLID_ALPHA
+    dark = (lab[..., 0] < TOL["dark_l_max"]) & drawn
     light = _light(lab) & drawn
     out = []
     for ys, xs in im.components(dark):
@@ -259,7 +259,7 @@ def fill_whites(rgba: np.ndarray, box) -> np.ndarray:
     x0, y0, x1, y1 = box
     sub = rgba[y0:y1, x0:x1].copy()
     lab = im.lab(sub[..., :3].astype(float))
-    drawn = sub[..., 3] > 127
+    drawn = sub[..., 3] >= SOLID_ALPHA
     light = _light(lab) & drawn
     for m in drawn_pupils(rgba, box):
         ring = im.dilate(m, 2) & ~im.dilate(m, 1)
@@ -274,15 +274,15 @@ def pupils_from_master(master: np.ndarray, head: np.ndarray) -> list[dict]:
     """The pupils: where the rig head (parts sheet, empty whites) is light and the
     master is dark. Up to two blobs, viewer's left first (pupil-r then pupil-l),
     each cut from the master with its soft edge unmixed against the white."""
-    hm = head[..., 3] > 127
+    hm = head[..., 3] >= SOLID_ALPHA
     if not hm.any():
         return []
     ys, xs = np.nonzero(hm)
     hl = im.lab(head[ys, xs, :3].astype(float))
     ml = im.lab(master[ys, xs, :3].astype(float))
     cand = np.zeros(hm.shape, bool)
-    cand[ys, xs] = _light(hl) & (ml[:, 0] < TOL["white_l_min"]) & (master[ys, xs, 3] > 127)
-    blobs = [c for c in im.components(cand) if len(c[0]) >= TOL["speck_px"]][:2]
+    cand[ys, xs] = _light(hl) & (ml[:, 0] < TOL["dark_l_max"]) & (master[ys, xs, 3] >= SOLID_ALPHA)
+    blobs = [c for c in im.components(cand) if len(c[0]) >= TOL["speck_area_px"]][:2]
     out = []
     for bys, bxs in sorted(blobs, key=lambda c: c[1].mean()):
         m = np.zeros(hm.shape, bool)
@@ -311,7 +311,7 @@ def pupil_travel(pupil_mask: np.ndarray, white: np.ndarray) -> tuple[int, int]:
     def reach(dx, dy):
         k = 0
         H, W = room.shape
-        while k < 200:
+        while k < TOL["pupil_travel_max_px"]:
             ny, nx = ys + dy * (k + 1), xs + dx * (k + 1)
             if (ny < 0).any() or (nx < 0).any() or (ny >= H).any() or (nx >= W).any() or not room[ny, nx].all():
                 break
@@ -325,9 +325,9 @@ def pupil_travel(pupil_mask: np.ndarray, white: np.ndarray) -> tuple[int, int]:
 
 
 def shoulder_ball(rest: np.ndarray, pivot_xy, r: float) -> tuple[np.ndarray, tuple[float, float]]:
-    """(the rest arm's pixels within 1.3 r of its pivot, cut to a box; the
+    """(the rest arm's pixels within ball_template_reach r of its pivot, cut to a box; the
     pivot inside that box). `rest` is the piece in its own sheet frame."""
-    R = 1.3 * r
+    R = TOL["ball_template_reach"] * r
     px, py = pivot_xy
     H, W = rest.shape[:2]
     x0, y0 = int(max(0, np.floor(px - R))), int(max(0, np.floor(py - R)))
@@ -368,13 +368,14 @@ def find_ball(pose: np.ndarray, ball: np.ndarray, ball_pivot) -> dict | None:
 
 
 def fit_ball(pose: np.ndarray, at, r: float) -> tuple | None:
-    """A Kasa circle on the pose's outline within 1.4 r of a found ball centre."""
-    m = pose[..., 3] > 127
+    """A Kasa circle on the pose's outline between ball_fit_inner r and
+    ball_fit_outer r of a found ball centre."""
+    m = pose[..., 3] >= SOLID_ALPHA
     edge = m & ~im.erode(m, 1)
     ys, xs = np.nonzero(edge)
     d = np.hypot(xs + 0.5 - at[0], ys + 0.5 - at[1])
-    near = (d > 0.6 * r) & (d < 1.4 * r)
-    if near.sum() < 8:
+    near = (d > TOL["ball_fit_inner"] * r) & (d < TOL["ball_fit_outer"] * r)
+    if near.sum() < TOL["fit_points_min"]:
         return None
     return rg.kasa(xs[near] + 0.5, ys[near] + 0.5)
 

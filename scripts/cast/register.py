@@ -27,7 +27,7 @@ import numpy as np
 from PIL import Image
 
 from . import imaging as im
-from .spec import TOL
+from .spec import SOLID_ALPHA, TOL
 
 GREY = 0.5  # what clear reads as when matching
 BAND = 2  # px of clear around a piece that its match includes
@@ -68,7 +68,7 @@ def template(rgba: np.ndarray, m: float, theta: float) -> np.ndarray:
 def template_mask(t: np.ndarray) -> np.ndarray:
     """The piece and a BAND-pixel ring of clear around it, so its silhouette
     counts too (a dark sleeve on clear has little else to match on)."""
-    return im.dilate(t[..., 3] > 127, BAND)
+    return im.dilate(t[..., 3] >= SOLID_ALPHA, BAND)
 
 
 def features(rgba: np.ndarray) -> np.ndarray:
@@ -319,18 +319,18 @@ def second_pass(piece: np.ndarray, master: np.ndarray, reg: Reg) -> Reg:
     """Re-score with the pixels the master shows differently left out (the cap
     under the parent and areas the master hides), and measure coverage."""
     baked = bake(piece, reg, master.shape)
-    a = baked[..., 3] > 127
+    a = baked[..., 3] >= SOLID_ALPHA
     if not a.any():
         return reg
     ys, xs = np.nonzero(a)
     pl = im.lab(baked[ys, xs, :3].astype(np.float64))
     ml = im.lab(master[ys, xs, :3].astype(np.float64))
-    differs = (im.de00(pl, ml) > TOL["diff_de00"]) | (master[ys, xs, 3] < 128)
-    reg.coverage = float((master[ys, xs, 3] > 127).mean())
+    differs = (im.de00(pl, ml) > TOL["diff_de00"]) | (master[ys, xs, 3] < SOLID_ALPHA)
+    reg.coverage = float((master[ys, xs, 3] >= SOLID_ALPHA).mean())
     reg.ncc_first = reg.ncc
     reg.excluded = float(differs.mean())
     keep = ~differs
-    if keep.sum() >= 16:
+    if keep.sum() >= TOL["reg_keep_min_px"]:
         x0, y0, x1, y1 = im.bbox(ys, xs)
         sub_m = master[y0:y1, x0:x1]
         sub_b = baked[y0:y1, x0:x1]
@@ -359,10 +359,10 @@ def unexplained(baked: np.ndarray, master: np.ndarray, others: np.ndarray) -> fl
     Where no piece is there, a different colour (or no figure at all) means the
     piece itself is drawn or placed wrong, and its NCC over what is left would
     hide it."""
-    a = baked[..., 3] > 127
+    a = baked[..., 3] >= SOLID_ALPHA
     if not a.any():
         return 1.0
-    on = master[..., 3] >= 128
+    on = master[..., 3] >= SOLID_ALPHA
     ys, xs = np.nonzero(a & on & ~others)
     d = im.de00(im.lab(baked[ys, xs, :3].astype(np.float64)), im.lab(master[ys, xs, :3].astype(np.float64)))
     return float(((d > TOL["diff_de00"]).sum() + (a & ~on).sum()) / a.sum())
@@ -416,14 +416,14 @@ def pivot(under: np.ndarray, over: np.ndarray, short: float | None = None) -> di
     fitted to the round end of the piece that tucks under, inside the one on top
     (its cap); else the overlap's centroid; else the point of `under` nearest
     `over` (no cap). The cap's outline is taken near its tip, the point of `under`
-    deepest past the overlap, within 1.4 half-widths of where its centre should
+    deepest past the overlap, within cap_outline_reach half-widths of where its centre should
     be. `short` is the moving piece's thickness (twice its half-width when not
     given), which the cap's radius is measured against (cap_r_min..cap_r_max)."""
     overlap = under & im.dilate(over, 2)
     w = half_width(under, overlap)
     if short is None:
         short = 2 * w
-    if overlap.sum() >= 40 and w > 0:
+    if overlap.sum() >= TOL["cap_overlap_min_px"] and w > 0:
         ys, xs = np.nonzero(under)
         oy, ox = np.nonzero(overlap)
         c = np.array([xs.mean(), ys.mean()])
@@ -436,9 +436,9 @@ def pivot(under: np.ndarray, over: np.ndarray, short: float | None = None) -> di
         edge = under & ~im.erode(under, 1) & overlap
         ey, ex = np.nonzero(edge)
         # The round end only: the outline past the cap's centre, toward its tip.
-        ahead = (ex + 0.5 - guess[0]) * u[0] + (ey + 0.5 - guess[1]) * u[1] >= -0.1 * w
-        near = (np.hypot(ex + 0.5 - guess[0], ey + 0.5 - guess[1]) <= 1.4 * w) & ahead
-        fit = kasa(ex[near] + 0.5, ey[near] + 0.5, trim=2) if near.sum() >= 8 else None
+        ahead = (ex + 0.5 - guess[0]) * u[0] + (ey + 0.5 - guess[1]) * u[1] >= -TOL["cap_outline_back"] * w
+        near = (np.hypot(ex + 0.5 - guess[0], ey + 0.5 - guess[1]) <= TOL["cap_outline_reach"] * w) & ahead
+        fit = kasa(ex[near] + 0.5, ey[near] + 0.5, trim=2) if near.sum() >= TOL["fit_points_min"] else None
         if fit:
             cx, cy, r, resid = fit
             inside = float(np.min(np.hypot(ox + 0.5 - cx, oy + 0.5 - cy))) <= r

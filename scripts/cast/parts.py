@@ -23,7 +23,7 @@ import numpy as np
 
 from . import imaging as im
 from . import key
-from .spec import TOL, cell_count
+from .spec import ARM_CELLS, SOLID_ALPHA, TOL, cell_count
 
 # Where imageParts lays each piece out, in the box around all the pieces (x, y in
 # 0..1, x from the viewer's left). Ids it doesn't place go "at the sides wherever
@@ -162,7 +162,7 @@ def _norm_mask(rgba: np.ndarray, isl: Island, n: int = 64) -> np.ndarray:
 
     crop, _ = isl.crop(rgba)
     m = Image.fromarray((crop[..., 3] > 0).astype(np.uint8) * 255).resize((n, n), Image.BILINEAR)
-    return np.array(m) > 127
+    return np.array(m) >= SOLID_ALPHA
 
 
 def similar_silhouettes(rgba: np.ndarray, pieces: list[Island]) -> float:
@@ -201,7 +201,7 @@ def sort_image(c: dict, rgba: np.ndarray, key_rgb) -> tuple[str | None, str, int
         return "face2", f"{n} heads", n
     if "arms" in images:
         k = cell_count(c, "arms")
-        rows = 2 if k == 8 else 1
+        rows = 2 if k == ARM_CELLS else 1
         if n == k and not same and on_grid(pieces, rgba.shape, rows, k // rows):
             return "arms", f"{n} arms", n
     counts = [(img, cell_count(c, img)) for img in ("parts", "parts2") if img in images]

@@ -36,12 +36,44 @@ class Tolerances(unittest.TestCase):
         self.assertTrue(used)
         self.assertEqual(sorted(used - set(SPEC["tolerances"])), [])
 
-    def test_the_checks_compare_against_no_number_of_their_own(self):
-        text = (CAST / "checks.py").read_text(encoding="utf-8")
-        code = re.sub(r'"""[\s\S]*?"""|#.*', "", text)
+    # Comparisons with a bare number that are no threshold: maths, counts the
+    # format fixes, and the alpha scale's top. Anything else must be a TOL key.
+    NOT_THRESHOLDS = {
+        "imaging.py": ["if r <= 2:", "<= 180", "h1p + h2p < 360"],  # a helper's switch; CIEDE2000's hue
+        "key.py": [">= 255 - k", "< 255 - k", "len(r) <= 2 * smax"],  # alpha's top; autocorrelation lags
+        "palette.py": ["len(label.split()) <= 2", ">= 255 - TOL"],  # reading a block's label
+        "publish.py": ["len(sizes) == 2"],  # the 1x and the 2x atlas
+        "register.py": ["if n < 4:", "axis == 2", "len(g) < 5", "len(xs) < 3"],  # NCC, the 5-point step, a circle
+        "rig.py": ["len(pupil_ids) == 2"],  # a pair
+        "spec.py": ["1 <= len(sig) <= 2"],  # the contract's one or two tap moves
+        "swaps.py": ["ring.sum() < 4"],  # a mean needs a few pixels
+    }
+
+    def test_the_builder_compares_against_no_number_of_its_own(self):
+        cmp = re.compile(r"(?<![<>])(?:[<>]=?|==)(?![<>=])\s*(-?\d+\.\d+|-?[2-9]\d*|1\d+)\b")
+        found = []
+        for p in SOURCES:
+            code = re.sub(r'"""[\s\S]*?"""|#.*', "", p.read_text(encoding="utf-8"))
+            allowed = self.NOT_THRESHOLDS.get(p.name, [])
+            for line in code.splitlines():
+                if cmp.search(line) and not any(a in line for a in allowed):
+                    found.append(f"{p.name}: {line.strip()}")
         # A comparison with a bare number other than 0 or 1 would be a threshold.
-        found = re.findall(r"(?:[<>]=?|==)\s*(-?\d+\.\d+|-?[2-9]\d*|1\d+)\b", code)
         self.assertEqual(found, [])
+        self.assertIn(CAST / "checks.py", SOURCES)
+
+    def test_a_mask_is_cut_at_one_named_alpha(self):
+        for p in SOURCES:
+            code = re.sub(r'"""[\s\S]*?"""|#.*', "", p.read_text(encoding="utf-8"))
+            self.assertNotRegex(code, r"(?<![\w.])(?:> 127|>= 128|< 128)\b", p.name)
+        self.assertEqual(spec.SOLID_ALPHA, 128)
+
+    def test_each_tolerance_means_one_thing(self):
+        # A white is at least white_l_min light, a dark pixel at most dark_l_max:
+        # one key once served both, as 100 - L for one and L for the other.
+        self.assertGreater(spec.TOL["white_l_min"], spec.TOL["dark_l_max"])
+        # speck_px is a length (an island's long side), speck_area_px a pixel count.
+        self.assertIn("speck_area_px", spec.TOL)
 
     def test_chatgpt_sees_only_asks_and_what_the_site_absorbs(self):
         for k in SPEC["shown_to_chatgpt"]:

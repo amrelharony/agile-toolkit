@@ -25,6 +25,9 @@ NAME_RE = re.compile(
 )
 ID_RE = re.compile(r"AAW-(0[1-9]|[12][0-9]|30)")
 IMAGES = ("master", "parts", "parts2", "face", "face2", "arms")
+# A pixel is part of a drawing's mask at this alpha or more (above half of 255):
+# the one cut every mask in the builder takes.
+SOLID_ALPHA = 128
 
 # How many cells the brief asks for (scripts/cast/brief-blocks.mjs: imageFace
 # "eight times", imageFace2 "two times", imageArms "Eight whole arms",

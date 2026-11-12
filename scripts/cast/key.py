@@ -22,7 +22,7 @@ import mascot_heads as heads
 import numpy as np
 
 from . import imaging as im
-from .spec import TOL
+from .spec import SOLID_ALPHA, TOL
 
 
 def _border(shape, band: int) -> np.ndarray:
@@ -50,7 +50,7 @@ def alpha_info(rgba: np.ndarray) -> dict:
 
 def solid_level(a: np.ndarray) -> float:
     """The alpha a drawing's inside is filled at (the median over the upper half)."""
-    inner = a[a > 127]
+    inner = a[a >= SOLID_ALPHA]
     return float(np.median(inner)) if inner.size else 255.0
 
 
