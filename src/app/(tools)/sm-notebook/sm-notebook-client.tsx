@@ -130,6 +130,26 @@ export function SmNotebookClient() {
       event: next.event ?? null,
     });
     announce(`Saved the note “${noteName(next, 40)}”`);
+    refocus(note.id);
+  }
+
+  /**
+   * After an edit, focus goes back to the note's Edit button. The card does
+   * that itself, unless the save moved the note (another week, out of the
+   * Week view or the filters) and its card was made anew or went with the
+   * form that had focus: then its Edit button where it is now, else the
+   * view's heading. Ids go in no selector.
+   */
+  function refocus(id: string) {
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body && active.isConnected) return;
+      const edit = Array.from(document.querySelectorAll<HTMLElement>("[data-note-edit]")).find(
+        (b) => b.getAttribute("data-note-edit") === id
+      );
+      const heading = document.querySelector<HTMLElement>("[data-notebook-view-heading]");
+      (edit ?? heading ?? captureRef.current?.querySelector<HTMLElement>("textarea"))?.focus();
+    });
   }
 
   /**

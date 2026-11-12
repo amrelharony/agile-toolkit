@@ -137,6 +137,7 @@ export function NoteCard({
             icon={<Pencil className="h-4 w-4" />}
             className="text-sub hover:text-text"
             onClick={() => setEditing(true)}
+            data-note-edit={note.id}
           />
           <IconButton
             label={`Delete note: ${name}`}

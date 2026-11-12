@@ -4,10 +4,10 @@
  * Every note, as a timeline by week (newest first), with a search over the
  * words, tags, event and linked tool, an event filter and tag filters. A tag
  * on a note filters by it too. The count says how many notes the filters
- * leave.
+ * leave. Clear filters hands focus to the search box as it goes.
  */
 
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -44,6 +44,7 @@ export function NotesView({
   cards: (note: NotebookEntry) => CardHandlers;
 }) {
   const tagsLabelId = useId();
+  const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [event, setEvent] = useState("");
@@ -66,6 +67,8 @@ export function NotesView({
   const toggleTag = (tag: string) =>
     setTags((cur) => (cur.includes(tag) ? cur.filter((t) => t !== tag) : [...cur, tag]));
   const clear = () => {
+    // The button goes once nothing filters: focus the search box first.
+    searchRef.current?.focus();
     setQuery("");
     setTags([]);
     setEvent("");
@@ -73,6 +76,9 @@ export function NotesView({
 
   return (
     <div className="space-y-4">
+      <h2 tabIndex={-1} data-notebook-view-heading="" className="sr-only focus:outline-none">
+        Your notes
+      </h2>
       <div role="search" className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_14rem]">
         <Field label="Search notes">
           {(props) => (
@@ -83,6 +89,7 @@ export function NotesView({
               />
               <Input
                 {...props}
+                ref={searchRef}
                 type="search"
                 className="pl-9"
                 value={query}

@@ -7,17 +7,25 @@
  * saves the summary (edited, with the patterns ticked) as a note tagged
  * weekly-summary, with Undo. Kept summaries show at the top of their week
  * and never count in it.
+ *
+ * Keyboard focus never falls to the page: the week buttons stay in place
+ * (Next week is aria-disabled on this week, not disabled), "This week" hands
+ * focus to Previous week as it goes, and Keep or Dismiss move it to the kept
+ * summary or back to the button that asked. A new week and a finished read
+ * are announced.
  */
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Save, X } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { AiButton } from "@/components/ai";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import type { AiSource } from "@/lib/ai/task-types";
 import { notebookWeeklySummaryTask } from "@/lib/ai/tasks/sm-notebook";
+import { cn } from "@/lib/utils";
 import {
   NOTE_BODY_MAX,
   eventCounts,
@@ -241,18 +249,59 @@ export function WeekView({
     count: e.count,
   }));
   const shown = review && review.weekStart === weekStart ? review : null;
-  const range = `${formatDay(weekStart)} to ${formatDay(weekEndOf(weekStart))}`;
+  const rangeOf = (start: string) => `${formatDay(start)} to ${formatDay(weekEndOf(start))}`;
+  const range = rangeOf(weekStart);
+  const atThisWeek = weekStart >= thisWeek;
+  const announce = useAnnounce();
+
+  const askRef = useRef<HTMLDivElement>(null);
+  const prevRef = useRef<HTMLButtonElement>(null);
+  const keptRef = useRef<HTMLHeadingElement>(null);
+  /** What gets focus once the next render is on screen. */
+  const focusNext = useRef<(() => HTMLElement | null | undefined) | null>(null);
+  useEffect(() => {
+    const pick = focusNext.current;
+    if (!pick) return;
+    focusNext.current = null;
+    pick()?.focus();
+  });
+  // Queried each time: the kit's button is re-created when it can be used again.
+  const askButton = () => askRef.current?.querySelector<HTMLElement>("button");
 
   const go = (start: string) => {
     setWeekStart(start);
     setReview(null);
+    const n = notesOfWeek(notes, start).notes.length;
+    announce(
+      `${start === thisWeek ? "This week" : weekLabel(start)}, ${rangeOf(start)}: ${plural(n, "note")}`
+    );
+  };
+
+  const takeReview = (data: WeeklyOutput, source: AiSource) => {
+    const tools = resolveSuggestedTools(data.tools);
+    setReview({ weekStart, source, data, tools });
+    const parts = [
+      "a summary",
+      ...(data.patterns.length > 0 ? [plural(data.patterns.length, "pattern")] : []),
+      ...(tools.length > 0 ? [`${plural(tools.length, "tool")} to try`] : []),
+    ];
+    const list =
+      parts.length === 1
+        ? parts[0]
+        : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+    announce(`Amr's read of the week is ready below: ${list}.`);
   };
 
   return (
     <section aria-labelledby={headingId} className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <h2 id={headingId} className="text-base font-semibold text-text">
+          <h2
+            id={headingId}
+            tabIndex={-1}
+            data-notebook-view-heading=""
+            className="rounded-sm text-base font-semibold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             {weekStart === thisWeek ? "This week" : weekLabel(weekStart)}
           </h2>
           <p className="text-xs text-sub">
@@ -261,6 +310,7 @@ export function WeekView({
         </div>
         <div className="flex flex-wrap items-center gap-1">
           <Button
+            ref={prevRef}
             type="button"
             size="sm"
             variant="outline"
@@ -276,18 +326,25 @@ export function WeekView({
               size="sm"
               variant="ghost"
               className="min-touch-coarse"
-              onClick={() => go(thisWeek)}
+              onClick={() => {
+                // This button goes with the week it leaves: focus stays on the row.
+                focusNext.current = () => prevRef.current;
+                go(thisWeek);
+              }}
             >
               This week
             </Button>
           )}
+          {/* aria-disabled, not disabled: a disabled button would drop focus to the page. */}
           <Button
             type="button"
             size="sm"
             variant="outline"
-            className="min-touch-coarse gap-1"
-            disabled={weekStart >= thisWeek}
-            onClick={() => go(shiftDay(weekStart, 7))}
+            className={cn("min-touch-coarse gap-1", atThisWeek && "opacity-60")}
+            aria-disabled={atThisWeek || undefined}
+            onClick={() => {
+              if (!atThisWeek) go(shiftDay(weekStart, 7));
+            }}
           >
             Next week
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
@@ -303,21 +360,16 @@ export function WeekView({
       )}
 
       <div className="space-y-2">
-        <AiButton
-          task={notebookWeeklySummaryTask}
-          input={() => weeklyInput(notes, weekStart) as WeeklyInput}
-          onResult={(data, meta) =>
-            setReview({
-              weekStart,
-              source: meta.source,
-              data,
-              tools: resolveSuggestedTools(data.tools),
-            })
-          }
-          label="Ask Amr about this week"
-          fallbackLabel="Sum up this week"
-          disabledReason={week.notes.length === 0 ? "Write a note in this week first." : null}
-        />
+        <div ref={askRef}>
+          <AiButton
+            task={notebookWeeklySummaryTask}
+            input={() => weeklyInput(notes, weekStart) as WeeklyInput}
+            onResult={(data, meta) => takeReview(data, meta.source)}
+            label="Ask Amr about this week"
+            fallbackLabel="Sum up this week"
+            disabledReason={week.notes.length === 0 ? "Write a note in this week first." : null}
+          />
+        </div>
         <p className="text-xs text-sub">
           Ask Amr sends this week&apos;s notes, each cut to {WEEKLY_BODY_MAX} characters, to
           Amr&apos;s AI. Nothing is kept until you keep it.
@@ -329,16 +381,27 @@ export function WeekView({
           key={`${shown.weekStart}:${shown.source}:${shown.data.summary}`}
           review={shown}
           onKeep={(kept) => {
+            // The kept summary shows below; its heading takes focus from Keep.
+            focusNext.current = () => keptRef.current ?? askButton();
             onKeep(kept);
             setReview(null);
           }}
-          onDismiss={() => setReview(null)}
+          onDismiss={() => {
+            askButton()?.focus();
+            setReview(null);
+          }}
         />
       )}
 
       {week.summaries.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-text">Kept summary</h3>
+          <h3
+            ref={keptRef}
+            tabIndex={-1}
+            className="rounded-sm text-sm font-semibold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Kept summary
+          </h3>
           <ul className="space-y-2">
             {week.summaries.map((s) => (
               <li key={s.id}>

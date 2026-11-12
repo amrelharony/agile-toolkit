@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,7 +7,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { NotebookEntry } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { isExampleId } from "@/lib/utils/example-id";
-import { SUMMARY_TAG, shiftDay, weekStartOf } from "@/lib/notebook/model";
+import { SUMMARY_TAG, formatDay, shiftDay, weekStartOf } from "@/lib/notebook/model";
 import { getToolById } from "@/lib/constants/tools";
 
 /**
@@ -541,6 +541,90 @@ describe("the page", () => {
   });
 });
 
+/* ── Focus and announcements ───────────────────────────────────────── */
+
+describe("focus and what is announced", () => {
+  const polite = () => screen.getByTestId("live-polite");
+
+  it("announces the tags suggested, and Dismiss puts focus back on the button", async () => {
+    renderPage();
+    type("Note", "Still waiting on the sandbox. Two people stayed quiet.");
+    fireEvent.click(newNote().getByRole("button", { name: "Suggest tags" }));
+    await waitFor(() =>
+      expect(polite()).toHaveTextContent(
+        /^Suggested without AI: 2 tags, blockers, participation\.$/
+      )
+    );
+    const list = within(newNote().getByTestId("ai-suggestions"));
+    const dismiss = list.getByRole("button", { name: "Dismiss suggestions" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    expect(newNote().queryByTestId("ai-suggestions")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(newNote().getByRole("button", { name: "Suggest tags" }));
+  });
+
+  it("announces when there is no new tag, without a live region of its own", async () => {
+    renderPage();
+    type("Note", "Fine.");
+    fireEvent.click(newNote().getByRole("button", { name: "Suggest tags" }));
+    await waitFor(() =>
+      expect(polite()).toHaveTextContent("No new tags to suggest for this note.")
+    );
+    const shown = newNote().getByText("No new tags to suggest for this note.");
+    expect(shown).not.toHaveAttribute("role");
+  });
+
+  it("hands focus to the search box when Clear filters goes", () => {
+    seed(THREE);
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Search notes"), { target: { value: "sandbox" } });
+    const clear = screen.getByRole("button", { name: "Clear filters" });
+    clear.focus();
+    fireEvent.click(clear);
+    expect(screen.queryByRole("button", { name: "Clear filters" })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByLabelText("Search notes"));
+  });
+
+  it("gives the timeline its own heading above the weeks", () => {
+    seed(THREE);
+    renderPage();
+    expect(screen.getByRole("heading", { name: "Your notes", level: 2 })).toBeInTheDocument();
+  });
+
+  it("keeps focus on a note moved to another week by its edit", async () => {
+    seed(THREE);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit note: Quiet standup" }));
+    const form = within(screen.getByRole("group", { name: "Edit note: Quiet standup" }));
+    type("Day", LAST_MONDAY, form);
+    const save = form.getByRole("button", { name: "Save note" });
+    save.focus();
+    fireEvent.click(save);
+    expect(one("a")!.date).toBe(LAST_MONDAY);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Edit note: Quiet standup" })
+      )
+    );
+  });
+
+  it("moves focus to the list's heading when an edit takes the note out of the search", async () => {
+    seed(THREE);
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Search notes"), { target: { value: "sandbox" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Edit note: The payments story/ }));
+    const form = within(screen.getByRole("group", { name: /^Edit note: The payments story/ }));
+    type("Note", "Access came through on Tuesday.", form);
+    const save = form.getByRole("button", { name: "Save note" });
+    save.focus();
+    fireEvent.click(save);
+    expect(screen.getByText("0 notes of 3 match")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Your notes" }))
+    );
+  });
+});
+
 /* ── The week ──────────────────────────────────────────────────────── */
 
 describe("the week", () => {
@@ -574,7 +658,10 @@ describe("the week", () => {
     const byEvent = within(screen.getByRole("region", { name: "By event" }));
     expect(byEvent.getByText("Daily Scrum").parentElement).toHaveTextContent(/Daily Scrum\s*2$/);
     expect(screen.getByRole("list", { name: /^Notes in the week of/ }).children).toHaveLength(3);
-    expect(screen.getByRole("button", { name: /Next week/ })).toBeDisabled();
+    // Unavailable on this week, but still focusable (aria-disabled, not disabled).
+    const next = screen.getByRole("button", { name: /Next week/ });
+    expect(next).toHaveAttribute("aria-disabled", "true");
+    expect(next).not.toBeDisabled();
   });
 
   it("steps back a week", () => {
@@ -586,6 +673,65 @@ describe("the week", () => {
     expect(screen.getByText("Kudos to the team for the demo.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "This week" }));
     expect(screen.getByRole("heading", { name: "This week", level: 2 })).toBeInTheDocument();
+  });
+
+  it("announces each week it moves to and never drops focus to the page", async () => {
+    seed(WEEK);
+    renderPage();
+    openWeek();
+    const polite = () => screen.getByTestId("live-polite");
+    fireEvent.click(screen.getByRole("button", { name: /Previous week/ }));
+    await waitFor(() =>
+      expect(polite()).toHaveTextContent(
+        `Week of ${formatDay(LAST_MONDAY)}, ${formatDay(LAST_MONDAY)} to ${formatDay(shiftDay(LAST_MONDAY, 6))}: 1 note`
+      )
+    );
+    // "This week" goes with the week it leaves: focus moves to Previous week.
+    const back = screen.getByRole("button", { name: "This week" });
+    back.focus();
+    fireEvent.click(back);
+    expect(screen.queryByRole("button", { name: "This week" })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Previous week/ }));
+    await waitFor(() => expect(polite()).toHaveTextContent(/^This week, .+: 3 notes$/));
+    // Next week on this week does nothing, and keeps focus.
+    const next = screen.getByRole("button", { name: /Next week/ });
+    next.focus();
+    fireEvent.click(next);
+    expect(screen.getByRole("heading", { name: "This week", level: 2 })).toBeInTheDocument();
+    expect(document.activeElement).toBe(next);
+  });
+
+  it("says the week's read is ready, and Keep hands focus to the kept summary", async () => {
+    seed(WEEK);
+    renderPage();
+    openWeek();
+    fireEvent.click(screen.getByRole("button", { name: "Sum up this week" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        /^Amr's read of the week is ready below: a summary, 1 pattern and \d tools? to try\.$/
+      )
+    );
+    const keep = within(screen.getByTestId("weekly-review")).getByRole("button", {
+      name: "Keep as a note",
+    });
+    keep.focus();
+    fireEvent.click(keep);
+    expect(screen.queryByTestId("weekly-review")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Kept summary" }));
+  });
+
+  it("puts focus back on the button that asked when the read is dismissed", () => {
+    seed(WEEK);
+    renderPage();
+    openWeek();
+    fireEvent.click(screen.getByRole("button", { name: "Sum up this week" }));
+    const dismiss = within(screen.getByTestId("weekly-review")).getByRole("button", {
+      name: "Dismiss",
+    });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    expect(screen.queryByTestId("weekly-review")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sum up this week" }));
   });
 
   it("reads the week without AI, and keeps it as a note only on request, with Undo", () => {

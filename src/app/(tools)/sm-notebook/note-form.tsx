@@ -6,11 +6,13 @@
  * tool it is about. A template drops its prompts into the text. "Ask Amr for
  * tags" suggests tags from the text; an added tag goes into the form, and
  * only Save writes the note. Nothing is saved until the text is there and
- * the day has happened.
+ * the day has happened. The suggestions are announced when they arrive, and
+ * dismissing them puts focus back on the button that asked.
  */
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { FileText, Plus } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { AiButton, AiSuggestions } from "@/components/ai";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";
@@ -88,6 +90,8 @@ export function NoteForm({
   const { draft, update, errors } = form;
   const tools = pickableTools(draft.linkedTool || stored?.linkedTool);
   const blank = !draft.body.trim();
+  const announce = useAnnounce();
+  const tagAskRef = useRef<HTMLDivElement>(null);
   // An agent may have saved a day the calendar doesn't have; the date
   // field can't show it, so say what it is.
   const oddDay = stored && !isDay(stored.date) && draft.date === stored.date ? stored.date : null;
@@ -96,7 +100,16 @@ export function NoteForm({
     const have = parseTags(draft.tags);
     const fresh = normTags(tags).filter((t) => t.length <= NOTE_TAG_MAX && !have.includes(t));
     setSuggested({ tags: fresh, source });
+    if (fresh.length === 0) announce("No new tags to suggest for this note.");
+    else {
+      const who = source === "fallback" ? "Suggested without AI" : "Amr suggests";
+      announce(
+        `${who}: ${fresh.length === 1 ? "1 tag" : `${fresh.length} tags`}, ${fresh.join(", ")}.`
+      );
+    }
   };
+  /** Back to the button that asked, before the list that had focus goes. */
+  const focusTagAsk = () => tagAskRef.current?.querySelector<HTMLElement>("button")?.focus();
   const addTags = (tags: readonly string[]) =>
     update({ tags: normTags([...parseTags(draft.tags), ...tags]).join(", ") });
 
@@ -190,20 +203,22 @@ export function NoteForm({
             />
           )}
         </Field>
-        <AiButton
-          task={notebookTagTask}
-          input={() =>
-            notebookTagInput(
-              { title: draft.title, body: draft.body, tags: parseTags(draft.tags) },
-              knownTags
-            )
-          }
-          onResult={(data, meta) => takeTags(data.tags, meta.source)}
-          label="Ask Amr for tags"
-          fallbackLabel="Suggest tags"
-          variant="outline"
-          disabledReason={blank ? "Write the note first, then ask for tags." : null}
-        />
+        <div ref={tagAskRef}>
+          <AiButton
+            task={notebookTagTask}
+            input={() =>
+              notebookTagInput(
+                { title: draft.title, body: draft.body, tags: parseTags(draft.tags) },
+                knownTags
+              )
+            }
+            onResult={(data, meta) => takeTags(data.tags, meta.source)}
+            label="Ask Amr for tags"
+            fallbackLabel="Suggest tags"
+            variant="outline"
+            disabledReason={blank ? "Write the note first, then ask for tags." : null}
+          />
+        </div>
         {suggested &&
           (suggested.tags.length > 0 ? (
             <AiSuggestions
@@ -213,12 +228,14 @@ export function NoteForm({
               acceptLabel="Add tag"
               onAccept={(tag) => update(draftWithTag(draft, tag))}
               onAcceptAll={(tags) => addTags(tags)}
-              onDismiss={() => setSuggested(null)}
+              onDismiss={() => {
+                focusTagAsk();
+                setSuggested(null);
+              }}
             />
           ) : (
-            <p role="status" className="text-xs text-sub">
-              No new tags to suggest for this note.
-            </p>
+            // Announced when it comes (takeTags): a live region mounted with its text is often missed.
+            <p className="text-xs text-sub">No new tags to suggest for this note.</p>
           ))}
       </div>
 
