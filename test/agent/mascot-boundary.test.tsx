@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 /**
@@ -7,7 +9,8 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
  *   still dragged and moved by Move Amr and the arrow keys;
  * - his panel's body: a narration caption inside the panel with Reload page
  *   (and, for the owner, Start a new chat), the header left working;
- * - the owner's chat chunk: tried once more, then the same caption.
+ * - the owner's chat chunk: tried once more, then the same caption;
+ * - anything else in him: the app shell's last resort keeps his plate up.
  * Never the app's full-screen error, and never a blank panel while loading.
  */
 
@@ -15,6 +18,7 @@ const h = vi.hoisted(() => ({
   auth: null as { status: string; user: { id: string } | null } | null,
   chatCrash: false,
   visitorCrash: false,
+  amrCrash: false,
 }));
 
 vi.mock("@/lib/auth/auth-provider", () => ({ useAuthOptional: () => h.auth }));
@@ -62,6 +66,7 @@ import {
   PanelFailed,
   PanelLoading,
 } from "@/components/agent/mascot/panel-parts";
+import { AmrBoundary } from "@/components/layout/amr-boundary";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
@@ -96,6 +101,7 @@ beforeEach(() => {
   h.auth = VISITOR;
   h.chatCrash = false;
   h.visitorCrash = false;
+  h.amrCrash = false;
   // The crashes are on purpose: keep React's and jsdom's reports of them quiet.
   vi.spyOn(console, "error").mockImplementation(() => {});
   window.addEventListener("error", quiet);
@@ -295,5 +301,57 @@ describe("the panel's parts", () => {
         PANEL_FAILED_OWNER_NOTE
       )
     );
+  });
+});
+
+describe("the app shell's last resort", () => {
+  function Amr() {
+    if (h.amrCrash) throw new Error("Amr broke");
+    return <div>Amr is back</div>;
+  }
+
+  it("keeps his plate in his corner when he crashes, and a tap tries him again with his panel open", () => {
+    h.amrCrash = true;
+    render(
+      <>
+        <main>Retro board</main>
+        <AmrBoundary>
+          <Amr />
+        </AmrBoundary>
+      </>
+    );
+    const plate = amrButton();
+    expect(plate).toHaveAttribute("data-launcher");
+    expect(plate).toHaveClass("comic-name-plate", "fixed");
+    expect(plate).toHaveTextContent("Ask Amr");
+    expect(plate.style.bottom).toContain("safe-area-inset-bottom");
+    expect(plate.style.right).toContain("safe-area-inset-right");
+    expectPageCarriesOn();
+
+    h.amrCrash = false;
+    fireEvent.click(plate, { detail: 1 });
+    expect(screen.getByText("Amr is back")).toBeInTheDocument();
+    expect(useAgentStore.getState().open).toBe(true);
+    expect(useAgentStore.getState().openedVia).toBe("pointer");
+  });
+
+  it("closes a panel the crash left open: there is no panel to show while the plate stands in", () => {
+    h.amrCrash = true;
+    useAgentStore.setState({ open: true });
+    render(
+      <AmrBoundary>
+        <Amr />
+      </AmrBoundary>
+    );
+    expect(amrButton()).toBeInTheDocument();
+    expect(useAgentStore.getState().open).toBe(false);
+  });
+
+  it("is around Amr in the app shell", () => {
+    const shell = readFileSync(
+      path.join(process.cwd(), "src/components/layout/app-shell.tsx"),
+      "utf8"
+    );
+    expect(shell).toMatch(/<AmrBoundary>\s*<MascotAssistant \/>\s*<\/AmrBoundary>/);
   });
 });

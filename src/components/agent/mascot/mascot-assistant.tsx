@@ -89,6 +89,7 @@
  *    fetched ahead only for a settled owner and never with Data Saver on. A
  *    visitor's page never asks for it. While it, or the sign-in check, is on
  *    its way, a pen scribbles in the body's place (PanelLoading).
+ * The app shell keeps a last resort around all of him (layout/amr-boundary).
  */
 
 import {
