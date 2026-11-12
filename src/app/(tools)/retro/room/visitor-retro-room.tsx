@@ -66,6 +66,7 @@ import {
   RoomPhaseSteps,
   RoomTimerReadout,
   useRoomCountdown,
+  useRoomTimerAlarm,
 } from "./room-controls";
 import {
   useRetroRoom,
@@ -188,6 +189,12 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
   );
   const active = status === "connecting" || status === "live";
   const closed = !active;
+  // A promoted host's timer widget: the alarm and overtime the Board would give it.
+  const hostingTimer = isHost && active;
+  const overSince = useRoomTimerAlarm(
+    hostingTimer ? room.timer : null,
+    hostingTimer ? countdown : null
+  );
   const phase = board?.phase ?? null;
 
   // ── Announcements ────────────────────────────────────────────────
@@ -433,6 +440,7 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
               <TimerWidget
                 seconds={countdown}
                 running={room.timer.running && countdown > 0}
+                overSince={overSince}
                 onToggle={room.toggleTimer}
                 onReset={() => room.setTimerSeconds(300)}
                 onChange={room.setTimerSeconds}

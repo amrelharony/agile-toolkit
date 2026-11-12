@@ -20,8 +20,10 @@ import {
   IdlePromptDialog as SharedIdlePromptDialog,
   type IdlePromptDialogProps,
 } from "@/components/collab/room-controls";
-import { RoomCountdown } from "@/components/collab/room-countdown";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { RoomCountdown, useHostTimerNotes } from "@/components/collab/room-countdown";
 import { ChimeToggle } from "@/components/timer/chime-toggle";
+import { timesUp } from "@/lib/celebrate/chime";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -141,11 +143,42 @@ export function useRetroRoomTimer(timer: RoomTimerView | null): RoomTimer | null
 }
 
 /**
+ * A promoted host runs the room's timer with the Board's own widget
+ * (`TimerWidget`), which only shows. This rings the shared alarm once when
+ * that countdown crosses zero on this screen (not for one already at zero
+ * when this person took over), says so, and returns when, for the widget's
+ * overtime count. Null while it runs, or before it ran out here.
+ */
+export function useRoomTimerAlarm(
+  timer: RoomTimerView | null,
+  countdown: number | null
+): number | null {
+  const announce = useAnnounce();
+  const [overSince, setOverSince] = useState<number | null>(null);
+  const running = Boolean(timer?.running) && (countdown ?? 0) > 0;
+  const wasRunningRef = useRef(running);
+  useEffect(() => {
+    const was = wasRunningRef.current;
+    wasRunningRef.current = running;
+    if (was && !running && countdown === 0) {
+      announce("Time's up.", "assertive");
+      timesUp();
+      setOverSince(Date.now());
+    } else if (timer === null || running || (countdown ?? 0) > 0) {
+      setOverSince(null);
+    }
+  }, [timer, running, countdown, announce]);
+  return overSince;
+}
+
+/**
  * The host's countdown, as a participant sees it: the shared countdown,
- * which rings the time's-up alarm here and counts the overtime up.
+ * which rings the time's-up alarm here and counts the overtime up, and
+ * says politely when the host pauses, restarts or adds to it.
  */
 export function RoomTimerReadout({ timer }: { timer: RoomTimerView | null }) {
   const roomTimer = useRetroRoomTimer(timer);
+  useHostTimerNotes(roomTimer);
   if (!roomTimer) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">

@@ -49,7 +49,11 @@ import {
   type WallRoomTool,
   type WallRoundResult,
 } from "@/lib/realtime/wall-room/protocol";
-import { useWallRoom, type WallRoom } from "@/lib/realtime/wall-room/use-wall-room";
+import {
+  useWallRoom,
+  type WallRoom,
+  type WallRoundScreen,
+} from "@/lib/realtime/wall-room/use-wall-room";
 import { toast } from "@/lib/utils/toast";
 import { cn } from "@/lib/utils";
 import { WallPostList } from "./wall-post-list";
@@ -351,24 +355,7 @@ function HostWallRoom({
         timer={extras.timer}
         reactions={extras.reactions}
       >
-        {round ? (
-          <div className="space-y-3">
-            <h2 className="break-words text-2xl font-semibold">{round.prompt}</h2>
-            {round.posts === null ? (
-              <p className="text-lg text-sub">
-                {round.count} {round.count === 1 ? "post" : "posts"} so far, hidden until the host
-                reveals them.
-              </p>
-            ) : (
-              <WallPostList
-                posts={round.posts.filter((p) => !p.hidden)}
-                emptyText="No posts yet."
-              />
-            )}
-          </div>
-        ) : (
-          <p className="text-lg text-sub">The wall opens in a moment.</p>
-        )}
+        <WallBigScreenRound round={round} />
       </RoomBigScreen>
 
       {setup || !round ? (
@@ -608,5 +595,27 @@ function HostWallRoom({
         note="Posts not yet saved are lost when it ends."
       />
     </section>
+  );
+}
+
+/**
+ * A wall round on the big screen: the prompt, then the posts the host has
+ * not hidden, without names. While the round is hidden until reveal only
+ * the count shows: this screen holds no post text then.
+ */
+export function WallBigScreenRound({ round }: { round: WallRoundScreen | null }) {
+  if (!round) return <p className="text-lg text-sub">The wall opens in a moment.</p>;
+  return (
+    <div className="space-y-3">
+      <h2 className="break-words text-2xl font-semibold">{round.prompt}</h2>
+      {round.posts === null ? (
+        <p className="text-lg text-sub">
+          {round.count} {round.count === 1 ? "post" : "posts"} so far, hidden until the host reveals
+          them.
+        </p>
+      ) : (
+        <WallPostList posts={round.posts.filter((p) => !p.hidden)} emptyText="No posts yet." />
+      )}
+    </div>
   );
 }
