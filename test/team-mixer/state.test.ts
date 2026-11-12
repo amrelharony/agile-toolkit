@@ -343,6 +343,9 @@ describe("built-in group names", () => {
     expect(themeFor("Planets")?.id).toBe("planets");
     expect(themeFor("deep forest")?.id).toBe("trees");
     expect(themeFor("")).toBeNull();
+    // The start of a word counts from 3 letters; one letter matches nothing.
+    expect(themeFor("riv")?.id).toBe("rivers");
+    expect(themeFor("a")).toBeNull();
     const { theme, names } = suggestGroupNames("rivers", 4, createRng(1));
     expect(theme.id).toBe("rivers");
     expect(new Set(names).size).toBe(4);

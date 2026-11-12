@@ -173,7 +173,11 @@ export const NAME_THEMES: readonly NameTheme[] = [
   },
 ];
 
-/** The theme a typed word points at, or null. */
+/**
+ * The theme a typed word points at, or null. A start of a word counts
+ * ("riv" is rivers) once it is 3 letters, so a single letter doesn't always
+ * land on the first list.
+ */
 export function themeFor(text: string): NameTheme | null {
   const t = text.trim().toLowerCase();
   if (!t) return null;
@@ -182,7 +186,7 @@ export function themeFor(text: string): NameTheme | null {
       (th) =>
         th.id === t ||
         th.label.toLowerCase() === t ||
-        th.match.some((w) => t.includes(w) || w.includes(t))
+        th.match.some((w) => t.includes(w) || (t.length >= 3 && w.startsWith(t)))
     ) ?? null
   );
 }
