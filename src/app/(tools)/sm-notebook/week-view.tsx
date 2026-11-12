@@ -202,7 +202,7 @@ function WeeklyReview({
               <li key={t.id} className="text-sm">
                 <Link
                   href={t.href}
-                  className="font-medium text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-touch-coarse inline-flex items-center rounded-sm font-medium text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {t.name}
                 </Link>

@@ -134,7 +134,8 @@ export function NotesView({
                   aria-pressed={pressed}
                   onClick={() => toggleTag(tag)}
                   className={cn(
-                    "min-touch-coarse rounded-full border px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    // A long unbroken tag wraps rather than pushing the page sideways.
+                    "min-touch-coarse max-w-full rounded-full border px-2.5 py-1 text-left text-xs transition-colors [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     pressed
                       ? "border-accent/60 bg-accent/10 text-text"
                       : "border-border text-sub hover:text-text"

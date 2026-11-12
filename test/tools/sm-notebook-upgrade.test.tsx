@@ -545,6 +545,16 @@ describe("the page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete note: Odd day" }));
     expect(stored()).toEqual([]);
   });
+
+  it("puts long unbroken tags on as many lines as they need", () => {
+    const long = "x".repeat(120);
+    seed([note("t", TODAY, { tags: [long] })]);
+    renderPage();
+    for (const chip of screen.getAllByRole("button", { name: new RegExp(long) })) {
+      expect(chip.className).toContain("[overflow-wrap:anywhere]");
+      expect(chip.className).toContain("max-w-full");
+    }
+  });
 });
 
 /* ── Focus and announcements ───────────────────────────────────────── */
@@ -761,6 +771,18 @@ describe("the week", () => {
       screen.getByText(/^Ask Amr sends this week's notes, each cut to 800 characters/)
     ).toBeInTheDocument();
     expect(screen.queryByText(/nothing leaves it/)).not.toBeInTheDocument();
+  });
+
+  it("makes each tool to try a touch-sized link", () => {
+    seed(WEEK);
+    renderPage();
+    openWeek();
+    fireEvent.click(screen.getByRole("button", { name: "Sum up this week" }));
+    const link = within(screen.getByTestId("weekly-review")).getByRole("link", {
+      name: "Impediment Tracker",
+    });
+    expect(link.className).toContain("min-touch-coarse");
+    expect(link.className).toContain("inline-flex");
   });
 
   it("reads the week without AI, and keeps it as a note only on request, with Undo", () => {

@@ -163,7 +163,8 @@ export function NoteCard({
                 aria-label={`Tag ${tag}: ${pressed ? "stop filtering" : "show notes with it"}`}
                 onClick={() => onToggleTag(tag)}
                 className={cn(
-                  "min-touch-coarse rounded-full border px-2 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  // A long unbroken tag wraps rather than pushing the page sideways.
+                  "min-touch-coarse max-w-full rounded-full border px-2 py-0.5 text-left text-xs transition-colors [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   pressed
                     ? "border-accent/60 bg-accent/10 text-text"
                     : "border-border text-sub hover:text-text"
@@ -174,7 +175,7 @@ export function NoteCard({
             ) : (
               <span
                 key={tag}
-                className="rounded-full border border-border px-2 py-0.5 text-xs text-sub"
+                className="max-w-full rounded-full border border-border px-2 py-0.5 text-xs text-sub [overflow-wrap:anywhere]"
               >
                 {tag}
               </span>
