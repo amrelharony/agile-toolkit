@@ -1344,8 +1344,8 @@ export function MascotAssistant() {
   // him, while he's off the page for the keyboard (a page field has focus on a
   // phone), while he's carried (the panel stays at his corner), or in the phone's
   // sheet (it covers the screen; there is nothing beside it to point at). Its
-  // place and growth point stay on showFigure, so the card doesn't move while he
-  // steps aside and still matches where he comes back.
+  // growth point stays on showFigure, so the card doesn't move while he steps
+  // aside and still matches where he comes back.
   const tail =
     layout === "sheet"
       ? null
@@ -1356,7 +1356,11 @@ export function MascotAssistant() {
         });
   const size = PANEL_SIZE[panelSize.size];
   const panelStyle = {
-    ...panelPos(placed, showFigure, box.h, isPhone, nudge.lift, panelSize.size),
+    // Its place is the figure's whenever one is coming, as the phone band's is,
+    // so an open panel doesn't jump when the launcher gives way to him (until
+    // then it stands where he will). Only a figure that can't load puts it
+    // back by the launcher.
+    ...panelPos(placed, !figureFailed, box.h, isPhone, nudge.lift, panelSize.size),
     // Its size, read by its w-/h- classes: as variables, a layout rule in CSS
     // can still replace them, which an inline width or height would beat.
     "--amr-panel-width": size.width,

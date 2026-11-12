@@ -20,9 +20,20 @@ vi.mock("@/lib/auth/auth-provider", () => ({
 vi.mock("next/navigation", () => ({ usePathname: () => "/retro" }));
 vi.mock("@/lib/agent/client", () => ({ abortInFlight: vi.fn() }));
 vi.mock("@/lib/actions/register-all", () => ({}));
-vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
-  default: () => <div data-testid="mascot-sprite" />,
-}));
+// The sprite stand-in; with `sprite.fail` set its sheet can't load (the launcher stays).
+const sprite = vi.hoisted(() => ({ fail: false }));
+vi.mock("@/components/agent/mascot/mascot-sprite", async () => {
+  const { useEffect } = await import("react");
+  return {
+    default: function SpriteStandIn({ onLoadError }: { onLoadError?: () => void }) {
+      useEffect(() => {
+        if (sprite.fail) onLoadError?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      return <div data-testid="mascot-sprite" />;
+    },
+  };
+});
 
 import {
   MascotAssistant,
@@ -782,6 +793,70 @@ describe("his panel is his balloon", () => {
     const landed = screen.getByRole("dialog", { name: "Amr" });
     expect(landed).toHaveAttribute("data-tail", "up");
     expect(landed).toHaveAttribute("data-tail-from", "left");
+  });
+});
+
+describe("his panel doesn't jump when his figure arrives (audit critic2-5)", () => {
+  afterEach(() => {
+    act(() => useAgentStore.setState({ open: false }));
+  });
+
+  // [screen, phone?, the figure's box height, screen height for the numbers].
+  for (const s of [
+    { name: "1440x900 desktop", phone: false, boxH: 143, h: 900 },
+    { name: "375x812 phone", phone: true, boxH: 104, h: 812 },
+  ]) {
+    it(`${s.name}: opened over the launcher, it stays put as he takes its place`, async () => {
+      stubScreen({ phone: s.phone });
+      render(<MascotAssistant />);
+      // Opened in the first moments (or as Data Saver's first touch): the launcher shows.
+      act(() => useAgentStore.setState({ open: true }));
+      expect(screen.queryByTestId("mascot-sprite")).toBeNull();
+      const before = screen.getByRole("dialog", { name: "Amr" });
+      expect(before).toHaveAttribute("data-tail", "none");
+      const at = { bottom: before.style.bottom, maxHeight: before.style.maxHeight };
+      // It already stands where he will: right above his figure's head.
+      expect(panelBox(at, s.h).bottom).toBeCloseTo(
+        panelBox(panelPos("bottomRight", true, s.boxH, s.phone), s.h).bottom
+      );
+
+      act(() => {
+        window.dispatchEvent(new Event("pointerdown"));
+      });
+      await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
+      const after = screen.getByRole("dialog", { name: "Amr" });
+      // He's in, and the tail points at him; the panel hasn't moved.
+      expect(after).toHaveAttribute("data-tail", "down");
+      expect({ bottom: after.style.bottom, maxHeight: after.style.maxHeight }).toEqual(at);
+    });
+  }
+
+  it("goes back by the launcher only when his figure can't load", async () => {
+    sprite.fail = true;
+    try {
+      stubScreen({ phone: false, coarse: false });
+      render(<MascotAssistant />);
+      act(() => useAgentStore.setState({ open: true }));
+      const bottom = () =>
+        900 -
+        panelBox(
+          {
+            bottom: screen.getByRole("dialog", { name: "Amr" }).style.bottom,
+            maxHeight: screen.getByRole("dialog", { name: "Amr" }).style.maxHeight,
+          },
+          900
+        ).bottom;
+      // Where his figure will stand...
+      expect(bottom()).toBeCloseTo(131.6875);
+      act(() => {
+        window.dispatchEvent(new Event("pointerdown"));
+      });
+      // ...until the sheet fails: then by the launcher (its inset, size and the gap), once.
+      await waitFor(() => expect(bottom()).toBe(4 + 48 + 6), { timeout: 2000 });
+      expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute("data-tail", "none");
+    } finally {
+      sprite.fail = false;
+    }
   });
 });
 
