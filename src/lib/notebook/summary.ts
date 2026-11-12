@@ -72,20 +72,43 @@ function cutTo(s: string, max: number): string {
   return `${s.slice(0, max - 1).trimEnd()}…`;
 }
 
-function asWeeklyNote(e: NotebookEntry, bodyMax: number): WeeklyNote | null {
-  const body = cutTo(e.body.trim(), bodyMax);
+/** How much of each field a weekly read keeps. */
+interface NoteCaps {
+  body: number;
+  title: number;
+  /** Each tag, and how many. */
+  tag: number;
+  tags: number;
+  event: number;
+}
+
+const FULL_CAPS: NoteCaps = {
+  body: WEEKLY_BODY_MAX,
+  title: WEEKLY_TITLE_MAX,
+  tag: WEEKLY_TAG_MAX,
+  tags: WEEKLY_TAGS_MAX,
+  event: WEEKLY_EVENT_MAX,
+};
+/** The shortest a note's text gets before the other fields are cut too. */
+const BODY_FLOOR = 80;
+/** Every field at its floor: what is left before the oldest notes go. */
+const FLOOR_CAPS: NoteCaps = { body: BODY_FLOOR, title: 40, tag: 24, tags: 3, event: 24 };
+
+function asWeeklyNote(e: NotebookEntry, caps: NoteCaps): WeeklyNote | null {
+  const body = cutTo(e.body.trim(), caps.body);
   if (!body) return null;
   const title = oneLine(e.title ?? "");
   const event = oneLine(e.event ?? "");
   const tool = oneLine(e.linkedTool ?? "");
   return {
     date: e.date,
-    ...(title ? { title: cutTo(title, WEEKLY_TITLE_MAX) } : {}),
+    ...(title ? { title: cutTo(title, caps.title) } : {}),
     body,
     tags: normTags(e.tags ?? [])
       .filter((t) => t.length <= WEEKLY_TAG_MAX)
-      .slice(0, WEEKLY_TAGS_MAX),
-    ...(event ? { event: cutTo(event, WEEKLY_EVENT_MAX) } : {}),
+      .slice(0, caps.tags)
+      .map((t) => cutTo(t, caps.tag)),
+    ...(event ? { event: cutTo(event, caps.event) } : {}),
     ...(tool && tool.length <= WEEKLY_TOOL_MAX ? { linkedTool: tool } : {}),
   };
 }
@@ -93,31 +116,43 @@ function asWeeklyNote(e: NotebookEntry, bodyMax: number): WeeklyNote | null {
 const encoder = typeof TextEncoder === "undefined" ? null : new TextEncoder();
 const bytesOf = (s: string) => (encoder ? encoder.encode(s).length : s.length * 3);
 
+/** Whether a weekly read's input is inside both budgets. */
+export function fitsWeeklyBudget(input: WeeklyInput): boolean {
+  const json = JSON.stringify(input);
+  return json.length <= WEEKLY_CHAR_BUDGET && bytesOf(json) <= WEEKLY_BYTE_BUDGET;
+}
+
 /**
  * The week's notes as Amr's weekly read takes them: kept summaries left
  * out, the newest WEEKLY_MAX_NOTES, oldest first, each note's text cut to
- * WEEKLY_BODY_MAX, then shorter for all of them while the whole would pass
- * the budgets. Null when the week has no note.
+ * WEEKLY_BODY_MAX. While the whole is over a budget, every note's text is
+ * cut shorter, down to BODY_FLOOR; then the titles, tags and events too;
+ * then the oldest notes are left out, so what is sent always fits. Null when
+ * the week has no note.
  */
 export function weeklyInput(
   entries: readonly NotebookEntry[],
   weekStart: string
 ): WeeklyInput | null {
-  const week = entries
+  let week = entries
     .filter((e) => inWeek(e.date, weekStart) && !isSummaryNote(e) && e.body.trim())
     .sort(compareNotes)
     .slice(0, WEEKLY_MAX_NOTES)
     .reverse();
   if (week.length === 0) return null;
-  let cap = WEEKLY_BODY_MAX;
+  const build = (list: readonly NotebookEntry[], caps: NoteCaps): WeeklyInput => ({
+    weekStart,
+    notes: list.map((e) => asWeeklyNote(e, caps)).filter((n): n is WeeklyNote => n !== null),
+  });
+  for (let body = WEEKLY_BODY_MAX; ; body = Math.max(BODY_FLOOR, Math.floor(body * 0.75))) {
+    const input = build(week, { ...FULL_CAPS, body });
+    if (fitsWeeklyBudget(input)) return input;
+    if (body <= BODY_FLOOR) break;
+  }
   for (;;) {
-    const notes = week.map((e) => asWeeklyNote(e, cap)).filter((n): n is WeeklyNote => n !== null);
-    const input = { weekStart, notes };
-    const json = JSON.stringify(input);
-    if ((json.length <= WEEKLY_CHAR_BUDGET && bytesOf(json) <= WEEKLY_BYTE_BUDGET) || cap <= 80) {
-      return input;
-    }
-    cap = Math.max(80, Math.floor(cap * 0.75));
+    const input = build(week, FLOOR_CAPS);
+    if (fitsWeeklyBudget(input) || week.length <= 1) return input;
+    week = week.slice(1);
   }
 }
 

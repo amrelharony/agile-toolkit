@@ -54,6 +54,7 @@ import {
   WEEKLY_BYTE_BUDGET,
   WEEKLY_CHAR_BUDGET,
   WEEKLY_MAX_NOTES,
+  fitsWeeklyBudget,
   summaryNoteBody,
   summaryNoteTitle,
   weeklyFallback,
@@ -61,6 +62,7 @@ import {
 } from "@/lib/notebook/summary";
 import { NEXT_STEP_NOTES, notebookNextSteps } from "@/lib/notebook/next-step";
 import { NOTE_TEMPLATES, bodyWithTemplate } from "@/lib/notebook/templates";
+import { notebookWeeklySummaryTask } from "@/lib/ai/tasks/sm-notebook";
 
 const AT = "2026-11-12T09:00:00.000Z";
 const note = (id: string, date: string, over: Partial<NotebookEntry> = {}): NotebookEntry => ({
@@ -411,6 +413,55 @@ describe("the week read", () => {
     expect(json.length).toBeLessThanOrEqual(WEEKLY_CHAR_BUDGET);
     expect(new TextEncoder().encode(json).length).toBeLessThanOrEqual(WEEKLY_BYTE_BUDGET);
     expect(input.notes[0].body.length).toBeLessThan(WEEKLY_BODY_MAX);
+  });
+
+  it.each([
+    ["Latin", "x"],
+    ["Arabic", "ع"],
+    ["Chinese", "中"],
+    ["emoji", "😀"],
+  ])("fits both budgets with every field of 60 notes at its longest, in %s", (_name, ch) => {
+    const text = (n: number) => ch.repeat(Math.ceil(n / ch.length)).slice(0, n);
+    const full = Array.from({ length: WEEKLY_MAX_NOTES }, (_, i) =>
+      note(`n${i}`, "2026-11-11", {
+        title: text(120),
+        body: text(800),
+        tags: Array.from({ length: 8 }, (_, k) => `${k}${text(39)}`),
+        event: text(40),
+        linkedTool: "impediments",
+        createdAt: `2026-11-11T00:${String(i).padStart(2, "0")}:00.000Z`,
+      })
+    );
+    const input = weeklyInput(full, week)!;
+    const json = JSON.stringify(input);
+    expect(json.length).toBeLessThanOrEqual(WEEKLY_CHAR_BUDGET);
+    expect(new TextEncoder().encode(json).length).toBeLessThanOrEqual(WEEKLY_BYTE_BUDGET);
+    expect(fitsWeeklyBudget(input)).toBe(true);
+    expect(input.notes).toHaveLength(WEEKLY_MAX_NOTES);
+    // Still an input the AI task takes.
+    expect(notebookWeeklySummaryTask.input.safeParse(input).success).toBe(true);
+  });
+
+  it("leaves the oldest notes out as a last resort, keeping the newest", () => {
+    // Control characters are sent escaped, six characters each.
+    const odd = "\u0001".repeat(200);
+    const list60 = Array.from({ length: WEEKLY_MAX_NOTES }, (_, i) =>
+      note(`n${i}`, "2026-11-11", {
+        title: odd,
+        body: `n${i}:${odd}`,
+        tags: [`a${odd.slice(0, 30)}`, `b${odd.slice(0, 30)}`, `c${odd.slice(0, 30)}`],
+        event: odd,
+        createdAt: `2026-11-11T00:${String(i).padStart(2, "0")}:00.000Z`,
+      })
+    );
+    const input = weeklyInput(list60, week)!;
+    expect(fitsWeeklyBudget(input)).toBe(true);
+    expect(input.notes.length).toBeGreaterThan(0);
+    expect(input.notes.length).toBeLessThan(WEEKLY_MAX_NOTES);
+    // Oldest first, and the newest is there; the oldest went.
+    expect(input.notes[input.notes.length - 1].body.startsWith("n59:")).toBe(true);
+    expect(input.notes[0].body.startsWith("n0:")).toBe(false);
+    expect(notebookWeeklySummaryTask.input.safeParse(input).success).toBe(true);
   });
 
   it("reads the week without AI: counts, repeated themes and tools for them", () => {
