@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useId, useState, useRef, useMemo } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { updateSprint } from "@/lib/sprints/store";
@@ -74,6 +74,7 @@ import { OutcomeCard } from "./outcome-card";
 import { GoalConflictBanner, GoalNextStep, GoalScope } from "./goal-scope";
 import { ProductGoalLine, useActiveProductGoal } from "@/components/product-goal/product-goal-line";
 import { objectiveNamesGoal, objectiveServingGoal } from "@/lib/product-goal/model";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -231,11 +232,22 @@ export function SprintGoalClient() {
   // The team's Product Goal, read only: the objective can name the part of it
   // this sprint serves, as text (no field of its own).
   const productGoal = useActiveProductGoal();
+  const objectiveId = useId();
+  const announce = useAnnounce();
   const serveProductGoal = () => {
     if (!productGoal) return;
     const before = freshDoc().businessObjective;
     const next = objectiveServingGoal(before, productGoal);
     if (next !== before) setBusinessObjective(next);
+    // The button goes once the goal is named: the person carries on typing
+    // in the objective, at the end of the line it added.
+    announce("Added a line naming the Product Goal. Say how this sprint moves it.");
+    requestAnimationFrame(() => {
+      const field = document.getElementById(objectiveId);
+      if (!(field instanceof HTMLTextAreaElement)) return;
+      field.focus();
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
   };
   const setGoalStatement = (v: string) =>
     mirrorToSprint(updateDoc((d) => ({ ...d, goal: v.slice(0, GOAL_MAX_CHARS) })));
@@ -743,6 +755,7 @@ export function SprintGoalClient() {
                       )}
                     </ProductGoalLine>
                     <BlurTextarea
+                      id={objectiveId}
                       aria-label="Business objective"
                       placeholder="e.g., Increase user retention by streamlining the onboarding experience..."
                       value={businessObjective}

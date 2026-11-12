@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -141,7 +141,7 @@ describe("the read-only line", () => {
 });
 
 describe("Sprint Goal", () => {
-  it("shows the Product Goal and names it in the objective, as text", () => {
+  it("shows the Product Goal and names it in the objective, as text", async () => {
     wrap(<SprintGoalClient />);
     expect(screen.getByText("Shop owners take payments anywhere")).toBeInTheDocument();
     fireEvent.click(
@@ -151,10 +151,13 @@ describe("Sprint Goal", () => {
     expect(doc?.businessObjective).toBe(
       `${SERVES_PREFIX}: “Shop owners take payments anywhere”. This sprint moves it by: `
     );
-    // Named once: the button goes.
+    // Named once: the button goes, and the person carries on in the objective.
     expect(
       screen.queryByRole("button", { name: "Say which part of it this sprint serves" })
     ).toBeNull();
+    const field = screen.getByLabelText("Business objective") as HTMLTextAreaElement;
+    await waitFor(() => expect(field).toHaveFocus());
+    expect(field.selectionStart).toBe(field.value.length);
   });
 
   it("puts the Product Goal in the export, and leaves an empty goal empty", () => {
