@@ -667,14 +667,23 @@ def _pt_in(x, y, box) -> list[float]:
     return [_pct((x - box[0]) / (box[2] - box[0])), _pct((y - box[1]) / (box[3] - box[1]))]
 
 
-def _sprite(rgba: np.ndarray, k2: float) -> tuple[tuple[int, int, int, int], np.ndarray] | None:
+def _sprite(rgba: np.ndarray, k2: float) -> tuple[tuple[float, float, float, float], np.ndarray] | None:
+    """(the element's box in master pixels, its 2x sprite). The sprite's sides are
+    even, so its 1x rect is exactly half and the atlas never pads it; the box is
+    widened past the drawing (by under 2 / k2 master px of clear) to exactly the
+    sprite's size over k2, so the art fills its element at the same scale both
+    ways, never squeezed or shifted."""
     box = im.mask_bbox(rgba[..., 3] > 0)
     if box is None:
         return None
     x0, y0, x1, y1 = box
-    crop = Image.fromarray(rgba[y0:y1, x0:x1], "RGBA").convert("RGBa")
-    w, h = max(1, round((x1 - x0) * k2)), max(1, round((y1 - y0) * k2))
-    return box, np.array(crop.resize((w, h), Image.LANCZOS).convert("RGBA"))
+    w = 2 * max(1, int(np.ceil((x1 - x0) * k2 / 2)))
+    h = 2 * max(1, int(np.ceil((y1 - y0) * k2 / 2)))
+    bw, bh = w / k2, h / k2
+    pad = int(np.ceil(2 / k2)) + 1  # the widened box may run past the canvas edge
+    src = Image.fromarray(np.pad(rgba, ((pad, pad), (pad, pad), (0, 0))), "RGBA").convert("RGBa")
+    cut = src.resize((w, h), Image.LANCZOS, box=(x0 + pad, y0 + pad, x0 + pad + bw, y0 + pad + bh))
+    return (x0, y0, x0 + bw, y0 + bh), np.array(cut.convert("RGBA"))
 
 
 def manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources, clips) -> tuple[dict, list]:
@@ -771,8 +780,8 @@ def manifest(c, baked, tree, z, pivots, face_out, pupils, pinned, rest, sources,
         rest_id = "open" if slot == "eyes" else "rest"
         choices = [{"id": rest_id, "box": [0, 0, 100, 100], "sprite": None}]
         for st, rgba in f["choices"].items():
-            if add(f"{slot}:{st}", rgba) is not None:
-                cbox = im.mask_bbox(rgba[..., 3] > 0)
+            cbox = add(f"{slot}:{st}", rgba)  # the sprite's own box, as it was cut
+            if cbox is not None:
                 choices.append({"id": st, "box": _box_in(cbox, b), "sprite": f"{slot}:{st}"})
         swaps_out.append(
             {

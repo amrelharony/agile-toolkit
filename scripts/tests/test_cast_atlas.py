@@ -84,6 +84,29 @@ class Pack(unittest.TestCase):
             sh, sw = s.shape[:2]
             np.testing.assert_array_equal(arr[2 * y : 2 * y + sh, 2 * x : 2 * x + sw], s)
 
+    def test_sprites_are_cut_even_so_none_is_squeezed(self):
+        k2 = 2 * spec.BUDGETS["figure_css_px_max"] / spec.TOL["master_height_px"]
+        rng = np.random.default_rng(11)
+        cut = []
+        for _ in range(12):
+            w, h = (int(v) for v in rng.integers(9, 140, 2))  # odd and even drawings
+            x, y = (int(v) for v in rng.integers(0, 300, 2))
+            rgba = np.zeros((480, 480, 4), np.uint8)
+            rgba[y : y + h, x : x + w] = (200, 80, 40, 255)
+            box, s2 = rig._sprite(rgba, k2)
+            sh, sw = s2.shape[:2]
+            self.assertEqual((sw % 2, sh % 2), (0, 0))
+            # The element's box is the sprite at exactly k2, from the drawing's corner.
+            self.assertEqual(box[:2], (x, y))
+            self.assertAlmostEqual((box[2] - box[0]) * k2, sw, places=9)
+            self.assertAlmostEqual((box[3] - box[1]) * k2, sh, places=9)
+            self.assertGreaterEqual(box[2], x + w)
+            self.assertLess(box[2] - (x + w), 2 / k2)
+            cut.append(s2)
+        a2, rects = atlas.compose_atlas(cut)
+        for (rx, ry, rw, rh), s2 in zip(rects, cut):
+            self.assertEqual((2 * rw, 2 * rh), (s2.shape[1], s2.shape[0]))  # nothing padded
+
     def test_webp_names_are_their_sha_and_the_bytes_repeat(self):
         a2, _ = atlas.compose_atlas(sprites())
         a1, _ = atlas.one_x(a2)
