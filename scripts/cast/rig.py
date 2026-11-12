@@ -136,6 +136,40 @@ def lock_to(sheet: np.ndarray, targets: np.ndarray) -> tuple[np.ndarray, list[di
 # ---------- composing ----------
 
 
+def on_top(a: str, b: str, baked: dict, master: np.ndarray) -> str | None:
+    """Which of two placed pieces the master draws on top where they overlap (the
+    one whose colours it shows there), or None when they barely touch."""
+    ov = (baked[a][..., 3] > 127) & (baked[b][..., 3] > 127)
+    if ov.sum() < TOL["z_overlap_min_px"]:
+        return None
+    ys, xs = np.nonzero(ov)
+    ml = im.lab(master[ys, xs, :3].astype(float))
+    da = im.de00(im.lab(baked[a][ys, xs, :3].astype(float)), ml).mean()
+    db = im.de00(im.lab(baked[b][ys, xs, :3].astype(float)), ml).mean()
+    return a if da <= db else b
+
+
+def stack(kids: list[str], baked: dict, master: np.ndarray) -> list[str]:
+    """Sibling pieces bottom to top: each overlapping pair as the master shows it,
+    and where nothing says (they don't touch, or the evidence goes round in a
+    circle), the bigger piece lower, so a small tie or cord sits over a big leg."""
+    area = {k: int((baked[k][..., 3] > 127).sum()) for k in kids}
+    below = {k: set() for k in kids}  # what each must be drawn over
+    for i, a in enumerate(kids):
+        for b in kids[i + 1 :]:
+            top = on_top(a, b, baked, master)
+            if top is not None:
+                below[top].add(b if top == a else a)
+    out: list[str] = []
+    left = list(kids)
+    while left:
+        ready = [k for k in left if below[k] <= set(out)] or left
+        k = max(ready, key=lambda k: (area[k], k))
+        out.append(k)
+        left.remove(k)
+    return out
+
+
 def draw_order(tree: dict, z: dict, root: str) -> list[str]:
     """Part ids back to front: for each part, its children with z < 0 (most
     negative first), its own art, then its children with z > 0."""
@@ -332,23 +366,19 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         over, under = [], []
         for k in kids:
             a, b = baked[k][..., 3] > 127, baked[par][..., 3] > 127
-            ov = a & b
-            tucked = False  # the child under its parent, as the master shows where they overlap
-            if ov.sum() >= 4:
-                ys, xs = np.nonzero(ov)
-                ml = im.lab(master[ys, xs, :3].astype(float))
-                dk = im.de00(im.lab(baked[k][ys, xs, :3].astype(float)), ml).mean()
-                dp = im.de00(im.lab(baked[par][ys, xs, :3].astype(float)), ml).mean()
-                tucked = dk > dp
+            # The child under its parent, as the master shows where they overlap.
+            tucked = on_top(k, par, baked, master) == par  # a tie leaves the child on top
             (under if tucked else over).append(k)
             # The cap is on the piece that tucks under: the child's own, or the parent's
             # (a neck under the head).
             pivots[k] = rg.pivot(a, b) if tucked else rg.pivot(b, a)
             pivots[k]["tucked"] = tucked
-        for n, k in enumerate(sorted(over, key=lambda k: -(baked[k][..., 3] > 127).sum())):
+        # Siblings in the order the master shows them where they overlap.
+        for n, k in enumerate(stack(over, baked, master)):
             z[k] = n + 1
-        for n, k in enumerate(sorted(under, key=lambda k: (baked[k][..., 3] > 127).sum())):
-            z[k] = -(n + 1)
+        under = stack(under, baked, master)
+        for n, k in enumerate(under):
+            z[k] = n - len(under)
     for k, pv in pivots.items():
         par = parent_of(k, present)
         rng = range_for(k)

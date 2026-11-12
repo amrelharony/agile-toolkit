@@ -14,6 +14,7 @@ sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
 import cast_contract as contract  # noqa: E402
+import numpy as np  # noqa: E402
 
 from cast import clips as cast_clips  # noqa: E402
 from cast import rig  # noqa: E402
@@ -92,6 +93,44 @@ class Animated(unittest.TestCase):
             for sid in c["signature"]:
                 self.assertIn(sid, real["clips"], c["id"])
                 self.assertLessEqual(real["clips"][sid]["ms"], real["maxMs"], sid)
+
+
+def flat(box, rgb, size=80):
+    a = np.zeros((size, size, 4), np.uint8)
+    x0, y0, x1, y1 = box
+    a[y0:y1, x0:x1] = (*rgb, 255)
+    return a
+
+
+class Stacking(unittest.TestCase):
+    RED, BLUE, GREEN = (200, 40, 40), (40, 60, 200), (40, 160, 60)
+
+    def test_overlapping_siblings_stack_as_the_master_shows(self):
+        baked = {"leg": flat((10, 10, 60, 60), self.RED), "tie": flat((20, 20, 30, 30), self.BLUE)}
+        # The master draws the big leg over the small tie, against the size rule.
+        master = flat((20, 20, 30, 30), self.BLUE)
+        master[10:60, 10:60] = (*self.RED, 255)
+        self.assertEqual(rig.on_top("tie", "leg", baked, master), "leg")
+        self.assertEqual(rig.stack(["tie", "leg"], baked, master), ["tie", "leg"])
+        # With the tie over the leg, or with nothing to go on, the bigger is lower.
+        master[20:30, 20:30] = (*self.BLUE, 255)
+        self.assertEqual(rig.stack(["tie", "leg"], baked, master), ["leg", "tie"])
+        apart = {"leg": baked["leg"], "badge": flat((65, 65, 75, 75), self.GREEN)}
+        self.assertIsNone(rig.on_top("leg", "badge", apart, master))
+        self.assertEqual(rig.stack(["badge", "leg"], apart, master), ["leg", "badge"])
+
+    def test_three_siblings_keep_every_pair_the_master_shows(self):
+        a, b, c = flat((0, 0, 40, 40), self.RED), flat((30, 0, 70, 40), self.BLUE), flat((15, 30, 55, 70), self.GREEN)
+        baked = {"a": a, "b": b, "c": c}
+        master = np.zeros_like(a)
+        master[0:40, 0:40] = (*self.RED, 255)  # a over b where they meet...
+        master[0:40, 30:70] = (*self.BLUE, 255)
+        master[0:40, 30:40] = (*self.RED, 255)
+        master[30:70, 15:55] = (*self.GREEN, 255)  # ...c over both
+        got = rig.stack(["a", "b", "c"], baked, master)
+        self.assertEqual(sorted(got), ["a", "b", "c"])
+        self.assertEqual(got[-1], "c")
+        self.assertLess(got.index("b"), got.index("a"))
 
 
 class RuntimeChecks(unittest.TestCase):
