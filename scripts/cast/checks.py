@@ -192,8 +192,11 @@ def c9_sheet(img: str, rows: list[dict], named) -> dict:
     edge blends, so only their agreement after the lock counts.) After the lock
     the moved colours must agree: median at most lock_median_max, each at most
     lock_swatch_max. A colour the sheet doesn't hold (far, or its cluster taken by
-    a closer one) stays out of the score."""
+    a closer one) stays out of the score, and so does a cluster under
+    lock_share_min of the sheet's drawing: a few edge blends, or a colour only the
+    sheet has (a face sheet's open mouth) that happens to sit nearest a swatch."""
     st, notes = "pass", []
+    rows = [r for r in rows if r.get("share", 1) >= TOL["lock_share_min"]]
     for r in rows:
         if not named[r["target"]] or not (r["moved"] or r.get("why") == "clamped"):
             continue

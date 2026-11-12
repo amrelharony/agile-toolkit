@@ -179,7 +179,7 @@ def lock(rgba: np.ndarray, targets: np.ndarray) -> tuple[np.ndarray, list[dict]]
         mine = [k for k in range(len(C)) if owner[k] == j]
         k = min(mine, key=lambda k: D[j, k]) if mine else int(np.argmin(D[j]))
         before = float(D[j, k])
-        row = {"target": j, "before": round(before, 2), "after": round(before, 2), "moved": False}
+        row = {"target": j, "before": round(before, 2), "after": round(before, 2), "moved": False, "share": round(float(share[k]), 4)}
         delta = targets[j] - C[k]
         if not mine:
             row["why"] = "taken"  # every cluster near it is nearer another target

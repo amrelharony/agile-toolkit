@@ -59,6 +59,7 @@
     "lock_sigma": 6,
     "lock_median_max": 4,
     "lock_swatch_max": 2.5,
+    "lock_share_min": 0.005,
     "face_scale_search": 0.05,
     "face_rot_search": 3,
     "diff_de00": 8,

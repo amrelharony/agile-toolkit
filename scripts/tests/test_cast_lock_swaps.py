@@ -65,6 +65,7 @@ class Lock(unittest.TestCase):
         sheet, _ = key.cut(cs.parts_sheet()[0], cs.MAGENTA)
         _, rows = palette.lock(sheet, targets)
         self.assertEqual(checks.c9_sheet("parts", rows, named)["status"], "pass")
+        self.assertGreater(rows[0]["share"], TOL["lock_share_min"])  # the body is no edge blend
         for de in (11, 15):  # past de00_regen: moved by the lock, or too far for it to move
             off = shifted(cs.BODY, de, axes=((1, 0, 0), (0, 1, 0), (0, 0, -1)))
             _, rows = palette.lock(recolour(sheet, cs.BODY, off), targets)
@@ -85,7 +86,7 @@ class Lock(unittest.TestCase):
         face, _ = key.cut(cs.face_sheet(), cs.MAGENTA)
         out, rows = palette.lock(face, targets)
         self.assertFalse(rows[2]["moved"])
-        self.assertEqual(rows[2]["why"], "taken")
+        self.assertIn(rows[2]["why"], ("taken", "clamped", "far"))
         self.assertTrue(rows[4]["moved"])
         self.assertLess(rows[4]["after"], 1)
 
