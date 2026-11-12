@@ -133,13 +133,39 @@ describe("buildSystemPrompt voice", () => {
   it("keeps the rules about tools and confirmation", () => {
     const p = buildSystemPrompt();
     expect(p).toMatch(/workspace_sprint_create \(dots become underscores; the runtime resolves/);
-    expect(p).toMatch(/Read actions execute immediately\. Write actions are gated by per-call/);
+    expect(p).toMatch(/Read actions execute immediately\./);
     expect(p).toMatch(/Always reach for an action when one fits/);
     expect(p).toMatch(/Multi-step requests: chain tools/);
     expect(p).toMatch(/Never invent ids or state\. List first, then act\./);
-    expect(p).toMatch(/Echo the planned action\(s\) to the user briefly before invoking/);
+    expect(p).toMatch(/Before a delete or a reset, say briefly what you are about to do/);
     expect(p).toMatch(/denies a confirmation, summarise and offer alternatives/);
     expect(p).toMatch(/up to 10 tool-use round-trips per turn/);
+  });
+});
+
+describe("buildSystemPrompt confirmation lines", () => {
+  // What the chat does (lib/agent/execute-tool): deletes and resets always
+  // ask, even after Approve all; most writes inside a tool run with no card.
+  it("says Amr asks before deleting or resetting anything, even after Approve all", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/You ask before deleting or resetting anything/);
+    expect(p).toMatch(
+      /every delete, remove, reset, clear or archive shows the user a confirmation card/
+    );
+    expect(p).toMatch(/even after they chose not to be asked again/);
+  });
+
+  it("says other changes may run with no card, and to say what changed", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/Other changes inside a tool run straight away with no card/);
+    expect(p).toMatch(/after each one say plainly what you changed/);
+    expect(p).toMatch(/Never promise a card for a change that runs without one/);
+  });
+
+  it("no longer claims every write is confirmed", () => {
+    const p = buildSystemPrompt();
+    expect(p).not.toMatch(/Write actions are gated by per-call user confirmation/);
+    expect(p).not.toMatch(/follow the same confirmation rules/);
   });
 });
 

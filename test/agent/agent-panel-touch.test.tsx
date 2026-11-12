@@ -317,9 +317,11 @@ describe("AgentConversation composer hints", () => {
     render(<AgentConversation />);
     const hint = screen.getByText(/Enter to send · Shift\+Enter for newline/);
     expect(hint).toHaveClass("pointer-coarse:hidden");
-    const note = screen.getByText(/Write actions ask for confirmation/);
+    const note = screen.getByText(/Amr asks before deleting or resetting anything/);
     expect(note).not.toHaveClass("pointer-coarse:hidden");
     expect(note).toContainElement(hint);
+    // The old claim was false: most writes inside a tool run without a card.
+    expect(screen.queryByText(/Write actions ask for confirmation/)).toBeNull();
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus());
   });
 });
