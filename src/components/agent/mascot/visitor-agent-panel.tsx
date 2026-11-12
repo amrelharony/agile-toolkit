@@ -11,7 +11,9 @@
  * The chat lives in memory (useAgentStore) and is never saved. Leaving it, by
  * closing the panel or going back to the tool finder, stops nothing: an
  * answer under way goes on in the store, and the chat shows it when it opens
- * again. Stop and Clear chat stop it. What the visitor has typed but not sent
+ * again. A question still starting (the runtime loading) goes out all the
+ * same, and a chat opened meanwhile waits for it, sending nothing over it.
+ * Stop and Clear chat stop it. What the visitor has typed but not sent
  * stays in the store too (drafts.visitor), so it survives the same trips, and
  * a question asked from the guide while that answer is under way waits there.
  *
@@ -67,6 +69,30 @@ function loadRuntime(): Promise<Runtime> {
   }
   return runtimePromise;
 }
+
+/**
+ * A turn still starting: the runtime is loading, and the turn goes out once it
+ * has (its question reaches the store only then). It lives here, beside the
+ * runtime, not in the chat: the turn outlives the chat, so a chat opened again
+ * while it loads sees it as busy and starts nothing over it. `question` is the
+ * message it will send, or null for Try again and Go on.
+ */
+let startingTurn: { question: string | null } | null = null;
+const startingListeners = new Set<() => void>();
+
+function setStartingTurn(next: { question: string | null } | null) {
+  startingTurn = next;
+  startingListeners.forEach((listener) => listener());
+}
+
+function subscribeStartingTurn(listener: () => void): () => void {
+  startingListeners.add(listener);
+  return () => {
+    startingListeners.delete(listener);
+  };
+}
+
+const turnStarting = () => startingTurn !== null;
 
 /** The current time, refreshed every `ms`. */
 function useNow(ms: number): Date {
@@ -128,7 +154,8 @@ export default function VisitorAgentPanel({
   const notice = useAgentStore((s) => s.notice);
   const quota = useAgentStore((s) => s.visitorQuota);
   const input = useAgentStore((s) => s.drafts.visitor);
-  const [loading, setLoading] = useState(false);
+  // A turn this chat or an earlier one started, its runtime still loading.
+  const loading = useSyncExternalStore(subscribeStartingTurn, turnStarting, () => false);
   const pathname = usePathname();
   const now = useNow(CLOCK_TICK_MS);
   // In a visitor live room Amr gets no tools; the footer says so.
@@ -138,27 +165,32 @@ export default function VisitorAgentPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const sentInitialRef = useRef(false);
-  const sendingRef = useRef(false);
 
   /**
    * Load the runtime (once) and start a turn with it. `typed` is the text the
    * visitor typed for it, put back in the box if the runtime can't load and
-   * the box is still empty: nothing was sent.
+   * the box is still empty: nothing was sent. `question` is the message the
+   * turn sends (null for Try again and Go on).
    */
-  const startTurn = async (start: (runtime: Runtime) => unknown, typed: string | null) => {
-    if (sendingRef.current || useAgentStore.getState().streaming) return;
-    sendingRef.current = true;
-    setLoading(true);
+  const startTurn = async (
+    start: (runtime: Runtime) => unknown,
+    typed: string | null,
+    question: string | null
+  ) => {
+    // One turn at a time, across chats: a turn still starting counts as busy.
+    if (startingTurn || useAgentStore.getState().streaming) return;
+    setStartingTurn({ question });
     try {
       const runtime = await loadRuntime();
-      // A turn outlives the chat: one asked as the panel closed still goes out.
+      // A turn outlives the chat: one asked as the panel closed still goes
+      // out. It marks the store streaming before this returns, so the chat is
+      // never idle between the two.
       void start(runtime);
     } catch {
       if (typed && !useAgentStore.getState().drafts.visitor) setDraft(typed);
       useAgentStore.getState().setError(VISITOR_RUNTIME_LOAD_ERROR);
     } finally {
-      sendingRef.current = false;
-      setLoading(false);
+      setStartingTurn(null);
     }
   };
 
@@ -168,13 +200,15 @@ export default function VisitorAgentPanel({
    */
   const send = async (raw: string, fromBox: boolean) => {
     const text = raw.trim().slice(0, VISITOR_LIMITS.userChars);
-    if (!text || sendingRef.current || useAgentStore.getState().streaming) return;
+    // Busy first, so a draft is never wiped while another turn starts.
+    if (!text || startingTurn || useAgentStore.getState().streaming) return;
     if (fromBox) setDraft("");
     // Mascot commands (/dance, /mascot-aura, /play) run locally, never through the AI.
     if (handleMascotCommand(text)) return;
     await startTurn(
       (runtime) => runtime.sendVisitorMessage(text, { toolId: toolIdForPath(pathname) }),
-      fromBox ? raw : null
+      fromBox ? raw : null,
+      text
     );
   };
 
@@ -184,12 +218,17 @@ export default function VisitorAgentPanel({
     composerRef.current?.focus();
     void startTurn(
       (runtime) => runtime.retryVisitorTurn({ toolId: toolIdForPath(pathname) }),
+      null,
       null
     );
   };
   const goOn = () => {
     composerRef.current?.focus();
-    void startTurn((runtime) => runtime.visitorGoOn({ toolId: toolIdForPath(pathname) }), null);
+    void startTurn(
+      (runtime) => runtime.visitorGoOn({ toolId: toolIdForPath(pathname) }),
+      null,
+      null
+    );
   };
 
   // The message box takes focus on mount, and again when the chat comes back
@@ -203,13 +242,16 @@ export default function VisitorAgentPanel({
   useEffect(() => {
     if (sentInitialRef.current || !initialQuestion) return;
     sentInitialRef.current = true;
-    // A turn that outlived the chat is still under way: the new question
-    // waits in the box (nothing was sent, nothing spent) instead of being
-    // dropped, after anything already typed there. Send it once Amr is done.
-    if (useAgentStore.getState().streaming || sendingRef.current) {
+    // A turn that outlived the chat is still under way, or still starting (its
+    // runtime loading): the new question waits in the box (nothing was sent,
+    // nothing spent) instead of being dropped, after anything already typed
+    // there. Send it once Amr is done. The very question still starting goes
+    // out with that turn, so it doesn't wait in the box as well.
+    const pending = startingTurn;
+    if (useAgentStore.getState().streaming || pending) {
       const q = initialQuestion.trim().slice(0, VISITOR_LIMITS.userChars);
       const draft = useAgentStore.getState().drafts.visitor;
-      if (q && !draft.includes(q)) {
+      if (q && q !== pending?.question && !draft.includes(q)) {
         setDraft(
           draft.trim() ? `${draft.trimEnd()}\n\n${q}`.slice(0, VISITOR_LIMITS.userChars) : q
         );
