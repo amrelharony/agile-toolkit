@@ -43,7 +43,10 @@ export interface AiTaskDef<I = unknown, O = unknown> {
   fallback(input: I): O;
   /** A realistic input: the contract test, the golden test and the probe use it. */
   sample: I;
-  /** Only the signed-in owner may run it (the visitor route refuses it). */
+  /**
+   * Only the signed-in owner may run it: the visitor route refuses it, and
+   * useToolAi / <AiButton> hide it from visitors (no consent card).
+   */
   ownerOnly?: boolean;
 }
 

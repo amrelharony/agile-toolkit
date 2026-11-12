@@ -108,6 +108,16 @@ describe("the owner", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("can run an owner-only task", async () => {
+    const ownerOnlyTask = { ...suggestOptionsTask, ownerOnly: true };
+    const { result } = renderHook(() => useToolAi(ownerOnlyTask));
+    expect(result.current).toMatchObject({ available: true, path: "owner", reason: null });
+    await act(async () => {
+      await result.current.run(INPUT);
+    });
+    expect((fetchMock.mock.calls[0] as [string])[0]).toBe("/api/ai/tool");
+  });
+
   it("can still ask while hosting a live room", async () => {
     const leave = enterLiveVisitorRoom();
     try {
@@ -225,6 +235,22 @@ describe("a visitor", () => {
     } finally {
       leave();
     }
+  });
+
+  it("gets no owner-only task: no consent card and nothing sent", async () => {
+    window.localStorage.removeItem(VISITOR_AI_CONSENT_KEY);
+    const ownerOnlyTask = { ...suggestOptionsTask, ownerOnly: true };
+    const { result } = renderHook(() => useToolAi(ownerOnlyTask));
+    expect(result.current).toMatchObject({ available: false, reason: "owner_only", path: null });
+    expect(result.current.reasonText).toBe(TOOL_AI_UNAVAILABLE_TEXT.owner_only);
+    let out: unknown;
+    await act(async () => {
+      out = await result.current.run(INPUT);
+    });
+    expect(out).toEqual({ status: "unavailable", reason: "owner_only" });
+    expect(result.current.status).toBe("idle");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(VISITOR_AI_CONSENT_KEY)).toBeNull();
   });
 
   it("waits while sign-in is still settling", () => {

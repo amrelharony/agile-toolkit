@@ -16,6 +16,8 @@
  *     the agreement, `run` sends nothing and answers `needs_consent`; the
  *     caller shows <AiConsentCompact> and calls `agree()`, which stores the
  *     agreement and runs the waiting input.
+ *   - A task marked ownerOnly never takes the visitor path: a visitor gets
+ *     `available: false`, reason "owner_only", and no consent card.
  *   - While a live room is open in this browser (inLiveVisitorRoom), visitors
  *     get `available: false`, reason "live_room": the people in a room agreed
  *     to the room's notice, not to an AI reading their words. The owner, as
@@ -48,14 +50,17 @@ export type ToolAiStatus = "idle" | "running" | "done" | "error" | "needs_consen
 
 /**
  * Why AI can't run here: auth is still settling ("loading"), visitor AI is
- * off in this build ("off": hide the button), or a live room is open
- * ("live_room": say why).
+ * off in this build ("off": hide the button), the task is the owner's only
+ * ("owner_only": hide the button too, so a visitor is never asked to agree
+ * to something they can't use), or a live room is open ("live_room": say
+ * why).
  */
-export type ToolAiUnavailableReason = "loading" | "off" | "live_room";
+export type ToolAiUnavailableReason = "loading" | "off" | "owner_only" | "live_room";
 
 export const TOOL_AI_UNAVAILABLE_TEXT: Record<ToolAiUnavailableReason, string> = {
   loading: "Amr's AI is getting ready.",
   off: "Amr's AI isn't switched on here. The tool works fully without it.",
+  owner_only: "This AI help is only for the site's owner. The tool works fully without it.",
   live_room:
     "Amr's AI is off while a live room is open, so nothing from the room goes to an AI. The tool still works without it.",
 };
@@ -111,10 +116,13 @@ export interface UseToolAi<I, O> {
 function decide(
   isOwner: boolean,
   visitor: boolean,
-  inLiveRoom: boolean
+  inLiveRoom: boolean,
+  ownerOnly: boolean
 ): { path: "owner" | "visitor" | null; reason: ToolAiUnavailableReason | null } {
   if (isOwner) return { path: "owner", reason: null };
   if (!visitor) return { path: null, reason: "loading" };
+  // The visitor route refuses it every time: never ask for consent to it.
+  if (ownerOnly) return { path: null, reason: "owner_only" };
   if (!visitorAiEnabled()) return { path: null, reason: "off" };
   if (inLiveRoom) return { path: null, reason: "live_room" };
   return { path: "visitor", reason: null };
@@ -123,7 +131,7 @@ function decide(
 export function useToolAi<I, O>(task: AiTaskDef<I, O>): UseToolAi<I, O> {
   const { isOwner, visitor } = useOwnerState();
   const inLiveRoom = useSyncExternalStore(subscribeLiveVisitorRoom, inLiveVisitorRoom, () => false);
-  const { path, reason } = decide(isOwner, visitor, inLiveRoom);
+  const { path, reason } = decide(isOwner, visitor, inLiveRoom, task.ownerOnly === true);
 
   const [status, setStatus] = useState<ToolAiStatus>("idle");
   const [data, setData] = useState<O | null>(null);

@@ -7,9 +7,9 @@
  * they want and the tool's own store (with Undo) does the writing.
  *
  * It takes care of:
- *   - who may ask (the owner, or a visitor with visitor AI on), and saying why
- *     not when AI can't run here (a tooltip, and a line under the button
- *     when it is pressed);
+ *   - who may ask (the owner, or a visitor with visitor AI on; an ownerOnly
+ *     task is hidden from visitors), and saying why not when AI can't run
+ *     here (a tooltip, and a line under the button when it is pressed);
  *   - a visitor's first use: the compact consent card, then the run;
  *   - the running state, with Stop;
  *   - errors in plain words, with the task's answer without AI on offer.
@@ -41,8 +41,9 @@ export interface AiButtonProps<I, O> {
   /** Default "Ask Amr". */
   label?: string;
   /**
-   * When AI can't run here (off, or a live room is open), show the button with
-   * this label and answer with the fallback instead of hiding it.
+   * When AI can't run here (off, an owner-only task for a visitor, or a live
+   * room is open), show the button with this label and answer with the
+   * fallback instead of hiding it.
    */
   fallbackLabel?: string;
   /** The tool's own reason the button can't be used yet (nothing to ask about). */
@@ -130,8 +131,13 @@ export function AiButton<I, O>({
     finish(await ai.run(value));
   }, [ai, input, disabledReason, fallbackLabel, answerWithFallback, finish]);
 
-  // Visitor AI off in this build, or auth still settling: nothing to offer.
-  if (ai.reason === "loading" || (ai.reason === "off" && !fallbackLabel)) return null;
+  // Auth still settling, visitor AI off in this build, or an owner-only task
+  // for a visitor: nothing to offer (unless the fallback stands in).
+  if (
+    ai.reason === "loading" ||
+    ((ai.reason === "off" || ai.reason === "owner_only") && !fallbackLabel)
+  )
+    return null;
 
   const running = ai.status === "running";
   const unavailable = !ai.available && !fallbackLabel;

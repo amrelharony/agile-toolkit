@@ -129,6 +129,39 @@ describe("AiButton", () => {
     }
   });
 
+  it("is hidden from a visitor for an owner-only task: no consent card, nothing sent", () => {
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+    render(
+      <AiButton
+        task={{ ...suggestOptionsTask, ownerOnly: true }}
+        input={{ question: QUESTION }}
+        onResult={vi.fn()}
+      />
+    );
+    expect(screen.queryByTestId("ai-button")).toBeNull();
+    expect(screen.queryByTestId("ai-consent-compact")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("answers an owner-only task with the fallback for a visitor when a fallback label is given", () => {
+    const onResult = vi.fn();
+    render(
+      <AiButton
+        task={{ ...suggestOptionsTask, ownerOnly: true }}
+        input={{ question: QUESTION }}
+        onResult={onResult}
+        fallbackLabel="Suggest options"
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Suggest options" }));
+    expect(onResult).toHaveBeenCalledWith(
+      { options: fallbackOptions(QUESTION) },
+      { source: "fallback" }
+    );
+    expect(screen.queryByTestId("ai-consent-compact")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("lets the owner ask without a consent card", async () => {
     h.auth = { status: "authenticated", user: { id: "owner-1" } };
     const onResult = ask();
