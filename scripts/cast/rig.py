@@ -80,6 +80,10 @@ def socket_of(pid: str) -> str | None:
     for k in ("arm-r", "arm-l", "leg-r", "leg-l", "ear-r", "ear-l"):
         if pid == k:
             return k
+    side = re.fullmatch(r"(?:leg-[fh]|limb-mid-)([rl])", pid)
+    if side:
+        # A front, hind or middle leg is a leg like the hind pair: it turns at its side's hip.
+        return "leg-" + side.group(1)
     if pid.startswith(("limb-", "tentacle-")):
         return "limb-" + pid.split("-")[-1] if pid.split("-")[-1].isdigit() else None
     for k in ("fan", "flap", "quills", "load", "collar"):

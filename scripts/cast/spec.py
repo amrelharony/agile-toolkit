@@ -170,12 +170,13 @@ def signature_problem(sig, cid: str | None = None) -> str | None:
 
 
 def range_for(part_id: str) -> int:
-    """The joint range in degrees a part may turn (0 = it never turns)."""
+    """The joint range in degrees a part may turn (0 = it never turns). A middle
+    leg is a leg, turned at the hip with the hind pair (rig.socket_of)."""
     base = re.sub(r"-(r|l|\d+|f[rl]|h[rl]|mid-[rl]|open|closed)$", "", part_id)
     if base.startswith("leg"):
         base = "leg"
     if part_id.startswith("limb"):
-        base = "limb"
+        base = "leg" if part_id.startswith("limb-mid-") else "limb"
     if part_id.startswith("fan"):
         base = "fan"
     return int(RANGES.get(base, 0))

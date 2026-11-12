@@ -84,7 +84,8 @@ class Tolerances(unittest.TestCase):
         self.assertEqual(spec.range_for("arm-r"), SPEC["ranges"]["arm"])
         self.assertEqual(spec.range_for("leg-hl"), SPEC["ranges"]["leg"])
         self.assertEqual(spec.range_for("tentacle-3"), SPEC["ranges"]["tentacle"])
-        self.assertEqual(spec.range_for("limb-mid-r"), SPEC["ranges"]["limb"])
+        self.assertEqual(spec.range_for("limb-mid-r"), SPEC["ranges"]["leg"])
+        self.assertEqual(spec.range_for("limb-3"), SPEC["ranges"]["limb"])
         self.assertEqual(spec.range_for("pupil-r"), 0)
         self.assertEqual(spec.PACK, SPEC["pack"])
 
@@ -200,6 +201,22 @@ class TapMovesAndRenderSettings(unittest.TestCase):
                 if sock:
                     self.assertLessEqual(spec.range_for(pid), contract.turn_limit(sock), (c["id"], pid))
         self.assertGreater(spec.range_for("load"), 0)  # sig.load turns it, so C7 sweeps it
+
+    def test_every_part_that_turns_has_a_socket_a_clip_can_turn(self):
+        # rig-types.ts: a part's range is the most it turns, and life turns only what
+        # carries a socket. A range on a part no clip can reach would be a joint C7
+        # sweeps for nothing: a middle, front or hind leg turns at its side's hip.
+        from cast import rig
+
+        for c in SPEC["characters"]:
+            for pid in [*c["parts"], *(c.get("parts2") or [])]:
+                if spec.range_for(pid):
+                    self.assertIsNotNone(rig.socket_of(pid), (c["id"], pid))
+        for pid, hip in (("limb-mid-r", "leg-r"), ("limb-mid-l", "leg-l"), ("leg-fr", "leg-r"), ("leg-hl", "leg-l")):
+            self.assertEqual(rig.socket_of(pid), hip, pid)
+            self.assertEqual(spec.range_for(pid), SPEC["ranges"]["leg"], pid)
+        self.assertEqual(rig.socket_of("limb-4"), "limb-4")
+        self.assertEqual(rig.socket_of("tentacle-7"), "limb-7")
 
 
 class BriefAgreement(unittest.TestCase):

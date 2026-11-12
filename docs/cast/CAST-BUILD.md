@@ -39,7 +39,7 @@ On 2026-11-02 the owner rejected a sliced and rotated arm rig as "it looks malfo
 - **Code turns joints only a little:**
   - head ±10°;
   - an arm ±15° at the shoulder;
-  - hip ±10°;
+  - hip ±10° (every leg on a side, its front, middle and hind legs too);
   - tail ±15°;
   - ears ±12°;
   - tie ±8°;
