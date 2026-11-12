@@ -47,23 +47,54 @@ const WALL: WallSession = {
   sent: [],
 };
 
-function fakeRoom(over: Partial<LiveWallControl> = {}): LiveWallControl {
+type Status = ReturnType<LiveWallControl["status"]>;
+
+/** A live wall that follows the kit's rules: scored rounds stay closed, scoring only moves on. */
+function fakeRoom(
+  over: Partial<LiveWallControl> = {},
+  start: Partial<Status> = {},
+  { crowd = false } = {}
+): LiveWallControl & { state: Status } {
+  const state: Status = {
+    prompt: "Questions?",
+    open: true,
+    mode: "live",
+    posts: 4,
+    shown: true,
+    hands: 2,
+    people: 6,
+    scoring: null,
+    kind: crowd ? "crowd" : "questions",
+    unsaved: false,
+    ...start,
+  };
   return {
-    status: () => ({
-      prompt: "Questions?",
-      open: true,
-      mode: "live",
-      posts: 4,
-      shown: true,
-      hands: 2,
-      people: 6,
-      scoring: null,
-      kind: "questions",
+    state,
+    status: () => ({ ...state }),
+    openRound: vi.fn((prompt: string, mode: "live" | "hidden") => {
+      Object.assign(state, { prompt, mode, open: true, posts: 0, shown: mode === "live" });
+      Object.assign(state, { scoring: null, unsaved: false });
+      return true;
     }),
-    openRound: vi.fn(() => true),
-    setOpen: vi.fn(),
-    reveal: vi.fn(),
-    lowerAllHands: vi.fn(),
+    setOpen: vi.fn((open: boolean) => {
+      if (open && state.scoring) return;
+      state.open = open;
+    }),
+    reveal: vi.fn(() => {
+      state.shown = true;
+    }),
+    lowerAllHands: vi.fn(() => {
+      state.hands = 0;
+    }),
+    ...(crowd
+      ? {
+          setScoring: vi.fn((phase: "open" | "shown") => {
+            if (phase === "open" && state.scoring === null) {
+              Object.assign(state, { scoring: "open", open: false, shown: true });
+            } else if (phase === "shown" && state.scoring === "open") state.scoring = "shown";
+          }),
+        }
+      : {}),
     ...over,
   };
 }
@@ -196,11 +227,63 @@ describe("the live wall", () => {
   });
 
   it("starts and shows a 25/10 scoring", async () => {
-    const setScoring = vi.fn();
-    const off = registerLiveWall(fakeRoom({ setScoring }));
-    await run("scoring", { phase: "open" });
-    await run("scoring", { phase: "shown" });
-    expect(setScoring.mock.calls).toEqual([["open"], ["shown"]]);
+    const room = fakeRoom({}, {}, { crowd: true });
+    const off = registerLiveWall(room);
+    expect(await run("scoring", { phase: "open" })).toMatchObject({ ok: true, scoring: "open" });
+    expect(await run("scoring", { phase: "shown" })).toMatchObject({ ok: true, scoring: "shown" });
+    expect((room.setScoring as ReturnType<typeof vi.fn>).mock.calls).toEqual([["open"], ["shown"]]);
+    // Forward only, and said so.
+    expect(await run("scoring", { phase: "open" })).toMatchObject({
+      ok: false,
+      error: "already_shown",
+    });
+    off();
+  });
+
+  it("won't start the scoring on fewer than two posts, or show totals before it", async () => {
+    const room = fakeRoom({}, { posts: 1 }, { crowd: true });
+    const off = registerLiveWall(room);
+    expect(await run("scoring", { phase: "shown" })).toMatchObject({
+      ok: false,
+      error: "scoring_not_started",
+    });
+    expect(await run("scoring", { phase: "open" })).toMatchObject({
+      ok: false,
+      error: "needs_two_posts",
+    });
+    expect(room.setScoring).not.toHaveBeenCalled();
+    // The round still takes posts.
+    expect(room.state).toMatchObject({ open: true, scoring: null });
+    off();
+  });
+
+  it("says when the room didn't take a move: no taking posts again while scoring", async () => {
+    const room = fakeRoom({}, { scoring: "open", open: false }, { crowd: true });
+    const off = registerLiveWall(room);
+    expect(await run("set_open", { open: true })).toMatchObject({
+      ok: false,
+      error: "scoring",
+      open: false,
+    });
+    expect(await run("set_open", { open: false })).toMatchObject({ ok: true, open: false });
+    off();
+  });
+
+  it("won't clear a round whose posts aren't saved, unless told to discard them", async () => {
+    const room = fakeRoom({}, { unsaved: true, posts: 7 });
+    const off = registerLiveWall(room);
+    expect(await run("open_round", { prompt: "Next question?" })).toMatchObject({
+      ok: false,
+      error: "unsaved_round",
+      posts: 7,
+    });
+    expect(room.openRound).not.toHaveBeenCalled();
+    expect(room.state.prompt).toBe("Questions?");
+    expect(await run("open_round", { prompt: "Next question?", discard: true })).toMatchObject({
+      ok: true,
+      prompt: "Next question?",
+    });
+    expect(room.openRound).toHaveBeenCalledWith("Next question?", "hidden");
     off();
   });
 

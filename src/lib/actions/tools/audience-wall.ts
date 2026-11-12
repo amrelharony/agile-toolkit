@@ -21,7 +21,9 @@
  *
  * The room verbs reach other people's screens, so they're closed to
  * visitors (`visitor: false`), and they hand out counts only: no post a
- * participant wrote reaches Amr's chat from a live room. Over MCP there is
+ * participant wrote reaches Amr's chat from a live room. Each says when the
+ * room didn't take the move (`ok: false` with why), and open_round won't
+ * clear a round whose posts aren't saved unless asked to. Over MCP there is
  * no page, so they answer "browser_only".
  */
 
@@ -266,17 +268,30 @@ registry.register({
   category: "write",
   visitor: false,
   description:
-    'Audience Wall: put a new prompt on the live wall. The round before goes, unsaved, so save it on the page first. mode "hidden" (default) keeps posts hidden until the host reveals them; "live" shows them as they arrive.',
+    'Audience Wall: put a new prompt on the live wall. A new round clears the one before, so it refuses ("unsaved_round") while that round holds posts not yet saved or still hidden: ask the host to save it on the page first, and pass discard true only when they say to throw those posts away. mode "hidden" (default) keeps posts hidden until the host reveals them; "live" shows them as they arrive.',
   paramsSchema: z.object({
     prompt: z.string().trim().min(1).max(WALL_PROMPT_MAX),
     mode: z.enum(["hidden", "live"]).optional(),
+    discard: z
+      .boolean()
+      .optional()
+      .describe("True only when the host said to throw away the current round's unsaved posts."),
   }),
   handler: async (params): Promise<Answer> =>
-    withRoom((room) =>
-      room.openRound(params.prompt, params.mode ?? "hidden")
+    withRoom((room) => {
+      const before = room.status();
+      if (before.unsaved && params.discard !== true) {
+        return {
+          ok: false as const,
+          error: "unsaved_round" as const,
+          posts: before.posts,
+          hint: "Save the round on the page first, or pass discard: true if the host wants it gone.",
+        };
+      }
+      return room.openRound(params.prompt, params.mode ?? "hidden")
         ? { ok: true as const, ...room.status() }
-        : { ok: false as const, error: "not_ready" as const }
-    ),
+        : { ok: false as const, error: "not_ready" as const };
+    }),
   mcpHandler: async (): Promise<Answer> => BROWSER_ONLY,
 });
 
@@ -292,8 +307,19 @@ registry.register({
   paramsSchema: z.object({ open: z.boolean() }),
   handler: async (params): Promise<Answer> =>
     withRoom((room) => {
+      const before = room.status();
+      if (!before.prompt) return { ok: false as const, error: "no_round" as const };
       room.setOpen(params.open);
-      return { ok: true as const, ...room.status() };
+      const after = room.status();
+      if (after.open !== params.open) {
+        // A 25/10 round being scored keeps its posts as they are.
+        return {
+          ok: false as const,
+          error: after.scoring ? ("scoring" as const) : ("refused" as const),
+          ...after,
+        };
+      }
+      return { ok: true as const, ...after };
     }),
   mcpHandler: async (): Promise<Answer> => BROWSER_ONLY,
 });
@@ -309,8 +335,12 @@ registry.register({
   paramsSchema: z.object({}),
   handler: async (): Promise<Answer> =>
     withRoom((room) => {
+      if (!room.status().prompt) return { ok: false as const, error: "no_round" as const };
       room.reveal();
-      return { ok: true as const, ...room.status() };
+      const after = room.status();
+      return after.shown
+        ? { ok: true as const, ...after }
+        : { ok: false as const, error: "refused" as const, ...after };
     }),
   mcpHandler: async (): Promise<Answer> => BROWSER_ONLY,
 });
@@ -340,13 +370,30 @@ registry.register({
   category: "write",
   visitor: false,
   description:
-    'Audience Wall, 25/10 walls only: phase "open" starts the scoring (no new posts; each person scores five posts 1 to 5), "shown" shows the totals and the top ten. Forward only.',
+    'Audience Wall, 25/10 walls only: phase "open" starts the scoring (no new posts, for good; each person scores five posts 1 to 5; it needs two posts or more), "shown" shows the totals and the top ten. Forward only.',
   paramsSchema: z.object({ phase: z.enum(["open", "shown"]) }),
   handler: async (params): Promise<Answer> =>
     withRoom((room) => {
       if (!room.setScoring) return { ok: false as const, error: "not_a_25_10_wall" as const };
+      const before = room.status();
+      if (!before.prompt) return { ok: false as const, error: "no_round" as const };
+      if (before.scoring === params.phase) return { ok: true as const, ...before };
+      if (params.phase === "open") {
+        if (before.scoring === "shown") {
+          return { ok: false as const, error: "already_shown" as const, ...before };
+        }
+        // Scoring closes the posts for good: it needs something to score.
+        if (before.posts < 2) {
+          return { ok: false as const, error: "needs_two_posts" as const, ...before };
+        }
+      } else if (before.scoring === null) {
+        return { ok: false as const, error: "scoring_not_started" as const, ...before };
+      }
       room.setScoring(params.phase);
-      return { ok: true as const, ...room.status() };
+      const after = room.status();
+      return after.scoring === params.phase
+        ? { ok: true as const, ...after }
+        : { ok: false as const, error: "refused" as const, ...after };
     }),
   mcpHandler: async (): Promise<Answer> => BROWSER_ONLY,
 });
