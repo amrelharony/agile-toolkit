@@ -34,7 +34,7 @@
 const PROMPT_DANGEROUS_CHARS = new RegExp(
   "[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F" +
     "\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\uFEFF]",
-  "g",
+  "g"
 );
 
 // Whitespace-tolerant tag matcher: HTML-tolerant LLMs treat
@@ -43,13 +43,27 @@ const PROMPT_DANGEROUS_CHARS = new RegExp(
 // forms intact so a determined injector could close the wrapper.
 const USER_CONTENT_TAG = /<\s*\/?\s*user_content\s*\/?\s*>/gi;
 
+/**
+ * Remove every `<user_content>` tag, however it was hidden. Two tricks
+ * would otherwise turn the removal itself into a real tag:
+ *   - an invisible character inside the tag (`</user_` + U+200B +
+ *     `content>`) hides it from the tag pattern until the invisible
+ *     characters are stripped, so they go first;
+ *   - a tag inside a tag (`</user_</user_content>content>`) closes up
+ *     into a real one when the inner tag goes, so the removal repeats
+ *     until nothing changes.
+ */
+function stripUserContentTags(s: string): string {
+  let out = s.replace(PROMPT_DANGEROUS_CHARS, "");
+  for (let prev = ""; prev !== out; ) {
+    prev = out;
+    out = out.replace(USER_CONTENT_TAG, "");
+  }
+  return out;
+}
+
 export function sanitizePromptCell(s: string, maxLen = 140): string {
-  return s
-    .replace(/\n+/g, " ")
-    .replace(/`/g, "'")
-    .replace(USER_CONTENT_TAG, "")
-    .replace(PROMPT_DANGEROUS_CHARS, "")
-    .slice(0, maxLen);
+  return stripUserContentTags(s.replace(/\n+/g, " ").replace(/`/g, "'")).slice(0, maxLen);
 }
 
 /**
@@ -58,11 +72,7 @@ export function sanitizePromptCell(s: string, maxLen = 140): string {
  * single table cell.
  */
 export function sanitizePromptBlock(s: string, maxLen = 4000): string {
-  return s
-    .replace(/`/g, "'")
-    .replace(USER_CONTENT_TAG, "")
-    .replace(PROMPT_DANGEROUS_CHARS, "")
-    .slice(0, maxLen);
+  return stripUserContentTags(s.replace(/`/g, "'")).slice(0, maxLen);
 }
 
 /** The guardrail prefix paired with `<user_content>` delimiters. */
@@ -89,19 +99,14 @@ export function wrapUserContent(sample: string, inline = false): string {
  * derailed by backticks or `<user_content>` literals pasted into a
  * field.
  */
-export function formatTable(
-  headers: string[],
-  rows: (string | number)[][]
-): string {
+export function formatTable(headers: string[], rows: (string | number)[][]): string {
   const hdr = `| ${headers.map((h) => h.replace(/\|/g, "\\|")).join(" | ")} |`;
   const sep = `| ${headers.map(() => "---").join(" | ")} |`;
   const esc = (v: string | number) => {
     const raw = typeof v === "string" ? sanitizePromptCell(v) : String(v);
     return raw.replace(/\|/g, "\\|");
   };
-  const body = rows
-    .map((r) => `| ${r.map((c) => esc(c)).join(" | ")} |`)
-    .join("\n");
+  const body = rows.map((r) => `| ${r.map((c) => esc(c)).join(" | ")} |`).join("\n");
   return `${hdr}\n${sep}\n${body}`;
 }
 
