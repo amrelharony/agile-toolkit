@@ -30,7 +30,7 @@ import { CommentPins } from "./comment-pins";
 import { clusterObjects } from "@/lib/whiteboard/cluster-bridge";
 import { boardInsights } from "@/lib/analytics/board-insights";
 import { useCanvasRoom } from "@/lib/whiteboard/use-canvas-room";
-import { pickRandomSticky, randomStickyPool } from "@/lib/whiteboard/random-sticky";
+import { pickPoolFor, pickRandomSticky, type StickyPick } from "@/lib/whiteboard/random-sticky";
 import { useCanvasPresence } from "@/lib/whiteboard/use-canvas-presence";
 import { CursorOverlay } from "./cursor-overlay";
 import {
@@ -1089,19 +1089,26 @@ export function WhiteboardCanvas({
     [selection, objectsById]
   );
 
-  // "Pick a random sticky" from 2+ selected stickies or a selected frame's.
+  // "Pick a random sticky" from 2+ selected stickies or a selected frame's;
+  // right after a pick, again from the same pool (the button stays put).
+  const [lastStickyPick, setLastStickyPick] = useState<StickyPick | null>(null);
   const randomStickies = useMemo(
     () =>
-      randomStickyPool(
+      pickPoolFor(
         selection.map((id) => objectsById.get(id)).filter((o): o is WhiteboardObject => !!o),
-        objects
+        objects,
+        lastStickyPick
       ),
-    [selection, objectsById, objects]
+    [selection, objectsById, objects, lastStickyPick]
   );
   const onPickRandomSticky = useCallback(() => {
-    const id = pickRandomSticky(randomStickies);
-    if (id) setSelection([id]);
-  }, [randomStickies, setSelection]);
+    // Picking again moves on from the sticky just picked.
+    const again = selection.length === 1 && selection[0] === lastStickyPick?.picked;
+    const id = pickRandomSticky(randomStickies, undefined, again ? selection[0] : null);
+    if (!id) return;
+    setLastStickyPick({ pool: randomStickies.map((s) => s.id), picked: id });
+    setSelection([id]);
+  }, [randomStickies, selection, lastStickyPick, setSelection]);
 
   const { onAlign, onDistribute } = useAlignDistribute({
     selection,

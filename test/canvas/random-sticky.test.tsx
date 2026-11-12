@@ -1,9 +1,20 @@
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { frameFixture, shapeFixture, stickyFixture } from "./object-fixtures";
-import { pickRandomSticky, randomStickyPool } from "@/lib/whiteboard/random-sticky";
+import { pickPoolFor, pickRandomSticky, randomStickyPool } from "@/lib/whiteboard/random-sticky";
 import { PropertyPanel } from "@/app/(tools)/canvas/components/property-panel";
 import { createRng } from "@/lib/utils/random";
+
+vi.mock("@/lib/auth/auth-provider", () => ({
+  useAuthOptional: () => ({ status: "anonymous", user: null }),
+}));
+vi.mock("@/lib/utils/toast", () => ({
+  toast: Object.assign(vi.fn(), { info: vi.fn(), error: vi.fn(), dismiss: vi.fn() }),
+}));
+
+import { WhiteboardCanvas } from "@/app/(tools)/canvas/components/whiteboard-canvas";
+import { useCanvasStore } from "@/app/(tools)/canvas/use-canvas-store";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 /**
  * Canvas's "Pick a random sticky" (Picker's add-on, kept small: Canvas is a
@@ -41,6 +52,17 @@ describe("randomStickyPool", () => {
     for (const id of ["a", "b", "c"]) expect(counts.get(id)!).toBeGreaterThan(240);
     expect(pickRandomSticky([])).toBeNull();
   });
+
+  it("picks again from the same pool while the last pick is the selection, moving on", () => {
+    const last = { pool: ["a", "b"], picked: "a" };
+    expect(pickPoolFor([a], all, last).map((s) => s.id)).toEqual(["a", "b"]);
+    // Anything else selected: the old pool is gone.
+    expect(pickPoolFor([b], all, last)).toEqual([]);
+    expect(pickPoolFor([a], all, null)).toEqual([]);
+    const rng = createRng(3);
+    for (let i = 0; i < 20; i++) expect(pickRandomSticky([a, b], rng, "a")).toBe("b");
+    expect(pickRandomSticky([a], rng, "a")).toBe("a");
+  });
 });
 
 describe("the property bar's button", () => {
@@ -62,6 +84,48 @@ describe("the property bar's button", () => {
       "pointer-coarse:w-11"
     );
     rerender(<PropertyPanel {...props} />);
+    expect(screen.queryByRole("button", { name: "Pick a random sticky" })).toBeNull();
+  });
+});
+
+describe("on the board", () => {
+  class NoResize {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", NoResize);
+    useWorkspaceStore.setState({ whiteboardObjects: [frame, a, b, c, box] });
+    useCanvasStore.setState({ selection: [], tool: "select" });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useCanvasStore.setState({ selection: [] });
+  });
+
+  it("selects one sticky from the selected frame, and keeps the button (and focus) to pick again", async () => {
+    render(<WhiteboardCanvas boardId="board-1" />);
+    act(() => useCanvasStore.getState().setSelection(["f"]));
+    const button = await screen.findByRole("button", { name: "Pick a random sticky" });
+    button.focus();
+    fireEvent.click(button);
+    const [picked] = useCanvasStore.getState().selection;
+    expect(useCanvasStore.getState().selection).toHaveLength(1);
+    // a and b sit inside the frame; c is outside it.
+    expect(["a", "b"]).toContain(picked);
+    const again = screen.getByRole("button", { name: "Pick a random sticky" });
+    expect(again).toHaveFocus();
+    fireEvent.click(again);
+    const [next] = useCanvasStore.getState().selection;
+    expect(["a", "b"]).toContain(next);
+    expect(next).not.toBe(picked);
+  });
+
+  it("offers nothing for a single sticky the board didn't pick", async () => {
+    render(<WhiteboardCanvas boardId="board-1" />);
+    act(() => useCanvasStore.getState().setSelection(["c"]));
+    await screen.findByRole("toolbar", { name: "Object properties" });
     expect(screen.queryByRole("button", { name: "Pick a random sticky" })).toBeNull();
   });
 });

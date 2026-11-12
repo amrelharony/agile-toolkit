@@ -3,6 +3,8 @@
  * selection. Two or more selected stickies are the pool; a selected frame
  * (or several) puts the stickies inside it in the pool. The board selects
  * the one picked, so it is highlighted and read out like any selection.
+ * Right after a pick the button stays for another one from the same pool
+ * (`pickPoolFor`), so focus stays on it rather than dropping to the page.
  *
  * Pure: the pick takes an optional seeded `rng` (lib/utils/random).
  */
@@ -44,7 +46,42 @@ export function randomStickyPool(
   return inside.length >= 2 ? inside : [];
 }
 
-/** One sticky's id from the pool, each equally likely; null for an empty pool. */
-export function pickRandomSticky(pool: readonly WhiteboardSticky[], rng?: Rng): string | null {
-  return pick(pool, { rng })?.id ?? null;
+/**
+ * One sticky's id from the pool, each equally likely; null for an empty
+ * pool. `not` (the sticky picked last) is left out when there are others,
+ * so picking again always moves on.
+ */
+export function pickRandomSticky(
+  pool: readonly WhiteboardSticky[],
+  rng?: Rng,
+  not?: string | null
+): string | null {
+  const others = not ? pool.filter((s) => s.id !== not) : pool;
+  return pick(others.length > 0 ? others : pool, { rng })?.id ?? null;
+}
+
+/** The last pick: the pool's ids, and the sticky it landed on. */
+export interface StickyPick {
+  pool: readonly string[];
+  picked: string;
+}
+
+/**
+ * The pool behind the bar's button: the selection's own, or, while the
+ * sticky just picked is the whole selection, the pool it came from.
+ */
+export function pickPoolFor(
+  selected: readonly WhiteboardObject[],
+  objects: readonly WhiteboardObject[],
+  last: StickyPick | null
+): WhiteboardSticky[] {
+  const fresh = randomStickyPool(selected, objects);
+  if (fresh.length >= 2 || !last || selected.length !== 1 || selected[0].id !== last.picked) {
+    return fresh;
+  }
+  const byId = new Map(objects.map((o) => [o.id, o]));
+  const again = last.pool
+    .map((id) => byId.get(id))
+    .filter((o): o is WhiteboardSticky => !!o && isSticky(o));
+  return again.length >= 2 ? again : [];
 }
