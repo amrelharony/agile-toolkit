@@ -32,6 +32,13 @@
  *    ECDH key (the vote kit's sealing, bound to the sender and the request
  *    id) and padded to one size, so other members see that someone sent
  *    something, never what: a post, a vote or a hand all look alike;
+ *  - the sender's id (`by`) is self-declared, so every request also carries,
+ *    inside the encryption, a secret only the sender's tab holds (`s`, kept
+ *    for the tab's session). The host ties a member id to the first secret
+ *    it sees for it and refuses that id's requests with any other, so once
+ *    someone has sent anything (and they must have, to write a post), nobody
+ *    else can send as them: not to vote or score under their name, and not to
+ *    learn which post is theirs from an "own-post" refusal;
  *  - posts carry no name and no member id. A post's id is a random one its
  *    writer's tab made, inside the encrypted request; who wrote or upvoted
  *    what is a host-side record in memory only (to stop double votes and
@@ -45,7 +52,10 @@
  * sender for an instant before folding it; with "show posts as they
  * arrive", someone watching the channel can match a new post to the member
  * whose request just came in (use "hidden until reveal" for anything
- * sensitive); a raised hand shows the person's name, by design.
+ * sensitive); a raised hand shows the person's name, by design; and the tie
+ * between an id and a secret is made on first use, so someone who sends as
+ * a newcomer before the newcomer's own first request takes that id (the
+ * newcomer's requests are then refused, and they see why).
  *
  * Every reader treats its input as hostile: size first, then a strict
  * shape, rebuilt field by field. Pure and server-safe.
@@ -329,13 +339,20 @@ export function intentAad(by: string, iid: string): string {
 
 const utf8Length = (s: string) => new TextEncoder().encode(s).length;
 
+/** The sender's tab secret: random, 16 to 64 URL-safe characters (the room makes nanoid(21)). */
+export function isSenderSecret(v: unknown): v is string {
+  return typeof v === "string" && LOCK_KEY_RE.test(v);
+}
+
 /**
- * The request as it is sealed: its JSON padded with spaces to exactly
- * `WALL_LIMITS.intentBytes` UTF-8 bytes, so every request is the same size.
- * Null when it doesn't fit (a post can't, once cleaned to 280 characters).
+ * The request as it is sealed: its JSON (with the sender's tab secret as
+ * `s`, when given) padded with spaces to exactly `WALL_LIMITS.intentBytes`
+ * UTF-8 bytes, so every request is the same size. Null when it doesn't fit
+ * (a post can't, once cleaned to 280 characters).
  */
-export function padIntent(intent: WallIntent): string | null {
-  const json = JSON.stringify(intent);
+export function padIntent(intent: WallIntent, secret?: string): string | null {
+  if (secret !== undefined && !isSenderSecret(secret)) return null;
+  const json = JSON.stringify(secret === undefined ? intent : { ...intent, s: secret });
   const len = utf8Length(json);
   if (len > WALL_LIMITS.intentBytes) return null;
   return json + " ".repeat(WALL_LIMITS.intentBytes - len);
@@ -364,12 +381,23 @@ export function readIntentEnvelope(raw: unknown): IntentEnvelope | null {
   return { v: SIGNED_ROOM_VERSION, by: m.by, iid: m.iid, epk: m.epk, iv: m.iv, ct: m.ct };
 }
 
+/** A decrypted request and the sender's tab secret inside it (null: none). */
+export interface SealedIntent {
+  intent: WallIntent;
+  secret: string | null;
+}
+
 /**
  * A decrypted request, or null: not the padded size, not JSON, or not
  * exactly one of the shapes a participant may send. A post's text is still
  * raw (the host cleans it, and refuses it when nothing is left).
  */
 export function readIntent(plain: string): WallIntent | null {
+  return readSealedIntent(plain)?.intent ?? null;
+}
+
+/** `readIntent`, with the sender's tab secret (`s`) beside it; a malformed secret is refused. */
+export function readSealedIntent(plain: string): SealedIntent | null {
   if (typeof plain !== "string" || utf8Length(plain) !== WALL_LIMITS.intentBytes) return null;
   let raw: unknown;
   try {
@@ -379,6 +407,12 @@ export function readIntent(plain: string): WallIntent | null {
   }
   const m = obj(raw);
   if (!m) return null;
+  if (m.s !== undefined && !isSenderSecret(m.s)) return null;
+  const intent = intentOf(m);
+  return intent ? { intent, secret: typeof m.s === "string" ? m.s : null } : null;
+}
+
+function intentOf(m: Record<string, unknown>): WallIntent | null {
   if (m.t === "hand") {
     return typeof m.up === "boolean" ? { t: "hand", up: m.up } : null;
   }
@@ -420,8 +454,13 @@ export function isScore(v: unknown): v is number {
 
 // ── States ───────────────────────────────────────────────────────────
 
-/** Scores one round can hold in all: five from every seat. */
+/**
+ * Scores one round can hold in all: five from every seat. The host takes no
+ * score past it (people who left keep theirs, so newcomers could pass it).
+ */
 export const WALL_MAX_SCORES = VISITOR_LIMITS.maxMembers * WALL_LIMITS.scoresPerMember;
+/** People who can score one post: a seat each. The host takes no scorer past it. */
+export const WALL_MAX_SCORERS = VISITOR_LIMITS.maxMembers;
 
 /**
  * The posts of a shown round, or null. A reply (`re`) names another post
@@ -451,7 +490,7 @@ function readPosts(raw: unknown, count: number, scoresShown: boolean): WallPost[
     if (typeof p.re === "string") post.re = p.re;
     if (p.answered === true) post.answered = true;
     if (scoresShown) {
-      if (!isCount(p.scorers, VISITOR_LIMITS.maxMembers)) return null;
+      if (!isCount(p.scorers, WALL_MAX_SCORERS)) return null;
       const most = p.scorers * WALL_LIMITS.maxScore;
       if (!isCount(p.score, most) || p.score < p.scorers) return null;
       post.score = p.score;

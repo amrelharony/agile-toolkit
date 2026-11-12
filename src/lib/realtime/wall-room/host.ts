@@ -5,7 +5,9 @@
  * it without a channel.
  *
  * Rules for a participant's request (`applyWallIntent`), in order:
- *  1. the sender must not have been removed, and must hold a seat;
+ *  1. the sender must not have been removed, and must hold a seat, and the
+ *     secret inside the request (`ctx.secret`, its tab's) must be the one
+ *     the host first saw from that id: the first request ties the id to it;
  *  2. the same sender's request id is applied once (a resend changes
  *     nothing; the hook sends the acks again). That ring is short, so what
  *     a take-back undid is also remembered for the whole round: a
@@ -28,13 +30,16 @@
  *     that is on the wall and shown; it is linked to that post's thread
  *     (a reply to a reply joins the first post's);
  *  9. a 25/10 score: only while scoring is open, 1 to 5, on a post on the
- *     wall that isn't the scorer's own, on at most five posts per member;
+ *     wall that isn't the scorer's own, on at most five posts per member,
+ *     20 scorers per post and 100 scores a round (what the room reads);
  *     a score is changed only with the key behind its lock.
  *
  * `by` is self-declared, and every member receives every request, but the
- * requests are encrypted to the host and the keys behind the locks never
- * leave their sender's tab, so nobody can take back someone else's post or
- * vote. Who wrote and who upvoted what (`author`, `voters`) live here, in
+ * requests are encrypted to the host, the keys behind the locks never
+ * leave their sender's tab, and an id is tied to its tab's secret on first
+ * use, so nobody can take back someone else's post or vote, or send as
+ * someone who already sent anything. Who wrote and who upvoted what
+ * (`author`, `voters`) live here, in
  * the host's memory only: `wallView` shares no author and no voter, and
  * `toWallResult` saves no id at all.
  */
@@ -42,6 +47,8 @@
 import { cleanText, shareableText } from "../sanitize";
 import {
   WALL_LIMITS,
+  WALL_MAX_SCORERS,
+  WALL_MAX_SCORES,
   lockOf,
   type WallIntent,
   type WallMode,
@@ -83,7 +90,15 @@ export interface HostPost {
 export interface WallRoundOptions {
   /** Brainwriting: take "Yes, and…" posts on the posts on the wall. */
   build?: boolean;
+  /**
+   * False: the round opens without taking posts (a raise-hand queue, where
+   * the hand is the point). The host can start taking them later.
+   */
+  takePosts?: boolean;
 }
+
+/** Member ids the host ties to a tab's secret, at most (old ones are never dropped). */
+export const WALL_MAX_SENDERS = 1_000;
 
 export interface HostWallRound {
   id: string;
@@ -117,6 +132,12 @@ export interface HostWall {
   hands: readonly { id: string; at: number }[];
   /** Recent `<sender>:<request id>` keys, oldest first. */
   recent: readonly string[];
+  /**
+   * Member id → the lock of the tab secret its first request carried ("" for
+   * a request with none). In memory only; it lasts as long as the room, so a
+   * member who leaves can't be stood in for later.
+   */
+  senders?: ReadonlyMap<string, string>;
 }
 
 export interface WallContext {
@@ -126,6 +147,8 @@ export interface WallContext {
   removed: ReadonlySet<string>;
   /** Epoch ms, for the post rate. */
   now: number;
+  /** The secret inside the request (its sender's tab's), or null/absent for none. */
+  secret?: string | null;
 }
 
 export type WallIntentResult =
@@ -156,8 +179,8 @@ function withPost(round: HostWallRound, post: HostPost): HostWallRound {
 /**
  * A new round on the wall, open, with `prompt` (one line, hidden
  * characters stripped, cut to 280 characters; null when nothing is left)
- * and `mode`. Any earlier round goes, with everything in it; raised hands
- * stay.
+ * and `mode`, taking posts unless `options.takePosts` is false. Any earlier
+ * round goes, with everything in it; raised hands stay.
  */
 export function openWallRound(
   wall: HostWall,
@@ -174,7 +197,7 @@ export function openWallRound(
     round: {
       id,
       prompt: clean,
-      open: true,
+      open: options.takePosts !== false,
       mode,
       revealed: false,
       build: options.build === true,
@@ -347,12 +370,27 @@ export function applyWallIntent(
   if (ctx.removed.has(by) || !ctx.admitted.has(by)) return refuse("not-admitted");
   const key = `${by}:${iid}`;
   if (wall.recent.includes(key)) return { ok: false, duplicate: true, wall };
+  // `by` is self-declared: the id's first request ties it to its tab's
+  // secret, and a request under that id with another secret (or none) is
+  // someone else's. Refused before anything about a post is looked at, so
+  // it can't tell whose a post is.
+  const seal = ctx.secret ? lockOf(ctx.secret) : "";
+  const tied = wall.senders?.get(by);
+  if (tied !== undefined && tied !== seal) return refuse("not-admitted");
+  if (tied === undefined && (wall.senders?.size ?? 0) >= WALL_MAX_SENDERS) {
+    return refuse("not-admitted");
+  }
+  const senders: ReadonlyMap<string, string> =
+    tied === undefined ? new Map(wall.senders ?? []).set(by, seal) : (wall.senders ?? new Map());
   const recent = [...wall.recent, key].slice(-WALL_LIMITS.recentRing);
-  const accept = (next: HostWall): WallIntentResult => ({ ok: true, wall: { ...next, recent } });
+  const accept = (next: HostWall): WallIntentResult => ({
+    ok: true,
+    wall: { ...next, recent, senders },
+  });
   const refuseOnce = (why: WallRefusal): WallIntentResult => ({
     ok: false,
     why,
-    wall: { ...wall, recent },
+    wall: { ...wall, recent, senders },
   });
 
   if (intent.t === "hand") {
@@ -488,10 +526,17 @@ export function applyWallIntent(
         return accept({ ...wall, round: withPost(r, { ...post, scores: next }) });
       }
       let scored = 0;
+      let total = 0;
       r.posts.forEach((p) => {
         if (p.scores?.has(by)) scored += 1;
+        total += p.scores?.size ?? 0;
       });
       if (scored >= WALL_LIMITS.scoresPerMember) return refuseOnce("member-cap");
+      // What the room reads: past these, every participant would refuse the
+      // state (people who left keep their scores, so newcomers could pass them).
+      if (scores.size >= WALL_MAX_SCORERS || total >= WALL_MAX_SCORES) {
+        return refuseOnce("round-full");
+      }
       const next = new Map(scores).set(by, { value: intent.value, lock: intent.lock });
       return accept({ ...wall, round: withPost(r, { ...post, scores: next }) });
     }

@@ -4,6 +4,7 @@ import {
   lockOf,
   padIntent,
   readIntent,
+  readSealedIntent,
   readWallState,
   wallStateInput,
   type WallIntent,
@@ -426,5 +427,214 @@ describe("raised hands", () => {
     const lowered = lowerAllHands(wall);
     expect(wallView(lowered).hands).toEqual([]);
     expect(lowerAllHands(lowered)).toBe(lowered);
+  });
+});
+
+describe("who is sending: a member id tied to its tab's secret", () => {
+  const SECRET_A = "secretA_0123456789abc";
+  const SECRET_B = "secretB_0123456789abc";
+  const SECRET_X = "secretX_0123456789abc";
+  const as = (wall: HostWall, by: string, secret: string | null, intent: WallIntent) =>
+    applyWallIntent(wall, by, iid(), intent, ctx({ secret }));
+
+  function wallWithPosts() {
+    let wall = openWallRound(emptyWall(), RID, "Our boldest idea", "live")!;
+    const a = as(wall, A, SECRET_A, {
+      t: "post",
+      r: RID,
+      pid: "pid_alice001",
+      text: "Ship weekly",
+      lock: lockOf(KEY_A),
+    });
+    expect(a.ok).toBe(true);
+    now += WALL_LIMITS.postIntervalMs;
+    const b = as(a.wall, B, SECRET_B, {
+      t: "post",
+      r: RID,
+      pid: "pid_bobby001",
+      text: "Kill the status meeting",
+      lock: lockOf(KEY_B),
+    });
+    expect(b.ok).toBe(true);
+    now += WALL_LIMITS.postIntervalMs;
+    wall = b.wall;
+    return wall;
+  }
+
+  it("refuses a score sent under someone else's id the same way on every post, so it tells nothing", () => {
+    const wall = setWallScoring(wallWithPosts(), "open");
+    // X claims to be A, on A's own post and on B's: one answer, and no "own-post".
+    const own = as(wall, A, SECRET_X, {
+      t: "score",
+      r: RID,
+      pid: "pid_alice001",
+      value: 5,
+      lock: lockOf(KEY_C),
+    });
+    const other = as(wall, A, SECRET_X, {
+      t: "score",
+      r: RID,
+      pid: "pid_bobby001",
+      value: 5,
+      lock: lockOf(KEY_C),
+    });
+    expect(own).toMatchObject({ ok: false, why: "not-admitted" });
+    expect(other).toMatchObject({ ok: false, why: "not-admitted" });
+    // Without a secret at all: the same.
+    expect(
+      as(wall, A, null, { t: "score", r: RID, pid: "pid_bobby001", value: 5, lock: lockOf(KEY_C) })
+    ).toMatchObject({ ok: false, why: "not-admitted" });
+    // Nothing was counted, and A still scores B's post, from A's own tab.
+    expect(wallView(other.wall).round!.scored).toBe(0);
+    const real = as(other.wall, A, SECRET_A, {
+      t: "score",
+      r: RID,
+      pid: "pid_bobby001",
+      value: 4,
+      lock: lockOf(KEY_A),
+    });
+    expect(real.ok).toBe(true);
+    expect(wallView(real.wall).round!.scored).toBe(1);
+  });
+
+  it("refuses a vote or a hand under someone else's id, and ties a newcomer on first use", () => {
+    const wall = wallWithPosts();
+    expect(
+      as(wall, B, SECRET_X, { t: "vote", r: RID, pid: "pid_alice001", lock: lockOf(KEY_C) })
+    ).toMatchObject({ ok: false, why: "not-admitted" });
+    expect(as(wall, B, SECRET_X, { t: "hand", up: true })).toMatchObject({
+      ok: false,
+      why: "not-admitted",
+    });
+    // C has sent nothing yet: C's first request ties C's id to C's tab.
+    const c = as(wall, C, SECRET_X, { t: "hand", up: true });
+    expect(c.ok).toBe(true);
+    expect(as(c.wall, C, SECRET_A, { t: "hand", up: false })).toMatchObject({
+      ok: false,
+      why: "not-admitted",
+    });
+    expect(as(c.wall, C, SECRET_X, { t: "hand", up: false }).ok).toBe(true);
+    // The tie outlives the round.
+    const next = openWallRound(c.wall, "round_000002", "Next", "live")!;
+    expect(as(next, C, SECRET_A, { t: "hand", up: false })).toMatchObject({
+      ok: false,
+      why: "not-admitted",
+    });
+  });
+
+  it("carries the secret inside the sealed request, apart from the request itself", () => {
+    const intent: WallIntent = {
+      t: "post",
+      r: RID,
+      pid: "pid_alice001",
+      // The longest post a request takes: 280 characters at three bytes each, a reply.
+      text: "反".repeat(WALL_LIMITS.maxPostChars),
+      lock: lockOf(KEY_A),
+      re: "pid_bobby001",
+    };
+    const plain = padIntent(intent, SECRET_A)!;
+    expect(plain).not.toBeNull();
+    expect(readSealedIntent(plain)).toEqual({ intent, secret: SECRET_A });
+    expect(readIntent(plain)).toEqual(intent);
+    expect(readSealedIntent(padIntent(intent)!)).toEqual({ intent, secret: null });
+    expect(padIntent(intent, "short")).toBeNull();
+    const forged = JSON.stringify({ t: "hand", up: true, s: "no!" });
+    expect(readSealedIntent(forged + " ".repeat(WALL_LIMITS.intentBytes - forged.length))).toBe(
+      null
+    );
+  });
+});
+
+describe("25/10 limits the room reads", () => {
+  it("takes no scorer past 20 on a post and no score past 100 a round, so the state stays readable", () => {
+    const members = Array.from(
+      { length: 24 },
+      (_, i) => `memb${String(i).padStart(2, "0")}_0000000000`
+    );
+    const room = ctx({ admitted: new Set([A, ...members]) });
+    let wall = openWallRound(emptyWall(), RID, "Our boldest idea", "live")!;
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const id = `pid_idea${String(i).padStart(4, "0")}`;
+      const res = applyWallIntent(
+        wall,
+        A,
+        iid(),
+        {
+          t: "post",
+          r: RID,
+          pid: id,
+          text: `Idea ${i}`,
+          lock: lockOf(KEY_A),
+        },
+        { ...room, now: now + i * WALL_LIMITS.postIntervalMs }
+      );
+      expect(res.ok).toBe(true);
+      wall = res.wall;
+      ids.push(id);
+    }
+    wall = setWallScoring(wall, "open");
+    const score = (by: string, pid: string) =>
+      applyWallIntent(
+        wall,
+        by,
+        iid(),
+        { t: "score", r: RID, pid, value: 3, lock: lockOf(`${by.slice(0, 6)}_0123456789abcd`) },
+        room
+      );
+    // Twenty people score the first five posts: 100 scores, 20 on each.
+    for (const by of members.slice(0, 20)) {
+      for (const pid of ids.slice(0, 5)) {
+        const res = score(by, pid);
+        expect(res.ok).toBe(true);
+        wall = res.wall;
+      }
+    }
+    // A 21st scorer on one of them: refused, as is a 101st score on the sixth post.
+    expect(score(members[20], ids[0])).toMatchObject({ ok: false, why: "round-full" });
+    expect(score(members[20], ids[5])).toMatchObject({ ok: false, why: "round-full" });
+    const shown = setWallScoring(wall, "shown");
+    expect(readWallState(signed(body(wallView(shown).round)), "audience-wall")).not.toBeNull();
+  });
+});
+
+describe("a round that takes no posts", () => {
+  it("opens closed for posts (a raise-hand queue), still takes hands, and can open later", () => {
+    const wall = openWallRound(emptyWall(), RID, "Raise your hand to speak", "live", {
+      takePosts: false,
+    })!;
+    expect(wall.round!.open).toBe(false);
+    expect(
+      apply(wall, A, { t: "post", r: RID, pid: pid(), text: "Hi", lock: lockOf(KEY_A) })
+    ).toMatchObject({ ok: false, why: "closed" });
+    expect(apply(wall, A, { t: "hand", up: true }).ok).toBe(true);
+    expect(setWallOpen(wall, true).round!.open).toBe(true);
+  });
+});
+
+describe("which five a person scores", () => {
+  it("is seeded by the tab's secret, not by ids the room can see", () => {
+    const posts = Array.from({ length: 20 }, (_, i) => ({
+      id: `pid_${String(i).padStart(8, "0")}`,
+    }));
+    const bySecret = (seed: string) => postsToScore(posts, { roundId: RID, selfId: A, seed });
+    // Knowing the round and the member id doesn't give the pick.
+    expect(bySecret("secretA_0123456789abc")).not.toEqual(
+      postsToScore(posts, { roundId: RID, selfId: A })
+    );
+    expect(bySecret("secretA_0123456789abc")).not.toEqual(bySecret("secretZ_0123456789abc"));
+    expect(bySecret("secretA_0123456789abc")).toEqual(bySecret("secretA_0123456789abc"));
+  });
+
+  it("drops its own posts after the shuffle, so the others keep their places", () => {
+    const posts = Array.from({ length: 20 }, (_, i) => ({
+      id: `pid_${String(i).padStart(8, "0")}`,
+    }));
+    const seed = "secretA_0123456789abc";
+    const all = postsToScore(posts, { roundId: RID, selfId: A, seed, count: 20 });
+    const mine = new Set([all[1]]);
+    expect(postsToScore(posts, { roundId: RID, selfId: A, seed, mine })).toEqual(
+      all.filter((id) => !mine.has(id)).slice(0, 5)
+    );
   });
 });
