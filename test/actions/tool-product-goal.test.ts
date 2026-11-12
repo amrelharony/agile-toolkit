@@ -7,6 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rows = vi.hoisted(() => new Map<string, unknown>());
+const blobs = vi.hoisted(() => new Map<string, unknown>());
 vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
   return {
@@ -17,6 +18,7 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
     serverUpsertEntity: vi.fn(async (_u: string, kind: string, e: { id: string }) => {
       rows.set(`${kind}/${e.id}`, e);
     }),
+    serverGetUserStateBlob: vi.fn(async (_u: string, key: string) => blobs.get(key) ?? null),
     serverListEntities: vi.fn(async (_u: string, kind: string) =>
       Array.from(rows.entries())
         .filter(([k]) => k.startsWith(`${kind}/`))
@@ -29,6 +31,7 @@ import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { PRODUCT_GOAL_KIND, type ProductGoal } from "@/lib/stores/workspace-types";
 import "@/lib/actions/tools/product-goal";
+import { PRODUCT_GOAL_STORE_KEY, visionFromBlob } from "@/lib/product-goal/prefs";
 
 const ctx = () => ({ userId: "u", source: "agent" as const, squadProfileIds: [] as string[] });
 const run = async <T>(id: string, params: Record<string, unknown> = {}) => {
@@ -53,6 +56,8 @@ const goals = () => useWorkspaceStore.getState().productGoals ?? [];
 
 beforeEach(() => {
   rows.clear();
+  blobs.clear();
+  localStorage.clear();
   useWorkspaceStore.setState({ productGoals: [] });
 });
 
@@ -89,8 +94,44 @@ describe("list_state", () => {
       "single",
       "vision",
     ]);
-    expect(r.history.map((g) => g.id)).toEqual(["goal_a", "goal_old"]);
+    // The record holds closed goals only: the extra active one is for the person to close.
+    expect(r.history.map((g) => g.id)).toEqual(["goal_old"]);
     expect(r.extraActive.map((g) => g.id)).toEqual(["goal_a"]);
+  });
+
+  type State = {
+    vision: string;
+    active: { checks: { id: string; met: boolean | null }[] } | null;
+  };
+  const visionCheck = (r: State) => r.active?.checks.find((c) => c.id === "vision")?.met;
+
+  it("checks the goal against the vision the page saved, or one given", async () => {
+    useWorkspaceStore.setState({ productGoals: [goal()] });
+    expect(visionCheck(await run<State>("tool.product_goal.list_state"))).toBeNull();
+    localStorage.setItem(
+      PRODUCT_GOAL_STORE_KEY,
+      JSON.stringify({
+        state: { vision: "Shops take payments without a card machine" },
+        version: 0,
+      })
+    );
+    const saved = await run<State>("tool.product_goal.list_state");
+    expect(saved.vision).toBe("Shops take payments without a card machine");
+    expect(visionCheck(saved)).toBe(true);
+    const given = await run<State>("tool.product_goal.list_state", {
+      vision: "Hospitals book their nurses online",
+    });
+    expect(visionCheck(given)).toBe(false);
+  });
+
+  it("reads the user's synced vision on the server", async () => {
+    rows.set(`${PRODUCT_GOAL_KIND}/goal_a`, goal());
+    blobs.set(PRODUCT_GOAL_STORE_KEY, { vision: "Shops take payments anywhere" });
+    const r = await mcp<State>("tool.product_goal.list_state");
+    expect(r.vision).toBe("Shops take payments anywhere");
+    expect(visionCheck(r)).toBe(true);
+    expect(visionFromBlob(null)).toBe("");
+    expect(visionFromBlob({ state: { vision: 3 } })).toBe("");
   });
 });
 

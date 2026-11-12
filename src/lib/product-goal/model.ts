@@ -58,14 +58,17 @@ export function activeGoal(
     .sort(byUpdatedDesc)[0];
 }
 
-/** Every goal that isn't the active one, newest closed first (then latest updated). */
+/**
+ * The closed goals (achieved or abandoned), newest closed first (then
+ * latest updated). An extra active goal a sync left is not history: it is
+ * `extraActiveGoals`, for the person to close.
+ */
 export function goalHistory(
   goals: readonly ProductGoal[] | undefined,
   { withExamples = false }: { withExamples?: boolean } = {}
 ): ProductGoal[] {
-  const active = activeGoal(goals, { withExamples });
   return usable(goals, withExamples)
-    .filter((g) => g.id !== active?.id)
+    .filter((g) => g.status !== "active")
     .sort((a, b) => {
       const ca = a.closedAt ?? a.updatedAt;
       const cb = b.closedAt ?? b.updatedAt;

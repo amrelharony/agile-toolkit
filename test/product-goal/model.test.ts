@@ -57,6 +57,8 @@ describe("the active goal and the record", () => {
       goal({ id: "now" }),
       goal({ id: "old", status: "achieved", closedAt: "2026-03-01T00:00:00.000Z" }),
       goal({ id: "mid", status: "abandoned", closedAt: "2026-06-01T00:00:00.000Z" }),
+      // A second active goal left by a sync is not history.
+      goal({ id: "also", updatedAt: "2026-01-01T00:00:00.000Z" }),
     ]);
     expect(list.map((g) => g.id)).toEqual(["mid", "old"]);
   });

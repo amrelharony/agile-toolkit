@@ -5,19 +5,16 @@
  */
 
 import { createPersistedStore } from "@/lib/stores/create-persisted-store";
+import { PRODUCT_GOAL_STORE_NAME, VISION_MAX, normalizeVision } from "@/lib/product-goal/prefs";
 
-/** The longest vision kept (the AI task's input cap). */
-export const VISION_MAX = 2000;
+// The vision's key, cap and read-back live in lib/product-goal/prefs, where
+// Amr's verbs read them too.
+export { VISION_MAX, normalizeVision };
 
 export interface ProductGoalPrefs {
   vision: string;
 }
 
-export const useProductGoalPrefs = createPersistedStore<ProductGoalPrefs>("product-goal", {
+export const useProductGoalPrefs = createPersistedStore<ProductGoalPrefs>(PRODUCT_GOAL_STORE_NAME, {
   vision: "",
 });
-
-/** A vision read back from storage: a string, capped; anything else is "". */
-export function normalizeVision(value: unknown): string {
-  return typeof value === "string" ? value.slice(0, VISION_MAX) : "";
-}

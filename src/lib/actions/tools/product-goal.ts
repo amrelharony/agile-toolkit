@@ -22,7 +22,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverListEntities, serverUpsertEntity } from "../server-store";
+import { serverGetUserStateBlob, serverListEntities, serverUpsertEntity } from "../server-store";
 import {
   PRODUCT_GOAL_KIND,
   TOOL_LIST_MAX,
@@ -41,6 +41,7 @@ import {
   newGoal,
   type GoalOutcome,
 } from "@/lib/product-goal/model";
+import { PRODUCT_GOAL_STORE_KEY, VISION_MAX, visionFromBlob } from "@/lib/product-goal/prefs";
 
 const ws = () => useWorkspaceStore.getState();
 
@@ -48,6 +49,19 @@ const ws = () => useWorkspaceStore.getState();
 interface GoalStore {
   all: () => Promise<ProductGoal[]>;
   put: (goals: ProductGoal[]) => Promise<void>;
+  /** The product vision the page saved ("" when none). */
+  vision: () => Promise<string>;
+}
+
+/** The page's persisted vision as this browser holds it, or null. */
+function browserPrefsBlob(): unknown {
+  try {
+    const raw =
+      typeof window === "undefined" ? null : window.localStorage.getItem(PRODUCT_GOAL_STORE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 const browserStore: GoalStore = {
@@ -55,6 +69,7 @@ const browserStore: GoalStore = {
   put: async (goals) => {
     for (const g of goals) ws().upsertProductGoal(g);
   },
+  vision: async () => visionFromBlob(browserPrefsBlob()),
 };
 
 const serverStore = (userId: string): GoalStore => ({
@@ -62,15 +77,34 @@ const serverStore = (userId: string): GoalStore => ({
   put: async (goals) => {
     for (const g of goals) await serverUpsertEntity<ProductGoal>(userId, PRODUCT_GOAL_KIND, g);
   },
+  // The vision as the user's synced row holds it; none without one.
+  vision: async () => {
+    try {
+      return visionFromBlob(await serverGetUserStateBlob(userId, PRODUCT_GOAL_STORE_KEY));
+    } catch {
+      return "";
+    }
+  },
 });
 
 const OutcomeEnum = z.enum(GOAL_OUTCOMES as unknown as [GoalOutcome, ...GoalOutcome[]]);
 
-async function listState(store: GoalStore) {
+const ListParams = z.object({
+  vision: z
+    .string()
+    .trim()
+    .max(VISION_MAX)
+    .optional()
+    .describe("A product vision to check the goal against. Default: the one saved on the page."),
+});
+
+async function listState(store: GoalStore, p: z.infer<typeof ListParams>) {
   const goals = await store.all();
   const active = activeGoal(goals);
+  const vision = p.vision ?? (await store.vision());
   return {
-    active: active ? { ...active, checks: goalChecks(active) } : null,
+    active: active ? { ...active, checks: goalChecks(active, vision) } : null,
+    vision,
     history: goalHistory(goals),
     extraActive: extraActiveGoals(goals).map((g) => ({ id: g.id, statement: g.statement })),
   };
@@ -83,10 +117,10 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Read the Product Goal as the page shows it. Returns {active: ProductGoal & {checks: {id: outcome|measurable|single|vision, label, hint, met: boolean | null}[]} | null, history: ProductGoal[] (achieved or abandoned, newest closed first), extraActive: {id, statement}[] (another goal still active after a sync; close it)}. Example goals are left out.",
-  paramsSchema: z.object({}),
-  handler: async () => listState(browserStore),
-  mcpHandler: async (_p, ctx) => listState(serverStore(ctx.userId)),
+    "Read the Product Goal as the page shows it. Returns {active: ProductGoal & {checks: {id: outcome|measurable|single|vision, label, hint, met: boolean | null (vision: null with no vision)}[]} | null, vision (what the goal was checked against: the page's saved vision unless given), history: ProductGoal[] (achieved or abandoned, newest closed first), extraActive: {id, statement}[] (another goal still active after a sync; close it)}. Example goals are left out.",
+  paramsSchema: ListParams,
+  handler: async (p) => listState(browserStore, p),
+  mcpHandler: async (p, ctx) => listState(serverStore(ctx.userId), p),
 });
 
 // ──────── tool.product_goal.set_goal ────────
