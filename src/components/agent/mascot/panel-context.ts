@@ -19,8 +19,9 @@
  * and the mascot chunk can read it at no cost. Without a provider a view gets
  * the safe default below: a floating panel whose onNavigate does nothing, and
  * whose registered target takes focus at once, since there is no focus owner
- * around it to place it. The panel's behaviour (Back, the phone sheet) fills
- * the rest in later.
+ * around it to place it. The shell (mascot-assistant) gives the real panel's:
+ * its layout, its close for a link, and replaceOnNavigate from the phone
+ * sheet's Back (lib/agent/mascot/use-back-closes).
  */
 
 import { createContext, useContext, useEffect, type RefObject } from "react";

@@ -52,10 +52,13 @@
  *
  * Every close goes through closePanel(reason): Amr's button, Ctrl/Cmd+J,
  * Escape, the Close button, a link followed and a scene picked alike, and a
- * second call does nothing. Focus has one owner (lib/agent/mascot/use-panel-focus): a keyboard
- * open goes to the name plate, then to a view's registered target (the
- * composer, on a fine pointer); a pointer open leaves focus where it is; a
- * close brings it back to the opener or to Amr's button, except after a link.
+ * second call does nothing. On the phone's sheet the phone's Back closes it
+ * too, leaving History first (useBackCloses: a CloseWatcher, or a history
+ * marker that the other closes take back out and a link's page replaces).
+ * Focus has one owner (lib/agent/mascot/use-panel-focus): a keyboard open
+ * goes to the name plate, then to a view's registered target (the composer,
+ * on a fine pointer); a pointer open leaves focus where it is; a close brings
+ * it back to the opener or to Amr's button, except after a link.
  *
  * Escape belongs to the panel only when it is meant for it: pressed inside it,
  * with nothing focused, or on Amr or the header's opener. It goes in one
@@ -127,6 +130,7 @@ import { useQuietCompanion } from "@/lib/agent/mascot/use-quiet-companion";
 import { useMuteScene } from "@/lib/agent/mascot/use-mute-scene";
 import { playEventScene } from "@/lib/agent/mascot/event-scenes";
 import { usePanelFocus, type PanelCloseReason } from "@/lib/agent/mascot/use-panel-focus";
+import { useBackCloses } from "@/lib/agent/mascot/use-back-closes";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { createTouchInteraction, zoneAt, type TouchPoint } from "./engine/interactions/touch";
 import {
@@ -172,12 +176,7 @@ import { AMR_PANEL_TITLE_ID, PanelHeader, shortcutLabel } from "./panel-header";
 import { FigureFailed, LAUNCHER_LABEL, PanelFailed, PanelLoading } from "./panel-parts";
 import { AMR_PANEL_ID } from "./panel-ids";
 import { PANEL_SUBTITLE, PanelChrome, PanelIconButton } from "./panel-chrome";
-import {
-  AmrPanelContext,
-  NO_AMR_PANEL,
-  type AmrPanelContextValue,
-  type AmrPanelLayout,
-} from "./panel-context";
+import { AmrPanelContext, type AmrPanelContextValue, type AmrPanelLayout } from "./panel-context";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import {
@@ -1194,15 +1193,19 @@ export function MascotAssistant({
     plateId: AMR_PANEL_TITLE_ID,
     fallbackRef: buttonRef,
   });
+  // Back's own say in a close (useBackCloses, further down, once the layout
+  // is known): a link followed or Back itself takes no history.back().
+  const backWillClose = useRef<(reason: PanelCloseReason) => void>(() => {});
   // The one way the panel closes, whatever closes it: it tells the focus
-  // owner why (a link followed gets no focus back), then closes the store
-  // (closeSheet clears Approve all and denies a waiting card). Safe to call
-  // twice: once the panel is closed it does nothing.
+  // owner and Back why (a link followed gets no focus back), then closes the
+  // store (closeSheet clears Approve all and denies a waiting card). Safe to
+  // call twice: once the panel is closed it does nothing.
   const closePanel = useCallback(
     (reason: PanelCloseReason) => {
       const agent = useAgentStore.getState();
       if (!agent.open) return;
       panelFocus.willClose(reason);
+      backWillClose.current(reason);
       agent.closeSheet();
     },
     [panelFocus]
@@ -1656,18 +1659,31 @@ export function MascotAssistant({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, panelEscape]);
 
+  // The phone's Back closes the sheet (lib/agent/mascot/use-back-closes), and
+  // leaves History first: a CloseWatcher where the browser has one, else a
+  // history marker that a close by any other way takes back out.
+  const back = useBackCloses({
+    open,
+    sheet: layout === "sheet",
+    inHistory: showHistory,
+    onBack: () => closePanel("back"),
+    onLeaveHistory: leaveHistory,
+  });
+  backWillClose.current = back.willClose;
+
   // What the views inside the panel may ask of it. A link followed closes it,
-  // as a page change does, with no focus brought back; a view's first focus
-  // target goes to the focus owner. Back isn't handled here yet, so that
-  // stays the safe default.
+  // as a page change does, with no focus brought back, and while Back's
+  // marker is the newest history entry its page takes the marker's place
+  // (replaceOnNavigate); a view's first focus target goes to the focus
+  // owner.
   const panelContext = useMemo<AmrPanelContextValue>(
     () => ({
-      ...NO_AMR_PANEL,
       layout,
       onNavigate: navigateAway,
+      replaceOnNavigate: back.replaceOnNavigate,
       registerInitialFocus: panelFocus.registerInitialFocus,
     }),
-    [layout, navigateAway, panelFocus]
+    [layout, navigateAway, back.replaceOnNavigate, panelFocus]
   );
 
   // The panel's tail points at his figure: none while the launcher stands in for
