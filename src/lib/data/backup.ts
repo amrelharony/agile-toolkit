@@ -32,6 +32,7 @@ const EXCLUDED_KEYS = new Set([
   "agile-toolkit:activity", // Activity inbox: a restore must not bring back stale unread rows
   "agile-toolkit:moments", // moments waiting for Amr: this browser's own, like the inbox
   "agile-toolkit:amr-ai-consent", // visitor AI consent: each browser is asked for itself
+  "agile-toolkit:mascot:motion-asked", // Amr has offered to feel this phone: another phone is still asked
   // Which loves the server counted from this device: restored elsewhere, one
   // love could be taken back from the count once per device.
   "agile-toolkit:comics:counted",
@@ -75,6 +76,28 @@ function listKeys(storage: Storage): string[] {
   return keys.sort();
 }
 
+/**
+ * Amr's appearance (`mascot_appearance`) used to carry the mark that he had
+ * offered to feel the phone, as `motionAsked`. The mark now has a key of its
+ * own, which is excluded above. A browser that hasn't opened the toolkit since
+ * may still hold the old field, and so may an older backup file, so it is
+ * dropped on the way out and on the way in. Otherwise a phone restored from
+ * another phone's backup would never be asked.
+ */
+function withoutDeviceMarks(key: string, value: string): string {
+  if (key !== "mascot_appearance") return value;
+  try {
+    const data: unknown = JSON.parse(value, safeReviver);
+    if (!data || typeof data !== "object" || Array.isArray(data)) return value;
+    if (!("motionAsked" in data)) return value;
+    const rest: Record<string, unknown> = { ...data };
+    delete rest.motionAsked;
+    return JSON.stringify(rest);
+  } catch {
+    return value;
+  }
+}
+
 /** Snapshot every backup-eligible key in `storage`. */
 export function collectBackup(
   storage: Storage = window.localStorage,
@@ -83,7 +106,7 @@ export function collectBackup(
   const keys: Record<string, string> = {};
   for (const key of listKeys(storage)) {
     const value = storage.getItem(key);
-    if (value !== null) keys[key] = value;
+    if (value !== null) keys[key] = withoutDeviceMarks(key, value);
   }
   return { format: BACKUP_FORMAT, version: BACKUP_VERSION, createdAt: now.toISOString(), keys };
 }
@@ -146,7 +169,7 @@ export function parseBackup(text: string): ParseResult {
   const keys: Record<string, string> = {};
   for (const [key, value] of Object.entries(obj.keys)) {
     if (!isBackupKey(key) || typeof value !== "string") continue;
-    keys[key] = sanitizeValue(value);
+    keys[key] = withoutDeviceMarks(key, sanitizeValue(value));
   }
   return {
     ok: true,

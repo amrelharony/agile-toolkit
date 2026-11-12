@@ -12,7 +12,10 @@ import {
   VISITOR_AI_CONSENT_KEY,
   VISITOR_AI_CONSENT_VERSION,
 } from "@/components/agent/mascot/visitor-ai-consent";
+import { MEMORY_KEY } from "@/lib/agent/mascot/memory";
+import { MOTION_ASKED_KEY } from "@/lib/agent/mascot/store";
 import { LIVE_ROOM_KEY_PREFIX } from "@/lib/realtime/live-visitor-room";
+import { LEGACY_APP_KEYS } from "@/lib/utils/clear-local-data";
 
 beforeEach(() => localStorage.clear());
 
@@ -140,6 +143,125 @@ describe("toolkit backup", () => {
       if (!parsed.ok) throw new Error(parsed.error);
       restoreBackup(parsed.backup, localStorage);
       expect(localStorage.getItem(stamp)).toBe("1");
+    });
+  });
+
+  describe("what Amr remembers of a visitor: cleared with the rest, never in a backup", () => {
+    const memory = JSON.stringify({
+      v: 1,
+      firstDay: "2026-11-01",
+      lastDay: "2026-11-09",
+      days: 4,
+      streak: 2,
+      counts: { pat: 7 },
+      recent: ["wave"],
+    });
+
+    it("is not a backup key, and neither are his other notes about the browser", () => {
+      expect(isBackupKey(MEMORY_KEY)).toBe(false);
+      for (const key of ["mascot_last_day", "mascot_greeted", "mascot_helped", "mascot_weather"]) {
+        expect(isBackupKey(key)).toBe(false);
+      }
+      // LEGACY_APP_KEYS is cleared AND backed up, so of Amr's keys only his look belongs on it.
+      expect(LEGACY_APP_KEYS.filter((key) => key.startsWith("mascot_"))).toEqual([
+        "mascot_appearance",
+      ]);
+      for (const key of LEGACY_APP_KEYS) expect(isBackupKey(key)).toBe(true);
+    });
+
+    it("leaves his memory out of an export and drops it from a file", () => {
+      localStorage.setItem(MEMORY_KEY, memory);
+      localStorage.setItem("agile-toolkit:retro", "{}");
+      const backup = collectBackup(localStorage);
+      expect(Object.keys(backup.keys)).toEqual(["agile-toolkit:retro"]);
+      expect(serializeBackup(backup)).not.toContain(MEMORY_KEY);
+
+      localStorage.clear();
+      const parsed = parseBackup(
+        JSON.stringify({
+          format: "agile-toolkit-backup",
+          version: 1,
+          createdAt: "",
+          keys: { [MEMORY_KEY]: memory, "agile-toolkit:retro": "{}" },
+        })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      expect(Object.keys(parsed.backup.keys)).toEqual(["agile-toolkit:retro"]);
+      restoreBackup(parsed.backup, localStorage);
+      expect(localStorage.getItem(MEMORY_KEY)).toBeNull();
+    });
+
+    it("keeps this browser's own memory through a restore", () => {
+      localStorage.setItem(MEMORY_KEY, memory);
+      const parsed = parseBackup(
+        JSON.stringify({ format: "agile-toolkit-backup", version: 1, createdAt: "", keys: {} })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      restoreBackup(parsed.backup, localStorage);
+      expect(localStorage.getItem(MEMORY_KEY)).toBe(memory);
+    });
+  });
+
+  describe("Amr's offer to feel the phone: each phone is asked for itself", () => {
+    const look = { auraColor: "#22d3ee", feelPhone: true };
+
+    it("excludes the same key the mark is kept under", () => {
+      // backup.ts names the key as a literal. If the store's key changes, this fails.
+      expect(MOTION_ASKED_KEY).toBe("agile-toolkit:mascot:motion-asked");
+      expect(isBackupKey(MOTION_ASKED_KEY)).toBe(false);
+      // His look and the visitor's answer still travel.
+      expect(isBackupKey("mascot_appearance")).toBe(true);
+    });
+
+    it("leaves the mark out of an export, the old one inside his appearance too", () => {
+      localStorage.setItem(MOTION_ASKED_KEY, "1");
+      localStorage.setItem("mascot_appearance", JSON.stringify({ ...look, motionAsked: true }));
+      const backup = collectBackup(localStorage);
+      expect(backup.keys).toEqual({ mascot_appearance: JSON.stringify(look) });
+      expect(serializeBackup(backup)).not.toMatch(/motion-?asked/i);
+      // The browser's own copy is not touched by taking a backup.
+      expect(JSON.parse(localStorage.getItem("mascot_appearance")!).motionAsked).toBe(true);
+    });
+
+    it("drops the mark from a file, old or new, and keeps the rest of his appearance", () => {
+      const parsed = parseBackup(
+        JSON.stringify({
+          format: "agile-toolkit-backup",
+          version: 1,
+          createdAt: "",
+          keys: {
+            [MOTION_ASKED_KEY]: "1",
+            mascot_appearance: JSON.stringify({ ...look, motionAsked: true }),
+          },
+        })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      expect(parsed.backup.keys).toEqual({ mascot_appearance: JSON.stringify(look) });
+      restoreBackup(parsed.backup, localStorage);
+      expect(localStorage.getItem(MOTION_ASKED_KEY)).toBeNull();
+      expect(JSON.parse(localStorage.getItem("mascot_appearance")!)).toEqual(look);
+    });
+
+    it("leaves an appearance it can't read, or one without the mark, as it is", () => {
+      localStorage.setItem("mascot_appearance", "not json");
+      expect(collectBackup(localStorage).keys.mascot_appearance).toBe("not json");
+      localStorage.setItem("mascot_appearance", JSON.stringify(look));
+      expect(collectBackup(localStorage).keys.mascot_appearance).toBe(JSON.stringify(look));
+      // Only his appearance is looked into: a tool's own field of that name stays.
+      localStorage.setItem("agile-toolkit:retro", JSON.stringify({ motionAsked: true }));
+      expect(collectBackup(localStorage).keys["agile-toolkit:retro"]).toBe(
+        JSON.stringify({ motionAsked: true })
+      );
+    });
+
+    it("keeps this phone's own mark through a restore", () => {
+      localStorage.setItem(MOTION_ASKED_KEY, "1");
+      const parsed = parseBackup(
+        JSON.stringify({ format: "agile-toolkit-backup", version: 1, createdAt: "", keys: {} })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      restoreBackup(parsed.backup, localStorage);
+      expect(localStorage.getItem(MOTION_ASKED_KEY)).toBe("1");
     });
   });
 
