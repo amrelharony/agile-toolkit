@@ -19,11 +19,22 @@ export const AW_THEMES_MAX = 8;
 export const AW_GROUPS_MAX = 20;
 export const AW_ITEMS_MAX = 10;
 /**
- * The posts' text sent in one request, in all: under the visitor route's
- * 64 KB body cap with room to spare. `aiPosts` keeps the most upvoted
- * within it.
+ * The posts sent in one request, in all, as the UTF-8 bytes of their JSON
+ * (what the route counts): under the visitor route's 64 KiB body cap
+ * (`TOOL_AI_VISITOR_MAX_BODY_BYTES`), with room for the prompt and the
+ * request around them. Counted in bytes, not characters, so a wall in
+ * Chinese or Hindi (three bytes a character) fits as surely as one in
+ * English. `aiPosts` keeps the most upvoted within it.
  */
-export const AW_TEXT_BUDGET = 30_000;
+export const AW_TEXT_BUDGET = 56_000;
+
+const utf8 = new TextEncoder();
+
+/** A post's share of the request: its JSON in bytes, with the longest id and a vote count. */
+export function aiPostBytes(p: { text: string; votes?: number }): number {
+  return utf8.encode(JSON.stringify({ id: "p".repeat(12), text: p.text, votes: p.votes ?? 0 }))
+    .length;
+}
 
 const postId = z.string().trim().min(1).max(12);
 const post = z.object({ id: postId, text: z.string().trim().min(1).max(280) });
@@ -225,7 +236,7 @@ export function aiPosts<T extends { text: string; votes?: number }>(
   const out: T[] = [];
   let used = 0;
   for (const { p } of ranked) {
-    const n = p.text.length;
+    const n = aiPostBytes(p);
     if (out.length >= max || used + n > budget) break;
     out.push(p);
     used += n;

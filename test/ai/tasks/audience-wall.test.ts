@@ -7,10 +7,12 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { TOOL_AI_VISITOR_MAX_BODY_BYTES } from "@/lib/ai/contract";
 import { parseAnswer } from "@/lib/ai/parse-answer";
 import { buildTaskSystem, buildTaskUser } from "@/lib/ai/run-task.server";
 import {
   AW_TEXT_BUDGET,
+  aiPostBytes,
   aiPosts,
   cleanMerges,
   cleanThemes,
@@ -198,12 +200,30 @@ describe("what goes to the AI", () => {
   it("sends the most upvoted posts that fit, and says how many were left out", () => {
     const posts = [
       { text: "a".repeat(20_000), votes: 1 },
-      { text: "b".repeat(15_000), votes: 5 },
-      { text: "c".repeat(10_000), votes: 3 },
+      { text: "b".repeat(30_000), votes: 5 },
+      { text: "c".repeat(20_000), votes: 3 },
     ];
     const { posts: sent, left } = aiPosts(posts);
     expect(sent.map((p) => p.votes)).toEqual([5, 3]);
     expect(left).toBe(1);
-    expect(sent.reduce((n, p) => n + p.text.length, 0)).toBeLessThanOrEqual(AW_TEXT_BUDGET);
+    expect(sent.reduce((n, p) => n + aiPostBytes(p), 0)).toBeLessThanOrEqual(AW_TEXT_BUDGET);
+  });
+
+  it("counts bytes, not characters, so a wall in Chinese stays under the visitor route's cap", () => {
+    // 200 posts of 280 characters at three bytes each: far over 64 KiB in all.
+    const posts = Array.from({ length: 200 }, (_, i) => ({
+      id: `p${i + 1}`,
+      text: "反".repeat(280),
+      votes: 1,
+    }));
+    const { posts: sent, left } = aiPosts(posts);
+    expect(left).toBeGreaterThan(0);
+    const body = JSON.stringify({
+      task: "audience-wall.cluster",
+      input: { prompt: "问".repeat(280), posts: sent.map((p) => ({ id: p.id, text: p.text })) },
+    });
+    expect(new TextEncoder().encode(body).length).toBeLessThanOrEqual(
+      TOOL_AI_VISITOR_MAX_BODY_BYTES
+    );
   });
 });
