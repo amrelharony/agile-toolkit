@@ -8,9 +8,13 @@
  *               (tabIndex -1) when a keyboard opens a view with no field to
  *               start in. Always his name, never a role or "assistant".
  *   subtitle    one truncated line of context: the shell's default for the step
- *               until the view fills it (<PanelSubtitle>), then an optional
- *               keyboard shortcut that touch screens hide
+ *               until the view fills it (<PanelSubtitle>)
  *   actions     the view's own icons (<PanelActions>), then the shell's controls
+ *               (Amr's scenes)
+ *   More        a menu of Amr's own settings, when it has one to offer: the
+ *               tilt switch (a phone that can send its tilt) and, at its foot,
+ *               the open/close shortcut. Without a menu the shortcut follows
+ *               the subtitle instead, hidden on touch screens.
  *   Enlarge     md and up only, when the shell offers it; a toggle (aria-pressed)
  *               whose name stays "Enlarge chat" whatever its state, as a toggle's
  *               name should; the mouse tooltip says what a press does
@@ -19,10 +23,20 @@
  * At least 52 px tall. Icons are ghost Buttons, 44 px on touch screens. The
  * slots fill only inside a <PanelChrome> (panel-chrome.tsx); without one the
  * header shows its defaults. Small on purpose: it ships in the mascot chunk.
+ * The menu is the site's dropdown (ui/dropdown-menu), which the page header's
+ * account menu already loads on every page.
  */
 
 import type { ReactNode } from "react";
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { Ellipsis, Maximize2, Minimize2, X } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PanelIconButton, usePanelHosts } from "./panel-chrome";
 
 /** The plate's id unless the shell gives one: the dialog's aria-labelledby. */
@@ -43,15 +57,23 @@ export function shortcutLabel(key: string, apple: boolean = onApple()): string {
   return apple ? `⌘${key}` : `Ctrl+${key}`;
 }
 
+/** Whether Amr feels the phone's tilt, and the switch's toggle. */
+export interface PanelTilt {
+  on: boolean;
+  onToggle: () => void;
+}
+
 export interface PanelHeaderProps {
   /** The name plate's id, for the dialog's aria-labelledby. */
   plateId?: string;
   /** What the panel shows at this step, until the view fills the subtitle. */
   subtitle?: ReactNode;
-  /** The open/close shortcut as this platform writes it (shortcutLabel("J")), hidden on touch. */
+  /** The open/close shortcut as this platform writes it (shortcutLabel("J")). */
   shortcut?: string;
-  /** The shell's own controls, after the view's actions and before Enlarge. */
+  /** The shell's own controls (Amr's scenes), after the view's actions and before More. */
   controls?: ReactNode;
+  /** The tilt switch, on a phone that can send its tilt. Without it there is none. */
+  tilt?: PanelTilt;
   /** Whether the panel is enlarged (Enlarge's pressed state). */
   enlarged?: boolean;
   /** Toggles the enlarged size. Without it there is no Enlarge button. */
@@ -64,6 +86,7 @@ export function PanelHeader({
   subtitle,
   shortcut,
   controls,
+  tilt,
   enlarged = false,
   onToggleEnlarge,
   onClose,
@@ -71,6 +94,10 @@ export function PanelHeader({
   const slots = usePanelHosts();
   const filled = slots.filled("subtitle");
   const hasSubtitle = filled || (subtitle != null && subtitle !== false && subtitle !== "");
+  // A menu needs a choice in it: a role=menu with only a line of text has no
+  // item to land on. The tilt switch is the only choice so far; "Move Amr"
+  // joins it next and will keep the menu there for everyone.
+  const hasMenu = tilt != null;
   return (
     <div
       data-panel-header=""
@@ -89,7 +116,7 @@ export function PanelHeader({
           {!filled && subtitle}
           {/* dir=auto: a thread title in Arabic keeps its own direction. */}
           <span ref={slots.ref("subtitle")} data-panel-slot="subtitle" dir="auto" />
-          {shortcut && (
+          {shortcut && !hasMenu && (
             <span className="pointer-coarse:hidden">
               {hasSubtitle ? " · " : ""}
               {shortcut}
@@ -104,6 +131,7 @@ export function PanelHeader({
           className="flex items-center gap-0.5 empty:hidden"
         />
         {controls}
+        {hasMenu && <PanelMore shortcut={shortcut} tilt={tilt} />}
         {onToggleEnlarge && (
           <PanelIconButton
             label="Enlarge chat"
@@ -120,5 +148,52 @@ export function PanelHeader({
         </PanelIconButton>
       </div>
     </div>
+  );
+}
+
+/**
+ * The More menu: Amr's own settings, apart from the chat's controls.
+ *
+ * Radix gives the button aria-haspopup and aria-expanded, opens it from Enter,
+ * Space or the down arrow, moves through it with the arrows, and closes it on
+ * Escape with preventDefault, so the panel's Escape (which skips a prevented
+ * one) leaves the panel open and focus returns to the button.
+ */
+function PanelMore({ shortcut, tilt }: { shortcut?: string; tilt?: PanelTilt }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <PanelIconButton label="More">
+          <Ellipsis aria-hidden="true" />
+        </PanelIconButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        {/* ── Move Amr goes here, first: a labelled radio group of his four
+               corners (DropdownMenuLabel + DropdownMenuRadioGroup). ── */}
+        {tilt && (
+          // A switch in a menu is a checkbox item: aria-checked is its state.
+          // It stays open after a press, so the new state shows.
+          <DropdownMenuCheckboxItem
+            checked={tilt.on}
+            onCheckedChange={tilt.onToggle}
+            onSelect={(e) => e.preventDefault()}
+          >
+            <span className="min-w-0 flex-1">Let Amr feel your phone&apos;s tilt</span>
+            {/* aria-checked says it to a screen reader; this says it to the eye. */}
+            <span aria-hidden="true" className="ml-3 shrink-0 text-xs text-sub">
+              {tilt.on ? "On" : "Off"}
+            </span>
+          </DropdownMenuCheckboxItem>
+        )}
+        {shortcut && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs font-normal text-sub">
+              <kbd className="font-data">{shortcut}</kbd> opens and closes Amr
+            </DropdownMenuLabel>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

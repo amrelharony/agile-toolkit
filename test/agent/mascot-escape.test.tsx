@@ -284,6 +284,52 @@ describe("Escape, in order", () => {
     expect(escape(plate())).toBe(false);
     expect(isOpen()).toBe(false);
   });
+
+  it("in the header's More menu closes only the menu, then takes its usual order", async () => {
+    // A phone that sends its tilt, so the menu has its switch to offer.
+    const media = vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === "(pointer: coarse)",
+          media: query,
+          onchange: null,
+          addListener: () => {},
+          removeListener: () => {},
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          dispatchEvent: () => false,
+        }) as MediaQueryList
+    );
+    const w = window as unknown as Record<string, unknown>;
+    w.DeviceOrientationEvent = class {};
+    try {
+      await openToolFinder();
+      // Held: while the menu is open the rest of the page is out of the
+      // accessibility tree.
+      const more = screen.getByRole("button", { name: "More" });
+      fireEvent.keyDown(more, { key: "Enter" });
+      const item = screen.getByRole("menuitemcheckbox", { name: /feel your phone's tilt/ });
+      await waitFor(() => expect(item).toHaveFocus());
+      const answers = cardWaits();
+
+      // 1. The menu's own: it shuts, prevents the default, and nothing else moves.
+      expect(escape(item)).toBe(false);
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(answers).toEqual([]);
+      expect(isOpen()).toBe(true);
+      await waitFor(() => expect(more).toHaveFocus());
+
+      // 2. Then the card, and 4. the panel.
+      expect(escape(more)).toBe(false);
+      expect(answers).toEqual([false]);
+      expect(isOpen()).toBe(true);
+      expect(escape(more)).toBe(false);
+      expect(isOpen()).toBe(false);
+    } finally {
+      delete w.DeviceOrientationEvent;
+      media.mockRestore();
+    }
+  });
 });
 
 describe("Escape outside the panel", () => {

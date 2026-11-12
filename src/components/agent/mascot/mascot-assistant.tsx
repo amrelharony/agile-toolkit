@@ -80,7 +80,7 @@ import {
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
-import { Sparkles, Smartphone, Clapperboard } from "lucide-react";
+import { Sparkles, Clapperboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore, type PanelOpenVia } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
@@ -1406,41 +1406,31 @@ export function MascotAssistant() {
                   }
                   shortcut={shortcutLabel("J")}
                   controls={
-                    <>
-                      {/* No figure, no one to act a scene out; a confirmation waiting comes first. */}
-                      {!figureFailed && (
-                        <PanelIconButton
-                          label="Amr's scenes"
-                          title={
-                            confirmPending
-                              ? "Scenes, once the action is confirmed or denied"
-                              : "Scenes"
-                          }
-                          aria-pressed={scenesOpen}
-                          disabled={confirmPending}
-                          onClick={() => {
-                            setShowScenes(!scenesOpen);
-                            setShowHistory(false);
-                          }}
-                        >
-                          <Clapperboard aria-hidden="true" />
-                        </PanelIconButton>
-                      )}
-                      {motionAvailable && (
-                        <PanelIconButton
-                          label="Let Amr feel your phone"
-                          title={
-                            feelsMotion
-                              ? "Amr feels your phone's tilt and shakes · tap to stop"
-                              : "Let Amr feel your phone's tilt and shakes"
-                          }
-                          aria-pressed={feelsMotion}
-                          onClick={() => void toggleMotion()}
-                        >
-                          <Smartphone aria-hidden="true" />
-                        </PanelIconButton>
-                      )}
-                    </>
+                    // No figure, no one to act a scene out; a confirmation waiting comes first.
+                    !figureFailed && (
+                      <PanelIconButton
+                        label="Amr's scenes"
+                        title={
+                          confirmPending
+                            ? "Scenes, once the action is confirmed or denied"
+                            : "Scenes"
+                        }
+                        aria-pressed={scenesOpen}
+                        disabled={confirmPending}
+                        onClick={() => {
+                          setShowScenes(!scenesOpen);
+                          setShowHistory(false);
+                        }}
+                      >
+                        <Clapperboard aria-hidden="true" />
+                      </PanelIconButton>
+                    )
+                  }
+                  // The tilt switch, labelled, in the header's More menu.
+                  tilt={
+                    motionAvailable
+                      ? { on: feelsMotion, onToggle: () => void toggleMotion() }
+                      : undefined
                   }
                   enlarged={panelSize.enlarged}
                   onToggleEnlarge={panelSize.toggle}

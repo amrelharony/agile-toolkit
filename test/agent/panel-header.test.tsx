@@ -3,20 +3,22 @@
  * the slots a view fills in it (panel-chrome.tsx) and the panel context a view
  * reads (panel-context.ts). These pin the lettered name plate (always "Amr",
  * the dialog's title, able to take focus), the subtitle that shows the step's
- * default until the view fills it, the back and action slots, Enlarge as a
- * toggle that only md and up see, the 44 px touch targets, and that nothing is
- * set in capitals.
+ * default until the view fills it, the back and action slots, the More menu
+ * (its keyboard, its Escape that leaves the panel open, the labelled tilt
+ * switch and the shortcut), Enlarge as a toggle that only md and up see, the
+ * 44 px touch targets, and that nothing is set in capitals.
  */
 
-import { useState, type ReactNode } from "react";
+import { useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, renderHook, screen, within } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   AMR_PANEL_TITLE_ID,
   PanelHeader,
   shortcutLabel,
   type PanelHeaderProps,
+  type PanelTilt,
 } from "@/components/agent/mascot/panel-header";
 import {
   PANEL_ICON,
@@ -47,6 +49,15 @@ function Panel({ children, ...props }: Partial<PanelHeaderProps> & { children?: 
 const header = () => document.querySelector("[data-panel-header]") as HTMLElement;
 const slot = (name: string) => header().querySelector(`[data-panel-slot="${name}"]`) as HTMLElement;
 const subtitleLine = () => slot("subtitle").parentElement as HTMLElement;
+
+/** A tilt switch the test can watch: off unless `on`. */
+const tiltOf = (on = false): PanelTilt => ({ on, onToggle: vi.fn() });
+const moreButton = () => within(header()).getByRole("button", { name: "More" });
+/** Opens the More menu from the keyboard, as Enter on its button does. */
+function openMore(key = "Enter"): HTMLElement {
+  fireEvent.keyDown(moreButton(), { key });
+  return screen.getByRole("menu");
+}
 
 describe("the name plate", () => {
   it("letters Amr's name as the panel's h2, under the plate id, able to take focus", () => {
@@ -132,7 +143,7 @@ describe("the subtitle", () => {
     expect(slot("subtitle")).toHaveAttribute("dir", "auto");
   });
 
-  it("follows the subtitle with the shortcut, hidden on touch screens", () => {
+  it("follows the subtitle with the shortcut while there is no More menu, hidden on touch screens", () => {
     render(
       <Panel subtitle="Find the right tool" shortcut="Ctrl+J">
         <span />
@@ -147,6 +158,12 @@ describe("the subtitle", () => {
   it("drops the separator when there is no subtitle before the shortcut", () => {
     render(<Panel shortcut="Ctrl+J" />);
     expect(screen.getByText("Ctrl+J").textContent).toBe("Ctrl+J");
+  });
+
+  it("leaves the shortcut to the More menu once there is one", () => {
+    render(<Panel subtitle="Find the right tool" shortcut="Ctrl+J" tilt={tiltOf()} />);
+    expect(subtitleLine().textContent).toBe("Find the right tool");
+    expect(within(header()).queryByText(/Ctrl\+J/)).toBeNull();
   });
 });
 
@@ -209,18 +226,25 @@ describe("the back and action slots", () => {
     expect(back).toHaveBeenCalledTimes(1);
   });
 
-  it("puts the shell's own controls after the view's actions", () => {
+  it("puts the shell's More menu after the view's actions, before Enlarge and Close", () => {
     render(
-      <Panel controls={<PanelIconButton label="Let Amr feel your phone">o</PanelIconButton>}>
+      <Panel tilt={tiltOf()} onToggleEnlarge={() => {}}>
         <PanelActions>
           <PanelIconButton label="New chat">+</PanelIconButton>
         </PanelActions>
       </Panel>
     );
-    const newChat = screen.getByRole("button", { name: "New chat" });
-    const tilt = screen.getByRole("button", { name: "Let Amr feel your phone" });
-    expect(newChat.compareDocumentPosition(tilt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(slot("actions")).not.toContainElement(tilt);
+    const h = within(header());
+    const newChat = h.getByRole("button", { name: "New chat" });
+    const more = h.getByRole("button", { name: "More" });
+    const enlarge = h.getByRole("button", { name: "Enlarge chat" });
+    const before = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(before(newChat, more)).toBe(true);
+    expect(before(more, enlarge)).toBe(true);
+    expect(slot("actions")).not.toContainElement(more);
+    // The old bare phone icon is gone from the row: the switch is in the menu.
+    expect(h.queryByRole("button", { name: /feel your phone/i })).toBeNull();
   });
 
   it("hides an empty slot so it leaves no gap", () => {
@@ -266,6 +290,140 @@ describe("the back and action slots", () => {
   });
 });
 
+describe("the More menu", () => {
+  it("is offered only with a choice in it", () => {
+    // A menu with only the shortcut line would have no item to land on.
+    const { rerender } = render(<Panel shortcut="Ctrl+J" />);
+    expect(within(header()).queryByRole("button", { name: "More" })).toBeNull();
+
+    rerender(<Panel shortcut="Ctrl+J" tilt={tiltOf()} />);
+    expect(moreButton()).toBeInTheDocument();
+  });
+
+  it("is a ghost icon menu button, closed until asked", () => {
+    render(<Panel tilt={tiltOf()} />);
+    const more = moreButton();
+    expect(more).toHaveAttribute("type", "button");
+    expect(more).toHaveAttribute("data-variant", "ghost");
+    expect(more).toHaveAttribute("aria-haspopup", "menu");
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(more).toHaveAttribute("title", "More");
+    expect(more).toHaveClass("h-9", "w-9", "pointer-coarse:min-h-11", "pointer-coarse:min-w-11");
+    expect(more.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("opens from the keyboard, lands on its first choice, and Escape closes it back to its button", async () => {
+    render(<Panel tilt={tiltOf()} />);
+    // Held from here: while the menu is open the rest of the page is hidden
+    // from the accessibility tree, the button too.
+    const more = moreButton();
+    for (const key of ["Enter", " ", "ArrowDown"]) {
+      const menu = openMore(key);
+      expect(more).toHaveAttribute("aria-expanded", "true");
+      expect(more).toHaveAttribute("aria-controls", menu.id);
+      const tilt = within(menu).getByRole("menuitemcheckbox");
+      await waitFor(() => expect(tilt).toHaveFocus());
+
+      fireEvent.keyDown(tilt, { key: "Escape" });
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(more).toHaveAttribute("aria-expanded", "false");
+      await waitFor(() => expect(more).toHaveFocus());
+    }
+  });
+
+  it("keeps its Escape: the menu closes, the default is prevented, and the panel stays open", () => {
+    // The panel's own Escape (mascot-assistant's panelEscape) runs from the
+    // dialog's onKeyDown and skips an Escape something has prevented. The menu
+    // sits in a portal, but React still bubbles its keys to the dialog.
+    const panelSaw: boolean[] = [];
+    const closePanel = vi.fn();
+    const onKeyDown = (e: ReactKeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      panelSaw.push(e.nativeEvent.defaultPrevented);
+      if (!e.nativeEvent.defaultPrevented) closePanel();
+    };
+    render(
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+      <div role="dialog" aria-labelledby={AMR_PANEL_TITLE_ID} onKeyDown={onKeyDown}>
+        <Panel tilt={tiltOf()} />
+      </div>
+    );
+    const menu = openMore();
+    const notPrevented = fireEvent.keyDown(within(menu).getByRole("menuitemcheckbox"), {
+      key: "Escape",
+    });
+    expect(notPrevented).toBe(false);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(panelSaw).toEqual([true]);
+    expect(closePanel).not.toHaveBeenCalled();
+
+    // With the menu shut, the next Escape is the panel's.
+    expect(fireEvent.keyDown(moreButton(), { key: "Escape" })).toBe(true);
+    expect(panelSaw).toEqual([true, false]);
+    expect(closePanel).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds the tilt switch: a labelled checkbox item that toggles and stays open", () => {
+    const tilt = tiltOf(false);
+    const { rerender } = render(<Panel tilt={tilt} />);
+    let menu = openMore();
+    let item = within(menu).getByRole("menuitemcheckbox", {
+      name: "Let Amr feel your phone's tilt",
+    });
+    expect(item).toHaveAttribute("aria-checked", "false");
+    // Its state in words for the eye; aria-checked says it to a screen reader.
+    const state = within(item).getByText("Off");
+    expect(state).toHaveAttribute("aria-hidden", "true");
+
+    fireEvent.click(item);
+    expect(tilt.onToggle).toHaveBeenCalledTimes(1);
+    // Still open, so the new state shows.
+    expect(screen.getByRole("menu")).toBe(menu);
+
+    rerender(<Panel tilt={{ ...tilt, on: true }} />);
+    menu = screen.getByRole("menu");
+    item = within(menu).getByRole("menuitemcheckbox", {
+      name: "Let Amr feel your phone's tilt",
+      checked: true,
+    });
+    expect(within(item).getByText("On")).toHaveAttribute("aria-hidden", "true");
+
+    // The keyboard toggles it too.
+    fireEvent.keyDown(item, { key: "Enter" });
+    expect(tilt.onToggle).toHaveBeenCalledTimes(2);
+  });
+
+  it("ends with the shortcut, as the platform writes it", () => {
+    const { unmount } = render(<Panel tilt={tiltOf()} shortcut={shortcutLabel("J", false)} />);
+    let menu = openMore();
+    expect(within(menu).getByText(/opens and closes Amr$/).textContent).toBe(
+      "Ctrl+J opens and closes Amr"
+    );
+    expect(within(menu).getByText("Ctrl+J").tagName).toBe("KBD");
+    // A line to read, not a choice: the arrows never stop on it.
+    expect(within(menu).getAllByRole("menuitemcheckbox")).toHaveLength(1);
+    expect(within(menu).queryByRole("menuitem")).toBeNull();
+    unmount();
+
+    render(<Panel tilt={tiltOf()} shortcut={shortcutLabel("J", true)} />);
+    menu = openMore();
+    expect(within(menu).getByText(/opens and closes Amr$/).textContent).toBe(
+      "⌘J opens and closes Amr"
+    );
+  });
+
+  it("sets nothing in its menu in capitals", () => {
+    render(<Panel tilt={tiltOf(true)} shortcut="Ctrl+J" />);
+    const menu = openMore();
+    for (const el of [menu, ...Array.from(menu.querySelectorAll("*"))]) {
+      expect(classes(el)).not.toContain("uppercase");
+    }
+    const words = (menu.textContent ?? "").match(/[A-Za-z]{3,}/g) ?? [];
+    for (const word of words) expect(word).not.toBe(word.toUpperCase());
+  });
+});
+
 describe("Enlarge and Close", () => {
   it("offers Enlarge only when the shell can enlarge, and only from md up", () => {
     const { rerender } = render(<Panel />);
@@ -302,13 +460,13 @@ describe("Enlarge and Close", () => {
 
   it("makes every header icon a ghost Button, 36 px with a mouse and 44 px on touch", () => {
     render(
-      <Panel onToggleEnlarge={() => {}}>
+      <Panel onToggleEnlarge={() => {}} tilt={tiltOf()}>
         <PanelActions>
           <PanelIconButton label="New chat">+</PanelIconButton>
         </PanelActions>
       </Panel>
     );
-    for (const name of ["New chat", "Enlarge chat", "Close assistant"]) {
+    for (const name of ["New chat", "More", "Enlarge chat", "Close assistant"]) {
       const button = within(header()).getByRole("button", { name });
       expect(button).toHaveAttribute("type", "button");
       expect(button).toHaveAttribute("data-variant", "ghost");
@@ -353,7 +511,7 @@ describe("the brand", () => {
   });
 
   it("uses no glow, gradient, pill or hex colour in the header's classes", () => {
-    render(<Panel onToggleEnlarge={() => {}} />);
+    render(<Panel onToggleEnlarge={() => {}} tilt={tiltOf()} />);
     for (const el of [header(), ...Array.from(header().querySelectorAll("*"))]) {
       for (const c of classes(el)) {
         expect(c).not.toMatch(/^(?:.*:)?(?:rounded-full|bg-gradient|from-|glow|drop-shadow|blur)/);
