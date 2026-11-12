@@ -5,10 +5,12 @@
  * The result names every rule it had to break, every pair that meets again
  * and anyone who sits out, in plain words.
  *
- * Pairs start from a round-robin rotation (the circle method), with the
- * people in an order fixed by the series' seed, so a team that keeps the
- * same people gets n - 1 rounds of new pairs before any repeats; the search
- * then fits the rules and the balance around it.
+ * Pairs follow a round-robin rotation (the circle method), with the people
+ * in an order fixed by the series' seed (tuned so the first rounds are the
+ * balanced ones), so a team that keeps the same people gets n - 1 rounds of
+ * new pairs before any repeats (n with one sitting out each round). The
+ * search keeps the rotation's pairs unless a rule says otherwise: balance
+ * never pulls them apart, since it would cost new company later on.
  *
  * Seeded through src/lib/utils/random.ts: the same seed, people, rules and
  * history give the same mix (when the time limit doesn't cut the search).
@@ -40,6 +42,7 @@ import {
   BALANCE_COST,
   RECENT_COST,
   REPEAT_COST,
+  ROTATION_COST,
   RULE_COST,
   balanceIssues,
   metHistory,
@@ -71,6 +74,11 @@ export interface MixInput {
   seed: number;
   /** Pairs: the seed that fixes the rotation's order for the series. Default: `seed`. */
   rotationSeed?: number;
+  /**
+   * This round's place in the series, from 0 (the rounds mixed before it,
+   * which can be more than the history keeps). Default: the history's length.
+   */
+  round?: number;
   timeLimitMs?: number;
   maxKicks?: number;
   now?: () => number;
@@ -129,40 +137,101 @@ function togetherClusters(n: number, rules: readonly PlacedRule[]): number[][] {
   return Array.from(byRoot.values()).filter((c) => c.length > 1);
 }
 
+/** The empty seat that makes an odd number even in the circle method. */
+const BYE = -1;
+/** How many of a series' first rounds the rotation's order is tuned for. */
+const TUNED_ROUNDS = 8;
+
 /**
- * The round-robin start for pair round `round` (0-based): the circle method
- * over the people in the series' order, mapped onto the seats (a trio's
- * extra person joins pair 0; with a sit-out seat, the one with the bye sits
- * out). Null when the seats don't fit pairs.
+ * Who sits at seat `i` (from 0) of the circle in round `round`: the first
+ * place stays, and the others turn one seat each round.
+ */
+function circleSeat(order: readonly number[], round: number, i: number): number {
+  if (i === 0) return order[0];
+  const turns = order.length - 1;
+  return order[1 + ((((i - 1 - round) % turns) + turns) % turns)];
+}
+
+/** The circle method's pairs in round `round` (from 0), by place in `order`; BYE is the empty seat. */
+function circlePairs(order: readonly number[], round: number): [number, number][] {
+  const total = order.length;
+  const pairs: [number, number][] = [];
+  for (let i = 0; i < total / 2; i++) {
+    pairs.push([circleSeat(order, round, i), circleSeat(order, round, total - 1 - i)]);
+  }
+  return pairs;
+}
+
+/**
+ * The series' order for the circle method: the people shuffled by the
+ * series' seed (with a BYE seat for an odd number). When pairs cost
+ * something (a shared role or skill, a keep-apart rule), the order is then
+ * tuned by swapping places, so the first rounds pair people who differ: a
+ * whole rotation pairs everyone once whatever the order, so only which
+ * rounds come first can change. The same people, traits, rules and seed
+ * always give the same order, so the rotation holds round after round.
+ */
+function rotationOrder(
+  people: readonly MixPerson[],
+  rotationSeed: number,
+  cost: ((i: number, j: number) => number) | null
+): number[] {
+  const keys = people.map((p) => nameKey(p.name));
+  const byKey = new Map(keys.map((k, i) => [k, i] as const));
+  const order: number[] = shuffle(keys.slice().sort(), createRng(rotationSeed)).map(
+    (k) => byKey.get(k)!
+  );
+  if (order.length % 2 === 1) order.push(BYE);
+  if (!cost || order.length < 4) return order;
+
+  const rounds = Math.min(order.length - 1, TUNED_ROUNDS);
+  const score = (o: readonly number[]) => {
+    let s = 0;
+    for (let k = 0; k < rounds; k++) {
+      const w = 2 ** -k;
+      for (const [a, b] of circlePairs(o, k)) if (a !== BYE && b !== BYE) s += w * cost(a, b);
+    }
+    return s;
+  };
+  let best = score(order);
+  const rng = createRng(`${rotationSeed}:rotation`);
+  const steps = Math.min(4000, 60 * order.length);
+  for (let s = 0; s < steps && best > 0; s++) {
+    const i = Math.floor(rng() * order.length);
+    const j = Math.floor(rng() * order.length);
+    if (i === j) continue;
+    [order[i], order[j]] = [order[j], order[i]];
+    const next = score(order);
+    // Level moves too, so the climb can cross a flat stretch.
+    if (next <= best) best = next;
+    else [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
+/**
+ * The rotation for pair round `round` (0-based): the circle method over
+ * the series' order, mapped onto the seats (a trio's extra person joins
+ * pair 0; with a sit-out seat, the one with the bye sits out). `pairs` are
+ * the twos the rotation makes, which the mix keeps unless a rule or a
+ * repeat says otherwise. Null when the seats don't fit pairs.
  */
 function rotationStart(
   people: readonly MixPerson[],
   sizes: readonly number[],
   sitOutGroup: number | null,
   round: number,
-  rotationSeed: number
-): number[] | null {
+  rotationSeed: number,
+  cost: ((i: number, j: number) => number) | null
+): { assign: number[]; pairs: [number, number][] } | null {
   const n = people.length;
   if (n < 2) return null;
-  const keys = people.map((p) => nameKey(p.name));
-  const byKey = new Map(keys.map((k, i) => [k, i] as const));
-  const order: number[] = shuffle(keys.slice().sort(), createRng(rotationSeed)).map(
-    (k) => byKey.get(k)!
-  );
-  const bye = -1;
-  if (order.length % 2 === 1) order.push(bye);
-  const total = order.length;
-  const turns = total - 1;
-  const r = ((round % turns) + turns) % turns;
-  const rest = order.slice(1);
-  const rotated = [order[0], ...rest.slice(rest.length - r), ...rest.slice(0, rest.length - r)];
+  const order = rotationOrder(people, rotationSeed, cost);
   const pairs: [number, number][] = [];
   let lone = -1;
-  for (let i = 0; i < total / 2; i++) {
-    const a = rotated[i];
-    const b = rotated[total - 1 - i];
-    if (a === bye) lone = b;
-    else if (b === bye) lone = a;
+  for (const [a, b] of circlePairs(order, round)) {
+    if (a === BYE) lone = b;
+    else if (b === BYE) lone = a;
     else pairs.push([a, b]);
   }
   const groups = sitOutGroup === null ? sizes.length : sizes.length - 1;
@@ -173,7 +242,7 @@ function rotationStart(
     assign[b] = g;
   });
   if (lone >= 0) assign[lone] = sitOutGroup ?? 0;
-  return assign;
+  return { assign, pairs };
 }
 
 /** The seats for a mix: each group's size, and which one (if any) is the sit-out seat. */
@@ -234,11 +303,36 @@ export function mixGroups(input: MixInput): MixOutcome {
   }
 
   const rng = createRng(input.seed);
-  const pastRounds = input.history?.length ?? 0;
-  const start =
-    mode === "pairs"
-      ? rotationStart(people, sizes, sitOutGroup, pastRounds, input.rotationSeed ?? input.seed)
-      : null;
+  const pastRounds = Math.max(0, Math.floor(input.round ?? input.history?.length ?? 0));
+  // Pairs follow the series' rotation: its order is tuned (once, the same
+  // way every round) so the first rounds pair people of different roles or
+  // skills and keep a keep-apart pair for late, and each rotation pair gets
+  // a bonus that balance can't outweigh, so the series keeps its new pairs.
+  let start: number[] | null = null;
+  if (mode === "pairs") {
+    const apart = new Set(placed.filter((r) => r.kind === "apart").map((r) => r.i * n + r.j));
+    const orderCost =
+      balance !== "none" || apart.size > 0
+        ? (i: number, j: number) =>
+            BALANCE_COST * sharedTraits(traits[i], traits[j]) +
+            (apart.has(i * n + j) || apart.has(j * n + i) ? RULE_COST : 0)
+        : null;
+    const rotation = rotationStart(
+      people,
+      sizes,
+      sitOutGroup,
+      pastRounds,
+      input.rotationSeed ?? input.seed,
+      orderCost
+    );
+    if (rotation) {
+      start = rotation.assign;
+      for (const [a, b] of rotation.pairs) {
+        pair[a * n + b] -= ROTATION_COST;
+        pair[b * n + a] -= ROTATION_COST;
+      }
+    }
+  }
   const found = searchPartition(
     {
       n,

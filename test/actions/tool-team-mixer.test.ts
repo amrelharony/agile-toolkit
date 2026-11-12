@@ -227,6 +227,7 @@ describe("list_state", () => {
       problem: string | null;
       roundCount: number;
       rounds: { number: number; groups: unknown[] }[];
+      pairRotation: string | null;
       cafe: unknown;
       hasExample: boolean;
     }>("list_state", {});
@@ -236,6 +237,7 @@ describe("list_state", () => {
     expect(s.problem).toBeNull();
     expect(s.roundCount).toBe(1);
     expect(s.rounds[0].number).toBe(1);
+    expect(s.pairRotation).toMatch(/everyone meets everyone before anyone pairs twice\.$/);
     expect(s.cafe).toBeNull();
     expect(s.hasExample).toBe(false);
   });

@@ -519,6 +519,66 @@ describe("balance", () => {
     ]);
   });
 
+  it("keeps the rotation's new pairs round after round, with uneven roles", () => {
+    const uneven: MixPerson[] = [
+      { name: "P1", role: "Dev" },
+      { name: "P2", role: "Dev" },
+      { name: "P3", role: "Dev" },
+      { name: "P4", role: "Test" },
+      { name: "P5", role: "Test" },
+      { name: "P6", role: "PO" },
+    ];
+    const ten: MixPerson[] = Array.from({ length: 10 }, (_, i) => ({
+      name: `Q${i + 1}`,
+      role: ["Dev", "Dev", "Dev", "Dev", "Test", "Test", "Test", "PO", "UX", "Dev"][i],
+    }));
+    const seven: MixPerson[] = [...uneven, { name: "P7", role: "UX" }];
+    const series = (team: MixPerson[], rounds: number, rotationSeed: number, odd?: "sit-out") => {
+      const history: PastRound[] = [];
+      const seen = new Set<string>();
+      let repeats = 0;
+      for (let round = 0; round < rounds; round++) {
+        const r = ok(
+          mixGroups({
+            people: team,
+            mode: "pairs",
+            balance: "role",
+            odd,
+            history,
+            seed: rotationSeed * 100 + round,
+            rotationSeed,
+            maxKicks: 40,
+          })
+        );
+        for (const key of Array.from(pairsOf(r.groups))) {
+          if (seen.has(key)) repeats++;
+          seen.add(key);
+        }
+        expect(r.repeats).toBe(0);
+        history.push({ groups: r.groups, sitOut: r.sitOut });
+      }
+      return { repeats, met: seen.size };
+    };
+    for (let rotationSeed = 1; rotationSeed <= 12; rotationSeed++) {
+      expect(series(uneven, 5, rotationSeed)).toEqual({ repeats: 0, met: 15 });
+      expect(series(ten, 9, rotationSeed)).toEqual({ repeats: 0, met: 45 });
+      // An odd number with one sitting out: n rounds, everyone out once.
+      expect(series(seven, 7, rotationSeed, "sit-out")).toEqual({ repeats: 0, met: 21 });
+    }
+  });
+
+  it("still balances the first round of a series", () => {
+    for (let rotationSeed = 1; rotationSeed <= 20; rotationSeed++) {
+      const r = ok(
+        mixGroups({ people: team, mode: "pairs", balance: "role", seed: 3, rotationSeed })
+      );
+      for (const g of r.groups) {
+        const roles = g.map((n) => team.find((p) => p.name === n)!.role!.toLowerCase());
+        expect(new Set(roles).size).toBe(2);
+      }
+    }
+  });
+
   it("puts the rules before balance", () => {
     const r = ok(
       mixGroups({

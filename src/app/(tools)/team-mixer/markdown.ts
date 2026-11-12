@@ -80,7 +80,7 @@ export function toMarkdown(s: MixerState): string {
     ""
   );
   if (s.mode === "cafe" && s.cafe) out.push(...cafeMarkdown(s.cafe));
-  const rounds = s.rounds.map((r, i) => ({ r, n: i + 1 })).reverse();
+  const rounds = s.rounds.map((r) => ({ r, n: r.number })).reverse();
   for (const { r, n } of rounds) out.push(...roundMarkdown(r, n));
   if (s.mode !== "cafe" && s.cafe) out.push(...cafeMarkdown(s.cafe));
   if (s.rules.length > 0) {

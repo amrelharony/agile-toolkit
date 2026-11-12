@@ -28,6 +28,7 @@ import {
   pairingCount,
   parseNames,
   removePeople,
+  rotationNote,
   settingsPreview,
   settingsProblem,
   showCafeRound,
@@ -147,6 +148,25 @@ describe("normalizeMixerState", () => {
     ).toBeNull();
   });
 
+  it("numbers the rounds in time order, and keeps the series count ahead of them", () => {
+    const s = normalizeMixerState({
+      seriesRound: 2,
+      rounds: [
+        { id: "b", number: 7, at: "2026-11-11T10:00:00.000Z", groups: [{ people: ["Ana"] }] },
+        { id: "a", at: "2026-11-10T10:00:00.000Z", groups: [{ people: ["Ana"] }] },
+        { id: "c", number: 3, at: "2026-11-12T10:00:00.000Z", groups: [{ people: ["Ana"] }] },
+      ],
+    });
+    expect(s.rounds.map((r) => [r.id, r.number])).toEqual([
+      ["a", 1],
+      ["b", 7],
+      ["c", 8],
+    ]);
+    expect(s.seriesRound).toBe(8);
+    expect(normalizeMixerState({ seriesRound: 50 }).seriesRound).toBe(50);
+    expect(normalizeMixerState({ seriesRound: -1 }).seriesRound).toBe(0);
+  });
+
   it("caps the saved rounds, the oldest going first", () => {
     const rounds = Array.from({ length: MIXER_LIMITS.rounds + 5 }, (_, i) => ({
       id: `r${i}`,
@@ -175,6 +195,27 @@ describe("the example", () => {
     expect(clean.rules).toEqual([]);
     expect(clean.rounds).toHaveLength(1);
     expect(hasExampleRows(clean)).toBe(false);
+  });
+
+  it("takes the series count back by the example's rounds after the person's own", () => {
+    const round = (id: string, number: number, h: number) => ({
+      id,
+      number,
+      at: new Date(Date.UTC(2026, 10, 12, h)).toISOString(),
+      groups: [{ people: ["Bo", "Cy"] }],
+    });
+    const after = normalizeMixerState({
+      rounds: [round("r1", 1, 8), round("r2", 2, 9), round("example-round-1", 3, 10)],
+    });
+    expect(after.seriesRound).toBe(3);
+    expect(withoutExample(after).seriesRound).toBe(2);
+    const before = normalizeMixerState({
+      rounds: [round("example-round-1", 1, 8), round("r2", 2, 9)],
+    });
+    expect(withoutExample(before).seriesRound).toBe(2);
+    expect(
+      withoutExample(normalizeMixerState({ rounds: [round("example-round-1", 1, 8)] })).seriesRound
+    ).toBe(0);
   });
 });
 
@@ -283,6 +324,49 @@ describe("mixing and saving", () => {
     expect(pairingCount(second.state)).toBe(6);
   });
 
+  it("keeps the pair rotation and the round numbers going past the rounds it keeps", () => {
+    const names = Array.from({ length: 44 }, (_, i) => `P${i + 1}`);
+    let s: MixerState = { ...withPeople(names), mode: "pairs" };
+    const seen = new Set<string>();
+    for (let k = 1; k <= 43; k++) {
+      const step = ok(
+        mixNow(s, [], { seed: k, maxKicks: 5, now: new Date(Date.UTC(2026, 10, 1, 0, k)) })
+      );
+      expect(step.round!.number).toBe(k);
+      for (const g of step.round!.groups) {
+        const key = pairKey(g.people[0], g.people[1]);
+        expect(seen.has(key), `round ${k} pairs ${g.people.join(" and ")} again`).toBe(false);
+        seen.add(key);
+      }
+      s = step.state;
+    }
+    // 44 people meet all 946 pairs in 43 rounds, though only 40 rounds are kept.
+    expect(seen.size).toBe(946);
+    expect(s.rounds).toHaveLength(MIXER_LIMITS.rounds);
+    expect(s.seriesRound).toBe(43);
+    expect(s.rounds.map((r) => r.number)).toEqual(Array.from({ length: 40 }, (_, i) => i + 4));
+    expect(normalizeMixerState(s)).toEqual(s);
+  });
+
+  it("says what the pair rotation can promise", () => {
+    const even = { ...six(), mode: "pairs" as const };
+    const five = withPeople(["Ana", "Bo", "Cy", "Dee", "Eve"], { mode: "pairs" });
+    const promise =
+      "Each round pairs people who haven't paired yet: everyone meets everyone before anyone pairs twice.";
+    expect(rotationNote(even)).toBe(promise);
+    expect(rotationNote({ ...five, odd: "sit-out" })).toBe(promise);
+    expect(rotationNote(five)).toBe(
+      "Each round pairs people who haven't paired yet as far as it can, but with the group of 3, some meet again sooner."
+    );
+    const rule = (b: string) => [{ id: "x1", kind: "apart" as const, a: "Ana", b }];
+    expect(rotationNote({ ...even, rules: rule("Bo") })).toMatch(/, but with the rules, /);
+    expect(rotationNote({ ...five, rules: rule("Bo") })).toMatch(
+      /, but with the group of 3 and the rules, /
+    );
+    // A rule for someone who isn't in the mix takes nothing away.
+    expect(rotationNote({ ...even, rules: rule("Zed") })).toBe(promise);
+  });
+
   it("keeps the title with the round", () => {
     const r = ok(mixNow({ ...six(), title: "Retro breakouts" }, [], { seed: 1 }));
     expect(r.round!.title).toBe("Retro breakouts");
@@ -332,6 +416,7 @@ describe("mixing and saving", () => {
       rounds: [
         {
           id: "r1",
+          number: 1,
           at: "2026-11-12T10:00:00.000Z",
           mode: "pairs",
           seed: 1,
@@ -363,6 +448,7 @@ describe("mixing and saving", () => {
       rounds: [
         {
           id: "r0",
+          number: 1,
           at: at(9),
           mode: "groups",
           seed: 1,
@@ -373,6 +459,7 @@ describe("mixing and saving", () => {
         },
         {
           id: "r1",
+          number: 2,
           at: at(10),
           mode: "groups",
           seed: 2,

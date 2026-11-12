@@ -16,15 +16,14 @@ import type { MixerCafe, MixerRound } from "@/lib/team-mixer/state";
 export interface LiveCardProps {
   mode: "groups" | "pairs" | "cafe";
   round: MixerRound | null;
-  /** The round's number in the series, from 1. */
-  number: number;
   cafe: MixerCafe | null;
 }
 
 const TOO_BIG = "This mix is too big to show at once. Show fewer people, or shorter names.";
 
 /** The buttons inside a live room: put the newest round, or the café round, on everyone's phone. */
-function LiveControls({ room, mode, round, number, cafe }: LiveCardProps & { room: ShowRoom }) {
+function LiveControls({ room, mode, round, cafe }: LiveCardProps & { room: ShowRoom }) {
+  const number = round?.number ?? 0;
   const [status, setStatus] = useState<string | null>(null);
 
   const showRound = () => {

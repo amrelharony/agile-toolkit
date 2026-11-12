@@ -41,6 +41,7 @@ import {
   addPeople,
   mixNow,
   settingsPreview,
+  rotationNote,
   settingsProblem,
   showCafeRound,
 } from "@/lib/team-mixer/ops";
@@ -96,10 +97,10 @@ function serverStore(userId: string): MixerStore {
 
 const issueText = (issues: readonly MixIssue[]) => issues.map((i) => i.text);
 
-function roundOut(r: MixerRound, number: number) {
+function roundOut(r: MixerRound) {
   return {
     id: r.id,
-    number,
+    number: r.number,
     at: r.at,
     mode: r.mode,
     title: r.title ?? null,
@@ -172,7 +173,8 @@ async function listState(store: MixerStore) {
     problem: settingsProblem(s),
     rules: s.rules.map((r) => ({ id: r.id, kind: r.kind, a: r.a, b: r.b })),
     roundCount: s.rounds.length,
-    rounds: s.rounds.slice(first).map((r, i) => roundOut(r, first + i + 1)),
+    rounds: s.rounds.slice(first).map(roundOut),
+    pairRotation: s.mode === "pairs" ? rotationNote(s) : null,
     cafe: s.cafe ? cafeOut(s.cafe) : null,
     hasExample: hasExampleRows(s),
   };
@@ -183,7 +185,7 @@ registry.register({
   toolId: "tool.team_mixer",
   name: "list_state",
   category: "read",
-  description: `Read Team Mixer as the page shows it. Returns {people: names in the mix (up to ${MIXER_LIMITS.people}), settings: {mode: 'groups' | 'pairs' | 'cafe', split: 'size' | 'count', groupSize, groupCount, balance: 'none' | 'role' | 'skill', odd: 'trio' | 'sit-out' (pairs with an odd number), tables, cafeRounds, hosts, title | null}, preview (one line on what the settings make, e.g. '3 groups of 4') | null, problem (why the settings can't be mixed now) | null, rules: {id, kind: 'apart' | 'together', a, b}[], roundCount, rounds: the latest 10 rounds, oldest first, each {id, number, at, mode, title, balance, groups: {label, people}[], sitOut, issues (plain-words lines: broken rules, pairs who met before, who sits out)}, cafe: {id, current (1-based round on screen), rounds, hosts, onScreen: {round, rounds, tables: {label, host, guests}[]}, whoGoesWhere: {name, tables: (number | null)[]}[], issues} | null, hasExample}. Roles and skills for balancing come from the Team page roster, matched by name.`,
+  description: `Read Team Mixer as the page shows it. Returns {people: names in the mix (up to ${MIXER_LIMITS.people}), settings: {mode: 'groups' | 'pairs' | 'cafe', split: 'size' | 'count', groupSize, groupCount, balance: 'none' | 'role' | 'skill', odd: 'trio' | 'sit-out' (pairs with an odd number), tables, cafeRounds, hosts, title | null}, preview (one line on what the settings make, e.g. '3 groups of 4') | null, problem (why the settings can't be mixed now) | null, rules: {id, kind: 'apart' | 'together', a, b}[], roundCount (rounds kept, up to ${MIXER_LIMITS.rounds}), rounds: the latest 10 rounds, oldest first, each {id, number (its number in the series, from 1; it goes on counting past the rounds kept), at, mode, title, balance, groups: {label, people}[], sitOut, issues (plain-words lines: broken rules, pairs who met before, who sits out)}, pairRotation (mode pairs: one line on what the rotation can promise with these people and rules) | null, cafe: {id, current (1-based round on screen), rounds, hosts, onScreen: {round, rounds, tables: {label, host, guests}[]}, whoGoesWhere: {name, tables: (number | null)[]}[], issues} | null, hasExample}. Roles and skills for balancing come from the Team page roster, matched by name.`,
   paramsSchema: z.object({}),
   handler: async () => listState(browserStore),
   mcpHandler: async (_params, ctx) => listState(serverStore(ctx.userId)),
@@ -283,7 +285,7 @@ function mixResult(step: Extract<ReturnType<typeof mixNow>, { ok: true }>, saved
     mixed: true as const,
     ...base,
     kind: "round" as const,
-    round: roundOut(step.round, step.state.rounds.length),
+    round: roundOut(step.round),
   };
 }
 
@@ -305,7 +307,15 @@ async function makeGroups(store: MixerStore, p: MakeGroupsInput) {
   const names =
     p.people ?? (p.fromRoster || s.people.length === 0 ? roster.map((m) => m.name) : null);
   if (names) s = addPeople({ ...s, people: [] }, names, roster).state;
-  if (p.fresh) s = { ...s, rounds: [], seriesSeed: 0, cafe: s.mode === "cafe" ? null : s.cafe };
+  if (p.fresh) {
+    s = {
+      ...s,
+      rounds: [],
+      seriesSeed: 0,
+      seriesRound: 0,
+      cafe: s.mode === "cafe" ? null : s.cafe,
+    };
+  }
 
   const step = mixNow(s, roster, { seed: p.seed });
   if (!step.ok) return { mixed: false as const, reason: step.error, settings: settingsOut(s) };
@@ -391,7 +401,7 @@ registry.register({
   name: "next_round",
   category: "write",
   description:
-    "The next round, as the page's Next round button does. Groups and pairs: a new mix with the saved settings that avoids everyone who was together in the rounds so far (pair rotation: n - 1 rounds of new pairs for n people), keeping the rules; returns {mixed: true, saved: true, kind: 'round', round: {number, groups: {label, people}[], sitOut, issues}} or {mixed: false, reason}. World Café: puts the plan's next round (or round, from 1) on screen and says who moves; returns {moved: true, saved: true, onScreen: {round, rounds, tables: {label, host, guests}[]}, moves: {name, from, to}[]} or {moved: false, reason} (no plan, or the last round). Over MCP nothing is saved: saved: false with a note.",
+    "The next round, as the page's Next round button does. Groups and pairs: a new mix with the saved settings that avoids everyone who was together in the rounds so far, keeping the rules. Pairs follow a rotation: with an even number of people (or one sitting out each round) and no rule between two of them, everyone meets everyone before anyone pairs twice; a group of 3 or a rule means some meet again sooner (list_state's pairRotation says which); returns {mixed: true, saved: true, kind: 'round', round: {number, groups: {label, people}[], sitOut, issues}} or {mixed: false, reason}. World Café: puts the plan's next round (or round, from 1) on screen and says who moves; returns {moved: true, saved: true, onScreen: {round, rounds, tables: {label, host, guests}[]}, moves: {name, from, to}[]} or {moved: false, reason} (no plan, or the last round). Over MCP nothing is saved: saved: false with a note.",
   paramsSchema: NextRoundParams,
   requiresConfirmation: false,
   visitor: true,

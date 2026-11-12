@@ -26,8 +26,18 @@ export const RULE_COST = 1e8;
 export const REPEAT_COST = 1e4;
 /** On top, when that time was the round just before. */
 export const RECENT_COST = 5e3;
+/**
+ * Pairs: the bonus (a negative cost) for two people the series' rotation
+ * pairs this round. Far above what balance can gain by pulling a pair apart
+ * (a person brings at most MAX_TRAITS traits), so balance never breaks the
+ * rotation, and below a repeat, so a rotation pair who already met (when
+ * the people changed mid-series) still gives way to fresh company.
+ */
+export const ROTATION_COST = 1e3;
 /** Each shared role, or each shared skill, inside a group. */
 export const BALANCE_COST = 1;
+/** The most traits (skills) one person brings to the balance. */
+export const MAX_TRAITS = 20;
 
 /** A rule between two people of the mix, by their place in it. */
 export interface PlacedRule {
@@ -131,7 +141,10 @@ export function traitsOf(people: readonly MixPerson[], balance: Balance): string
       return role ? [role] : [];
     }
     if (balance === "skill") {
-      return Array.from(new Set((p.skills ?? []).map(traitKey).filter(Boolean)));
+      return Array.from(new Set((p.skills ?? []).map(traitKey).filter(Boolean))).slice(
+        0,
+        MAX_TRAITS
+      );
     }
     return [];
   });

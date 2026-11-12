@@ -25,7 +25,7 @@ function when(iso: string): string {
  * round (or starting over) lets its pairings count again; both have Undo.
  */
 export function HistoryCard({ rounds, onRemove, onStartOver }: HistoryCardProps) {
-  const numbered = rounds.map((r, i) => ({ r, n: i + 1 })).reverse();
+  const numbered = rounds.map((r) => ({ r, n: r.number })).reverse();
   return (
     <SectionCard
       title={`Rounds so far (${rounds.length})`}

@@ -168,12 +168,12 @@ export function TeamMixerClient() {
         groups: sizes.length,
         size: Math.max(...sizes),
         balance: step.round.balance,
-        round: step.state.rounds.length,
+        round: step.round.number,
         rules: current.rules.length,
         broken,
       });
       announce(
-        `Round ${step.state.rounds.length}: ${plural(sizes.length, step.round.mode === "pairs" ? "pair" : "group")}.${
+        `Round ${step.round.number}: ${plural(sizes.length, step.round.mode === "pairs" ? "pair" : "group")}.${
           broken > 0 ? ` ${plural(broken, "rule")} couldn't be kept.` : ""
         }`
       );
@@ -225,13 +225,14 @@ export function TeamMixerClient() {
     const before = readMixer();
     undoable({
       label: `Forgot ${plural(before.rounds.length, "round")}`,
-      apply: () => updateMixer((s) => ({ ...s, rounds: [], seriesSeed: 0 })),
-      // Rounds mixed since go after the ones put back.
+      apply: () => updateMixer((s) => ({ ...s, rounds: [], seriesSeed: 0, seriesRound: 0 })),
+      // Rounds mixed since go after the ones put back, numbered on from them.
       revert: () =>
         updateMixer((s) => ({
           ...s,
           rounds: [...before.rounds, ...s.rounds],
           seriesSeed: before.seriesSeed,
+          seriesRound: before.seriesRound + s.seriesRound,
         })),
     });
     log(TEAM_MIXER_ACTIONS.MIXER_RESET, { what: "rounds", rounds: before.rounds.length });
@@ -389,19 +390,13 @@ export function TeamMixerClient() {
               // A new round starts with a fresh "move someone" form and names box.
               key={latest.id}
               round={latest}
-              number={state.rounds.length}
               roster={roster}
               onMove={(who, to) => move(latest, who, to)}
               onName={(names) => name(latest, names)}
             />
           )}
 
-          <LiveCard
-            mode={state.mode}
-            round={latest}
-            number={state.rounds.length}
-            cafe={state.cafe}
-          />
+          <LiveCard mode={state.mode} round={latest} cafe={state.cafe} />
 
           {state.rounds.length > 0 && (
             <HistoryCard rounds={state.rounds} onRemove={removeRound} onStartOver={startOver} />

@@ -15,8 +15,6 @@ import { GroupNamer } from "./group-namer";
 
 export interface RoundCardProps {
   round: MixerRound;
-  /** Its number in the series, from 1. */
-  number: number;
   roster: readonly TeamMember[];
   onMove: (name: string, toGroup: number) => void;
   onName: (names: (string | null)[]) => void;
@@ -42,8 +40,9 @@ function traitOf(
  * when the round was balanced), the plain-words report, a way to move
  * someone after the mix, and fun names for the groups.
  */
-export function RoundCard({ round, number, roster, onMove, onName }: RoundCardProps) {
+export function RoundCard({ round, roster, onMove, onName }: RoundCardProps) {
   const id = useId();
+  const number = round.number;
   const word = round.mode === "pairs" ? "Pair" : "Group";
   const everyone = [...round.groups.flatMap((g) => g.people), ...round.sitOut];
   const [who, setWho] = useState("");

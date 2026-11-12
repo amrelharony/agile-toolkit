@@ -106,6 +106,24 @@ export function settingsPreview(state: MixerState): string | null {
   return `${sizes.length} ${sizes.length === 1 ? "group" : "groups"} of ${counts.join(" or ")}.`;
 }
 
+/**
+ * Pairs: what the rotation can promise with these people and rules, in one
+ * line. Everyone meets everyone before anyone pairs twice with an even
+ * number (or one sitting out each round) and no rule between two of them;
+ * a group of 3, or a rule, means some meet again sooner.
+ */
+export function rotationNote(state: MixerState): string {
+  const here = new Set(state.people.map((p) => nameKey(p.name)));
+  const ruled = state.rules.some((r) => here.has(nameKey(r.a)) && here.has(nameKey(r.b)));
+  const trio = state.people.length % 2 === 1 && state.odd === "trio";
+  if (!ruled && !trio) {
+    return "Each round pairs people who haven't paired yet: everyone meets everyone before anyone pairs twice.";
+  }
+  const why =
+    trio && ruled ? "the group of 3 and the rules" : trio ? "the group of 3" : "the rules";
+  return `Each round pairs people who haven't paired yet as far as it can, but with ${why}, some meet again sooner.`;
+}
+
 export interface MixOptions {
   seed?: number;
   /** When the mix happens. Default now. */
@@ -166,6 +184,7 @@ export function mixNow(
   }
 
   const seriesSeed = state.seriesSeed || seed;
+  const number = state.seriesRound + 1;
   const mixed = mixGroups({
     people,
     mode: state.mode,
@@ -174,6 +193,7 @@ export function mixNow(
     balance: state.balance,
     rules: state.rules,
     history: pastRounds(state),
+    round: state.seriesRound,
     seed,
     rotationSeed: seriesSeed,
     timeLimitMs: opts.timeLimitMs,
@@ -183,6 +203,7 @@ export function mixNow(
   if (!mixed.ok) return { ok: false, error: mixed.error };
   const round: MixerRound = {
     id: opts.id ?? `round_${nanoid(10)}`,
+    number,
     at,
     mode: state.mode,
     ...(title ? { title } : {}),
@@ -197,6 +218,7 @@ export function mixNow(
     state: {
       ...state,
       seriesSeed,
+      seriesRound: number,
       rounds: [...state.rounds, round].slice(-MIXER_LIMITS.rounds),
     },
     round,
@@ -339,7 +361,7 @@ export function movePerson(
     balance: round.balance,
     rules: state.rules,
     history: pastRounds({ ...state, rounds: state.rounds.slice(0, at) }),
-    round: at,
+    round: round.number - 1,
   });
   const next: MixerRound = { ...round, groups: kept, sitOut, issues: report.issues };
   const rounds = state.rounds.slice();

@@ -14,6 +14,7 @@ import {
   type OddPolicy,
   type Split,
 } from "@/lib/team-mixer/model";
+import { rotationNote } from "@/lib/team-mixer/ops";
 import type { MixerState } from "@/lib/team-mixer/state";
 import { NativeSelect, WholeNumberField } from "./fields";
 
@@ -156,10 +157,7 @@ export function SettingsCard({ state, onChange, onMix, problem, preview }: Setti
               value={state.odd}
               onValueChange={(odd) => onChange({ odd })}
             />
-            <p className="text-xs text-sub">
-              Each round pairs people who haven&apos;t paired yet: everyone meets everyone before
-              anyone pairs twice.
-            </p>
+            <p className="text-xs text-sub">{rotationNote(state)}</p>
           </div>
         )}
 

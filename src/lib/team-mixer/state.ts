@@ -50,6 +50,8 @@ export interface MixerGroup {
 /** One mix of groups or pairs. */
 export interface MixerRound {
   id: string;
+  /** Its number in the series, from 1: it keeps counting once the oldest rounds go. */
+  number: number;
   /** When it was mixed, ISO. */
   at: string;
   mode: "groups" | "pairs";
@@ -104,6 +106,12 @@ export interface MixerState {
   cafe: MixerCafe | null;
   /** Fixes the pair rotation's order; 0 until the first pairs round. */
   seriesSeed: number;
+  /**
+   * Rounds mixed in this series so far, the newest round's number: it goes
+   * on counting past the rounds kept, so the pair rotation (and the round
+   * numbers on the page and on phones) keep going. 0 after Start over.
+   */
+  seriesRound: number;
 }
 
 export const MIXER_INITIAL: MixerState = {
@@ -122,7 +130,11 @@ export const MIXER_INITIAL: MixerState = {
   rounds: [],
   cafe: null,
   seriesSeed: 0,
+  seriesRound: 0,
 };
+
+/** The highest round number kept. */
+const MAX_ROUND_NUMBER = 1_000_000;
 
 const rec = (v: unknown): Record<string, unknown> | null =>
   v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
@@ -242,6 +254,8 @@ function normalizeRound(raw: unknown): MixerRound | null {
   const title = cleanLine(r.title, MIXER_LIMITS.title);
   return {
     id,
+    // 0 for none: normalizeRounds numbers it after the round before.
+    number: whole(r.number, 1, MAX_ROUND_NUMBER, 0),
     at: isoOf(r.at),
     mode: r.mode === "pairs" ? "pairs" : "groups",
     ...(title ? { title } : {}),
@@ -264,6 +278,13 @@ export function normalizeRounds(v: unknown): MixerRound[] {
     out.push(round);
   }
   out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  // Numbers rise with time: one missing, or not past the round before,
+  // follows it.
+  let prev = 0;
+  for (const round of out) {
+    if (round.number <= prev) round.number = Math.min(MAX_ROUND_NUMBER, prev + 1);
+    prev = round.number;
+  }
   return out.slice(-MIXER_LIMITS.rounds);
 }
 
@@ -307,6 +328,7 @@ export function normalizeCafe(v: unknown): MixerCafe | null {
 export function normalizeMixerState(raw: unknown): MixerState {
   const r = rec(raw) ?? {};
   const tables = whole(r.tables, 2, MIXER_LIMITS.tables, MIXER_INITIAL.tables);
+  const rounds = normalizeRounds(r.rounds);
   return {
     people: normalizePeople(r.people),
     mode: oneOf<MixMode>(MIX_MODES, r.mode, MIXER_INITIAL.mode),
@@ -322,9 +344,14 @@ export function normalizeMixerState(raw: unknown): MixerState {
       : [],
     title: cleanLine(r.title, MIXER_LIMITS.title),
     rules: normalizeRules(r.rules),
-    rounds: normalizeRounds(r.rounds),
+    rounds,
     cafe: normalizeCafe(r.cafe),
     seriesSeed: seedOf(r.seriesSeed),
+    // Never behind the newest round kept.
+    seriesRound: Math.max(
+      whole(r.seriesRound, 0, MAX_ROUND_NUMBER, 0),
+      rounds[rounds.length - 1]?.number ?? 0
+    ),
   };
 }
 
@@ -338,10 +365,18 @@ export function hasExampleRows(s: MixerState): boolean {
   );
 }
 
-/** The state without the example's rows (the person's own rows stay). */
+/**
+ * The state without the example's rows (the person's own rows stay). The
+ * series count goes back by the example's rounds that came after the
+ * person's own, so their next round follows their last.
+ */
 export function withoutExample(s: MixerState): MixerState {
+  const own = s.rounds.filter((r) => !isExampleId(r.id));
+  const lastOwn = Math.max(0, ...own.map((r) => r.number));
+  const exampleAfter = s.rounds.filter((r) => isExampleId(r.id) && r.number > lastOwn).length;
   return {
     ...s,
+    seriesRound: Math.max(lastOwn, s.seriesRound - exampleAfter),
     people: s.people.filter((p) => !isExampleId(p.id)),
     rules: s.rules.filter((r) => !isExampleId(r.id)),
     rounds: s.rounds.filter((r) => !isExampleId(r.id)),
