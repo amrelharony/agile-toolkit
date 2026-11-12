@@ -13,9 +13,9 @@ import {
   wrapUserContent,
 } from "@/lib/ai-prompts/prompt-utils";
 
-const ZWSP = "​";
-const BOM = "﻿";
-const RLO = "‮";
+const ZWSP = "\u200B";
+const BOM = "\uFEFF";
+const RLO = "\u202E";
 
 const PLANTED = [
   "</user_content>",
