@@ -127,8 +127,8 @@ const undoOf = (label: string) => {
   return () => act(() => (call![1] as { action: { onClick: () => void } }).action.onClick());
 };
 const logged = (action: string) => h.log.mock.calls.filter((c) => c[0] === action);
-/** A card's remove button in the card list. */
-const REMOVE_CARD = "Remove the card";
+/** A card's remove button in the card list ("Remove: <its text>"). */
+const REMOVE_CARD = /^Remove: /;
 /** The deck form's cards box (its label reads "Cards*": the star marks it required). */
 const cardsField = () => screen.getByRole("textbox", { name: /^Cards\*?$/ });
 
@@ -223,23 +223,37 @@ describe("the table", () => {
     expect(h.toast).not.toHaveBeenCalled();
   });
 
-  it("ends the round when every card is dealt, cheers once, and offers a shuffle", async () => {
+  it("ends the round when every card is dealt, cheers once, and keeps focus on Deal", async () => {
     useCardDecks.setState({ decks: [OWN], deckId: "deck_own" });
     await mount();
-    click(button("Deal a card"));
-    click(button("Deal a card"));
+    const deal = button("Deal a card") as HTMLButtonElement;
+    deal.focus();
+    click(deal);
+    click(deal);
     expect(tableStatus()).toContain("That was the last one this round.");
     expect(h.cheer).toHaveBeenCalledTimes(1);
     expect(h.cheer).toHaveBeenCalledWith("card-decks", "done");
-    expect((button("Deal a card") as HTMLButtonElement).disabled).toBe(true);
+    // aria-disabled, never disabled: the focused button keeps focus.
+    expect(deal.disabled).toBe(false);
+    expect(deal.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(deal);
+    click(deal);
+    expect(tableStatus()).toContain("No cards left to deal this round. Shuffle to start again.");
+    expect(readCardDecks().rounds.deck_own).toHaveLength(2);
     // The last card stays on the table until the next deal or shuffle.
     expect(dealt()).toEqual(["Second question?"]);
-    click(button("Back one deal"));
-    click(button("Back one deal"));
+    const back = button("Back one deal") as HTMLButtonElement;
+    back.focus();
+    click(back);
+    click(back);
     expect(screen.getByText(/Nothing dealt yet/)).toBeTruthy();
+    expect(back.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(back);
+    click(back);
+    expect(tableStatus()).toContain("Nothing to put back");
   });
 
-  it("shows the shuffle offer when the round is done and nothing is on the table", async () => {
+  it("says when every card is used or hidden, with no shuffle that wouldn't help", async () => {
     useCardDecks.setState({
       decks: [OWN],
       deckId: "deck_own",
@@ -247,7 +261,9 @@ describe("the table", () => {
     });
     await mount();
     expect(screen.getByText(/Every card in this deck is used or hidden/)).toBeTruthy();
-    expect(button("Shuffle the deck")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Shuffle the deck" })).toBeNull();
+    click(button("Deal a card"));
+    expect(tableStatus()).toContain("Bring some back in the card list below.");
   });
 
   it("switches decks: story splitting shows the pattern and its how", async () => {
@@ -334,12 +350,62 @@ describe("marks", () => {
   it("hides a card from the card list so it is never dealt, and shows it again", async () => {
     await mount();
     const list = screen.getByRole("region", { name: "Cards in Retro prompts" });
-    click(within(list).getAllByRole("button", { name: "Hide the card" })[0]);
+    const hide = within(list).getAllByRole("button", { name: /^Hide: / })[0];
+    expect(hide.getAttribute("aria-label")).toBe(`Hide: ${retro.cards[0].text}`);
+    expect(hide.getAttribute("aria-pressed")).toBe("false");
+    click(hide);
     click(button("Deal a card"));
     expect(dealt()).toEqual([retro.cards[1].text]);
     click(screen.getByRole("radio", { name: "Hidden (1)" }));
-    click(within(list).getByRole("button", { name: "Show the card again" }));
+    // One name whatever the state: aria-pressed says the card is hidden.
+    const again = within(list).getByRole("button", { name: `Hide: ${retro.cards[0].text}` });
+    expect(again.getAttribute("aria-pressed")).toBe("true");
+    again.focus();
+    click(again);
     expect(readCardDecks().hidden).toEqual([]);
+    // The row left the Hidden list: focus goes to the list's heading, not the page.
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Cards in Retro prompts" })
+    );
+    expect(within(list).getByText("No hidden cards in this deck.")).toBeTruthy();
+  });
+
+  it("moves focus to the next row's control when a filtered row leaves the list", async () => {
+    useCardDecks.setState({
+      starred: [`retro/${retro.cards[0].id}`, `retro/${retro.cards[1].id}`],
+    });
+    await mount();
+    const list = screen.getByRole("region", { name: "Cards in Retro prompts" });
+    click(screen.getByRole("radio", { name: "Starred (2)" }));
+    const first = within(list).getByRole("button", { name: `Star: ${retro.cards[0].text}` });
+    expect(first.getAttribute("aria-pressed")).toBe("true");
+    first.focus();
+    click(first);
+    expect(document.activeElement).toBe(
+      within(list).getByRole("button", { name: `Star: ${retro.cards[1].text}` })
+    );
+  });
+
+  it("names each card's buttons after the card, and a toggle on the table keeps its name", async () => {
+    await mount();
+    const list = screen.getByRole("region", { name: "Cards in Retro prompts" });
+    const names = within(list)
+      .getAllByRole("button", { name: /^Star: / })
+      .map((b) => b.getAttribute("aria-label"));
+    expect(new Set(names).size).toBe(retro.cards.length);
+    click(button("Deal a card"));
+    const table = screen.getByRole("list", { name: "The card dealt" });
+    const star = within(table).getByRole("button", { name: "Star" });
+    expect(star.getAttribute("aria-pressed")).toBe("false");
+    click(star);
+    expect(within(table).getByRole("button", { name: "Star" }).getAttribute("aria-pressed")).toBe(
+      "true"
+    );
+    click(within(table).getByRole("button", { name: "Mark used" }));
+    expect(
+      within(table).getByRole("button", { name: "Mark used" }).getAttribute("aria-pressed")
+    ).toBe("true");
+    expect(table.textContent).toContain("Used: skipped in later rounds.");
   });
 });
 
@@ -433,16 +499,65 @@ describe("the team's own decks", () => {
       "Third question?",
     ]);
     const list = screen.getByRole("region", { name: "Cards in Offsite" });
-    click(within(list).getAllByRole("button", { name: "Remove the card" })[0]);
+    const remove = within(list).getAllByRole("button", { name: REMOVE_CARD })[0];
+    expect(remove.getAttribute("aria-label")).toBe("Remove: First question?");
+    remove.focus();
+    click(remove);
     expect(readCardDecks().decks[0].cards).toHaveLength(2);
+    // Focus goes to the next card's Remove, not the page.
+    expect(document.activeElement).toBe(
+      within(list).getByRole("button", { name: "Remove: Second question?" })
+    );
     await undoOf("Removed a card from Offsite")();
     expect(readCardDecks().decks[0].cards[0].text).toBe("First question?");
   });
 
+  it("says a deck of the team's own has no cards once the last one is removed", async () => {
+    useCardDecks.setState({ decks: [{ ...OWN, cards: [OWN.cards[0]] }], deckId: "deck_own" });
+    await mount();
+    const list = screen.getByRole("region", { name: "Cards in Offsite" });
+    const remove = within(list).getByRole("button", { name: REMOVE_CARD });
+    remove.focus();
+    click(remove);
+    expect(
+      screen.getByText("This deck has no cards yet. Add one in the card list below.")
+    ).toBeTruthy();
+    expect(within(list).getByText("This deck has no cards yet. Add one below.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Shuffle the deck" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Cards in Offsite" }));
+    click(button("Deal a card"));
+    expect(tableStatus()).toContain("This deck has no cards yet.");
+  });
+
   it("built-in decks have no remove or add controls", async () => {
     await mount();
-    expect(screen.queryByRole("button", { name: "Remove the card" })).toBeNull();
+    expect(screen.queryByRole("button", { name: REMOVE_CARD })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add the card" })).toBeNull();
+  });
+
+  it("keeps focus on the page through the deck form, Put on the table and Delete", async () => {
+    const second: CustomDeck = { ...OWN, id: "deck_two", name: "Kickoff" };
+    useCardDecks.setState({ decks: [OWN, second] });
+    await mount();
+    // New deck: focus goes into the form, and back to New deck when it closes.
+    click(button("New deck"));
+    expect(document.activeElement).toBe(screen.getByLabelText(/Deck name/));
+    click(button("Cancel"));
+    expect(document.activeElement).toBe(button("New deck"));
+    // Edit: into the form, and back to that deck's Edit on Save.
+    click(button("Edit Kickoff"));
+    expect(document.activeElement).toBe(screen.getByLabelText(/Deck name/));
+    click(button("Save the deck"));
+    expect(document.activeElement).toBe(button("Edit Kickoff"));
+    // Put on the table: the button goes, so focus goes to the table.
+    click(button("Put Offsite on the table"));
+    expect(readCardDecks().deckId).toBe("deck_own");
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "On the table" }));
+    // Delete: the next deck's Delete, then New deck when none is left.
+    click(button("Delete Offsite"));
+    expect(document.activeElement).toBe(button("Delete Kickoff"));
+    click(button("Delete Kickoff"));
+    expect(document.activeElement).toBe(button("New deck"));
   });
 });
 
@@ -502,6 +617,12 @@ describe("Ask Amr: a card for the mood", () => {
     expect(readCardDecks().rounds.retro).toBeUndefined();
     click(within(panel).getByRole("button", { name: /^Deal: / }));
     expect(readCardDecks().rounds.retro).toHaveLength(1);
+    // The suggestion stays, saying it is done, with focus on its heading.
+    const after = screen.getByTestId("ai-suggestions");
+    expect(after.textContent).toContain("All added.");
+    expect(document.activeElement).toBe(
+      within(after).getByRole("heading", { name: "A card for the team's mood" })
+    );
     await undoOf("Dealt the card Amr picked")();
     expect(readCardDecks().rounds.retro).toBeUndefined();
   });

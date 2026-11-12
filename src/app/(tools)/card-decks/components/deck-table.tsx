@@ -1,5 +1,6 @@
 "use client";
 
+import { useId, useRef } from "react";
 import { CheckCheck, Layers, Shuffle, Star, Undo2, WalletCards } from "lucide-react";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
@@ -15,10 +16,15 @@ import {
   type RoundProgress,
 } from "@/lib/card-decks/model";
 import { cn } from "@/lib/utils";
+import { useFocusAfter } from "../use-focus-after";
 
 const HAND_SIZES = Array.from({ length: CARD_DECK_LIMITS.hand }, (_, i) => i + 1);
 
-/** One dealt card, large, with its star and "used" toggles. */
+/**
+ * One dealt card, large, with its star and "used" toggles. Each toggle keeps
+ * one name ("Star", "Mark used") and says its state with aria-pressed; the
+ * card's text describes both, so a hand of several tells them apart.
+ */
 export function DealtCard({
   card,
   deckId,
@@ -37,10 +43,12 @@ export function DealtCard({
   const key = cardKey(deckId, card.id);
   const starred = marks.starred.has(key);
   const used = marks.used.has(key);
+  const textId = useId();
   return (
     <li className={cn("panel space-y-3", big ? "p-5 sm:p-8" : "p-4")}>
       {card.title && <p className="break-words text-sm font-semibold text-accent">{card.title}</p>}
       <p
+        id={textId}
         className={cn(
           "break-words font-display font-bold text-text",
           big ? "text-2xl sm:text-3xl" : "text-lg"
@@ -49,29 +57,35 @@ export function DealtCard({
         {card.text}
       </p>
       {card.hint && <p className="break-words text-sm text-sub">{card.hint}</p>}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
           size="sm"
           variant="outline"
           aria-pressed={starred}
+          aria-describedby={textId}
           onClick={() => onToggleStar(card)}
-          className="gap-1.5"
+          className={cn("gap-1.5", starred && "border-accent bg-accent/15")}
         >
-          <Star className={cn("h-4 w-4", starred && "fill-current")} aria-hidden="true" />
-          {starred ? "Starred" : "Star"}
+          <Star
+            className={cn("h-4 w-4", starred && "fill-current text-accent")}
+            aria-hidden="true"
+          />
+          Star
         </Button>
         <Button
           type="button"
           size="sm"
           variant="outline"
           aria-pressed={used}
+          aria-describedby={textId}
           onClick={() => onToggleUsed(card)}
-          className="gap-1.5"
+          className={cn("gap-1.5", used && "border-accent bg-accent/15")}
         >
-          <CheckCheck className="h-4 w-4" aria-hidden="true" />
-          {used ? "Used: skipped next time" : "Mark used"}
+          <CheckCheck className={cn("h-4 w-4", used && "text-accent")} aria-hidden="true" />
+          Mark used
         </Button>
+        {used && <p className="text-sm text-sub">Used: skipped in later rounds.</p>}
       </div>
     </li>
   );
@@ -100,7 +114,10 @@ export interface DeckTableProps {
 /**
  * The table: deal one card or a hand, go back one deal, shuffle for a new
  * round, and the cards dealt last, large. Focus stays on Deal, so dealing
- * again is one more press; the page reads the new cards out.
+ * again is one more press; the page reads the new cards out. Deal and Back
+ * one deal never use `disabled`, which would drop focus to the page on the
+ * deal that ends the round: they are aria-disabled, and a press then says
+ * why in the status line.
  */
 export function DeckTable({
   deck,
@@ -120,14 +137,21 @@ export function DeckTable({
   status,
 }: DeckTableProps) {
   const done = progress.left === 0;
+  const rootRef = useRef<HTMLElement>(null);
+  const focusAfter = useFocusAfter(rootRef);
   const { inPlay } = progress;
   const pool = starredOnly
     ? `${inPlay} starred ${inPlay === 1 ? "card" : "cards"}`
     : `${inPlay} ${inPlay === 1 ? "card" : "cards"}`;
   return (
-    <section aria-labelledby="card-decks-table" className="space-y-4">
+    <section ref={rootRef} aria-labelledby="card-decks-table" className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-2">
-        <h2 id="card-decks-table" className="font-display text-lg font-bold text-text">
+        <h2
+          id="card-decks-table"
+          tabIndex={-1}
+          data-focus-key="table"
+          className="rounded-sm font-display text-lg font-bold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           On the table
         </h2>
         <p className="text-sm text-sub">
@@ -142,8 +166,8 @@ export function DeckTable({
           size="sm"
           options={HAND_SIZES.map((n) => ({
             value: n,
-            label: n === 1 ? "1 card" : String(n),
-            ariaLabel: n === 1 ? "1 card" : `${n} cards`,
+            // Words, not a bare digit: a one-digit chip is too narrow to tap.
+            label: n === 1 ? "1 card" : `${n} cards`,
           }))}
           value={handSize}
           onValueChange={onHandSize}
@@ -153,8 +177,9 @@ export function DeckTable({
             type="button"
             variant="toolkit"
             onClick={() => onDeal(handSize)}
-            disabled={done}
-            className="gap-1.5"
+            data-focus-key="deal"
+            aria-disabled={done || undefined}
+            className={cn("gap-1.5", done && "opacity-60")}
           >
             {handSize === 1 ? (
               <WalletCards className="h-4 w-4" aria-hidden="true" />
@@ -167,8 +192,8 @@ export function DeckTable({
             type="button"
             variant="outline"
             onClick={onBack}
-            disabled={!canBack}
-            className="gap-1.5"
+            aria-disabled={!canBack || undefined}
+            className={cn("gap-1.5", !canBack && "opacity-60")}
           >
             <Undo2 className="h-4 w-4" aria-hidden="true" />
             Back one deal
@@ -212,18 +237,35 @@ export function DeckTable({
             />
           ))}
         </ul>
+      ) : progress.total === 0 ? (
+        <EmptyState icon={WalletCards}>
+          This deck has no cards yet. Add one in the card list below.
+        </EmptyState>
+      ) : inPlay === 0 ? (
+        <EmptyState icon={WalletCards}>
+          {starredOnly
+            ? "Every starred card in this deck is used or hidden. Bring some back in the card list below, or deal from every card."
+            : "Every card in this deck is used or hidden. Bring some back in the card list below."}
+        </EmptyState>
       ) : done ? (
         <EmptyState
           icon={Shuffle}
           action={
-            <Button type="button" variant="outline" size="sm" onClick={onShuffle}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                // This button goes once the round is new: Deal is next.
+                focusAfter("deal");
+                onShuffle();
+              }}
+            >
               Shuffle the deck
             </Button>
           }
         >
-          {inPlay === 0
-            ? "Every card in this deck is used or hidden. Bring some back in the card list below."
-            : "Every card has been dealt this round. Shuffle to start again."}
+          Every card has been dealt this round. Shuffle to start again.
         </EmptyState>
       ) : (
         <EmptyState icon={WalletCards}>

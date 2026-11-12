@@ -59,6 +59,7 @@ import { RoomDeal, type RoomDealResult } from "./components/room-deal";
 import { EXAMPLE_DECK_ID, buildExample } from "./example";
 import { toMarkdown } from "./markdown";
 import { teamMood } from "./mood";
+import { neighbourKeys, useFocusAfter } from "./use-focus-after";
 
 const newDeckId = () => `deck_${nanoid(10)}`;
 const newCardId = () => `c_${nanoid(10)}`;
@@ -98,6 +99,9 @@ const DECK_CAP_NOTE = `You have ${CARD_DECK_LIMITS.decks} decks of your own, the
 export function CardDecksClient() {
   const { log } = useHistoryLogger("card-decks");
   const announce = useAnnounce();
+  // Where focus goes when an action takes away the control that had it.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const focusAfter = useFocusAfter(rootRef);
 
   // ── Saved state ───────────────────────────────────────────
   const [ready, setReady] = useState(() => useCardDecks.persist?.hasHydrated?.() ?? true);
@@ -171,8 +175,14 @@ export function CardDecksClient() {
     const forRoom = send !== undefined;
     const result = dealCards(deck, marks, round, count, Math.random, starredOnly);
     if (result.cards.length === 0) {
-      setStatus("No cards left to deal this round. Shuffle to start again.");
-      return { status: "empty" };
+      const reason =
+        deck.cards.length === 0
+          ? "This deck has no cards yet. Add one in the card list below."
+          : progress.inPlay === 0
+            ? "Every card in this deck is used or hidden. Bring some back in the card list below."
+            : "No cards left to deal this round. Shuffle to start again.";
+      setStatus(reason);
+      return { status: "empty", reason };
     }
     if (send && !send(result.cards)) return { status: "unsent" };
     setRound(deck.id, result.round);
@@ -196,7 +206,10 @@ export function CardDecksClient() {
   };
 
   const back = () => {
-    if (round.length === 0) return;
+    if (round.length === 0) {
+      setStatus("Nothing to put back: no card is dealt this round.");
+      return;
+    }
     setRound(deck.id, backOne(round));
     const last = round[round.length - 1].length;
     setStatus(`${last === 1 ? "The card is" : `The ${last} cards are`} back in the deck.`);
@@ -254,6 +267,7 @@ export function CardDecksClient() {
     };
     updateCardDecks((s) => ({ decks: [...s.decks, made], deckId: made.id }));
     setEditing(null);
+    focusAfter("new-deck", "own-heading");
     setStatus(`Created ${made.name} with ${plural(made.cards.length, "card")}.`);
     log(CARD_DECKS_ACTIONS.DECK_SAVED, { deckId: made.id, cards: made.cards.length, how: "new" });
   };
@@ -281,6 +295,7 @@ export function CardDecksClient() {
       put(next);
     }
     setEditing(null);
+    focusAfter(`edit:${id}`, "own-heading");
     setStatus(`Saved ${next.name}.`);
     log(CARD_DECKS_ACTIONS.DECK_SAVED, { deckId: id, cards: cards.length, how: "edit" });
   };
@@ -294,6 +309,15 @@ export function CardDecksClient() {
     const saved = before.decks[index];
     const savedRound = before.rounds[d.id];
     const wasOnTable = before.deckId === d.id;
+    focusAfter(
+      ...neighbourKeys(
+        before.decks.map((x) => x.id),
+        d.id,
+        "delete:"
+      ),
+      "new-deck",
+      "own-heading"
+    );
     undoable({
       label: `Deleted ${d.name}`,
       apply: () => updateDecks((list) => list.filter((x) => x.id !== d.id)),
@@ -362,6 +386,7 @@ export function CardDecksClient() {
       rounds: { ...s.rounds, [ex.deck.id]: ex.round },
     }));
     setStatus(null);
+    focusAfter("table");
   };
   const clearExample = () => {
     const dropKeys = (list: readonly string[]) => list.filter((k) => !isExampleId(k));
@@ -376,6 +401,7 @@ export function CardDecksClient() {
         hidden: dropKeys(s.hidden),
       };
     });
+    focusAfter("new-deck", "own-heading");
   };
 
   // ── Ask Amr ───────────────────────────────────────────────
@@ -511,8 +537,18 @@ export function CardDecksClient() {
   const editingDeck =
     editing && editing !== "new" ? state.decks.find((d) => d.id === editing) : undefined;
 
+  const openForm = (which: "new" | string) => {
+    setEditing(which);
+    focusAfter("deck-form");
+  };
+  const closeForm = () => {
+    const was = editing;
+    setEditing(null);
+    focusAfter(...(was && was !== "new" ? [`edit:${was}`] : []), "new-deck", "own-heading");
+  };
+
   return wrapper(
-    <div className="space-y-8">
+    <div ref={rootRef} className="space-y-8">
       {hasExampleItems(state.decks) && <ExampleNotice onClear={clearExample} />}
 
       <ActionRow>
@@ -602,7 +638,7 @@ export function CardDecksClient() {
         <p className="text-sm text-sub">
           Suggestions only: nothing is added or dealt until you choose it.
         </p>
-        <MoodPick deck={deck} dealable={dealable} mood={mood} onDeal={dealPicked} />
+        <MoodPick key={deck.id} deck={deck} dealable={dealable} mood={mood} onDeal={dealPicked} />
         <ThemeDeck
           ownDeck={deck.source === "custom" ? deck : null}
           newDeckBlocked={state.decks.length >= CARD_DECK_LIMITS.decks ? DECK_CAP_NOTE : null}
@@ -625,7 +661,12 @@ export function CardDecksClient() {
       {/* ── The team's own decks ────────────────────────── */}
       <section aria-labelledby="card-decks-own" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 id="card-decks-own" className="font-display text-lg font-bold text-text">
+          <h2
+            id="card-decks-own"
+            tabIndex={-1}
+            data-focus-key="own-heading"
+            className="rounded-sm font-display text-lg font-bold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             Your decks
           </h2>
           {editing === null && state.decks.length < CARD_DECK_LIMITS.decks && (
@@ -633,7 +674,8 @@ export function CardDecksClient() {
               type="button"
               size="sm"
               variant="outline"
-              onClick={() => setEditing("new")}
+              onClick={() => openForm("new")}
+              data-focus-key="new-deck"
               className="gap-1.5"
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
@@ -643,16 +685,20 @@ export function CardDecksClient() {
         </div>
 
         {editing === "new" && (
-          <DeckForm others={state.decks} onSave={createDeck} onCancel={() => setEditing(null)} />
+          <div data-focus-key="deck-form">
+            <DeckForm others={state.decks} onSave={createDeck} onCancel={closeForm} />
+          </div>
         )}
         {editingDeck && (
-          <DeckForm
-            key={editingDeck.id}
-            deck={editingDeck}
-            others={state.decks}
-            onSave={(values) => saveDeck(editingDeck.id, values)}
-            onCancel={() => setEditing(null)}
-          />
+          <div data-focus-key="deck-form">
+            <DeckForm
+              key={editingDeck.id}
+              deck={editingDeck}
+              others={state.decks}
+              onSave={(values) => saveDeck(editingDeck.id, values)}
+              onCancel={closeForm}
+            />
+          </div>
         )}
 
         {state.decks.length === 0 ? (
@@ -684,7 +730,12 @@ export function CardDecksClient() {
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => selectDeck(d.id)}
+                      onClick={() => {
+                        // The button goes once the deck is on the table: go to the table.
+                        selectDeck(d.id);
+                        focusAfter("table");
+                      }}
+                      aria-label={`Put ${d.name} on the table`}
                     >
                       Put on the table
                     </Button>
@@ -693,7 +744,8 @@ export function CardDecksClient() {
                     type="button"
                     size="sm"
                     variant="ghost"
-                    onClick={() => setEditing(d.id)}
+                    onClick={() => openForm(d.id)}
+                    data-focus-key={`edit:${d.id}`}
                     className="gap-1.5"
                     aria-label={`Edit ${d.name}`}
                   >
@@ -705,6 +757,7 @@ export function CardDecksClient() {
                     size="sm"
                     variant="ghost"
                     onClick={() => removeDeck(d)}
+                    data-focus-key={`delete:${d.id}`}
                     className="gap-1.5"
                     aria-label={`Delete ${d.name}`}
                   >

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCheck, Eye, EyeOff, Plus, RotateCcw, Star, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { CheckCheck, EyeOff, Plus, RotateCcw, Star, Trash2 } from "lucide-react";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -18,8 +18,25 @@ import {
   type Marks,
 } from "@/lib/card-decks/model";
 import { cn } from "@/lib/utils";
+import { neighbourKeys, useFocusAfter } from "../use-focus-after";
 
 type Filter = "all" | "starred" | "used" | "hidden";
+
+/** What the list says when the filter shows no card. */
+const NONE_SHOWN: Record<Filter, string> = {
+  all: "This deck has no cards yet.",
+  starred: "No starred cards in this deck.",
+  used: "No used cards in this deck.",
+  hidden: "No hidden cards in this deck.",
+};
+
+/** A card's text, short enough to name its buttons. */
+function short(text: string, max = 60): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+}
+
+/** A pressed toggle's look; its state is aria-pressed, never the label. */
+const PRESSED = "bg-accent/15 text-accent";
 
 function AddCardForm({ deck, onAdd }: { deck: Deck; onAdd: (text: string) => void }) {
   const form = useItemForm<CardDraft, { text: string }, "text">({
@@ -56,6 +73,11 @@ function AddCardForm({ deck, onAdd }: { deck: Deck; onAdd: (text: string) => voi
  * Every card in the deck on the table, with its marks: star it, mark it
  * used (skipped in later rounds), hide it (never dealt), or, in the team's
  * own deck, remove it (with Undo) and add new ones.
+ *
+ * Each toggle keeps one name, with the card's text ("Star: ..."), and says
+ * its state with aria-pressed. When a press takes its row out of the list
+ * (a filter, Remove) or its button away, focus goes to the same control on
+ * the next row, else the one before, else the list's heading.
  */
 export function DeckBrowser({
   deck,
@@ -79,6 +101,8 @@ export function DeckBrowser({
   onRemoveCard: (card: DeckCard) => void;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
+  const rootRef = useRef<HTMLElement>(null);
+  const focusAfter = useFocusAfter(rootRef);
   const own = deck.source === "custom";
   const has = (set: ReadonlySet<string>, c: DeckCard) => set.has(cardKey(deck.id, c.id));
   const count = (set: ReadonlySet<string>) => deck.cards.filter((c) => has(set, c)).length;
@@ -99,11 +123,26 @@ export function DeckBrowser({
     used: `Used (${counts.used})`,
     hidden: `Hidden (${counts.hidden})`,
   };
+  const shownIds = shown.map((c) => c.id);
+  /** Press `control` on `card`: focus stays on it, else the next row's, the one before, the heading. */
+  const press = (control: string, card: DeckCard, act: (card: DeckCard) => void) => {
+    focusAfter(
+      `${control}:${card.id}`,
+      ...neighbourKeys(shownIds, card.id, `${control}:`),
+      "browser-heading"
+    );
+    act(card);
+  };
 
   return (
-    <section aria-labelledby="card-decks-browser" className="space-y-3">
+    <section ref={rootRef} aria-labelledby="card-decks-browser" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="card-decks-browser" className="font-display text-lg font-bold text-text">
+        <h2
+          id="card-decks-browser"
+          tabIndex={-1}
+          data-focus-key="browser-heading"
+          className="rounded-sm font-display text-lg font-bold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           Cards in {deck.name}
         </h2>
         {counts.used > 0 && (
@@ -111,7 +150,10 @@ export function DeckBrowser({
             type="button"
             size="sm"
             variant="ghost"
-            onClick={onBringBackUsed}
+            onClick={() => {
+              focusAfter("browser-heading");
+              onBringBackUsed();
+            }}
             className="gap-1.5"
           >
             <RotateCcw className="h-4 w-4" aria-hidden="true" />
@@ -134,7 +176,8 @@ export function DeckBrowser({
 
       {shown.length === 0 ? (
         <p role="status" className="text-sm text-sub">
-          No {filter} cards in this deck.
+          {NONE_SHOWN[filter]}
+          {filter === "all" && own && " Add one below."}
         </p>
       ) : (
         <ul className="space-y-2">
@@ -168,44 +211,46 @@ export function DeckBrowser({
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-1">
                   <IconButton
-                    label={starred ? "Unstar the card" : "Star the card"}
+                    label={`Star: ${short(card.text)}`}
                     aria-pressed={starred}
+                    data-focus-key={`star:${card.id}`}
+                    className={cn(starred && PRESSED)}
                     icon={
                       <Star
-                        className={cn("h-4 w-4", starred && "fill-current text-accent")}
+                        className={cn("h-4 w-4", starred && "fill-current")}
                         aria-hidden="true"
                       />
                     }
-                    onClick={() => onToggleStar(card)}
+                    onClick={() => press("star", card, onToggleStar)}
                   />
                   <IconButton
-                    label={used ? "Not used after all" : "Mark the card used"}
+                    label={`Mark used: ${short(card.text)}`}
                     aria-pressed={used}
-                    icon={
-                      <CheckCheck
-                        className={cn("h-4 w-4", used && "text-accent")}
-                        aria-hidden="true"
-                      />
-                    }
-                    onClick={() => onToggleUsed(card)}
+                    data-focus-key={`used:${card.id}`}
+                    className={cn(used && PRESSED)}
+                    icon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
+                    onClick={() => press("used", card, onToggleUsed)}
                   />
                   <IconButton
-                    label={hidden ? "Show the card again" : "Hide the card"}
+                    label={`Hide: ${short(card.text)}`}
                     aria-pressed={hidden}
-                    icon={
-                      hidden ? (
-                        <Eye className="h-4 w-4" aria-hidden="true" />
-                      ) : (
-                        <EyeOff className="h-4 w-4" aria-hidden="true" />
-                      )
-                    }
-                    onClick={() => onToggleHidden(card)}
+                    data-focus-key={`hide:${card.id}`}
+                    className={cn(hidden && PRESSED)}
+                    icon={<EyeOff className="h-4 w-4" aria-hidden="true" />}
+                    onClick={() => press("hide", card, onToggleHidden)}
                   />
                   {own && (
                     <IconButton
-                      label="Remove the card"
+                      label={`Remove: ${short(card.text)}`}
+                      data-focus-key={`remove:${card.id}`}
                       icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
-                      onClick={() => onRemoveCard(card)}
+                      onClick={() => {
+                        focusAfter(
+                          ...neighbourKeys(shownIds, card.id, "remove:"),
+                          "browser-heading"
+                        );
+                        onRemoveCard(card);
+                      }}
                     />
                   )}
                 </div>

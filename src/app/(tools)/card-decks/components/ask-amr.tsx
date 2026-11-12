@@ -27,6 +27,11 @@ import { moodLine, type TeamMood } from "../mood";
  * person's). The answer is a suggestion: Deal puts it on the table, with
  * Undo, and a card id that isn't one of the deck's is replaced by the
  * answer without AI.
+ *
+ * The pick keeps its card's text, so the suggestion stays on screen after
+ * Deal (saying "All added.", with focus on its heading) instead of
+ * vanishing with the focused button. The page keys this by deck, so a pick
+ * never outlives its deck.
  */
 export function MoodPick({
   deck,
@@ -39,17 +44,25 @@ export function MoodPick({
   mood: TeamMood;
   onDeal: (cardId: string) => void;
 }) {
-  const [pick, setPick] = useState<(CardForMoodOutput & { source: AiSource }) | null>(null);
+  const [pick, setPick] = useState<(CardForMoodOutput & { source: AiSource; text: string }) | null>(
+    null
+  );
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const input = (): CardForMoodInput => ({
     mood,
     deck: cleanLine(deck.name, CARD_DECK_LIMITS.deckName),
     cards: dealable.slice(0, MOOD_CARDS_MAX).map((c) => ({ id: c.id, text: c.text })),
   });
-  const card = pick ? dealable.find((c) => c.id === pick.cardId) : undefined;
 
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-semibold text-text">A card for the team&apos;s mood</h3>
+      <h3
+        ref={headingRef}
+        tabIndex={-1}
+        className="rounded-sm text-sm font-semibold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        A card for the team&apos;s mood
+      </h3>
       <p className="text-sm text-sub">{moodLine(mood)}</p>
       <AiButton
         task={cardForMoodTask}
@@ -60,23 +73,26 @@ export function MoodPick({
           dealable.length === 0 ? "No cards left to deal in this deck. Shuffle first." : null
         }
         onResult={(data, meta) => {
-          const fits = dealable.some((c) => c.id === data.cardId);
-          setPick(
-            fits
-              ? { ...data, source: meta.source }
-              : { ...cardForMoodTask.fallback(input()), source: "fallback" }
-          );
+          const fits = dealable.find((c) => c.id === data.cardId);
+          const answer = fits
+            ? { ...data, source: meta.source }
+            : { ...cardForMoodTask.fallback(input()), source: "fallback" as const };
+          const card = fits ?? dealable.find((c) => c.id === answer.cardId);
+          setPick(card ? { ...answer, text: card.text } : null);
         }}
       />
-      {pick && card && (
+      {pick && (
         <AiSuggestions
           items={[pick]}
-          render={(p) => ({ title: card.text, detail: p.reason })}
+          render={(p) => ({ title: p.text, detail: p.reason })}
           title="A card for the team's mood"
           acceptLabel="Deal"
           source={pick.source}
           onAccept={(p) => onDeal(p.cardId)}
-          onDismiss={() => setPick(null)}
+          onDismiss={() => {
+            setPick(null);
+            headingRef.current?.focus();
+          }}
         />
       )}
     </div>
@@ -147,6 +163,7 @@ export function ThemeDeck({
     target: string;
   } | null>(null);
   const batches = useRef(0);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const check = validateThemeDraft(draft);
   const target = into === "this" && ownDeck ? ownDeck.id : "new";
 
@@ -163,7 +180,13 @@ export function ThemeDeck({
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-text">A deck on a theme</h3>
+      <h3
+        ref={headingRef}
+        tabIndex={-1}
+        className="rounded-sm text-sm font-semibold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        A deck on a theme
+      </h3>
       <div className="grid gap-3 sm:grid-cols-[1fr_8rem]">
         <Field label="Theme" error={check.ok || !draft.theme ? undefined : check.errors.theme}>
           {(props) => (
@@ -238,6 +261,7 @@ export function ThemeDeck({
           onDismiss={() => {
             setAnswer(null);
             setNote(null);
+            headingRef.current?.focus();
           }}
         />
       )}

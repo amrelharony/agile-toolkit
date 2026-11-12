@@ -10,8 +10,8 @@ import type { ShowRoom } from "@/lib/realtime/show-room/use-show-room";
 /** What a deal for the room came to. */
 export type RoomDealResult =
   | { status: "dealt"; cards: DeckCard[] }
-  /** No card left to deal this round. */
-  | { status: "empty" }
+  /** No card left to deal this round; `reason` says why, and what to do. */
+  | { status: "empty"; reason: string }
   /** The room couldn't take the frame, so nothing was dealt. */
   | { status: "unsent" };
 
@@ -51,7 +51,7 @@ export function RoomDeal({
   const deal = () => {
     const out = onDealForRoom(handSize, send);
     if (out.status === "empty") {
-      setStatus("No cards left to deal this round. Shuffle to start again.");
+      setStatus(out.reason);
     } else if (out.status === "unsent") {
       setStatus("Couldn't show that to the room, so nothing was dealt. Try again in a moment.");
     } else {
