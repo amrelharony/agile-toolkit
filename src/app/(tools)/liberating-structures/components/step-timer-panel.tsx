@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Pause, Play, SkipForward, Square, Timer } from "lucide-react";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
+import { ChimeToggle } from "@/components/timer/chime-toggle";
 import type { RefFor } from "@/hooks/use-return-focus";
 import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
-import { formatClock, timerRemaining, type DockedTimer } from "@/lib/timer/dock-timer";
+import { overtimeText, timesUp } from "@/lib/celebrate/chime";
+import {
+  dockOvertime,
+  formatClock,
+  timerRemaining,
+  type DockedTimer,
+} from "@/lib/timer/dock-timer";
 import { currentStep, runSeconds, type StepRun } from "@/lib/timer/step-timer";
 import { durationText } from "@/app/(tools)/ceremony-timer/agenda";
 import { cn } from "@/lib/utils";
@@ -15,7 +22,10 @@ import { cn } from "@/lib/utils";
  * The run of a structure's steps: the current step's clock (the docked
  * timer, which the shell hides on this page), what happens in it, and the
  * whole sequence with done, now and next. The shell's DockedTimer still
- * runs here: it stops the clock at 0:00 and announces "time's up".
+ * runs here: it stops the clock at 0:00 and announces "time's up". This
+ * panel rings the shared time's-up alarm (`timesUp`, with the shared
+ * "Chime when time is up" switch) and counts the overtime up until the next
+ * step.
  *
  * Its controls register with the page's useReturnFocus: "timer:controls"
  * (Pause, or Next step once time is up), where Start sends focus, and
@@ -41,7 +51,8 @@ export function StepTimerPanel({
 }) {
   const [now, setNow] = useState(() => Date.now());
   const running = Boolean(timer && timer.endsAt !== null);
-  useVisibilityTick(running, 1000, () => setNow(Date.now()));
+  const counting = Boolean(timer && timer.endsAt === null && typeof timer.endedAt === "number");
+  useVisibilityTick(running || counting, 1000, () => setNow(Date.now()));
   // A pause, resume or new step shows at once, not on the next tick.
   useEffect(() => setNow(Date.now()), [timer]);
 
@@ -50,6 +61,14 @@ export function StepTimerPanel({
   const done = remaining === 0;
   const last = run.index === run.steps.length - 1;
   const canPause = Boolean(timer && !done);
+
+  // Ring once when this step's clock runs out here (not for a step that was
+  // already over when the panel opened).
+  const wasDoneRef = useRef(done);
+  useEffect(() => {
+    if (done && !wasDoneRef.current && timer) timesUp({ sound: timer.chime });
+    wasDoneRef.current = done;
+  }, [done, timer]);
 
   return (
     <SectionCard title={`Step timer: ${run.title}`} icon={Timer}>
@@ -87,6 +106,11 @@ export function StepTimerPanel({
               )}
             >
               {done ? "Time's up" : formatClock(remaining)}
+              {done && counting && timer && (
+                <span className="ml-2 text-base font-semibold">
+                  {overtimeText(dockOvertime(timer, now))}
+                </span>
+              )}
             </span>
             <span className="flex flex-wrap items-center gap-2">
               {canPause && (
@@ -120,6 +144,7 @@ export function StepTimerPanel({
               </Button>
             </span>
           </div>
+          <ChimeToggle />
         </div>
       )}
 

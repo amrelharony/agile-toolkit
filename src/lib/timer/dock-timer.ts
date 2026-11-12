@@ -22,6 +22,17 @@ export interface DockedTimer {
   endsAt: number | null;
   /** Seconds left while paused (and at the moment it was published). */
   pausedRemaining: number;
+  /**
+   * Epoch ms when it reached zero, set by `expire`: the overtime counts up
+   * from here. Absent until then (and on a timer published afresh).
+   */
+  endedAt?: number;
+  /**
+   * The owner's "Chime when time is up" for this timer, used when it runs
+   * out while the owner's page isn't open. Absent: the shared setting
+   * (`lib/celebrate/alarm-prefs`).
+   */
+  chime?: boolean;
 }
 
 interface DockTimerState {
@@ -29,6 +40,8 @@ interface DockTimerState {
   publish: (timer: DockedTimer | null) => void;
   pause: (now?: number) => void;
   resume: (now?: number) => void;
+  /** It reached zero: stop it there and remember when, for the overtime. */
+  expire: (now?: number) => void;
   stop: () => void;
 }
 
@@ -36,6 +49,12 @@ interface DockTimerState {
 export function timerRemaining(t: DockedTimer, now = Date.now()): number {
   if (t.endsAt === null) return Math.max(0, t.pausedRemaining);
   return Math.max(0, Math.ceil((t.endsAt - now) / 1000));
+}
+
+/** Whole seconds since it reached zero (0 before then, or when nobody marked the end). */
+export function dockOvertime(t: DockedTimer, now = Date.now()): number {
+  if (t.endsAt !== null || t.pausedRemaining > 0 || typeof t.endedAt !== "number") return 0;
+  return Math.max(0, Math.floor((now - t.endedAt) / 1000));
 }
 
 export function formatClock(seconds: number): string {
@@ -62,6 +81,11 @@ export const useDockTimer = create<DockTimerState>()(
         const t = get().timer;
         if (!t || t.endsAt !== null || t.pausedRemaining <= 0) return;
         set({ timer: { ...t, endsAt: now + t.pausedRemaining * 1000 } });
+      },
+      expire: (now = Date.now()) => {
+        const t = get().timer;
+        if (!t || t.endsAt === null || timerRemaining(t, now) > 0) return;
+        set({ timer: { ...t, endsAt: null, pausedRemaining: 0, endedAt: t.endsAt } });
       },
       stop: () => set({ timer: null }),
     }),
