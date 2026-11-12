@@ -292,9 +292,10 @@ registry.register({
   toolId: TOOL,
   name: "shuffle",
   category: "write",
-  requiresConfirmation: false,
+  // Asks first (the write default): a shuffle forgets which cards the
+  // meeting has had, and Amr's write has no Undo, unlike the page's Shuffle.
   description:
-    "Start a new round of a Card Decks deck: every card dealt this round goes back (used and hidden cards stay set aside). Params: {deckId?}. Returns {shuffled: true, deck: {id, name}, back (cards returned)} or {shuffled: false, reason}.",
+    "Start a new round of a Card Decks deck: every card dealt this round goes back (used and hidden cards stay set aside), and which cards were dealt is forgotten. Params: {deckId?}. Returns {shuffled: true, deck: {id, name}, back (cards returned)} or {shuffled: false, reason}.",
   paramsSchema: shuffleParams,
   handler: async (params): Promise<ShuffleOut> => {
     const state = await browserState();
@@ -344,6 +345,13 @@ type AddCardResult =
 
 function addCard(state: CardDecksState, params: z.infer<typeof addCardParams>): AddCardResult {
   if (params.newDeckName !== undefined) {
+    // The store keeps CARD_DECK_LIMITS.decks decks: one more would be cut
+    // when it is saved, and Amr would report a deck that doesn't exist.
+    if (state.decks.length >= CARD_DECK_LIMITS.decks)
+      return {
+        added: false,
+        reason: `The team has ${CARD_DECK_LIMITS.decks} decks of its own, the most Card Decks keeps. Delete one on /card-decks first, or add the card to a deck they have.`,
+      };
     const card = validateCardDraft({ text: params.text }, null);
     if (!card.ok) return { added: false, reason: card.errors.text ?? "That card can't be added." };
     const check = validateDeckDraft(

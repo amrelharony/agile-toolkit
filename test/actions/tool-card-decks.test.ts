@@ -1,8 +1,9 @@
 /**
  * tool.card_decks.* coverage (Phase 1 tools plan, P1.8).
  *
- *   1. registration — two reads, three writes; deal and shuffle need no
- *      confirmation; none is closed to a visitor (nothing reaches a room).
+ *   1. registration — two reads, three writes; deal needs no confirmation
+ *      (Back one deal takes it back on the page), shuffle and add_card ask
+ *      first; none is closed to a visitor (nothing reaches a room).
  *   2. list_decks / list_state — the built-in, Ice Breaker and own decks,
  *      one deck's cards with their marks, the table.
  *   3. deal / shuffle — from what the round can still deal, onto the table.
@@ -23,7 +24,12 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
 });
 
 import { registry } from "@/lib/actions/registry";
-import { CARD_DECKS_INITIAL, CARD_DECKS_STORE_KEY, type CustomDeck } from "@/lib/card-decks/model";
+import {
+  CARD_DECK_LIMITS,
+  CARD_DECKS_INITIAL,
+  CARD_DECKS_STORE_KEY,
+  type CustomDeck,
+} from "@/lib/card-decks/model";
 import { readCardDecks, useCardDecks } from "@/lib/card-decks/store";
 import "@/lib/actions/tools/card-decks";
 
@@ -75,7 +81,7 @@ describe("registration", () => {
         ["deal", "write", false, true, true],
         ["list_decks", "read", null, true, true],
         ["list_state", "read", null, true, true],
-        ["shuffle", "write", false, true, true],
+        ["shuffle", "write", null, true, true],
       ].sort()
     );
   });
@@ -201,6 +207,30 @@ describe("add_card", () => {
     });
     expect(await call("add_card", { text: "Hi?", newDeckName: "Retro prompts" })).toMatchObject({
       added: false,
+    });
+  });
+
+  it("refuses a new deck once the team has 40, instead of reporting one that is cut", async () => {
+    const full = Array.from({ length: CARD_DECK_LIMITS.decks }, (_, i) => ({
+      ...OWN,
+      id: `deck_${i}`,
+      name: `Deck ${i}`,
+    }));
+    useCardDecks.setState({ decks: full, deckId: "deck_3" });
+    const out = await call<{ added: boolean; reason: string }>("add_card", {
+      text: "One more?",
+      newDeckName: "One too many",
+    });
+    expect(out.added).toBe(false);
+    expect(out.reason).toContain("40 decks");
+    const state = readCardDecks();
+    expect(state.decks).toHaveLength(CARD_DECK_LIMITS.decks);
+    expect(state.decks.some((d) => d.name === "One too many")).toBe(false);
+    expect(state.deckId).toBe("deck_3");
+    // A card into one of the 40 still goes in.
+    expect(await call("add_card", { text: "Into deck 3?" })).toMatchObject({
+      added: true,
+      deckId: "deck_3",
     });
   });
 });
