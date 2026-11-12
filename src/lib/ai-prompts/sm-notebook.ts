@@ -18,11 +18,12 @@ const MAX_THEMES = 20;
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** One note as a prompt line: day, event, tags, then its words (sanitised, cut). */
+/** One note as a prompt line: day, event, tags, then its words, each sanitised and cut. */
 function noteLine(e: NotebookEntry, max: number): string {
   const meta = [
     e.date,
-    eventLabel(e.event),
+    // An agent can type any event, so it is sanitised like the note's own words.
+    sanitizePromptCell(eventLabel(e.event), 40),
     e.tags.length > 0 ? `tags: ${e.tags.map((t) => sanitizePromptCell(t, 30)).join(", ")}` : "",
   ].filter(Boolean);
   const title = e.title?.trim() ? `${sanitizePromptCell(e.title, 80)}: ` : "";
