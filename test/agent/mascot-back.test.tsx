@@ -133,11 +133,19 @@ function installCloseWatcher() {
   window.addEventListener("keydown", escapeRequests);
 }
 
-/** The phone's Back with no close watcher: one step back in history (popstate). */
+/**
+ * The phone's Back with no close watcher: one step back in history, done once
+ * its popstate has fired (never a clock, which a loaded run outlasts). The
+ * sheet's own popstate listener was added as it opened, so it runs first, and
+ * act flushes the close.
+ */
 async function historyBack() {
   await act(async () => {
+    const popped = new Promise<void>((resolve) =>
+      window.addEventListener("popstate", () => resolve(), { once: true })
+    );
     window.history.back();
-    await new Promise((r) => setTimeout(r, 20));
+    await popped;
   });
 }
 
