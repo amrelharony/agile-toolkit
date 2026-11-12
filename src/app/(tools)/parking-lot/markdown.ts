@@ -1,4 +1,5 @@
 import type { ParkingLotItem } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import {
   ROUTE_PLACE,
   STATUS_LABEL,
@@ -14,6 +15,12 @@ import {
 /** "12 Nov 2026" */
 function mdDate(d: Date): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** The local day a point was parked, as the row shows it ("" for a row with no usable time). */
+function parkedDay(createdAt: string): string {
+  const at = new Date(createdAt);
+  return Number.isFinite(at.getTime()) ? todayLocalISO(at) : "";
 }
 
 /** A table cell or list line: one line, pipes escaped. */
@@ -84,7 +91,7 @@ export function toCsv(items: readonly ParkingLotItem[]): {
       i.raisedBy ?? "",
       STATUS_LABEL[i.status],
       sentText(i),
-      i.createdAt.slice(0, 10),
+      parkedDay(i.createdAt),
     ]),
   };
 }

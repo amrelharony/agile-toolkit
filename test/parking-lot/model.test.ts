@@ -297,4 +297,17 @@ describe("the export", () => {
       "2026-11-12",
     ]);
   });
+
+  it("dates each CSV row by the local day it was parked, as the row shows it", () => {
+    // Just after and just before local midnight: one of them falls on another
+    // UTC day in any zone but UTC.
+    const early = new Date(2026, 10, 12, 0, 30).toISOString();
+    const late = new Date(2026, 10, 11, 23, 30).toISOString();
+    const csv = toCsv([
+      item({ id: "e", createdAt: early }),
+      item({ id: "l", createdAt: late }),
+      item({ id: "x", createdAt: "" }),
+    ]);
+    expect(csv.rows.map((r) => r[5])).toEqual(["2026-11-12", "2026-11-11", ""]);
+  });
 });
