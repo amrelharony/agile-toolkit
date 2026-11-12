@@ -306,18 +306,18 @@ def rotate_about(mask: np.ndarray, x: float, y: float, deg: float) -> np.ndarray
 
 # ---------- naming a sheet's pieces by where they land ----------
 
-# What each kind of piece hangs from on the master, and in which half of it it joins:
-# an ear on the head; an arm at the shoulders, in the body's top half; a leg (a
-# middle or a hind one too) and a tail at the hips, in its bottom half. A parts sheet
-# can't always tell them apart (a stiff pointed tail is drawn like an arm), but where
-# each lands on the master can.
+# What each kind of piece hangs from on the master, and where on it it joins: an
+# ear on the head; an arm at the shoulder, above the body's hips; a leg (a middle or
+# a hind one too) and a tail at the hips, reaching the body's bottom half. A parts
+# sheet can't always tell them apart (a stiff pointed tail is drawn like an arm),
+# but where each lands on the master can.
 JOINS = {"ear": ("head", None), "arm": ("torso", "top"), "leg": ("torso", "bottom"), "tail": ("torso", "bottom")}
-# A tail's base sits low: a contact that starts in the body's top half and stops
-# above its lowest quarter (HIPS of the way down) is a shoulder's, however far
-# below the middle it runs (a low shoulder, a wing joined at mid-height).
+# The body's hips: its lowest quarter starts HIPS of the way down. A shoulder can sit
+# below the body's middle (a wing joined at mid-height, a low arm), so only an arm
+# whose contact starts at the hips joins where no arm does.
 HIPS = 0.75
 # The pieces a side window could force to the wrong place, so where each lands
-# with no window is evidence for its name too (free_landings).
+# with no window is evidence for its name too (free_landings, side_misses).
 FREE_KINDS = ("arm", "leg")
 FREE_SAME_IOU = 0.8  # a landing with no window this alike to the placement is the same place
 
@@ -336,11 +336,12 @@ def landing_misses(got: dict, landed: dict) -> set:
     """The (piece index, id) pairs of a naming ({id: piece index}) whose piece lands
     on the master (`landed`, {id: baked RGBA}) where that id doesn't join (JOINS): it
     doesn't touch what it hangs from (2 px apart at most, as rg.pivot reads an
-    overlap, and at least z_overlap_min_px of it), or it touches the body only in the
-    other half: an arm all below the body's middle (an arm joins by its shoulder, the
-    top of its contact), a leg all above it. A tail joins by its base: its contact
-    starts in the bottom half, or reaches the body's lowest quarter (HIPS); one that
-    starts in the top half and stops above that joins the way an arm does."""
+    overlap, and at least z_overlap_min_px of it), or it touches the body only where
+    no such piece joins: an arm only at the hips or below (an arm joins by its
+    shoulder, the top of its contact, and a shoulder may sit below the middle: HIPS),
+    a leg or a tail all above the middle. The rules are loose on purpose: a sound
+    piece that misses has its true name ruled out (settle_names), so a low shoulder,
+    or a tail joined at the body's side at mid-height, must not miss."""
     out = set()
     hosts: dict = {}  # what each kind hangs from: (its mask grown 2 px, its middle row, its hips row)
     for pid, i in got.items():
@@ -358,24 +359,20 @@ def landing_misses(got: dict, landed: dict) -> set:
         if len(ys) < TOL["z_overlap_min_px"]:
             out.add((i, pid))
             continue
-        top, bottom = ys.min() + 0.5, ys.max() + 0.5
-        if kind == "tail":
-            if top < mid and bottom <= hips:
-                out.add((i, pid))
-        elif (half == "top" and top >= mid) or (half == "bottom" and bottom <= mid):
+        if (half == "top" and ys.min() + 0.5 >= hips) or (half == "bottom" and ys.max() + 0.5 <= mid):
             out.add((i, pid))
     return out
 
 
 def free_landings(got: dict, placed: dict, master: np.ndarray, landed: dict, tgt, cache: dict) -> dict:
-    """{id: baked RGBA}: where the sided arms and legs of a naming (FREE_KINDS; their
-    placements by place_named, `landed` all the placed pieces) land on the master with
-    no side window, where that differs from their placement and fits better. The
-    window is the side of the name a piece was given, so a piece given the wrong name
-    is forced into the wrong window: a tail named the right arm, while the master
-    draws it on the body's other side, lands on the body's edge there, touching it in
-    both halves, and passes as an arm. With no window it lands where it truly fits.
-    This is evidence for its name only: placement keeps the window.
+    """{id: (Reg, baked RGBA)}: where the sided arms and legs of a naming (FREE_KINDS;
+    their placements by place_named, `landed` all the placed pieces) land on the
+    master with no side window, where that differs from their placement and fits
+    better. The window is the side of the name a piece was given, so a piece given the
+    wrong name is forced into the wrong window: a tail named the right arm, while the
+    master draws it on the body's other side, lands on the body's edge there, touching
+    it high and low, and passes as an arm. With no window it lands where it truly
+    fits. This is evidence for its name only: placement keeps the window.
 
     Each piece registers with no window once (`cache`, by piece, so for every naming
     of the sheet); the best fits claim their places first, and one that lands on what
@@ -395,19 +392,34 @@ def free_landings(got: dict, placed: dict, master: np.ndarray, landed: dict, tgt
             continue
         if iou(b[..., 3] >= SOLID_ALPHA, b0[..., 3] >= SOLID_ALPHA) >= FREE_SAME_IOU:
             continue  # where its window put it: nothing new
-        found.append((reg.ncc, pid, b, crop, reg0.ncc))
+        found.append((reg.ncc, pid, reg, b, crop, reg0.ncc))
     out: dict = {}
     view = dict(landed)
     me = object()  # no piece's id
-    for _, pid, b, crop, ncc0 in sorted(found, key=lambda f: -f[0]):
+    for _, pid, reg, b, crop, ncc0 in sorted(found, key=lambda f: -f[0]):
         others = {k: v for k, v in view.items() if k != pid}
         if own_pixels({**others, me: b}, master)[me] < TOL["own_visible_min_px"]:
             again = place_again(crop, master, others)
             if again is None or again[0].ncc < max(TOL["ncc_min"], ncc0):
                 continue
-            b = again[1]
-        out[pid] = b
+            reg, b = again
+        out[pid] = (reg, b)
         view[pid] = b
+    return out
+
+
+def side_misses(got: dict, placed: dict, free: dict) -> set:
+    """The (piece index, id) pairs of a naming whose sided arm or leg fits below
+    ncc_min in its name's side window (its placement, `placed`) and lands with no
+    window (`free`, from free_landings, so above ncc_min) centred outside it: a piece
+    on the body's other side from its name, wherever it joins. A tail drawn on the
+    body's left and named the right leg joins low, as a leg does, so only its side
+    says it is no right leg."""
+    out = set()
+    for pid, (reg, _) in free.items():
+        reg0, near = placed[pid][0], placed[pid][3]
+        if reg0.ncc < TOL["ncc_min"] and not near[0] <= reg.cx <= near[2]:
+            out.add((got[pid], pid))
     return out
 
 
@@ -457,7 +469,8 @@ def by_landing(pieces, cut, reg_ids, master, mfig, baked, side_of, ids_all) -> t
     named pieces on the master (place_named, beside what earlier sheets placed,
     `baked`), and `missed(naming, placed)` gives the pairs that land where their id
     doesn't join (landing_misses), by their placement or, for a sided arm or leg, by
-    where it lands with no side window (free_landings)."""
+    where it lands with no side window (free_landings), and the sided arms and legs
+    that fit only on the body's other side from their name (side_misses)."""
     tgt, cache = rg.Target(rg.shrink(master, rg.COARSE)), {}
 
     def place(got):
@@ -466,7 +479,8 @@ def by_landing(pieces, cut, reg_ids, master, mfig, baked, side_of, ids_all) -> t
     def missed(got, placed):
         landed = {**baked, **{k: v[1] for k, v in placed.items()}}
         free = free_landings(got, placed, master, landed, tgt, cache)
-        return landing_misses(got, landed) | landing_misses(got, {**landed, **free})
+        moved = {**landed, **{k: b for k, (_, b) in free.items()}}
+        return landing_misses(got, landed) | landing_misses(got, moved) | side_misses(got, placed, free)
 
     return place, missed
 
@@ -658,7 +672,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         if pid in c6["parts"]:
             c6["parts"][pid]["status"] = checks.worst(c6["parts"][pid]["status"], "warn")
             c6["status"] = checks.worst(c6["status"], "warn")
-            c6["notes"].append(f"{pid}: lands on the master where no {kind_of(pid)} joins the {JOINS[kind_of(pid)][0]}")
+            c6["notes"].append(f"{pid}: lands on the master where no {kind_of(pid)} joins the {JOINS[kind_of(pid)][0]}, or on its other side from its name")
     lost = [i for i in ids_all if i not in named and not i.startswith("pupil-")]
     if lost:
         c6["status"] = "fail"
