@@ -249,8 +249,27 @@ describe("the signature moves", () => {
     expect(prop.key).toBe("arm-l.sig");
     expect(Math.round((prop.to - prop.from) * CLIPS["sig.prop"].ms)).toBe(600);
     const ripple = CLIPS["sig.ripple"].tracks;
-    expect(ripple.map((t) => t.socket)).toEqual([1, 2, 3, 4, 5, 6, 7, 8].map((n) => `limb-${n}`));
-    const peaks = ripple.map((t) => t.keys[1].t);
+    const limbs = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `limb-${n}`);
+    expect(ripple.map((t) => t.socket)).toEqual([
+      limbs[0],
+      "arm-r",
+      limbs[1],
+      "arm-l",
+      ...limbs.slice(2),
+    ]);
+    const limbTracks = ripple.filter((t) => t.socket.startsWith("limb-"));
+    const peaks = limbTracks.map((t) => t.keys[1].t);
     for (let i = 1; i < peaks.length; i++) expect(peaks[i]).toBeGreaterThan(peaks[i - 1]);
+    // The front pair, drawn as the arm slots on some rigs, sways with the first two limbs.
+    for (const [arm, limb] of [
+      ["arm-r", "limb-1"],
+      ["arm-l", "limb-2"],
+    ] as const) {
+      const a = ripple.find((t) => t.socket === arm)!;
+      const l = ripple.find((t) => t.socket === limb)!;
+      expect(a.keys).toEqual(l.keys);
+      for (const k of a.keys)
+        expect(Math.abs(k.rotate ?? 0)).toBeLessThanOrEqual(LIMITS.shoulderDeg);
+    }
   });
 });

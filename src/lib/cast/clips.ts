@@ -155,20 +155,22 @@ function track(socket: Track["socket"], ease: Ease, ...keys: Key[]): Track {
   return { socket, ease, keys: [rest, ...keys, end] };
 }
 
-/** Tentacles or legs sway in turn, each a little after the one before. */
+/**
+ * Tentacles or legs sway in turn, each a little after the one before. A rig
+ * draws its front pair as the arm slots (arm_parts), so the arms sway with the
+ * first two limbs; a rig whose limbs are all parts has no arm-r or arm-l node.
+ */
 function ripple(): Track[] {
   const out: Track[] = [];
   for (let i = 0; i < 8; i++) {
     const lag = Math.round(i * 3.5) / 100;
-    out.push(
-      track(
-        `limb-${i + 1}`,
-        "settle",
-        { t: 0.15 + lag, rotate: 10 },
-        { t: 0.45 + lag, rotate: -10 },
-        { t: 0.85 }
-      )
-    );
+    const sway: Key[] = [
+      { t: 0.15 + lag, rotate: 10 },
+      { t: 0.45 + lag, rotate: -10 },
+      { t: 0.85 },
+    ];
+    out.push(track(`limb-${i + 1}`, "settle", ...sway));
+    if (i < 2) out.push(track(i ? "arm-l" : "arm-r", "settle", ...sway));
   }
   return out;
 }
