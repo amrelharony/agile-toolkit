@@ -8,7 +8,7 @@ import type { Story } from "@/lib/stores/workspace-types";
 import { registry } from "@/lib/actions/registry";
 import { DEFAULT_WAITING, addDays, stageBreakdown, stageSentence, storyItems } from "@/lib/flow";
 import { todayIso } from "@/lib/sprints/series";
-import "@/lib/actions/tools/cycle-time";
+import { CYCLE_TIME_STORE_KEY } from "@/lib/actions/tools/cycle-time";
 
 /**
  * Cycle Time, Time in each status (N32): the finished stories' and cards'
@@ -120,7 +120,9 @@ describe("Time in each status, on the page", () => {
       name: "Time in each status, over the finished items",
     });
     const expected = stageBreakdown(storyItems(stories));
-    const review = within(table).getByRole("rowheader", { name: "Review" }).closest("tr")!;
+    const review = within(table)
+      .getByRole("rowheader", { name: /^Review/ })
+      .closest("tr")!;
     const stat = expected.stages.find((s) => s.stage === "review")!;
     expect(review).toHaveTextContent(`${Math.round(stat.share!)}%`);
     expect(within(review).getAllByRole("cell").length).toBe(4);
@@ -141,35 +143,36 @@ describe("Time in each status, on the page", () => {
       name: "Time in each status, over the finished items",
     });
     expect(
-      within(table).getByRole("rowheader", { name: "Review" }).closest("tr")
+      within(table)
+        .getByRole("rowheader", { name: /^Review/ })
+        .closest("tr")
     ).toHaveTextContent("—");
   });
 
-  it("can't tell the flow efficiency until a status is marked waiting, then keeps the marking", async () => {
+  it("reads the flow efficiency from the start, with Review waiting, and keeps the marking", async () => {
     useWorkspaceStore.setState({ stories: [1, 2, 3].map((n) => reviewed(`s${n}`, 2, 2, n)) });
     renderPage();
-    expect(
-      screen.getByText(/All the time counted is in statuses marked as active/, { selector: "p" })
-    ).toBeInTheDocument();
+    // Review counts as waiting by default, and the page says why.
     const review = within(waitingGroup()).getByRole("button", { name: "Review" });
-    expect(review).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(review);
     expect(review).toHaveAttribute("aria-pressed", "true");
-    expect(useCycleTimeStore.getState().waitingStages).toEqual([
-      "backlog",
-      "todo",
-      "ready",
-      "review",
-      "done",
-    ]);
+    expect(
+      screen.getByText(/^Review starts marked, since work there mostly waits/)
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/^Flow efficiency 50%: from start to done/, { selector: "p" })
     ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByTestId("live-polite")).toHaveTextContent("Review counts as waiting")
-    );
     // Each item's own share of active time, beside its bar.
     expect(screen.getAllByText(/50% active/).length).toBe(3);
+
+    fireEvent.click(review);
+    expect(review).toHaveAttribute("aria-pressed", "false");
+    expect(useCycleTimeStore.getState().waitingStages).toEqual(["done"]);
+    expect(
+      screen.getByText(/All the time counted is in statuses marked as active/, { selector: "p" })
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent("Review counts as active")
+    );
     fireEvent.click(review);
     expect(useCycleTimeStore.getState().waitingStages).toEqual([...DEFAULT_WAITING]);
   });
@@ -326,6 +329,34 @@ describe("Time in each status, kept and shared", () => {
     expect(agent.flowEfficiency.pct).toBe(page.efficiency.pct);
     const median = page.stages.find((s) => s.stage === "review")!.median!;
     expect(agent.stages.find((s) => s.stage === "review")!.median).toBeCloseTo(median, 2);
+  });
+
+  it("gives the agent the page's own marking when it passes none", async () => {
+    // The agent reads the page's store from this key: the two must agree.
+    expect(useCycleTimeStore.persist.getOptions().name).toBe(CYCLE_TIME_STORE_KEY);
+    const stories = [1, 2, 3, 4, 5].map((n) => reviewed(`s${n}`, n, 2, n));
+    useWorkspaceStore.setState({ stories });
+    const handler = registry.get("tool.cycle_time.by_stage")!.handler;
+    try {
+      // Review unmarked on the page: nothing that holds time waits.
+      useCycleTimeStore.getState().setWaitingStages(["done"]);
+      const page = boardStages(stories, [], BOARDS, ["done"]);
+      const agent = (await handler({}, ctx)) as {
+        waiting: string[];
+        flowEfficiency: { pct: number | null; reason: string };
+      };
+      expect(agent.waiting).toEqual(["done"]);
+      expect(agent.flowEfficiency).toEqual(expect.objectContaining({ reason: "one_kind" }));
+      expect(agent.flowEfficiency.reason).toBe(page.efficiency.reason);
+      // Marked again: the agent quotes the page's efficiency.
+      useCycleTimeStore.getState().setWaitingStages(["review", "done"]);
+      const again = (await handler({}, ctx)) as { flowEfficiency: { pct: number | null } };
+      expect(again.flowEfficiency.pct).toBe(
+        boardStages(stories, [], BOARDS, ["review", "done"]).efficiency.pct
+      );
+    } finally {
+      window.localStorage.removeItem(CYCLE_TIME_STORE_KEY);
+    }
   });
 
   it("gives every status a cycle can hold its own colour", () => {

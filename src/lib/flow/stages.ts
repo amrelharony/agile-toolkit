@@ -1,13 +1,16 @@
 /**
  * Cycle time by stage: how long finished work spent in each status between
  * the start of work and Done, read from the moves the boards record
- * (Story.statusHistory, KanbanCard.history, as ./items places them), and,
- * once the person marks which statuses are waiting ones, the flow
- * efficiency: the share of that time the work was in an active status.
+ * (Story.statusHistory, KanbanCard.history, as ./items places them), and
+ * the flow efficiency: the share of that time the work was in an active
+ * status, with the statuses the person marks as waiting (DEFAULT_WAITING
+ * until they do) counted as the rest.
  *
  * The window is the item's cycle (./cycle): from the move that started its
  * last attempt (the first move into an active stage since it last waited in
- * a queue, as ./items startOf reads it) to its last move into Done. Time is
+ * a queue, or since a story was sent back to the Backlog, as its start
+ * stamp reads it) to its last move into Done, so Backlog, To do and Ready
+ * never fall inside it. Time is
  * the elapsed time between the moves' timestamps, in days with a fraction
  * (a plain "YYYY-MM-DD" from a date-only write counts from local midnight),
  * so an item's stages add up to the time it took, and a same-day item's to
@@ -26,7 +29,7 @@ import { enoughData } from "@/lib/analytics/min-sample";
 import { percentile } from "@/lib/sprints/metrics";
 import { cycleDays } from "./cycle";
 import { dayNumber } from "./days";
-import { BOARD_WORKFLOW, SPRINT_WORKFLOW, stageOf, workflowOf } from "./workflows";
+import { stageOf, workflowOf } from "./workflows";
 import type { FlowItem } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -55,16 +58,17 @@ export function cleanStageIds(raw: unknown): StageId[] {
 }
 
 /**
- * The statuses counted as waiting until the person says otherwise: the
- * queues (To do, Backlog, Ready, as lib/flow's workflows mark them) and a
- * stint in Done before a reopen. In progress and Review count as active.
+ * The statuses counted as waiting until the person says otherwise, chosen
+ * from the ones a cycle can hold (In progress, Review, a stint in Done), so
+ * the flow efficiency reads out of the box:
+ *  - Review: the work is built and mostly waits for a reviewer, the usual
+ *    queue inside the work (unmark it where reviews start at once);
+ *  - a stint in Done before a reopen.
+ * In progress counts as active. Backlog, To do and Ready never fall inside
+ * a cycle (a move into one restarts it), so they aren't listed: time there
+ * before the work starts is lead time, not cycle time.
  */
-export const DEFAULT_WAITING: readonly StageId[] = cleanStageIds([
-  ...[...SPRINT_WORKFLOW.stages, ...BOARD_WORKFLOW.stages]
-    .filter((s) => s.kind === "queue")
-    .map((s) => s.id),
-  "done",
-]);
+export const DEFAULT_WAITING: readonly StageId[] = cleanStageIds(["review", "done"]);
 
 /** A move's moment in ms; a plain "YYYY-MM-DD" is local midnight. Null when it isn't a time. */
 export function momentOf(at: string): number | null {
@@ -127,7 +131,11 @@ export function itemStageTimes(item: FlowItem): ItemStageTimes | null {
   let start = -1;
   for (let i = 0; i < doneAt; i++) {
     const kind = stageOf(wf, timed[i].to)?.kind;
-    if (kind === "queue") start = -1;
+    // Back to a queue, or a story sent back to the Backlog (a status its
+    // board has no column for), starts afresh, as the start stamp does
+    // (lib/sprints/story-status clears startedAt): the window stays the
+    // cycle the item's startedOn and cycleDays count.
+    if (kind === "queue" || kind === undefined) start = -1;
     else if (start < 0 && kind === "active") start = i;
   }
   if (start < 0) return null;

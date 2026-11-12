@@ -14,8 +14,9 @@
  *   3. by_stage            — Time in each status, as the page reads it: the
  *      finished items' elapsed time per status between the start and Done
  *      from the boards' recorded moves, each status's median and P85, and
- *      the flow efficiency with the statuses passed as waiting
- *      (lib/flow stageBreakdown).
+ *      the flow efficiency with the statuses passed as waiting (in the
+ *      browser, the page's own marking when none are passed; lib/flow
+ *      stageBreakdown).
  *
  * One convention everywhere (lib/flow cycleDays): whole local calendar
  * days with the start and the finish both counted, so a same-day item took
@@ -48,7 +49,9 @@ import {
   itemEfficiency,
   stageBreakdown,
   storyItems,
+  cleanStageIds,
   type FlowItem,
+  type StageId,
 } from "@/lib/flow";
 
 const KIND_STORY = "workspace:story";
@@ -223,11 +226,41 @@ const ByStageParams = ListParams.extend({
     .max(STAGE_ORDER.length)
     .optional()
     .describe(
-      `The statuses to count as waiting for the flow efficiency (the rest count as active). Default: the page's default, ${DEFAULT_WAITING.map((s) => `'${s}'`).join(", ")} ('done' is a stint in Done before a reopen). Pass e.g. ['review'] when work in Review mostly waits for a reviewer. The page's own marking stays on the device that set it.`
+      `The statuses to count as waiting for the flow efficiency (the rest count as active). Default: in the browser, the ones the person marked on the page; elsewhere (and when none are saved) the page's default, ${DEFAULT_WAITING.map((s) => `'${s}'`).join(", ")} ('done' is a stint in Done before a reopen; Review mostly waits for a reviewer). Pass [] to count everything as active, or e.g. ['done'] when Review is worked at once. Only In progress, Review and Done can hold time: a move to Backlog, To do or Ready restarts the cycle.`
     ),
 });
 
-function byStage(data: BoardData, params: z.infer<typeof ByStageParams>, today: string) {
+/**
+ * The page's persisted store (cycle-time/use-cycle-time-store `name`). Read
+ * from localStorage, not imported: that module is "use client", and an
+ * import would break this module's MCP side. A test holds the two together.
+ */
+export const CYCLE_TIME_STORE_KEY = "agile-toolkit:cycle-time";
+
+/**
+ * The waiting statuses the person marked on the page in this browser, or
+ * null when none are saved (or storage can't be read).
+ */
+function browserWaiting(): StageId[] | null {
+  try {
+    const raw =
+      typeof window === "undefined" ? null : window.localStorage.getItem(CYCLE_TIME_STORE_KEY);
+    if (!raw) return null;
+    const blob = JSON.parse(raw) as { state?: { waitingStages?: unknown } } | null;
+    const stages = blob?.state?.waitingStages;
+    return Array.isArray(stages) ? cleanStageIds(stages) : null;
+  } catch {
+    return null;
+  }
+}
+
+function byStage(
+  data: BoardData,
+  params: z.infer<typeof ByStageParams>,
+  today: string,
+  /** The waiting statuses when the params pass none: the page's marking in the browser. */
+  defaultWaiting: readonly StageId[] = DEFAULT_WAITING
+) {
   const source = params.source ?? "all";
   const sprint = params.sprintId ? data.sprints.find((s) => s.id === params.sprintId) : undefined;
   if (params.sprintId && !sprint)
@@ -239,7 +272,7 @@ function byStage(data: BoardData, params: z.infer<typeof ByStageParams>, today: 
   const from = params.sinceDays
     ? (addDays(today, -(params.sinceDays - 1)) ?? undefined)
     : undefined;
-  const b = stageBreakdown(items, { waiting: params.waiting ?? DEFAULT_WAITING, from, to: today });
+  const b = stageBreakdown(items, { waiting: params.waiting ?? defaultWaiting, from, to: today });
   const waiting = new Set<string>(b.waiting);
   return {
     found: true as const,
@@ -294,8 +327,11 @@ registry.register({
   name: "by_stage",
   category: "read",
   description:
-    "Cycle time by stage, as the Cycle Time page's Time in each status reads it: for finished stories (Sprint board) and Flow-board cards whose moves were recorded, the elapsed time spent in each status from the start of work to Done (days with a fraction, so a same-day item adds up to less than a day; cycleDays keeps the page's whole-day count). Params: source? 'sprint' | 'flow' | 'all' (default), sprintId? (that sprint's stories only), sinceDays? 1–365 (finished in the last N days), waiting? stage ids counted as waiting ('backlog' | 'todo' | 'ready' | 'in_progress' | 'review' | 'done'; default backlog, todo, ready, done). Returns {found: true, source, sprintId, range {from | null, to}, count (items read), approximate (finished items with no recorded moves, left out), waiting, totalDays, stages: {stage, label, items, median, p85 (days; null below 5 items), totalDays, share (% of all the time), waiting}[] in board order, flowEfficiency {pct (active time %; null unless reason 'ok'), activeDays, waitingDays, reason 'ok' | 'not_enough' (below 3 items) | 'one_kind' (all the time is in active statuses, or all in waiting ones: mark a waiting one)}, minForPercentiles, minForEfficiency, items: {id, title, source, startedOn, doneOn, cycleDays, elapsedDays, stages {stage, days}[], efficiency (% active, null with no time)}[] (the latest 50, newest first)} or {found: false, reason: 'sprint_not_found'}. Read-only.",
+    "Cycle time by stage, as the Cycle Time page's Time in each status reads it: for finished stories (Sprint board) and Flow-board cards whose moves were recorded, the elapsed time spent in each status from the start of work to Done (days with a fraction, so a same-day item adds up to less than a day; cycleDays keeps the page's whole-day count). Params: source? 'sprint' | 'flow' | 'all' (default), sprintId? (that sprint's stories only), sinceDays? 1–365 (finished in the last N days), waiting? stage ids counted as waiting ('backlog' | 'todo' | 'ready' | 'in_progress' | 'review' | 'done'; default: in the browser the page's marking, else review and done; only in_progress, review and done hold time, since a move to backlog, todo or ready restarts the cycle). Returns {found: true, source, sprintId, range {from | null, to}, count (items read), approximate (finished items with no recorded moves, left out), waiting, totalDays, stages: {stage, label, items, median, p85 (days; null below 5 items), totalDays, share (% of all the time), waiting}[] in board order, flowEfficiency {pct (active time %; null unless reason 'ok'), activeDays, waitingDays, reason 'ok' | 'not_enough' (below 3 items) | 'one_kind' (all the time is in active statuses, or all in waiting ones: mark a waiting one)}, minForPercentiles, minForEfficiency, items: {id, title, source, startedOn, doneOn, cycleDays, elapsedDays, stages {stage, days}[], efficiency (% active, null with no time)}[] (the latest 50, newest first)} or {found: false, reason: 'sprint_not_found'}. Read-only.",
   paramsSchema: ByStageParams,
-  handler: async (params) => byStage(await browserData(), params, todayIso()),
+  // In the browser, the statuses the person marked on the page, so Amr's answer is the page's.
+  handler: async (params) =>
+    byStage(await browserData(), params, todayIso(), browserWaiting() ?? DEFAULT_WAITING),
+  // The marking stays on the device that set it: the MCP side reads the default.
   mcpHandler: async (params, ctx) => byStage(await serverData(ctx.userId), params, todayIso()),
 });

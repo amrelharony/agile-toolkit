@@ -9,7 +9,7 @@ import {
 } from "@/lib/stores/workspace-types";
 import { addDays } from "@/lib/flow";
 import { todayIso } from "@/lib/sprints/series";
-import "@/lib/actions/tools/cycle-time";
+import { CYCLE_TIME_STORE_KEY } from "@/lib/actions/tools/cycle-time";
 
 function ctx() {
   return { userId: "u", source: "agent" as const, squadProfileIds: [] as string[] };
@@ -309,20 +309,46 @@ describe("tool.cycle_time.by_stage", () => {
     expect(r.items.every((i) => i.source === "sprint")).toBe(true);
   });
 
-  it("gives the flow efficiency only once a status holding time is waiting", async () => {
+  it("reads the flow efficiency by default, with Review and a stint in Done waiting", async () => {
     useWorkspaceStore.setState({
       stories: [1, 2, 3].map((n) => reviewed(`s${n}`, 2, 2, 20 + n)),
     });
     const plain = await byStage();
-    expect(plain.flowEfficiency).toMatchObject({ pct: null, reason: "one_kind" });
-    expect(plain.waiting).toEqual(["backlog", "todo", "ready", "done"]);
-    const marked = await byStage({ waiting: ["review"] });
-    expect(marked.flowEfficiency).toMatchObject({ pct: 50, reason: "ok", waitingDays: 6 });
-    expect(marked.stages.find((s) => s.stage === "review")!.waiting).toBe(true);
-    expect(marked.items[0].efficiency).toBe(50);
+    expect(plain.waiting).toEqual(["review", "done"]);
+    expect(plain.flowEfficiency).toMatchObject({ pct: 50, reason: "ok", waitingDays: 6 });
+    expect(plain.stages.find((s) => s.stage === "review")!.waiting).toBe(true);
+    expect(plain.items[0].efficiency).toBe(50);
+    // Nothing marked waiting: all the time is active, so the two can't be told apart.
+    const none = await byStage({ waiting: [] });
+    expect(none.flowEfficiency).toMatchObject({ pct: null, reason: "one_kind" });
     // Below 3 items there's no efficiency to quote.
     useWorkspaceStore.setState({ stories: [reviewed("a", 2, 2, 20)] });
-    expect((await byStage({ waiting: ["review"] })).flowEfficiency.reason).toBe("not_enough");
+    expect((await byStage()).flowEfficiency.reason).toBe("not_enough");
+  });
+
+  it("reads the statuses the person marked on the page, in the browser", async () => {
+    useWorkspaceStore.setState({
+      stories: [1, 2, 3].map((n) => reviewed(`s${n}`, 2, 2, 20 + n)),
+    });
+    try {
+      // The page's store keeps its marking under this key: here, nothing waits.
+      window.localStorage.setItem(
+        CYCLE_TIME_STORE_KEY,
+        JSON.stringify({ state: { waitingStages: ["lunch"] }, version: 1 })
+      );
+      const r = await byStage();
+      expect(r.waiting).toEqual([]);
+      expect(r.flowEfficiency.reason).toBe("one_kind");
+      // Statuses passed in win over the page's.
+      expect((await byStage({ waiting: ["review"] })).flowEfficiency.pct).toBe(50);
+      // A blob that can't be read counts as nothing saved: the default.
+      window.localStorage.setItem(CYCLE_TIME_STORE_KEY, "{not json");
+      expect((await byStage()).waiting).toEqual(["review", "done"]);
+      window.localStorage.setItem(CYCLE_TIME_STORE_KEY, JSON.stringify({ state: {} }));
+      expect((await byStage()).waiting).toEqual(["review", "done"]);
+    } finally {
+      window.localStorage.removeItem(CYCLE_TIME_STORE_KEY);
+    }
   });
 
   it("leaves out items with no recorded moves, and narrows like list_state", async () => {

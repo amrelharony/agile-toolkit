@@ -40,9 +40,10 @@ const FINISHED = ["finished item", "finished items"] as const;
 /**
  * Time in each status: where finished work spent the time between its
  * start and Done, per status (median, P85 and share) and per item (a
- * stacked bar, newest first), with the flow efficiency once the person has
- * marked which statuses are waiting ones. Read from the boards' recorded
- * moves only (lib/flow stageBreakdown); typed items have no statuses.
+ * stacked bar, newest first), with the flow efficiency: Review and a stint
+ * in Done count as waiting until the person marks their own (lib/flow
+ * DEFAULT_WAITING). Read from the boards' recorded moves only (lib/flow
+ * stageBreakdown); typed items have no statuses.
  */
 export function StageSection({
   breakdown,
@@ -172,6 +173,12 @@ export function StageSection({
                 </Button>
               ))}
             </div>
+            {b.stages.some((s) => s.stage === "review") && (
+              <p className="text-xs text-sub">
+                Review starts marked, since work there mostly waits for a reviewer. Unmark it if
+                reviews start as soon as the work arrives.
+              </p>
+            )}
             {efficiency ? (
               <p className="text-sm text-text" aria-live="polite">
                 {efficiency}

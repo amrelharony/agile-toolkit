@@ -198,19 +198,44 @@ describe("stageBreakdown", () => {
     expect(b.stages.every((s) => s.share !== null)).toBe(true);
   });
 
-  it("can't tell flow efficiency until a status that holds time is marked waiting", () => {
-    // By default only the queues wait, and none of them is in a cycle here.
-    expect(DEFAULT_WAITING).toEqual(["backlog", "todo", "ready", "done"]);
+  it("reads the flow efficiency out of the box: Review waits until the person says otherwise", () => {
+    // Only statuses a cycle can hold: Backlog, To do and Ready never fall inside one.
+    expect(DEFAULT_WAITING).toEqual(["review", "done"]);
     const b = stageBreakdown(items(five));
-    expect(b.efficiency).toMatchObject({ pct: null, reason: "one_kind" });
-    const marked = stageBreakdown(items(five), { waiting: ["review"] });
-    expect(marked.efficiency.reason).toBe("ok");
-    expect(marked.efficiency.pct).toBe(60);
-    expect(marked.efficiency.waitingDays).toBeCloseTo(10, 5);
-    expect(marked.stages.find((s) => s.stage === "review")!.waiting).toBe(true);
+    expect(b.efficiency).toMatchObject({ pct: 60, reason: "ok" });
+    expect(b.efficiency.waitingDays).toBeCloseTo(10, 5);
+    expect(b.stages.find((s) => s.stage === "review")!.waiting).toBe(true);
+    expect(b.stages.find((s) => s.stage === "in_progress")!.waiting).toBe(false);
+    // Review unmarked: all the time is active, so the two can't be told apart.
+    const unmarked = stageBreakdown(items(five), { waiting: [] });
+    expect(unmarked.efficiency).toMatchObject({ pct: null, reason: "one_kind" });
     // Everything marked waiting: no active time to compare with.
     const all = stageBreakdown(items(five), { waiting: ["in_progress", "review"] });
     expect(all.efficiency.reason).toBe("one_kind");
+  });
+
+  it("starts afresh after Backlog or To do, as the start stamp does", () => {
+    // Sent back to the Backlog mid-way: setStoryStatus clears the start, so the cycle restarts.
+    const sentBack = moved("back", [
+      ["in_progress", "2026-07-06", 9],
+      ["backlog", "2026-07-07", 9],
+      ["in_progress", "2026-07-09", 9],
+      ["done", "2026-07-10", 9],
+    ]);
+    const requeued = moved("queue", [
+      ["in_progress", "2026-07-06", 9],
+      ["todo", "2026-07-07", 9],
+      ["in_progress", "2026-07-09", 9],
+      ["done", "2026-07-10", 9],
+    ]);
+    const b = stageBreakdown(items([sentBack, requeued]));
+    for (const it of b.items) {
+      expect(it.startedOn).toBe("2026-07-09");
+      expect(it.stages).toEqual([{ stage: "in_progress", days: 1 }]);
+      expect(it.cycleDays).toBe(2);
+    }
+    // So the default waiting statuses are all ones a cycle can hold.
+    expect(b.stages.map((s) => s.stage)).toEqual(["in_progress"]);
   });
 
   it("waits for 3 items before a flow efficiency", () => {

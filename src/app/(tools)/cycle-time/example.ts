@@ -1,6 +1,6 @@
 import { exampleId } from "@/components/tool-frame/example-data";
 import type { KanbanCard, KanbanColumnChange, KanbanColumnId } from "@/lib/stores/workspace-types";
-import { DEFAULT_WAITING, addDays, cleanStageIds, type StageId } from "@/lib/flow";
+import { DEFAULT_WAITING, addDays, type StageId } from "@/lib/flow";
 import { todayIso } from "@/lib/sprints/series";
 import type { WorkItem } from "./types";
 
@@ -86,7 +86,7 @@ const TYPED: [name: string, startedAgo: number, doneAgo: number][] = [
 export interface CycleTimeExample {
   cards: KanbanCard[];
   items: WorkItem[];
-  /** The example's own waiting statuses: Review waits for a reviewer here. */
+  /** The example's own waiting statuses (the default, Review and a stint in Done), kept apart from the person's. */
   waiting: StageId[];
 }
 
@@ -142,5 +142,6 @@ export function buildExample(today: string = todayIso()): CycleTimeExample {
       endDate: day(done),
     })
   );
-  return { cards, items, waiting: cleanStageIds([...DEFAULT_WAITING, "review"]) };
+  // The page's default: Review waits for a reviewer here too. A copy, so the example's marking stays its own.
+  return { cards, items, waiting: [...DEFAULT_WAITING] };
 }
