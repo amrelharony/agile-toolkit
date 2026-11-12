@@ -634,6 +634,19 @@ describe("roundLimitNote", () => {
     ];
     expect(roundLimitNote(msgs)).toContain("This turn ran 1 tool call; none failed.");
   });
+
+  it("names a failure from its own round's call when a later round reuses the id", () => {
+    const msgs = [
+      at("u1", "user", [{ type: "text", text: "now" }]),
+      at("a1", "assistant", [{ type: "tool_use", id: "tc_0", name: PROBE_TOOL, input: {} }]),
+      at("t1", "tool", [
+        { type: "tool_result", tool_use_id: "tc_0", content: "x", is_error: true },
+      ]),
+      at("a2", "assistant", [{ type: "tool_use", id: "tc_0", name: "tool_gone_away", input: {} }]),
+      at("t2", "tool", [{ type: "tool_result", tool_use_id: "tc_0", content: "ok" }]),
+    ];
+    expect(roundLimitNote(msgs)).toContain("2 tool calls; 1 failed (`tool.loop_probe.read_state`)");
+  });
 });
 
 /**
@@ -1384,6 +1397,32 @@ describe("Try again", () => {
       canRetryLastTurn([question("u0"), callTo(WRITE_PROBE), resultOf("{}"), question("u1")])
     ).toBe(true);
     expect(canRetryLastTurn([])).toBe(false);
+  });
+
+  it("reads each result against the calls just before it when an id comes back", () => {
+    // A gateway that sends no ids gets `tc_0` every round.
+    const round = (n: number, name: string, content: string) => [
+      at(`a${n}`, "assistant", [{ type: "tool_use", id: "tc_0", name, input: {} }]),
+      at(`t${n}`, "tool", [{ type: "tool_result", tool_use_id: "tc_0", content }]),
+    ];
+    // A change that ran stays a change when a later round's read takes its id.
+    expect(
+      canRetryLastTurn([
+        question(),
+        ...round(1, WRITE_PROBE, '{"ok":true}'),
+        ...round(2, PROBE_TOOL, "{}"),
+      ])
+    ).toBe(false);
+    expect(
+      canRetryLastTurn([
+        question(),
+        ...round(1, PROBE_TOOL, "{}"),
+        ...round(2, WRITE_PROBE, '{"ok":true}'),
+      ])
+    ).toBe(false);
+    expect(
+      canRetryLastTurn([question(), ...round(1, PROBE_TOOL, "{}"), ...round(2, PROBE_TOOL, "{}")])
+    ).toBe(true);
   });
 
   it("does nothing while a turn is running", async () => {

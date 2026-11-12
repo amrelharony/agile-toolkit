@@ -391,17 +391,23 @@ function resultRan(c: ToolResultBlock): boolean {
  * question, and nothing after it ran a change. Reads may run again; a write
  * or an intent that ran (or an action the registry no longer knows) may not,
  * so trying again never repeats a change. Exported for the chat's "Try again".
+ *
+ * Each result is read against the calls of the assistant message just before
+ * it, never a call anywhere in the turn: an id can come back in a later round
+ * (a gateway that sends none gets `tc_0` every round), and a write's result
+ * must not pass for a later read's.
  */
 export function canRetryLastTurn(messages: ChatMessage[]): boolean {
   const at = lastUserIndex(messages);
   if (at === -1) return false;
-  const turn = messages.slice(at + 1);
-  const nameOf = new Map<string, string>();
-  for (const m of turn) {
-    if (m.role !== "assistant") continue;
-    for (const c of m.content) if (c.type === "tool_use") nameOf.set(c.id, c.name);
-  }
-  for (const m of turn) {
+  /** The calls of the latest assistant message: the only ones the tool messages after it answer. */
+  let nameOf = new Map<string, string>();
+  for (const m of messages.slice(at + 1)) {
+    if (m.role === "assistant") {
+      nameOf = new Map();
+      for (const c of m.content) if (c.type === "tool_use") nameOf.set(c.id, c.name);
+      continue;
+    }
     if (m.role !== "tool") continue;
     for (const c of m.content) {
       if (c.type !== "tool_result" || !resultRan(c)) continue;
@@ -1269,17 +1275,20 @@ export function roundLimitNote(
   rounds: number = MAX_TOOL_USE_ROUNDS
 ): string {
   const turn = messages.slice(lastUserIndex(messages) + 1);
-  const actionOf = new Map<string, string>();
-  for (const m of turn) {
-    if (m.role !== "assistant") continue;
-    for (const c of m.content) {
-      if (c.type === "tool_use") actionOf.set(c.id, registry.resolve(c.name)?.id ?? c.name);
-    }
-  }
+  // As in canRetryLastTurn, each result is named from the calls of the
+  // assistant message just before it: an id can come back in a later round.
+  let actionOf = new Map<string, string>();
   let ran = 0;
   let failed = 0;
   const failedActions = new Set<string>();
   for (const m of turn) {
+    if (m.role === "assistant") {
+      actionOf = new Map();
+      for (const c of m.content) {
+        if (c.type === "tool_use") actionOf.set(c.id, registry.resolve(c.name)?.id ?? c.name);
+      }
+      continue;
+    }
     if (m.role !== "tool") continue;
     for (const c of m.content) {
       if (c.type !== "tool_result") continue;
