@@ -266,29 +266,60 @@ describe("MascotAssistant — owner gating", () => {
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
   });
 
-  it("opens History from the owner's header, says so, and New chat goes back to the chat", async () => {
+  it("opens History from the owner's header, says so, and Back to chat or New chat goes back", async () => {
     h.auth = OWNER;
     await renderAmr();
     const header = screen
       .getByRole("dialog", { name: "Amr" })
       .querySelector<HTMLElement>("[data-panel-header]")!;
-    // The shell's subtitle for the owner until the chat fills its own.
+    const subtitle = header.querySelector<HTMLElement>("[data-panel-slot='subtitle']")!;
+    // The shell's subtitle for the owner, then the chat's own: no thread yet.
     expect(within(header).getByText("New chat")).toBeInTheDocument();
+    await waitFor(() => expect(subtitle).toHaveTextContent(/^New chat$/));
 
     const history = await within(header).findByRole("button", { name: "Conversation history" });
-    expect(history).toHaveAttribute("aria-pressed", "false");
+    // Its name says where it goes, so it is no toggle.
+    expect(history).not.toHaveAttribute("aria-pressed");
     fireEvent.click(history);
     expect(await screen.findByTestId("conversation-list")).toBeInTheDocument();
-    expect(within(header).getByRole("button", { name: "Conversation history" })).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    );
+    // The same button, now the way back.
+    expect(within(header).getByRole("button", { name: "Back to chat" })).toBe(history);
+    expect(within(header).queryByRole("button", { name: "Conversation history" })).toBeNull();
     expect(within(header).getByText("Your chats")).toBeInTheDocument();
 
+    fireEvent.click(history);
+    expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
+    expect(screen.queryByTestId("conversation-list")).toBeNull();
+    expect(within(header).queryByText("Your chats")).toBeNull();
+
+    fireEvent.click(history);
+    expect(await screen.findByTestId("conversation-list")).toBeInTheDocument();
     fireEvent.click(within(header).getByRole("button", { name: "New chat" }));
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
     expect(screen.queryByTestId("conversation-list")).toBeNull();
     expect(within(header).queryByText("Your chats")).toBeNull();
+  });
+
+  it("names the owner's open thread under the plate", async () => {
+    h.auth = OWNER;
+    useAgentStore.getState().setActiveConversation(
+      {
+        id: "c1",
+        title: "Sprint 47 planning",
+        toolId: null,
+        createdAt: "2026-11-12T08:00:00Z",
+        updatedAt: "2026-11-12T08:00:00Z",
+        lastMessageAt: "2026-11-12T08:00:00Z",
+      },
+      []
+    );
+    await renderAmr();
+    const header = screen
+      .getByRole("dialog", { name: "Amr" })
+      .querySelector<HTMLElement>("[data-panel-header]")!;
+    expect(await within(header).findByText("Sprint 47 planning")).toBeInTheDocument();
+    // The shell's default gave way to it.
+    expect(within(header).queryByText("New chat")).toBeNull();
   });
 
   it("gives the owner the full chat panel", async () => {
