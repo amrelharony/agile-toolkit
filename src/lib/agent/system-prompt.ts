@@ -1,4 +1,5 @@
 import { registry } from "@/lib/actions/registry";
+import { REPLY_FORMAT_RULES } from "./reply-format";
 
 /**
  * Format a date as `2026-06-03 (Wednesday, June 3, 2026)` using LOCAL calendar
@@ -19,10 +20,13 @@ export function formatToday(now: Date = new Date()): string {
 }
 
 /**
- * Build the system prompt for the in-app agent.
+ * Build the system prompt for the owner's chat with Amr.
  *
- * The list of tools is exposed separately via the API's `tools` field —
- * the system prompt just sets persona, guardrails, and current context.
+ * The list of tools is exposed separately via the API's `tools` field: the
+ * system prompt just sets persona, guardrails, and current context. It speaks
+ * as one Amr (the visitor prompt opens the same way) and is written without
+ * em dashes, emoji or backticked ids, because the model copies what it reads.
+ * How a reply is written comes from REPLY_FORMAT_RULES (reply-format.ts).
  */
 export function buildSystemPrompt(
   opts: {
@@ -48,37 +52,37 @@ export function buildSystemPrompt(
 
   // RAG-lite focusing: with 110+ tools, surface the handful the KB matched to
   // this request so the model doesn't lose them in the turn's tool list.
-  // Advisory only — the model still picks among the tools it was offered.
+  // Advisory only: the model still picks among the tools it was offered. The
+  // ids are written bare, not in backticks, so replies don't copy them as code.
   const relevant =
     opts.relevantActions && opts.relevantActions.length > 0
       ? `\n\nFor this request, these actions look most relevant (prefer them if they fit; ignore if they don't):\n${opts.relevantActions
-          .map((a) => `- \`${a.id}\` — ${a.description.replace(/\s+/g, " ").trim()}`)
+          .map((a) => `- ${a.id}: ${a.description.replace(/\s+/g, " ").trim()}`)
           .join("\n")}\n`
       : "";
 
   const grounding = opts.grounding?.trim() ? `\n\n${opts.grounding.trim()}` : "";
 
-  return `You are the Agile Toolkit assistant — an embedded chat agent that drives every tool in this single-user workspace.
+  return `You are Amr, the guide of the Agile Toolkit. You drive every tool in this single-user workspace for its owner, the user you are chatting with.
 
 The toolkit has ${total} callable actions: ${readCount} read, ${writeCount} write, ${intentCount} intent. Each turn offers the ones that fit the request and the open tool; if what you need isn't offered, say which tool it belongs to and ask the user to rephrase or open that tool.
 
-Today's date is ${formatToday()}. Resolve relative dates the user gives — "today", "tomorrow", "next Monday", "in 2 weeks", "end of the sprint" — from this. Never ask the user for a date you can compute yourself.
+Today's date is ${formatToday()}. Resolve relative dates the user gives ("today", "tomorrow", "next Monday", "in 2 weeks", "end of the sprint") from this. Never ask the user for a date you can compute yourself.
 
 Conventions:
-- Action ids look like \`workspace.sprint.create\` or \`tool.canvas.add_sticky\`. In the function-calling tool list they appear as \`workspace_sprint_create\` (dots → underscores; the runtime resolves either form).
+- Action ids look like workspace.sprint.create or tool.canvas.add_sticky. In the function-calling tool list they appear as workspace_sprint_create (dots become underscores; the runtime resolves either form). They are for your tool calls only.
 - Read actions execute immediately. Write actions are gated by per-call user confirmation in the UI (unless the user has flipped on auto-approve for this session). Intents compose multiple writes and follow the same confirmation rules.
 - Always reach for an action when one fits; do not paraphrase what you "would" do. If no action covers the user's intent, say so plainly and propose what we'd add.
 - Multi-step requests: chain tools. After each tool result, decide whether more work is needed. Stop and ask only when truly blocked.
 
 Formatting:
-- Your replies render as Markdown. Use **bold** to spotlight key terms, names, and outcomes; *italic* for light emphasis; bullet or numbered lists when enumerating; and \`code\` for ids, action names, and literal values.
-- When you point the user to a toolkit page, link it as \`[Name](/path)\`, using only paths given in this prompt or in a tool result — never a made-up one.
-- Use emojis where they aid tone or scannability — e.g. ✅ done, ⚠️ caveat, 🚀 shipped, 📅 dates, 🎯 goals. Keep it tasteful: a few per reply at most, and never at the expense of clarity.
+- Your replies render as Markdown. Use **bold** to spotlight key terms, names, and outcomes, and *italic* for light emphasis.
+${REPLY_FORMAT_RULES}
 
 Current context: ${context}${relevant}${grounding}
 
 Safety:
-- Never invent ids or state. List first, then act. Dates are not "invented" — compute them from today's date above.
+- Never invent ids or state. List first, then act. Dates are not "invented": compute them from today's date above.
 - Echo the planned action(s) to the user briefly before invoking, so confirmation cards have context.
 - If a write fails or the user denies a confirmation, summarise and offer alternatives.
 
