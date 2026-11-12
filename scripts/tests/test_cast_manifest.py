@@ -136,6 +136,24 @@ class Stacking(unittest.TestCase):
         self.assertLess(got.index("b"), got.index("a"))
 
 
+class Sides(unittest.TestCase):
+    def test_a_sided_piece_is_on_its_side_of_the_piece_it_hangs_from(self):
+        # A figure box widened by a big piece on one side: its middle (500) is right
+        # of the body's (350), and a left arm hanging at x 420 lies between the two.
+        fig, body_mid, arm_x = (0, 100, 1000, 900), 350.0, 420.0
+        x0, _, x1, _ = rig.side_window("arm-l", fig, body_mid)
+        self.assertTrue(x0 <= arm_x <= x1)
+        x0, _, x1, _ = rig.side_window("arm-l", fig)  # split at the figure box's middle
+        self.assertFalse(x0 <= arm_x <= x1)
+        x0, _, x1, _ = rig.side_window("arm-r", fig, body_mid)
+        self.assertFalse(x0 <= arm_x <= x1)
+        # Either way the window reaches the figure box's edge on its own side.
+        pad = spec.TOL["margin_ask_px"]
+        self.assertEqual(rig.side_window("arm-r", fig, body_mid), (-pad, 100 - pad, body_mid, 900 + pad))
+        self.assertEqual(rig.side_window("arm-l", fig, body_mid), (body_mid, 100 - pad, 1000 + pad, 900 + pad))
+        self.assertIsNone(rig.side_window("tail", fig, body_mid))
+
+
 class FacePiece(unittest.TestCase):
     """face_piece(): the face cells are laid on what the brief's face piece holds,
     so a head drawn with its ear pieces keeps them, one drawn without leaves them

@@ -88,11 +88,14 @@ def socket_of(pid: str) -> str | None:
     return None
 
 
-def side_window(pid: str, box) -> tuple | None:
+def side_window(pid: str, box, mid: float | None = None) -> tuple | None:
     """Where on the master a sided piece may land: the character's own right is on
-    the viewer's left (the brief never mirrors)."""
+    the viewer's left (the brief never mirrors) of the piece it hangs from, so the
+    window splits at that piece's middle `mid` when it is placed (else the figure
+    box's, which a tail, an abdomen or a load pulls to one side) and reaches the
+    figure box's edge on its own side."""
     x0, y0, x1, y1 = box
-    mid, pad = (x0 + x1) / 2, TOL["margin_ask_px"]
+    mid, pad = (x0 + x1) / 2 if mid is None else mid, TOL["margin_ask_px"]
     if pid.endswith("-r"):
         return (x0 - pad, y0 - pad, mid, y1 + pad)
     if pid.endswith("-l"):
@@ -313,7 +316,12 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
                 continue
             p = s["pieces"][got[pid]]
             crop, _ = p.crop(s["cut"])
-            reg = rg.register(crop, master, near=side_window(side_of.get(pid, pid), mfig.box), coarse_target=tgt)
+            side = side_of.get(pid, pid)
+            # An arm or a leg is on its side of the body, an ear of the head.
+            hang = baked.get(parent_of(side, ids_all))
+            hb = im.mask_bbox(hang[..., 3] >= SOLID_ALPHA) if hang is not None else None
+            near = side_window(side, mfig.box, (hb[0] + hb[2]) / 2 if hb else None)
+            reg = rg.register(crop, master, near=near, coarse_target=tgt)
             if reg is None:
                 continue
             named[pid] = (img, got[pid])
