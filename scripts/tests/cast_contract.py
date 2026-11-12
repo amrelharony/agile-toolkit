@@ -135,6 +135,15 @@ CLIPS = {
         "sig.flap": _clip(700, ["flap"]),
         "sig.eyes": _clip(900, ["pupils"]),
     },
+    # The tracks of those clips that slide a part: [socket, ease, x, y], the farthest
+    # keys in CSS px; and how far past its key each spring carries a part.
+    "slides": {
+        "guess.matched": [["head", "settle", 0, 2], ["body", "pop", 0, -10]],
+        "sig.hop": [["body", "pop", 0, -10]],
+        "sig.nod": [["head", "settle", 0, 2]],
+        "sig.retreat": [["head", "settle", 0, 6]],
+    },
+    "springs": {"settle": 0.0808, "pop": 0.163},
 }
 
 

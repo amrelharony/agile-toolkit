@@ -2,8 +2,12 @@
 sockets each clip turns and which swaps it shows, read straight from the
 TypeScript through Node's type stripping, so the two never drift.
 
-    load(path)              {"clips": {id: {"ms", "main", "first", "armless"}}, "maxMs"}:
-                            each layer {"tracks": [socket | "pupils"], "swaps": ["slot.choice"]}
+    load(path)              {"clips": {id: {"ms", "main", "first", "armless"}}, "maxMs",
+                             "slides", "springs"}: each layer {"tracks": [socket | "pupils"],
+                            "swaps": ["slot.choice"]}; slides {id: [[socket, ease, x, y]]},
+                            each track that slides a part, x and y its farthest keys in
+                            CSS px; springs {ease: how far past its key it carries a part}
+    slides(clips, played)   (clip, socket, x, y) at each played slide's peak, in CSS px
     elements(man)           how many rendered elements each socket names (data-socket),
                             and the pupils
     animated(man, clips)    the most elements life moves at once on this rig
@@ -30,15 +34,31 @@ from .spec import ROOT
 
 CLIPS_TS = ROOT / "src" / "lib" / "cast" / "clips.ts"
 # Run by Node with the module's file URL in CAST_CLIPS_URL; prints the table as JSON.
+# The settle and pop eases are the damped springs of src/lib/motion/tokens.ts: from
+# rest, one passes its key by exp(-zeta pi / sqrt(1 - zeta^2)) of the step.
 READ = """
 const m = await import(process.env.CAST_CLIPS_URL);
+const t = await import(new URL("../motion/tokens.ts", process.env.CAST_CLIPS_URL).href);
 const layer = (l) =>
   l ? { tracks: l.tracks.map((t) => t.socket), swaps: (l.swaps ?? []).map((s) => s.key) } : null;
+const far = (keys, axis) => keys.reduce((a, k) => (Math.abs(k[axis] ?? 0) > Math.abs(a) ? k[axis] : a), 0);
 const clips = {};
+const slides = {};
 for (const [id, c] of Object.entries(m.CLIPS)) {
   clips[id] = { ms: c.ms, main: layer(c), first: layer(c.first), armless: layer(c.armless) };
+  for (const l of [c, c.first, c.armless]) {
+    for (const tr of l ? l.tracks : []) {
+      if (tr.socket === "pupils" || !tr.keys.some((k) => k.x !== undefined || k.y !== undefined)) continue;
+      (slides[id] ??= []).push([tr.socket, tr.ease, far(tr.keys, "x"), far(tr.keys, "y")]);
+    }
+  }
 }
-process.stdout.write(JSON.stringify({ clips, maxMs: m.LIMITS.maxMs }));
+const past = (s) => {
+  const z = t.dampingRatio(s);
+  return z < 1 ? Math.exp((-z * Math.PI) / Math.sqrt(1 - z * z)) : 0;
+};
+const springs = { settle: past(t.SETTLE_SPRING), pop: past(t.POP_SPRING) };
+process.stdout.write(JSON.stringify({ clips, maxMs: m.LIMITS.maxMs, slides, springs }));
 """
 
 
@@ -111,6 +131,18 @@ def animated(man: dict, clips: dict) -> int:
         socks = {t for lay in _layers(clips["clips"][cid]) for t in lay["tracks"]}
         best = max(best, sum(n.get(s, 0) for s in socks))
     return best
+
+
+def slides(clips: dict, played: list[str]) -> list[tuple[str, str, float, float]]:
+    """(clip, socket, x, y) for each track of a played clip that slides a part, at its
+    peak: its farthest key carried past by its ease's spring (calm and the idle sine
+    never pass a key), in CSS px."""
+    out = []
+    for cid in played:
+        for sock, ease, x, y in clips.get("slides", {}).get(cid, []):
+            k = 1 + clips.get("springs", {}).get(ease, 0)
+            out.append((cid, sock, x * k, y * k))
+    return out
 
 
 def unplayable(man: dict, clips: dict) -> list[str]:

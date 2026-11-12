@@ -93,6 +93,9 @@ class Animated(unittest.TestCase):
         self.assertEqual(real["maxMs"], contract.CLIPS["maxMs"])
         for cid, clip in contract.CLIPS["clips"].items():
             self.assertEqual(real["clips"][cid], clip, cid)
+            self.assertEqual(real["slides"].get(cid, []), contract.CLIPS["slides"].get(cid, []), cid)
+        for ease, past in contract.CLIPS["springs"].items():
+            self.assertAlmostEqual(real["springs"][ease], past, places=3)
         for c in SPEC["characters"]:
             for sid in c["signature"]:
                 self.assertIn(sid, real["clips"], c["id"])
@@ -381,6 +384,94 @@ class Slots(unittest.TestCase):
         self.assertLessEqual(man["counts"]["animated"], spec.BUDGETS["rig_animated_max"])
         self.assertEqual(contract.problems(man, contract.CLIPS), [])
         self.assertEqual(man["counts"]["nodes"], rig.count_nodes(man))
+
+
+# A made-up head whose neck, drawn on the head piece, ends under a separate collar
+# band on the body (master frame). The collar's made-up colour is nearer the head's
+# than the body's, so its pixels read as the head's to a rule that weighs them.
+HEAD_RGB, BODY_RGB, COLLAR_RGB = (98, 46, 88), (120, 210, 200), (120, 60, 110)
+
+
+def collared(body_over_head: bool, wide_head=True, collar_to=410):
+    """(baked, master): the head's lower sides overlap the body's top outside the
+    collar when `wide_head`; the master draws the body over the head there, or the
+    head over the body, and the collar over both."""
+    size = (900, 700)
+
+    def piece(boxes, rgb):
+        a = np.zeros((*size, 4), np.uint8)
+        for x0, y0, x1, y1 in boxes:
+            a[y0:y1, x0:x1] = (*rgb, 255)
+        return a
+
+    head_boxes = [(360, 220, 540, 420) if wide_head else (390, 220, 510, 372), (430, 360, 470, 400)]
+    baked = {
+        "head": piece(head_boxes, HEAD_RGB),
+        "torso": piece([(300, 400, 600, 700), (420, 380, 480, 400)], BODY_RGB),
+        "collar": piece([(400, 380, 500, collar_to)], COLLAR_RGB),
+    }
+    order = ["head", "torso", "collar"] if body_over_head else ["torso", "head", "collar"]
+    return baked, rig.compose(baked, order)
+
+
+class NeckUnderCollar(unittest.TestCase):
+    def test_the_body_over_the_head_outside_the_collar_tucks_the_head(self):
+        baked, master = collared(body_over_head=True)
+        tucked, pv, cover, notes = rig.neck_under_collar(baked, master)
+        self.assertTrue(tucked)
+        body = baked["torso"][..., 3] >= 128
+        self.assertTrue((cover == (body | (baked["collar"][..., 3] >= 128))).all())
+        self.assertEqual(notes, [])
+        # The joint is the neck's own end, not where the head's sides meet the body.
+        self.assertGreater(pv["y"], 370)
+        self.assertLess(abs(pv["x"] - 450), 25)
+
+    def test_no_overlap_outside_the_collar_tucks_the_head(self):
+        # Under the collar the master shows the collar: no evidence of head or body,
+        # so the neck goes under the body, as its filled neck opening says.
+        baked, master = collared(body_over_head=False, wide_head=False)
+        self.assertEqual(rig.on_top("head", "torso", baked, master), "head")  # the collar's pixels, weighed
+        self.assertTrue(rig.neck_under_collar(baked, master)[0])
+
+    def test_the_head_over_the_body_stays_over_and_only_the_collar_covers_its_cap(self):
+        baked, master = collared(body_over_head=False)
+        tucked, pv, cover, notes = rig.neck_under_collar(baked, master)
+        self.assertFalse(tucked)
+        self.assertTrue((cover == (baked["collar"][..., 3] >= 128)).all())
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(pv.get("cap"), "child")
+
+
+class Slides(unittest.TestCase):
+    RETREAT = cast_clips.slides(contract.CLIPS, ["sig.retreat"])
+
+    def check(self, body_over_head, collar_to=410):
+        baked, _ = collared(body_over_head, collar_to=collar_to)
+        z = {"torso": 0, "head": -1 if body_over_head else 1, "collar": 2}
+        tree = {"torso": ["head", "collar"]}
+        rest = rig.compose(baked, rig.draw_order(tree, z, "torso"))
+        return rig.c14_slides(baked, tree, z, rest, self.RETREAT)
+
+    def test_the_peak_takes_the_springs_overshoot(self):
+        ((cid, sock, x, y),) = self.RETREAT
+        self.assertEqual((cid, sock, x), ("sig.retreat", "head", 0))
+        self.assertAlmostEqual(y, 6 * (1 + contract.CLIPS["springs"]["settle"]))
+
+    def test_a_neck_cap_slid_out_below_its_collar_fails(self):
+        got = self.check(body_over_head=False)
+        self.assertEqual(got["status"], "fail")
+        self.assertEqual(got["moves"][0]["part"], "head")
+        self.assertGreater(got["moves"][0]["hidden_shown_px"], 0)
+        self.assertIn("sig.retreat", got["notes"][0])
+
+    def test_a_neck_under_the_body_or_a_deep_collar_shows_nothing(self):
+        self.assertEqual(self.check(body_over_head=True)["status"], "pass")
+        self.assertEqual(self.check(body_over_head=False, collar_to=470)["status"], "pass")
+
+    def test_a_rig_with_no_slide_skips(self):
+        baked, _ = collared(True)
+        rest = rig.compose(baked, ["head", "torso", "collar"])
+        self.assertEqual(rig.c14_slides(baked, {"torso": ["head", "collar"]}, {"torso": 0, "head": -1, "collar": 1}, rest, [])["status"], "skip")
 
 
 class RuntimeChecks(unittest.TestCase):

@@ -3,8 +3,8 @@
     candidate(cid, sources)    key-out (each sheet then locked to the master's
                                colours) → slice → assign → register → named again
                                by where they land → z and pivots → pupils → face
-                               patches → arm swaps → compose → checks C1-C11,
-                               into review/<batch>/<id>/ only
+                               patches → arm swaps → compose → checks C1-C11 and
+                               C14's slides, into review/<batch>/<id>/ only
     compose(parts, order)      the rest pose painted in draw order (local z)
     manifest(...)              the RigManifest of the design (E.1), sprites in %
     rig_sha(candidate)         what an owner's rig approval is bound to
@@ -154,10 +154,13 @@ def lock_to(sheet: np.ndarray, targets: np.ndarray) -> tuple[np.ndarray, list[di
 # ---------- composing ----------
 
 
-def on_top(a: str, b: str, baked: dict, master: np.ndarray) -> str | None:
+def on_top(a: str, b: str, baked: dict, master: np.ndarray, where: np.ndarray | None = None) -> str | None:
     """Which of two placed pieces the master draws on top where they overlap (the
-    one whose colours it shows there), or None when they barely touch."""
+    one whose colours it shows there), or None when they barely touch; only
+    `where` it says so (a mask) when given."""
     ov = (baked[a][..., 3] >= SOLID_ALPHA) & (baked[b][..., 3] >= SOLID_ALPHA)
+    if where is not None:
+        ov &= where
     if ov.sum() < TOL["z_overlap_min_px"]:
         return None
     ys, xs = np.nonzero(ov)
@@ -186,6 +189,26 @@ def stack(kids: list[str], baked: dict, master: np.ndarray) -> list[str]:
         out.append(k)
         left.remove(k)
     return out
+
+
+def neck_under_collar(baked: dict, master: np.ndarray) -> tuple[bool, dict, np.ndarray, list[str]]:
+    """(head under the body, its joint, what covers the joint's cap, notes) for a head
+    on the body whose neck, drawn on the head piece, ends in a round cap under a
+    separate collar. Where the collar lies the master shows the collar, which says
+    nothing of head against body, so only where the two overlap outside it decides:
+    the body's colours there, or no overlap there at all, tuck the head under the
+    body (the body's filled neck opening and the collar then cover the neck); the
+    head's own colours keep it over the body, as the master draws it, and then the
+    collar alone covers the cap (C14 checks no move slides it out). Either way the
+    joint is the neck's cap, fitted where the collar lies over it (the head's sides
+    over or under the body are no part of it), and C7 measures its cover against
+    everything drawn over it."""
+    head, body, collar = (baked[k][..., 3] >= SOLID_ALPHA for k in ("head", "torso", "collar"))
+    tucked = on_top("head", "torso", baked, master, where=~collar) != "head"
+    cover = (body | collar) if tucked else collar
+    pv = {**rg.pivot(head, collar), "tucked": tucked, "cap": "child"}
+    notes = [] if tucked else ["head: drawn over the body outside its collar, so the collar alone covers its neck's cap"]
+    return tucked, pv, cover, notes
 
 
 def draw_order(tree: dict, z: dict, root: str) -> list[str]:
@@ -581,10 +604,16 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             tree.setdefault(par, []).append(pid)
     z: dict = {"torso": 0}
     pivots: dict = {}
+    covers: dict = {}  # what covers a joint's cap when that is not the parent alone
     c7 = {"joints": {}, "status": "pass", "notes": []}
     for par, kids in tree.items():
         over, under = [], []
         for k in kids:
+            if k == "head" and par == "torso" and "collar" in kids:
+                tucked, pivots[k], covers[k], notes = neck_under_collar(baked, master)
+                (under if tucked else over).append(k)
+                c7["notes"] += notes
+                continue
             a, b = baked[k][..., 3] >= SOLID_ALPHA, baked[par][..., 3] >= SOLID_ALPHA
             # The child under its parent, as the master shows where they overlap.
             tucked = on_top(k, par, baked, master) == par  # a tie leaves the child on top
@@ -608,7 +637,10 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         pivots[fan] = {**rg.base_point(baked[fan][..., 3] >= SOLID_ALPHA), "tucked": pivots[fan]["tucked"]}
     for k, pv in pivots.items():
         par = parent_of(k, present)
-        j, notes = joint_check(k, pv, baked[k][..., 3] >= SOLID_ALPHA, baked[par][..., 3] >= SOLID_ALPHA, range_for(k))
+        on = covers[k] if k in covers else baked[par][..., 3] >= SOLID_ALPHA
+        j, notes = joint_check(k, pv, baked[k][..., 3] >= SOLID_ALPHA, on, range_for(k))
+        if k in covers and not pv["tucked"]:
+            j["status"] = checks.worst(j["status"], "warn")
         c7["joints"][k] = j
         c7["notes"] += notes
         c7["status"] = checks.worst(c7["status"], j["status"])
@@ -644,7 +676,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             fill = filled / max(hull, 1)
             c8["torso_fill"] = round(fill, 4)
             c8["status"] = "pass" if fill >= TOL["torso_fill_min"] else "fail"
-        stub = neck_stub(baked, pivots, present)
+        stub = neck_stub(baked, pivots, present, covers.get("head"))
         if stub is not None:
             c8["neck_stub"] = round(stub, 4)
             if stub < TOL["neck_stub_min"]:
@@ -653,6 +685,8 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             elif c8["status"] == "skip":
                 c8["status"] = "pass"
     report["checks"]["C8"] = c8
+    played = cast_clips.played({"signature": list(c.get("signature") or [])}, clips)
+    report["checks"]["C14"] = c14_slides(baked, tree, z, rest, cast_clips.slides(clips, played))
 
     # Pupils cut from the master, then face patches against the face piece: the
     # host (head, or the body of a character whose face is on it) with the pieces
@@ -924,7 +958,9 @@ def joint_check(k: str, pv: dict, child: np.ndarray, parent: np.ndarray, rng: fl
             st = "fail"
         yy, xx = np.ogrid[: child.shape[0], : child.shape[1]]
         disc = np.hypot(xx + 0.5 - pv["x"], yy + 0.5 - pv["y"]) <= pv["r"]
-        low, high = (child, parent) if pv["tucked"] else (parent, child)
+        # The cap is the child's under its parent when it tucks (or always, for a
+        # neck's cap under its collar), else the parent's under the child.
+        low, high = (child, parent) if pv["tucked"] or pv.get("cap") == "child" else (parent, child)
         # The cap: the under piece's round end, past the joint toward the piece on top.
         ly, lx = np.nonzero(low)
         ux, uy = pv["x"] - (lx.mean() + 0.5), pv["y"] - (ly.mean() + 0.5)
@@ -954,21 +990,80 @@ def joint_check(k: str, pv: dict, child: np.ndarray, parent: np.ndarray, rng: fl
     return j, notes
 
 
-def neck_stub(baked: dict, pivots: dict, present: list[str]) -> float | None:
+def neck_stub(baked: dict, pivots: dict, present: list[str], cover: np.ndarray | None = None) -> float | None:
     """C8's neck stub: how far the piece the head hangs on (the torso, or a neck
     piece that carries it) reaches up past the head's pivot, in head heights, in
     the column under the pivot; None when the head has no pivot. A head on a neck
-    piece turns on the neck's top cap, which may sit far from the body's own stub."""
+    piece turns on the neck's top cap, which may sit far from the body's own stub;
+    a neck drawn on the head turns on its cap under `cover` (the collar over it)."""
     if "head" not in baked or pivots.get("head", {}).get("y") is None:
         return None
     on = baked.get(parent_of("head", present))
     if on is None:
         return None
+    on_m = (on[..., 3] >= SOLID_ALPHA) if cover is None else cover
     hb = im.mask_bbox(baked["head"][..., 3] >= SOLID_ALPHA)
     hx, hy = pivots["head"]["x"], pivots["head"]["y"]
-    col = (on[..., 3] >= SOLID_ALPHA)[:, int(np.clip(hx, 0, on.shape[1] - 1))]
+    col = on_m[:, int(np.clip(hx, 0, on.shape[1] - 1))]
     top = np.nonzero(col)[0]
     return float((hy - top.min()) / max(hb[3] - hb[1], 1)) if len(top) else 0.0
+
+
+def descendants(tree: dict, pid: str) -> list[str]:
+    out = []
+    for k in tree.get(pid, []):
+        out += [k, *descendants(tree, k)]
+    return out
+
+
+def shifted(m: np.ndarray, dx: int, dy: int) -> np.ndarray:
+    """The mask moved dx right and dy down, what leaves the canvas dropped."""
+    out = np.zeros_like(m)
+    H, W = m.shape
+    ys, xs = np.nonzero(m)
+    ys, xs = ys + dy, xs + dx
+    keep = (ys >= 0) & (ys < H) & (xs >= 0) & (xs < W)
+    out[ys[keep], xs[keep]] = True
+    return out
+
+
+def c14_slides(baked: dict, tree: dict, z: dict, rest: np.ndarray, moves: list) -> dict:
+    """C14's own check of a move that slides a part (a head lowered toward its
+    collar, nodded or bobbed; cast_clips.slides): at the move's peak, drawn at the
+    smallest size a figure is (figure_css_px_min, where a CSS pixel is the most
+    master pixels), no more than a CSS pixel of what the rest pose hides of the
+    part, under the pieces drawn over it that stay put, shows (a neck's cap slid out
+    below its collar onto the shirt). The body moves the whole figure, and turns are
+    C7's. The owner's anatomy review judges the rest of every move."""
+    out = {"status": "skip", "moves": [], "notes": []}
+    fig = im.mask_bbox(rest[..., 3] > 0)
+    if fig is None:
+        return out
+    px = (fig[3] - fig[1]) / BUDGETS["figure_css_px_min"]  # master px per CSS px there
+    order = draw_order(tree, z, "torso") if "torso" in baked else []
+    part_at = {socket_of(p): p for p in order if p != "torso" and socket_of(p)}
+    for cid, sock, x, y in moves:
+        part = part_at.get(sock)
+        if part is None:
+            continue
+        moving = {part, *descendants(tree, part)}
+        mine = np.zeros(rest.shape[:2], bool)
+        above = np.zeros(rest.shape[:2], bool)
+        for k in moving:
+            mine |= baked[k][..., 3] >= SOLID_ALPHA
+        for k in order[order.index(part) + 1 :]:
+            if k not in moving:
+                above |= baked[k][..., 3] >= SOLID_ALPHA
+        dx, dy = int(round(x * px)), int(round(y * px))
+        shown = int((shifted(mine & above, dx, dy) & ~above).sum())
+        st = "fail" if shown > px * px else "pass"
+        out["moves"].append({"clip": cid, "part": part, "slide_px": [dx, dy], "hidden_shown_px": shown, "status": st})
+        out["status"] = checks.worst(out["status"], st)
+        if st == "fail":
+            out["notes"].append(
+                f"{cid}: at its peak, {BUDGETS['figure_css_px_min']} px tall, {shown} px of the {part} that the rest pose hides show"
+            )
+    return out
 
 
 def rig_check(man: dict, clips: dict) -> dict:
