@@ -1,6 +1,8 @@
 "use client";
 
+import { useRef } from "react";
 import { History, Trash2 } from "lucide-react";
+import { focusAfterRemoval } from "@/app/(tools)/sprint-goal/focus";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
@@ -11,7 +13,11 @@ export interface HistoryCardProps {
   rounds: readonly MixerRound[];
   onRemove: (round: MixerRound) => void;
   onStartOver: () => void;
+  /** Where focus goes once no round is left (the card goes with them). */
+  focusWhenEmpty: () => HTMLElement | null | undefined;
 }
+
+const REMOVE_SELECTOR = 'button[aria-label^="Remove round"]';
 
 function when(iso: string): string {
   const d = new Date(iso);
@@ -24,8 +30,15 @@ function when(iso: string): string {
  * The rounds so far, newest first: what the next round avoids. Removing a
  * round (or starting over) lets its pairings count again; both have Undo.
  */
-export function HistoryCard({ rounds, onRemove, onStartOver }: HistoryCardProps) {
+export function HistoryCard({ rounds, onRemove, onStartOver, focusWhenEmpty }: HistoryCardProps) {
+  const listRef = useRef<HTMLOListElement>(null);
   const numbered = rounds.map((r) => ({ r, n: r.number })).reverse();
+  // Focus stays in the list: on the round that took this one's place, or
+  // the one before it, or (the list gone) where the page says.
+  const remove = (r: MixerRound, index: number) => {
+    onRemove(r);
+    focusAfterRemoval(listRef, REMOVE_SELECTOR, index, focusWhenEmpty);
+  };
   return (
     <SectionCard
       title={`Rounds so far (${rounds.length})`}
@@ -40,8 +53,8 @@ export function HistoryCard({ rounds, onRemove, onStartOver }: HistoryCardProps)
         The next round avoids everyone who has already been together here. Start over to forget
         them.
       </p>
-      <ol className="space-y-2" aria-label="Rounds so far">
-        {numbered.map(({ r, n }) => (
+      <ol ref={listRef} className="space-y-2" aria-label="Rounds so far">
+        {numbered.map(({ r, n }, index) => (
           <li
             key={r.id}
             className="flex items-start gap-2 rounded-md border border-border bg-card px-3 py-2"
@@ -62,7 +75,7 @@ export function HistoryCard({ rounds, onRemove, onStartOver }: HistoryCardProps)
             <IconButton
               label={`Remove round ${n}`}
               icon={<Trash2 className="h-4 w-4" />}
-              onClick={() => onRemove(r)}
+              onClick={() => remove(r, index)}
             />
           </li>
         ))}

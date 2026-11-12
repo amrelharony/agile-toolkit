@@ -1,12 +1,14 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { ClipboardList, Users } from "lucide-react";
+import { focusSoon } from "@/app/(tools)/sprint-goal/focus";
 import { EmptyState } from "@/components/shared/empty-state";
 import { SectionCard } from "@/components/shared/section-card";
 import { PeoplePicker } from "@/components/team/person-picker";
 import { LoadExampleButton } from "@/components/tool-frame/example-data";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import type { TeamMember } from "@/lib/stores/workspace-types";
 import { MIXER_LIMITS, nameKey } from "@/lib/team-mixer/model";
@@ -40,8 +42,30 @@ export function PeopleCard({
   notice,
 }: PeopleCardProps) {
   const pasteId = useId();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const pasteRef = useRef<HTMLTextAreaElement>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [paste, setPaste] = useState("");
+  const [pasteError, setPasteError] = useState<string | null>(null);
+
+  // "Clear the list" goes with the list: focus moves to the names field.
+  const clear = () => {
+    onClear();
+    focusSoon(() => contentRef.current?.querySelector<HTMLInputElement>("input"));
+  };
+  // The button stays usable (a disabled one would drop focus to the page):
+  // an empty box says what it needs instead.
+  const addPasted = () => {
+    const pasted = parseNames(paste);
+    if (pasted.length === 0) {
+      setPasteError("Paste at least one name.");
+      pasteRef.current?.focus();
+      return;
+    }
+    setPasteError(null);
+    onAdd(pasted);
+    setPaste("");
+  };
   const names = people.map((p) => p.name);
   const withTraits = people.filter((p) => {
     const m = findRosterMember(roster, p.name);
@@ -63,13 +87,13 @@ export function PeopleCard({
       icon={Users}
       actions={
         people.length > 0 ? (
-          <Button type="button" variant="ghost" size="sm" onClick={onClear}>
+          <Button type="button" variant="ghost" size="sm" onClick={clear}>
             Clear the list
           </Button>
         ) : undefined
       }
     >
-      <div className="space-y-4">
+      <div ref={contentRef} className="space-y-4">
         {people.length === 0 && (
           <EmptyState
             icon={Users}
@@ -102,24 +126,24 @@ export function PeopleCard({
           </Button>
           {pasteOpen && (
             <div id={pasteId} className="space-y-2">
-              <label htmlFor={`${pasteId}-text`} className="text-sm text-text">
-                Names, one per line or separated by commas
-              </label>
-              <Textarea
-                id={`${pasteId}-text`}
-                rows={4}
-                value={paste}
-                onChange={(e) => setPaste(e.target.value)}
-              />
-              <Button
-                type="button"
-                size="sm"
-                disabled={parseNames(paste).length === 0}
-                onClick={() => {
-                  onAdd(parseNames(paste));
-                  setPaste("");
-                }}
+              <Field
+                label="Names, one per line or separated by commas"
+                error={pasteError ?? undefined}
               >
+                {(props) => (
+                  <Textarea
+                    {...props}
+                    ref={pasteRef}
+                    rows={4}
+                    value={paste}
+                    onChange={(e) => {
+                      setPaste(e.target.value);
+                      setPasteError(null);
+                    }}
+                  />
+                )}
+              </Field>
+              <Button type="button" size="sm" onClick={addPasted}>
                 Add these names
               </Button>
             </div>

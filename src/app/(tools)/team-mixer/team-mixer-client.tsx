@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { focusSoon } from "@/app/(tools)/sprint-goal/focus";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ActionRow } from "@/components/shared/action-row";
@@ -83,6 +84,8 @@ export function TeamMixerClient() {
   const [ready, setReady] = useState(false);
   const [peopleNotice, setPeopleNotice] = useState<string | null>(null);
   const [mixProblem, setMixProblem] = useState<string | null>(null);
+  // Where focus goes when the control that had it is gone (Start over, the last round removed).
+  const mixButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let live = true;
@@ -102,18 +105,17 @@ export function TeamMixerClient() {
   const addNames = (names: string[]) => {
     const r = addPeople(readMixer(), names, roster);
     writeMixer(r.state);
-    setPeopleNotice(
-      r.full
-        ? `Team Mixer mixes up to ${MIXER_LIMITS.people} people, so ${plural(
-            names.length - r.added.length,
-            "name"
-          )} didn't fit.`
-        : names.length > 1
-          ? r.added.length === 0
-            ? "Everyone named is already in the mix."
-            : `Added ${plural(r.added.length, "person", "people")}.`
-          : null
-    );
+    const notice = r.full
+      ? `Team Mixer mixes up to ${MIXER_LIMITS.people} people, so ${plural(
+          names.length - r.added.length,
+          "name"
+        )} didn't fit.`
+      : names.length > 1
+        ? r.added.length === 0
+          ? "Everyone named is already in the mix."
+          : `Added ${plural(r.added.length, "person", "people")}.`
+        : null;
+    setPeopleNotice(notice);
   };
 
   const removePerson = (p: MixerPersonRow) =>
@@ -236,6 +238,8 @@ export function TeamMixerClient() {
         })),
     });
     log(TEAM_MIXER_ACTIONS.MIXER_RESET, { what: "rounds", rounds: before.rounds.length });
+    // The rounds card (and its Start over button) goes with the rounds.
+    focusSoon(() => mixButtonRef.current);
   };
 
   // ── Rules ─────────────────────────────────────────────────
@@ -369,6 +373,7 @@ export function TeamMixerClient() {
             onMix={mix}
             problem={mixProblem ?? problem}
             preview={preview}
+            mixButtonRef={mixButtonRef}
           />
 
           <RulesCard
@@ -399,7 +404,12 @@ export function TeamMixerClient() {
           <LiveCard mode={state.mode} round={latest} cafe={state.cafe} />
 
           {state.rounds.length > 0 && (
-            <HistoryCard rounds={state.rounds} onRemove={removeRound} onStartOver={startOver} />
+            <HistoryCard
+              rounds={state.rounds}
+              onRemove={removeRound}
+              onStartOver={startOver}
+              focusWhenEmpty={() => mixButtonRef.current}
+            />
           )}
         </div>
       )}

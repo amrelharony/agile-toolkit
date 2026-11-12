@@ -649,6 +649,73 @@ describe("the live room", () => {
   });
 });
 
+describe("keyboard focus", () => {
+  it("stays with the rules when one goes, then moves to the first name", async () => {
+    seed(SIX, {
+      rules: [
+        { id: "r1", kind: "apart", a: "Ana", b: "Bo" },
+        { id: "r2", kind: "apart", a: "Cy", b: "Dee" },
+      ],
+    });
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Remove the rule: Keep Ana and Bo apart" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Remove the rule: Keep Cy and Dee apart" })
+      )
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Remove the rule: Keep Cy and Dee apart" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("First person")));
+  });
+
+  it("stays with the rounds when one goes, and goes to Mix after the last or Start over", async () => {
+    seed(SIX, { mode: "pairs" });
+    await mount();
+    fireEvent.click(mixButton());
+    fireEvent.click(mixButton());
+    fireEvent.click(mixButton());
+    fireEvent.click(screen.getByRole("button", { name: "Remove round 3" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Remove round 2" }))
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Remove round 1" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Remove round 2" }))
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Remove round 2" }));
+    await waitFor(() => expect(document.activeElement).toBe(mixButton()));
+    fireEvent.click(mixButton());
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+    await waitFor(() => expect(document.activeElement).toBe(mixButton()));
+  });
+
+  it("goes to the names field after Clear the list", async () => {
+    seed(SIX);
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Clear the list" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText("People in the mix"))
+    );
+  });
+
+  it("keeps Add these names usable, and says what an empty box needs", async () => {
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Paste a list of names" }));
+    const add = screen.getByRole("button", { name: "Add these names" });
+    expect(add).toBeEnabled();
+    fireEvent.click(add);
+    expect(screen.getByText("Paste at least one name.")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Names, one per line/)).toHaveAttribute("aria-invalid", "true");
+    expect(state().people).toEqual([]);
+    fireEvent.change(screen.getByLabelText(/Names, one per line/), { target: { value: "Ana" } });
+    expect(screen.queryByText("Paste at least one name.")).toBeNull();
+    add.focus();
+    fireEvent.click(add);
+    expect(state().people.map((p) => p.name)).toEqual(["Ana"]);
+    expect(document.activeElement).toBe(add);
+  });
+});
+
 describe("export, reset and prompts", () => {
   it("exports the rounds and the rules as Markdown", async () => {
     seed(SIX, {

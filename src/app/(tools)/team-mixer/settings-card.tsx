@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState, type Ref } from "react";
 import { Shuffle, SlidersHorizontal } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { SectionCard } from "@/components/shared/section-card";
@@ -46,6 +46,8 @@ export interface SettingsCardProps {
   problem: string | null;
   /** What the settings make, in one line. */
   preview: string | null;
+  /** The Mix button, where focus goes when the control that had it is gone. */
+  mixButtonRef?: Ref<HTMLButtonElement>;
 }
 
 /** The one line naming a toggle group, tied to it for screen readers. */
@@ -95,7 +97,14 @@ function TitleField({ value, onCommit }: { value: string; onCommit: (title: stri
  * which field: the saved number is the last good one, and mixing with it
  * unseen would not be what the field shows.
  */
-export function SettingsCard({ state, onChange, onMix, problem, preview }: SettingsCardProps) {
+export function SettingsCard({
+  state,
+  onChange,
+  onMix,
+  problem,
+  preview,
+  mixButtonRef,
+}: SettingsCardProps) {
   const id = useId();
   const announce = useAnnounce();
   const [fieldErrors, setFieldErrors] = useState<Record<string, string | null>>({});
@@ -261,6 +270,7 @@ export function SettingsCard({ state, onChange, onMix, problem, preview }: Setti
 
         <div className="flex flex-wrap items-center gap-3">
           <Button
+            ref={mixButtonRef}
             type="button"
             variant="toolkit"
             className="gap-1.5"

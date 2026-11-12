@@ -1,7 +1,8 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useRef } from "react";
 import { Link2, Link2Off, Scale, Trash2 } from "lucide-react";
+import { focusAfterRemoval } from "@/app/(tools)/sprint-goal/focus";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { SectionCard } from "@/components/shared/section-card";
 import { Field } from "@/components/ui/field";
@@ -25,12 +26,24 @@ export interface RulesCardProps {
   onRemove: (rule: MixerRule) => void;
 }
 
+const REMOVE_SELECTOR = 'button[aria-label^="Remove the rule"]';
+
 /**
  * Keep-apart and keep-together rules, two people each, checked before they
  * save. A rule naming someone who isn't in the mix today waits, and says so.
  */
 export function RulesCard({ rules, people, onAdd, onRemove }: RulesCardProps) {
   const listId = useId();
+  const cardRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  // Focus stays with the rules: on the rule that took this one's place, the
+  // one before it, or (none left) the first name of a new rule.
+  const remove = (r: MixerRule, index: number) => {
+    onRemove(r);
+    focusAfterRemoval(listRef, REMOVE_SELECTOR, index, () =>
+      cardRef.current?.querySelector<HTMLInputElement>('input[name="a"]')
+    );
+  };
   const here = new Set(people.map((p) => nameKey(p.name)));
   const form = useItemForm<RuleDraft, RuleDraft, "a" | "b">({
     initial: EMPTY_RULE,
@@ -40,14 +53,14 @@ export function RulesCard({ rules, people, onAdd, onRemove }: RulesCardProps) {
 
   return (
     <SectionCard title="Rules" icon={Scale}>
-      <div className="space-y-4">
+      <div ref={cardRef} className="space-y-4">
         <p className="text-sm text-sub">
           Keep apart people who shouldn&apos;t share a group, such as a manager and their report.
           Keep the rules few: each one makes the mix less random.
         </p>
         {rules.length > 0 && (
-          <ul className="space-y-2" aria-label="Rules">
-            {rules.map((r) => {
+          <ul ref={listRef} className="space-y-2" aria-label="Rules">
+            {rules.map((r, index) => {
               const missing = [r.a, r.b].filter((n) => !here.has(nameKey(n)));
               return (
                 <li
@@ -71,7 +84,7 @@ export function RulesCard({ rules, people, onAdd, onRemove }: RulesCardProps) {
                   <IconButton
                     label={`Remove the rule: ${ruleText(r)}`}
                     icon={<Trash2 className="h-4 w-4" />}
-                    onClick={() => onRemove(r)}
+                    onClick={() => remove(r, index)}
                   />
                 </li>
               );
