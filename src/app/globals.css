@@ -2159,7 +2159,8 @@ body:has(dialog[open]) [data-sonner-toaster] {
 
 /* AMR SHEET — Amr's chat as the phone's full-height sheet (components/agent/
    mascot/mascot-assistant sets html[data-amr-sheet] while it is open in that
-   layout, and makes main inert). The sheet covers the page, so the page
+   layout, and makes main inert; the docked timer makes itself inert). The
+   sheet covers the page, so the page
    holds still behind it: the document doesn't scroll, and a one-finger
    swipe on the sheet's own chrome (its header, a footer) moves nothing. Its
    scrollers ([data-amr-scroll]) pan up and down and keep their scrolling to

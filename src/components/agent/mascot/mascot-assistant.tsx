@@ -1165,9 +1165,10 @@ function usePanelViewport({
 
 /**
  * The phone's sheet covers the page, so while it is open (and only in that
- * layout) the page behind is out of reach: main is inert, the document
- * doesn't scroll and the sheet's chrome takes no swipe (html[data-amr-sheet],
- * globals.css "AMR SHEET"). A layout effect, so a close removes it before
+ * layout) the page behind is out of reach: main is inert (the docked timer,
+ * outside main, makes itself inert while the store's `panel` is "sheet"), the
+ * document doesn't scroll and the sheet's chrome takes no swipe
+ * (html[data-amr-sheet], globals.css "AMR SHEET"). A layout effect, so a close removes it before
  * focus goes back to an opener in main.
  *
  * Another full-screen surface opening over it (the sidebar, search, Activity:
