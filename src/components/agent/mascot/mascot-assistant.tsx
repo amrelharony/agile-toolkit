@@ -18,7 +18,9 @@
  * where the browser asks before it sends motion, he offers once himself, in a
  * bubble beside him, the first time his panel closes (motion-invite.ts).
  * On touch screens he steps aside (up, or to the other side) when his figure
- * would sit on one of the page's controls (mascot-nudge.ts).
+ * would sit on one of the page's controls (mascot-nudge.ts). He is never
+ * taken off the page: while a page field has a phone's keyboard, what he says
+ * beside himself waits instead (usePageFieldFocus, MascotBubble `waiting`).
  *
  * The owner's agent is owner-only. Visitors keep the mascot (clicks, Konami,
  * Cmd/Ctrl+J) but the panel shows <VisitorGuide/> — a tool finder — instead
@@ -704,31 +706,28 @@ function useFigureRecovery(): FigureRecovery {
   return { down, gaveUp, failedOnce, fail, retry };
 }
 
-/** On phones, step aside while the visitor is typing (the keyboard is up). */
-function useTypingOnPhone(isPhone: boolean): boolean {
-  const [typing, setTyping] = useState(false);
+/**
+ * On phones, a field on the page (outside his panel) has focus, so the
+ * keyboard is up over the page. He stays where he is, never taken off the
+ * page (DNA-SPEC §6: he stays visible on every page); what he says beside
+ * himself waits instead (MascotBubble `waiting`), so it never sits over what
+ * is being typed, and shows once the field lets go.
+ */
+function usePageFieldFocus(isPhone: boolean): boolean {
+  const [focused, setFocused] = useState(false);
   useEffect(() => {
     if (!isPhone) {
-      setTyping(false);
+      setFocused(false);
       return;
     }
-    const isField = (t: EventTarget | null) => {
-      const el = t as HTMLElement | null;
-      return (
-        !!el &&
-        (el.isContentEditable ||
-          el.tagName === "INPUT" ||
-          el.tagName === "TEXTAREA" ||
-          el.tagName === "SELECT")
-      );
-    };
+    const isField = (t: EventTarget | null) => t instanceof Element && typesInto(t);
     const onIn = (e: FocusEvent) => {
-      // Typing inside the assistant panel itself keeps the figure in place.
+      // A field in his own panel is his chat's, not the page's.
       const inPanel = (e.target as HTMLElement | null)?.closest?.("[data-agent-sheet-root]");
-      if (isField(e.target) && !inPanel) setTyping(true);
+      if (isField(e.target) && !inPanel) setFocused(true);
     };
     const onOut = (e: FocusEvent) => {
-      if (isField(e.target)) setTyping(false);
+      if (isField(e.target)) setFocused(false);
     };
     document.addEventListener("focusin", onIn);
     document.addEventListener("focusout", onOut);
@@ -737,7 +736,7 @@ function useTypingOnPhone(isPhone: boolean): boolean {
       document.removeEventListener("focusout", onOut);
     };
   }, [isPhone]);
-  return typing;
+  return focused;
 }
 
 /** How long the page must be still (no scroll, resize, tap or change) before he looks under him. */
@@ -1080,8 +1079,8 @@ export function MascotAssistant({
   // Touch screens of any width (a landscape phone, a tablet): his figure there is
   // where a finger lands, so he steps aside for the page's controls.
   const coarsePointer = useMediaQuery("(pointer: coarse)");
-  const typingOnPhone = useTypingOnPhone(isPhone);
-  const hideFigure = typingOnPhone;
+  // A page field has a phone's keyboard: he stays, and his bubble waits.
+  const pageFieldFocus = usePageFieldFocus(isPhone);
   const box = isPhone ? MASCOT_BOX_PHONE : MASCOT_BOX;
   const panelSize = usePanelSize();
   // How the panel sits. The phone's full-height sheet and the short landscape
@@ -1269,15 +1268,15 @@ export function MascotAssistant({
   // Always the figure's height unless it can't load (no try of its own is to
   // come), so the strip doesn't jump when the plate gives way to him a moment
   // after the page settles, or while his figure is tried again. That includes
-  // Data Saver: he arrives there too, on the first interaction.
+  // Data Saver: he arrives there too, on the first interaction. It stays while
+  // a page field has the keyboard (he does too), so nothing shifts as one types.
   const bandSide = corner.startsWith("top") ? ("top" as const) : ("bottom" as const);
-  const band =
-    isPhone && !hideFigure
-      ? {
-          side: bandSide,
-          height: phoneBandHeight(corner, !figureFailed, box.h),
-        }
-      : null;
+  const band = isPhone
+    ? {
+        side: bandSide,
+        height: phoneBandHeight(corner, !figureFailed, box.h),
+      }
+    : null;
   usePhoneBand(band);
   const [dragPos, setDragPos] = useState<{ left: number; top: number } | null>(null);
 
@@ -1289,7 +1288,7 @@ export function MascotAssistant({
   // Once the visitor has put him on a side, he only steps up or down from it.
   const [sideChosen, setSideChosen] = useState(false);
   const { nudge, reset: resetNudge } = useStepAside({
-    active: (isPhone || coarsePointer) && !hideFigure && (showFigure || figureFailed || dataSaver),
+    active: (isPhone || coarsePointer) && (showFigure || figureFailed || dataSaver),
     frozen: open || dragPos !== null,
     edge: bandSide,
     placeKey: `${corner}:${box.h}`,
@@ -1697,7 +1696,7 @@ export function MascotAssistant({
       ? null
       : panelTail(placed, {
           phone: isPhone,
-          figure: showFigure && !hideFigure,
+          figure: showFigure,
           dragging: dragPos !== null,
         });
   const size = PANEL_SIZE[panelSize.size];
@@ -1863,8 +1862,9 @@ export function MascotAssistant({
         </div>
       )}
 
-      {/* What he says beside himself, outside the chat. */}
-      {!hideFigure && <MascotBubble />}
+      {/* What he says beside himself, outside the chat. It waits while a page
+          field has a phone's keyboard; he stays. */}
+      <MascotBubble waiting={pageFieldFocus} />
 
       {/* The screen's side safe areas, for stepping aside to the other side (readSideInsets). */}
       <span
@@ -1881,105 +1881,102 @@ export function MascotAssistant({
       {/* How to move him without dragging, as his button's description.
           hidden, not sr-only: a description is still read from a hidden
           element, and browse mode doesn't read it a second time as loose text. */}
-      {!hideFigure && (
-        <span id={MOVE_HINT_ID} hidden>
-          {MOVE_HINT}
-        </span>
-      )}
+      <span id={MOVE_HINT_ID} hidden>
+        {MOVE_HINT}
+      </span>
 
-      {/* Floating mascot — click to toggle the chat. */}
-      {!hideFigure && (
-        <button
-          ref={buttonRef}
-          data-vt-hold="amr"
-          data-amr-button
-          type="button"
-          onClick={onMascotClick}
-          onKeyDown={onMascotKeyDown}
-          onPointerDown={onPointerDown}
-          onPointerEnter={reachForAmr}
-          onTouchStart={reachForAmr}
-          onFocus={reachForAmr}
-          onContextMenu={(e) => showFigure && e.preventDefault()}
-          // One name in every state (the panel has its own Close button);
-          // aria-expanded carries the state, and aria-controls names the panel
-          // only while it is in the page.
-          aria-label={LAUNCHER_LABEL}
-          aria-expanded={open}
-          aria-controls={open ? AMR_PANEL_ID : undefined}
-          aria-keyshortcuts="Control+J Meta+J"
-          aria-describedby={MOVE_HINT_ID}
-          title="Ask Amr · drag him, or use the arrow keys, to move him"
-          // Until his figure is in, and while it can't load: the launcher plate.
-          data-launcher={showFigure ? undefined : ""}
-          style={{
-            ...(dragPos
-              ? { position: "fixed", left: dragPos.left, top: dragPos.top }
-              : buttonPos(placed, showFigure, box.h, isPhone, nudge.lift)),
-            // The plate's box, as amr-geometry has it (larger text grows it).
-            ...(!showFigure && { minWidth: LAUNCHER_PLATE.w, minHeight: LAUNCHER_PLATE.h }),
-          }}
-          className={cn(
-            "z-50 cursor-pointer",
-            !dragPos && styles.bob,
-            // The figure's box is mostly transparent: let clicks there
-            // reach the page, and take them only on the figure (below). Focus
-            // is drawn on the figure too (styles.figure), not around the box.
-            showFigure && [styles.figure, "pointer-events-none"],
-            // His name, lettered on a plate in the comic's ink (globals.css):
-            // never a likeness of him, and never round. A finger on it carries
-            // it, as one on his figure does, rather than scrolling the page.
-            !showFigure && "comic-name-plate touch-none select-none"
-          )}
-        >
-          {!showFigure && LAUNCHER_LABEL}
-          {showFigure && (
-            <span
-              ref={hitRef}
-              aria-hidden="true"
-              data-mascot-hit
-              className="pointer-events-auto absolute z-10 select-none"
-              style={{
-                ...hitBox(box),
-                // His figure is his own: a finger on him pets or carries him, never scrolls.
-                touchAction: "none",
-                WebkitTouchCallout: "none",
-              }}
-              onPointerMove={(e) => {
-                if (e.buttons) return; // pressed: the drag handles it
-                const p = touchPoint(e, e.currentTarget);
-                if (p) touchRef.current?.move(p, false);
-              }}
-              onPointerLeave={() => touchRef.current?.leave()}
-            />
-          )}
-          {mountFigure && (
-            <div
-              aria-hidden="true"
-              className={
-                showFigure ? undefined : "pointer-events-none absolute bottom-0 right-0 opacity-0"
-              }
+      {/* Floating mascot — click to toggle the chat. Never unmounted: on a
+          phone he stays on the page while its fields have the keyboard. */}
+      <button
+        ref={buttonRef}
+        data-vt-hold="amr"
+        data-amr-button
+        type="button"
+        onClick={onMascotClick}
+        onKeyDown={onMascotKeyDown}
+        onPointerDown={onPointerDown}
+        onPointerEnter={reachForAmr}
+        onTouchStart={reachForAmr}
+        onFocus={reachForAmr}
+        onContextMenu={(e) => showFigure && e.preventDefault()}
+        // One name in every state (the panel has its own Close button);
+        // aria-expanded carries the state, and aria-controls names the panel
+        // only while it is in the page.
+        aria-label={LAUNCHER_LABEL}
+        aria-expanded={open}
+        aria-controls={open ? AMR_PANEL_ID : undefined}
+        aria-keyshortcuts="Control+J Meta+J"
+        aria-describedby={MOVE_HINT_ID}
+        title="Ask Amr · drag him, or use the arrow keys, to move him"
+        // Until his figure is in, and while it can't load: the launcher plate.
+        data-launcher={showFigure ? undefined : ""}
+        style={{
+          ...(dragPos
+            ? { position: "fixed", left: dragPos.left, top: dragPos.top }
+            : buttonPos(placed, showFigure, box.h, isPhone, nudge.lift)),
+          // The plate's box, as amr-geometry has it (larger text grows it).
+          ...(!showFigure && { minWidth: LAUNCHER_PLATE.w, minHeight: LAUNCHER_PLATE.h }),
+        }}
+        className={cn(
+          "z-50 cursor-pointer",
+          !dragPos && styles.bob,
+          // The figure's box is mostly transparent: let clicks there
+          // reach the page, and take them only on the figure (below). Focus
+          // is drawn on the figure too (styles.figure), not around the box.
+          showFigure && [styles.figure, "pointer-events-none"],
+          // His name, lettered on a plate in the comic's ink (globals.css):
+          // never a likeness of him, and never round. A finger on it carries
+          // it, as one on his figure does, rather than scrolling the page.
+          !showFigure && "comic-name-plate touch-none select-none"
+        )}
+      >
+        {!showFigure && LAUNCHER_LABEL}
+        {showFigure && (
+          <span
+            ref={hitRef}
+            aria-hidden="true"
+            data-mascot-hit
+            className="pointer-events-auto absolute z-10 select-none"
+            style={{
+              ...hitBox(box),
+              // His figure is his own: a finger on him pets or carries him, never scrolls.
+              touchAction: "none",
+              WebkitTouchCallout: "none",
+            }}
+            onPointerMove={(e) => {
+              if (e.buttons) return; // pressed: the drag handles it
+              const p = touchPoint(e, e.currentTarget);
+              if (p) touchRef.current?.move(p, false);
+            }}
+            onPointerLeave={() => touchRef.current?.leave()}
+          />
+        )}
+        {mountFigure && (
+          <div
+            aria-hidden="true"
+            className={
+              showFigure ? undefined : "pointer-events-none absolute bottom-0 right-0 opacity-0"
+            }
+          >
+            {/* A figure that crashes, or whose code can't load, stops here:
+                the plate takes his place (FigureFailed), and he is tried
+                again from there. The page and his panel carry on. */}
+            <ErrorBoundary
+              name="Amr's figure"
+              fallback={() => <FigureFailed onFailed={figure.fail} />}
             >
-              {/* A figure that crashes, or whose code can't load, stops here:
-                  the plate takes his place (FigureFailed), and he is tried
-                  again from there. The page and his panel carry on. */}
-              <ErrorBoundary
-                name="Amr's figure"
-                fallback={() => <FigureFailed onFailed={figure.fail} />}
-              >
-                <Suspense fallback={null}>
-                  <Sprite
-                    width={box.w}
-                    height={box.h}
-                    moveRef={buttonRef}
-                    onLoadError={figure.fail}
-                  />
-                </Suspense>
-              </ErrorBoundary>
-            </div>
-          )}
-        </button>
-      )}
+              <Suspense fallback={null}>
+                <Sprite
+                  width={box.w}
+                  height={box.h}
+                  moveRef={buttonRef}
+                  onLoadError={figure.fail}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+      </button>
     </>
   );
 }

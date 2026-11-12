@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 
 /**
  * A phone has no spare margin, so space is kept for Amr at the bottom: main's
  * padding and the pinned bars clear him. He stays a full figure rather than
  * shrinking to a launcher, and nothing is drawn behind him: an opaque strip there
- * read as a bar across the bottom of the screen (8 November 2026).
+ * read as a bar across the bottom of the screen (8 November 2026). He and his
+ * space stay while a page field has the keyboard (chat revamp PR 8: he used to
+ * step off the page then).
  */
 
 vi.mock("@/lib/auth/auth-provider", () => ({
@@ -62,6 +64,27 @@ describe("Amr's space on phones", () => {
 
     unmount();
     expect(document.documentElement.style.getPropertyValue("--amr-band-bottom")).toBe("");
+  });
+
+  it("keeps his space, and him, while a page field has the keyboard: nothing shifts as one types", () => {
+    stubWidth(true);
+    render(
+      <>
+        <input aria-label="Retro card" />
+        <MascotAssistant />
+      </>
+    );
+    const before = document.documentElement.style.getPropertyValue("--amr-band-bottom");
+    const button = screen.getByRole("button", { name: "Ask Amr" });
+    const field = screen.getByLabelText("Retro card");
+    act(() => field.focus());
+    // He used to step off the page here, and his space with him.
+    expect(screen.getByRole("button", { name: "Ask Amr" })).toBe(button);
+    expect(document.documentElement.style.getPropertyValue("--amr-band-bottom")).toBe(before);
+    expect(button.style.bottom).toContain("safe-area-inset-bottom");
+    act(() => field.blur());
+    expect(screen.getByRole("button", { name: "Ask Amr" })).toBe(button);
+    expect(document.documentElement.style.getPropertyValue("--amr-band-bottom")).toBe(before);
   });
 
   it("leaves wider screens alone", () => {

@@ -809,7 +809,7 @@ describe("his panel is his balloon", () => {
     expect(panel.style.getPropertyValue("--tail-at")).toBe("calc(40px - 0.4rem - var(--panel-w))");
   });
 
-  it("on a phone, drops the tail while a page field outside the panel has the keyboard", async () => {
+  it("on a phone, stays on the page while a page field has the keyboard, tail and all; his bubble waits", async () => {
     stubScreen({ phone: true });
     render(
       <>
@@ -819,23 +819,30 @@ describe("his panel is his balloon", () => {
     );
     await withFigure();
     expect(openPanel()).toHaveAttribute("data-tail", "down");
+    act(() => useAgentStore.setState({ open: false }));
 
     const field = screen.getByLabelText("Page field");
     act(() => {
       field.focus();
     });
-    // He steps off the page for the keyboard: nothing beside the panel to point at.
-    expect(screen.queryByTitle(/^Ask Amr/)).toBeNull();
-    const typing = screen.getByRole("dialog", { name: "Amr" });
-    expect(typing).toHaveAttribute("data-tail", "none");
-    expect(typing).not.toHaveAttribute("data-tail-from");
-    expect(typing.style.getPropertyValue("--tail-at")).toBe("");
+    // He is never taken off the page (DNA-SPEC §6), and the panel still points at him.
+    const button = amr();
+    expect(button.querySelector("[data-mascot-hit]")).not.toBeNull();
+    expect(openPanel()).toHaveAttribute("data-tail", "down");
+    act(() => useAgentStore.setState({ open: false }));
+    // What he has to say waits until the field lets go, rather than sit over it.
+    act(() => useBubbleStore.getState().show({ id: "hi", text: "Need a hand?" }));
+    expect(document.querySelector("[data-amr-bubble]")).toBeNull();
 
     act(() => {
       field.blur();
     });
-    expect(amr()).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute("data-tail", "down");
+    // The same button all along, never unmounted; and now he speaks.
+    expect(amr()).toBe(button);
+    expect(document.querySelector("[data-amr-bubble-region] [role=status]")).toHaveTextContent(
+      "Need a hand?"
+    );
+    act(() => useBubbleStore.setState({ current: null }));
   });
 
   it("has no tail while the launcher stands in for him", () => {
