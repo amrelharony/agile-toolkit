@@ -174,12 +174,19 @@ function circlePairs(order: readonly number[], round: number): [number, number][
  * whole rotation pairs everyone once whatever the order, so only which
  * rounds come first can change. The same people, traits, rules and seed
  * always give the same order, so the rotation holds round after round.
+ *
+ * `cost` is the cost of each two people sharing a pair, as an n × n matrix
+ * (n = people.length). A swap is scored by what it changes (the two seats'
+ * partners in each tuned round), so tuning 120 people takes milliseconds;
+ * the costs are whole numbers times powers of two, so the sums are exact
+ * and the order is the one a full rescore after each swap would give.
  */
 function rotationOrder(
   people: readonly MixPerson[],
   rotationSeed: number,
-  cost: ((i: number, j: number) => number) | null
+  cost: Float64Array | null
 ): number[] {
+  const n = people.length;
   const keys = people.map((p) => nameKey(p.name));
   const byKey = new Map(keys.map((k, i) => [k, i] as const));
   const order: number[] = shuffle(keys.slice().sort(), createRng(rotationSeed)).map(
@@ -188,27 +195,52 @@ function rotationOrder(
   if (order.length % 2 === 1) order.push(BYE);
   if (!cost || order.length < 4) return order;
 
-  const rounds = Math.min(order.length - 1, TUNED_ROUNDS);
-  const score = (o: readonly number[]) => {
-    let s = 0;
-    for (let k = 0; k < rounds; k++) {
-      const w = 2 ** -k;
-      for (const [a, b] of circlePairs(o, k)) if (a !== BYE && b !== BYE) s += w * cost(a, b);
+  const total = order.length;
+  const rounds = Math.min(total - 1, TUNED_ROUNDS);
+  // The circle method seats by place, whoever sits there: partner[k][p] is
+  // the place paired with place p in round k.
+  const places = Array.from({ length: total }, (_, p) => p);
+  const partner = Array.from({ length: rounds }, (_, k) => {
+    const of = new Int32Array(total);
+    for (const [p, q] of circlePairs(places, k)) {
+      of[p] = q;
+      of[q] = p;
     }
-    return s;
-  };
-  let best = score(order);
+    return of;
+  });
+  const weight = Array.from({ length: rounds }, (_, k) => 2 ** -k);
+  const c = (a: number, b: number) => (a === BYE || b === BYE ? 0 : cost[a * n + b]);
+
+  let best = 0;
+  for (let k = 0; k < rounds; k++) {
+    for (let p = 0; p < total; p++) {
+      const q = partner[k][p];
+      if (p < q) best += weight[k] * c(order[p], order[q]);
+    }
+  }
   const rng = createRng(`${rotationSeed}:rotation`);
-  const steps = Math.min(4000, 60 * order.length);
+  const steps = Math.min(4000, 60 * total);
   for (let s = 0; s < steps && best > 0; s++) {
-    const i = Math.floor(rng() * order.length);
-    const j = Math.floor(rng() * order.length);
+    const i = Math.floor(rng() * total);
+    const j = Math.floor(rng() * total);
     if (i === j) continue;
-    [order[i], order[j]] = [order[j], order[i]];
-    const next = score(order);
+    // What swapping the people at places i and j changes: in each round,
+    // their partners (unless they are partners, which the swap leaves be).
+    const a = order[i];
+    const b = order[j];
+    let delta = 0;
+    for (let k = 0; k < rounds; k++) {
+      const pi = partner[k][i];
+      if (pi === j) continue;
+      const pj = partner[k][j];
+      delta += weight[k] * (c(b, order[pi]) + c(a, order[pj]) - c(a, order[pi]) - c(b, order[pj]));
+    }
     // Level moves too, so the climb can cross a flat stretch.
-    if (next <= best) best = next;
-    else [order[i], order[j]] = [order[j], order[i]];
+    if (delta <= 0) {
+      order[i] = b;
+      order[j] = a;
+      best += delta;
+    }
   }
   return order;
 }
@@ -226,7 +258,7 @@ function rotationStart(
   sitOutGroup: number | null,
   round: number,
   rotationSeed: number,
-  cost: ((i: number, j: number) => number) | null
+  cost: Float64Array | null
 ): { assign: number[]; pairs: [number, number][] } | null {
   const n = people.length;
   if (n < 2) return null;
@@ -281,13 +313,18 @@ export function mixGroups(input: MixInput): MixOutcome {
   const m = sizes.length;
 
   const pair = new Float64Array(n * n);
+  // What balance alone costs each two people: the pair rotation's order is tuned by it.
+  const shared = balance === "none" ? null : new Float64Array(n * n);
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
-      const w =
-        repeatCost(history, people[i].name, people[j].name) +
-        BALANCE_COST * sharedTraits(traits[i], traits[j]);
+      const b = BALANCE_COST * sharedTraits(traits[i], traits[j]);
+      const w = repeatCost(history, people[i].name, people[j].name) + b;
       pair[i * n + j] = w;
       pair[j * n + i] = w;
+      if (shared) {
+        shared[i * n + j] = b;
+        shared[j * n + i] = b;
+      }
     }
   }
   for (const r of placed) {
@@ -314,13 +351,18 @@ export function mixGroups(input: MixInput): MixOutcome {
   // a bonus that balance can't outweigh, so the series keeps its new pairs.
   let start: number[] | null = null;
   if (mode === "pairs") {
-    const apart = new Set(placed.filter((r) => r.kind === "apart").map((r) => r.i * n + r.j));
-    const orderCost =
-      balance !== "none" || apart.size > 0
-        ? (i: number, j: number) =>
-            BALANCE_COST * sharedTraits(traits[i], traits[j]) +
-            (apart.has(i * n + j) || apart.has(j * n + i) ? RULE_COST : 0)
-        : null;
+    const apart = placed.filter((r) => r.kind === "apart");
+    // Balance, plus a keep-apart rule once per pair (two rules for the same
+    // two people still count once).
+    let orderCost: Float64Array | null = null;
+    if (shared || apart.length > 0) {
+      orderCost = shared ? shared.slice() : new Float64Array(n * n);
+      for (const r of apart) {
+        const base = shared ? shared[r.i * n + r.j] : 0;
+        orderCost[r.i * n + r.j] = base + RULE_COST;
+        orderCost[r.j * n + r.i] = base + RULE_COST;
+      }
+    }
     const rotation = rotationStart(
       people,
       sizes,
