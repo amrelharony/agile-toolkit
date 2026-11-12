@@ -35,9 +35,34 @@ import {
   type ListItem,
   type TableAlign,
 } from "@/lib/agent/markdown";
+import { useAmrPanel } from "./mascot/panel-context";
 
 /** The accessible name of a table's scrolling region. */
 const TABLE_REGION_LABEL = "Table, scrolls sideways";
+
+/**
+ * A link to one of the site's own pages, in the same tab. No prefetch: the
+ * model writes these paths (and tool results or pasted text can steer it), so
+ * nothing is fetched until a click. Beside a floating panel the chat stays
+ * open across the navigation; the phone's sheet covers the page, so there it
+ * closes on its way (Amr's panel context), and while the sheet's Back marker
+ * is the newest history entry the page replaces it.
+ */
+function SiteLink({ href, children }: { href: string; children: string }) {
+  const panel = useAmrPanel();
+  const sheet = panel.layout === "sheet";
+  return (
+    <Link
+      href={href}
+      prefetch={false}
+      replace={sheet && panel.replaceOnNavigate}
+      onClick={sheet ? panel.onNavigate : undefined}
+      className="text-accent underline underline-offset-2"
+    >
+      {children}
+    </Link>
+  );
+}
 
 function Inline({ text }: { text: string }) {
   return (
@@ -62,20 +87,13 @@ function Inline({ text }: { text: string }) {
               </code>
             );
           case "link":
-            // The site's own pages open here, in the same tab (the chat stays
-            // open across the navigation); anything else opens a new tab.
-            // No prefetch: the model writes these paths (and tool results or
-            // pasted text can steer it), so nothing is fetched until a click.
+            // The site's own pages open here, in the same tab (SiteLink);
+            // anything else opens a new tab.
             if (t.internal) {
               return (
-                <Link
-                  key={i}
-                  href={t.href}
-                  prefetch={false}
-                  className="text-accent underline underline-offset-2"
-                >
+                <SiteLink key={i} href={t.href}>
                   {t.value}
-                </Link>
+                </SiteLink>
               );
             }
             // A mail link hands off to the mail app: no new tab to announce.
