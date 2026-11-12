@@ -11,6 +11,19 @@ import { exampleId } from "@/lib/utils/example-id";
 export const EXAMPLE_VISION =
   "Small shop owners take payments anywhere, without a card machine, and see their money the next day.";
 
+/**
+ * The example's backlog, for Ask Amr and the copyable prompts while the
+ * example is open: the team's own backlog never goes with the example.
+ */
+export const EXAMPLE_STORY_TITLES: readonly string[] = [
+  "Tap to pay on the shop owner's phone",
+  "Take a payment with no signal and send it later",
+  "Refund a payment from the phone",
+  "See today's takings at a glance",
+  "Payout to a second bank account",
+  "Receipts by text message",
+];
+
 /** The example goals, stamped around `now` (an ISO time). */
 export function buildExample(now: Date = new Date()): ProductGoal[] {
   const day = (offset: number) => new Date(now.getTime() + offset * 86_400_000).toISOString();

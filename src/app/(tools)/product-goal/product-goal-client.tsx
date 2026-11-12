@@ -58,7 +58,7 @@ import {
   withGoalValues,
   type GoalOutcome,
 } from "@/lib/product-goal/model";
-import { EXAMPLE_VISION, buildExample } from "./example";
+import { EXAMPLE_STORY_TITLES, EXAMPLE_VISION, buildExample } from "./example";
 import { toMarkdown } from "./markdown";
 import { CheckList } from "./check-list";
 import { GoalForm, type GoalFormValues } from "./goal-form";
@@ -126,7 +126,7 @@ export function ProductGoalClient() {
       Loading your goals…
     </p>
   ) : example ? (
-    <ExampleBoard store={example} storyTitles={storyTitles} onExit={() => setExample(null)} />
+    <ExampleBoard store={example} onExit={() => setExample(null)} />
   ) : (
     <GoalBoard
       goals={stored}
@@ -153,15 +153,8 @@ export function ProductGoalClient() {
   );
 }
 
-function ExampleBoard({
-  store,
-  storyTitles,
-  onExit,
-}: {
-  store: ExampleStore;
-  storyTitles: readonly string[];
-  onExit: () => void;
-}) {
+/** The example: its own goals, vision and backlog titles, never the workspace's. */
+function ExampleBoard({ store, onExit }: { store: ExampleStore; onExit: () => void }) {
   const goals = useStore(store, (s) => s.goals);
   const vision = useStore(store, (s) => s.vision);
   const writer = useMemo(() => exampleWriter(store), [store]);
@@ -177,7 +170,7 @@ function ExampleBoard({
         writer={writer}
         vision={vision}
         onVision={(v) => store.setState({ vision: v.slice(0, VISION_MAX) })}
-        storyTitles={storyTitles}
+        storyTitles={EXAMPLE_STORY_TITLES}
         log={() => {}}
         example
       />
@@ -337,6 +330,8 @@ export function GoalBoard({
       apply: () => writer.put(before.map((g) => closedGoal(g, "abandoned", now, g.note))),
       revert: () => writer.put(before),
     });
+    // The warning goes with its button: focus moves to the page's heading.
+    done(`Closed ${before.length === 1 ? "the other active goal" : "the other active goals"}.`);
   };
 
   const empty = goals.length === 0;
@@ -431,7 +426,7 @@ export function GoalBoard({
           onEdit={() => setEditing({ kind: "edit", id: active.id })}
           onClose={(outcome) => setEditing({ kind: "close", outcome })}
           onConfirmClose={(outcome, note) => close(active, outcome, note)}
-          onCancelClose={() => setEditing(null)}
+          onCancelClose={() => done("")}
           onNew={() => setEditing({ kind: "new" })}
         />
       ) : (

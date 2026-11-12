@@ -52,7 +52,8 @@ vi.mock("@/components/shared/export-button", () => ({
 import { ProductGoalClient } from "@/app/(tools)/product-goal/product-goal-client";
 import { buildExample } from "@/app/(tools)/product-goal/example";
 import { toMarkdown } from "@/app/(tools)/product-goal/markdown";
-import { useProductGoalPrefs } from "@/app/(tools)/product-goal/store";
+import { normalizeVision, useProductGoalPrefs } from "@/app/(tools)/product-goal/store";
+import { VISION_MAX } from "@/lib/product-goal/prefs";
 import { PRODUCT_GOAL_ACTIONS } from "@/lib/history/event-actions";
 
 const goal = (over: Partial<ProductGoal> = {}): ProductGoal => ({
@@ -121,6 +122,23 @@ describe("empty state and example", () => {
     expect(await screen.findByText(/No Product Goal yet/)).toBeInTheDocument();
   });
 
+  it("drafts in the example from the example's backlog, never the team's", async () => {
+    seed(
+      [],
+      [
+        { id: "s1", title: "Send invoices by email", status: "backlog" },
+        { id: "s2", title: "Pay invoices in bulk", status: "backlog" },
+      ]
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Load an example/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Set a new goal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Suggest goal templates" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    expect(within(list).getByText(/Make payment work so well/)).toBeInTheDocument();
+    expect(list.textContent).not.toMatch(/invoices/);
+  });
+
   it("builds an example with one active goal and two closed ones", () => {
     const ex = buildExample(new Date("2026-11-12T00:00:00Z"));
     expect(ex.map((g) => g.status)).toEqual(["active", "achieved", "abandoned"]);
@@ -158,6 +176,36 @@ describe("writing the goal", () => {
     const list = screen.getByRole("region", { name: "Check list, as you type" });
     expect(within(list).getByText(/Say what changes for customers/)).toBeInTheDocument();
     expect(within(list).getByText(/Keep one objective/)).toBeInTheDocument();
+  });
+
+  it("cancels a new goal, saving nothing, with focus back on the heading", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Write the goal" }));
+    type("The goal", "Half typed");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(goals()).toEqual([]);
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: "No goal is active" })).toHaveFocus()
+    );
+  });
+
+  it("says when a note is too long and keeps the goal open", async () => {
+    seed([goal()]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Mark abandoned" }));
+    type("Why is it abandoned?", "x".repeat(1001));
+    fireEvent.click(screen.getByRole("button", { name: "Mark abandoned" }));
+    expect(screen.getByText(/1,000 characters or fewer/)).toBeInTheDocument();
+    expect(goals()[0].status).toBe("active");
+    expect(screen.getByLabelText("Why is it abandoned?")).toHaveFocus();
+  });
+
+  it("shows how long is left to the target, or how long it is past", async () => {
+    const day = (offset: number) =>
+      new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    seed([goal({ targetDate: day(-3) })]);
+    renderPage();
+    expect(await screen.findByText(/days past it/)).toBeInTheDocument();
   });
 
   it("edits the active goal in place", async () => {
@@ -214,6 +262,28 @@ describe("one active goal", () => {
     expect(goals()[0].status).toBe("active");
   });
 
+  it("marks it abandoned without a cheer", async () => {
+    seed([goal()]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Mark abandoned" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark abandoned" }));
+    expect(goals()[0].status).toBe("abandoned");
+    expect(cheers).toEqual([]);
+    expect(logs.at(-1)?.action).toBe(PRODUCT_GOAL_ACTIONS.GOAL_ABANDONED);
+  });
+
+  it("cancels closing it, with focus back on the heading", async () => {
+    seed([goal()]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Mark achieved" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(goals()[0].status).toBe("active");
+    expect(screen.queryByLabelText("What showed it was reached?")).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: "The active goal" })).toHaveFocus()
+    );
+  });
+
   it("reopens an earlier goal only while none is active", async () => {
     seed([goal({ status: "abandoned", closedAt: "2026-10-01T00:00:00.000Z" })]);
     renderPage();
@@ -244,12 +314,35 @@ describe("one active goal", () => {
     ]);
     renderPage();
     expect(await screen.findByText(/Another goal is still marked active/)).toBeInTheDocument();
+    // The other active goal isn't in the record while it is still active.
+    expect(screen.queryByRole("list", { name: "Earlier goals" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Keep the one shown/ }));
     expect(
       goals()
         .filter((g) => g.status === "active")
         .map((g) => g.id)
     ).toEqual(["goal_b"]);
+    // The warning and its button are gone: focus is on the heading, the closed one in the record.
+    expect(screen.queryByText(/Another goal is still marked active/)).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: "The active goal" })).toHaveFocus()
+    );
+    expect(
+      within(screen.getByRole("list", { name: "Earlier goals" })).getByText(
+        "Shop owners take payments anywhere without a card machine"
+      )
+    ).toBeInTheDocument();
+    undoLast();
+    expect(goals().filter((g) => g.status === "active")).toHaveLength(2);
+  });
+
+  it("deletes with focus back on the heading", async () => {
+    seed([goal(), goal({ id: "goal_old", status: "achieved", statement: "Next-day payouts" })]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete “Next-day payouts”" }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: "The active goal" })).toHaveFocus()
+    );
   });
 });
 
@@ -310,6 +403,11 @@ describe("export", () => {
 });
 
 describe("hydration", () => {
+  it("reads a stored vision back safely, capped", () => {
+    expect(normalizeVision(42)).toBe("");
+    expect(normalizeVision("x".repeat(VISION_MAX + 5))).toHaveLength(VISION_MAX);
+  });
+
   it("waits for the saved vision before showing it", async () => {
     localStorage.setItem(
       "agile-toolkit:product-goal",
