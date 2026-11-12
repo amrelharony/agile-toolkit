@@ -219,6 +219,26 @@ describe("plainSummary and stepSummary", () => {
     expect(stepSummary({ input: { _partial: true } }, undefined)).toBeNull();
     expect(stepSummary({ input: { _truncated: '{"text":"x"' } }, undefined)).toBeNull();
   });
+
+  it("parses a result's JSON once, however often its row is drawn", () => {
+    // Each row is redrawn on every streamed flush and keystroke.
+    const block = ok('{"added":true,"title":"flaky CI"}');
+    const parse = vi.spyOn(JSON, "parse");
+    try {
+      for (let i = 0; i < 3; i++) {
+        expect(stepState({ id: "t1", input: {} }, block, {})).toBe("done");
+        expect(classifyResult(block)).toBe("done");
+        expect(stepSummary({ input: {} }, block)).toBe("flaky CI");
+        expect(resultSummary(block)).toBe("flaky CI");
+      }
+      expect(parse).toHaveBeenCalledTimes(1);
+      // A new block (a changed result) is read afresh.
+      expect(classifyResult(ok('{"added":false}'))).toBe("failed");
+      expect(parse).toHaveBeenCalledTimes(2);
+    } finally {
+      parse.mockRestore();
+    }
+  });
 });
 
 describe("pairToolResults", () => {

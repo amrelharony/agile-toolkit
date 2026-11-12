@@ -112,12 +112,8 @@ function saysItFailed(value: Record<string, unknown> | null): boolean {
   return FAILURE_FLAGS.some((flag) => value[flag] === false);
 }
 
-/** What a finished call came to, read from its tool_result block. */
-export function classifyResult(
-  result: Pick<ToolResultBlock, "content" | "is_error">
-): ToolResultStatus {
-  const text = resultText(result).trim();
-  // execute-tool.ts's own strings, matched whether or not is_error survived a reload.
+/** execute-tool.ts's own strings, matched whether or not is_error survived a reload; null for anything else. */
+function fixedStatus(text: string): ToolResultStatus | null {
   if (text.startsWith("User denied execution of")) return "denied";
   if (text.startsWith("Unknown tool") || text.startsWith("Tool not available"))
     return "unavailable";
@@ -133,8 +129,43 @@ export function classifyResult(
   ) {
     return "failed";
   }
-  if (result.is_error) return "failed";
-  return saysItFailed(parseObject(text)) ? "failed" : "done";
+  return null;
+}
+
+/** What one result block comes to: its state and the plain name its JSON gives, if any. */
+interface ResultReading {
+  status: ToolResultStatus;
+  summary: string | null;
+}
+
+/**
+ * Each block's reading, worked out once. The chat redraws every row on each
+ * streamed flush and each keystroke, and an owner's result can be tens of KB
+ * of JSON; the store keeps a block's identity until the block changes, so the
+ * block is the key and its JSON is parsed at most once.
+ */
+const readings = new WeakMap<object, ResultReading>();
+
+function readResult(result: Pick<ToolResultBlock, "content" | "is_error">): ResultReading {
+  const known = readings.get(result);
+  if (known) return known;
+  const text = resultText(result).trim();
+  const fixed = fixedStatus(text);
+  // Only a result that isn't one of execute-tool's strings is the handler's JSON.
+  const object = fixed ? null : parseObject(text);
+  const reading: ResultReading = {
+    status: fixed ?? (result.is_error || saysItFailed(object) ? "failed" : "done"),
+    summary: plainSummary(object),
+  };
+  readings.set(result, reading);
+  return reading;
+}
+
+/** What a finished call came to, read from its tool_result block. */
+export function classifyResult(
+  result: Pick<ToolResultBlock, "content" | "is_error">
+): ToolResultStatus {
+  return readResult(result).status;
 }
 
 /** A value's first plain name field (title, name, text, label), cut short; null when it has none. */
@@ -161,7 +192,7 @@ export function plainSummary(value: unknown): string | null {
 
 /** A result's plain name for what it made or read ("flaky CI"), when its JSON has an obvious one. */
 export function resultSummary(result: Pick<ToolResultBlock, "content">): string | null {
-  return plainSummary(resultText(result));
+  return readResult(result).summary;
 }
 
 /** The streaming parser's placeholder for arguments not yet (or never) parsed (as client.ts reads it). */
@@ -180,9 +211,9 @@ export function stepSummary(
   call: Pick<ToolUseBlock, "input">,
   result: Pick<ToolResultBlock, "content" | "is_error"> | undefined
 ): string | null {
-  if (result && classifyResult(result) === "done") {
-    const fromResult = resultSummary(result);
-    if (fromResult) return fromResult;
+  if (result) {
+    const { status, summary } = readResult(result);
+    if (status === "done" && summary) return summary;
   }
   // A saved thread may carry `{_truncated: "…"}` in place of the arguments.
   if (isPartialInput(call.input) || "_truncated" in (call.input ?? {})) return null;
