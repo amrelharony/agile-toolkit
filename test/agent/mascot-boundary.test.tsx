@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { Suspense, lazy } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 /**
@@ -10,7 +11,8 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
  * - his panel's body: a narration caption inside the panel with Reload page
  *   (and, for the owner, Start a new chat), the header left working;
  * - the owner's chat chunk: tried once more, then the same caption;
- * - anything else in him: the app shell's last resort keeps his plate up.
+ * - anything else in him: the app shell's last resort keeps his plate up, and
+ *   a tap tries him again, or reloads the page when his code never loaded.
  * Never the app's full-screen error, and never a blank panel while loading.
  */
 
@@ -312,10 +314,11 @@ describe("the app shell's last resort", () => {
 
   it("keeps his plate in his corner when he crashes, and a tap tries him again with his panel open", () => {
     h.amrCrash = true;
+    const reload = vi.fn();
     render(
       <>
         <main>Retro board</main>
-        <AmrBoundary>
+        <AmrBoundary onReload={reload}>
           <Amr />
         </AmrBoundary>
       </>
@@ -333,7 +336,42 @@ describe("the app shell's last resort", () => {
     expect(screen.getByText("Amr is back")).toBeInTheDocument();
     expect(useAgentStore.getState().open).toBe(true);
     expect(useAgentStore.getState().openedVia).toBe("pointer");
+    // A crash is tried again in place: the page isn't reloaded.
+    expect(reload).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["a script", Object.assign(new Error("Loading chunk 123 failed."), { name: "ChunkLoadError" })],
+    ["a stylesheet", new Error("Loading CSS chunk 7 failed.\n(/_next/static/css/7.css)")],
+  ])(
+    "reloads the page on a tap when his code (%s) never loaded: trying in place would fail again",
+    async (_what, error) => {
+      // As next/dynamic loads him: one React.lazy, which keeps its rejection for good.
+      const NeverLoads = lazy(() => Promise.reject(error));
+      const reload = vi.fn();
+      useAgentStore.setState({ open: true });
+      render(
+        <>
+          <main>Retro board</main>
+          <AmrBoundary onReload={reload}>
+            <Suspense fallback={null}>
+              <NeverLoads />
+            </Suspense>
+          </AmrBoundary>
+        </>
+      );
+      const plate = await screen.findByRole("button", { name: "Ask Amr" }, SETTLE);
+      expect(plate).toHaveAttribute("data-amr-stand-in");
+      expect(useAgentStore.getState().open).toBe(false);
+
+      fireEvent.click(plate, { detail: 1 });
+      expect(reload).toHaveBeenCalledTimes(1);
+      // Never a panel opened and shut again under the tap, and the plate stays up.
+      expect(useAgentStore.getState().open).toBe(false);
+      expect(amrButton()).toBe(plate);
+      expectPageCarriesOn();
+    }
+  );
 
   it("closes a panel the crash left open: there is no panel to show while the plate stands in", () => {
     h.amrCrash = true;

@@ -9,10 +9,14 @@
  * app's error screen.
  *
  * It is never empty, because Amr stays visible: his lettered "Ask Amr" plate
- * stands in his usual corner, never a likeness of him. A tap tries him again
- * and opens his panel, as a tap on him would. While the plate stands in, his
- * panel can't be open, so a panel left open by the crash is closed (that
- * also denies a card that was waiting, as any close does).
+ * stands in his usual corner, never a likeness of him. After a crash, a tap
+ * tries him again and opens his panel, as a tap on him would. When his code
+ * never loaded, a tap reloads the page instead: the app shell loads him with
+ * next/dynamic, whose React.lazy keeps a failed import for good, so trying
+ * again in place could only fail again (and a tab left open across a deploy
+ * needs the new page anyway). While the plate stands in, his panel can't be
+ * open, so a panel left open by the crash is closed (that also denies a card
+ * that was waiting, as any close does).
  *
  * Small on purpose: the app shell ships it on every page. amr-geometry has
  * no imports, and the agent store is there already (the header's opener).
@@ -26,16 +30,46 @@ import { ErrorBoundary } from "./error-boundary";
 /** The plate's words and its name, as on Amr's own launcher. */
 const ASK_AMR = "Ask Amr";
 
-export function AmrBoundary({ children }: { children: ReactNode }) {
+const reloadPage = () => window.location.reload();
+
+/**
+ * His code never arrived: webpack's ChunkLoadError for a script, or a
+ * stylesheet's "Loading CSS chunk … failed".
+ */
+function notLoaded(error: Error): boolean {
+  return error.name === "ChunkLoadError" || /Loading (CSS )?chunk/i.test(error.message ?? "");
+}
+
+export interface AmrBoundaryProps {
+  children: ReactNode;
+  /** Reloads the page when his code never loaded. Tests pass their own (jsdom can't reload). */
+  onReload?: () => void;
+}
+
+export function AmrBoundary({ children, onReload = reloadPage }: AmrBoundaryProps) {
   return (
-    <ErrorBoundary name="Amr" fallback={(_error, tryAgain) => <AmrStandIn tryAgain={tryAgain} />}>
+    <ErrorBoundary
+      name="Amr"
+      fallback={(error, tryAgain) => (
+        <AmrStandIn tryAgain={notLoaded(error) ? null : tryAgain} onReload={onReload} />
+      )}
+    >
       {children}
     </ErrorBoundary>
   );
 }
 
-/** His plate in his usual corner (bottom right), clear of the home indicator and a notch. */
-function AmrStandIn({ tryAgain }: { tryAgain: () => void }) {
+/**
+ * His plate in his usual corner (bottom right), clear of the home indicator
+ * and a notch. `tryAgain` is null when trying again in place can't work.
+ */
+function AmrStandIn({
+  tryAgain,
+  onReload,
+}: {
+  tryAgain: (() => void) | null;
+  onReload: () => void;
+}) {
   useEffect(() => {
     const agent = useAgentStore.getState();
     if (agent.open) agent.closeSheet();
@@ -54,6 +88,10 @@ function AmrStandIn({ tryAgain }: { tryAgain: () => void }) {
         minHeight: LAUNCHER_PLATE.h,
       }}
       onClick={(e) => {
+        if (!tryAgain) {
+          onReload();
+          return;
+        }
         // A keyboard press clicks with detail 0, which his panel's focus owner
         // treats apart from a pointer's.
         useAgentStore.getState().openSheet({ via: e.detail === 0 ? "keyboard" : "pointer" });
