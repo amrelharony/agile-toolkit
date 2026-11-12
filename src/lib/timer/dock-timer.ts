@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -122,4 +123,34 @@ export function claimDock(timer: DockedTimer): { ok: true } | { ok: false; holde
   if (dock.timer && dock.timer.href !== timer.href) return { ok: false, holder: dock.timer };
   dock.publish(timer);
   return { ok: true };
+}
+
+/**
+ * Owner pages that ring their own time's-up alarm while they are open, so
+ * the docked timer (which runs on every page) stays quiet there and nothing
+ * rings twice. The Ceremony Timer always does (its own flash, chime and
+ * buzz, under its own switch). A page registers while it shows something
+ * that rings (`useRingsOwnAlarm`), as the step timer panel does. On every
+ * other owner page (Six Hats, Icebreaker, Premortem, Standup) the dock
+ * rings the shared alarm itself.
+ */
+const ALWAYS_RINGS_OWN: ReadonlySet<string> = new Set(["/ceremony-timer"]);
+const ringingHere = new Map<string, number>();
+
+/** Whether the page at `href` rings its own timer while it is open. */
+export function ringsOwnAlarm(href: string): boolean {
+  return ALWAYS_RINGS_OWN.has(href) || (ringingHere.get(href) ?? 0) > 0;
+}
+
+/** While mounted: the page at `href` rings its own timer, so the dock doesn't there. */
+export function useRingsOwnAlarm(href: string | null | undefined): void {
+  useEffect(() => {
+    if (!href) return;
+    ringingHere.set(href, (ringingHere.get(href) ?? 0) + 1);
+    return () => {
+      const left = (ringingHere.get(href) ?? 1) - 1;
+      if (left > 0) ringingHere.set(href, left);
+      else ringingHere.delete(href);
+    };
+  }, [href]);
 }

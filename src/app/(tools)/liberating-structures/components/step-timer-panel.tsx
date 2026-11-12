@@ -12,6 +12,7 @@ import {
   dockOvertime,
   formatClock,
   timerRemaining,
+  useRingsOwnAlarm,
   type DockedTimer,
 } from "@/lib/timer/dock-timer";
 import { currentStep, runSeconds, type StepRun } from "@/lib/timer/step-timer";
@@ -25,7 +26,8 @@ import { cn } from "@/lib/utils";
  * runs here: it stops the clock at 0:00 and announces "time's up". This
  * panel rings the shared time's-up alarm (`timesUp`, with the shared
  * "Chime when time is up" switch) and counts the overtime up until the next
- * step.
+ * step; while it shows a step, it tells the dock not to ring here too
+ * (`useRingsOwnAlarm`).
  *
  * Its controls register with the page's useReturnFocus: "timer:controls"
  * (Pause, or Next step once time is up), where Start sends focus, and
@@ -69,6 +71,8 @@ export function StepTimerPanel({
     if (done && !wasDoneRef.current && timer) timesUp({ sound: timer.chime });
     wasDoneRef.current = done;
   }, [done, timer]);
+  // This panel rings for its step, so the dock (on this page too) doesn't.
+  useRingsOwnAlarm(timer?.href ?? null);
 
   return (
     <SectionCard title={`Step timer: ${run.title}`} icon={Timer}>

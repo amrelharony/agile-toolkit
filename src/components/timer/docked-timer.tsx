@@ -8,7 +8,13 @@ import { IconButton } from "@/components/ui/icon-button";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 import { overtimeText, timesUp } from "@/lib/celebrate/chime";
-import { dockOvertime, formatClock, timerRemaining, useDockTimer } from "@/lib/timer/dock-timer";
+import {
+  dockOvertime,
+  formatClock,
+  ringsOwnAlarm,
+  timerRemaining,
+  useDockTimer,
+} from "@/lib/timer/dock-timer";
 import { cn } from "@/lib/utils";
 
 /**
@@ -18,8 +24,10 @@ import { cn } from "@/lib/utils";
  * timer, or stop it.
  *
  * At zero it stops there (`expire`), says so once, and rings the shared
- * time's-up alarm (`timesUp`) unless the owner's own page is open (that page
- * rings its own). Then it counts the overtime up until it is stopped.
+ * time's-up alarm (`timesUp`), on any page, the owner's included, unless
+ * the owner's page is open and rings its own (`ringsOwnAlarm`: the
+ * Ceremony Timer, a step timer panel). Then it counts the overtime up
+ * until it is stopped.
  */
 export function DockedTimer() {
   const pathname = usePathname();
@@ -55,7 +63,7 @@ export function DockedTimer() {
       if (!announcedEndRef.current) {
         announcedEndRef.current = true;
         announce(`${timer.label}: time's up`, "assertive");
-        if (pathname !== timer.href) timesUp({ sound: timer.chime });
+        if (pathname !== timer.href || !ringsOwnAlarm(timer.href)) timesUp({ sound: timer.chime });
       }
     } else if (remaining > 0) {
       announcedEndRef.current = false;

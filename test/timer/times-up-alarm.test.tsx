@@ -39,6 +39,8 @@ vi.mock("@/lib/celebrate/chime", async (importOriginal) => ({
 import * as chime from "@/lib/celebrate/chime";
 import { useAlarmPrefs } from "@/lib/celebrate/alarm-prefs";
 import { DockedTimer } from "@/components/timer/docked-timer";
+import { DockOvertime } from "@/components/timer/dock-overtime";
+import { DockClock } from "@/app/(tools)/icebreaker/components/dock-clock";
 import { StepTimerPanel } from "@/app/(tools)/liberating-structures/components/step-timer-panel";
 import { TimerWidget } from "@/app/(tools)/retro/components/timer-widget";
 import { dockOvertime, useDockTimer, type DockedTimer as Docked } from "@/lib/timer/dock-timer";
@@ -156,7 +158,7 @@ describe("the docked timer", () => {
     expect(alarm.timesUp).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves the ringing to the owner's page when that page is open", () => {
+  it("leaves the ringing to the owner's page when that page rings its own", () => {
     nav.pathname = "/ceremony-timer";
     useDockTimer.getState().publish(standup());
     render(
@@ -167,6 +169,54 @@ describe("the docked timer", () => {
     advance(3000);
     expect(useDockTimer.getState().timer?.endedAt).toBe(T0 + 2000);
     expect(alarm.timesUp).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["Six Hats", "/six-hats"],
+    ["Icebreaker", "/icebreaker"],
+    ["Premortem", "/premortem"],
+  ])("rings on %s's own page, which shows the clock but rings nothing itself", (_name, href) => {
+    nav.pathname = href;
+    useDockTimer.getState().publish(standup({ href }));
+    render(
+      <LiveAnnouncerProvider>
+        <DockedTimer />
+      </LiveAnnouncerProvider>
+    );
+    advance(2100);
+    expect(alarm.timesUp).toHaveBeenCalledTimes(1);
+    // The pill itself stays hidden on its own page.
+    expect(screen.queryByRole("timer")).toBeNull();
+  });
+
+  it("the owner page's clock counts the overtime up beside time's up", () => {
+    nav.pathname = "/icebreaker";
+    useDockTimer.getState().publish(standup({ href: "/icebreaker", label: "Warm-up" }));
+    function Page() {
+      const timer = useDockTimer((s) => s.timer);
+      return timer ? <DockClock timer={timer} onStop={() => {}} /> : null;
+    }
+    render(
+      <LiveAnnouncerProvider>
+        <Page />
+        <DockedTimer />
+      </LiveAnnouncerProvider>
+    );
+    advance(2100);
+    expect(screen.getByRole("timer", { name: "Warm-up: time's up" })).toHaveTextContent(
+      "Time's up+0:00 over"
+    );
+    advance(65_000);
+    expect(screen.getByRole("timer", { name: "Warm-up: time's up" })).toHaveTextContent(
+      "+1:05 over"
+    );
+  });
+
+  it("shows no overtime for a timer that hasn't run out, or that nobody saw end", () => {
+    const { container, rerender } = render(<DockOvertime timer={standup()} />);
+    expect(container).toBeEmptyDOMElement();
+    rerender(<DockOvertime timer={standup({ endsAt: null, pausedRemaining: 0 })} />);
+    expect(container).toBeEmptyDOMElement();
   });
 });
 
