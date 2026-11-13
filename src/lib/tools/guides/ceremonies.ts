@@ -424,10 +424,10 @@ export const GUIDES: ToolGuide[] = [
       "When the sprint goal keeps slipping because of work nobody planned.",
     ],
     steps: [
-      "Set the sprint's buffer, as a share of capacity or in points. Sprint Planning plans the rest.",
+      "Set the sprint's buffer, as a share of its planned points or in points. Sprint Planning plans the rest.",
       "Log each interrupt when it arrives: a title, its kind (bug, support, request, incident or other) and its size if you know it. Mark it an emergency if it can't wait.",
       "Mark interrupts resolved once they're done. The gauge shows how much of the buffer they used.",
-      "When the buffer is gone, the emergency procedure takes the team through its options in order: change how the work is done, get help, cut scope with the Product Owner, and only then end the sprint early.",
+      "When the buffer is gone, the Emergency Procedure walks the team through it in order: stop and look, tell the Product Owner, change how the work is done, get help, re-plan with the Product Owner (ending the sprint early only if the goal can't be kept), then review it at the retro.",
       "At the retro, look at the kinds of interrupts and where they came from, and decide what to fix at the source.",
       "Ask Amr suggests the kind of each new interrupt from its title; you confirm or change it.",
     ],

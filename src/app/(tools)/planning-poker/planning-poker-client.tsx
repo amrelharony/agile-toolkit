@@ -12,6 +12,7 @@ import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import type { Story, Workspace } from "@/lib/stores/workspace-types";
 import { undoable } from "@/lib/utils/undoable";
+import { withRefinedPutBack } from "@/lib/sprints/story-status";
 import { toast } from "@/lib/utils/toast";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import {
@@ -311,23 +312,30 @@ export function PlanningPokerClient() {
         ? `${plan.update.length} given ${plan.update.length === 1 ? "its" : "their"} points`
         : "",
     ].filter(Boolean);
+    const stamps = new Map<string, string | undefined>();
     undoable({
       label: `Saved ${n} ${n === 1 ? "story" : "stories"} to the backlog`,
       description: notes.length > 0 ? `${notes.join(", ")}.` : undefined,
       apply: () => {
         for (const st of plan.create) upsertStory(st);
         for (const { after } of plan.update) upsertStory(after);
+        // The refinedAt each points write left, for the Undo to take back.
+        const saved = useWorkspaceStore.getState().stories;
+        for (const { before } of plan.update) {
+          stamps.set(before.id, saved.find((x) => x.id === before.id)?.refinedAt);
+        }
       },
       revert: () => {
         const now = useWorkspaceStore.getState().stories;
         for (const st of plan.create) if (now.some((x) => x.id === st.id)) removeStory(st.id);
-        // Only the points go back: anything else edited since stays.
+        // Only the points go back, with the refinedAt from before them unless
+        // the story was refined since: anything else edited since stays.
         for (const { before } of plan.update) {
           const cur = now.find((x) => x.id === before.id);
           if (!cur) continue;
           const restored: Story = { ...cur, points: before.points };
           if (before.points === undefined) delete restored.points;
-          upsertStory(restored);
+          upsertStory(withRefinedPutBack(restored, stamps.get(before.id), before.refinedAt));
         }
       },
     });
