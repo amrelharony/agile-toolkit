@@ -50,7 +50,7 @@ import { cockpitTiles, gatherCockpitData, interruptsTile } from "@/app/(tools)/s
 import { cockpitMarkdown } from "@/app/(tools)/sprint/markdown";
 import { buildExample } from "@/app/(tools)/sprint/example";
 import { interruptBufferStatus } from "@/lib/sprints/interrupts";
-import { riskNoteInput } from "@/app/(tools)/sprint/components/risk";
+import { riskNoteInput } from "@/app/(tools)/sprint/components/risk-note";
 import { sprintRiskNoteTask } from "@/lib/ai/tasks/sprint";
 
 const render = (ui: ReactElement) => rtlRender(ui, { wrapper: TooltipProvider });
@@ -294,7 +294,7 @@ describe("the data", () => {
 });
 
 describe("the page", () => {
-  it("shows the goal check with its reasons, and sums it up without AI", () => {
+  it("shows the goal check with its reasons, and sums it up without AI", async () => {
     seed();
     render(<SprintCockpit />);
     const card = screen.getByRole("region", { name: "Goal check: worth watching" });
@@ -302,7 +302,8 @@ describe("the page", () => {
     expect(within(card).getByText("1 story is blocked on the board.")).toBeInTheDocument();
     expect(within(card).getAllByText(/^Try:/)).toHaveLength(3);
 
-    const ask = within(card).getByRole("button", { name: "Sum it up without AI" });
+    // The note loads with the card (next/dynamic), out of the page's first load.
+    const ask = await within(card).findByRole("button", { name: "Sum it up without AI" });
     fireEvent.click(ask);
     const note = card.querySelector("[data-risk-note]") as HTMLElement;
     expect(note).toHaveTextContent("Summed up without AI");
@@ -315,11 +316,11 @@ describe("the page", () => {
     expect(document.activeElement).toBe(ask);
   });
 
-  it("drops the note once the facts it was written from change", () => {
+  it("drops the note once the facts it was written from change", async () => {
     seed();
     render(<SprintCockpit />);
     const card = screen.getByRole("region", { name: "Goal check: worth watching" });
-    fireEvent.click(within(card).getByRole("button", { name: "Sum it up without AI" }));
+    fireEvent.click(await within(card).findByRole("button", { name: "Sum it up without AI" }));
     expect(card.querySelector("[data-risk-note]")).toHaveTextContent("1 story is blocked");
     // The story is unblocked: the note would now state a reason that's no longer true.
     act(() =>
