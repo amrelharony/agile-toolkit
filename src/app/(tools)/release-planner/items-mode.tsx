@@ -439,8 +439,8 @@ export function ItemsResults({ plan, plotRef }: { plan: ItemsPlan; plotRef: Ref<
             <dl className="grid grid-cols-3 gap-3">
               {(
                 [
-                  ["Likely (P50)", how.p50],
-                  ["To promise (P85)", how.p85],
+                  ["Coin flip (P50)", how.p50],
+                  ["Commit (P85)", how.p85],
                   ["Safe (P95)", how.p95],
                 ] as const
               ).map(([label, n]) => (
@@ -554,9 +554,9 @@ export function CutLineCard({
     <SectionCard title="Features in order" icon={ListOrdered}>
       <div className="space-y-4" ref={rootRef}>
         <p className="text-sm text-sub">
-          List the features in the order they&apos;ll be built. Each one&apos;s date counts the ones
-          before it, and the target date draws the line: above it, likely done by then (85% of
-          runs).
+          List the features in the order they&apos;ll be built. Each one&apos;s dates count the ones
+          before it, and the target date draws the line: the features above it are done by then in
+          85% of runs (the commit date).
         </p>
 
         {features.length > 0 && (
@@ -589,7 +589,7 @@ export function CutLineCard({
                         {at && items === 0
                           ? " · nothing left to count"
                           : at
-                            ? ` · likely ${at.p50Date ? formatDay(at.p50Date) : "—"}, safe ${
+                            ? ` · coin flip ${at.p50Date ? formatDay(at.p50Date) : "—"}, commit ${
                                 at.p85Date ? formatDay(at.p85Date) : "—"
                               }`
                             : ""}

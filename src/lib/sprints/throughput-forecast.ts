@@ -6,10 +6,10 @@
  *                                    and the chance of making a date;
  *   - "How many items by <date>?"    the items finished per run in the
  *                                    weeks up to it: "at least" P50/P85/P95;
- *   - "Where does the date cut?"     an ordered list of features, the date
- *                                    each is likely done (counting the ones
- *                                    before it), and the line the target
- *                                    date draws through them.
+ *   - "Where does the date cut?"     an ordered list of features, the
+ *                                    dates each is done by (P50 and P85,
+ *                                    counting the ones before it), and the
+ *                                    line the target date draws through them.
  *
  * Weekly throughput is counted the way the flow tools count it
  * (lib/flow `throughputByWeek`, local days, ISO weeks), over complete weeks
@@ -243,7 +243,7 @@ export interface CutLineRow {
   weeks: WeeksAt;
   p50Date: string | null;
   p85Date: string | null;
-  /** Likely done (85% of runs) by the target; null without a target. */
+  /** Done by the target in 85% of runs (its commit date fits); null without a target. */
   inByTarget: boolean | null;
 }
 

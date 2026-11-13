@@ -985,7 +985,7 @@ describe("velocity and dates on the page", () => {
       within(answer).getByText("Probability of finishing by then").nextSibling
     ).toHaveTextContent("0%");
     expect(within(answer).getByText("Scope we can deliver by then").nextSibling).toHaveTextContent(
-      "30 pts to promise (P85) · 30 likely (P50)"
+      "30 pts to commit to (P85) · 30 on a coin flip (P50)"
     );
   });
 });
@@ -1123,7 +1123,7 @@ describe("the target date without a forecast", () => {
     const md = toMarkdown(open);
     expect(md).toContain("## By Mar 15, 2027 (5 sprints)");
     expect(md).toContain(
-      "- Scope the team can deliver: about 50 points likely (P50), 50 points to promise (P85)"
+      "- Scope the team can deliver: about 50 points on a coin flip (P50), 50 points to commit to (P85)"
     );
     expect(md).not.toContain("Chance of finishing");
     // Below the minimum sample there's nothing to say about the date.
@@ -1174,7 +1174,7 @@ describe("the target date without a forecast", () => {
     expect(verdict()).toBe("Add the release scope to get a forecast.");
     const answer = screen.getByRole("group", { name: /By Feb 15, 2027/ });
     expect(within(answer).getByText("Scope we can deliver by then").nextSibling).toHaveTextContent(
-      "30 pts to promise (P85) · 30 likely (P50)"
+      "30 pts to commit to (P85) · 30 on a coin flip (P50)"
     );
     expect(within(answer).queryByText("Probability of finishing by then")).toBeNull();
   });
