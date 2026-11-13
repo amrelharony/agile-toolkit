@@ -29,6 +29,7 @@
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { MessagesSquare, Trash2 } from "lucide-react";
 import { listAnd } from "@/lib/charts/chart-text";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -58,10 +59,18 @@ import {
 import { useFormatSuggestion } from "../use-format-suggestion";
 import { recentFormatIds } from "@/lib/retro/surprise";
 import { savePlan } from "../plan-store";
-import { SurprisePlanPanel, type SurpriseStart } from "./surprise-plan";
+import type { SurpriseStart } from "./surprise-plan";
 import { CustomFormatEditor } from "./custom-format-editor";
 import { PastRetros } from "./past-retros";
 import { RetroSprintPicker } from "./retro-sprint-picker";
+
+// Surprise me loads after the page: its Ask Amr brings the AI kit and the
+// task's schemas, which the format cards don't need to show. Its button's
+// space is held meanwhile, so the cards below don't jump.
+const SurprisePlanPanel = dynamic(
+  () => import("./surprise-plan").then((m) => m.SurprisePlanPanel),
+  { ssr: false, loading: () => <div className="min-h-[44px] md-fine:min-h-9" aria-hidden="true" /> }
+);
 
 /** One format's card: its name is a real button stretched over the card. */
 function FormatCard({

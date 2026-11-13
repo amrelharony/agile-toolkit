@@ -33,6 +33,7 @@
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
 import { RotateCcw, Eraser } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -90,13 +91,19 @@ import { RetroSprintPicker } from "./retro-sprint-picker";
 import { RetroFactsPanel } from "./retro-facts";
 import { CommonWords } from "./common-words";
 import { KudosSeed } from "./kudos-seed";
-import { LeanCoffeeRunner } from "./lean-coffee-runner";
 import { RetroPlanNote } from "./retro-plan-note";
 import { toMarkdown } from "../markdown";
 import { RetroGoLive, type LiveRoomHandle } from "../room/host-live-room";
 import { hideCards } from "../room/hidden";
 import type { RetroThumbsHost } from "../room/use-retro-room";
 import { isLeanCoffee } from "@/lib/retro/lean-coffee";
+
+// Only a Lean Coffee board runs it: it loads with that board, not the page,
+// and its Ask Amr brings the AI kit and the task's schemas along.
+const LeanCoffeeRunner = dynamic(
+  () => import("./lean-coffee-runner").then((m) => m.LeanCoffeeRunner),
+  { ssr: false }
+);
 
 /** A fresh card in `columnKey`. */
 function newCard(columnKey: string, text: string): RetroCard {
