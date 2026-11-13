@@ -8,6 +8,7 @@ import type { AiTaskDef } from "../task-types";
 import { suggestOptionsTask } from "./_example";
 import { backlogHealthReviewTask } from "./backlog-health";
 import { interruptClassifyTask } from "./interrupt-buffer";
+import { themeNamesTask } from "./picker";
 import { productGoalDraftTask } from "./product-goal";
 
 // `any` here only erases each task's own input/output types for the list; the
@@ -17,5 +18,6 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   suggestOptionsTask,
   backlogHealthReviewTask,
   interruptClassifyTask,
+  themeNamesTask,
   productGoalDraftTask,
 ];

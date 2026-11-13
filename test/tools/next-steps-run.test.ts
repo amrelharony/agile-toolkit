@@ -311,3 +311,31 @@ describe("interrupt-buffer (tools plan phase 1)", () => {
     ).toEqual([]);
   });
 });
+
+describe("picker (tools plan phase 1)", () => {
+  const team = [{ id: "m1", name: "Sam" }];
+
+  it("asks for the team while the roster is empty or only the example", () => {
+    expect(ids("picker", { teamMembers: [] })).toEqual(["picker-team"]);
+    expect(ids("picker", { teamMembers: [{ id: "example-m1", name: "Sam" }] })).toEqual([
+      "picker-team",
+    ]);
+    expect(ids("picker", { teamMembers: team })).toEqual([]);
+  });
+
+  it("leads on to a ceremony starting within the hour", () => {
+    // Monday 26 Oct at 09:00; the default Daily Scrum is at 09:30.
+    vi.setSystemTime(new Date("2026-10-26T09:00:00"));
+    expect(
+      steps("picker", { teamMembers: team, sprints: [sprint()], ceremonyCadences: [] })[0]
+    ).toMatchObject({
+      id: "picker-ceremony",
+      label: "Go on to the Daily Scrum",
+      href: "/standup?sprint=s2",
+    });
+    vi.setSystemTime(new Date("2026-10-24T09:00:00"));
+    expect(ids("picker", { teamMembers: team, sprints: [sprint()], ceremonyCadences: [] })).toEqual(
+      []
+    );
+  });
+});

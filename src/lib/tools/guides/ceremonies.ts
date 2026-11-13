@@ -303,23 +303,24 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "picker",
     summary:
-      "Picker chooses fairly from your team or any list: spin a wheel, draw names so everyone goes once, or roll dice and flip a coin. Spin it in a live room and everyone sees the same result.",
+      "Picker chooses fairly from your team or any list: spin a wheel, rotate standing roles, roll dice or flip a coin, and find a team or sprint name. Spin it in a live room and everyone sees the same spin stop on the same name.",
     whenToUse: [
       "To pick who speaks first, who facilitates the next retro or who takes notes, without asking the same people every time.",
       "To choose a team or sprint name, a topic or a winner at random, in front of the group.",
     ],
     steps: [
-      "Use the team from the Team page, or type or paste your own list. Give a name more weight if it should come up more often.",
-      "Turn on everyone once to take each name out after it is picked, until the whole list has had a turn.",
-      "Spin the wheel or draw a name. The wheel slows down and lands on one, and Amr cheers the result.",
-      "Keep standing roles such as facilitator and scribe on a rotation. Its fairness history shows who has had a turn and who is due.",
-      "Dice, a coin and a random number give a quick answer with no list at all.",
-      "To spin with the whole team, open a live room and share its code: everyone sees the same spin on their own screen.",
-      "Ask Amr for a themed list, such as team names from space or sprint names from rivers, and keep the names you like.",
+      "On Wheel, spin the team from the Team page, or make a list by typing or pasting names. Give a name more weight if it should come up more often.",
+      "Leave Everyone once on so nobody comes up twice until everyone has had a turn. Turn on Take a name off to drop each name once it is picked. Each list keeps its own round when you switch.",
+      "Press Spin. The wheel turns for a moment and lands on one name, and Amr cheers the result.",
+      "On Roles, give facilitator, scribe, timekeeper or your own roles to whoever is due, one at a time or all at once. Nobody gets two roles in a day while someone else is free. Mark anyone away today without losing their place.",
+      "Roles go to the team on the Team page. To rotate them among a saved list instead, choose it under Who takes the roles.",
+      "On Quick, roll dice, flip a coin, answer yes or no, or pick a number or a letter.",
+      "On Names, draw names from a theme such as planets or rivers, or ask Amr for names on your own theme, and shortlist the ones you like. Copy the shortlist into a Quick Vote poll, or spin it on the wheel.",
+      "To spin with the whole team, open a live room, share its code and press Spin for the room: every phone shows the same spin.",
     ],
     tips: [
       "Every result is a fair random draw: weights change the odds, nothing else does.",
-      "Who was picked stays in this browser unless you open a live room.",
+      "Lists, turns and picks are saved with your other tool data. A live room shows the spin and keeps nothing.",
     ],
     timebox: "Seconds.",
   },
