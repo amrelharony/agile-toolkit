@@ -1264,3 +1264,53 @@ describe("ADKAR", () => {
     expect(ids("adkar", adkar([initiative({ id: "example-i" })]))).toEqual([]);
   });
 });
+
+describe("team-mixer", () => {
+  const FOUR = [...TEAM, member("m4", "Dee")];
+
+  it("asks for the team when the Team page has nobody real on it", () => {
+    expect(steps("team-mixer", { teamMembers: [] })).toEqual([
+      {
+        id: "team-mixer-team",
+        label: "Add your team to the Team page",
+        detail: "Then Team Mixer can put everyone in the mix at once, with their roles and skills.",
+        href: "/team",
+      },
+    ]);
+    expect(ids("team-mixer", { teamMembers: [member("example-m", "Sam")] })).toEqual([
+      "team-mixer-team",
+    ]);
+  });
+
+  it("asks for roles or skills when nobody on the team has any", () => {
+    expect(steps("team-mixer", { teamMembers: FOUR })).toEqual([
+      {
+        id: "team-mixer-roles",
+        label: "Add roles or skills on the Team page",
+        detail:
+          "Nobody on the team has a role or skills yet, so Team Mixer can't balance groups by them.",
+        href: "/team",
+      },
+    ]);
+  });
+
+  it("counts who still has neither once some do, never naming them", () => {
+    const some = [
+      { ...FOUR[0], role: "Developer" },
+      { ...FOUR[1], skills: ["React"] },
+      { ...FOUR[2], role: "  " },
+      FOUR[3],
+    ];
+    const [step] = steps("team-mixer", { teamMembers: some });
+    expect(step.detail).toBe(
+      "2 people on the team have no role or skills yet, so balanced groups place them at random."
+    );
+    expect(step.detail).not.toMatch(/Cy|Dee/);
+  });
+
+  it("stays quiet when everyone has a role or skills, or the team is too small to balance", () => {
+    const all = FOUR.map((m, i) => (i % 2 ? { ...m, role: "Tester" } : { ...m, skills: ["SQL"] }));
+    expect(ids("team-mixer", { teamMembers: all })).toEqual([]);
+    expect(ids("team-mixer", { teamMembers: TEAM })).toEqual([]);
+  });
+});

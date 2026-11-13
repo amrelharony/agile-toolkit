@@ -3532,6 +3532,43 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Team Mixer keeps who is mixing in its own store; from the workspace it
+  // sees the roster it mixes from, and the roles and skills it balances by.
+  "team-mixer": rule({
+    select: (ws) => ({ members: ws.teamMembers }),
+    steps: ({ members }) => {
+      const team = real(members);
+      if (team.length === 0) {
+        return [
+          {
+            id: "team-mixer-team",
+            label: "Add your team to the Team page",
+            detail:
+              "Then Team Mixer can put everyone in the mix at once, with their roles and skills.",
+            href: "/team",
+          },
+        ];
+      }
+      // Balancing needs two groups of two at least.
+      if (team.length < 4) return [];
+      const bare = team.filter((m) => !m.role?.trim() && !(m.skills ?? []).some((s) => s.trim()));
+      if (bare.length === 0) return [];
+      return [
+        {
+          id: "team-mixer-roles",
+          label: "Add roles or skills on the Team page",
+          detail:
+            bare.length === team.length
+              ? "Nobody on the team has a role or skills yet, so Team Mixer can't balance groups by them."
+              : `${plural(bare.length, "person", "people")} on the team ${
+                  bare.length === 1 ? "has" : "have"
+                } no role or skills yet, so balanced groups place them at random.`,
+          href: "/team",
+        },
+      ];
+    },
+  }),
+
   // Outcomes, quality & library. Risk Register and Tech Debt read
   // workspace.risks and workspace.techDebt, their one store since Phase 8.
   // Rows still waiting in a page's old blob (lib/risks/legacy-register,
