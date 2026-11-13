@@ -336,9 +336,9 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "Open it: it reads the stories and backlog items you already have, so there's nothing to type.",
-      "Read each of the four DEEP checks and the stories behind its flags: no points, no acceptance criteria, too big, untouched for a long time, or out of order.",
+      "Read each of the four DEEP checks and the stories behind its flags: a vague title, no points or no acceptance criteria near the top, too big, or stale (not changed for weeks). Stories that share a place in the order show in the Prioritized check.",
       "Open a flagged story to fix it: give it points, split it with a suggested pattern, or write its criteria as Given, When, Then. Each line is saved on the story, beside its free-text acceptance criteria.",
-      "Drop stale stories, with Undo, or leave them for the Product Owner to decide.",
+      "Drop stale stories, with Undo, or refine them: a change to the title, points or criteria counts as touching them.",
       "Ask Amr flags vague stories, suggests splits and drafts Given, When, Then lines. You accept the ones you want, and each change goes through the story with Undo.",
     ],
     tips: [

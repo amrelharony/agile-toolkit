@@ -30,7 +30,10 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
+import { RoomBigScreen, useBigScreen } from "@/components/collab/room-big-screen";
+import { RoomReactions } from "@/components/collab/room-reactions";
 import { LiveRoomLimits, RUN_MODES } from "@/components/collab/run-modes";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { useGuestProfile } from "@/lib/auth/guest-profile-provider";
@@ -46,6 +49,7 @@ import { signalGamification } from "@/lib/gamification/signal";
 import type { BoardState } from "../types";
 import { useRetroRoom, type RetroRoomStatus, type EndReason } from "./use-retro-room";
 import { HideCardsSetting, IdlePromptDialog, RoomMemberList } from "./room-controls";
+import { RetroBigScreenRound, useBoardTimer } from "./big-screen";
 
 /**
  * Told whether the host's screen hides cards: a check to ask, card by card,
@@ -206,6 +210,10 @@ function HostLiveRoom({
     onHostUpdate: onUpdate,
     startedAt: session.startedAt,
   });
+  // Reactions only: the countdown travels in the snapshot.
+  const extras = useRoomExtras(room.extras, { timer: false });
+  const big = useBigScreen();
+  const bigTimer = useBoardTimer(board);
   const announce = useAnnounce();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const { end, status, endReason } = room;
@@ -260,8 +268,21 @@ function HostLiveRoom({
         memberCount={room.members.length}
         isHost
         onEnd={() => setConfirmEnd(true)}
+        onBigScreen={big.show}
       />
       <HideCardsSetting checked={room.hideWhileWriting} onChange={room.setHideWhileWriting} />
+      {status === "live" && <RoomReactions extras={extras} />}
+      <RoomBigScreen
+        {...big.props}
+        tool="retro"
+        toolName="Retro"
+        code={session.code}
+        memberCount={room.members.length}
+        timer={bigTimer}
+        reactions={extras.reactions}
+      >
+        <RetroBigScreenRound board={board} hidesCard={room.hidesCard} />
+      </RoomBigScreen>
       {others.length > 0 && (
         <RoomMemberList
           members={room.members}

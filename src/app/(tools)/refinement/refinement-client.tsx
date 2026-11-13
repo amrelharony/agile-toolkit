@@ -24,9 +24,9 @@ import { REFINEMENT_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { setStorySprint, setStoryStatus } from "@/lib/sprints/store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Story } from "@/lib/stores/workspace-types";
+import type { Story, StoryGwt } from "@/lib/stores/workspace-types";
 import { deleteStoryKeepingUndo } from "@/lib/stories/delete";
-import { withStoryDetails, type StoryDetails } from "@/lib/stories/fields";
+import { withStoryDetails, withStoryGwt, type StoryDetails } from "@/lib/stories/fields";
 import { keptForSprintNote, sprintKeepingStory, storyRemoval } from "@/lib/stories/removal";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { cn } from "@/lib/utils";
@@ -266,6 +266,16 @@ export function RefinementClient() {
     putStory(withStoryDetails(current, details));
     if (!isExampleId(current.id)) {
       log(REFINEMENT_ACTIONS.STORY_UPDATED, { storyId: current.id, details: true });
+    }
+  }
+
+  /** The story's Given/When/Then scenarios, beside its free-text criteria. */
+  function saveGwt(story: Story, gwt: StoryGwt[]) {
+    const current = findStory(story.id);
+    if (!current) return;
+    putStory(withStoryGwt(current, gwt));
+    if (!isExampleId(current.id)) {
+      log(REFINEMENT_ACTIONS.STORY_UPDATED, { storyId: current.id, gwt: gwt.length });
     }
   }
 
@@ -655,6 +665,7 @@ export function RefinementClient() {
                     onPrevious={() => index > 0 && go(walk[index - 1].id)}
                     onNext={() => index < walk.length - 1 && go(walk[index + 1].id)}
                     onSaveDetails={(details) => saveDetails(focused, details)}
+                    onSaveGwt={(gwt) => saveGwt(focused, gwt)}
                     removal={storyRemoval(focused, sprints)}
                     keptNote={keptNote(focused)}
                     onDelete={() => deleteStory(focused)}

@@ -12,7 +12,13 @@ import { getToolById } from "@/lib/constants/tools";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { collectRetroActions } from "@/lib/retro/actions";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { HandoffLink, RetroBoard, Sprint, Story } from "@/lib/stores/workspace-types";
+import type {
+  HandoffLink,
+  ProductGoal,
+  RetroBoard,
+  Sprint,
+  Story,
+} from "@/lib/stores/workspace-types";
 import { useTeamRoster } from "@/lib/team/use-team-roster";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { sprintsNewestFirst, todayIso } from "@/lib/sprints/series";
@@ -22,11 +28,13 @@ import { WA_ID, normalizeAgreement } from "@/lib/working-agreement/model";
 import { useRefinementStore } from "@/app/(tools)/refinement/store";
 import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
 import { charterCards, charterMarkdown, type CharterDocs } from "./charter-view";
+import { ProductGoalLine, useActiveProductGoal } from "@/components/product-goal/product-goal-line";
 
 /** Empty lists, so a workspace without stories or sprints doesn't make the docs anew each render. */
 const NO_STORIES: Story[] = [];
 const NO_SPRINTS: Sprint[] = [];
 const NO_BOARDS: RetroBoard[] = [];
+const NO_GOALS: ProductGoal[] = [];
 
 /** An action handed to an impediment or a Kanban card is done when that is (as the cockpit counts it). */
 const handoffTargetDone = (link: HandoffLink): boolean =>
@@ -66,6 +74,9 @@ export function TeamCharter() {
   // reports on the latest completed sprint.
   const stories = useWorkspaceStore((s) => s.stories ?? NO_STORIES);
   const sprints = useWorkspaceStore((s) => s.sprints ?? NO_SPRINTS);
+  // The Product Goal the team works towards, read only (Product Goal edits it).
+  const productGoals = useWorkspaceStore((s) => s.productGoals ?? NO_GOALS);
+  const productGoal = useActiveProductGoal();
   // The guide's store waits to be asked (its page merges a shared link first).
   useEffect(() => {
     void useEstimationGuideStore.persist.rehydrate();
@@ -75,8 +86,8 @@ export function TeamCharter() {
   const [now] = useState(() => new Date());
 
   const docs = useMemo<CharterDocs>(
-    () => ({ members, cadence, agreement, dod, dor, estimation, stories, sprints }),
-    [members, cadence, agreement, dod, dor, estimation, stories, sprints]
+    () => ({ members, cadence, agreement, dod, dor, estimation, stories, sprints, productGoals }),
+    [members, cadence, agreement, dod, dor, estimation, stories, sprints, productGoals]
   );
   const cards = useMemo(() => charterCards(docs), [docs]);
   const markdown = useMemo(() => charterMarkdown(docs, today), [docs, today]);
@@ -113,6 +124,7 @@ export function TeamCharter() {
           The agreements the team works by, each kept in its own tool. Export copies the whole
           charter as one document.
         </p>
+        <ProductGoalLine goal={productGoal} className="mb-3" />
         <ul className="grid gap-3 sm:grid-cols-2" aria-label="Charter documents">
           {cards.map((card) => {
             const tool = getToolById(card.toolId);

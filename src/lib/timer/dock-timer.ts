@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -22,6 +23,17 @@ export interface DockedTimer {
   endsAt: number | null;
   /** Seconds left while paused (and at the moment it was published). */
   pausedRemaining: number;
+  /**
+   * Epoch ms when it reached zero, set by `expire`: the overtime counts up
+   * from here. Absent until then (and on a timer published afresh).
+   */
+  endedAt?: number;
+  /**
+   * The owner's "Chime when time is up" for this timer, used when it runs
+   * out while the owner's page isn't open. Absent: the shared setting
+   * (`lib/celebrate/alarm-prefs`).
+   */
+  chime?: boolean;
 }
 
 interface DockTimerState {
@@ -29,6 +41,8 @@ interface DockTimerState {
   publish: (timer: DockedTimer | null) => void;
   pause: (now?: number) => void;
   resume: (now?: number) => void;
+  /** It reached zero: stop it there and remember when, for the overtime. */
+  expire: (now?: number) => void;
   stop: () => void;
 }
 
@@ -36,6 +50,12 @@ interface DockTimerState {
 export function timerRemaining(t: DockedTimer, now = Date.now()): number {
   if (t.endsAt === null) return Math.max(0, t.pausedRemaining);
   return Math.max(0, Math.ceil((t.endsAt - now) / 1000));
+}
+
+/** Whole seconds since it reached zero (0 before then, or when nobody marked the end). */
+export function dockOvertime(t: DockedTimer, now = Date.now()): number {
+  if (t.endsAt !== null || t.pausedRemaining > 0 || typeof t.endedAt !== "number") return 0;
+  return Math.max(0, Math.floor((now - t.endedAt) / 1000));
 }
 
 export function formatClock(seconds: number): string {
@@ -62,6 +82,11 @@ export const useDockTimer = create<DockTimerState>()(
         const t = get().timer;
         if (!t || t.endsAt !== null || t.pausedRemaining <= 0) return;
         set({ timer: { ...t, endsAt: now + t.pausedRemaining * 1000 } });
+      },
+      expire: (now = Date.now()) => {
+        const t = get().timer;
+        if (!t || t.endsAt === null || timerRemaining(t, now) > 0) return;
+        set({ timer: { ...t, endsAt: null, pausedRemaining: 0, endedAt: t.endsAt } });
       },
       stop: () => set({ timer: null }),
     }),
@@ -98,4 +123,34 @@ export function claimDock(timer: DockedTimer): { ok: true } | { ok: false; holde
   if (dock.timer && dock.timer.href !== timer.href) return { ok: false, holder: dock.timer };
   dock.publish(timer);
   return { ok: true };
+}
+
+/**
+ * Owner pages that ring their own time's-up alarm while they are open, so
+ * the docked timer (which runs on every page) stays quiet there and nothing
+ * rings twice. The Ceremony Timer always does (its own flash, chime and
+ * buzz, under its own switch). A page registers while it shows something
+ * that rings (`useRingsOwnAlarm`), as the step timer panel does. On every
+ * other owner page (Six Hats, Icebreaker, Premortem, Standup) the dock
+ * rings the shared alarm itself.
+ */
+const ALWAYS_RINGS_OWN: ReadonlySet<string> = new Set(["/ceremony-timer"]);
+const ringingHere = new Map<string, number>();
+
+/** Whether the page at `href` rings its own timer while it is open. */
+export function ringsOwnAlarm(href: string): boolean {
+  return ALWAYS_RINGS_OWN.has(href) || (ringingHere.get(href) ?? 0) > 0;
+}
+
+/** While mounted: the page at `href` rings its own timer, so the dock doesn't there. */
+export function useRingsOwnAlarm(href: string | null | undefined): void {
+  useEffect(() => {
+    if (!href) return;
+    ringingHere.set(href, (ringingHere.get(href) ?? 0) + 1);
+    return () => {
+      const left = (ringingHere.get(href) ?? 1) - 1;
+      if (left > 0) ringingHere.set(href, left);
+      else ringingHere.delete(href);
+    };
+  }, [href]);
 }
