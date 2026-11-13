@@ -15,7 +15,10 @@
  *
  * Keyboard focus never falls back to the page: adding an item moves focus to
  * the next item's Add button (or the one before), and when none is left, or
- * after "Add all", to the list's heading, with "All added." announced.
+ * after "Add all", to the list's heading, with "All added." announced. On
+ * Dismiss the list goes, so the caller says where focus goes back to
+ * (`returnFocus`, usually the button that asked); without it, the caller
+ * moves focus itself in `onDismiss`.
  */
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -37,6 +40,12 @@ export interface AiSuggestionsProps<T> {
   onAcceptAll?: (items: T[]) => void;
   /** Close the list without adding the rest. */
   onDismiss: () => void;
+  /**
+   * Where keyboard focus goes on Dismiss, before the list unmounts: usually
+   * the button that asked. Queried at the click, so a re-created button is
+   * found. Nothing moves when it is absent or returns nothing.
+   */
+  returnFocus?: () => HTMLElement | null | undefined;
   /** Where the items came from. */
   source: AiSource;
   /** Heading; default "Amr's suggestions". */
@@ -65,6 +74,7 @@ export function AiSuggestions<T>({
   onAccept,
   onAcceptAll,
   onDismiss,
+  returnFocus,
   source,
   title = "Amr's suggestions",
   acceptLabel = "Add",
@@ -114,6 +124,11 @@ export function AiSuggestions<T>({
     headingRef.current?.focus();
     setTaken(new Set(items.map((_, index) => index)));
   };
+  const dismiss = () => {
+    // The focused Dismiss button is about to go with the list.
+    returnFocus?.()?.focus();
+    onDismiss();
+  };
 
   return (
     <section
@@ -142,7 +157,7 @@ export function AiSuggestions<T>({
           type="button"
           size="sm"
           variant="ghost"
-          onClick={onDismiss}
+          onClick={dismiss}
           className="gap-1"
           aria-label="Dismiss suggestions"
         >
