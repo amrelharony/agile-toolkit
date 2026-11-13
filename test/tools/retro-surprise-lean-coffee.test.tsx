@@ -73,6 +73,7 @@ import {
   useRetroPlanStore,
 } from "@/app/(tools)/retro/plan-store";
 import { useLeanCoffeeStore } from "@/app/(tools)/retro/lean-coffee-store";
+import { groupTopicsTask } from "@/lib/ai/tasks/retro";
 import { RetroClient } from "@/app/(tools)/retro/retro-client";
 import type { BoardState } from "@/app/(tools)/retro/types";
 import type { RetroThumbsHost } from "@/app/(tools)/retro/room/use-retro-room";
@@ -359,6 +360,48 @@ describe("Lean Coffee: before Discuss", () => {
     expect(undo.all.at(-1)!.label).toBe("Merged 2 topics");
     act(() => undo.all.at(-1)!.revert());
     expect(card("t1").groupedWith).toBeNull();
+  });
+
+  it("keeps the groups fixed: each Merge focuses the next group, then 'All added.'", () => {
+    const { card } = runner(
+      leanBoard({
+        phase: "vote",
+        cards: [
+          topic("t1", "Standups run too long", 1),
+          topic("t2", "Standups overrun every day", 3),
+          topic("t3", "Release checklist", 0),
+          topic("t4", "Releases slip", 2),
+          topic("t5", "Hiring plans", 0),
+        ],
+      })
+    );
+    vi.spyOn(groupTopicsTask, "fallback").mockReturnValue({
+      groups: [
+        { title: "Standups", topicIds: ["t1", "t2"] },
+        { title: "Releases", topicIds: ["t3", "t4"] },
+        // t2 is in the first group already: one topic left, no group.
+        { title: "Planning", topicIds: ["t2", "t5"] },
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Group similar topics without AI" }));
+    expect(screen.getAllByRole("button", { name: /^Merge: / })).toHaveLength(2);
+    const first = screen.getByRole("button", { name: "Merge: Standups" });
+    first.focus();
+    fireEvent.click(first);
+    expect(card("t1").groupedWith).toBe("t2");
+    // The next group has focus: none is skipped.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Merge: Releases" }));
+    fireEvent.click(screen.getByRole("button", { name: "Merge: Releases" }));
+    expect(card("t3").groupedWith).toBe("t4");
+    expect(screen.getByText("All added.")).toBeInTheDocument();
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Topics that look the same" })
+    );
+    // Dismiss hands focus back to the button that asked.
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss suggestions" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Group similar topics without AI" })
+    );
   });
 
   it("needs two topics before grouping", () => {

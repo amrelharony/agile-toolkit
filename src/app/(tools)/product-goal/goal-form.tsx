@@ -4,8 +4,9 @@
  * The goal's form: the statement, why it matters, the measures (one a line)
  * and a target date, with the check list reading the draft as it is typed.
  * A new goal while another is active also asks how the current one ended.
- * "Draft with Amr" suggests goals from the vision and the backlog; picking
- * one fills the form, and nothing is saved until Save.
+ * "Draft with Amr" suggests goals from the vision and the backlog, as
+ * alternatives: picking one fills the form (with Undo when it replaces what
+ * was typed), and nothing is saved until Save.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -33,6 +34,7 @@ import {
 } from "@/lib/product-goal/model";
 import { TOOL_TEXT_MAX } from "@/lib/stores/workspace-types";
 import type { Validation } from "@/lib/utils/form";
+import { undoable } from "@/lib/utils/undoable";
 import { CheckList } from "./check-list";
 
 type FormField = GoalField | "note";
@@ -83,6 +85,11 @@ export function GoalForm({
   const first = useRef<HTMLTextAreaElement>(null);
   useEffect(() => first.current?.focus(), []);
   const [drafts, setDrafts] = useState<{ goals: DraftedGoal[]; source: AiSource } | null>(null);
+  /** Around Ask Amr: where focus goes back to on Dismiss. */
+  const askRef = useRef<HTMLDivElement>(null);
+  /** The draft as last rendered, for an Undo that comes later. */
+  const latest = useRef(form.draft);
+  latest.current = form.draft;
 
   const checks = useMemo(
     () =>
@@ -96,33 +103,54 @@ export function GoalForm({
     [form.draft.statement, form.draft.measures, vision]
   );
 
+  /**
+   * Fill the form with a drafted goal. Over text the person typed, with
+   * Undo: it brings back each field the draft filled, unless it was edited
+   * since.
+   */
   const takeDraft = (g: DraftedGoal) => {
-    form.update({
-      statement: g.statement,
-      why: g.why ?? "",
-      measures: g.measures.join("\n"),
-    });
+    const put = { statement: g.statement, why: g.why ?? "", measures: g.measures.join("\n") };
+    const d = form.draft;
+    const was = { statement: d.statement, why: d.why, measures: d.measures };
+    const fields = ["statement", "why", "measures"] as const;
+    if (fields.some((k) => was[k].trim() && was[k] !== put[k])) {
+      undoable({
+        label: "Replaced the goal with the draft",
+        apply: () => form.update(put),
+        revert: () => {
+          const now = latest.current;
+          const back: Partial<FormDraft> = {};
+          for (const k of fields) if (now[k] === put[k]) back[k] = was[k];
+          form.update(back);
+        },
+      });
+    } else {
+      form.update(put);
+    }
     setDrafts(null);
+    // The list goes: focus moves to the goal it filled (the list leaves it there).
     first.current?.focus();
   };
 
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <AiButton
-          task={productGoalDraftTask}
-          label="Draft goals with Amr"
-          fallbackLabel="Suggest goal templates"
-          input={() => ({
-            vision: vision.slice(0, 2000),
-            stories: storyTitles
-              .slice(0, GOAL_DRAFT_STORIES_MAX)
-              .map((t) => t.slice(0, 200))
-              .filter((t) => t.trim()),
-            ...(replacing ? { current: replacing.slice(0, 1000) } : {}),
-          })}
-          onResult={(data, meta) => setDrafts({ goals: data.goals, source: meta.source })}
-        />
+        <div ref={askRef}>
+          <AiButton
+            task={productGoalDraftTask}
+            label="Draft goals with Amr"
+            fallbackLabel="Suggest goal templates"
+            input={() => ({
+              vision: vision.slice(0, 2000),
+              stories: storyTitles
+                .slice(0, GOAL_DRAFT_STORIES_MAX)
+                .map((t) => t.slice(0, 200))
+                .filter((t) => t.trim()),
+              ...(replacing ? { current: replacing.slice(0, 1000) } : {}),
+            })}
+            onResult={(data, meta) => setDrafts({ goals: data.goals, source: meta.source })}
+          />
+        </div>
         {drafts && (
           <AiSuggestions
             items={drafts.goals}
@@ -135,10 +163,11 @@ export function GoalForm({
                 .filter(Boolean)
                 .join(" "),
             })}
+            // One goal at a time: the drafts are alternatives, so there is no "Use all".
+            pickOne
             onAccept={takeDraft}
-            // One goal at a time: "Use all" would just keep the last one.
-            onAcceptAll={(goals) => goals[0] && takeDraft(goals[0])}
             onDismiss={() => setDrafts(null)}
+            returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
           />
         )}
       </div>

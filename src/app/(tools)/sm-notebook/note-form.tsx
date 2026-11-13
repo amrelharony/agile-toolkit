@@ -224,7 +224,7 @@ export function NoteForm({
             <AiSuggestions
               items={suggested.tags}
               source={suggested.source}
-              title="Tags Amr suggests"
+              title="Suggested tags"
               acceptLabel="Add tag"
               onAccept={(tag) => update(draftWithTag(draft, tag))}
               onAcceptAll={(tags) => addTags(tags)}

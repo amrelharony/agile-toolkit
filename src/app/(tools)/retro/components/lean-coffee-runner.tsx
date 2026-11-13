@@ -6,7 +6,9 @@
  * Write and Vote: topics go in To Discuss and are dot-voted with the
  * board's own votes. Ask Amr (or the common words, without AI) groups
  * topics that are the same; the host merges the groups it agrees with,
- * each with Undo, so the team discusses them once.
+ * each with Undo, so the team discusses them once. The groups are checked
+ * against the topics when they come and then stay as they are, so a merge
+ * doesn't reshuffle the list under the keyboard.
  *
  * Discuss: the topics in vote order, one at a time. Start puts the next one
  * in Discussing and runs the board's timer for its timebox (7 minutes by
@@ -150,6 +152,8 @@ export function LeanCoffeeRunner({
     items: { title: string; topicIds: string[] }[];
     source: AiSource;
   } | null>(null);
+  /** Around Ask Amr: where focus goes back to when the groups go. */
+  const askRef = useRef<HTMLDivElement>(null);
 
   // Which phase the timebox ran out in: a writing or voting timebox that
   // ended before Discuss isn't a topic's time being up.
@@ -247,9 +251,28 @@ export function LeanCoffeeRunner({
   if (state.phase === "write" || state.phase === "vote") {
     const topics = leanTopics(shownCards).filter((t) => t.columnKey === "to-discuss");
     const byId = new Map(topics.map((t) => [t.id, t]));
-    const live = (groups?.items ?? [])
-      .map((g) => ({ ...g, topicIds: g.topicIds.filter((id) => byId.has(id)) }))
-      .filter((g) => g.topicIds.length >= 2);
+    const cardText = new Map(shownCards.map((c) => [c.id, c.text]));
+    /** An answer's groups against the topics in To Discuss: each topic in one group, two or more a group. */
+    const groupsFrom = (answer: readonly { title: string; topicIds: string[] }[]) => {
+      const placed = new Set<string>();
+      return answer.flatMap((g) => {
+        const topicIds = Array.from(new Set(g.topicIds)).filter(
+          (id) => byId.has(id) && !placed.has(id)
+        );
+        if (topicIds.length < 2) return [];
+        topicIds.forEach((id) => placed.add(id));
+        return [{ title: g.title, topicIds }];
+      });
+    };
+    /** Merge a group's topics that are still topics (another merge may have taken some). */
+    const acceptGroup = (g: { title: string; topicIds: string[] }) => {
+      const topicIds = g.topicIds.filter((id) => byId.has(id));
+      if (topicIds.length < 2) {
+        announce("Those topics are merged already.");
+        return;
+      }
+      merge({ ...g, topicIds });
+    };
     return (
       <section
         aria-label="Lean Coffee"
@@ -262,45 +285,50 @@ export function LeanCoffeeRunner({
               ? "Lean Coffee: everyone writes topics in To Discuss, then the team dot-votes them."
               : "Lean Coffee: dot-vote the topics. In Discuss they're taken in vote order, one timebox each."}
           </p>
-          <AiButton
-            task={groupTopicsTask}
-            input={() => ({
-              topics: topics.slice(0, 100).map((t) => ({
-                id: t.id.slice(0, 64),
-                text: t.text.slice(0, 500),
-                votes: Math.min(999, t.votes),
-              })),
-            })}
-            label="Ask Amr to group similar topics"
-            fallbackLabel="Group similar topics without AI"
-            variant="outline"
-            disabledReason={topics.length < 2 ? "Add at least two topics first." : null}
-            onResult={(data, meta) => {
-              setGroups({ items: data.groups, source: meta.source });
-              const n = data.groups.length;
-              announce(
-                n === 0
-                  ? "No topics look the same."
-                  : `${n} ${n === 1 ? "group" : "groups"} of similar topics below.`
-              );
-            }}
-          />
+          <div ref={askRef}>
+            <AiButton
+              task={groupTopicsTask}
+              input={() => ({
+                topics: topics.slice(0, 100).map((t) => ({
+                  id: t.id.slice(0, 64),
+                  text: t.text.slice(0, 500),
+                  votes: Math.min(999, t.votes),
+                })),
+              })}
+              label="Ask Amr to group similar topics"
+              fallbackLabel="Group similar topics without AI"
+              variant="outline"
+              disabledReason={topics.length < 2 ? "Add at least two topics first." : null}
+              onResult={(data, meta) => {
+                const items = groupsFrom(data.groups);
+                setGroups({ items, source: meta.source });
+                const n = items.length;
+                announce(
+                  n === 0
+                    ? "No topics look the same."
+                    : `${n} ${n === 1 ? "group" : "groups"} of similar topics below.`
+                );
+              }}
+            />
+          </div>
         </div>
         {groups &&
-          (live.length > 0 ? (
+          (groups.items.length > 0 ? (
             <AiSuggestions
-              items={live}
+              items={groups.items}
               source={groups.source}
               title="Topics that look the same"
               acceptLabel="Merge"
               render={(g) => ({
                 title: g.title,
                 detail: g.topicIds
-                  .map((id) => `“${short(byId.get(id)?.text ?? "", 40)}”`)
+                  .filter((id) => cardText.has(id))
+                  .map((id) => `“${short(cardText.get(id) ?? "", 40)}”`)
                   .join(" · "),
               })}
-              onAccept={(g) => merge(g)}
+              onAccept={acceptGroup}
               onDismiss={() => setGroups(null)}
+              returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
             />
           ) : (
             <p role="status" className="text-xs text-sub">

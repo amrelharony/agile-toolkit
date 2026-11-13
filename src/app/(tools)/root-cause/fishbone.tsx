@@ -12,7 +12,9 @@
  *
  * Counts feed the Pareto chart below. Ask Amr suggests which category a
  * cause belongs under (only the board's own categories); each move the
- * person accepts goes through the store, with Undo.
+ * person accepts goes through the store, with Undo. The suggested moves are
+ * fixed when the answer comes: an accepted one leaves the list, and the
+ * rest stay where they were.
  */
 
 import {
@@ -73,6 +75,15 @@ export interface FishboneProps {
   onMarkRoot: (text: string) => void;
   /** An accepted category suggestion (with Undo). */
   onMove: (causeId: string, category: string) => void;
+}
+
+/** A move Amr suggested, as the board stood when the answer came. */
+interface SuggestedMove {
+  causeId: string;
+  /** The board's own spelling of the category. */
+  category: string;
+  text: string;
+  from: string;
 }
 
 export interface CauseDraft {
@@ -350,9 +361,11 @@ export function Fishbone({
   const [errors, setErrors] = useState<Partial<Record<keyof CauseDraft, string>>>({});
   const [newCategory, setNewCategory] = useState("");
   const [suggested, setSuggested] = useState<{
-    moves: { causeId: string; category: string }[];
+    moves: SuggestedMove[];
     source: AiSource;
   } | null>(null);
+  /** Around Ask Amr: where focus goes back to when the suggestions go. */
+  const askRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLInputElement>(null);
   const formId = useId();
   const full = analysis.causes.length >= TOOL_LIST_MAX.causes;
@@ -442,17 +455,35 @@ export function Fishbone({
   };
 
   const causeById = new Map(analysis.causes.map((c) => [c.id, c]));
-  // Only the board's own categories, in its spelling, and one move per cause.
   const spelling = new Map(categories.map((c) => [c.toLowerCase(), c]));
-  const movedCauses = new Set<string>();
-  const moves = (suggested?.moves ?? []).flatMap((m) => {
+  /**
+   * An answer's moves against the board as it is now: only the board's own
+   * categories, in its spelling, one move per cause, none to where the cause
+   * already is. Kept as they are until the next answer, so accepting one
+   * doesn't reshuffle the list under the keyboard.
+   */
+  const movesFrom = (answer: readonly { causeId: string; category: string }[]) => {
+    const moved = new Set<string>();
+    return answer.flatMap((m): SuggestedMove[] => {
+      const c = causeById.get(m.causeId);
+      const to = spelling.get(m.category.trim().toLowerCase());
+      if (!c || !to || moved.has(m.causeId)) return [];
+      if (c.category.trim().toLowerCase() === to.toLowerCase()) return [];
+      moved.add(m.causeId);
+      return [{ causeId: m.causeId, category: to, text: c.text, from: c.category }];
+    });
+  };
+  /** Accept a move, unless the board changed under it since the answer came. */
+  const acceptMove = (m: SuggestedMove) => {
     const c = causeById.get(m.causeId);
-    const to = spelling.get(m.category.trim().toLowerCase());
-    if (!c || !to || movedCauses.has(m.causeId)) return [];
-    if (c.category.trim().toLowerCase() === to.toLowerCase()) return [];
-    movedCauses.add(m.causeId);
-    return [{ causeId: m.causeId, category: to }];
-  });
+    const to = spelling.get(m.category.toLowerCase());
+    if (!c) return announce("That cause is no longer on the board.");
+    if (!to) return announce(`${m.category} is no longer a category here.`);
+    if (c.category.trim().toLowerCase() === to.toLowerCase()) {
+      return announce(`“${short(c.text)}” is under ${to} already.`);
+    }
+    onMove(c.id, to);
+  };
 
   return (
     <section aria-labelledby="fishbone-heading" className="space-y-3">
@@ -461,41 +492,35 @@ export function Fishbone({
           Fishbone
         </h3>
         {!readOnlyAi && analysis.causes.length > 0 && (
-          <AiButton
-            task={categoriesTask}
-            input={() => ({
-              problem: [analysis.title, analysis.problem]
-                .filter((s) => s.trim())
-                .join(". ")
-                .slice(0, 1000),
-              categories: categories.slice(0, 12),
-              causes: analysis.causes.slice(0, 100).map((c) => ({
-                id: c.id.slice(0, 64),
-                text: c.text.slice(0, 1000),
-                category: c.category.slice(0, 60),
-              })),
-            })}
-            label="Ask Amr to sort the causes"
-            fallbackLabel="Sort without AI"
-            onResult={(data, meta) => {
-              setSuggested({ moves: data.moves, source: meta.source });
-              const known = new Set(categories.map((c) => c.toLowerCase()));
-              const n = new Set(
-                data.moves
-                  .filter((m) => {
-                    const c = causeById.get(m.causeId);
-                    const to = m.category.trim().toLowerCase();
-                    return c && known.has(to) && c.category.trim().toLowerCase() !== to;
-                  })
-                  .map((m) => m.causeId)
-              ).size;
-              announce(
-                n === 0
-                  ? "Every cause already sits where it fits."
-                  : `${n} suggested ${n === 1 ? "move" : "moves"} below.`
-              );
-            }}
-          />
+          <div ref={askRef}>
+            <AiButton
+              task={categoriesTask}
+              input={() => ({
+                problem: [analysis.title, analysis.problem]
+                  .filter((s) => s.trim())
+                  .join(". ")
+                  .slice(0, 1000),
+                categories: categories.slice(0, 12),
+                causes: analysis.causes.slice(0, 100).map((c) => ({
+                  id: c.id.slice(0, 64),
+                  text: c.text.slice(0, 1000),
+                  category: c.category.slice(0, 60),
+                })),
+              })}
+              label="Ask Amr to sort the causes"
+              fallbackLabel="Sort without AI"
+              onResult={(data, meta) => {
+                const moves = movesFrom(data.moves);
+                setSuggested({ moves, source: meta.source });
+                const n = moves.length;
+                announce(
+                  n === 0
+                    ? "Every cause already sits where it fits."
+                    : `${n} suggested ${n === 1 ? "move" : "moves"} below.`
+                );
+              }}
+            />
+          </div>
         )}
       </div>
       <p className="rounded-md border border-dashed border-border px-3 py-2 text-sm text-text">
@@ -503,18 +528,23 @@ export function Fishbone({
       </p>
 
       {suggested &&
-        (moves.length > 0 ? (
+        (suggested.moves.length > 0 ? (
           <AiSuggestions
-            items={moves}
+            items={suggested.moves}
+            itemKey={(m) => m.causeId}
             source={suggested.source}
             title="Better categories"
             acceptLabel="Move"
-            render={(m) => ({
-              title: `Move “${causeById.get(m.causeId)?.text ?? ""}” to ${m.category}`,
-              detail: `Now under ${causeById.get(m.causeId)?.category ?? ""}.`,
-            })}
-            onAccept={(m) => onMove(m.causeId, m.category)}
+            render={(m) => {
+              const c = causeById.get(m.causeId);
+              return {
+                title: `Move “${c?.text ?? m.text}” to ${m.category}`,
+                detail: `Now under ${c?.category ?? m.from}.`,
+              };
+            }}
+            onAccept={acceptMove}
             onDismiss={() => setSuggested(null)}
+            returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
           />
         ) : (
           <p role="status" className="text-xs text-sub">

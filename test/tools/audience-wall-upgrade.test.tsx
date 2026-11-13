@@ -337,6 +337,73 @@ describe("a saved wall", () => {
     expect(walls()[0].themes).toEqual([{ name: "reviews", postIds: ["p3"] }]);
   });
 
+  it("keeps the drafted themes fixed: each Add focuses the next theme, then 'All added.'", async () => {
+    const wall: WallSession = {
+      ...OWN,
+      id: "wall_focus",
+      kind: "answers",
+      prompt: "What slows us down?",
+      posts: [
+        { id: "p1", text: "Code reviews take days", votes: 2, merged: [] },
+        { id: "p2", text: "Waiting on reviews", votes: 1, merged: [] },
+        { id: "p3", text: "Flaky tests on CI", votes: 3, merged: [] },
+        { id: "p4", text: "The tests are flaky", votes: 0, merged: [] },
+      ],
+    };
+    useAudienceWallStore.setState({ sessions: [wall] });
+    await mount();
+    const c = await openCard("What slows us down?");
+    await act(async () => {
+      fireEvent.click(within(c).getByRole("button", { name: "Group by shared words" }));
+    });
+    const draft = () =>
+      within(c).getByRole("heading", { name: "Themes to add" }).closest("section") as HTMLElement;
+    const names = within(draft())
+      .getAllByRole("button", { name: /^Add: / })
+      .map((b) => b.getAttribute("aria-label")!);
+    expect(names.length).toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < names.length; i++) {
+      const button = within(draft()).getByRole("button", { name: names[i] });
+      button.focus();
+      await act(async () => {
+        fireEvent.click(button);
+      });
+      expect(walls()[0].themes).toHaveLength(i + 1);
+      const next = names[i + 1];
+      if (next)
+        expect(document.activeElement).toBe(within(draft()).getByRole("button", { name: next }));
+    }
+    expect(draft()).toHaveTextContent("All added.");
+    expect(document.activeElement).toBe(within(c).getByRole("heading", { name: "Themes to add" }));
+  });
+
+  it("hands focus back to Find duplicates on Dismiss, and merges a group only once", async () => {
+    useAudienceWallStore.setState({ sessions: [OWN] });
+    await mount();
+    const c = await openCard(OWN.prompt);
+    await act(async () => {
+      fireEvent.click(within(c).getByRole("button", { name: "Find duplicates without AI" }));
+    });
+    const draft = () =>
+      within(c)
+        .getByRole("heading", { name: "Duplicates to merge" })
+        .closest("section") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(draft()).getByRole("button", { name: /^Merge/ }));
+    });
+    expect(walls()[0].posts).toHaveLength(2);
+    expect(draft()).toHaveTextContent("All added.");
+    const dismiss = within(draft()).getByRole("button", { name: "Dismiss suggestions" });
+    dismiss.focus();
+    await act(async () => {
+      fireEvent.click(dismiss);
+    });
+    expect(within(c).queryByRole("heading", { name: "Duplicates to merge" })).toBeNull();
+    expect(document.activeElement).toBe(
+      within(c).getByRole("button", { name: "Find duplicates without AI" })
+    );
+  });
+
   it("clears a wall's themes with Undo", async () => {
     useAudienceWallStore.setState({ sessions: buildExample(new Date(NOW)) });
     await mount();
