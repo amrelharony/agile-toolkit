@@ -109,6 +109,16 @@ const UPGRADED_TOOLS = [
   "test-pyramid",
   "flaky-tests",
   "code-review-metrics",
+  // Tools plan, phase 1.
+  "product-goal",
+  "backlog-health",
+  "interrupt-buffer",
+  "picker",
+  "quick-vote",
+  "audience-wall",
+  "facilitator-timers",
+  "root-cause",
+  "team-mixer",
   // Book readers: the Squad Session Kit. Meet the Cast and Which Colleague hold no
   // team data, so there's nothing to load, export or undo in them.
   "squad-session",

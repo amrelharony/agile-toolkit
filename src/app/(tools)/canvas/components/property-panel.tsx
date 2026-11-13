@@ -40,6 +40,7 @@ import {
   X,
   CopyPlus,
   Trash2,
+  Dices,
 } from "lucide-react";
 import type { Camera, Rect } from "@/lib/geometry/bbox";
 import type {
@@ -80,6 +81,9 @@ interface PropertyPanelProps {
    * Delete handlers. Shown as 44 px buttons on coarse pointers only (a
    * phone has no keyboard); omitted in read-only views. */
   objectActions?: Pick<CanvasObjectActions, "duplicate" | "deleteSelected">;
+  /** Select one sticky at random from the selection (lib/whiteboard/random-sticky);
+   * given only when there are two or more to pick between. */
+  onPickRandomSticky?: () => void;
   /** Primary pointer is touch: the bar's touch-size buttons make it
    * taller, so it sits higher above the selection (see anchorScreenY). */
   isCoarse?: boolean;
@@ -204,6 +208,7 @@ function PropertyPanelImpl({
   onPatch,
   onOpenCardDetail,
   objectActions,
+  onPickRandomSticky,
   isCoarse = false,
 }: PropertyPanelProps) {
   const [barRef, barWidth] = useElementWidth();
@@ -799,6 +804,18 @@ function PropertyPanelImpl({
        * so a sticky tagged "blocker" surfaces in the same filter. */}
       {selection.length > 0 && !types.has("embed") && (
         <TagsEditor selection={selection} onPatch={onPatch} />
+      )}
+
+      {onPickRandomSticky && (
+        <button
+          type="button"
+          onClick={onPickRandomSticky}
+          aria-label="Pick a random sticky"
+          title="Pick a random sticky"
+          className="w-7 h-7 pointer-coarse:w-11 pointer-coarse:h-11 shrink-0 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep transition-colors"
+        >
+          <Dices className="w-4 h-4" aria-hidden="true" />
+        </button>
       )}
 
       {/* ─── Object actions (touch only) ─────────────────────────────

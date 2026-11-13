@@ -26,6 +26,7 @@ import { hypothesisRoute } from "./targets/hypothesis";
 import { decisionRoute } from "./targets/decision";
 import { dependencyRoute } from "./targets/dependency";
 import { opportunityRoute } from "./targets/opportunity";
+import { rootCauseRoute } from "./targets/root-cause";
 
 /** One route per id in HANDOFF_ROUTE_IDS: a stored link on any of them reads through its route. */
 export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
@@ -40,6 +41,7 @@ export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
   decision: decisionRoute,
   dependency: dependencyRoute,
   opportunity: opportunityRoute,
+  "root-cause": rootCauseRoute,
 };
 
 export function getHandoffRoute(id: HandoffRouteId): HandoffRoute {
@@ -118,6 +120,8 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   "parking-lot": { name: "parking lot", href: "/parking-lot" },
   "root-cause": { name: "root-cause analysis", href: "/root-cause" },
   "audience-wall": { name: "Audience Wall", href: "/audience-wall" },
+  // A saved vote's result, sent to the Decision Log or the retro.
+  "quick-vote": { name: "Quick Vote", href: "/quick-vote" },
   "interrupt-buffer": { name: "interrupt buffer", href: "/interrupt-buffer" },
   "sm-notebook": { name: "Scrum Master Notebook", href: "/sm-notebook" },
   // A contributing factor taken to Root Cause (its analysis's sourceRef): the
@@ -150,6 +154,10 @@ export function sourceHref(ref: HandoffRef | undefined): string | null {
   }
   if ((ref?.tool === "squad-session" || ref?.tool === "comics") && ref.doc) {
     return `${tool.href}?ep=${encodeURIComponent(ref.doc)}`;
+  }
+  // A countermeasure sent from Root Cause opens its analysis.
+  if (ref?.tool === "root-cause" && ref.id) {
+    return `${tool.href}?analysis=${encodeURIComponent(ref.id)}`;
   }
   return tool.href;
 }

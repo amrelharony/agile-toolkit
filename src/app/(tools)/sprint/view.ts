@@ -2,8 +2,9 @@
  * What the Sprint Cockpit says about one sprint, as plain data: the state
  * of each ceremony, the numbers (read off the sprint board, else the typed
  * daily log), the blockers in the sprint's window, this sprint's review and
- * retro, and the notes it raises as cards (a closed sprint's goal still
- * unanswered, how much improvement work the sprint holds). Pure, so the
+ * retro, the notes it raises as cards (a closed sprint's goal still
+ * unanswered, how much improvement work the sprint holds), the interrupt
+ * buffer and whether the goal is at risk (lib/sprints/risk). Pure, so the
  * page, the home card and the Markdown export agree and tests can check the
  * wording without rendering.
  */
@@ -11,6 +12,7 @@
 import type {
   AsyncUpdate,
   Impediment,
+  InterruptItem,
   KanbanBoard,
   RetroBoard,
   Sprint,
@@ -63,6 +65,8 @@ import type { HandoffLink } from "@/lib/handoffs/types";
 import { RETRO_CURRENT_ID, collectRetroActions, type RetroAction } from "@/lib/retro/actions";
 import { retroFor } from "@/lib/retro/board";
 import { improvementsFor, type Improvements } from "@/lib/retro/improvement";
+import { interruptBufferStatus, type InterruptBufferStatus } from "@/lib/sprints/interrupts";
+import { impedimentCounts, sprintRisk, type SprintRisk } from "@/lib/sprints/risk";
 import { unansweredGoal } from "@/app/(tools)/sprint-goal/doc";
 import type { ChartText } from "@/lib/charts/chart-text";
 import { parseNumber, type FormErrors, type Validation } from "@/lib/utils/form";
@@ -464,6 +468,48 @@ export function blockersTile(
   };
 }
 
+/** Where the interrupt buffer's tile links: the Interrupt Buffer on this sprint. */
+export function interruptsHref(sprint: Pick<Sprint, "id">): string {
+  return onSprint("/interrupt-buffer", sprint);
+}
+
+/**
+ * The "Interrupt buffer" tile: the points the sprint's interrupts used
+ * against its buffer (lib/sprints/interrupts), or how many were logged
+ * while no buffer in points is set. Links to the Interrupt Buffer.
+ */
+export function interruptsTile(status: InterruptBufferStatus, sprint: Pick<Sprint, "id">): Tile {
+  const link = { href: interruptsHref(sprint), linkLabel: "Open the Interrupt Buffer" };
+  const open = status.open > 0 ? ` · ${status.open} open` : "";
+  if (status.bufferPoints === null) {
+    return {
+      id: "interrupts",
+      label: "Interrupt buffer",
+      value: String(status.total),
+      unit: status.total === 1 ? "interrupt" : "interrupts",
+      hint: status.set ? "Plan the sprint's points to size the buffer" : "No buffer set",
+      tone: "default",
+      ...link,
+    };
+  }
+  const left = status.leftPoints ?? 0;
+  const hint =
+    status.state === "over"
+      ? `${fmt(-left)} over the buffer${open}`
+      : status.total === 0
+        ? "Nothing logged yet"
+        : `${fmt(left)} left · ${plural(status.total, "interrupt")}${open}`;
+  return {
+    id: "interrupts",
+    label: "Interrupt buffer",
+    value: fmt(status.usedPoints),
+    unit: `of ${fmt(status.bufferPoints)} pts`,
+    hint,
+    tone: status.state === "over" || status.state === "watch" ? "warning" : "default",
+    ...link,
+  };
+}
+
 /** "Day 3 of 10 · 7 days left", or what the hub says when dates are missing. */
 export function daysLeftLine(dayLine: string): string {
   const m = /^Day (\d+) of (\d+)$/.exec(dayLine);
@@ -816,14 +862,16 @@ function boardTiles(
 /**
  * The cockpit's tiles: the Sprint Metrics hub's (lib/sprints/hub-view),
  * with the progress tiles read off the board when the sprint has pointed
- * stories, and the blockers tile last. A closed sprint's Done is the
- * points confirmed when it closed, as its verdict says.
+ * stories, then the blockers tile, and the interrupt buffer's last when
+ * the sprint has a buffer or logged interrupts. A closed sprint's Done is
+ * the points confirmed when it closed, as its verdict says.
  */
 export function cockpitTiles(
   data: Pick<
     CockpitData,
     "sprint" | "status" | "progress" | "burndown" | "openImpediments" | "blockedStories"
-  >,
+  > &
+    Partial<Pick<CockpitData, "interrupts">>,
   sprints: readonly Sprint[],
   today: string,
   /** Sprint Comparison's computed average (lib/sprints/compare); absent: the typed ratings'. */
@@ -853,6 +901,7 @@ export function cockpitTiles(
   return [
     ...hub.map((t) => overrides[t.id] ?? t),
     blockersTile(data.openImpediments, { blockedStories: data.blockedStories.length, today }),
+    ...(data.interrupts ? [interruptsTile(data.interrupts, sprint)] : []),
   ];
 }
 
@@ -888,6 +937,11 @@ export interface CockpitSources {
    * line, the gap and the projections count them. Absent, calendar days.
    */
   calendar?: WorkingCalendar;
+  /**
+   * Interrupts logged against sprints (lib/sprints/interrupts), for the
+   * buffer's tile and the risk. Absent: none logged.
+   */
+  interruptItems?: readonly InterruptItem[];
 }
 
 export interface CockpitData extends CockpitInput {
@@ -914,6 +968,13 @@ export interface CockpitData extends CockpitInput {
   goalToAnswer: string | null;
   /** What the last retro and the impediments log left for this sprint (lib/retro/improvement). */
   improvements: Improvements;
+  /**
+   * The sprint's interrupt buffer (`interruptBufferStatus`), when it has a
+   * buffer or logged interrupts; null otherwise.
+   */
+  interrupts: InterruptBufferStatus | null;
+  /** Whether the sprint goal is at risk, and why (lib/sprints/risk). */
+  risk: SprintRisk;
 }
 
 /** Everything the cockpit shows, read from the other tools' workspace data. */
@@ -938,6 +999,15 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
   const openActions = actions.filter((a) => !a.done);
   const review = reviewFor(reviews, sprint);
   const closed = sprint.status === "completed" || sprint.status === "cancelled";
+  const open = inWindow.filter((i) => !isResolved(i));
+  const blockedStories = sprintStories.filter((s) => s.blocked && s.status !== "done");
+  const burndown = cockpitBurndown(sprint, series, stories, today, progress, src.calendar);
+  // An example loaded into the Interrupt Buffer isn't the team's (the
+  // cockpit's own example reads its example interrupts).
+  const example = isExampleSprintId(sprint.id);
+  const logged = (src.interruptItems ?? []).filter((i) => example || !isExampleId(i.id));
+  const buffer = interruptBufferStatus(sprint, logged);
+  const interrupts = buffer.set || buffer.total > 0 ? buffer : null;
 
   return {
     sprint,
@@ -945,7 +1015,7 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
     sprintStories,
     backlogUnestimated,
     standup: { posted, members: teamMembers.length, blockers },
-    openImpediments: inWindow.filter((i) => !isResolved(i)),
+    openImpediments: open,
     review: {
       demoItems: review.doc?.features.length ?? 0,
       feedback: review.doc?.feedbackItems.length ?? 0,
@@ -963,10 +1033,10 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
     reviewDoc: review.doc,
     ...(retro.archived ? { retroBoard: retro.archived } : {}),
     progress,
-    burndown: cockpitBurndown(sprint, series, stories, today, progress, src.calendar),
+    burndown,
     sprintImpediments: inWindow,
     resolvedImpediments: resolvedDuring(inWindow, sprint),
-    blockedStories: sprintStories.filter((s) => s.blocked && s.status !== "done"),
+    blockedStories,
     goalToAnswer: closed && src.goals ? unansweredGoal(src.goals, sprint) : null,
     improvements: improvementsFor({
       sprint,
@@ -982,6 +1052,15 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
       kanbanBoards: src.kanbanBoards,
       today,
       targetDone: src.targetDone,
+    }),
+    interrupts,
+    risk: sprintRisk({
+      sprint,
+      burn: burndown.burn,
+      status: burndown.burnStatus,
+      blockedStories: blockedStories.length,
+      impediments: impedimentCounts(open, today),
+      interrupts,
     }),
   };
 }

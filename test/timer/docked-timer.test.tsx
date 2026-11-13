@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 
 const nav = vi.hoisted(() => ({ pathname: "/retro" }));
 vi.mock("next/navigation", () => ({ usePathname: () => nav.pathname }));
@@ -28,7 +29,13 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 }));
 
 import { DockedTimer } from "@/components/timer/docked-timer";
-import { formatClock, timerRemaining, useDockTimer } from "@/lib/timer/dock-timer";
+import {
+  formatClock,
+  saysOwnTimesUp,
+  timerRemaining,
+  useDockTimer,
+  useSaysOwnTimesUp,
+} from "@/lib/timer/dock-timer";
 import { CeremonyTimerClient } from "@/app/(tools)/ceremony-timer/ceremony-timer-client";
 import { useTimerSession } from "@/app/(tools)/ceremony-timer/store";
 
@@ -116,6 +123,79 @@ describe("DockedTimer", () => {
     render(<DockedTimer />);
     expect(screen.getByRole("timer")).toHaveTextContent("Time's up");
     expect(useDockTimer.getState().timer?.endsAt).toBeNull();
+  });
+});
+
+describe("who says time's up on the timer's own page", () => {
+  const publishEnding = (href: string, label = "Retro") =>
+    useDockTimer.getState().publish({
+      label,
+      href,
+      totalSeconds: 60,
+      endsAt: Date.now() + 1000,
+      pausedRemaining: 1,
+    });
+  const renderDock = (children?: ReactNode) =>
+    render(
+      <LiveAnnouncerProvider>
+        {children}
+        <DockedTimer />
+      </LiveAnnouncerProvider>
+    );
+  const reachZero = () => {
+    act(() => {
+      vi.advanceTimersByTime(1100);
+    });
+    // The live region fills a beat after the announcement.
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+  };
+  /** Marks the page as one that says its own time's up, as Facilitator Timers does during a run. */
+  function SaysItself({ href }: { href: string }) {
+    useSaysOwnTimesUp(href);
+    return null;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
+    });
+  });
+
+  it("leaves it to the Ceremony Timer, which says it itself", () => {
+    nav.pathname = "/ceremony-timer";
+    publishEnding("/ceremony-timer");
+    renderDock();
+    reachZero();
+    expect(useDockTimer.getState().timer?.endsAt).toBeNull();
+    expect(screen.getByTestId("live-assertive")).toBeEmptyDOMElement();
+  });
+
+  it("leaves it to a page that marks itself, only while it does", () => {
+    nav.pathname = "/facilitator-timers";
+    publishEnding("/facilitator-timers", "Crazy 8s · Sketch 1 of 8");
+    const { unmount } = renderDock(<SaysItself href="/facilitator-timers" />);
+    expect(saysOwnTimesUp("/facilitator-timers")).toBe(true);
+    reachZero();
+    expect(screen.getByTestId("live-assertive")).toBeEmptyDOMElement();
+    unmount();
+    expect(saysOwnTimesUp("/facilitator-timers")).toBe(false);
+  });
+
+  it("still says it on an owner page that leaves the words to the dock", () => {
+    nav.pathname = "/icebreaker";
+    publishEnding("/icebreaker", "Warm-up");
+    renderDock();
+    reachZero();
+    expect(screen.getByTestId("live-assertive")).toHaveTextContent("Warm-up: time's up");
+  });
+
+  it("still says it on any other page", () => {
+    publishEnding("/ceremony-timer", "Daily Scrum");
+    renderDock(<SaysItself href="/ceremony-timer" />);
+    reachZero();
+    expect(screen.getByTestId("live-assertive")).toHaveTextContent("Daily Scrum: time's up");
   });
 });
 

@@ -44,6 +44,7 @@ describe("VisitorRoomConsent", () => {
       "What you type passes through our realtime provider (Supabase) to everyone with the link. " +
         "We don't store it; the room disappears when everyone leaves. " +
         "The host may send the room's answers, without names, to an AI service for a summary. " +
+        "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
         "Share the link only with your team."
     );
     // The wording is the dialog's accessible description.
@@ -69,6 +70,7 @@ describe("VisitorRoomConsent", () => {
         "After the host reveals the results, everyone in the room sees the totals, for questions " +
         "with enough answers; if everyone gives the same answer, the totals show it. " +
         "The host may send the room's answers, without names, to an AI service for a summary. " +
+        "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
         "Share the link only with your team."
     );
     // It promises no more than the round can keep.

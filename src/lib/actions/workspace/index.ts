@@ -239,7 +239,7 @@ const SprintSchema = z.object({
     })
     .optional()
     .describe(
-      "Capacity kept free for unplanned work (Interrupt Buffer): pct is a share of capacity (0–100), points a number of points; either or both."
+      "Capacity kept free for unplanned work (Interrupt Buffer): pct is a share of the sprint's planned points (0–100), points a number of points (wins when both are set); either or both."
     ),
 }) as unknown as z.ZodType<Sprint>;
 
@@ -462,6 +462,10 @@ const StorySchema = z.object({
     .describe(
       "Structured acceptance criteria, in order: {id, given, when, then} (at most 20, each part at most 1,000 characters). They sit beside acceptanceCriteria, which they don't change."
     ),
+  refinedAt: z
+    .string()
+    .optional()
+    .describe("When the story's text, points or criteria last changed (ISO). Stamped on write."),
   link: z
     .string()
     .max(STORY_LINK_MAX)

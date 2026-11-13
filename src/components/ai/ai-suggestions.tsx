@@ -4,7 +4,9 @@
  * <AiSuggestions>: a review list for what Amr suggested. The person adds one
  * item, adds them all, or dismisses the list; nothing reaches the tool until
  * they do, and each accepted item goes through the tool's own store (with its
- * Undo), in the caller's `onAccept`.
+ * Undo), in the caller's `onAccept`. When the items are alternatives to one
+ * another (`pickOne`: three answers to the same question), there is no "all"
+ * button: the person picks one, and the caller usually closes the list.
  *
  * Text shows as plain text only: React escapes it, there is no Markdown, no
  * link and never dangerouslySetInnerHTML, so an answer can't inject anything
@@ -41,6 +43,11 @@ export interface AiSuggestionsProps<T> {
   title?: string;
   /** The add button's word; default "Add". */
   acceptLabel?: string;
+  /**
+   * The items are alternatives (answers to the same question), so adding
+   * all of them makes no sense: no "{acceptLabel} all" button.
+   */
+  pickOne?: boolean;
   className?: string;
 }
 
@@ -61,6 +68,7 @@ export function AiSuggestions<T>({
   source,
   title = "Amr's suggestions",
   acceptLabel = "Add",
+  pickOne = false,
   className,
 }: AiSuggestionsProps<T>) {
   const headingId = useId();
@@ -181,7 +189,7 @@ export function AiSuggestions<T>({
               );
             })}
           </ul>
-          {left.length > 1 && (
+          {left.length > 1 && !pickOne && (
             <div className="mt-2">
               <Button type="button" size="sm" variant="toolkit" onClick={acceptAll}>
                 {acceptLabel} all {left.length}

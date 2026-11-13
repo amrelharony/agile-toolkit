@@ -56,6 +56,17 @@ export const validateScopeChange: NumberCheck = (raw) => {
   return { ok: true, values: n };
 };
 
+/** Items left (the "count items" mode): a whole number from 1 to 100,000. */
+export const validateItemCount: NumberCheck = (raw) => {
+  const n = parseNumber(raw);
+  if (n === undefined) return { ok: true, values: null };
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) {
+    return fail("Use a whole number of items, such as 40.");
+  }
+  if (n > 100_000) return fail("That's more than 100,000 items. Check the number.");
+  return { ok: true, values: n };
+};
+
 /** Sprint length: a whole number of days, 1 to 90. */
 export const validateSprintLength: NumberCheck = (raw) => {
   const n = parseNumber(raw);

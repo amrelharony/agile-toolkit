@@ -7,7 +7,7 @@
  * stored. Enter alone posts; Shift+Enter is a space (a post is one line).
  */
 
-import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -21,6 +21,10 @@ export interface WallPostFormProps {
   /** Why posting is off right now (shown, and the button is disabled). */
   disabledReason?: string | null;
   label?: string;
+  /** Brainwriting: the post this one says "Yes, and…" to, shown above the box. */
+  replyTo?: { text: string } | null;
+  /** Drop `replyTo` (a plain post again). */
+  onCancelReply?: () => void;
 }
 
 /** What a refused post means for the person, or null when it went. */
@@ -47,12 +51,20 @@ export function WallPostForm({
   onPost,
   disabledReason = null,
   label = "Your post",
+  replyTo = null,
+  onCancelReply,
 }: WallPostFormProps) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const countId = useId();
   const announce = useAnnounce();
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+  const replyText = replyTo?.text ?? null;
+  // Picking a post to say "Yes, and…" to puts the cursor in the box.
+  useEffect(() => {
+    if (replyText !== null) boxRef.current?.focus();
+  }, [replyText]);
   const length = text.replace(/\s+/g, " ").trim().length;
   const over = length > WALL_LIMITS.maxPostChars;
 
@@ -66,6 +78,7 @@ export function WallPostForm({
     if (result === "sent") {
       setText("");
       announce("Posted. It shows on the wall once the host's browser takes it.");
+      onCancelReply?.();
     }
   };
 
@@ -83,14 +96,37 @@ export function WallPostForm({
 
   return (
     <form onSubmit={onSubmit} noValidate className="space-y-2">
+      {replyTo && (
+        <div className="flex min-w-0 flex-wrap items-start gap-2 rounded-lg border border-accent/30 bg-surface-deep px-3 py-2">
+          <p className="min-w-0 flex-1 break-words text-sm text-text">
+            <span className="font-medium text-accent">Yes, and… on: </span>
+            {replyTo.text}
+          </p>
+          {onCancelReply && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                onCancelReply();
+                // The bar goes with this button: back to the box, a plain post again.
+                boxRef.current?.focus();
+              }}
+            >
+              Cancel <span className="sr-only">the Yes, and…</span>
+            </Button>
+          )}
+        </div>
+      )}
       <Field
-        label={label}
+        label={replyTo ? "Your Yes, and…" : label}
         error={error}
         hint={`${length} of ${WALL_LIMITS.maxPostChars} characters.`}
       >
         {(props) => (
           <Textarea
             {...props}
+            ref={boxRef}
             aria-describedby={
               [props["aria-describedby"], countId].filter(Boolean).join(" ") || undefined
             }
