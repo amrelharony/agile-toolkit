@@ -85,7 +85,7 @@ describe("typing a code", () => {
     const kinds = new Set(
       VISITOR_TOOLS.filter((t) => !typed.has(t)).map((t) => VISITOR_ROOM_KIND[t])
     );
-    expect([...kinds].sort()).toEqual(["show", "vote", "wall"]);
+    expect(Array.from(kinds).sort()).toEqual(["show", "vote", "wall"]);
     expect(VISITOR_TOOLS.filter((t) => VISITOR_ROOM_KIND[t] === "show").sort()).toEqual([
       "card-decks",
       "picker",
