@@ -52,6 +52,8 @@ import { buildExample } from "@/app/(tools)/sprint/example";
 import { interruptBufferStatus } from "@/lib/sprints/interrupts";
 import { riskNoteInput } from "@/app/(tools)/sprint/components/risk";
 import { sprintRiskNoteTask } from "@/lib/ai/tasks/sprint";
+import { registry } from "@/lib/actions/registry";
+import "@/lib/actions/tools/sprint";
 
 const render = (ui: ReactElement) => rtlRender(ui, { wrapper: TooltipProvider });
 
@@ -278,6 +280,97 @@ describe("the data", () => {
     expect(md).toContain("- Worth watching: 1 story is blocked on the board. Try: Unblock");
     expect(md).toContain("## Interrupt buffer\n\n7 of 8 points used, 1 point left.");
     expect(md).toContain("| Interrupt buffer | 7 of 8 pts | 1 left · 2 interrupts · 1 open |");
+  });
+
+  it("agrees with Amr's tool.sprint.risk, leaving example impediments out", async () => {
+    // The seed of test/actions/tool-sprint.test.ts.
+    const sprint: Sprint = {
+      id: "s1",
+      name: "Sprint 9",
+      startDate: "2026-11-02",
+      endDate: "2026-11-12",
+      goal: "Refunds go out the same day",
+      pointsPlanned: 20,
+      status: "active",
+      interruptBuffer: { points: 4 },
+    };
+    const stories: Story[] = [
+      {
+        id: "a",
+        title: "Refund API",
+        points: 5,
+        status: "in_progress",
+        sprintId: "s1",
+        blocked: true,
+      },
+      { id: "b", title: "A story", points: 15, status: "todo", sprintId: "s1" },
+    ];
+    const loaded: Impediment = {
+      id: "example-i",
+      title: "x",
+      severity: "critical",
+      raisedAt: "2026-11-03",
+    };
+    const team: Impediment = {
+      id: "i1",
+      title: "Bank sandbox down",
+      severity: "critical",
+      raisedAt: "2026-11-03",
+    };
+    const items: InterruptItem[] = [
+      interrupt({
+        id: "n1",
+        sprintId: "s1",
+        size: 3,
+        emergency: true,
+        loggedAt: "2026-11-04T09:00:00.000Z",
+      }),
+    ];
+    const both = async (impediments: Impediment[]) => {
+      useWorkspaceStore.setState({
+        sprints: [sprint],
+        sprintSeries: [],
+        stories,
+        impediments,
+        interruptItems: items,
+        ceremonyCadences: [],
+      });
+      const amr = (await registry
+        .get("tool.sprint.risk")!
+        .handler(
+          { today: "2026-11-05" },
+          { userId: "u", source: "agent", squadProfileIds: [] }
+        )) as { level: string; headline: string; reasons: { id: string; text: string }[] };
+      const page = gatherCockpitData({
+        sprint,
+        series: undefined,
+        stories,
+        impediments,
+        standupEntries: [],
+        teamMembers: [],
+        retroBoards: [],
+        reviews: [],
+        today: "2026-11-05",
+        interruptItems: items,
+      });
+      return { amr, page };
+    };
+    const reasons = (rs: readonly { id: string; text: string }[]) =>
+      rs.map((r) => `${r.id}: ${r.text}`);
+
+    const withTeam = await both([team, loaded]);
+    expect(withTeam.page.risk.level).toBe("at_risk");
+    expect(withTeam.page.risk.level).toBe(withTeam.amr.level);
+    expect(withTeam.page.risk.headline).toBe(withTeam.amr.headline);
+    expect(reasons(withTeam.page.risk.reasons)).toEqual(reasons(withTeam.amr.reasons));
+    expect(withTeam.page.openImpediments.map((i) => i.id)).toEqual(["i1"]);
+
+    // Only the example's critical impediment: neither says anything is in the way.
+    const onlyExample = await both([loaded]);
+    expect(onlyExample.page.risk.reasons.map((r) => r.id)).not.toContain("impediments");
+    expect(reasons(onlyExample.page.risk.reasons)).toEqual(reasons(onlyExample.amr.reasons));
+    expect(onlyExample.page.openImpediments).toEqual([]);
+    expect(onlyExample.page.sprintImpediments).toEqual([]);
   });
 
   it("cuts the AI note's input to the task's caps", () => {

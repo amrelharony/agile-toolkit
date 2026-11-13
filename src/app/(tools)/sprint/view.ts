@@ -979,7 +979,13 @@ export interface CockpitData extends CockpitInput {
 
 /** Everything the cockpit shows, read from the other tools' workspace data. */
 export function gatherCockpitData(src: CockpitSources): CockpitData {
-  const { sprint, series, stories, impediments, teamMembers, retroBoards, reviews, today } = src;
+  const { sprint, series, stories, teamMembers, retroBoards, reviews, today } = src;
+  // Examples loaded into Impediments or the Interrupt Buffer aren't the
+  // team's: they never count against a real sprint (its tiles, goal check
+  // and improvement work), as Sprint Planning and Amr's tool.sprint.risk
+  // leave them out. The cockpit's own example reads its example rows.
+  const example = isExampleSprintId(sprint.id);
+  const impediments = example ? src.impediments : src.impediments.filter((i) => !isExampleId(i.id));
   const sprintStories = stories.filter((s) => s.sprintId === sprint.id);
   const backlogUnestimated = stories.filter(
     (s) => !s.sprintId && s.status === "backlog" && !(typeof s.points === "number" && s.points > 0)
@@ -1002,9 +1008,6 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
   const open = inWindow.filter((i) => !isResolved(i));
   const blockedStories = sprintStories.filter((s) => s.blocked && s.status !== "done");
   const burndown = cockpitBurndown(sprint, series, stories, today, progress, src.calendar);
-  // An example loaded into the Interrupt Buffer isn't the team's (the
-  // cockpit's own example reads its example interrupts).
-  const example = isExampleSprintId(sprint.id);
   const logged = (src.interruptItems ?? []).filter((i) => example || !isExampleId(i.id));
   const buffer = interruptBufferStatus(sprint, logged);
   const interrupts = buffer.set || buffer.total > 0 ? buffer : null;
@@ -1042,12 +1045,7 @@ export function gatherCockpitData(src: CockpitSources): CockpitData {
       sprint,
       sprints: src.sprints ?? [sprint],
       retroBoards,
-      // An example loaded into Impediments isn't the team's to plan, so it
-      // isn't counted here either (Sprint Planning leaves it out the same
-      // way). The cockpit's own example reads its example impediments.
-      impediments: isExampleSprintId(sprint.id)
-        ? impediments
-        : impediments.filter((i) => !isExampleId(i.id)),
+      impediments,
       stories,
       kanbanBoards: src.kanbanBoards,
       today,
