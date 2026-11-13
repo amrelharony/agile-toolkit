@@ -87,6 +87,7 @@ import { readLegacyBlob } from "../user-state-blob";
 import { RESPONDENT_MAX, VERBATIM_MAX, normalizeTags, tagsProblem } from "@/lib/nps/score";
 import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import { targetClashes } from "@/lib/opportunity-tree/model";
+import { isDay } from "@/lib/notebook/model";
 import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
@@ -4346,7 +4347,19 @@ defineCrudActions<NotebookEntry>({
   upsert: (x) => ws().upsertNotebookEntry(x),
   remove: (id) => ws().removeNotebookEntry(id),
   generateId: () => `note_${nanoid(8)}`,
-  prepare: (next, current) => stampedTimes(next, current),
+  // The schema checks only the day's shape: a day the calendar doesn't have
+  // ("2026-02-30") is refused when a write sets or changes it. A stored one
+  // the write leaves alone stays (the page shows it to fix).
+  prepare: (next, current) =>
+    stampedTimes(
+      unlessRefused(
+        next,
+        next.date !== current?.date && !isDay(next.date)
+          ? [`date ${next.date} is not a day on the calendar (YYYY-MM-DD).`]
+          : []
+      ),
+      current
+    ),
 });
 
 const MeetingAuditSchema = z.object({
