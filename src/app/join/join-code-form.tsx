@@ -110,9 +110,9 @@ export function JoinCodeForm({ initialCode = "" }: JoinCodeFormProps) {
           ))}
         </div>
         <p className="text-sm text-sub">
-          A vote, a picker, a wall or a card deck needs its QR code or link: the code alone
-          can&apos;t show that the questions come from the host. Scan the code on the host&apos;s
-          screen, or ask for the link.
+          A vote, a picker, a team mix, a wall or a card deck needs its QR code or link: the code
+          alone can&apos;t show that what you see comes from the host. Scan the code on the
+          host&apos;s screen, or ask for the link.
         </p>
         <Button
           type="button"

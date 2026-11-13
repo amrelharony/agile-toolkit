@@ -15,7 +15,8 @@ vi.mock("next/navigation", async (importOriginal) => ({
 }));
 
 import JoinPage from "@/app/join/page";
-import { JoinCodeForm } from "@/app/join/join-code-form";
+import { JoinCodeForm, TYPED_CODE_ROOMS } from "@/app/join/join-code-form";
+import { VISITOR_ROOM_KIND, VISITOR_TOOLS } from "@/lib/realtime/visitor-rooms";
 
 const CODE = "ABCD2345EFGH";
 const FP = "abcdefghijklmnopqrstuv";
@@ -70,11 +71,26 @@ describe("typing a code", () => {
     expect(nav.push).toHaveBeenCalledWith(`/join/retro/${CODE}`);
   });
 
-  it("explains why a vote, picker, wall or card deck needs the QR code or link", () => {
+  it("explains why a vote, picker, team mix, wall or card deck needs the QR code or link", () => {
     render(<JoinCodeForm />);
     type(CODE);
     join();
-    expect(screen.getByText(/needs its QR code or link/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /^A vote, a picker, a team mix, a wall or a card deck needs its QR code or link: the code alone can't show that what you see comes from the host\./
+      )
+    ).toBeInTheDocument();
+    // Every room a typed code can't open is one of those: votes, show rooms and walls.
+    const typed = new Set(TYPED_CODE_ROOMS.map((r) => r.tool));
+    const kinds = new Set(
+      VISITOR_TOOLS.filter((t) => !typed.has(t)).map((t) => VISITOR_ROOM_KIND[t])
+    );
+    expect([...kinds].sort()).toEqual(["show", "vote", "wall"]);
+    expect(VISITOR_TOOLS.filter((t) => VISITOR_ROOM_KIND[t] === "show").sort()).toEqual([
+      "card-decks",
+      "picker",
+      "team-mixer",
+    ]);
     expect(screen.getByRole("button", { name: "Planning Poker" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Quick Vote" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Type another code" }));
