@@ -30,6 +30,9 @@ describe("searchTools", () => {
     ["retro questions", "card-decks"],
     ["coaching questions", "card-decks"],
     ["check-in questions", "card-decks"],
+    ["side discussions", "parking-lot"],
+    ["issue bin", "parking-lot"],
+    ["ritual reset", "meeting-audit"],
   ])("finds the right tool for %j", (query, expected) => {
     expect(ids(query, 3)).toContain(expected);
   });

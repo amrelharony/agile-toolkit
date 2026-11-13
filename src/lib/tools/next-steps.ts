@@ -218,6 +218,8 @@ import {
   riskScore,
 } from "@/lib/risks/model";
 import { debtStoryOf, isOpenDebt, rankedDebt } from "@/lib/tech-debt/model";
+import { parkingLotSteps } from "@/lib/parking-lot/model";
+import { meetingAuditSteps } from "@/lib/meeting-audit/model";
 import {
   FLAKY_BOARD_ID,
   QUARANTINE_ALERT_DAYS,
@@ -2051,6 +2053,12 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Parking Lot (tools plan phase 1): the open points wait for the end-of-meeting review.
+  "parking-lot": rule({
+    select: (ws) => ({ items: ws.parkingLotItems }),
+    steps: ({ items }) => parkingLotSteps(items),
+  }),
+
   // Tools plan, phase 1. The logic and its tests are in lib/tools/next-steps-phase42.
   "interrupt-buffer": rule({
     select: (ws) => ({ sprints: ws.sprints, items: ws.interruptItems }),
@@ -3566,6 +3574,13 @@ const RULES: Record<string, NextStepRule<object>> = {
       }
       return steps;
     },
+  }),
+
+  // Meeting Audit (shelved): rate, decide, take the changes to the retro (until a retro is
+  // held after the verdicts), again each quarter.
+  "meeting-audit": rule({
+    select: (ws) => ({ audits: ws.meetingAudits, retros: ws.retroBoards }),
+    steps: ({ audits, retros }) => meetingAuditSteps(audits, new Date(), retros),
   }),
 
   // Team Mixer keeps who is mixing in its own store; from the workspace it
