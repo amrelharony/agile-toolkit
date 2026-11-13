@@ -5,6 +5,12 @@
  * round has its own form, results and count entry: scale (`Vote*`,
  * `FacilitatorTally`), pair (`Pair*`, `FacilitatorPair`) and allocation
  * (`Allocation*`, `FacilitatorAllocation`).
+ *
+ * The two live rooms, `HostVoteRoom` and `VoteJoinRoom`, are not exported
+ * from here, only their types: a tool page that imports this file would
+ * otherwise download both rooms (their timer, reactions and QR code) up
+ * front, though they load only once a room opens. Import them from their
+ * own files.
  */
 
 export {
@@ -19,8 +25,8 @@ export {
   type RankVoteRoundPanelProps,
   type NumberVoteRoundPanelProps,
 } from "./vote-round-panel";
-export { HostVoteRoom, type HostVoteRoomProps, type HostVoteSession } from "./host-vote-room";
-export { VoteJoinRoom, IncompleteLinkPanel, type VoteJoinRoomProps } from "./vote-join-room";
+export type { HostVoteRoomProps, HostVoteSession } from "./host-vote-room";
+export type { VoteJoinRoomProps } from "./vote-join-room";
 export { VoteAnswerForm, submitError, type VoteAnswerFormProps } from "./vote-answer-form";
 export { VoteLiveCount, liveCountText, type VoteLiveCountProps } from "./vote-live-count";
 export {
