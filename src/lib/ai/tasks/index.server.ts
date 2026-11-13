@@ -6,12 +6,44 @@
 import "server-only";
 import type { AiTaskPrompt } from "../task-types";
 import { suggestOptionsPrompt } from "./_example.server";
+import { clusterPrompt, mergeQuestionsPrompt, toBacklogPrompt } from "./audience-wall.server";
+import { backlogHealthReviewPrompt } from "./backlog-health.server";
+import { cardForMoodPrompt, generateCardsPrompt } from "./card-decks.server";
+import { agendaPrompt } from "./facilitator-timers.server";
+import { interruptClassifyPrompt } from "./interrupt-buffer.server";
+import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
+import { parkingRoutePrompt } from "./parking-lot.server";
+import { themeNamesPrompt } from "./picker.server";
+import { productGoalDraftPrompt } from "./product-goal.server";
+import { groupTopicsPrompt, surprisePlanPrompt } from "./retro.server";
+import { retroActionsThemesPrompt } from "./retro-actions.server";
+import { categoriesPrompt, countermeasurePrompt, nextWhyPrompt } from "./root-cause.server";
 import { notebookTagPrompt, notebookWeeklySummaryPrompt } from "./sm-notebook.server";
+import { sprintRiskNotePrompt } from "./sprint.server";
 
 // See index.ts on `any`: each prompt's input is checked by its task's schema first.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   suggestOptionsPrompt,
+  clusterPrompt,
+  mergeQuestionsPrompt,
+  toBacklogPrompt,
+  backlogHealthReviewPrompt,
+  generateCardsPrompt,
+  cardForMoodPrompt,
+  agendaPrompt,
+  interruptClassifyPrompt,
+  meetingAuditSuggestPrompt,
+  parkingRoutePrompt,
+  themeNamesPrompt,
+  productGoalDraftPrompt,
+  surprisePlanPrompt,
+  groupTopicsPrompt,
+  retroActionsThemesPrompt,
+  nextWhyPrompt,
+  categoriesPrompt,
+  countermeasurePrompt,
   notebookWeeklySummaryPrompt,
   notebookTagPrompt,
+  sprintRiskNotePrompt,
 ];

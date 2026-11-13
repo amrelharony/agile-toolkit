@@ -6,10 +6,10 @@ const SITE_URL = "https://agile.amrelharony.com";
 /**
  * /robots.txt — the tools are public and indexable. Everything else is
  * kept out: the owner-only API and settings pages, the auth flow, the
- * squad-guest tree (invite-code pages), the visitor live-room join links
- * (/join/<tool>/<code>), the book readers' VIP link and page (/vip) and
- * the not-authorized page, and the early comics every story links to
- * (/comics/early). These also carry `noindex` metadata where they render HTML;
+ * squad-guest tree (invite-code pages), the visitor live-room code box and
+ * join links (/join and /join/<tool>/<code>), the book readers' VIP link and
+ * page (/vip) and the not-authorized page, and the early comics every story
+ * links to (/comics/early). These also carry `noindex` metadata where they render HTML;
  * robots.txt just saves crawlers the requests.
  *
  * Known AI crawlers are also told to stay out of the comics, the book's page
@@ -22,7 +22,7 @@ const PRIVATE_PATHS = [
   "/auth/",
   "/settings/",
   "/guest/",
-  "/join/",
+  "/join",
   "/vip",
   "/comics/early",
   "/not-authorized",

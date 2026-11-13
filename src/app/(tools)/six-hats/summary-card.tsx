@@ -147,7 +147,7 @@ export const SummaryCard = forwardRef<
         ) : link ? (
           <Link
             href={getHandoffRoute("decision").targetHref(link.targetId)}
-            className="inline-flex items-center gap-1 text-xs text-success underline-offset-2 hover:underline"
+            className="min-touch-coarse inline-flex items-center gap-1 py-1 text-xs text-success underline-offset-2 hover:underline"
           >
             <BookCheck className="h-3.5 w-3.5" aria-hidden="true" />
             {decided ? "Decided in the Decision Log · Open" : "Proposed in the Decision Log · Open"}

@@ -11,7 +11,10 @@
  *
  * Moved here from the Ceremony Timer (app/(tools)/ceremony-timer/alarm.ts,
  * which re-exports these), unchanged, so every timer sounds the same.
+ * `timesUp` rings all three for every other timer.
  */
+
+import { useAlarmPrefs } from "./alarm-prefs";
 
 /**
  * `beeps` short 880 Hz tones, 0.3 s apart, on a fresh AudioContext (so a
@@ -78,4 +81,38 @@ export function flashTitle(text: string): void {
     },
     { once: true }
   );
+}
+
+export interface TimesUpOptions {
+  /** What the tab title says while it flashes. Default "Time's up". */
+  title?: string;
+  /** Also chime and buzz. Default: the shared "Chime when time is up" setting (`alarm-prefs.ts`). */
+  sound?: boolean;
+}
+
+/**
+ * The one time's-up alarm every timer rings when it reaches zero: the room
+ * countdowns, the Retro board's timer, the step timer and the docked timer
+ * (the Ceremony Timer rings the same three signals itself, with its own
+ * switch). The tab title flashes; three beeps and a buzz follow only when
+ * sound is on, which it isn't unless the person turned it on. The page
+ * still shows and announces time's up itself, then counts the overtime up
+ * (`overtimeText`).
+ */
+export function timesUp(opts: TimesUpOptions = {}): void {
+  const sound = opts.sound ?? useAlarmPrefs.getState().sound;
+  flashTitle(opts.title ?? "Time's up");
+  if (sound) {
+    playChime(3);
+    vibrate();
+  }
+}
+
+/** "+1:05 over": how far past zero a timer has counted. */
+export function overtimeText(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, "0");
+  return h > 0 ? `+${h}:${String(m).padStart(2, "0")}:${sec} over` : `+${m}:${sec} over`;
 }

@@ -26,6 +26,9 @@
  *   4. set_votes  — the current board's Votes each (3, 5 or 8).
  *   5. add_card   — append a card to a column (the verb an agent uses to
  *                   seed a board).
+ *   6. surprise_me — a random plan for the next retro (lib/retro/surprise):
+ *                   a format the last three retros didn't use, an opening
+ *                   and a closing activity. Reads only.
  *
  * Entity kind is "workspace:retroBoard" (camelCase via kindFromToolId),
  * matching the browser sync engine so MCP-written cards round-trip.
@@ -72,6 +75,14 @@ import {
 import { retroFacts } from "@/lib/retro/facts";
 import { targetDoneIn } from "@/lib/retro/actions";
 import { sprintOver, suggestFormat } from "@/lib/retro/suggest";
+import {
+  formatsFromBoards,
+  recentFormatIds,
+  surpriseCandidates,
+  surprisePlan,
+  type RetroActivity,
+} from "@/lib/retro/surprise";
+import { createRng } from "@/lib/utils/random";
 
 const KIND_RETRO = "workspace:retroBoard";
 
@@ -462,3 +473,57 @@ function newCard(columnKey: string, text: string): RetroCard {
     discussing: false,
   };
 }
+
+// ──────── tool.retro.surprise_me ────────
+
+/**
+ * A random plan for the next retro, as the page's Surprise me makes one: a
+ * format the last three retros didn't use (the built-in ones, and the
+ * team's own as past retros kept them; this browser's saved formats are
+ * the page's), an opening and a closing from the Ice Breaker. Reads only:
+ * start the board with tool.retro.start.
+ */
+async function surpriseMe(store: RetroStore, seed?: string) {
+  const boards = await store.listBoards();
+  const formats = [...retroFormats, ...formatsFromBoards(boards)];
+  const recent = recentFormatIds(boards);
+  const plan = surprisePlan({
+    formats,
+    recent,
+    ...(seed !== undefined ? { rng: createRng(seed) } : {}),
+  });
+  if (!plan) return { picked: false as const };
+  const activity = (a: RetroActivity) => ({
+    id: a.id,
+    name: a.name,
+    line: a.line,
+    minutes: a.minutes,
+  });
+  return {
+    picked: true as const,
+    format: {
+      id: plan.format.id,
+      name: plan.format.name,
+      builtIn: retroFormats.some((f) => f.id === plan.format.id),
+      columns: plan.format.columns.map((c) => ({ key: c.key, label: c.label })),
+    },
+    opening: activity(plan.opening),
+    closing: activity(plan.closing),
+    avoided: recent,
+    candidates: surpriseCandidates(formats, recent).length,
+  };
+}
+
+registry.register({
+  id: "tool.retro.surprise_me",
+  toolId: "tool.retro",
+  name: "surprise_me",
+  category: "read",
+  description:
+    "Pick a surprise plan for the next retro, as the page's Surprise me does: a format none of the last three retros used (built-in ones plus custom formats past retros kept), an opening and a closing activity from the Ice Breaker. Nothing is saved; start the board with tool.retro.start (a custom format: pass its columns). Pass the same seed for the same pick. Returns {picked: true, format:{id,name,builtIn,columns:{key,label}[]}, opening:{id,name,line,minutes}, closing:{…}, avoided: format ids of the latest retros, candidates: how many formats it chose from}, or {picked: false}.",
+  paramsSchema: z.object({
+    seed: z.string().max(64).optional().describe("Optional: the same seed gives the same plan."),
+  }),
+  handler: async (params) => surpriseMe(browserStore, params.seed),
+  mcpHandler: async (params, ctx) => surpriseMe(serverStore(ctx.userId), params.seed),
+});

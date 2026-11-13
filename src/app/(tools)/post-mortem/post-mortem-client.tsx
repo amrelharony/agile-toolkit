@@ -22,7 +22,18 @@ import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/
 import type { ActionItem, PMStatus, PostMortem, TimelineEntry } from "./types";
 import { insertByEventTime, isOverdue, isThisQuarter, todayIso } from "./helpers";
 import { usePostMortemLog } from "./use-post-mortem-log";
-import { PostMortemEditor } from "./components/post-mortem-editor";
+import { PostMortemEditor, type LinkedAnalysis } from "./components/post-mortem-editor";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { RootCauseAnalysis } from "@/lib/stores/workspace-types";
+import { analysisFrom, openRootCause, rootCauseHref } from "@/lib/handoffs/targets/root-cause";
+import {
+  STAGE_LABEL,
+  analysisStage,
+  liveOnBoards,
+  postMortemFactorRef,
+  readAnalyses,
+  type LinkIsLive,
+} from "@/lib/root-cause/model";
 
 // Recharts loads with the survival chart, not the page.
 const TimeToPublishChart = dynamic(() => import("./charts").then((m) => m.TimeToPublishChart), {
@@ -42,8 +53,43 @@ function emptyDraft(): NewPMDraft {
   return { title: "", incidentDate: todayIso(), description: "" };
 }
 
+const NO_ANALYSES: RootCauseAnalysis[] = [];
+
+/**
+ * An analysis as a post-mortem links to it. `isLive` tells whether its sent
+ * countermeasure's action is still in Retro Actions, as Root Cause reads it.
+ */
+function linkedAnalysis(a: RootCauseAnalysis, isLive: LinkIsLive): LinkedAnalysis {
+  return {
+    id: a.id,
+    title: a.title,
+    stage: STAGE_LABEL[analysisStage(a, isLive)],
+    href: rootCauseHref(a.id),
+  };
+}
+
+/**
+ * Open a contributing factor in Root Cause: the analysis made from it before,
+ * or a new one (with Undo) whose problem quotes the factor and names the
+ * post-mortem, which it links back to.
+ */
+function analyzeFactor(pm: PostMortem, factor: string) {
+  openRootCause({
+    title: factor.replace(/\s+/g, " ").trim().slice(0, 200),
+    description: `${factor.trim()}\n\nA contributing factor in the post-mortem “${pm.title}” (${pm.incidentDate}).`,
+    sourceRef: postMortemFactorRef(pm.id, factor),
+  });
+}
+
 export function PostMortemClient() {
   const [state, setState] = usePostMortemLog();
+  // Root Cause's analyses: a factor links to the one made from it, a
+  // post-mortem lists the ones linked to it.
+  // A synced row can hold anything: read each one as Root Cause does.
+  const storedAnalyses = useWorkspaceStore((s) => s.rootCauseAnalyses) ?? NO_ANALYSES;
+  const analyses = useMemo(() => readAnalyses(storedAnalyses), [storedAnalyses]);
+  const retroBoards = useWorkspaceStore((s) => s.retroBoards);
+  const isLive = useMemo(() => liveOnBoards(retroBoards), [retroBoards]);
   const { log } = useHistoryLogger("post-mortem");
   const [draft, setDraft] = useState<NewPMDraft>(emptyDraft);
 
@@ -510,6 +556,14 @@ export function PostMortemClient() {
               onAddAction={(t) => addAction(pm.id, t)}
               onUpdateAction={(aId, patch) => updateAction(pm.id, aId, patch)}
               onRemoveAction={(aId) => removeAction(pm.id, aId)}
+              analysisOf={(factor) => {
+                const a = analysisFrom(postMortemFactorRef(pm.id, factor), analyses);
+                return a ? linkedAnalysis(a, isLive) : undefined;
+              }}
+              onAnalyze={(factor) => analyzeFactor(pm, factor)}
+              analyses={analyses
+                .filter((a) => a.postMortemId === pm.id)
+                .map((a) => linkedAnalysis(a, isLive))}
             />
           ))}
         </div>

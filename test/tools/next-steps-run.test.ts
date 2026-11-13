@@ -3,6 +3,7 @@ import { getNextStepRule } from "@/lib/tools/next-steps";
 import type {
   Impediment,
   KanbanCard,
+  ParkingLotItem,
   Sprint,
   SprintReview,
   Story,
@@ -279,5 +280,242 @@ describe("sprint-review", () => {
     expect(out.map((s) => s.id)).toEqual(["review-retro", "review-refine"]);
     expect(out[0].label).toBe("Hold the retrospective for Sprint 1");
     expect(ids("sprint-review", { sprints: [s1], sprintReviews: [], stories: [] })).toEqual([]);
+  });
+});
+
+describe("interrupt-buffer (tools plan phase 1)", () => {
+  it("sends a sprint over its buffer to the cockpit", () => {
+    const out = steps("interrupt-buffer", {
+      sprints: [sprint({ interruptBuffer: { points: 2 } })],
+      interruptItems: [
+        {
+          id: "i1",
+          sprintId: "s2",
+          title: "Login broken",
+          kind: "bug",
+          size: 3,
+          emergency: false,
+          loggedAt: "2026-10-20T09:00:00.000Z",
+        },
+      ],
+    });
+    expect(out.map((s) => s.id)).toEqual(["interrupt-buffer-over"]);
+    expect(out[0].href).toBe("/sprint?sprint=s2");
+  });
+
+  it("stays quiet within the buffer", () => {
+    expect(
+      ids("interrupt-buffer", {
+        sprints: [sprint({ interruptBuffer: { points: 8 } })],
+        interruptItems: [],
+      })
+    ).toEqual([]);
+  });
+});
+
+describe("picker (tools plan phase 1)", () => {
+  const team = [{ id: "m1", name: "Sam" }];
+
+  it("asks for the team while the roster is empty or only the example", () => {
+    expect(ids("picker", { teamMembers: [] })).toEqual(["picker-team"]);
+    expect(ids("picker", { teamMembers: [{ id: "example-m1", name: "Sam" }] })).toEqual([
+      "picker-team",
+    ]);
+    expect(ids("picker", { teamMembers: team })).toEqual([]);
+  });
+
+  it("leads on to a ceremony starting within the hour", () => {
+    // Monday 26 Oct at 09:00; the default Daily Scrum is at 09:30.
+    vi.setSystemTime(new Date("2026-10-26T09:00:00"));
+    expect(
+      steps("picker", { teamMembers: team, sprints: [sprint()], ceremonyCadences: [] })[0]
+    ).toMatchObject({
+      id: "picker-ceremony",
+      label: "Go on to the Daily Scrum",
+      href: "/standup?sprint=s2",
+    });
+    vi.setSystemTime(new Date("2026-10-24T09:00:00"));
+    expect(ids("picker", { teamMembers: team, sprints: [sprint()], ceremonyCadences: [] })).toEqual(
+      []
+    );
+  });
+});
+
+describe("quick-vote", () => {
+  it("leads a proposed decision to the Decision Log and a vote's topic to the retro", () => {
+    const out = steps("quick-vote", {
+      decisions: [
+        {
+          id: "d1",
+          title: "Thursday demos? Most picked: Thumbs up (4)",
+          decision: "",
+          status: "proposed",
+          sourceRef: { tool: "quick-vote", id: "qvr-1" },
+        } as never,
+      ],
+      retroBoards: [
+        {
+          id: "retro:current",
+          cards: [
+            {
+              id: "c1",
+              text: "Worth it? Average 2.1 of 4",
+              isActionItem: false,
+              sourceRef: { tool: "quick-vote", id: "qvr-2" },
+            },
+            {
+              id: "example-c2",
+              text: "Example",
+              isActionItem: false,
+              sourceRef: { tool: "quick-vote", id: "x" },
+            },
+          ],
+        } as never,
+      ],
+    });
+    expect(out.map((s) => [s.id, s.href])).toEqual([
+      ["quick-vote-decide", "/decision-log?id=d1"],
+      ["quick-vote-retro", "/retro"],
+    ]);
+    expect(out[0].label).toBe(
+      "Record the decision on “Thursday demos? Most picked: Thumbs up (4)”"
+    );
+    expect(out[1].detail).toBe("1 vote result is on the retro board.");
+  });
+
+  it("stays quiet with nothing sent, or once the decision is made", () => {
+    expect(ids("quick-vote", { decisions: [], retroBoards: [] })).toEqual([]);
+    expect(
+      ids("quick-vote", {
+        decisions: [
+          {
+            id: "d1",
+            title: "X",
+            decision: "Go",
+            status: "accepted",
+            sourceRef: { tool: "quick-vote", id: "q" },
+          } as never,
+        ],
+      })
+    ).toEqual([]);
+  });
+});
+
+describe("audience-wall", () => {
+  const fromWall = (id: string): Story =>
+    story({
+      id,
+      sprintId: undefined,
+      status: "backlog",
+      sourceRef: { tool: "audience-wall", id: "wall_1" },
+    });
+
+  it("sends the stories its feedback made to refinement, the example's left out", () => {
+    expect(
+      steps("audience-wall", { sprints: [], stories: [fromWall("w1"), fromWall("example-w2")] })
+    ).toEqual([
+      expect.objectContaining({
+        id: "audience-wall-refine",
+        href: "/refinement",
+        detail: "1 story from Audience Wall is on the backlog, not refined yet.",
+      }),
+    ]);
+  });
+
+  it("on the active sprint's last day, points to the review's feedback room", () => {
+    expect(
+      steps("audience-wall", { sprints: [sprint({ endDate: "2026-10-24" })], stories: [] })
+    ).toEqual([
+      expect.objectContaining({
+        id: "audience-wall-review",
+        href: "/sprint-review?sprint=s2",
+        detail: expect.stringMatching(/^The sprint ends today\./),
+      }),
+    ]);
+  });
+
+  it("counts a full ISO end date as its day, and says an overdue sprint has ended", () => {
+    expect(
+      ids("audience-wall", {
+        sprints: [sprint({ endDate: "2026-10-24T17:00:00.000Z" })],
+        stories: [],
+      })
+    ).toEqual(["audience-wall-review"]);
+    expect(
+      steps("audience-wall", { sprints: [sprint({ endDate: "2026-10-22" })], stories: [] })
+    ).toEqual([
+      expect.objectContaining({
+        id: "audience-wall-review",
+        detail: expect.stringMatching(/^The sprint has ended\./),
+      }),
+    ]);
+  });
+
+  it("stays quiet otherwise", () => {
+    expect(ids("audience-wall", { sprints: [sprint()], stories: [story()] })).toEqual([]);
+  });
+});
+
+describe("facilitator-timers", () => {
+  const parked = (id: string, status: "open" | "discussed") => ({
+    id,
+    text: "Move the demo to Thursday",
+    status,
+    createdAt: "2026-10-22T09:00:00Z",
+    updatedAt: "2026-10-22T09:00:00Z",
+  });
+
+  it("points at the open parked points, then the next ceremony to time", () => {
+    const ws = {
+      sprints: [sprint()],
+      ceremonyCadences: [],
+      parkingLotItems: [
+        parked("p1", "open"),
+        parked("p2", "discussed"),
+        parked("example-p3", "open"),
+      ],
+    };
+    const [first, second] = steps("facilitator-timers", ws as Partial<Workspace>);
+    expect(first).toMatchObject({
+      id: "timers-parking-lot",
+      label: "Go through the 1 parked point",
+      href: "/parking-lot",
+    });
+    // Saturday 24 Oct at 09:00, default cadence: the next one is Monday's Daily Scrum.
+    expect(second).toMatchObject({
+      id: "timers-next-ceremony",
+      label: "Time the Daily Scrum to its agenda",
+      href: "/ceremony-timer?agenda=daily",
+    });
+  });
+
+  it("stays quiet with nothing parked and no sprint on", () => {
+    expect(ids("facilitator-timers", { sprints: [], parkingLotItems: [] })).toEqual([]);
+  });
+});
+
+describe("parking-lot", () => {
+  const point = (over: Partial<ParkingLotItem> = {}): ParkingLotItem => ({
+    id: "p1",
+    text: "Who owns the release checklist?",
+    status: "open",
+    createdAt: "2026-10-23T09:00:00.000Z",
+    updatedAt: "2026-10-23T09:00:00.000Z",
+    ...over,
+  });
+
+  it("asks for the end-of-meeting review while points are open, the stale ones first", () => {
+    expect(ids("parking-lot", { parkingLotItems: [] })).toEqual([]);
+    expect(ids("parking-lot", { parkingLotItems: [point({ status: "sent" })] })).toEqual([]);
+    expect(ids("parking-lot", { parkingLotItems: [point()] })).toEqual(["parking-lot-review"]);
+    expect(
+      ids("parking-lot", {
+        parkingLotItems: [point(), point({ id: "p2", createdAt: "2026-10-10T09:00:00.000Z" })],
+      })
+    ).toEqual(["parking-lot-stale"]);
+  });
+
+  it("leaves the example out", () => {
+    expect(ids("parking-lot", { parkingLotItems: [point({ id: "example-p1" })] })).toEqual([]);
   });
 });

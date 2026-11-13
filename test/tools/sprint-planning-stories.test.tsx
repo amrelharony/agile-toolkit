@@ -391,6 +391,31 @@ describe("a story's details", () => {
     expect(within(row("Backlog", "Apple Pay")).getByText("PAY-12")).toBeInTheDocument();
   });
 
+  it("writes Given/When/Then on a story with no details, beside the free-text form", () => {
+    renderPlanning();
+    open("Apple Pay");
+    const panel = details("Apple Pay");
+    // It opens on the free-text form, with the scenarios under it.
+    expect(within(panel).getByLabelText("Acceptance criteria")).toHaveFocus();
+    fireEvent.click(within(panel).getByRole("button", { name: "Add a scenario: Apple Pay" }));
+    fireEvent.change(within(panel).getByLabelText("Given"), { target: { value: "a phone" } });
+    fireEvent.change(within(panel).getByLabelText("When"), { target: { value: "I tap to pay" } });
+    fireEvent.change(within(panel).getByLabelText("Then"), {
+      target: { value: "the payment goes through" },
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "Add scenario" }));
+    expect(story("b2")?.gwt).toEqual([
+      expect.objectContaining({ given: "a phone", then: "the payment goes through" }),
+    ]);
+    expect(story("b2")?.acceptanceCriteria).toBeUndefined();
+    // No free text, but the panel stays open for the scenario.
+    fireEvent.click(within(details("Apple Pay")).getByRole("button", { name: "Cancel" }));
+    expect(
+      within(details("Apple Pay")).getByRole("list", { name: "Scenarios for Apple Pay" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Details: Apple Pay" })).toBeInTheDocument();
+  });
+
   it("says what is wrong with a link and saves nothing until it is fixed", () => {
     renderPlanning();
     open("Apple Pay");

@@ -88,6 +88,11 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: ["links"],
     actions: { edge_added: ["links.connect"], node_added: ["links.pin"] },
   },
+  {
+    toolId: "product-goal",
+    open: ["goal", "goal.think"],
+    actions: { goal_created: ["goal.think"], goal_achieved: ["goal.hit"] },
+  },
   // Run the sprint
   {
     toolId: "impediments",
@@ -333,10 +338,34 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     actions: { decision_added: ["gavel.record"], decision_decided: ["gavel.bang"] },
   },
   { toolId: "async-standup", open: [], actions: { update_posted: ["timer.standup"] } },
+  // wall_saved has no scene: the same tick cheers ("audience-wall", "result").
+  { toolId: "audience-wall", open: [], actions: { themes_accepted: ["sticky.think"] } },
+  // Amr thinks along while the team asks why or lays out causes.
+  {
+    toolId: "root-cause",
+    open: [],
+    actions: { why_added: ["sticky.think"], cause_added: ["sticky.think"] },
+  },
+  // A point parked is written on a sticky and stuck up; one sent on is a to-do taken.
+  {
+    toolId: "parking-lot",
+    open: [],
+    actions: { item_parked: ["sticky"], item_sent: ["todo.take"] },
+  },
 
   // ── Tools with the toolkit moments (S54–S59): no greeting, but their packs
   // load when the page opens, so the first reaction plays whole ──
-  { toolId: "retro", open: [], actions: { card_added: STICKY, kudos_added: ["kudos"] } },
+  {
+    toolId: "retro",
+    open: [],
+    actions: {
+      card_added: STICKY,
+      kudos_added: ["kudos"],
+      // The Lean Coffee runner's timebox per topic.
+      topic_started: ["timer"],
+      topic_done: ["timer.done"],
+    },
+  },
   { toolId: "kanban", open: [], actions: { card_added: STICKY } },
   { toolId: "story-mapper", open: [], actions: { card_added: STICKY } },
   {
@@ -354,6 +383,15 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     actions: {
       timer_started: ["timer"],
       timer_paused: ["timer.done"],
+      timer_finished: ["timer.done"],
+    },
+  },
+  {
+    toolId: "facilitator-timers",
+    open: [],
+    actions: {
+      timer_started: ["timer"],
+      break_started: ["timer"],
       timer_finished: ["timer.done"],
     },
   },

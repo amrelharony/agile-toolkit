@@ -109,10 +109,28 @@ const UPGRADED_TOOLS = [
   "test-pyramid",
   "flaky-tests",
   "code-review-metrics",
+  // Tools plan, phase 1.
+  "product-goal",
+  "backlog-health",
+  "interrupt-buffer",
+  "picker",
+  "quick-vote",
+  "audience-wall",
+  "facilitator-timers",
+  "root-cause",
+  "team-mixer",
+  "card-decks",
+  "parking-lot",
   // Book readers: the Squad Session Kit. Meet the Cast and Which Colleague hold no
   // team data, so there's nothing to load, export or undo in them.
   "squad-session",
 ];
+
+/**
+ * Shelved tools (the More tools shelf) held to the whole contract anyway:
+ * the tools plan's new tools meet it whether shelved or not.
+ */
+const SHELVED_UPGRADED_TOOLS = ["meeting-audit"];
 
 /**
  * Tools whose phase row limits the upgrade to named features ("no other
@@ -202,6 +220,11 @@ describe("tool UX contract", () => {
     for (const id of UPGRADED_TOOLS) expect(mainToolIds, id).toContain(id);
   });
 
+  it("lists only shelved tools that exist as shelved upgrades", () => {
+    const shelved = tools.filter((t) => isShelved(t)).map((t) => t.id);
+    for (const id of SHELVED_UPGRADED_TOOLS) expect(shelved, id).toContain(id);
+  });
+
   it("merged tools open the tool they were merged into", () => {
     for (const [id, home] of Object.entries(MERGED_INTO)) {
       expect(UPGRADED_TOOLS, home).toContain(home);
@@ -209,7 +232,7 @@ describe("tool UX contract", () => {
     }
   });
 
-  describe.each(UPGRADED_TOOLS)("%s", (id) => {
+  describe.each([...UPGRADED_TOOLS, ...SHELVED_UPGRADED_TOOLS])("%s", (id) => {
     const home = MERGED_INTO[id] ?? id;
     const dir = path.join(TOOLS_DIR, home);
     const src = toolCode(home);
