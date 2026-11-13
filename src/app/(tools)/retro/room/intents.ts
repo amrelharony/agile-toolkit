@@ -95,7 +95,9 @@ export type IntentRejection =
   | "unknown-card"
   | "not-yours"
   | "vote-budget"
-  | "undo-cap";
+  | "undo-cap"
+  /** A thumb: it changes the host's poll, never the board (thumbs.ts applies it). */
+  | "not-board";
 
 /** What an accepted intent changes. */
 export type IntentPatch =
@@ -359,5 +361,9 @@ export function applyIntent(
         }
       );
     }
+
+    case "thumb":
+      // The thumbs vote has its own reducer (thumbs.ts); the board is untouched.
+      return { ok: false, reason: "not-board" };
   }
 }

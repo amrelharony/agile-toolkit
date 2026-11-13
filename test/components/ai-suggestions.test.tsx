@@ -148,6 +148,17 @@ describe("AiSuggestions", () => {
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Amr's suggestions" }));
   });
 
+  it("offers no Add all when the items are alternatives (pickOne)", () => {
+    const onAccept = vi.fn();
+    render(
+      <AiSuggestions items={ITEMS} pickOne onAccept={onAccept} onDismiss={() => {}} source="ai" />
+    );
+    expect(screen.queryByRole("button", { name: /all/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add: Tuesday" }));
+    expect(onAccept).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /all/ })).toBeNull();
+  });
+
   it("renders nothing for an empty list", () => {
     const { container } = render(
       <AiSuggestions items={[]} onAccept={() => {}} onDismiss={() => {}} source="ai" />

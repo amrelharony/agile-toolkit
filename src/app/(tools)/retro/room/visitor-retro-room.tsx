@@ -36,7 +36,10 @@ import { Check, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
+import { TypedCodeHint } from "@/components/collab/typed-code-hint";
+import { RoomReactions } from "@/components/collab/room-reactions";
 import { useAnnounce } from "@/components/a11y/live-announcer";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { SNAPSHOT_IMPORTERS } from "@/lib/share/snapshot-import";
 import {
   VISITOR_LIMITS,
@@ -57,6 +60,7 @@ import { TimerWidget } from "../components/timer-widget";
 import { hiddenTotal } from "./hidden";
 import { MEMBER_CARD_CAP } from "./protocol";
 import { ParticipantBoard } from "./participant-board";
+import { ThumbsVoteCard, thumbsVerdict } from "./thumbs-vote-card";
 import {
   HideCardsSetting,
   IdlePromptDialog,
@@ -64,6 +68,7 @@ import {
   RoomPhaseSteps,
   RoomTimerReadout,
   useRoomCountdown,
+  useRoomTimerAlarm,
 } from "./room-controls";
 import {
   useRetroRoom,
@@ -168,8 +173,13 @@ function closedCopy(
   }
 }
 
+/** A room with no host this long may be the wrong pick of a typed code. */
+const TYPED_CODE_HINT_MS = 20_000;
+
 function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
   const room = useRetroRoom({ code, identity, role: "participant" });
+  // Reactions only: the countdown travels in the snapshot.
+  const extras = useRoomExtras(room.extras, { timer: false });
   const announce = useAnnounce();
   const [saved, setSaved] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -184,6 +194,12 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
   );
   const active = status === "connecting" || status === "live";
   const closed = !active;
+  // A promoted host's timer widget: the alarm and overtime the Board would give it.
+  const hostingTimer = isHost && active;
+  const overSince = useRoomTimerAlarm(
+    hostingTimer ? room.timer : null,
+    hostingTimer ? countdown : null
+  );
   const phase = board?.phase ?? null;
 
   // ── Announcements ────────────────────────────────────────────────
@@ -211,6 +227,24 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
       );
     }
   }, [status, hostName, announce]);
+
+  // The host's thumbs vote: said when it opens and when it closes, since the
+  // card can appear above the board while someone is scrolled down to their
+  // column. A promoted host runs its own vote, so says nothing here.
+  const poll = !isHost && active ? room.poll : null;
+  const lastPoll = useRef<{ id: string; open: boolean } | null>(null);
+  useEffect(() => {
+    const prev = lastPoll.current;
+    lastPoll.current = poll ? { id: poll.id, open: poll.open } : null;
+    if (!poll) return;
+    if (poll.open && prev?.id !== poll.id) {
+      announce(`The host asks: keep going or move on? ${poll.topic}`);
+    } else if (!poll.open && (prev?.id !== poll.id || prev.open)) {
+      announce(
+        `The vote is closed. Keep going ${poll.keep ?? 0}, move on ${poll.move ?? 0}. ${thumbsVerdict({ keep: poll.keep ?? 0, move: poll.move ?? 0 })}`
+      );
+    }
+  }, [poll, announce]);
 
   const lastHost = useRef<string | null>(hostId);
   useEffect(() => {
@@ -391,6 +425,9 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
               ? "This room runs on a different version of the Agile Toolkit, so its board can't open here. Ask the host to reload their page, then reload this one."
               : "Connecting to the room…"}
           </p>
+          {!room.otherVersion && (
+            <TypedCodeHint code={code} toolName="Retro" afterMs={TYPED_CODE_HINT_MS} />
+          )}
           <Button type="button" variant="outline" onClick={handleLeave}>
             Leave
           </Button>
@@ -429,6 +466,7 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
               <TimerWidget
                 seconds={countdown}
                 running={room.timer.running && countdown > 0}
+                overSince={overSince}
                 onToggle={room.toggleTimer}
                 onReset={() => room.setTimerSeconds(300)}
                 onChange={room.setTimerSeconds}
@@ -514,6 +552,15 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
             />
           )}
 
+          {active && !hosting && room.poll && (
+            <ThumbsVoteCard
+              poll={room.poll}
+              myThumb={room.myThumb}
+              canVote={room.admitted}
+              onThumb={room.thumb}
+            />
+          )}
+
           <ParticipantBoard
             board={board}
             votesPerPerson={room.votesPerPerson}
@@ -528,6 +575,8 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
             onUnvote={handleUnvote}
             onEdit={hosting ? handleEdit : undefined}
           />
+
+          {status === "live" && <RoomReactions extras={extras} className="pt-2" />}
 
           {active && (
             <footer className="flex flex-wrap items-center gap-3 border-t border-border pt-2">

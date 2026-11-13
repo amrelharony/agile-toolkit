@@ -3,12 +3,16 @@
  * (the retro's five phases, 1-2-4-All's rounds), with the total taken from
  * the team's cadence and split across the segments by weight.
  *
- * Pure: the team's edits come in as saved segments (./store.ts) and the
- * sprint length as a number, so the maths is testable without a store.
+ * The team can change a built-in agenda (names, lengths, rounds of turns,
+ * and which segments it has, in what order) and save any agenda under a
+ * name of its own. Pure: the team's edits come in as saved segments, a
+ * layout and named agendas (./store.ts), and the sprint length as a
+ * number, so the maths is testable without a store.
  */
 
 import { ceremonyTimeboxMinutes, type CeremonyKind } from "@/lib/sprints/cadence";
 
+/** The built-in agendas. */
 export type AgendaId =
   | "daily"
   | "planning"
@@ -17,6 +21,12 @@ export type AgendaId =
   | "retro"
   | "one-two-four-all"
   | "custom";
+
+/** An agenda the team saved under a name: "saved-" and a short random id. */
+export type SavedAgendaId = `saved-${string}`;
+
+/** Any agenda the timer runs: a built-in one or one the team saved. */
+export type AgendaKey = AgendaId | SavedAgendaId;
 
 /** One timed part of an agenda, as the timer runs it. */
 export interface Segment {
@@ -32,7 +42,7 @@ export interface Segment {
 }
 
 export interface Agenda {
-  id: AgendaId;
+  id: AgendaKey;
   /** "Sprint Retrospective" */
   label: string;
   /** "Retro": for the docked timer and the verdict. */
@@ -40,17 +50,49 @@ export interface Agenda {
   segments: Segment[];
   /** The team changed it from the defaults. */
   edited: boolean;
+  /** One the team saved under a name: it can be renamed and deleted, never reset. */
+  saved?: boolean;
 }
 
-/** A segment as the team saved it; anything missing falls back to the default. */
+/**
+ * A segment of a built-in agenda as the team saved it; anything missing
+ * falls back to the default. A segment the team added (`added`) has no
+ * default, so it carries its own name and length, and its hint if it has
+ * one.
+ */
 export interface SavedSegment {
   id: string;
   label?: string;
   minutes?: number;
   speakers?: boolean;
+  added?: boolean;
+  hint?: string;
 }
 
 export type SavedAgendas = Partial<Record<AgendaId, SavedSegment[]>>;
+
+/**
+ * Per built-in agenda, the ids of its segments in the order the team set,
+ * once they added, removed or reordered any. Absent means every built-in
+ * segment, in the built-in order.
+ */
+export type AgendaLayouts = Partial<Record<AgendaId, string[]>>;
+
+/** A segment of a named agenda: everything it needs, nothing follows the cadence. */
+export interface NamedAgendaSegment {
+  id: string;
+  label: string;
+  minutes: number;
+  speakers: boolean;
+  hint?: string;
+}
+
+/** An agenda the team saved under a name. */
+export interface NamedAgenda {
+  id: SavedAgendaId;
+  name: string;
+  segments: NamedAgendaSegment[];
+}
 
 interface SegmentTemplate {
   id: string;
@@ -77,6 +119,23 @@ export const MAX_AGENDA_MINUTES = 480;
 
 /** The shortest segment the editor accepts. */
 export const MIN_SEGMENT_MINUTES = 0.5;
+
+/** The most segments an agenda holds. */
+export const MAX_SEGMENTS = 20;
+
+/** The most agendas the team can save under a name. */
+export const MAX_NAMED_AGENDAS = 30;
+
+/** The longest agenda name and segment name. */
+export const AGENDA_NAME_MAX = 80;
+export const SEGMENT_LABEL_MAX = 80;
+
+/** The longest hint a segment keeps. */
+export const SEGMENT_HINT_MAX = 200;
+
+export const SAVED_AGENDA_PREFIX = "saved-";
+const SAVED_ID = /^saved-[a-z0-9-]{1,40}$/;
+const SEGMENT_ID = /^[a-z0-9-]{1,60}$/;
 
 /**
  * The built-in agendas, in the order the picker lists them. Weights give
@@ -261,6 +320,42 @@ export function isAgendaId(value: unknown): value is AgendaId {
   return typeof value === "string" && TEMPLATE_BY_ID.has(value as AgendaId);
 }
 
+export function isSavedAgendaId(value: unknown): value is SavedAgendaId {
+  return typeof value === "string" && SAVED_ID.test(value);
+}
+
+/** A built-in agenda's id or a saved one's (whether that one still exists is the store's to say). */
+export function isAgendaKey(value: unknown): value is AgendaKey {
+  return isAgendaId(value) || isSavedAgendaId(value);
+}
+
+/** A fresh id for an agenda saved under a name. */
+export function newSavedAgendaId(random: () => number = Math.random): SavedAgendaId {
+  return `${SAVED_AGENDA_PREFIX}${randomTail(random)}`;
+}
+
+/** A fresh id for a segment the team adds, none of `taken`. */
+export function newSegmentId(taken: Iterable<string>, random: () => number = Math.random): string {
+  const used = new Set(taken);
+  for (;;) {
+    const id = `seg-${randomTail(random)}`;
+    if (!used.has(id)) return id;
+  }
+}
+
+function randomTail(random: () => number): string {
+  let out = "";
+  for (let i = 0; i < 8; i++)
+    out += "abcdefghijkmnpqrstuvwxyz23456789"[Math.floor(random() * 32) % 32];
+  return out;
+}
+
+/** Text cut to `max` characters, ending in "…" when it was longer. */
+function capText(text: string, max: number): string {
+  const t = text.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
 /**
  * `totalSeconds` split by `weights` into whole seconds that add up exactly.
  *
@@ -331,16 +426,28 @@ function savedSeconds(minutes: unknown): number | null {
   return seconds > 0 ? seconds : null;
 }
 
+/** A segment name read from storage: trimmed and capped, or null when blank. */
+function savedLabel(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? capText(value, SEGMENT_LABEL_MAX) : null;
+}
+
+function savedHint(value: unknown): string {
+  return typeof value === "string" ? capText(value, SEGMENT_HINT_MAX) : "";
+}
+
 /**
  * The agenda as the timer runs it: the built-in segments, with each one's
- * saved label, length and turn-taking where the team changed them. Saved
+ * saved label, length and turn-taking where the team changed them, any
+ * segments the team added, in the order the team set (`layouts`). Saved
  * rows are matched by segment id; rows for segments the agenda doesn't
  * have, and values that can't be used (hand-edited storage), are ignored.
+ * A layout that names no segment the agenda has leaves the built-in order.
  */
 export function resolveAgenda(
   id: AgendaId,
   saved: SavedAgendas | null | undefined,
-  sprintLengthDays: number
+  sprintLengthDays: number,
+  layouts?: AgendaLayouts | null
 ): Agenda {
   const t = TEMPLATE_BY_ID.get(id) ?? TEMPLATE_BY_ID.get("custom")!;
   const rows = Array.isArray(saved?.[t.id]) ? (saved?.[t.id] as unknown[]) : [];
@@ -351,28 +458,90 @@ export function resolveAgenda(
     if (typeof r.id === "string" && !byId.has(r.id)) byId.set(r.id, r);
   }
   let edited = false;
-  const segments = defaultSegments(t, sprintLengthDays).map((seg) => {
+  const builtIn = defaultSegments(t, sprintLengthDays).map((seg) => {
     const row = byId.get(seg.id);
     if (!row) return seg;
-    const label = typeof row.label === "string" && row.label.trim() ? row.label.trim() : seg.label;
+    const label = savedLabel(row.label) ?? seg.label;
     const seconds = savedSeconds(row.minutes) ?? seg.seconds;
     const speakers = typeof row.speakers === "boolean" ? row.speakers : seg.speakers;
     if (label !== seg.label || seconds !== seg.seconds || speakers !== seg.speakers) edited = true;
     return { ...seg, label, seconds, speakers };
   });
+
+  // Segments the team added: each needs its own id, name and length.
+  const builtInIds = new Set(builtIn.map((s) => s.id));
+  const added: Segment[] = [];
+  for (const [segId, row] of Array.from(byId)) {
+    if (row.added !== true || builtInIds.has(segId) || !SEGMENT_ID.test(segId)) continue;
+    const label = savedLabel(row.label);
+    const seconds = savedSeconds(row.minutes);
+    if (!label || seconds === null) continue;
+    added.push({
+      id: segId,
+      label,
+      seconds,
+      speakers: row.speakers === true,
+      hint: savedHint(row.hint),
+    });
+  }
+
+  let segments = [...builtIn, ...added];
+  const layout = layouts?.[t.id];
+  if (Array.isArray(layout) && layout.length > 0) {
+    const pool = new Map(segments.map((s) => [s.id, s]));
+    const ordered: Segment[] = [];
+    for (const segId of layout) {
+      const seg = typeof segId === "string" ? pool.get(segId) : undefined;
+      if (!seg) continue;
+      ordered.push(seg);
+      pool.delete(segId);
+    }
+    if (ordered.length > 0) segments = ordered;
+  }
+  segments = segments.slice(0, MAX_SEGMENTS);
+  if (segments.length !== builtIn.length || segments.some((s, i) => s.id !== builtIn[i].id)) {
+    edited = true;
+  }
   return { id: t.id, label: t.label, short: t.short, segments, edited };
 }
 
-/** Every built-in agenda, resolved. */
-export function allAgendas(saved: SavedAgendas | null | undefined, sprintLengthDays: number) {
-  return AGENDA_IDS.map((id) => resolveAgenda(id, saved, sprintLengthDays));
+/** A named agenda as the timer runs it. */
+export function resolveNamedAgenda(named: NamedAgenda): Agenda {
+  return {
+    id: named.id,
+    label: named.name,
+    short: named.name,
+    segments: named.segments.map((s) => ({
+      id: s.id,
+      label: s.label,
+      seconds: Math.round(s.minutes * 60),
+      speakers: s.speakers,
+      hint: s.hint ?? "",
+    })),
+    edited: false,
+    saved: true,
+  };
+}
+
+/** Every built-in agenda, resolved, then the team's named ones in the order they were saved. */
+export function allAgendas(
+  saved: SavedAgendas | null | undefined,
+  sprintLengthDays: number,
+  layouts?: AgendaLayouts | null,
+  named?: readonly NamedAgenda[] | null
+): Agenda[] {
+  return [
+    ...AGENDA_IDS.map((id) => resolveAgenda(id, saved, sprintLengthDays, layouts)),
+    ...(named ?? []).map(resolveNamedAgenda),
+  ];
 }
 
 /**
- * What the team's edit stores: for each segment, only what differs from the
- * default (an empty list when nothing does). A length left alone keeps
- * following the cadence, so a team that renames "Gather data" still gets a
- * shorter retro when it moves to one-week sprints.
+ * What the team's edit stores: for each built-in segment, only what differs
+ * from the default (an empty list when nothing does), and every segment the
+ * team added in full. A length left alone keeps following the cadence, so a
+ * team that renames "Gather data" still gets a shorter retro when it moves
+ * to one-week sprints.
  */
 export function toSaved(
   id: AgendaId,
@@ -385,7 +554,17 @@ export function toSaved(
   const out: SavedSegment[] = [];
   for (const s of segments) {
     const d = defaults.get(s.id);
-    if (!d) continue;
+    if (!d) {
+      out.push({
+        id: s.id,
+        added: true,
+        label: s.label,
+        minutes: s.seconds / 60,
+        ...(s.speakers ? { speakers: true } : {}),
+        ...(s.hint ? { hint: s.hint } : {}),
+      });
+      continue;
+    }
     const row: SavedSegment = { id: s.id };
     if (s.label !== d.label) row.label = s.label;
     if (s.seconds !== d.seconds) row.minutes = s.seconds / 60;
@@ -395,14 +574,137 @@ export function toSaved(
   return out;
 }
 
+/**
+ * The order to store for a built-in agenda's segments: their ids, once
+ * they differ from the built-in segments in the built-in order (one was
+ * added, removed or moved); undefined while they don't.
+ */
+export function layoutOf(
+  id: AgendaId,
+  segments: readonly Pick<Segment, "id">[]
+): string[] | undefined {
+  const t = TEMPLATE_BY_ID.get(id);
+  const defaults = t ? t.segments.map((s) => s.id) : [];
+  const ids = segments.map((s) => s.id);
+  const same = ids.length === defaults.length && ids.every((x, i) => x === defaults[i]);
+  return same ? undefined : ids;
+}
+
+/** A named agenda holding `segments`, as they are now (lengths no longer follow the cadence). */
+export function namedAgendaFrom(
+  id: SavedAgendaId,
+  name: string,
+  segments: readonly Segment[]
+): NamedAgenda {
+  return {
+    id,
+    name: capText(name, AGENDA_NAME_MAX),
+    segments: segments.slice(0, MAX_SEGMENTS).map((s) => ({
+      id: s.id,
+      label: capText(s.label, SEGMENT_LABEL_MAX),
+      minutes: s.seconds / 60,
+      speakers: s.speakers,
+      ...(s.hint ? { hint: capText(s.hint, SEGMENT_HINT_MAX) } : {}),
+    })),
+  };
+}
+
+/**
+ * The named agendas made safe to use (synced or hand-edited storage can
+ * hold anything): a known id shape, each id once, a name, and at least one
+ * segment with a name and a usable length. At most MAX_NAMED_AGENDAS.
+ */
+export function normalizeNamedAgendas(raw: unknown): NamedAgenda[] {
+  if (!Array.isArray(raw)) return [];
+  const out: NamedAgenda[] = [];
+  const ids = new Set<string>();
+  for (const item of raw) {
+    if (out.length >= MAX_NAMED_AGENDAS) break;
+    if (!item || typeof item !== "object") continue;
+    const r = item as Record<string, unknown>;
+    if (!isSavedAgendaId(r.id) || ids.has(r.id)) continue;
+    const name =
+      typeof r.name === "string" && r.name.trim() ? capText(r.name, AGENDA_NAME_MAX) : "";
+    if (!name) continue;
+    const segIds = new Set<string>();
+    const segments: NamedAgendaSegment[] = [];
+    for (const row of Array.isArray(r.segments) ? r.segments : []) {
+      if (segments.length >= MAX_SEGMENTS) break;
+      if (!row || typeof row !== "object") continue;
+      const s = row as Record<string, unknown>;
+      const label = savedLabel(s.label);
+      const seconds = savedSeconds(s.minutes);
+      if (typeof s.id !== "string" || !SEGMENT_ID.test(s.id) || segIds.has(s.id)) continue;
+      if (!label || seconds === null) continue;
+      segIds.add(s.id);
+      const hint = savedHint(s.hint);
+      segments.push({
+        id: s.id,
+        label,
+        minutes: seconds / 60,
+        speakers: s.speakers === true,
+        ...(hint ? { hint } : {}),
+      });
+    }
+    if (segments.length === 0) continue;
+    ids.add(r.id);
+    out.push({ id: r.id, name, segments });
+  }
+  return out;
+}
+
+/** The stored layouts, keeping built-in agendas only and segment ids that could be real. */
+export function normalizeLayouts(raw: unknown): AgendaLayouts {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: AgendaLayouts = {};
+  for (const [id, ids] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isAgendaId(id) || !Array.isArray(ids)) continue;
+    const clean = Array.from(
+      new Set(ids.filter((x): x is string => typeof x === "string" && SEGMENT_ID.test(x)))
+    ).slice(0, MAX_SEGMENTS);
+    if (clean.length > 0) out[id] = clean;
+  }
+  return out;
+}
+
+/**
+ * A built-in agenda's segments split over `minutes` by its own weights, with
+ * its hints: what the agenda would be for a meeting that long. For a draft
+ * built from a template (Facilitator Timers' agenda without AI).
+ */
+export function templateSegments(id: AgendaId, minutes: number): Segment[] {
+  const t = TEMPLATE_BY_ID.get(id) ?? TEMPLATE_BY_ID.get("custom")!;
+  const total = Math.max(0, Math.min(MAX_AGENDA_MINUTES, Number.isFinite(minutes) ? minutes : 0));
+  const seconds = splitSeconds(
+    total * 60,
+    t.segments.map((s) => s.weight)
+  );
+  return t.segments.map((s, i) => ({
+    id: s.id,
+    label: s.label,
+    seconds: seconds[i] ?? 0,
+    speakers: s.speakers === true,
+    hint: s.hint,
+  }));
+}
+
+/** A built-in agenda's name: "Sprint Retrospective". */
+export function agendaLabel(id: AgendaId): string {
+  return TEMPLATE_BY_ID.get(id)?.label ?? "Custom time-box";
+}
+
 export function agendaSeconds(agenda: Pick<Agenda, "segments">): number {
   return agenda.segments.reduce((sum, s) => sum + s.seconds, 0);
 }
 
-/** `?agenda=retro` (a link from elsewhere in the toolkit), when it names an agenda. */
-export function readAgendaParam(search: string): AgendaId | null {
+/**
+ * `?agenda=retro` (a link from elsewhere in the toolkit), when it names an
+ * agenda: a built-in one, or one the team saved (the page checks it is still
+ * there).
+ */
+export function readAgendaParam(search: string): AgendaKey | null {
   const value = new URLSearchParams(search).get("agenda");
-  return isAgendaId(value) ? value : null;
+  return isAgendaKey(value) ? value : null;
 }
 
 /* -------------------------------------------------------------------------- */

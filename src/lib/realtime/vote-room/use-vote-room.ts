@@ -77,6 +77,7 @@ import {
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { useGuestProfile } from "@/lib/auth/guest-profile-provider";
 import { toast } from "@/lib/utils/toast";
+import type { RoomExtrasPort, RoomExtrasSigner } from "../use-room-extras";
 import {
   VOTE_LIMITS,
   VOTE_ROOM_EVENTS,
@@ -332,6 +333,11 @@ export interface VoteRoom {
   keepOpen: () => void;
   /** Leave the room (the host's leave ends it). */
   leave: () => void;
+  /**
+   * For the room's countdown and reactions (`useRoomExtras`): the host signs
+   * with the room key, participants trust only the pinned host.
+   */
+  extras: RoomExtrasPort;
   /** Host: more ballots than different names seen this round: someone may have answered twice. */
   stuffingSuspected: boolean;
   /**
@@ -1605,6 +1611,25 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
         : null
     : null;
 
+  // The countdown and reactions sign with the room key and trust only the pinned host.
+  const extrasSigner = useMemo<RoomExtrasSigner | null>(
+    () =>
+      cryptoImpl
+        ? {
+            sign: async (input) => {
+              const k = keysRef.current;
+              return k ? cryptoImpl.sign(k, input) : null;
+            },
+            verify: async (by, input, sig) => {
+              const pinned = pinnedRef.current;
+              if (!pinned || pinned.by !== by) return false;
+              return cryptoImpl.verify(pinned.sigKey, input, sig);
+            },
+          }
+        : null,
+    [cryptoImpl]
+  );
+
   return {
     status,
     endReason,
@@ -1647,6 +1672,18 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     idlePrompt,
     keepOpen,
     leave,
+    extras: {
+      tool,
+      code,
+      role,
+      selfId,
+      hostId,
+      live: active && status !== "preparing",
+      channel: room,
+      signer: extrasSigner,
+      // The host's list; that's the screen the room sees, big screen included.
+      blocked: (id) => removedRef.current.has(id),
+    },
     stuffingSuspected: role === "host" && (view?.suspicious ?? false),
     duplicateBallots: role === "host" ? (view?.duplicates ?? 0) : 0,
   };

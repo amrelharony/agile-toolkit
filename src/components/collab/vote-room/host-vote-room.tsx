@@ -35,6 +35,10 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
 import { IdlePromptDialog, RoomMemberList } from "@/components/collab/room-controls";
+import { RoomBigScreen, useBigScreen } from "@/components/collab/room-big-screen";
+import { RoomTimerControls } from "@/components/collab/room-countdown";
+import { RoomReactions } from "@/components/collab/room-reactions";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import type { VisitorIdentity } from "@/lib/realtime/visitor-rooms";
 import type { VoteRoomTool, VoteRoundKind } from "@/lib/realtime/vote-room/protocol";
 import {
@@ -151,6 +155,8 @@ export function HostVoteRoom({
   });
   // The running round's kind (New round may have changed it).
   const kind = room.kind;
+  const extras = useRoomExtras(room.extras);
+  const big = useBigScreen();
   const announce = useAnnounce();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
@@ -259,6 +265,7 @@ export function HostVoteRoom({
             isHost
             onEnd={() => setConfirmEnd(true)}
             linkFragment={fingerprint ? `#k=${fingerprint}` : undefined}
+            onBigScreen={big.show}
           />
           <p className="text-xs text-sub">
             Share it with Copy link or Show QR code: both carry the key that shows the questions
@@ -266,6 +273,27 @@ export function HostVoteRoom({
           </p>
         </div>
       )}
+      <RoomBigScreen
+        {...big.props}
+        tool={tool}
+        toolName={toolName}
+        code={session.code}
+        linkFragment={fingerprint ? `#k=${fingerprint}` : undefined}
+        memberCount={room.members.length}
+        timer={extras.timer}
+        reactions={extras.reactions}
+      >
+        {phase === "revealed" && result ? (
+          <LiveRoundResults room={room} />
+        ) : (
+          <VoteLiveCount
+            ballots={room.ballots}
+            present={room.members.length}
+            minN={room.minN}
+            phase={phase}
+          />
+        )}
+      </RoomBigScreen>
 
       {room.stuffingSuspected && (
         <Warning>
@@ -399,6 +427,13 @@ export function HostVoteRoom({
           Start over with a new round
         </Button>
       ) : null}
+
+      <RoomTimerControls
+        timer={extras.timer}
+        onChange={extras.setTimer}
+        disabled={!extras.canSetTimer || status !== "live"}
+      />
+      <RoomReactions extras={extras} />
 
       {others.length > 0 && (
         <RoomMemberList

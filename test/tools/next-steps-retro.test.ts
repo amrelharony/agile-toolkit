@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getNextStepRule } from "@/lib/tools/next-steps";
-import type { RetroBoard, RetroCard, Risk, Sprint, Workspace } from "@/lib/stores/workspace-types";
+import type {
+  RetroBoard,
+  RetroCard,
+  Risk,
+  RootCauseAnalysis,
+  Sprint,
+  Story,
+  Workspace,
+} from "@/lib/stores/workspace-types";
 import { blankRetroBoard } from "@/lib/retro/board";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import { LS_CATALOG } from "@/lib/liberating-structures/catalog";
@@ -105,6 +113,25 @@ describe("retro-actions", () => {
     ]);
     expect(out[1].detail).toBe("The last 3 retros got 1 of 6 actions done.");
     expect(ids("retro-actions", { retroBoards: [] })).toEqual([]);
+  });
+
+  it("sends a theme that came back after its action was done to Root Cause", () => {
+    const past = (day: string, cards: RetroCard[]) =>
+      board(`retro:${day}`, cards, { archivedAt: `${day}T10:00:00Z` });
+    const boards = [
+      past("2026-09-01", [
+        action("a1", { text: "Fix staging data", done: true, doneAt: "2026-09-10T09:00:00Z" }),
+        action("a2", { text: "Staging was down", isActionItem: false }),
+      ]),
+      past("2026-09-15", [action("b1", { text: "Staging data stale", isActionItem: false })]),
+      past("2026-09-29", [action("c1", { text: "Waited for staging", isActionItem: false })]),
+    ];
+    expect(steps("retro-actions", { retroBoards: boards })).toContainEqual({
+      id: "retro-actions-came-back",
+      label: "Find the root cause of “staging”",
+      detail: "It came up again after “Fix staging data” was marked done.",
+      href: "/root-cause",
+    });
   });
 });
 
@@ -256,6 +283,88 @@ describe("design-sprint", () => {
   });
 });
 
+describe("root-cause", () => {
+  const analysis = (id: string, over: Partial<RootCauseAnalysis> = {}): RootCauseAnalysis => ({
+    id,
+    title: `Problem ${id}`,
+    problem: "",
+    method: "five-whys",
+    whys: [],
+    causes: [],
+    createdAt: "2026-10-20T09:00:00.000Z",
+    updatedAt: "2026-10-20T09:00:00.000Z",
+    ...over,
+  });
+
+  it("asks for a countermeasure once a root cause is named, newest first", () => {
+    expect(
+      steps("root-cause", {
+        rootCauseAnalyses: [
+          analysis("rca_old", { rootCause: "A", updatedAt: "2026-10-01T09:00:00.000Z" }),
+          analysis("rca_new", { rootCause: "B", updatedAt: "2026-10-22T09:00:00.000Z" }),
+        ],
+      })
+    ).toEqual([
+      {
+        id: "root-cause-countermeasure",
+        label: "Agree a countermeasure for “Problem rca_new”",
+        detail: "2 analyses have a root cause and nothing agreed yet to change it.",
+        href: "/root-cause?analysis=rca_new",
+      },
+    ]);
+  });
+
+  it("sends an agreed countermeasure to Retro Actions, and stops once it's there", () => {
+    const agreed = analysis("rca_1", { rootCause: "A", countermeasure: "Do B" });
+    expect(steps("root-cause", { rootCauseAnalyses: [agreed] })).toEqual([
+      expect.objectContaining({ id: "root-cause-send", href: "/root-cause?analysis=rca_1" }),
+    ]);
+    const sent = {
+      ...agreed,
+      sentTo: [{ route: "retro-action" as const, targetId: "c1", at: "2026-10-23T09:00:00Z" }],
+    };
+    const retroBoards = [board("retro:current", [action("c1", { text: "Do B" })])];
+    expect(ids("root-cause", { rootCauseAnalyses: [sent], retroBoards })).toEqual([]);
+    // The action was deleted in Retro Actions: the countermeasure is to send again.
+    expect(ids("root-cause", { rootCauseAnalyses: [sent], retroBoards: [] })).toEqual([
+      "root-cause-send",
+    ]);
+  });
+
+  it("ignores example analyses and stays quiet with nothing to do", () => {
+    expect(
+      ids("root-cause", { rootCauseAnalyses: [analysis("example-rca", { rootCause: "A" })] })
+    ).toEqual([]);
+    expect(ids("root-cause", { rootCauseAnalyses: [analysis("rca_2")] })).toEqual([]);
+    expect(ids("root-cause", {})).toEqual([]);
+  });
+
+  it("reads malformed synced rows as the page does instead of throwing", () => {
+    // A synced row can hold anything: an object for sentTo, a number for the
+    // root cause or the date, and rows that aren't analyses at all.
+    const odd = [
+      {
+        ...analysis("rca_obj"),
+        countermeasure: "Do B",
+        sentTo: { route: "retro-action", targetId: "c1" },
+      },
+      { ...analysis("rca_num"), rootCause: 42, updatedAt: 7 },
+      { ...analysis("rca_named"), rootCause: "A" },
+      null,
+      "rca_text",
+      { title: "no id" },
+    ] as unknown as RootCauseAnalysis[];
+    expect(() => steps("root-cause", { rootCauseAnalyses: odd })).not.toThrow();
+    expect(ids("root-cause", { rootCauseAnalyses: odd })).toEqual([
+      "root-cause-countermeasure",
+      "root-cause-send",
+    ]);
+    expect(steps("root-cause", { rootCauseAnalyses: odd })[1].href).toBe(
+      "/root-cause?analysis=rca_obj"
+    );
+  });
+});
+
 describe("icebreaker", () => {
   it("leads on to a ceremony starting within the hour", () => {
     // Monday 26 Oct at 09:00; the default Daily Scrum is at 09:30.
@@ -267,5 +376,55 @@ describe("icebreaker", () => {
     });
     vi.setSystemTime(new Date("2026-10-24T09:00:00"));
     expect(ids("icebreaker", { sprints: [sprint()], ceremonyCadences: [] })).toEqual([]);
+  });
+});
+
+describe("card-decks", () => {
+  const story = (id: string, over: Partial<Story> = {}): Story => ({
+    id,
+    title: `Story ${id}`,
+    status: "backlog",
+    points: 3,
+    ...over,
+  });
+
+  it("leads on to a ceremony starting within the hour", () => {
+    // Monday 26 Oct at 09:00; the default Daily Scrum is at 09:30.
+    vi.setSystemTime(new Date("2026-10-26T09:00:00"));
+    expect(
+      steps("card-decks", { sprints: [sprint()], ceremonyCadences: [], stories: [] })[0]
+    ).toMatchObject({
+      id: "card-decks-ceremony",
+      label: "Go on to the Daily Scrum",
+      href: "/standup?sprint=s2",
+    });
+    vi.setSystemTime(new Date("2026-10-24T09:00:00"));
+    expect(ids("card-decks", { sprints: [sprint()], ceremonyCadences: [], stories: [] })).toEqual(
+      []
+    );
+  });
+
+  it("takes the story-splitting cards to the big backlog stories, examples, done and planned ones left out", () => {
+    const out = steps("card-decks", {
+      sprints: [],
+      ceremonyCadences: [],
+      stories: [
+        story("a", { points: 13 }),
+        story("b", { points: 20 }),
+        story("c", { points: 5 }),
+        story("d", { points: 21, status: "done" }),
+        story("e", { points: 13, sprintId: "s2" }),
+        story("example-f", { points: 40 }),
+      ],
+    });
+    expect(out).toEqual([
+      {
+        id: "card-decks-split",
+        label: "Split the big stories in Refinement",
+        detail:
+          "2 stories on the backlog are 13 points or more. Take the story-splitting cards along.",
+        href: "/refinement",
+      },
+    ]);
   });
 });

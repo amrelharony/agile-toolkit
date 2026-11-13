@@ -1,7 +1,11 @@
 "use client";
 
 import { create } from "zustand";
-import { stampStoryMembership, withStorySprint } from "@/lib/sprints/story-status";
+import {
+  stampRefinedWrite,
+  stampStoryMembership,
+  withStorySprint,
+} from "@/lib/sprints/story-status";
 import { cleanStoryFields } from "@/lib/stories/fields";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { reportStorageWriteFailure } from "./storage-health";
@@ -623,21 +627,22 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           }
           return next;
         }),
-      // Every local write of a story records when it was created and any
-      // change of its sprint (lib/sprints/story-status.ts); synced rows from
-      // other devices arrive through setEntities and keep their own stamps.
-      // Its notes, acceptance criteria, link and ticket key are cleaned and
-      // capped here too (lib/stories/fields.ts), whichever page wrote them.
+      // Every local write of a story records when it was created, any
+      // change of its sprint and when what it says was refined (refinedAt;
+      // lib/sprints/story-status.ts); synced rows from other devices arrive
+      // through setEntities and keep their own stamps. Its notes, acceptance
+      // criteria, link and ticket key are cleaned and capped here too
+      // (lib/stories/fields.ts), whichever page wrote them.
       upsertStory: (s) =>
-        set((_st) => ({
-          stories: replaceById(
-            _st.stories,
-            stampStoryMembership(
-              cleanStoryFields(s),
-              _st.stories.find((x) => x.id === s.id)
-            )
-          ),
-        })),
+        set((_st) => {
+          const prev = _st.stories.find((x) => x.id === s.id);
+          return {
+            stories: replaceById(
+              _st.stories,
+              stampRefinedWrite(stampStoryMembership(cleanStoryFields(s), prev), prev)
+            ),
+          };
+        }),
       // With the Canvas links to the story cleared (`withoutStories`).
       removeStory: (id) => set((s) => withoutStories(s, new Set([id]))),
       // One write for the lot: each write persists the whole workspace.
@@ -816,13 +821,20 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => {
           if (items.length === 0) return _st;
           // Stamped as `upsertStory` stamps each one (created, joined its
-          // sprint), with one time for the batch.
+          // sprint, refined), with one time for the batch.
           const stored = new Map(_st.stories.map((x) => [x.id, x]));
           const at = new Date().toISOString();
           return {
             stories: batchUpsertById(
               _st.stories,
-              items.map((s) => stampStoryMembership(cleanStoryFields(s), stored.get(s.id), at))
+              items.map((s) => {
+                const prev = stored.get(s.id);
+                return stampRefinedWrite(
+                  stampStoryMembership(cleanStoryFields(s), prev, at),
+                  prev,
+                  at
+                );
+              })
             ),
           };
         }),

@@ -41,6 +41,11 @@ export function offScale(steps: readonly ScaleStep[], v: unknown): number | null
 export interface ScalePickerProps {
   /** Visible label and the radio group's name. */
   label: string;
+  /**
+   * The radio group's name when it needs more than the visible label, e.g.
+   * "Post 2 of 5: Ship weekly" where the post's text shows above the scale.
+   */
+  groupLabel?: string;
   steps: readonly ScaleStep[];
   /** The chosen value; null when nothing is chosen yet. */
   value: number | null;
@@ -79,6 +84,7 @@ export interface ScalePickerProps {
  */
 export function ScalePicker({
   label,
+  groupLabel,
   steps,
   value,
   onValueChange,
@@ -138,7 +144,7 @@ export function ScalePicker({
         )}
       </div>
       <ToggleGroup
-        label={label}
+        label={groupLabel ?? label}
         size={size}
         className={optionsClassName}
         options={options}

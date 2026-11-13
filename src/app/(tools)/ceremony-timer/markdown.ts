@@ -1,5 +1,6 @@
 import { formatClock as clock } from "@/lib/timer/dock-timer";
 import { agendaSeconds, type Agenda } from "./agenda";
+import { anonymousSharesText, percent, type SpeakingShares } from "./history";
 import type { RunReport } from "./run";
 import { plannedSlots, type Participant } from "./speakers";
 import { planVerdict, runVerdict } from "./verdict";
@@ -17,6 +18,31 @@ function cell(v: unknown): string {
     .replace(/\s*[\r\n]+\s*/g, " ")
     .replace(/\|/g, "\\|")
     .trim();
+}
+
+/**
+ * Speaking time across runs: with names, a table; without (the default),
+ * one sentence with the range of shares, so the export never names who
+ * spoke most unless the facilitator chose to.
+ */
+function sharesSection(shares: SpeakingShares | null | undefined, names: boolean): string {
+  if (!shares || shares.runs === 0 || shares.people.length === 0) return "";
+  const head = "## Speaking time across runs";
+  if (!names) return `${head}\n\n${anonymousSharesText(shares)}`;
+  return [
+    head,
+    "",
+    shares.runs === 1
+      ? "Each person's share of the speaking time in the last meeting with turns."
+      : `Each person's average share of the speaking time over the last ${shares.runs} meetings with turns.`,
+    "",
+    "| Speaker | Share | Even share | Meetings |",
+    "|---|---:|---:|---:|",
+    ...shares.people.map(
+      (p) =>
+        `| ${cell(p.name)} | ${percent(p.share)} | ${percent(p.even)} | ${p.runs} of ${shares.runs} |`
+    ),
+  ].join("\n");
 }
 
 /** "+02:15" over, "−00:40" under, "00:00" on the dot. */
@@ -37,18 +63,27 @@ export function toMarkdown(
     agenda,
     speakers,
     report,
+    shares,
+    exportNames = false,
   }: {
     /** The agenda picked, or null before one is. */
     agenda: Agenda | null;
     speakers: readonly Participant[];
     /** The run so far, once started. */
     report?: RunReport | null;
+    /** Speaking time across the meetings kept, when there are any with turns. */
+    shares?: SpeakingShares | null;
+    /** Name people in that section; without it, only the range of shares. */
+    exportNames?: boolean;
   },
   now: Date = new Date()
 ): string {
   const title = `# Ceremony Timer — ${mdDate(now)}`;
   const total = agenda ? agendaSeconds(agenda) : 0;
-  if (!agenda || (total <= 0 && !report)) return `${title}\n\nNo ceremony set up yet.\n`;
+  const across = sharesSection(shares, exportNames);
+  if (!agenda || (total <= 0 && !report)) {
+    return `${title}\n\nNo ceremony set up yet.\n${across ? `\n${across}\n` : ""}`;
+  }
 
   const segs = agenda.segments;
   const lines = [title, "", `**${cell(agenda.label)}:** ${clock(total)} time-box`, ""];
@@ -132,6 +167,7 @@ export function toMarkdown(
 
   const verdict = report?.finished ? runVerdict(report) : planVerdict(agenda, speakers.length);
   lines.push("", `**${verdict}**`);
+  if (across) lines.push("", across);
   return `${lines
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,10 +13,12 @@ import { SprintTiles } from "@/components/sprints/sprint-tiles";
 import { CloseSprintDialog, type CarryOverPlan } from "@/components/sprints/close-sprint-dialog";
 import { AddToCalendar } from "@/components/sprints/add-to-calendar";
 import { LoadingSprints } from "@/components/sprints/start";
+import { WallView } from "@/components/presentation/wall-view";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
   AsyncUpdate,
   Impediment,
+  InterruptItem,
   RetroBoard,
   Sprint,
   SprintGoal,
@@ -33,14 +35,21 @@ import { sprintHref, useSelectedSprint } from "@/lib/sprints/use-selected-sprint
 import { dayForDate, seriesFor, sprintLengthDays, todayIso } from "@/lib/sprints/series";
 import { withBurndownDay } from "@/lib/sprints/day-writes";
 import { averageScore, sprintScores } from "@/lib/sprints/compare";
-import { points, type TileId } from "@/lib/sprints/hub-view";
+import { points, sprintDayLine, type TileId } from "@/lib/sprints/hub-view";
 import { updateSeries, updateSprint } from "@/lib/sprints/store";
 import { cadenceCalendar, nextCeremonies, type CeremonyCadence } from "@/lib/sprints/cadence";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
-import { cockpitNotes, cockpitTiles, flowCards, gatherCockpitData, type CockpitData } from "./view";
+import {
+  cockpitNotes,
+  cockpitTiles,
+  daysLeftLine,
+  flowCards,
+  gatherCockpitData,
+  type CockpitData,
+} from "./view";
 import { cockpitVerdict } from "./verdict";
 import { cockpitMarkdown } from "./markdown";
 import { buildExample, type CockpitExample } from "./example";
@@ -52,6 +61,8 @@ import { Blockers } from "./components/blockers";
 import { MiniBurndown } from "./components/mini-burndown";
 import { CockpitNotes } from "./components/notes";
 import { StartFlow } from "./components/start-flow";
+import { CockpitRisk } from "./components/risk";
+import { CockpitWallContent, WallModeButton } from "./components/wall";
 
 export const TOOL_ID = "sprint";
 
@@ -64,6 +75,7 @@ const NO_MEMBERS: TeamMember[] = [];
 const NO_BOARDS: RetroBoard[] = [];
 const NO_REVIEWS: SprintReview[] = [];
 const NO_GOALS: SprintGoal[] = [];
+const NO_INTERRUPTS: InterruptItem[] = [];
 
 /** The tiles the home card keeps; the full page shows them all. */
 const COMPACT_TILES: readonly TileId[] = ["committed", "done", "remaining", "gap", "blockers"];
@@ -111,10 +123,20 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const reviews = useWorkspaceStore((s) => s.sprintReviews) ?? NO_REVIEWS;
   // For "Did we meet the sprint goal?" on a closed sprint.
   const sprintGoals = useWorkspaceStore((s) => s.sprintGoals) ?? NO_GOALS;
+  // The interrupt buffer's tile and the goal check read the logged interrupts.
+  const interruptItems = useWorkspaceStore((s) => s.interruptItems) ?? NO_INTERRUPTS;
   const [cadence, updateCadence] = useCeremonyCadence();
   const { log } = useHistoryLogger(TOOL_ID);
-  const [today] = useState(() => todayIso());
-  const [now] = useState(() => new Date());
+  const [today, setToday] = useState(() => todayIso());
+  const [now, setNow] = useState(() => new Date());
+  // Wall mode moves the day and the clock on (as it opens and on every
+  // refresh), so the next ceremony, the day line and the goal check never
+  // freeze at the time the page was loaded. The day only changes at midnight,
+  // so the data is gathered again then, not every minute.
+  const moveClock = useCallback(() => {
+    setNow(new Date());
+    setToday(todayIso());
+  }, []);
   const [creating, setCreating] = useState(false);
   const [example, setExample] = useState<CockpitExample | null>(null);
   const calendar = useMemo(() => cadenceCalendar(cadence), [cadence]);
@@ -143,6 +165,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
             targetDone: (link) => getHandoffRoute(link.route).isDone?.(link.targetId) ?? false,
             // The burndown's ideal line and projection count the team's working days.
             calendar,
+            interruptItems,
           })
         : null,
     [
@@ -159,6 +182,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
       today,
       sprintGoals,
       calendar,
+      interruptItems,
     ]
   );
 
@@ -253,6 +277,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
         now={now}
         cadence={cadence}
         compact={compact}
+        onClock={moveClock}
         onStart={() => setCreating(true)}
         onExit={() => setExample(null)}
       />
@@ -270,6 +295,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
         onCadence={updateCadence}
         compact={compact}
         commands={commands}
+        onClock={moveClock}
         onNewSprint={() => setCreating(true)}
       />
     );
@@ -321,6 +347,7 @@ function CockpitBody({
   onCadence,
   compact,
   commands,
+  onClock,
   onNewSprint,
 }: {
   sprints: readonly Sprint[];
@@ -336,12 +363,15 @@ function CockpitBody({
   compact: boolean;
   /** Absent in the read-only example. */
   commands?: CockpitCommands;
+  /** Move `today` and `now` on: wall mode calls it as it opens and on every refresh. */
+  onClock?: () => void;
   onNewSprint?: () => void;
 }) {
   const { sprint } = data;
   const readOnly = !commands;
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [wall, setWall] = useState(false);
 
   const cards = useMemo(() => flowCards(data), [data]);
   // The rating is Sprint Comparison's computed average, so the two agree.
@@ -369,10 +399,14 @@ function CockpitBody({
           ),
     [readOnly, sprint, sprints, allStories, allSeries, goals, moodEntries, moodPulses, healthChecks]
   );
-  const tiles = useMemo(() => {
-    const all = cockpitTiles(data, sprints, today, { rating });
-    return compact ? all.filter((t) => COMPACT_TILES.includes(t.id)) : all;
-  }, [data, sprints, today, compact, rating]);
+  const allTiles = useMemo(
+    () => cockpitTiles(data, sprints, today, { rating }),
+    [data, sprints, today, rating]
+  );
+  const tiles = useMemo(
+    () => (compact ? allTiles.filter((t) => COMPACT_TILES.includes(t.id)) : allTiles),
+    [allTiles, compact]
+  );
   const verdict = useMemo(() => cockpitVerdict(data, today), [data, today]);
   const notes = useMemo(() => cockpitNotes(data), [data]);
   const upcoming = useMemo(() => nextCeremonies(sprint, cadence, now), [sprint, cadence, now]);
@@ -404,17 +438,25 @@ function CockpitBody({
               </Button>
             )}
           </div>
-          <ExportButton
-            filename={`sprint-report-${slug(sprint.name)}`}
-            markdown={report}
-            clipboardText={report}
-            jsonData={{
-              sprint,
-              series,
-              stories: data.sprintStories,
-              impediments: data.sprintImpediments,
-            }}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <WallModeButton
+              onOpen={() => {
+                onClock?.();
+                setWall(true);
+              }}
+            />
+            <ExportButton
+              filename={`sprint-report-${slug(sprint.name)}`}
+              markdown={report}
+              clipboardText={report}
+              jsonData={{
+                sprint,
+                series,
+                stories: data.sprintStories,
+                impediments: data.sprintImpediments,
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -432,6 +474,15 @@ function CockpitBody({
       <p className="text-sm font-medium text-text" data-cockpit-verdict>
         {verdict}
       </p>
+
+      <CockpitRisk
+        risk={data.risk}
+        sprint={sprint}
+        day={data.burndown.todayDay}
+        length={data.burndown.length}
+        compact={compact}
+        withNote={!readOnly}
+      />
 
       <CockpitNotes notes={notes} />
 
@@ -491,6 +542,27 @@ function CockpitBody({
         </p>
       )}
 
+      {!compact && (
+        <WallView
+          open={wall}
+          onClose={() => setWall(false)}
+          title={sprint.name || "Sprint"}
+          onRefresh={onClock}
+        >
+          {(tick) => (
+            <CockpitWallContent
+              dayLine={daysLeftLine(sprintDayLine(sprint, today))}
+              goal={sprint.goal?.trim() || undefined}
+              verdict={verdict}
+              risk={data.risk}
+              tiles={allTiles}
+              next={upcoming[0]}
+              now={new Date(tick.now)}
+            />
+          )}
+        </WallView>
+      )}
+
       {commands && (
         <CloseSprintDialog
           open={closing}
@@ -522,6 +594,7 @@ function ExampleCockpit({
   now,
   cadence,
   compact,
+  onClock,
   onStart,
   onExit,
 }: {
@@ -530,6 +603,7 @@ function ExampleCockpit({
   now: Date;
   cadence: CeremonyCadence;
   compact: boolean;
+  onClock?: () => void;
   onStart: () => void;
   onExit: () => void;
 }) {
@@ -549,6 +623,7 @@ function ExampleCockpit({
         sprints: example.sprints,
         today,
         calendar: cadenceCalendar(cadence),
+        interruptItems: example.interruptItems,
       }),
     [example, sprint, series, today, cadence]
   );
@@ -577,6 +652,7 @@ function ExampleCockpit({
         now={now}
         cadence={cadence}
         compact={compact}
+        onClock={onClock}
       />
     </div>
   );

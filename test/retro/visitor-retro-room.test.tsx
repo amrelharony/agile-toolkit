@@ -564,6 +564,42 @@ describe("VisitorRetroRoom (participant)", () => {
     expect(copy.votesPerPerson).toBe(8);
   });
 
+  it("says when the host opens a thumbs vote, and the totals when it closes", async () => {
+    render(
+      <LiveAnnouncerProvider>
+        <VisitorRetroRoom code={CODE} identity={identity} onLeave={() => {}} />
+      </LiveAnnouncerProvider>
+    );
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    const board = makeBoard({ phase: "discuss" });
+    act(() => ch.deliver("retro:state", hostSnapshot(board)));
+    const withPoll = (seq: number, poll: Record<string, unknown>) => ({
+      ...hostSnapshot(board, seq),
+      poll,
+    });
+    const open = { id: "poll_0000000001", topic: "Standups", open: true, voters: 0 };
+    act(() => ch.deliver("retro:state", withPoll(2, open)));
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "The host asks: keep going or move on? Standups"
+      )
+    );
+    // A later snapshot of the same open vote says nothing new.
+    act(() => ch.deliver("retro:state", withPoll(3, { ...open, voters: 1 })));
+    act(() =>
+      ch.deliver("retro:state", withPoll(4, { ...open, open: false, voters: 2, keep: 2, move: 0 }))
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "The vote is closed. Keep going 2, move on 0. Most want to keep going."
+      )
+    );
+  });
+
   it("takes my vote back", () => {
     render(<VisitorRetroRoom code={CODE} identity={identity} onLeave={() => {}} />);
     const ch = fakeRealtime.last();

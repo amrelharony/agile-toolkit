@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Radio } from "lucide-react";
 import {
   isVisitorRoomCode,
   isVisitorTool,
   visitorRoomsEnabled,
 } from "@/lib/realtime/visitor-rooms";
+import { LiveRoomsOff } from "../../live-rooms-off";
 import { JoinRoom } from "./join-room";
 
 // Reached by a link someone shared, never by search. robots.ts disallows
@@ -32,33 +31,12 @@ interface Params {
  * channel is sent. With it on, the client asks for a name and consent
  * before it connects (and, for a signed room (a vote round, a show room or
  * a wall room), first checks the link carries the host's key).
+ *
+ * Someone who has only the code types it at `/join` instead.
  */
 export default function JoinRoomPage({ params }: { params: Params }) {
   const { tool, code } = params;
   if (!isVisitorTool(tool) || !isVisitorRoomCode(code)) notFound();
   if (!visitorRoomsEnabled()) return <LiveRoomsOff />;
   return <JoinRoom tool={tool} code={code} />;
-}
-
-function LiveRoomsOff() {
-  return (
-    <main className="min-h-screen-dvh flex items-center justify-center px-4">
-      <section className="w-full max-w-md rounded-xl border border-border bg-surface p-6 flex flex-col gap-4">
-        <h1 className="flex items-center gap-2 text-lg font-semibold text-text">
-          <Radio className="h-5 w-5 text-sub" aria-hidden="true" />
-          Live rooms are off
-        </h1>
-        <p className="text-sm text-sub">
-          This site isn&apos;t running live rooms at the moment, so this link can&apos;t connect.
-          You can still run the tools on one shared screen, or ask the host to count hands.
-        </p>
-        <Link
-          href="/"
-          className="self-start rounded-md border border-border px-3 py-2 text-sm text-text hover:border-accent/40 hover:text-accent"
-        >
-          Go to the Agile Toolkit
-        </Link>
-      </section>
-    </main>
-  );
 }

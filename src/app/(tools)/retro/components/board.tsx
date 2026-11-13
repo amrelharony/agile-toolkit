@@ -48,6 +48,7 @@ import { enoughData } from "@/lib/analytics/min-sample";
 import { retroColumnFor } from "@/lib/handoffs/targets/retro-board";
 import { retroVotes, type RetroVotes } from "@/lib/retro/board";
 import { emit as sonify } from "@/lib/sonification/emit";
+import { timesUp } from "@/lib/celebrate/chime";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { type HistoryLogger } from "@/lib/history/use-history-logger";
 import { RETRO_ACTIONS } from "@/lib/history/event-actions";
@@ -89,9 +90,13 @@ import { RetroSprintPicker } from "./retro-sprint-picker";
 import { RetroFactsPanel } from "./retro-facts";
 import { CommonWords } from "./common-words";
 import { KudosSeed } from "./kudos-seed";
+import { LeanCoffeeRunner } from "./lean-coffee-runner";
+import { RetroPlanNote } from "./retro-plan-note";
 import { toMarkdown } from "../markdown";
 import { RetroGoLive, type LiveRoomHandle } from "../room/host-live-room";
 import { hideCards } from "../room/hidden";
+import type { RetroThumbsHost } from "../room/use-retro-room";
+import { isLeanCoffee } from "@/lib/retro/lean-coffee";
 
 /** A fresh card in `columnKey`. */
 function newCard(columnKey: string, text: string): RetroCard {
@@ -185,6 +190,9 @@ export function Board({
   }, [roomHides, state.phase, state.cards]);
   const hiddenView = useMemo(() => hideCards(state.cards, roomHidden), [state.cards, roomHidden]);
   const shownCards = hiddenView.shown;
+  // A live room's thumbs vote, for the Lean Coffee runner (null on one screen).
+  const [roomThumbs, setRoomThumbs] = useState<RetroThumbsHost | null>(null);
+  const leanCoffee = isLeanCoffee(state);
 
   // Team names for "Voting as" (Vote phase).
   const teamNames = useWorkspaceStore(
@@ -227,11 +235,18 @@ export function Board({
     return () => clearInterval(id);
   }, [state.timerRunning, onUpdate]);
 
-  // Say when the timebox runs out: the room is talking, not watching the clock.
+  // Say when the timebox runs out: the room is talking, not watching the
+  // clock. The shared alarm rings (`timesUp`), and the overtime counts up
+  // from here until the timer is set or started again.
   const wasRunning = useRef(state.timerRunning);
+  const [overSince, setOverSince] = useState<number | null>(null);
   useEffect(() => {
     if (wasRunning.current && !state.timerRunning && state.timerSeconds === 0) {
       announce("Time's up.", "assertive");
+      timesUp();
+      setOverSince(Date.now());
+    } else if (state.timerRunning || state.timerSeconds > 0) {
+      setOverSince(null);
     }
     wasRunning.current = state.timerRunning;
   }, [state.timerRunning, state.timerSeconds, announce]);
@@ -848,10 +863,12 @@ export function Board({
               onUpdate={onUpdate}
               handleRef={liveRoomRef}
               onHiddenChange={onRoomHidden}
+              onThumbsChange={setRoomThumbs}
             />
             <TimerWidget
               seconds={state.timerSeconds}
               running={state.timerRunning}
+              overSince={overSince}
               onToggle={() => {
                 onUpdate((prev) => ({ ...prev, timerRunning: !prev.timerRunning }));
                 announce(
@@ -915,6 +932,21 @@ export function Board({
             )}
           </p>
         </div>
+
+        {/* ── The Surprise plan's opening or closing ──────── */}
+        <RetroPlanNote formatId={state.format.id} phase={state.phase} />
+
+        {/* ── Lean Coffee: topics in vote order, one timebox each ── */}
+        {leanCoffee && (
+          <LeanCoffeeRunner
+            state={state}
+            shownCards={shownCards}
+            onUpdate={onUpdate}
+            timeUp={overSince !== null}
+            thumbs={roomThumbs}
+            log={log}
+          />
+        )}
 
         {/* ── Voting as (facilitator mode, Vote phase) ─────── */}
         {state.phase === "vote" && (
