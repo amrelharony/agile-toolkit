@@ -379,17 +379,18 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "parking-lot",
     summary:
-      "Parking Lot keeps the points that come up off topic, so the meeting stays on track and nothing is forgotten. Afterwards each point goes where it belongs: the backlog, the impediments or the retro actions.",
+      "Parking Lot keeps the points that come up off topic, so the meeting stays on track and nothing is forgotten. At the end, each point is discussed, sent where it belongs (the backlog, the impediments or the retro actions) or dropped.",
     whenToUse: [
       "A Daily Scrum or a planning that keeps drifting into side discussions.",
       "A workshop, where good ideas come up at the wrong time.",
     ],
     steps: [
-      "Type the point and park it. Add the meeting and who raised it if that will help later.",
+      "Type the point and press Enter to park it. The meeting is remembered for the next point; add who raised it if that will help later.",
       "Keep the list on screen during the meeting, so people see their point was heard.",
-      "At the end, go through the open points: mark each one discussed, send it to the backlog, the Impediment Tracker or Retro Actions, or drop it.",
+      "At the end, open the end-of-meeting review: mark each open point discussed, send it to the backlog, the Impediment Tracker or Retro Actions, or drop it. Each choice has Undo.",
       "A sent point links to where it went, and the item there links back to the parking lot.",
-      "Ask Amr suggests where each open point should go. You decide, one point at a time or all at once, and Undo takes a send back.",
+      "“Suggest where each goes” (Ask Amr, when his AI is on) proposes a destination for every open point. You accept one point at a time or all at once.",
+      "When several meetings share the lot, pick one to see and export only its points. Clear the decided points once the meeting's notes are out.",
     ],
     tips: [
       "Agree when the parking lot is reviewed, such as the last five minutes, or points go there to be forgotten.",

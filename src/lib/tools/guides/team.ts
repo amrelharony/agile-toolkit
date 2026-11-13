@@ -548,7 +548,7 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "meeting-audit",
     summary:
-      "Meeting Audit looks at your recurring meetings one by one: how long, how often and how many people, what each costs in hours, whether it does what it's for, and a verdict to keep, change or drop it.",
+      "Meeting Audit looks at your recurring meetings one by one: how long, how often and how many people, what each costs in person-hours a week, how the team rates it, and a verdict to keep, change or drop it. The verdicts make a ritual reset plan.",
     whenToUse: [
       "When calendars are full and the team has no time left to work.",
       "Once a quarter, as a ritual reset.",
@@ -556,11 +556,12 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "Add each recurring meeting: its name, how often it happens, how many minutes it takes, how many people attend and what it's for.",
-      "The audit works out how many hours each meeting takes from the team.",
-      "Rate each meeting with the team: does it meet its purpose, are the right people there, is it the right length?",
-      "Give each meeting a verdict, keep, change or drop, with a note on what to change.",
-      "Ask Amr suggests changes from a meeting's ratings, such as a shorter slot, fewer people or going async. You decide what to keep.",
-      "Export the audit as Markdown to share the proposal with the team.",
+      "The audit works out the person-hours a week each one takes: people × minutes × how often it meets.",
+      "Rate each meeting with the team from 1 to 5: is its purpose clear, are the right people there, does it end with an outcome, is it the right length, does it give energy?",
+      "Give each meeting a verdict, keep, change or drop, and write what to change.",
+      "“Suggest changes” (Ask Amr, when his AI is on) proposes concrete changes, such as a shorter timebox, fewer people or a written update. Add the ones the team wants to the plan; Undo takes one back.",
+      "The ritual reset plan lists what stays, what changes and what goes, and the time the drops free. Export it as Markdown to agree it at the next retro.",
+      "Next quarter, start a new round: the ratings and verdicts clear, the meetings stay.",
     ],
     tips: [
       "Try a change for a few weeks before judging it.",
