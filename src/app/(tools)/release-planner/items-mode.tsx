@@ -436,23 +436,24 @@ export function ItemsResults({ plan, plotRef }: { plan: ItemsPlan; plotRef: Ref<
               How many items by {formatDay(how.target)}?
             </h3>
             <p className="text-xs text-sub">{plural(how.weeks, "whole week")} from the start.</p>
-            <dl className="grid grid-cols-3 gap-3">
-              {(
-                [
-                  ["Coin flip (P50)", how.p50],
-                  ["Commit (P85)", how.p85],
-                  ["Safe (P95)", how.p95],
-                ] as const
-              ).map(([label, n]) => (
-                <div key={label} className="rounded-lg border border-border bg-surface-deep p-3">
-                  <dt className="text-xs text-sub">{label}</dt>
-                  <dd className="font-data text-2xl text-text">
-                    {fmt(n, 0)}
-                    <span className="ml-1 text-sm text-sub">items</span>
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            {/* Two across on a phone, like the When cards above (three across
+                left about 63 px a card, and "120 items" ran over the edge). */}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-how-many>
+              <StatCard
+                variant="compact"
+                label="Coin flip (P50)"
+                value={fmt(how.p50, 0)}
+                unit="items"
+              />
+              <StatCard
+                variant="compact"
+                label="Commit (P85)"
+                value={fmt(how.p85, 0)}
+                unit="items"
+                tone="success"
+              />
+              <StatCard variant="compact" label="Safe (P95)" value={fmt(how.p95, 0)} unit="items" />
+            </div>
           </section>
         )}
 

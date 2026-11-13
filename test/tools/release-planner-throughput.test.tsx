@@ -282,6 +282,16 @@ describe("items left", () => {
       screen.getByRole("heading", { name: "How many items by Dec 14, 2026?" })
     ).toBeInTheDocument();
     expect(screen.getByText("4 whole weeks from the start.")).toBeInTheDocument();
+    // Two across on a phone, as the When cards are: three across left a
+    // three-digit count running over its card at 375 px.
+    const cards = document.querySelector<HTMLElement>("[data-how-many]")!;
+    expect(cards.className.split(" ")).toEqual(
+      expect.arrayContaining(["grid-cols-2", "lg:grid-cols-4"])
+    );
+    expect(cards.className).not.toContain("grid-cols-3");
+    expect(cards).toHaveTextContent("Coin flip (P50)16items");
+    expect(cards).toHaveTextContent("Commit (P85)16items");
+    expect(cards).toHaveTextContent("Safe (P95)16items");
     expect(screen.getByTestId("items-verdict")).toHaveTextContent(
       "By Dec 14, 2026 the team finishes at least 16 items in 85% of runs."
     );
