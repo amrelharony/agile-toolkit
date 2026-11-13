@@ -20,6 +20,12 @@ export interface ShowRendererProps<P = unknown> {
   frame: ShowFrameMeta;
   /** "phone" on a participant's screen; "host" where the host previews what everyone sees. */
   surface: "phone" | "host";
+  /**
+   * False where nobody can press or type: the host's Big screen, which
+   * draws the phone's large layout on a projector. A renderer then leaves
+   * out its own controls (Team Mixer's "Find your name"). Absent: true.
+   */
+  interactive?: boolean;
 }
 
 export type ShowFrameRenderer = ComponentType<ShowRendererProps<unknown>>;

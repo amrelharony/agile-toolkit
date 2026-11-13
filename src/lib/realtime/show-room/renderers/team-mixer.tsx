@@ -7,7 +7,9 @@
  * everyone finds their own group in a second; the match is said politely
  * (and shown in bold, with its group outlined). What was typed stays for
  * the next frame (each frame mounts its view afresh), so nobody types
- * their name again every round. Nothing typed is sent.
+ * their name again every round. Nothing typed is sent. The host's Big
+ * screen draws the phone's layout without the box (`interactive` false):
+ * nobody in the room can type on a projector.
  */
 
 import { useId, useLayoutEffect, useRef, useState } from "react";
@@ -32,15 +34,15 @@ const remembered = { text: "", focused: false };
  * At least two letters, so one keystroke doesn't light up half the room.
  * The typed text is cut to the short name length too: a mix too big for
  * full names shows them cut, and a full name typed in should still find it.
- * Only phones find; the host's preview lights up nobody.
+ * Only phones find; the host's preview and Big screen light up nobody.
  */
-function useFind(phone: boolean) {
-  const [text, setTextState] = useState(() => (phone ? remembered.text : ""));
+function useFind(finds: boolean) {
+  const [text, setTextState] = useState(() => (finds ? remembered.text : ""));
   const setText = (next: string) => {
     remembered.text = next;
     setTextState(next);
   };
-  const key = phone
+  const key = finds
     ? text.trim().toLowerCase().slice(0, TEAM_MIXER_FRAME_LIMITS.shortNameChars).trim()
     : "";
   const hit = (name: string) => key.length >= 2 && name.toLowerCase().includes(key);
@@ -90,9 +92,14 @@ function FindBox({ find, status }: { find: ReturnType<typeof useFind>; status: s
   );
 }
 
-export function GroupsFrameView({ payload, surface }: ShowRendererProps<GroupsFrame>) {
+export function GroupsFrameView({
+  payload,
+  surface,
+  interactive = true,
+}: ShowRendererProps<GroupsFrame>) {
   const phone = surface === "phone";
-  const find = useFind(phone);
+  const finds = phone && interactive;
+  const find = useFind(finds);
   const word = payload.unit === "pair" ? "Pair" : "Group";
   const label = (i: number) => payload.groups[i].name || `${word} ${i + 1}`;
   const count = payload.groups.length;
@@ -115,7 +122,7 @@ export function GroupsFrameView({ payload, surface }: ShowRendererProps<GroupsFr
           {heading}
         </p>
       </div>
-      {phone && (
+      {finds && (
         <FindBox
           find={find}
           status={findStatus(find.key, matches, "Nobody by that name in this round.")}
@@ -160,9 +167,14 @@ export function GroupsFrameView({ payload, surface }: ShowRendererProps<GroupsFr
   );
 }
 
-export function CafeFrameView({ payload, surface }: ShowRendererProps<CafeFrame>) {
+export function CafeFrameView({
+  payload,
+  surface,
+  interactive = true,
+}: ShowRendererProps<CafeFrame>) {
   const phone = surface === "phone";
-  const find = useFind(phone);
+  const finds = phone && interactive;
+  const find = useFind(finds);
   const label = (i: number) => payload.tables[i].name || `Table ${i + 1}`;
   const matches: string[] = [];
   payload.tables.forEach((t, i) => {
@@ -183,7 +195,7 @@ export function CafeFrameView({ payload, surface }: ShowRendererProps<CafeFrame>
         </p>
         <p className="text-sm text-sub">Hosts stay at their table; everyone else moves.</p>
       </div>
-      {phone && (
+      {finds && (
         <FindBox
           find={find}
           status={findStatus(find.key, matches, "Nobody by that name at a table this round.")}

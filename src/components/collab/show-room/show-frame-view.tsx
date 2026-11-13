@@ -27,6 +27,8 @@ export interface ShowFrameViewProps {
   emptyText?: string;
   /** Say a new frame arrived (phones only). Off for the host's big screen, which shows its own. */
   announceNew?: boolean;
+  /** False on the host's Big screen: nothing on it is a control, so renderers draw none. */
+  interactive?: boolean;
   className?: string;
 }
 
@@ -36,6 +38,7 @@ export function ShowFrameView({
   surface = "phone",
   emptyText = "Waiting for the host to show something…",
   announceNew = true,
+  interactive = true,
   className,
 }: ShowFrameViewProps) {
   const announce = useAnnounce();
@@ -71,6 +74,7 @@ export function ShowFrameView({
           payload={frame.payload}
           frame={{ n: frame.n, kind: frame.kind, at: frame.at }}
           surface={surface}
+          interactive={interactive}
         />
       ) : (
         <p className="text-sm text-sub">
