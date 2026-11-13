@@ -365,6 +365,15 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     },
   },
   {
+    toolId: "facilitator-timers",
+    open: [],
+    actions: {
+      timer_started: ["timer"],
+      break_started: ["timer"],
+      timer_finished: ["timer.done"],
+    },
+  },
+  {
     toolId: "icebreaker",
     open: [],
     actions: { timer_started: ["timer"], timer_finished: ["timer.done"] },
