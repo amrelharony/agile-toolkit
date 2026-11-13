@@ -284,7 +284,8 @@ describe("the room on the big screen", SLOW, () => {
     );
     await openBigScreen();
     const view = document.querySelector("[data-big-screen]") as HTMLElement;
-    expect(within(view).getByText("Round 1: 2 groups")).toBeInTheDocument();
+    // Team Mixer's renderers load when the frame view mounts (their own chunk).
+    expect(await within(view).findByText("Round 1: 2 groups", {}, LAZY)).toBeInTheDocument();
     expect(within(view).getByRole("list", { name: "Oak" })).toHaveTextContent("AnaBo");
     // Nothing on the big screen is a control: no box to type in, no status line for one.
     expect(within(view).queryByLabelText("Find your name")).toBeNull();
