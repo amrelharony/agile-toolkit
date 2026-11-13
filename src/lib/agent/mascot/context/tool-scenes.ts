@@ -338,6 +338,8 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     actions: { decision_added: ["gavel.record"], decision_decided: ["gavel.bang"] },
   },
   { toolId: "async-standup", open: [], actions: { update_posted: ["timer.standup"] } },
+  // wall_saved has no scene: the same tick cheers ("audience-wall", "result").
+  { toolId: "audience-wall", open: [], actions: { themes_accepted: ["sticky.think"] } },
 
   // ── Tools with the toolkit moments (S54–S59): no greeting, but their packs
   // load when the page opens, so the first reaction plays whole ──

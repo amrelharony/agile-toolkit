@@ -6,9 +6,13 @@
  * and the 3-hour limit).
  *
  * Host:
- *  - `openRound(prompt, mode)` puts a prompt on the wall ("live": posts
- *    show as they arrive; "hidden": only a count until `reveal()`), and
- *    `setOpen`, `setMode`, `hide`, `merge`, `lowerHand` run it;
+ *  - `openRound(prompt, mode, { build })` puts a prompt on the wall ("live":
+ *    posts show as they arrive; "hidden": only a count until `reveal()`;
+ *    `build`: people may post "Yes, and…" on a post), and `setOpen`,
+ *    `setMode`, `setBuild`, `hide`, `merge`, `answer`, `lowerHand`,
+ *    `lowerAllHands` run it; `setScoring("open")` starts a 25/10 scoring
+ *    (no new posts; each person scores five posts) and `setScoring("shown")`
+ *    shares the totals;
  *  - each request is checked cheaply (seat, removed, a resend), decrypted
  *    in turn, applied by the rules in `host.ts`, and dropped: who wrote or
  *    upvoted what stays in the host's memory only. Its id goes into the
@@ -19,12 +23,20 @@
  *    and votes, no ids, no names.
  *
  * Participant:
- *  - `post(text)`, `withdraw(postId)`, `vote(postId)`, `unvote(postId)`,
- *    `raiseHand(up)` each seal one request to the host's key (padded to one
- *    size) and send it, re-sending the same sealed request until the host
- *    acknowledges it, three times at most;
+ *  - `post(text, re?)`, `withdraw(postId)`, `vote(postId)`, `unvote(postId)`,
+ *    `score(postId, value)`, `raiseHand(up)` each seal one request to the
+ *    host's key (padded to one size) and send it, re-sending the same sealed
+ *    request until the host acknowledges it, three times at most;
+ *  - every request carries this tab's secret inside the encryption
+ *    (`memo.ts`, kept for the tab's session), which the host ties the member
+ *    id to, so nobody else can send under it;
  *  - its own posts (text and the key to take each back) and votes live in
- *    this tab's memory only; `mine` and `myVotes` mark them on the wall.
+ *    this tab's memory only; `mine`, `myVotes` and `myScores` mark them on
+ *    the wall, and `toScore` holds the five posts it scores in a 25/10 round
+ *    (picked once per round with the tab's secret as the seed, `score.ts`).
+ *    The pick, the scores with their keys and which posts it wrote are kept
+ *    for the tab's session too, so a refresh mid-scoring shows the same five
+ *    and can still change a score.
  *
  * Nothing is written anywhere: the tool saves `result()`, and only when the
  * host asks.
@@ -41,10 +53,11 @@ import {
   WALL_LIMITS,
   WALL_ROOM_EVENTS,
   intentAad,
+  isScore,
   lockOf,
   padIntent,
-  readIntent,
   readIntentEnvelope,
+  readSealedIntent,
   readWallState,
   wallControlInput,
   wallStateInput,
@@ -56,6 +69,7 @@ import {
   type WallRoomTool,
   type WallRoundResult,
   type WallRoundView,
+  type WallScoring,
   type WallStateBody,
 } from "./protocol";
 import {
@@ -64,17 +78,24 @@ import {
   hideWallPost,
   hostWallPosts,
   keepPresentHands,
+  lowerAllHands as lowerAllHandsIn,
   lowerHand as lowerHandIn,
+  markWallAnswered,
   mergeWallPosts,
   openWallRound,
   revealWall,
+  setWallBuild,
   setWallMode,
   setWallOpen,
+  setWallScoring,
   toWallResult,
   wallView,
   type HostWall,
   type HostWallPost,
+  type WallRoundOptions,
 } from "./host";
+import { readScoreMemo, tabSecret, writeScoreMemo, type ScoreMemo } from "./memo";
+import { postsToScore } from "./score";
 
 /** Participant: the waits before each resend of an unacknowledged request. */
 export const WALL_RESEND_DELAYS_MS = [2_000, 4_000, 8_000];
@@ -156,19 +177,33 @@ export interface WallRoom extends Pick<
   handUp: boolean;
   /** The last request the host refused, and why (shown once, then cleared by the next send). */
   lastRefusal: WallRefusal | null;
-  post: (text: string) => Promise<WallSendResult>;
+  /** 25/10: this tab's scores this round, post id → 1 to 5 (in memory only). */
+  myScores: ReadonlyMap<string, number>;
+  /** 25/10: the posts this tab scores this round (picked once, when scoring opens). */
+  toScore: readonly string[];
+  /** Post, or with `re`, post "Yes, and…" on that post (a brainwriting round). */
+  post: (text: string, re?: string) => Promise<WallSendResult>;
   withdraw: (postId: string) => Promise<WallSendResult>;
   vote: (postId: string) => Promise<WallSendResult>;
   unvote: (postId: string) => Promise<WallSendResult>;
+  /** 25/10: score a post 1 to 5, or change the score. */
+  score: (postId: string, value: number) => Promise<WallSendResult>;
   raiseHand: (up: boolean) => Promise<WallSendResult>;
   // Host
-  openRound: (prompt: string, mode: WallMode) => boolean;
+  openRound: (prompt: string, mode: WallMode, options?: WallRoundOptions) => boolean;
   setOpen: (open: boolean) => void;
   setMode: (mode: WallMode) => void;
+  /** Brainwriting on or off. */
+  setBuild: (build: boolean) => void;
+  /** 25/10: "open" starts the scoring, "shown" shares the totals (forward only). */
+  setScoring: (scoring: WallScoring) => void;
   reveal: () => void;
   hide: (postId: string, hidden: boolean) => void;
   merge: (fromId: string, intoId: string) => void;
+  /** Mark a question answered, or not. */
+  answer: (postId: string, answered: boolean) => void;
   lowerHand: (id: string) => void;
+  lowerAllHands: () => void;
   /** Host: the round as the tool may save it, now (no ids, no names), or null. */
   result: () => WallRoundResult | null;
 }
@@ -178,6 +213,14 @@ interface PendingIntent {
   envelope: IntentEnvelope;
   intent: WallIntent;
   resends: number;
+  /** A score's value before this request (null: none), to put back if it's refused. */
+  prevScore?: number | null;
+}
+
+interface MyScore {
+  value: number;
+  key: string;
+  round: string;
 }
 
 interface MyEntry {
@@ -212,15 +255,42 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
   });
   const [mineMap, setMineMap] = useState<Map<string, MyEntry>>(new Map());
   const [votes, setVotes] = useState<Map<string, { key: string; round: string }>>(new Map());
+  const [scores, setScores] = useState<Map<string, MyScore>>(new Map());
+  const [scorePick, setScorePick] = useState<{ round: string; ids: string[] } | null>(null);
+  const scorePickRef = useRef<{ round: string; ids: string[] } | null>(null);
   const [lastRefusal, setLastRefusal] = useState<WallRefusal | null>(null);
   const mineRef = useRef(mineMap);
   mineRef.current = mineMap;
   const votesRef = useRef(votes);
   votesRef.current = votes;
+  const scoresRef = useRef(scores);
+  scoresRef.current = scores;
   const pendingRef = useRef<Map<string, PendingIntent>>(new Map());
   const resendTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const lastPostRef = useRef(0);
   const roundIdRef = useRef<string | null>(null);
+  // This tab's secret (made on first send) and its 25/10 memo, both kept for
+  // the tab's session (`memo.ts`).
+  const secretRef = useRef<string | null>(null);
+  const tabSecretNow = useCallback(() => {
+    if (secretRef.current === null) {
+      secretRef.current = tabSecret(opts.code, selfId, () => nanoid(21));
+    }
+    return secretRef.current;
+  }, [opts.code, selfId]);
+  const memoRef = useRef<ScoreMemo | null | undefined>(undefined);
+  /** The memo for `round` (a fresh one when the stored one is for another round). */
+  const memoFor = useCallback(
+    (round: string): ScoreMemo => {
+      if (memoRef.current === undefined) memoRef.current = readScoreMemo(opts.code, selfId);
+      if (memoRef.current?.round !== round) memoRef.current = { round, scores: {}, mine: [] };
+      return memoRef.current;
+    },
+    [opts.code, selfId]
+  );
+  const saveMemo = useCallback(() => {
+    if (memoRef.current) writeScoreMemo(opts.code, selfId, memoRef.current);
+  }, [opts.code, selfId]);
   // Set below, once the handlers it calls exist; the core calls it only after render.
   const onStateRef = useRef<(msg: WallStateBody) => void>(() => {});
 
@@ -309,12 +379,13 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
           if (!keys || !activeRef.current) return;
           const plain = await cryptoImpl.open(keys, env, intentAad(env.by, env.iid));
           if (plain === null || !activeRef.current) return;
-          const intent = readIntent(plain);
-          if (!intent) return;
-          const res = applyWallIntent(wallRef.current, env.by, env.iid, intent, {
+          const sealed = readSealedIntent(plain);
+          if (!sealed) return;
+          const res = applyWallIntent(wallRef.current, env.by, env.iid, sealed.intent, {
             admitted: admitted(),
             removed: removedRef.current,
             now: Date.now(),
+            secret: sealed.secret,
           });
           if (!res.ok && "duplicate" in res) {
             scheduleState();
@@ -360,9 +431,9 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
   }, [room.members, role, selfId, publishHost, scheduleState]);
 
   const openRound = useCallback(
-    (prompt: string, mode: WallMode) => {
+    (prompt: string, mode: WallMode, options?: WallRoundOptions) => {
       if (role !== "host" || !activeRef.current) return false;
-      const next = openWallRound(wallRef.current, nanoid(12), prompt, mode);
+      const next = openWallRound(wallRef.current, nanoid(12), prompt, mode, options);
       if (!next) return false;
       acksRef.current = [];
       nacksRef.current = [];
@@ -394,7 +465,20 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
     (fromId: string, intoId: string) => hostOnly((w) => mergeWallPosts(w, fromId, intoId)),
     [hostOnly]
   );
+  const setBuild = useCallback(
+    (build: boolean) => hostOnly((w) => setWallBuild(w, build)),
+    [hostOnly]
+  );
+  const setScoring = useCallback(
+    (scoring: WallScoring) => hostOnly((w) => setWallScoring(w, scoring)),
+    [hostOnly]
+  );
+  const markAnswered = useCallback(
+    (postId: string, answered: boolean) => hostOnly((w) => markWallAnswered(w, postId, answered)),
+    [hostOnly]
+  );
   const lowerHand = useCallback((id: string) => hostOnly((w) => lowerHandIn(w, id)), [hostOnly]);
+  const lowerAllHands = useCallback(() => hostOnly(lowerAllHandsIn), [hostOnly]);
 
   const result = useCallback(
     () => (role === "host" ? toWallResult(wallRef.current, tool, new Date().toISOString()) : null),
@@ -470,11 +554,32 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
         case "unvote":
           // Refused: the vote stands (the key didn't open it, or it is gone).
           break;
+        case "score": {
+          // Refused (or never confirmed): the score goes back to what it was.
+          if (outcome === "acked") break;
+          const before = p.prevScore ?? null;
+          const memo = memoRef.current;
+          const kept = memo?.round === i.r ? memo.scores[i.pid] : undefined;
+          if (memo && kept && kept.value === i.value) {
+            if (before === null) delete memo.scores[i.pid];
+            else memo.scores[i.pid] = { ...kept, value: before };
+            saveMemo();
+          }
+          setScores((prev) => {
+            const now = prev.get(i.pid);
+            if (!now || now.value !== i.value) return prev;
+            const next = new Map(prev);
+            if (before === null) next.delete(i.pid);
+            else next.set(i.pid, { ...now, value: before });
+            return next;
+          });
+          break;
+        }
         case "hand":
           break;
       }
     },
-    [clearResend, setMine]
+    [clearResend, saveMemo, setMine]
   );
 
   const scheduleResend = useCallback(
@@ -514,6 +619,43 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
         const next = new Map(Array.from(prev).filter(([, v]) => v.round === msg.round?.id));
         return next.size === prev.size ? prev : next;
       });
+      setScores((prev) => {
+        const next = new Map(Array.from(prev).filter(([, v]) => v.round === msg.round?.id));
+        return next.size === prev.size ? prev : next;
+      });
+    }
+    // 25/10: the five posts to score are picked once, when scoring opens
+    // (or come back from this tab's memo after a refresh, with its scores).
+    const r = msg.round;
+    if (
+      role === "participant" &&
+      r?.scoring === "open" &&
+      r.posts &&
+      scorePickRef.current?.round !== r.id
+    ) {
+      const memo = memoFor(r.id);
+      if (!memo.pick) {
+        memo.pick = postsToScore(r.posts, {
+          roundId: r.id,
+          selfId,
+          seed: tabSecretNow(),
+          mine: new Set([...Array.from(mineRef.current.keys()), ...memo.mine]),
+        });
+        saveMemo();
+      }
+      const pick = { round: r.id, ids: memo.pick };
+      scorePickRef.current = pick;
+      setScorePick(pick);
+      const restored = Object.entries(memo.scores).filter(([pid]) => !scoresRef.current.has(pid));
+      if (restored.length > 0) {
+        setScores((prev) => {
+          const next = new Map(prev);
+          for (const [pid, s] of restored) {
+            if (!next.has(pid)) next.set(pid, { value: s.value, key: s.key, round: r.id });
+          }
+          return next;
+        });
+      }
     }
     const acks = new Set(msg.acks);
     const nacks = new Map(msg.nacks.map((n) => [n.iid, n.why]));
@@ -525,10 +667,13 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
 
   /** Seal `intent` to the pinned host and send it. */
   const send = useCallback(
-    async (intent: WallIntent): Promise<"sent" | "failed" | "closed"> => {
+    async (
+      intent: WallIntent,
+      prevScore?: number | null
+    ): Promise<"sent" | "failed" | "closed"> => {
       const pinned = pinnedRef.current;
       if (role !== "participant" || !activeRef.current || !pinned || !cryptoImpl) return "closed";
-      const plain = padIntent(intent);
+      const plain = padIntent(intent, tabSecretNow());
       if (plain === null) return "failed";
       const iid = nanoid(12);
       let sealed: { epk: string; iv: string; ct: string };
@@ -540,13 +685,14 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
       if (!activeRef.current || pinnedRef.current?.ecdh !== pinned.ecdh) return "closed";
       const envelope: IntentEnvelope = { v: SIGNED_ROOM_VERSION, by: selfId, iid, ...sealed };
       const pending: PendingIntent = { iid, envelope, intent, resends: 0 };
+      if (intent.t === "score") pending.prevScore = prevScore ?? null;
       pendingRef.current.set(iid, pending);
       setLastRefusal(null);
       broadcast(WALL_ROOM_EVENTS.intent, envelope);
       scheduleResend(pending);
       return "sent";
     },
-    [activeRef, broadcast, cryptoImpl, pinnedRef, role, scheduleResend, selfId]
+    [activeRef, broadcast, cryptoImpl, pinnedRef, role, scheduleResend, selfId, tabSecretNow]
   );
 
   const currentRound = useCallback((): WallRoundView | null => {
@@ -555,9 +701,11 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
   }, [view.round]);
 
   const post = useCallback(
-    async (text: string): Promise<WallSendResult> => {
+    async (text: string, re?: string): Promise<WallSendResult> => {
       const r = currentRound();
       if (!r || !r.open) return "closed";
+      // "Yes, and…" only in a brainwriting round, on a post on the wall.
+      if (re !== undefined && (!r.build || !r.posts?.some((p) => p.id === re))) return "closed";
       if (typeof text !== "string" || text.trim() === "") return "empty";
       const flat = text.replace(/\s+/g, " ").trim();
       if (flat.length > WALL_LIMITS.maxPostChars) return "too-long";
@@ -566,9 +714,23 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
       if (Date.now() - lastPostRef.current < WALL_LIMITS.postIntervalMs) return "too-soon";
       const pid = nanoid(12);
       const key = nanoid(21);
-      const res = await send({ t: "post", r: r.id, pid, text: clean, lock: lockOf(key) });
+      const res = await send({
+        t: "post",
+        r: r.id,
+        pid,
+        text: clean,
+        lock: lockOf(key),
+        ...(re !== undefined ? { re } : {}),
+      });
       if (res !== "sent") return res;
       lastPostRef.current = Date.now();
+      // Remembered for the tab's session: a refresh before a 25/10 scoring
+      // still keeps this post out of the five to score.
+      const memo = memoFor(r.id);
+      if (memo.mine.length < WALL_LIMITS.maxPostsPerMember) {
+        memo.mine.push(pid);
+        saveMemo();
+      }
       setMineMap((prev) =>
         new Map(prev).set(pid, {
           post: { id: pid, text: clean, status: "sending" },
@@ -578,7 +740,7 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
       );
       return "sent";
     },
-    [currentRound, send]
+    [currentRound, memoFor, saveMemo, send]
   );
 
   const withdraw = useCallback(
@@ -624,6 +786,36 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
     [send]
   );
 
+  const score = useCallback(
+    async (postId: string, value: number): Promise<WallSendResult> => {
+      const r = currentRound();
+      if (!r || r.scoring !== "open" || !r.posts?.some((p) => p.id === postId)) return "closed";
+      if (!isScore(value)) return "failed";
+      if (mineRef.current.has(postId)) return "not-yours";
+      const had = scoresRef.current.get(postId);
+      if (had && had.round === r.id && had.value === value) return "sent";
+      const given = had && had.round === r.id ? had : null;
+      const key = given?.key ?? nanoid(21);
+      const res = await send(
+        {
+          t: "score",
+          r: r.id,
+          pid: postId,
+          value,
+          lock: lockOf(key),
+          ...(given ? { key } : {}),
+        },
+        given?.value ?? null
+      );
+      if (res !== "sent") return res;
+      memoFor(r.id).scores[postId] = { value, key };
+      saveMemo();
+      setScores((prev) => new Map(prev).set(postId, { value, key, round: r.id }));
+      return "sent";
+    },
+    [currentRound, memoFor, saveMemo, send]
+  );
+
   const raiseHand = useCallback(
     async (up: boolean): Promise<WallSendResult> => send({ t: "hand", up }),
     [send]
@@ -661,18 +853,25 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
     myVotes: new Set(votes.keys()),
     handUp: shown.hands.includes(selfId),
     lastRefusal,
+    myScores: new Map(Array.from(scores).map(([id, s]) => [id, s.value])),
+    toScore: scorePick && scorePick.round === shown.round?.id ? scorePick.ids : [],
     post,
     withdraw,
     vote,
     unvote,
+    score,
     raiseHand,
     openRound,
     setOpen,
     setMode,
+    setBuild,
+    setScoring,
     reveal,
     hide,
     merge,
+    answer: markAnswered,
     lowerHand,
+    lowerAllHands,
     result,
   };
 }

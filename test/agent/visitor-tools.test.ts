@@ -68,18 +68,31 @@ describe("isVisitorAction", () => {
     expect(isVisitorAction({})).toBe(true);
   });
 
-  it("leaves only the canvas actions and live-room round starters closed to visitors", () => {
-    // Canvas edits broadcast to a live board; the round an open live room asks
-    // next reaches everyone in it.
-    const ROOM_ROUND_ACTIONS = new Set(["tool.quick_vote.start_round"]);
+  /**
+   * Besides the canvas, the verbs that run a live room on the page (they
+   * reach the people in it), each named here so a new one is a decision:
+   * Audience Wall's room controls, and the round an open Quick Vote room
+   * asks next.
+   */
+  const LIVE_ROOM_VERBS = [
+    "tool.audience_wall.room_status",
+    "tool.audience_wall.open_round",
+    "tool.audience_wall.set_open",
+    "tool.audience_wall.reveal",
+    "tool.audience_wall.lower_hands",
+    "tool.audience_wall.scoring",
+    "tool.quick_vote.start_round",
+  ];
+
+  it("leaves only the canvas actions and the live-room verbs closed to visitors", () => {
     const closed = registry
       .list()
       .filter((a) => !isVisitorAction(a))
       .map((a) => a.id);
-    expect(closed.every((id) => id.startsWith("tool.canvas.") || ROOM_ROUND_ACTIONS.has(id))).toBe(
-      true
-    );
-    expect(closed).toEqual(expect.arrayContaining(Array.from(ROOM_ROUND_ACTIONS)));
+    expect(
+      closed.filter((id) => !id.startsWith("tool.canvas.")).sort(),
+      "closed to visitors"
+    ).toEqual([...LIVE_ROOM_VERBS].sort());
   });
 });
 

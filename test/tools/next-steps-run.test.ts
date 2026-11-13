@@ -399,3 +399,58 @@ describe("quick-vote", () => {
     ).toEqual([]);
   });
 });
+
+describe("audience-wall", () => {
+  const fromWall = (id: string): Story =>
+    story({
+      id,
+      sprintId: undefined,
+      status: "backlog",
+      sourceRef: { tool: "audience-wall", id: "wall_1" },
+    });
+
+  it("sends the stories its feedback made to refinement, the example's left out", () => {
+    expect(
+      steps("audience-wall", { sprints: [], stories: [fromWall("w1"), fromWall("example-w2")] })
+    ).toEqual([
+      expect.objectContaining({
+        id: "audience-wall-refine",
+        href: "/refinement",
+        detail: "1 story from Audience Wall is on the backlog, not refined yet.",
+      }),
+    ]);
+  });
+
+  it("on the active sprint's last day, points to the review's feedback room", () => {
+    expect(
+      steps("audience-wall", { sprints: [sprint({ endDate: "2026-10-24" })], stories: [] })
+    ).toEqual([
+      expect.objectContaining({
+        id: "audience-wall-review",
+        href: "/sprint-review?sprint=s2",
+        detail: expect.stringMatching(/^The sprint ends today\./),
+      }),
+    ]);
+  });
+
+  it("counts a full ISO end date as its day, and says an overdue sprint has ended", () => {
+    expect(
+      ids("audience-wall", {
+        sprints: [sprint({ endDate: "2026-10-24T17:00:00.000Z" })],
+        stories: [],
+      })
+    ).toEqual(["audience-wall-review"]);
+    expect(
+      steps("audience-wall", { sprints: [sprint({ endDate: "2026-10-22" })], stories: [] })
+    ).toEqual([
+      expect.objectContaining({
+        id: "audience-wall-review",
+        detail: expect.stringMatching(/^The sprint has ended\./),
+      }),
+    ]);
+  });
+
+  it("stays quiet otherwise", () => {
+    expect(ids("audience-wall", { sprints: [sprint()], stories: [story()] })).toEqual([]);
+  });
+});

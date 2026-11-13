@@ -1929,6 +1929,40 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Audience Wall's saved walls live in its own tool store, not the
+  // workspace: its steps read what the walls sent on (backlog stories)
+  // and when the next review is due.
+  "audience-wall": rule({
+    select: (ws) => ({ stories: ws.stories, sprints: ws.sprints }),
+    steps: ({ stories, sprints }) => {
+      const steps: NextStep[] = [];
+      const fromWall = real(stories).filter(
+        (s) => fromTool(s, "audience-wall") && inBacklog(s) && !s.readiness?.ready
+      ).length;
+      if (fromWall > 0) {
+        steps.push({
+          id: "audience-wall-refine",
+          label: "Refine the stories from the wall's feedback",
+          detail: `${plural(fromWall, "story", "stories")} from Audience Wall ${be(fromWall)} on the backlog, not refined yet.`,
+          href: "/refinement",
+        });
+      }
+      const ending = activeSprint(sprints);
+      const today = todayIso();
+      // A full ISO end date counts as its day.
+      const end = ending && !hasSyntheticDates(ending) ? ending.endDate.slice(0, 10) : null;
+      if (ending && end && end <= today) {
+        steps.push({
+          id: "audience-wall-review",
+          label: `Collect the feedback on ${ending.name} in a feedback room`,
+          detail: `${end === today ? "The sprint ends today." : "The sprint has ended."} Sprint Review's Feedback tab runs a room, and the posts join the feedback when you save them.`,
+          href: sprintHref("/sprint-review", ending.id),
+        });
+      }
+      return steps;
+    },
+  }),
+
   "sprint-review": rule({
     select: (ws) => ({
       sprints: ws.sprints,

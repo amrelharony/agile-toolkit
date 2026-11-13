@@ -5,8 +5,11 @@
  * asks for a name and consent, then opens the room; no key or channel
  * exists before that. The host puts a prompt up, chooses "Show posts as
  * they arrive" or "Hidden until I reveal them", and runs the wall: Reveal,
- * stop or start taking posts, Hide a post, Merge duplicates, lower a raised
- * hand, New round, End room.
+ * stop or start taking posts, Hide a post, Merge duplicates, mark a
+ * question Answered (`answerable`), lower a raised hand or all of them, New
+ * round, End room. `roundOptions` opens every round with brainwriting's
+ * "Yes, and…"; a 25/10 round's scoring is the tool's to start and show
+ * (`room.setScoring`, in the render prop).
  *
  * While a round is hidden until reveal, this page holds no post text: only
  * the count shows (`useWallRoom`'s view has no posts then). Nothing is kept
@@ -49,6 +52,7 @@ import {
   type WallRoomTool,
   type WallRoundResult,
 } from "@/lib/realtime/wall-room/protocol";
+import type { WallRoundOptions } from "@/lib/realtime/wall-room/host";
 import {
   useWallRoom,
   type WallRoom,
@@ -73,12 +77,22 @@ export interface WallRoomHostProps {
   /** The first round's prompt, prefilled. */
   defaultPrompt?: string;
   defaultMode?: WallMode;
+  /** What every round opens with (brainwriting's "Yes, and…"). */
+  roundOptions?: WallRoundOptions;
+  /** Questions: the host's list offers Answered on each post. */
+  answerable?: boolean;
+  /** Prompts the host can pick under the Prompt field (a demo item each, a starter). */
+  promptSuggestions?: readonly string[];
   /** The start button's words. */
   startLabel?: string;
   /** One line under the start button. */
   description?: ReactNode;
-  /** The tool's own host controls while the room is live. */
-  children?: (room: WallRoom) => ReactNode;
+  /**
+   * The tool's own host controls while the room is live. `unsaved`: the
+   * round holds posts a new round would clear (not saved yet, or hidden
+   * until reveal), as New round's question to the host says.
+   */
+  children?: (room: WallRoom, round: { unsaved: boolean }) => ReactNode;
   /** Tests inject a fake (undefined: WebCrypto). */
   crypto?: VoteCrypto | null;
 }
@@ -193,6 +207,9 @@ function HostWallRoom({
   renderResults,
   defaultPrompt = "",
   defaultMode = "hidden",
+  roundOptions,
+  answerable = false,
+  promptSuggestions = [],
   children,
   crypto,
   onClosed,
@@ -239,7 +256,7 @@ function HostWallRoom({
   }, [status, closed, announce]);
 
   const start = () => {
-    if (!room.openRound(prompt, mode)) {
+    if (!room.openRound(prompt, mode, roundOptions)) {
       setPromptError(
         status === "live" ? "Write a prompt for the wall." : "Wait until the room is connected."
       );
@@ -279,7 +296,13 @@ function HostWallRoom({
               : "Nothing from the room was kept."}
         </p>
         {result && unsaved && (
-          <WallPostList posts={result.posts.map((p, i) => ({ id: `p${i}`, ...p }))} />
+          <WallPostList
+            posts={result.posts.map(({ re, ...p }, i) => ({
+              ...p,
+              id: `p${i}`,
+              ...(re !== undefined ? { re: `p${re}` } : {}),
+            }))}
+          />
         )}
         {result && unsaved && renderResults?.(result)}
         <div className="flex flex-wrap gap-2">
@@ -385,6 +408,26 @@ function HostWallRoom({
               />
             )}
           </Field>
+          {promptSuggestions.length > 0 && (
+            <div role="group" aria-label="Suggested prompts" className="flex flex-wrap gap-1.5">
+              {promptSuggestions.map((s) => (
+                <Button
+                  key={s}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-auto max-w-full whitespace-normal py-1 text-left"
+                  aria-pressed={prompt === s}
+                  onClick={() => {
+                    setPrompt(s);
+                    if (promptError) setPromptError(null);
+                  }}
+                >
+                  {s}
+                </Button>
+              ))}
+            </div>
+          )}
           <fieldset className="min-w-0 space-y-2">
             <legend className="text-sm font-medium text-text">Posts</legend>
             {MODES.map((m) => (
@@ -438,7 +481,14 @@ function HostWallRoom({
             </h2>
             <p className="text-sm text-sub" aria-live="polite">
               {round.count} {round.count === 1 ? "post" : "posts"}
-              {round.open ? ", taking posts" : ", not taking posts"}
+              {round.scoring === "open"
+                ? `, being scored (${round.scored ?? 0} ${round.scored === 1 ? "score" : "scores"} so far)`
+                : round.scoring === "shown"
+                  ? ", scores shown"
+                  : round.open
+                    ? ", taking posts"
+                    : ", not taking posts"}
+              {round.build && !round.scoring ? ", Yes, and… on" : ""}
               {hiddenUntilReveal ? ", hidden until you reveal them" : ""}.
             </p>
           </div>
@@ -457,19 +507,21 @@ function HostWallRoom({
                 Reveal posts
               </Button>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1.5"
-              onClick={() => room.setOpen(!round.open)}
-            >
-              {round.open ? (
-                <Lock className="h-4 w-4" aria-hidden="true" />
-              ) : (
-                <Unlock className="h-4 w-4" aria-hidden="true" />
-              )}
-              {round.open ? "Stop taking posts" : "Take posts again"}
-            </Button>
+            {!round.scoring && (
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => room.setOpen(!round.open)}
+              >
+                {round.open ? (
+                  <Lock className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <Unlock className="h-4 w-4" aria-hidden="true" />
+                )}
+                {round.open ? "Stop taking posts" : "Take posts again"}
+              </Button>
+            )}
             {!hiddenUntilReveal && (
               <Button
                 type="button"
@@ -504,10 +556,16 @@ function HostWallRoom({
             <WallPostList
               posts={round.posts ?? []}
               onHide={room.hide}
-              onMerge={(from, into) => {
-                room.merge(from, into);
-                setNotice("Merged the post into the one you picked.");
-              }}
+              onMerge={
+                // Scores don't merge: a scored round's posts stay as they are.
+                round.scoring
+                  ? undefined
+                  : (from, into) => {
+                      room.merge(from, into);
+                      setNotice("Merged the post into the one you picked.");
+                    }
+              }
+              onAnswer={answerable ? room.answer : undefined}
               emptyText="No posts yet."
             />
           )}
@@ -515,14 +573,29 @@ function HostWallRoom({
         </div>
       )}
 
-      {children?.(room)}
+      {children?.(room, { unsaved: unsaved || (hiddenUntilReveal && (round?.count ?? 0) > 0) })}
 
       {room.hands.length > 0 && (
         <section aria-label="Raised hands" className="space-y-2">
-          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-text">
-            <Hand className="h-4 w-4 text-accent" aria-hidden="true" />
-            Raised hands
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-text">
+              <Hand className="h-4 w-4 text-accent" aria-hidden="true" />
+              Raised hands
+            </h2>
+            {room.hands.length > 1 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  room.lowerAllHands();
+                  announce("Lowered every hand.");
+                }}
+              >
+                Lower all
+              </Button>
+            )}
+          </div>
           <ol className="space-y-1">
             {room.hands.map((h, i) => (
               <li key={h.id} className="flex items-center justify-between gap-2 text-sm">

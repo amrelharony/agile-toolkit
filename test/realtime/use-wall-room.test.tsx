@@ -168,6 +168,45 @@ describe("useWallRoom: host", () => {
     expect(JSON.stringify(saved)).not.toContain("pid_00000001");
   });
 
+  it("refuses a request under a member's id from a tab that isn't theirs, saying nothing of posts", async () => {
+    const { ch, crypto, result } = await startHost();
+    act(() => {
+      result.current.openRound("Questions?", "live");
+    });
+    await tick(600);
+    const s = states(ch).at(-1)!;
+    const sealed = async (by: string, intent: WallIntent, secret?: string) => {
+      const iid = `iid_${String(++iidN).padStart(8, "0")}`;
+      const box = await crypto.seal(s.keys.ecdh, intentAad(by, iid), padIntent(intent, secret)!);
+      return { v: 1, by, iid, ...box };
+    };
+    // A's tab posts: A's id is tied to A's tab secret from now on.
+    const post = await sealed(
+      A.id,
+      {
+        t: "post",
+        r: s.round!.id,
+        pid: "pid_00000001",
+        text: "Why so many meetings?",
+        lock: lockOf("keyA_0123456789abcdef"),
+      },
+      "secretA_0123456789abc"
+    );
+    await deliver(ch, WALL_ROOM_EVENTS.intent, post);
+    // Someone else claims A's id to upvote A's post: refused as not A, never "own-post".
+    const spoof = await sealed(
+      A.id,
+      { t: "vote", r: s.round!.id, pid: "pid_00000001", lock: lockOf("keyX_0123456789abcdef") },
+      "secretX_0123456789abc"
+    );
+    await deliver(ch, WALL_ROOM_EVENTS.intent, spoof);
+    await tick(600);
+    const after = states(ch).at(-1)!;
+    expect(after.acks).toContain(post.iid);
+    expect(after.nacks).toEqual([{ iid: spoof.iid, why: "not-admitted" }]);
+    expect(after.round!.posts![0].votes).toBe(0);
+  });
+
   it("answers a refused request by id, and applies a resend once", async () => {
     const { ch, crypto, result } = await startHost();
     act(() => {

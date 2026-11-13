@@ -6,18 +6,24 @@
  * or member id is on any post.
  *
  * A participant's list marks their own posts ("Your post", with Take it
- * back) and offers an upvote toggle on everyone else's. The host's list
- * offers Hide or Show again, and Merge into another post (for duplicates):
- * the list only picks the post, the Merge button asks first, because a
- * merge can't be split again.
+ * back) and offers an upvote toggle on everyone else's, and in a
+ * brainwriting round "Yes, and…" on each post. The host's list offers Hide
+ * or Show again, Mark answered (for questions), and Merge into another post
+ * (for duplicates): the list only picks the post, the Merge button asks
+ * first, because a merge can't be split again.
+ *
+ * A "Yes, and…" post shows under the post it builds on. A question marked
+ * answered says so; a 25/10 post shows its average score once the host
+ * shares the totals.
  */
 
 import { useId, useState } from "react";
-import { ArrowBigUp, Combine, Eye, EyeOff, Undo2 } from "lucide-react";
+import { ArrowBigUp, Check, Combine, Eye, EyeOff, MessageSquarePlus, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { cn } from "@/lib/utils";
 import type { WallPost } from "@/lib/realtime/wall-room/protocol";
+import { scoreText } from "@/lib/realtime/wall-room/score";
 
 export type ListedPost = WallPost & { hidden?: boolean };
 
@@ -32,10 +38,14 @@ export interface WallPostListProps {
   onVote?: (id: string) => void;
   onUnvote?: (id: string) => void;
   onWithdraw?: (id: string) => void;
+  /** Participant, brainwriting: post "Yes, and…" on this post. */
+  onBuild?: (post: ListedPost) => void;
   /** Host: take a post off the wall, or put it back. */
   onHide?: (id: string, hidden: boolean) => void;
   /** Host: merge one post into another. */
   onMerge?: (fromId: string, intoId: string) => void;
+  /** Host: mark a question answered, or not. */
+  onAnswer?: (id: string, answered: boolean) => void;
   /** Shown when there are no posts. */
   emptyText?: string;
 }
@@ -111,107 +121,166 @@ export function WallPostList({
   onVote,
   onUnvote,
   onWithdraw,
+  onBuild,
   onHide,
   onMerge,
+  onAnswer,
   emptyText = "No posts yet.",
 }: WallPostListProps) {
   const [asked, setAsked] = useState<{ from: string; into: string } | null>(null);
   if (posts.length === 0) return <p className="text-sm text-sub">{emptyText}</p>;
-  const host = Boolean(onHide || onMerge);
+  const host = Boolean(onHide || onMerge || onAnswer);
   const askedFrom = asked ? posts.find((p) => p.id === asked.from) : undefined;
   const askedInto = asked ? posts.find((p) => p.id === asked.into) : undefined;
+
+  // "Yes, and…" posts go under the post they build on, in the list's order.
+  const ids = new Set(posts.map((p) => p.id));
+  const replies = new Map<string, ListedPost[]>();
+  const top: ListedPost[] = [];
+  for (const p of posts) {
+    if (p.re && p.re !== p.id && ids.has(p.re)) {
+      replies.set(p.re, [...(replies.get(p.re) ?? []), p]);
+    } else {
+      top.push(p);
+    }
+  }
+
+  const item = (post: ListedPost, reply: boolean) => {
+    const own = mine?.has(post.id) ?? false;
+    const voted = myVotes?.has(post.id) ?? false;
+    const others = posts.filter((p) => p.id !== post.id && !p.hidden);
+    const below = replies.get(post.id) ?? [];
+    return (
+      <li
+        key={post.id}
+        className={cn(
+          "space-y-2 rounded-lg border border-border bg-card p-3",
+          own && "border-accent",
+          post.hidden && "opacity-60"
+        )}
+      >
+        {reply && <p className="text-xs font-medium text-accent">Yes, and…</p>}
+        <div className="flex min-w-0 items-start gap-3">
+          <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-text">
+            {post.text}
+          </p>
+          <span className="shrink-0 font-data text-sm text-text">
+            <span aria-hidden="true">{post.votes}</span>
+            <span className="sr-only">{votesText(post.votes)}</span>
+          </span>
+        </div>
+        {post.merged.length > 0 && (
+          <ul className="space-y-1 border-l-2 border-border pl-2 text-xs text-sub">
+            {post.merged.map((t, i) => (
+              <li key={`${post.id}-m${i}`} className="break-words">
+                {t}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {own && <span className="text-xs font-medium text-accent">Your post</span>}
+          {post.answered && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
+              <Check className="h-3.5 w-3.5" aria-hidden="true" />
+              Answered
+            </span>
+          )}
+          {post.score !== undefined && (
+            <span className="text-xs text-sub">Score: {scoreText(post)}</span>
+          )}
+          {post.hidden && <span className="text-xs text-sub">Hidden from the room</span>}
+          {!host && !own && onVote && onUnvote && (
+            <Button
+              type="button"
+              variant={voted ? "toolkit" : "outline"}
+              size="sm"
+              className="gap-1"
+              aria-pressed={voted}
+              disabled={!canVote && !voted}
+              onClick={() => (voted ? onUnvote(post.id) : onVote(post.id))}
+            >
+              <ArrowBigUp className="h-4 w-4" aria-hidden="true" />
+              Upvote<span className="sr-only">: {short(post.text)}</span>
+            </Button>
+          )}
+          {!host && onBuild && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="gap-1"
+              onClick={() => onBuild(post)}
+            >
+              <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
+              Yes, and… <span className="sr-only">on: {short(post.text)}</span>
+            </Button>
+          )}
+          {!host && own && onWithdraw && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="gap-1"
+              onClick={() => onWithdraw(post.id)}
+            >
+              <Undo2 className="h-4 w-4" aria-hidden="true" />
+              Take it back<span className="sr-only">: {short(post.text)}</span>
+            </Button>
+          )}
+          {onAnswer && !post.hidden && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="gap-1"
+              aria-pressed={post.answered === true}
+              onClick={() => onAnswer(post.id, !post.answered)}
+            >
+              <Check className="h-4 w-4" aria-hidden="true" />
+              Answered<span className="sr-only">: {short(post.text)}</span>
+            </Button>
+          )}
+          {onHide && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="gap-1"
+              onClick={() => onHide(post.id, !post.hidden)}
+            >
+              {post.hidden ? (
+                <Eye className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <EyeOff className="h-4 w-4" aria-hidden="true" />
+              )}
+              {post.hidden ? "Show again" : "Hide"}
+              <span className="sr-only">: {short(post.text)}</span>
+            </Button>
+          )}
+          {onMerge && !post.hidden && others.length > 0 && (
+            <MergeControl
+              post={post}
+              others={others}
+              onAsk={(from, into) => setAsked({ from, into })}
+            />
+          )}
+        </div>
+        {below.length > 0 && (
+          <ol
+            className="space-y-2 border-l-2 border-accent/30 pl-2 sm:pl-3"
+            aria-label={`Yes, and… on: ${short(post.text)}`}
+          >
+            {below.map((r) => item(r, true))}
+          </ol>
+        )}
+      </li>
+    );
+  };
+
   return (
     <>
-      <ol className="space-y-2">
-        {posts.map((post) => {
-          const own = mine?.has(post.id) ?? false;
-          const voted = myVotes?.has(post.id) ?? false;
-          const others = posts.filter((p) => p.id !== post.id && !p.hidden);
-          return (
-            <li
-              key={post.id}
-              className={cn(
-                "space-y-2 rounded-lg border border-border bg-card p-3",
-                own && "border-accent",
-                post.hidden && "opacity-60"
-              )}
-            >
-              <div className="flex min-w-0 items-start gap-3">
-                <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-text">
-                  {post.text}
-                </p>
-                <span className="shrink-0 font-data text-sm text-text">
-                  <span aria-hidden="true">{post.votes}</span>
-                  <span className="sr-only">{votesText(post.votes)}</span>
-                </span>
-              </div>
-              {post.merged.length > 0 && (
-                <ul className="space-y-1 border-l-2 border-border pl-2 text-xs text-sub">
-                  {post.merged.map((t, i) => (
-                    <li key={`${post.id}-m${i}`} className="break-words">
-                      {t}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div className="flex flex-wrap items-center gap-2">
-                {own && <span className="text-xs font-medium text-accent">Your post</span>}
-                {post.hidden && <span className="text-xs text-sub">Hidden from the room</span>}
-                {!host && !own && onVote && onUnvote && (
-                  <Button
-                    type="button"
-                    variant={voted ? "toolkit" : "outline"}
-                    size="sm"
-                    className="gap-1"
-                    aria-pressed={voted}
-                    disabled={!canVote && !voted}
-                    onClick={() => (voted ? onUnvote(post.id) : onVote(post.id))}
-                  >
-                    <ArrowBigUp className="h-4 w-4" aria-hidden="true" />
-                    Upvote<span className="sr-only">: {short(post.text)}</span>
-                  </Button>
-                )}
-                {!host && own && onWithdraw && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1"
-                    onClick={() => onWithdraw(post.id)}
-                  >
-                    <Undo2 className="h-4 w-4" aria-hidden="true" />
-                    Take it back<span className="sr-only">: {short(post.text)}</span>
-                  </Button>
-                )}
-                {onHide && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1"
-                    onClick={() => onHide(post.id, !post.hidden)}
-                  >
-                    {post.hidden ? (
-                      <Eye className="h-4 w-4" aria-hidden="true" />
-                    ) : (
-                      <EyeOff className="h-4 w-4" aria-hidden="true" />
-                    )}
-                    {post.hidden ? "Show again" : "Hide"}
-                    <span className="sr-only">: {short(post.text)}</span>
-                  </Button>
-                )}
-                {onMerge && !post.hidden && others.length > 0 && (
-                  <MergeControl
-                    post={post}
-                    others={others}
-                    onAsk={(from, into) => setAsked({ from, into })}
-                  />
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+      <ol className="space-y-2">{top.map((post) => item(post, false))}</ol>
       {onMerge && (
         <ConfirmDialog
           open={Boolean(askedFrom && askedInto)}

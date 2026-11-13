@@ -15,7 +15,11 @@
  * What a participant may ask (`WallIntent`): post (at most 280 characters,
  * one every 5 seconds, 30 a round), take back their own post, upvote
  * someone else's post (once each) and take the vote back, raise or lower
- * their hand. Posting and voting send a lock (the SHA-256 of a random key
+ * their hand. Two kinds of round take more, only while the host runs them:
+ * a brainwriting round (`build`) takes "Yes, and…" posts that name the post
+ * they build on (`re`), and a 25/10 round (`scoring`) takes a score of 1 to
+ * 5 on at most five posts per person; the totals reach the room only when
+ * the host shows them. Posting and voting send a lock (the SHA-256 of a random key
  * only the sender's tab holds); taking back sends the key, which the host
  * checks against the lock, so nobody can take back someone else's post or
  * vote even under their id.
@@ -28,6 +32,13 @@
  *    ECDH key (the vote kit's sealing, bound to the sender and the request
  *    id) and padded to one size, so other members see that someone sent
  *    something, never what: a post, a vote or a hand all look alike;
+ *  - the sender's id (`by`) is self-declared, so every request also carries,
+ *    inside the encryption, a secret only the sender's tab holds (`s`, kept
+ *    for the tab's session). The host ties a member id to the first secret
+ *    it sees for it and refuses that id's requests with any other, so once
+ *    someone has sent anything (and they must have, to write a post), nobody
+ *    else can send as them: not to vote or score under their name, and not to
+ *    learn which post is theirs from an "own-post" refusal;
  *  - posts carry no name and no member id. A post's id is a random one its
  *    writer's tab made, inside the encrypted request; who wrote or upvoted
  *    what is a host-side record in memory only (to stop double votes and
@@ -41,7 +52,10 @@
  * sender for an instant before folding it; with "show posts as they
  * arrive", someone watching the channel can match a new post to the member
  * whose request just came in (use "hidden until reveal" for anything
- * sensitive); a raised hand shows the person's name, by design.
+ * sensitive); a raised hand shows the person's name, by design; and the tie
+ * between an id and a secret is made on first use, so someone who sends as
+ * a newcomer before the newcomer's own first request takes that id (the
+ * newcomer's requests are then refused, and they see why).
  *
  * Every reader treats its input as hostile: size first, then a strict
  * shape, rebuilt field by field. Pure and server-safe.
@@ -127,12 +141,24 @@ export const WALL_LIMITS = {
   maxStateChars: VISITOR_LIMITS.maxPayloadChars,
   /** Shortest gap between two states from the host. */
   stateThrottleMs: 500,
+  /** 25/10: posts one member scores in a round. */
+  scoresPerMember: 5,
+  /** 25/10: the highest score (the lowest is 1). */
+  maxScore: 5,
+  /** 25/10: how many of the best-scored posts the top list shows. */
+  topCount: 10,
 } as const;
 
 // ── Shapes ───────────────────────────────────────────────────────────
 
 /** "live": posts show as they arrive. "hidden": only a count, until the host reveals them. */
 export type WallMode = "live" | "hidden";
+
+/**
+ * 25/10 scoring: "open" while each person scores five posts, "shown" once
+ * the host shows the totals. A round that isn't scored has none.
+ */
+export type WallScoring = "open" | "shown";
 
 /** A post as the room shares it: no author, no member id. */
 export interface WallPost {
@@ -143,6 +169,14 @@ export interface WallPost {
   votes: number;
   /** Texts the host merged into it (duplicates), oldest first. */
   merged: string[];
+  /** Brainwriting: the post on the wall this one builds on ("Yes, and…"). Absent: none. */
+  re?: string;
+  /** The host marked the question answered. Absent: not answered. */
+  answered?: boolean;
+  /** 25/10: the sum of its scores, once the host shows them (absent before). */
+  score?: number;
+  /** 25/10: how many people scored it, with `score`. */
+  scorers?: number;
 }
 
 /** The round as the room shares it. */
@@ -159,6 +193,12 @@ export interface WallRoundView {
   count: number;
   /** The posts, most votes first; null while hidden and not revealed. */
   posts: WallPost[] | null;
+  /** Brainwriting: people may post "Yes, and…" on a post. Absent: off. */
+  build?: boolean;
+  /** 25/10 scoring. Absent: not a scored round. */
+  scoring?: WallScoring;
+  /** 25/10: scores given so far on the posts on the wall (with `scoring`). */
+  scored?: number;
 }
 
 /** Why the host refused a request. */
@@ -203,11 +243,16 @@ export type WallStateMessage = Signed<WallStateBody>;
 
 /** What a participant may ask, as it travels inside the encrypted request. */
 export type WallIntent =
-  | { t: "post"; r: string; pid: string; text: string; lock: string }
+  | { t: "post"; r: string; pid: string; text: string; lock: string; re?: string }
   | { t: "withdraw"; r: string; pid: string; key: string }
   | { t: "vote"; r: string; pid: string; lock: string }
   | { t: "unvote"; r: string; pid: string; key: string }
-  | { t: "hand"; up: boolean };
+  | { t: "hand"; up: boolean }
+  /**
+   * 25/10: a score of 1 to 5 on a post. The first score on a post carries a
+   * lock; changing it later carries the key behind that lock too.
+   */
+  | { t: "score"; r: string; pid: string; value: number; lock: string; key?: string };
 
 /** One request, encrypted to the host's ECDH key. Its size says nothing of what it is. */
 export interface IntentEnvelope {
@@ -249,7 +294,21 @@ function roundTuple(r: WallRoundView | null): unknown {
     r.mode,
     r.revealed,
     r.count,
-    r.posts === null ? null : r.posts.map((p) => [p.id, p.text, p.votes, p.merged]),
+    r.posts === null
+      ? null
+      : r.posts.map((p) => [
+          p.id,
+          p.text,
+          p.votes,
+          p.merged,
+          p.re ?? null,
+          p.answered === true,
+          p.score ?? null,
+          p.scorers ?? null,
+        ]),
+    r.build === true,
+    r.scoring ?? null,
+    r.scored ?? null,
   ];
 }
 
@@ -280,13 +339,20 @@ export function intentAad(by: string, iid: string): string {
 
 const utf8Length = (s: string) => new TextEncoder().encode(s).length;
 
+/** The sender's tab secret: random, 16 to 64 URL-safe characters (the room makes nanoid(21)). */
+export function isSenderSecret(v: unknown): v is string {
+  return typeof v === "string" && LOCK_KEY_RE.test(v);
+}
+
 /**
- * The request as it is sealed: its JSON padded with spaces to exactly
- * `WALL_LIMITS.intentBytes` UTF-8 bytes, so every request is the same size.
- * Null when it doesn't fit (a post can't, once cleaned to 280 characters).
+ * The request as it is sealed: its JSON (with the sender's tab secret as
+ * `s`, when given) padded with spaces to exactly `WALL_LIMITS.intentBytes`
+ * UTF-8 bytes, so every request is the same size. Null when it doesn't fit
+ * (a post can't, once cleaned to 280 characters).
  */
-export function padIntent(intent: WallIntent): string | null {
-  const json = JSON.stringify(intent);
+export function padIntent(intent: WallIntent, secret?: string): string | null {
+  if (secret !== undefined && !isSenderSecret(secret)) return null;
+  const json = JSON.stringify(secret === undefined ? intent : { ...intent, s: secret });
   const len = utf8Length(json);
   if (len > WALL_LIMITS.intentBytes) return null;
   return json + " ".repeat(WALL_LIMITS.intentBytes - len);
@@ -315,12 +381,23 @@ export function readIntentEnvelope(raw: unknown): IntentEnvelope | null {
   return { v: SIGNED_ROOM_VERSION, by: m.by, iid: m.iid, epk: m.epk, iv: m.iv, ct: m.ct };
 }
 
+/** A decrypted request and the sender's tab secret inside it (null: none). */
+export interface SealedIntent {
+  intent: WallIntent;
+  secret: string | null;
+}
+
 /**
  * A decrypted request, or null: not the padded size, not JSON, or not
  * exactly one of the shapes a participant may send. A post's text is still
  * raw (the host cleans it, and refuses it when nothing is left).
  */
 export function readIntent(plain: string): WallIntent | null {
+  return readSealedIntent(plain)?.intent ?? null;
+}
+
+/** `readIntent`, with the sender's tab secret (`s`) beside it; a malformed secret is refused. */
+export function readSealedIntent(plain: string): SealedIntent | null {
   if (typeof plain !== "string" || utf8Length(plain) !== WALL_LIMITS.intentBytes) return null;
   let raw: unknown;
   try {
@@ -330,6 +407,12 @@ export function readIntent(plain: string): WallIntent | null {
   }
   const m = obj(raw);
   if (!m) return null;
+  if (m.s !== undefined && !isSenderSecret(m.s)) return null;
+  const intent = intentOf(m);
+  return intent ? { intent, secret: typeof m.s === "string" ? m.s : null } : null;
+}
+
+function intentOf(m: Record<string, unknown>): WallIntent | null {
   if (m.t === "hand") {
     return typeof m.up === "boolean" ? { t: "hand", up: m.up } : null;
   }
@@ -338,10 +421,20 @@ export function readIntent(plain: string): WallIntent | null {
   const r = m.r;
   const pid = m.pid;
   switch (m.t) {
-    case "post":
+    case "post": {
       if (typeof m.text !== "string" || m.text.length > WALL_LIMITS.maxRawPostChars) return null;
       if (typeof m.lock !== "string" || !LOCK_RE.test(m.lock)) return null;
-      return { t: "post", r, pid, text: m.text, lock: m.lock };
+      if (m.re === undefined) return { t: "post", r, pid, text: m.text, lock: m.lock };
+      if (typeof m.re !== "string" || !ROUND_ID_RE.test(m.re) || m.re === pid) return null;
+      return { t: "post", r, pid, text: m.text, lock: m.lock, re: m.re };
+    }
+    case "score": {
+      if (!isScore(m.value)) return null;
+      if (typeof m.lock !== "string" || !LOCK_RE.test(m.lock)) return null;
+      if (m.key === undefined) return { t: "score", r, pid, value: m.value, lock: m.lock };
+      if (typeof m.key !== "string" || !LOCK_KEY_RE.test(m.key)) return null;
+      return { t: "score", r, pid, value: m.value, lock: m.lock, key: m.key };
+    }
     case "vote":
       if (typeof m.lock !== "string" || !LOCK_RE.test(m.lock)) return null;
       return { t: "vote", r, pid, lock: m.lock };
@@ -354,9 +447,27 @@ export function readIntent(plain: string): WallIntent | null {
   }
 }
 
+/** A whole score from 1 to `WALL_LIMITS.maxScore`. */
+export function isScore(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= WALL_LIMITS.maxScore;
+}
+
 // ── States ───────────────────────────────────────────────────────────
 
-function readPosts(raw: unknown, count: number): WallPost[] | null {
+/**
+ * Scores one round can hold in all: five from every seat. The host takes no
+ * score past it (people who left keep theirs, so newcomers could pass it).
+ */
+export const WALL_MAX_SCORES = VISITOR_LIMITS.maxMembers * WALL_LIMITS.scoresPerMember;
+/** People who can score one post: a seat each. The host takes no scorer past it. */
+export const WALL_MAX_SCORERS = VISITOR_LIMITS.maxMembers;
+
+/**
+ * The posts of a shown round, or null. A reply (`re`) names another post
+ * in the list, one that isn't a reply itself; the totals (`score`,
+ * `scorers`) come on every post once they're shown, and on none before.
+ */
+function readPosts(raw: unknown, count: number, scoresShown: boolean): WallPost[] | null {
   if (!Array.isArray(raw) || raw.length !== count || raw.length > WALL_LIMITS.maxPostsPerRound) {
     return null;
   }
@@ -373,8 +484,29 @@ function readPosts(raw: unknown, count: number): WallPost[] | null {
       if (!isCleanText(t, WALL_LIMITS.maxPostChars)) return null;
       merged.push(t);
     }
+    if (p.re !== undefined && (typeof p.re !== "string" || !ROUND_ID_RE.test(p.re))) return null;
+    if (p.answered !== undefined && typeof p.answered !== "boolean") return null;
+    const post: WallPost = { id: p.id, text: p.text, votes: p.votes, merged };
+    if (typeof p.re === "string") post.re = p.re;
+    if (p.answered === true) post.answered = true;
+    if (scoresShown) {
+      if (!isCount(p.scorers, WALL_MAX_SCORERS)) return null;
+      const most = p.scorers * WALL_LIMITS.maxScore;
+      if (!isCount(p.score, most) || p.score < p.scorers) return null;
+      post.score = p.score;
+      post.scorers = p.scorers;
+    } else if (p.score !== undefined || p.scorers !== undefined) {
+      // Totals before the host shows them are refused, as posts are while hidden.
+      return null;
+    }
     ids.add(p.id);
-    posts.push({ id: p.id, text: p.text, votes: p.votes, merged });
+    posts.push(post);
+  }
+  const byId = new Map(posts.map((p) => [p.id, p]));
+  for (const p of posts) {
+    if (p.re === undefined) continue;
+    const parent = byId.get(p.re);
+    if (!parent || parent === p || parent.re !== undefined) return null;
   }
   return posts;
 }
@@ -386,16 +518,26 @@ function readRound(raw: unknown): WallRoundView | null {
   if (typeof r.open !== "boolean" || typeof r.revealed !== "boolean") return null;
   if (r.mode !== "live" && r.mode !== "hidden") return null;
   if (!isCount(r.count, WALL_LIMITS.maxPostsPerRound)) return null;
+  if (r.build !== undefined && typeof r.build !== "boolean") return null;
+  if (r.scoring !== undefined && r.scoring !== "open" && r.scoring !== "shown") return null;
+  const scoring = r.scoring as WallScoring | undefined;
+  if (scoring === undefined) {
+    if (r.scored !== undefined) return null;
+  } else if (!isCount(r.scored, WALL_MAX_SCORES)) {
+    return null;
+  }
   const shown = r.mode === "live" || r.revealed;
+  // Scoring needs the posts on screen: a scored round is always shown.
+  if (scoring !== undefined && !shown) return null;
   let posts: WallPost[] | null = null;
   if (shown) {
-    posts = readPosts(r.posts, r.count);
+    posts = readPosts(r.posts, r.count, scoring === "shown");
     if (!posts) return null;
   } else if (r.posts !== null) {
     // Hidden until reveal: a state that carries the posts is refused.
     return null;
   }
-  return {
+  const round: WallRoundView = {
     id: r.id,
     prompt: r.prompt,
     open: r.open,
@@ -404,6 +546,12 @@ function readRound(raw: unknown): WallRoundView | null {
     count: r.count,
     posts,
   };
+  if (r.build === true) round.build = true;
+  if (scoring !== undefined) {
+    round.scoring = scoring;
+    round.scored = r.scored as number;
+  }
+  return round;
 }
 
 /**
@@ -457,7 +605,20 @@ export interface WallRoundResult {
   closedAt: string;
   mode: WallMode;
   /** The posts on the wall, most votes first (hidden ones left out). */
-  posts: { text: string; votes: number; merged: string[] }[];
+  posts: WallResultPost[];
+}
+
+/** A saved post: its text, votes and merged texts, and what the round's kind adds. */
+export interface WallResultPost {
+  text: string;
+  votes: number;
+  merged: string[];
+  /** Brainwriting: the index (in `posts`) of the post this one builds on. */
+  re?: number;
+  answered?: boolean;
+  /** 25/10, once the totals were shown: the sum of its scores, and how many scored it. */
+  score?: number;
+  scorers?: number;
 }
 
 /** The round as Markdown: the prompt, then each post with its votes. */
