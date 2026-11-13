@@ -1,9 +1,12 @@
 /**
  * Themed word lists for team and sprint names: planets, rivers, cities,
  * mountains and more. Our own short lists of place names, sky names, plain
- * nouns and famous inventors and scientists of the past. Picker draws from
- * them, and they are what the `picker.theme_names` AI task falls back to
- * when there is no model (Team Mixer reuses that task for group names).
+ * nouns and famous inventors and scientists of the past. The one home of
+ * the toolkit's themed lists: Picker draws from them, Team Mixer's "Suggest
+ * names" draws group names from them (lib/team-mixer/names), and they are
+ * what the `picker.theme_names` AI task falls back to when there is no
+ * model (Team Mixer reuses that task too), so every button names from the
+ * same lists.
  *
  * Pure: draws take an optional seeded `rng`.
  */
@@ -22,7 +25,7 @@ export const NAME_THEMES: readonly NameTheme[] = [
   {
     id: "planets",
     label: "Planets and moons",
-    keywords: ["planet", "moon", "space", "solar", "orbit", "astronom", "cosmos"],
+    keywords: ["planet", "moon", "space", "solar", "orbit", "astro", "cosmos"],
     names: [
       "Mercury",
       "Venus",
@@ -177,7 +180,7 @@ export const NAME_THEMES: readonly NameTheme[] = [
   {
     id: "colours",
     label: "Colours",
-    keywords: ["colour", "color", "paint", "shade", "hue"],
+    keywords: ["colour", "color", "paint", "shade", "hue", "rainbow"],
     names: [
       "Amber",
       "Cobalt",
@@ -391,19 +394,67 @@ export const NAME_THEMES: readonly NameTheme[] = [
       "Lanzarote",
     ],
   },
+  {
+    id: "spices",
+    label: "Spices",
+    keywords: ["spice", "food", "cook", "kitchen", "flavour", "flavor", "herb"],
+    names: [
+      "Allspice",
+      "Anise",
+      "Caraway",
+      "Cardamom",
+      "Chilli",
+      "Cinnamon",
+      "Clove",
+      "Coriander",
+      "Cumin",
+      "Fennel",
+      "Fenugreek",
+      "Galangal",
+      "Ginger",
+      "Juniper",
+      "Mace",
+      "Mustard",
+      "Nutmeg",
+      "Paprika",
+      "Pepper",
+      "Saffron",
+      "Sumac",
+      "Tamarind",
+      "Turmeric",
+      "Vanilla",
+    ],
+  },
 ];
 
 /** Most names one draw gives. */
 export const MAX_THEME_DRAW = 20;
 
+/** The shortest typed start of a word that counts as that word ("riv" for rivers). */
+const PREFIX_MIN = 3;
+
 export const themeById = (id: string): NameTheme | undefined =>
   NAME_THEMES.find((t) => t.id === id);
 
-/** The built-in list a typed theme points to ("Space missions" → planets), or undefined. */
+/**
+ * The built-in list a typed theme points to, or undefined: first a list
+ * whose id or a keyword is in the text ("Space missions" → planets), else,
+ * from 3 letters, one whose id or a keyword starts with it ("riv" →
+ * rivers), so a single letter never lands on the first list. Picker, its
+ * AI task's fallback and Team Mixer all read the lists through this.
+ */
 export function themeForText(text: string): NameTheme | undefined {
-  const t = text.toLowerCase();
-  return NAME_THEMES.find(
-    (theme) => t.includes(theme.id) || theme.keywords.some((k) => t.includes(k))
+  const t = text.trim().toLowerCase();
+  if (!t) return undefined;
+  return (
+    NAME_THEMES.find(
+      (theme) => t.includes(theme.id) || theme.keywords.some((k) => t.includes(k))
+    ) ??
+    (t.length >= PREFIX_MIN
+      ? NAME_THEMES.find(
+          (theme) => theme.id.startsWith(t) || theme.keywords.some((k) => k.startsWith(t))
+        )
+      : undefined)
   );
 }
 
