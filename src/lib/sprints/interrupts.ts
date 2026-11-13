@@ -459,6 +459,27 @@ export function validateInterruptDraft(
 
 export type BufferMode = "pct" | "points";
 
+/**
+ * The buffer form's words. Sprint Planning and the Interrupt Buffer page
+ * both save `Sprint.interruptBuffer` and link to each other, so the same
+ * control reads the same way on both.
+ */
+export const BUFFER_FORM_TEXT: {
+  /** The select's label: how the buffer is kept. */
+  mode: string;
+  /** Its choices. */
+  modes: Record<BufferMode, string>;
+  /** The number box's label, for each choice. */
+  value: Record<BufferMode, string>;
+  /** What a blank number box does. */
+  empty: string;
+} = {
+  mode: "Keep for interrupts",
+  modes: { pct: "A share (%)", points: "Points" },
+  value: { pct: "Buffer share (%)", points: "Buffer points" },
+  empty: "Leave it empty to keep no buffer.",
+};
+
 export interface BufferDraft {
   mode: BufferMode;
   /** As typed. */

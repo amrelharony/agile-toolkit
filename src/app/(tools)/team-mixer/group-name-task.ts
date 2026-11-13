@@ -2,7 +2,9 @@
  * The AI behind "Ask Amr for names": Picker's `picker.theme_names` task,
  * reused (Team Mixer has no AI task of its own, and no AI ever sees who is
  * in a group: it gets a theme and a count). Where AI is off the page offers
- * the built-in names (lib/team-mixer/names), which work without it.
+ * the built-in names (lib/team-mixer/names), which work without it. Both
+ * draw on the same themed lists (lib/picker/themes): the task's fallback
+ * and "Suggest names" never disagree on what a theme holds.
  */
 
 import { THEME_NAMES_MAX, themeNamesTask } from "@/lib/ai/tasks/picker";

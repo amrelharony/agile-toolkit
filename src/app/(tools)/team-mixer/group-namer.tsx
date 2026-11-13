@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { AiSource } from "@/lib/ai/task-types";
+import { themeForText } from "@/lib/picker/themes";
 import { MIXER_LIMITS } from "@/lib/team-mixer/model";
-import { suggestGroupNames, themeFor } from "@/lib/team-mixer/names";
+import { suggestGroupNames } from "@/lib/team-mixer/names";
 import { GROUP_NAME_AI } from "./group-name-task";
 
 const THEME_MAX = 60;
@@ -31,9 +32,9 @@ export interface GroupNamerProps {
 }
 
 /**
- * Fun names for the groups. "Suggest names" picks from short built-in
- * lists (no AI); where Amr's AI is on, "Ask Amr for names" asks it for a
- * theme. Either way the names are only suggestions: they reach the groups
+ * Fun names for the groups. "Suggest names" picks from the toolkit's
+ * themed lists (lib/picker/themes, no AI); where Amr's AI is on, "Ask Amr
+ * for names" asks it for a theme, and falls back to the same lists. Either way the names are only suggestions: they reach the groups
  * when the person uses them, with Undo. The AI gets the theme and a count,
  * never who is in a group.
  */
@@ -64,7 +65,7 @@ export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
     const r = suggestGroupNames(typed, wanted);
     show(r.names, "fallback", {
       list: r.theme.label,
-      ...(typed && !themeFor(typed)
+      ...(typed && !themeForText(typed)
         ? { note: `No list for that theme, so here are ${r.theme.label.toLowerCase()}.` }
         : {}),
     });

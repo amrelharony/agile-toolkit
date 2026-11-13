@@ -63,6 +63,7 @@ import {
 } from "@/app/(tools)/picker/forms";
 import { toMarkdown } from "@/app/(tools)/picker/markdown";
 import { quickVoteHref } from "@/app/(tools)/picker/names-panel";
+import { readPollLink } from "@/lib/quick-vote/link";
 import { PICKER_INITIAL, normalizePickerState, sourceEntries } from "@/lib/picker/model";
 import { readPicker, usePickerStore } from "@/lib/picker/store";
 import { PICKER_ACTIONS } from "@/lib/history/event-actions";
@@ -517,9 +518,16 @@ describe("team and sprint names", () => {
     expect(adds).toHaveLength(3);
     fireEvent.click(within(list).getByRole("button", { name: "Shortlist all 3" }));
     expect(readPicker().shortlist).toHaveLength(4);
-    const link = screen.getByRole("link", { name: "Open Quick Vote" });
+    const link = screen.getByRole("link", { name: "Vote in Quick Vote" });
     expect(link.getAttribute("href")).toBe(quickVoteHref(readPicker().shortlist));
-    expect(screen.getByText(/paste it as the options of a poll/)).toBeInTheDocument();
+    // Quick Vote opens a poll set up with the shortlist: no copying and pasting.
+    const href = new URL(link.getAttribute("href")!, "http://localhost");
+    expect(href.pathname).toBe("/quick-vote");
+    expect(readPollLink(href.search)).toEqual({
+      question: "Which name should we pick?",
+      options: readPicker().shortlist,
+    });
+    expect(screen.queryByText(/paste/i)).toBeNull();
     // Accepted suggestions come back off with Undo; what was there stays.
     undoOf("Shortlisted 3 names")();
     expect(readPicker().shortlist).toEqual(["Volga"]);

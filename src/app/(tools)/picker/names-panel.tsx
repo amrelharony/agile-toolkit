@@ -4,7 +4,7 @@
  * Team and sprint names: draw from a themed list (planets, rivers, cities…),
  * or ask Amr for names on any theme (with the built-in lists standing in
  * when AI is off), keep the ones the team likes on a shortlist, then vote on
- * it in Quick Vote or spin it on the wheel.
+ * it in Quick Vote (a poll set up with it) or spin it on the wheel.
  *
  * AI only suggests: nothing reaches the shortlist until someone adds it,
  * adding offers Undo, and a name taken off the shortlist comes back with
@@ -23,6 +23,7 @@ import { ToggleGroup } from "@/components/ui/toggle-group";
 import type { AiSource } from "@/lib/ai/task-types";
 import { THEME_TEXT_CHARS, themeNamesTask } from "@/lib/ai/tasks/picker";
 import { PICKER_LIMITS } from "@/lib/picker/model";
+import { pollLinkHref } from "@/lib/quick-vote/link";
 import { MAX_THEME_DRAW, NAME_THEMES, drawThemeNames, themeById } from "@/lib/picker/themes";
 import { nameKey } from "@/lib/team/names";
 import { byId, focusSoon } from "./focus";
@@ -46,17 +47,11 @@ const shortlistRemoveId = (name: string) =>
   `picker-shortlist-remove-${encodeURIComponent(nameKey(name))}`;
 
 /**
- * Quick Vote with a poll asked for: the question and the shortlist as its
- * options. Quick Vote may not read these yet, so the page never promises a
- * filled-in poll: it offers the copied list to paste as the options.
+ * Quick Vote with a poll set up: the question and the shortlist as its
+ * options (lib/quick-vote/link, which Quick Vote reads when it opens).
  */
 export function quickVoteHref(shortlist: readonly string[]): string {
-  const params = new URLSearchParams({
-    preset: "poll",
-    question: "Which name should we pick?",
-    options: shortlist.join("\n"),
-  });
-  return `/quick-vote?${params.toString()}`;
+  return pollLinkHref("Which name should we pick?", shortlist);
 }
 
 const THEME_OPTIONS = NAME_THEMES.map((t) => ({ value: t.id, label: t.label }));
@@ -248,7 +243,7 @@ export function NamesPanel({
                 <Button asChild size="sm" variant="outline" className="gap-1.5">
                   <Link href={quickVoteHref(shortlist)}>
                     <Vote aria-hidden="true" />
-                    Open Quick Vote
+                    Vote in Quick Vote
                   </Link>
                 </Button>
               )}
@@ -265,11 +260,6 @@ export function NamesPanel({
                 </Button>
               )}
             </div>
-            {shortlist.length >= 2 && (
-              <p className="text-xs text-sub">
-                To vote on it, copy the list and paste it as the options of a poll in Quick Vote.
-              </p>
-            )}
           </>
         )}
       </div>

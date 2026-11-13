@@ -36,6 +36,7 @@ import {
   MAX_WEEKS,
   THROUGHPUT_ITERATIONS,
   THROUGHPUT_WINDOWS,
+  averagePerWeek,
   perWeekText,
   validateWeeklyCounts,
   type ThroughputWindow,
@@ -57,6 +58,7 @@ import {
   type ItemsPlan,
   type ItemsSource,
   type ReleaseFeature,
+  type ThroughputSample,
   type ThroughputSource,
 } from "./throughput";
 import { validateItemCount } from "./validate";
@@ -221,7 +223,7 @@ function CountsField({
 
 export function ThroughputCard({
   config,
-  plan,
+  sample,
   finished,
   onSource,
   onWindow,
@@ -229,7 +231,8 @@ export function ThroughputCard({
   onCommit,
 }: {
   config: ReleasePlannerConfig;
-  plan: ItemsPlan;
+  /** The weekly counts as typed or read now (the forecast may wait for a pause in the typing). */
+  sample: ThroughputSample;
   /** Finished items on each board, for the source buttons' counts. */
   finished: { stories: number; cards: number };
   onSource: (v: ThroughputSource) => void;
@@ -238,8 +241,7 @@ export function ThroughputCard({
   onCommit: (updates: Partial<ReleasePlannerConfig>) => void;
 }) {
   const windowId = useId();
-  const { sample } = plan;
-  const average = plan.forecast.average;
+  const average = averagePerWeek(sample.values);
   return (
     <SectionCard title="Throughput" icon={Gauge}>
       <div className="space-y-4">
@@ -436,23 +438,24 @@ export function ItemsResults({ plan, plotRef }: { plan: ItemsPlan; plotRef: Ref<
               How many items by {formatDay(how.target)}?
             </h3>
             <p className="text-xs text-sub">{plural(how.weeks, "whole week")} from the start.</p>
-            <dl className="grid grid-cols-3 gap-3">
-              {(
-                [
-                  ["Likely (P50)", how.p50],
-                  ["To promise (P85)", how.p85],
-                  ["Safe (P95)", how.p95],
-                ] as const
-              ).map(([label, n]) => (
-                <div key={label} className="rounded-lg border border-border bg-surface-deep p-3">
-                  <dt className="text-xs text-sub">{label}</dt>
-                  <dd className="font-data text-2xl text-text">
-                    {fmt(n, 0)}
-                    <span className="ml-1 text-sm text-sub">items</span>
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            {/* Two across on a phone, like the When cards above (three across
+                left about 63 px a card, and "120 items" ran over the edge). */}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-how-many>
+              <StatCard
+                variant="compact"
+                label="Coin flip (P50)"
+                value={fmt(how.p50, 0)}
+                unit="items"
+              />
+              <StatCard
+                variant="compact"
+                label="Commit (P85)"
+                value={fmt(how.p85, 0)}
+                unit="items"
+                tone="success"
+              />
+              <StatCard variant="compact" label="Safe (P95)" value={fmt(how.p95, 0)} unit="items" />
+            </div>
           </section>
         )}
 
@@ -554,9 +557,9 @@ export function CutLineCard({
     <SectionCard title="Features in order" icon={ListOrdered}>
       <div className="space-y-4" ref={rootRef}>
         <p className="text-sm text-sub">
-          List the features in the order they&apos;ll be built. Each one&apos;s date counts the ones
-          before it, and the target date draws the line: above it, likely done by then (85% of
-          runs).
+          List the features in the order they&apos;ll be built. Each one&apos;s dates count the ones
+          before it, and the target date draws the line: the features above it are done by then in
+          85% of runs (the commit date).
         </p>
 
         {features.length > 0 && (
@@ -589,7 +592,7 @@ export function CutLineCard({
                         {at && items === 0
                           ? " · nothing left to count"
                           : at
-                            ? ` · likely ${at.p50Date ? formatDay(at.p50Date) : "—"}, safe ${
+                            ? ` · coin flip ${at.p50Date ? formatDay(at.p50Date) : "—"}, commit ${
                                 at.p85Date ? formatDay(at.p85Date) : "—"
                               }`
                             : ""}

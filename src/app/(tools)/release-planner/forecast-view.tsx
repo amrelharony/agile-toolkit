@@ -65,7 +65,7 @@ const CONFIDENCE_COLUMNS: DataTableColumn<ConfidenceRow>[] = [
   },
 ];
 
-/** The target date's answers: the chance of finishing (with a forecast) and the scope to promise. */
+/** The target date's answers: the chance of finishing (with a forecast) and the scope to commit to. */
 function TargetPanel({ target, id }: { target: TargetAnswer; id: string }) {
   return (
     <div
@@ -99,9 +99,9 @@ function TargetPanel({ target, id }: { target: TargetAnswer; id: string }) {
                 <span className="font-data text-2xl">
                   {fmt(Math.floor(target.deliverable.p85), 0)}
                 </span>{" "}
-                pts to promise (P85) ·{" "}
-                <span className="font-data">{fmt(Math.floor(target.deliverable.p50), 0)}</span>{" "}
-                likely (P50)
+                pts to commit to (P85) ·{" "}
+                <span className="font-data">{fmt(Math.floor(target.deliverable.p50), 0)}</span> on a
+                coin flip (P50)
               </dd>
             </div>
           )}

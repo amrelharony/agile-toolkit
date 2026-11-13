@@ -66,6 +66,9 @@ import {
   useInterruptBufferPrefs,
 } from "@/app/(tools)/interrupt-buffer/store";
 import { INTERRUPT_BUFFER_ACTIONS } from "@/lib/history/event-actions";
+import { BufferForm } from "@/app/(tools)/interrupt-buffer/parts";
+import { PlanningBuffer } from "@/app/(tools)/sprint-planning/buffer-field";
+import { BUFFER_FORM_TEXT } from "@/lib/sprints/interrupts";
 
 const sprint = (over: Partial<Sprint> = {}): Sprint => ({
   id: "s1",
@@ -149,11 +152,11 @@ describe("the buffer", () => {
     seed([sprint()]);
     renderPage();
     await screen.findByText("No buffer set and no interrupts logged.");
-    type("Share", "95");
+    type("Buffer share (%)", "95");
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
     expect(screen.getByText(/from 1 to 90%/)).toBeInTheDocument();
     expect(ws().sprints[0].interruptBuffer).toBeUndefined();
-    type("Share", "20");
+    type("Buffer share (%)", "20");
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
     expect(ws().sprints[0].interruptBuffer).toEqual({ pct: 20 });
     expect(
@@ -168,20 +171,56 @@ describe("the buffer", () => {
   it("is set in points, and cleared when left blank", async () => {
     seed([sprint({ interruptBuffer: { pct: 20 } })]);
     renderPage();
-    fireEvent.change(await screen.findByLabelText("Keep it as"), { target: { value: "points" } });
-    type("Points", "4");
+    fireEvent.change(await screen.findByLabelText("Keep for interrupts"), {
+      target: { value: "points" },
+    });
+    type("Buffer points", "4");
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
     expect(ws().sprints[0].interruptBuffer).toEqual({ points: 4 });
-    type("Points", "");
+    type("Buffer points", "");
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
     expect(ws().sprints[0].interruptBuffer).toBeUndefined();
+  });
+
+  it("reads the same as the buffer field in Sprint Planning", () => {
+    // The select, its choices and the number box, as a person reads them.
+    const words = (root: HTMLElement) => {
+      const select = within(root).getByLabelText("Keep for interrupts") as HTMLSelectElement;
+      const options = Array.from(select.options).map((o) => o.text);
+      const pct = within(root).getByLabelText("Buffer share (%)") !== null;
+      fireEvent.change(select, { target: { value: "points" } });
+      const points = within(root).getByLabelText("Buffer points") !== null;
+      const empty = within(root).getByText(/Leave it empty to keep no buffer\./) !== null;
+      return { options, pct, points, empty };
+    };
+    const page = render(<BufferForm sprint={sprint()} suggested={null} onSave={() => {}} />);
+    const here = words(page.container);
+    page.unmount();
+    const planning = render(
+      <PlanningBuffer
+        sprint={sprint()}
+        plannedPoints={30}
+        targetPoints={null}
+        disabled={false}
+        example={false}
+        onSave={() => {}}
+      />
+    );
+    expect(words(planning.container)).toEqual(here);
+    expect(here).toEqual({
+      options: ["A share (%)", "Points"],
+      pct: true,
+      points: true,
+      empty: true,
+    });
+    expect(BUFFER_FORM_TEXT.modes).toEqual({ pct: "A share (%)", points: "Points" });
   });
 
   it("reads a saved share back as a share", async () => {
     seed([sprint({ interruptBuffer: { pct: 20 } })]);
     renderPage();
-    expect(await screen.findByLabelText("Keep it as")).toHaveValue("pct");
-    expect(screen.getByLabelText("Share")).toHaveValue(20);
+    expect(await screen.findByLabelText("Keep for interrupts")).toHaveValue("pct");
+    expect(screen.getByLabelText("Buffer share (%)")).toHaveValue(20);
     expect(screen.getByText(/A share of the 30 points planned for Sprint 7/)).toBeInTheDocument();
   });
 
