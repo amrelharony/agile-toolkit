@@ -340,10 +340,26 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   { toolId: "async-standup", open: [], actions: { update_posted: ["timer.standup"] } },
   // wall_saved has no scene: the same tick cheers ("audience-wall", "result").
   { toolId: "audience-wall", open: [], actions: { themes_accepted: ["sticky.think"] } },
+  // Amr thinks along while the team asks why or lays out causes.
+  {
+    toolId: "root-cause",
+    open: [],
+    actions: { why_added: ["sticky.think"], cause_added: ["sticky.think"] },
+  },
 
   // ── Tools with the toolkit moments (S54–S59): no greeting, but their packs
   // load when the page opens, so the first reaction plays whole ──
-  { toolId: "retro", open: [], actions: { card_added: STICKY, kudos_added: ["kudos"] } },
+  {
+    toolId: "retro",
+    open: [],
+    actions: {
+      card_added: STICKY,
+      kudos_added: ["kudos"],
+      // The Lean Coffee runner's timebox per topic.
+      topic_started: ["timer"],
+      topic_done: ["timer.done"],
+    },
+  },
   { toolId: "kanban", open: [], actions: { card_added: STICKY } },
   { toolId: "story-mapper", open: [], actions: { card_added: STICKY } },
   {

@@ -47,21 +47,19 @@ import {
   type LeanTopic,
 } from "@/lib/retro/lean-coffee";
 import { undoable } from "@/lib/utils/undoable";
+import { RETRO_ACTIONS } from "@/lib/history/event-actions";
 import { cn } from "@/lib/utils";
 import type { BoardState, RetroCard } from "../types";
 import { useLeanCoffeeSettings } from "../lean-coffee-store";
 import type { RetroThumbsHost } from "../room/use-retro-room";
 import { thumbsVerdict } from "../room/thumbs-vote-card";
 
-/**
- * History actions the runner logs. Not in RETRO_ACTIONS
- * (lib/history/event-actions.ts) yet; named like the events that are.
- */
+/** History actions the runner logs, from RETRO_ACTIONS (lib/history/event-actions.ts). */
 export const LEAN_COFFEE_LOG = {
-  TOPIC_STARTED: "topic_started",
-  TOPIC_EXTENDED: "topic_extended",
-  TOPIC_DONE: "topic_done",
-  TOPICS_MERGED: "topics_merged",
+  TOPIC_STARTED: RETRO_ACTIONS.TOPIC_STARTED,
+  TOPIC_EXTENDED: RETRO_ACTIONS.TOPIC_EXTENDED,
+  TOPIC_DONE: RETRO_ACTIONS.TOPIC_DONE,
+  TOPICS_MERGED: RETRO_ACTIONS.TOPICS_MERGED,
 } as const;
 
 const short = (s: string, max = 60) => {
