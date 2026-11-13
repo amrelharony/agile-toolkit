@@ -12,6 +12,7 @@ import type {
   MeetingAudit,
   MoodEntry,
   MoodPulse,
+  NotebookEntry,
   PsychSafetyCounts,
   PsychSafetyQuestionId,
   PsychSafetyResponse,
@@ -1376,5 +1377,65 @@ describe("meeting audit", () => {
       })
     ).toEqual(["meeting-audit-again"]);
     expect(ids("meeting-audit", { meetingAudits: [meeting({ id: "example-m1" })] })).toEqual([]);
+  });
+});
+
+describe("Scrum Master Notebook", () => {
+  const note = (id: string, date: string, over: Partial<NotebookEntry> = {}): NotebookEntry => ({
+    id,
+    date,
+    body: `Note ${id}`,
+    tags: [],
+    createdAt: "2026-10-20T09:00:00.000Z",
+    updatedAt: "2026-10-20T09:00:00.000Z",
+    ...over,
+  });
+
+  it("points a theme from three notes in two weeks to the tool for it", () => {
+    expect(
+      steps("sm-notebook", {
+        notebookEntries: [
+          note("a", "2026-10-26", { tags: ["blockers"] }),
+          note("b", "2026-10-20", { body: "Blocked on the sandbox again." }),
+          note("c", "2026-10-13", { tags: ["Blocker"] }),
+        ],
+      })
+    ).toEqual([
+      {
+        id: "sm-notebook-theme",
+        label: "Try Impediment Tracker for “blockers”",
+        detail: "“blockers” came up in 3 of your notes in the last two weeks.",
+        href: "/impediments",
+      },
+    ]);
+  });
+
+  it("takes a theme no tool covers to the retro", () => {
+    const notebookEntries = ["a", "b", "c"].map((id) =>
+      note(id, "2026-10-22", { tags: ["pairing rota"] })
+    );
+    expect(steps("sm-notebook", { notebookEntries })).toEqual([
+      {
+        id: "sm-notebook-retro",
+        label: "Take “pairing rota” to the retro",
+        detail: "“pairing rota” came up in 3 of your notes in the last two weeks.",
+        href: "/retro",
+      },
+    ]);
+  });
+
+  it("stays quiet for example notes, kept summaries, older notes and fewer than three", () => {
+    expect(
+      ids("sm-notebook", {
+        notebookEntries: [
+          note("example-a", "2026-10-26", { tags: ["blockers"] }),
+          note("b", "2026-10-26", { tags: ["blockers", "weekly-summary"] }),
+          note("c", "2026-10-12", { tags: ["blockers"] }),
+          note("d", "2026-10-25", { tags: ["blockers"] }),
+          note("e", "2026-10-24", { tags: ["blockers"] }),
+        ],
+      })
+    ).toEqual([]);
+    expect(ids("sm-notebook", {})).toEqual([]);
   });
 });

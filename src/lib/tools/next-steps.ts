@@ -45,6 +45,7 @@ import { unansweredGoal } from "@/app/(tools)/sprint-goal/doc";
 import { cycleStats } from "@/lib/kanban/flow";
 import { impedimentStatus } from "@/lib/impediments/model";
 import { RETRO_CURRENT_ID, collectRetroActions, followThroughByRetro } from "@/lib/retro/actions";
+import { notebookNextSteps } from "@/lib/notebook/next-step";
 import { recurringThemes } from "@/lib/retro/recurring-themes";
 import { liveOnBoards, readAnalyses, sentLink } from "@/lib/root-cause/model";
 import { hasOwnCards } from "@/lib/retro/board";
@@ -3244,6 +3245,14 @@ const RULES: Record<string, NextStepRule<object>> = {
       }
       return steps;
     },
+  }),
+
+  // The coach's own notes: a theme in three notes or more over the last two
+  // weeks points to the tool that helps with it, else to the retro
+  // (lib/notebook/next-step). Example notes and kept summaries don't count.
+  "sm-notebook": rule({
+    select: (ws) => ({ notes: ws.notebookEntries }),
+    steps: ({ notes }) => notebookNextSteps(notes, todayIso()),
   }),
 
   "one-on-one": rule({
