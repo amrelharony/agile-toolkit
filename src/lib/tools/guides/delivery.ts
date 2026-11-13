@@ -57,27 +57,29 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "cycle-time",
     summary:
-      "Cycle time is how many days an item takes from start to finish. The analyzer reads finished stories on the Sprint board and cards on the Flow board, plus items you type, so you can set a service level expectation (SLE) from real data and spot work that's ageing.",
+      "Cycle time is how many days an item takes from start to finish. The analyzer reads finished Sprint board stories, Flow board cards and typed items, so you can set a service level expectation (SLE) from real data, spot ageing work and see where time goes.",
     whenToUse: [
       "Answering “when will this be done?” with a likelihood instead of an estimate.",
       "Setting or reviewing the team's SLE.",
-      "Finding work in progress that has been open longer than usual, before it's late.",
+      "Finding work open longer than usual, before it's late.",
     ],
     steps: [
-      "Move work to Done on the Sprint or Flow board: each story or card with a start shows here with its cycle time. With nothing yet, click Load an example; nothing in it is saved.",
-      "For work tracked elsewhere, fill in Item, Started and Finished under Type an item and click Add item. Edit it in Finished items, or delete it with Undo.",
-      "Pick what counts with the Include chips (Sprint board stories, Flow board cards, Typed), then read the sentence at the top: your SLE and how many items in progress are already older than it.",
-      "Read the tiles. Average shows from 3 finished items; Median (50th %ile), 85th percentile and Spread (std dev) from 5.",
-      "In Analysis, Histogram shows the spread and By completion date plots each item on the day it finished. On the SLE tab, pick a percentile under Stated at, and type a Target (days) to see how many items made it.",
-      "Check Ageing work in progress: items in progress or in review, oldest first, tinted once older than the 85th percentile. On a Blocked one, click Send to… and pick Impediment.",
-      "Click Export for a Markdown report, a CSV or JSON.",
+      "Move work to Done on the Sprint or Flow board: each story or card with a start shows here. With nothing yet, click Load an example; it is not saved.",
+      "For work tracked elsewhere, fill in Item, Started and Finished under Type an item and click Add item; edit or delete it in Finished items.",
+      "Pick what counts with the Include chips, then read the sentence at the top: your SLE and how many open items are already older than it.",
+      "Read the tiles: Average from 3 finished items; Median (50th %ile), 85th percentile and Spread (std dev) from 5.",
+      "In Analysis, Histogram shows the spread and By completion date plots each finish. On the SLE tab, pick a percentile under Stated at and type a Target (days) to see how many made it.",
+      "Check Ageing work in progress: items in progress or in review, oldest first, tinted once older than the 85th percentile. On a Blocked one, Send to… then Impediment raises it.",
+      "Time in each status gives each status's Median, P85 and Share, and a bar per item. Flow efficiency is the share spent in active statuses; mark the rest under Statuses where work waits (Review and Done start marked).",
+      "Export gives a Markdown report, a CSV or JSON.",
     ],
     tips: [
-      "Days are calendar days with the start and finish both counted, so an item started and finished on the same day took 1 day.",
-      "Commit using the 85th percentile, not the average. The average hides the slow items.",
-      "A card dropped straight into Done has no start, so it has no cycle time.",
+      "Days count the start and the finish, so a same-day item took 1 day.",
+      "Commit using the 85th percentile; the average hides the slow items.",
+      "A card dropped straight into Done has no start, so no cycle time.",
       "Advanced analysis adds confidence ranges from 5 items, change points from 8 and a weekly trend from 6 weeks with a finish.",
-      "Clear typed items asks first and offers Undo; stories and cards on the boards stay.",
+      "Clear typed items asks first and offers Undo.",
+      "Time in each status is elapsed time between moves, so a same-day item adds up to under a day. A move back to Backlog, To do or Ready restarts the cycle; typed and older items are left out.",
     ],
     scales: [
       {
