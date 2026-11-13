@@ -131,6 +131,14 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "raise hand queue",
     "town hall",
   ],
+  "team-mixer": [
+    "breakout groups",
+    "random groups",
+    "pair rotation",
+    "coffee chat",
+    "world cafe",
+    "random teams",
+  ],
   "ceremony-timer": ["timebox", "timer", "meeting", "agenda", "shuffle speakers", "speaking time"],
   "facilitator-timers": [
     "pomodoro",
