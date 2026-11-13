@@ -31,6 +31,7 @@ import {
   analysisStage,
   liveOnBoards,
   postMortemFactorRef,
+  readAnalyses,
   type LinkIsLive,
 } from "@/lib/root-cause/model";
 
@@ -84,7 +85,9 @@ export function PostMortemClient() {
   const [state, setState] = usePostMortemLog();
   // Root Cause's analyses: a factor links to the one made from it, a
   // post-mortem lists the ones linked to it.
-  const analyses = useWorkspaceStore((s) => s.rootCauseAnalyses) ?? NO_ANALYSES;
+  // A synced row can hold anything: read each one as Root Cause does.
+  const storedAnalyses = useWorkspaceStore((s) => s.rootCauseAnalyses) ?? NO_ANALYSES;
+  const analyses = useMemo(() => readAnalyses(storedAnalyses), [storedAnalyses]);
   const retroBoards = useWorkspaceStore((s) => s.retroBoards);
   const isLive = useMemo(() => liveOnBoards(retroBoards), [retroBoards]);
   const { log } = useHistoryLogger("post-mortem");

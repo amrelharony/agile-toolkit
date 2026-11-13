@@ -21,7 +21,7 @@ import { nanoid } from "nanoid";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { HandoffRef, RootCauseAnalysis } from "@/lib/stores/workspace-types";
 import { undoable } from "@/lib/utils/undoable";
-import { ROOT_CAUSE_ID_PREFIX, blankAnalysis } from "@/lib/root-cause/model";
+import { ROOT_CAUSE_ID_PREFIX, blankAnalysis, readAnalyses } from "@/lib/root-cause/model";
 import type { HandoffRoute, HandoffSource } from "../types";
 
 /** The route, typed to its own id (HANDOFF_ROUTES holds it under "root-cause"). */
@@ -60,7 +60,8 @@ export function buildRootCauseAnalysis(
   );
 }
 
-const all = () => useWorkspaceStore.getState().rootCauseAnalyses ?? [];
+// A synced row can hold anything: read each one as Root Cause does.
+const all = () => readAnalyses(useWorkspaceStore.getState().rootCauseAnalyses);
 const find = (id: string) => all().find((a) => a.id === id);
 
 /** Whether two refs name the same item (tool, item and document). */

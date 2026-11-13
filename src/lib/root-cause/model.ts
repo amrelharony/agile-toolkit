@@ -531,3 +531,16 @@ export function readAnalysis(raw: unknown): RootCauseAnalysis | null {
   }
   return out;
 }
+
+/**
+ * The stored analyses made safe to read (see readAnalysis), dropping what
+ * isn't an analysis at all. Anything that reads workspace.rootCauseAnalyses
+ * outside the page (a next step, Post-Mortem's links) goes through this.
+ */
+export function readAnalyses(raw: unknown): RootCauseAnalysis[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((r) => {
+    const a = readAnalysis(r);
+    return a ? [a] : [];
+  });
+}

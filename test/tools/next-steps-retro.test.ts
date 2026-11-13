@@ -337,6 +337,31 @@ describe("root-cause", () => {
     expect(ids("root-cause", { rootCauseAnalyses: [analysis("rca_2")] })).toEqual([]);
     expect(ids("root-cause", {})).toEqual([]);
   });
+
+  it("reads malformed synced rows as the page does instead of throwing", () => {
+    // A synced row can hold anything: an object for sentTo, a number for the
+    // root cause or the date, and rows that aren't analyses at all.
+    const odd = [
+      {
+        ...analysis("rca_obj"),
+        countermeasure: "Do B",
+        sentTo: { route: "retro-action", targetId: "c1" },
+      },
+      { ...analysis("rca_num"), rootCause: 42, updatedAt: 7 },
+      { ...analysis("rca_named"), rootCause: "A" },
+      null,
+      "rca_text",
+      { title: "no id" },
+    ] as unknown as RootCauseAnalysis[];
+    expect(() => steps("root-cause", { rootCauseAnalyses: odd })).not.toThrow();
+    expect(ids("root-cause", { rootCauseAnalyses: odd })).toEqual([
+      "root-cause-countermeasure",
+      "root-cause-send",
+    ]);
+    expect(steps("root-cause", { rootCauseAnalyses: odd })[1].href).toBe(
+      "/root-cause?analysis=rca_obj"
+    );
+  });
 });
 
 describe("icebreaker", () => {

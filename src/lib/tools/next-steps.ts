@@ -46,7 +46,7 @@ import { cycleStats } from "@/lib/kanban/flow";
 import { impedimentStatus } from "@/lib/impediments/model";
 import { RETRO_CURRENT_ID, collectRetroActions, followThroughByRetro } from "@/lib/retro/actions";
 import { recurringThemes } from "@/lib/retro/recurring-themes";
-import { liveOnBoards, sentLink } from "@/lib/root-cause/model";
+import { liveOnBoards, readAnalyses, sentLink } from "@/lib/root-cause/model";
 import { hasOwnCards } from "@/lib/retro/board";
 import { LS_DOC_ID } from "@/lib/liberating-structures/doc";
 import { lsStructure } from "@/lib/liberating-structures/catalog";
@@ -2323,7 +2323,8 @@ const RULES: Record<string, NextStepRule<object>> = {
     select: (ws) => ({ analyses: ws.rootCauseAnalyses, boards: ws.retroBoards }),
     steps: ({ analyses, boards }) => {
       const steps: NextStep[] = [];
-      const newest = real(analyses).sort((a, b) =>
+      // A synced row can hold anything: read each one as the page does.
+      const newest = real(readAnalyses(analyses)).sort((a, b) =>
         (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")
       );
       const open = (id: string) => `/root-cause?analysis=${encodeURIComponent(id)}`;

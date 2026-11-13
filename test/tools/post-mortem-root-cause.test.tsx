@@ -158,6 +158,43 @@ describe("Post-Mortem → Root Cause", () => {
     expect(screen.getByText("Root cause named")).toBeInTheDocument();
   });
 
+  it("reads malformed synced analyses as Root Cause does instead of crashing", () => {
+    // A synced row can hold anything: an object for sentTo, a number for the
+    // root cause or the date, and rows that aren't analyses at all.
+    useWorkspaceStore.setState({
+      rootCauseAnalyses: [
+        {
+          id: "rca_odd",
+          title: "Why checkout errors went unnoticed",
+          problem: "",
+          method: "fishbone",
+          whys: [],
+          causes: [],
+          rootCause: 42,
+          countermeasure: "Alert on the error rate",
+          postMortemId: "pm1",
+          sentTo: { route: "retro-action", targetId: "card-1" },
+          sourceRef: postMortemFactorRef("pm1", FACTORS[0]),
+          createdAt: "2026-11-04T09:00:00.000Z",
+          updatedAt: 7,
+        },
+        "rca_text",
+        { title: "no id", sourceRef: postMortemFactorRef("pm1", FACTORS[1]) },
+      ] as never,
+      retroBoards: [{ id: "retro:current", cards: [{ id: "card-1" }] }] as never,
+    });
+    render(<PostMortemClient />);
+    expect(
+      screen.getByRole("link", { name: "Open the analysis of factor 1 in Root Cause" })
+    ).toHaveAttribute("href", "/root-cause?analysis=rca_odd");
+    expect(screen.getByText("Countermeasure agreed")).toBeInTheDocument();
+    // The factor whose only "analysis" has no id still offers a new one.
+    fireEvent.click(screen.getByRole("button", { name: "Analyze factor 2 in Root Cause" }));
+    expect(
+      screen.getByRole("link", { name: "Open the analysis of factor 2 in Root Cause" })
+    ).toBeInTheDocument();
+  });
+
   it("doesn't say In Retro Actions for an analysis whose action was deleted there", () => {
     const sent = {
       id: "rca_9",
