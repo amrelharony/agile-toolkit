@@ -68,7 +68,13 @@ import { FACILITATOR_TIMERS_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 import { useTeamRoster } from "@/lib/team/use-team-roster";
-import { timerRemaining, useDockTimer, type DockedTimer } from "@/lib/timer/dock-timer";
+import {
+  timerRemaining,
+  useDockTimer,
+  useRingsOwnAlarm,
+  useSaysOwnTimesUp,
+  type DockedTimer,
+} from "@/lib/timer/dock-timer";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import {
   AGENDA_IDS,
@@ -188,6 +194,12 @@ export function FacilitatorTimersClient() {
   // Time's up: once per step, on the tick that reaches zero with the page open
   // ---------------------------------------------------------------------------
 
+  // While a run is on, this page says and rings its own time's up (under
+  // its own chime switch), so the shell's docked timer stays quiet here.
+  const ownsTimesUp = run && !run.finished ? FT_HREF : null;
+  useSaysOwnTimesUp(ownsTimesUp);
+  useRingsOwnAlarm(ownsTimesUp);
+
   const lastRef = useRef<{ run: TimerRun; left: number } | null>(null);
   const chime = settings.chime;
   useEffect(() => {
@@ -199,8 +211,7 @@ export function FacilitatorTimersClient() {
     lastRef.current = { run, left: remaining };
     if (!prev || prev.run !== run || !(prev.left > 0 && remaining <= 0)) return;
 
-    // Said politely: the shell's docked timer says "<label>: time's up"
-    // assertively, on this page too, and this would cut it off.
+    // Said here, once and assertively: the docked timer leaves it to this page.
     const step = currentStep(run);
     flashTitle("Time's up");
     if (run.kind === "break") {
@@ -208,7 +219,7 @@ export function FacilitatorTimersClient() {
         playChime(3);
         vibrate();
       }
-      announce("Break's over: welcome back.");
+      announce("Break's over: welcome back.", "assertive");
       log(FACILITATOR_TIMERS_ACTIONS.TIMER_FINISHED, {
         timer: "break",
         seconds: step?.seconds ?? 0,
@@ -227,7 +238,7 @@ export function FacilitatorTimersClient() {
         playChime(3);
         vibrate();
       }
-      announce(`${run.title} done.`);
+      announce(`${run.title} done.`, "assertive");
       log(FACILITATOR_TIMERS_ACTIONS.TIMER_FINISHED, {
         timer: run.kind,
         seconds: stepsSeconds(run.steps),
@@ -240,7 +251,7 @@ export function FacilitatorTimersClient() {
         vibrate([150]);
       }
       const next = currentStep(result.run);
-      if (next) announce(`${next.label}: ${lengthText(next.seconds)}.`);
+      if (next) announce(`${next.label}: ${lengthText(next.seconds)}.`, "assertive");
     }
   }, [run, remaining, chime, announce, log]);
 

@@ -93,7 +93,7 @@ import {
 } from "@/lib/facilitator-timers/store";
 import { FACILITATOR_TIMERS_ACTIONS } from "@/lib/history/event-actions";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { countdown, useDockTimer } from "@/lib/timer/dock-timer";
+import { countdown, ringsOwnAlarm, saysOwnTimesUp, useDockTimer } from "@/lib/timer/dock-timer";
 import { isExampleId } from "@/lib/utils/example-id";
 
 const T0 = new Date(2026, 10, 12, 10, 0, 0).getTime(); // 10:00 local
@@ -296,9 +296,20 @@ describe("Pomodoro", () => {
     });
     expect(alarm.playChime).not.toHaveBeenCalled();
     expect(alarm.flashTitle).toHaveBeenCalledTimes(1);
-    // Politely: the shell's docked timer says "time's up" assertively first.
-    expect(screen.getByTestId("live-polite")).toHaveTextContent("Short break 1 of 1: 1 min.");
-    expect(screen.getByTestId("live-assertive")).not.toHaveTextContent("Short break");
+    // Said here, assertively: the shell's docked timer leaves it to this page.
+    expect(screen.getByTestId("live-assertive")).toHaveTextContent("Short break 1 of 1: 1 min.");
+  });
+
+  it("tells the docked timer it says and rings time's up itself, only while a run is on", () => {
+    renderPage();
+    expect(saysOwnTimesUp("/facilitator-timers")).toBe(false);
+    expect(ringsOwnAlarm("/facilitator-timers")).toBe(false);
+    click("Start Pomodoro");
+    expect(saysOwnTimesUp("/facilitator-timers")).toBe(true);
+    expect(ringsOwnAlarm("/facilitator-timers")).toBe(true);
+    click("Stop");
+    expect(saysOwnTimesUp("/facilitator-timers")).toBe(false);
+    expect(ringsOwnAlarm("/facilitator-timers")).toBe(false);
   });
 
   it("keeps focus on its first control as a step runs out and the next one starts", () => {
@@ -470,7 +481,7 @@ describe("the break screen", () => {
     act(() => {
       vi.advanceTimersByTime(100);
     });
-    expect(screen.getByTestId("live-polite")).toHaveTextContent("Break's over: welcome back.");
+    expect(screen.getByTestId("live-assertive")).toHaveTextContent("Break's over: welcome back.");
     expect(logged(FACILITATOR_TIMERS_ACTIONS.TIMER_FINISHED)).toEqual([
       ["timer_finished", { timer: "break", seconds: 600 }],
     ]);
