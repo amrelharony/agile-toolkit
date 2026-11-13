@@ -15,7 +15,7 @@ export const GUIDES: ToolGuide[] = [
       "Actions marked on the Retro board appear here under their retro. To add one agreed elsewhere, fill in Action, pick an Owner (or type a name and choose Add to the team), set a Due date if it has one and press Add action. It goes on the current retro, or the latest one when none is in progress.",
       "Tick the box when an action is done; Undo in the toast takes it back. Click the Done date under it to change the day it was done (today or earlier).",
       "Click an action's text to reword it, or its owner (No owner when nobody has it) to change who has it. The due date saves when you leave the field, and the bin deletes the action, with Undo.",
-      "Use Show (Open, Overdue, Done, All) and Filter by owner to see one person's actions.",
+      "Use Show (Open, Overdue, Done, All) and Filter by owner to see one person's actions, or No owner for the unowned ones.",
       "On a past retro's open action, Carry over copies it onto the current retro. Send to… raises it as an Impediment, a Kanban card or a Backlog story (Sprint Planning can add it to a sprint); once that is resolved, reaches Done or is done, the action counts as done.",
       "Recurring themes lists what came up in three or more past retros and flags a theme that came back after its action was done: take that one to Root Cause. Ask Amr to name the themes groups the cards by meaning.",
       "Follow-through per retro shows how many of each past retro's actions were done, carried over or left open; View as table lists the numbers. Export copies or downloads it all as Markdown, or the actions as a CSV file.",

@@ -5,14 +5,14 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "retro",
     summary:
-      "Run the retrospective for one sprint. The board opens with what the toolkit already knows about that sprint, then the team writes, votes, discusses and agrees a few actions, each with an owner.",
+      "Run the retrospective for one sprint. The board opens with what the toolkit knows about that sprint, then the team writes, votes, discusses and agrees a few actions, each with an owner.",
     whenToUse: [
       "At the end of every sprint, before planning the next one.",
       "After a release, a hard week or any event the team wants to learn from.",
       "When the Sprint Cockpit says No retro for this sprint yet: its link picks that sprint for you.",
     ],
     steps: [
-      "Under Retro for, check the sprint this retro looks back on, or press Unlink. Choose a format, Quick Start or Custom (2 to 6 columns of your own), or press Surprise me for one your last three retros didn't use, with an opening and a closing activity. Load an example shows a finished board.",
+      "Under Retro for, check the sprint this retro looks back on, or press Unlink. Choose a format, Quick Start or Custom (2 to 6 columns of your own, kept in this browser), or press Surprise me for one your last three retros didn't use, with an opening and a closing activity. Load an example shows a finished board.",
       "In Write, read Facts from your sprint (goal, say/do, burndown, impediments, mood, kudos), each linked to its tool. Under Actions from the last retro, Carry over the ones still open, and add the sprint's kudos as cards.",
       "Add cards to each column; pasting several lines adds one card per line. Click a card's text to fix it. Group with… puts a card under a similar one, and the bin deletes a card, with Undo. From 10 cards, Common words rings the cards that share a word.",
       "Press Next Phase to vote. Everyone gets 3, 5 or 8 votes (Votes each); on a shared screen, pick who is voting under Voting as. Take my vote back returns one.",
