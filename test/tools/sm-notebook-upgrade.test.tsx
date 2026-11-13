@@ -404,6 +404,8 @@ describe("the page", () => {
     type("Note", "Still waiting on the sandbox. Two people stayed quiet.");
     fireEvent.click(ask());
     const list = within(newNote().getByTestId("ai-suggestions"));
+    // A heading that doesn't name Amr: these came without AI.
+    expect(list.getByRole("heading", { name: "Suggested tags" })).toBeInTheDocument();
     expect(list.getByText("Suggested without AI. Check before you add.")).toBeInTheDocument();
     expect(
       list.getAllByRole("button", { name: /^Add tag: / }).map((b) => b.textContent)
