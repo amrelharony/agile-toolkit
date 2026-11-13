@@ -19,6 +19,7 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
     toolId: "team-mixer",
     use: "Puts everyone in the mix at once, and balances groups by each person's role or skills.",
   },
+  { toolId: "parking-lot", use: "Offers teammates as who raised each point." },
   { toolId: "canvas", use: "Suggests names for card assignees and @mentions." },
   { toolId: "health-dashboard", use: "Counts the team for standup participation." },
   { toolId: "sprint", use: "Counts who has posted today's standup update." },
