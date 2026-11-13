@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -153,12 +153,17 @@ function hostSnapshot(
 type SentIntent = { intent: { t: string; iid: string; cardId?: string; text?: string } };
 
 /** Fill in and confirm the consent dialog. */
-function consentAs(name: string) {
+/** Agrees and starts the room, then waits for it: the open room loads only now (next/dynamic). */
+async function consentAs(name: string) {
   const dialog = screen.getByRole("dialog");
   fireEvent.change(within(dialog).getByLabelText(/your name/i), { target: { value: name } });
   fireEvent.click(within(dialog).getByRole("checkbox"));
   fireEvent.click(within(dialog).getByRole("button", { name: "Start room" }));
+  await waitFor(() => expect(fakeRealtime.client.channel).toHaveBeenCalled());
 }
+
+// The open room's module, warmed so the first wait for it is short.
+beforeAll(() => import("@/app/(tools)/retro/room/host-live-session"));
 
 beforeEach(() => {
   h.auth = VISITOR;
@@ -210,7 +215,7 @@ describe("Everyone on their own device, on the Retro board", () => {
     expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
   });
 
-  it("opens no channel before consent, and one visitor channel after it", () => {
+  it("opens no channel before consent, and one visitor channel after it", async () => {
     render(<Harness initial={makeBoard()} />);
     fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
     expect(screen.getByRole("dialog")).toHaveTextContent(/passes through our realtime provider/i);
@@ -221,7 +226,7 @@ describe("Everyone on their own device, on the Retro board", () => {
     expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
-    consentAs("Hana");
+    await consentAs("Hana");
     expect(fakeRealtime.client.channel).toHaveBeenCalledTimes(1);
     expect(fakeRealtime.last().name).toMatch(/^visitor:retro:[23456789A-HJKMNP-Z]{12}$/);
     expect(screen.getByText("Live room")).toBeInTheDocument();
@@ -235,7 +240,7 @@ describe("Everyone on their own device, on the Retro board", () => {
       </LiveAnnouncerProvider>
     );
     fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
-    consentAs("Hana");
+    await consentAs("Hana");
     act(() => fakeRealtime.last().connect());
     expect(screen.getByRole("button", { name: "Copy link" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show QR code" })).toBeInTheDocument();
@@ -246,10 +251,10 @@ describe("Everyone on their own device, on the Retro board", () => {
     );
   });
 
-  it("hides the participants' cards on the host's screen while people write", () => {
+  it("hides the participants' cards on the host's screen while people write", async () => {
     render(<Harness initial={makeBoard()} />);
     fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
-    consentAs("Hana");
+    await consentAs("Hana");
     const ch = fakeRealtime.last();
     act(() => {
       ch.connect();
@@ -296,7 +301,7 @@ describe("Everyone on their own device, on the Retro board", () => {
     expect(screen.getByText("Pat's secret")).toBeInTheDocument();
   });
 
-  it("never puts a hidden card's text in the host's page, not even for one render", () => {
+  it("never puts a hidden card's text in the host's page, not even for one render", async () => {
     // Ten cards of the host's, two sharing a word, so Common words shows.
     const words = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel"];
     const own = [
@@ -306,7 +311,7 @@ describe("Everyone on their own device, on the Retro board", () => {
     ];
     render(<Harness initial={makeBoard({ cards: own })} />);
     fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
-    consentAs("Hana");
+    await consentAs("Hana");
     const ch = fakeRealtime.last();
     act(() => {
       ch.connect();
@@ -353,10 +358,10 @@ describe("Everyone on their own device, on the Retro board", () => {
     expect(JSON.stringify(h.prompts.at(-1))).toContain("Pat's secret");
   });
 
-  it("ends the room on request and keeps the board", () => {
+  it("ends the room on request and keeps the board", async () => {
     render(<Harness initial={makeBoard()} />);
     fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
-    consentAs("Hana");
+    await consentAs("Hana");
     const ch = fakeRealtime.last();
     act(() => ch.connect());
 
@@ -371,11 +376,11 @@ describe("Everyone on their own device, on the Retro board", () => {
     expect(screen.getByText("Card a")).toBeInTheDocument();
   });
 
-  it("ends the room before New Retro clears the board", () => {
+  it("ends the room before New Retro clears the board", async () => {
     const onReset = vi.fn();
     render(<Harness initial={makeBoard()} onReset={onReset} />);
     fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
-    consentAs("Hana");
+    await consentAs("Hana");
     const ch = fakeRealtime.last();
     act(() => ch.connect());
 
@@ -387,10 +392,10 @@ describe("Everyone on their own device, on the Retro board", () => {
     expect(onReset).toHaveBeenCalledTimes(1);
   });
 
-  it("closes the room if this browser turns out to be the owner's", () => {
+  it("closes the room if this browser turns out to be the owner's", async () => {
     const { rerender } = render(<Harness initial={makeBoard()} />);
     fireEvent.click(screen.getByRole("button", { name: GO_LIVE }));
-    consentAs("Hana");
+    await consentAs("Hana");
     const ch = fakeRealtime.last();
     act(() => ch.connect());
 
