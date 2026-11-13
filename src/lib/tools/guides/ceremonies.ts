@@ -398,24 +398,22 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "facilitator-timers",
     summary:
-      "Facilitator Timers are the timers a session needs beyond its agenda: Pomodoro focus blocks, a big “Back at 10:45” break screen, Crazy 8s rounds, a meeting cost ticker and calm focus sounds made in the browser.",
+      "Facilitator Timers are the timers a session needs beyond its agenda: Pomodoro focus blocks, a big “Back at 10:45” break screen, Crazy 8s rounds, a meeting cost ticker, calm focus sounds and a soundboard, all made in the browser.",
     whenToUse: [
       "Workshops and long sessions that need breaks and focused rounds.",
       "Design sessions with Crazy 8s: eight sketches in eight minutes.",
       "When the people in a meeting should see what it costs.",
     ],
     steps: [
-      "Choose a timer: Pomodoro, break, Crazy 8s or meeting cost.",
-      "For a break, set the time to come back. The screen shows it in large type, ready to share or present.",
-      "For Crazy 8s, start the rounds: a chime marks each of the eight minutes.",
-      "For the cost ticker, enter how many people are there and an average hourly rate. The cost grows while the meeting runs.",
-      "Turn on a focus sound for quiet work, such as rain or a soft hum. The browser makes it, so nothing downloads.",
-      "In Present mode, the soundboard plays a drumroll, a gong, applause and a cheer from Amr.",
-      "Ask Amr drafts an agenda from the meeting's goal, which you can change and then run in the Ceremony Timer.",
+      "Under Start a timer, choose Pomodoro, Break or Crazy 8s, check the lengths and press Start. The timer docks at the bottom left on other pages. With this page open the next round starts by itself; elsewhere the pill says Time's up and the next round waits for you here.",
+      "For a break, give the minutes or the time to be back. Show on the big screen fills the screen with “Back at” and the countdown. Pause the break and the time to be back moves with it.",
+      "For the cost ticker, enter the people (or Count the team), a rough hourly rate and a currency, then Start the ticker. The numbers stay in this browser tab.",
+      "Press Play under Focus sounds for rain, a low hum or slow waves. The soundboard plays a drumroll, a gong, applause, a ding or a cheer from Amr; turn on Show the soundboard while presenting to keep it at hand in Present mode.",
+      "Under Draft an agenda, say what the meeting is for and its minutes, then ask Amr or pick Suggest from a template. Add the segments you want (each with Undo) and save the draft to the Ceremony Timer.",
     ],
     tips: [
-      "Sounds play only when you turn them on, and only after you press a button.",
-      "Keep the cost ticker friendly: it helps the room decide, it isn't there to blame anyone.",
+      "Sounds and the chime play only when you turn them on, and only after you press a button.",
+      "Keep the cost ticker friendly: it helps the room decide, it isn't there to blame anyone. The export gives person-hours, never money.",
     ],
     timebox: "As long as the session.",
   },

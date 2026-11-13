@@ -454,3 +454,41 @@ describe("audience-wall", () => {
     expect(ids("audience-wall", { sprints: [sprint()], stories: [story()] })).toEqual([]);
   });
 });
+
+describe("facilitator-timers", () => {
+  const parked = (id: string, status: "open" | "discussed") => ({
+    id,
+    text: "Move the demo to Thursday",
+    status,
+    createdAt: "2026-10-22T09:00:00Z",
+    updatedAt: "2026-10-22T09:00:00Z",
+  });
+
+  it("points at the open parked points, then the next ceremony to time", () => {
+    const ws = {
+      sprints: [sprint()],
+      ceremonyCadences: [],
+      parkingLotItems: [
+        parked("p1", "open"),
+        parked("p2", "discussed"),
+        parked("example-p3", "open"),
+      ],
+    };
+    const [first, second] = steps("facilitator-timers", ws as Partial<Workspace>);
+    expect(first).toMatchObject({
+      id: "timers-parking-lot",
+      label: "Go through the 1 parked point",
+      href: "/parking-lot",
+    });
+    // Saturday 24 Oct at 09:00, default cadence: the next one is Monday's Daily Scrum.
+    expect(second).toMatchObject({
+      id: "timers-next-ceremony",
+      label: "Time the Daily Scrum to its agenda",
+      href: "/ceremony-timer?agenda=daily",
+    });
+  });
+
+  it("stays quiet with nothing parked and no sprint on", () => {
+    expect(ids("facilitator-timers", { sprints: [], parkingLotItems: [] })).toEqual([]);
+  });
+});

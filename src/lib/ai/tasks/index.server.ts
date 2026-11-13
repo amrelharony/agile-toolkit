@@ -8,6 +8,7 @@ import type { AiTaskPrompt } from "../task-types";
 import { suggestOptionsPrompt } from "./_example.server";
 import { clusterPrompt, mergeQuestionsPrompt, toBacklogPrompt } from "./audience-wall.server";
 import { backlogHealthReviewPrompt } from "./backlog-health.server";
+import { agendaPrompt } from "./facilitator-timers.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { themeNamesPrompt } from "./picker.server";
 import { productGoalDraftPrompt } from "./product-goal.server";
@@ -20,6 +21,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   mergeQuestionsPrompt,
   toBacklogPrompt,
   backlogHealthReviewPrompt,
+  agendaPrompt,
   interruptClassifyPrompt,
   themeNamesPrompt,
   productGoalDraftPrompt,

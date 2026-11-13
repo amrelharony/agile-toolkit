@@ -99,6 +99,8 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   "decision-log": ["workspace.decision"],
   "dod-builder": ["workspace.definition_of_done"],
   eisenhower: ["workspace.prioritization"],
+  // The cost ticker can count the team from the roster.
+  "facilitator-timers": ["workspace.team_member"],
   "feature-flag-tracker": ["workspace.feature_flag"],
   "flaky-tests": ["workspace.flaky_test_board"],
   "hallucination-log": ["workspace.hallucination"],
