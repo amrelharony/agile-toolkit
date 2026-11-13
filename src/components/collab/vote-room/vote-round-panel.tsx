@@ -30,6 +30,8 @@
  * `FacilitatorPair`, `FacilitatorAllocation`): counted hands or paper, same
  * totals, same minN rule, same `onSave`. When live rooms are off, the count
  * entry is the only option and shows on its own, with a one-line reason.
+ * With `paperOnly` a scale round is counted from paper slips, never hands,
+ * for a round where nobody's answer may be seen (Quick Vote's safety check).
  *
  * Live rounds run for every host, the owner included (see
  * `vote-room/protocol.ts`); squad guests count by hand, and so does a
@@ -152,6 +154,13 @@ interface VoteRoundPanelBase {
    * round out of a room that would show results sooner.
    */
   onLiveChange?: (room: { minN: number } | null) => void;
+  /**
+   * Scale rounds: counted from paper slips only, never a show of hands,
+   * where nobody's answer may be seen even in the room (Quick Vote's
+   * safety check). Changes only what the count entry and the reasons
+   * around it say; the other kinds' count entries already ask for paper.
+   */
+  paperOnly?: boolean;
 }
 
 /**
@@ -281,17 +290,24 @@ function roundProblem(p: VoteRoundPanelProps, round: RoundInput): string | null 
 
 export { liveOnlyReason };
 
-/** Why live rounds are off here, in one line. */
-export function unavailableReason(reason: VoteRoomsAvailability["reason"]): string | null {
+/** Why live rounds are off here, in one line (`paperOnly`: never a show of hands). */
+export function unavailableReason(
+  reason: VoteRoomsAvailability["reason"],
+  paperOnly = false
+): string | null {
   switch (reason) {
     case "flag-off":
-      return "Live rounds are off on this site, so count hands or collect paper answers and enter the totals here.";
+      return paperOnly
+        ? "Live rounds are off on this site, so collect paper slips, count them and enter the totals here."
+        : "Live rounds are off on this site, so count hands or collect paper answers and enter the totals here.";
     case "no-realtime":
       return "Live rounds need the realtime service, which isn't set up here. Enter the totals instead.";
     case "no-crypto":
       return "This browser can't encrypt answers (it needs HTTPS and a current browser). Enter the totals instead.";
     case "guest":
-      return "Guests can't host live rounds. Count hands or collect paper answers and enter the totals here.";
+      return paperOnly
+        ? "Guests can't host live rounds. Collect paper slips, count them and enter the totals here."
+        : "Guests can't host live rounds. Count hands or collect paper answers and enter the totals here.";
     default:
       return null;
   }
@@ -335,6 +351,7 @@ function CountEntry({
         tool={props.tool}
         questionnaire={round as Questionnaire}
         minN={need}
+        paperOnly={props.paperOnly}
         onSave={props.onSave}
         renderResults={props.renderResults}
       />
@@ -433,7 +450,7 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
   }
 
   const reason = counted
-    ? unavailableReason(availability.reason)
+    ? unavailableReason(availability.reason, props.paperOnly)
     : liveOnlyReason(availability.reason);
   const pending = availability.reason === "auth-pending";
 
@@ -480,7 +497,9 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
             ? !counted
               ? `This round can't be shared live: ${problem}`
               : kind === "scale"
-                ? `These questions can't be shared live: ${problem} Count hands or collect paper answers and enter the totals here.`
+                ? props.paperOnly
+                  ? `These questions can't be shared live: ${problem} Collect paper slips, count them and enter the totals here.`
+                  : `These questions can't be shared live: ${problem} Count hands or collect paper answers and enter the totals here.`
                 : `This round can't be shared live: ${problem} Collect paper answers and enter them here.`
             : reason}
         </p>
@@ -518,7 +537,9 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
     ? {
         description:
           kind === "scale"
-            ? "Count hands or collect paper answers, then enter the totals here."
+            ? props.paperOnly
+              ? "Collect paper slips, so nobody's answer is seen, count them, then enter the totals here."
+              : "Count hands or collect paper answers, then enter the totals here."
             : "Collect paper answers, then enter them here.",
         action: (
           <Button

@@ -189,6 +189,73 @@ describe("VoteRoundPanel: the two ways to run a round", () => {
   });
 });
 
+describe("VoteRoundPanel: paperOnly, where nobody's answer may be seen", () => {
+  it("counts from paper slips on One screen, never a show of hands", async () => {
+    renderPanel({ paperOnly: true });
+    const one = await screen.findByRole("group", { name: "One screen" });
+    expect(one).toHaveTextContent(
+      "Collect paper slips, so nobody's answer is seen, count them, then enter the totals here."
+    );
+    fireEvent.click(within(one).getByRole("button", { name: "Enter counts" }));
+    expect(
+      screen.getByText(
+        /^Collect paper slips, so nobody's answer is seen, count them, then enter how many people chose each answer\./
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/count hands/i)).toBeNull();
+  });
+
+  it("says paper slips when live rounds are off", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", "");
+    renderPanel({ paperOnly: true });
+    expect(
+      await screen.findByText(
+        "Live rounds are off on this site, so collect paper slips, count them and enter the totals here."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show totals" })).toBeInTheDocument();
+    expect(screen.queryByText(/count hands/i)).toBeNull();
+  });
+
+  it("says paper slips to a squad guest", async () => {
+    renderPanel({ paperOnly: true }, (n) => (
+      <GuestProfileProvider
+        profile={{
+          id: "g1",
+          displayName: "Gus",
+          color: "#00f0ff",
+          squadId: "s1",
+          squadOwnerId: "o1",
+        }}
+      >
+        {n}
+      </GuestProfileProvider>
+    ));
+    expect(
+      await screen.findByText(
+        "Guests can't host live rounds. Collect paper slips, count them and enter the totals here."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/count hands/i)).toBeNull();
+  });
+
+  it("says paper slips for questions that can't be shared live", async () => {
+    renderPanel({
+      paperOnly: true,
+      questionnaire: {
+        ...QUESTIONNAIRE,
+        questions: [...QUESTIONNAIRE.questions, { id: "blank", text: "   " }],
+      },
+    });
+    expect(
+      await screen.findByText(
+        "These questions can't be shared live: Question 4 needs text. Collect paper slips, count them and enter the totals here."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/count hands/i)).toBeNull();
+  });
+});
+
 describe("VoteRoundPanel: a live round", () => {
   async function startRound(
     props: Partial<ScaleVoteRoundPanelProps> = {},
