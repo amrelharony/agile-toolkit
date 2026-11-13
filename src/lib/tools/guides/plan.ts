@@ -133,7 +133,7 @@ export const GUIDES: ToolGuide[] = [
       "Under Dates, check the Start and Sprint length, and add a Target date if there is one.",
       "Read the Forecast: the verdict, Coin flip (P50), Commit (P85), the chart and the dates at 50% to 95% confidence; with a target date, the Probability of finishing by then and the Scope we can deliver by then.",
       "In Item count, take Items left from Open backlog stories or Type a number, and the weekly counts under Throughput from the Sprint board, Flow board or Type them, over your Weeks of history. A week with no finish counts as 0. The Forecast adds Safe (P95) and, with a target date, By the target.",
-      "Under Features in order, add each feature's Items or pick an epic, and order them. Each shows when it is likely done after the ones above, and the target date draws the cut line. An epic with nothing left, or off the roadmap, counts 0.",
+      "Under Features in order, add each feature's Items or pick an epic, and order them. Each shows its coin-flip and commit dates, counting the ones above, and the target date draws the cut line. An epic with nothing left, or off the roadmap, counts 0.",
     ],
     tips: [
       "Commit to the P85 date, not the P50 one (a coin flip), and re-run it every sprint.",
