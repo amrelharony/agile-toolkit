@@ -36,9 +36,20 @@ describe("searchTools", () => {
     ["coaching journal", "sm-notebook"],
     ["scrum master journal", "sm-notebook"],
     ["coaching notes", "sm-notebook"],
+    ["observations", "sm-notebook"],
   ])("finds the right tool for %j", (query, expected) => {
     expect(ids(query, 3)).toContain(expected);
   });
+
+  // The notebook's name and description already put it in the top 3 for most
+  // coaching words, so these two pin what its TOOL_KEYWORDS line adds: without
+  // it, "observations" finds nothing and "coaching journal" ranks it third.
+  it.each([["coaching journal"], ["observations"]])(
+    "ranks the Scrum Master Notebook first for %j",
+    (query) => {
+      expect(ids(query, 1)).toEqual(["sm-notebook"]);
+    }
+  );
 
   it("surfaces several prioritisation frameworks for 'prioritise my backlog'", () => {
     const found = ids("prioritise my backlog", 8);
