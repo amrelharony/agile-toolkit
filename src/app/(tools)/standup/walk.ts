@@ -197,7 +197,9 @@ export const STANDUP_PATH = "/standup";
  * Mirror the turn's clock on the app's docked timer, so it keeps showing
  * while the facilitator opens the board or another tool. A timer another
  * page started (the Ceremony Timer's) is left alone: the walk then keeps
- * its own clock on this page only.
+ * its own clock on this page only. A turn's time's up is never said by
+ * sound (`chime: false`): the dock flashes the title only, even with the
+ * shared "Chime when time is up" switch on.
  */
 export function publishTurn(walk: Walk | null): void {
   const dock = useDockTimer.getState();
@@ -212,6 +214,7 @@ export function publishTurn(walk: Walk | null): void {
     totalSeconds: walk.turnSeconds,
     endsAt: walk.endsAt,
     pausedRemaining: Math.max(0, walk.pausedRemaining),
+    chime: false,
   });
 }
 
