@@ -63,10 +63,14 @@ export const VOTE_ROOM_CONSENT_TEXT =
  * the posts and their votes as anonymous text. A raised hand is named: it
  * is a queue to speak. The AI sentence says what the host may do with the
  * posts (Audience Wall groups them); keep it in step with the AI line the
- * room and vote texts carry.
+ * room and vote texts carry. A post or an upvote that shows the moment it
+ * arrives (a live round, or one the host opened again after Reveal) can be
+ * matched to its sender's request on the channel, so the text says so
+ * (lib/realtime/wall-room/protocol.ts, "What it doesn't cover").
  */
 export const WALL_ROOM_CONSENT_TEXT =
   "Your posts travel encrypted to the host's browser, which puts them on the wall without your name. " +
+  "When the host shows posts as they arrive, others in the room could tell who sent a post or an upvote. " +
   "Everyone in the room sees the wall, and the host can save the posts and their votes as anonymous text; no names are kept. " +
   "Others in the room see your name, and see it in the queue if you raise your hand. " +
   "It all passes through our realtime provider (Supabase), and we don't store it. " +
