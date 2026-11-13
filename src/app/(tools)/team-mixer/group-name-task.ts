@@ -1,11 +1,11 @@
 /**
  * The AI behind "Ask Amr for names": Picker's `picker.theme_names` task,
  * reused (Team Mixer has no AI task of its own, and no AI ever sees who is
- * in a group: it gets a theme and a count). Picker's PR adds that task;
- * until it is in the registry this is null and the page offers the
- * built-in names only (lib/team-mixer/names), which work without AI.
+ * in a group: it gets a theme and a count). Where AI is off the page offers
+ * the built-in names (lib/team-mixer/names), which work without it.
  */
 
+import { THEME_NAMES_MAX, themeNamesTask } from "@/lib/ai/tasks/picker";
 import type { AiTaskDef } from "@/lib/ai/task-types";
 
 export interface GroupNameAi<I, O> {
@@ -21,4 +21,9 @@ export interface GroupNameAi<I, O> {
 // `any`: the task's own input and output types, erased for the page; the
 // task's schemas check both at run time.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const GROUP_NAME_AI: GroupNameAi<any, any> | null = null;
+export const GROUP_NAME_AI: GroupNameAi<any, any> | null = {
+  task: themeNamesTask,
+  input: (theme: string, count: number) => ({ theme, count }),
+  names: (output: { names: string[] }) => output.names,
+  max: THEME_NAMES_MAX,
+};
