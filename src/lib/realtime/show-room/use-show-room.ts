@@ -96,6 +96,7 @@ export interface ShowRoom extends Pick<
   | "kick"
   | "end"
   | "leave"
+  | "extras"
 > {
   /** The frame on screen, or null before the host shows anything. */
   frame: ShowFrame | null;
@@ -256,6 +257,7 @@ export function useShowRoom(opts: UseShowRoomOptions): ShowRoom {
     kick: core.kick,
     end: core.end,
     leave: core.leave,
+    extras: core.extras,
     frame,
     hereCount,
     iAmHere,

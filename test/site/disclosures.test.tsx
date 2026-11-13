@@ -73,6 +73,18 @@ describe("the disclosure wording", () => {
         "The host may send the room's answers, without names, to an AI service for a summary."
       );
     }
+    // Every room notice says a reaction can be traced to its sender, just
+    // before the closing line.
+    for (const text of [
+      disclosures.VISITOR_ROOM_CONSENT_TEXT,
+      disclosures.VOTE_ROOM_CONSENT_TEXT,
+      disclosures.WALL_ROOM_CONSENT_TEXT,
+    ]) {
+      expect(text).toContain(
+        "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
+          "Share the link only with your team."
+      );
+    }
   });
 
   it("is the count note under the comics and kudos pages, and under a weekly story", () => {

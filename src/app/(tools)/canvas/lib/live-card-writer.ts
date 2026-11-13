@@ -18,7 +18,7 @@
 
 import { STORY_TITLE_MAX } from "@/lib/handoffs/targets/backlog-story";
 import { setStoryStatus } from "@/lib/sprints/store";
-import { isStoryStatus } from "@/lib/sprints/story-status";
+import { isStoryStatus, withRefinedPutBack } from "@/lib/sprints/story-status";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story, StoryStatus, WhiteboardCard } from "@/lib/stores/workspace-types";
 import { toast } from "@/lib/utils/toast";
@@ -118,9 +118,16 @@ type StoryFields = Partial<Pick<Story, "title" | "points" | "owner">>;
 /**
  * Give the story `to`'s value for each field it still holds `from`'s for:
  * an Undo (from = what the edit wrote, to = what was there) or a Redo (the
- * other way round). A field changed since keeps its newer value.
+ * other way round). A field changed since keeps its newer value. Its
+ * `refinedAt` swaps the same way (`withRefinedPutBack`), so undoing a
+ * title or points edit leaves a stale story stale.
  */
-function swapFields(id: string, from: StoryFields, to: StoryFields): void {
+function swapFields(
+  id: string,
+  from: StoryFields,
+  to: StoryFields,
+  refined: { from: string | undefined; to: string | undefined }
+): void {
   const current = storyById(id);
   if (!current) return;
   const next: Story = { ...current };
@@ -132,7 +139,9 @@ function swapFields(id: string, from: StoryFields, to: StoryFields): void {
     else rec[key] = to[key];
     changed = true;
   }
-  if (changed) useWorkspaceStore.getState().upsertStory(next);
+  if (changed) {
+    useWorkspaceStore.getState().upsertStory(withRefinedPutBack(next, refined.from, refined.to));
+  }
 }
 
 /** The card fields a story owns on a Sprint board. */
@@ -218,13 +227,15 @@ export function writeLiveCardEdit(
   if (planned.length > 0) out.status = sprintColumnOf(planned[0].status);
   if (!fieldsChanged && planned.length === 0) return { patch: out, effect: null };
 
+  // The story's refinedAt before the edit and the stamp the edit's write left.
+  const refined = { before: story.refinedAt, written: story.refinedAt };
   const effect: CanvasUndoEffect = {
     undo: () => {
       revertMoves(planned);
-      swapFields(story.id, written, before);
+      swapFields(story.id, written, before, { from: refined.written, to: refined.before });
     },
     redo: () => {
-      swapFields(story.id, before, written);
+      swapFields(story.id, before, written, { from: refined.before, to: refined.written });
       redoMoves(planned);
     },
   };
@@ -233,7 +244,10 @@ export function writeLiveCardEdit(
       planned.length > 0 ? moveLabel(planned, next.title) : `Updated the story “${next.title}”.`,
     apply: () => {
       // Fields first: the move then stamps the story as it now reads.
-      if (fieldsChanged) useWorkspaceStore.getState().upsertStory(next);
+      if (fieldsChanged) {
+        useWorkspaceStore.getState().upsertStory(next);
+        refined.written = storyById(story.id)?.refinedAt;
+      }
       applyMoves(planned);
     },
     revert: effect.undo,

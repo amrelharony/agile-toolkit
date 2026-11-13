@@ -241,6 +241,11 @@ import {
   workingBasisLabel,
 } from "@/lib/quality/review";
 import { isIsoDate } from "@/lib/sprints/calendar";
+import {
+  backlogHealthSteps,
+  interruptBufferSteps,
+  productGoalSteps,
+} from "@/lib/tools/next-steps-phase42";
 import type {
   AdkarElement,
   Assumption,
@@ -1658,6 +1663,22 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Tools plan, phase 1. The logic and its tests are in lib/tools/next-steps-phase42.
+  "product-goal": rule({
+    select: (ws) => ({ goals: ws.productGoals, sprints: ws.sprints, stories: ws.stories }),
+    steps: ({ goals, sprints, stories }) => productGoalSteps({ goals, sprints, stories }),
+  }),
+
+  "backlog-health": rule({
+    select: (ws) => ({
+      stories: ws.stories,
+      backlogItems: ws.backlogItems,
+      goals: ws.productGoals,
+    }),
+    steps: ({ stories, backlogItems, goals }) =>
+      backlogHealthSteps({ stories, backlogItems, goals }),
+  }),
+
   // Run the sprint.
   kanban: rule({
     select: (ws) => ({
@@ -1873,6 +1894,41 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Tools plan, phase 1.
+  picker: rule({
+    select: (ws) => ({
+      members: ws.teamMembers,
+      sprints: ws.sprints,
+      cadences: ws.ceremonyCadences,
+    }),
+    steps: ({ members, sprints, cadences }) => {
+      const steps: NextStep[] = [];
+      if (real(members).length === 0) {
+        steps.push({
+          id: "picker-team",
+          label: "Add your team",
+          detail: "The wheel and the role rotation pick from the people on the Team page.",
+          href: "/team",
+        });
+      }
+      const sprint = activeSprint(sprints);
+      if (sprint) {
+        const now = new Date();
+        const cadence = normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }));
+        const [next] = nextCeremonies(sprint, cadence, now, 1);
+        if (next && next.at.getTime() - now.getTime() <= TIMER_LEAD_MS) {
+          steps.push({
+            id: "picker-ceremony",
+            label: `Go on to the ${CEREMONY_LABEL[next.kind]}`,
+            detail: `It starts ${whenLabel(next.at, now)}. You've picked who runs it; open it there.`,
+            href: sprintHref(CEREMONY_HREF[next.kind], sprint.id),
+          });
+        }
+      }
+      return steps;
+    },
+  }),
+
   "sprint-review": rule({
     select: (ws) => ({
       sprints: ws.sprints,
@@ -1920,6 +1976,12 @@ const RULES: Record<string, NextStepRule<object>> = {
       }
       return steps;
     },
+  }),
+
+  // Tools plan, phase 1. The logic and its tests are in lib/tools/next-steps-phase42.
+  "interrupt-buffer": rule({
+    select: (ws) => ({ sprints: ws.sprints, items: ws.interruptItems }),
+    steps: ({ sprints, items }) => interruptBufferSteps({ sprints, items }),
   }),
 
   // Retrospect & improve.

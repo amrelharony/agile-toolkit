@@ -88,6 +88,11 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: ["links"],
     actions: { edge_added: ["links.connect"], node_added: ["links.pin"] },
   },
+  {
+    toolId: "product-goal",
+    open: ["goal", "goal.think"],
+    actions: { goal_created: ["goal.think"], goal_achieved: ["goal.hit"] },
+  },
   // Run the sprint
   {
     toolId: "impediments",

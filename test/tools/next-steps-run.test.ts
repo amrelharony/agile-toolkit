@@ -281,3 +281,61 @@ describe("sprint-review", () => {
     expect(ids("sprint-review", { sprints: [s1], sprintReviews: [], stories: [] })).toEqual([]);
   });
 });
+
+describe("interrupt-buffer (tools plan phase 1)", () => {
+  it("sends a sprint over its buffer to the cockpit", () => {
+    const out = steps("interrupt-buffer", {
+      sprints: [sprint({ interruptBuffer: { points: 2 } })],
+      interruptItems: [
+        {
+          id: "i1",
+          sprintId: "s2",
+          title: "Login broken",
+          kind: "bug",
+          size: 3,
+          emergency: false,
+          loggedAt: "2026-10-20T09:00:00.000Z",
+        },
+      ],
+    });
+    expect(out.map((s) => s.id)).toEqual(["interrupt-buffer-over"]);
+    expect(out[0].href).toBe("/sprint?sprint=s2");
+  });
+
+  it("stays quiet within the buffer", () => {
+    expect(
+      ids("interrupt-buffer", {
+        sprints: [sprint({ interruptBuffer: { points: 8 } })],
+        interruptItems: [],
+      })
+    ).toEqual([]);
+  });
+});
+
+describe("picker (tools plan phase 1)", () => {
+  const team = [{ id: "m1", name: "Sam" }];
+
+  it("asks for the team while the roster is empty or only the example", () => {
+    expect(ids("picker", { teamMembers: [] })).toEqual(["picker-team"]);
+    expect(ids("picker", { teamMembers: [{ id: "example-m1", name: "Sam" }] })).toEqual([
+      "picker-team",
+    ]);
+    expect(ids("picker", { teamMembers: team })).toEqual([]);
+  });
+
+  it("leads on to a ceremony starting within the hour", () => {
+    // Monday 26 Oct at 09:00; the default Daily Scrum is at 09:30.
+    vi.setSystemTime(new Date("2026-10-26T09:00:00"));
+    expect(
+      steps("picker", { teamMembers: team, sprints: [sprint()], ceremonyCadences: [] })[0]
+    ).toMatchObject({
+      id: "picker-ceremony",
+      label: "Go on to the Daily Scrum",
+      href: "/standup?sprint=s2",
+    });
+    vi.setSystemTime(new Date("2026-10-24T09:00:00"));
+    expect(ids("picker", { teamMembers: team, sprints: [sprint()], ceremonyCadences: [] })).toEqual(
+      []
+    );
+  });
+});
