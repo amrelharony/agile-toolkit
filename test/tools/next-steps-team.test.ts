@@ -9,6 +9,7 @@ import type {
   HealthCheckEntry,
   Kudos,
   MaturityAssessmentEntry,
+  MeetingAudit,
   MoodEntry,
   MoodPulse,
   PsychSafetyCounts,
@@ -1312,5 +1313,68 @@ describe("team-mixer", () => {
     const all = FOUR.map((m, i) => (i % 2 ? { ...m, role: "Tester" } : { ...m, skills: ["SQL"] }));
     expect(ids("team-mixer", { teamMembers: all })).toEqual([]);
     expect(ids("team-mixer", { teamMembers: TEAM })).toEqual([]);
+  });
+});
+
+describe("meeting audit", () => {
+  const meeting = (over: Partial<MeetingAudit> = {}): MeetingAudit => ({
+    id: "m1",
+    meeting: "Weekly status sync",
+    cadence: "weekly",
+    minutes: 60,
+    attendees: 12,
+    purpose: "Everyone reports what they did.",
+    ratings: {},
+    createdAt: "2026-10-20T09:00:00.000Z",
+    updatedAt: "2026-10-20T09:00:00.000Z",
+    ...over,
+  });
+
+  it("asks to rate, then for verdicts, then takes the changes to the retro", () => {
+    expect(ids("meeting-audit", { meetingAudits: [] })).toEqual([]);
+    expect(ids("meeting-audit", { meetingAudits: [meeting()] })).toEqual(["meeting-audit-rate"]);
+    expect(
+      ids("meeting-audit", {
+        meetingAudits: [
+          meeting({ ratings: { outcome: 1 } }),
+          meeting({ id: "m2", ratings: { purpose: 4 }, verdict: "drop" }),
+        ],
+      })
+    ).toEqual(["meeting-audit-verdict", "meeting-audit-retro"]);
+  });
+
+  it("stops asking for the retro once one is held after the verdicts", () => {
+    const planned = meeting({ ratings: { purpose: 2 }, verdict: "change" });
+    // The current board and a retro held before the verdict don't count.
+    expect(
+      ids("meeting-audit", {
+        meetingAudits: [planned],
+        retroBoards: [
+          board("retro-current", []),
+          board("retro:old", [], { archivedAt: "2026-10-16T16:00:00.000Z" }),
+        ],
+      })
+    ).toEqual(["meeting-audit-retro"]);
+    expect(
+      ids("meeting-audit", {
+        meetingAudits: [planned],
+        retroBoards: [board("retro:new", [], ARCHIVED)],
+      })
+    ).toEqual([]);
+  });
+
+  it("asks for the audit again after a quarter, and ignores example meetings", () => {
+    expect(
+      ids("meeting-audit", {
+        meetingAudits: [
+          meeting({
+            ratings: { purpose: 4 },
+            verdict: "keep",
+            updatedAt: "2026-07-01T09:00:00.000Z",
+          }),
+        ],
+      })
+    ).toEqual(["meeting-audit-again"]);
+    expect(ids("meeting-audit", { meetingAudits: [meeting({ id: "example-m1" })] })).toEqual([]);
   });
 });

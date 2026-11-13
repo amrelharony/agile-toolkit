@@ -3,6 +3,7 @@ import { getNextStepRule } from "@/lib/tools/next-steps";
 import type {
   Impediment,
   KanbanCard,
+  ParkingLotItem,
   Sprint,
   SprintReview,
   Story,
@@ -490,5 +491,31 @@ describe("facilitator-timers", () => {
 
   it("stays quiet with nothing parked and no sprint on", () => {
     expect(ids("facilitator-timers", { sprints: [], parkingLotItems: [] })).toEqual([]);
+  });
+});
+
+describe("parking-lot", () => {
+  const point = (over: Partial<ParkingLotItem> = {}): ParkingLotItem => ({
+    id: "p1",
+    text: "Who owns the release checklist?",
+    status: "open",
+    createdAt: "2026-10-23T09:00:00.000Z",
+    updatedAt: "2026-10-23T09:00:00.000Z",
+    ...over,
+  });
+
+  it("asks for the end-of-meeting review while points are open, the stale ones first", () => {
+    expect(ids("parking-lot", { parkingLotItems: [] })).toEqual([]);
+    expect(ids("parking-lot", { parkingLotItems: [point({ status: "sent" })] })).toEqual([]);
+    expect(ids("parking-lot", { parkingLotItems: [point()] })).toEqual(["parking-lot-review"]);
+    expect(
+      ids("parking-lot", {
+        parkingLotItems: [point(), point({ id: "p2", createdAt: "2026-10-10T09:00:00.000Z" })],
+      })
+    ).toEqual(["parking-lot-stale"]);
+  });
+
+  it("leaves the example out", () => {
+    expect(ids("parking-lot", { parkingLotItems: [point({ id: "example-p1" })] })).toEqual([]);
   });
 });
