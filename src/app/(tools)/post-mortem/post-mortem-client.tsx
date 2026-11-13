@@ -26,7 +26,13 @@ import { PostMortemEditor, type LinkedAnalysis } from "./components/post-mortem-
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RootCauseAnalysis } from "@/lib/stores/workspace-types";
 import { analysisFrom, openRootCause, rootCauseHref } from "@/lib/handoffs/targets/root-cause";
-import { STAGE_LABEL, analysisStage, postMortemFactorRef } from "@/lib/root-cause/model";
+import {
+  STAGE_LABEL,
+  analysisStage,
+  liveOnBoards,
+  postMortemFactorRef,
+  type LinkIsLive,
+} from "@/lib/root-cause/model";
 
 // Recharts loads with the survival chart, not the page.
 const TimeToPublishChart = dynamic(() => import("./charts").then((m) => m.TimeToPublishChart), {
@@ -48,12 +54,15 @@ function emptyDraft(): NewPMDraft {
 
 const NO_ANALYSES: RootCauseAnalysis[] = [];
 
-/** An analysis as a post-mortem links to it. */
-function linkedAnalysis(a: RootCauseAnalysis): LinkedAnalysis {
+/**
+ * An analysis as a post-mortem links to it. `isLive` tells whether its sent
+ * countermeasure's action is still in Retro Actions, as Root Cause reads it.
+ */
+function linkedAnalysis(a: RootCauseAnalysis, isLive: LinkIsLive): LinkedAnalysis {
   return {
     id: a.id,
     title: a.title,
-    stage: STAGE_LABEL[analysisStage(a)],
+    stage: STAGE_LABEL[analysisStage(a, isLive)],
     href: rootCauseHref(a.id),
   };
 }
@@ -76,6 +85,8 @@ export function PostMortemClient() {
   // Root Cause's analyses: a factor links to the one made from it, a
   // post-mortem lists the ones linked to it.
   const analyses = useWorkspaceStore((s) => s.rootCauseAnalyses) ?? NO_ANALYSES;
+  const retroBoards = useWorkspaceStore((s) => s.retroBoards);
+  const isLive = useMemo(() => liveOnBoards(retroBoards), [retroBoards]);
   const { log } = useHistoryLogger("post-mortem");
   const [draft, setDraft] = useState<NewPMDraft>(emptyDraft);
 
@@ -544,10 +555,12 @@ export function PostMortemClient() {
               onRemoveAction={(aId) => removeAction(pm.id, aId)}
               analysisOf={(factor) => {
                 const a = analysisFrom(postMortemFactorRef(pm.id, factor), analyses);
-                return a ? linkedAnalysis(a) : undefined;
+                return a ? linkedAnalysis(a, isLive) : undefined;
               }}
               onAnalyze={(factor) => analyzeFactor(pm, factor)}
-              analyses={analyses.filter((a) => a.postMortemId === pm.id).map(linkedAnalysis)}
+              analyses={analyses
+                .filter((a) => a.postMortemId === pm.id)
+                .map((a) => linkedAnalysis(a, isLive))}
             />
           ))}
         </div>

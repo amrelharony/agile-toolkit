@@ -107,7 +107,7 @@ describe("openRootCause", () => {
   it("opens one analysis per item, with Undo, and finds it again after", () => {
     const first = openRootCause(src())!;
     expect(first.created).toBe(true);
-    expect(undo.last?.label).toBe("Opened in Root Cause");
+    expect(undo.last?.label).toBe("Added to Root Cause");
     const again = openRootCause(src())!;
     expect(again).toEqual({ id: first.id, created: false });
     expect(analyses()).toHaveLength(1);

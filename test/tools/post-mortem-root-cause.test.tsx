@@ -51,6 +51,7 @@ beforeEach(() => {
   undo.all = [];
   useWorkspaceStore.setState({
     rootCauseAnalyses: [],
+    retroBoards: [],
     postMortemLogs: [
       {
         id: "postMortem:current",
@@ -86,11 +87,12 @@ describe("Post-Mortem → Root Cause", () => {
     expect(a.problem).toContain(
       "A contributing factor in the post-mortem “Checkout outage” (2026-11-03)."
     );
-    expect(undo.all.at(-1)!.label).toBe("Opened in Root Cause");
+    expect(undo.all.at(-1)!.label).toBe("Added to Root Cause");
     // The factor now links to its analysis, and the post-mortem lists it.
-    expect(
-      screen.getByRole("link", { name: "Open the analysis of factor 1 in Root Cause" })
-    ).toHaveAttribute("href", `/root-cause?analysis=${encodeURIComponent(a.id)}`);
+    const open = screen.getByRole("link", { name: "Open the analysis of factor 1 in Root Cause" });
+    expect(open).toHaveAttribute("href", `/root-cause?analysis=${encodeURIComponent(a.id)}`);
+    // The button that had focus is gone: focus moves to the link that replaced it.
+    expect(document.activeElement).toBe(open);
     expect(screen.getByText("Root-cause analyses")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "No alert on checkout errors" })).toBeInTheDocument();
     expect(screen.getByText("Looking for the cause")).toBeInTheDocument();
@@ -154,5 +156,33 @@ describe("Post-Mortem → Root Cause", () => {
       screen.getByRole("link", { name: "Why checkout errors went unnoticed" })
     ).toHaveAttribute("href", "/root-cause?analysis=rca_9");
     expect(screen.getByText("Root cause named")).toBeInTheDocument();
+  });
+
+  it("doesn't say In Retro Actions for an analysis whose action was deleted there", () => {
+    const sent = {
+      id: "rca_9",
+      title: "Why checkout errors went unnoticed",
+      problem: "",
+      method: "fishbone",
+      whys: [],
+      causes: [],
+      rootCause: "No alert",
+      countermeasure: "Alert on the error rate",
+      postMortemId: "pm1",
+      sentTo: [{ route: "retro-action", targetId: "card-1", at: "2026-11-05T09:00:00.000Z" }],
+      createdAt: "2026-11-04T09:00:00.000Z",
+      updatedAt: "2026-11-04T09:00:00.000Z",
+    } satisfies RootCauseAnalysis;
+    useWorkspaceStore.setState({
+      rootCauseAnalyses: [sent],
+      retroBoards: [{ id: "retro:current", cards: [{ id: "card-1" }] }] as never,
+    });
+    render(<PostMortemClient />);
+    expect(screen.getByText("In Retro Actions")).toBeInTheDocument();
+    act(() => {
+      useWorkspaceStore.setState({ retroBoards: [{ id: "retro:current", cards: [] }] as never });
+    });
+    expect(screen.queryByText("In Retro Actions")).toBeNull();
+    expect(screen.getByText("Countermeasure agreed")).toBeInTheDocument();
   });
 });

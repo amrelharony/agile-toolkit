@@ -6,11 +6,13 @@
  * the parent-supplied callbacks (the parent owns the synced store).
  *
  * Each contributing factor can be analysed in Root Cause (`onAnalyze`): once
- * it has been, the factor links to its analysis instead. Analyses linked to
- * this post-mortem from Root Cause are listed under the factors.
+ * it has been, the factor links to its analysis instead, and focus moves to
+ * that link (the button it replaces is gone). On a phone the button or link
+ * sits under the factor's text, so a row never scrolls sideways. Analyses
+ * linked to this post-mortem from Root Cause are listed under the factors.
  */
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
@@ -77,6 +79,16 @@ export function PostMortemEditor({
 }) {
   const [summaryDraft, setSummaryDraft] = useState(pm.summary ?? "");
   const summaryId = useId();
+  /** Each factor's "Analysis · Open" link, by index, and the one to focus next. */
+  const analysisLinks = useRef(new Map<number, HTMLAnchorElement>());
+  const focusLinkOf = useRef<number | null>(null);
+  // No deps on purpose: the render after "Analyze in Root Cause" shows the link.
+  useEffect(() => {
+    const at = focusLinkOf.current;
+    if (at === null) return;
+    focusLinkOf.current = null;
+    analysisLinks.current.get(at)?.focus();
+  });
   useEffect(() => setSummaryDraft(pm.summary ?? ""), [pm.summary]);
 
   const [factorDraft, setFactorDraft] = useState("");
@@ -186,33 +198,46 @@ export function PostMortemEditor({
                   className="flex items-start gap-2 p-2 rounded-md border border-border bg-bg text-xs"
                 >
                   <span className="font-data text-sub shrink-0">{i + 1}.</span>
-                  <span className="flex-1 text-text whitespace-pre-wrap break-words">{f}</span>
-                  {(() => {
-                    const linked = analysisOf?.(f);
-                    if (linked) {
-                      return (
-                        <Link
-                          href={linked.href}
-                          className="shrink-0 font-medium text-accent hover:underline"
-                          aria-label={`Open the analysis of factor ${i + 1} in Root Cause`}
+                  {/* On a phone the link or button goes under the text: beside it,
+                      it squeezed the text to a word a line and pushed the row sideways. */}
+                  <div className="min-w-0 flex-1 sm:flex sm:items-start sm:gap-2">
+                    <span className="block text-text whitespace-pre-wrap break-words sm:flex-1">
+                      {f}
+                    </span>
+                    {(() => {
+                      const linked = analysisOf?.(f);
+                      if (linked) {
+                        return (
+                          <Link
+                            ref={(el) => {
+                              if (el) analysisLinks.current.set(i, el);
+                              else analysisLinks.current.delete(i);
+                            }}
+                            href={linked.href}
+                            className="min-touch-coarse mt-1 inline-flex items-center font-medium text-accent hover:underline sm:mt-0 sm:shrink-0"
+                            aria-label={`Open the analysis of factor ${i + 1} in Root Cause`}
+                          >
+                            Analysis · Open
+                          </Link>
+                        );
+                      }
+                      return onAnalyze ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            focusLinkOf.current = i;
+                            onAnalyze(f);
+                          }}
+                          className="mt-1 h-6 gap-1 px-1.5 text-xs text-sub hover:text-accent min-touch-coarse sm:mt-0 sm:shrink-0"
+                          aria-label={`Analyze factor ${i + 1} in Root Cause`}
                         >
-                          Analysis · Open
-                        </Link>
-                      );
-                    }
-                    return onAnalyze ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onAnalyze(f)}
-                        className="h-6 shrink-0 gap-1 px-1.5 text-xs text-sub hover:text-accent min-touch-coarse"
-                        aria-label={`Analyze factor ${i + 1} in Root Cause`}
-                      >
-                        <Search className="w-3 h-3" aria-hidden="true" />
-                        Analyze in Root Cause
-                      </Button>
-                    ) : null;
-                  })()}
+                          <Search className="w-3 h-3" aria-hidden="true" />
+                          Analyze in Root Cause
+                        </Button>
+                      ) : null;
+                    })()}
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -257,7 +282,10 @@ export function PostMortemEditor({
               <ul className="space-y-1">
                 {analyses.map((a) => (
                   <li key={a.id} className="flex flex-wrap items-center gap-x-2 text-xs">
-                    <Link href={a.href} className="font-medium text-accent hover:underline">
+                    <Link
+                      href={a.href}
+                      className="min-touch-coarse inline-flex items-center font-medium text-accent hover:underline"
+                    >
                       {a.title}
                     </Link>
                     <span className="text-sub">{a.stage}</span>

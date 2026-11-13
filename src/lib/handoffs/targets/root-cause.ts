@@ -81,7 +81,8 @@ export function analysisFrom(
 export const rootCauseRoute: RootCauseRoute = {
   id: "root-cause",
   label: "Root-cause analysis",
-  doneLabel: "Opened in Root Cause",
+  // Said where the item was (Post-Mortem stays open): it was added, not opened.
+  doneLabel: "Added to Root Cause",
   targetToolId: "root-cause",
   targetHref: rootCauseHref,
   send: (src) => {
