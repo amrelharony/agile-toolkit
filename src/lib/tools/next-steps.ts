@@ -1963,6 +1963,43 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Facilitator Timers keep their runs in the browser tab: the steps read
+  // what the session still owes (parked points) and the next ceremony to time.
+  "facilitator-timers": rule({
+    select: (ws) => ({
+      sprints: ws.sprints,
+      cadences: ws.ceremonyCadences,
+      parked: ws.parkingLotItems,
+    }),
+    steps: ({ sprints, cadences, parked }) => {
+      const steps: NextStep[] = [];
+      const open = real(parked).filter((p) => p.status === "open").length;
+      if (open > 0) {
+        steps.push({
+          id: "timers-parking-lot",
+          label: `Go through the ${plural(open, "parked point")}`,
+          detail: `${open === 1 ? "It is" : "They are"} still open in the Parking Lot. Keep the last minutes of the session for ${open === 1 ? "it" : "them"}.`,
+          href: "/parking-lot",
+        });
+      }
+      const sprint = activeSprint(sprints);
+      if (sprint) {
+        const now = new Date();
+        const cadence = normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }));
+        const [next] = nextCeremonies(sprint, cadence, now, 1);
+        if (next) {
+          steps.push({
+            id: "timers-next-ceremony",
+            label: `Time the ${CEREMONY_LABEL[next.kind]} to its agenda`,
+            detail: `It's ${whenLabel(next.at, now)}. The Ceremony Timer gives each part its time-box and every speaker a fair turn.`,
+            href: `/ceremony-timer?agenda=${next.kind}`,
+          });
+        }
+      }
+      return steps;
+    },
+  }),
+
   "sprint-review": rule({
     select: (ws) => ({
       sprints: ws.sprints,
