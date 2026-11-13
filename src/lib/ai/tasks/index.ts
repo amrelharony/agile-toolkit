@@ -30,12 +30,9 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   interruptClassifyTask,
   themeNamesTask,
   productGoalDraftTask,
-  // retro
   surprisePlanTask,
   groupTopicsTask,
-  // retro-actions
   retroActionsThemesTask,
-  // root-cause
   nextWhyTask,
   categoriesTask,
   countermeasureTask,

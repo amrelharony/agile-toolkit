@@ -29,12 +29,9 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   interruptClassifyPrompt,
   themeNamesPrompt,
   productGoalDraftPrompt,
-  // retro
   surprisePlanPrompt,
   groupTopicsPrompt,
-  // retro-actions
   retroActionsThemesPrompt,
-  // root-cause
   nextWhyPrompt,
   categoriesPrompt,
   countermeasurePrompt,
