@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { getNextStepRule } from "@/lib/tools/next-steps";
+import { beforeAll, describe, expect, it } from "vitest";
+import { getNextStepRule, loadAllNextStepRules } from "@/lib/tools/next-steps";
 import type {
   CapacityPlan,
   DependencyMap,
@@ -13,6 +13,9 @@ import type {
  * workspace and points somewhere real, ignores example rows, and stays
  * quiet when nothing applies.
  */
+
+// The tools plan's phase 1 rules load their models on demand (lazyRule).
+beforeAll(loadAllNextStepRules);
 
 const steps = (toolId: string, ws: Partial<Workspace>) => {
   const rule = getNextStepRule(toolId);
