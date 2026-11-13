@@ -13,6 +13,7 @@ import { SprintTiles } from "@/components/sprints/sprint-tiles";
 import { CloseSprintDialog, type CarryOverPlan } from "@/components/sprints/close-sprint-dialog";
 import { AddToCalendar } from "@/components/sprints/add-to-calendar";
 import { LoadingSprints } from "@/components/sprints/start";
+import { WallView } from "@/components/presentation/wall-view";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
   AsyncUpdate,
@@ -61,7 +62,7 @@ import { MiniBurndown } from "./components/mini-burndown";
 import { CockpitNotes } from "./components/notes";
 import { StartFlow } from "./components/start-flow";
 import { CockpitRisk } from "./components/risk";
-import { CockpitWallContent, CockpitWallView, WallModeButton } from "./components/wall";
+import { CockpitWallContent, WallModeButton } from "./components/wall";
 
 export const TOOL_ID = "sprint";
 
@@ -542,7 +543,7 @@ function CockpitBody({
       )}
 
       {!compact && (
-        <CockpitWallView
+        <WallView
           open={wall}
           onClose={() => setWall(false)}
           title={sprint.name || "Sprint"}
@@ -559,7 +560,7 @@ function CockpitBody({
               now={new Date(tick.now)}
             />
           )}
-        </CockpitWallView>
+        </WallView>
       )}
 
       {commands && (

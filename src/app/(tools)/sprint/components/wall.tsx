@@ -4,167 +4,23 @@
  * Wall mode for the Sprint Cockpit: the sprint on a screen nobody touches,
  * such as a team room's TV, in large type and refreshing by itself.
  *
- * `CockpitWallView` is a small local stand-in with the props of the shared
- * `WallView` (components/presentation/wall-view, from the room-extras work)
- * so the cockpit can switch to it by changing one import: open / onClose /
- * title / refreshMs / onRefresh / children as content or a render prop
- * that gets the refresh tick. Like it, it builds on Present mode: opening
- * starts presenting (the shell's chrome goes, the browser goes fullscreen
- * where it may), and leaving Present mode (Exit presentation, Escape,
- * leaving fullscreen) closes it. Nothing in the content takes a click or
- * focus; a screen reader still reads it, and the page under it is inert.
- * `onRefresh` runs on every refresh, not on opening (as WallView's does):
- * the cockpit moves its day and clock on with it.
+ * The view itself is the shared `WallView` (components/presentation/
+ * wall-view): it builds on Present mode, refreshes every minute, holds
+ * nothing to press and makes the page under it inert. This file holds what
+ * the cockpit puts on it (`CockpitWallContent`) and the button that opens
+ * it (`WallModeButton`). `WallView`'s `onRefresh` runs on every refresh,
+ * not on opening, so the cockpit moves its day and clock on both there and
+ * as the button opens the wall.
  */
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { Tv } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  startPresenting,
-  stopPresenting,
-  usePresentation,
-} from "@/components/presentation/presentation-mode";
+import { startPresenting } from "@/components/presentation/presentation-mode";
 import { StatCard } from "@/components/shared/stat-card";
 import { CEREMONY_LABEL, whenLabel, type CeremonyOccurrence } from "@/lib/sprints/cadence";
 import type { Tile } from "@/lib/sprints/hub-view";
 import { RISK_LEVEL_LABEL, type SprintRisk } from "@/lib/sprints/risk";
 import { cn } from "@/lib/utils";
-
-/** How often the wall refreshes: often enough for a sprint, rare enough to stay calm. */
-export const WALL_REFRESH_MS = 60_000;
-
-export interface WallTick {
-  /** When this refresh ran (epoch ms). */
-  now: number;
-  /** Refreshes since the view opened (0 at first). */
-  n: number;
-}
-
-export interface CockpitWallViewProps {
-  open: boolean;
-  /** Present mode ended, or the view was closed. */
-  onClose: () => void;
-  /** The heading across the top. */
-  title: string;
-  refreshMs?: number;
-  onRefresh?: () => void;
-  children: ReactNode | ((tick: WallTick) => ReactNode);
-}
-
-function clock(now: number): string {
-  return new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-/** The local wall view (see the module comment): a layer over the page, in large type. */
-export function CockpitWallView({
-  open,
-  onClose,
-  title,
-  refreshMs = WALL_REFRESH_MS,
-  onRefresh,
-  children,
-}: CockpitWallViewProps) {
-  const presenting = usePresentation((s) => s.presenting);
-  const [tick, setTick] = useState<WallTick>(() => ({ now: Date.now(), n: 0 }));
-  const closeRef = useRef(onClose);
-  const refreshRef = useRef(onRefresh);
-  useEffect(() => {
-    closeRef.current = onClose;
-    refreshRef.current = onRefresh;
-  });
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  const headingId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // The page under the wall is inert, as under the shared WallView: Tab and
-    // a screen reader's cursor can't reach the controls it hides. The shell's
-    // Exit presentation button sits outside #main-content, so it still works.
-    const page = document.getElementById("main-content");
-    // Another layer may have made it inert already: leave that one's to it.
-    const madeInert = page !== null && !page.hasAttribute("inert");
-    if (madeInert) page.setAttribute("inert", "");
-    if (!usePresentation.getState().presenting) startPresenting();
-    setTick({ now: Date.now(), n: 0 });
-    headingRef.current?.focus();
-    return () => {
-      stopPresenting();
-      if (madeInert) page.removeAttribute("inert");
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
-    };
-  }, [open]);
-
-  // Present mode ended some other way (Exit presentation, leaving fullscreen): close with it.
-  const sawRef = useRef(false);
-  useEffect(() => {
-    if (!open) {
-      sawRef.current = false;
-      return;
-    }
-    if (presenting) sawRef.current = true;
-    else if (sawRef.current) closeRef.current();
-  }, [open, presenting]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeRef.current();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const id = setInterval(
-      () => {
-        refreshRef.current?.();
-        setTick((t) => ({ now: Date.now(), n: t.n + 1 }));
-      },
-      Math.max(5_000, refreshMs)
-    );
-    return () => clearInterval(id);
-  }, [open, refreshMs]);
-
-  if (!open || typeof document === "undefined") return null;
-  const content = typeof children === "function" ? children(tick) : children;
-  return createPortal(
-    <div
-      data-wall-view
-      role="dialog"
-      aria-labelledby={headingId}
-      className="fixed inset-0 z-[90] overflow-y-auto overflow-x-hidden bg-bg text-text"
-    >
-      <div className="mx-auto flex min-h-full max-w-[120rem] flex-col gap-6 px-4 py-6 sm:px-10 sm:py-8">
-        {/* Clear of the Exit presentation button, top right. */}
-        <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 pr-14 sm:pr-48">
-          <h1
-            id={headingId}
-            ref={headingRef}
-            tabIndex={-1}
-            className="break-words text-3xl font-bold outline-none sm:text-5xl"
-          >
-            {title}
-          </h1>
-          <p className="font-data text-xl text-sub sm:text-2xl">
-            <span className="sr-only">Updated at </span>
-            {clock(tick.now)}
-          </p>
-        </header>
-        <div
-          data-wall-content
-          className="pointer-events-none flex-1 select-none text-xl sm:text-2xl"
-        >
-          {content}
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
 
 /** The tiles the wall shows, in this order, when the cockpit has them. */
 export const WALL_TILES: readonly Tile["id"][] = [
