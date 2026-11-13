@@ -112,6 +112,30 @@ describe("across the boards", () => {
     expect(recurringThemes(after)[0].cameBack).toMatchObject({ actionId: "act", boardId: "r4" });
   });
 
+  it("never counts the action's own retro, even when the action was done before it was archived", () => {
+    // Retro Actions ticks actions on the current board too, so an action is
+    // often done before its own retro is archived.
+    const fix = card("a2", "Fix staging data", {
+      isActionItem: true,
+      done: true,
+      doneAt: "2026-09-10T09:00:00.000Z",
+    });
+    const boards = [
+      past("r1", "2026-08-15", [card("x", "staging down")]),
+      past("r2", "2026-09-01", [card("y", "staging slow")]),
+      past("retro:A", "2026-09-15", [fix, card("z", "staging data stale")]),
+    ];
+    const staging = recurringThemes(boards).find((t) => t.name === "staging")!;
+    expect(staging.boardIds).toHaveLength(3);
+    expect(staging.cameBack).toBeNull();
+    // A later retro raising it again is the theme coming back.
+    const again = [...boards, past("retro:B", "2026-09-29", [card("w", "staging again")])];
+    expect(recurringThemes(again).find((t) => t.name === "staging")!.cameBack).toMatchObject({
+      actionId: "a2",
+      boardId: "retro:B",
+    });
+  });
+
   it("needs three retros", () => {
     expect(RECURRING_MIN_RETROS).toBe(3);
     const two = [

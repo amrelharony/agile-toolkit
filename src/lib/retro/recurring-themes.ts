@@ -12,9 +12,11 @@
  * are his fallback.
  *
  * A theme "came back after done" when one of its cards is an action marked
- * done and a card on the same theme sits on a retro archived after that
- * day. A carried-over copy of an action is the same action, not the theme
- * coming back, so copies are left out.
+ * done and a card on the same theme sits on a later retro, one archived
+ * after both that day and the action's own retro. The action's own retro
+ * (often still current when the action is ticked) is where the theme was
+ * raised, not where it came back. A carried-over copy of an action is the
+ * same action, not the theme coming back, so copies are left out.
  *
  * Pure: the caller passes the boards.
  */
@@ -167,16 +169,23 @@ export interface RecurringTheme {
 
 /**
  * Whether a theme came back after done: an action among its cards marked
- * done, and a card of the theme on a retro archived after that time.
+ * done, and a card of the theme on another, later retro: one archived after
+ * that time and after the action's own retro. Cards on the action's own
+ * retro never count, even when the action was ticked before that retro was
+ * archived: they are the theme being raised, not coming back.
  */
 export function cameBackAfterDone(items: readonly ArchivedCard[]): CameBack | null {
   const done = items
     .filter(({ card }) => card.isActionItem && card.done && typeof card.doneAt === "string")
     .sort((a, b) => (a.card.doneAt ?? "").localeCompare(b.card.doneAt ?? ""));
-  for (const { card } of done) {
+  for (const { card, board: own } of done) {
     const at = card.doneAt as string;
+    const ownAt = own.archivedAt ?? "";
     const later = items
-      .filter(({ board }) => (board.archivedAt ?? "") > at)
+      .filter(({ board }) => {
+        const archived = board.archivedAt ?? "";
+        return board.id !== own.id && archived > at && archived > ownAt;
+      })
       .sort((a, b) => (a.board.archivedAt ?? "").localeCompare(b.board.archivedAt ?? ""))[0];
     if (later) {
       return {
