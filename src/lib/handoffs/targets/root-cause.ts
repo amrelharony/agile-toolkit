@@ -9,8 +9,8 @@
  * it came from. The analysis starts on 5 Whys, empty: the team asks why.
  * It is done once it has a root cause and a countermeasure.
  *
- * The route id is "root-cause". Until it is registered in HANDOFF_ROUTES
- * (lib/handoffs/registry.ts) only this module's own helpers reach it;
+ * The route id is "root-cause", registered in HANDOFF_ROUTES
+ * (lib/handoffs/registry.ts), so sendHandoff and liveLink reach it too.
  * `openRootCause` is what a source that keeps no links of its own (a
  * post-mortem's contributing factors are plain strings) calls: it reuses
  * the analysis already made from the same item rather than opening a
@@ -24,7 +24,7 @@ import { undoable } from "@/lib/utils/undoable";
 import { ROOT_CAUSE_ID_PREFIX, blankAnalysis } from "@/lib/root-cause/model";
 import type { HandoffRoute, HandoffSource } from "../types";
 
-/** The route, typed so it slots into HANDOFF_ROUTES once "root-cause" is a HandoffRouteId. */
+/** The route, typed to its own id (HANDOFF_ROUTES holds it under "root-cause"). */
 export type RootCauseRoute = Omit<HandoffRoute, "id"> & { id: "root-cause" };
 
 /** Where "Open" goes for an analysis: Root Cause, with that analysis open. */

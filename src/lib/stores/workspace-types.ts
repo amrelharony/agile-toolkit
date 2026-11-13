@@ -294,6 +294,8 @@ export const HANDOFF_ROUTE_IDS = [
   "dependency",
   // Phase 8: an interview quote raised as an opportunity on the tree.
   "opportunity",
+  // Phase 42: an item opened as a root-cause analysis (Root Cause).
+  "root-cause",
 ] as const;
 
 export type HandoffRouteId = (typeof HANDOFF_ROUTE_IDS)[number];
