@@ -18,6 +18,7 @@ import { productGoalDraftPrompt } from "./product-goal.server";
 import { groupTopicsPrompt, surprisePlanPrompt } from "./retro.server";
 import { retroActionsThemesPrompt } from "./retro-actions.server";
 import { categoriesPrompt, countermeasurePrompt, nextWhyPrompt } from "./root-cause.server";
+import { notebookTagPrompt, notebookWeeklySummaryPrompt } from "./sm-notebook.server";
 import { sprintRiskNotePrompt } from "./sprint.server";
 
 // See index.ts on `any`: each prompt's input is checked by its task's schema first.
@@ -42,5 +43,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   nextWhyPrompt,
   categoriesPrompt,
   countermeasurePrompt,
+  notebookWeeklySummaryPrompt,
+  notebookTagPrompt,
   sprintRiskNotePrompt,
 ];

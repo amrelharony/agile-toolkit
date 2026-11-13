@@ -18,6 +18,7 @@ import { productGoalDraftTask } from "./product-goal";
 import { groupTopicsTask, surprisePlanTask } from "./retro";
 import { retroActionsThemesTask } from "./retro-actions";
 import { categoriesTask, countermeasureTask, nextWhyTask } from "./root-cause";
+import { notebookTagTask, notebookWeeklySummaryTask } from "./sm-notebook";
 import { sprintRiskNoteTask } from "./sprint";
 
 // `any` here only erases each task's own input/output types for the list; the
@@ -43,5 +44,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   nextWhyTask,
   categoriesTask,
   countermeasureTask,
+  notebookWeeklySummaryTask,
+  notebookTagTask,
   sprintRiskNoteTask,
 ];

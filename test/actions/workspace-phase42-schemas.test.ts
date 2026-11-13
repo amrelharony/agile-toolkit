@@ -300,6 +300,34 @@ describe("bounds", () => {
     rejects("workspace.meeting_audit", { ...MEETING, verdict: "maybe" });
   });
 
+  it("refuse a notebook day the calendar lacks when a write sets it, and keep a stored one", async () => {
+    // The schema takes the shape; the CRUD judges the day itself, on both transports.
+    await expect(
+      create("workspace.notebook_entry", { ...NOTE, id: undefined, date: "2026-02-30" })
+    ).rejects.toThrow(/2026-02-30 is not a day on the calendar.*Nothing was saved\./);
+    await expect(
+      create("workspace.notebook_entry", { ...NOTE, id: undefined, date: "2026-02-30" }, true)
+    ).rejects.toThrow(/Nothing was saved\./);
+    expect(useWorkspaceStore.getState().notebookEntries).toEqual([]);
+    expect(upsertEntity).not.toHaveBeenCalled();
+    await expect(
+      update("workspace.notebook_entry", "notebookEntries", NOTE, { date: "2026-13-01" })
+    ).rejects.toThrow(/Nothing was saved\./);
+    expect(useWorkspaceStore.getState().notebookEntries).toEqual([NOTE]);
+
+    // A row stored on such a day (the page shows it to fix) can still be edited.
+    const odd = { ...NOTE, date: "2026-02-30" };
+    const edited = (await update("workspace.notebook_entry", "notebookEntries", odd, {
+      title: "Fix the day later",
+    })) as typeof NOTE;
+    expect(edited.title).toBe("Fix the day later");
+    expect(edited.date).toBe("2026-02-30");
+    const fixed = (await update("workspace.notebook_entry", "notebookEntries", odd, {
+      date: "2026-02-28",
+    })) as typeof NOTE;
+    expect(fixed.date).toBe("2026-02-28");
+  });
+
   it("take a notebook entry's linked tool only as a tool id, so its link stays on the site", () => {
     for (const bad of [
       "//evil.example",

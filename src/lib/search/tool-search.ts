@@ -96,6 +96,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   "interrupt-buffer": ["unplanned work", "interruptions", "firefighting", "emergency procedure"],
   "decision-log": ["adr", "architecture decision record", "decisions"],
   "one-on-one": ["one to one", "1on1", "manager", "direct report", "reports", "coaching"],
+  "sm-notebook": ["coaching journal", "scrum master journal", "coaching notes", "observations"],
   "working-agreement": ["team norms", "ground rules", "team charter"],
   icebreaker: ["warm up", "energizer", "check-in"],
   picker: [

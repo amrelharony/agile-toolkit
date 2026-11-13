@@ -526,22 +526,22 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "sm-notebook",
     summary:
-      "The Scrum Master Notebook is your own place for notes on the team: what you saw, what you tried and what to follow up, dated and tagged by event. Each week it shows patterns and suggests tools to try.",
+      "The Scrum Master Notebook is your own place for notes on the team: what you saw, what you tried and what to follow up, dated and tagged by event. Each week it shows the counts, the patterns and tools to try.",
     whenToUse: [
       "After a Daily Scrum or a retro, to write down what you noticed while it's fresh.",
       "Before a 1:1 or a coaching conversation, to look back at what came up.",
       "At the end of the week, to see patterns you miss day to day.",
     ],
     steps: [
-      "Write a note: the date, a title if you like, and what happened. Tag it, and pick the event it came from, such as the Daily Scrum or the retro.",
-      "Link a note to the tool it's about, such as the Impediment Tracker or Retro Actions, and send a note on as an impediment or a retro action when it needs one.",
-      "Search, or filter by tag or event, to find notes again.",
-      "Read the week's notes together at the end of the week.",
-      "Ask Amr writes a weekly summary, points out patterns across your notes and suggests tools that could help. You read it first and keep only what you choose.",
+      "Write a note: the day, a title if you like, and what happened. A template (observation, coaching moment, experiment, 1:1 note or impediment pattern) gives you the questions to answer.",
+      "Tag it, and pick the event it came from, such as the Daily Scrum or the retro, and the tool it's about. Ask Amr for tags suggests tags from the note's words; you add the ones you want.",
+      "Search, or filter by tag or event, to find notes again. Notes read as a timeline, week by week.",
+      "Send a note on as an impediment or a retro action when it needs one; it links back to the note.",
+      "In Week, read one week's notes together, with how many carry each tag and came from each event. Ask Amr about this week writes a summary, points out patterns and suggests tools. You edit it, tick the patterns to keep and keep it as a note, or dismiss it.",
     ],
     tips: [
       "Write what you saw, not what you think of people: notes can be read later.",
-      "Your notes stay in this browser and in your backups; signed in, they sync to your own account.",
+      "Your notes stay in this browser and in your backups; signed in, they sync to your own account. They never go to a live room.",
     ],
     timebox: "Two minutes per note; ten minutes at the end of the week.",
   },

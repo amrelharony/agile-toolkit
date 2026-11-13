@@ -106,6 +106,43 @@ describe("AiSuggestions", () => {
     expect(onAccept).not.toHaveBeenCalled();
   });
 
+  it("hands focus back to returnFocus on Dismiss, before the list goes", () => {
+    const asker = document.createElement("button");
+    asker.textContent = "Ask";
+    document.body.appendChild(asker);
+    try {
+      let focusedAtDismiss: Element | null = null;
+      render(
+        <AiSuggestions
+          items={ITEMS}
+          onAccept={() => {}}
+          onDismiss={() => {
+            focusedAtDismiss = document.activeElement;
+          }}
+          returnFocus={() => asker}
+          source="ai"
+        />
+      );
+      const dismiss = screen.getByRole("button", { name: "Dismiss suggestions" });
+      dismiss.focus();
+      fireEvent.click(dismiss);
+      expect(focusedAtDismiss).toBe(asker);
+      expect(document.activeElement).toBe(asker);
+    } finally {
+      asker.remove();
+    }
+  });
+
+  it("leaves focus to the caller on Dismiss without returnFocus", () => {
+    const onDismiss = vi.fn();
+    render(<AiSuggestions items={ITEMS} onAccept={() => {}} onDismiss={onDismiss} source="ai" />);
+    const dismiss = screen.getByRole("button", { name: "Dismiss suggestions" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(dismiss);
+  });
+
   it("renders objects through render, with a detail line", () => {
     const items = [{ text: "Split by workflow step", why: "The story has three steps." }];
     render(

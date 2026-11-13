@@ -113,7 +113,9 @@ describe("the tool table", () => {
     expect(toolSheets.filter((s) => !used.has(s.pack)).map((s) => s.sheet)).toEqual([]);
   });
 
-  it("names only actions in the catalog, each one its tool logs", () => {
+  // It reads every listed tool's source, which can take several seconds on a
+  // loaded runner (CI's shards, or the full suite with several workers).
+  it("names only actions in the catalog, each one its tool logs", { timeout: 20_000 }, () => {
     const notCatalogued: string[] = [];
     const notLogged: string[] = [];
     for (const t of TOOL_SCENES) {
