@@ -489,17 +489,103 @@ describe("Lean Coffee: Discuss", () => {
 
     const open = fakeThumbs({ id: "p1", topic: "x", open: true, keep: 2, move: 1, voters: 3 });
     view.rerun({ timeUp: true, thumbs: open });
-    expect(screen.getByText(/3 voted so far/)).toBeInTheDocument();
+    // While it's open the host's screen shows how many voted, not the split.
+    expect(screen.getByText("3 people have voted so far.")).toBeInTheDocument();
+    expect(screen.queryByText(/Keep going 2/)).toBeNull();
+    expect(screen.getByRole("button", { name: /Keep going \(3 min\)/ })).not.toHaveClass(
+      "bg-primary"
+    );
     fireEvent.click(screen.getByRole("button", { name: "Close the vote and show everyone" }));
     expect(open.close).toHaveBeenCalled();
 
     const closed = fakeThumbs({ id: "p1", topic: "x", open: false, keep: 1, move: 3, voters: 4 });
     view.rerun({ timeUp: true, thumbs: closed });
+    // The totals in words, not bare numbers beside icons.
+    expect(
+      screen.getByText(
+        (_, el) => el?.tagName === "P" && el.textContent === "Keep going 1 · Move on 3 (4 voted)"
+      )
+    ).toHaveAttribute("role", "status");
     expect(screen.getByText("Most want to move on.")).toBeInTheDocument();
     // The tally marks the room's choice; the facilitator still decides.
     expect(screen.getByRole("button", { name: /Move on to the next topic/ })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: /Keep going/ }));
     expect(closed.clear).toHaveBeenCalled();
+  });
+
+  it("never opens the room's vote outside Discuss, or on a hidden card", () => {
+    // A participant's card in Discussing, hidden while people write: the host's
+    // screen doesn't show it, so it can't be asked about.
+    const hidden = topic("t9", "Secret topic", 0, { columnKey: "discussing" });
+    for (const phase of ["write", "vote"] as const) {
+      const thumbs = fakeThumbs();
+      const view = wrap(
+        <LeanCoffeeRunner
+          state={leanBoard({ phase, cards: [hidden] })}
+          shownCards={[]}
+          onUpdate={() => {}}
+          timeUp={true}
+          thumbs={thumbs}
+          log={() => {}}
+        />
+      );
+      expect(thumbs.open).not.toHaveBeenCalled();
+      view.unmount();
+    }
+  });
+
+  it("doesn't open the room's vote for a card nobody started", () => {
+    const thumbs = fakeThumbs();
+    const dropped = leanBoard({
+      cards: [topic("t2", "Dropped in Discussing", 4, { columnKey: "discussing" })],
+    });
+    const view = runner(dropped, { thumbs });
+    view.rerun({ timeUp: true, thumbs });
+    expect(thumbs.open).not.toHaveBeenCalled();
+  });
+
+  it("doesn't take a timebox that ran out before Discuss as a topic's time being up", () => {
+    const thumbs = fakeThumbs();
+    function Harness({ phase }: { phase: BoardState["phase"] }) {
+      const state = leanBoard({
+        phase,
+        cards: [
+          topic("t2", "Our standups run too long", 4, {
+            columnKey: "discussing",
+            discussing: true,
+          }),
+        ],
+      });
+      return (
+        <LeanCoffeeRunner
+          state={state}
+          shownCards={state.cards}
+          onUpdate={() => {}}
+          timeUp={true}
+          thumbs={thumbs}
+          log={() => {}}
+        />
+      );
+    }
+    const view = wrap(<Harness phase="vote" />);
+    view.rerender(
+      <TooltipProvider>
+        <LiveAnnouncerProvider>
+          <Harness phase="discuss" />
+        </LiveAnnouncerProvider>
+      </TooltipProvider>
+    );
+    expect(thumbs.open).not.toHaveBeenCalled();
+  });
+
+  it("shows the next topic on its own line, with a short start button", () => {
+    runner(leanBoard());
+    expect(screen.getByText("Next:").parentElement).toHaveTextContent(
+      "Next: Our standups run too long · 4 votes"
+    );
+    expect(screen.getByRole("button", { name: /Start the first topic/ })).toHaveTextContent(
+      /^Start the first topic$/
+    );
   });
 
   it("isn't shown in Actions", () => {

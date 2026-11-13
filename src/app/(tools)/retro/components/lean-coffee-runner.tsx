@@ -16,6 +16,13 @@
  * protocol revision that older tabs simply don't show); on one screen the
  * facilitator counts the thumbs held up. The facilitator decides, the
  * totals as a guide.
+ *
+ * The room's vote opens on its own only for a topic the runner started (in
+ * Discussing and marked as the one being discussed), when its timebox ran
+ * out in Discuss, and its text comes from the cards this screen shows: a
+ * card hidden while people write never reaches the room's phones. While
+ * the vote is open, the host's screen shows how many voted, not the split,
+ * so a shared screen can't tie a thumb to whoever just tapped.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -125,9 +132,17 @@ export function LeanCoffeeRunner({
 }) {
   const announce = useAnnounce();
   const settings = useLeanCoffeeSettings();
-  const queue = useMemo(() => topicQueue(state.cards), [state.cards]);
-  const current = useMemo(() => currentTopic(state.cards), [state.cards]);
-  const done = useMemo(() => doneTopics(state.cards), [state.cards]);
+  const queue = useMemo(() => topicQueue(shownCards), [shownCards]);
+  const current = useMemo(() => currentTopic(shownCards), [shownCards]);
+  const done = useMemo(() => doneTopics(shownCards), [shownCards]);
+  // The topic the runner started: in Discussing and marked as discussed (a
+  // card someone dropped in Discussing isn't one until it's started).
+  const started =
+    state.phase === "discuss" &&
+    current !== null &&
+    shownCards.some((c) => c.id === current.id && c.discussing)
+      ? current
+      : null;
   const next = queue[0] ?? null;
   const [extensions, setExtensions] = useState<{ topicId: string; count: number } | null>(null);
   const extendedTimes = current && extensions?.topicId === current.id ? extensions.count : 0;
@@ -138,17 +153,27 @@ export function LeanCoffeeRunner({
     source: AiSource;
   } | null>(null);
 
-  // At time-up a live room gets the vote on every phone, once per timebox.
+  // Which phase the timebox ran out in: a writing or voting timebox that
+  // ended before Discuss isn't a topic's time being up.
+  const upInRef = useRef<BoardState["phase"] | null>(null);
+  useEffect(() => {
+    if (!timeUp) upInRef.current = null;
+    else if (upInRef.current === null) upInRef.current = state.phase;
+  }, [timeUp, state.phase]);
+
+  // At time-up a live room gets the vote on every phone, once per timebox
+  // of a topic the runner started, and only in Discuss.
   const askedRef = useRef<string | null>(null);
   const roomPoll = thumbs?.poll ?? null;
   useEffect(() => {
-    if (!timeUp || !current || !thumbs) return;
-    const key = `${current.id}:${extendedTimes}`;
+    if (!timeUp || !started || !thumbs) return;
+    if (state.phase !== "discuss" || upInRef.current !== "discuss") return;
+    const key = `${started.id}:${extendedTimes}`;
     if (askedRef.current === key) return;
     askedRef.current = key;
-    thumbs.open(current.text);
+    thumbs.open(started.text);
     announce("Time's up. The room is voting: keep going or move on?");
-  }, [timeUp, current, thumbs, extendedTimes, announce]);
+  }, [timeUp, started, thumbs, extendedTimes, announce, state.phase]);
 
   const start = (topic: LeanTopic) => {
     const seconds = settings.timeboxMin * 60;
@@ -252,7 +277,15 @@ export function LeanCoffeeRunner({
             fallbackLabel="Group similar topics without AI"
             variant="outline"
             disabledReason={topics.length < 2 ? "Add at least two topics first." : null}
-            onResult={(data, meta) => setGroups({ items: data.groups, source: meta.source })}
+            onResult={(data, meta) => {
+              setGroups({ items: data.groups, source: meta.source });
+              const n = data.groups.length;
+              announce(
+                n === 0
+                  ? "No topics look the same."
+                  : `${n} ${n === 1 ? "group" : "groups"} of similar topics below.`
+              );
+            }}
           />
         </div>
         {groups &&
@@ -283,7 +316,9 @@ export function LeanCoffeeRunner({
   if (state.phase !== "discuss") return null;
 
   // ── Discuss: one topic at a time ──
-  const tally = roomPoll ?? (timeUp ? { ...hand, voters: hand.keep + hand.move } : null);
+  // The room's split counts once its vote is closed; until then the host's
+  // screen shows only how many voted.
+  const tally = thumbs ? (roomPoll && !roomPoll.open ? roomPoll : null) : timeUp ? hand : null;
   const decision = tally ? thumbsDecision(tally) : "none";
   return (
     <section
@@ -332,15 +367,20 @@ export function LeanCoffeeRunner({
               {thumbs ? (
                 roomPoll ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    <p role="status" className="text-sm text-text">
-                      <ThumbsUp className="mr-1 inline h-4 w-4" aria-hidden="true" />
-                      {roomPoll.keep} ·{" "}
-                      <ThumbsDown className="mr-1 inline h-4 w-4" aria-hidden="true" />
-                      {roomPoll.move}{" "}
-                      <span className="text-xs text-sub">
-                        ({roomPoll.voters} voted{roomPoll.open ? " so far" : ""})
-                      </span>
-                    </p>
+                    {roomPoll.open ? (
+                      <p role="status" className="text-sm text-text">
+                        {roomPoll.voters} {roomPoll.voters === 1 ? "person has" : "people have"}{" "}
+                        voted so far.
+                      </p>
+                    ) : (
+                      <p role="status" className="text-sm text-text">
+                        <ThumbsUp className="mr-1 inline h-4 w-4" aria-hidden="true" />
+                        Keep going {roomPoll.keep} ·{" "}
+                        <ThumbsDown className="mr-1 inline h-4 w-4" aria-hidden="true" />
+                        Move on {roomPoll.move}{" "}
+                        <span className="text-xs text-sub">({roomPoll.voters} voted)</span>
+                      </p>
+                    )}
                     {roomPoll.open ? (
                       <Button type="button" size="sm" variant="outline" onClick={thumbs.close}>
                         Close the vote and show everyone
@@ -454,11 +494,23 @@ export function LeanCoffeeRunner({
           )}
         </div>
       ) : next ? (
-        <Button type="button" className="gap-1.5" onClick={() => start(next)}>
-          <Play className="h-4 w-4" aria-hidden="true" />
-          {done.length === 0 ? "Start the first topic" : "Start the next topic"}:{" "}
-          {short(next.text, 40)}
-        </Button>
+        <div className="space-y-2">
+          <p className="break-words text-sm text-text">
+            <span className="font-semibold">Next:</span> {next.text}{" "}
+            <span className="text-xs text-sub">
+              · {next.votes} {next.votes === 1 ? "vote" : "votes"}
+            </span>
+          </p>
+          <Button
+            type="button"
+            className="gap-1.5"
+            onClick={() => start(next)}
+            aria-label={`${done.length === 0 ? "Start the first topic" : "Start the next topic"}: ${short(next.text, 40)}`}
+          >
+            <Play className="h-4 w-4" aria-hidden="true" />
+            {done.length === 0 ? "Start the first topic" : "Start the next topic"}
+          </Button>
+        </div>
       ) : (
         <p className="text-sm text-sub">
           {done.length > 0
