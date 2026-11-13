@@ -7,7 +7,9 @@
  * for the host to accept: themes, duplicates to merge, and backlog items
  * (sent through the backlog-story hand-off, with Undo). Amr drafts them
  * when he can; the word rules draft them when he can't. Each Undo takes
- * back its own change only, never a later one.
+ * back its own change only, never a later one. A draft is checked against
+ * the wall when it comes and then stays as it is: what the host accepts
+ * leaves the list, the rest keep their places.
  */
 
 import { useId, useRef, useState } from "react";
@@ -323,18 +325,26 @@ function Themes({ session, log }: { session: WallSession; log: Log }) {
   const textOf = (id: string) => session.posts.find((p) => p.id === id)?.text ?? "";
   const forAi = postsForAi(session);
   const taken = new Set(session.themes.flatMap((t) => t.postIds));
-  // Posts already in a theme drop out of the draft's themes.
-  const suggestions = draft
-    ? cleanThemes(
-        draft.themes.map((t) => ({ ...t, postIds: t.postIds.filter((id) => !taken.has(id)) })),
-        known
-      )
-    : [];
+  /** Themes against the wall as it is: its own posts, none already in a theme. */
+  const freeThemes = (themes: ClusterOutput["themes"]) =>
+    cleanThemes(
+      themes.map((t) => ({ ...t, postIds: t.postIds.filter((id) => !taken.has(id)) })),
+      known
+    );
   const example = isExampleId(session.id);
   const groupRef = useRef<HTMLDivElement>(null);
 
-  const addThemes = (themes: ClusterOutput["themes"]) => {
-    if (themes.length === 0) return;
+  const addThemes = (accepted: ClusterOutput["themes"]) => {
+    // The wall may have moved on since the draft came (a merge, a cleared theme).
+    const themes = freeThemes(accepted);
+    if (themes.length === 0) {
+      announce(
+        accepted.length === 1
+          ? "Its posts are in a theme already."
+          : "Their posts are in a theme already."
+      );
+      return;
+    }
     // Each accepted theme gets its own id: Undo takes back these, and only these.
     const added = themes.map((t) => ({ ...t, id: `t_${nanoid(8)}` }));
     const ids = new Set(added.map((t) => t.id));
@@ -416,32 +426,41 @@ function Themes({ session, log }: { session: WallSession; log: Log }) {
             posts: forAi.posts.map((p) => ({ id: p.id, text: p.text })),
           })}
           onResult={(data, meta) => {
-            setDraft({ themes: data.themes, source: meta.source });
-            announce(`${plural(data.themes.length, "theme")} to review.`);
+            const themes = freeThemes(data.themes);
+            setDraft({ themes, source: meta.source });
+            announce(
+              themes.length === 0
+                ? "Every post is in a theme already."
+                : `${plural(themes.length, "theme")} to review.`
+            );
           }}
         />
       </div>
       <LeftOut left={forAi.left} shown={forAi.posts.length} />
-      {draft && suggestions.length === 0 && (
+      {draft && draft.themes.length === 0 && (
         <p role="status" className="text-sm text-sub">
           Every post is in a theme already.
         </p>
       )}
-      {draft && suggestions.length > 0 && (
+      {draft && draft.themes.length > 0 && (
         <AiSuggestions
-          items={suggestions}
+          items={draft.themes}
           source={draft.source}
           title="Themes to add"
-          render={(t) => ({
-            title: t.name,
-            detail: `${plural(t.postIds.length, "post")}: ${t.postIds
-              .slice(0, 3)
-              .map((id) => short(textOf(id), 40))
-              .join(" · ")}${t.postIds.length > 3 ? " · …" : ""}`,
-          })}
+          render={(t) => {
+            const ids = t.postIds.filter((id) => known.has(id));
+            return {
+              title: t.name,
+              detail: `${plural(ids.length, "post")}: ${ids
+                .slice(0, 3)
+                .map((id) => short(textOf(id), 40))
+                .join(" · ")}${ids.length > 3 ? " · …" : ""}`,
+            };
+          }}
           onAccept={(t) => addThemes([t])}
           onAcceptAll={(all) => addThemes(all)}
           onDismiss={() => setDraft(null)}
+          returnFocus={() => groupRef.current?.querySelector<HTMLElement>("button")}
         />
       )}
     </section>
@@ -456,10 +475,16 @@ function Duplicates({ session }: { session: WallSession }) {
   );
   const known = new Set(session.posts.map((p) => p.id));
   const textOf = (id: string) => session.posts.find((p) => p.id === id)?.text ?? "";
-  const groups = draft ? cleanMerges(draft.groups, known) : [];
   const forAi = postsForAi(session);
+  const askRef = useRef<HTMLDivElement>(null);
 
-  const merge = (g: MergeOutput["groups"][number]) => {
+  const merge = (accepted: MergeOutput["groups"][number]) => {
+    // The posts that are still on the wall (another merge may have taken some).
+    const [g] = cleanMerges([accepted], known);
+    if (!g) {
+      announce("Those posts are merged already.");
+      return;
+    }
     const before = readWalls().find((s) => s.id === session.id);
     if (!before) return;
     undoable({
@@ -475,31 +500,33 @@ function Duplicates({ session }: { session: WallSession }) {
 
   return (
     <section aria-label="Duplicates" className="space-y-2">
-      <AiButton
-        task={mergeQuestionsTask}
-        label="Find duplicates"
-        fallbackLabel="Find duplicates without AI"
-        variant="outline"
-        disabledReason={session.posts.length < 2 ? "A wall needs two posts or more." : null}
-        input={() => ({ posts: forAi.posts.map((p) => ({ id: p.id, text: p.text })) })}
-        onResult={(data, meta) => {
-          const found = cleanMerges(data.groups, known);
-          setDraft({ groups: data.groups, source: meta.source });
-          announce(
-            found.length === 0
-              ? "No duplicates found."
-              : `${plural(found.length, "group")} of duplicates to review.`
-          );
-        }}
-      />
-      {draft && groups.length === 0 && (
+      <div ref={askRef}>
+        <AiButton
+          task={mergeQuestionsTask}
+          label="Find duplicates"
+          fallbackLabel="Find duplicates without AI"
+          variant="outline"
+          disabledReason={session.posts.length < 2 ? "A wall needs two posts or more." : null}
+          input={() => ({ posts: forAi.posts.map((p) => ({ id: p.id, text: p.text })) })}
+          onResult={(data, meta) => {
+            const found = cleanMerges(data.groups, known);
+            setDraft({ groups: found, source: meta.source });
+            announce(
+              found.length === 0
+                ? "No duplicates found."
+                : `${plural(found.length, "group")} of duplicates to review.`
+            );
+          }}
+        />
+      </div>
+      {draft && draft.groups.length === 0 && (
         <p role="status" className="text-sm text-sub">
           No duplicates on this wall.
         </p>
       )}
-      {draft && groups.length > 0 && (
+      {draft && draft.groups.length > 0 && (
         <AiSuggestions
-          items={groups}
+          items={draft.groups}
           source={draft.source}
           title="Duplicates to merge"
           acceptLabel="Merge"
@@ -511,6 +538,7 @@ function Duplicates({ session }: { session: WallSession }) {
           })}
           onAccept={(g) => merge(g)}
           onDismiss={() => setDraft(null)}
+          returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
         />
       )}
     </section>
@@ -534,10 +562,24 @@ function ToBacklog({
   const forAi = aiPosts(session.posts);
   const sent = canSend ? session.sent.filter((x) => liveLink(x.sentTo, "backlog-story")) : [];
   const sentKeys = new Set(sent.map((x) => x.key));
-  const items = (draft?.items ?? []).filter((i) => !sentKeys.has(sentKey(i.title)));
+  const askRef = useRef<HTMLDivElement>(null);
+  /** Drafted items not on the backlog yet, each once (two titles can be one item). */
+  const unsent = (items: BacklogOutput["items"]) => {
+    const seen = new Set(sentKeys);
+    return items.filter((i) => {
+      const key = sentKey(i.title);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
 
   const send = (item: BacklogOutput["items"][number]) => {
     const key = sentKey(item.title);
+    if (sentKeys.has(key)) {
+      announce("That one is on the backlog already.");
+      return;
+    }
     updateWall(session.id, (s) =>
       s.sent.some((x) => x.key === key)
         ? s
@@ -577,31 +619,44 @@ function ToBacklog({
         </p>
       ) : (
         <>
-          <AiButton
-            task={toBacklogTask}
-            label="Draft backlog items"
-            fallbackLabel="Draft items without AI"
-            variant="outline"
-            disabledReason={session.posts.length === 0 ? "This wall has no posts." : null}
-            input={() => ({
-              prompt: session.prompt,
-              posts: forAi.posts.map((p) => ({ text: p.text, votes: p.votes })),
-            })}
-            onResult={(data, meta) => {
-              setDraft({ items: data.items, source: meta.source });
-              announce(`${plural(data.items.length, "item")} to review.`);
-            }}
-          />
+          <div ref={askRef}>
+            <AiButton
+              task={toBacklogTask}
+              label="Draft backlog items"
+              fallbackLabel="Draft items without AI"
+              variant="outline"
+              disabledReason={session.posts.length === 0 ? "This wall has no posts." : null}
+              input={() => ({
+                prompt: session.prompt,
+                posts: forAi.posts.map((p) => ({ text: p.text, votes: p.votes })),
+              })}
+              onResult={(data, meta) => {
+                const items = unsent(data.items);
+                setDraft({ items, source: meta.source });
+                announce(
+                  items.length === 0
+                    ? "Everything drafted is on the backlog already."
+                    : `${plural(items.length, "item")} to review.`
+                );
+              }}
+            />
+          </div>
           <LeftOut left={forAi.left} shown={forAi.posts.length} />
-          {draft && items.length > 0 && (
+          {draft && draft.items.length === 0 && (
+            <p role="status" className="text-sm text-sub">
+              Everything drafted is on the backlog already.
+            </p>
+          )}
+          {draft && draft.items.length > 0 && (
             <AiSuggestions
-              items={items}
+              items={draft.items}
               source={draft.source}
               title="Backlog items to add"
               acceptLabel="Add to backlog"
               render={(i) => ({ title: i.title, detail: i.description || undefined })}
               onAccept={(i) => send(i)}
               onDismiss={() => setDraft(null)}
+              returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
             />
           )}
         </>
