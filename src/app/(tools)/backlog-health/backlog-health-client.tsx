@@ -44,7 +44,7 @@ import {
 import { STORY_TITLE_MAX } from "@/lib/handoffs/targets/backlog-story";
 import { undoable } from "@/lib/utils/undoable";
 import { todayIso } from "@/lib/sprints/series";
-import { stampRefinedWrite } from "@/lib/sprints/story-status";
+import { stampRefinedWrite, withRefinedPutBack } from "@/lib/sprints/story-status";
 import type { AiSource } from "@/lib/ai/task-types";
 import {
   REVIEW_FLAG_LABEL,
@@ -434,21 +434,31 @@ export function HealthBoard({
     }
     const added = newGwtId(new Set(rows.map((g) => g.id)));
     const row: StoryGwt = { id: added, given: item.given, when: item.when, then: item.then };
+    // The story's refinedAt before the scenario and the stamp its write left.
+    let before: string | undefined;
+    let stamp: string | undefined;
     undoable({
       label: `Added a scenario to “${short(current.title)}”`,
       kind: "success",
       apply: () => {
         const now = fresh(current.id) ?? current;
+        before = now.refinedAt;
         writer.upsertStory(withStoryGwt(now, [...(now.gwt ?? []), row]));
+        stamp = fresh(current.id)?.refinedAt;
       },
-      // Takes back only this scenario: edits made since stay.
+      // Takes back only this scenario: edits made since stay. A stale story
+      // is stale again, unless it was refined since.
       revert: () => {
         const now = fresh(current.id);
         if (now)
           writer.upsertStory(
-            withStoryGwt(
-              now,
-              (now.gwt ?? []).filter((g) => g.id !== added)
+            withRefinedPutBack(
+              withStoryGwt(
+                now,
+                (now.gwt ?? []).filter((g) => g.id !== added)
+              ),
+              stamp,
+              before
             )
           );
       },

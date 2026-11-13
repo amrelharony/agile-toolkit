@@ -36,6 +36,7 @@ import {
   isStoryStatus,
   stampRefinedWrite,
   stampStoryWrite,
+  withRefinedPutBack,
   withStoryBlocked,
   withStoryStatus,
 } from "@/lib/sprints/story-status";
@@ -217,6 +218,25 @@ describe("stampRefinedWrite (what the story says)", () => {
     useWorkspaceStore.setState({ stories: [story()] });
     useWorkspaceStore.getState().bulkUpsertStories([{ ...story(), title: "Log in" }]);
     expect(useWorkspaceStore.getState().stories[0].refinedAt).toEqual(expect.any(String));
+  });
+});
+
+describe("withRefinedPutBack (an Undo of its own change)", () => {
+  it("puts the earlier stamp back while the story carries the undone write's", () => {
+    const now = story({ refinedAt: T2 });
+    expect(withRefinedPutBack(now, T2, T1).refinedAt).toBe(T1);
+    const none = withRefinedPutBack(now, T2, undefined);
+    expect(none).not.toHaveProperty("refinedAt");
+    // The store then keeps it as written, so a stale story is stale again.
+    const undone = withRefinedPutBack({ ...now, points: 5 }, T2, T1);
+    expect(stampRefinedWrite(undone, now, T3).refinedAt).toBe(T1);
+  });
+
+  it("leaves a newer edit's stamp, or a write that stamped nothing, alone", () => {
+    const later = story({ refinedAt: T3 });
+    expect(withRefinedPutBack(later, T2, T1)).toBe(later);
+    const unstamped = story({ refinedAt: T1 });
+    expect(withRefinedPutBack(unstamped, T1, T1)).toBe(unstamped);
   });
 });
 

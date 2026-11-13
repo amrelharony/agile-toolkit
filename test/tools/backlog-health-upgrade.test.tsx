@@ -405,6 +405,44 @@ describe("the review without AI", () => {
     undoLast();
     expect(find("vague")?.gwt).toBeUndefined();
   });
+
+  it("takes its refinement back on Undo, so a stale story is stale again", async () => {
+    seed([
+      story({
+        acceptanceCriteria: undefined,
+        createdAt: new Date(Date.now() - 20 * 7 * 86_400_000).toISOString(),
+      }),
+    ]);
+    renderPage();
+    expect(await within(row("st1")).findByText(/Not changed for 20 weeks/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review by the rules" }));
+    const list = screen.getByRole("region", { name: "Splits and scenarios to add" });
+    fireEvent.click(within(list).getAllByRole("button", { name: /^Add: Given/ })[0]);
+    expect(find("st1")?.gwt).toHaveLength(1);
+    expect(find("st1")?.refinedAt).toEqual(expect.any(String));
+    expect(row("st1")?.textContent ?? "").not.toMatch(/Not changed for/);
+    undoLast();
+    expect(find("st1")?.gwt).toBeUndefined();
+    expect(find("st1")).not.toHaveProperty("refinedAt");
+    expect(within(row("st1")).getByText(/Not changed for 20 weeks/)).toBeInTheDocument();
+  });
+
+  it("keeps a refinement made since the scenario when it is undone", async () => {
+    seed([story({ id: "vague", title: "Reports", acceptanceCriteria: undefined })]);
+    renderPage();
+    await screen.findByText("Stories to look at");
+    fireEvent.click(screen.getByRole("button", { name: "Review by the rules" }));
+    const list = screen.getByRole("region", { name: "Splits and scenarios to add" });
+    fireEvent.click(within(list).getAllByRole("button", { name: /^Add: Given/ })[0]);
+    // Its own stamp, so it can't share the scenario's millisecond.
+    const later = "2099-01-01T00:00:00.000Z";
+    act(() => ws().upsertStory({ ...find("vague")!, points: 8, refinedAt: later }));
+    undoLast();
+    expect(find("vague")?.gwt).toBeUndefined();
+    expect(find("vague")?.points).toBe(8);
+    // Still refined: the stamp from before the scenario (none) isn't put back.
+    expect(find("vague")?.refinedAt).toEqual(expect.any(String));
+  });
 });
 
 describe("the review follows the page's settings", () => {
