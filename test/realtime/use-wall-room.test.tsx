@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import type { HostKeyPair } from "@/lib/realtime/vote-room/crypto";
 import {
@@ -59,6 +59,26 @@ async function tick(ms: number) {
   });
   await flush();
 }
+
+/**
+ * A host's open room loads only once the room opens (next/dynamic): wait in
+ * real time for the import (`vi.waitFor` keeps the real timers), moving the
+ * faked clock a little each turn so React swaps the placeholder out.
+ */
+async function settle(done: () => boolean) {
+  await vi.waitFor(
+    async () => {
+      await act(async () => {
+        vi.advanceTimersByTime(20);
+      });
+      expect(done()).toBe(true);
+    },
+    { timeout: 10_000, interval: 20 }
+  );
+}
+
+// The open room's module, warmed so the wait for it is short.
+beforeAll(() => import("@/components/collab/wall-room/host-wall-room"));
 
 type State = WallStateBody & { sig: string };
 const states = (ch: FakeChannel) => ch.sent(WALL_ROOM_EVENTS.state) as State[];
@@ -451,7 +471,7 @@ describe("WallRoomHost: hidden until reveal", () => {
       fireEvent.click(dialog.querySelector("input[type=checkbox]")!);
       fireEvent.click(screen.getByRole("button", { name: "Start room" }));
     });
-    await flush();
+    await settle(() => fakeRealtime.channels.length > 0);
     const ch = fakeRealtime.last();
     act(() => {
       ch.connect();
@@ -530,7 +550,7 @@ describe("WallRoomHost: merging", () => {
       fireEvent.click(dialog.querySelector("input[type=checkbox]")!);
       fireEvent.click(screen.getByRole("button", { name: "Start room" }));
     });
-    await flush();
+    await settle(() => fakeRealtime.channels.length > 0);
     const ch = fakeRealtime.last();
     act(() => {
       ch.connect();

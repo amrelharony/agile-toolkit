@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getNextStepRule } from "@/lib/tools/next-steps";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { getNextStepRule, loadAllNextStepRules } from "@/lib/tools/next-steps";
 import type {
   Impediment,
   KanbanCard,
@@ -16,6 +16,9 @@ import { blankReview } from "@/lib/sprints/review-doc";
  * workspace and points somewhere real, ignores example rows, and stays
  * quiet when nothing applies.
  */
+
+// The tools plan's phase 1 rules load their models on demand (lazyRule).
+beforeAll(loadAllNextStepRules);
 
 const steps = (toolId: string, ws: Partial<Workspace>) => {
   const rule = getNextStepRule(toolId);

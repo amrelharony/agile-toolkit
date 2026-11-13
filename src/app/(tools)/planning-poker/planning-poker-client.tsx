@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { WifiOff } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -36,8 +37,6 @@ import {
 import { ExampleNotice, isExampleId } from "@/components/tool-frame/example-data";
 import { SessionScreen } from "./session-screen";
 import { usePokerSession } from "./use-poker-session";
-import { PokerRoomBar } from "./poker-room-bar";
-import { RoomReactions } from "@/components/collab/room-reactions";
 import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { fitStoriesToVisitorRoom, withHostOnly } from "./visitor-session";
 import {
@@ -57,6 +56,16 @@ import { toMarkdown } from "./markdown";
 import { pokerCsv, sessionTicketKeys } from "./csv";
 import { generateRoomCode } from "./room-code";
 import { signalGamification } from "@/lib/gamification/signal";
+
+// A visitor's live room only: the room's bar (its timer, big screen and
+// chip) and the reactions load when a room opens, not with the page.
+const PokerRoomBar = dynamic(() => import("./poker-room-bar").then((m) => m.PokerRoomBar), {
+  ssr: false,
+});
+const RoomReactions = dynamic(
+  () => import("@/components/collab/room-reactions").then((m) => m.RoomReactions),
+  { ssr: false }
+);
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {

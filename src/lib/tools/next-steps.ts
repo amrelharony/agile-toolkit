@@ -45,9 +45,6 @@ import { unansweredGoal } from "@/app/(tools)/sprint-goal/doc";
 import { cycleStats } from "@/lib/kanban/flow";
 import { impedimentStatus } from "@/lib/impediments/model";
 import { RETRO_CURRENT_ID, collectRetroActions, followThroughByRetro } from "@/lib/retro/actions";
-import { notebookNextSteps } from "@/lib/notebook/next-step";
-import { recurringThemes } from "@/lib/retro/recurring-themes";
-import { liveOnBoards, readAnalyses, sentLink } from "@/lib/root-cause/model";
 import { hasOwnCards } from "@/lib/retro/board";
 import { LS_DOC_ID } from "@/lib/liberating-structures/doc";
 import { lsStructure } from "@/lib/liberating-structures/catalog";
@@ -219,8 +216,6 @@ import {
   riskScore,
 } from "@/lib/risks/model";
 import { debtStoryOf, isOpenDebt, rankedDebt } from "@/lib/tech-debt/model";
-import { parkingLotSteps } from "@/lib/parking-lot/model";
-import { meetingAuditSteps } from "@/lib/meeting-audit/model";
 import {
   FLAKY_BOARD_ID,
   QUARANTINE_ALERT_DAYS,
@@ -246,11 +241,6 @@ import {
   workingBasisLabel,
 } from "@/lib/quality/review";
 import { isIsoDate } from "@/lib/sprints/calendar";
-import {
-  backlogHealthSteps,
-  interruptBufferSteps,
-  productGoalSteps,
-} from "@/lib/tools/next-steps-phase42";
 import type {
   AdkarElement,
   Assumption,
@@ -282,10 +272,47 @@ export interface NextStep {
 
 export interface NextStepRule<S extends object> {
   select: (ws: Workspace) => S;
+  /** No steps (`[]`) while the rule's model is still loading (`ready`). */
   steps: (slices: S) => NextStep[];
+  /** A rule whose model loads on demand (`lazyRule`): whether it has. */
+  ready?: () => boolean;
+  /** Loads the rule's model, once (`loadNextStepRule` calls it). */
+  load?: () => Promise<void>;
 }
 
 const rule = <S extends object>(r: NextStepRule<S>) => r as unknown as NextStepRule<object>;
+
+/**
+ * A rule whose steps need a tool's own model (the tools plan's phase 1
+ * tools): the model loads when a page asks for this rule
+ * (`loadNextStepRule`, which `<NextStepCard>` calls), not with this table,
+ * which every tool page fetches. Until it has, the rule gives no steps.
+ */
+function lazyRule<S extends object, M>(
+  loadModel: () => Promise<M>,
+  r: { select: (ws: Workspace) => S; steps: (slices: S, model: M) => NextStep[] }
+): NextStepRule<object> {
+  let model: M | null = null;
+  let loading: Promise<void> | null = null;
+  return rule<S>({
+    select: r.select,
+    steps: (slices) => (model ? r.steps(slices, model) : []),
+    ready: () => model !== null,
+    load: () =>
+      (loading ??= loadModel().then(
+        (m) => {
+          model = m;
+        },
+        (error: unknown) => {
+          // A lost chunk: the next ask tries again.
+          loading = null;
+          throw error;
+        }
+      )),
+  });
+}
+
+const nextStepsPhase42 = () => import("@/lib/tools/next-steps-phase42");
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -1669,19 +1696,19 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   // Tools plan, phase 1. The logic and its tests are in lib/tools/next-steps-phase42.
-  "product-goal": rule({
+  "product-goal": lazyRule(nextStepsPhase42, {
     select: (ws) => ({ goals: ws.productGoals, sprints: ws.sprints, stories: ws.stories }),
-    steps: ({ goals, sprints, stories }) => productGoalSteps({ goals, sprints, stories }),
+    steps: ({ goals, sprints, stories }, m) => m.productGoalSteps({ goals, sprints, stories }),
   }),
 
-  "backlog-health": rule({
+  "backlog-health": lazyRule(nextStepsPhase42, {
     select: (ws) => ({
       stories: ws.stories,
       backlogItems: ws.backlogItems,
       goals: ws.productGoals,
     }),
-    steps: ({ stories, backlogItems, goals }) =>
-      backlogHealthSteps({ stories, backlogItems, goals }),
+    steps: ({ stories, backlogItems, goals }, m) =>
+      m.backlogHealthSteps({ stories, backlogItems, goals }),
   }),
 
   // Run the sprint.
@@ -2055,15 +2082,15 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   // Parking Lot (tools plan phase 1): the open points wait for the end-of-meeting review.
-  "parking-lot": rule({
+  "parking-lot": lazyRule(() => import("@/lib/parking-lot/model"), {
     select: (ws) => ({ items: ws.parkingLotItems }),
-    steps: ({ items }) => parkingLotSteps(items),
+    steps: ({ items }, m) => m.parkingLotSteps(items),
   }),
 
   // Tools plan, phase 1. The logic and its tests are in lib/tools/next-steps-phase42.
-  "interrupt-buffer": rule({
+  "interrupt-buffer": lazyRule(nextStepsPhase42, {
     select: (ws) => ({ sprints: ws.sprints, items: ws.interruptItems }),
-    steps: ({ sprints, items }) => interruptBufferSteps({ sprints, items }),
+    steps: ({ sprints, items }, m) => m.interruptBufferSteps({ sprints, items }),
   }),
 
   // A vote's result goes on: a proposed decision to settle, a topic for the retro.
@@ -2132,9 +2159,10 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
-  "retro-actions": rule({
+  // Recurring themes (tools plan, phase 1) load with the rule.
+  "retro-actions": lazyRule(() => import("@/lib/retro/recurring-themes"), {
     select: (ws) => ({ boards: ws.retroBoards }),
-    steps: ({ boards }) => {
+    steps: ({ boards }, { recurringThemes }) => {
       const steps: NextStep[] = [];
       const all = boards ?? [];
       const overdue = collectRetroActions(all, { today: todayIso() }).filter(
@@ -2328,9 +2356,9 @@ const RULES: Record<string, NextStepRule<object>> = {
 
   // Tools plan, phase 1: a named root cause wants a countermeasure, and an
   // agreed one goes to Retro Actions, where someone owns it.
-  "root-cause": rule({
+  "root-cause": lazyRule(() => import("@/lib/root-cause/model"), {
     select: (ws) => ({ analyses: ws.rootCauseAnalyses, boards: ws.retroBoards }),
-    steps: ({ analyses, boards }) => {
+    steps: ({ analyses, boards }, { liveOnBoards, readAnalyses, sentLink }) => {
       const steps: NextStep[] = [];
       // A synced row can hold anything: read each one as the page does.
       const newest = real(readAnalyses(analyses)).sort((a, b) =>
@@ -3250,9 +3278,9 @@ const RULES: Record<string, NextStepRule<object>> = {
   // The coach's own notes: a theme in three notes or more over the last two
   // weeks points to the tool that helps with it, else to the retro
   // (lib/notebook/next-step). Example notes and kept summaries don't count.
-  "sm-notebook": rule({
+  "sm-notebook": lazyRule(() => import("@/lib/notebook/next-step"), {
     select: (ws) => ({ notes: ws.notebookEntries }),
-    steps: ({ notes }) => notebookNextSteps(notes, todayIso()),
+    steps: ({ notes }, m) => m.notebookNextSteps(notes, todayIso()),
   }),
 
   "one-on-one": rule({
@@ -3587,9 +3615,9 @@ const RULES: Record<string, NextStepRule<object>> = {
 
   // Meeting Audit (shelved): rate, decide, take the changes to the retro (until a retro is
   // held after the verdicts), again each quarter.
-  "meeting-audit": rule({
+  "meeting-audit": lazyRule(() => import("@/lib/meeting-audit/model"), {
     select: (ws) => ({ audits: ws.meetingAudits, retros: ws.retroBoards }),
-    steps: ({ audits, retros }) => meetingAuditSteps(audits, new Date(), retros),
+    steps: ({ audits, retros }, m) => m.meetingAuditSteps(audits, new Date(), retros),
   }),
 
   // Team Mixer keeps who is mixing in its own store; from the workspace it
@@ -4248,6 +4276,18 @@ const RULES: Record<string, NextStepRule<object>> = {
 
 export function getNextStepRule(toolId: string): NextStepRule<object> | undefined {
   return RULES[toolId];
+}
+
+/** A tool's rule with its model loaded (a `lazyRule`'s), ready for `steps`. */
+export async function loadNextStepRule(toolId: string): Promise<NextStepRule<object> | undefined> {
+  const r = RULES[toolId];
+  if (r?.load && !r.ready?.()) await r.load();
+  return r;
+}
+
+/** Every rule with its model loaded: for code (tests) that reads several at once. */
+export async function loadAllNextStepRules(): Promise<void> {
+  await Promise.all(Object.keys(RULES).map(loadNextStepRule));
 }
 
 /** Tool ids that declare next steps (the UX contract test checks upgraded tools are here). */

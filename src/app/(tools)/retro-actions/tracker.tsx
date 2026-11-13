@@ -58,7 +58,6 @@ import { actionsToMarkdown } from "./markdown";
 import { EVERYONE, NO_OWNER, matchesOwner, ownerOptions } from "./owners";
 import { QuickAddForm } from "./quick-add";
 import { retroActionsVerdict } from "./verdict";
-import { RecurringThemesPanel } from "./recurring-themes-panel";
 import { archivedRetroCount, recurringThemes } from "@/lib/retro/recurring-themes";
 
 export const TOOL_ID = "retro-actions";
@@ -68,6 +67,13 @@ export const TOOL_ID = "retro-actions";
 const FollowThroughChart = dynamic(() => import("./charts").then((m) => m.FollowThroughChart), {
   ssr: false,
 });
+
+// The recurring themes load with their panel, not the page: its Ask Amr
+// brings the AI kit and the task's schemas, which the page needs no sooner.
+const RecurringThemesPanel = dynamic(
+  () => import("./recurring-themes-panel").then((m) => m.RecurringThemesPanel),
+  { ssr: false }
+);
 
 const NO_BOARDS: RetroBoard[] = [];
 const NO_SPRINTS: Sprint[] = [];

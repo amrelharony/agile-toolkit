@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -76,6 +76,9 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
 });
+
+// The live room loads once a room opens (next/dynamic): warm it so the first wait is short.
+beforeAll(() => import("@/components/collab/vote-room/host-vote-room"));
 
 describe("VoteRoundPanel: when live rounds are off", () => {
   it.each([

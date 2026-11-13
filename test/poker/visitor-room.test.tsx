@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import {
   act,
   fireEvent,
@@ -227,7 +227,8 @@ function addStory(title: string) {
 }
 
 /** The host's path: lobby → "Start a live room" → consent → live. */
-function startLiveRoom(name = "Ana") {
+/** Starts the room, then waits for its bar: it loads only once a room opens (next/dynamic). */
+async function startLiveRoom(name = "Ana") {
   const utils = render(<PlanningPokerClient />);
   fireEvent.click(screen.getByRole("button", { name: "Start a live room" }));
   const dialog = screen.getByRole("dialog", { name: "Start a live Planning Poker room" });
@@ -238,8 +239,12 @@ function startLiveRoom(name = "Ana") {
   presenceSync(ch);
   const hostId = states(ch)[0]?.by;
   if (!hostId) throw new Error("the host never sent its session");
+  await screen.findByRole("button", { name: "Copy link" });
   return { ...utils, ch, hostId };
 }
+
+// The room bar's module, warmed so the first wait for it is short.
+beforeAll(() => import("@/app/(tools)/planning-poker/poker-room-bar"));
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", "1");
@@ -313,8 +318,8 @@ describe("Start a live room (host, tool page)", () => {
     expect(screen.getByRole("button", { name: "Start Session" })).toBeInTheDocument();
   });
 
-  it("goes live on a visitor channel with a 12-character code after consent", () => {
-    const { ch, hostId } = startLiveRoom("Ana");
+  it("goes live on a visitor channel with a 12-character code after consent", async () => {
+    const { ch, hostId } = await startLiveRoom("Ana");
     expect(h.client.channel).toHaveBeenCalledTimes(1);
     expect(ch.name).toMatch(/^visitor:planning-poker:[23456789A-HJKMNP-Z]{12}$/);
     const code = ch.name.split(":")[2];
@@ -329,8 +334,8 @@ describe("Start a live room (host, tool page)", () => {
     expect(screen.queryByText("Browser-only")).toBeNull();
   });
 
-  it("removes a participant: kick message, seat gone, later rows ignored", () => {
-    const { ch, hostId } = startLiveRoom();
+  it("removes a participant: kick message, seat gone, later rows ignored", async () => {
+    const { ch, hostId } = await startLiveRoom();
     arrive(ch, ME.id, ME.name);
     const withMe = (vote: string | null) => ({
       state: {
@@ -359,8 +364,8 @@ describe("Start a live room (host, tool page)", () => {
     ).toEqual([hostId]);
   });
 
-  it("logs nothing to history and writes nothing back while live", () => {
-    startLiveRoom();
+  it("logs nothing to history and writes nothing back while live", async () => {
+    await startLiveRoom();
     addStory("Checkout flow");
     const deck = screen.getByRole("radiogroup", { name: "Your vote" });
     fireEvent.click(within(deck).getByRole("radio", { name: "5" }));
@@ -369,7 +374,7 @@ describe("Start a live room (host, tool page)", () => {
     expect(h.log).not.toHaveBeenCalled();
   });
 
-  it("takes a queue of fully described stories without going over the room's size limit", () => {
+  it("takes a queue of fully described stories without going over the room's size limit", async () => {
     // 40 backlog stories with full notes and acceptance criteria: about
     // 160,000 characters of description, more than the room sends at once.
     const text = (word: string) => `- ${word} of the story\n`.repeat(120).slice(0, 2_000);
@@ -384,7 +389,7 @@ describe("Start a live room (host, tool page)", () => {
         })
       );
     }
-    const { ch } = startLiveRoom();
+    const { ch } = await startLiveRoom();
     const before = states(ch).length;
     fireEvent.click(screen.getByRole("button", { name: "Add queued stories (40)" }));
 
@@ -404,8 +409,8 @@ describe("Start a live room (host, tool page)", () => {
     useWorkspaceStore.setState({ pokerEstimationLogs: [] });
   });
 
-  it("ending the room keeps the session locally, with only the host's seat", () => {
-    const { ch, hostId } = startLiveRoom();
+  it("ending the room keeps the session locally, with only the host's seat", async () => {
+    const { ch, hostId } = await startLiveRoom();
     const code = ch.name.split(":")[2];
     addStory("Checkout flow");
     arrive(ch, ME.id, ME.name);
@@ -439,8 +444,8 @@ describe("Start a live room (host, tool page)", () => {
     expect(h.client.channel).toHaveBeenCalledTimes(1);
   });
 
-  it("restoring the session after a refresh never reconnects the room", () => {
-    const first = startLiveRoom();
+  it("restoring the session after a refresh never reconnects the room", async () => {
+    const first = await startLiveRoom();
     addStory("Checkout flow");
     arrive(first.ch, ME.id, ME.name);
     send(first.ch, "poker:state", {

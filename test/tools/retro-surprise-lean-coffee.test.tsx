@@ -231,9 +231,10 @@ describe("the plan on the board", () => {
     expect(screen.getByRole("button", { name: "Next on the board" })).toHaveFocus();
   });
 
-  it("starts a board from the picker, logged as a surprise, with its opening shown", () => {
+  it("starts a board from the picker, logged as a surprise, with its opening shown", async () => {
     wrap(<RetroClient />);
-    fireEvent.click(screen.getByRole("button", { name: /Surprise me/ }));
+    // The panel loads after the format cards (next/dynamic).
+    fireEvent.click(await screen.findByRole("button", { name: /Surprise me/ }));
     const name = screen
       .getByRole("heading", { name: /Surprise plan:/ })
       .textContent!.replace("Surprise plan: ", "");

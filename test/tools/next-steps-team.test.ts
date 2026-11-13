@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getNextStepRule } from "@/lib/tools/next-steps";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { getNextStepRule, loadAllNextStepRules } from "@/lib/tools/next-steps";
 import type {
   AdkarInitiative,
   CharterRule,
@@ -41,6 +41,9 @@ import { emptySnapshot } from "@/lib/health-check/score";
  * Definition of Done as Release Readiness and the Sprint board read it.
  * The pulse tools' steps are team level: none names or singles out anyone.
  */
+
+// The tools plan's phase 1 rules load their models on demand (lazyRule).
+beforeAll(loadAllNextStepRules);
 
 const steps = (toolId: string, ws: Partial<Workspace>) => {
   const rule = getNextStepRule(toolId);

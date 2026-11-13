@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -75,7 +75,8 @@ const BOARDS = [
 ];
 
 const panel = () => screen.getByRole("region", { name: "Recurring themes" });
-const renderPage = () =>
+/** The page, once its themes panel has loaded (next/dynamic). */
+const renderPage = async () => {
   render(
     <LiveAnnouncerProvider>
       <TooltipProvider>
@@ -83,6 +84,11 @@ const renderPage = () =>
       </TooltipProvider>
     </LiveAnnouncerProvider>
   );
+  await screen.findByRole("region", { name: "Recurring themes" });
+};
+
+// The panel loads after the page: warm its module so the first wait is short.
+beforeAll(() => import("@/app/(tools)/retro-actions/recurring-themes-panel"));
 
 beforeEach(() => {
   exported.markdown = "";
@@ -105,16 +111,16 @@ afterEach(() => {
 });
 
 describe("recurring themes", () => {
-  it("waits for three past retros", () => {
+  it("waits for three past retros", async () => {
     useWorkspaceStore.setState({ retroBoards: BOARDS.slice(0, 2) });
-    renderPage();
+    await renderPage();
     expect(
       within(panel()).getByText("Hold 1 more past retro to see the themes that keep coming up.")
     ).toBeInTheDocument();
   });
 
-  it("lists what three retros raised, and what came back after its action was done", () => {
-    renderPage();
+  it("lists what three retros raised, and what came back after its action was done", async () => {
+    await renderPage();
     const list = within(panel());
     expect(list.getByText("staging")).toBeInTheDocument();
     expect(list.getByText(/· 3 retros · 4 cards/)).toBeInTheDocument();
@@ -126,21 +132,21 @@ describe("recurring themes", () => {
     expect(list.getByText("Waited two days for staging", { exact: false })).toBeInTheDocument();
   });
 
-  it("puts the themes in the export", () => {
-    renderPage();
+  it("puts the themes in the export", async () => {
+    await renderPage();
     expect(exported.markdown).toContain("## Recurring themes");
     expect(exported.markdown).toContain("came back after “Fix staging data” was done");
   });
 
-  it("names each theme's card list after its theme", () => {
-    renderPage();
+  it("names each theme's card list after its theme", async () => {
+    await renderPage();
     const summary = within(panel()).getByText("The cards");
     expect(summary.tagName).toBe("SUMMARY");
     expect(summary).toHaveAttribute("aria-label", "The cards for “staging”");
   });
 
   it("finds themes without AI when Amr isn't on", async () => {
-    renderPage();
+    await renderPage();
     fireEvent.click(within(panel()).getByRole("button", { name: "Find themes without AI" }));
     // The list changes in place, so what came back is said.
     await waitFor(() =>
@@ -180,7 +186,7 @@ describe("recurring themes", () => {
       );
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderPage();
+    await renderPage();
     fireEvent.click(within(panel()).getByRole("button", { name: "Ask Amr to name the themes" }));
     await waitFor(() =>
       expect(within(panel()).getByText("Staging we can't trust")).toBeInTheDocument()

@@ -28,7 +28,7 @@ import {
   usePresentation,
 } from "@/components/presentation/presentation-mode";
 import { PokerBigScreenRound, PokerRoomBar } from "@/app/(tools)/planning-poker/poker-room-bar";
-import { ShowBigScreenFrame } from "@/components/collab/show-room/show-room-host";
+import { ShowBigScreenFrame } from "@/components/collab/show-room/host-show-room";
 import type { ShowFrame } from "@/lib/realtime/show-room/use-show-room";
 import { startRoomTimer } from "@/lib/realtime/room-timer";
 import type { FloatingReaction } from "@/lib/realtime/room-reactions";

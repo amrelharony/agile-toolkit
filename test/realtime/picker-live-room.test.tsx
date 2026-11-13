@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, renderHook, screen } from "@testing-library/react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { ShowFrameView } from "@/components/collab/show-room/show-frame-view";
@@ -27,6 +27,11 @@ vi.mock("@/lib/sonification/emit", () => ({ emit: () => {}, emitRtEvent: () => {
 vi.mock("@/lib/utils/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { useShowRoom } from "@/lib/realtime/show-room/use-show-room";
+import { loadShowRenderers } from "@/lib/realtime/show-room/renderers/registry";
+
+// A room loads only its own tool's renderers (ShowFrameView does it on
+// mount); load the Picker's first, so the phone draws the wheel at once.
+beforeAll(() => loadShowRenderers("picker"));
 
 const HOST: FakeMember = { id: "host_00000000000", name: "Hana", joinedAt: "2026-10-26T09:00:00Z" };
 const A: FakeMember = { id: "alice_0000000000", name: "Alex", joinedAt: "2026-10-26T09:01:00Z" };

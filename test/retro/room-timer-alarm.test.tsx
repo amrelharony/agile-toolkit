@@ -50,7 +50,7 @@ vi.mock("framer-motion", async () => {
 import { Board } from "@/app/(tools)/retro/components/board";
 import { RoomTimerReadout, useRoomTimerAlarm } from "@/app/(tools)/retro/room/room-controls";
 import { RetroBigScreenRound, useBoardTimer } from "@/app/(tools)/retro/room/big-screen";
-import { WallBigScreenRound } from "@/components/collab/wall-room/wall-room-host";
+import { WallBigScreenRound } from "@/components/collab/wall-room/host-wall-room";
 import { useAlarmPrefs } from "@/lib/celebrate/alarm-prefs";
 
 const T0 = Date.parse("2026-11-12T09:00:00Z");
