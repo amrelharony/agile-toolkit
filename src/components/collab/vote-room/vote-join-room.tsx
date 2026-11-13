@@ -24,6 +24,9 @@ import { Check, CheckCircle2, Download, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
+import { RoomCountdownCard } from "@/components/collab/room-countdown";
+import { RoomReactions } from "@/components/collab/room-reactions";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import {
   VISITOR_LIMITS,
   visitorRoomsEnabled,
@@ -173,6 +176,7 @@ function ParticipantVoteRoom({
     hostFingerprint,
     crypto,
   });
+  const extras = useRoomExtras(room.extras);
   const announce = useAnnounce();
   const { status, phase, hostName } = room;
   const result = roomResult(room);
@@ -269,6 +273,8 @@ function ParticipantVoteRoom({
         </p>
       )}
 
+      {status === "live" && <RoomCountdownCard timer={extras.timer} />}
+
       {status === "live" && phase === "open" && hasRound && (
         <>
           {room.answered || room.awaitingAck ? (
@@ -306,6 +312,8 @@ function ParticipantVoteRoom({
           {active && <DownloadButton onDownload={result ? download : undefined} />}
         </div>
       )}
+
+      {status === "live" && <RoomReactions extras={extras} className="pt-2" />}
     </main>
   );
 }

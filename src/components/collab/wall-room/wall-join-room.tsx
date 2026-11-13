@@ -9,15 +9,23 @@
  *
  * While the host keeps posts hidden until reveal, this tab shows its own
  * posts (from memory) and how many there are in all; nobody else's text
- * reaches it until then. It renders its own end states, focused and
- * announced.
+ * reaches it until then. In a brainwriting round each post offers "Yes,
+ * and…", which puts the post above the box; in a 25/10 round the box gives
+ * way to five posts to score (announced, with focus on the card, and again
+ * when the host shows the totals). A round that takes no posts and has none
+ * (a raise-hand queue) puts Raise my hand first. It renders its own end
+ * states, focused and announced.
  */
 
-import { useEffect, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import { Hand } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
 import { RoomClosedPanel, signedRoomClosedCopy } from "@/components/collab/room-closed-panel";
+import { RoomCountdownCard } from "@/components/collab/room-countdown";
+import { RoomReactions } from "@/components/collab/room-reactions";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { visitorRoomsEnabled, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
 import { readVoteLinkFragment, type VoteCrypto } from "@/lib/realtime/vote-room/crypto";
 import { isSignedRoomClosed } from "@/lib/realtime/use-signed-room";
@@ -25,6 +33,7 @@ import type { WallPost, WallRefusal, WallRoomTool } from "@/lib/realtime/wall-ro
 import { useWallRoom, type MyPost } from "@/lib/realtime/wall-room/use-wall-room";
 import { WallPostForm } from "./wall-post-form";
 import { WallPostList } from "./wall-post-list";
+import { WallScoreCard } from "./wall-score-card";
 
 export interface WallJoinRoomProps {
   tool: WallRoomTool;
@@ -51,13 +60,15 @@ export function wallRefusalText(why: WallRefusal): string {
     case "bad-text":
       return "That post couldn't be used: it was empty or had hidden characters.";
     case "own-post":
-      return "You can't upvote your own post.";
+      return "That's your own post: you can't upvote or score it.";
     case "already":
       return "That's already done.";
     case "gone":
       return "That post isn't on the wall any more.";
     case "not-yours":
       return "That can only be taken back from the tab it came from.";
+    case "not-admitted":
+      return "The host's browser doesn't take requests from this tab as you. Leave, then join again from the link.";
     default:
       return "The host's browser didn't take that.";
   }
@@ -144,15 +155,75 @@ function ParticipantWallRoom({
     hostFingerprint,
     crypto,
   });
+  const extras = useRoomExtras(room.extras);
   const { status, hostName, round } = room;
   const closed = isSignedRoomClosed(status);
   const mine = new Set(room.mine.map((p) => p.id));
   const queuePlace = room.hands.findIndex((h) => h.id === room.selfId);
+  // Brainwriting: the post this person is saying "Yes, and…" to.
+  const [replyPick, setReplyPick] = useState<{ id: string; round: string } | null>(null);
+  const canBuild = Boolean(round?.build && round.open && round.posts);
+  const replyTo =
+    canBuild && replyPick && replyPick.round === round?.id
+      ? (round?.posts?.find((p) => p.id === replyPick.id) ?? null)
+      : null;
+  // A raise-hand queue: no posts taken and none on the wall, so the hand comes first.
+  const handsFirst = Boolean(round && !round.open && !round.scoring && round.count === 0);
+
+  // 25/10: the post box (or the score card) goes away when the host starts
+  // the scoring or shows the totals. Say so, and put focus on what replaced
+  // it when focus was lost with the old one.
+  const announce = useAnnounce();
+  const scoreHeadingRef = useRef<HTMLHeadingElement>(null);
+  const totalsRef = useRef<HTMLParagraphElement>(null);
+  const scoringRef = useRef<string | null>(null);
+  const scoringKey = round?.scoring ? `${round.id}:${round.scoring}` : null;
+  useEffect(() => {
+    const prev = scoringRef.current;
+    scoringRef.current = scoringKey;
+    if (!scoringKey || scoringKey === prev || !round?.scoring) return;
+    const focusLost = !document.activeElement || document.activeElement === document.body;
+    if (round.scoring === "open") {
+      announce(
+        room.toScore.length > 0
+          ? `Scoring started: score ${room.toScore.length === 1 ? "one post" : `${room.toScore.length} posts`} from 1 to 5.`
+          : "Scoring started. There are no posts for you to score."
+      );
+      if (focusLost) scoreHeadingRef.current?.focus();
+    } else {
+      announce("The host is showing the totals.");
+      if (focusLost) totalsRef.current?.focus();
+    }
+    // Once per change of the scoring.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoringKey]);
 
   const handleLeave = () => {
     room.leave();
     onLeave();
   };
+
+  const handRow = (
+    <div className="flex flex-wrap items-center gap-3">
+      <Button
+        type="button"
+        variant={room.handUp ? "toolkit" : "outline"}
+        className="gap-1.5"
+        aria-pressed={room.handUp}
+        onClick={() => void room.raiseHand(!room.handUp)}
+      >
+        <Hand className="h-4 w-4" aria-hidden="true" />
+        Raise my hand
+      </Button>
+      {room.handUp && queuePlace >= 0 ? (
+        <p className="text-sm text-sub" aria-live="polite">
+          You&apos;re number {queuePlace + 1} in the queue. Everyone sees your name there.
+        </p>
+      ) : handsFirst ? (
+        <p className="text-sm text-sub">Raise your hand to join the queue to speak.</p>
+      ) : null}
+    </div>
+  );
 
   return (
     <main className="mx-auto min-h-screen-dvh w-full max-w-3xl space-y-5 px-4 py-6">
@@ -193,14 +264,33 @@ function ParticipantWallRoom({
         </div>
       ) : (
         <div className="space-y-5">
+          <RoomCountdownCard timer={extras.timer} />
           {!round ? (
             <p role="status" className="text-sm text-sub">
               Waiting for the host to put up a prompt…
             </p>
           ) : (
             <>
-              {round.open ? (
-                <WallPostForm onPost={room.post} />
+              {round.scoring === "open" && round.posts ? (
+                <WallScoreCard
+                  posts={round.posts}
+                  toScore={room.toScore}
+                  myScores={room.myScores}
+                  onScore={(id, v) => void room.score(id, v)}
+                  headingRef={scoreHeadingRef}
+                />
+              ) : round.scoring === "shown" ? (
+                <p ref={totalsRef} tabIndex={-1} className="text-sm text-sub outline-none">
+                  The host is showing the totals: the best-scored posts come first.
+                </p>
+              ) : handsFirst ? (
+                handRow
+              ) : round.open ? (
+                <WallPostForm
+                  onPost={(text) => room.post(text, replyTo?.id)}
+                  replyTo={replyTo}
+                  onCancelReply={() => setReplyPick(null)}
+                />
               ) : (
                 <p className="text-sm text-sub">The host isn&apos;t taking posts right now.</p>
               )}
@@ -210,7 +300,7 @@ function ParticipantWallRoom({
                 </p>
               )}
 
-              {round.posts === null ? (
+              {handsFirst ? null : round.posts === null ? (
                 <section className="space-y-2" aria-label="Your posts">
                   <p className="rounded-lg border border-dashed border-border px-3 py-2.5 text-sm text-sub">
                     {round.count} {round.count === 1 ? "post" : "posts"} so far. The host shows them
@@ -252,6 +342,11 @@ function ParticipantWallRoom({
                     onVote={(id) => void room.vote(id)}
                     onUnvote={(id) => void room.unvote(id)}
                     onWithdraw={(id) => void room.withdraw(id)}
+                    onBuild={
+                      canBuild && round.id
+                        ? (p) => setReplyPick({ id: p.id, round: round.id })
+                        : undefined
+                    }
                     emptyText="Nothing on the wall yet."
                   />
                   {room.mine
@@ -266,23 +361,8 @@ function ParticipantWallRoom({
             </>
           )}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              type="button"
-              variant={room.handUp ? "toolkit" : "outline"}
-              className="gap-1.5"
-              aria-pressed={room.handUp}
-              onClick={() => void room.raiseHand(!room.handUp)}
-            >
-              <Hand className="h-4 w-4" aria-hidden="true" />
-              Raise my hand
-            </Button>
-            {room.handUp && queuePlace >= 0 && (
-              <p className="text-sm text-sub" aria-live="polite">
-                You&apos;re number {queuePlace + 1} in the queue. Everyone sees your name there.
-              </p>
-            )}
-          </div>
+          {!handsFirst && handRow}
+          <RoomReactions extras={extras} />
         </div>
       )}
     </main>

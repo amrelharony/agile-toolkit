@@ -249,6 +249,8 @@ function ReviewScreen({
 }) {
   const { doc, sprint, facts, example, writer } = source;
   const uid = useId();
+  // A feedback room opened on the Feedback tab: the tab stays mounted from then on.
+  const [keepFeedback, setKeepFeedback] = useState(false);
   const numbers = useMemo(() => reviewNumbers(doc, facts, sprint), [doc, facts, sprint]);
   // The product's progress across its real stories (other tools' examples
   // never count).
@@ -425,8 +427,13 @@ function ReviewScreen({
           <TabsContent value="demo">
             <DemoScriptTab source={source} />
           </TabsContent>
-          <TabsContent value="feedback">
-            <FeedbackTab source={source} />
+          {/* Kept mounted once a feedback room opened: switching tabs would end it. */}
+          <TabsContent
+            value="feedback"
+            forceMount={keepFeedback || undefined}
+            hidden={keepFeedback ? tab !== "feedback" : undefined}
+          >
+            <FeedbackTab source={source} onRoomOpen={() => setKeepFeedback(true)} />
           </TabsContent>
           <TabsContent value="checklist">
             <ShowcaseChecklistTab source={source} />
@@ -440,6 +447,13 @@ function ReviewScreen({
   );
 }
 
+/** How many items one history event stands for: its `count` (a room's round), else one. */
+function feedbackCount(payload: unknown): number {
+  const n =
+    payload && typeof payload === "object" ? (payload as { count?: unknown }).count : undefined;
+  return typeof n === "number" && Number.isInteger(n) && n > 0 && n <= 1_000 ? n : 1;
+}
+
 /**
  * Review activity in the last 30 days: demo items added and feedback
  * captured, so the cadence shows without leaving the page.
@@ -449,9 +463,12 @@ function RecentActivity() {
   const events = useHistoryStore((s) => s.events);
   const [demos, feedback] = useMemo(
     () =>
-      (["item_added", "feedback_added"] as const).map(
-        (action) =>
-          selectEvents({ toolId: "sprint-review", action, sinceDays: 30, limit: 200 }).length
+      (["item_added", "feedback_added"] as const).map((action) =>
+        selectEvents({ toolId: "sprint-review", action, sinceDays: 30, limit: 200 }).reduce(
+          // A feedback room's Save round logs once for all its posts, with their count.
+          (n, e) => n + feedbackCount(e.payload),
+          0
+        )
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [events]

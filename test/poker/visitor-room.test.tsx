@@ -321,8 +321,8 @@ describe("Start a live room (host, tool page)", () => {
     // The host's seat is the consented identity.
     expect(hostId).toMatch(/^[A-Za-z0-9_-]{16}$/);
     expect(states(ch)[0].state).toMatchObject({ roomCode: code, hostId, host: "Ana" });
-    // The chip carries the code and the copy link; no squad invite.
-    expect(screen.getByText(code)).toBeInTheDocument();
+    // The chip carries the code (in groups of four) and the copy link; no squad invite.
+    expect(screen.getByText(code.match(/.{4}/g)!.join("-"))).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy link" })).toBeInTheDocument();
     expect(screen.getByText("1 of 20 people")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Invite squad" })).toBeNull();

@@ -51,6 +51,7 @@ export const CORE_GUIDES: ToolGuide[] = [
       "If a story needs more than two rounds, it probably needs splitting or more refinement.",
       "“?” means “I need more information”, and is a useful signal.",
       "Under the deck, the Estimation Guide shows what the picked card means and its reference stories.",
+      "In a live room, Room timer counts down on everyone's phone; switch on Reveal the cards at zero to reveal when it runs out. Big screen puts the code, the QR code and the vote on a shared screen.",
     ],
     scales: [
       {
