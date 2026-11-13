@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { INTERRUPT_KINDS, TOOL_TEXT_MAX, type Sprint } from "@/lib/stores/workspace-types";
 import { interruptClassifyTask } from "@/lib/ai/tasks/interrupt-buffer";
 import {
+  BUFFER_FORM_TEXT,
   BUFFER_PCT_MAX,
   EMERGENCY_STEPS,
   INTERRUPT_KIND_LABEL,
@@ -127,7 +128,7 @@ export function BufferForm({
       className="space-y-3"
     >
       <div className="grid gap-3 sm:grid-cols-[minmax(0,12rem)_minmax(0,10rem)]">
-        <Field label="Keep it as">
+        <Field label={BUFFER_FORM_TEXT.mode}>
           {(control) => (
             <select
               {...control}
@@ -135,13 +136,13 @@ export function BufferForm({
               value={form.draft.mode}
               onChange={(e) => form.update({ mode: e.target.value as BufferDraft["mode"] })}
             >
-              <option value="pct">A share of the sprint (%)</option>
-              <option value="points">Points</option>
+              <option value="pct">{BUFFER_FORM_TEXT.modes.pct}</option>
+              <option value="points">{BUFFER_FORM_TEXT.modes.points}</option>
             </select>
           )}
         </Field>
         <Field
-          label={form.draft.mode === "pct" ? "Share" : "Points"}
+          label={BUFFER_FORM_TEXT.value[form.draft.mode]}
           hint={form.draft.mode === "pct" ? `1 to ${BUFFER_PCT_MAX}%` : "0 or more"}
           error={form.errors.value}
         >
@@ -164,7 +165,7 @@ export function BufferForm({
           ? sprint.pointsPlanned > 0
             ? `A share of the ${sprint.pointsPlanned} points planned for ${sprint.name}.`
             : `${sprint.name} has no planned points yet: the share turns into points once it is planned.`
-          : "Leave it empty to keep no buffer."}
+          : BUFFER_FORM_TEXT.empty}
         {suggested !== null &&
           ` The last finished sprints used ${pointsText(suggested)} of interrupts on average.`}
       </p>

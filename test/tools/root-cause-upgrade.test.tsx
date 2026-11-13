@@ -764,6 +764,81 @@ describe("Fishbone", () => {
     expect(screen.queryByRole("group", { name: /^Monitoring:/ })).toBeNull();
   });
 
+  it("keeps the suggested moves fixed: each Move focuses the next one, then 'All added.'", () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_1",
+        method: "fishbone",
+        causes: [
+          { id: "c1", category: "Other", text: "Approval skipped", count: 1 },
+          { id: "c2", category: "Other", text: "Split logs", count: 1 },
+          { id: "c3", category: "Other", text: "No alert", count: 1 },
+        ],
+      })
+    );
+    vi.spyOn(categoriesTask, "fallback").mockReturnValue({
+      moves: [
+        { causeId: "c1", category: "Process" },
+        { causeId: "c2", category: "Tools" },
+        { causeId: "c3", category: "Measurement" },
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Sort without AI" }));
+    const first = screen.getByRole("button", { name: "Move: Move “Approval skipped” to Process" });
+    first.focus();
+    fireEvent.click(first);
+    expect(stored()[0].causes[0].category).toBe("Process");
+    // The next suggestion has focus: none is skipped.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Move: Move “Split logs” to Tools" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Move: Move “Split logs” to Tools" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Move: Move “No alert” to Measurement" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Move: Move “No alert” to Measurement" }));
+    expect(stored()[0].causes.map((c) => c.category)).toEqual(["Process", "Tools", "Measurement"]);
+    expect(screen.getByText("All added.")).toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Better categories" }));
+  });
+
+  it("hands focus back to Sort when the moves are dismissed, and skips a move the board outran", () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_1",
+        method: "fishbone",
+        causes: [
+          { id: "c1", category: "Other", text: "Split logs", count: 1 },
+          { id: "c2", category: "Other", text: "No alert", count: 1 },
+        ],
+      })
+    );
+    vi.spyOn(categoriesTask, "fallback").mockReturnValue({
+      moves: [
+        { causeId: "c1", category: "Tools" },
+        { causeId: "c2", category: "Measurement" },
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Sort without AI" }));
+    // The cause moves by hand before its suggestion is accepted: nothing to do.
+    act(() =>
+      ws().upsertRootCauseAnalysis({
+        ...stored()[0],
+        causes: stored()[0].causes.map((c) => (c.id === "c1" ? { ...c, category: "Tools" } : c)),
+      })
+    );
+    const undos = undo.all.length;
+    fireEvent.click(screen.getByRole("button", { name: "Move: Move “Split logs” to Tools" }));
+    expect(undo.all).toHaveLength(undos);
+    const dismiss = screen.getByRole("button", { name: "Dismiss suggestions" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    expect(screen.queryByText("Better categories")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sort without AI" }));
+  });
+
   it("asks for two counted causes before the Pareto chart, then names the vital few", () => {
     renderPage();
     expect(

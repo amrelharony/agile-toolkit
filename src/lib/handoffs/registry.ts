@@ -15,6 +15,7 @@
  */
 
 import type { HandoffLink, HandoffRef, HandoffRoute, HandoffRouteId } from "./types";
+import { findLink } from "./links";
 import { impedimentRoute } from "./targets/impediment";
 import { kanbanRoute } from "./targets/kanban";
 import { riskRoute } from "./targets/risk";
@@ -164,28 +165,8 @@ export function sourceHref(ref: HandoffRef | undefined): string | null {
 
 /* ── Links on the source item ────────────────────────────────────────── */
 
-export function findLink(
-  links: readonly HandoffLink[] | undefined,
-  route: HandoffRouteId
-): HandoffLink | undefined {
-  return (links ?? []).find((l) => l.route === route);
-}
-
-/** The links with `link` recorded; it replaces an older link on its route. */
-export function withLink(
-  links: readonly HandoffLink[] | undefined,
-  link: HandoffLink
-): HandoffLink[] {
-  return [...(links ?? []).filter((l) => l.route !== link.route), link];
-}
-
-/** The links without `link` (matched on route and target). */
-export function withoutLink(
-  links: readonly HandoffLink[] | undefined,
-  link: HandoffLink
-): HandoffLink[] {
-  return (links ?? []).filter((l) => !(l.route === link.route && l.targetId === link.targetId));
-}
+// The plain list helpers live in ./links, which loads no route.
+export { findLink, withLink, withoutLink } from "./links";
 
 /**
  * The link on `route` whose target still exists. A send whose target was

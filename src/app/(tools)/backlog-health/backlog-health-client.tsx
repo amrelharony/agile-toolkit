@@ -39,12 +39,17 @@ import {
   newGwtId,
   withStoryDetails,
   withStoryGwt,
+  type GwtWrite,
   type StoryDetails,
 } from "@/lib/stories/fields";
 import { STORY_TITLE_MAX } from "@/lib/handoffs/targets/backlog-story";
 import { undoable } from "@/lib/utils/undoable";
 import { todayIso } from "@/lib/sprints/series";
-import { stampRefinedWrite, withRefinedPutBack } from "@/lib/sprints/story-status";
+import {
+  createRefinedMarks,
+  stampRefinedWrite,
+  withRefinedPutBack,
+} from "@/lib/sprints/story-status";
 import type { AiSource } from "@/lib/ai/task-types";
 import {
   REVIEW_FLAG_LABEL,
@@ -246,6 +251,8 @@ export function HealthBoard({
   onLoadExample?: () => void;
 }) {
   const [today] = useState(() => todayIso());
+  // The refinedAt a scenario delete left, so its Undo puts the earlier one back.
+  const [gwtMarks] = useState(createRefinedMarks);
   const backlog = useMemo(
     () => backlogForHealth(stories, backlogItems, { withExamples: example }),
     [stories, backlogItems, example]
@@ -328,12 +335,22 @@ export function HealthBoard({
     log(BACKLOG_HEALTH_ACTIONS.STORY_UPDATED, { storyId: story.id, details: true });
   };
 
-  const saveGwt = (story: Story, gwt: StoryGwt[]) => {
+  const saveGwt = (story: Story, gwt: StoryGwt[], write?: GwtWrite) => {
     const current = fresh(story.id);
     if (!current) return;
-    const added = gwt.length - (current.gwt?.length ?? 0);
     keep(story.id);
-    writer.upsertStory(withStoryGwt(current, gwt));
+    const next = withStoryGwt(current, gwt);
+    // A delete's Undo puts its scenario back, not new criteria: the story
+    // keeps the refinedAt it had before the delete, and it isn't logged as added.
+    if (write?.kind === "restore") {
+      writer.upsertStory(gwtMarks.putBack(write.key, next));
+      log(BACKLOG_HEALTH_ACTIONS.STORY_UPDATED, { storyId: story.id, gwt: gwt.length });
+      return;
+    }
+    const added = gwt.length - (current.gwt?.length ?? 0);
+    writer.upsertStory(next);
+    if (write?.kind === "remove")
+      gwtMarks.note(write.key, current.refinedAt, fresh(story.id)?.refinedAt);
     if (added > 0) log(BACKLOG_HEALTH_ACTIONS.CRITERIA_ADDED, { storyId: story.id, count: added });
     else log(BACKLOG_HEALTH_ACTIONS.STORY_UPDATED, { storyId: story.id, gwt: gwt.length });
   };

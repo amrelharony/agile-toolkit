@@ -7,7 +7,8 @@
  * other. Each change is handed to `onChange` with the whole list, cleaned
  * and capped by the page's write (lib/stories/fields.ts `withStoryGwt`).
  * A delete offers Undo, which puts the scenario back where it was in the
- * list as it is then.
+ * list as it is then. The delete and its Undo tell the page so (`GwtWrite`),
+ * so it can put back the story's earlier `refinedAt` on the Undo.
  */
 
 import { useEffect, useId, useRef, useState } from "react";
@@ -27,6 +28,7 @@ import {
   validateGwtDraft,
   type GwtDraft,
   type GwtPart,
+  type GwtWrite,
 } from "@/lib/stories/fields";
 import { undoable } from "@/lib/utils/undoable";
 import { cn } from "@/lib/utils";
@@ -39,6 +41,9 @@ const PART_HINT: Record<GwtPart, string> = {
 };
 
 const NO_ROWS: StoryGwt[] = [];
+
+// Each delete's key, shared with its Undo: unique on the page.
+let removeSeq = 0;
 
 /** The scenarios, read only: each one's three parts under their words. */
 export function GwtList({ gwt, className }: { gwt?: readonly StoryGwt[]; className?: string }) {
@@ -112,8 +117,11 @@ export interface GwtEditorProps {
   /** The story's title, for the controls' names. */
   title: string;
   gwt?: readonly StoryGwt[];
-  /** Save the whole list (an empty list clears it). */
-  onChange: (gwt: StoryGwt[]) => void;
+  /**
+   * Save the whole list (an empty list clears it). `write` marks a delete
+   * and its Undo, with one key.
+   */
+  onChange: (gwt: StoryGwt[], write?: GwtWrite) => void;
 }
 
 /**
@@ -155,15 +163,20 @@ export function GwtEditor({ title, gwt, onChange }: GwtEditorProps) {
   };
 
   const remove = (row: StoryGwt, index: number) => {
+    const key = `gwt-remove-${++removeSeq}`;
     undoable({
       label: `Deleted scenario ${index + 1} of “${title.length > 40 ? `${title.slice(0, 39)}…` : title}”`,
-      apply: () => onChange(latest.current.filter((r) => r.id !== row.id)),
+      apply: () =>
+        onChange(
+          latest.current.filter((r) => r.id !== row.id),
+          { kind: "remove", key }
+        ),
       revert: () => {
         const now = latest.current;
         if (now.some((r) => r.id === row.id)) return;
         const next = [...now];
         next.splice(Math.min(index, next.length), 0, row);
-        onChange(next);
+        onChange(next, { kind: "restore", key });
       },
     });
     // The row's buttons go with it: focus moves to Add once the list redraws.

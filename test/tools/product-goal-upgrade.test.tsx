@@ -372,6 +372,58 @@ describe("the vision and Ask Amr", () => {
     );
     expect(goals()).toEqual([]);
   });
+
+  it("offers the drafts as alternatives: no Use all, and Use moves focus to the goal it filled", async () => {
+    useProductGoalPrefs.setState({ vision: "Shop owners take payments anywhere." });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Write the goal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Suggest goal templates" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    expect(within(list).getAllByRole("button", { name: /^Use:/ }).length).toBeGreaterThan(1);
+    expect(within(list).queryByRole("button", { name: /^Use all/ })).toBeNull();
+    const use = within(list).getAllByRole("button", { name: /^Use:/ })[1];
+    use.focus();
+    fireEvent.click(use);
+    expect(screen.queryByTestId("ai-suggestions")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByLabelText("The goal"));
+    // An empty form fills with no Undo to offer.
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it("hands focus back to the ask button on Dismiss", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Write the goal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Suggest goal templates" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    const dismiss = within(list).getByRole("button", { name: "Dismiss suggestions" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    expect(screen.queryByTestId("ai-suggestions")).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Suggest goal templates" })
+    );
+  });
+
+  it("replaces a typed goal only with Undo, which brings back each field not edited since", async () => {
+    useProductGoalPrefs.setState({ vision: "Shop owners take payments anywhere." });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Write the goal" }));
+    type("The goal", "My own carefully typed goal");
+    type("Why it matters", "Because the shops asked");
+    fireEvent.click(screen.getByRole("button", { name: "Suggest goal templates" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    fireEvent.click(within(list).getAllByRole("button", { name: /^Use:/ })[0]);
+    const field = (label: string) => (screen.getByLabelText(label) as HTMLTextAreaElement).value;
+    expect(field("The goal")).toMatch(/shop owners take payments anywhere/);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Replaced the goal with the draft");
+    // A change made after the draft stays.
+    type("How you'll know", "Shops paid by phone: 70%");
+    undoLast();
+    expect(field("The goal")).toBe("My own carefully typed goal");
+    expect(field("Why it matters")).toBe("Because the shops asked");
+    expect(field("How you'll know")).toBe("Shops paid by phone: 70%");
+    expect(goals()).toEqual([]);
+  });
 });
 
 describe("export", () => {

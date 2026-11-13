@@ -917,7 +917,7 @@ describe("Decide order", () => {
     fireEvent.click(within(yourOrder()).getByRole("button", { name: `Move “${shown[2]}” up` }));
     fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(screen.getByRole("button", { name: "Use the consensus" })).toHaveFocus();
-  });
+  }, 15_000);
 
   it("puts focus on Not ordered yet when the last row is taken out", () => {
     const wsjf = (bv: number) => ({

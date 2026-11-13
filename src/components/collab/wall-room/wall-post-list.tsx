@@ -6,11 +6,12 @@
  * or member id is on any post.
  *
  * A participant's list marks their own posts ("Your post", with Take it
- * back) and offers an upvote toggle on everyone else's, and in a
- * brainwriting round "Yes, and…" on each post. The host's list offers Hide
- * or Show again, Mark answered (for questions), and Merge into another post
- * (for duplicates): the list only picks the post, the Merge button asks
- * first, because a merge can't be split again.
+ * back, except on a post that showed with the others at Reveal: taking it
+ * back would show whose it was) and offers an upvote toggle on everyone
+ * else's, and in a brainwriting round "Yes, and…" on each post. The host's
+ * list offers Hide or Show again, Mark answered (for questions), and Merge
+ * into another post (for duplicates): the list only picks the post, the
+ * Merge button asks first, because a merge can't be split again.
  *
  * A "Yes, and…" post shows under the post it builds on. A question marked
  * answered says so; a 25/10 post shows its average score once the host
@@ -31,6 +32,11 @@ export interface WallPostListProps {
   posts: readonly ListedPost[];
   /** Participant: ids of this tab's own posts. */
   mine?: ReadonlySet<string>;
+  /**
+   * Participant: own posts that showed with the others at Reveal. They
+   * can't be taken back (the host refuses it), and the list says why.
+   */
+  kept?: ReadonlySet<string>;
   /** Participant: ids of the posts this tab upvoted. */
   myVotes?: ReadonlySet<string>;
   /** Participant: upvotes are open (the round takes votes). */
@@ -116,6 +122,7 @@ function MergeControl({
 export function WallPostList({
   posts,
   mine,
+  kept,
   myVotes,
   canVote = false,
   onVote,
@@ -147,6 +154,7 @@ export function WallPostList({
 
   const item = (post: ListedPost, reply: boolean) => {
     const own = mine?.has(post.id) ?? false;
+    const keep = own && (kept?.has(post.id) ?? false);
     const voted = myVotes?.has(post.id) ?? false;
     const others = posts.filter((p) => p.id !== post.id && !p.hidden);
     const below = replies.get(post.id) ?? [];
@@ -216,7 +224,13 @@ export function WallPostList({
               Yes, and… <span className="sr-only">on: {short(post.text)}</span>
             </Button>
           )}
-          {!host && own && onWithdraw && (
+          {!host && keep && (
+            <span className="text-xs text-sub">
+              It showed with the others, so it can&apos;t be taken back: that would show it&apos;s
+              yours.
+            </span>
+          )}
+          {!host && own && !keep && onWithdraw && (
             <Button
               type="button"
               variant="ghost"

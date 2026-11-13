@@ -18,6 +18,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { Sprint, SprintInterruptBuffer } from "@/lib/stores/workspace-types";
 import {
+  BUFFER_FORM_TEXT,
   BUFFER_PCT_MAX,
   bufferDraftFor,
   bufferLabel,
@@ -120,7 +121,7 @@ export function PlanningBuffer({
         }}
         className="mt-2 flex flex-wrap items-end gap-2"
       >
-        <Field label="Keep for interrupts" className="w-44">
+        <Field label={BUFFER_FORM_TEXT.mode} className="w-44">
           {(control) => (
             <select
               {...control}
@@ -129,17 +130,12 @@ export function PlanningBuffer({
               disabled={disabled}
               onChange={(e) => setDraft({ ...draft, mode: e.target.value as BufferDraft["mode"] })}
             >
-              <option value="pct">A share (%)</option>
-              <option value="points">Points</option>
+              <option value="pct">{BUFFER_FORM_TEXT.modes.pct}</option>
+              <option value="points">{BUFFER_FORM_TEXT.modes.points}</option>
             </select>
           )}
         </Field>
-        <Field
-          label={draft.mode === "pct" ? "Share of the points planned" : "Buffer points"}
-          hideLabel
-          className="w-28"
-          error={error}
-        >
+        <Field label={BUFFER_FORM_TEXT.value[draft.mode]} hideLabel className="w-28" error={error}>
           {(control) => (
             <Input
               {...control}
@@ -160,7 +156,8 @@ export function PlanningBuffer({
         </Button>
       </form>
       <p className="mt-2 text-xs text-sub">
-        {line ?? "Blank keeps no buffer. A team that supports a live product usually keeps 10–20%."}{" "}
+        {line ??
+          `${BUFFER_FORM_TEXT.empty} A team that supports a live product usually keeps 10–20%.`}{" "}
         {!example && (
           <Link
             href={sprintHref("/interrupt-buffer", sprint.id)}

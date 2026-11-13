@@ -22,6 +22,10 @@
  * links back (sourceRef parking-lot), exactly as the page's sends do. Over
  * MCP the targets are written to the user's rows on the server. Example
  * points (ids "example-…") are never sent.
+ *
+ * Only the three routes a point goes by are imported, never the whole
+ * hand-off registry: its other targets reach browser-only ("use client")
+ * modules, which the MCP route must not load.
  */
 
 import { z } from "zod";
@@ -38,12 +42,15 @@ import {
   type RetroBoard,
   type Story,
 } from "@/lib/stores/workspace-types";
-import { getHandoffRoute, withLink } from "@/lib/handoffs/registry";
-import type { HandoffSource } from "@/lib/handoffs/types";
-import { buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
-import { buildImpediment } from "@/lib/handoffs/targets/impediment";
+import { withLink } from "@/lib/handoffs/links";
+import type { HandoffRoute, HandoffSource } from "@/lib/handoffs/types";
+import { backlogStoryRoute, buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
+import { buildImpediment, impedimentRoute } from "@/lib/handoffs/targets/impediment";
+import { retroActionRoute } from "@/lib/handoffs/targets/retro-action";
 import { buildRetroCard } from "@/lib/handoffs/targets/retro-board";
 import { isResolved } from "@/lib/impediments/model";
+import { stampStoryWrite } from "@/lib/sprints/story-status";
+import { cleanStoryFields } from "@/lib/stories/fields";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import { RETRO_CURRENT_ID, blankRetroBoard, newestArchivedRetro } from "@/lib/retro/board";
 import { isExampleId } from "@/lib/utils/example-id";
@@ -51,6 +58,7 @@ import {
   PARKING_ROUTES,
   ageDays,
   countedItems,
+  isParkingRoute,
   matchesMeeting,
   meetingKey,
   meetingsOf,
@@ -72,6 +80,13 @@ const ws = () => useWorkspaceStore.getState();
 
 type Out = Record<string, unknown>;
 
+/** The routes a point goes by, as the hand-off registry holds them. */
+const ROUTES: Readonly<Record<ParkingRoute, HandoffRoute>> = {
+  "backlog-story": backlogStoryRoute,
+  impediment: impedimentRoute,
+  "retro-action": retroActionRoute,
+};
+
 /* ── The store adapter ───────────────────────────────────────────────── */
 
 /** What a send's target looks like now: gone, there, or there and finished. */
@@ -90,13 +105,15 @@ interface ParkingStore {
 const browserStore: ParkingStore = {
   items: async () => ws().parkingLotItems ?? [],
   put: async (item) => ws().upsertParkingLotItem(item),
+  // A link on any other route is one the page doesn't show either (as on the server).
   target: async (link) => {
-    const route = getHandoffRoute(link.route);
+    if (!isParkingRoute(link.route)) return "gone";
+    const route = ROUTES[link.route];
     if (!route.exists(link.targetId)) return "gone";
     return route.isDone?.(link.targetId) ? "done" : "live";
   },
   // The route itself, as the page's sendHandoff calls it (no toast: an agent has no Undo).
-  send: async (route, src) => getHandoffRoute(route).send(src),
+  send: async (route, src) => ROUTES[route].send(src),
 };
 
 function serverStore(userId: string): ParkingStore {
@@ -132,7 +149,9 @@ function serverStore(userId: string): ParkingStore {
     },
     send: async (route, src) => {
       if (route === "backlog-story") {
-        const story = buildBacklogStory(src);
+        // Stamped as the browser's store stamps a new story (createdAt), so
+        // Backlog Health can date it and flag it once it goes stale.
+        const story = stampStoryWrite(cleanStoryFields(buildBacklogStory(src)), undefined);
         await serverUpsertEntity<Story>(userId, KIND_STORY, story);
         stories = undefined;
         return story.id;
@@ -355,7 +374,7 @@ async function send(store: ParkingStore, params: z.infer<typeof SendParams>): Pr
     sent: true,
     route: params.route,
     targetId,
-    href: getHandoffRoute(params.route).targetHref(targetId),
+    href: ROUTES[params.route].targetHref(targetId),
   };
 }
 

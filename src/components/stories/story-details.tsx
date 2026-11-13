@@ -33,6 +33,7 @@ import {
   storyDetailsDraft,
   storyLink,
   validateStoryDetails,
+  type GwtWrite,
   type StoryDetails,
   type StoryDetailsDraft,
   type StoryTextField,
@@ -219,10 +220,11 @@ export interface StoryDetailsPanelProps {
   /** Save the four fields: a field left out of `details` was cleared. */
   onSave: (details: StoryDetails) => void;
   /**
-   * Save the Given/When/Then scenarios (the whole list). Without it they are
-   * shown read only, beside the free-text criteria.
+   * Save the Given/When/Then scenarios (the whole list; `write` marks a
+   * delete and its Undo). Without it they are shown read only, beside the
+   * free-text criteria.
    */
-  onSaveGwt?: (gwt: StoryGwt[]) => void;
+  onSaveGwt?: (gwt: StoryGwt[], write?: GwtWrite) => void;
   /** Open on the form instead of the text (a story with nothing to read yet). */
   startEditing?: boolean;
   /**

@@ -23,6 +23,7 @@ import {
   throughputForecast,
   validItems,
   weeklyThroughput,
+  type ForecastCache,
   type ThroughputForecast,
   type ThroughputWindow,
 } from "@/lib/sprints/throughput-forecast";
@@ -291,23 +292,33 @@ export interface ItemsPlan {
   forecast: ThroughputForecast;
 }
 
-export function planItems(input: {
-  sample: ThroughputSample;
-  itemsSource: ItemsSource;
-  items: number | null;
-  features: FeatureRow[];
-  start: ItemsPlan["start"];
-  target: string | null;
-}): ItemsPlan {
+/**
+ * The item plan and its forecast. A page passes its own `cache`, so an edit
+ * reruns only the simulations that read what changed (lib's ForecastCache).
+ */
+export function planItems(
+  input: {
+    sample: ThroughputSample;
+    itemsSource: ItemsSource;
+    items: number | null;
+    features: FeatureRow[];
+    start: ItemsPlan["start"];
+    target: string | null;
+  },
+  cache?: ForecastCache
+): ItemsPlan {
   return {
     ...input,
-    forecast: throughputForecast({
-      samples: input.sample.values,
-      items: input.items,
-      start: input.start.date,
-      target: input.target,
-      features: input.features.map((f) => ({ id: f.id, name: f.name, items: f.items })),
-    }),
+    forecast: throughputForecast(
+      {
+        samples: input.sample.values,
+        items: input.items,
+        start: input.start.date,
+        target: input.target,
+        features: input.features.map((f) => ({ id: f.id, name: f.name, items: f.items })),
+      },
+      cache
+    ),
   };
 }
 
@@ -334,7 +345,7 @@ export function itemsVerdict(plan: ItemsPlan): string {
   if (when) {
     const at85 = when.dates.p85;
     const lead = at85
-      ? `${plural(when.items, "item")} are likely done by ${formatDay(at85)} (85% of runs)`
+      ? `${plural(when.items, "item")} are done by ${formatDay(at85)} in 85% of runs`
       : `${plural(when.items, "item")} aren't done within ten years in 15% of runs or more`;
     const chance =
       when.chance !== null && plan.target
@@ -413,9 +424,9 @@ export function itemsMarkdown(plan: ItemsPlan, now: Date = new Date()): string {
     lines.push(
       `## How many items by ${formatDay(h.target)} (${plural(h.weeks, "week")})`,
       "",
-      `- At least ${fmt(h.p50, 0)} items in half the runs (P50)`,
-      `- At least ${fmt(h.p85, 0)} items in 85% of runs: the number to promise`,
-      `- At least ${fmt(h.p95, 0)} items in 95% of runs`,
+      `- Coin flip (P50): at least ${fmt(h.p50, 0)} items in half the runs`,
+      `- Commit (P85): at least ${fmt(h.p85, 0)} items in 85% of runs`,
+      `- Safe (P95): at least ${fmt(h.p95, 0)} items in 95% of runs`,
       ""
     );
   }
@@ -424,12 +435,12 @@ export function itemsMarkdown(plan: ItemsPlan, now: Date = new Date()): string {
     lines.push("## Features in order", "");
     if (cut.target && cut.above !== null) {
       lines.push(
-        `The cut line at ${formatDay(cut.target)}: ${plural(cut.above, "feature")} likely done by then (85% of runs).`,
+        `The cut line at ${formatDay(cut.target)}: ${plural(cut.above, "feature")} done by then in 85% of runs.`,
         ""
       );
     }
     lines.push(
-      "| # | Feature | Items | Likely (P50) | Safe (P85) | By the target |",
+      "| # | Feature | Items | Coin flip (P50) | Commit (P85) | By the target |",
       "|---:|---|---:|---|---|---|"
     );
     cut.rows.forEach((r, i) => {

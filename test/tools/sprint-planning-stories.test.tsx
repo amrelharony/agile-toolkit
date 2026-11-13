@@ -416,6 +416,26 @@ describe("a story's details", () => {
     expect(screen.getByRole("button", { name: "Details: Apple Pay" })).toBeInTheDocument();
   });
 
+  it("undoing a scenario delete puts back the story's earlier refinement stamp", () => {
+    const old = "2026-05-01T09:00:00.000Z";
+    const gwt = [{ id: "g1", given: "a phone", when: "I tap to pay", then: "it goes through" }];
+    useWorkspaceStore.setState({
+      stories: STORIES.map((s) =>
+        s.id === "b2" ? { ...s, notes: "Wallet", refinedAt: old, gwt } : { ...s }
+      ),
+    });
+    renderPlanning();
+    open("Apple Pay");
+    fireEvent.click(
+      within(details("Apple Pay")).getByRole("button", { name: "Delete scenario 1" })
+    );
+    expect(story("b2")?.gwt).toBeUndefined();
+    expect(story("b2")?.refinedAt).not.toBe(old);
+    undoLast();
+    expect(story("b2")?.gwt).toEqual(gwt);
+    expect(story("b2")?.refinedAt).toBe(old);
+  });
+
   it("says what is wrong with a link and saves nothing until it is fixed", () => {
     renderPlanning();
     open("Apple Pay");

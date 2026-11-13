@@ -179,6 +179,18 @@ export function hasStoryGwt(story: { gwt?: readonly StoryGwt[] }): boolean {
   return Array.isArray(story.gwt) && story.gwt.length > 0;
 }
 
+/**
+ * What a save from the Given/When/Then editor is, when the page needs to
+ * know: a delete, or that delete's Undo, which share a key. The page notes
+ * the `refinedAt` the delete left and puts back the one before it on the
+ * Undo (lib/sprints/story-status.ts `createRefinedMarks`), so undoing a
+ * delete doesn't count as refining the story. Absent for an add or an edit.
+ */
+export interface GwtWrite {
+  kind: "remove" | "restore";
+  key: string;
+}
+
 /** `story` with its rows set to `gwt` (cleaned); none left removes the key. */
 export function withStoryGwt<T extends { gwt?: StoryGwt[] }>(
   story: T,

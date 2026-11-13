@@ -88,6 +88,7 @@ import { RESPONDENT_MAX, VERBATIM_MAX, normalizeTags, tagsProblem } from "@/lib/
 import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import { targetClashes } from "@/lib/opportunity-tree/model";
 import { isDay } from "@/lib/notebook/model";
+import { CATEGORY_MAX, CAUSE_COUNT_MAX } from "@/lib/root-cause/model";
 import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
@@ -4165,9 +4166,15 @@ const RootCauseAnalysisSchema = z.object({
     .array(
       z.object({
         id: z.string().min(1),
-        category: z.string().max(TOOL_TEXT_MAX.short),
+        // The page's caps (lib/root-cause/model): it rewrites anything longer.
+        category: z.string().max(CATEGORY_MAX),
         text: z.string().max(TOOL_TEXT_MAX.text),
-        count: z.number().int().min(0).describe("How often it happened (the Pareto order)."),
+        count: z
+          .number()
+          .int()
+          .min(0)
+          .max(CAUSE_COUNT_MAX)
+          .describe("How often it happened (the Pareto order)."),
       })
     )
     .max(TOOL_LIST_MAX.causes)

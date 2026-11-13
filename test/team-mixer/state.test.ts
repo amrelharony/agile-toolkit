@@ -36,7 +36,8 @@ import {
   validateRule,
 } from "@/lib/team-mixer/ops";
 import { MIXER_LIMITS, pairKey } from "@/lib/team-mixer/model";
-import { NAME_THEMES, suggestGroupNames, themeFor } from "@/lib/team-mixer/names";
+import { suggestGroupNames } from "@/lib/team-mixer/names";
+import { NAME_THEMES, fallbackThemeNames, themeForText } from "@/lib/picker/themes";
 import { createRng } from "@/lib/utils/random";
 
 const ROSTER: TeamMember[] = [
@@ -575,12 +576,12 @@ describe("mixing and saving", () => {
 
 describe("built-in group names", () => {
   it("follow a theme that is typed, or pick one", () => {
-    expect(themeFor("Planets")?.id).toBe("planets");
-    expect(themeFor("deep forest")?.id).toBe("trees");
-    expect(themeFor("")).toBeNull();
+    expect(themeForText("Planets")?.id).toBe("planets");
+    expect(themeForText("deep forest")?.id).toBe("trees");
+    expect(themeForText("")).toBeUndefined();
     // The start of a word counts from 3 letters; one letter matches nothing.
-    expect(themeFor("riv")?.id).toBe("rivers");
-    expect(themeFor("a")).toBeNull();
+    expect(themeForText("riv")?.id).toBe("rivers");
+    expect(themeForText("a")).toBeUndefined();
     const { theme, names } = suggestGroupNames("rivers", 4, createRng(1));
     expect(theme.id).toBe("rivers");
     expect(new Set(names).size).toBe(4);
@@ -590,15 +591,29 @@ describe("built-in group names", () => {
   });
 
   it("number the names past a list's end, never repeating one", () => {
-    const { names } = suggestGroupNames("trees", 14, createRng(3));
-    expect(new Set(names).size).toBe(14);
+    const trees = NAME_THEMES.find((t) => t.id === "trees")!;
+    const { names } = suggestGroupNames("trees", trees.names.length + 2, createRng(3));
+    expect(new Set(names).size).toBe(trees.names.length + 2);
     expect(names.filter((n) => / 2$/.test(n))).toHaveLength(2);
   });
 
-  it("are all short and our own: twelve per theme", () => {
+  it("are short enough for a group's name, even numbered", () => {
+    const most = MIXER_LIMITS.groups;
     for (const t of NAME_THEMES) {
-      expect(t.names).toHaveLength(12);
-      for (const name of t.names) expect(name.length).toBeLessThanOrEqual(MIXER_LIMITS.groupName);
+      const { names } = suggestGroupNames(t.id, most, createRng(4));
+      expect(names, t.id).toHaveLength(most);
+      for (const name of names) expect(name.length).toBeLessThanOrEqual(MIXER_LIMITS.groupName);
+    }
+  });
+
+  it("come from the same lists as Picker and the AI task's fallback", () => {
+    // Islands was Picker's only, spices Team Mixer's only: both now answer
+    // from one list, whichever button asks.
+    for (const typed of ["islands", "spices", "isl", "spi"]) {
+      const { theme, names } = suggestGroupNames(typed, 5, createRng(5));
+      expect(themeForText(typed)).toBe(theme);
+      expect(theme.names).toEqual(expect.arrayContaining(names));
+      expect(theme.names).toEqual(expect.arrayContaining(fallbackThemeNames(typed, 5, 1)));
     }
   });
 });

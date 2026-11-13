@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { VOTE_ROOM_CONSENT_TEXT } from "@/components/collab/visitor-room-consent";
@@ -83,6 +83,9 @@ async function pick(ch: FakeChannel, crypto: VoteCrypto, m: FakeMember, option: 
     for (let i = 0; i < 30; i++) await Promise.resolve();
   });
 }
+
+// The live room loads once a room opens (next/dynamic): warm it so the first wait is short.
+beforeAll(() => import("@/components/collab/vote-room/host-vote-room"));
 
 describe("VoteRoundPanel: Quick Vote's kinds", () => {
   it("says why when live rounds are off, with no count entry", async () => {
@@ -180,6 +183,13 @@ describe("VoteRoundPanel: Quick Vote's kinds", () => {
     await flush();
     const state = ch.sent(VOTE_ROOM_EVENTS.state).at(-1) as Record<string, unknown> | undefined;
     expect(state).toMatchObject({ v: 3, kind: "number", tool: "quick-vote" });
+    // A number round keeps exact answers, so the host isn't told "totals only".
+    expect(
+      await screen.findByText(
+        /Only the results are kept, and only if you save them: no names, but the median, lowest and highest are each someone's exact answer\./
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Only the totals are kept/)).toBeNull();
   });
 
   it("needs the kind named where it isn't the tool's usual one", () => {

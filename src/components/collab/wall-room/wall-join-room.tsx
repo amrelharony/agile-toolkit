@@ -9,12 +9,13 @@
  *
  * While the host keeps posts hidden until reveal, this tab shows its own
  * posts (from memory) and how many there are in all; nobody else's text
- * reaches it until then. In a brainwriting round each post offers "Yes,
- * and…", which puts the post above the box; in a 25/10 round the box gives
- * way to five posts to score (announced, with focus on the card, and again
- * when the host shows the totals). A round that takes no posts and has none
- * (a raise-hand queue) puts Raise my hand first. It renders its own end
- * states, focused and announced.
+ * reaches it until then. Once they show, its posts from then can't be taken
+ * back: the room would see whose they were. In a brainwriting round each
+ * post offers "Yes, and…", which puts the post above the box; in a 25/10
+ * round the box gives way to five posts to score (announced, with focus on
+ * the card, and again when the host shows the totals). A round that takes
+ * no posts and has none (a raise-hand queue) puts Raise my hand first. It
+ * renders its own end states, focused and announced.
  */
 
 import { useEffect, useRef, useState, type JSX } from "react";
@@ -159,6 +160,8 @@ function ParticipantWallRoom({
   const { status, hostName, round } = room;
   const closed = isSignedRoomClosed(status);
   const mine = new Set(room.mine.map((p) => p.id));
+  // Sent while the posts were hidden: shown with the others, they stay.
+  const kept = new Set(room.mine.filter((p) => p.together).map((p) => p.id));
   const queuePlace = room.hands.findIndex((h) => h.id === room.selfId);
   // Brainwriting: the post this person is saying "Yes, and…" to.
   const [replyPick, setReplyPick] = useState<{ id: string; round: string } | null>(null);
@@ -169,6 +172,8 @@ function ParticipantWallRoom({
       : null;
   // A raise-hand queue: no posts taken and none on the wall, so the hand comes first.
   const handsFirst = Boolean(round && !round.open && !round.scoring && round.count === 0);
+  // Posts and upvotes show the moment they arrive: when they do, who sent them can show too.
+  const showsAsTheyArrive = Boolean(round?.open && round.posts && !round.scoring);
 
   // 25/10: the post box (or the score card) goes away when the host starts
   // the scoring or shows the totals. Say so, and put focus on what replaced
@@ -237,6 +242,8 @@ function ParticipantWallRoom({
               ? `Hosted by ${hostName}. You are ${identity.name}.`
               : `You are ${identity.name}.`}{" "}
             Posts show without your name.
+            {showsAsTheyArrive &&
+              " They show as they arrive, so others could tell who sent a post or an upvote."}
           </p>
         </div>
         {!closed && (
@@ -337,6 +344,7 @@ function ParticipantWallRoom({
                   <WallPostList
                     posts={round.posts}
                     mine={mine}
+                    kept={kept}
                     myVotes={room.myVotes}
                     canVote={round.open}
                     onVote={(id) => void room.vote(id)}

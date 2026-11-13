@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { PrioritizationItem } from "@/lib/stores/workspace-types";
+import type { ParkingLotItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 import { NextStepCard } from "@/components/tool-frame/next-step";
 import { getNextStepRule, toolsWithNextSteps } from "@/lib/tools/next-steps";
 import { getToolById } from "@/lib/constants/tools";
@@ -62,5 +62,28 @@ describe("NextStepCard", () => {
       screen.getByRole("heading", { name: "Check the front-runners with RICE" })
     ).toBeVisible();
     expect(screen.getByRole("link", { name: /Go/ })).toHaveAttribute("href", "/rice-scoring");
+  });
+
+  it("loads a phase 1 tool's model with its own card only, then shows its step", async () => {
+    const point: ParkingLotItem = {
+      id: "p1",
+      text: "Who owns the release checklist?",
+      status: "open",
+      createdAt: "2026-10-23T09:00:00.000Z",
+      updatedAt: "2026-10-23T09:00:00.000Z",
+    };
+    act(() => useWorkspaceStore.setState({ parkingLotItems: [point] }));
+    const rule = getNextStepRule("parking-lot")!;
+    // The table carries no phase 1 model: nothing to say until it has loaded.
+    expect(rule.ready?.()).toBe(false);
+    expect(rule.steps(rule.select(useWorkspaceStore.getState() as never))).toEqual([]);
+    expect(getNextStepRule("meeting-audit")?.ready?.()).toBe(false);
+
+    render(<NextStepCard toolId="parking-lot" />);
+    expect(await screen.findByRole("link", { name: /Go/ })).toHaveAttribute("href", "/parking-lot");
+    expect(rule.ready?.()).toBe(true);
+    // Another tool's model stays where it is.
+    expect(getNextStepRule("meeting-audit")?.ready?.()).toBe(false);
+    act(() => useWorkspaceStore.setState({ parkingLotItems: [] }));
   });
 });

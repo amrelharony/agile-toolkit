@@ -28,6 +28,7 @@ import {
   revealWall,
   setWallMode,
   setWallOpen,
+  setWallScoring,
   toWallResult,
   wallView,
   type HostWall,
@@ -359,7 +360,75 @@ describe("votes and take-backs", () => {
       why: "closed",
     });
     wall = revealWall(wall);
+    // Reveal stops posts and votes; the host takes them again by choice.
+    expect(apply(wall, B, { t: "vote", r: RID, pid: id, lock: lockOf(KEY_B) })).toMatchObject({
+      ok: false,
+      why: "closed",
+    });
+    wall = setWallOpen(wall, true);
     expect(apply(wall, B, { t: "vote", r: RID, pid: id, lock: lockOf(KEY_B) }).ok).toBe(true);
+  });
+
+  it("stops taking posts at Reveal, so no post shows on its own after the rest", () => {
+    const first = post(open("hidden"), A, "First thought");
+    const wall = revealWall(first.wall);
+    expect(wallView(wall).round).toMatchObject({ open: false, revealed: true, count: 1 });
+    expect(wallView(wall).round!.posts!.map((p) => p.text)).toEqual(["First thought"]);
+    expect(
+      apply(wall, B, { t: "post", r: RID, pid: pid(), text: "Late one", lock: lockOf(KEY_B) })
+    ).toMatchObject({ ok: false, why: "closed" });
+    // Revealing again changes nothing, and a live round never closes by itself.
+    expect(revealWall(wall)).toBe(wall);
+    const live = open("live");
+    expect(revealWall(live)).toBe(live);
+  });
+
+  it("takes no take-back of a post that showed with the others: the room would see whose it was", () => {
+    // Before Reveal nothing shows, so a take-back gives nothing away.
+    let wall = open("hidden");
+    const early = post(wall, A, "Changed my mind");
+    let res = apply(early.wall, A, { t: "withdraw", r: RID, pid: early.id, key: KEY_A });
+    expect(res.ok).toBe(true);
+    const mine = post(res.wall, A, "Our lead talks over people");
+    wall = post(mine.wall, B, "Fewer meetings", KEY_B).wall;
+    wall = revealWall(wall);
+    // Shown with the others: refused, the same way whoever asks, before the
+    // key is looked at, so the refusal says nothing of whose post it is.
+    const withdraw = { t: "withdraw", r: RID, pid: mine.id, key: KEY_A } as const;
+    expect(apply(wall, A, withdraw)).toMatchObject({ ok: false, why: "closed" });
+    expect(apply(wall, B, { ...withdraw, key: KEY_B })).toMatchObject({
+      ok: false,
+      why: "closed",
+    });
+    expect(wallView(wall).round!.count).toBe(2);
+    // Taken again after Reveal, a post shows as it arrives, as in a live
+    // round, so its own take-back still works.
+    wall = setWallOpen(wall, true);
+    const late = post(wall, C, "One more", "keyC_0123456789abcdef");
+    res = apply(late.wall, C, {
+      t: "withdraw",
+      r: RID,
+      pid: late.id,
+      key: "keyC_0123456789abcdef",
+    });
+    expect(res.ok).toBe(true);
+    expect(apply(res.wall, A, withdraw)).toMatchObject({ ok: false, why: "closed" });
+
+    // Switching a hidden round to live, or starting 25/10 scoring, shows its
+    // posts at once too.
+    const hidden = post(open("hidden"), A, "Quiet one");
+    const asLive = setWallMode(hidden.wall, "live");
+    const scored = setWallScoring(hidden.wall, "open");
+    for (const shown of [asLive, scored]) {
+      expect(apply(shown, A, { t: "withdraw", r: RID, pid: hidden.id, key: KEY_A })).toMatchObject({
+        ok: false,
+        why: "closed",
+      });
+    }
+    // A live round's posts showed one by one: a take-back works, closed or not.
+    const own = post(open("live"), A, "Live one");
+    const closed = setWallOpen(own.wall, false);
+    expect(apply(closed, A, { t: "withdraw", r: RID, pid: own.id, key: KEY_A }).ok).toBe(true);
   });
 });
 

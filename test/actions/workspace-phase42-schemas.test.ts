@@ -38,6 +38,7 @@ import {
   type Workspace,
 } from "@/lib/stores/workspace-types";
 import { tools } from "@/lib/constants/tools";
+import { CATEGORY_MAX, CAUSE_COUNT_MAX } from "@/lib/root-cause/model";
 import "@/lib/actions/workspace";
 import {
   ANALYSIS,
@@ -290,6 +291,23 @@ describe("bounds", () => {
       ...ANALYSIS,
       causes: [{ id: "c", category: "Tools", text: "t", count: 1.5 }],
     });
+    // The Root Cause page's own caps, so it never rewrites what an agent stored.
+    rejects("workspace.root_cause_analysis", {
+      ...ANALYSIS,
+      causes: [{ id: "c", category: "T".repeat(CATEGORY_MAX + 1), text: "t", count: 1 }],
+    });
+    rejects("workspace.root_cause_analysis", {
+      ...ANALYSIS,
+      causes: [{ id: "c", category: "Tools", text: "t", count: CAUSE_COUNT_MAX + 1 }],
+    });
+    expect(
+      parseCreate("workspace.root_cause_analysis", {
+        ...ANALYSIS,
+        causes: [
+          { id: "c", category: "T".repeat(CATEGORY_MAX), text: "t", count: CAUSE_COUNT_MAX },
+        ],
+      }).success
+    ).toBe(true);
     rejects("workspace.product_goal", { ...GOAL, targetDate: "next spring" });
     rejects("workspace.interrupt_item", { ...INTERRUPT, kind: "chore" });
     rejects("workspace.interrupt_item", { ...INTERRUPT, size: -1 });

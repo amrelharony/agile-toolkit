@@ -7,6 +7,8 @@
 import { describe, expect, it } from "vitest";
 import {
   MIN_WEEKS,
+  averagePerWeek,
+  createForecastCache,
   parseWeeklyCounts,
   perWeekText,
   throughputForecast,
@@ -223,5 +225,67 @@ describe("throughputForecast", () => {
       expect(rows[i].weeks.p85!).toBeGreaterThanOrEqual(rows[i - 1].weeks.p85!);
       expect(rows[i].inByTarget).toBeNull();
     }
+  });
+});
+
+describe("the forecast cache", () => {
+  const input = {
+    samples: SAMPLES,
+    items: 40,
+    start: "2026-11-16",
+    target: "2027-01-11",
+    features: [
+      { id: "a", name: "Cards", items: 8 },
+      { id: "b", name: "Refunds", items: 12 },
+    ],
+  };
+
+  it("gives the same answers as a forecast run without one", () => {
+    const cache = createForecastCache();
+    expect(throughputForecast(input, cache)).toEqual(throughputForecast(input));
+    // Read back from the cache, the answers are still the same.
+    expect(throughputForecast(input, cache)).toEqual(throughputForecast(input));
+  });
+
+  it("reruns only the simulations that read what changed", () => {
+    const cache = createForecastCache();
+    throughputForecast(input, cache);
+    // When, how many and the cut line: one run each.
+    expect(cache.size).toBe(3);
+    // Typing the items left reruns "when" only.
+    const more = throughputForecast({ ...input, items: 41 }, cache);
+    expect(cache.size).toBe(4);
+    expect(more).toEqual(throughputForecast({ ...input, items: 41 }));
+    // A renamed feature reruns nothing: its row reads the same runs.
+    const renamed = throughputForecast(
+      {
+        ...input,
+        items: 41,
+        features: [{ ...input.features[0], name: "Saved cards" }, input.features[1]],
+      },
+      cache
+    );
+    expect(cache.size).toBe(4);
+    expect(renamed.cutLine!.rows[0].name).toBe("Saved cards");
+    // New weekly counts rerun everything (the oldest runs make room).
+    throughputForecast({ ...input, samples: [...SAMPLES, 6] }, cache);
+    expect(cache.size).toBe(6);
+  });
+
+  it("keeps only the latest few", () => {
+    const cache = createForecastCache();
+    for (let items = 1; items <= 20; items++) {
+      throughputForecast({ samples: SAMPLES, items, start: "2026-11-16" }, cache);
+    }
+    expect(cache.size).toBeLessThanOrEqual(6);
+  });
+
+  it("averages the weeks the way the forecast does", () => {
+    expect(averagePerWeek([3, 4, 0, 5])).toBe(3);
+    expect(averagePerWeek([1, 2])).toBe(1.5);
+    expect(averagePerWeek([])).toBeNull();
+    expect(averagePerWeek(SAMPLES)).toBe(
+      throughputForecast({ samples: SAMPLES, start: TODAY }).average
+    );
   });
 });

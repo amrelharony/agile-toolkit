@@ -253,6 +253,24 @@ describe("fixing a story", () => {
     });
   });
 
+  it("undoing a scenario delete leaves a stale story stale, and logs no added criteria", async () => {
+    const old = new Date(Date.now() - 20 * 7 * 86_400_000).toISOString();
+    const gwt = [{ id: "g1", given: "a saved card", when: "I pay", then: "I'm charged once" }];
+    seed([story({ createdAt: old, refinedAt: old, gwt })]);
+    renderPage();
+    expect(await within(row("st1")).findByText(/Not changed for 20 weeks/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Criteria and details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete scenario 1" }));
+    expect(find("st1")?.gwt).toBeUndefined();
+    expect(find("st1")?.refinedAt).not.toBe(old);
+    logs.length = 0;
+    undoLast();
+    expect(find("st1")?.gwt).toEqual(gwt);
+    expect(find("st1")?.refinedAt).toBe(old);
+    expect(within(row("st1")).getByText(/Not changed for 20 weeks/)).toBeInTheDocument();
+    expect(logs.map((l) => l.action)).not.toContain(BACKLOG_HEALTH_ACTIONS.CRITERIA_ADDED);
+  });
+
   it("keeps a story whose last flag was fixed in the list, with focus where it was", async () => {
     // Only flag: no criteria (it has points, a clear title and is new).
     seed([story({ acceptanceCriteria: undefined })]);

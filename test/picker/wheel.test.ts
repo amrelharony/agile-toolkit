@@ -153,6 +153,14 @@ describe("themed names", () => {
     expect(themeForText("Space missions")?.id).toBe("planets");
     expect(themeForText("Things in the garden")?.id).toBe("trees");
     expect(themeForText("jazz legends")).toBeUndefined();
+    // Team Mixer's lists and matching live here too: spices, and the start
+    // of a word from 3 letters (one or two letters match nothing).
+    expect(themeForText("Spices")?.id).toBe("spices");
+    expect(themeForText(" riv ")?.id).toBe("rivers");
+    expect(themeForText("isl")?.id).toBe("islands");
+    expect(themeForText("ri")).toBeUndefined();
+    expect(themeForText("")).toBeUndefined();
+    expect(themeForText("rainbow")?.id).toBe("colours");
     const a = fallbackThemeNames("Rivers of the world", 5, 1);
     expect(a).toEqual(fallbackThemeNames("rivers of the world", 5, 1));
     expect(NAME_THEMES.find((t) => t.id === "rivers")!.names).toEqual(expect.arrayContaining(a));

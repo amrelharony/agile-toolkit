@@ -6,10 +6,10 @@
  *                                    and the chance of making a date;
  *   - "How many items by <date>?"    the items finished per run in the
  *                                    weeks up to it: "at least" P50/P85/P95;
- *   - "Where does the date cut?"     an ordered list of features, the date
- *                                    each is likely done (counting the ones
- *                                    before it), and the line the target
- *                                    date draws through them.
+ *   - "Where does the date cut?"     an ordered list of features, the
+ *                                    dates each is done by (P50 and P85,
+ *                                    counting the ones before it), and the
+ *                                    line the target date draws through them.
  *
  * Weekly throughput is counted the way the flow tools count it
  * (lib/flow `throughputByWeek`, local days, ISO weeks), over complete weeks
@@ -243,7 +243,7 @@ export interface CutLineRow {
   weeks: WeeksAt;
   p50Date: string | null;
   p85Date: string | null;
-  /** Likely done (85% of runs) by the target; null without a target. */
+  /** Done by the target in 85% of runs (its commit date fits); null without a target. */
   inByTarget: boolean | null;
 }
 
@@ -289,6 +289,12 @@ export interface ThroughputForecast {
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
+/** Items finished per week on average, to one decimal; null without history. */
+export function averagePerWeek(samples: readonly number[]): number | null {
+  const values = usable(samples);
+  return values.length > 0 ? round1(values.reduce((a, b) => a + b, 0) / values.length) : null;
+}
+
 function countsHistogram(values: ArrayLike<number>): { value: number; count: number }[] {
   const counts = new Map<number, number>();
   for (let i = 0; i < values.length; i++) {
@@ -323,15 +329,56 @@ function itemsIn(
 
 const dateAt = (start: string, w: number | null) => (w === null ? null : weekEnd(start, w));
 
+/**
+ * The runs behind the answers, kept by what they were run on, so a change
+ * to one input doesn't rerun the simulations that don't read it: typing the
+ * items left reruns "when" only, reordering features reruns the cut line
+ * only, renaming one reruns nothing. A page keeps one for as long as it is
+ * open; without one, every call runs everything.
+ */
+export type ForecastCache = Map<string, Float64Array[]>;
+
+/** The most simulations a cache keeps (the latest used). */
+const CACHE_SIZE = 6;
+
+export function createForecastCache(): ForecastCache {
+  return new Map();
+}
+
+function remembered(
+  cache: ForecastCache | undefined,
+  key: string,
+  run: () => Float64Array[]
+): Float64Array[] {
+  if (!cache) return run();
+  const hit = cache.get(key);
+  if (hit) {
+    // The latest used goes last, so the oldest is the one dropped.
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit;
+  }
+  const value = run();
+  cache.set(key, value);
+  while (cache.size > CACHE_SIZE) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+  return value;
+}
+
 /** The three answers from weekly throughput (see the module comment). */
-export function throughputForecast(input: ThroughputForecastInput): ThroughputForecast {
+export function throughputForecast(
+  input: ThroughputForecastInput,
+  cache?: ForecastCache
+): ThroughputForecast {
   const samples = usable(input.samples);
   const opts: SimulationOptions = {
     ...(input.iterations ? { iterations: input.iterations } : {}),
     ...(input.seed !== undefined ? { seed: input.seed } : {}),
   };
-  const average =
-    samples.length > 0 ? round1(samples.reduce((a, b) => a + b, 0) / samples.length) : null;
+  const average = averagePerWeek(samples);
   const notEnough: ThroughputForecast["notEnough"] =
     samples.length < MIN_WEEKS
       ? "few-weeks"
@@ -351,11 +398,16 @@ export function throughputForecast(input: ThroughputForecastInput): ThroughputFo
 
   const target = input.target && isoDayNumber(input.target) !== null ? input.target : null;
   const targetWeeks = target ? weeksUntil(input.start, target) : null;
+  // What every simulation reads, whatever it answers.
+  const drawn = `${opts.seed ?? SEED}|${opts.iterations ?? THROUGHPUT_ITERATIONS}|${samples.join(",")}`;
 
   const items = validItems(input.items ?? null);
   if (items !== null) {
-    const runs = runThresholds([items], samples, opts);
-    const sorted = runs.weeks[0];
+    const [sorted] = remembered(
+      cache,
+      `when|${drawn}|${items}`,
+      () => runThresholds([items], samples, opts).weeks
+    );
     const weeks = weeksAt(sorted);
     let unfinished = 0;
     for (let i = 0; i < sorted.length; i++) if (!Number.isFinite(sorted[i])) unfinished++;
@@ -375,7 +427,9 @@ export function throughputForecast(input: ThroughputForecastInput): ThroughputFo
   }
 
   if (target && targetWeeks !== null && targetWeeks >= 1) {
-    const sums = itemsIn(samples, targetWeeks, opts);
+    const [sums] = remembered(cache, `how|${drawn}|${targetWeeks}`, () => [
+      itemsIn(samples, targetWeeks, opts),
+    ]);
     base.howMany = {
       target,
       weeks: targetWeeks,
@@ -400,9 +454,13 @@ export function throughputForecast(input: ThroughputForecastInput): ThroughputFo
       sum += f.items;
       cumulative.push(sum);
     }
-    const runs = runThresholds(cumulative, samples, { ...opts, seed: `${opts.seed ?? SEED}:cut` });
+    const runs = remembered(
+      cache,
+      `cut|${drawn}|${cumulative.join(",")}`,
+      () => runThresholds(cumulative, samples, { ...opts, seed: `${opts.seed ?? SEED}:cut` }).weeks
+    );
     const rows: CutLineRow[] = features.map((f, k) => {
-      const weeks = weeksAt(runs.weeks[k]);
+      const weeks = weeksAt(runs[k]);
       return {
         ...(f.id !== undefined ? { id: f.id } : {}),
         name: f.name,

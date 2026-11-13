@@ -31,6 +31,7 @@ import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { fmt, plural } from "@/lib/charts/chart-text";
 import { todayIso } from "@/lib/sprints/series";
 import { formatDay } from "@/lib/sprints/release-forecast";
+import { createForecastCache } from "@/lib/sprints/throughput-forecast";
 import { removeWithUndo } from "@/lib/utils/undoable";
 import { cn } from "@/lib/utils";
 import {
@@ -87,6 +88,19 @@ const NO_STORIES: Story[] = [];
 const NO_CARDS: KanbanCard[] = [];
 const NO_EPICS: Epic[] = [];
 const linkCls = "text-accent underline-offset-2 hover:underline";
+
+/**
+ * How long the typing in Items left or the weekly counts pauses before the
+ * item forecast follows it.
+ */
+export const TYPING_PAUSE_MS = 250;
+
+/** The typed values the item forecast reads. */
+type ItemsTyped = Pick<ReleasePlannerConfig, "itemsCount" | "throughputInput">;
+const itemsTyped = (c: ReleasePlannerConfig): ItemsTyped => ({
+  itemsCount: c.itemsCount,
+  throughputInput: c.throughputInput,
+});
 
 /**
  * Keep a ?slice= link pointing at the slice on screen (or drop it when the
@@ -225,6 +239,36 @@ export function ReleasePlannerClient() {
   );
 
   /* -- The "count items" mode ---------------------------------------------- */
+  // Each valid keystroke in Items left or the weekly counts still saves
+  // quietly, but the forecast (up to three 10,000-run simulations) keeps
+  // the values from before the typing until it pauses or the field commits
+  // (blur, Enter): a long backlog no longer holds up every keystroke.
+  const [held, setHeld] = useState<ItemsTyped | null>(null);
+  const typeItems = useCallback(
+    (updates: Partial<ReleasePlannerConfig>) => {
+      const before = itemsTyped(useReleasePlannerStore.getState().config);
+      setHeld((h) => h ?? before);
+      updateConfigRaw(updates);
+    },
+    [updateConfigRaw]
+  );
+  const commitItems = useCallback(
+    (updates: Partial<ReleasePlannerConfig>) => {
+      setHeld(null);
+      updateConfig(updates);
+    },
+    [updateConfig]
+  );
+  useEffect(() => {
+    if (!held) return;
+    // Every keystroke starts the wait again.
+    const timer = window.setTimeout(() => setHeld(null), TYPING_PAUSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [held, config.itemsCount, config.throughputInput]);
+  const forecastTyped = held ?? itemsTyped(config);
+  // Each answer's runs are kept until what they read changes (ForecastCache).
+  const [forecastCache] = useState(createForecastCache);
+
   const finished = useMemo(() => finishedOn(stories, cards), [stories, cards]);
   const throughputSource = resolveThroughputSource(config.throughputSource, finished);
   const itemsSource = resolveItemsSource(config.itemsSource, backlog);
@@ -234,33 +278,64 @@ export function ReleasePlannerClient() {
       featureRows(config.features, stories, epics, { sprints, skipSprintId: runningBefore?.id }),
     [config.features, stories, epics, sprints, runningBefore?.id]
   );
-  const itemsPlan = useMemo(
+  // The weekly counts as they stand, for the Throughput card.
+  const liveSample = useMemo(
     () =>
-      planItems({
-        sample: throughputSample(throughputSource, {
-          finished,
-          typed: config.throughputInput ?? "",
-          window: config.throughputWeeks,
-          today,
-        }),
-        itemsSource,
-        items: itemsLeft(itemsSource, backlog, config.itemsCount),
-        features,
-        start,
-        target: target.date || null,
+      throughputSample(throughputSource, {
+        finished,
+        typed: config.throughputInput ?? "",
+        window: config.throughputWeeks,
+        today,
       }),
+    [throughputSource, finished, config.throughputInput, config.throughputWeeks, today]
+  );
+  const forecastInput = forecastTyped.throughputInput;
+  const forecastSample = useMemo(
+    () =>
+      forecastInput === config.throughputInput
+        ? liveSample
+        : throughputSample(throughputSource, {
+            finished,
+            typed: forecastInput ?? "",
+            window: config.throughputWeeks,
+            today,
+          }),
     [
+      forecastInput,
+      config.throughputInput,
+      liveSample,
       throughputSource,
       finished,
-      config.throughputInput,
       config.throughputWeeks,
       today,
+    ]
+  );
+  // Only the item count mode forecasts items: the points mode runs none of it.
+  const itemsPlan = useMemo(
+    () =>
+      mode !== "items"
+        ? null
+        : planItems(
+            {
+              sample: forecastSample,
+              itemsSource,
+              items: itemsLeft(itemsSource, backlog, forecastTyped.itemsCount),
+              features,
+              start,
+              target: target.date || null,
+            },
+            forecastCache
+          ),
+    [
+      mode,
+      forecastSample,
       itemsSource,
       backlog,
-      config.itemsCount,
+      forecastTyped.itemsCount,
       features,
       start,
       target.date,
+      forecastCache,
     ]
   );
   const addFeature = (values: Omit<ReleaseFeature, "id">) => {
@@ -293,7 +368,11 @@ export function ReleasePlannerClient() {
   useEffect(() => {
     if (round > 0) scopeHeading.current?.focus();
   }, [round]);
-  const restart = () => setRound((n) => n + 1);
+  const restart = () => {
+    setRound((n) => n + 1);
+    // Nothing typed is waiting any more: the forecast reads the new values at once.
+    setHeld(null);
+  };
 
   const loadExample = () => {
     updateConfig(withExample(useReleasePlannerStore.getState().config));
@@ -312,11 +391,11 @@ export function ReleasePlannerClient() {
   };
 
   const markdown = useMemo(
-    () => (mode === "items" ? itemsMarkdown(itemsPlan) : toMarkdown(plan)),
-    [mode, itemsPlan, plan]
+    () => (itemsPlan ? itemsMarkdown(itemsPlan) : toMarkdown(plan)),
+    [itemsPlan, plan]
   );
   const csvData = useMemo(() => {
-    if (mode === "items") {
+    if (itemsPlan) {
       const w = itemsPlan.forecast.when;
       return {
         headers: ["Confidence", "Weeks", "Done by"],
@@ -333,16 +412,17 @@ export function ReleasePlannerClient() {
       headers: ["Confidence", "Sprints", "Finished by"],
       rows: plan.rows.map((r) => [`${r.pct}%`, r.sprints ?? "", r.sprints === null ? "" : r.date]),
     };
-  }, [mode, itemsPlan, plan.rows]);
+  }, [itemsPlan, plan.rows]);
   const promptConfig = useMemo(
     () => ({ toolName: "Release Planner", prompts: releasePrompts(plan) }),
     [plan]
   );
 
+  // Read from what is typed now, not from the forecast waiting for a pause.
   const nothingYet =
     mode === "items"
-      ? itemsPlan.sample.values.length === 0 &&
-        itemsPlan.items === null &&
+      ? liveSample.values.length === 0 &&
+        itemsLeft(itemsSource, backlog, config.itemsCount) === null &&
         features.length === 0 &&
         !config.example
       : scope.points === null && sample.points.length === 0 && !config.example;
@@ -394,17 +474,17 @@ export function ReleasePlannerClient() {
                 source={itemsSource}
                 backlog={backlog}
                 onSource={(v) => updateConfig({ itemsSource: v })}
-                onQuiet={updateConfigQuiet}
-                onCommit={updateConfig}
+                onQuiet={typeItems}
+                onCommit={commitItems}
               />
               <ThroughputCard
                 config={config}
-                plan={itemsPlan}
+                sample={liveSample}
                 finished={{ stories: finished.stories.length, cards: finished.cards.length }}
                 onSource={(v) => updateConfig({ throughputSource: v })}
                 onWindow={(v) => updateConfig({ throughputWeeks: v })}
-                onQuiet={updateConfigQuiet}
-                onCommit={updateConfig}
+                onQuiet={typeItems}
+                onCommit={commitItems}
               />
             </div>
           ) : (
@@ -501,7 +581,7 @@ export function ReleasePlannerClient() {
               ? "Nothing to forecast yet. Set the items left and the weekly throughput above, or load an example to see a forecast."
               : "Nothing to forecast yet. Choose the scope and the velocity above, or load an example to see a forecast."}
           </EmptyState>
-        ) : mode === "items" ? (
+        ) : itemsPlan ? (
           <>
             <ItemsResults plan={itemsPlan} plotRef={chartRef} />
             <CutLineCard

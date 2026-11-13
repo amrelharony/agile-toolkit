@@ -143,6 +143,11 @@ export interface MyPost {
   /** "sending" until the host acknowledges it; "refused" (with `why`) or "unconfirmed" if not. */
   status: "sending" | "posted" | "refused" | "unconfirmed" | "withdrawing";
   why?: WallRefusal;
+  /**
+   * Sent while the host hid the posts: once they show, all at once, the
+   * host takes no take-back of it (that would show whose it was).
+   */
+  together?: boolean;
 }
 
 export interface WallRoom extends Pick<
@@ -733,7 +738,12 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
       }
       setMineMap((prev) =>
         new Map(prev).set(pid, {
-          post: { id: pid, text: clean, status: "sending" },
+          post: {
+            id: pid,
+            text: clean,
+            status: "sending",
+            ...(r.posts === null ? { together: true } : {}),
+          },
           key,
           round: r.id,
         })
@@ -747,12 +757,14 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
     async (postId: string): Promise<WallSendResult> => {
       const e = mineRef.current.get(postId);
       if (!e) return "not-yours";
+      // Shown with the others: the host refuses it, so don't ask.
+      if (e.post.together && currentRound()?.posts) return "closed";
       const res = await send({ t: "withdraw", r: e.round, pid: postId, key: e.key });
       if (res !== "sent") return res;
       setMine(postId, (x) => ({ ...x, post: { ...x.post, status: "withdrawing" } }));
       return "sent";
     },
-    [send, setMine]
+    [currentRound, send, setMine]
   );
 
   const vote = useCallback(

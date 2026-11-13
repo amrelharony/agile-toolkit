@@ -147,7 +147,7 @@ describe("the example", () => {
       features: EXAMPLE_FEATURES,
     });
     expect(screen.getByTestId("items-verdict").textContent).toMatch(
-      /^48 items are likely done by .+ \(85% of runs\); the chance by .+ is \d+%\.$/
+      /^48 items are done by .+ in 85% of runs; the chance by .+ is \d+%\.$/
     );
     expect(
       screen.getByRole("heading", { name: "When will 48 items be done?" })
@@ -282,9 +282,52 @@ describe("items left", () => {
       screen.getByRole("heading", { name: "How many items by Dec 14, 2026?" })
     ).toBeInTheDocument();
     expect(screen.getByText("4 whole weeks from the start.")).toBeInTheDocument();
+    // Two across on a phone, as the When cards are: three across left a
+    // three-digit count running over its card at 375 px.
+    const cards = document.querySelector<HTMLElement>("[data-how-many]")!;
+    expect(cards.className.split(" ")).toEqual(
+      expect.arrayContaining(["grid-cols-2", "lg:grid-cols-4"])
+    );
+    expect(cards.className).not.toContain("grid-cols-3");
+    expect(cards).toHaveTextContent("Coin flip (P50)16items");
+    expect(cards).toHaveTextContent("Commit (P85)16items");
+    expect(cards).toHaveTextContent("Safe (P95)16items");
     expect(screen.getByTestId("items-verdict")).toHaveTextContent(
       "By Dec 14, 2026 the team finishes at least 16 items in 85% of runs."
     );
+  });
+
+  it("names each percentile the same way in the cards, the feature rows and the export", () => {
+    useReleasePlannerStore.setState({
+      config: {
+        ...EMPTY_CONFIG,
+        mode: "items",
+        throughputSource: "typed",
+        throughputInput: "4, 4, 4, 4",
+        itemsSource: "typed",
+        itemsCount: 20,
+        startDate: "2026-11-16",
+        targetDate: "2026-12-28",
+        features: [{ id: "f1", name: "Saved cards", items: 8 }],
+      },
+    });
+    renderPlanner();
+    // The When cards and the How-many cards: Coin flip, Commit, Safe, each twice.
+    for (const label of ["Coin flip (P50)", "Commit (P85)", "Safe (P95)"]) {
+      expect(screen.getAllByText(label)).toHaveLength(2);
+    }
+    const row = within(screen.getByRole("list", { name: "Features in order" })).getByRole(
+      "listitem"
+    );
+    expect(row).toHaveTextContent(/coin flip .+, commit /);
+    const md = screen.getByTestId("export-markdown").textContent ?? "";
+    expect(md).toContain(
+      "| # | Feature | Items | Coin flip (P50) | Commit (P85) | By the target |"
+    );
+    expect(md).toContain("- Commit (P85): at least 24 items in 85% of runs");
+    // "Likely" and "to promise" no longer stand for a percentile anywhere here.
+    expect(document.body.textContent).not.toMatch(/likely|promise/i);
+    expect(md).not.toMatch(/likely|promise/i);
   });
 });
 
@@ -326,7 +369,7 @@ describe("the cut line", () => {
       "listitem"
     );
     expect(items[0]).toHaveTextContent(
-      "1. Saved cards8 items · likely Nov 30, 2026, safe Nov 30, 2026"
+      "1. Saved cards8 items · coin flip Nov 30, 2026, commit Nov 30, 2026"
     );
     expect(items[2]).toHaveTextContent("below the line");
     // The line sits above the first feature past the date.
@@ -427,8 +470,10 @@ describe("the cut line", () => {
     expect(items[0]).toHaveTextContent(
       "1. Wallets0 items · open stories in the epic · nothing left to count"
     );
-    expect(items[0]).not.toHaveTextContent("likely");
-    expect(items[1]).toHaveTextContent("2. Typed10 items · likely Dec 7, 2026, safe Dec 7, 2026");
+    expect(items[0]).not.toHaveTextContent("coin flip");
+    expect(items[1]).toHaveTextContent(
+      "2. Typed10 items · coin flip Dec 7, 2026, commit Dec 7, 2026"
+    );
     // Both fit by Dec 28: no line between them, one after the list.
     expect(items[1].querySelector("[data-cut-line]")).toBeNull();
     expect(items[1]).not.toHaveTextContent("below the line");
@@ -467,10 +512,10 @@ describe("the cut line", () => {
       "listitem"
     );
     expect(items[0]).toHaveTextContent(
-      "1. Wallets2 items · open stories in the epic · likely Nov 23, 2026"
+      "1. Wallets2 items · open stories in the epic · coin flip Nov 23, 2026"
     );
     // 25 items take 7 weeks: past the target.
-    expect(items[1]).toHaveTextContent("2. Refunds23 items · likely Jan 4, 2027");
+    expect(items[1]).toHaveTextContent("2. Refunds23 items · coin flip Jan 4, 2027");
     expect(items[1]).toHaveTextContent("below the line");
 
     act(() => useWorkspaceStore.setState(roadmap([])));
@@ -482,7 +527,7 @@ describe("the cut line", () => {
     );
     // Refunds' 23 items alone fit in the 6 weeks: its own dates, above the line.
     expect(items[1]).toHaveTextContent(
-      "2. Refunds23 items · likely Dec 28, 2026, safe Dec 28, 2026"
+      "2. Refunds23 items · coin flip Dec 28, 2026, commit Dec 28, 2026"
     );
     expect(items[1]).not.toHaveTextContent("below the line");
     expect(items[1].querySelector("[data-cut-line]")).toBeNull();
@@ -537,9 +582,7 @@ describe("the cut line", () => {
     expect(md).toContain("| Weekly counts | 4, 4, 4, 4 |");
     expect(md).toContain("## When 20 items are done (10,000 simulated runs)");
     expect(md).toContain("| 85% | 5 | Dec 21, 2026 |");
-    expect(md).toContain(
-      "The cut line at Dec 28, 2026: 1 feature likely done by then (85% of runs)."
-    );
+    expect(md).toContain("The cut line at Dec 28, 2026: 1 feature done by then in 85% of runs.");
     expect(md).toContain("| 2 | Refunds | 20 | Jan 4, 2027 | Jan 4, 2027 | Below the line |");
     expect(JSON.parse(screen.getByTestId("export-csv").textContent ?? "{}")).toEqual({
       headers: ["Confidence", "Weeks", "Done by"],

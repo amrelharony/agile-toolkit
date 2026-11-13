@@ -23,6 +23,11 @@
  * timers"); the run and the cost ticker in this tab's sessionStorage only.
  * Over MCP list_state reads the synced settings row; there is no tab, so no
  * run or ticker.
+ *
+ * The browser handlers load the tab's stores and the docked timer when they
+ * run (`browserHalf`). The docked timer is a "use client" module, whose
+ * exports are client references in the MCP route, so the server path never
+ * loads it: it reads only the pure settings module.
  */
 
 import { z } from "zod";
@@ -54,20 +59,39 @@ import {
 } from "@/lib/facilitator-timers/model";
 import {
   SETTINGS_KEY,
-  facilitatorSettings,
-  hydrateCostTicker,
-  hydrateFacilitatorSettings,
-  hydrateFtSession,
-  normalizeCost,
   normalizeSettings,
-  startTimerRun,
-  useCostTicker,
-  useFtSession,
   type FacilitatorSettings,
-} from "@/lib/facilitator-timers/store";
-import { timerRemaining, useDockTimer } from "@/lib/timer/dock-timer";
+} from "@/lib/facilitator-timers/settings";
+import type * as FtStore from "@/lib/facilitator-timers/store";
+import type * as DockTimer from "@/lib/timer/dock-timer";
 
 const TOOL = "tool.facilitator_timers";
+
+interface BrowserHalf {
+  store: typeof FtStore;
+  dock: typeof DockTimer;
+}
+
+let browserHalfLoad: Promise<BrowserHalf> | undefined;
+
+/**
+ * The tab's stores and the docked timer, for the browser handlers only.
+ * One load, reused (two loads of one module at once trip the test runner's
+ * mocks); a failed load is tried again next time.
+ */
+function browserHalf(): Promise<BrowserHalf> {
+  browserHalfLoad ??= Promise.all([
+    import("@/lib/facilitator-timers/store"),
+    import("@/lib/timer/dock-timer"),
+  ]).then(
+    ([store, dock]) => ({ store, dock }),
+    (error: unknown) => {
+      browserHalfLoad = undefined;
+      throw error;
+    }
+  );
+  return browserHalfLoad;
+}
 
 /** The synced row as stored: the store's state, or (a local copy) wrapped in `state`. */
 function unwrapBlob(raw: unknown): unknown {
@@ -91,9 +115,9 @@ function settingsSummary(s: FacilitatorSettings) {
   };
 }
 
-function runSummary(run: TimerRun, now: number) {
-  const dock = useDockTimer.getState().timer;
-  const ours = dock?.href === FT_HREF ? dock : null;
+function runSummary(run: TimerRun, now: number, { dock }: BrowserHalf) {
+  const timer = dock.useDockTimer.getState().timer;
+  const ours = timer?.href === FT_HREF ? timer : null;
   const step = currentStep(run);
   // A break's clock is the dock: a pause moves the time to be back.
   const backAt = breakEndsAt(run, ours, now) ?? run.backAt;
@@ -104,7 +128,7 @@ function runSummary(run: TimerRun, now: number) {
     step: step?.label ?? null,
     stepIndex: run.index,
     steps: run.steps.length,
-    remainingSeconds: ours ? timerRemaining(ours, now) : 0,
+    remainingSeconds: ours ? dock.timerRemaining(ours, now) : 0,
     paused: Boolean(ours && ours.endsAt === null),
     ...(backAt !== undefined ? { backAt: clockTime(backAt) } : {}),
   };
@@ -120,16 +144,18 @@ registry.register({
     "Facilitator Timers' state: {pomodoro {workMinutes, breakMinutes, rounds}, breakMinutes, crazy8s {rounds, roundSeconds}, chime, focusSound, soundboardWhilePresenting, agendaDraft {goal, minutes, segments {label, minutes}[]}, running: {kind, title, finished, step, stepIndex, steps, remainingSeconds, paused, backAt?} | null, costTicker: {running, attendees, elapsedSeconds} | null}. The cost ticker's rate is never returned. Over MCP only the saved settings are known (running and costTicker are null).",
   paramsSchema: z.object({}),
   handler: async () => {
-    hydrateFacilitatorSettings();
-    hydrateFtSession();
-    hydrateCostTicker();
+    const half = await browserHalf();
+    const { store, dock } = half;
+    store.hydrateFacilitatorSettings();
+    store.hydrateFtSession();
+    store.hydrateCostTicker();
     const now = Date.now();
-    const { run } = useFtSession.getState();
-    const live = run && runIsLive(run, useDockTimer.getState().timer) ? run : null;
-    const cost = normalizeCost(useCostTicker.getState());
+    const { run } = store.useFtSession.getState();
+    const live = run && runIsLive(run, dock.useDockTimer.getState().timer) ? run : null;
+    const cost = store.normalizeCost(store.useCostTicker.getState());
     return {
-      ...settingsSummary(facilitatorSettings()),
-      running: live ? runSummary(live, now) : null,
+      ...settingsSummary(store.facilitatorSettings()),
+      running: live ? runSummary(live, now, half) : null,
       costTicker:
         cost.clock && cost.attendees !== null
           ? {
@@ -224,20 +250,21 @@ registry.register({
     'Start a facilitator timer on the docked timer in this browser tab: kind "pomodoro" (workMinutes, breakMinutes, rounds), "break" (minutes, or backAt "10:45") or "crazy-8s" (sketches, secondsPerSketch); anything not given uses the saved lengths. It never replaces another page\'s timer (a ceremony\'s), and replaces a facilitator timer that\'s on only with replace: true. Returns {started, kind, title, steps, firstStep, totalSeconds, backAt?} or {started: false, reason}.',
   paramsSchema: startParams,
   handler: async (params) => {
-    hydrateFacilitatorSettings();
-    hydrateFtSession();
+    const { store, dock: docked } = await browserHalf();
+    store.hydrateFacilitatorSettings();
+    store.hydrateFtSession();
     const now = Date.now();
-    const { run: current } = useFtSession.getState();
-    const dock = useDockTimer.getState().timer;
+    const { run: current } = store.useFtSession.getState();
+    const dock = docked.useDockTimer.getState().timer;
     if (current && !current.finished && runIsLive(current, dock) && !params.replace) {
       return {
         started: false,
         reason: `${current.title} is on. Pass replace: true to start another instead.`,
       };
     }
-    const built = runFromParams(params, facilitatorSettings(), now);
+    const built = runFromParams(params, store.facilitatorSettings(), now);
     if (!built.ok) return { started: false, reason: built.reason };
-    const claim = startTimerRun(built.run, now);
+    const claim = store.startTimerRun(built.run, now);
     if (!claim.ok) {
       return {
         started: false,

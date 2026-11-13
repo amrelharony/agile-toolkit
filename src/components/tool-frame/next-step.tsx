@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -11,11 +11,31 @@ import { getNextStepRule, type NextStep, type NextStepRule } from "@/lib/tools/n
 const NO_SLICES = {};
 const noSlices = () => NO_SLICES;
 
-/** The steps a tool's rule gives for the current workspace; [] without a rule. */
+/**
+ * The steps a tool's rule gives for the current workspace; [] without a
+ * rule, and while a rule's own model is still loading (`lazyRule`), which
+ * this starts.
+ */
 export function useNextSteps(toolId: string): NextStep[] {
   const rule: NextStepRule<object> | undefined = getNextStepRule(toolId);
+  const waiting = Boolean(rule?.load) && !rule?.ready?.();
+  const [, setLoaded] = useState(0);
+  useEffect(() => {
+    if (!waiting || !rule?.load) return;
+    let live = true;
+    rule.load().then(
+      () => {
+        if (live) setLoaded((n) => n + 1);
+      },
+      // No model, no step: the card stays away.
+      () => undefined
+    );
+    return () => {
+      live = false;
+    };
+  }, [rule, waiting]);
   const slices = useWorkspaceStore(useShallow(rule?.select ?? noSlices));
-  return useMemo(() => (rule ? rule.steps(slices) : []), [rule, slices]);
+  return useMemo(() => (rule && !waiting ? rule.steps(slices) : []), [rule, slices, waiting]);
 }
 
 /**

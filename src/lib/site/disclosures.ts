@@ -45,14 +45,21 @@ export const VISITOR_ROOM_CONSENT_TEXT =
 /**
  * The vote-round variant: answers are numbers, encrypted to the host's
  * browser, and only totals are kept and shown. It promises no more than
- * that: the totals of a unanimous question show everyone's answer.
+ * that: the totals of a unanimous question show everyone's answer. A number
+ * round is the exception it names, from its first sentence on: the host
+ * keeps the numbers (sorted, with no sender) until Reveal, and the median,
+ * lowest and highest it shows are each someone's exact answer
+ * (lib/realtime/vote-room/number.ts).
  */
 export const VOTE_ROOM_CONSENT_TEXT =
   "Answers are encrypted in each person's browser, so only the host's browser can read them, " +
-  "and it keeps the totals only. They pass through our realtime provider (Supabase). " +
+  "and, outside a number round, it keeps the totals only. " +
+  "They pass through our realtime provider (Supabase). " +
   "Others in the room see your name and whether you've answered, not what. " +
   "After the host reveals the results, everyone in the room sees the totals, for questions " +
   "with enough answers; if everyone gives the same answer, the totals show it. " +
+  "In a number round the host's browser keeps the numbers without names, and the results show " +
+  "the median, lowest and highest answers as they are. " +
   "The host may send the room's answers, without names, to an AI service for a summary. " +
   "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
   "Share the link only with your team.";
@@ -63,10 +70,14 @@ export const VOTE_ROOM_CONSENT_TEXT =
  * the posts and their votes as anonymous text. A raised hand is named: it
  * is a queue to speak. The AI sentence says what the host may do with the
  * posts (Audience Wall groups them); keep it in step with the AI line the
- * room and vote texts carry.
+ * room and vote texts carry. A post or an upvote that shows the moment it
+ * arrives (a live round, or one the host opened again after Reveal) can be
+ * matched to its sender's request on the channel, so the text says so
+ * (lib/realtime/wall-room/protocol.ts, "What it doesn't cover").
  */
 export const WALL_ROOM_CONSENT_TEXT =
   "Your posts travel encrypted to the host's browser, which puts them on the wall without your name. " +
+  "When the host shows posts as they arrive, others in the room could tell who sent a post or an upvote. " +
   "Everyone in the room sees the wall, and the host can save the posts and their votes as anonymous text; no names are kept. " +
   "Others in the room see your name, and see it in the queue if you raise your hand. " +
   "It all passes through our realtime provider (Supabase), and we don't store it. " +

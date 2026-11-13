@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -66,6 +66,26 @@ async function tick(ms: number) {
   });
   await flush();
 }
+
+/**
+ * A host's open room loads only once the room opens (next/dynamic): wait in
+ * real time for the import (`vi.waitFor` keeps the real timers), moving the
+ * faked clock a little each turn so React swaps the placeholder out.
+ */
+async function settle(done: () => boolean) {
+  await vi.waitFor(
+    async () => {
+      await act(async () => {
+        vi.advanceTimersByTime(20);
+      });
+      expect(done()).toBe(true);
+    },
+    { timeout: 10_000, interval: 20 }
+  );
+}
+
+// The show room's open room, warmed so the wait for it is short.
+beforeAll(() => import("@/components/collab/show-room/host-show-room"));
 
 async function deliver(ch: FakeChannel, event: string, payload: unknown) {
   act(() => ch.deliver(event, payload));
@@ -304,6 +324,12 @@ describe("WallJoinRoom", () => {
       screen.getByRole("heading", { level: 1, name: "What should we change?" })
     ).toBeInTheDocument();
     expect(screen.getByText(/Posts show without your name\./)).toBeInTheDocument();
+    // Posts show as they arrive here, and the page says what that gives away.
+    expect(
+      screen.getByText(
+        /They show as they arrive, so others could tell who sent a post or an upvote\./
+      )
+    ).toBeInTheDocument();
 
     const box = screen.getByLabelText("Your post");
     fireEvent.change(box, { target: { value: "More   pairing" } });
@@ -397,6 +423,63 @@ describe("WallJoinRoom", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("Fewer meetings")).toBeNull();
     expect(screen.queryByRole("button", { name: /Upvote/ })).toBeNull();
+    expect(screen.getByText(/Posts show without your name\./)).toBeInTheDocument();
+    expect(screen.queryByText(/They show as they arrive/)).toBeNull();
+
+    // A post sent while hidden can be taken back until the posts show.
+    fireEvent.change(screen.getByLabelText("Your post"), {
+      target: { value: "Too many handoffs" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Post" }));
+    });
+    await flush();
+    const sent = await sentIntents(ch);
+    const postReq = sent[0].intent as Extract<WallIntent, { t: "post" }>;
+    await deliver(
+      ch,
+      WALL_ROOM_EVENTS.state,
+      await wallState({
+        round: {
+          id: ROUND,
+          prompt: "What worries you?",
+          open: true,
+          mode: "hidden",
+          revealed: false,
+          count: 4,
+          posts: null,
+        },
+        acks: [sent[0].iid],
+      })
+    );
+    expect(screen.getByRole("button", { name: "Take it back" })).toBeInTheDocument();
+
+    // Revealed: all at once, and the host stopped taking posts.
+    await deliver(
+      ch,
+      WALL_ROOM_EVENTS.state,
+      await wallState({
+        round: {
+          id: ROUND,
+          prompt: "What worries you?",
+          open: false,
+          mode: "hidden",
+          revealed: true,
+          count: 2,
+          posts: [OTHER, { id: postReq.pid, text: "Too many handoffs", votes: 0, merged: [] }],
+        },
+      })
+    );
+    expect(screen.getByText("Fewer meetings")).toBeInTheDocument();
+    expect(screen.getByText("The host isn't taking posts right now.")).toBeInTheDocument();
+    expect(screen.queryByText(/They show as they arrive/)).toBeNull();
+    // Shown with the others, it stays: a take-back would show whose it was.
+    const wall = screen.getByRole("region", { name: "The wall" });
+    expect(within(wall).getByText("Your post")).toBeInTheDocument();
+    expect(within(wall).queryByRole("button", { name: /Take it back/ })).toBeNull();
+    expect(
+      within(wall).getByText(/It showed with the others, so it can't be taken back/)
+    ).toBeInTheDocument();
   });
 
   it("shows the end when the host ends the room", async () => {
@@ -440,7 +523,7 @@ describe("ShowRoomHost", () => {
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Start room" }));
     });
-    await flush();
+    await settle(() => fakeRealtime.channels.length > 0);
     const ch = fakeRealtime.last();
     expect(ch.name).toMatch(/^visitor:picker:[A-Z0-9]{12}$/);
     act(() => ch.connect());

@@ -317,7 +317,7 @@ export const GUIDES: ToolGuide[] = [
       "On Roles, give facilitator, scribe, timekeeper or your own roles to whoever is due, one at a time or all at once. Nobody gets two roles in a day while someone else is free. Mark anyone away today without losing their place.",
       "Roles go to the team on the Team page. To rotate them among a saved list instead, choose it under Who takes the roles.",
       "On Quick, roll dice, flip a coin, answer yes or no, or pick a number or a letter.",
-      "On Names, draw names from a theme such as planets or rivers, or ask Amr for names on your own theme, and shortlist the ones you like. Copy the shortlist into a Quick Vote poll, or spin it on the wheel.",
+      "On Names, draw names from a theme such as planets or rivers, or ask Amr for names on your own theme, and shortlist the ones you like. Press Vote in Quick Vote to open a poll set up with the shortlist, or Spin the shortlist to put it on the wheel.",
       "To spin with the whole team, open a live room, share its code and press Spin for the room: every phone shows the same spin.",
     ],
     tips: [

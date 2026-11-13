@@ -25,7 +25,10 @@
  * With live rooms available, the panel offers the two named ways to run
  * the round (components/collab/run-modes). "Everyone on their own device":
  * "Run a live round" asks for a name and consent, then mounts
- * `HostVoteRoom`; no key or channel exists before that. "One screen":
+ * `HostVoteRoom`; no key or channel exists before that, and its code (the
+ * room's timer, reactions, QR and big screen) loads only then, with
+ * next/dynamic, so a tool page that never opens a room doesn't download it.
+ * "One screen":
  * "Enter counts" shows the kind's count entry (`FacilitatorTally`,
  * `FacilitatorPair`, `FacilitatorAllocation`): counted hands or paper, same
  * totals, same minN rule, same `onSave`. When live rooms are off, the count
@@ -56,6 +59,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { Calculator, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signalGamification } from "@/lib/gamification/signal";
@@ -112,7 +116,7 @@ import { toast } from "@/lib/utils/toast";
 import { FacilitatorAllocation } from "./facilitator-allocation";
 import { FacilitatorPair } from "./facilitator-pair";
 import { FacilitatorTally } from "./facilitator-tally";
-import { HostVoteRoom, type HostVoteSession } from "./host-vote-room";
+import type { HostVoteSession } from "./host-vote-room";
 import { kindSpreadNote } from "./round-views";
 import type {
   SaveAllocationRound,
@@ -123,6 +127,12 @@ import type {
   SaveRound,
   SaveVoteRound,
 } from "./save-round";
+
+/** The live room loads once the host has agreed to open one (see above). */
+const HostVoteRoom = dynamic(() => import("./host-vote-room").then((m) => m.HostVoteRoom), {
+  ssr: false,
+  loading: () => <p className="text-sm text-sub">Preparing the round…</p>,
+});
 
 interface VoteRoundPanelBase {
   /** Shown in the consent title, e.g. "Health Check". */

@@ -32,7 +32,7 @@ import {
   visitorRoomsEnabled,
   type VisitorIdentity,
 } from "@/lib/realtime/visitor-rooms";
-import type { VoteRoomTool } from "@/lib/realtime/vote-room/protocol";
+import { VOTE_LIMITS, type VoteRoomTool } from "@/lib/realtime/vote-room/protocol";
 import { readVoteLinkFragment, type VoteCrypto } from "@/lib/realtime/vote-room/crypto";
 import {
   useVoteRoom,
@@ -224,8 +224,11 @@ function ParticipantVoteRoom({
             {hostName
               ? `Hosted by ${hostName}. You are ${identity.name}.`
               : `You are ${identity.name}.`}{" "}
-            Others see that you answered, not what. Only the totals are shown, once the host reveals
-            them.
+            Others see that you answered, not what.{" "}
+            {room.kind === "number"
+              ? // A number round shows answers, not totals: each of these is someone's own.
+                `Once the host reveals the results, the median shows, and from ${VOTE_LIMITS.minNSpread} answers the lowest and highest too: each is someone's exact answer, without a name.`
+              : "Only the totals are shown, once the host reveals them."}
           </p>
         </div>
         {active && (

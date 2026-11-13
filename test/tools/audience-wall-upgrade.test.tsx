@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -337,6 +337,73 @@ describe("a saved wall", () => {
     expect(walls()[0].themes).toEqual([{ name: "reviews", postIds: ["p3"] }]);
   });
 
+  it("keeps the drafted themes fixed: each Add focuses the next theme, then 'All added.'", async () => {
+    const wall: WallSession = {
+      ...OWN,
+      id: "wall_focus",
+      kind: "answers",
+      prompt: "What slows us down?",
+      posts: [
+        { id: "p1", text: "Code reviews take days", votes: 2, merged: [] },
+        { id: "p2", text: "Waiting on reviews", votes: 1, merged: [] },
+        { id: "p3", text: "Flaky tests on CI", votes: 3, merged: [] },
+        { id: "p4", text: "The tests are flaky", votes: 0, merged: [] },
+      ],
+    };
+    useAudienceWallStore.setState({ sessions: [wall] });
+    await mount();
+    const c = await openCard("What slows us down?");
+    await act(async () => {
+      fireEvent.click(within(c).getByRole("button", { name: "Group by shared words" }));
+    });
+    const draft = () =>
+      within(c).getByRole("heading", { name: "Themes to add" }).closest("section") as HTMLElement;
+    const names = within(draft())
+      .getAllByRole("button", { name: /^Add: / })
+      .map((b) => b.getAttribute("aria-label")!);
+    expect(names.length).toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < names.length; i++) {
+      const button = within(draft()).getByRole("button", { name: names[i] });
+      button.focus();
+      await act(async () => {
+        fireEvent.click(button);
+      });
+      expect(walls()[0].themes).toHaveLength(i + 1);
+      const next = names[i + 1];
+      if (next)
+        expect(document.activeElement).toBe(within(draft()).getByRole("button", { name: next }));
+    }
+    expect(draft()).toHaveTextContent("All added.");
+    expect(document.activeElement).toBe(within(c).getByRole("heading", { name: "Themes to add" }));
+  });
+
+  it("hands focus back to Find duplicates on Dismiss, and merges a group only once", async () => {
+    useAudienceWallStore.setState({ sessions: [OWN] });
+    await mount();
+    const c = await openCard(OWN.prompt);
+    await act(async () => {
+      fireEvent.click(within(c).getByRole("button", { name: "Find duplicates without AI" }));
+    });
+    const draft = () =>
+      within(c)
+        .getByRole("heading", { name: "Duplicates to merge" })
+        .closest("section") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(draft()).getByRole("button", { name: /^Merge/ }));
+    });
+    expect(walls()[0].posts).toHaveLength(2);
+    expect(draft()).toHaveTextContent("All added.");
+    const dismiss = within(draft()).getByRole("button", { name: "Dismiss suggestions" });
+    dismiss.focus();
+    await act(async () => {
+      fireEvent.click(dismiss);
+    });
+    expect(within(c).queryByRole("heading", { name: "Duplicates to merge" })).toBeNull();
+    expect(document.activeElement).toBe(
+      within(c).getByRole("button", { name: "Find duplicates without AI" })
+    );
+  });
+
   it("clears a wall's themes with Undo", async () => {
     useAudienceWallStore.setState({ sessions: buildExample(new Date(NOW)) });
     await mount();
@@ -537,6 +604,26 @@ async function tick(ms: number) {
   await flush();
 }
 
+/**
+ * A host's open room loads only once the room opens (next/dynamic): wait in
+ * real time for the import (`vi.waitFor` keeps the real timers), moving the
+ * faked clock a little each turn so React swaps the placeholder out.
+ */
+async function settle(done: () => boolean) {
+  await vi.waitFor(
+    async () => {
+      await act(async () => {
+        vi.advanceTimersByTime(20);
+      });
+      expect(done()).toBe(true);
+    },
+    { timeout: 10_000, interval: 20 }
+  );
+}
+
+// The open room's module, warmed so the wait for it is short.
+beforeAll(() => import("@/components/collab/wall-room/host-wall-room"));
+
 let iidN = 0;
 async function send(ch: FakeChannel, crypto: FakeVoteCrypto, by: string, intent: WallIntent) {
   const s = states(ch).at(-1)!;
@@ -573,7 +660,7 @@ describe("the live wall", () => {
       fireEvent.click(dialog.querySelector("input[type=checkbox]")!);
       fireEvent.click(screen.getByRole("button", { name: "Start room" }));
     });
-    await flush();
+    await settle(() => fakeRealtime.channels.length > 0);
     const ch = fakeRealtime.last();
     act(() => ch.connect());
     await flush();
@@ -870,6 +957,17 @@ describe("the live wall", () => {
       fireEvent.click(screen.getByRole("button", { name: "Reveal posts" }));
     });
     await flush();
+    // Reveal shows them all at once and stops new posts and upvotes: a later
+    // one would show on its own, and its timing could give its sender away.
+    await tick(600);
+    expect(states(ch).at(-1)!.round).toMatchObject({ open: false, revealed: true, count: 2 });
+    expect(screen.getByRole("button", { name: "Take posts again" })).toBeInTheDocument();
+    expect(screen.getByText(/Reveal stopped new posts and upvotes\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /If you take posts again, upvotes open again too, and each post or upvote shows as it arrives/
+      )
+    ).toBeInTheDocument();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Word cloud" }));
     });
