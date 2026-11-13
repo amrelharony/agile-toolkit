@@ -273,6 +273,34 @@ describe("the groups view", () => {
     expect(screen.queryByLabelText("Find your name")).toBeNull();
     expect(screen.getByText("Round 2: 2 groups")).toBeInTheDocument();
   });
+
+  it("has no find box, and lights up nobody, where nothing is a control (the Big screen)", () => {
+    // A name typed on this page's phone view before.
+    const phone = renderFrame(frameOf("groups", GROUPS));
+    fireEvent.change(screen.getByLabelText("Find your name"), { target: { value: "bo" } });
+    expect(phone.container.querySelector(".border-accent")).not.toBeNull();
+    phone.unmount();
+    for (const kind of ["groups", "cafe"] as const) {
+      const view = render(
+        <LiveAnnouncerProvider>
+          <ShowFrameView
+            tool="team-mixer"
+            frame={frameOf(kind, kind === "groups" ? GROUPS : CAFE)}
+            surface="phone"
+            interactive={false}
+          />
+        </LiveAnnouncerProvider>
+      );
+      expect(screen.queryByLabelText("Find your name")).toBeNull();
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(view.container.querySelector(".border-accent")).toBeNull();
+      expect(view.container.querySelector("li.font-bold")).toBeNull();
+      view.unmount();
+    }
+    // Leave the phone's box empty for the tests after this one.
+    renderFrame(frameOf("groups", GROUPS));
+    fireEvent.change(screen.getByLabelText("Find your name"), { target: { value: "" } });
+  });
 });
 
 describe("the café view", () => {

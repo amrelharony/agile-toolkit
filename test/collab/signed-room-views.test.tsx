@@ -304,6 +304,12 @@ describe("WallJoinRoom", () => {
       screen.getByRole("heading", { level: 1, name: "What should we change?" })
     ).toBeInTheDocument();
     expect(screen.getByText(/Posts show without your name\./)).toBeInTheDocument();
+    // Posts show as they arrive here, and the page says what that gives away.
+    expect(
+      screen.getByText(
+        /They show as they arrive, so others could tell who sent a post or an upvote\./
+      )
+    ).toBeInTheDocument();
 
     const box = screen.getByLabelText("Your post");
     fireEvent.change(box, { target: { value: "More   pairing" } });
@@ -397,6 +403,27 @@ describe("WallJoinRoom", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("Fewer meetings")).toBeNull();
     expect(screen.queryByRole("button", { name: /Upvote/ })).toBeNull();
+    expect(screen.getByText(/Posts show without your name\./)).toBeInTheDocument();
+    expect(screen.queryByText(/They show as they arrive/)).toBeNull();
+    // Revealed: all at once, and the host stopped taking posts.
+    await deliver(
+      ch,
+      WALL_ROOM_EVENTS.state,
+      await wallState({
+        round: {
+          id: ROUND,
+          prompt: "What worries you?",
+          open: false,
+          mode: "hidden",
+          revealed: true,
+          count: 1,
+          posts: [OTHER],
+        },
+      })
+    );
+    expect(screen.getByText("Fewer meetings")).toBeInTheDocument();
+    expect(screen.getByText("The host isn't taking posts right now.")).toBeInTheDocument();
+    expect(screen.queryByText(/They show as they arrive/)).toBeNull();
   });
 
   it("shows the end when the host ends the room", async () => {

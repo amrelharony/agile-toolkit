@@ -51,6 +51,10 @@ describe("the wall room's consent", () => {
     expect(WALL_ROOM_CONSENT_TEXT).toMatch(/save the posts and their votes as anonymous text/);
     expect(WALL_ROOM_CONSENT_TEXT).toMatch(/no names are kept/);
     expect(WALL_ROOM_CONSENT_TEXT).toMatch(/raise your hand/);
+    // Timing can give a writer away when posts show as they arrive.
+    expect(WALL_ROOM_CONSENT_TEXT).toContain(
+      "When the host shows posts as they arrive, others in the room could tell who sent a post or an upvote."
+    );
     expect(WALL_ROOM_CONSENT_TEXT).toMatch(/realtime provider \(Supabase\)/);
     expect(WALL_ROOM_CONSENT_TEXT).toMatch(/AI service/);
     expect(WALL_ROOM_CONSENT_TEXT).toMatch(/Share the link only with your team\.$/);

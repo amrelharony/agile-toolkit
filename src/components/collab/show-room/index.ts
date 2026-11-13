@@ -5,6 +5,6 @@
  * registry (`lib/realtime/show-room/renderers`).
  */
 
-export { ShowRoomHost, type ShowRoomHostProps } from "./show-room-host";
+export { ShowBigScreenFrame, ShowRoomHost, type ShowRoomHostProps } from "./show-room-host";
 export { ShowJoinRoom, type ShowJoinRoomProps } from "./show-join-room";
 export { ShowFrameView, type ShowFrameViewProps } from "./show-frame-view";

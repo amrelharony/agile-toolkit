@@ -169,6 +169,8 @@ function ParticipantWallRoom({
       : null;
   // A raise-hand queue: no posts taken and none on the wall, so the hand comes first.
   const handsFirst = Boolean(round && !round.open && !round.scoring && round.count === 0);
+  // Posts and upvotes show the moment they arrive: when they do, who sent them can show too.
+  const showsAsTheyArrive = Boolean(round?.open && round.posts && !round.scoring);
 
   // 25/10: the post box (or the score card) goes away when the host starts
   // the scoring or shows the totals. Say so, and put focus on what replaced
@@ -237,6 +239,8 @@ function ParticipantWallRoom({
               ? `Hosted by ${hostName}. You are ${identity.name}.`
               : `You are ${identity.name}.`}{" "}
             Posts show without your name.
+            {showsAsTheyArrive &&
+              " They show as they arrive, so others could tell who sent a post or an upvote."}
           </p>
         </div>
         {!closed && (

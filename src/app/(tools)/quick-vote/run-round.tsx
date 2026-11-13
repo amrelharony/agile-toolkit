@@ -233,7 +233,7 @@ export function RunRound({
           <Link href="/audience-wall" className="text-accent underline-offset-2 hover:underline">
             collect the answers on the Audience Wall
           </Link>
-          , where people post anonymously.
+          , where people post without their names.
         </p>
       )}
 

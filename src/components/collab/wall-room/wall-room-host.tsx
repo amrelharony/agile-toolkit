@@ -4,8 +4,9 @@
  * A tool's entry point for a wall room (Audience Wall): "Open a live wall"
  * asks for a name and consent, then opens the room; no key or channel
  * exists before that. The host puts a prompt up, chooses "Show posts as
- * they arrive" or "Hidden until I reveal them", and runs the wall: Reveal,
- * stop or start taking posts, Hide a post, Merge duplicates, mark a
+ * they arrive" or "Hidden until I reveal them", and runs the wall: Reveal
+ * (which also stops new posts: one sent later would show on its own), stop
+ * or start taking posts, Hide a post, Merge duplicates, mark a
  * question Answered (`answerable`), lower a raised hand or all of them, New
  * round, End room. `roundOptions` opens every round with brainwriting's
  * "Yes, and…"; a 25/10 round's scoring is the tool's to start and show
@@ -190,12 +191,12 @@ const MODES: { value: WallMode; label: string; hint: string }[] = [
   {
     value: "hidden",
     label: "Hidden until I reveal them",
-    hint: "Everyone sees only how many have posted, until you press Reveal.",
+    hint: "Everyone sees only how many have posted, until you press Reveal. Reveal shows them all at once and stops new posts.",
   },
   {
     value: "live",
     label: "Show posts as they arrive",
-    hint: "Good for questions people upvote as they go.",
+    hint: "Good for questions people upvote as they go. Others could tell who sent a post or an upvote from when it shows, so pick hidden for anything sensitive.",
   },
 ];
 
@@ -500,7 +501,7 @@ function HostWallRoom({
                 className="gap-1.5"
                 onClick={() => {
                   room.reveal();
-                  announce("Posts revealed to the room.");
+                  announce("Posts revealed to the room. The wall stopped taking posts.");
                 }}
               >
                 <Eye className="h-4 w-4" aria-hidden="true" />
@@ -544,6 +545,12 @@ function HostWallRoom({
               New round
             </Button>
           </div>
+          {round.mode === "hidden" && round.revealed && !round.open && !round.scoring && (
+            <p className="text-xs text-sub">
+              Reveal stopped new posts. If you take posts again, each one shows as it arrives, so
+              others could tell who sent it.
+            </p>
+          )}
 
           {hiddenUntilReveal ? (
             // No post text in this page until Reveal: only the count.

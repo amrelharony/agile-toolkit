@@ -331,7 +331,8 @@ registry.register({
   name: "reveal",
   category: "write",
   visitor: false,
-  description: "Audience Wall: show a hidden round's posts to the room (and on the host's page).",
+  description:
+    "Audience Wall: show a hidden round's posts to the room (and on the host's page), all at once. It also stops new posts and votes; set_open true takes them again, and each then shows as it arrives.",
   paramsSchema: z.object({}),
   handler: async (): Promise<Answer> =>
     withRoom((room) => {

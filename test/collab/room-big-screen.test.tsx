@@ -28,6 +28,8 @@ import {
   usePresentation,
 } from "@/components/presentation/presentation-mode";
 import { PokerBigScreenRound, PokerRoomBar } from "@/app/(tools)/planning-poker/poker-room-bar";
+import { ShowBigScreenFrame } from "@/components/collab/show-room/show-room-host";
+import type { ShowFrame } from "@/lib/realtime/show-room/use-show-room";
 import { startRoomTimer } from "@/lib/realtime/room-timer";
 import type { FloatingReaction } from "@/lib/realtime/room-reactions";
 import type { Session } from "@/app/(tools)/planning-poker/types";
@@ -256,6 +258,38 @@ describe("the room on the big screen", SLOW, () => {
     expect(cards.map((c) => c.textContent)).toEqual(["32 votes", "51 vote"]);
     // Names never reach the big screen.
     expect(screen.queryByText(/Alex|Bo|Cy/)).toBeNull();
+  });
+
+  it("draws a show room's frame large, with none of a phone's controls (Team Mixer's find box)", async () => {
+    const frame: ShowFrame = {
+      n: 1,
+      kind: "groups",
+      at: Date.now(),
+      supported: true,
+      payload: {
+        title: "",
+        round: 1,
+        unit: "group",
+        groups: [
+          { name: "Oak", people: ["Ana", "Bo"] },
+          { name: "", people: ["Cy", "Dee"] },
+        ],
+        sitOut: [],
+      },
+    };
+    render(
+      <Host>
+        <ShowBigScreenFrame tool="team-mixer" frame={frame} />
+      </Host>
+    );
+    await openBigScreen();
+    const view = document.querySelector("[data-big-screen]") as HTMLElement;
+    expect(within(view).getByText("Round 1: 2 groups")).toBeInTheDocument();
+    expect(within(view).getByRole("list", { name: "Oak" })).toHaveTextContent("AnaBo");
+    // Nothing on the big screen is a control: no box to type in, no status line for one.
+    expect(within(view).queryByLabelText("Find your name")).toBeNull();
+    expect(within(view).queryByRole("searchbox")).toBeNull();
+    expect(within(view).queryByRole("textbox")).toBeNull();
   });
 });
 

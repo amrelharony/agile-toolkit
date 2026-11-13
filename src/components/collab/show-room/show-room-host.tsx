@@ -257,7 +257,7 @@ function HostShowRoom({
         timer={extras.timer}
         reactions={extras.reactions}
       >
-        <ShowFrameView tool={tool} frame={room.frame} surface="phone" announceNew={false} />
+        <ShowBigScreenFrame tool={tool} frame={room.frame} />
       </RoomBigScreen>
 
       <div className="space-y-2">
@@ -323,5 +323,28 @@ function HostShowRoom({
         onEnd={() => room.end()}
       />
     </section>
+  );
+}
+
+/**
+ * The frame on the host's Big screen: a phone's large layout, but nothing
+ * to press or type (the Big screen holds no controls), and no "something
+ * new" announcement (the host's page says its own).
+ */
+export function ShowBigScreenFrame({
+  tool,
+  frame,
+}: {
+  tool: ShowRoomTool;
+  frame: ShowRoom["frame"];
+}) {
+  return (
+    <ShowFrameView
+      tool={tool}
+      frame={frame}
+      surface="phone"
+      announceNew={false}
+      interactive={false}
+    />
   );
 }
