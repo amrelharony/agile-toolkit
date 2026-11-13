@@ -313,6 +313,8 @@ describe.each(["tab", "mcp"] as const)("tool.tech_debt over %s", (transport) => 
       }),
     ]);
     expect(stories[0].points).toBeUndefined();
+    // Dated on both transports, so Backlog Health can call it stale later.
+    expect(Date.parse(stories[0].createdAt ?? "")).not.toBeNaN();
     expect(items.find((t) => t.id === "d1")?.sentTo).toEqual([
       { route: "backlog-story", targetId: out.storyId, at: expect.any(String) },
     ]);

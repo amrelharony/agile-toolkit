@@ -244,6 +244,34 @@ describe("the details panel's scenarios", () => {
     expect(rows()).toEqual([ROW, second]);
   });
 
+  it("tells the page which write is the delete and which its Undo, with one key", () => {
+    const writes: { gwt: StoryGwt[]; write?: { kind: string; key: string } }[] = [];
+    function Spy() {
+      const [s, setS] = useState(story({ gwt: [ROW] }));
+      return (
+        <StoryDetailsPanel
+          story={s}
+          onSave={() => {}}
+          onSaveGwt={(gwt, write) => {
+            writes.push({ gwt, write });
+            setS((cur) => withStoryGwt(cur, gwt));
+          }}
+        />
+      );
+    }
+    wrap(<Spy />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete scenario 1" }));
+    undoLast();
+    expect(writes).toHaveLength(2);
+    expect(writes[0]).toMatchObject({ gwt: [], write: { kind: "remove" } });
+    expect(writes[1]).toMatchObject({ gwt: [ROW], write: { kind: "restore" } });
+    expect(writes[1].write?.key).toBe(writes[0].write?.key);
+    // An edit is a plain write.
+    fireEvent.click(screen.getByRole("button", { name: "Edit scenario 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save scenario" }));
+    expect(writes[2].write).toBeUndefined();
+  });
+
   it("shows them read only beside the free text when the page has no editor", () => {
     wrap(
       <Harness initial={story({ acceptanceCriteria: "Any card.", gwt: [ROW] })} editable={false} />

@@ -50,11 +50,16 @@ import {
   pokerQueueRoute,
   storyQueueSource,
 } from "@/lib/handoffs/targets/poker-queue";
-import { withStoryDetails, withStoryGwt, type StoryDetails } from "@/lib/stories/fields";
+import {
+  withStoryDetails,
+  withStoryGwt,
+  type GwtWrite,
+  type StoryDetails,
+} from "@/lib/stories/fields";
 import { keptForSprintNote, sprintKeepingStory, storyRemoval } from "@/lib/stories/removal";
 import { leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
 import { undoable } from "@/lib/utils/undoable";
-import { withRefinedPutBack } from "@/lib/sprints/story-status";
+import { createRefinedMarks, withRefinedPutBack } from "@/lib/sprints/story-status";
 import { toast } from "@/lib/utils/toast";
 import {
   EMPTY_STORY_DRAFT,
@@ -177,6 +182,8 @@ export function PlanningBoard({
   // live region says about it.
   const refocus = useRef<FocusTarget | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  // The refinedAt a scenario delete left, so its Undo puts the earlier one back.
+  const [gwtMarks] = useState(createRefinedMarks);
 
   const velocity = useMemo(
     () => averageVelocity(completedSprints(sprints), sprint.id),
@@ -318,9 +325,17 @@ export function PlanningBoard({
   const saveDetails = (story: Story, details: StoryDetails) =>
     writer.upsertStory(withStoryDetails(fresh(story), details));
 
-  /** The story's Given/When/Then scenarios, beside its free-text criteria. */
-  const saveGwt = (story: Story, gwt: StoryGwt[]) =>
-    writer.upsertStory(withStoryGwt(fresh(story), gwt));
+  /**
+   * The story's Given/When/Then scenarios, beside its free-text criteria. A
+   * delete's Undo keeps the refinedAt the story had before the delete.
+   */
+  const saveGwt = (story: Story, gwt: StoryGwt[], write?: GwtWrite) => {
+    const current = fresh(story);
+    const next = withStoryGwt(current, gwt);
+    writer.upsertStory(write?.kind === "restore" ? gwtMarks.putBack(write.key, next) : next);
+    if (write?.kind === "remove")
+      gwtMarks.note(write.key, current.refinedAt, fresh(story).refinedAt);
+  };
 
   /** What a row's remove control may do: delete, leave a running sprint, or nothing. */
   const removalOf = (story: Story) => storyRemoval(story, sprints);

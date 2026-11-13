@@ -53,6 +53,8 @@ import {
   withStoriesInDemo,
 } from "@/lib/sprints/review-doc";
 import { buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
+import { stampStoryWrite } from "@/lib/sprints/story-status";
+import { cleanStoryFields } from "@/lib/stories/fields";
 
 const KIND_SR = "workspace:sprintReview";
 const KIND_SPRINT = "workspace:sprint";
@@ -93,8 +95,14 @@ const serverStore = (userId: string): ReviewStore => ({
   },
   getSprint: (id) => serverGetEntity<Sprint>(userId, KIND_SPRINT, id),
   listStories: () => serverListEntities<Story>(userId, KIND_STORY),
+  // A new backlog story (the only put): stamped as the browser's store
+  // stamps one (createdAt), so Backlog Health can date it.
   putStory: async (story) => {
-    await serverUpsertEntity<Story>(userId, KIND_STORY, story);
+    await serverUpsertEntity<Story>(
+      userId,
+      KIND_STORY,
+      stampStoryWrite(cleanStoryFields(story), undefined)
+    );
   },
   listGoals: () => serverListEntities<SprintGoal>(userId, KIND_SG),
 });

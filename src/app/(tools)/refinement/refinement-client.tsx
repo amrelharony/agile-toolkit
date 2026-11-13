@@ -23,10 +23,16 @@ import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { REFINEMENT_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { setStorySprint, setStoryStatus } from "@/lib/sprints/store";
+import { createRefinedMarks } from "@/lib/sprints/story-status";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story, StoryGwt } from "@/lib/stores/workspace-types";
 import { deleteStoryKeepingUndo } from "@/lib/stories/delete";
-import { withStoryDetails, withStoryGwt, type StoryDetails } from "@/lib/stories/fields";
+import {
+  withStoryDetails,
+  withStoryGwt,
+  type GwtWrite,
+  type StoryDetails,
+} from "@/lib/stories/fields";
 import { keptForSprintNote, sprintKeepingStory, storyRemoval } from "@/lib/stories/removal";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { cn } from "@/lib/utils";
@@ -129,6 +135,8 @@ export function RefinementClient() {
   );
   const { log } = useHistoryLogger("refinement");
   const exportRef = useRef<HTMLDivElement>(null);
+  // The refinedAt a scenario delete left, so its Undo puts the earlier one back.
+  const [gwtMarks] = useState(createRefinedMarks);
 
   const all = useMemo(() => [...stories, ...exampleStories], [stories, exampleStories]);
   const session = useMemo(() => refinementSession(all, backlogItems), [all, backlogItems]);
@@ -269,11 +277,18 @@ export function RefinementClient() {
     }
   }
 
-  /** The story's Given/When/Then scenarios, beside its free-text criteria. */
-  function saveGwt(story: Story, gwt: StoryGwt[]) {
+  /**
+   * The story's Given/When/Then scenarios, beside its free-text criteria. A
+   * delete's Undo keeps the refinedAt the story had before the delete.
+   */
+  function saveGwt(story: Story, gwt: StoryGwt[], write?: GwtWrite) {
     const current = findStory(story.id);
     if (!current) return;
-    putStory(withStoryGwt(current, gwt));
+    const next = withStoryGwt(current, gwt);
+    putStory(write?.kind === "restore" ? gwtMarks.putBack(write.key, next) : next);
+    if (write?.kind === "remove") {
+      gwtMarks.note(write.key, current.refinedAt, findStory(story.id)?.refinedAt);
+    }
     if (!isExampleId(current.id)) {
       log(REFINEMENT_ACTIONS.STORY_UPDATED, { storyId: current.id, gwt: gwt.length });
     }
@@ -665,7 +680,7 @@ export function RefinementClient() {
                     onPrevious={() => index > 0 && go(walk[index - 1].id)}
                     onNext={() => index < walk.length - 1 && go(walk[index + 1].id)}
                     onSaveDetails={(details) => saveDetails(focused, details)}
-                    onSaveGwt={(gwt) => saveGwt(focused, gwt)}
+                    onSaveGwt={(gwt, write) => saveGwt(focused, gwt, write)}
                     removal={storyRemoval(focused, sprints)}
                     keptNote={keptNote(focused)}
                     onDelete={() => deleteStory(focused)}

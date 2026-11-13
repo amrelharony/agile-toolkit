@@ -324,10 +324,11 @@ describe("send", () => {
       { id: "p1", route: "backlog-story" },
       true
     );
-    expect((server.rows.get(`workspace:story/${s.targetId}`) as Story).sourceRef).toEqual({
-      tool: "parking-lot",
-      id: "p1",
-    });
+    const sent = server.rows.get(`workspace:story/${s.targetId}`) as Story;
+    expect(sent.sourceRef).toEqual({ tool: "parking-lot", id: "p1" });
+    // Dated as a story the browser adds, so Backlog Health can call it stale later.
+    expect(Date.parse(sent.createdAt ?? "")).not.toBeNaN();
+    expect(sent.status).toBe("backlog");
     const listed = await run<{ items: { sentTo: { route: string; target: string }[] }[] }>(
       "tool.parking_lot.list_state",
       {},

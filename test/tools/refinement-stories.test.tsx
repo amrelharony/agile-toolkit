@@ -211,6 +211,23 @@ describe("the story being refined", () => {
     });
   });
 
+  it("undoing a scenario delete puts back the story's earlier refinement stamp", () => {
+    const old = "2026-05-01T09:00:00.000Z";
+    const gwt = [{ id: "g1", given: "a saved card", when: "I pay", then: "I'm charged once" }];
+    useWorkspaceStore.setState({
+      stories: STORIES.map((s) => (s.id === "a" ? { ...s, refinedAt: old, gwt } : { ...s })),
+    });
+    renderPage();
+    fireEvent.click(
+      within(details("Pay with a saved card")).getByRole("button", { name: "Delete scenario 1" })
+    );
+    expect(story("a")?.gwt).toBeUndefined();
+    expect(story("a")?.refinedAt).not.toBe(old);
+    undoLast();
+    expect(story("a")?.gwt).toEqual(gwt);
+    expect(story("a")?.refinedAt).toBe(old);
+  });
+
   it("offers to add details to a story that has none, and stays put when cancelled", () => {
     renderPage();
     fireEvent.click(

@@ -212,6 +212,42 @@ export function withRefinedPutBack(
   return out;
 }
 
+/** At most this many writes' stamps are kept for a later Undo (the latest). */
+const REFINED_MARKS_CAP = 50;
+
+/**
+ * The `refinedAt` stamps of writes an Undo may take back later, by key, for
+ * a page whose Undo arrives as a plain write (the Given/When/Then editor's
+ * delete): `note` after the write, with the stamp the story had before it
+ * and the one it left; `putBack` on the Undo's write, which then keeps the
+ * earlier stamp (`withRefinedPutBack`). Each key is used once.
+ */
+export interface RefinedMarks {
+  note(key: string, before: string | undefined, after: string | undefined): void;
+  putBack(key: string, next: Story): Story;
+}
+
+export function createRefinedMarks(): RefinedMarks {
+  const marks = new Map<string, { before: string | undefined; after: string | undefined }>();
+  return {
+    note(key, before, after) {
+      marks.delete(key);
+      marks.set(key, { before, after });
+      while (marks.size > REFINED_MARKS_CAP) {
+        const oldest = marks.keys().next().value;
+        if (oldest === undefined) break;
+        marks.delete(oldest);
+      }
+    },
+    putBack(key, next) {
+      const mark = marks.get(key);
+      if (!mark) return next;
+      marks.delete(key);
+      return withRefinedPutBack(next, mark.after, mark.before);
+    },
+  };
+}
+
 /**
  * Stamps for a story an agent wrote: `next` is the record about to be saved
  * and `prev` the stored one (undefined for a new story). A status change is
