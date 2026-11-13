@@ -346,6 +346,12 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: [],
     actions: { why_added: ["sticky.think"], cause_added: ["sticky.think"] },
   },
+  // A point parked is written on a sticky and stuck up; one sent on is a to-do taken.
+  {
+    toolId: "parking-lot",
+    open: [],
+    actions: { item_parked: ["sticky"], item_sent: ["todo.take"] },
+  },
 
   // ── Tools with the toolkit moments (S54–S59): no greeting, but their packs
   // load when the page opens, so the first reaction plays whole ──
