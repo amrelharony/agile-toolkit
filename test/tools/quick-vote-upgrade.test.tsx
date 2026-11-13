@@ -58,6 +58,7 @@ import { QuickVoteClient } from "@/app/(tools)/quick-vote/quick-vote-client";
 import { buildExample } from "@/app/(tools)/quick-vote/example";
 import { validateFormatName } from "@/app/(tools)/quick-vote/save-format-form";
 import { cardFace, faceBigClass, gridBigClass } from "@/app/(tools)/quick-vote/hold-up-cards";
+import { quickVoteHref } from "@/app/(tools)/picker/names-panel";
 import "@/lib/actions/tools/quick-vote";
 
 /* ── Helpers ────────────────────────────────────────────────────────── */
@@ -356,6 +357,79 @@ describe("picking a format", () => {
     pickFormat("ROTI");
     expect(qv().draft).toMatchObject({ presetId: "roti" });
     expect(toastSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("a poll from a link", () => {
+  const open = (href: string) => window.history.pushState({}, "", href);
+  afterEach(() => window.history.replaceState({}, "", "/"));
+
+  it("opens Picker's shortlist as a poll, and takes the link off the address", async () => {
+    open(quickVoteHref(["Volga", "Nile", "Amazon"]));
+    await renderPage();
+    expect(qv().draft).toMatchObject({
+      presetId: "poll",
+      customId: null,
+      question: "Which name should we pick?",
+      optionsText: "Volga\nNile\nAmazon",
+    });
+    expect(format("Poll")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText(/Options, one per line/)).toHaveValue("Volga\nNile\nAmazon");
+    expect(
+      screen.getByRole("heading", { name: "Count hands: Which name should we pick?" })
+    ).toBeInTheDocument();
+    // A reload doesn't set it up again; nothing the host typed was lost.
+    expect(window.location.pathname).toBe("/quick-vote");
+    expect(window.location.search).toBe("");
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it("brings the round the host had typed back with Undo", async () => {
+    setDraftOf("fist-of-five", { question: "Ready to ship?" });
+    open(quickVoteHref(["Volga", "Nile"]));
+    await renderPage();
+    expect(qv().draft).toMatchObject({ presetId: "poll", optionsText: "Volga\nNile" });
+    undo("Set up the poll from the link in place of your round");
+    expect(qv().draft).toMatchObject({ presetId: "fist-of-five", question: "Ready to ship?" });
+  });
+
+  it("keeps up to 20 names, and the form says how many a round takes", async () => {
+    const names = Array.from({ length: 25 }, (_, i) => `Name ${i + 1}`);
+    open(`/quick-vote?${new URLSearchParams({ preset: "poll", options: names.join("\n") })}`);
+    await renderPage();
+    expect(qv().draft!.optionsText.split("\n")).toEqual(names.slice(0, 20));
+    // No question in the link: the poll's own.
+    expect(qv().draft!.question).toBe(presetById("poll")!.question);
+    expect(
+      screen.getAllByText(/A live round takes at most 12 options: you have 20\./).length
+    ).toBeGreaterThan(0);
+  });
+
+  it("caps each value and ignores the rest", async () => {
+    open(
+      `/quick-vote?${new URLSearchParams({
+        preset: "poll",
+        question: "Which?",
+        options: `${"X".repeat(50)}\nNile\nnile`,
+        mode: "multi",
+        limit: "9",
+      })}`
+    );
+    await renderPage();
+    expect(qv().draft).toMatchObject({
+      presetId: "poll",
+      question: "Which?",
+      optionsText: `${"X".repeat(30)}\nNile`,
+      mode: "single",
+    });
+  });
+
+  it("leaves the page alone for a link that asks for another format", async () => {
+    open("/quick-vote?preset=dots&options=A%0AB");
+    await renderPage();
+    expect(qv().draft).toBeNull();
+    expect(format("Fist of five")).toHaveAttribute("aria-pressed", "true");
+    expect(window.location.search).toBe("?preset=dots&options=A%0AB");
   });
 });
 

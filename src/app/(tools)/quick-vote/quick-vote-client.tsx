@@ -38,6 +38,7 @@ import {
   type RoundDraft,
 } from "@/lib/quick-vote/draft";
 import { roundFor } from "@/lib/quick-vote/sheets";
+import { POLL_LINK_PARAMS, readPollLink } from "@/lib/quick-vote/link";
 import {
   guessVerdict,
   latestVerdict,
@@ -77,6 +78,18 @@ const DEFAULT_PRESET = presetById(DEFAULT_PRESET_ID) as QuickVotePreset;
 const FIELD_ORDER: DraftField[] = ["question", "options", "labels", "limit", "min", "max", "unit"];
 
 const ws = () => useWorkspaceStore.getState();
+
+/** Take a poll link's parameters off the address, so a reload doesn't set the poll up again. */
+function dropPollLink(): void {
+  try {
+    const url = new URL(window.location.href);
+    for (const key of POLL_LINK_PARAMS) url.searchParams.delete(key);
+    window.history.replaceState(window.history.state, "", url);
+  } catch {
+    /* no history API: the poll is set up all the same */
+  }
+}
+
 /** The draft as stored now (the page's copy can be a render behind). */
 const freshDraft = (fallback: RoundDraft) =>
   normalizeDraft(useQuickVote.getState().draft) ?? fallback;
@@ -160,6 +173,37 @@ export function QuickVoteClient() {
     replaceDraft(draftFromPreset(p), `Set up ${p.name} in place of your round`);
     announce(`${p.name} set up. ${p.blurb}`);
   };
+
+  // A link that asks for a poll (Picker's "Vote in Quick Vote" sends its
+  // shortlist) sets one up once the saved rounds are in, checked and capped
+  // (lib/quick-vote/link); a round the host had typed comes back with Undo.
+  const linkRead = useRef(false);
+  useEffect(() => {
+    if (!ready || linkRead.current) return;
+    linkRead.current = true;
+    const link = readPollLink(window.location.search);
+    if (!link) return;
+    dropPollLink();
+    const poll = presetById("poll") as QuickVotePreset;
+    const base = draftFromPreset(poll);
+    replaceDraft(
+      {
+        ...base,
+        question: link.question ?? base.question,
+        optionsText: link.options.join("\n"),
+      },
+      "Set up the poll from the link in place of your round"
+    );
+    announce(
+      link.options.length > 0
+        ? `Poll set up from the link, with ${link.options.length} ${
+            link.options.length === 1 ? "option" : "options"
+          }.`
+        : "Poll set up from the link."
+    );
+    // Once, when the saved rounds are in: replaceDraft reads the store itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   const pickCustom = (c: CustomPreset) => {
     if (readOnly) return;
