@@ -114,7 +114,7 @@ export const CORE_GUIDES: ToolGuide[] = [
       "When blockers come up at standup and then get forgotten.",
     ],
     steps: [
-      "The speaking order is your team from the Team page. On Walk the board, check the sprint (it opens on the active one), leave Each turn on Auto or pick a length, and click Start the standup.",
+      "The speaking order is your team from the Team page. Click Shuffle for a new order for today: it stays the same on every reload, and Back to roster order undoes it. On Walk the board, check the sprint (it opens on the active one), leave Each turn on Auto or pick a length, and click Start the standup.",
       "Each turn shows that person's stories by status, the blocked ones flagged, and what they planned last time. Click Next speaker, or Skip for now if they're not here yet (they come round again after everyone else). Click End standup to finish.",
       "Type their update in Today's Standup as they talk. Yesterday is filled in from their last plan, and Today is required. Click Submit Standup, or press Ctrl/⌘+Enter.",
       "Someone on leave? Click Not in today's standup next to their name. It lasts for today in this browser and the team stays as it is; Back in returns them.",

@@ -12,6 +12,7 @@ import { agendaPrompt } from "./facilitator-timers.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { themeNamesPrompt } from "./picker.server";
 import { productGoalDraftPrompt } from "./product-goal.server";
+import { sprintRiskNotePrompt } from "./sprint.server";
 
 // See index.ts on `any`: each prompt's input is checked by its task's schema first.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,4 +26,5 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   interruptClassifyPrompt,
   themeNamesPrompt,
   productGoalDraftPrompt,
+  sprintRiskNotePrompt,
 ];

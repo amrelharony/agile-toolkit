@@ -12,6 +12,7 @@ import { agendaTask } from "./facilitator-timers";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { themeNamesTask } from "./picker";
 import { productGoalDraftTask } from "./product-goal";
+import { sprintRiskNoteTask } from "./sprint";
 
 // `any` here only erases each task's own input/output types for the list; the
 // routes check every input and output against the task's schemas at run time.
@@ -26,4 +27,5 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   interruptClassifyTask,
   themeNamesTask,
   productGoalDraftTask,
+  sprintRiskNoteTask,
 ];

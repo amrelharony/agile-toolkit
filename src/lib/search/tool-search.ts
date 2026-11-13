@@ -15,7 +15,14 @@ import { buildKbIndex, matchKb, type KbIndex } from "./kb-core";
 
 /** Extra search vocabulary per tool id. Plain words; phrases are tokenised. */
 export const TOOL_KEYWORDS: Record<string, string[]> = {
-  standup: ["daily scrum", "daily standup", "stand-up", "yesterday today blockers"],
+  standup: [
+    "daily scrum",
+    "daily standup",
+    "stand-up",
+    "yesterday today blockers",
+    "shuffle speakers",
+    "speaking order",
+  ],
   "async-standup": ["daily scrum", "written standup", "remote", "slack update"],
   retro: ["retrospective", "start stop continue", "4ls", "sailboat", "mad sad glad"],
   "retro-actions": [
@@ -53,6 +60,8 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "ceremonies",
     "scrum board",
     "sprint overview",
+    "goal at risk",
+    "wall mode",
   ],
   "sprint-planning": [
     "sprint planning",
@@ -66,7 +75,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   burndown: ["sprint progress", "remaining work"],
   burnup: ["scope", "release progress"],
   velocity: ["sprint metrics", "throughput", "points per sprint"],
-  "cycle-time": ["lead time", "flow metrics"],
+  "cycle-time": ["lead time", "flow metrics", "flow efficiency", "time in status", "wait time"],
   "cumulative-flow": ["cfd", "flow metrics", "wip"],
   kanban: ["board", "wip limits", "flow"],
   "risk-register": ["risks", "raid", "mitigation"],
@@ -124,7 +133,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "soundboard",
   ],
   "story-mapper": ["user story map", "journey", "release slices", "mvp"],
-  "release-planner": ["roadmap", "release", "forecast"],
+  "release-planner": ["roadmap", "release", "forecast", "throughput", "monte carlo", "cut line"],
   "epic-roadmap": ["roadmap", "epics", "timeline"],
   "pi-planning": ["safe", "program increment", "art"],
   okrs: ["objectives", "key results", "goals"],

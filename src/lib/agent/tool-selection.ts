@@ -142,6 +142,13 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
     "workspace.poker_estimation_log",
     "tool.backlog_health",
   ],
+  // Velocity reads the sprints; the item count reads finished stories, Flow-board cards and the roadmap's epics.
+  "release-planner": [
+    "workspace.sprint",
+    "workspace.story",
+    "workspace.kanban_board",
+    "workspace.epic_roadmap",
+  ],
   retro: ["workspace.retro_board"],
   "retro-actions": ["workspace.retro_board"],
   "rice-scoring": ["workspace.prioritization"],
@@ -152,11 +159,14 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   "six-hats": ["workspace.six_hats_thought", "workspace.six_hats_session"],
   "skills-matrix": ["workspace.team_member"],
   "sm-notebook": ["workspace.notebook_entry"],
+  // The goal check also reads impediments and the interrupt buffer.
   sprint: [
     "workspace.sprint",
     "workspace.sprint_series",
     "workspace.story",
     "workspace.ceremony_cadence",
+    "workspace.impediment",
+    "workspace.interrupt_item",
   ],
   "sprint-compare": ["workspace.sprint_series", "workspace.sprint"],
   "sprint-goal": ["tool.product_goal"],
