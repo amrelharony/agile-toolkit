@@ -104,7 +104,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   ],
   "audience-wall": [
     "word cloud",
-    "q&a",
+    "questions and answers",
     "audience questions",
     "upvote",
     "brainwriting",
@@ -146,9 +146,14 @@ function getIndex() {
   return cached;
 }
 
-/** Spellings the tokenizer would otherwise drop ("1:1" is two 1-char tokens). */
+/**
+ * Spellings the tokenizer would otherwise drop ("1:1" and "Q&A" are each two
+ * 1-char tokens).
+ */
 function normalizeQuery(query: string): string {
-  return query.replace(/\b1\s*[:\-/]\s*1s?\b/gi, " one on one ");
+  return query
+    .replace(/\b1\s*[:\-/]\s*1s?\b/gi, " one on one ")
+    .replace(/\bq\s*(?:&|and|n)\s*a\b/gi, " questions and answers ");
 }
 
 /** Best tools for `query`, most relevant first. Empty query → []. */
