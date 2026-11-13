@@ -28,8 +28,9 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
 vi.mock("@/components/shared/export-button", () => ({ ExportButton: () => null }));
+const logSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/history/use-history-logger", () => ({
-  useHistoryLogger: () => ({ log: vi.fn() }),
+  useHistoryLogger: () => ({ log: logSpy }),
 }));
 
 import { SHUFFLE_KEY, StandupClient } from "@/app/(tools)/standup/standup-client";
@@ -40,6 +41,7 @@ import {
   speakingOrder,
 } from "@/app/(tools)/standup/model";
 import { resetStandupWalk } from "@/app/(tools)/standup/walk";
+import { STANDUP_ACTIONS } from "@/lib/history/event-actions";
 
 vi.setConfig({ testTimeout: 20_000 });
 
@@ -63,6 +65,7 @@ const shown = () =>
 const announced = () => screen.getByTestId("live-polite").textContent ?? "";
 
 beforeEach(() => {
+  logSpy.mockClear();
   localStorage.clear();
   sessionStorage.clear();
   resetSelectedSprint();
@@ -177,6 +180,18 @@ describe("Shuffle on the standup page", () => {
     expect(screen.getByText(/Speaking now · turn 2 of 6/).nextSibling).toHaveTextContent(order[1]);
     fireEvent.click(screen.getByRole("button", { name: "End standup" }));
     expect(screen.getByRole("button", { name: "Back to roster order" })).toBeInTheDocument();
+  });
+
+  it("logs a shuffle to history, and nothing for going back to roster order", () => {
+    renderStandup();
+    fireEvent.click(screen.getByRole("button", { name: "Shuffle" }));
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith(STANDUP_ACTIONS.ORDER_SHUFFLED, {
+      date: TODAY,
+      speakers: TEAM.length,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Back to roster order" }));
+    expect(logSpy).toHaveBeenCalledTimes(1);
   });
 
   it("offers no Shuffle with one person to call on", () => {

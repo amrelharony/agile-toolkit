@@ -164,6 +164,7 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
   }, [rosterNames, entries, today, away, shuffled]);
   const shuffle = () => {
     setShuffleState({ date: today, on: true });
+    log(STANDUP_ACTIONS.ORDER_SHUFFLED, { date: today, speakers: order.length });
     announce("Speaking order shuffled for today");
   };
   const rosterOrder = () => {
