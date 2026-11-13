@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -66,6 +66,26 @@ async function tick(ms: number) {
   });
   await flush();
 }
+
+/**
+ * A host's open room loads only once the room opens (next/dynamic): wait in
+ * real time for the import (`vi.waitFor` keeps the real timers), moving the
+ * faked clock a little each turn so React swaps the placeholder out.
+ */
+async function settle(done: () => boolean) {
+  await vi.waitFor(
+    async () => {
+      await act(async () => {
+        vi.advanceTimersByTime(20);
+      });
+      expect(done()).toBe(true);
+    },
+    { timeout: 10_000, interval: 20 }
+  );
+}
+
+// The show room's open room, warmed so the wait for it is short.
+beforeAll(() => import("@/components/collab/show-room/host-show-room"));
 
 async function deliver(ch: FakeChannel, event: string, payload: unknown) {
   act(() => ch.deliver(event, payload));
@@ -440,7 +460,7 @@ describe("ShowRoomHost", () => {
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Start room" }));
     });
-    await flush();
+    await settle(() => fakeRealtime.channels.length > 0);
     const ch = fakeRealtime.last();
     expect(ch.name).toMatch(/^visitor:picker:[A-Z0-9]{12}$/);
     act(() => ch.connect());
