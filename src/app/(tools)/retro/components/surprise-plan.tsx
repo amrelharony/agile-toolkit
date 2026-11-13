@@ -160,7 +160,7 @@ export function SurprisePlanPanel({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 w-7 shrink-0 p-0 text-sub"
+              className="min-touch-coarse h-7 w-7 shrink-0 p-0 text-sub"
               aria-label="Close the surprise plan"
               onClick={close}
             >

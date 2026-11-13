@@ -215,6 +215,21 @@ describe("the plan on the board", () => {
     expect(screen.queryByRole("complementary")).toBeNull();
   });
 
+  it("moves focus to the next control when the plan is dismissed", () => {
+    savePlan({ ...saved, at: new Date().toISOString() });
+    wrap(
+      <div>
+        <RetroPlanNote formatId="starfish" phase="write" />
+        <button type="button">Next on the board</button>
+      </div>
+    );
+    const dismiss = screen.getByRole("button", { name: "Dismiss the retro plan" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(screen.getByRole("button", { name: "Next on the board" })).toHaveFocus();
+  });
+
   it("starts a board from the picker, logged as a surprise, with its opening shown", () => {
     wrap(<RetroClient />);
     fireEvent.click(screen.getByRole("button", { name: /Surprise me/ }));

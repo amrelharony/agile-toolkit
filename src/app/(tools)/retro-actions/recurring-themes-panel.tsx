@@ -11,6 +11,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Repeat } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { AiButton } from "@/components/ai";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { SectionCard } from "@/components/shared/section-card";
@@ -50,6 +51,7 @@ export function RecurringThemesPanel({
   preview?: boolean;
 }) {
   const count = archivedRetroCount(boards);
+  const announce = useAnnounce();
   const [ai, setAi] = useState<{ themes: RecurringTheme[]; source: AiSource } | null>(null);
   const [showAi, setShowAi] = useState(true);
   const textOf = useMemo(
@@ -98,8 +100,15 @@ export function RecurringThemesPanel({
               variant="outline"
               onResult={(data, meta) => {
                 const ids = asked.current?.ids ?? themesInput(boards).ids;
-                setAi({ themes: themesFromAi(boards, ids, data.themes), source: meta.source });
+                const found = themesFromAi(boards, ids, data.themes);
+                setAi({ themes: found, source: meta.source });
                 setShowAi(true);
+                // The list below changes in place: say what came back.
+                announce(
+                  found.length === 0
+                    ? `Nothing came up in ${RECURRING_MIN_RETROS} or more retros.`
+                    : `${found.length} ${found.length === 1 ? "theme" : "themes"} below.`
+                );
               }}
             />
           ) : undefined
@@ -154,7 +163,10 @@ export function RecurringThemesPanel({
                     </p>
                   )}
                   <details className="mt-1">
-                    <summary className="cursor-pointer text-xs font-medium text-accent">
+                    <summary
+                      aria-label={`The cards for “${t.name}”`}
+                      className="cursor-pointer py-1 text-xs font-medium text-accent pointer-coarse:min-h-11 pointer-coarse:py-3"
+                    >
                       The cards
                     </summary>
                     <ul className="mt-1 space-y-0.5 text-xs text-sub">

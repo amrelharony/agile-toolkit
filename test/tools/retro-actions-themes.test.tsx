@@ -132,9 +132,20 @@ describe("recurring themes", () => {
     expect(exported.markdown).toContain("came back after “Fix staging data” was done");
   });
 
-  it("finds themes without AI when Amr isn't on", () => {
+  it("names each theme's card list after its theme", () => {
+    renderPage();
+    const summary = within(panel()).getByText("The cards");
+    expect(summary.tagName).toBe("SUMMARY");
+    expect(summary).toHaveAttribute("aria-label", "The cards for “staging”");
+  });
+
+  it("finds themes without AI when Amr isn't on", async () => {
     renderPage();
     fireEvent.click(within(panel()).getByRole("button", { name: "Find themes without AI" }));
+    // The list changes in place, so what came back is said.
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent("1 theme below.")
+    );
     expect(within(panel()).getByText(/Amr wasn't available/)).toBeInTheDocument();
     expect(within(panel()).getByText("staging")).toBeInTheDocument();
     fireEvent.click(within(panel()).getByRole("button", { name: "Show the shared words instead" }));
