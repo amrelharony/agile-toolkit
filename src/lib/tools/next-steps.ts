@@ -2372,6 +2372,42 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Tools plan, phase 1. Card Decks keeps its decks in its own store; from
+  // the workspace it sees the next ceremony to open with a card, and the big
+  // backlog stories the story-splitting deck helps with.
+  "card-decks": rule({
+    select: (ws) => ({ stories: ws.stories, sprints: ws.sprints, cadences: ws.ceremonyCadences }),
+    steps: ({ stories, sprints, cadences }) => {
+      const steps: NextStep[] = [];
+      const sprint = activeSprint(sprints);
+      if (sprint) {
+        const now = new Date();
+        const cadence = normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }));
+        const [next] = nextCeremonies(sprint, cadence, now, 1);
+        if (next && next.at.getTime() - now.getTime() <= TIMER_LEAD_MS) {
+          steps.push({
+            id: "card-decks-ceremony",
+            label: `Go on to the ${CEREMONY_LABEL[next.kind]}`,
+            detail: `It starts ${whenLabel(next.at, now)}. Open it with a card, then run it there.`,
+            href: sprintHref(CEREMONY_HREF[next.kind], sprint.id),
+          });
+        }
+      }
+      const big = real(stories).filter(
+        (s) => inBacklog(s) && typeof s.points === "number" && s.points >= 13
+      ).length;
+      if (big > 0) {
+        steps.push({
+          id: "card-decks-split",
+          label: "Split the big stories in Refinement",
+          detail: `${plural(big, "story", "stories")} on the backlog ${be(big)} 13 points or more. Take the story-splitting cards along.`,
+          href: "/refinement",
+        });
+      }
+      return steps;
+    },
+  }),
+
   "ice-score": rule({
     select: (ws) => ({ rows: ws.prioritizations }),
     steps: ({ rows }) => {
