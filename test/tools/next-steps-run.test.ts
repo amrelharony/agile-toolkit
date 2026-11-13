@@ -339,3 +339,63 @@ describe("picker (tools plan phase 1)", () => {
     );
   });
 });
+
+describe("quick-vote", () => {
+  it("leads a proposed decision to the Decision Log and a vote's topic to the retro", () => {
+    const out = steps("quick-vote", {
+      decisions: [
+        {
+          id: "d1",
+          title: "Thursday demos? Most picked: Thumbs up (4)",
+          decision: "",
+          status: "proposed",
+          sourceRef: { tool: "quick-vote", id: "qvr-1" },
+        } as never,
+      ],
+      retroBoards: [
+        {
+          id: "retro:current",
+          cards: [
+            {
+              id: "c1",
+              text: "Worth it? Average 2.1 of 4",
+              isActionItem: false,
+              sourceRef: { tool: "quick-vote", id: "qvr-2" },
+            },
+            {
+              id: "example-c2",
+              text: "Example",
+              isActionItem: false,
+              sourceRef: { tool: "quick-vote", id: "x" },
+            },
+          ],
+        } as never,
+      ],
+    });
+    expect(out.map((s) => [s.id, s.href])).toEqual([
+      ["quick-vote-decide", "/decision-log?id=d1"],
+      ["quick-vote-retro", "/retro"],
+    ]);
+    expect(out[0].label).toBe(
+      "Record the decision on “Thursday demos? Most picked: Thumbs up (4)”"
+    );
+    expect(out[1].detail).toBe("1 vote result is on the retro board.");
+  });
+
+  it("stays quiet with nothing sent, or once the decision is made", () => {
+    expect(ids("quick-vote", { decisions: [], retroBoards: [] })).toEqual([]);
+    expect(
+      ids("quick-vote", {
+        decisions: [
+          {
+            id: "d1",
+            title: "X",
+            decision: "Go",
+            status: "accepted",
+            sourceRef: { tool: "quick-vote", id: "q" },
+          } as never,
+        ],
+      })
+    ).toEqual([]);
+  });
+});
