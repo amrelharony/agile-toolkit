@@ -119,6 +119,7 @@ const UPGRADED_TOOLS = [
   "facilitator-timers",
   "root-cause",
   "team-mixer",
+  "card-decks",
   // Book readers: the Squad Session Kit. Meet the Cast and Which Colleague hold no
   // team data, so there's nothing to load, export or undo in them.
   "squad-session",

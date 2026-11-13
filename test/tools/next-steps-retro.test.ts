@@ -6,6 +6,7 @@ import type {
   Risk,
   RootCauseAnalysis,
   Sprint,
+  Story,
   Workspace,
 } from "@/lib/stores/workspace-types";
 import { blankRetroBoard } from "@/lib/retro/board";
@@ -375,5 +376,55 @@ describe("icebreaker", () => {
     });
     vi.setSystemTime(new Date("2026-10-24T09:00:00"));
     expect(ids("icebreaker", { sprints: [sprint()], ceremonyCadences: [] })).toEqual([]);
+  });
+});
+
+describe("card-decks", () => {
+  const story = (id: string, over: Partial<Story> = {}): Story => ({
+    id,
+    title: `Story ${id}`,
+    status: "backlog",
+    points: 3,
+    ...over,
+  });
+
+  it("leads on to a ceremony starting within the hour", () => {
+    // Monday 26 Oct at 09:00; the default Daily Scrum is at 09:30.
+    vi.setSystemTime(new Date("2026-10-26T09:00:00"));
+    expect(
+      steps("card-decks", { sprints: [sprint()], ceremonyCadences: [], stories: [] })[0]
+    ).toMatchObject({
+      id: "card-decks-ceremony",
+      label: "Go on to the Daily Scrum",
+      href: "/standup?sprint=s2",
+    });
+    vi.setSystemTime(new Date("2026-10-24T09:00:00"));
+    expect(ids("card-decks", { sprints: [sprint()], ceremonyCadences: [], stories: [] })).toEqual(
+      []
+    );
+  });
+
+  it("takes the story-splitting cards to the big backlog stories, examples, done and planned ones left out", () => {
+    const out = steps("card-decks", {
+      sprints: [],
+      ceremonyCadences: [],
+      stories: [
+        story("a", { points: 13 }),
+        story("b", { points: 20 }),
+        story("c", { points: 5 }),
+        story("d", { points: 21, status: "done" }),
+        story("e", { points: 13, sprintId: "s2" }),
+        story("example-f", { points: 40 }),
+      ],
+    });
+    expect(out).toEqual([
+      {
+        id: "card-decks-split",
+        label: "Split the big stories in Refinement",
+        detail:
+          "2 stories on the backlog are 13 points or more. Take the story-splitting cards along.",
+        href: "/refinement",
+      },
+    ]);
   });
 });

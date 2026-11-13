@@ -8,6 +8,7 @@ import type { AiTaskDef } from "../task-types";
 import { suggestOptionsTask } from "./_example";
 import { clusterTask, mergeQuestionsTask, toBacklogTask } from "./audience-wall";
 import { backlogHealthReviewTask } from "./backlog-health";
+import { cardForMoodTask, generateCardsTask } from "./card-decks";
 import { agendaTask } from "./facilitator-timers";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { themeNamesTask } from "./picker";
@@ -26,6 +27,8 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   mergeQuestionsTask,
   toBacklogTask,
   backlogHealthReviewTask,
+  generateCardsTask,
+  cardForMoodTask,
   agendaTask,
   interruptClassifyTask,
   themeNamesTask,

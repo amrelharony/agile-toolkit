@@ -467,18 +467,18 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "card-decks",
     summary:
-      "Card Decks deals prompt cards one at a time: retro questions, coaching questions, storytelling prompts, story-splitting patterns and appreciation cards, all written for this toolkit. Deal them on your screen or to a live room.",
+      "Card Decks deals prompt cards one at a time: retro questions, coaching questions, storytelling prompts, story-splitting patterns and appreciation cards, all written for this toolkit, plus check-in and check-out activities from the Ice Breaker. Deal them on your screen or to everyone's phone in a live room.",
     whenToUse: [
       "To open a retro or a check-in with a fresh question.",
       "In refinement, to try one splitting pattern at a time on a big story.",
       "In a coaching conversation, when you need a good question.",
     ],
     steps: [
-      "Pick a deck: retro prompts, coaching, storytelling, story splitting, appreciation, or the check-in and check-out questions from the Ice Breaker.",
-      "Deal one card at a time, shuffle to mix the deck, or go back to the last card.",
-      "In a live room, everyone sees the card you deal on their own screen.",
-      "Star the cards you like to find them again, and hide the ones that don't fit your team.",
-      "Ask Amr writes a short deck on a theme you give, or picks a card that fits the team's mood. You keep the cards you want.",
+      "Pick a deck: retro prompts, coaching questions, “Tell us about…” storytelling, story splitting, Yay! appreciation questions, or the check-in and check-out activities from the Ice Breaker.",
+      "Deal one card, or a hand of up to seven for small groups. A card comes up once a round: Shuffle starts a new round, and Back one deal puts the last cards back.",
+      "In a live room, Deal for the room puts the cards on everyone's phone, with the deck's name. Your other decks and your marks are not sent to the room.",
+      "Star the cards you like, mark a card used so later meetings skip it, and hide the ones that don't fit your team.",
+      "Write decks of your own, one card per line. Ask Amr writes a deck on a theme, or picks a card that fits the team's mood from the Mood Tracker. Nothing is added or dealt until you choose it, and Undo takes it back.",
     ],
     tips: [
       "One good question beats five quick ones: give people time to think before anyone answers.",

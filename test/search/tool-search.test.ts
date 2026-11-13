@@ -27,6 +27,9 @@ describe("searchTools", () => {
     ["coffee chat", "team-mixer"],
     ["pair rotation", "team-mixer"],
     ["world café", "team-mixer"],
+    ["retro questions", "card-decks"],
+    ["coaching questions", "card-decks"],
+    ["check-in questions", "card-decks"],
   ])("finds the right tool for %j", (query, expected) => {
     expect(ids(query, 3)).toContain(expected);
   });
