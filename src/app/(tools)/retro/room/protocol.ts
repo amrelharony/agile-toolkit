@@ -27,14 +27,16 @@
  * keep sharing a room. Both new parts are optional and additive:
  *  - the snapshot's `poll` (`RoomPoll`), present only while the host runs a
  *    vote: the topic, whether it is open, how many voted, and once it is
- *    closed the totals, never who voted what. A tab on the earlier build
+ *    closed the totals; no snapshot says who voted what. A tab on the earlier build
  *    rebuilds its snapshot from known fields only, so it ignores `poll`,
  *    and this build leaves out a poll it can't read rather than the room;
  *  - the intent `thumb`, which a host on the earlier build refuses on its
  *    `t` like any unknown intent. A tab only sends one while the host's
  *    snapshot carries an open poll, which only this build's host sends.
  * A thumb sends a lock like a vote does; changing it sends the key behind
- * that lock and a new lock, so only the voter's tab can change it.
+ * that lock and a new lock, so only the voter's tab can change it. Like a
+ * vote, the thumb intent itself goes to every peer with the sender's id in
+ * clear: the app never shows it, but it isn't sealed (see thumbs.ts).
  *
  * No message the host sends says who wrote a card or cast a vote. Who owns
  * what is a host-side record in memory (`intents.ts`), never shared or
@@ -131,8 +133,9 @@ export type ThumbChoice = "keep" | "move";
 
 /**
  * Revision 2: the host's thumbs vote as the room shares it. While open it
- * says only how many have voted; once closed, the totals as well. Never
- * who voted, or what.
+ * says only how many have voted; once closed, the totals as well. It never
+ * says who voted, or what (though the thumb intents themselves aren't
+ * sealed: see thumbs.ts).
  */
 export interface RoomPoll {
   /** The poll's id (an intent-id-shaped random id). */

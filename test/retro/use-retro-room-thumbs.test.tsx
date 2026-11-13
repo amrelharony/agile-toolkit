@@ -214,6 +214,26 @@ describe("hosting the thumbs vote", () => {
     expect(result.current.room.thumbs.poll).toMatchObject({ voters: 0 });
   });
 
+  it("keeps a closed vote's totals when a member leaves or is removed", () => {
+    const { result, ch, pollId } = opened();
+    act(() => {
+      ch.deliver("retro:intent", thumb(ME.id, pollId, "keep", KEY_ME));
+      ch.deliver("retro:intent", thumb(OTHER.id, pollId, "move", KEY_OTHER));
+    });
+    act(() => result.current.room.thumbs.close());
+    flush();
+    const shown = states().at(-1)!.poll;
+    expect(shown).toMatchObject({ open: false, keep: 1, move: 1, voters: 2 });
+    // Recounting would show the room how the one who left had voted.
+    act(() => ch.setPresence([HOST, ME]));
+    flush();
+    expect(result.current.room.thumbs.poll).toMatchObject({ keep: 1, move: 1, voters: 2 });
+    expect(states().at(-1)!.poll).toEqual(shown);
+    act(() => result.current.room.kick(ME.id));
+    flush();
+    expect(states().at(-1)!.poll).toEqual(shown);
+  });
+
   it("starts a fresh vote each time it asks", () => {
     const { result, ch, pollId } = opened();
     act(() => ch.deliver("retro:intent", thumb(ME.id, pollId, "keep", KEY_ME)));

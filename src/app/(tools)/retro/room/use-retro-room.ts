@@ -29,9 +29,11 @@
  *  - can remove a member: a blocklist (their intents are dropped) plus a
  *    `retro:kick` asking their client to leave. Soft: a new tab gets a new id;
  *  - runs the Lean Coffee thumbs vote (protocol revision 2, `thumbs`): who
- *    put which thumb stays in memory here (thumbs.ts); a snapshot says how
- *    many voted, and the totals once the vote is closed. A member who leaves
- *    or is removed takes their thumb with them.
+ *    put which thumb stays in memory here (thumbs.ts) and no snapshot says;
+ *    a snapshot says how many voted, and the totals once the vote is
+ *    closed. A member who leaves or is removed while it's open takes their
+ *    thumb with them; once closed, the totals stay as shown. (The thumb
+ *    intents themselves reach every peer unsealed, like votes: thumbs.ts.)
  *
  * Participant:
  *  - trusts the first host it hears from that is in presence, then only that
@@ -1064,7 +1066,8 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     const left = Array.from(seenMembersRef.current).some((id) => !ids.has(id));
     seenMembersRef.current = ids;
     if (joined || left) touch();
-    // Someone who left takes their thumb with them: the totals count who's here.
+    // Someone who left an open vote takes their thumb with them: the totals
+    // count who's here. A closed vote keeps the totals it showed (thumbs.ts).
     const poll = pollRef.current;
     if (left && poll) {
       const next = withoutVoters(poll, (id) => !ids.has(id));
@@ -1426,7 +1429,7 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
       blockedRef.current.add(id);
       setRemovedVersion((n) => n + 1);
       roomRef.current.broadcast(RETRO_ROOM_EVENTS.kick, { by: selfId, id });
-      // A removed member's thumb no longer counts.
+      // A removed member's thumb no longer counts while the vote is open.
       if (pollRef.current) setPoll(withoutVoters(pollRef.current, (m) => m === id));
       scheduleSnapshot();
     },

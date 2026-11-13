@@ -4,9 +4,19 @@
  * member puts a thumb up or down, and the host closes the vote to show the
  * totals.
  *
- * The poll lives in the host's memory only, like the intent ledger: who
- * voted what never leaves it. The room's snapshot carries `toRoomPoll`:
- * while the vote is open, how many have voted; once closed, the totals too.
+ * The poll lives in the host's memory only, like the intent ledger, and no
+ * message the host sends says who voted what. The room's snapshot carries
+ * `toRoomPoll`: while the vote is open, how many have voted; once closed,
+ * the totals too, frozen from then on (a member who leaves after the close
+ * keeps their thumb in the totals, or the change would show how they voted).
+ *
+ * Not anonymous on the wire: like a card's vote, a thumb is a `thumb`
+ * intent broadcast on the room's channel with the sender's member id in
+ * clear, and every peer receives every intent. The app never shows it, but
+ * a participant's tab with devtools open could pair a thumb with a name.
+ * The vote kit (lib/realtime/vote-room) seals ballots to the host's key;
+ * this room has no host key to seal to (an accepted risk for a low-stakes
+ * keep-going question, the same as the board's dot votes).
  *
  * A first thumb comes with a lock (the SHA-256 of a key only the voter's
  * tab holds); changing it needs that key, and brings a new lock. `by` is
@@ -93,8 +103,13 @@ export function applyThumb(poll: ThumbPoll | null, env: IntentEnv, ctx: ThumbCon
   return { ok: true, poll: { ...poll, votes } };
 }
 
-/** The poll without the votes of members who left or were removed. */
+/**
+ * The open poll without the votes of members who left or were removed. A
+ * closed poll is returned as it is: its totals were shown to the room, and
+ * recounting them as someone leaves would show the room that member's thumb.
+ */
 export function withoutVoters(poll: ThumbPoll, gone: (id: string) => boolean): ThumbPoll {
+  if (!poll.open) return poll;
   const entries = Object.entries(poll.votes);
   const kept = entries.filter(([id]) => !gone(id));
   return kept.length === entries.length ? poll : { ...poll, votes: Object.fromEntries(kept) };

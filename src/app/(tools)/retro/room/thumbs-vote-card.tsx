@@ -4,7 +4,8 @@
  * A participant's view of the host's thumbs vote (Lean Coffee): "Keep going
  * or move on?" about the topic being discussed. Thumb up or down while it's
  * open, and change it if you change your mind; once the host closes it,
- * the totals and what they say. Never who voted what.
+ * the totals and what they say. The screen never shows who voted what
+ * (the thumb itself isn't sealed on the wire: see thumbs.ts).
  */
 
 import { ThumbsDown, ThumbsUp } from "lucide-react";
