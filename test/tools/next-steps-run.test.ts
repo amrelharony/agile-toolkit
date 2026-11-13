@@ -281,3 +281,33 @@ describe("sprint-review", () => {
     expect(ids("sprint-review", { sprints: [s1], sprintReviews: [], stories: [] })).toEqual([]);
   });
 });
+
+describe("interrupt-buffer (tools plan phase 1)", () => {
+  it("sends a sprint over its buffer to the cockpit", () => {
+    const out = steps("interrupt-buffer", {
+      sprints: [sprint({ interruptBuffer: { points: 2 } })],
+      interruptItems: [
+        {
+          id: "i1",
+          sprintId: "s2",
+          title: "Login broken",
+          kind: "bug",
+          size: 3,
+          emergency: false,
+          loggedAt: "2026-10-20T09:00:00.000Z",
+        },
+      ],
+    });
+    expect(out.map((s) => s.id)).toEqual(["interrupt-buffer-over"]);
+    expect(out[0].href).toBe("/sprint?sprint=s2");
+  });
+
+  it("stays quiet within the buffer", () => {
+    expect(
+      ids("interrupt-buffer", {
+        sprints: [sprint({ interruptBuffer: { points: 8 } })],
+        interruptItems: [],
+      })
+    ).toEqual([]);
+  });
+});

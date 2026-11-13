@@ -3,7 +3,14 @@
  * status line per card, and the whole charter as Markdown. Pure.
  */
 
-import type { Sprint, Story, TeamMember, WorkingAgreement } from "@/lib/stores/workspace-types";
+import type {
+  ProductGoal,
+  Sprint,
+  Story,
+  TeamMember,
+  WorkingAgreement,
+} from "@/lib/stores/workspace-types";
+import { activeGoal, targetText } from "@/lib/product-goal/model";
 import { CEREMONY_LABEL, WEEKDAY_LABEL, type CeremonyCadence } from "@/lib/sprints/cadence";
 import { isExampleSprintId } from "@/lib/sprints/example";
 import { sprintsByEndDate } from "@/lib/sprints/metrics";
@@ -65,6 +72,24 @@ export interface CharterDocs {
   stories?: readonly Story[];
   /** The workspace's sprints: the DoD card reads the latest completed one. */
   sprints?: readonly Sprint[];
+  /**
+   * The workspace's Product Goals: the charter shows the active one as a
+   * read-only line (example goals left out). Absent: not shown.
+   */
+  productGoals?: readonly ProductGoal[];
+}
+
+/** The active Product Goal as the charter shows it, or null when none is active. */
+export function charterProductGoal(
+  docs: Pick<CharterDocs, "productGoals">
+): { statement: string; target: string; measures: string[] } | null {
+  const goal = activeGoal(docs.productGoals);
+  if (!goal) return null;
+  return {
+    statement: goal.statement.replace(/\s+/g, " ").trim(),
+    target: targetText(goal.targetDate),
+    measures: goal.measures.map((m) => m.replace(/\s+/g, " ").trim()).filter(Boolean),
+  };
 }
 
 /** One card of the estimation scale and the team's reference stories pinned on it. */
@@ -384,6 +409,19 @@ export function charterMarkdown(docs: CharterDocs, today: string): string {
     `As of ${today}.`,
     "",
   ];
+
+  if (docs.productGoals !== undefined) {
+    const goal = charterProductGoal(docs);
+    lines.push("## Product Goal", "");
+    if (!goal) lines.push("No Product Goal yet.", "");
+    else {
+      lines.push(`${oneLine(goal.statement)}${goal.target ? ` (${goal.target})` : ""}`);
+      if (goal.measures.length > 0) {
+        lines.push("", ...goal.measures.map((m) => `- ${oneLine(m)}`));
+      }
+      lines.push("");
+    }
+  }
 
   lines.push("## Team", "");
   if (docs.members.length === 0) lines.push("No members listed yet.");
