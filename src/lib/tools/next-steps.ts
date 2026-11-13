@@ -45,6 +45,8 @@ import { unansweredGoal } from "@/app/(tools)/sprint-goal/doc";
 import { cycleStats } from "@/lib/kanban/flow";
 import { impedimentStatus } from "@/lib/impediments/model";
 import { RETRO_CURRENT_ID, collectRetroActions, followThroughByRetro } from "@/lib/retro/actions";
+import { recurringThemes } from "@/lib/retro/recurring-themes";
+import { liveOnBoards, sentLink } from "@/lib/root-cause/model";
 import { hasOwnCards } from "@/lib/retro/board";
 import { LS_DOC_ID } from "@/lib/liberating-structures/doc";
 import { lsStructure } from "@/lib/liberating-structures/catalog";
@@ -2150,6 +2152,15 @@ const RULES: Record<string, NextStepRule<object>> = {
           href: "/retro",
         });
       }
+      const back = recurringThemes(all.filter((b) => !isExampleId(b.id))).find((t) => t.cameBack);
+      if (back?.cameBack) {
+        steps.push({
+          id: "retro-actions-came-back",
+          label: `Find the root cause of “${clip(back.name)}”`,
+          detail: `It came up again after “${clip(back.cameBack.actionText)}” was marked done.`,
+          href: "/root-cause",
+        });
+      }
       return steps;
     },
   }),
@@ -2300,6 +2311,40 @@ const RULES: Record<string, NextStepRule<object>> = {
           label: "Refine the stories from the design sprint",
           detail: `${plural(fromSprint, "story", "stories")} from the design sprint ${be(fromSprint)} on the backlog, not refined yet.`,
           href: "/refinement",
+        });
+      }
+      return steps;
+    },
+  }),
+
+  // Tools plan, phase 1: a named root cause wants a countermeasure, and an
+  // agreed one goes to Retro Actions, where someone owns it.
+  "root-cause": rule({
+    select: (ws) => ({ analyses: ws.rootCauseAnalyses, boards: ws.retroBoards }),
+    steps: ({ analyses, boards }) => {
+      const steps: NextStep[] = [];
+      const newest = real(analyses).sort((a, b) =>
+        (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")
+      );
+      const open = (id: string) => `/root-cause?analysis=${encodeURIComponent(id)}`;
+      const named = newest.filter((a) => a.rootCause?.trim() && !a.countermeasure?.trim());
+      if (named.length > 0) {
+        steps.push({
+          id: "root-cause-countermeasure",
+          label: `Agree a countermeasure for “${clip(named[0].title)}”`,
+          detail: `${plural(named.length, "analysis", "analyses")} ${named.length === 1 ? "has" : "have"} a root cause and nothing agreed yet to change it.`,
+          href: open(named[0].id),
+        });
+      }
+      // A countermeasure whose action was deleted in Retro Actions is unsent again.
+      const isLive = liveOnBoards(boards);
+      const unsent = newest.filter((a) => a.countermeasure?.trim() && !sentLink(a, isLive));
+      if (unsent.length > 0) {
+        steps.push({
+          id: "root-cause-send",
+          label: `Send the countermeasure for “${clip(unsent[0].title)}” to Retro Actions`,
+          detail: "There someone owns it until it's done; left in the analysis, it rarely is.",
+          href: open(unsent[0].id),
         });
       }
       return steps;

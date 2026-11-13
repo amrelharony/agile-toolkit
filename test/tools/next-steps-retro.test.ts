@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getNextStepRule } from "@/lib/tools/next-steps";
-import type { RetroBoard, RetroCard, Risk, Sprint, Workspace } from "@/lib/stores/workspace-types";
+import type {
+  RetroBoard,
+  RetroCard,
+  Risk,
+  RootCauseAnalysis,
+  Sprint,
+  Workspace,
+} from "@/lib/stores/workspace-types";
 import { blankRetroBoard } from "@/lib/retro/board";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import { LS_CATALOG } from "@/lib/liberating-structures/catalog";
@@ -105,6 +112,25 @@ describe("retro-actions", () => {
     ]);
     expect(out[1].detail).toBe("The last 3 retros got 1 of 6 actions done.");
     expect(ids("retro-actions", { retroBoards: [] })).toEqual([]);
+  });
+
+  it("sends a theme that came back after its action was done to Root Cause", () => {
+    const past = (day: string, cards: RetroCard[]) =>
+      board(`retro:${day}`, cards, { archivedAt: `${day}T10:00:00Z` });
+    const boards = [
+      past("2026-09-01", [
+        action("a1", { text: "Fix staging data", done: true, doneAt: "2026-09-10T09:00:00Z" }),
+        action("a2", { text: "Staging was down", isActionItem: false }),
+      ]),
+      past("2026-09-15", [action("b1", { text: "Staging data stale", isActionItem: false })]),
+      past("2026-09-29", [action("c1", { text: "Waited for staging", isActionItem: false })]),
+    ];
+    expect(steps("retro-actions", { retroBoards: boards })).toContainEqual({
+      id: "retro-actions-came-back",
+      label: "Find the root cause of “staging”",
+      detail: "It came up again after “Fix staging data” was marked done.",
+      href: "/root-cause",
+    });
   });
 });
 
@@ -253,6 +279,63 @@ describe("design-sprint", () => {
       ],
     });
     expect(out.map((s) => s.id)).toEqual(["design-sprint-hypotheses", "design-sprint-refine"]);
+  });
+});
+
+describe("root-cause", () => {
+  const analysis = (id: string, over: Partial<RootCauseAnalysis> = {}): RootCauseAnalysis => ({
+    id,
+    title: `Problem ${id}`,
+    problem: "",
+    method: "five-whys",
+    whys: [],
+    causes: [],
+    createdAt: "2026-10-20T09:00:00.000Z",
+    updatedAt: "2026-10-20T09:00:00.000Z",
+    ...over,
+  });
+
+  it("asks for a countermeasure once a root cause is named, newest first", () => {
+    expect(
+      steps("root-cause", {
+        rootCauseAnalyses: [
+          analysis("rca_old", { rootCause: "A", updatedAt: "2026-10-01T09:00:00.000Z" }),
+          analysis("rca_new", { rootCause: "B", updatedAt: "2026-10-22T09:00:00.000Z" }),
+        ],
+      })
+    ).toEqual([
+      {
+        id: "root-cause-countermeasure",
+        label: "Agree a countermeasure for “Problem rca_new”",
+        detail: "2 analyses have a root cause and nothing agreed yet to change it.",
+        href: "/root-cause?analysis=rca_new",
+      },
+    ]);
+  });
+
+  it("sends an agreed countermeasure to Retro Actions, and stops once it's there", () => {
+    const agreed = analysis("rca_1", { rootCause: "A", countermeasure: "Do B" });
+    expect(steps("root-cause", { rootCauseAnalyses: [agreed] })).toEqual([
+      expect.objectContaining({ id: "root-cause-send", href: "/root-cause?analysis=rca_1" }),
+    ]);
+    const sent = {
+      ...agreed,
+      sentTo: [{ route: "retro-action" as const, targetId: "c1", at: "2026-10-23T09:00:00Z" }],
+    };
+    const retroBoards = [board("retro:current", [action("c1", { text: "Do B" })])];
+    expect(ids("root-cause", { rootCauseAnalyses: [sent], retroBoards })).toEqual([]);
+    // The action was deleted in Retro Actions: the countermeasure is to send again.
+    expect(ids("root-cause", { rootCauseAnalyses: [sent], retroBoards: [] })).toEqual([
+      "root-cause-send",
+    ]);
+  });
+
+  it("ignores example analyses and stays quiet with nothing to do", () => {
+    expect(
+      ids("root-cause", { rootCauseAnalyses: [analysis("example-rca", { rootCause: "A" })] })
+    ).toEqual([]);
+    expect(ids("root-cause", { rootCauseAnalyses: [analysis("rca_2")] })).toEqual([]);
+    expect(ids("root-cause", {})).toEqual([]);
   });
 });
 
