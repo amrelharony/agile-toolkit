@@ -144,13 +144,39 @@ export function ringsOwnAlarm(href: string): boolean {
 
 /** While mounted: the page at `href` rings its own timer, so the dock doesn't there. */
 export function useRingsOwnAlarm(href: string | null | undefined): void {
+  useOwnerMark(ringingHere, href);
+}
+
+/**
+ * Owner pages that say "time's up" themselves while they are open, so the
+ * docked timer doesn't say it a second time there. The Ceremony Timer
+ * always does; a page registers while it shows something that says it
+ * (`useSaysOwnTimesUp`), as Facilitator Timers does while a run is on.
+ * Every other owner page, the step timer panel's included, leaves the
+ * words to the dock.
+ */
+const ALWAYS_SAYS_OWN: ReadonlySet<string> = new Set(["/ceremony-timer"]);
+const sayingHere = new Map<string, number>();
+
+/** Whether the page at `href` says its own time's up while it is open. */
+export function saysOwnTimesUp(href: string): boolean {
+  return ALWAYS_SAYS_OWN.has(href) || (sayingHere.get(href) ?? 0) > 0;
+}
+
+/** While mounted: the page at `href` says its own time's up, so the dock doesn't there. */
+export function useSaysOwnTimesUp(href: string | null | undefined): void {
+  useOwnerMark(sayingHere, href);
+}
+
+/** Count `href` in `marks` while mounted (several components may hold it). */
+function useOwnerMark(marks: Map<string, number>, href: string | null | undefined): void {
   useEffect(() => {
     if (!href) return;
-    ringingHere.set(href, (ringingHere.get(href) ?? 0) + 1);
+    marks.set(href, (marks.get(href) ?? 0) + 1);
     return () => {
-      const left = (ringingHere.get(href) ?? 1) - 1;
-      if (left > 0) ringingHere.set(href, left);
-      else ringingHere.delete(href);
+      const left = (marks.get(href) ?? 1) - 1;
+      if (left > 0) marks.set(href, left);
+      else marks.delete(href);
     };
-  }, [href]);
+  }, [marks, href]);
 }
