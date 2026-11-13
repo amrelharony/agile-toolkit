@@ -957,13 +957,16 @@ describe("the live wall", () => {
       fireEvent.click(screen.getByRole("button", { name: "Reveal posts" }));
     });
     await flush();
-    // Reveal shows them all at once and stops new posts: a later one would
-    // show on its own, and its timing could give its writer away.
+    // Reveal shows them all at once and stops new posts and upvotes: a later
+    // one would show on its own, and its timing could give its sender away.
     await tick(600);
     expect(states(ch).at(-1)!.round).toMatchObject({ open: false, revealed: true, count: 2 });
     expect(screen.getByRole("button", { name: "Take posts again" })).toBeInTheDocument();
+    expect(screen.getByText(/Reveal stopped new posts and upvotes\./)).toBeInTheDocument();
     expect(
-      screen.getByText(/If you take posts again, each one shows as it arrives/)
+      screen.getByText(
+        /If you take posts again, upvotes open again too, and each post or upvote shows as it arrives/
+      )
     ).toBeInTheDocument();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Word cloud" }));

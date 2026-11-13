@@ -6,8 +6,8 @@
  * exists before that, and the open room's own module (./host-wall-room)
  * loads only then. The host puts a prompt up, chooses "Show posts as
  * they arrive" or "Hidden until I reveal them", and runs the wall: Reveal
- * (which also stops new posts: one sent later would show on its own), stop
- * or start taking posts, Hide a post, Merge duplicates, mark a
+ * (which also stops new posts and upvotes: one sent later would show on
+ * its own), stop or start taking posts, Hide a post, Merge duplicates, mark a
  * question Answered (`answerable`), lower a raised hand or all of them, New
  * round, End room. `roundOptions` opens every round with brainwriting's
  * "Yes, and…"; a 25/10 round's scoring is the tool's to start and show

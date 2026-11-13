@@ -47,7 +47,7 @@ const MODES: { value: WallMode; label: string; hint: string }[] = [
   {
     value: "hidden",
     label: "Hidden until I reveal them",
-    hint: "Everyone sees only how many have posted, until you press Reveal. Reveal shows them all at once and stops new posts.",
+    hint: "Everyone sees only how many have posted, until you press Reveal. Reveal shows them all at once and stops new posts and upvotes.",
   },
   {
     value: "live",
@@ -357,7 +357,9 @@ export function HostWallRoom({
                 className="gap-1.5"
                 onClick={() => {
                   room.reveal();
-                  announce("Posts revealed to the room. The wall stopped taking posts.");
+                  announce(
+                    "Posts revealed to the room. The wall stopped taking posts and upvotes."
+                  );
                 }}
               >
                 <Eye className="h-4 w-4" aria-hidden="true" />
@@ -403,8 +405,9 @@ export function HostWallRoom({
           </div>
           {round.mode === "hidden" && round.revealed && !round.open && !round.scoring && (
             <p className="text-xs text-sub">
-              Reveal stopped new posts. If you take posts again, each one shows as it arrives, so
-              others could tell who sent it.
+              Reveal stopped new posts and upvotes. If you take posts again, upvotes open again too,
+              and each post or upvote shows as it arrives, as in a live round, so others could tell
+              who sent it.
             </p>
           )}
 
