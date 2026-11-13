@@ -7,11 +7,14 @@
  * really" asks for another answer before going deeper.
  *
  * Any answer can be marked as the root cause. Answers are edited in place
- * and deleted with Undo; Ask Amr suggests candidate next answers, and the
- * ones the person adds go on the ladder like typed ones, with Undo.
+ * and deleted with Undo; Ask Amr suggests candidate next answers. They are
+ * alternatives to one another, so the person picks one: it goes on the
+ * ladder like a typed one, with Undo, and the rest go away (they answered
+ * the line that is no longer last). Ask again for the next why.
  */
 
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent, type MutableRefObject } from "react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Check, CircleHelp, Plus, Target, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,6 +62,7 @@ function WhyRow({
   onRemove,
   onMarkRoot,
   onCheck,
+  textRef,
 }: {
   why: RootCauseWhy;
   index: number;
@@ -70,6 +74,8 @@ function WhyRow({
   onRemove: () => void;
   onMarkRoot: () => void;
   onCheck: (answer: WhyCheck | null) => void;
+  /** The row's text button, so focus can land here after a delete. */
+  textRef: (el: HTMLButtonElement | null) => void;
 }) {
   const edit = useInlineEdit();
   const questionId = `why-check-${why.id}`;
@@ -98,7 +104,10 @@ function WhyRow({
           />
         ) : (
           <button
-            ref={edit.triggerRef}
+            ref={(el) => {
+              (edit.triggerRef as MutableRefObject<HTMLButtonElement | null>).current = el;
+              textRef(el);
+            }}
             type="button"
             onClick={edit.start}
             aria-label={`Why ${index + 1}: ${why.text}. Edit`}
@@ -158,6 +167,8 @@ function WhyRow({
             size="sm"
             variant="ghost"
             onClick={onMarkRoot}
+            // The visible words first, then which why (each row has one).
+            aria-label={`Mark as root cause: why ${index + 1}`}
             className="h-7 gap-1 px-2 text-xs"
           >
             <Target className="h-3.5 w-3.5" aria-hidden="true" />
@@ -188,6 +199,10 @@ export function FiveWhys({
   const [error, setError] = useState<string | null>(null);
   const [suggested, setSuggested] = useState<{ items: string[]; source: AiSource } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  /** Each row's text button, by why id. */
+  const rowButtons = useRef(new Map<string, HTMLButtonElement>());
+  const announce = useAnnounce();
   const full = analysis.whys.length >= TOOL_LIST_MAX.whys;
   const problemLine = analysis.title;
   const root = analysis.rootCause?.trim() ?? "";
@@ -205,6 +220,30 @@ export function FiveWhys({
     setError(null);
   };
 
+  /** After the chain changes, focus `whyId`'s row, else the new-why field, else the heading. */
+  const focusAfter = (whyId: string | null) => {
+    requestAnimationFrame(() => {
+      const target =
+        (whyId ? rowButtons.current.get(whyId) : undefined) ??
+        inputRef.current ??
+        headingRef.current;
+      target?.focus();
+    });
+  };
+
+  const remove = (why: RootCauseWhy, index: number) => {
+    const neighbour = analysis.whys[index + 1] ?? analysis.whys[index - 1] ?? null;
+    onRemove(why);
+    focusAfter(neighbour?.id ?? null);
+  };
+
+  const accept = (text: string) => {
+    onAdd(text, { fromAi: true });
+    // The others answered the line that was last; ask again for the next one.
+    setSuggested(null);
+    focusAfter(null);
+  };
+
   const aiInput = () => ({
     problem: [analysis.title, analysis.problem]
       .filter((s) => s.trim())
@@ -216,7 +255,12 @@ export function FiveWhys({
   return (
     <section aria-labelledby="five-whys-heading" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 id="five-whys-heading" className="text-sm font-semibold text-text">
+        <h3
+          id="five-whys-heading"
+          ref={headingRef}
+          tabIndex={-1}
+          className="rounded-sm text-sm font-semibold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           5 Whys
         </h3>
         {!readOnlyAi && !full && (
@@ -225,7 +269,15 @@ export function FiveWhys({
             input={aiInput}
             label="Ask Amr for the next why"
             fallbackLabel="Suggest without AI"
-            onResult={(data, meta) => setSuggested({ items: data.whys, source: meta.source })}
+            onResult={(data, meta) => {
+              setSuggested({ items: data.whys, source: meta.source });
+              const n = data.whys.length;
+              announce(
+                n === 0
+                  ? "No next why to suggest."
+                  : `${n} possible next ${n === 1 ? "why" : "whys"} below. Pick the one that fits.`
+              );
+            }}
           />
         )}
       </div>
@@ -246,9 +298,13 @@ export function FiveWhys({
               check={checks[w.id]}
               isRoot={root !== "" && w.text.trim() === root}
               onEdit={(text) => onEdit(w.id, text)}
-              onRemove={() => onRemove(w)}
+              onRemove={() => remove(w, i)}
               onMarkRoot={() => onMarkRoot(w.text)}
               onCheck={(answer) => onCheck(w.id, answer)}
+              textRef={(el) => {
+                if (el) rowButtons.current.set(w.id, el);
+                else rowButtons.current.delete(w.id);
+              }}
             />
           ))}
         </ol>
@@ -264,7 +320,8 @@ export function FiveWhys({
           items={suggested.items}
           source={suggested.source}
           title="Possible next whys"
-          onAccept={(text) => onAdd(text, { fromAi: true })}
+          pickOne
+          onAccept={accept}
           onDismiss={() => setSuggested(null)}
         />
       )}

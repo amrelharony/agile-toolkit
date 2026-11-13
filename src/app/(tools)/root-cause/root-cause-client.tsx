@@ -16,7 +16,7 @@
  * example removes them, they are never sent, and editing them isn't logged.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GitBranch, ListTree, Plus, Search, Trash2 } from "lucide-react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -49,11 +49,13 @@ import {
   blankAnalysis,
   cleanText,
   countermeasureSource,
+  liveOnBoards,
   newestFirst,
   readAnalysis,
   rootCauseVerdict,
   touched,
   withCategoryRenamed,
+  type LinkIsLive,
   withCause,
   withCausePatch,
   withWhy,
@@ -107,12 +109,15 @@ function usePostMortems(): PostMortemOption[] {
 function AnalysisView({
   analysis,
   postMortems,
+  isLive,
   onWrite,
   onRemove,
   onLog,
 }: {
   analysis: RootCauseAnalysis;
   postMortems: readonly PostMortemOption[];
+  /** Whether a sent link's target is still there (a deleted retro action isn't). */
+  isLive: LinkIsLive;
   /** Change the analysis through the store, stamped; returns the saved one. */
   onWrite: (
     fn: (a: RootCauseAnalysis, now: string) => RootCauseAnalysis | null
@@ -128,13 +133,24 @@ function AnalysisView({
   const from = sourceLabel(analysis.sourceRef);
   const fromHref = sourceHref(analysis.sourceRef);
 
-  const markRoot = (text: string) => {
+  /**
+   * Name the root cause. Marking a why or a cause is finding one (logged as
+   * found); typing in the field is editing it, logged as found only when
+   * there was none. Amr cheers only the first one, not a typo fixed later.
+   */
+  const markRoot = (text: string, opts?: { typed?: boolean }) => {
     const clean = cleanText(text, TOOL_TEXT_MAX.text);
     if (!clean) return;
+    const was = fresh(id)?.rootCause?.trim() ?? "";
+    if (was === clean) return;
     const saved = onWrite((a, now) => touched(a, { rootCause: clean }, now));
     if (!saved) return;
+    if (opts?.typed && was) {
+      onLog(ROOT_CAUSE_ACTIONS.ANALYSIS_UPDATED, { analysisId: id, field: "rootCause" });
+      return;
+    }
     onLog(ROOT_CAUSE_ACTIONS.ROOT_CAUSE_FOUND, { analysisId: id, rootCause: clean });
-    if (!example) cheer(TOOL_ID, "milestone");
+    if (!example && !was) cheer(TOOL_ID, "milestone");
     announce(`Root cause: ${short(clean, 80)}. Now agree a countermeasure.`);
   };
 
@@ -265,7 +281,7 @@ function AnalysisView({
       onLog(ROOT_CAUSE_ACTIONS.ANALYSIS_UPDATED, { analysisId: id, field: "rootCause" });
       return;
     }
-    markRoot(clean);
+    markRoot(clean, { typed: true });
   };
 
   const send = () => {
@@ -338,7 +354,7 @@ function AnalysisView({
           />
         </div>
         <p className="text-xs text-sub">
-          {STAGE_LABEL[analysisStage(analysis)]}
+          {STAGE_LABEL[analysisStage(analysis, isLive)]}
           {from && fromHref && (
             <>
               {" · "}
@@ -449,6 +465,18 @@ export function RootCauseClient() {
   const announce = useAnnounce();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  // A countermeasure counts as sent while its action is still in Retro Actions.
+  const retroBoards = useWorkspaceStore((s) => s.retroBoards);
+  const isLive = useMemo(() => liveOnBoards(retroBoards), [retroBoards]);
+  // Choosing, creating or deleting an analysis moves focus to the one shown
+  // (on a phone it opens below the list, out of sight), or to the start form.
+  const headingRef = useRef<HTMLSpanElement>(null);
+  const startRef = useRef<HTMLDivElement>(null);
+  const focusShown = useRef(false);
+  const select = (analysisId: string | null) => {
+    focusShown.current = true;
+    setSelectedId(analysisId);
+  };
 
   // ?analysis=<id> (a hand-off's Open, Post-Mortem's link), read after mount.
   useEffect(() => {
@@ -464,7 +492,20 @@ export function RootCauseClient() {
 
   const selected = analyses.find((a) => a.id === selectedId) ?? analyses[0] ?? null;
   const example = hasExampleItems(analyses);
-  const verdict = rootCauseVerdict(analyses.filter((a) => !isExampleId(a.id)));
+  const verdict = rootCauseVerdict(
+    analyses.filter((a) => !isExampleId(a.id)),
+    isLive
+  );
+
+  useEffect(() => {
+    if (!focusShown.current) return;
+    focusShown.current = false;
+    const target =
+      headingRef.current ??
+      startRef.current?.querySelector<HTMLElement>("input, textarea, button") ??
+      null;
+    target?.focus();
+  });
 
   /** Log a change unless it's to the example. */
   const logFor = useCallback(
@@ -496,7 +537,7 @@ export function RootCauseClient() {
       title: a.title,
       method: a.method,
     });
-    setSelectedId(a.id);
+    select(a.id);
     setCreating(false);
     announce(
       `Started “${short(a.title)}”. ${a.method === "five-whys" ? "Ask why it happened." : "Add its causes."}`
@@ -518,7 +559,7 @@ export function RootCauseClient() {
         setSelectedId(a.id);
       },
     });
-    setSelectedId(neighbour?.id ?? null);
+    select(neighbour?.id ?? null);
   };
 
   const loadExample = () => {
@@ -561,7 +602,9 @@ export function RootCauseClient() {
                 see a 5 Whys and a fishbone with its Pareto chart.
               </EmptyState>
               <SectionCard title="Start an analysis" icon={Plus}>
-                <NewAnalysisForm onCreate={create} />
+                <div ref={startRef}>
+                  <NewAnalysisForm onCreate={create} />
+                </div>
               </SectionCard>
             </>
           ) : (
@@ -577,7 +620,7 @@ export function RootCauseClient() {
                           <button
                             type="button"
                             aria-current={current ? "true" : undefined}
-                            onClick={() => setSelectedId(a.id)}
+                            onClick={() => select(a.id)}
                             className={cn(
                               "w-full rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                               current
@@ -589,7 +632,8 @@ export function RootCauseClient() {
                               {a.title}
                             </span>
                             <span className="block text-xs text-sub">
-                              {ROOT_CAUSE_METHOD_LABEL[a.method]} · {STAGE_LABEL[analysisStage(a)]}
+                              {ROOT_CAUSE_METHOD_LABEL[a.method]} ·{" "}
+                              {STAGE_LABEL[analysisStage(a, isLive)]}
                             </span>
                           </button>
                         </li>
@@ -614,11 +658,23 @@ export function RootCauseClient() {
                   )}
                 </nav>
                 {selected && (
-                  <SectionCard title={selected.title} icon={Search}>
+                  <SectionCard
+                    title={
+                      <span
+                        ref={headingRef}
+                        tabIndex={-1}
+                        className="rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {selected.title}
+                      </span>
+                    }
+                    icon={Search}
+                  >
                     <AnalysisView
                       key={selected.id}
                       analysis={selected}
                       postMortems={postMortems}
+                      isLive={isLive}
                       onWrite={(fn) => write(selected.id, fn)}
                       onRemove={() => remove(selected)}
                       onLog={logFor(selected.id)}

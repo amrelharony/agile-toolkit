@@ -63,7 +63,11 @@ import { countermeasureText } from "@/app/(tools)/root-cause/outcome";
 import { paretoText } from "@/app/(tools)/root-cause/pareto";
 import { CHECKS_MAX, readChecks, useRootCauseChecks } from "@/app/(tools)/root-cause/checks-store";
 import { PM_ID } from "@/app/(tools)/post-mortem/constants";
-import { fallbackNextWhys, fallbackCountermeasures } from "@/lib/ai/tasks/root-cause";
+import {
+  categoriesTask,
+  fallbackCountermeasures,
+  fallbackNextWhys,
+} from "@/lib/ai/tasks/root-cause";
 import { ROOT_CAUSE_ACTIONS } from "@/lib/history/event-actions";
 import { RETRO_BOARD_ID } from "@/lib/handoffs/targets/retro-board";
 import { paretoRows } from "@/lib/root-cause/model";
@@ -125,7 +129,7 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "");
   vi.spyOn(useWorkspaceStore.persist, "hasHydrated").mockReturnValue(true);
   useWorkspaceStore.setState({ rootCauseAnalyses: [], retroBoards: [], postMortemLogs: [] });
-  useRootCauseChecks.setState({ checks: {} });
+  useRootCauseChecks.setState({ checks: {}, hiddenCategories: {} });
 });
 
 afterEach(() => {
@@ -402,13 +406,54 @@ describe("5 Whys", () => {
       analysis({ id: "rca_1", whys: [{ id: "w1", text: "Nobody owns staging data." }] })
     );
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Mark as root cause" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark as root cause: why 1" }));
     expect(stored()[0].rootCause).toBe("Nobody owns staging data.");
     expect(actions()).toContain(ROOT_CAUSE_ACTIONS.ROOT_CAUSE_FOUND);
     expect(cheers).toEqual([["root-cause", "milestone"]]);
     expect(screen.getByLabelText("Root cause")).toHaveValue("Nobody owns staging data.");
     // The list and the analysis both say where it stands.
     expect(screen.getAllByText("Root cause named", { exact: false }).length).toBeGreaterThan(0);
+  });
+
+  it("logs a typed root cause as found once; fixing its wording later is an edit, with no cheer", () => {
+    ws().upsertRootCauseAnalysis(analysis({ id: "rca_1" }));
+    renderPage();
+    commit(screen.getByLabelText("Root cause"), "Nobody owns staging data");
+    expect(stored()[0].rootCause).toBe("Nobody owns staging data");
+    expect(actions()).toEqual([ROOT_CAUSE_ACTIONS.ROOT_CAUSE_FOUND]);
+    expect(cheers).toHaveLength(1);
+    logs.length = 0;
+    commit(screen.getByLabelText("Root cause"), "Nobody owns the staging data");
+    expect(stored()[0].rootCause).toBe("Nobody owns the staging data");
+    expect(logs).toEqual([
+      {
+        action: ROOT_CAUSE_ACTIONS.ANALYSIS_UPDATED,
+        payload: { analysisId: "rca_1", field: "rootCause" },
+      },
+    ]);
+    expect(cheers).toHaveLength(1);
+    // Leaving the field unchanged logs nothing.
+    logs.length = 0;
+    commit(screen.getByLabelText("Root cause"), "Nobody owns the staging data");
+    expect(logs).toEqual([]);
+  });
+
+  it("marking another why as the root cause names the new one, but cheers only the first", () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_1",
+        whys: [
+          { id: "w1", text: "The deploy broke." },
+          { id: "w2", text: "Nobody owns staging data." },
+        ],
+      })
+    );
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Mark as root cause: why 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark as root cause: why 2" }));
+    expect(stored()[0].rootCause).toBe("Nobody owns staging data.");
+    expect(actions().filter((a) => a === ROOT_CAUSE_ACTIONS.ROOT_CAUSE_FOUND)).toHaveLength(2);
+    expect(cheers).toEqual([["root-cause", "milestone"]]);
   });
 
   it("suggests next whys without AI; each one added goes on the ladder with Undo", () => {
@@ -423,6 +468,47 @@ describe("5 Whys", () => {
     expect(lastUndo().label).toBe("Added a why");
     act(() => lastUndo().revert());
     expect(stored()[0].whys.map((w) => w.text)).toEqual(["The migration broke."]);
+  });
+
+  it("offers the next whys as alternatives: no Add all, and the rest go once one is picked", async () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({ id: "rca_1", whys: [{ id: "w1", text: "The migration broke." }] })
+    );
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest without AI" }));
+    const candidates = fallbackNextWhys("", ["The migration broke."]);
+    expect(candidates.length).toBeGreaterThan(1);
+    expect(screen.getAllByRole("button", { name: /^Add: / })).toHaveLength(candidates.length);
+    expect(screen.queryByRole("button", { name: /^Add all/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: `Add: ${candidates[1]}` }));
+    expect(stored()[0].whys.map((w) => w.text)).toEqual(["The migration broke.", candidates[1]]);
+    // The others answered the line that was last: they don't stay to be chained under it.
+    expect(screen.queryByRole("button", { name: /^Add: / })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Possible next whys" })).toBeNull();
+    // Focus lands on the field for the next why, not on the page.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByPlaceholderText(/Because…/))
+    );
+  });
+
+  it("moves focus to the next why after a delete", async () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_1",
+        whys: [
+          { id: "w1", text: "One" },
+          { id: "w2", text: "Two" },
+          { id: "w3", text: "Three" },
+        ],
+      })
+    );
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete why 2" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Why 2: Three. Edit" })
+      )
+    );
   });
 
   it("stops offering a new why once the chain is full", () => {
@@ -503,6 +589,11 @@ describe("Fishbone", () => {
     fireEvent.change(input, { target: { value: "Tooling" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(stored()[0].causes[0].category).toBe("Tooling");
+    // The starting category doesn't come back empty beside its new name.
+    expect(screen.queryByRole("group", { name: /^Tools:/ })).toBeNull();
+    expect(screen.getByRole("group", { name: "Tooling: 1 cause" })).toBeInTheDocument();
+    // Focus follows the box to its new name.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Rename Tooling" }));
     fireEvent.change(screen.getByLabelText("Your own category"), {
       target: { value: "Suppliers" },
     });
@@ -510,6 +601,79 @@ describe("Fishbone", () => {
     expect(screen.getByRole("group", { name: "Suppliers: 0 causes" })).toBeInTheDocument();
     addCause("Suppliers", "The provider changed its codes");
     expect(stored()[0].causes[1].category).toBe("Suppliers");
+  });
+
+  it("renames or removes an empty starting category, for this analysis, with Undo", () => {
+    renderPage();
+    // An empty box can be renamed: the starting name goes, the new one stays.
+    fireEvent.click(screen.getByRole("button", { name: "Rename People" }));
+    const input = screen.getByLabelText("New name for People");
+    fireEvent.change(input, { target: { value: "Staff" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.queryByRole("group", { name: /^People:/ })).toBeNull();
+    expect(screen.getByRole("group", { name: "Staff: 0 causes" })).toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Rename Staff" }));
+    // Nothing was stored: a category is only the name on its causes.
+    expect(stored()[0].causes).toEqual([]);
+
+    // An empty box can be removed, with Undo; focus moves to the next box.
+    fireEvent.click(screen.getByRole("button", { name: "Remove Environment" }));
+    expect(screen.queryByRole("group", { name: /^Environment:/ })).toBeNull();
+    expect(lastUndo().label).toBe("Removed Environment");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Rename Measurement" }));
+    expect(
+      within(screen.getByRole("form", { name: "Add a cause" }))
+        .getAllByRole("option")
+        .map((o) => o.textContent)
+    ).not.toContain("Environment");
+    act(() => lastUndo().revert());
+    expect(screen.getByRole("group", { name: "Environment: 0 causes" })).toBeInTheDocument();
+
+    // A box with causes can't be removed (its causes would have nowhere to go).
+    act(() => {
+      ws().upsertRootCauseAnalysis(
+        analysis({
+          id: "rca_1",
+          method: "fishbone",
+          causes: [{ id: "c1", category: "Tools", text: "Split logs", count: 1 }],
+        })
+      );
+    });
+    expect(screen.queryByRole("button", { name: "Remove Tools" })).toBeNull();
+  });
+
+  it("brings a hidden starting category back when a cause is filed under it", () => {
+    useRootCauseChecks.setState({ checks: {}, hiddenCategories: { rca_1: ["Tools"] } });
+    renderPage();
+    expect(screen.queryByRole("group", { name: /^Tools:/ })).toBeNull();
+    act(() => {
+      ws().upsertRootCauseAnalysis(
+        analysis({
+          id: "rca_1",
+          method: "fishbone",
+          causes: [{ id: "c1", category: "Tools", text: "Split logs", count: 1 }],
+        })
+      );
+    });
+    expect(screen.getByRole("group", { name: "Tools: 1 cause" })).toBeInTheDocument();
+  });
+
+  it("keeps focus on a count button that's still there when the other turns off", () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_1",
+        method: "fishbone",
+        causes: [{ id: "c1", category: "Tools", text: "Split logs", count: 1 }],
+      })
+    );
+    renderPage();
+    const less = screen.getByRole("button", { name: "One less for “Split logs”" });
+    less.focus();
+    fireEvent.click(less);
+    expect(less).toBeDisabled();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "One more for “Split logs”" })
+    );
   });
 
   it("deletes a cause with Undo", () => {
@@ -528,6 +692,24 @@ describe("Fishbone", () => {
     expect(stored()[0].causes.map((c) => c.id)).toEqual(["c2"]);
     act(() => lastUndo().revert());
     expect(stored()[0].causes.map((c) => c.id)).toEqual(["c1", "c2"]);
+  });
+
+  it("moves focus to the next cause in its box after a delete, else to the box's name", () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_1",
+        method: "fishbone",
+        causes: [
+          { id: "c1", category: "Tools", text: "Split logs", count: 1 },
+          { id: "c2", category: "Tools", text: "No dashboard", count: 2 },
+        ],
+      })
+    );
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete “Split logs”" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "No dashboard. Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete “No dashboard”" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Rename Tools" }));
   });
 
   it("sorts causes into categories without AI, each move accepted with Undo", () => {
@@ -549,6 +731,37 @@ describe("Fishbone", () => {
     expect(stored()[0].causes[0].category).toBe("Measurement");
     act(() => lastUndo().revert());
     expect(stored()[0].causes[0].category).toBe("Other");
+  });
+
+  it("offers only moves into the board's own categories, in its spelling, one per cause", () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_1",
+        method: "fishbone",
+        causes: [
+          { id: "c1", category: "Other", text: "No alert on the error rate", count: 1 },
+          { id: "c2", category: "Other", text: "Split logs", count: 1 },
+        ],
+      })
+    );
+    vi.spyOn(categoriesTask, "fallback").mockReturnValue({
+      moves: [
+        { causeId: "c1", category: "Monitoring" },
+        { causeId: "c2", category: "tools" },
+        { causeId: "c2", category: "measurement" },
+        { causeId: "gone", category: "Tools" },
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Sort without AI" }));
+    const moves = screen.getAllByRole("button", { name: /^Move: / });
+    expect(moves.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Move: Move “Split logs” to Tools",
+    ]);
+    fireEvent.click(moves[0]);
+    expect(stored()[0].causes[1].category).toBe("Tools");
+    // A made-up category never reaches the board.
+    expect(screen.queryByRole("group", { name: /^Monitoring:/ })).toBeNull();
   });
 
   it("asks for two counted causes before the Pareto chart, then names the vital few", () => {
@@ -589,6 +802,25 @@ describe("the outcome", () => {
     expect(stored()[0].countermeasure).toBeUndefined();
   });
 
+  it("offers countermeasures as alternatives: no Use all, and focus lands on the one used", async () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({ id: "rca_1", rootCause: "No owner for staging data." })
+    );
+    renderPage();
+    fireEvent.click(screen.getAllByRole("button", { name: "Suggest without AI" })[1]);
+    const options = fallbackCountermeasures("No owner for staging data.");
+    expect(screen.getAllByRole("button", { name: /^Use: / })).toHaveLength(options.length);
+    expect(screen.queryByRole("button", { name: /^Use all/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: `Use: ${options[2].text}` }));
+    expect(stored()[0].countermeasure).toBe(countermeasureText(options[2]));
+    // One countermeasure, one Undo: the list is gone rather than left to overwrite it.
+    expect(undo.all).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /^Use: / })).toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText(/^Countermeasure:/))
+    );
+  });
+
   it("sends the countermeasure to Retro Actions once, then links to it", () => {
     ws().upsertRootCauseAnalysis(
       analysis({
@@ -615,6 +847,28 @@ describe("the outcome", () => {
     );
     expect(screen.queryByRole("button", { name: /Send to Retro Actions/ })).toBeNull();
     expect(screen.getByText("Someone owns it there until it's done.")).toBeInTheDocument();
+  });
+
+  it("stops saying In Retro Actions once that action was deleted there", () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_1",
+        rootCause: "No owner for staging data.",
+        countermeasure: "Name an owner for staging data.",
+      })
+    );
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /Send to Retro Actions/ }));
+    expect(screen.getAllByText(/In Retro Actions/).length).toBeGreaterThan(0);
+    // The action is deleted in Retro Actions.
+    act(() => {
+      useWorkspaceStore.setState({
+        retroBoards: (ws().retroBoards ?? []).map((b) => ({ ...b, cards: [] })),
+      });
+    });
+    expect(screen.getByRole("button", { name: /Send to Retro Actions/ })).toBeEnabled();
+    expect(screen.queryByText(/In Retro Actions/)).toBeNull();
+    expect(screen.getAllByText(/Countermeasure agreed/).length).toBeGreaterThan(0);
   });
 
   it("can't send before there's a countermeasure, or from the example", () => {
@@ -712,11 +966,30 @@ describe("editing and deleting an analysis", () => {
     expect(screen.getByLabelText("The problem")).toHaveValue("First");
   });
 
+  it("moves focus to the analysis shown after choosing, starting or deleting one", () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({ id: "rca_a", title: "First", updatedAt: "2026-11-05" })
+    );
+    ws().upsertRootCauseAnalysis(
+      analysis({ id: "rca_b", title: "Second", updatedAt: "2026-11-01" })
+    );
+    renderPage();
+    const heading = (title: string) => screen.getByText(title, { selector: "span[tabindex='-1']" });
+    // Opening the page doesn't steal focus.
+    expect(document.activeElement).toBe(document.body);
+    // On a phone the chosen analysis opens below the list: focus goes to it.
+    fireEvent.click(screen.getByRole("button", { name: /^Second/ }));
+    expect(document.activeElement).toBe(heading("Second"));
+    fireEvent.click(screen.getByRole("button", { name: /Delete analysis/ }));
+    expect(stored().map((a) => a.id)).toEqual(["rca_a"]);
+    expect(document.activeElement).toBe(heading("First"));
+  });
+
   it("logs nothing for edits to the example, and cheers for none", () => {
     useWorkspaceStore.setState({ rootCauseAnalyses: buildExample() });
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: /Releases rolled back the same day/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Mark as root cause" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Mark as root cause: why/ })[0]);
     expect(logs).toEqual([]);
     expect(cheers).toEqual([]);
   });

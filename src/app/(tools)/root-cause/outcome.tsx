@@ -7,12 +7,14 @@
  * the post-mortem the analysis belongs to, both ways: the post-mortem's
  * page lists the analyses linked to it.
  *
- * Ask Amr suggests countermeasures once there is a root cause; the person
- * picks one, which fills the countermeasure (with Undo). Example analyses
- * can't be sent anywhere.
+ * Ask Amr suggests countermeasures once there is a root cause. They are
+ * alternatives, so the person picks one (there is no "use all"): it fills
+ * the countermeasure (with Undo) and focus moves to the countermeasure, to
+ * read or adjust it. Example analyses can't be sent anywhere.
  */
 
 import { useId, useState } from "react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import Link from "next/link";
 import { ArrowRight, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,6 +57,7 @@ export function Outcome({
   onLinkPostMortem,
 }: OutcomeProps) {
   const ids = useId();
+  const announce = useAnnounce();
   const example = isExampleId(analysis.id);
   const [suggested, setSuggested] = useState<{
     items: { text: string; check: string }[];
@@ -104,9 +107,15 @@ export function Outcome({
               })}
               label="Ask Amr for countermeasures"
               fallbackLabel="Suggest without AI"
-              onResult={(data, meta) =>
-                setSuggested({ items: data.countermeasures, source: meta.source })
-              }
+              onResult={(data, meta) => {
+                setSuggested({ items: data.countermeasures, source: meta.source });
+                const n = data.countermeasures.length;
+                announce(
+                  n === 0
+                    ? "No countermeasure to suggest."
+                    : `${n} possible ${n === 1 ? "countermeasure" : "countermeasures"} below. Pick the one that fits.`
+                );
+              }}
             />
           )}
         </div>
@@ -129,10 +138,13 @@ export function Outcome({
           source={suggested.source}
           title="Possible countermeasures"
           acceptLabel="Use"
+          pickOne
           render={(c) => ({ title: c.text, detail: `Check: ${c.check}` })}
           onAccept={(c) => {
             onCountermeasure(countermeasureText(c), { fromAi: true });
             setSuggested(null);
+            // The list goes; focus lands on what was filled in.
+            requestAnimationFrame(() => document.getElementById(`${ids}-counter`)?.focus());
           }}
           onDismiss={() => setSuggested(null)}
         />
@@ -181,7 +193,7 @@ export function Outcome({
             value={analysis.postMortemId ?? ""}
             disabled={example}
             onChange={(e) => onLinkPostMortem(e.target.value || undefined)}
-            className="flex h-9 max-w-full rounded-md border border-input bg-background px-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-11 max-w-full rounded-md border border-input bg-background px-2 text-base text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-fine:md:h-9 pointer-fine:md:text-sm"
           >
             <option value="">Not linked</option>
             {analysis.postMortemId && !linked && (
