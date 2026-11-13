@@ -359,7 +359,31 @@ describe("votes and take-backs", () => {
       why: "closed",
     });
     wall = revealWall(wall);
+    // Reveal stops posts and votes; the host takes them again by choice.
+    expect(apply(wall, B, { t: "vote", r: RID, pid: id, lock: lockOf(KEY_B) })).toMatchObject({
+      ok: false,
+      why: "closed",
+    });
+    wall = setWallOpen(wall, true);
     expect(apply(wall, B, { t: "vote", r: RID, pid: id, lock: lockOf(KEY_B) }).ok).toBe(true);
+  });
+
+  it("stops taking posts at Reveal, so no post shows on its own after the rest", () => {
+    const first = post(open("hidden"), A, "First thought");
+    const wall = revealWall(first.wall);
+    expect(wallView(wall).round).toMatchObject({ open: false, revealed: true, count: 1 });
+    expect(wallView(wall).round!.posts!.map((p) => p.text)).toEqual(["First thought"]);
+    expect(
+      apply(wall, B, { t: "post", r: RID, pid: pid(), text: "Late one", lock: lockOf(KEY_B) })
+    ).toMatchObject({ ok: false, why: "closed" });
+    // A take-back still works on the closed round.
+    const back = apply(wall, A, { t: "withdraw", r: RID, pid: first.id, key: KEY_A });
+    expect(back.ok).toBe(true);
+    expect(wallView(back.wall).round!.count).toBe(0);
+    // Revealing again changes nothing, and a live round never closes by itself.
+    expect(revealWall(wall)).toBe(wall);
+    const live = open("live");
+    expect(revealWall(live)).toBe(live);
   });
 });
 

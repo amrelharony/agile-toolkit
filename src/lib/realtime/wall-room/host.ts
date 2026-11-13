@@ -270,11 +270,18 @@ export function setWallMode(wall: HostWall, mode: WallMode): HostWall {
   return { ...wall, round: { ...r, mode, revealed: r.revealed || mode === "live" } };
 }
 
-/** Show a hidden round's posts. */
+/**
+ * Show a hidden round's posts, all at once, and stop taking posts and
+ * votes: a post sent after Reveal would show on its own the moment it
+ * arrived, which can give its writer away (the reason to hide posts in the
+ * first place). The host takes them again with `setWallOpen`; from then on
+ * they show as they arrive, as in a live round. A live round's posts are
+ * already showing: nothing changes.
+ */
 export function revealWall(wall: HostWall): HostWall {
   const r = wall.round;
-  if (!r || r.revealed) return wall;
-  return { ...wall, round: { ...r, revealed: true } };
+  if (!r || r.revealed || r.mode === "live") return wall;
+  return { ...wall, round: { ...r, revealed: true, open: false } };
 }
 
 /** Take a post off the wall, or put it back. */
