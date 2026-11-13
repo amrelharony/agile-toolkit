@@ -327,23 +327,24 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "quick-vote",
     summary:
-      "Quick Vote runs a fast poll in any meeting: fist of five, Roman vote, confidence, ROTI, a custom scale, multiple choice, dot votes or a ranking. Run it in a live room, where people see only the totals, or with hold-up cards on phones.",
+      "Quick Vote runs a fast vote in any meeting: fist of five, Roman vote, confidence, ROTI, a custom scale, a poll, a ranking, gradients of agreement, ELMO, dot voting, ESVP, a safety check, guess the number, the feelings wheel, the perfection game or value poker. Run it in a live room, where people see only the totals, count hands on one screen, or use hold-up cards on phones.",
     whenToUse: [
       "To check agreement before moving on: is everyone at least a three on this plan?",
       "At the end of a meeting, to ask whether it was worth the time (ROTI).",
       "To choose between options, or rank them, with the whole group.",
     ],
     steps: [
-      "Pick a format, such as fist of five, confidence, ROTI, a poll, a ranking, dot voting or guess the number.",
-      "Type the question and, for a poll or a ranking, its options. Ask Amr can suggest options from the question; you keep, change or drop each one.",
-      "Open a live room and share its code, or use phone cards: each person holds up their number or colour full screen and you count.",
-      "When everyone has voted, reveal the result. People see the totals, never who voted what.",
+      "Pick a format. Formats you save from a round you set up sit under the built-in ones.",
+      "Type the question and, for a poll, a ranking or dot voting, its options: paste a list, take it from the backlog or the retro board, or let Amr suggest some. You keep, change or drop each one.",
+      "Run it: open a live room and share its code, count hands and type the totals, or have everyone set up the same format on their phone and open the hold-up cards, face down until you say show.",
+      "Reveal the result. People see the totals, never who voted what. ESVP and the safety check show from 5 answers and run live or on paper slips, never on cards or by a show of hands.",
       "Talk about the spread, not just the average: ask the lowest and the highest votes what they see.",
-      "Save the result with the meeting, or vote again after the discussion.",
+      "Save the round. Add the real answer to a guess, save value poker's agreed value to its backlog item, or send the result to the Decision Log or the retro.",
     ],
     tips: [
       "A vote starts a conversation. Agree what a low score means before you ask.",
       "Run a confidence vote on the sprint plan before Sprint Planning ends.",
+      "Leave ELMO open as a standing round while the conversation runs, and reveal when you want a read of the room.",
     ],
     timebox: "Two to five minutes per question.",
   },

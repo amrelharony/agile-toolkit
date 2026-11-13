@@ -118,6 +118,8 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   "parking-lot": { name: "parking lot", href: "/parking-lot" },
   "root-cause": { name: "root-cause analysis", href: "/root-cause" },
   "audience-wall": { name: "Audience Wall", href: "/audience-wall" },
+  // A saved vote's result, sent to the Decision Log or the retro.
+  "quick-vote": { name: "Quick Vote", href: "/quick-vote" },
   "interrupt-buffer": { name: "interrupt buffer", href: "/interrupt-buffer" },
   "sm-notebook": { name: "Scrum Master Notebook", href: "/sm-notebook" },
   // A contributing factor taken to Root Cause (its analysis's sourceRef): the

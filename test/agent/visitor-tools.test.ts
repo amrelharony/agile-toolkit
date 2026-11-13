@@ -68,12 +68,18 @@ describe("isVisitorAction", () => {
     expect(isVisitorAction({})).toBe(true);
   });
 
-  it("leaves only the canvas actions closed to visitors", () => {
+  it("leaves only the canvas actions and live-room round starters closed to visitors", () => {
+    // Canvas edits broadcast to a live board; the round an open live room asks
+    // next reaches everyone in it.
+    const ROOM_ROUND_ACTIONS = new Set(["tool.quick_vote.start_round"]);
     const closed = registry
       .list()
       .filter((a) => !isVisitorAction(a))
       .map((a) => a.id);
-    expect(closed.every((id) => id.startsWith("tool.canvas."))).toBe(true);
+    expect(closed.every((id) => id.startsWith("tool.canvas.") || ROOM_ROUND_ACTIONS.has(id))).toBe(
+      true
+    );
+    expect(closed).toEqual(expect.arrayContaining(Array.from(ROOM_ROUND_ACTIONS)));
   });
 });
 

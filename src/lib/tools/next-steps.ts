@@ -1984,6 +1984,38 @@ const RULES: Record<string, NextStepRule<object>> = {
     steps: ({ sprints, items }) => interruptBufferSteps({ sprints, items }),
   }),
 
+  // A vote's result goes on: a proposed decision to settle, a topic for the retro.
+  "quick-vote": rule({
+    select: (ws) => ({ decisions: ws.decisions, boards: ws.retroBoards }),
+    steps: ({ decisions, boards }) => {
+      const steps: NextStep[] = [];
+      const proposed = real(decisions).filter(
+        (d) => d.sourceRef?.tool === "quick-vote" && d.status === "proposed"
+      );
+      if (proposed.length > 0) {
+        steps.push({
+          id: "quick-vote-decide",
+          label: `Record the decision on “${proposed[0].title}”`,
+          detail: `${plural(proposed.length, "vote")} ${be(proposed.length)} in the Decision Log as proposed. Accept it, or say why not.`,
+          href: decisionHref(proposed[0].id),
+        });
+      }
+      const board = (boards ?? []).find((b) => b.id === RETRO_CURRENT_ID && !b.archivedAt);
+      const topics = real(board?.cards).filter(
+        (c) => c.sourceRef?.tool === "quick-vote" && !c.isActionItem
+      ).length;
+      if (topics > 0) {
+        steps.push({
+          id: "quick-vote-retro",
+          label: "Talk the vote through at the retro",
+          detail: `${plural(topics, "vote result")} ${be(topics)} on the retro board.`,
+          href: "/retro",
+        });
+      }
+      return steps;
+    },
+  }),
+
   // Retrospect & improve.
   retro: rule({
     select: (ws) => ({ boards: ws.retroBoards, sprints: ws.sprints }),

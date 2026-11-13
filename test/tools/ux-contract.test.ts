@@ -114,6 +114,7 @@ const UPGRADED_TOOLS = [
   "backlog-health",
   "interrupt-buffer",
   "picker",
+  "quick-vote",
   // Book readers: the Squad Session Kit. Meet the Cast and Which Colleague hold no
   // team data, so there's nothing to load, export or undo in them.
   "squad-session",
