@@ -425,6 +425,35 @@ describe("WallJoinRoom", () => {
     expect(screen.queryByRole("button", { name: /Upvote/ })).toBeNull();
     expect(screen.getByText(/Posts show without your name\./)).toBeInTheDocument();
     expect(screen.queryByText(/They show as they arrive/)).toBeNull();
+
+    // A post sent while hidden can be taken back until the posts show.
+    fireEvent.change(screen.getByLabelText("Your post"), {
+      target: { value: "Too many handoffs" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Post" }));
+    });
+    await flush();
+    const sent = await sentIntents(ch);
+    const postReq = sent[0].intent as Extract<WallIntent, { t: "post" }>;
+    await deliver(
+      ch,
+      WALL_ROOM_EVENTS.state,
+      await wallState({
+        round: {
+          id: ROUND,
+          prompt: "What worries you?",
+          open: true,
+          mode: "hidden",
+          revealed: false,
+          count: 4,
+          posts: null,
+        },
+        acks: [sent[0].iid],
+      })
+    );
+    expect(screen.getByRole("button", { name: "Take it back" })).toBeInTheDocument();
+
     // Revealed: all at once, and the host stopped taking posts.
     await deliver(
       ch,
@@ -436,14 +465,21 @@ describe("WallJoinRoom", () => {
           open: false,
           mode: "hidden",
           revealed: true,
-          count: 1,
-          posts: [OTHER],
+          count: 2,
+          posts: [OTHER, { id: postReq.pid, text: "Too many handoffs", votes: 0, merged: [] }],
         },
       })
     );
     expect(screen.getByText("Fewer meetings")).toBeInTheDocument();
     expect(screen.getByText("The host isn't taking posts right now.")).toBeInTheDocument();
     expect(screen.queryByText(/They show as they arrive/)).toBeNull();
+    // Shown with the others, it stays: a take-back would show whose it was.
+    const wall = screen.getByRole("region", { name: "The wall" });
+    expect(within(wall).getByText("Your post")).toBeInTheDocument();
+    expect(within(wall).queryByRole("button", { name: /Take it back/ })).toBeNull();
+    expect(
+      within(wall).getByText(/It showed with the others, so it can't be taken back/)
+    ).toBeInTheDocument();
   });
 
   it("shows the end when the host ends the room", async () => {

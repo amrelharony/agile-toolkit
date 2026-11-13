@@ -14,7 +14,7 @@
  *     taken-back post's id and a taken-back vote's lock are never taken
  *     again, so replaying an old request can't bring either back;
  *  3. posts, votes and take-backs need the round they name to be the open
- *     one (a take-back works on a closed round too);
+ *     one (a take-back works on a closed round too, but see 6);
  *  4. a post: cleaned to 1–280 characters with no control or bidi
  *     characters, at most one every 5 seconds and 30 a round per member,
  *     200 a round in all, and a post id nobody used this round (taken-back
@@ -24,7 +24,12 @@
  *     no taken-back vote had, and at most 400 a round per member (taken-back
  *     ones included, which keeps the remembered locks bounded); taken back
  *     only with the key behind that vote's lock;
- *  6. a take-back of a post only with the key behind its lock;
+ *  6. a take-back of a post only with the key behind its lock, and not of a
+ *     post sent while the round hid its posts once they have shown (Reveal,
+ *     a switch to live, 25/10 scoring): everyone sees who sent the request,
+ *     so the post leaving the wall right after it would give its writer
+ *     away. That is refused before the key is looked at, so the refusal
+ *     says nothing of whose post it is;
  *  7. a hand: up or down, the sender's own;
  *  8. a "Yes, and…" post (`re`): only in a brainwriting round, on a post
  *     that is on the wall and shown; it is linked to that post's thread
@@ -84,6 +89,11 @@ export interface HostPost {
   answered?: boolean;
   /** 25/10: member id → their score and the lock its change must open. In memory only. */
   scores?: ReadonlyMap<string, { value: number; lock: string }>;
+  /**
+   * Sent while the round hid its posts: it showed with the others, so once
+   * shown it can't be taken back (that would show whose it was).
+   */
+  together?: boolean;
 }
 
 /** The round's options when it opens. */
@@ -215,8 +225,8 @@ export function openWallRound(
 
 /**
  * Open or close the round (closed: no new posts or votes; take-backs still
- * work). A scored round stays closed: its posts are fixed while people
- * score them.
+ * work, except of posts that showed with the others). A scored round stays
+ * closed: its posts are fixed while people score them.
  */
 export function setWallOpen(wall: HostWall, open: boolean): HostWall {
   if (!wall.round || wall.round.open === open) return wall;
@@ -274,9 +284,10 @@ export function setWallMode(wall: HostWall, mode: WallMode): HostWall {
  * Show a hidden round's posts, all at once, and stop taking posts and
  * votes: a post sent after Reveal would show on its own the moment it
  * arrived, which can give its writer away (the reason to hide posts in the
- * first place). The host takes them again with `setWallOpen`; from then on
- * they show as they arrive, as in a live round. A live round's posts are
- * already showing: nothing changes.
+ * first place). For the same reason the posts shown now can't be taken
+ * back any more (`applyWallIntent`, rule 6). The host takes posts again
+ * with `setWallOpen`; from then on they show as they arrive, as in a live
+ * round. A live round's posts are already showing: nothing changes.
  */
 export function revealWall(wall: HostWall): HostWall {
   const r = wall.round;
@@ -447,6 +458,7 @@ export function applyWallIntent(
         merged: [],
         re,
       };
+      if (!wallShown(r)) post.together = true;
       const round = withPost(r, post);
       return accept({
         ...wall,
@@ -462,6 +474,10 @@ export function applyWallIntent(
     case "withdraw": {
       const post = r.posts.get(intent.pid);
       if (!post) return refuseOnce("gone");
+      // Shown with the others: the request names its sender, so the post
+      // leaving the wall right after it would show whose it was. Refused
+      // whoever asks, before the key is looked at.
+      if (post.together && wallShown(r)) return refuseOnce("closed");
       if (post.author !== by || lockOf(intent.key) !== post.lock) return refuseOnce("not-yours");
       const posts = new Map(r.posts);
       posts.delete(post.pid);

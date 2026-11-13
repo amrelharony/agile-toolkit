@@ -52,8 +52,9 @@
  * sender for an instant before folding it; with "show posts as they
  * arrive", someone watching the channel can match a new post to the member
  * whose request just came in, and an upvote likewise (use "hidden until
- * reveal" for anything sensitive: Reveal shows the posts at once and stops
- * new ones, and a round the host opens again after it is like a live one);
+ * reveal" for anything sensitive: Reveal shows the posts at once, stops
+ * new posts and upvotes, and refuses a take-back of any post it showed; a
+ * round the host opens again after it is like a live one);
  * a raised hand shows the person's name, by design; and the tie
  * between an id and a secret is made on first use, so someone who sends as
  * a newcomer before the newcomer's own first request takes that id (the
