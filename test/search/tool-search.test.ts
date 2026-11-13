@@ -33,6 +33,9 @@ describe("searchTools", () => {
     ["side discussions", "parking-lot"],
     ["issue bin", "parking-lot"],
     ["ritual reset", "meeting-audit"],
+    ["coaching journal", "sm-notebook"],
+    ["scrum master journal", "sm-notebook"],
+    ["coaching notes", "sm-notebook"],
   ])("finds the right tool for %j", (query, expected) => {
     expect(ids(query, 3)).toContain(expected);
   });
