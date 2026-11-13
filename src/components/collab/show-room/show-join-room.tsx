@@ -15,6 +15,9 @@ import { Check, Hand } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
 import { RoomClosedPanel, signedRoomClosedCopy } from "@/components/collab/room-closed-panel";
+import { RoomCountdownCard } from "@/components/collab/room-countdown";
+import { RoomReactions } from "@/components/collab/room-reactions";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { visitorRoomsEnabled, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
 import { readVoteLinkFragment, type VoteCrypto } from "@/lib/realtime/vote-room/crypto";
 import type { ShowRoomTool } from "@/lib/realtime/show-room/protocol";
@@ -89,6 +92,7 @@ function ParticipantShowRoom({
     hostFingerprint,
     crypto,
   });
+  const extras = useRoomExtras(room.extras);
   const { status, hostName } = room;
   const closed = isSignedRoomClosed(status);
 
@@ -134,6 +138,7 @@ function ParticipantShowRoom({
         </div>
       ) : (
         <section aria-label={`What the host is showing in ${toolName}`} className="space-y-4">
+          <RoomCountdownCard timer={extras.timer} />
           <ShowFrameView tool={tool} frame={room.frame} surface="phone" />
           <div className="flex flex-wrap items-center gap-3">
             <Button
@@ -155,6 +160,7 @@ function ParticipantShowRoom({
               {room.hereCount} {room.hereCount === 1 ? "person is" : "people are"} here.
             </p>
           </div>
+          <RoomReactions extras={extras} />
         </section>
       )}
     </main>

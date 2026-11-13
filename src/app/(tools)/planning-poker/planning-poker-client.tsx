@@ -37,6 +37,8 @@ import { ExampleNotice, isExampleId } from "@/components/tool-frame/example-data
 import { SessionScreen } from "./session-screen";
 import { usePokerSession } from "./use-poker-session";
 import { PokerRoomBar } from "./poker-room-bar";
+import { RoomReactions } from "@/components/collab/room-reactions";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { fitStoriesToVisitorRoom, withHostOnly } from "./visitor-session";
 import {
   adoptLocalSession,
@@ -124,6 +126,8 @@ export function PlanningPokerClient() {
     idleWarning,
     keepRoomOpen,
   } = pokerHook;
+  // A visitor room's countdown and reactions (no port, so nothing, otherwise).
+  const roomExtras = useRoomExtras(pokerHook.extras);
 
   useEffect(() => {
     if (!pendingInitial) return;
@@ -563,6 +567,9 @@ export function PlanningPokerClient() {
                 idleWarning={idleWarning}
                 onKeepOpen={keepRoomOpen}
                 keepsSession
+                extras={roomExtras}
+                session={session}
+                bigScreen
               />
             )}
             <SessionScreen
@@ -623,7 +630,9 @@ export function PlanningPokerClient() {
               }
               recordHistory={!visitorRoom}
               onRemoveParticipant={visitorRoom ? (p) => kick(p.id) : undefined}
+              revealAtZero={visitorRoom ? roomExtras.timer : null}
             />
+            {visitorRoom && <RoomReactions extras={roomExtras} className="pt-2" />}
           </motion.div>
         )}
       </AnimatePresence>
