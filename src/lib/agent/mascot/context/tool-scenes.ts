@@ -196,6 +196,7 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     actions: { role_added: ["raci.deal"], assignment_changed: ["raci.place"] },
   },
   { toolId: "one-on-one", open: ["chat"], actions: { meeting_logged: ["chat.note"] } },
+  { toolId: "sm-notebook", open: ["chat"], actions: { note_added: ["chat.note"] } },
   {
     toolId: "stakeholder-map",
     open: ["stakeholders"],
