@@ -533,6 +533,23 @@ describe("hold-up cards", () => {
     pickFormat("Safety check");
     expect(screen.queryByRole("button", { name: "Open the cards" })).toBeNull();
     expect(screen.getByText(/Safety check keeps each answer anonymous/)).toBeInTheDocument();
+    // The kit's count entry for its scale asks for paper slips too, never hands.
+    expect(
+      screen.getByText(/^Live rounds are off on this site, so collect paper slips/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/^Collect paper slips, so nobody's answer is seen/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/count hands/i)).toBeNull();
+  });
+
+  it("still counts hands for a scale whose answers can be seen", async () => {
+    await renderPage();
+    pickFormat("Fist of five");
+    expect(
+      screen.getByText(/^Live rounds are off on this site, so count hands or collect paper answers/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/collect paper slips/i)).toBeNull();
   });
 
   it("isn't offered where each person needs their own answer", async () => {

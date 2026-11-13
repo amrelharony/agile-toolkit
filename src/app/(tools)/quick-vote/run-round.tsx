@@ -5,7 +5,8 @@
  *  - "Everyone on their own device": the vote kit's live room (anonymous,
  *    totals only, through `VoteRoundPanel`);
  *  - "One screen": count hands and type the totals (the kit's count entry
- *    for scales; Quick Vote's own for choice rounds);
+ *    for scales; Quick Vote's own for choice rounds); ESVP and the safety
+ *    check count paper slips instead, never hands;
  *  - hold-up cards on each person's phone, with no room at all.
  *
  * One `VoteRoundPanel` stays mounted whatever the format, so an open room
@@ -80,7 +81,8 @@ export function RunRound({
   const [cardsOpen, setCardsOpen] = useState(false);
   const formatMinN = presetMinN(preset);
   // ESVP and the safety check: each answer stays anonymous, so no hands or
-  // cards held up, only paper slips the host collects and counts.
+  // cards held up, only paper slips the host collects and counts (the
+  // kit's count entry too, for the safety check's scale).
   const anonymous = formatMinN > DEFAULT_MIN_N;
   const { roomMinN, onLiveChange } = usePageRoom();
   const need = roomMinN ?? formatMinN;
@@ -105,6 +107,7 @@ export function RunRound({
     onSave,
     renderResults,
     onLiveChange,
+    paperOnly: anonymous,
   };
   let panel: VoteRoundPanelProps;
   switch (preset.kind) {
