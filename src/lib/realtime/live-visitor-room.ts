@@ -4,7 +4,10 @@
  *
  * In a live room the board holds other people's words, and a change made in
  * the host's tab is sent to everyone in the room. The people there agreed to
- * the room notice, which says nothing about an AI. So while a room is open,
+ * the room notice, which lets the host send the room's answers, without
+ * names, to an AI service for a summary (a tool's AI, previewed by the host
+ * before the room sees it); it doesn't cover Amr's chat reading the board,
+ * names and all, or changing what the room sees. So while a room is open,
  * Amr's AI for visitors uses no tools: it reads nothing from the board and
  * changes nothing the room would see (see visitor-tools.ts and the visitor
  * loop in agent/client.ts).
