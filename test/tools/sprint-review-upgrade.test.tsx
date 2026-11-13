@@ -8,6 +8,8 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { reviewFacts } from "@/lib/sprints/review-doc";
 import type { Sprint, SprintGoal, SprintReview, Story } from "@/lib/stores/workspace-types";
+import { useHistoryStore } from "@/lib/history/history-store";
+import type { HistoryEvent } from "@/lib/history/types";
 
 /**
  * Sprint Review, Phase 3 of the tool upgrade: one review per sprint
@@ -1493,5 +1495,63 @@ describe("theme tokens", () => {
     for (const file of files(dir)) {
       expect(readFileSync(file, "utf8"), file).not.toMatch(/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/);
     }
+  });
+});
+
+describe("the feedback room on the Feedback tab", () => {
+  beforeEach(() => {
+    seed({ sprints: [s12, s11], stories: STORIES, sprintGoals: GOALS });
+    useHistoryStore.setState({ events: [] });
+  });
+
+  it(
+    "keeps the tab, and the room's panel, when another tab is shown",
+    { timeout: 30_000 },
+    async () => {
+      renderReview();
+      await screen.findByText(/partly met its goal/);
+      openTab("Stakeholder Feedback");
+      fireEvent.click(screen.getByRole("button", { name: "Run a feedback room" }));
+      // The button gives way to the room's panel: it isn't a toggle that could close a room.
+      expect(screen.queryByRole("button", { name: "Run a feedback room" })).toBeNull();
+      // The room's kit loads on demand (a cold import can take a while in a test run).
+      await waitFor(() => expect(screen.queryByText("Loading the feedback room…")).toBeNull(), {
+        timeout: 15_000,
+      });
+      openTab("Demo Script");
+      // Still mounted, only hidden: a live room in it keeps running.
+      const panel = document.querySelector('[role="tabpanel"][data-state="inactive"]');
+      expect(panel).not.toBeNull();
+      expect(panel).toHaveAttribute("hidden");
+      expect(panel!.textContent).toContain("Feedback room");
+      openTab("Stakeholder Feedback");
+      expect(screen.getByRole("heading", { name: "Feedback room" })).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Run a feedback room" })).toBeNull();
+    }
+  );
+
+  it("counts a room's saved round by its posts in the last 30 days", async () => {
+    const event = (id: string, payload: Record<string, unknown>): HistoryEvent => ({
+      id,
+      clientEventId: id,
+      clientId: "c",
+      toolRunId: "r",
+      userId: null,
+      toolId: "sprint-review",
+      action: "feedback_added",
+      payload,
+      isMilestone: false,
+      occurredAt: new Date().toISOString(),
+      syncedAt: null,
+    });
+    useHistoryStore.setState({
+      events: [
+        event("e1", { category: "positive", count: 12, from: "room" }),
+        event("e2", { category: "concern" }),
+      ],
+    });
+    renderReview();
+    await screen.findByText(/partly met its goal/);
+    expect(screen.getByText(/feedback items captured/).textContent).toContain("13");
   });
 });

@@ -52,6 +52,9 @@ interface ExportButtonProps {
   /** Which edge of the button the menu lines up with. Left out, it follows
    *  the button (see menuAlignFor). */
   align?: MenuAlign;
+  /** What this button exports, for a screen reader, when a page has several
+   *  (e.g. one per saved wall): the name becomes "Export: <context>". */
+  context?: string;
 }
 
 /**
@@ -76,6 +79,7 @@ export function ExportButton({
   shareState,
   targetRef,
   align,
+  context,
 }: ExportButtonProps) {
   const pathname = usePathname();
   const tool = pathname ? getToolByPath(pathname) : undefined;
@@ -169,6 +173,7 @@ export function ExportButton({
             <Download className="w-4 h-4" aria-hidden="true" />
           )}
           {flashing === "copied" ? "Copied" : flashing === "exported" ? "Exported" : "Export"}
+          {context && !flashing && <span className="sr-only">: {context}</span>}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align ?? autoAlign} className="bg-surface border-border">

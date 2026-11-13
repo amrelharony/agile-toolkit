@@ -12,6 +12,7 @@ import {
   dockOvertime,
   formatClock,
   ringsOwnAlarm,
+  saysOwnTimesUp,
   timerRemaining,
   useDockTimer,
 } from "@/lib/timer/dock-timer";
@@ -26,8 +27,10 @@ import { cn } from "@/lib/utils";
  * At zero it stops there (`expire`), says so once, and rings the shared
  * time's-up alarm (`timesUp`), on any page, the owner's included, unless
  * the owner's page is open and rings its own (`ringsOwnAlarm`: the
- * Ceremony Timer, a step timer panel). Then it counts the overtime up
- * until it is stopped.
+ * Ceremony Timer, a step timer panel, Facilitator Timers' run). It leaves
+ * the words to an owner page that says time's up itself the same way
+ * (`saysOwnTimesUp`: the Ceremony Timer, Facilitator Timers' run). Then it
+ * counts the overtime up until it is stopped.
  */
 export function DockedTimer() {
   const pathname = usePathname();
@@ -62,8 +65,10 @@ export function DockedTimer() {
       useDockTimer.getState().expire();
       if (!announcedEndRef.current) {
         announcedEndRef.current = true;
-        announce(`${timer.label}: time's up`, "assertive");
-        if (pathname !== timer.href || !ringsOwnAlarm(timer.href)) timesUp({ sound: timer.chime });
+        const away = pathname !== timer.href;
+        // The timer's own page may say time's up itself, and ring its own.
+        if (away || !saysOwnTimesUp(timer.href)) announce(`${timer.label}: time's up`, "assertive");
+        if (away || !ringsOwnAlarm(timer.href)) timesUp({ sound: timer.chime });
       }
     } else if (remaining > 0) {
       announcedEndRef.current = false;

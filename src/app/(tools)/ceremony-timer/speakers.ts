@@ -8,6 +8,8 @@
  * rest, never below MIN_TURN_SECONDS. Pure: times in, shares out.
  */
 
+import { shuffle, type Rng } from "@/lib/utils/random";
+
 /** A speaker in the order. Names are unique (any case); the id marks example rows. */
 export interface Participant {
   id: string;
@@ -142,6 +144,53 @@ export function speakerPlan(
     everyoneSpoke: order.length > 0 && waiting.length === 0,
     overbooked: waiting.length * MIN_TURN_SECONDS > Math.max(0, budgetSeconds - used),
   };
+}
+
+/**
+ * The speaking order shuffled (Fisher–Yates, lib/utils/random): everyone
+ * whose id is in `keep` (who has spoken, or is speaking, in the round
+ * that's on) stays where they are, and the others swap places among
+ * themselves. With two or more to move, the order always comes out
+ * different, so pressing Shuffle visibly does something.
+ */
+export function shuffledOrder(
+  order: readonly Participant[],
+  keep: ReadonlySet<string> = new Set(),
+  rng?: Rng
+): Participant[] {
+  const slots = order.map((p, i) => (keep.has(p.id) ? -1 : i)).filter((i) => i >= 0);
+  const movable = slots.map((i) => order[i]);
+  if (movable.length < 2) return order.slice();
+  let mixed = shuffle(movable, rng);
+  for (let tries = 0; tries < 8 && mixed.every((p, i) => p.id === movable[i].id); tries++) {
+    mixed = shuffle(movable, rng);
+  }
+  // Still the same after eight tries (a stuck random source): rotate by one.
+  if (mixed.every((p, i) => p.id === movable[i].id)) mixed = [...movable.slice(1), movable[0]];
+  const out = order.slice();
+  slots.forEach((slot, k) => {
+    out[slot] = mixed[k];
+  });
+  return out;
+}
+
+/** How many speakers a shuffle can move: those not in `keep`. */
+export function movableCount(order: readonly Participant[], keep: ReadonlySet<string>): number {
+  return order.filter((p) => !keep.has(p.id)).length;
+}
+
+/**
+ * The order `before` had, for the speakers still in `now`: Undo of a
+ * shuffle. Anyone added since keeps their place at the end.
+ */
+export function restoredOrder(
+  before: readonly Participant[],
+  now: readonly Participant[]
+): Participant[] {
+  const present = new Map(now.map((p) => [p.id, p]));
+  const back = before.filter((p) => present.has(p.id)).map((p) => present.get(p.id)!);
+  const ids = new Set(back.map((p) => p.id));
+  return [...back, ...now.filter((p) => !ids.has(p.id))];
 }
 
 /**

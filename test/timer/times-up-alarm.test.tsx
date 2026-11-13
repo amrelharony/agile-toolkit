@@ -45,6 +45,7 @@ import { StepTimerPanel } from "@/app/(tools)/liberating-structures/components/s
 import { TimerWidget } from "@/app/(tools)/retro/components/timer-widget";
 import { dockOvertime, useDockTimer, type DockedTimer as Docked } from "@/lib/timer/dock-timer";
 import { startSteps, stepDock } from "@/lib/timer/step-timer";
+import { publishTurn, startWalk, STANDUP_PATH } from "@/app/(tools)/standup/walk";
 
 const ROOT = join(__dirname, "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
@@ -210,6 +211,26 @@ describe("the docked timer", () => {
     expect(screen.getByRole("timer", { name: "Warm-up: time's up" })).toHaveTextContent(
       "+1:05 over"
     );
+  });
+
+  it("rings the standup's turn clock on /standup by the title only, never by sound", () => {
+    // Even with the shared switch on: a standup turn's end is never a sound.
+    useAlarmPrefs.setState({ sound: true });
+    nav.pathname = STANDUP_PATH;
+    publishTurn(startWalk(["Alice", "Bo"], "2026-11-12", 2, T0));
+    expect(useDockTimer.getState().timer).toMatchObject({
+      label: "Standup: Alice",
+      href: STANDUP_PATH,
+      chime: false,
+    });
+    render(
+      <LiveAnnouncerProvider>
+        <DockedTimer />
+      </LiveAnnouncerProvider>
+    );
+    advance(2100);
+    expect(alarm.timesUp).toHaveBeenCalledTimes(1);
+    expect(alarm.timesUp).toHaveBeenCalledWith({ sound: false });
   });
 
   it("shows no overtime for a timer that hasn't run out, or that nobody saw end", () => {

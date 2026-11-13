@@ -2,7 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Hand, Mic, Pause, Play, SkipForward, Square } from "lucide-react";
+import {
+  CheckCircle2,
+  Hand,
+  ListOrdered,
+  Mic,
+  Pause,
+  Play,
+  Shuffle,
+  SkipForward,
+  Square,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
@@ -149,10 +159,15 @@ function PersonBoardView({ name, board }: { name: string; board: PersonBoard | n
  * Each turn shows that person's stories by status (and the blocked ones)
  * and what they planned last time, with a clock for the turn that also
  * docks on other pages. Next speaker, Skip for now (they stay "not yet"),
- * give someone the floor, or mark them out of today's standup.
+ * give someone the floor, or mark them out of today's standup. Before the
+ * walk starts, Shuffle mixes the day's order (the same on every reload) and
+ * "Back to roster order" undoes it.
  */
 export function BoardWalk({
   order,
+  shuffled = false,
+  onShuffle,
+  onRosterOrder,
   away,
   entries,
   today,
@@ -162,8 +177,14 @@ export function BoardWalk({
   onAway,
   onBack,
 }: {
-  /** Who speaks, in order (lib: speakingOrder). */
+  /** Who speaks, in order (lib: speakingOrder, shuffledOrder once shuffled). */
   order: readonly string[];
+  /** Today's order is the day's shuffle. */
+  shuffled?: boolean;
+  /** Shuffle today's order; without it, no Shuffle button. */
+  onShuffle?: () => void;
+  /** Back to the roster's order (undoes the shuffle). */
+  onRosterOrder?: () => void;
   away: readonly string[];
   entries: readonly StandupEntry[];
   today: string;
@@ -458,6 +479,47 @@ export function BoardWalk({
         </p>
       )}
 
+      {order.length > 1 && onShuffle && (shuffled || !walk) && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {shuffled && (
+            <p className="min-w-0 text-xs text-sub">
+              Shuffled for today: the same order on every reload, back to the roster tomorrow.
+            </p>
+          )}
+          {!walk &&
+            (shuffled ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="ml-auto gap-1"
+                data-focus-key="order:roster"
+                onClick={() => {
+                  onRosterOrder?.();
+                  focusSoon(byFocusKey("order:shuffle"));
+                }}
+              >
+                <ListOrdered className="h-4 w-4" aria-hidden="true" />
+                Back to roster order
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="ml-auto gap-1"
+                data-focus-key="order:shuffle"
+                onClick={() => {
+                  onShuffle();
+                  focusSoon(byFocusKey("order:roster"));
+                }}
+              >
+                <Shuffle className="h-4 w-4" aria-hidden="true" />
+                Shuffle
+              </Button>
+            ))}
+        </div>
+      )}
       {order.length > 0 && (
         <ol aria-label="Speaking order" className="space-y-1.5">
           {order.map((name, i) => {

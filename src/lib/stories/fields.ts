@@ -9,7 +9,9 @@
  * server's actions all read it.
  */
 
-import type { Story } from "@/lib/stores/workspace-types";
+import { nanoid } from "nanoid";
+import type { Story, StoryGwt } from "@/lib/stores/workspace-types";
+import { TOOL_LIST_MAX, TOOL_TEXT_MAX } from "@/lib/stores/workspace-types";
 import { cutText } from "@/lib/utils/cut-text";
 import type { Validation } from "@/lib/utils/form";
 
@@ -77,12 +79,13 @@ function cleaned(story: StoryDetails): Record<StoryTextField, string | undefined
 
 /**
  * `story` with its four text fields cleaned: trimmed, capped, a link that
- * isn't http or https dropped, and no key left behind for an empty one. The
- * same object when there is nothing to clean, so a write that doesn't touch
- * them costs nothing. The last line of defence: forms say what is wrong
- * before saving, and the agents' schema rejects a bad value.
+ * isn't http or https dropped, and no key left behind for an empty one. Its
+ * Given/When/Then rows are cleaned too (`cleanGwt`). The same object when
+ * there is nothing to clean, so a write that doesn't touch them costs
+ * nothing. The last line of defence: forms say what is wrong before saving,
+ * and the agents' schema rejects a bad value.
  */
-export function cleanStoryFields<T extends StoryDetails>(story: T): T {
+export function cleanStoryFields<T extends StoryDetails & { gwt?: StoryGwt[] }>(story: T): T {
   const clean = cleaned(story);
   let out: T | undefined;
   for (const key of STORY_TEXT_FIELDS) {
@@ -93,7 +96,154 @@ export function cleanStoryFields<T extends StoryDetails>(story: T): T {
     if (value === undefined) delete (out as StoryDetails)[key];
     else (out as StoryDetails)[key] = value;
   }
+  if ("gwt" in story) {
+    const gwt = cleanGwt(story.gwt);
+    if (gwt === undefined || gwt !== story.gwt) {
+      out ??= { ...story };
+      if (gwt === undefined) delete out.gwt;
+      else out.gwt = gwt;
+    }
+  }
   return out ?? story;
+}
+
+/* ── Given / When / Then ─────────────────────────────────────────────── */
+
+/** Scenarios a story keeps, and the length of each part (the agents' schema caps). */
+export const STORY_GWT_MAX = TOOL_LIST_MAX.gwt;
+export const GWT_PART_MAX = TOOL_TEXT_MAX.text;
+
+export const GWT_PARTS = ["given", "when", "then"] as const;
+export type GwtPart = (typeof GWT_PARTS)[number];
+
+/** One part as written: line ends made "\n", outer blank space gone, capped. */
+function gwtPart(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return cutText(value.replace(/\r\n?/g, "\n").trim(), GWT_PART_MAX).trimEnd();
+}
+
+/**
+ * Given/When/Then rows as stored: each part trimmed and capped, a row with
+ * no words in it dropped, a row with no id (or an id an earlier row has)
+ * given a fresh one, and at most STORY_GWT_MAX rows. Undefined when none is
+ * left (a story keeps no empty list). The same array when nothing changed.
+ */
+export function cleanGwt(value: unknown): StoryGwt[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const seen = new Set<string>();
+  const out: StoryGwt[] = [];
+  let changed = false;
+  for (const raw of value) {
+    if (out.length >= STORY_GWT_MAX) {
+      changed = true;
+      break;
+    }
+    const row = (raw ?? {}) as Partial<StoryGwt>;
+    const given = gwtPart(row.given);
+    const when = gwtPart(row.when);
+    const then = gwtPart(row.then);
+    if (!given && !when && !then) {
+      changed = true;
+      continue;
+    }
+    let id = typeof row.id === "string" ? row.id.trim() : "";
+    if (!id || seen.has(id)) id = newGwtId(seen);
+    seen.add(id);
+    const next: StoryGwt = { id, given, when, then };
+    if (
+      next.id !== row.id ||
+      next.given !== row.given ||
+      next.when !== row.when ||
+      next.then !== row.then
+    ) {
+      changed = true;
+      out.push(next);
+    } else {
+      out.push(raw as StoryGwt);
+    }
+  }
+  if (out.length === 0) return undefined;
+  return changed || out.length !== value.length ? out : (value as StoryGwt[]);
+}
+
+/** A short id no row in `taken` has: "gwt_k3f9a2". */
+export function newGwtId(taken: ReadonlySet<string> = new Set()): string {
+  for (;;) {
+    const id = `gwt_${nanoid(8)}`;
+    if (!taken.has(id)) return id;
+  }
+}
+
+/** Whether the story has any Given/When/Then row. */
+export function hasStoryGwt(story: { gwt?: readonly StoryGwt[] }): boolean {
+  return Array.isArray(story.gwt) && story.gwt.length > 0;
+}
+
+/** `story` with its rows set to `gwt` (cleaned); none left removes the key. */
+export function withStoryGwt<T extends { gwt?: StoryGwt[] }>(
+  story: T,
+  gwt: readonly StoryGwt[] | undefined
+): T {
+  const next: T = { ...story };
+  const clean = cleanGwt(gwt ? [...gwt] : undefined);
+  if (clean === undefined) delete next.gwt;
+  else next.gwt = clean;
+  return next;
+}
+
+/** One row as a sentence: "Given a saved card, when I pay, then it is charged once." */
+export function gwtSentence(row: Pick<StoryGwt, GwtPart>): string {
+  const parts = [
+    row.given.trim() && `Given ${row.given.trim()}`,
+    row.when.trim() && `when ${row.when.trim()}`,
+    row.then.trim() && `then ${row.then.trim()}`,
+  ].filter(Boolean) as string[];
+  if (parts.length === 0) return "";
+  const text = parts.join(", ").replace(/\s+/g, " ");
+  const first = text.charAt(0).toUpperCase() + text.slice(1);
+  return /[.!?]$/.test(first) ? first : `${first}.`;
+}
+
+/** The rows as Gherkin-style lines, one part a line, scenarios apart by a blank line. */
+export function gwtLines(gwt: readonly StoryGwt[] | undefined): string[] {
+  const out: string[] = [];
+  for (const row of gwt ?? []) {
+    if (out.length > 0) out.push("");
+    if (row.given.trim()) out.push(`Given ${row.given.trim().replace(/\s+/g, " ")}`);
+    if (row.when.trim()) out.push(`When ${row.when.trim().replace(/\s+/g, " ")}`);
+    if (row.then.trim()) out.push(`Then ${row.then.trim().replace(/\s+/g, " ")}`);
+  }
+  return out;
+}
+
+/** The rows in one cell of a CSV or a table: sentences joined by " | ". */
+export function gwtCell(gwt: readonly StoryGwt[] | undefined): string {
+  return (gwt ?? []).map(gwtSentence).filter(Boolean).join(" | ");
+}
+
+/** One scenario as typed in its form. */
+export type GwtDraft = Record<GwtPart, string>;
+
+export const EMPTY_GWT_DRAFT: GwtDraft = { given: "", when: "", then: "" };
+
+const GWT_LABEL: Record<GwtPart, string> = { given: "Given", when: "When", then: "Then" };
+
+/**
+ * A scenario needs all three parts, each within its cap: the form says what
+ * is missing instead of saving half a scenario.
+ */
+export function validateGwtDraft(draft: GwtDraft): Validation<GwtDraft, GwtPart> {
+  const errors: Partial<Record<GwtPart, string>> = {};
+  const values = {} as GwtDraft;
+  for (const part of GWT_PARTS) {
+    const text = draft[part].replace(/\r\n?/g, "\n").trim();
+    if (!text) errors[part] = `Write the “${GWT_LABEL[part]}” part.`;
+    else if (text.length > GWT_PART_MAX)
+      errors[part] = tooLong(`the “${GWT_LABEL[part]}” part`, GWT_PART_MAX);
+    values[part] = text;
+  }
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  return { ok: true, values };
 }
 
 /** Whether the story has any of the four. */

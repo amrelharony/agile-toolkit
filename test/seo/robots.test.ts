@@ -50,8 +50,12 @@ describe("robots", () => {
     );
   });
 
-  it("keeps visitor live-room join links out of the index", () => {
-    expect(rule().disallow).toEqual(expect.arrayContaining(["/join/"]));
+  it("keeps /join and visitor live-room join links out of the index", () => {
+    const disallow = [rule().disallow ?? []].flat();
+    expect(disallow).toEqual(expect.arrayContaining(["/join"]));
+    for (const path of ["/join", "/join/planning-poker/ABCDEFGHJKMN"]) {
+      expect(disallow.some((prefix) => path.startsWith(prefix))).toBe(true);
+    }
   });
 
   it("keeps the book readers' VIP link and page out of the index", () => {

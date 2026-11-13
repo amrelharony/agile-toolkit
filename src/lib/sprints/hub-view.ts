@@ -109,7 +109,9 @@ export type TileId =
   | "average"
   | "rating"
   /** The cockpit's open-impediments tile. */
-  | "blockers";
+  | "blockers"
+  /** The cockpit's interrupt-buffer tile (lib/sprints/interrupts). */
+  | "interrupts";
 
 export interface Tile {
   id: TileId;
@@ -121,6 +123,10 @@ export interface Tile {
   tone: "default" | "success" | "warning";
   /** No data yet: the value is a message, shown muted. */
   empty?: boolean;
+  /** Where the whole tile links to (the tool that holds its numbers). */
+  href?: string;
+  /** The link's name for screen readers, e.g. "Open the Interrupt Buffer". */
+  linkLabel?: string;
 }
 
 const NOT_LOGGED = "Not logged yet";
