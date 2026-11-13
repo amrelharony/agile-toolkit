@@ -39,6 +39,20 @@ function action(
   };
 }
 
+/** A card the team wrote (not an action), in `columnKey`: what the recurring themes read. */
+function topic(key: string, columnKey: string, text: string, votes = 0): RetroCard {
+  return {
+    id: exampleId(`rt-${key}`),
+    columnKey,
+    text,
+    votes,
+    groupedWith: null,
+    isActionItem: false,
+    assignee: "",
+    discussing: false,
+  };
+}
+
 function board(key: string, format: RetroFormat, archivedAt: string, cards: RetroCard[]) {
   const sprintId = exampleId(`sprint-${key}`);
   return {
@@ -63,6 +77,10 @@ function board(key: string, format: RetroFormat, archivedAt: string, cards: Retr
  * on into Sprint 14; Sprint 14's retro was three days ago and only one of
  * its four is done yet, one already overdue. It is the retro being followed
  * up, so it isn't rated yet: 6 of 8 for the two before it.
+ *
+ * Each retro also raised flaky tests and staging, so Recurring themes has
+ * two to show, and flaky tests came back after Sprint 12's pairing on them
+ * was marked done.
  *
  * Everything carries `example-` ids and stays in the page's memory: the
  * cockpit and the agent never count it.
@@ -96,6 +114,8 @@ export function buildExample(now: Date = new Date()): RetroActionsExample {
     }),
     action("12-3", ssc, "Move the release checklist into the repo", { assignee: "Dev" }),
     action("12-4", ssc, "Update the Definition of Done for accessibility", { assignee: "Alex" }),
+    topic("12-a", "stop", "Flaky UI tests blocked two merges", 3),
+    topic("12-b", "stop", "Staging was down for a whole day", 2),
   ]);
   const sprint13 = board("13", fourLs, at(17), [
     action("13-1", fourLs, "Move the release checklist into the repo", {
@@ -114,6 +134,8 @@ export function buildExample(now: Date = new Date()): RetroActionsExample {
       sentTo: [impediment],
     }),
     action("13-4", fourLs, "Rotate the release captain each sprint", { assignee: "Alex" }),
+    topic("13-a", "lacked", "Flaky tests came back on the payment page", 2),
+    topic("13-b", "lacked", "Staging data was out of date", 1),
   ]);
   const sprint14 = board("14", msg, at(3), [
     action("14-1", msg, "Rotate the release captain each sprint", {
@@ -130,6 +152,8 @@ export function buildExample(now: Date = new Date()): RetroActionsExample {
       assignee: "Sam",
       dueDate: day(1),
     }),
+    topic("14-a", "mad", "Flaky tests again, this time on search", 4),
+    topic("14-b", "sad", "Waited two days for staging", 2),
   ]);
 
   return {

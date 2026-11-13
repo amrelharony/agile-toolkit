@@ -12,6 +12,9 @@ import { agendaTask } from "./facilitator-timers";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { themeNamesTask } from "./picker";
 import { productGoalDraftTask } from "./product-goal";
+import { groupTopicsTask, surprisePlanTask } from "./retro";
+import { retroActionsThemesTask } from "./retro-actions";
+import { categoriesTask, countermeasureTask, nextWhyTask } from "./root-cause";
 import { sprintRiskNoteTask } from "./sprint";
 
 // `any` here only erases each task's own input/output types for the list; the
@@ -27,5 +30,11 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   interruptClassifyTask,
   themeNamesTask,
   productGoalDraftTask,
+  surprisePlanTask,
+  groupTopicsTask,
+  retroActionsThemesTask,
+  nextWhyTask,
+  categoriesTask,
+  countermeasureTask,
   sprintRiskNoteTask,
 ];

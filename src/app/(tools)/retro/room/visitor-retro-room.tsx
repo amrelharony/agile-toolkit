@@ -60,6 +60,7 @@ import { TimerWidget } from "../components/timer-widget";
 import { hiddenTotal } from "./hidden";
 import { MEMBER_CARD_CAP } from "./protocol";
 import { ParticipantBoard } from "./participant-board";
+import { ThumbsVoteCard, thumbsVerdict } from "./thumbs-vote-card";
 import {
   HideCardsSetting,
   IdlePromptDialog,
@@ -226,6 +227,24 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
       );
     }
   }, [status, hostName, announce]);
+
+  // The host's thumbs vote: said when it opens and when it closes, since the
+  // card can appear above the board while someone is scrolled down to their
+  // column. A promoted host runs its own vote, so says nothing here.
+  const poll = !isHost && active ? room.poll : null;
+  const lastPoll = useRef<{ id: string; open: boolean } | null>(null);
+  useEffect(() => {
+    const prev = lastPoll.current;
+    lastPoll.current = poll ? { id: poll.id, open: poll.open } : null;
+    if (!poll) return;
+    if (poll.open && prev?.id !== poll.id) {
+      announce(`The host asks: keep going or move on? ${poll.topic}`);
+    } else if (!poll.open && (prev?.id !== poll.id || prev.open)) {
+      announce(
+        `The vote is closed. Keep going ${poll.keep ?? 0}, move on ${poll.move ?? 0}. ${thumbsVerdict({ keep: poll.keep ?? 0, move: poll.move ?? 0 })}`
+      );
+    }
+  }, [poll, announce]);
 
   const lastHost = useRef<string | null>(hostId);
   useEffect(() => {
@@ -530,6 +549,15 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
                     }
                   : undefined
               }
+            />
+          )}
+
+          {active && !hosting && room.poll && (
+            <ThumbsVoteCard
+              poll={room.poll}
+              myThumb={room.myThumb}
+              canVote={room.admitted}
+              onThumb={room.thumb}
             />
           )}
 

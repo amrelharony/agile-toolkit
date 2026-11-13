@@ -106,6 +106,8 @@ function targetEverywhere(route: HandoffRouteId, id: string): boolean[] {
           .find((d) => d.id === OPPORTUNITY_TREE_ID)
           ?.nodes.some((n) => n.id === id) ?? false,
       ];
+    case "root-cause":
+      return [(ws().rootCauseAnalyses ?? []).some((a) => a.id === id)];
   }
 }
 
@@ -123,6 +125,7 @@ beforeEach(() => {
     decisions: [],
     dependencyMaps: [],
     opportunityTrees: [],
+    rootCauseAnalyses: [],
   });
 });
 
@@ -396,8 +399,10 @@ describe("source back-links", () => {
         "retro-action",
         "retro-topic",
         "risk",
+        "root-cause",
       ].sort()
     );
+    expect(sourceHref({ tool: "root-cause", id: "rca_1" })).toBe("/root-cause?analysis=rca_1");
     for (const route of ROUTES) expect(getHandoffRoute(route).id).toBe(route);
     // One route per id the workspace schemas accept on a stored link.
     expect([...ROUTES].sort()).toEqual([...HANDOFF_ROUTE_IDS].sort());

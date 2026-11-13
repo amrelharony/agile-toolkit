@@ -24,6 +24,14 @@ export const RETRO_ACTIONS = {
   SPRINT_SET: "sprint_set",
   /** Kudos from the sprint were added as appreciation cards. */
   KUDOS_ADDED: "kudos_added",
+  /** Lean Coffee: a topic went to Discussing with its timebox. */
+  TOPIC_STARTED: "topic_started",
+  /** Lean Coffee: the room kept going on a topic. */
+  TOPIC_EXTENDED: "topic_extended",
+  /** Lean Coffee: a topic was finished. */
+  TOPIC_DONE: "topic_done",
+  /** Lean Coffee: duplicate topics were merged under one. */
+  TOPICS_MERGED: "topics_merged",
 } as const;
 
 export const VELOCITY_ACTIONS = {

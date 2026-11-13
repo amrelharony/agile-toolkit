@@ -12,6 +12,9 @@ import { agendaPrompt } from "./facilitator-timers.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { themeNamesPrompt } from "./picker.server";
 import { productGoalDraftPrompt } from "./product-goal.server";
+import { groupTopicsPrompt, surprisePlanPrompt } from "./retro.server";
+import { retroActionsThemesPrompt } from "./retro-actions.server";
+import { categoriesPrompt, countermeasurePrompt, nextWhyPrompt } from "./root-cause.server";
 import { sprintRiskNotePrompt } from "./sprint.server";
 
 // See index.ts on `any`: each prompt's input is checked by its task's schema first.
@@ -26,5 +29,11 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   interruptClassifyPrompt,
   themeNamesPrompt,
   productGoalDraftPrompt,
+  surprisePlanPrompt,
+  groupTopicsPrompt,
+  retroActionsThemesPrompt,
+  nextWhyPrompt,
+  categoriesPrompt,
+  countermeasurePrompt,
   sprintRiskNotePrompt,
 ];
