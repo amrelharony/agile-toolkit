@@ -46,13 +46,15 @@ export const VISITOR_ROOM_CONSENT_TEXT =
  * The vote-round variant: answers are numbers, encrypted to the host's
  * browser, and only totals are kept and shown. It promises no more than
  * that: the totals of a unanimous question show everyone's answer. A number
- * round is the exception it names: the host keeps the numbers (sorted, with
- * no sender) until Reveal, and the median, lowest and highest it shows are
- * each someone's exact answer (lib/realtime/vote-room/number.ts).
+ * round is the exception it names, from its first sentence on: the host
+ * keeps the numbers (sorted, with no sender) until Reveal, and the median,
+ * lowest and highest it shows are each someone's exact answer
+ * (lib/realtime/vote-room/number.ts).
  */
 export const VOTE_ROOM_CONSENT_TEXT =
   "Answers are encrypted in each person's browser, so only the host's browser can read them, " +
-  "and it keeps the totals only. They pass through our realtime provider (Supabase). " +
+  "and, outside a number round, it keeps the totals only. " +
+  "They pass through our realtime provider (Supabase). " +
   "Others in the room see your name and whether you've answered, not what. " +
   "After the host reveals the results, everyone in the room sees the totals, for questions " +
   "with enough answers; if everyone gives the same answer, the totals show it. " +

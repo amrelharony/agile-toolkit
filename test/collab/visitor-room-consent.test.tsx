@@ -65,7 +65,8 @@ describe("VisitorRoomConsent", () => {
     const dialog = screen.getByRole("dialog");
     expect(VOTE_ROOM_CONSENT_TEXT).toBe(
       "Answers are encrypted in each person's browser, so only the host's browser can read them, " +
-        "and it keeps the totals only. They pass through our realtime provider (Supabase). " +
+        "and, outside a number round, it keeps the totals only. " +
+        "They pass through our realtime provider (Supabase). " +
         "Others in the room see your name and whether you've answered, not what. " +
         "After the host reveals the results, everyone in the room sees the totals, for questions " +
         "with enough answers; if everyone gives the same answer, the totals show it. " +

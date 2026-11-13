@@ -17,6 +17,7 @@ import {
   latestVerdict,
   normalizeResults,
   normalizeRoundResult,
+  resultKind,
   resultSummary,
   savedDay,
   showsAgreement,
@@ -307,6 +308,14 @@ describe("sending and exporting", () => {
     expect(md).toMatch(
       /^# Quick Vote results\n\n4 saved rounds, newest first\. Only the totals are kept/
     );
+    // The example has a guess-the-number round: its statistics are answers.
+    expect(md).toContain(
+      "Only the totals are kept, never names: a number round's median, lowest and highest are each someone's exact answer."
+    );
+    expect(md).not.toContain("nobody's answers");
+    const noNumbers = ex.results.filter((r) => resultKind(r.result) !== "number");
+    expect(noNumbers.length).toBeGreaterThan(0);
+    expect(toMarkdown(noNumbers)).toContain("Only the totals are kept: nobody's answers or names.");
     expect(md).toContain("## Fist of five: How much do you support moving the demo to Thursdays?");
     expect(md).toContain("Real answer: 11 days.");
     expect(md).toContain("| Flaky end-to-end tests | 7 |");

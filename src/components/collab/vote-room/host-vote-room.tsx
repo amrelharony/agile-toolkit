@@ -269,7 +269,11 @@ export function HostVoteRoom({
           />
           <p className="text-xs text-sub">
             Share it with Copy link or Show QR code: both carry the key that shows the questions
-            come from you. Only the totals are kept, and only if you save them.
+            come from you.{" "}
+            {kind === "number"
+              ? // A number round's results are answers, not totals: each is someone's own.
+                "Only the results are kept, and only if you save them: no names, but the median, lowest and highest are each someone's exact answer."
+              : "Only the totals are kept, and only if you save them."}
           </p>
         </div>
       )}

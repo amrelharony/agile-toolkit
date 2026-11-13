@@ -183,6 +183,13 @@ describe("VoteRoundPanel: Quick Vote's kinds", () => {
     await flush();
     const state = ch.sent(VOTE_ROOM_EVENTS.state).at(-1) as Record<string, unknown> | undefined;
     expect(state).toMatchObject({ v: 3, kind: "number", tool: "quick-vote" });
+    // A number round keeps exact answers, so the host isn't told "totals only".
+    expect(
+      await screen.findByText(
+        /Only the results are kept, and only if you save them: no names, but the median, lowest and highest are each someone's exact answer\./
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Only the totals are kept/)).toBeNull();
   });
 
   it("needs the kind named where it isn't the tool's usual one", () => {
