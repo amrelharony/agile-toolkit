@@ -44,6 +44,8 @@ import { buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
 import { buildImpediment } from "@/lib/handoffs/targets/impediment";
 import { buildRetroCard } from "@/lib/handoffs/targets/retro-board";
 import { isResolved } from "@/lib/impediments/model";
+import { stampStoryWrite } from "@/lib/sprints/story-status";
+import { cleanStoryFields } from "@/lib/stories/fields";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import { RETRO_CURRENT_ID, blankRetroBoard, newestArchivedRetro } from "@/lib/retro/board";
 import { isExampleId } from "@/lib/utils/example-id";
@@ -132,7 +134,9 @@ function serverStore(userId: string): ParkingStore {
     },
     send: async (route, src) => {
       if (route === "backlog-story") {
-        const story = buildBacklogStory(src);
+        // Stamped as the browser's store stamps a new story (createdAt), so
+        // Backlog Health can date it and flag it once it goes stale.
+        const story = stampStoryWrite(cleanStoryFields(buildBacklogStory(src)), undefined);
         await serverUpsertEntity<Story>(userId, KIND_STORY, story);
         stories = undefined;
         return story.id;
