@@ -14,17 +14,21 @@
  * control and bidi characters, and render as React text only.
  */
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Timer } from "lucide-react";
 import {
   IdlePromptDialog as SharedIdlePromptDialog,
   type IdlePromptDialogProps,
 } from "@/components/collab/room-controls";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { RoomCountdown, useHostTimerNotes } from "@/components/collab/room-countdown";
+import { ChimeToggle } from "@/components/timer/chime-toggle";
+import { timesUp } from "@/lib/celebrate/chime";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import type { RoomTimer } from "@/lib/realtime/room-timer";
 import { PHASES, type BoardPhase } from "../types";
-import { formatTimer } from "../helpers";
 import { timerRemaining, type RoomTimerView } from "./use-retro-room";
 
 export { RoomMemberList, type RoomMemberListProps } from "@/components/collab/room-controls";
@@ -107,26 +111,80 @@ export function useRoomCountdown(timer: RoomTimerView | null): number | null {
   return timer ? timerRemaining(timer, Math.max(now, timer.anchoredAt)) : null;
 }
 
-/** The host's countdown, as a participant sees it. */
+/**
+ * The room's countdown as a room timer (`lib/realtime/room-timer`), for the
+ * shared `RoomCountdown`: running, it ends `remaining` seconds after it was
+ * anchored. Once it reaches zero this device remembers when, so the
+ * overtime counts up from there; a device that only ever saw it at zero
+ * shows time's up without a count.
+ */
+export function useRetroRoomTimer(timer: RoomTimerView | null): RoomTimer | null {
+  const endRef = useRef<number | null>(null);
+  const running = timer?.running ?? false;
+  const remaining = timer?.remaining ?? 0;
+  const anchoredAt = timer?.anchoredAt ?? 0;
+  const present = timer !== null;
+  return useMemo(() => {
+    if (!present) {
+      endRef.current = null;
+      return null;
+    }
+    const base = { totalSeconds: Math.max(1, remaining), label: "", autoReveal: false };
+    if (running) {
+      endRef.current = anchoredAt + remaining * 1000;
+      return { ...base, endsAt: endRef.current, pausedSeconds: remaining };
+    }
+    if (remaining === 0 && endRef.current !== null) {
+      return { ...base, endsAt: endRef.current, pausedSeconds: 0 };
+    }
+    endRef.current = null;
+    return { ...base, endsAt: null, pausedSeconds: remaining };
+  }, [present, running, remaining, anchoredAt]);
+}
+
+/**
+ * A promoted host runs the room's timer with the Board's own widget
+ * (`TimerWidget`), which only shows. This rings the shared alarm once when
+ * that countdown crosses zero on this screen (not for one already at zero
+ * when this person took over), says so, and returns when, for the widget's
+ * overtime count. Null while it runs, or before it ran out here.
+ */
+export function useRoomTimerAlarm(
+  timer: RoomTimerView | null,
+  countdown: number | null
+): number | null {
+  const announce = useAnnounce();
+  const [overSince, setOverSince] = useState<number | null>(null);
+  const running = Boolean(timer?.running) && (countdown ?? 0) > 0;
+  const wasRunningRef = useRef(running);
+  useEffect(() => {
+    const was = wasRunningRef.current;
+    wasRunningRef.current = running;
+    if (was && !running && countdown === 0) {
+      announce("Time's up.", "assertive");
+      timesUp();
+      setOverSince(Date.now());
+    } else if (timer === null || running || (countdown ?? 0) > 0) {
+      setOverSince(null);
+    }
+  }, [timer, running, countdown, announce]);
+  return overSince;
+}
+
+/**
+ * The host's countdown, as a participant sees it: the shared countdown,
+ * which rings the time's-up alarm here and counts the overtime up, and
+ * says politely when the host pauses, restarts or adds to it.
+ */
 export function RoomTimerReadout({ timer }: { timer: RoomTimerView | null }) {
-  const remaining = useRoomCountdown(timer);
-  if (!timer || remaining === null) return null;
-  const running = timer.running && remaining > 0;
+  const roomTimer = useRetroRoomTimer(timer);
+  useHostTimerNotes(roomTimer);
+  if (!roomTimer) return null;
   return (
-    <p className="flex items-center gap-2 text-sm">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
       <Timer className="w-4 h-4 text-sub" aria-hidden="true" />
-      <span className="sr-only">Time left: </span>
-      <span
-        className={cn(
-          "font-mono text-base font-bold tabular-nums",
-          running && remaining <= 60 ? "text-status-red" : running ? "text-accent" : "text-sub"
-        )}
-      >
-        {formatTimer(remaining)}
-      </span>
-      {!running && (
-        <span className="text-xs text-sub">{remaining === 0 ? "Time's up" : "Paused"}</span>
-      )}
-    </p>
+      <RoomCountdown timer={roomTimer} alarm size="sm" />
+      <ChimeToggle />
+    </div>
   );
 }

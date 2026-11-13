@@ -25,6 +25,8 @@ export interface ShowFrameViewProps {
   surface?: "phone" | "host";
   /** Shown while nothing is on screen. */
   emptyText?: string;
+  /** Say a new frame arrived (phones only). Off for the host's big screen, which shows its own. */
+  announceNew?: boolean;
   className?: string;
 }
 
@@ -33,6 +35,7 @@ export function ShowFrameView({
   frame,
   surface = "phone",
   emptyText = "Waiting for the host to show something…",
+  announceNew = true,
   className,
 }: ShowFrameViewProps) {
   const announce = useAnnounce();
@@ -40,12 +43,12 @@ export function ShowFrameView({
   // A frame's number and the host's time for it: a new frame always differs.
   const frameKey = frame ? `${frame.n}-${frame.at}` : null;
   useEffect(() => {
-    if (surface !== "phone" || frameKey === null) return;
+    if (surface !== "phone" || !announceNew || frameKey === null) return;
     if (lastKey.current === frameKey) return;
     const first = lastKey.current === null;
     lastKey.current = frameKey;
     if (!first) announce("The host showed something new.");
-  }, [frameKey, surface, announce]);
+  }, [frameKey, surface, announceNew, announce]);
 
   const Renderer = frame?.supported ? showRendererFor(tool, frame.kind) : null;
 

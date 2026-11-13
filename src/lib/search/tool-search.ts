@@ -30,6 +30,8 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   "capacity-planner": ["sprint planning", "availability", "time off", "focus factor"],
   "sprint-goal": ["sprint planning", "goal", "objective"],
   refinement: ["backlog refinement", "grooming", "definition of ready", "dor"],
+  "product-goal": ["product vision", "long-term goal", "north star"],
+  "backlog-health": ["deep", "backlog quality", "stale stories", "given when then", "gherkin"],
   "dod-builder": ["definition of done", "dod", "quality criteria"],
   prioritizer: ["prioritise", "prioritize", "backlog", "rank", "moscow", "wsjf", "rice"],
   "rice-scoring": ["prioritise", "prioritize", "reach impact confidence effort"],
@@ -72,11 +74,55 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   "post-mortem": ["incident review", "postmortem", "blameless", "rca", "root cause"],
   "incident-commander": ["incident", "outage", "on call"],
   impediments: ["blockers", "blocked"],
+  "interrupt-buffer": ["unplanned work", "interruptions", "firefighting", "emergency procedure"],
   "decision-log": ["adr", "architecture decision record", "decisions"],
   "one-on-one": ["one to one", "1on1", "manager", "direct report", "reports", "coaching"],
   "working-agreement": ["team norms", "ground rules", "team charter"],
   icebreaker: ["warm up", "energizer", "check-in"],
-  "ceremony-timer": ["timebox", "timer", "meeting"],
+  picker: [
+    "spinner",
+    "wheel of names",
+    "random name picker",
+    "dice",
+    "coin flip",
+    "role rotation",
+    "sprint names",
+  ],
+  "quick-vote": [
+    "poll",
+    "fist of five",
+    "roman vote",
+    "thumbs up",
+    "roti",
+    "confidence vote",
+    "dot voting",
+    "gradients of agreement",
+    "elmo",
+    "esvp",
+    "value poker",
+    "hold-up cards",
+  ],
+  "audience-wall": [
+    "word cloud",
+    "questions and answers",
+    "audience questions",
+    "upvote",
+    "brainwriting",
+    "25/10 crowd sourcing",
+    "raise hand queue",
+    "town hall",
+  ],
+  "ceremony-timer": ["timebox", "timer", "meeting", "agenda", "shuffle speakers", "speaking time"],
+  "facilitator-timers": [
+    "pomodoro",
+    "break timer",
+    "back at",
+    "crazy 8s",
+    "meeting cost",
+    "focus sounds",
+    "white noise",
+    "soundboard",
+  ],
   "story-mapper": ["user story map", "journey", "release slices", "mvp"],
   "release-planner": ["roadmap", "release", "forecast"],
   "epic-roadmap": ["roadmap", "epics", "timeline"],
@@ -110,9 +156,14 @@ function getIndex() {
   return cached;
 }
 
-/** Spellings the tokenizer would otherwise drop ("1:1" is two 1-char tokens). */
+/**
+ * Spellings the tokenizer would otherwise drop ("1:1" and "Q&A" are each two
+ * 1-char tokens).
+ */
 function normalizeQuery(query: string): string {
-  return query.replace(/\b1\s*[:\-/]\s*1s?\b/gi, " one on one ");
+  return query
+    .replace(/\b1\s*[:\-/]\s*1s?\b/gi, " one on one ")
+    .replace(/\bq\s*(?:&|and|n)\s*a\b/gi, " questions and answers ");
 }
 
 /** Best tools for `query`, most relevant first. Empty query → []. */

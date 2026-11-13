@@ -372,6 +372,8 @@ export const SPRINT_PLANNING_ACTIONS = {
    * Payload: `storyId`, `from` ("retro" or "impediments"), `sourceId`.
    */
   IMPROVEMENT_ADDED: "improvement_added",
+  /** The sprint's interrupt buffer set or cleared while planning. Payload: sprintId, pct, points. */
+  BUFFER_SET: "buffer_set",
   SPRINT_COMMITTED: "sprint_committed", // milestone
 } as const;
 

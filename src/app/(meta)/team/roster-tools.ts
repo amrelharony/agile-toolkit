@@ -11,6 +11,10 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   { toolId: "kudos", use: "Offers teammates as people to thank." },
   { toolId: "capacity-planner", use: "“Sync from team” adds a capacity row for each person." },
   { toolId: "ceremony-timer", use: "“Load team” fills the speaking order." },
+  {
+    toolId: "picker",
+    use: "Spins the team on its wheel and rotates facilitator, scribe and timekeeper among them.",
+  },
   { toolId: "canvas", use: "Suggests names for card assignees and @mentions." },
   { toolId: "health-dashboard", use: "Counts the team for standup participation." },
   { toolId: "sprint", use: "Counts who has posted today's standup update." },

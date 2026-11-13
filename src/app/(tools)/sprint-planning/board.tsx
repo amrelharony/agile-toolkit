@@ -54,6 +54,7 @@ import { withStoryDetails, withStoryGwt, type StoryDetails } from "@/lib/stories
 import { keptForSprintNote, sprintKeepingStory, storyRemoval } from "@/lib/stories/removal";
 import { leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
 import { undoable } from "@/lib/utils/undoable";
+import { withRefinedPutBack } from "@/lib/sprints/story-status";
 import { toast } from "@/lib/utils/toast";
 import {
   EMPTY_STORY_DRAFT,
@@ -416,7 +417,8 @@ export function PlanningBoard({
    * The export's new issues become backlog stories, and the stories already
    * here (matched by ticket key) take its points, in one write with one
    * Undo for the lot. Undo removes the new stories and puts each changed
-   * story's points back as they were, leaving anything else done to it since.
+   * story's points back as they were (with the refinedAt from before them,
+   * unless it was refined since), leaving anything else done to it since.
    */
   const importJira = (preview: JiraImportPreview) => {
     const created = jiraStories(preview.add, () => `story_${nanoid(8)}`);
@@ -429,11 +431,17 @@ export function PlanningBoard({
     });
     if (created.length + changed.length === 0) return;
     const { label, description } = jiraImportToast(created.length, changed.length);
+    // The refinedAt each changed story's points write left.
+    const stamps = new Map<string, string | undefined>();
     undoable({
       label,
       description,
       // One write each way, however long the export.
-      apply: () => writer.upsertStories([...created, ...changed]),
+      apply: () => {
+        writer.upsertStories([...created, ...changed]);
+        const saved = new Map(writer.stories().map((s) => [s.id, s]));
+        for (const c of changes) stamps.set(c.storyId, saved.get(c.storyId)?.refinedAt);
+      },
       revert: () => {
         if (created.length > 0) writer.removeStories(created.map((s) => s.id));
         const now = new Map(writer.stories().map((s) => [s.id, s]));
@@ -443,7 +451,9 @@ export function PlanningBoard({
           const next: Story = { ...story };
           if (c.from === undefined) delete next.points;
           else next.points = c.from;
-          return [next];
+          return [
+            withRefinedPutBack(next, stamps.get(c.storyId), stored.get(c.storyId)?.refinedAt),
+          ];
         });
         if (back.length > 0) writer.upsertStories(back);
       },
@@ -697,6 +707,11 @@ export function PlanningBoard({
   const saveBuffer = (buffer: SprintInterruptBuffer | undefined) => {
     if (closed) return;
     writer.updateSprint(sprint.id, { interruptBuffer: buffer });
+    log(SPRINT_PLANNING_ACTIONS.BUFFER_SET, {
+      sprintId: sprint.id,
+      pct: buffer?.pct ?? null,
+      points: buffer?.points ?? null,
+    });
     setAnnouncement(buffer ? "Interrupt buffer saved." : "Interrupt buffer cleared.");
   };
 

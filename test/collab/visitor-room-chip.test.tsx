@@ -39,11 +39,42 @@ afterEach(() => {
 });
 
 describe("VisitorRoomChip", () => {
-  it("shows the code and how full the room is", () => {
+  it("shows the code in groups of four, and how full the room is", () => {
     render(<VisitorRoomChip tool="planning-poker" code={CODE} memberCount={3} isHost />);
-    expect(screen.getByText(CODE)).toBeVisible();
+    expect(screen.getByText("ABCD-EFGH-JKMN")).toBeVisible();
+    expect(screen.getByText("ABCD-EFGH-JKMN").textContent).toBe("Room code ABCD-EFGH-JKMN");
     expect(screen.getByText("3/20")).toBeVisible();
     expect(screen.getByText("3 of 20 people")).toBeInTheDocument();
+  });
+
+  it("offers the host Big screen only when the room has one", () => {
+    const onBigScreen = vi.fn();
+    const { rerender } = render(
+      <VisitorRoomChip tool="retro" code={CODE} memberCount={2} isHost />
+    );
+    expect(screen.queryByRole("button", { name: "Big screen" })).toBeNull();
+    rerender(
+      <VisitorRoomChip tool="retro" code={CODE} memberCount={2} isHost onBigScreen={onBigScreen} />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Big screen" }));
+    expect(onBigScreen).toHaveBeenCalledTimes(1);
+    // A participant never gets it.
+    rerender(
+      <VisitorRoomChip
+        tool="retro"
+        code={CODE}
+        memberCount={2}
+        isHost={false}
+        onBigScreen={onBigScreen}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Big screen" })).toBeNull();
+  });
+
+  it("puts the grouped code beside the QR code", () => {
+    render(<VisitorRoomChip tool="retro" code={CODE} memberCount={1} isHost />);
+    const { dialog } = scanQr();
+    expect(within(dialog).getByText("ABCD-EFGH-JKMN")).toBeVisible();
   });
 
   it("copies the join link built from the page origin", async () => {

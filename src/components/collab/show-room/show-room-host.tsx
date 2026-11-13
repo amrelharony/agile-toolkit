@@ -24,7 +24,11 @@ import { useAnnounce } from "@/components/a11y/live-announcer";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
 import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
 import { IdlePromptDialog, RoomMemberList } from "@/components/collab/room-controls";
+import { RoomBigScreen, useBigScreen } from "@/components/collab/room-big-screen";
+import { RoomTimerControls } from "@/components/collab/room-countdown";
+import { RoomReactions } from "@/components/collab/room-reactions";
 import { LiveRoomLimits } from "@/components/collab/run-modes";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { signalGamification } from "@/lib/gamification/signal";
 import {
   clearVisitorIdentity,
@@ -171,6 +175,8 @@ function HostShowRoom({
     startedAt: session.startedAt,
     crypto,
   });
+  const extras = useRoomExtras(room.extras);
+  const big = useBigScreen();
   const announce = useAnnounce();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -233,6 +239,7 @@ function HostShowRoom({
             isHost
             onEnd={() => setConfirmEnd(true)}
             linkFragment={fingerprint ? `#k=${fingerprint}` : undefined}
+            onBigScreen={big.show}
           />
           <p className="text-xs text-sub">
             Share it with Copy link or Show QR code: both carry the key that shows the screen comes
@@ -240,6 +247,18 @@ function HostShowRoom({
           </p>
         </div>
       )}
+      <RoomBigScreen
+        {...big.props}
+        tool={tool}
+        toolName={toolName}
+        code={session.code}
+        linkFragment={fingerprint ? `#k=${fingerprint}` : undefined}
+        memberCount={room.members.length}
+        timer={extras.timer}
+        reactions={extras.reactions}
+      >
+        <ShowFrameView tool={tool} frame={room.frame} surface="phone" announceNew={false} />
+      </RoomBigScreen>
 
       <div className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -264,6 +283,13 @@ function HostShowRoom({
       </div>
 
       {children?.(room)}
+
+      <RoomTimerControls
+        timer={extras.timer}
+        onChange={extras.setTimer}
+        disabled={!extras.canSetTimer || status !== "live"}
+      />
+      <RoomReactions extras={extras} />
 
       {others.length > 0 && (
         <RoomMemberList

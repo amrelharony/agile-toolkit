@@ -39,8 +39,11 @@ vi.mock("@/components/shared/export-button", () => ({
     <pre data-testid="export-markdown">{markdown}</pre>
   ),
 }));
+const logs = vi.hoisted(() => [] as { action: string; payload?: Record<string, unknown> }[]);
 vi.mock("@/lib/history/use-history-logger", () => ({
-  useHistoryLogger: () => ({ log: () => {} }),
+  useHistoryLogger: () => ({
+    log: (action: string, payload?: Record<string, unknown>) => logs.push({ action, payload }),
+  }),
 }));
 vi.mock("@/lib/sprints/use-ceremony-cadence", async () => {
   const { DEFAULT_CADENCE: cadence } = await import("@/lib/sprints/cadence");
@@ -79,6 +82,7 @@ import "@/lib/actions/tools/interrupt-buffer";
 import { charterCards, charterMarkdown, charterProductGoal } from "@/app/(meta)/team/charter-view";
 import { ProductGoalLine } from "@/components/product-goal/product-goal-line";
 import { SERVES_PREFIX } from "@/lib/product-goal/model";
+import { SPRINT_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 
 const GOAL: ProductGoal = {
   id: "goal_a",
@@ -102,6 +106,7 @@ const SPRINT: Sprint = {
 const wrap = (ui: ReactNode) => render(<TooltipProvider>{ui}</TooltipProvider>);
 
 beforeEach(() => {
+  logs.length = 0;
   resetSelectedSprint();
   window.localStorage.clear();
   useWorkspaceStore.setState({
@@ -190,8 +195,16 @@ describe("Sprint Planning", () => {
       target: { value: "20" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
-    // Stored as the Interrupt Buffer page and Amr store it.
+    // Stored as the Interrupt Buffer page and Amr store it, and logged.
     expect(useWorkspaceStore.getState().sprints[0].interruptBuffer).toEqual({ pct: 20 });
+    expect(logs.filter((l) => l.action === SPRINT_PLANNING_ACTIONS.BUFFER_SET)).toEqual([
+      { action: "buffer_set", payload: { sprintId: "s2", pct: 20, points: null } },
+    ]);
+    // Saving the same buffer again writes and logs nothing.
+    const sprints = useWorkspaceStore.getState().sprints;
+    fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
+    expect(useWorkspaceStore.getState().sprints).toBe(sprints);
+    expect(logs.filter((l) => l.action === SPRINT_PLANNING_ACTIONS.BUFFER_SET)).toHaveLength(1);
     expect(
       screen.getByText(
         "20% of the points planned is kept for interrupts, once stories are in. To fit 30 with it, plan about 25 points of stories."
@@ -217,6 +230,10 @@ describe("Sprint Planning", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
     expect(useWorkspaceStore.getState().sprints[0].interruptBuffer).toBeUndefined();
+    // Only the saves that changed the buffer are logged: the refused share isn't.
+    expect(logs.filter((l) => l.action === SPRINT_PLANNING_ACTIONS.BUFFER_SET)).toEqual([
+      { action: "buffer_set", payload: { sprintId: "s2", pct: null, points: null } },
+    ]);
   });
 
   it("works out what to keep and what to plan", () => {

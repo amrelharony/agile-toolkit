@@ -311,16 +311,45 @@ describe("fixing a story", () => {
     expect(within(row("vague")).queryByRole("button", { name: "Split it" })).toBeNull();
   });
 
-  it("says a stale story needs Refinement's check, not just an edit here", async () => {
+  it("says how long a stale story has gone unchanged", async () => {
     seed([story({ createdAt: new Date(Date.now() - 20 * 7 * 86_400_000).toISOString() })]);
     renderPage();
     expect(
       await within(await screen.findByRole("list", { name: "Backlog stories" })).findByText(
-        /No status change, sprint move or ready check for 20 weeks\. Walk it through Refinement/
+        /Not changed for 20 weeks\. Refine it or drop it\./
       )
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByText("What counts as the top, too big and stale"));
-    expect(screen.getByText(/Points and criteria fixed here don.t reset it/)).toBeInTheDocument();
+  });
+
+  it("counts a fix here as refining, so a stale story stops being stale", async () => {
+    seed([
+      story({
+        points: undefined,
+        createdAt: new Date(Date.now() - 20 * 7 * 86_400_000).toISOString(),
+      }),
+    ]);
+    renderPage();
+    const input = await screen.findByLabelText("Points for Pay with a saved card");
+    expect(within(row("st1")).getByText(/Not changed for 20 weeks/)).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "3" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(find("st1")?.refinedAt).toEqual(expect.any(String));
+    expect(within(row("st1")).queryByText(/Not changed for/)).toBeNull();
+    expect(within(row("st1")).getByText("No flags.")).toBeInTheDocument();
+  });
+
+  it("counts a fix in the example as refining too, in memory", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "See an example backlog" }));
+    const loyalty = () => row("example-loyalty");
+    expect(within(loyalty()).getByText(/Not changed for/)).toBeInTheDocument();
+    const input = within(loyalty()).getByLabelText(
+      "Points for Loyalty stamps for regular shoppers"
+    );
+    fireEvent.change(input, { target: { value: "5" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(within(loyalty()).queryByText(/Not changed for/)).toBeNull();
+    expect(ws().stories).toEqual([]);
   });
 
   it("splits a big one by a pattern, with Undo, keeping the original", async () => {
@@ -375,6 +404,44 @@ describe("the review without AI", () => {
     expect(find("vague")?.gwt?.[0].when).toBe("someone uses “Reports”");
     undoLast();
     expect(find("vague")?.gwt).toBeUndefined();
+  });
+
+  it("takes its refinement back on Undo, so a stale story is stale again", async () => {
+    seed([
+      story({
+        acceptanceCriteria: undefined,
+        createdAt: new Date(Date.now() - 20 * 7 * 86_400_000).toISOString(),
+      }),
+    ]);
+    renderPage();
+    expect(await within(row("st1")).findByText(/Not changed for 20 weeks/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review by the rules" }));
+    const list = screen.getByRole("region", { name: "Splits and scenarios to add" });
+    fireEvent.click(within(list).getAllByRole("button", { name: /^Add: Given/ })[0]);
+    expect(find("st1")?.gwt).toHaveLength(1);
+    expect(find("st1")?.refinedAt).toEqual(expect.any(String));
+    expect(row("st1")?.textContent ?? "").not.toMatch(/Not changed for/);
+    undoLast();
+    expect(find("st1")?.gwt).toBeUndefined();
+    expect(find("st1")).not.toHaveProperty("refinedAt");
+    expect(within(row("st1")).getByText(/Not changed for 20 weeks/)).toBeInTheDocument();
+  });
+
+  it("keeps a refinement made since the scenario when it is undone", async () => {
+    seed([story({ id: "vague", title: "Reports", acceptanceCriteria: undefined })]);
+    renderPage();
+    await screen.findByText("Stories to look at");
+    fireEvent.click(screen.getByRole("button", { name: "Review by the rules" }));
+    const list = screen.getByRole("region", { name: "Splits and scenarios to add" });
+    fireEvent.click(within(list).getAllByRole("button", { name: /^Add: Given/ })[0]);
+    // Its own stamp, so it can't share the scenario's millisecond.
+    const later = "2099-01-01T00:00:00.000Z";
+    act(() => ws().upsertStory({ ...find("vague")!, points: 8, refinedAt: later }));
+    undoLast();
+    expect(find("vague")?.gwt).toBeUndefined();
+    expect(find("vague")?.points).toBe(8);
+    // Still refined: the stamp from before the scenario (none) isn't put back.
+    expect(find("vague")?.refinedAt).toEqual(expect.any(String));
   });
 });
 

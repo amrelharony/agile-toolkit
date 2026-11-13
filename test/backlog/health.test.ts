@@ -105,6 +105,18 @@ describe("per-story flags", () => {
     ).toBe("2026-10-02");
     expect(lastTouched(story({ createdAt: undefined }))).toBeNull();
   });
+
+  it("counts a recent refinement, so a story created long ago is not stale", () => {
+    const flags = (s: Story, top = true) => storyFlags(s, { top, today: TODAY }).map((f) => f.id);
+    const old = story({ createdAt: "2026-06-01T00:00:00.000Z" });
+    expect(flags(old, false)).toEqual(["stale"]);
+    const refined = { ...old, refinedAt: "2026-10-20T00:00:00.000Z" };
+    expect(lastTouched(refined)).toBe("2026-10-20");
+    expect(flags(refined, false)).toEqual([]);
+    expect(storyFlags(old, { top: false, today: TODAY })[0].reason).toMatch(
+      /^Not changed for \d+ weeks\. Refine it or drop it\.$/
+    );
+  });
 });
 
 describe("the DEEP scan", () => {
