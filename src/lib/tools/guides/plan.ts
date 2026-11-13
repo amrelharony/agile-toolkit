@@ -120,24 +120,24 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "release-planner",
     summary:
-      "The Release Planner forecasts when a release will be done by replaying your past sprints' velocity, or the items finished each week, 10,000 times (a Monte Carlo simulation). You get a range, the date to commit to, and the chance of hitting a target date.",
+      "The Release Planner forecasts when a release will be done by replaying your past sprints' velocity, or items finished a week, 10,000 times (a Monte Carlo simulation). You get a range, the date to commit to, and the chance of hitting a target date.",
     whenToUse: [
       "When stakeholders ask “when will it be done?” about a release or a story-map slice.",
       "Before committing to a date, to see how likely it is.",
-      "When scope changes and you need to show what that does to the date.",
+      "When scope changes, to show what that does to the date.",
     ],
     steps: [
-      "Under Forecast by, keep Story points, or pick Item count to forecast from the items finished each week, with no points.",
+      "Under Forecast by, keep Story points, or pick Item count to forecast from items finished a week, with no points.",
       "Under Scope, pick Backlog (open stories' points), Story-map slice (Plan this release in the Story Mapper opens one here) or Type it. Expected scope change adds work not found yet.",
       "Under Velocity, use From completed sprints, or Type them: points per sprint, oldest first.",
       "Under Dates, check the Start and Sprint length, and add a Target date if there is one.",
       "Read the Forecast: the verdict, Coin flip (P50), Commit (P85), the chart and the dates at 50% to 95% confidence; with a target date, the Probability of finishing by then and the Scope we can deliver by then.",
-      "In Item count, take Items left from Open backlog stories or Type a number, and the weekly counts under Throughput from the Sprint board, Flow board or Type them, over your Weeks of history. A week with nothing finished counts as 0. The Forecast adds Safe (P95) and By the target.",
+      "In Item count, take Items left from Open backlog stories or Type a number, and the weekly counts under Throughput from the Sprint board, Flow board or Type them, over your Weeks of history. A week with no finish counts as 0. The Forecast adds Safe (P95) and, with a target date, By the target.",
       "Under Features in order, add each feature's Items or pick an epic, and order them. Each shows when it is likely done after the ones above, and the target date draws the cut line. An epic with nothing left, or off the roadmap, counts 0.",
     ],
     tips: [
       "Commit to the P85 date, not the P50 one (a coin flip), and re-run it every sprint.",
-      "Story points need at least 4 sprints of velocity, completed or typed; Item count, 4 complete weeks with a finish. Unpointed stories or cards are left out of a points scope, so estimate them first.",
+      "Story points need at least 4 sprints of velocity, completed or typed; Item count, 4 complete weeks with at least one finish. Unpointed stories or cards are left out of a points scope, so estimate them first.",
       "If Change in pace (CUSUM) under Advanced analysis says the velocity shifted, forecast from the sprints since the change.",
     ],
     scales: [
