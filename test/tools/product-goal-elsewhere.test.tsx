@@ -191,7 +191,7 @@ describe("Sprint Planning", () => {
   it("sets the interrupt buffer as a share of the points planned, and shows it as a share after", () => {
     wrap(<SprintPlanning />);
     fireEvent.change(screen.getByLabelText("Commit to"), { target: { value: "30" } });
-    fireEvent.change(screen.getByLabelText("Share of the points planned"), {
+    fireEvent.change(screen.getByLabelText("Buffer share (%)"), {
       target: { value: "20" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
@@ -212,20 +212,20 @@ describe("Sprint Planning", () => {
     ).toBeInTheDocument();
     // The field still reads what was typed: a share, not points.
     expect(screen.getByLabelText("Keep for interrupts")).toHaveValue("pct");
-    expect(screen.getByLabelText("Share of the points planned")).toHaveValue(20);
+    expect(screen.getByLabelText("Buffer share (%)")).toHaveValue(20);
   });
 
   it("says what is wrong with a share out of range, and clears a blank buffer", () => {
     useWorkspaceStore.setState({ sprints: [{ ...SPRINT, interruptBuffer: { points: 4 } }] });
     wrap(<SprintPlanning />);
     fireEvent.change(screen.getByLabelText("Keep for interrupts"), { target: { value: "pct" } });
-    fireEvent.change(screen.getByLabelText("Share of the points planned"), {
+    fireEvent.change(screen.getByLabelText("Buffer share (%)"), {
       target: { value: "95" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
     expect(screen.getByText(/from 1 to 90%/)).toBeInTheDocument();
     expect(useWorkspaceStore.getState().sprints[0].interruptBuffer).toEqual({ points: 4 });
-    fireEvent.change(screen.getByLabelText("Share of the points planned"), {
+    fireEvent.change(screen.getByLabelText("Buffer share (%)"), {
       target: { value: "" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
@@ -257,7 +257,7 @@ describe("Sprint Planning", () => {
     // Sprint Planning.
     useWorkspaceStore.setState({ sprints: [committed] });
     const { unmount } = wrap(<SprintPlanning />);
-    fireEvent.change(screen.getByLabelText("Share of the points planned"), {
+    fireEvent.change(screen.getByLabelText("Buffer share (%)"), {
       target: { value: "20" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
