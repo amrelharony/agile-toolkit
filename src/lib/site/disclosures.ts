@@ -30,12 +30,16 @@ export const YOUR_DATA_AI =
   "If you choose to chat with Amr's AI or press Ask Amr in a tool, what you type and the tool content you choose or Amr reads to answer are sent to write the reply, and the site keeps only a daily count of AI uses. A tool sends nothing until you press Ask Amr.";
 
 // ── Live rooms and vote rounds (components/collab/visitor-room-consent.tsx) ─
+// Every room has emoji reactions, and each one carries its sender's room id
+// on the channel (lib/realtime/room-reactions.ts), so all three notices say
+// so in the same sentence, without promising anything about anonymity.
 
 /** What the dialog tells people before any channel opens. */
 export const VISITOR_ROOM_CONSENT_TEXT =
   "What you type passes through our realtime provider (Supabase) to everyone with the link. " +
   "We don't store it; the room disappears when everyone leaves. " +
   "The host may send the room's answers, without names, to an AI service for a summary. " +
+  "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
   "Share the link only with your team.";
 
 /**
@@ -50,6 +54,7 @@ export const VOTE_ROOM_CONSENT_TEXT =
   "After the host reveals the results, everyone in the room sees the totals, for questions " +
   "with enough answers; if everyone gives the same answer, the totals show it. " +
   "The host may send the room's answers, without names, to an AI service for a summary. " +
+  "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
   "Share the link only with your team.";
 
 /**
@@ -66,6 +71,7 @@ export const WALL_ROOM_CONSENT_TEXT =
   "Others in the room see your name, and see it in the queue if you raise your hand. " +
   "It all passes through our realtime provider (Supabase), and we don't store it. " +
   "The host may send the posts, without names, to an AI service, for example to group them. " +
+  "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
   "Share the link only with your team.";
 
 // ── Amr's AI for visitors ──────────────────────────────────────────────────

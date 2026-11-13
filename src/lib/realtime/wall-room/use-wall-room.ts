@@ -162,6 +162,7 @@ export interface WallRoom extends Pick<
   | "kick"
   | "end"
   | "leave"
+  | "extras"
 > {
   /** The round on the wall, or null before the host opens one. */
   round: WallRoundScreen | null;
@@ -845,6 +846,7 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
     kick: core.kick,
     end: core.end,
     leave: core.leave,
+    extras: core.extras,
     round: shown.round,
     hands,
     mine: Array.from(mineMap.values()).map((e) => e.post),

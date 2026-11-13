@@ -48,6 +48,7 @@ import { enoughData } from "@/lib/analytics/min-sample";
 import { retroColumnFor } from "@/lib/handoffs/targets/retro-board";
 import { retroVotes, type RetroVotes } from "@/lib/retro/board";
 import { emit as sonify } from "@/lib/sonification/emit";
+import { timesUp } from "@/lib/celebrate/chime";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { type HistoryLogger } from "@/lib/history/use-history-logger";
 import { RETRO_ACTIONS } from "@/lib/history/event-actions";
@@ -227,11 +228,18 @@ export function Board({
     return () => clearInterval(id);
   }, [state.timerRunning, onUpdate]);
 
-  // Say when the timebox runs out: the room is talking, not watching the clock.
+  // Say when the timebox runs out: the room is talking, not watching the
+  // clock. The shared alarm rings (`timesUp`), and the overtime counts up
+  // from here until the timer is set or started again.
   const wasRunning = useRef(state.timerRunning);
+  const [overSince, setOverSince] = useState<number | null>(null);
   useEffect(() => {
     if (wasRunning.current && !state.timerRunning && state.timerSeconds === 0) {
       announce("Time's up.", "assertive");
+      timesUp();
+      setOverSince(Date.now());
+    } else if (state.timerRunning || state.timerSeconds > 0) {
+      setOverSince(null);
     }
     wasRunning.current = state.timerRunning;
   }, [state.timerRunning, state.timerSeconds, announce]);
@@ -852,6 +860,7 @@ export function Board({
             <TimerWidget
               seconds={state.timerSeconds}
               running={state.timerRunning}
+              overSince={overSince}
               onToggle={() => {
                 onUpdate((prev) => ({ ...prev, timerRunning: !prev.timerRunning }));
                 announce(

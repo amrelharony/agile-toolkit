@@ -281,3 +281,121 @@ describe("sprint-review", () => {
     expect(ids("sprint-review", { sprints: [s1], sprintReviews: [], stories: [] })).toEqual([]);
   });
 });
+
+describe("interrupt-buffer (tools plan phase 1)", () => {
+  it("sends a sprint over its buffer to the cockpit", () => {
+    const out = steps("interrupt-buffer", {
+      sprints: [sprint({ interruptBuffer: { points: 2 } })],
+      interruptItems: [
+        {
+          id: "i1",
+          sprintId: "s2",
+          title: "Login broken",
+          kind: "bug",
+          size: 3,
+          emergency: false,
+          loggedAt: "2026-10-20T09:00:00.000Z",
+        },
+      ],
+    });
+    expect(out.map((s) => s.id)).toEqual(["interrupt-buffer-over"]);
+    expect(out[0].href).toBe("/sprint?sprint=s2");
+  });
+
+  it("stays quiet within the buffer", () => {
+    expect(
+      ids("interrupt-buffer", {
+        sprints: [sprint({ interruptBuffer: { points: 8 } })],
+        interruptItems: [],
+      })
+    ).toEqual([]);
+  });
+});
+
+describe("picker (tools plan phase 1)", () => {
+  const team = [{ id: "m1", name: "Sam" }];
+
+  it("asks for the team while the roster is empty or only the example", () => {
+    expect(ids("picker", { teamMembers: [] })).toEqual(["picker-team"]);
+    expect(ids("picker", { teamMembers: [{ id: "example-m1", name: "Sam" }] })).toEqual([
+      "picker-team",
+    ]);
+    expect(ids("picker", { teamMembers: team })).toEqual([]);
+  });
+
+  it("leads on to a ceremony starting within the hour", () => {
+    // Monday 26 Oct at 09:00; the default Daily Scrum is at 09:30.
+    vi.setSystemTime(new Date("2026-10-26T09:00:00"));
+    expect(
+      steps("picker", { teamMembers: team, sprints: [sprint()], ceremonyCadences: [] })[0]
+    ).toMatchObject({
+      id: "picker-ceremony",
+      label: "Go on to the Daily Scrum",
+      href: "/standup?sprint=s2",
+    });
+    vi.setSystemTime(new Date("2026-10-24T09:00:00"));
+    expect(ids("picker", { teamMembers: team, sprints: [sprint()], ceremonyCadences: [] })).toEqual(
+      []
+    );
+  });
+});
+
+describe("quick-vote", () => {
+  it("leads a proposed decision to the Decision Log and a vote's topic to the retro", () => {
+    const out = steps("quick-vote", {
+      decisions: [
+        {
+          id: "d1",
+          title: "Thursday demos? Most picked: Thumbs up (4)",
+          decision: "",
+          status: "proposed",
+          sourceRef: { tool: "quick-vote", id: "qvr-1" },
+        } as never,
+      ],
+      retroBoards: [
+        {
+          id: "retro:current",
+          cards: [
+            {
+              id: "c1",
+              text: "Worth it? Average 2.1 of 4",
+              isActionItem: false,
+              sourceRef: { tool: "quick-vote", id: "qvr-2" },
+            },
+            {
+              id: "example-c2",
+              text: "Example",
+              isActionItem: false,
+              sourceRef: { tool: "quick-vote", id: "x" },
+            },
+          ],
+        } as never,
+      ],
+    });
+    expect(out.map((s) => [s.id, s.href])).toEqual([
+      ["quick-vote-decide", "/decision-log?id=d1"],
+      ["quick-vote-retro", "/retro"],
+    ]);
+    expect(out[0].label).toBe(
+      "Record the decision on “Thursday demos? Most picked: Thumbs up (4)”"
+    );
+    expect(out[1].detail).toBe("1 vote result is on the retro board.");
+  });
+
+  it("stays quiet with nothing sent, or once the decision is made", () => {
+    expect(ids("quick-vote", { decisions: [], retroBoards: [] })).toEqual([]);
+    expect(
+      ids("quick-vote", {
+        decisions: [
+          {
+            id: "d1",
+            title: "X",
+            decision: "Go",
+            status: "accepted",
+            sourceRef: { tool: "quick-vote", id: "q" },
+          } as never,
+        ],
+      })
+    ).toEqual([]);
+  });
+});

@@ -34,7 +34,9 @@ import type { Story } from "@/lib/stores/workspace-types";
 import {
   STORY_STATUS_HISTORY_CAP,
   isStoryStatus,
+  stampRefinedWrite,
   stampStoryWrite,
+  withRefinedPutBack,
   withStoryBlocked,
   withStoryStatus,
 } from "@/lib/sprints/story-status";
@@ -152,9 +154,16 @@ describe("stampStoryWrite (agents' writes)", () => {
   });
 
   it("changes nothing when the status is the same", () => {
+    // The owner isn't what the story says, so no refinedAt either (below).
     const prev = story();
-    const next = { ...prev, title: "Log in" };
+    const next = { ...prev, owner: "Sam" };
     expect(stampStoryWrite(next, prev, T1)).toBe(next);
+  });
+
+  it("stamps refinedAt when the title changes, beside the status stamps", () => {
+    const prev = story();
+    const next = stampStoryWrite({ ...prev, title: "Log in", status: "in_progress" }, prev, T1);
+    expect(next).toMatchObject({ title: "Log in", startedAt: T1, refinedAt: T1 });
   });
 
   it("gives a new story the start and done times its status implies", () => {
@@ -166,6 +175,68 @@ describe("stampStoryWrite (agents' writes)", () => {
     expect(
       stampStoryWrite(story({ status: "in_progress", startedAt: T2 }), undefined, T1).startedAt
     ).toBe(T2);
+  });
+});
+
+describe("stampRefinedWrite (what the story says)", () => {
+  it("stamps refinedAt when the title, points, notes or criteria change", () => {
+    const prev = story({ refinedAt: T1 });
+    for (const patch of [
+      { title: "Log in" },
+      { points: 5 },
+      { notes: "Use the SSO page." },
+      { acceptanceCriteria: "Signed in once." },
+      { gwt: [{ id: "g1", given: "a user", when: "they sign in", then: "they see home" }] },
+    ] satisfies Partial<Story>[]) {
+      expect(
+        stampRefinedWrite({ ...prev, ...patch }, prev, T2).refinedAt,
+        Object.keys(patch)[0]
+      ).toBe(T2);
+    }
+  });
+
+  it("stamps nothing on a create, another field's change, or a write that sets it itself", () => {
+    const fresh = story();
+    expect(stampRefinedWrite(fresh, undefined, T1)).toBe(fresh);
+    const prev = story();
+    const moved = { ...prev, status: "done" as const, sprintId: "s2", owner: "Sam" };
+    expect(stampRefinedWrite(moved, prev, T1)).toBe(moved);
+    // An Undo putting an older copy back keeps that copy's stamp, or none.
+    const refined = story({ title: "Log in", refinedAt: T2 });
+    const undone = story();
+    expect(stampRefinedWrite(undone, refined, T3)).toBe(undone);
+  });
+
+  it("is stamped by the store's writes, single and bulk", () => {
+    useWorkspaceStore.setState({ stories: [story()] });
+    useWorkspaceStore.getState().upsertStory({ ...story(), status: "in_progress" });
+    expect(useWorkspaceStore.getState().stories[0].refinedAt).toBeUndefined();
+    useWorkspaceStore
+      .getState()
+      .upsertStory({ ...useWorkspaceStore.getState().stories[0], points: 5 });
+    expect(useWorkspaceStore.getState().stories[0].refinedAt).toEqual(expect.any(String));
+    useWorkspaceStore.setState({ stories: [story()] });
+    useWorkspaceStore.getState().bulkUpsertStories([{ ...story(), title: "Log in" }]);
+    expect(useWorkspaceStore.getState().stories[0].refinedAt).toEqual(expect.any(String));
+  });
+});
+
+describe("withRefinedPutBack (an Undo of its own change)", () => {
+  it("puts the earlier stamp back while the story carries the undone write's", () => {
+    const now = story({ refinedAt: T2 });
+    expect(withRefinedPutBack(now, T2, T1).refinedAt).toBe(T1);
+    const none = withRefinedPutBack(now, T2, undefined);
+    expect(none).not.toHaveProperty("refinedAt");
+    // The store then keeps it as written, so a stale story is stale again.
+    const undone = withRefinedPutBack({ ...now, points: 5 }, T2, T1);
+    expect(stampRefinedWrite(undone, now, T3).refinedAt).toBe(T1);
+  });
+
+  it("leaves a newer edit's stamp, or a write that stamped nothing, alone", () => {
+    const later = story({ refinedAt: T3 });
+    expect(withRefinedPutBack(later, T2, T1)).toBe(later);
+    const unstamped = story({ refinedAt: T1 });
+    expect(withRefinedPutBack(unstamped, T1, T1)).toBe(unstamped);
   });
 });
 
@@ -233,6 +304,18 @@ describe("workspace.story actions", () => {
       blocked: true,
       statusHistory: [{ status: "in_progress", from: "todo", at: T1 }],
     });
+  });
+
+  it("an update stamps refinedAt when what the story says changes, and later ones keep it", async () => {
+    await registry
+      .get("workspace.story.update")!
+      .handler({ id: "st1", patch: { points: 5 } }, ctx());
+    const refined = useWorkspaceStore.getState().stories[0].refinedAt;
+    expect(refined).toEqual(expect.any(String));
+    await registry
+      .get("workspace.story.update")!
+      .handler({ id: "st1", patch: { owner: "Sam" } }, ctx());
+    expect(useWorkspaceStore.getState().stories[0].refinedAt).toBe(refined);
   });
 
   it("rejects a status that isn't one of the five", async () => {

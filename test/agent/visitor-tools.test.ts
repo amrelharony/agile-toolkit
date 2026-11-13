@@ -70,7 +70,9 @@ describe("isVisitorAction", () => {
 
   /**
    * Besides the canvas, the verbs that run a live room on the page (they
-   * reach the people in it), each named here so a new one is a decision.
+   * reach the people in it), each named here so a new one is a decision:
+   * Audience Wall's room controls, and the round an open Quick Vote room
+   * asks next.
    */
   const LIVE_ROOM_VERBS = [
     "tool.audience_wall.room_status",
@@ -79,6 +81,7 @@ describe("isVisitorAction", () => {
     "tool.audience_wall.reveal",
     "tool.audience_wall.lower_hands",
     "tool.audience_wall.scoring",
+    "tool.quick_vote.start_round",
   ];
 
   it("leaves only the canvas actions and the live-room verbs closed to visitors", () => {

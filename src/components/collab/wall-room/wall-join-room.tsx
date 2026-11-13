@@ -23,6 +23,9 @@ import { Button } from "@/components/ui/button";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
 import { RoomClosedPanel, signedRoomClosedCopy } from "@/components/collab/room-closed-panel";
+import { RoomCountdownCard } from "@/components/collab/room-countdown";
+import { RoomReactions } from "@/components/collab/room-reactions";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { visitorRoomsEnabled, type VisitorIdentity } from "@/lib/realtime/visitor-rooms";
 import { readVoteLinkFragment, type VoteCrypto } from "@/lib/realtime/vote-room/crypto";
 import { isSignedRoomClosed } from "@/lib/realtime/use-signed-room";
@@ -152,6 +155,7 @@ function ParticipantWallRoom({
     hostFingerprint,
     crypto,
   });
+  const extras = useRoomExtras(room.extras);
   const { status, hostName, round } = room;
   const closed = isSignedRoomClosed(status);
   const mine = new Set(room.mine.map((p) => p.id));
@@ -260,6 +264,7 @@ function ParticipantWallRoom({
         </div>
       ) : (
         <div className="space-y-5">
+          <RoomCountdownCard timer={extras.timer} />
           {!round ? (
             <p role="status" className="text-sm text-sub">
               Waiting for the host to put up a prompt…
@@ -357,6 +362,7 @@ function ParticipantWallRoom({
           )}
 
           {!handsFirst && handRow}
+          <RoomReactions extras={extras} />
         </div>
       )}
     </main>
