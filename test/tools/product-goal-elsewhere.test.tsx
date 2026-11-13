@@ -200,6 +200,11 @@ describe("Sprint Planning", () => {
     expect(logs.filter((l) => l.action === SPRINT_PLANNING_ACTIONS.BUFFER_SET)).toEqual([
       { action: "buffer_set", payload: { sprintId: "s2", pct: 20, points: null } },
     ]);
+    // Saving the same buffer again writes and logs nothing.
+    const sprints = useWorkspaceStore.getState().sprints;
+    fireEvent.click(screen.getByRole("button", { name: "Save the buffer" }));
+    expect(useWorkspaceStore.getState().sprints).toBe(sprints);
+    expect(logs.filter((l) => l.action === SPRINT_PLANNING_ACTIONS.BUFFER_SET)).toHaveLength(1);
     expect(
       screen.getByText(
         "20% of the points planned is kept for interrupts, once stories are in. To fit 30 with it, plan about 25 points of stories."
