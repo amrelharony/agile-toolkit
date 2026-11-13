@@ -36,6 +36,7 @@ import {
   MAX_WEEKS,
   THROUGHPUT_ITERATIONS,
   THROUGHPUT_WINDOWS,
+  averagePerWeek,
   perWeekText,
   validateWeeklyCounts,
   type ThroughputWindow,
@@ -57,6 +58,7 @@ import {
   type ItemsPlan,
   type ItemsSource,
   type ReleaseFeature,
+  type ThroughputSample,
   type ThroughputSource,
 } from "./throughput";
 import { validateItemCount } from "./validate";
@@ -221,7 +223,7 @@ function CountsField({
 
 export function ThroughputCard({
   config,
-  plan,
+  sample,
   finished,
   onSource,
   onWindow,
@@ -229,7 +231,8 @@ export function ThroughputCard({
   onCommit,
 }: {
   config: ReleasePlannerConfig;
-  plan: ItemsPlan;
+  /** The weekly counts as typed or read now (the forecast may wait for a pause in the typing). */
+  sample: ThroughputSample;
   /** Finished items on each board, for the source buttons' counts. */
   finished: { stories: number; cards: number };
   onSource: (v: ThroughputSource) => void;
@@ -238,8 +241,7 @@ export function ThroughputCard({
   onCommit: (updates: Partial<ReleasePlannerConfig>) => void;
 }) {
   const windowId = useId();
-  const { sample } = plan;
-  const average = plan.forecast.average;
+  const average = averagePerWeek(sample.values);
   return (
     <SectionCard title="Throughput" icon={Gauge}>
       <div className="space-y-4">

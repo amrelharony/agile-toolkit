@@ -23,6 +23,7 @@ import {
   throughputForecast,
   validItems,
   weeklyThroughput,
+  type ForecastCache,
   type ThroughputForecast,
   type ThroughputWindow,
 } from "@/lib/sprints/throughput-forecast";
@@ -291,23 +292,33 @@ export interface ItemsPlan {
   forecast: ThroughputForecast;
 }
 
-export function planItems(input: {
-  sample: ThroughputSample;
-  itemsSource: ItemsSource;
-  items: number | null;
-  features: FeatureRow[];
-  start: ItemsPlan["start"];
-  target: string | null;
-}): ItemsPlan {
+/**
+ * The item plan and its forecast. A page passes its own `cache`, so an edit
+ * reruns only the simulations that read what changed (lib's ForecastCache).
+ */
+export function planItems(
+  input: {
+    sample: ThroughputSample;
+    itemsSource: ItemsSource;
+    items: number | null;
+    features: FeatureRow[];
+    start: ItemsPlan["start"];
+    target: string | null;
+  },
+  cache?: ForecastCache
+): ItemsPlan {
   return {
     ...input,
-    forecast: throughputForecast({
-      samples: input.sample.values,
-      items: input.items,
-      start: input.start.date,
-      target: input.target,
-      features: input.features.map((f) => ({ id: f.id, name: f.name, items: f.items })),
-    }),
+    forecast: throughputForecast(
+      {
+        samples: input.sample.values,
+        items: input.items,
+        start: input.start.date,
+        target: input.target,
+        features: input.features.map((f) => ({ id: f.id, name: f.name, items: f.items })),
+      },
+      cache
+    ),
   };
 }
 
