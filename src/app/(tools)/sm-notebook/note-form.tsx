@@ -108,8 +108,8 @@ export function NoteForm({
       );
     }
   };
-  /** Back to the button that asked, before the list that had focus goes. */
-  const focusTagAsk = () => tagAskRef.current?.querySelector<HTMLElement>("button")?.focus();
+  /** The button that asked: focus goes back to it when the list is dismissed. */
+  const tagAskButton = () => tagAskRef.current?.querySelector<HTMLElement>("button");
   const addTags = (tags: readonly string[]) =>
     update({ tags: normTags([...parseTags(draft.tags), ...tags]).join(", ") });
 
@@ -228,10 +228,8 @@ export function NoteForm({
               acceptLabel="Add tag"
               onAccept={(tag) => update(draftWithTag(draft, tag))}
               onAcceptAll={(tags) => addTags(tags)}
-              onDismiss={() => {
-                focusTagAsk();
-                setSuggested(null);
-              }}
+              returnFocus={tagAskButton}
+              onDismiss={() => setSuggested(null)}
             />
           ) : (
             // Announced when it comes (takeTags): a live region mounted with its text is often missed.
