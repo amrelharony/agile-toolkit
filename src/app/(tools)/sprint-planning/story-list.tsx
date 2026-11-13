@@ -11,7 +11,13 @@ import { StoryDetailsPanel, StoryTicket } from "@/components/stories/story-detai
 import { cn } from "@/lib/utils";
 import type { Story, StoryGwt } from "@/lib/stores/workspace-types";
 import { isRankedStory, storyPoints } from "@/lib/sprints/plan";
-import { hasStoryDetails, hasStoryGwt, storyLink, type StoryDetails } from "@/lib/stories/fields";
+import {
+  hasStoryDetails,
+  hasStoryGwt,
+  storyLink,
+  type GwtWrite,
+  type StoryDetails,
+} from "@/lib/stories/fields";
 import type { StoryRemoval } from "@/lib/stories/removal";
 import { checkStoryPoints, isReady } from "./view";
 
@@ -169,7 +175,7 @@ function StoryRow({
   /** Save the story's acceptance criteria, notes, ticket key and link. Absent: no Details. */
   onDetails?: (story: Story, details: StoryDetails) => void;
   /** Save the story's Given/When/Then scenarios. Absent: they show read only. */
-  onGwt?: (story: Story, gwt: StoryGwt[]) => void;
+  onGwt?: (story: Story, gwt: StoryGwt[], write?: GwtWrite) => void;
   onDelete?: (story: Story) => void;
   /** What the row's remove control may do (lib/stories/removal.ts). */
   removal?: StoryRemoval;
@@ -360,7 +366,7 @@ function StoryRow({
           // Nothing to read yet: open straight on the form.
           startEditing={!hasDetails}
           onSave={(details) => onDetails(story, details)}
-          onSaveGwt={onGwt ? (gwt) => onGwt(story, gwt) : undefined}
+          onSaveGwt={onGwt ? (gwt, write) => onGwt(story, gwt, write) : undefined}
           onEmpty={() => {
             setDetailsOpen(false);
             detailsToggle.current?.focus();
@@ -399,7 +405,7 @@ export function StoryList({
   /** Save a story's acceptance criteria, notes, ticket key and link. */
   onDetails?: (story: Story, details: StoryDetails) => void;
   /** Save a story's Given/When/Then scenarios. */
-  onGwt?: (story: Story, gwt: StoryGwt[]) => void;
+  onGwt?: (story: Story, gwt: StoryGwt[], write?: GwtWrite) => void;
   /** Delete a story (its row shows the bin only where `removalOf` allows it). */
   onDelete?: (story: Story, index: number) => void;
   /** What each row's remove control may do; absent: no row has one. */

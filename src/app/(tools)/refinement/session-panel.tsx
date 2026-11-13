@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import type { Story, StoryGwt } from "@/lib/stores/workspace-types";
-import type { StoryDetails } from "@/lib/stories/fields";
+import type { GwtWrite, StoryDetails } from "@/lib/stories/fields";
 import type { StoryRemoval } from "@/lib/stories/removal";
 import { cn } from "@/lib/utils";
 import {
@@ -102,7 +102,7 @@ export interface StoryCheckPanelProps {
   /** Save the story's acceptance criteria, notes, ticket key and link. Absent: not shown. */
   onSaveDetails?: (details: StoryDetails) => void;
   /** Save the story's Given/When/Then scenarios. Absent: they show read only. */
-  onSaveGwt?: (gwt: StoryGwt[]) => void;
+  onSaveGwt?: (gwt: StoryGwt[], write?: GwtWrite) => void;
   /** What the remove control may do (lib/stories/removal.ts). Absent: there is none. */
   removal?: StoryRemoval;
   /** Why there is no bin, for a story a started sprint still counts ("Was in Sprint 5…"). */

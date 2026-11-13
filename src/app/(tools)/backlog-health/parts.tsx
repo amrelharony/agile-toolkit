@@ -18,7 +18,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import type { Story, StoryGwt } from "@/lib/stores/workspace-types";
 import { storyPoints } from "@/lib/sprints/plan";
-import type { StoryDetails } from "@/lib/stories/fields";
+import type { GwtWrite, StoryDetails } from "@/lib/stories/fields";
 import {
   STORY_FLAG_LABEL,
   splitPatternsFor,
@@ -175,7 +175,7 @@ export interface StoryRowProps {
   onOpen?: (storyId: string) => void;
   onPoints: (story: Story, points: number | undefined) => void;
   onDetails: (story: Story, details: StoryDetails) => void;
-  onGwt: (story: Story, gwt: StoryGwt[]) => void;
+  onGwt: (story: Story, gwt: StoryGwt[], write?: GwtWrite) => void;
   onSplit: (story: Story, titles: string[]) => void;
   onDrop: (story: Story) => void;
 }
@@ -266,7 +266,7 @@ export function StoryRow({
           id={panelId}
           story={story}
           onSave={(d) => onDetails(story, d)}
-          onSaveGwt={(g) => onGwt(story, g)}
+          onSaveGwt={(g, write) => onGwt(story, g, write)}
           className="mt-3 rounded-lg border border-border bg-surface/40 p-3 sm:ml-9"
         />
       )}

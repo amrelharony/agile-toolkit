@@ -33,6 +33,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story } from "@/lib/stores/workspace-types";
 import {
   STORY_STATUS_HISTORY_CAP,
+  createRefinedMarks,
   isStoryStatus,
   stampRefinedWrite,
   stampStoryWrite,
@@ -237,6 +238,38 @@ describe("withRefinedPutBack (an Undo of its own change)", () => {
     expect(withRefinedPutBack(later, T2, T1)).toBe(later);
     const unstamped = story({ refinedAt: T1 });
     expect(withRefinedPutBack(unstamped, T1, T1)).toBe(unstamped);
+  });
+});
+
+describe("createRefinedMarks (an Undo that arrives as a plain write)", () => {
+  it("puts back the stamp from before the noted write, once", () => {
+    const marks = createRefinedMarks();
+    marks.note("k", T1, T2);
+    const now = story({ refinedAt: T2 });
+    const back = marks.putBack("k", now);
+    expect(back.refinedAt).toBe(T1);
+    expect(stampRefinedWrite({ ...back, points: 5 }, now, T3).refinedAt).toBe(T1);
+    // Used: a second Undo write with the same key changes nothing.
+    expect(marks.putBack("k", now)).toBe(now);
+  });
+
+  it("leaves an unknown key, or a story refined since, alone", () => {
+    const marks = createRefinedMarks();
+    const now = story({ refinedAt: T2 });
+    expect(marks.putBack("nope", now)).toBe(now);
+    marks.note("k", undefined, T2);
+    const later = story({ refinedAt: T3 });
+    expect(marks.putBack("k", later)).toBe(later);
+    marks.note("none", undefined, T2);
+    expect(marks.putBack("none", now)).not.toHaveProperty("refinedAt");
+  });
+
+  it("keeps only the latest marks", () => {
+    const marks = createRefinedMarks();
+    for (let i = 0; i < 60; i++) marks.note(`k${i}`, T1, T2);
+    const now = story({ refinedAt: T2 });
+    expect(marks.putBack("k0", now)).toBe(now);
+    expect(marks.putBack("k59", now).refinedAt).toBe(T1);
   });
 });
 
