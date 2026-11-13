@@ -66,7 +66,7 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Move work to Done on the Sprint or Flow board: each story or card with a start shows here. With nothing yet, click Load an example; it is not saved.",
       "For work tracked elsewhere, fill in Item, Started and Finished under Type an item and click Add item; edit or delete it in Finished items.",
-      "Pick what counts with the Include chips, then read the sentence at the top: your SLE and how many open items are already older than it.",
+      "Pick what counts with the Include chips, then read the sentence at the top: your SLE and how many items in progress are already older than it.",
       "Read the tiles: Average from 3 finished items; Median (50th %ile), 85th percentile and Spread (std dev) from 5.",
       "In Analysis, Histogram shows the spread and By completion date plots each finish. On the SLE tab, pick a percentile under Stated at and type a Target (days) to see how many made it.",
       "Check Ageing work in progress: items in progress or in review, oldest first, tinted once older than the 85th percentile. On a Blocked one, Send to… then Impediment raises it.",
