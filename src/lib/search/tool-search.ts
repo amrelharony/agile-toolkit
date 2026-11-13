@@ -139,6 +139,14 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "world cafe",
     "random teams",
   ],
+  "card-decks": [
+    "prompt cards",
+    "question cards",
+    "retro questions",
+    "coaching questions",
+    "check-in questions",
+    "appreciation",
+  ],
   "ceremony-timer": ["timebox", "timer", "meeting", "agenda", "shuffle speakers", "speaking time"],
   "facilitator-timers": [
     "pomodoro",
