@@ -14,10 +14,12 @@ import {
   causesIn,
   cleanCount,
   countermeasureSource,
+  liveOnBoards,
   paretoRows,
   postMortemFactorRef,
   readAnalysis,
   rootCauseVerdict,
+  sentLink,
   withCategoryRenamed,
   withCause,
   withCausePatch,
@@ -142,6 +144,17 @@ describe("the fishbone", () => {
     expect(causesIn([cause("a", 1, "process"), cause("b", 1, "Tools")], "Process")).toHaveLength(1);
   });
 
+  it("leaves out a starting category the team hid, until a cause is filed under it", () => {
+    expect(categoriesOf([], [], ["people", "Tools"])).toEqual(
+      DEFAULT_CATEGORIES.filter((c) => c !== "People" && c !== "Tools")
+    );
+    // A cause under a hidden default brings it back, in its own place.
+    expect(categoriesOf([cause("a", 1, "Tools")], ["Staff"], ["People", "Tools"])).toEqual([
+      ...DEFAULT_CATEGORIES.filter((c) => c !== "People"),
+      "Staff",
+    ]);
+  });
+
   it("renames a category on every cause in it", () => {
     const a = blank({
       causes: [cause("a", 1, "Tools"), cause("b", 1, "tools"), cause("c", 1, "People")],
@@ -194,6 +207,39 @@ describe("where an analysis stands", () => {
     expect(rootCauseVerdict([blank(), blank({ id: "b" })])).toMatch(/2 analyses are still looking/);
   });
 
+  it("counts a send only while its action is still on a retro board", () => {
+    const sent = blank({
+      rootCause: "No owner",
+      countermeasure: "Name one",
+      sentTo: [{ route: "retro-action", targetId: "card-1", at: NOW }],
+    });
+    const live = liveOnBoards([{ cards: [{ id: "card-1" }] }]);
+    const gone = liveOnBoards([{ cards: [{ id: "card-2" }] }]);
+    expect(analysisStage(sent, live)).toBe("sent");
+    expect(sentLink(sent, live)?.targetId).toBe("card-1");
+    // The action was deleted in Retro Actions: the countermeasure is back to unsent.
+    expect(analysisStage(sent, gone)).toBe("countermeasure");
+    expect(sentLink(sent, gone)).toBeUndefined();
+    expect(rootCauseVerdict([sent], gone)).toMatch(/isn't in Retro Actions yet/);
+    // Without a way to tell, a recorded link counts.
+    expect(analysisStage(sent)).toBe("sent");
+    // Other routes' links aren't checked against the boards.
+    expect(gone({ route: "impediment", targetId: "x", at: NOW })).toBe(true);
+  });
+
+  it("reads boards that hold anything without throwing", () => {
+    const isLive = liveOnBoards([
+      null,
+      { cards: "nope" },
+      { cards: [null, { id: 7 }, { id: "card-1" }] },
+    ] as never);
+    expect(isLive({ route: "retro-action", targetId: "card-1", at: NOW })).toBe(true);
+    expect(isLive({ route: "retro-action", targetId: "7", at: NOW })).toBe(false);
+    expect(liveOnBoards(undefined)({ route: "retro-action", targetId: "card-1", at: NOW })).toBe(
+      false
+    );
+  });
+
   it("sends the countermeasure's first line, with the problem and root cause as context", () => {
     const src = countermeasureSource(
       blank({ rootCause: "No owner", countermeasure: "Name an owner\nCheck: it stops" })
@@ -240,5 +286,36 @@ describe("reading a stored analysis back", () => {
     expect("rootCause" in read).toBe(false);
     expect(readAnalysis(null)).toBeNull();
     expect(readAnalysis({ title: "no id" })).toBeNull();
+  });
+
+  it("rebuilds links and the source ref from known fields, so a bad row can't crash a reader", () => {
+    const odd = readAnalysis({
+      id: "rca_1",
+      title: "x",
+      sentTo: { route: "retro-action" },
+      sourceRef: "post-mortem",
+      postMortemId: 4,
+      retroBoardId: "",
+    })!;
+    expect("sentTo" in odd).toBe(false);
+    expect("sourceRef" in odd).toBe(false);
+    expect("postMortemId" in odd).toBe(false);
+    expect("retroBoardId" in odd).toBe(false);
+    expect(analysisStage(odd)).toBe("started");
+
+    const mixed = readAnalysis({
+      id: "rca_2",
+      title: "y",
+      sentTo: [
+        null,
+        { route: "nowhere", targetId: "a", at: NOW },
+        { route: "retro-action", targetId: "", at: NOW },
+        { route: "retro-action", targetId: "card-1", at: NOW, extra: true },
+      ],
+      sourceRef: { tool: "post-mortem", id: "pmf_1", doc: "pm1", extra: 1 },
+    })!;
+    expect(mixed.sentTo).toEqual([{ route: "retro-action", targetId: "card-1", at: NOW }]);
+    expect(mixed.sourceRef).toEqual({ tool: "post-mortem", id: "pmf_1", doc: "pm1" });
+    expect(analysisStage(mixed)).toBe("sent");
   });
 });

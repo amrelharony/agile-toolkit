@@ -11,9 +11,11 @@
  */
 
 import {
+  HANDOFF_ROUTE_IDS,
   ROOT_CAUSE_METHODS,
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
+  type HandoffLink,
   type HandoffRef,
   type RootCauseAnalysis,
   type RootCauseCause,
@@ -233,13 +235,19 @@ export function withCategoryRenamed(
 /**
  * The fishbone's categories in order: the six defaults, then the team's own
  * in the order they first appear. Names match whatever their case; a
- * default keeps its own spelling.
+ * default keeps its own spelling. A default in `hidden` (renamed or removed
+ * by the team) is left out while no cause is filed under it.
  */
 export function categoriesOf(
   causes: readonly Pick<RootCauseCause, "category">[],
-  extra: readonly string[] = []
+  extra: readonly string[] = [],
+  hidden: readonly string[] = []
 ): string[] {
-  const out: string[] = [...DEFAULT_CATEGORIES];
+  const off = new Set(hidden.map((h) => h.trim().toLowerCase()));
+  const used = new Set(causes.map((c) => c.category.trim().toLowerCase()));
+  const out: string[] = DEFAULT_CATEGORIES.filter(
+    (c) => !off.has(c.toLowerCase()) || used.has(c.toLowerCase())
+  );
   const seen = new Set(out.map((c) => c.toLowerCase()));
   for (const name of [...causes.map((c) => c.category), ...extra]) {
     const clean = cleanLine(name, CATEGORY_MAX);
@@ -307,10 +315,51 @@ export const PARETO_MIN_CAUSES = 2;
 
 export type AnalysisStage = "started" | "root-cause" | "countermeasure" | "sent";
 
-/** How far an analysis got: a root cause named, a countermeasure agreed, sent to Retro Actions. */
-export function analysisStage(a: RootCauseAnalysis): AnalysisStage {
-  const sent = (a.sentTo ?? []).some((l) => l.route === "retro-action");
-  if (sent) return "sent";
+/**
+ * Whether a stored link's target is still there. The caller that can see
+ * the targets passes one (the page: the hand-off route's `exists`); without
+ * one, every recorded link counts.
+ */
+export type LinkIsLive = (link: HandoffLink) => boolean;
+
+const everyLink: LinkIsLive = () => true;
+
+/**
+ * Links read against the retro boards: a link to Retro Actions counts while
+ * its action card is still on a board (what the retro-action route's
+ * `exists` checks), any other link counts.
+ */
+export function liveOnBoards(
+  boards: readonly { cards?: readonly { id: string }[] }[] | undefined
+): LinkIsLive {
+  // A synced board can hold anything: only real card ids count.
+  const ids = new Set<string>();
+  for (const b of Array.isArray(boards) ? boards : []) {
+    const cards: unknown = (b as { cards?: unknown } | null)?.cards;
+    if (!Array.isArray(cards)) continue;
+    for (const c of cards) {
+      const cardId = (c as { id?: unknown } | null)?.id;
+      if (typeof cardId === "string") ids.add(cardId);
+    }
+  }
+  return (link) => link.route !== "retro-action" || ids.has(link.targetId);
+}
+
+/** The analysis's live link to Retro Actions, if any (a deleted action doesn't count). */
+export function sentLink(
+  a: RootCauseAnalysis,
+  isLive: LinkIsLive = everyLink
+): HandoffLink | undefined {
+  return (a.sentTo ?? []).find((l) => l.route === "retro-action" && isLive(l));
+}
+
+/**
+ * How far an analysis got: a root cause named, a countermeasure agreed, sent
+ * to Retro Actions (an action that was deleted there doesn't count, when
+ * `isLive` can tell).
+ */
+export function analysisStage(a: RootCauseAnalysis, isLive: LinkIsLive = everyLink): AnalysisStage {
+  if (sentLink(a, isLive)) return "sent";
   if (a.countermeasure?.trim()) return "countermeasure";
   if (a.rootCause?.trim()) return "root-cause";
   return "started";
@@ -329,9 +378,12 @@ export function newestFirst(list: readonly RootCauseAnalysis[]): RootCauseAnalys
 }
 
 /** One sentence on the analyses: what to do next across them. */
-export function rootCauseVerdict(list: readonly RootCauseAnalysis[]): string {
+export function rootCauseVerdict(
+  list: readonly RootCauseAnalysis[],
+  isLive: LinkIsLive = everyLink
+): string {
   if (list.length === 0) return "No analysis yet.";
-  const stages = list.map(analysisStage);
+  const stages = list.map((a) => analysisStage(a, isLive));
   const started = stages.filter((s) => s === "started").length;
   const named = stages.filter((s) => s === "root-cause").length;
   const agreed = stages.filter((s) => s === "countermeasure").length;
@@ -392,11 +444,37 @@ export function whyLines(whys: readonly RootCauseWhy[]): string[] {
   return whys.map((w) => w.text.trim()).filter(Boolean);
 }
 
+const isRouteId = (v: unknown): v is HandoffLink["route"] =>
+  typeof v === "string" && (HANDOFF_ROUTE_IDS as readonly string[]).includes(v);
+
+/** Stored hand-off links rebuilt from known fields: anything else is dropped. */
+function readLinks(raw: unknown): HandoffLink[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: HandoffLink[] = [];
+  for (const l of raw) {
+    const o = l as Record<string, unknown> | null;
+    if (!o || typeof o !== "object") continue;
+    if (!isRouteId(o.route) || typeof o.targetId !== "string" || !o.targetId) continue;
+    if (typeof o.at !== "string") continue;
+    out.push({ route: o.route, targetId: o.targetId, at: o.at });
+  }
+  return out;
+}
+
+/** A stored hand-off ref rebuilt from known fields, or undefined. */
+function readRef(raw: unknown): HandoffRef | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.tool !== "string" || !o.tool || typeof o.id !== "string" || !o.id) return undefined;
+  return { tool: o.tool, id: o.id, ...(typeof o.doc === "string" && o.doc ? { doc: o.doc } : {}) };
+}
+
 /**
  * A stored analysis made safe to read: fields capped, lists cut to their
- * caps, counts whole numbers, unknown methods read as 5 Whys. A synced row
- * can hold anything; this keeps the page from drawing what the CRUD would
- * refuse. Null for something that isn't an analysis at all.
+ * caps, counts whole numbers, unknown methods read as 5 Whys, links and the
+ * source ref rebuilt from known fields. A synced row can hold anything;
+ * this keeps the page from drawing what the CRUD would refuse, or crashing
+ * on it. Null for something that isn't an analysis at all.
  */
 export function readAnalysis(raw: unknown): RootCauseAnalysis | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -442,5 +520,14 @@ export function readAnalysis(raw: unknown): RootCauseAnalysis | null {
   else delete out.rootCause;
   if (countermeasure) out.countermeasure = countermeasure;
   else delete out.countermeasure;
+  const sentTo = readLinks(r.sentTo);
+  if (sentTo) out.sentTo = sentTo;
+  else delete out.sentTo;
+  const sourceRef = readRef(r.sourceRef);
+  if (sourceRef) out.sourceRef = sourceRef;
+  else delete out.sourceRef;
+  for (const key of ["postMortemId", "retroBoardId"] as const) {
+    if (typeof r[key] !== "string" || !r[key]) delete out[key];
+  }
   return out;
 }

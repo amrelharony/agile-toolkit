@@ -32,6 +32,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   ROOT_CAUSE_ANALYSIS_KIND,
   TOOL_LIST_MAX,
+  type RetroBoard,
   type RootCauseAnalysis,
 } from "@/lib/stores/workspace-types";
 
@@ -65,8 +66,15 @@ function analysis(
 
 const stored = (id: string) => (ws().rootCauseAnalyses ?? []).find((a) => a.id === id);
 
+/** A retro board holding action cards with these ids (only the ids matter here). */
+const retroBoard = (id: string, cardIds: string[]): RetroBoard =>
+  ({
+    id,
+    cards: cardIds.map((cardId) => ({ id: cardId, text: cardId, isActionItem: true })),
+  }) as unknown as RetroBoard;
+
 beforeEach(() => {
-  useWorkspaceStore.setState({ rootCauseAnalyses: [] });
+  useWorkspaceStore.setState({ rootCauseAnalyses: [], retroBoards: [] });
   vi.mocked(serverStore.serverGetEntity).mockReset().mockResolvedValue(null);
   vi.mocked(serverStore.serverListEntities).mockReset().mockResolvedValue([]);
   vi.mocked(serverStore.serverUpsertEntity)
@@ -120,6 +128,8 @@ describe("tool.root_cause.list_state", () => {
         countermeasure: "Alert on the error rate.",
       })
     );
+    // The countermeasure's action is still in Retro Actions.
+    useWorkspaceStore.setState({ retroBoards: [retroBoard("retro:current", ["card-9"])] });
     const r = await run<{
       total: number;
       byStage: Record<string, number>;
@@ -145,6 +155,46 @@ describe("tool.root_cause.list_state", () => {
     expect(fresh.pareto[2].vital).toBe(false);
     expect(old).toMatchObject({ stage: "root-cause", rootCause: "Staging data is tiny." });
     expect(old.whys.map((w) => w.text)).toEqual(["A migration failed."]);
+  });
+
+  it("doesn't count a countermeasure as sent once its action was deleted in Retro Actions", async () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_1",
+        rootCause: "No owner.",
+        countermeasure: "Name an owner.",
+        sentTo: [{ route: "retro-action", targetId: "card-gone", at: "2026-11-05T09:00:00.000Z" }],
+      })
+    );
+    useWorkspaceStore.setState({ retroBoards: [retroBoard("retro:current", ["card-other"])] });
+    const r = await run<{
+      byStage: Record<string, number>;
+      verdict: string;
+      analyses: { stage: string; sentToRetroActions: boolean }[];
+    }>("tool.root_cause.list_state");
+    expect(r.byStage).toEqual({ started: 0, "root-cause": 0, countermeasure: 1, sent: 0 });
+    expect(r.analyses[0]).toMatchObject({ stage: "countermeasure", sentToRetroActions: false });
+    expect(r.verdict).toMatch(/isn't in Retro Actions yet/);
+  });
+
+  it("lists example analyses, marked, but leaves them out of the totals and the verdict", async () => {
+    ws().upsertRootCauseAnalysis(analysis({ id: "example-rca-1", rootCause: "From the example." }));
+    let r = await run<{
+      total: number;
+      byStage: Record<string, number>;
+      verdict: string;
+      analyses: { id: string; example: boolean }[];
+    }>("tool.root_cause.list_state");
+    expect(r.total).toBe(0);
+    expect(r.byStage).toEqual({ started: 0, "root-cause": 0, countermeasure: 0, sent: 0 });
+    expect(r.verdict).toBe("No analysis yet.");
+    expect(r.analyses).toEqual([expect.objectContaining({ id: "example-rca-1", example: true })]);
+
+    ws().upsertRootCauseAnalysis(analysis({ id: "rca_mine" }));
+    r = await run("tool.root_cause.list_state");
+    expect(r.total).toBe(1);
+    expect(r.byStage.started).toBe(1);
+    expect(r.analyses.find((a) => a.id === "rca_mine")?.example).toBe(false);
   });
 
   it("reads a malformed row safely and drops what isn't an analysis", async () => {
@@ -314,5 +364,31 @@ describe("tool.root_cause: the MCP path", () => {
     expect(saved.whys.map((w) => w.text)).toEqual(["First.", "Second."]);
     // The browser's store is untouched on the MCP path.
     expect(ws().rootCauseAnalyses).toEqual([]);
+  });
+
+  it("reads the user's retro boards to tell whether a sent countermeasure's action is still there", async () => {
+    const row = analysis({
+      id: "rca_srv",
+      countermeasure: "Name an owner.",
+      sentTo: [{ route: "retro-action", targetId: "card-1", at: "2026-11-05T09:00:00.000Z" }],
+    });
+    const byKind = (boards: RetroBoard[]) => async (_user: string, kind: string) =>
+      (kind === ROOT_CAUSE_ANALYSIS_KIND
+        ? [row]
+        : kind === "workspace:retroBoard"
+          ? boards
+          : []) as never;
+    vi.mocked(serverStore.serverListEntities).mockImplementation(
+      byKind([retroBoard("retro:current", ["card-1"])])
+    );
+    let listed = await runMcp<{ analyses: { stage: string }[] }>("tool.root_cause.list_state");
+    expect(listed.analyses[0].stage).toBe("sent");
+    expect(serverStore.serverListEntities).toHaveBeenCalledWith(
+      "test-user",
+      "workspace:retroBoard"
+    );
+    vi.mocked(serverStore.serverListEntities).mockImplementation(byKind([]));
+    listed = await runMcp("tool.root_cause.list_state");
+    expect(listed.analyses[0].stage).toBe("countermeasure");
   });
 });

@@ -10,8 +10,11 @@
  *
  *   1. list_state  — every analysis with where it stands (a root cause
  *                    named, a countermeasure agreed, sent to Retro
- *                    Actions), its whys, its Pareto order and the page's
- *                    one-line verdict.
+ *                    Actions: an action deleted there doesn't count), its
+ *                    whys, its Pareto order and the page's one-line
+ *                    verdict. Example analyses are listed and marked, but
+ *                    left out of the totals and the verdict, as the page
+ *                    does.
  *   2. add_why     — the next answer in an analysis's 5 Whys chain.
  *   3. add_cause   — a cause on its fishbone, under a category, with how
  *                    often it happened.
@@ -30,8 +33,10 @@ import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../serv
 import {
   ROOT_CAUSE_ANALYSIS_KIND,
   TOOL_TEXT_MAX,
+  type RetroBoard,
   type RootCauseAnalysis,
 } from "@/lib/stores/workspace-types";
+import { isExampleId } from "@/lib/utils/example-id";
 import {
   CATEGORY_MAX,
   CAUSE_COUNT_MAX,
@@ -41,10 +46,13 @@ import {
   newestFirst,
   paretoRows,
   readAnalysis,
+  liveOnBoards,
   rootCauseVerdict,
+  sentLink,
   touched,
   withCause,
   withWhy,
+  type LinkIsLive,
 } from "@/lib/root-cause/model";
 
 const ws = () => useWorkspaceStore.getState();
@@ -71,26 +79,32 @@ const serverStore = (userId: string): Store => ({
   },
 });
 
-function summarize(rows: readonly RootCauseAnalysis[]) {
+/** The retro boards, where a sent countermeasure's action lives (as tool.retro_actions reads them). */
+const KIND_RETRO = "workspace:retroBoard";
+
+function summarize(rows: readonly RootCauseAnalysis[], isLive: LinkIsLive) {
   const analyses = newestFirst(
     rows.flatMap((r) => {
       const a = readAnalysis(r);
       return a ? [a] : [];
     })
   );
+  // The example is listed (marked) but, as on the page, not counted.
+  const real = analyses.filter((a) => !isExampleId(a.id));
   const byStage = { started: 0, "root-cause": 0, countermeasure: 0, sent: 0 };
-  for (const a of analyses) byStage[analysisStage(a)]++;
+  for (const a of real) byStage[analysisStage(a, isLive)]++;
   return {
-    total: analyses.length,
+    total: real.length,
     byStage,
-    verdict: rootCauseVerdict(analyses),
+    verdict: rootCauseVerdict(real, isLive),
     analyses: analyses.map((a) => ({
       id: a.id,
+      example: isExampleId(a.id),
       title: a.title,
       problem: a.problem,
       method: a.method,
-      stage: analysisStage(a),
-      stageLabel: STAGE_LABEL[analysisStage(a)],
+      stage: analysisStage(a, isLive),
+      stageLabel: STAGE_LABEL[analysisStage(a, isLive)],
       whys: a.whys.map((w) => ({ id: w.id, text: w.text })),
       causeCount: a.causes.length,
       pareto: paretoRows(a.causes)
@@ -108,7 +122,7 @@ function summarize(rows: readonly RootCauseAnalysis[]) {
       postMortemId: a.postMortemId ?? null,
       retroBoardId: a.retroBoardId ?? null,
       sourceRef: a.sourceRef ?? null,
-      sentToRetroActions: (a.sentTo ?? []).some((l) => l.route === "retro-action"),
+      sentToRetroActions: sentLink(a, isLive) !== undefined,
       updatedAt: a.updatedAt,
     })),
   };
@@ -121,10 +135,16 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the root-cause analyses, newest change first. Returns {total, byStage:{started,'root-cause',countermeasure,sent}, verdict (the page's one line), analyses:{id, title, problem, method ('five-whys'|'fishbone'), stage, stageLabel, whys:{id,text}[] (in order; the first answers why the problem happened), causeCount, pareto:{id,text,category,count,cumulativePct,vital}[] (fishbone causes by count, top 10; vital = among the few behind 80%), rootCause|null, countermeasure|null, postMortemId|null, retroBoardId|null, sourceRef|null, sentToRetroActions, updatedAt}[]}. Create, edit or delete an analysis with workspace.root_cause_analysis.*.",
+    "Summarise the root-cause analyses, newest change first. Returns {total, byStage:{started,'root-cause',countermeasure,sent}, verdict (the page's one line) (total, byStage and verdict leave example analyses out), analyses:{id, example (true for an example analysis from Load example), title, problem, method ('five-whys'|'fishbone'), stage, stageLabel, whys:{id,text}[] (in order; the first answers why the problem happened), causeCount, pareto:{id,text,category,count,cumulativePct,vital}[] (fishbone causes by count, top 10; vital = among the few behind 80%), rootCause|null, countermeasure|null, postMortemId|null, retroBoardId|null, sourceRef|null, sentToRetroActions, updatedAt}[]}. Create, edit or delete an analysis with workspace.root_cause_analysis.*.",
   paramsSchema: z.object({}),
-  handler: async () => summarize(await browserStore.list()),
-  mcpHandler: async (_params, ctx) => summarize(await serverStore(ctx.userId).list()),
+  handler: async () => summarize(await browserStore.list(), liveOnBoards(ws().retroBoards)),
+  mcpHandler: async (_params, ctx) => {
+    const [rows, boards] = await Promise.all([
+      serverStore(ctx.userId).list(),
+      serverListEntities<RetroBoard>(ctx.userId, KIND_RETRO),
+    ]);
+    return summarize(rows, liveOnBoards(boards));
+  },
 });
 
 const AddWhyParams = z.object({
