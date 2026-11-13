@@ -362,8 +362,8 @@ describe("a saved wall", () => {
       .getAllByRole("button", { name: /^Add: / })
       .map((b) => b.getAttribute("aria-label")!);
     expect(names.length).toBeGreaterThanOrEqual(2);
-    for (const [i, name] of names.entries()) {
-      const button = within(draft()).getByRole("button", { name });
+    for (let i = 0; i < names.length; i++) {
+      const button = within(draft()).getByRole("button", { name: names[i] });
       button.focus();
       await act(async () => {
         fireEvent.click(button);
