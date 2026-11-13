@@ -33,6 +33,8 @@ import type {
   RetroBoard,
   Sprint,
   Story,
+  StoryGwt,
+  SprintInterruptBuffer,
 } from "@/lib/stores/workspace-types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { SPRINT_PLANNING_ACTIONS } from "@/lib/history/event-actions";
@@ -48,10 +50,11 @@ import {
   pokerQueueRoute,
   storyQueueSource,
 } from "@/lib/handoffs/targets/poker-queue";
-import { withStoryDetails, type StoryDetails } from "@/lib/stories/fields";
+import { withStoryDetails, withStoryGwt, type StoryDetails } from "@/lib/stories/fields";
 import { keptForSprintNote, sprintKeepingStory, storyRemoval } from "@/lib/stories/removal";
 import { leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
 import { undoable } from "@/lib/utils/undoable";
+import { withRefinedPutBack } from "@/lib/sprints/story-status";
 import { toast } from "@/lib/utils/toast";
 import {
   EMPTY_STORY_DRAFT,
@@ -87,13 +90,15 @@ import {
   type StoryField,
   type StoryValues,
 } from "./view";
-import { planToMarkdown } from "./markdown";
+import { planCsv, planToMarkdown } from "./markdown";
 import { ImprovementsPanel } from "./improvements";
 import { PasteStories } from "./paste-stories";
 import { JiraImport } from "./jira-import";
 import { jiraImportToast, jiraStories, type JiraImportPreview } from "./jira";
 import { StoryList, focusAfterMove, type FocusTarget } from "./story-list";
 import { placeStory, restoreStories, type PlanningWriter } from "./writer";
+import { PlanningBuffer } from "./buffer-field";
+import { ProductGoalLine, useActiveProductGoal } from "@/components/product-goal/product-goal-line";
 
 export interface PlanningData {
   /** Every sprint, newest first. */
@@ -313,6 +318,10 @@ export function PlanningBoard({
   const saveDetails = (story: Story, details: StoryDetails) =>
     writer.upsertStory(withStoryDetails(fresh(story), details));
 
+  /** The story's Given/When/Then scenarios, beside its free-text criteria. */
+  const saveGwt = (story: Story, gwt: StoryGwt[]) =>
+    writer.upsertStory(withStoryGwt(fresh(story), gwt));
+
   /** What a row's remove control may do: delete, leave a running sprint, or nothing. */
   const removalOf = (story: Story) => storyRemoval(story, sprints);
 
@@ -408,7 +417,8 @@ export function PlanningBoard({
    * The export's new issues become backlog stories, and the stories already
    * here (matched by ticket key) take its points, in one write with one
    * Undo for the lot. Undo removes the new stories and puts each changed
-   * story's points back as they were, leaving anything else done to it since.
+   * story's points back as they were (with the refinedAt from before them,
+   * unless it was refined since), leaving anything else done to it since.
    */
   const importJira = (preview: JiraImportPreview) => {
     const created = jiraStories(preview.add, () => `story_${nanoid(8)}`);
@@ -421,11 +431,17 @@ export function PlanningBoard({
     });
     if (created.length + changed.length === 0) return;
     const { label, description } = jiraImportToast(created.length, changed.length);
+    // The refinedAt each changed story's points write left.
+    const stamps = new Map<string, string | undefined>();
     undoable({
       label,
       description,
       // One write each way, however long the export.
-      apply: () => writer.upsertStories([...created, ...changed]),
+      apply: () => {
+        writer.upsertStories([...created, ...changed]);
+        const saved = new Map(writer.stories().map((s) => [s.id, s]));
+        for (const c of changes) stamps.set(c.storyId, saved.get(c.storyId)?.refinedAt);
+      },
       revert: () => {
         if (created.length > 0) writer.removeStories(created.map((s) => s.id));
         const now = new Map(writer.stories().map((s) => [s.id, s]));
@@ -435,7 +451,9 @@ export function PlanningBoard({
           const next: Story = { ...story };
           if (c.from === undefined) delete next.points;
           else next.points = c.from;
-          return [next];
+          return [
+            withRefinedPutBack(next, stamps.get(c.storyId), stored.get(c.storyId)?.refinedAt),
+          ];
         });
         if (back.length > 0) writer.upsertStories(back);
       },
@@ -682,6 +700,21 @@ export function PlanningBoard({
     );
   };
 
+  // The team's Product Goal, read only, beside the sprint goal being written.
+  const productGoal = useActiveProductGoal();
+
+  /** The sprint's interrupt buffer (Interrupt Buffer reads it and logs what lands in it). */
+  const saveBuffer = (buffer: SprintInterruptBuffer | undefined) => {
+    if (closed) return;
+    writer.updateSprint(sprint.id, { interruptBuffer: buffer });
+    log(SPRINT_PLANNING_ACTIONS.BUFFER_SET, {
+      sprintId: sprint.id,
+      pct: buffer?.pct ?? null,
+      points: buffer?.points ?? null,
+    });
+    setAnnouncement(buffer ? "Interrupt buffer saved." : "Interrupt buffer cleared.");
+  };
+
   const saveGoal = (value: string) => {
     const goal = value.trim();
     if (goal !== (sprint.goal ?? "").trim()) {
@@ -752,6 +785,7 @@ export function PlanningBoard({
           filename={`sprint-plan-${slug(sprint.name)}`}
           markdown={markdown}
           clipboardText={markdown}
+          csvData={planCsv(inSprint)}
           jsonData={{ sprint, stories: inSprint }}
         />
       </div>
@@ -827,10 +861,19 @@ export function PlanningBoard({
         <p className="mt-4 text-sm text-text" data-field="forecast">
           {forecastText(capacity, velocity.average)}
         </p>
+        <PlanningBuffer
+          sprint={sprint}
+          plannedPoints={planned}
+          targetPoints={targetPoints}
+          disabled={closed}
+          example={example}
+          onSave={saveBuffer}
+        />
       </SectionCard>
 
       {/* 2. Goal */}
       <SectionCard title="2. Sprint goal" icon={Target}>
+        {!example && <ProductGoalLine goal={productGoal} className="mb-3" />}
         <GoalEditor key={sprint.id} goal={sprint.goal ?? ""} onSave={saveGoal} />
         <p className="mt-2 text-xs text-sub">
           Want help wording it? The{" "}
@@ -941,6 +984,7 @@ export function PlanningBoard({
                 onPoints={setPoints}
                 onRename={rename}
                 onDetails={saveDetails}
+                onGwt={saveGwt}
                 onDelete={deleteStory("sprint", sprintHeadingId)}
                 removalOf={removalOf}
                 keptNoteOf={keptNoteOf}
@@ -1019,6 +1063,7 @@ export function PlanningBoard({
                 onPoints={setPoints}
                 onRename={rename}
                 onDetails={saveDetails}
+                onGwt={saveGwt}
                 // A closed sprint's stories are locked: no bin, here or once
                 // they are carried over or sent back (the sprint still counts them).
                 removalOf={removalOf}
@@ -1066,6 +1111,7 @@ export function PlanningBoard({
                 onPoints={setPoints}
                 onRename={rename}
                 onDetails={saveDetails}
+                onGwt={saveGwt}
                 onDelete={deleteStory("backlog", backlogHeadingId)}
                 removalOf={removalOf}
                 keptNoteOf={keptNoteOf}

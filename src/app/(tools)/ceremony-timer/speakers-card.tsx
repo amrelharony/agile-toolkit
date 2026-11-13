@@ -1,7 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import { Plus, Users, X } from "lucide-react";
+import { Plus, Shuffle as ShuffleIcon, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { Label } from "@/components/ui/label";
@@ -65,12 +65,19 @@ export interface TurnsSwitch {
  * Names come from the team roster as suggestions; joining the team is a
  * separate, explicit "Add to the team".
  */
+export interface ShuffleControl {
+  /** How many speakers a shuffle would move (those still waiting in a round that's on). */
+  movable: number;
+  onShuffle: () => void;
+}
+
 export function SpeakersCard({
   speakers,
   plan,
   started,
   turns,
   locked,
+  shuffle,
   onAdd,
   onRemove,
   onLoadTeam,
@@ -83,6 +90,8 @@ export function SpeakersCard({
   turns: TurnsSwitch | null;
   /** Removing is off while the timer runs: skip a speaker instead. */
   locked: boolean;
+  /** Shuffle the speaking order (with Undo); absent hides it. */
+  shuffle?: ShuffleControl;
   onAdd: (name: string) => void;
   onRemove: (speaker: Participant) => void;
   onLoadTeam: () => void;
@@ -91,6 +100,8 @@ export function SpeakersCard({
   const workspaceReady = useWorkspaceHydrated();
   const switchId = useId();
   const lockedId = useId();
+  const shuffleNoteId = useId();
+  const canShuffle = Boolean(shuffle && shuffle.movable >= 2);
   const form = useItemForm<{ name: string }, string, "name">({
     initial: { name: "" },
     validate: (d) => validateSpeaker(d, speakers),
@@ -207,6 +218,30 @@ export function SpeakersCard({
           <p className="text-xs text-warning">
             Everyone left gets the minimum half minute, so this round will run over.
           </p>
+        )}
+
+        {shuffle && speakers.length >= 2 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={shuffle.onShuffle}
+              disabled={!canShuffle}
+              {...(!canShuffle ? { "aria-describedby": shuffleNoteId } : {})}
+            >
+              <ShuffleIcon className="h-4 w-4" aria-hidden="true" />
+              Shuffle order
+            </Button>
+            <span id={shuffleNoteId} className="text-xs text-sub">
+              {canShuffle
+                ? plan && started
+                  ? "Only those still waiting move."
+                  : "A random order, with Undo."
+                : "Nobody else is waiting to speak."}
+            </span>
+          </div>
         )}
       </div>
     </SectionCard>

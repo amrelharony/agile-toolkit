@@ -30,7 +30,10 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
 import { VisitorRoomChip } from "@/components/collab/visitor-room-chip";
+import { RoomBigScreen, useBigScreen } from "@/components/collab/room-big-screen";
+import { RoomReactions } from "@/components/collab/room-reactions";
 import { LiveRoomLimits, RUN_MODES } from "@/components/collab/run-modes";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { useGuestProfile } from "@/lib/auth/guest-profile-provider";
@@ -44,14 +47,26 @@ import {
 import { toast } from "@/lib/utils/toast";
 import { signalGamification } from "@/lib/gamification/signal";
 import type { BoardState } from "../types";
-import { useRetroRoom, type RetroRoomStatus, type EndReason } from "./use-retro-room";
+import {
+  useRetroRoom,
+  type RetroRoomStatus,
+  type EndReason,
+  type RetroThumbsHost,
+} from "./use-retro-room";
 import { HideCardsSetting, IdlePromptDialog, RoomMemberList } from "./room-controls";
+import { RetroBigScreenRound, useBoardTimer } from "./big-screen";
 
 /**
  * Told whether the host's screen hides cards: a check to ask, card by card,
  * while drawing in Write (the room's `hidesCard`), or null when it hides none.
  */
 export type HiddenCardsListener = (hidesCard: ((cardId: string) => boolean) | null) => void;
+
+/**
+ * Told the room's thumbs vote controls while the room is live (the Lean
+ * Coffee runner asks "keep going or move on?" through them), or null.
+ */
+export type ThumbsListener = (thumbs: RetroThumbsHost | null) => void;
 
 /** Lets the Board end the room before "New Retro" clears it. */
 export interface LiveRoomHandle {
@@ -76,12 +91,15 @@ export function RetroGoLive({
   onUpdate,
   handleRef,
   onHiddenChange,
+  onThumbsChange,
 }: {
   board: BoardState;
   onUpdate: (updater: (prev: BoardState) => BoardState) => void;
   handleRef?: MutableRefObject<LiveRoomHandle | null>;
   /** Told which participants' cards to hide on the host's screen. */
   onHiddenChange?: HiddenCardsListener;
+  /** Told the room's thumbs vote controls while it's live. */
+  onThumbsChange?: ThumbsListener;
 }) {
   const allowed = useCanGoLive();
   const [consentOpen, setConsentOpen] = useState(false);
@@ -109,6 +127,7 @@ export function RetroGoLive({
         allowed={allowed}
         handleRef={handleRef}
         onHiddenChange={onHiddenChange}
+        onThumbsChange={onThumbsChange}
         onClosed={() => {
           clearVisitorIdentity(live.code);
           refocus.current = true;
@@ -188,6 +207,7 @@ function HostLiveRoom({
   allowed,
   handleRef,
   onHiddenChange,
+  onThumbsChange,
   onClosed,
 }: {
   session: LiveSession;
@@ -196,6 +216,7 @@ function HostLiveRoom({
   allowed: boolean;
   handleRef?: MutableRefObject<LiveRoomHandle | null>;
   onHiddenChange?: HiddenCardsListener;
+  onThumbsChange?: ThumbsListener;
   onClosed: () => void;
 }) {
   const room = useRetroRoom({
@@ -206,6 +227,10 @@ function HostLiveRoom({
     onHostUpdate: onUpdate,
     startedAt: session.startedAt,
   });
+  // Reactions only: the countdown travels in the snapshot.
+  const extras = useRoomExtras(room.extras, { timer: false });
+  const big = useBigScreen();
+  const bigTimer = useBoardTimer(board);
   const announce = useAnnounce();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const { end, status, endReason } = room;
@@ -230,6 +255,15 @@ function HostLiveRoom({
     onHiddenRef.current?.(hidesCard);
   }, [hidesCard]);
   useEffect(() => () => onHiddenRef.current?.(null), []);
+
+  // The Lean Coffee runner asks the room "keep going or move on?" through these.
+  const { thumbs } = room;
+  const onThumbsRef = useRef(onThumbsChange);
+  onThumbsRef.current = onThumbsChange;
+  useEffect(() => {
+    onThumbsRef.current?.(status === "live" ? thumbs : null);
+  }, [thumbs, status]);
+  useEffect(() => () => onThumbsRef.current?.(null), []);
 
   // Owners don't run visitor rooms: if this browser turns out to be the
   // owner's mid-room, close it before any stranger's card can sync.
@@ -260,8 +294,21 @@ function HostLiveRoom({
         memberCount={room.members.length}
         isHost
         onEnd={() => setConfirmEnd(true)}
+        onBigScreen={big.show}
       />
       <HideCardsSetting checked={room.hideWhileWriting} onChange={room.setHideWhileWriting} />
+      {status === "live" && <RoomReactions extras={extras} />}
+      <RoomBigScreen
+        {...big.props}
+        tool="retro"
+        toolName="Retro"
+        code={session.code}
+        memberCount={room.members.length}
+        timer={bigTimer}
+        reactions={extras.reactions}
+      >
+        <RetroBigScreenRound board={board} hidesCard={room.hidesCard} poll={room.poll} />
+      </RoomBigScreen>
       {others.length > 0 && (
         <RoomMemberList
           members={room.members}

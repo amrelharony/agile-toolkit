@@ -2,7 +2,8 @@
  * The Standup page's pure pieces, shared by both of its modes (/standup is
  * the live Daily Scrum, /async-standup the written one): the entry form's
  * draft and checks, how a post or an edit becomes a stored entry, the open
- * blockers and their age, the speaking order and who is out today.
+ * blockers and their age, the speaking order (and the day's shuffle of it)
+ * and who is out today.
  *
  * The entity helpers every reader shares (the agent actions included) live
  * in lib/standup/entries; this file only adds what the page needs.
@@ -12,6 +13,7 @@ import type { StandupEntry, StandupMode } from "@/lib/stores/workspace-types";
 import type { Validation } from "@/lib/utils/form";
 import { addDays, dayOf, daysBetween } from "@/lib/impediments/model";
 import { hasBlocker } from "@/lib/standup/entries";
+import { hashSeed } from "@/lib/utils/random";
 
 /** Matches people across entries and the roster: trimmed, case-insensitive. */
 export const personKey = (name: string | null | undefined) => (name ?? "").trim().toLowerCase();
@@ -260,6 +262,43 @@ export function speakingOrder(
     .sort((a, b) => a.timestamp - b.timestamp)
     .forEach((e) => add(e.member));
   return order;
+}
+
+/**
+ * Whether the day's speaking order is shuffled. Kept per day in this
+ * browser, like who is out: the next day starts in roster order again.
+ */
+export interface ShuffleDay {
+  date: string;
+  on: boolean;
+}
+
+export const NOT_SHUFFLED: ShuffleDay = { date: "", on: false };
+
+/** Whether `date`'s order is shuffled; an older day's choice no longer counts. */
+export function shuffledOn(state: ShuffleDay | null | undefined, date: string): boolean {
+  return Boolean(state && state.date === date && state.on === true);
+}
+
+/**
+ * The speaking order shuffled for the day: each person ranked by a seed
+ * made from the day and their name (lib/utils/random hashSeed), so the same
+ * day gives the same order on every reload and every screen, the next day
+ * a new one, and marking someone out (or a guest posting) moves nobody
+ * else, short of the rule below. Spelling and case don't change a
+ * person's place.
+ */
+export function shuffledOrder(order: readonly string[], date: string): string[] {
+  const out = order
+    .map((name, i) => ({ name, key: personKey(name), i }))
+    .map((p) => ({ ...p, rank: hashSeed(`standup:${date}:${p.key}`) }))
+    .sort((a, b) => a.rank - b.rank || a.key.localeCompare(b.key) || a.i - b.i)
+    .map((p) => p.name);
+  // A shuffle that lands on the order it started from would look like the
+  // button did nothing (one time in two with two people): move the first
+  // speaker to the end instead.
+  const same = out.length > 1 && out.every((name, i) => name === order[i]);
+  return same ? [...out.slice(1), out[0]] : out;
 }
 
 /* -------------------------------------------------------------------------- */

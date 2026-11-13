@@ -21,6 +21,11 @@
  * saved one shows as its own card after the built-in formats, with Delete
  * and Undo. Saving or picking one moves it to the front; past 12 the one
  * used longest ago drops off, named in the start's notice, with Undo.
+ *
+ * Surprise me picks a format at random from the built-in and saved ones,
+ * never one of the last three retros' (lib/retro/surprise), with an opening
+ * and a closing activity; Ask Amr says which candidate fits the sprint.
+ * Starting it keeps the plan's activities for the board (plan-store).
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
@@ -51,6 +56,9 @@ import {
   useSavedFormats,
 } from "../custom-formats-store";
 import { useFormatSuggestion } from "../use-format-suggestion";
+import { recentFormatIds } from "@/lib/retro/surprise";
+import { savePlan } from "../plan-store";
+import { SurprisePlanPanel, type SurpriseStart } from "./surprise-plan";
 import { CustomFormatEditor } from "./custom-format-editor";
 import { PastRetros } from "./past-retros";
 import { RetroSprintPicker } from "./retro-sprint-picker";
@@ -135,7 +143,8 @@ export function FormatSelector({
   sprintId,
   onSprintChange,
 }: {
-  onSelect: (format: RetroFormat) => void;
+  /** `surprise`: the format came from Surprise me. */
+  onSelect: (format: RetroFormat, opts?: { surprise?: boolean }) => void;
   onLoadExample?: () => void;
   past?: RetroBoard[];
   onDeletePast?: (retro: RetroBoard) => void;
@@ -217,6 +226,28 @@ export function FormatSelector({
     });
   }, []);
 
+  // Surprise me: the built-in formats and the saved ones, never the last three used.
+  const surpriseFormats = useMemo(
+    () => [...retroFormats, ...savedFormats.map((s) => s.format)],
+    [savedFormats]
+  );
+  const recent = useMemo(() => recentFormatIds(past), [past]);
+  const startSurprise = useCallback(
+    ({ plan, why }: SurpriseStart) => {
+      savePlan({
+        formatId: plan.format.id,
+        openingId: plan.opening.id,
+        closingId: plan.closing.id,
+        at: new Date().toISOString(),
+        ...(why ? { why: why.slice(0, 600) } : {}),
+      });
+      const saved = savedFormats.find((f) => f.format.id === plan.format.id);
+      if (saved) updateSavedFormats((list) => savedFirst(list, saved.saved.id));
+      onSelect(plan.format, { surprise: true });
+    },
+    [onSelect, savedFormats]
+  );
+
   const customButton = useRef<HTMLButtonElement>(null);
   // Cancel or Escape closes the form: focus goes back to the Custom card that opened it.
   const cancelCustom = useCallback(() => {
@@ -254,12 +285,18 @@ export function FormatSelector({
             </p>
           )}
         </div>
+        <SurprisePlanPanel
+          formats={surpriseFormats}
+          recent={recent}
+          sprintId={sprintId}
+          onStart={startSurprise}
+        />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {retroFormats.map((fmt) => (
             <FormatCard
               key={fmt.id}
               format={fmt}
-              onSelect={onSelect}
+              onSelect={(f) => onSelect(f)}
               suggested={fmt.id === suggestedFormat?.id}
             />
           ))}
