@@ -31,6 +31,10 @@ measures them; scripts/audit-mascot-heads.py checks the result):
   sharpness  the 1x cells are sharpened, sheet by sheet, until the stance carries
              the fine detail the live idle does
 
+The companion scenes (docs/mascot/companion-scenes.json) are built by
+scripts/build-mascot-scenes.py as baked scenes, without any of the corrections
+above; this script keeps their packs exactly as they ship.
+
 Needs Pillow and numpy. The source PNGs never ship; only the packs do.
 """
 
@@ -51,6 +55,7 @@ import mascot_heads as heads  # noqa: E402  (next to this script; -I leaves it o
 ROOT = Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "public" / "mascot"
 CONTEXT_SPEC = ROOT / "docs" / "mascot" / "context-sheets.json"
+COMPANION_SPEC = ROOT / "docs" / "mascot" / "companion-scenes.json"
 MANIFEST = ROOT / "src" / "components" / "agent" / "mascot" / "mascot-packs.ts"
 
 SLOT_W, SLOT_H = 384, 512
@@ -232,6 +237,25 @@ def keep_missing(found: list[str]) -> dict:
             raise SystemExit(f"{stem}: the manifest lists {len(fids)} frames for {pack}, not {entry['frames']}")
         kept[pack] = (entry, fids)
     return kept
+
+
+def baked_scenes() -> dict:
+    """The companion scene packs as they ship: {pack: (its manifest entry, its frame ids)}.
+    scripts/build-mascot-scenes.py builds them; here they are only kept, files and all,
+    so no correction below ever reads a colleague beside him as his skin or clothes."""
+    if not COMPANION_SPEC.exists():
+        return {}
+    names = [s["pack"] for s in json.loads(COMPANION_SPEC.read_text(encoding="utf-8"))["sheets"]]
+    shipped, baked = shipped_packs(), {}
+    for pack in names:
+        if pack not in shipped:
+            continue  # not built yet
+        entry, fids = shipped[pack]
+        for key in ("src", "src2x"):
+            if not (PUBLIC / Path(entry[key]).name).exists():
+                raise SystemExit(f"companion scene {pack}: its shipped pack {entry[key]} is gone")
+        baked[pack] = (entry, fids)
+    return baked
 
 
 def add_kept(kept: dict) -> None:
@@ -1031,7 +1055,12 @@ def main() -> None:
     for n in notes:
         print("note:", n)
     add_kept(kept)
-    manifest = write_packs(frames, {p: v for p, v in kept.items() if p not in regraded})
+    baked = baked_scenes()
+    if baked:
+        print(f"companion scenes kept as built ({len(baked)}): {', '.join(baked)}")
+    for pack, (_entry, fids) in baked.items():  # after every other pack, as they ship
+        PACKS[pack] = fids
+    manifest = write_packs(frames, {**{p: v for p, v in kept.items() if p not in regraded}, **baked})
     write_manifest(manifest)
     for pack, e in manifest.items():
         print(f"{pack:8} {e['frames']:2} frames  {e['bytes'] // 1024:4} KB  2x {e['bytes2x'] // 1024:4} KB")

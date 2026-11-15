@@ -28,6 +28,9 @@ three heads that can be measured); when a standing frame's feet are more than a
 pixel off the floor; or when the detail over all frames is outside 90-110%. A
 pack's own detail is printed but not checked: a scene full of flat-coloured props
 reads soft however sharp he is, and each sheet is sharpened by its stance.
+
+The companion scenes (docs/mascot/companion-scenes.json) are left out: they are
+baked as drawn, with none of these corrections, on purpose.
 """
 
 import json
@@ -45,6 +48,7 @@ import mascot_heads as heads  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "public" / "mascot"
 MANIFEST = ROOT / "src" / "components" / "agent" / "mascot" / "mascot-packs.ts"
+COMPANION_SPEC = ROOT / "docs" / "mascot" / "companion-scenes.json"
 CONTEXT_SPEC = ROOT / "docs" / "mascot" / "context-sheets.json"
 CELL_W, CELL_H, PACK_H, HEADROOM = 192, 208, 224, 16
 FLOOR_ROW = 201 + HEADROOM  # the lowest row of his shoes in a 1x pack cell
@@ -107,6 +111,13 @@ def main() -> None:
     srcs = {m.group(1): (m.group(2), m.group(3))
             for m in re.finditer(r'^  (\w+): \{\s*src: "([^"]+)",\s*src2x: "([^"]+)"', ts, re.M)}
     frames = re.findall(r'^  "([^"]+)": \["(\w+)", (\d+)\]', ts, re.M)
+    # The companion scenes are baked: built as drawn, a colleague beside him, with
+    # none of the corrections this checks (scripts/build-mascot-scenes.py).
+    baked = set()
+    if COMPANION_SPEC.exists():
+        baked = {s["pack"] for s in json.loads(COMPANION_SPEC.read_text(encoding="utf-8"))["sheets"]}
+        frames = [f for f in frames if f[1] not in baked]
+        print(f"left out, baked as drawn: {', '.join(sorted(baked))}")
     live = Image.open(next(PUBLIC.glob("amr.*.webp"))).convert("RGBA")
     idle1 = pack_cell(live.crop((0, 0, CELL_W, CELL_H)))
     idle = to_cell2x(live.crop((0, 0, CELL_W, CELL_H)))
