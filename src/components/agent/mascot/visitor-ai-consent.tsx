@@ -14,6 +14,7 @@ import { useEffect, useRef } from "react";
 import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VISITOR_AI_CONSENT_TEXT, VISITOR_AI_DAILY_MESSAGES } from "@/lib/site/disclosures";
+import { awaitDecision } from "@/lib/agent/mascot/companion";
 
 /** Where the visitor's agreement is kept (localStorage), and its version. */
 export const VISITOR_AI_CONSENT_KEY = "agile-toolkit:amr-ai-consent";
@@ -57,6 +58,12 @@ export function VisitorAiConsent({
   const cardRef = useRef<HTMLElement>(null);
   useEffect(() => {
     cardRef.current?.focus();
+  }, []);
+  // Two answers, Agree and Not now: Amr holds out the two options and waits for
+  // the visitor's, for as long as the card is up (every way out unmounts it).
+  useEffect(() => {
+    awaitDecision("consent", true);
+    return () => awaitDecision("consent", false);
   }, []);
 
   return (

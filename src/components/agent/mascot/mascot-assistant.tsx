@@ -54,6 +54,7 @@ import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
 import { useMascotCelebrationReactions } from "@/lib/agent/mascot/use-celebration-reactions";
+import { useQuietCompanion } from "@/lib/agent/mascot/use-quiet-companion";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { createTouchInteraction, zoneAt, type TouchPoint } from "./engine/interactions/touch";
 import {
@@ -971,6 +972,8 @@ export function MascotAssistant() {
   useMascotToolReactions(sceneShipped);
   // Cheer once when a rare moment plays (lib/notify/moment-scheduler.ts).
   useMascotCelebrationReactions();
+  // Turned down to Quiet by the visitor: he covers his bell and settles while it lasts.
+  useQuietCompanion();
 
   // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
   // Skip when typing in an editable element so it can't steal focus mid-edit.

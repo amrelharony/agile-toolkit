@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Check, MessagesSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMascotStore } from "@/lib/agent/mascot/store";
+import { COMPANION_SCENES, sceneReaction } from "@/components/agent/mascot/engine/scenes";
+import { shippedScene } from "@/components/agent/mascot/engine/sprite-poses";
 import { FIRST_WEEKLY_EP } from "@/lib/comics/entry";
 import { READ_EVENT, markAsked, markRead, sentLinks, setSentLinks } from "@/lib/comics/reading";
 import { beaconStats } from "@/lib/comics/stats-client";
@@ -152,8 +154,11 @@ export function ReadTracker({ ep }: { ep: number }) {
     // Reading pays once per story, at most two a day.
     recordOutcome("story-read", { key: `story:${ep}`, meta: { ep } });
     const mascot = useMascotStore.getState();
-    // Nobody plays the queue while he isn't on screen.
-    if (mascot.ready) mascot.queueReaction("excited");
+    // Nobody plays the queue while he isn't on screen. A story read to its end for
+    // the first time: he takes an idea from it and offers it to try (Comic to
+    // Action), in place of the jump. He creates nothing.
+    const story = COMPANION_SCENES.storyRead;
+    if (mascot.ready) mascot.queueReaction(shippedScene(story) ? sceneReaction(story) : "excited");
   }, [ep, counting]);
 
   useEffect(() => {

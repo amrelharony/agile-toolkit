@@ -6,6 +6,7 @@ import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InkArt } from "@/components/ink/ink-art";
 import { ERROR_SCENE } from "@/lib/ink/drawings/scenes/error";
+import { showTrouble } from "@/lib/agent/mascot/companion";
 
 /**
  * Error boundary for a single tool route.
@@ -25,6 +26,11 @@ export default function ToolError({
   useEffect(() => {
     console.error("[tool error]", error);
   }, [error]);
+  // While this shows, Amr keeps his light-hearted scenes (a shared chuckle) away.
+  useEffect(() => {
+    showTrouble(true);
+    return () => showTrouble(false);
+  }, []);
 
   return (
     <div className="container-tool py-12 sm:py-16" role="alert">

@@ -125,7 +125,7 @@ export default function VisitorAgentPanel({
   const send = async (raw: string) => {
     const text = raw.trim().slice(0, VISITOR_LIMITS.userChars);
     if (!text || sendingRef.current || useAgentStore.getState().streaming) return;
-    // Mascot commands (/dance, /mascot-aura) run locally, never through the AI.
+    // Mascot commands (/dance, /mascot-aura, /play) run locally, never through the AI.
     if (handleMascotCommand(text)) {
       setInput("");
       return;

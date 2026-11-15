@@ -12,7 +12,14 @@
 
 import type { MascotReaction } from "@/lib/agent/mascot/store";
 import { cairoDay } from "@/lib/agent/mascot/context/occasions";
-import { momentsNow, PLAY_SCENES, type Moment } from "@/lib/agent/mascot/context/moments";
+import {
+  momentsNow,
+  pagePastimes,
+  pagePreloads,
+  PLAY_SCENES,
+  type Moment,
+} from "@/lib/agent/mascot/context/moments";
+import { CALM_AFTER_TROUBLE, troubleRecent } from "@/lib/agent/mascot/companion";
 import { toolPageScenes } from "@/lib/agent/mascot/context/tool-scenes";
 import type { WeatherNow } from "@/lib/agent/mascot/context/weather";
 import type { PackId } from "../../mascot-packs";
@@ -89,20 +96,22 @@ export function pickGreeting(
 }
 
 /**
- * A scene to pass the time: the day's own twice as likely as a game, never the
- * one he just played, and the ones he hasn't played lately (`recent`) before the
- * ones he has.
+ * A scene to pass the time: the day's own twice as likely as a game or the
+ * page's companion stories (`page`), never the one he just played, and the ones
+ * he hasn't played lately (`recent`) before the ones he has.
  */
 export function pickPastime(
   moments: readonly Moment[],
   shipped: (scene: string) => boolean,
   random: () => number,
   last: string | null,
-  recent: readonly string[] = []
+  recent: readonly string[] = [],
+  page: readonly string[] = []
 ): string | null {
   const pool: string[] = [];
   for (const m of moments) for (const s of m.scenes) if (shipped(s)) pool.push(s, s);
   for (const s of PLAY_SCENES) if (shipped(s)) pool.push(s);
+  for (const s of page) if (shipped(s)) pool.push(s);
   const choices = pool.filter((s) => s !== last);
   if (!choices.length) return null;
   const fresh = choices.filter((s) => !recent.includes(s));
@@ -241,8 +250,14 @@ export function installContextSenses(hooks: ContextHooks): ContextSenses {
 
   /** On a tool's page, load the packs its moments play, before the first one happens. */
   const preloadTool = (path: string) => {
-    const packs = Array.from(new Set(toolPageScenes(path).filter(shipped).flatMap(packsOf)));
+    const scenes = [...toolPageScenes(path), ...pagePreloads(path)];
+    const packs = Array.from(new Set(scenes.filter(shipped).flatMap(packsOf)));
     if (packs.length) hooks.want(packs);
+  };
+  /** The page's companion stories, the light-hearted ones kept away from trouble. */
+  const pageStories = () => {
+    const calmOnly = troubleRecent(now().getTime());
+    return pagePastimes(hooks.path()).filter((s) => !calmOnly || !CALM_AFTER_TROUBLE.includes(s));
   };
 
   let lastPath = hooks.path();
@@ -251,7 +266,14 @@ export function installContextSenses(hooks: ContextHooks): ContextSenses {
   return {
     play() {
       if (hooks.busy()) return false;
-      const scene = pickPastime(moments(), shipped, random, lastPastime, hooks.recent?.() ?? []);
+      const scene = pickPastime(
+        moments(),
+        shipped,
+        random,
+        lastPastime,
+        hooks.recent?.() ?? [],
+        pageStories()
+      );
       if (!scene || !hooks.allow("pastime", 2 * 60_000)) return false;
       lastPastime = scene;
       stage(scene, 600);

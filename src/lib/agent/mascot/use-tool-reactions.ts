@@ -15,6 +15,7 @@ import { useEffect } from "react";
 import { useHistoryStore } from "@/lib/history/history-store";
 import type { HistoryEvent } from "@/lib/history/types";
 import { RUN_LENGTH, RUN_WINDOW_MS, WORK_REACTIONS, pickFresh, remember } from "./brain/choose";
+import { noteTrouble } from "./companion";
 import { EMITTED, toolActionScenes } from "./context/tool-scenes";
 import { feel } from "./mind";
 import { useMascotStore, type MascotReaction } from "./store";
@@ -225,6 +226,7 @@ export function installToolReactions(
   };
 
   const onAction = (toolId: string, action: string) => {
+    if (reactionForAction(action) === "downcast") noteTrouble(); // whatever answers it
     const scene = sceneForEvent(toolId, action, shipped, random);
     if (scene) return offer(`scene:${scene}`, RANK.scene);
     const pose = reactionForAction(action);
