@@ -94,7 +94,10 @@ export type MascotHold =
   | "peekHide"
   | "watching"
   | "dozing"
-  | "sitting";
+  | "sitting"
+  // A companion scene held while something real lasts (engine/scenes.ts
+  // HOLD_SCENES): its way in once, then its waiting frames until it's let go.
+  | `scene:${string}`;
 
 /** Sentiment vector that drives playback speed + the drone (0..1 each). */
 export interface MascotMood {
@@ -130,6 +133,8 @@ interface MascotState {
   reactionQueue: MascotReaction[];
   /** Bumped to cut the reaction that's playing short (see playNow). */
   interrupt: number;
+  /** What the last playNow played: a tap's reaction, or his own waking up. */
+  playedNow: MascotReaction | null;
   /** Poses held right now. */
   holds: MascotHold[];
   /** FIFO of micro-expression names (smirk/wideEyes/…) the sprite consumes. */
@@ -188,6 +193,7 @@ const INITIAL: MascotState = {
   drag: null,
   reactionQueue: [],
   interrupt: 0,
+  playedNow: null,
   holds: [],
   microQueue: [],
   auraColor: null,
@@ -231,7 +237,7 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
   setDrag: (vx) =>
     set({ drag: vx === null ? null : { vx: Number.isFinite(vx) ? vx : 0, at: Date.now() } }),
   queueReaction: (r) => set((s) => ({ reactionQueue: [...s.reactionQueue, r].slice(-MAX_QUEUE) })),
-  playNow: (r) => set((s) => ({ reactionQueue: [r], interrupt: s.interrupt + 1 })),
+  playNow: (r) => set((s) => ({ reactionQueue: [r], interrupt: s.interrupt + 1, playedNow: r })),
   dequeueReaction: () => {
     const [next, ...rest] = get().reactionQueue;
     if (next === undefined) return undefined;
