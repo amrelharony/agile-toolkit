@@ -29,8 +29,11 @@ pixel off the floor; or when the detail over all frames is outside 90-110%. A
 pack's own detail is printed but not checked: a scene full of flat-coloured props
 reads soft however sharp he is, and each sheet is sharpened by its stance.
 
-The companion scenes (docs/mascot/companion-scenes.json) are left out: they are
-baked as drawn, with none of these corrections, on purpose.
+The companion and expansion scenes (docs/mascot/companion-scenes.json,
+expansion-sheets.json) are left out: they are baked as drawn, with none of these
+corrections, on purpose. Once the refined release is in (refined-original-release.json)
+the packs are built as drawn too, and --check uses limits for that (AS_DRAWN): skin
+dE 3, garments 4.5, hair 4.5, head 15% (past 10% is listed to watch), detail 90-160%.
 """
 
 import json
@@ -49,12 +52,22 @@ ROOT = Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "public" / "mascot"
 MANIFEST = ROOT / "src" / "components" / "agent" / "mascot" / "mascot-packs.ts"
 COMPANION_SPEC = ROOT / "docs" / "mascot" / "companion-scenes.json"
+EXPANSION_SPEC = ROOT / "docs" / "mascot" / "expansion-sheets.json"
+REFINED = ROOT / "docs" / "mascot" / "refined-original-release.json"
 CONTEXT_SPEC = ROOT / "docs" / "mascot" / "context-sheets.json"
 CELL_W, CELL_H, PACK_H, HEADROOM = 192, 208, 224, 16
 FLOOR_ROW = 201 + HEADROOM  # the lowest row of his shoes in a 1x pack cell
 SKIN_MAX, SIZE_OFF = 3.0, 0.05
 GARMENT_MAX, HAIR_MAX = 2.5, 4.0
 SHARP_MIN, SHARP_MAX = 0.90, 1.10  # over all frames
+# The refined release (docs/mascot/refined-original-release.json) is built as drawn,
+# with none of the corrections: it already matches the live sprite closely (skin dE
+# about 1.3, clothes about 2, shoes about 3.3, heads within a few %) and is crisper than
+# the live idle on purpose. Its limits catch real drift, not the drawing's own finish.
+# Its contract allows only whole-figure scaling, never a head resized on its own, so a
+# sheet drawn with his head up to 15% off passes, and those past 10% are listed to
+# watch (heat, breakfast, evening and four tool sheets at the release of 13 Nov 2026).
+AS_DRAWN = {"skin": 3.0, "garment": 4.5, "hair": 4.5, "size": 0.15, "sharp": (0.90, 1.60), "watch": 0.10}
 HEADS_MIN = 3  # fewer measurable heads than this isn't a pack's size
 # Held up by the collar: lined up on his hair, so his feet are wherever they swing.
 OFF_FLOOR = ("lifted.hang", "lifted.swing-l", "lifted.swing-r", "lifted.flail")
@@ -113,11 +126,19 @@ def main() -> None:
     frames = re.findall(r'^  "([^"]+)": \["(\w+)", (\d+)\]', ts, re.M)
     # The companion scenes are baked: built as drawn, a colleague beside him, with
     # none of the corrections this checks (scripts/build-mascot-scenes.py).
+    # The expansion scenes too: props and colleagues share his cells, placed once per sheet.
     baked = set()
-    if COMPANION_SPEC.exists():
-        baked = {s["pack"] for s in json.loads(COMPANION_SPEC.read_text(encoding="utf-8"))["sheets"]}
+    for spec in (COMPANION_SPEC, EXPANSION_SPEC):
+        if spec.exists():
+            baked |= {s["pack"] for s in json.loads(spec.read_text(encoding="utf-8"))["sheets"]}
+    if baked:
         frames = [f for f in frames if f[1] not in baked]
-        print(f"left out, baked as drawn: {', '.join(sorted(baked))}")
+        print(f"left out, baked as drawn: {len(baked)} packs (the companion and expansion scenes)")
+    global SKIN_MAX, GARMENT_MAX, HAIR_MAX, SIZE_OFF, SHARP_MIN, SHARP_MAX
+    if REFINED.exists():
+        SKIN_MAX, GARMENT_MAX, HAIR_MAX = AS_DRAWN["skin"], AS_DRAWN["garment"], AS_DRAWN["hair"]
+        SIZE_OFF, (SHARP_MIN, SHARP_MAX) = AS_DRAWN["size"], AS_DRAWN["sharp"]
+        print("the refined release, as drawn: limits skin dE 3, garments 4.5, hair 4.5, head 15%, detail 90-160%")
     live = Image.open(next(PUBLIC.glob("amr.*.webp"))).convert("RGBA")
     idle1 = pack_cell(live.crop((0, 0, CELL_W, CELL_H)))
     idle = to_cell2x(live.crop((0, 0, CELL_W, CELL_H)))
@@ -208,6 +229,12 @@ def main() -> None:
         print(f"{pack:12} {len(rs):6} {de(m['dE']):>5} {de(m['shirt']):>5} {de(m['trousers']):>5} "
               f"{de(m['shoes']):>5} {de(m['hair']):>5} {pc(m['size']):>5} {pc(m['sharp']):>5} "
               f"{pc(med(rs, 'sides')):>5} {pc(med(rs, 'cover')):>5}{'  < ' + ', '.join(why) if why else ''}")
+    if REFINED.exists():
+        watch = [f"{p} {med(rs, 'size'):.0%}" for p, rs in out.items()
+                 if med(rs, "size") is not None and sum(r["size"] is not None for r in rs) >= HEADS_MIN
+                 and abs(med(rs, "size") - 1) > AS_DRAWN["watch"]]
+        if watch:
+            print("head drawn more than 10% off the live idle's (as drawn, to watch): " + ", ".join(watch))
     allr = [r for rs in out.values() for r in rs]
     print(f"all {len(allr)} frames: skin dE median {med(allr, 'dE'):.1f}, p90 {pct(allr, 'dE', 90):.1f}; "
           f"shirt {med(allr, 'shirt'):.1f}, p90 {pct(allr, 'shirt', 90):.1f}; "

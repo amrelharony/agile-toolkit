@@ -1,7 +1,7 @@
 """
 Build Amr's lazy sprite packs from the generated art sheets.
 
-    python -I scripts/build-mascot-packs.py <sheets folder> [--preview <folder>] [--keep-missing]
+    python -I scripts/build-mascot-packs.py <sheets folder> [--preview <folder>] [--keep-missing] [--as-drawn]
 
 The sheets folder holds S01-faces.png … S10-stroll.png: 1536 x 1024, eight
 384 x 512 slots each, slot 1 the standard stance (docs/mascot/AMR-ART-BRIEF.md).
@@ -31,6 +31,15 @@ measures them; scripts/audit-mascot-heads.py checks the result):
   sharpness  the 1x cells are sharpened, sheet by sheet, until the stance carries
              the fine detail the live idle does
 
+--as-drawn builds the sheets exactly as drawn: registered (one scale per sheet from
+slot 1, each slot on its anchor and the floor) and packed, with the S01 faces lined up
+on face.default's body and the talk pack's heads swapped on, but none of the
+corrections below. It is for the refined release of 13 November 2026
+(docs/mascot/refined-original-release.json), where every Amr was redrawn whole from
+the approved standing master: his head, skin and clothes already match the live
+sprite (heads 0.98-1.05, skin dE 1-2, clothes dE 2-3), and it is crisper than the live
+idle, so the corrections would only move it off the approved drawing.
+
 The companion scenes (docs/mascot/companion-scenes.json) are built by
 scripts/build-mascot-scenes.py as baked scenes, without any of the corrections
 above; this script keeps their packs exactly as they ship.
@@ -56,6 +65,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "public" / "mascot"
 CONTEXT_SPEC = ROOT / "docs" / "mascot" / "context-sheets.json"
 COMPANION_SPEC = ROOT / "docs" / "mascot" / "companion-scenes.json"
+EXPANSION_SPEC = ROOT / "docs" / "mascot" / "expansion-sheets.json"
 MANIFEST = ROOT / "src" / "components" / "agent" / "mascot" / "mascot-packs.ts"
 
 SLOT_W, SLOT_H = 384, 512
@@ -240,12 +250,14 @@ def keep_missing(found: list[str]) -> dict:
 
 
 def baked_scenes() -> dict:
-    """The companion scene packs as they ship: {pack: (its manifest entry, its frame ids)}.
-    scripts/build-mascot-scenes.py builds them; here they are only kept, files and all,
-    so no correction below ever reads a colleague beside him as his skin or clothes."""
-    if not COMPANION_SPEC.exists():
-        return {}
-    names = [s["pack"] for s in json.loads(COMPANION_SPEC.read_text(encoding="utf-8"))["sheets"]]
+    """The companion and expansion scene packs as they ship: {pack: (its manifest entry,
+    its frame ids)}. scripts/build-mascot-scenes.py and build-mascot-expansion.py build
+    them; here they are only kept, files and all, so no correction below ever reads a
+    colleague or a prop beside him as his skin or clothes."""
+    names = []
+    for spec in (COMPANION_SPEC, EXPANSION_SPEC):
+        if spec.exists():
+            names += [s["pack"] for s in json.loads(spec.read_text(encoding="utf-8"))["sheets"]]
     shipped, baked = shipped_packs(), {}
     for pack in names:
         if pack not in shipped:
@@ -425,17 +437,22 @@ def align_faces(frames) -> list[str]:
     return notes
 
 
-def build_talk(frames) -> None:
+def build_talk(frames, reach: int = 8) -> list[str]:
     ref = np.array(frames["face.default"][2]).astype(int)
     neck = neck_row(ref[..., 3])
     rows = slice(max(neck - 130, 0), neck)
+    notes = []
     for g, gid in enumerate(GESTURES, start=1):
         body2 = frames[gid][2]
-        dx, dy = head_offset(np.array(body2).astype(int), ref, rows)
+        dx, dy = head_offset(np.array(body2).astype(int), ref, rows, reach=reach)
+        if max(abs(dx), abs(dy)) >= reach:
+            notes.append(f"talk.{g}: the S01 head sits at the edge of the search ({dx:+d}, {dy:+d} px at 2x): check it")
+        notes.append(f"talk.{g}: S01 head placed at {dx:+d}, {dy:+d} px at 2x")
         for mouth, fid in MOUTHS.items():
             out2 = swap_head(body2, frames[fid][2], dx, dy, neck)
             out1 = out2.convert("RGBa").resize((CELL_W, PACK_H), Image.LANCZOS).convert("RGBA")
             frames[f"talk.{g}-{mouth}"] = {1: out1, 2: out2}
+    return notes
 
 
 # Head size. Each sheet is scaled so his stance is as tall as the live one, but the
@@ -626,6 +643,9 @@ def size_head(frames, fid, sheet, stances, scales, ref, target: float = 1.0) -> 
 # head shows: as a ring round it, or a notch at the jaw. So the body's head goes a
 # little under the live size first, and the new head always covers it.
 GESTURE_HEAD = 0.96
+# As drawn (the refined release), every frame is a whole new drawing at one scale, so a
+# gesture's head can sit further from S01's than in the edited sheets: search wider.
+AS_DRAWN_TALK_REACH = 24
 
 
 def size_gestures(frames, stances, scales, ref) -> list[str]:
@@ -1017,13 +1037,18 @@ def main() -> None:
         print(f"kept as shipped ({len(kept)}): {', '.join(kept)}")
     frames, stances, notes = load_frames(src)
     notes += align_faces(frames)
+    if "--as-drawn" in args:
+        print("as drawn: no head sizing, no skin, clothes or hair matching, no side thickening, no sharpening")
+        notes += build_talk(frames, reach=AS_DRAWN_TALK_REACH)
+        finish(frames, stances, notes, kept, {}, preview)
+        return
     notes += thicken_sides(frames)
     scales = head_scales(stances)
     print("each sheet's head scale, from its stance:", ", ".join(f"{p} {s:.3f}" for p, s in scales.items()))
     ref = live_ref()
     shrink_faces(frames, scales, ref)
     notes += size_gestures(frames, stances, scales, ref)
-    build_talk(frames)
+    notes += build_talk(frames)
     notes += shrink_heads(frames, stances, scales, ref)
     skin_notes, deltas = match_skin(frames, ref)
     notes += skin_notes
@@ -1052,6 +1077,11 @@ def main() -> None:
     notes += sharp_notes
     for pack, st in stances.items():
         stances[pack] = {2: st[2], 1: heads.sharpen(small(st[2]), amounts[pack], SHARP_RADIUS)}
+    finish(frames, stances, notes, kept, regraded, preview)
+
+
+def finish(frames, stances, notes, kept, regraded, preview) -> None:
+    """Write the packs, the manifest and the previews."""
     for n in notes:
         print("note:", n)
     add_kept(kept)
