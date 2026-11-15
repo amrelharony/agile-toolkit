@@ -371,7 +371,8 @@ class Puppet:
     body (a capsule from `tail[0]` to `tail[1]` on the master), and its parts sheet
     laid out as AT, with the tail between the right arm and the body, where the sheet
     alone names it the right arm; `at` moves pieces on the sheet. `arms` (shoulder,
-    hand) moves the right arm's ends on the master; the left arm mirrors them. With
+    hand) moves the right arm's ends on the master; the left arm mirrors them, or
+    `left` (shoulder, hand) moves its ends apart (shoulders drawn uneven). With
     `hand` the tail is drawn just like the arm: as thick, and a ball at its end."""
 
     IDS = ["torso", "arm-r", "arm-l", "leg-r", "leg-l", "tail"]
@@ -380,7 +381,7 @@ class Puppet:
     TAIL_R = ((640, 560), (560, 800))
     TAIL_L = ((896, 560), (976, 800))
 
-    def __init__(self, tail, arms=None, at=None, hand=False):
+    def __init__(self, tail, arms=None, at=None, hand=False, left=None):
         pen = cs.Pen()
         pen.capsule(tail[0], tail[1], cs.ARM_R if hand else 24, cs.FLAP)
         if hand:
@@ -391,6 +392,8 @@ class Puppet:
             (sx, sy), (hx, hy) = arms
             self.layers["arm-r"] = cs.arm("arm-r", shoulder=(sx, sy), hand=(hx, hy))
             self.layers["arm-l"] = cs.arm("arm-l", shoulder=(cs.W - sx, sy), hand=(cs.W - hx, hy))
+        if left:
+            self.layers["arm-l"] = cs.arm("arm-l", shoulder=left[0], hand=left[1])
         master = cs.over(*(self.layers[k] for k in ("tail", "leg-r", "leg-l", "arm-r", "arm-l", "torso")))
         self.master, _ = key.cut(cs.on_key(master), cs.MAGENTA)
         self.at = {**self.AT, **(at or {})}
@@ -421,7 +424,8 @@ class NamingByLanding(unittest.TestCase):
     """Where a named piece lands on the master: an ear on the head, an arm joining
     the body above its hips, a leg or a tail reaching its bottom half; a sided arm
     or leg also by where it lands with no side window, and on which side; and a tail
-    on an arm's side by which of the two joins level with the other arm."""
+    on an arm's side by which of the two joins level with the other arm and is drawn
+    like it."""
 
     def test_a_sound_naming_lands_where_its_ids_join(self):
         got = {pid: n for n, pid in enumerate(EARED) if pid in LANDS}
@@ -689,11 +693,88 @@ class NamingByLanding(unittest.TestCase):
         def laid(**given):  # {id: the piece it lands as}
             return {pid: landed[given.get(pid, pid)] for pid in got}
 
+        def alike(i, j):  # every piece drawn like the arms (boxes have no looks)
+            return 1.0
+
         for tail, arm in (("low", "arm-r"), ("up", "arm-l")):
-            self.assertEqual(rig.shoulder_misses(got, laid(tail=tail)), set(), tail)
+            self.assertEqual(rig.shoulder_misses(got, laid(tail=tail), alike), set(), tail)
             traded = laid(**{arm: tail, "tail": arm})
             self.assertEqual(rig.landing_misses(got, traded), set(), tail)
-            self.assertEqual(rig.shoulder_misses(got, traded), {(got[arm], arm), (got["tail"], "tail")}, tail)
+            self.assertEqual(rig.shoulder_misses(got, traded, alike), {(got[arm], arm), (got["tail"], "tail")}, tail)
+
+    def test_rows_alone_never_trade_a_tail_for_the_arm_beside_it(self):
+        # Shoulders drawn uneven: the right arm's contact starts at row 340 and the
+        # left one's at 420 (the slack is 3% of the body's 360 rows, about 11). A tail
+        # on the body's right (your left) joined at row 420 starts level with the left
+        # arm and far from the right one, as a tail traded with the right arm would.
+        # The left arm vouches for the trade only when the piece called the tail is
+        # drawn nearly as much like it as the piece called the right arm (LIKE_SLACK),
+        # and only for a piece level with its row.
+        at = {
+            **LANDS,
+            "arm-r": [(540, 370, 600, 600), (580, 340, 640, 480)],
+            "arm-l": [(936, 450, 996, 680), (896, 420, 956, 560)],
+            "level": [(560, 420, 640, 600)],
+            "near": [(560, 450, 640, 620)],
+        }
+        landed = {pid: lands(pid, at) for pid in at}
+        got = {"torso": 0, "arm-r": 1, "arm-l": 2, "tail": 3}
+        traded = {(1, "arm-r"), (3, "tail")}
+        sound = {"torso": landed["torso"], "arm-r": landed["arm-r"], "arm-l": landed["arm-l"], "tail": landed["level"]}
+
+        def looks(tail):  # how alike the right arm (0.95) and the tail are drawn to the left arm
+            return lambda i, j: {1: 0.95, 3: tail}[i]
+
+        self.assertEqual(rig.landing_misses(got, sound), set())
+        # Drawn like the left arm, the piece level with it is the right arm.
+        self.assertEqual(rig.shoulder_misses(got, sound, looks(0.95)), traded)
+        self.assertEqual(rig.shoulder_misses(got, sound, looks(0.95 - rig.LIKE_SLACK + 0.01)), traded)
+        # Drawn unlike it (a plain tail beside gloved arms), the tail keeps its name.
+        self.assertEqual(rig.shoulder_misses(got, sound, looks(0.95 - rig.LIKE_SLACK - 0.01)), set())
+        # A tail 30 rows from the left arm's start is level with neither arm: nearer
+        # the left arm than the right arm is, but no witness either way.
+        self.assertEqual(rig.shoulder_misses(got, {**sound, "tail": landed["near"]}, looks(0.95)), set())
+
+    def test_a_piece_is_drawn_like_the_other_arm_turned_over(self):
+        # The sheet's right arm laid on its left arm turned over left to right fits
+        # well; a plain tail (no ball at its end) as long and as steep fits clearly
+        # worse, by more than LIKE_SLACK; one drawn just like the arm, nearly as well.
+        plain = Puppet(((592, 400), (470, 600)), ((606, 300), (470, 530)))
+        drawn = Puppet(((600, 430), (464, 660)), ((606, 300), (470, 530)), hand=True)
+        crops = {}
+        for name, p in (("plain", plain), ("drawn", drawn)):
+            for pid in ("arm-r", "arm-l", "tail"):
+                crops[name, pid] = p.pieces[p.truth[pid]].crop(p.cut)[0]
+        arm = rig.mirror_ncc(crops["plain", "arm-r"], crops["plain", "arm-l"])
+        self.assertGreater(arm, TOL["ncc_warn"])
+        self.assertLess(rig.mirror_ncc(crops["plain", "tail"], crops["plain", "arm-l"]), arm - rig.LIKE_SLACK)
+        self.assertGreaterEqual(rig.mirror_ncc(crops["drawn", "tail"], crops["drawn", "arm-l"]), arm - rig.LIKE_SLACK)
+
+    def test_a_plain_tail_at_the_low_shoulder_s_row_keeps_its_name(self):
+        # Shoulders drawn uneven, the left one 100 px lower than the right, and a
+        # plain tail (no ball at its end) on the body's right (your left) joined at the
+        # low shoulder's row: it starts level with the left arm and far from the right
+        # one, as the right arm would if the two had traded names. But the right arm is
+        # drawn like the left one and the tail isn't, so a sound sheet keeps its names.
+        p = Puppet(((592, 400), (470, 600)), ((606, 300), (470, 530)), at={"arm-r": (300, 420), "tail": (1150, 820)}, left=((930, 400), (1066, 630)))
+        self.assertEqual(p.given(p.first), {})
+        place, missed = p.by_landing()
+        self.assertEqual(missed(p.first, place(p.first)), set())
+        got, _, left = rig.settle_names(p.pieces, p.IDS, p.first, place, missed)
+        self.assertEqual((p.given(got), left), ({}, set()))
+
+    def test_a_tail_drawn_like_the_arm_keeps_its_name_when_the_other_arm_is_level_with_neither(self):
+        # The tail drawn just like the right arm and joined 130 px below it on the same
+        # side, the left arm drawn 100 px lower than the right one: the tail starts
+        # nearer the left arm's row than the right arm does, but 30 px from it, level
+        # with neither, so the left arm vouches for no trade and a sound sheet keeps
+        # its names.
+        p = Puppet(((600, 430), (464, 660)), ((606, 300), (470, 530)), at={"arm-r": (300, 420), "tail": (1150, 820)}, hand=True, left=((930, 400), (1066, 630)))
+        self.assertEqual(p.given(p.first), {})
+        place, missed = p.by_landing()
+        self.assertEqual(missed(p.first, place(p.first)), set())
+        got, _, left = rig.settle_names(p.pieces, p.IDS, p.first, place, missed)
+        self.assertEqual((p.given(got), left), ({}, set()))
 
     def test_a_tail_drawn_like_the_arm_beside_it_is_named_by_the_other_arm(self):
         # The tail is drawn just like the right arm (as long, as steep, as thick, a

@@ -321,13 +321,16 @@ HIPS = 0.75
 FREE_KINDS = ("arm", "leg")
 FREE_SAME_IOU = 0.8  # a landing with no window this alike to the placement is the same place
 FREE_GAIN = 0.03  # how much better a piece that fits its window well must fit with none
-# Shoulders match across the body: the two arms' contacts start at close rows. A tail
-# drawn like an arm and joined on the same side as one fits that arm's name in its
-# side window as well as its own, and both join where an arm or a tail may, so only
-# which of the two starts level with the other arm tells them apart (shoulder_misses):
-# the tail must start nearer it than the arm does by more than this share of the
-# body's height, so two shoulders drawn a little apart never trip.
+# The two arms are a pair: drawn alike (mirror images) and joined at close rows. A
+# tail drawn like an arm and joined on the same side as one fits that arm's name in
+# its side window as well as its own, and both join where an arm or a tail may, so
+# only the other arm can tell them apart (shoulder_misses), and only when it vouches
+# for the trade twice: the piece called the tail starts level with it (within this
+# share of the body's height) and nearer it than the piece called the arm does by
+# more than that, and is drawn at least nearly as much like it (LIKE_SLACK).
 SHOULDER_SLACK = 0.03
+LIKE_SLACK = 0.15  # how much less like the other arm the piece called the tail may look
+LIKE_SCALE = 1.25  # alike pieces of one sheet are drawn within this factor of one size
 
 
 def kind_of(pid: str) -> str | None:
@@ -372,18 +375,42 @@ def landing_misses(got: dict, landed: dict) -> set:
     return out
 
 
-def shoulder_misses(got: dict, landed: dict) -> set:
+def mirror_ncc(crop: np.ndarray, other: np.ndarray) -> float:
+    """How alike two pieces of one sheet are drawn: the NCC (lightness and its
+    gradient, rg.register's own search score) of `crop` laid on `other` turned over
+    left to right, at about its size (within LIKE_SCALE), as the right arm lies on
+    the left one. -1 when it lays nowhere."""
+    h, w = other.shape[:2]
+    p = max(crop.shape[:2])  # room for the piece at any scale and turn searched
+    canvas = np.zeros((h + 2 * p, w + 2 * p, 4), np.uint8)
+    canvas[p : p + h, p : p + w] = other[:, ::-1]
+    reg = rg.register(crop, canvas, r_range=(1 / LIKE_SCALE, LIKE_SCALE))
+    if reg is None:
+        return -1.0
+    return reg.ncc_first if reg.ncc_first is not None else reg.ncc
+
+
+def shoulder_misses(got: dict, landed: dict, alike) -> set:
     """The (piece index, id) pairs of a naming whose tail and arm on one side of the
     body have traded names: the piece named the tail lands on the side of the body
-    the piece named that side's arm hangs on, and its contact with the body starts
-    nearer the row the other arm's does than that arm's does, by more than
-    SHOULDER_SLACK of the body's height. Both pairs miss (that arm and the tail), so
-    the sheet is named again with the trade ruled out. A tail drawn like the arm
-    beside it (as long, as steep, as thick, a ball at its end) fits either name in
-    that side's window and joins where an arm or a tail may; the other arm, joined
-    level with the true arm, is the only witness. A tail joined high up the body's
-    side (reaching up behind it) starts far from the shoulders too, above them, so
-    it never passes for the arm either."""
+    the piece named that side's arm hangs on, and the other arm vouches for the
+    trade. Its contact with the body starts level with the other arm's (within
+    SHOULDER_SLACK of the body's height) and nearer it than the arm's does by more
+    than that, and `alike(i, j)` (how alike piece i is drawn to piece j, mirror_ncc)
+    finds it drawn at least nearly as much like the other arm as the piece named the
+    arm is (within LIKE_SLACK). Both pairs miss (that arm and the tail), so the sheet
+    is named again with the trade ruled out.
+
+    A tail drawn like the arm beside it (as long, as steep, as thick, a ball at its
+    end) fits either name in that side's window and joins where an arm or a tail
+    may; the other arm, joined level with the true arm and drawn like it, is the
+    only witness. A tail joined high up the body's side (reaching up behind it)
+    starts far from the shoulders too, above them, so it never passes for the arm.
+    But rows alone never trade a naming: shoulders drawn uneven put a plain tail
+    joined at the low shoulder's row on the high one's side level with the other
+    arm, and it is drawn unlike that arm, so the arm keeps its name; and when the
+    other arm is level with neither piece (raised, or uneven with both) it vouches
+    for neither."""
     across = {"arm-r": "arm-l", "arm-l": "arm-r"}
     if "tail" not in got or "torso" not in landed or any(k not in landed for k in ("tail", *across)):
         return set()
@@ -401,14 +428,18 @@ def shoulder_misses(got: dict, landed: dict) -> set:
     if not len(xs):
         return set()
     arm = "arm-r" if xs.mean() < (hb[0] + hb[2]) / 2 else "arm-l"  # the right arm is on your left
-    if arm not in got:
+    other = across[arm]
+    if arm not in got or other not in got:
         return set()
-    s_arm, s_other, s_tail = start(arm), start(across[arm]), start("tail")
+    s_arm, s_other, s_tail = start(arm), start(other), start("tail")
     if None in (s_arm, s_other, s_tail):
         return set()
-    if abs(s_arm - s_other) - abs(s_tail - s_other) > SHOULDER_SLACK * (hb[3] - hb[1]):
-        return {(got[arm], arm), (got["tail"], "tail")}
-    return set()
+    slack = SHOULDER_SLACK * (hb[3] - hb[1])
+    if abs(s_tail - s_other) > slack or abs(s_arm - s_other) - abs(s_tail - s_other) <= slack:
+        return set()
+    if alike(got["tail"], got[other]) < alike(got[arm], got[other]) - LIKE_SLACK:
+        return set()  # drawn unlike the other arm, where the piece called the arm is like it
+    return {(got[arm], arm), (got["tail"], "tail")}
 
 
 def free_landings(got: dict, placed: dict, master: np.ndarray, landed: dict, tgt, cache: dict) -> dict:
@@ -524,17 +555,23 @@ def by_landing(pieces, cut, reg_ids, master, mfig, baked, side_of, ids_all) -> t
     doesn't join (landing_misses), by their placement or, for a sided arm or leg, by
     where it lands with no side window (free_landings), the sided arms and legs
     that fit only on the body's other side from their name (side_misses), and a tail
-    and the arm on its side that traded names (shoulder_misses)."""
-    tgt, cache = rg.Target(rg.shrink(master, rg.COARSE)), {}
+    and the arm on its side that traded names, by the other arm (shoulder_misses,
+    with how alike the sheet's pieces are drawn, mirror_ncc, kept per pair)."""
+    tgt, cache, looks = rg.Target(rg.shrink(master, rg.COARSE)), {}, {}
 
     def place(got):
         return place_named(got, pieces, cut, reg_ids, master, mfig, baked, side_of, ids_all, tgt, cache)
+
+    def alike(i, j):
+        if (i, j) not in looks:
+            looks[(i, j)] = mirror_ncc(pieces[i].crop(cut)[0], pieces[j].crop(cut)[0])
+        return looks[(i, j)]
 
     def missed(got, placed):
         landed = {**baked, **{k: v[1] for k, v in placed.items()}}
         free = free_landings(got, placed, master, landed, tgt, cache)
         moved = {**landed, **{k: b for k, (_, b) in free.items()}}
-        return landing_misses(got, landed) | landing_misses(got, moved) | side_misses(got, placed, free) | shoulder_misses(got, landed)
+        return landing_misses(got, landed) | landing_misses(got, moved) | side_misses(got, placed, free) | shoulder_misses(got, landed, alike)
 
     return place, missed
 
