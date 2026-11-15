@@ -10,6 +10,8 @@ Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.web
 | `docs/mascot/AMR-HAIR-EDITS.md`                                   | Hair-only edits for sheets that came back with curly hair, and how to check them  |
 | `docs/mascot/AMR-HAIR-ROUND-2.md`, `reference/ref-hair-fix.png`   | The second hair round: the sides, the colour and the last curls                   |
 | `docs/mascot/AMR-HAIR-ROUND-3.md`, `reference/ref-hair-fix-3.png` | The third hair round: S01's haircut for the other 53 sheets, in five zips         |
+| `docs/mascot/AMR-FACE-ROUND-1.md`, `reference/ref-face*.png`      | The face round: the original pet's features back in 106 sheets, in twelve zips    |
+| `scripts/audit-mascot-faces.py`                                   | Crops every shipped face beside the original's, for the face review               |
 | `scripts/build-mascot-packs.py`                                   | Slices, cleans and registers the sheets, writes the packs and their manifest      |
 | `scripts/mascot_heads.py`                                         | Measures his head, hair, skin, clothes and detail; the builder and audit share it |
 | `scripts/audit-mascot-heads.py`                                   | Checks the packs against the live sprite: head, skin, clothes, hair, detail       |
@@ -126,6 +128,30 @@ The fix round's edits came back with hair a shade lighter or browner than the sl
 `tool-scenes.ts` says what each tool plays. Opening a tool's page (`/<tool id>`) loads its packs, greets once a day with its first `open` scene (ahead of the weather and the hour, after the day's occasion), and adds its `open` scenes to his pastimes there. Its logged actions (`event-actions.ts`) play their scenes through `use-tool-reactions.ts`, looked up by tool first, then the toolkit's shared scenes, then a pose. Three moments aren't logged: a vote round revealed (the vote rooms announce it), the named sounds listed in `EMITTED` (an OKR achieved, a hypothesis validated or not, a premortem completed), and the docked timer running out wherever the visitor is (its tool's scene, or the Ceremony Timer's). When an action and a moment land in the same tick, as a check-in that achieves its OKR does, only the moment plays. Seven more tools reuse a sheet: RICE and ICE the prioritizer's, the $100 test buy-a-feature's, DACI and RAPID the decision log's, maturity the health check's, burnup the burndown's.
 
 Squad guests' pages (`/guest/*`) don't show Amr, so their actions get no reaction.
+
+## Companion scenes
+
+Ten short stories, N01–N10 (`companion-scenes.json`), most with a small colleague from the comic beside him: the AI reviewer's robot, the Dinosaur, the Deadline Rabbit, the Overengineering Octopus, the Ahwa cup and Agile Sticky. They came as finished art (`AMR_Sprites.zip`, 10 November 2026, with its own QA and handoff), keep their N ids and take no S number. A colleague's colours would fool the corrections above (the Dinosaur's green reads as his shirt, the tea as skin), so these are **baked scenes**, built apart:
+
+```bash
+python -I scripts/build-mascot-scenes.py <folder with the N*.png sheets> --preview <folder>
+python -I scripts/build-mascot-scenes.py --check
+```
+
+The first checks each sheet's sha256 against the JSON, so only the approved files go in. One scale per sheet comes from slot 1, where he stands alone, and nothing is scaled on its own. Each slot goes on the floor and the feet line by his own body (the largest figure in the slot), never by the slot as a whole, so a colleague can't move him; most of these sheets drew him further left to make room, and that drift (up to 35 px at 1×) is taken out frame by frame. A slot within 0.75 px of slot 1's place keeps slot 1's. No head, skin, clothes or hair correction runs, and the 1× cells get the same sharpening as every other pack. The packs land beside the others and are written after them in `mascot-packs.ts`; the full rebuild keeps them exactly as they are.
+
+Not matched, on purpose: next to the live idle his skin measures about ΔE 7–9 off, his shirt 9–11, his trousers 11–14 (the build prints it). The handoff rules out recolouring scenes a colleague shares; matching only his own pixels would need checking frame by frame, hands on a colleague included.
+
+When each one plays, truthfully (`COMPANION_SCENES` in `scenes.ts`, the hooks in `lib/agent/mascot/companion.ts`):
+
+- **Your Decision** is held while a real two-choice card waits for the visitor: their Approve or Deny card, and the consent card before their first AI message. The offer plays once, then he waits, with no timer and no default; their answer gets the usual nod (a Deny too, now: it's a choice, not a failure).
+- **Quiet Companion** is held after the visitor turns him down to Quiet themselves, while it stays Quiet on that page; a tap ends it. Not on the setting stored at load.
+- **Comic to Action** plays when a story is read to its end for the first time, in place of the old jump.
+- **Deadline Rabbit Rush** plays at the stuck offer; "Need a hand?" now shows at once and the story beside it.
+- **Dinosaur Priorities**, **Octopus Overload**, **Ahwa Debrief** and **Sticky Escape** are occasional pastimes on the prioritisation, flow, retro and board pages (`PAGE_PASTIMES`); the Ahwa look keeps away for five minutes after anything goes wrong.
+- **AI Reviewer** and **Graceful Retry** only play when asked: `/play reviewer`, `/play retry` (or `/play` for the next one) in his chat. Nothing real exists to bind them to: no review service, no Try again.
+
+A held scene keeps its own clock, so a tap over it picks the wait up where it was instead of offering the options again. While one is held nothing unprompted (a pastime, a yawn) takes the moment over. A scene whose pack arrives late now plays from that moment to its end, and a pack that fails to load is asked for again after 30 s, three tries in all.
 
 ## How the frames line up
 
