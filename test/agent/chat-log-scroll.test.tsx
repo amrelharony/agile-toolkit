@@ -429,6 +429,43 @@ describe("the Latest button", () => {
     expect(log.top()).toBe(1000);
   });
 
+  it("keeps gliding as its row goes and the log grows: pins re-aim the glide until it lands, then jump again", async () => {
+    const { log } = await settled();
+    log.readTo(300);
+    // A browser's glide takes frames: its first scrollTo only starts it.
+    const browserScrollTo = log.scrollTo.getMockImplementation()!;
+    log.scrollTo.mockImplementation((opts) => {
+      if (opts.behavior === "smooth") theLog().scrollTop = 350;
+      else browserScrollTo(opts);
+    });
+    log.scrollTo.mockClear();
+
+    fireEvent.click(latest()!);
+    await frames();
+    expect(log.scrollTo.mock.calls).toEqual([[{ top: 800, behavior: "smooth" }]]);
+
+    // The Latest row going away makes the log 44 px taller in that frame.
+    log.resize({ client: 244 });
+    await frames();
+    // No instant pin cuts the glide short: it is re-aimed at the new end.
+    expect(log.scrollTo.mock.calls).toEqual([
+      [{ top: 800, behavior: "smooth" }],
+      [{ top: 756, behavior: "smooth" }],
+    ]);
+    // A resize that leaves the end where the glide is headed writes nothing.
+    log.resize({});
+    await frames();
+    expect(log.scrollTo).toHaveBeenCalledTimes(2);
+
+    // The glide lands; growth after that pins at once again.
+    log.readTo(756);
+    log.resize({ height: 1200 });
+    await frames();
+    expect(log.scrollTo).toHaveBeenCalledTimes(3);
+    expect(log.scrollTo).toHaveBeenLastCalledWith({ top: 956, behavior: "instant" });
+    expect(log.top()).toBe(956);
+  });
+
   it("jumps instead of gliding under reduced motion", async () => {
     vi.spyOn(window, "matchMedia").mockImplementation(
       (query: string) =>

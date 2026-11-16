@@ -26,7 +26,11 @@
  * writes once: however many resizes, new items and calls arrive between two
  * frames, the log moves at most once, after reading its size once. Pins are
  * instant (a smooth scroll would trail the words it follows); the Latest
- * button glides there, and under prefers-reduced-motion jumps.
+ * button glides there, and under prefers-reduced-motion jumps. While that
+ * glide runs, a pin re-aims it at the new end instead of cutting it short
+ * (the button's row going away grows the log the frame the glide starts),
+ * and leaves it be while the end stays where it is headed; it is over once
+ * it lands or the reader leaves, and pins are instant again.
  *
  * The short panel: when the chat's root scrolls too (a landscape phone,
  * where the log's floor and the footer don't fit), `reveal` brings the log
@@ -164,10 +168,17 @@ export function useStickToBottom(
   const seen = useRef<Seen>({ top: 0, height: 0 });
   const pending = useRef<Pending>({ pin: null, reveal: false });
   const frame = useRef<number | null>(null);
+  /**
+   * The end the Latest button's glide is headed for: -1 once asked for and
+   * not yet started, null when no glide runs.
+   */
+  const glide = useRef<number | null>(null);
 
   /** Follow, or stop following; React hears only a change. */
   const follow = useCallback((on: boolean) => {
     stuck.current = on;
+    // The reader left: their scroll ends any glide.
+    if (!on) glide.current = null;
     if (shown.current !== on) {
       shown.current = on;
       setAtBottom(on);
@@ -189,7 +200,19 @@ export function useStickToBottom(
     // The reader may have left since this was asked for: their scroll wins.
     if (pin && stuck.current) {
       const end = Math.max(0, el.scrollHeight - el.clientHeight);
-      if (Math.abs(end - el.scrollTop) > 0.5) scrollElTo(el, end, pin);
+      const away = Math.abs(end - el.scrollTop) > 0.5;
+      if (pin === "smooth") {
+        // The glide: at the end, it is over; headed for this end already,
+        // scrolling again would only restart its easing.
+        if (!away) glide.current = null;
+        else if (glide.current !== end) {
+          scrollElTo(el, end, "smooth");
+          glide.current = end;
+        }
+      } else {
+        glide.current = null;
+        if (away) scrollElTo(el, end, pin);
+      }
     }
     const root = rootRef?.current;
     if (reveal && stuck.current && root && root.scrollHeight - root.clientHeight > 1) {
@@ -213,19 +236,29 @@ export function useStickToBottom(
     [flush]
   );
 
+  /** A pin that keeps the log at its end: re-aiming the Latest glide while it runs, else instant. */
+  const pinWay = useCallback(
+    (): ScrollBehavior => (glide.current !== null ? "smooth" : "instant"),
+    []
+  );
+
   const stick = useCallback(() => {
+    // The reader's own message or a new chat jumps, glide or not.
+    glide.current = null;
     follow(true);
     schedule("instant");
   }, [follow, schedule]);
 
   const scrollToLatest = useCallback(() => {
     follow(true);
-    schedule(prefersReducedMotion() ? "instant" : "smooth");
+    const jump = prefersReducedMotion();
+    glide.current = jump ? null : -1;
+    schedule(jump ? "instant" : "smooth");
   }, [follow, schedule]);
 
   const reveal = useCallback(() => {
-    if (stuck.current) schedule("instant", true);
-  }, [schedule]);
+    if (stuck.current) schedule(pinWay(), true);
+  }, [pinWay, schedule]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -247,6 +280,8 @@ export function useStickToBottom(
       const wentUp = top < last.top - 1 && height >= last.height && dist > 1;
       if (wentUp) follow(false);
       else if (dist <= STICK_THRESHOLD) follow(true);
+      // The glide landed: growth after it pins at once again.
+      if (dist <= 1) glide.current = null;
       note(el);
     };
 
@@ -282,12 +317,13 @@ export function useStickToBottom(
     el.addEventListener("touchcancel", onTouchEnd, passive);
     el.addEventListener("keydown", onKeyDown);
 
-    // A resize re-pins a log that was following, and otherwise never moves
-    // it: it can only bring the reader back once the log ends where they are.
+    // A resize re-pins a log that was following (re-aiming a glide under
+    // way), and otherwise never moves it: it can only bring the reader back
+    // once the log ends where they are.
     let observer: ResizeObserver | null = null;
     if (typeof ResizeObserver === "function") {
       observer = new ResizeObserver(() => {
-        if (stuck.current) schedule("instant");
+        if (stuck.current) schedule(pinWay());
         else if (distanceToEnd(el) <= 1) follow(true);
       });
       observer.observe(el);
@@ -309,12 +345,12 @@ export function useStickToBottom(
         frame.current = null;
       }
     };
-  }, [contentRef, follow, note, schedule, scrollRef]);
+  }, [contentRef, follow, note, pinWay, schedule, scrollRef]);
 
   // No ResizeObserver (an old browser): follow after every render instead,
   // which is when the log's content can have changed.
   useEffect(() => {
-    if (typeof ResizeObserver !== "function" && stuck.current) schedule("instant");
+    if (typeof ResizeObserver !== "function" && stuck.current) schedule(pinWay());
   });
 
   return { atBottom, scrollToLatest, stick, reveal };
