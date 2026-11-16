@@ -29,6 +29,11 @@
  * root.scrollTo, never scrollIntoView. A different chat (a thread opened,
  * the first message) and the reader's own new message follow the log again.
  *
+ * Speaking. Nothing in the log is live; the frame speaks for it through the
+ * app's announcer (use-turn-announcer): once when a turn settles (`busy`
+ * going false), with the turn's words; once for a waiting card that didn't
+ * take focus; and an error at once, assertively. Never per streamed chunk.
+ *
  * Focus. A control that takes itself away hands focus to the composer, caret
  * at the end, before it goes (the chat context's focusComposer): Latest does
  * here; Try again, Go on, starters and follow-ups do where they are drawn.
@@ -53,11 +58,15 @@ import { DOCK_FOOTER_IN_PX3 } from "../mascot/panel-context";
 import { useChat } from "./chat-context";
 import { ChatLog } from "./chat-log";
 import { useStickToBottom } from "./use-stick-to-bottom";
+import { useTurnAnnouncer } from "./use-turn-announcer";
 
 export interface ChatFrameProps {
   /** The strip's items, from lib/agent/chat-view. */
   items: readonly ChatItem[];
-  /** A turn is under way, or starting: the log can grow with nothing new in its items yet. */
+  /**
+   * A turn is under way, or starting: the log can grow with nothing new in its
+   * items yet. The turn is spoken once when this goes false.
+   */
   busy?: boolean;
   /** What the log shows after its items: the empty line, thinking, the confirm card, a notice. */
   children?: ReactNode;
@@ -77,6 +86,7 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
     contentRef,
     rootRef,
   });
+  useTurnAnnouncer({ items, busy, rootRef });
 
   // A different chat, or the chat filling from empty: follow from its end.
   const first = items[0]?.key ?? null;
