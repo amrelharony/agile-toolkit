@@ -462,6 +462,9 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
                 )}
               </div>
             </div>
+            {/* An ended room keeps its board as a snapshot, but no live timer:
+                it would count on to a "Time's up" and its alarm for a room
+                that's gone. */}
             {hosting && countdown !== null && room.timer ? (
               <TimerWidget
                 seconds={countdown}
@@ -471,9 +474,9 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
                 onReset={() => room.setTimerSeconds(300)}
                 onChange={room.setTimerSeconds}
               />
-            ) : (
+            ) : active ? (
               <RoomTimerReadout timer={room.timer} />
-            )}
+            ) : null}
           </div>
 
           {phaseInfo && (

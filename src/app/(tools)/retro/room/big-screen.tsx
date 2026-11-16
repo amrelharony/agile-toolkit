@@ -2,9 +2,9 @@
 
 /**
  * What the Retro host's big screen shows (`RoomBigScreen`): the phase, how
- * many cards each column holds, and from Discuss on the top-voted cards.
- * While cards are hidden in Write, only the counts show, as on everyone's
- * phone. A Lean Coffee thumbs vote shows above them: how many voted while
+ * many cards each column holds, and from Discuss on the top-voted cards,
+ * everyone's (cards hide only in Write, where the screen shows no card text,
+ * only the counts, as on everyone's phone). A Lean Coffee thumbs vote shows above them: how many voted while
  * it's open, the totals once it's closed. Card text renders as React text
  * only.
  */
@@ -71,12 +71,9 @@ function BigScreenPoll({ poll }: { poll: RoomPoll }) {
 
 export function RetroBigScreenRound({
   board,
-  hidesCard,
   poll = null,
 }: {
   board: BoardState;
-  /** The room's check for the others' cards hidden on this screen (Write), or null. */
-  hidesCard: ((cardId: string) => boolean) | null;
   /** The Lean Coffee thumbs vote running, as the room shares it. */
   poll?: RoomPoll | null;
 }) {
@@ -89,7 +86,7 @@ export function RetroBigScreenRound({
   const later = board.phase === "discuss" || board.phase === "actions";
   const top: RetroCard[] = later
     ? board.cards
-        .filter((c) => c.groupedWith === null && !(hidesCard?.(c.id) ?? false))
+        .filter((c) => c.groupedWith === null)
         .sort((a, b) => b.votes - a.votes)
         .slice(0, TOP_CARDS)
     : [];

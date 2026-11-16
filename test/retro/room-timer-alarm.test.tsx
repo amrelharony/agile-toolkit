@@ -238,7 +238,7 @@ describe("the Retro big screen", () => {
         card("d", "start", { text: "Merged in", groupedWith: "a" }),
       ],
     });
-    render(<RetroBigScreenRound board={board} hidesCard={(id) => id === "b"} />);
+    render(<RetroBigScreenRound board={board} />);
     expect(screen.getByRole("heading", { name: "Write phase" })).toBeInTheDocument();
     const counts = within(screen.getByRole("list", { name: "Cards per column" }))
       .getAllByRole("listitem")
@@ -247,7 +247,7 @@ describe("the Retro big screen", () => {
     expect(screen.queryByText(/Pair more|Secret one|Long standups/)).toBeNull();
   });
 
-  it("from Discuss on, lists the top cards by votes, leaving out hidden and grouped ones", () => {
+  it("from Discuss on, lists everyone's top cards by votes (cards hide only in Write), leaving out grouped ones", () => {
     const board = makeBoard({
       phase: "discuss",
       cards: [
@@ -257,11 +257,12 @@ describe("the Retro big screen", () => {
         card("d", "start", { text: "Merged in", votes: 7, groupedWith: "a" }),
       ],
     });
-    render(<RetroBigScreenRound board={board} hidesCard={(id) => id === "b"} />);
+    render(<RetroBigScreenRound board={board} />);
     const top = within(screen.getByRole("list", { name: "Top cards" }))
       .getAllByRole("listitem")
       .map((li) => li.textContent);
-    expect(top).toEqual(["Long standups5 votes", "Pair more2 votes"]);
+    // "Secret one" was a participant's, hidden while people wrote: it shows now.
+    expect(top).toEqual(["Secret one9 votes", "Long standups5 votes", "Pair more2 votes"]);
   });
 
   it("shows the board's own timer while it runs and once it ran out, not while it sits paused", () => {
