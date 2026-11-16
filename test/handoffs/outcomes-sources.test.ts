@@ -136,3 +136,22 @@ describe("Outcomes & quality back-links", () => {
     }
   });
 });
+
+describe("the tools plan's phase 1 back-links", () => {
+  it("are listed ahead of their senders, Post-Mortem's factor for Root Cause among them", () => {
+    const cases: [string, string, string][] = [
+      ["parking-lot", "From parking lot", "/parking-lot"],
+      ["root-cause", "From root-cause analysis", "/root-cause?analysis=x1"],
+      ["audience-wall", "From Audience Wall", "/audience-wall"],
+      ["quick-vote", "From Quick Vote", "/quick-vote"],
+      ["interrupt-buffer", "From interrupt buffer", "/interrupt-buffer"],
+      ["sm-notebook", "From Scrum Master Notebook", "/sm-notebook"],
+      ["post-mortem", "From post-mortem", "/post-mortem"],
+    ];
+    for (const [tool, label, href] of cases) {
+      const ref = { tool, id: "x1" };
+      expect(sourceLabel(ref), tool).toBe(label);
+      expect(sourceHref(ref), tool).toBe(href);
+    }
+  });
+});

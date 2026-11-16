@@ -285,7 +285,7 @@ export default function VisitorAgentPanel({
         <p className="mt-1.5 text-xs text-sub" data-testid="visitor-ai-quota">
           {quota
             ? `${quota.remaining} of ${quota.limit} left today`
-            : `${VISITOR_AI_DAILY_MESSAGES} messages a day`}
+            : `${VISITOR_AI_DAILY_MESSAGES} AI uses a day`}
           {inLiveRoom ? " · Not saved" : " · Amr asks before changing anything · Not saved"}
         </p>
         {peak && <p className="mt-1 text-xs text-sub">{peak}</p>}

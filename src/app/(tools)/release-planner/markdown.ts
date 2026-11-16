@@ -72,7 +72,7 @@ export function toMarkdown(plan: ReleasePlan, now: Date = new Date()): string {
     }
     if (t.deliverable) {
       lines.push(
-        `- Scope the team can deliver: about ${fmt(Math.floor(t.deliverable.p50), 0)} points likely (P50), ${fmt(Math.floor(t.deliverable.p85), 0)} points to promise (P85)`
+        `- Scope the team can deliver: about ${fmt(Math.floor(t.deliverable.p50), 0)} points on a coin flip (P50), ${fmt(Math.floor(t.deliverable.p85), 0)} points to commit to (P85)`
       );
     }
     lines.push("");

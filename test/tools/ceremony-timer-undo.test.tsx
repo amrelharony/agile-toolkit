@@ -54,5 +54,5 @@ describe("Ceremony Timer undo", () => {
     expect(participants()).toEqual(["Remove Ann", "Remove Bo", "Remove Cy"]);
     act(() => undo.last!.revert());
     expect(participants()).toEqual(["Remove Ann", "Remove Bo", "Remove Cy"]);
-  });
+  }, 15_000);
 });

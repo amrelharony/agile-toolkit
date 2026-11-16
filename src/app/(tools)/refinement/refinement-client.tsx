@@ -23,10 +23,17 @@ import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { REFINEMENT_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { setStorySprint, setStoryStatus } from "@/lib/sprints/store";
+import { createRefinedMarks } from "@/lib/sprints/story-status";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Story } from "@/lib/stores/workspace-types";
+import type { Story, StoryGwt } from "@/lib/stores/workspace-types";
 import { deleteStoryKeepingUndo } from "@/lib/stories/delete";
-import { withStoryDetails, type StoryDetails } from "@/lib/stories/fields";
+import {
+  gwtCell,
+  withStoryDetails,
+  withStoryGwt,
+  type GwtWrite,
+  type StoryDetails,
+} from "@/lib/stories/fields";
 import { keptForSprintNote, sprintKeepingStory, storyRemoval } from "@/lib/stories/removal";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { cn } from "@/lib/utils";
@@ -129,6 +136,8 @@ export function RefinementClient() {
   );
   const { log } = useHistoryLogger("refinement");
   const exportRef = useRef<HTMLDivElement>(null);
+  // The refinedAt a scenario delete left, so its Undo puts the earlier one back.
+  const [gwtMarks] = useState(createRefinedMarks);
 
   const all = useMemo(() => [...stories, ...exampleStories], [stories, exampleStories]);
   const session = useMemo(() => refinementSession(all, backlogItems), [all, backlogItems]);
@@ -266,6 +275,23 @@ export function RefinementClient() {
     putStory(withStoryDetails(current, details));
     if (!isExampleId(current.id)) {
       log(REFINEMENT_ACTIONS.STORY_UPDATED, { storyId: current.id, details: true });
+    }
+  }
+
+  /**
+   * The story's Given/When/Then scenarios, beside its free-text criteria. A
+   * delete's Undo keeps the refinedAt the story had before the delete.
+   */
+  function saveGwt(story: Story, gwt: StoryGwt[], write?: GwtWrite) {
+    const current = findStory(story.id);
+    if (!current) return;
+    const next = withStoryGwt(current, gwt);
+    putStory(write?.kind === "restore" ? gwtMarks.putBack(write.key, next) : next);
+    if (write?.kind === "remove") {
+      gwtMarks.note(write.key, current.refinedAt, findStory(story.id)?.refinedAt);
+    }
+    if (!isExampleId(current.id)) {
+      log(REFINEMENT_ACTIONS.STORY_UPDATED, { storyId: current.id, gwt: gwt.length });
     }
   }
 
@@ -466,6 +492,10 @@ export function RefinementClient() {
         STATE_LABEL[readinessState(s, criteria)],
         // The local day, as on the page and in the pass-rate trend (not UTC).
         localDateOf(s.readiness?.updatedAt),
+        // Its acceptance criteria both ways, whole: a download isn't capped
+        // the way the share link is.
+        s.acceptanceCriteria ?? "",
+        gwtCell(s.gwt),
       ];
     });
     const checkRows = history.map((h) => [
@@ -477,6 +507,8 @@ export function RefinementClient() {
       h.passRate,
       h.passRate === 100 ? "Ready" : h.passRate > 0 ? "Partial" : "Not ready",
       h.date,
+      "",
+      "",
     ]);
     return {
       headers: [
@@ -488,6 +520,8 @@ export function RefinementClient() {
         "% ready",
         "Status",
         "Checked on",
+        "Acceptance criteria",
+        "Given / When / Then",
       ],
       rows: [...storyRows, ...checkRows],
     };
@@ -655,6 +689,7 @@ export function RefinementClient() {
                     onPrevious={() => index > 0 && go(walk[index - 1].id)}
                     onNext={() => index < walk.length - 1 && go(walk[index + 1].id)}
                     onSaveDetails={(details) => saveDetails(focused, details)}
+                    onSaveGwt={(gwt, write) => saveGwt(focused, gwt, write)}
                     removal={storyRemoval(focused, sprints)}
                     keptNote={keptNote(focused)}
                     onDelete={() => deleteStory(focused)}
