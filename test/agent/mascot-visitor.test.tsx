@@ -1022,7 +1022,7 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   it("opens an empty chat on a narration line and the page's starters, which fill the box and never send", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Tool finder" });
@@ -1049,7 +1049,7 @@ describe("MascotAssistant — visitor AI", () => {
 
   it("offers questions for any page off a tool, and names no tool the visitor may not see", async () => {
     h.pathname = "/";
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     const view = await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     await screen.findByRole("button", { name: "Tool finder" });
