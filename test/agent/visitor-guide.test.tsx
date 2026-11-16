@@ -480,5 +480,19 @@ describe("VisitorGuide", () => {
         "overscroll-contain"
       );
     });
+
+    it("lets a tile's words wrap inside it, never spilling into the next tile or cut to an ellipsis", () => {
+      render(<VisitorGuide />);
+      const list = screen.getByRole("list", { name: "Popular tasks" });
+      // Still two tiles a row.
+      expect(list).toHaveClass("grid-cols-2");
+      for (const tile of within(list).getAllByRole("link")) {
+        const [title, subtitle] = Array.from(tile.querySelectorAll("span[dir]"));
+        expect(title).toHaveClass("break-words", "hyphens-auto", "[overflow-wrap:anywhere]");
+        expect(subtitle).toHaveClass("line-clamp-2", "[overflow-wrap:anywhere]");
+        expect(subtitle).not.toHaveClass("truncate");
+        expect(subtitle).not.toHaveClass("block");
+      }
+    });
   });
 });
