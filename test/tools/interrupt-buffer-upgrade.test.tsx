@@ -285,6 +285,10 @@ describe("interrupts", () => {
     expect((screen.getByLabelText("Kind") as HTMLSelectElement).value).toBe("incident");
     expect((screen.getByLabelText("Size in points") as HTMLInputElement).value).toBe("8");
     expect(screen.getByText(/From the words: Incident, about 8 points/)).toBeInTheDocument();
+    // It fills the form at once: the note says so, and that nothing is saved yet.
+    expect(
+      screen.getByText(/Kind and size are filled in, not saved yet: change them if wrong\./)
+    ).toBeInTheDocument();
     expect(ws().interruptItems).toEqual([]);
   });
 
@@ -383,6 +387,23 @@ describe("interrupts", () => {
     expect(ws().interruptItems?.[0]).toMatchObject({ kind: "bug" });
     expect(ws().interruptItems?.[0].size).toBeUndefined();
   });
+
+  it("put focus back on the check button when its list is dismissed", async () => {
+    seed(
+      [sprint()],
+      [item({ title: "Customer can't reset their password", kind: "bug", size: undefined })]
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Check the kinds by the words" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    const dismiss = within(list).getByRole("button", { name: "Dismiss suggestions" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    expect(screen.queryByTestId("ai-suggestions")).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Check the kinds by the words" })
+    );
+  });
 });
 
 describe("over the buffer", () => {
@@ -419,6 +440,16 @@ describe("over the buffer", () => {
     expect(bar).toHaveAttribute("aria-valuetext", "6 of 8 points used, 2 points left.");
     expect(screen.getByText("Nearly used up")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Emergency Procedure" })).toBeNull();
+  });
+
+  it("says the buffer is used up, not nearly, once every point of it is spent", async () => {
+    seed([sprint({ interruptBuffer: { points: 6 } })], [item({ size: 6 })]);
+    renderPage();
+    expect(
+      await screen.findByText("Used up", { selector: '[data-field="buffer-state"]' })
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Nearly used up")).toBeNull();
+    expect(screen.getByTestId("export-markdown").textContent).toContain("(used up)");
   });
 
   it("can't weigh a share of a sprint with no planned points yet, and says so", async () => {

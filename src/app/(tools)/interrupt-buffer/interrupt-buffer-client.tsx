@@ -293,6 +293,8 @@ export function BufferBoard({
   const [announce, setAnnounce] = useState("");
   // The interrupts' list, for where focus goes once a row's controls go away.
   const listRef = useRef<HTMLDivElement>(null);
+  /** Around "Check the kinds": where focus goes back to when its list is dismissed. */
+  const kindsAskRef = useRef<HTMLDivElement>(null);
 
   /**
    * After the list redraws, focus the control `action` of the row for
@@ -542,16 +544,18 @@ export function BufferBoard({
         icon={Zap}
         actions={
           mine.length > 0 ? (
-            <AiButton
-              task={interruptClassifyTask}
-              label="Check the kinds with Amr"
-              fallbackLabel="Check the kinds by the words"
-              variant="outline"
-              input={() => ({
-                titles: mine.slice(0, CLASSIFY_MAX).map((i) => i.title.slice(0, 300)),
-              })}
-              onResult={(data, meta) => showKinds(data, meta.source)}
-            />
+            <div ref={kindsAskRef}>
+              <AiButton
+                task={interruptClassifyTask}
+                label="Check the kinds with Amr"
+                fallbackLabel="Check the kinds by the words"
+                variant="outline"
+                input={() => ({
+                  titles: mine.slice(0, CLASSIFY_MAX).map((i) => i.title.slice(0, 300)),
+                })}
+                onResult={(data, meta) => showKinds(data, meta.source)}
+              />
+            </div>
           ) : undefined
         }
       >
@@ -568,6 +572,9 @@ export function BufferBoard({
               })}
               onAccept={acceptKind}
               onDismiss={() => setKinds(null)}
+              returnFocus={() =>
+                kindsAskRef.current?.querySelector<HTMLElement>('[data-testid="ai-button"]')
+              }
             />
           )}
           {mine.length === 0 ? (
@@ -594,8 +601,10 @@ export function BufferBoard({
                       focusOnMount
                     />
                   ) : (
+                    // The text keeps a real width: on a phone the three buttons
+                    // wrap under it rather than squeeze it to a few words a line.
                     <div className="flex flex-wrap items-start gap-2">
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1 basis-48">
                         <p
                           className={
                             item.resolvedAt
@@ -617,7 +626,7 @@ export function BufferBoard({
                           {item.resolvedAt && ` · resolved ${item.resolvedAt.slice(0, 10)}`}
                         </p>
                       </div>
-                      <div className="flex shrink-0 gap-1">
+                      <div className="ml-auto flex shrink-0 gap-1">
                         <IconButton
                           label={
                             item.resolvedAt

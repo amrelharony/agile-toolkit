@@ -38,7 +38,9 @@ export function toMarkdown({
 }): string {
   const lines = [`# ${cell(sprint.name)} — interrupt buffer`, ""];
   lines.push(`**Buffer:** ${bufferLabel(sprint)}  `);
-  lines.push(`**Used:** ${status.summary} (${STATE_TEXT[status.state]})  `);
+  const state =
+    status.state === "watch" && status.leftPoints === 0 ? "used up" : STATE_TEXT[status.state];
+  lines.push(`**Used:** ${status.summary} (${state})  `);
   lines.push(
     `**Interrupts:** ${status.total} (${status.open} open, ${status.emergencies} ${status.emergencies === 1 ? "emergency" : "emergencies"})`
   );

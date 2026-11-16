@@ -46,6 +46,13 @@ const STATE_LABEL: Record<InterruptBufferStatus["state"], string> = {
   over: "Over the buffer",
 };
 
+/** The gauge's label: a buffer used to the last point says so, not "nearly". */
+export function bufferStateLabel(status: InterruptBufferStatus): string {
+  return status.state === "watch" && status.leftPoints === 0
+    ? "Used up"
+    : STATE_LABEL[status.state];
+}
+
 /** Buffer used against what it holds, as a bar; the overflow said in words. */
 export function BufferGauge({ status }: { status: InterruptBufferStatus }) {
   const share = status.usedShare;
@@ -59,7 +66,7 @@ export function BufferGauge({ status }: { status: InterruptBufferStatus }) {
           {status.state === "over" && (
             <AlertTriangle className="mr-1 inline h-4 w-4 text-danger" aria-hidden="true" />
           )}
-          {STATE_LABEL[status.state]}
+          {bufferStateLabel(status)}
         </p>
         {status.bufferPoints !== null && (
           <p className="font-data text-sm text-sub">
@@ -222,10 +229,12 @@ export function InterruptForm({
                 ? { size: String(hit.size) }
                 : {}),
             });
+            const sized = hit.size !== undefined && !form.draft.size.trim();
+            // It fills the form at once (nothing is saved until the form is): say so.
             setNote(
               `${meta.source === "ai" ? "Amr suggests" : "From the words"}: ${INTERRUPT_KIND_LABEL[hit.kind]}${
                 hit.size !== undefined ? `, about ${pointsText(hit.size)}` : ""
-              }. Change it if it's wrong.`
+              }. ${sized ? "Kind and size are" : "The kind is"} filled in, not saved yet: change ${sized ? "them" : "it"} if wrong.`
             );
           }}
         />
@@ -243,7 +252,9 @@ export function InterruptForm({
           />
         )}
       </Field>
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,12rem)_minmax(0,8rem)_auto] sm:items-end">
+      {/* Top-aligned, so the Size hint under its box doesn't push the Kind
+          box out of line; the checkbox drops by a label's height to meet them. */}
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,12rem)_minmax(0,8rem)_auto] sm:items-start">
         <Field label="Kind">
           {(control) => (
             <select
@@ -274,7 +285,7 @@ export function InterruptForm({
             />
           )}
         </Field>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-text">
+        <label className="flex min-h-11 items-center gap-2 text-sm text-text sm:mt-[1.625rem] pointer-fine:md:min-h-9">
           <input
             type="checkbox"
             checked={form.draft.emergency}
