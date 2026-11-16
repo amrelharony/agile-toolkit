@@ -15,7 +15,9 @@
  * always after a key press; after a tap on a touch screen it stays put, as
  * chat-frame's Latest and the notice's buttons do, since the box taking
  * focus would raise the keyboard over the strip. The box shows the words
- * either way, beside Send.
+ * either way, beside Send, and after a tap the app's announcer says so
+ * ("In the message box: {starter}", politely), since focus didn't go there
+ * to tell a screen reader.
  *
  * Outline buttons, rounded-md (never a pill), 44 px tall on a touch screen
  * (Button size sm), a long one wrapping rather than cut off. They are simply
@@ -27,6 +29,7 @@
 
 import type { MouseEvent } from "react";
 import { flushSync } from "react-dom";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Button } from "@/components/ui/button";
 import { useAgentStore } from "@/lib/agent/store";
 import { tapOnTouchScreen, useChat } from "./chat-context";
@@ -40,15 +43,20 @@ export function filledDraft(draft: string, starter: string, starters: readonly s
   return !typed || starters.includes(typed) ? starter : `${draft.trimEnd()}\n\n${starter}`;
 }
 
+/** What the announcer says after a tap put `starter` in the box: no speaker, no I, me or my. */
+export const inTheBox = (starter: string) => `In the message box: ${starter}`;
+
 /** The starters, as buttons that fill the message box (see the file comment). */
 export function SuggestionChips({ starters }: { starters: readonly string[] }) {
   const { profile, focusComposer } = useChat();
+  const announce = useAnnounce();
   const pick = (e: MouseEvent<HTMLButtonElement>, starter: string) => {
     const store = useAgentStore.getState();
     const next = filledDraft(store.drafts[profile], starter, starters);
     // In the box before focus goes there, so the caret lands after the words.
     flushSync(() => store.setDraft(profile, next));
-    if (!tapOnTouchScreen(e)) focusComposer();
+    if (tapOnTouchScreen(e)) announce(inTheBox(starter));
+    else focusComposer();
   };
   return (
     // 1 px in from the log's edge, so High contrast's focus ring (5 px out) isn't clipped.

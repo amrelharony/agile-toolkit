@@ -48,7 +48,8 @@ import { AgentConversation } from "@/components/agent/agent-conversation";
 import { PICKED_UP } from "@/components/agent/chat/chat-items";
 import { ChatProvider } from "@/components/agent/chat/chat-context";
 import { ChatEmpty, MAX_STARTERS } from "@/components/agent/chat/chat-empty";
-import { filledDraft } from "@/components/agent/chat/suggestion-chips";
+import { filledDraft, inTheBox } from "@/components/agent/chat/suggestion-chips";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { tools } from "@/lib/constants/tools";
 import { OWNER_EMPTY, ownerStarters } from "@/lib/agent/owner-starters";
 import { useAgentStore, type ChatProfile } from "@/lib/agent/store";
@@ -156,6 +157,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   useAgentStore.getState().reset();
@@ -277,6 +279,31 @@ describe("a starter", () => {
     expect(box()).toHaveFocus();
   });
 
+  it("has the app's announcer say the words are in the box after a tap, and nothing after a key press", () => {
+    vi.useFakeTimers();
+    stubCoarsePointer(true);
+    render(
+      <LiveAnnouncerProvider>
+        <Chat />
+      </LiveAnnouncerProvider>
+    );
+    const polite = screen.getByTestId("live-polite");
+    const [first, second] = starterButtons();
+    first.focus();
+    fireEvent.click(first, { detail: 1 });
+    // The announcer fills its region 50 ms on.
+    act(() => vi.advanceTimersByTime(60));
+    expect(polite).toHaveTextContent(`In the message box: ${STARTERS[0]}`);
+    expect(box()).not.toHaveFocus();
+    expect(screen.getByTestId("live-assertive")).toBeEmptyDOMElement();
+
+    // A key press hands focus to the box, which says it: no second announcement.
+    fireEvent.click(second, { detail: 0 });
+    act(() => vi.advanceTimersByTime(60));
+    expect(box()).toHaveFocus();
+    expect(polite).toHaveTextContent(`In the message box: ${STARTERS[0]}`);
+  });
+
   it("works out the box's words: alone over nothing or a starter, else after the typing", () => {
     expect(filledDraft("", "Hi?", ["Hi?", "Yo?"])).toBe("Hi?");
     expect(filledDraft("  \n", "Hi?", ["Hi?"])).toBe("Hi?");
@@ -299,7 +326,8 @@ describe("the words of both chats' empty state", () => {
 
   it("never speaks in the first person, nor uses a dash, in a line or a starter", () => {
     const lines = [OWNER_EMPTY.line, OWNER_EMPTY.short, VISITOR_EMPTY.line, VISITOR_EMPTY.short];
-    for (const words of [...lines, ...everyStarter()]) {
+    // And what the announcer says after a tap puts one in the box.
+    for (const words of [...lines, ...everyStarter(), ...everyStarter().map(inTheBox)]) {
       expect(words, words).not.toMatch(FIRST_PERSON);
       expect(words, words).not.toMatch(DASHES);
     }
