@@ -350,6 +350,16 @@ describe("chat commands", () => {
     expect(note).toHaveTextContent(DANCE_NOTE);
     expect(note).toHaveAttribute("aria-live", "polite");
 
+    // Dance again: the same words are a new node, so the live span says them again.
+    const first = note.firstElementChild;
+    expect(first).toHaveTextContent(DANCE_NOTE);
+    type("dance");
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(note).toHaveTextContent(DANCE_NOTE);
+    expect(note.firstElementChild).not.toBeNull();
+    expect(note.firstElementChild).not.toBe(first);
+    expect(note.children).toHaveLength(1);
+
     // The next send takes the note away.
     type("what next?");
     fireEvent.keyDown(box(), { key: "Enter" });

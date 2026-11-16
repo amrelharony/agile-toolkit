@@ -32,7 +32,8 @@
  *   status   the status row: a note span, its only live part, polite ("Amr
  *            dances" after a chat command, "Listening…", "Cut to 2,000
  *            characters" after a long paste, a dictation error, "Reply
- *            copied" said from the log through the chat context's note);
+ *            copied" said from the log through the chat context's note),
+ *            each note a new node, so the same words twice are said twice;
  *            then, never
  *            live, the characters left (a chat with a limit, once within
  *            COUNTER_FROM of it), "On {tool}" (the page's tool, whose context
@@ -176,11 +177,20 @@ export function focusComposerAfterNewChat(): void {
   focusAskedAt = Date.now();
 }
 
-/** A note in the status row, and whether the mic showed it (only then may the mic take it away). */
+/**
+ * A note in the status row, whether the mic showed it (only then may the mic
+ * take it away), and its number: the same words again (a second Copy reply,
+ * dance twice) are a new node, which the live span says again.
+ */
 interface Note {
   text: string;
   mic: boolean;
+  seq: number;
 }
+
+let noteSeq = 0;
+/** A new note: numbered outside any state updater, so a double call stays pure. */
+const noteOf = (text: string, mic = false): Note => ({ text, mic, seq: ++noteSeq });
 
 /** The chat's composer: see the file comment. */
 export function ChatComposer({
@@ -206,7 +216,7 @@ export function ChatComposer({
   // False while Amr's Scenes view covers the chat (mounted, hidden).
   const visible = useChatVisible();
   // A control in the log says what it did here (Copy reply), while this shows.
-  useEffect(() => takeNotes((text) => setNote({ text, mic: false })), [takeNotes]);
+  useEffect(() => takeNotes((text) => setNote(noteOf(text))), [takeNotes]);
   // What the mic shows under the row (a visitor's voice notice).
   const [micShows, setMicShows] = useState<ReactNode>(null);
 
@@ -260,7 +270,7 @@ export function ChatComposer({
     if (!text) return;
     setDraft("");
     const command = handleMascotCommand(text);
-    setNote(command && { text: command.note, mic: false });
+    setNote(command && noteOf(command.note));
     if (!command) onSend(text, raw);
     // A tap on Send: the keyboard goes down, so the reply gets the panel.
     const box = boxRef.current;
@@ -297,8 +307,7 @@ export function ChatComposer({
     if (maxLength === undefined) return;
     const box = e.currentTarget;
     const room = maxLength - box.value.length + (box.selectionEnd - box.selectionStart);
-    if (e.clipboardData.getData("text").length > room)
-      setNote({ text: cutTo(maxLength), mic: false });
+    if (e.clipboardData.getData("text").length > room) setNote(noteOf(cutTo(maxLength)));
   };
 
   const canAct = busy ? canStop : ready && draft.trim() !== "";
@@ -314,15 +323,14 @@ export function ChatComposer({
     (text: string) => {
       const cut = maxLength !== undefined && text.length > maxLength;
       setDraft(cut ? text.slice(0, maxLength) : text);
-      if (cut) setNote({ text: cutTo(maxLength), mic: false });
+      if (cut) setNote(noteOf(cutTo(maxLength)));
     },
     [maxLength, setDraft]
   );
-  const micNote = useCallback(
-    (text: string | null) =>
-      setNote((shown) => (text ? { text, mic: true } : shown?.mic ? null : shown)),
-    []
-  );
+  const micNote = useCallback((text: string | null) => {
+    const next = text ? noteOf(text, true) : null;
+    setNote((shown) => next ?? (shown?.mic ? null : shown));
+  }, []);
 
   const counter = left !== null && left <= COUNTER_FROM;
   const quiet = [tool ? `On ${tool}` : null, status].filter(Boolean);
@@ -399,7 +407,7 @@ export function ChatComposer({
         className={cn("text-xs text-sub", note || counter || quiet.length ? "mt-1.5" : "mt-0")}
       >
         <span aria-live="polite" data-composer-note="">
-          {note?.text}
+          {note && <span key={note.seq}>{note.text}</span>}
         </span>
         {counter && (
           <>

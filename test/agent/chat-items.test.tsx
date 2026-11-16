@@ -1008,6 +1008,13 @@ describe("the end of the latest reply (ReplyEnd)", () => {
     expect(document.querySelector("[data-sonner-toaster], [data-sonner-toast]")).toBeNull();
     // The button stays for another go.
     expect(copy).toBeInTheDocument();
+    // A second copy says the same words as a new node, so the live span says them again.
+    const first = note.firstElementChild;
+    await press(copy);
+    expect(h.copy).toHaveBeenCalledTimes(2);
+    expect(note).toHaveTextContent(REPLY_COPIED);
+    expect(note.firstElementChild).not.toBeNull();
+    expect(note.firstElementChild).not.toBe(first);
 
     h.copy.mockImplementation(async () => false);
     await press(copy);
