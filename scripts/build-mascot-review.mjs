@@ -267,7 +267,7 @@ data.fx = {
 };
 
 const PAGE = String.raw`<meta charset="utf-8">
-<title>Amr Clip Review</title>
+<title>Amr Refined Clip Review</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -410,9 +410,9 @@ __FX_CSS__
 
 <header class="top">
   <div class="wrap">
-    <p class="eyebrow">Interactive pet · hair-corrected art · 10 sheets</p>
+    <p class="eyebrow">Interactive pet · refined art · the live sheet and 248 packs</p>
     <h1>Amr clip review</h1>
-    <p class="lede">Every new reaction and held pose, playing at the size he stands on the site, on the site's own light and dark grounds. The strip under each clip is its exposure sheet: one cell per frame, as long as the frame holds, with the looping part shaded.</p>
+    <p class="lede">Every reaction, held pose and scene, the companion and expansion stories included, playing at the size he stands on the site, on the site's own light and dark grounds. The strip under each clip is its exposure sheet: one cell per frame, as long as the frame holds, with the looping part shaded.</p>
     <div class="controls">
       <div><span class="ctl-label" id="size-l">Size</span><span class="seg" role="group" aria-labelledby="size-l"><button type="button" id="size-desktop" aria-pressed="true">Desktop 132 px</button><button type="button" id="size-phone" aria-pressed="false">Phone 96 px</button></span></div>
       <div><span class="ctl-label" id="sharp-l">Cells</span><span class="seg" role="group" aria-labelledby="sharp-l"><button type="button" id="sharp-1" aria-pressed="true">1×</button><button type="button" id="sharp-2" aria-pressed="false">2× (sharp screens)</button></span></div>
@@ -424,7 +424,7 @@ __FX_CSS__
 <main class="wrap" id="main">
   <section>
     <h2>Identity check</h2>
-    <p class="note">The live sheet stays the boot frame and the identity reference. The new frames are registered to it: same height, same floor row, feet on the same spot. Here at twice his desktop size.</p>
+    <p class="note">The live sheet, redrawn in the refined art, is the boot frame and the identity reference. Every pack is registered to it: same height, same floor row, feet on the same spot. Here at twice his desktop size.</p>
     <div class="identity" id="identity"></div>
   </section>
   <section>

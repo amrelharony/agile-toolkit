@@ -4,57 +4,59 @@ Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.web
 
 ## What's where
 
-| Path                                                                                    | What it is                                                                              |
-| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `docs/mascot/AMR-ART-BRIEF.md`, `docs/mascot/reference/`                                | The brief the sheets were generated from, and its reference images                      |
-| `docs/mascot/AMR-HAIR-EDITS.md`                                                         | Hair-only edits for sheets that came back with curly hair, and how to check them        |
-| `docs/mascot/AMR-HAIR-ROUND-2.md`, `reference/ref-hair-fix.png`                         | The second hair round: the sides, the colour and the last curls                         |
-| `docs/mascot/AMR-HAIR-ROUND-3.md`, `reference/ref-hair-fix-3.png`                       | The third hair round: S01's haircut for the other 53 sheets, in five zips               |
-| `docs/mascot/AMR-FACE-ROUND-1.md`, `reference/ref-face*.png`                            | The face audit of 10 November and the round it planned, superseded by the refined art   |
-| `scripts/audit-mascot-faces.py`                                                         | Crops every shipped face beside the original's, for the face review                     |
-| `scripts/intake-refined-sprites.py`, `refined-*-release.json`                           | Takes in a refined release (checks every sheet against its manifest) and records it     |
-| `scripts/build-mascot-packs.py`                                                         | Slices, cleans and registers the sheets, writes the packs and their manifest            |
-| `scripts/mascot_heads.py`                                                               | Measures his head, hair, skin, clothes and detail; the builder and audit share it       |
-| `scripts/audit-mascot-heads.py`                                                         | Checks the packs against the live sprite: head, skin, clothes, hair, detail             |
-| `public/mascot/amr-<pack>[@2x].<hash>.webp`                                             | The packs: 192 × 224 cells, eight to a row, and 384 × 448 twins for sharp screens       |
-| `src/components/agent/mascot/mascot-packs.ts`                                           | The generated manifest: each pack's files and each frame's cell                         |
-| `src/components/agent/mascot/engine/clips.ts`                                           | Every reaction and held pose, frame by frame                                            |
-| `src/components/agent/mascot/engine/senses.ts`                                          | What he notices: the page, the phone's motion, nobody being around                      |
-| `src/components/agent/mascot/engine/interactions/`                                      | Taps, touch, page moments and the phone's motion                                        |
-| `scripts/build-mascot-review.mjs`                                                       | The review page: every clip at real size on the site's light and dark grounds           |
-| `docs/mascot/context-sheets.json`                                                       | The context and tool sheets S11–S114: each sheet's props, poses and frame ids           |
-| `docs/mascot/AMR-CONTEXT-BRIEF.md`                                                      | Their ChatGPT brief, generated from the JSON                                            |
-| `docs/mascot/AMR-CONTEXT-CHATGPT.md`                                                    | The same, as one file to attach to ChatGPT with the reference images                    |
-| `scripts/build-mascot-context-brief.mjs`                                                | Writes that brief, and a prompt page with a copy button per sheet                       |
-| `docs/mascot/AMR-TOOLS-BRIEF.md`, `AMR-TOOLS-CHATGPT.md`                                | The tool sheets' brief and ChatGPT file (`--tools`), with a kickoff per batch           |
-| `docs/mascot/reference/ref-current.png`                                                 | Amr as the packs show him today, rendered by `scripts/build-mascot-reference.py`        |
-| `docs/mascot/AMR-TOOLS-FIX-1.md`                                                        | The first fix round for the returned tool sheets: hair edits and one redraw             |
-| `src/lib/agent/mascot/context/tool-scenes.ts`                                           | Each tool's greeting and the scenes its actions and moments play                        |
-| `src/lib/agent/mascot/use-tool-reactions.ts`                                            | Plays a tool's scene, or a pose, when it logs an action or announces a moment           |
-| `src/lib/agent/mascot/tool-moments.ts`, `timer-watch.ts`                                | Moments nothing logs: a vote revealed, an OKR achieved, the docked timer at zero        |
-| `src/components/agent/mascot/engine/scenes.ts`                                          | Every context scene, frame by frame                                                     |
-| `src/lib/agent/mascot/context/`                                                         | Cairo's occasions, sunset, the visitor's weather, and what's on now (moments)           |
-| `src/components/agent/mascot/engine/interactions/context.ts`                            | When he greets, passes the time, reaches for a torch or frets about the battery         |
-| `src/components/agent/mascot/mascot-fx.tsx`, `engine/scene-fx.ts`                       | The air the site draws behind him in a weather or fireworks scene                       |
-| `src/app/api/mascot/weather/route.ts`                                                   | The visitor's weather, from their rough place                                           |
-| `src/components/agent/mascot/engine/interactions/sensors.ts`                            | The phone's motion: its pose all the time, and tosses, flips, twists and knocks         |
-| `src/components/agent/mascot/mascot-bubble.tsx`                                         | What he says beside himself; `motion-invite.ts` is his offer to feel the phone          |
-| `src/lib/agent/mascot/bubble.ts`, `lines.ts`                                            | The line showing beside him, and every line he can say                                  |
-| `src/lib/agent/mascot/brain/`                                                           | His inner state and temperament (`state.ts`), how he varies answers (`choose.ts`)       |
-| `src/lib/agent/mascot/memory.ts`, `mind.ts`                                             | What he remembers between visits (this browser only), and his mind for the tab          |
-| `src/components/agent/mascot/engine/attention.ts`                                       | What has his eye when no cursor does: a finger, a field, the scroll                     |
-| `src/components/agent/mascot/engine/interactions/intent.ts`                             | Reading the visit: stuck, reading, or at it for a long while                            |
-| `src/components/agent/mascot/engine/scene-taps.ts`                                      | The scene a tap carries on with while one of his own plays                              |
-| `src/lib/agent/mascot/say.ts`                                                           | Whether he may speak now: the celebration level, Focus and the quiet hours              |
-| `docs/mascot/expansion-sheets.json`                                                     | The expansion scenes X001–X124: each sheet's trigger and loop rules, props and beats    |
-| `docs/mascot/expansion-triggers.md`                                                     | Where each expansion scene plays: the real events bound so far, and the rest on request |
-| `docs/mascot/AMR-EXPANSION-FIX-1.md`                                                    | The redraws the returned expansion sheets need, beat by beat                            |
-| `scripts/build-expansion-spec.py`                                                       | Writes the spec and its two small tables from the release's `catalog.json`              |
-| `scripts/build-mascot-expansion.py`                                                     | Builds the expansion packs as drawn, and the thumbnail atlas for the Scenes tab         |
-| `src/components/agent/mascot/engine/expansion-table.ts`, `expansion-titles.ts`          | Each expansion scene's pack and family (and its title, for the Scenes tab)              |
-| `src/components/agent/mascot/engine/scene-thumbs.ts`, `public/mascot/amr-thumbs.*.webp` | One small picture of each story's held pose, 72 × 84, all in one atlas                  |
-| `src/components/agent/mascot/scenes-tab.tsx`                                            | The Scenes tab in his panel: every story he can act out, played when it's tapped        |
-| `src/lib/agent/mascot/event-scenes.ts`, `use-mute-scene.ts`                             | An expansion scene played on a real event (EVENT_SCENES): the guards, once a visit      |
+| Path                                                                                    | What it is                                                                                      |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `docs/mascot/AMR-ART-BRIEF.md`, `docs/mascot/reference/`                                | The brief the sheets were generated from, and its reference images                              |
+| `docs/mascot/AMR-HAIR-EDITS.md`                                                         | Hair-only edits for sheets that came back with curly hair, and how to check them                |
+| `docs/mascot/AMR-HAIR-ROUND-2.md`, `reference/ref-hair-fix.png`                         | The second hair round: the sides, the colour and the last curls                                 |
+| `docs/mascot/AMR-HAIR-ROUND-3.md`, `reference/ref-hair-fix-3.png`                       | The third hair round: S01's haircut for the other 53 sheets, in five zips                       |
+| `docs/mascot/AMR-FACE-ROUND-1.md`, `reference/ref-face*.png`                            | The face audit of 10 November and the round it planned, superseded by the refined art           |
+| `scripts/audit-mascot-faces.py`                                                         | Crops every shipped face beside the original's, for the face review                             |
+| `scripts/intake-refined-sprites.py`, `refined-*-release.json`                           | Takes in a refined release (checks every sheet against its manifest) and records it             |
+| `scripts/build-mascot-packs.py`                                                         | Slices, cleans and registers the sheets, writes the packs and their manifest                    |
+| `scripts/mascot_heads.py`                                                               | Measures his head, hair, skin, clothes and detail; the builder and audit share it               |
+| `scripts/audit-mascot-heads.py`                                                         | Checks the packs against the live sprite: head, skin, clothes, hair, detail                     |
+| `public/mascot/amr-<pack>[@2x].<hash>.webp`                                             | The packs: 192 × 224 cells, eight to a row, and 384 × 448 twins for sharp screens               |
+| `src/components/agent/mascot/mascot-packs.ts`                                           | The generated manifest: each pack's files and each frame's cell                                 |
+| `src/components/agent/mascot/engine/clips.ts`                                           | Every reaction and held pose, frame by frame                                                    |
+| `src/components/agent/mascot/engine/senses.ts`                                          | What he notices: the page, the phone's motion, nobody being around                              |
+| `src/components/agent/mascot/engine/interactions/`                                      | Taps, touch, page moments and the phone's motion                                                |
+| `scripts/build-mascot-review.mjs`                                                       | The review page: every clip at real size on the site's light and dark grounds                   |
+| `docs/mascot/context-sheets.json`                                                       | The context and tool sheets S11–S114: each sheet's props, poses and frame ids                   |
+| `docs/mascot/AMR-CONTEXT-BRIEF.md`                                                      | Their ChatGPT brief, generated from the JSON                                                    |
+| `docs/mascot/AMR-CONTEXT-CHATGPT.md`                                                    | The same, as one file to attach to ChatGPT with the reference images                            |
+| `scripts/build-mascot-context-brief.mjs`                                                | Writes that brief, and a prompt page with a copy button per sheet                               |
+| `docs/mascot/AMR-TOOLS-BRIEF.md`, `AMR-TOOLS-CHATGPT.md`                                | The tool sheets' brief and ChatGPT file (`--tools`), with a kickoff per batch                   |
+| `docs/mascot/reference/ref-current.png`                                                 | Amr as the packs show him today, rendered by `scripts/build-mascot-reference.py`                |
+| `docs/mascot/AMR-TOOLS-FIX-1.md`                                                        | The first fix round for the returned tool sheets: hair edits and one redraw                     |
+| `src/lib/agent/mascot/context/tool-scenes.ts`                                           | Each tool's greeting and the scenes its actions and moments play                                |
+| `src/lib/agent/mascot/use-tool-reactions.ts`                                            | Plays a tool's scene, or a pose, when it logs an action or announces a moment                   |
+| `src/lib/agent/mascot/tool-moments.ts`, `timer-watch.ts`                                | Moments nothing logs: a vote revealed, an OKR achieved, the docked timer at zero                |
+| `src/components/agent/mascot/engine/scenes.ts`                                          | Every context scene, frame by frame                                                             |
+| `src/lib/agent/mascot/context/`                                                         | Cairo's occasions, sunset, the visitor's weather, and what's on now (moments)                   |
+| `src/components/agent/mascot/engine/interactions/context.ts`                            | When he greets, passes the time, reaches for a torch or frets about the battery                 |
+| `src/components/agent/mascot/mascot-fx.tsx`, `engine/scene-fx.ts`                       | The air the site draws behind him in a weather or fireworks scene                               |
+| `src/app/api/mascot/weather/route.ts`                                                   | The visitor's weather, from their rough place                                                   |
+| `src/components/agent/mascot/engine/interactions/sensors.ts`                            | The phone's motion: its pose all the time, and tosses, flips, twists and knocks                 |
+| `src/components/agent/mascot/mascot-bubble.tsx`                                         | What he says beside himself; `motion-invite.ts` is his offer to feel the phone                  |
+| `src/lib/agent/mascot/bubble.ts`, `lines.ts`                                            | The line showing beside him, and every line he can say                                          |
+| `src/lib/agent/mascot/brain/`                                                           | His inner state and temperament (`state.ts`), how he varies answers (`choose.ts`)               |
+| `src/lib/agent/mascot/memory.ts`, `mind.ts`                                             | What he remembers between visits (this browser only), and his mind for the tab                  |
+| `src/components/agent/mascot/engine/attention.ts`                                       | What has his eye when no cursor does: a finger, a field, the scroll                             |
+| `src/components/agent/mascot/engine/interactions/intent.ts`                             | Reading the visit: stuck, reading, or at it for a long while                                    |
+| `src/components/agent/mascot/engine/scene-taps.ts`                                      | The scene a tap carries on with while one of his own plays                                      |
+| `src/lib/agent/mascot/say.ts`                                                           | Whether he may speak now: the celebration level, Focus and the quiet hours                      |
+| `docs/mascot/AMR-LIVE-SHEET-BRIEF.md`, `live-sheets.json`                               | The live sheet redrawn in the refined style: ten sheets L01–L10, and which cell each slot fills |
+| `scripts/build-mascot-live.py`                                                          | Builds the live sheet from L01–L10 as drawn, and points MASCOT_SPRITE_URL at it                 |
+| `docs/mascot/expansion-sheets.json`                                                     | The expansion scenes X001–X124: each sheet's trigger and loop rules, props and beats            |
+| `docs/mascot/expansion-triggers.md`                                                     | Where each expansion scene plays: the real events bound so far, and the rest on request         |
+| `docs/mascot/AMR-EXPANSION-FIX-1.md`                                                    | The redraws the returned expansion sheets need, beat by beat                                    |
+| `scripts/build-expansion-spec.py`                                                       | Writes the spec and its two small tables from the release's `catalog.json`                      |
+| `scripts/build-mascot-expansion.py`                                                     | Builds the expansion packs as drawn, and the thumbnail atlas for the Scenes tab                 |
+| `src/components/agent/mascot/engine/expansion-table.ts`, `expansion-titles.ts`          | Each expansion scene's pack and family (and its title, for the Scenes tab)                      |
+| `src/components/agent/mascot/engine/scene-thumbs.ts`, `public/mascot/amr-thumbs.*.webp` | One small picture of each story's held pose, 72 × 84, all in one atlas                          |
+| `src/components/agent/mascot/scenes-tab.tsx`                                            | The Scenes tab in his panel: every story he can act out, played when it's tapped                |
+| `src/lib/agent/mascot/event-scenes.ts`, `use-mute-scene.ts`                             | An expansion scene played on a real event (EVENT_SCENES): the guards, once a visit              |
 
 The source sheets (`S01-faces.png` … `S10-stroll.png`, about 19 MB, and `S11-sun.png` … `S64-lights.png`, about 100 MB) are not committed. Keep the zips they came in. Twelve of them (S01, S05, S12, S14, S23, S25, S30, S33, S36, S44, S47 and S55) are now the versions from [hair round 2](AMR-HAIR-ROUND-2.md), which replace the earlier ones. 52 more are the versions from [hair round 3](AMR-HAIR-ROUND-3.md) (`AMR_Hair_Round_3_{A..E}_Reviewed.zip`). S06, S41 and S62 keep their round-1 versions, and S01, S05, S23 and S25 their round-2 ones. The five sheets where a hat or an umbrella hides his hair (S16–S18, S45 and S50) no longer have source PNGs on hand: the zip of the context sheets is gone, so rebuilds keep their shipped packs (below).
 
@@ -69,6 +71,15 @@ python -I scripts/intake-refined-sprites.py <Amr_Refined_Original_124.zip> <sour
 ```
 
 The refined art matches the live sprite already, as drawn: next to the live idle his skin measures about ΔE 1.2, his shirt and trousers about 2, his shoes about 3.3, his head 98% (91–105% across frames), and it carries about 120% of the live idle's fine detail. So it is built **as drawn** (`--as-drawn`): registered and packed, with the S01 faces lined up on face.default's body and the talk pack's heads swapped on, but none of the corrections below. Its contract allows only whole-figure scaling, so a head drawn a little off is kept: heat and breakfast draw it about 11–13% bigger, evening and four tool sheets (effort, Eisenhower, compass, interview) about 10–15% smaller; the audit lists them to watch.
+
+## The live sheet
+
+The live sheet (`amr.*.webp`) is what Amr shows most of the time: his idle, the 16 look directions, his everyday reactions, the stand-ins while a pack loads and the reduced-motion stills, also shown by AmrStill, the comics intro and the VIP portrait. The refined releases redrew every pack but not it, so it was redrawn on its own (16 November 2026): [the live-sheet brief](AMR-LIVE-SHEET-BRIEF.md) gave ten sheets, L01–L10, in the refined release's format, and `scripts/build-mascot-live.py` builds them in as drawn, at the release's scale on his own feet line (the two run cycles hang from their hips, `feet_x` in `live-sheets.json`; the standing sheets put each frame on his own feet line, `register: slots`, so his feet hold within 1 px across every standing row). A review of every cell found a few frames only new art can fix (a hiccup in the right-hand run, a jump whose head swells, a puzzled hand that reads as a wave, and looks whose body drops a few px); they are in [fix round 1](live-fix-1.json), and the steadier slots stand in meanwhile: idle's exhale, listening and thinking use frames that keep his arms still. The new idle measures the same as the old (head 1.01×, skin ΔE 1.3), and the refined packs stay within about 5% of it, so nothing jumps where a scene hands back to him.
+
+```bash
+python -I scripts/build-mascot-live.py <folder with L01-L10> --preview <scratch folder>
+python -I scripts/build-mascot-live.py --check <folder with L01-L10>
+```
 
 ## Rebuilding
 
