@@ -27,7 +27,10 @@
  * and none is a link the reply has (design 3, "Deliberately not done").
  *
  * Pure, with no registry import (tool-label isn't one), so the visitor chat
- * may use it (test/agent/bundle-boundary.test.ts).
+ * may use it. It rides in the strip kit (components/agent/chat/strip-kit)
+ * with tool-label, and the reply's end takes it from there, so a visitor
+ * downloads the tools' names once, with the runtime
+ * (test/agent/bundle-boundary.test.ts).
  */
 
 import type { ChatStep } from "./chat-view";

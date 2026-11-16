@@ -208,12 +208,12 @@ function lazyPart<T>(importer: () => Promise<T>) {
 }
 
 /**
- * The end of a reply (chat/reply-end: Copy reply, Try again, the follow-ups
- * and their rules), loaded as the first message goes out: nothing needs it
- * before a reply. Never in a turn's way: it is small and loads beside the
- * runtime, so it is nearly always in before the reply it ends, and a reply
- * that settles first gets it as it arrives. If it fails to load, a reply has
- * no end until the next message tries again.
+ * The end of a reply (chat/reply-end: Copy reply, Try again, the follow-ups,
+ * whose rules and tool names come with the strip kit), loaded as the first
+ * message goes out: nothing needs it before a reply. Never in a turn's way:
+ * it is small and loads beside the runtime, so it is nearly always in before
+ * the reply it ends, and a reply that settles first gets it as it arrives.
+ * If it fails to load, a reply has no end until the next message tries again.
  */
 const replyEndPart = lazyPart(() => import("../chat/reply-end"));
 

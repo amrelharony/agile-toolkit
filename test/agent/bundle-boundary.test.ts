@@ -635,6 +635,8 @@ describe("the chat strip (chat/)", () => {
     STRIP_KIT,
     MARKDOWN_VIEW,
     "src/lib/agent/tool-label.ts",
+    // The follow-ups' rules, which name tools with tool-label: the reply's end takes them from here.
+    "src/lib/agent/follow-ups.ts",
     // The reading layer: the chat view, the parser, the results' words, the spoken words.
     "src/lib/agent/chat-view.ts",
     MARKDOWN_PARSER,
@@ -737,9 +739,17 @@ describe("the chat strip (chat/)", () => {
 
   it("hands the owner's chat the reply's end, and loads it for a visitor only as the first message goes out", () => {
     const end = `${CHAT_DIR}reply-end.tsx`;
-    // What rides with it: the follow-ups' rules and the clipboard helper.
-    const withIt = ["src/lib/agent/follow-ups.ts", "src/lib/utils/clipboard.ts"];
+    // What rides with it: the clipboard helper.
+    const withIt = ["src/lib/utils/clipboard.ts"];
     expect(staticTargets(end)).toEqual(expect.arrayContaining(withIt));
+    // Not the follow-ups' rules or the tools' names: it takes them from the
+    // strip kit's holder, so a visitor, who loads it beside the runtime that
+    // brings the kit, never downloads tool-label twice.
+    expect(staticTargets(end)).toContain(`${CHAT_DIR}strip-kit-ref.ts`);
+    const endReaches = closure([end]);
+    for (const file of ["src/lib/agent/follow-ups.ts", "src/lib/agent/tool-label.ts", STRIP_KIT]) {
+      expect(endReaches.files.has(file), `the reply's end never reaches ${file}`).toBe(false);
+    }
     // The owner's chat imports it; the strip both chats share only draws what it is handed.
     expect(staticTargets(OWNER_CHAT)).toContain(end);
     for (const file of filesUnder(CHAT_DIR)) {

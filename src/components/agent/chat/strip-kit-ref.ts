@@ -8,8 +8,8 @@
  * (mascot/visitor-chat-runtime), and tests import it.
  *
  * A module-level holder, not chat-context state: only the parts that draw
- * with it (the log, the status line) subscribe, never the chat's container,
- * so a streamed chunk still draws nothing there
+ * with it (the log, the status line, the reply's end) subscribe, never the
+ * chat's container, so a streamed chunk still draws nothing there
  * (test/agent/chat-stream-renders.test.tsx). A visitor's log has no message
  * to draw before the kit is in: messages come only from the runtime that
  * brings it.

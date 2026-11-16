@@ -17,20 +17,24 @@
  *               lib/visitor-ai/allowance). It goes as the turn it starts begins,
  *               so it hands focus on first, as the notice's does (chat-context
  *               focusBeforeTurn)
- *   follow-ups  up to two (lib/agent/follow-ups: no model call, so a
- *               visitor's allowance pays for none), in the reader's own
- *               words: suggestion chips that fill the message box and never
- *               send. They wait while the panel is compact, and a read-only
- *               chat (a visitor's with no message left) has none
- *               (`followUps` false): there is no box for them to fill
+ *   follow-ups  up to two (lib/agent/follow-ups, from the strip kit: no
+ *               model call, so a visitor's allowance pays for none), in the
+ *               reader's own words: suggestion chips that fill the message
+ *               box and never send. They wait while the panel is compact,
+ *               and a read-only chat (a visitor's with no message left) has
+ *               none (`followUps` false): there is no box for them to fill
  *
  * While a notice shows, it is the turn's end and has its own button, so this
  * draws nothing. Ghost buttons, 44 px on a touch screen; nothing moves in.
  *
- * A module of its own, and with it the follow-ups' rules and the clipboard
- * helper: the owner's chat imports it, and a visitor's loads it with the
- * first message (visitor-agent-panel), since nothing needs it before a reply,
- * so the chat chunk both chats share doesn't carry it.
+ * A module of its own, and with it the clipboard helper: the owner's chat
+ * imports it, and a visitor's loads it with the first message
+ * (visitor-agent-panel), since nothing needs it before a reply, so the chat
+ * chunk both chats share doesn't carry it. The follow-ups' rules come from
+ * the strip kit (chat/strip-kit, through its holder), not an import: they
+ * name tools with tool-label, which the kit holds, so a visitor, who loads
+ * this beside the runtime that brings the kit, downloads the tools' names
+ * once. The log draws an end only once the kit is in (chat-log).
  *
  * Runtime parts (the agent store), so this lives in chat/, which every-page
  * code may not reach (test/agent/bundle-boundary.test.ts).
@@ -39,7 +43,6 @@
 import { useRef, type MouseEvent } from "react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Button } from "@/components/ui/button";
-import { followUps } from "@/lib/agent/follow-ups";
 import { useAgentStore } from "@/lib/agent/store";
 import { cn } from "@/lib/utils";
 import { copyToClipboard } from "@/lib/utils/clipboard";
@@ -47,6 +50,7 @@ import { COMPACT_HIDDEN } from "../mascot/panel-context";
 import { focusBeforeTurn, useChat } from "./chat-context";
 import type { ReplyTurn } from "./chat-items";
 import type { ChatNoticeProps } from "./chat-notice";
+import { useStripKit } from "./strip-kit-ref";
 import { SuggestionChips } from "./suggestion-chips";
 
 /** Said in the composer's status note once Copy reply put the reply on the clipboard. */
@@ -93,10 +97,11 @@ export function ReplyEnd({ turn, retry, followUps: offerFollowUps = true }: Repl
   const canRetry = retry?.canRetry;
   const retryable = useAgentStore((s) => !!canRetry && canRetry(s.messages));
   const copying = useRef(false);
+  const kit = useStripKit();
   if (noticed) return null;
 
   const { reply, steps, asked } = turn;
-  const next = offerFollowUps ? followUps({ reply: reply.text, steps, asked }) : [];
+  const next = offerFollowUps && kit ? kit.followUps({ reply: reply.text, steps, asked }) : [];
   const copy = async () => {
     if (copying.current) return;
     copying.current = true;

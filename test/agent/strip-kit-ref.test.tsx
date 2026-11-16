@@ -69,6 +69,7 @@ describe("the strip kit's holder", () => {
         "cardUnderStep",
         "latestReply",
         "toolLabel",
+        "followUps",
         "createChatView",
         "turnAnnouncement",
       ].sort()
