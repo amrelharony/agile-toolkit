@@ -50,7 +50,7 @@ vi.mock("@/lib/agent/client", () => ({
   canRetryLastTurn: h.canRetryLastTurn,
 }));
 
-import { ConversationList, DELETE_UNDO_MS } from "@/components/agent/conversation-list";
+import { ConversationList, DELETE_UNDO_MS, rowAction } from "@/components/agent/conversation-list";
 import { AgentConversation } from "@/components/agent/agent-conversation";
 import { ChatVisibleContext } from "@/components/agent/chat-visibility";
 import { useAgentStore } from "@/lib/agent/store";
@@ -99,7 +99,8 @@ async function renderList() {
   await screen.findByText("Sprint 42 retro prep");
 }
 
-const rowOf = (title: string) => screen.getByText(title).closest("div") as HTMLElement;
+/** A thread's row: its list item. */
+const rowOf = (title: string) => screen.getByText(title).closest("li") as HTMLElement;
 
 describe("ConversationList on touch", () => {
   beforeEach(() => {
@@ -120,8 +121,10 @@ describe("ConversationList on touch", () => {
 
   it("shows Export, Rename and Delete without hover on coarse pointers, at 44 px", async () => {
     await renderList();
-    for (const name of ["Export conversation", "Rename conversation", "Delete conversation"]) {
-      const button = within(rowOf("Velocity question")).getByRole("button", { name });
+    for (const verb of ["Export", "Rename", "Delete"] as const) {
+      const button = within(rowOf("Velocity question")).getByRole("button", {
+        name: rowAction(verb, "Velocity question"),
+      });
       // Hidden until hover with a mouse, as before…
       expect(button).toHaveClass("opacity-0", "group-hover:opacity-100");
       // …but visible on touch and whenever the row has keyboard focus.
@@ -140,7 +143,9 @@ describe("ConversationList on touch", () => {
     vi.useFakeTimers();
 
     fireEvent.click(
-      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Backlog grooming notes")).getByRole("button", {
+        name: rowAction("Delete", "Backlog grooming notes"),
+      })
     );
 
     expect(screen.queryByText("Backlog grooming notes")).toBeNull();
@@ -161,7 +166,9 @@ describe("ConversationList on touch", () => {
     vi.useFakeTimers();
 
     fireEvent.click(
-      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Backlog grooming notes")).getByRole("button", {
+        name: rowAction("Delete", "Backlog grooming notes"),
+      })
     );
     expect(h.toast.dismiss).not.toHaveBeenCalled();
 
@@ -181,7 +188,9 @@ describe("ConversationList on touch", () => {
     vi.useFakeTimers();
 
     fireEvent.click(
-      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Backlog grooming notes")).getByRole("button", {
+        name: rowAction("Delete", "Backlog grooming notes"),
+      })
     );
     act(() => vi.advanceTimersByTime(DELETE_UNDO_MS + 1000));
     clickUndo();
@@ -200,7 +209,9 @@ describe("ConversationList on touch", () => {
     vi.useFakeTimers();
 
     fireEvent.click(
-      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Backlog grooming notes")).getByRole("button", {
+        name: rowAction("Delete", "Backlog grooming notes"),
+      })
     );
     expect(screen.queryByText("Backlog grooming notes")).toBeNull();
     act(() => vi.advanceTimersByTime(DELETE_UNDO_MS));
@@ -216,7 +227,9 @@ describe("ConversationList on touch", () => {
     vi.useFakeTimers();
 
     fireEvent.click(
-      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Backlog grooming notes")).getByRole("button", {
+        name: rowAction("Delete", "Backlog grooming notes"),
+      })
     );
     act(() => vi.advanceTimersByTime(DELETE_UNDO_MS));
     vi.useRealTimers();
@@ -235,7 +248,9 @@ describe("ConversationList on touch", () => {
     vi.useFakeTimers();
 
     fireEvent.click(
-      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Backlog grooming notes")).getByRole("button", {
+        name: rowAction("Delete", "Backlog grooming notes"),
+      })
     );
     // Phones fire visibilitychange before swiping an app away or killing the
     // tab, often with no pagehide after it.
@@ -260,7 +275,9 @@ describe("ConversationList on touch", () => {
     vi.useFakeTimers();
 
     fireEvent.click(
-      within(rowOf("Backlog grooming notes")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Backlog grooming notes")).getByRole("button", {
+        name: rowAction("Delete", "Backlog grooming notes"),
+      })
     );
     clickUndo();
 
@@ -275,7 +292,9 @@ describe("ConversationList on touch", () => {
     await screen.findByText("Velocity question");
     vi.useFakeTimers();
     fireEvent.click(
-      within(rowOf("Velocity question")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Velocity question")).getByRole("button", {
+        name: rowAction("Delete", "Velocity question"),
+      })
     );
     first.unmount();
     vi.useRealTimers();
@@ -298,7 +317,9 @@ describe("ConversationList on touch", () => {
     vi.useFakeTimers();
 
     fireEvent.click(
-      within(rowOf("Sprint 42 retro prep")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Sprint 42 retro prep")).getByRole("button", {
+        name: rowAction("Delete", "Sprint 42 retro prep"),
+      })
     );
     expect(useAgentStore.getState().activeConversationId).toBeNull();
     expect(useAgentStore.getState().messages).toEqual([]);
@@ -313,7 +334,9 @@ describe("ConversationList on touch", () => {
     await renderList();
     vi.useFakeTimers();
     fireEvent.click(
-      within(rowOf("Sprint 42 retro prep")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Sprint 42 retro prep")).getByRole("button", {
+        name: rowAction("Delete", "Sprint 42 retro prep"),
+      })
     );
     expect(useAgentStore.getState().activeConversationId).toBeNull();
     clickUndo();
@@ -351,22 +374,26 @@ describe("ConversationList on touch", () => {
   it("makes the rename Save and Cancel buttons 44 px on touch", async () => {
     await renderList();
     fireEvent.click(
-      within(rowOf("Velocity question")).getByRole("button", { name: "Rename conversation" })
+      within(rowOf("Velocity question")).getByRole("button", {
+        name: rowAction("Rename", "Velocity question"),
+      })
     );
     expect(screen.getByRole("button", { name: "Save name" })).toHaveClass("min-touch-coarse");
     expect(screen.getByRole("button", { name: "Cancel rename" })).toHaveClass("min-touch-coarse");
     // 16 px on touch, so iOS doesn't zoom the page when the field focuses.
-    expect(screen.getByRole("textbox", { name: "Rename conversation" })).toHaveClass(
-      "pointer-coarse:text-base"
-    );
+    expect(
+      screen.getByRole("textbox", { name: rowAction("Rename", "Velocity question") })
+    ).toHaveClass("pointer-coarse:text-base");
   });
 
   it("renames the open thread in the panel header too, and no other thread there", async () => {
     useAgentStore.getState().setActiveConversation(THREADS[2], []);
     await renderList();
     const rename = (title: string, to: string) => {
-      fireEvent.click(within(rowOf(title)).getByRole("button", { name: "Rename conversation" }));
-      fireEvent.change(screen.getByRole("textbox", { name: "Rename conversation" }), {
+      fireEvent.click(
+        within(rowOf(title)).getByRole("button", { name: rowAction("Rename", title) })
+      );
+      fireEvent.change(screen.getByRole("textbox", { name: rowAction("Rename", title) }), {
         target: { value: to },
       });
       fireEvent.click(screen.getByRole("button", { name: "Save name" }));
@@ -690,7 +717,9 @@ describe("ConversationList and the answer under way", () => {
     await renderList();
 
     fireEvent.click(
-      within(rowOf("Sprint 42 retro prep")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Sprint 42 retro prep")).getByRole("button", {
+        name: rowAction("Delete", "Sprint 42 retro prep"),
+      })
     );
     expect(abortTurn).toHaveBeenCalledTimes(1);
     expect(abortTurn).toHaveBeenCalledWith("reset");
@@ -705,7 +734,9 @@ describe("ConversationList and the answer under way", () => {
     await renderList();
 
     fireEvent.click(
-      within(rowOf("Velocity question")).getByRole("button", { name: "Delete conversation" })
+      within(rowOf("Velocity question")).getByRole("button", {
+        name: rowAction("Delete", "Velocity question"),
+      })
     );
     expect(abortTurn).not.toHaveBeenCalled();
     expect(useAgentStore.getState().streaming).toBe(true);

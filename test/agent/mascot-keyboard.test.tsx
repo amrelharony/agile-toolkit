@@ -734,7 +734,7 @@ describe("docked Amr and the keyboard", () => {
           }
           fireEvent.click(within(dialog()).getByRole("button", { name: "Conversation history" }));
           const deletes = await within(dialog()).findAllByRole("button", {
-            name: "Delete conversation",
+            name: /^Delete “/,
           });
           expect(deletes).toHaveLength(threads.length);
           const panel = dialog();
