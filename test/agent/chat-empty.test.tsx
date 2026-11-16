@@ -376,7 +376,9 @@ describe("the owner's empty chat", () => {
     toolId: null,
     createdAt: "2026-11-16T08:00:00Z",
     updatedAt: "2026-11-16T08:00:00Z",
-    lastMessageAt: "2026-11-16T08:01:00Z",
+    // Minutes ago, whenever the suite runs: a thread this recent is picked up
+    // (an older one is offered instead, test/agent/owner-resume.test.tsx).
+    lastMessageAt: new Date(Date.now() - 5 * 60_000).toISOString(),
   };
   const said = (id: string, role: "user" | "assistant", text: string): ChatMessage => ({
     id,

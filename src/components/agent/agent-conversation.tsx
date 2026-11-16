@@ -33,33 +33,55 @@ import { ThinkingItemView } from "./chat/chat-items";
 import { ChatNotice } from "./chat/chat-notice";
 import { ChatStrip, useAwaitingReply } from "./chat/chat-strip";
 import { DictateButton } from "./chat/dictate-button";
+import { PickUpChip } from "./chat/pick-up-chip";
 import { ReplyEnd } from "./chat/reply-end";
 import { StepDetails } from "./chat/step-details";
 import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 
+/** A thread whose last message is this recent is picked up as the chat opens. */
+export const RESUME_WITHIN_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * The thread's last message is under RESUME_WITHIN_MS old at `now`, so the
+ * chat may pick it up on its own. An older one (or one with no time to go
+ * by) is offered instead (chat/pick-up-chip): its topic, and its whole
+ * history, would ride along into a new question.
+ */
+export function resumable(meta: ConversationMeta, now: number = Date.now()): boolean {
+  const at = Date.parse(meta.lastMessageAt || meta.updatedAt);
+  return Number.isFinite(at) && now - at < RESUME_WITHIN_MS;
+}
+
 /**
  * The look for a thread to resume: once per page load (not on every panel
- * reopen, which would override an intentional "New chat"). "idle" until the
- * first open starts it, "checking" while it runs, "done" once it has
- * settled, whatever it found. The empty chat waits for "done", so its
- * starters never flash up before a thread loads over them.
+ * reopen, which would override an intentional "New chat"). `check` is "idle"
+ * until the first open starts it, "checking" while it runs, "done" once it
+ * has settled, whatever it found. The empty chat waits for "done", so its
+ * starters never flash up before a thread loads over them. `pickUp` is the
+ * latest thread when it was too old to resume: the empty chat offers it
+ * until it is opened or the chat starts on something else.
  */
-let resumeCheck: "idle" | "checking" | "done" = "idle";
+let resume: { check: "idle" | "checking" | "done"; pickUp: ConversationMeta | null } = {
+  check: "idle",
+  pickUp: null,
+};
 const resumeListeners = new Set<() => void>();
 
-function setResumeCheck(next: typeof resumeCheck) {
-  resumeCheck = next;
+function setResume(next: Partial<typeof resume>) {
+  resume = { ...resume, ...next };
   resumeListeners.forEach((listener) => listener());
 }
 
-function subscribeResumeCheck(listener: () => void): () => void {
+function subscribeResume(listener: () => void): () => void {
   resumeListeners.add(listener);
   return () => {
     resumeListeners.delete(listener);
   };
 }
 
-const resumeSettled = () => resumeCheck === "done";
+const resumeSettled = () => resume.check === "done";
+const offeredThread = () => resume.pickUp;
+const stopOffering = () => setResume({ pickUp: null });
 
 /** Conversations created this page-load that are awaiting a model-generated
  *  title (resumed threads are never re-titled). */
@@ -105,9 +127,12 @@ const savable = (m: ChatMessage) =>
  *
  * The conversation is created in Supabase on the first message and every
  * message is persisted (via the client orchestrator's conversationId path), so
- * the thread survives reload; the most recent thread auto-resumes on open,
- * and the strip marks where it was picked up (a scene caption). The
- * conversation list (switch / rename / delete) lives in ConversationList.
+ * the thread survives reload. On the first open after a page load the most
+ * recent thread is picked up when its last message is under two hours old
+ * (RESUME_WITHIN_MS), and the strip marks where (a scene caption); an older
+ * one is offered in the empty chat instead, as 'Pick up “{title}”'
+ * (chat/pick-up-chip), which opens it. The conversation list (switch /
+ * rename / delete) lives in ConversationList.
  * When the conversation can't be made, the chat goes on unsaved and says so
  * in a narration caption ("Not saved yet.", once by the announcer too); the
  * next message tries again, and once a conversation is made, what was said
@@ -144,24 +169,27 @@ export function AgentConversation() {
   const sendingRef = useRef(false);
   const pathname = usePathname();
   // The empty chat waits for the resume check; its starters follow the page.
-  const settled = useSyncExternalStore(subscribeResumeCheck, resumeSettled, () => false);
+  const settled = useSyncExternalStore(subscribeResume, resumeSettled, () => false);
+  // An older thread, offered while the chat is fresh (no thread, nothing said).
+  const offered = useSyncExternalStore(subscribeResume, offeredThread, () => null);
+  const fresh = useAgentStore((s) => s.activeConversationId === null && s.messages.length === 0);
   const tool = useMemo(() => resolvePageTool(toolIdForPath(pathname)), [pathname]);
   const starters = useMemo(() => ownerStarters(tool), [tool]);
 
   // On the first open after a page load, resume the most recent conversation if
-  // we're sitting on a blank draft. Guarded so it never clobbers an in-progress
-  // thread or a deliberate New chat.
+  // we're sitting on a blank draft and it is recent; an older one is offered.
+  // Guarded so it never clobbers an in-progress thread or a deliberate New chat.
   useEffect(() => {
-    if (resumeCheck !== "idle") return;
+    if (resume.check !== "idle") return;
     const blank = () => {
       const s = useAgentStore.getState();
       return !s.activeConversationId && s.messages.length === 0;
     };
     if (!blank()) {
-      setResumeCheck("done");
+      setResume({ check: "done" });
       return;
     }
-    setResumeCheck("checking");
+    setResume({ check: "checking" });
     // No alive-guard abort here: React StrictMode (dev) mounts → unmounts →
     // mounts, so an abort-on-cleanup would kill the in-flight resume while the
     // flag blocks the retry. setActiveConversation targets a zustand store (not
@@ -169,14 +197,26 @@ export function AgentConversation() {
     // prevent clobbering a chat the user started while it loaded.
     void listConversations()
       .then(async ({ data: list }) => {
-        if (list.length === 0 || !blank()) return;
+        const latest = list[0];
+        if (!latest || !blank()) return;
+        // Too old to pick up on its own: the empty chat offers it.
+        if (!resumable(latest)) {
+          setResume({ pickUp: latest });
+          return;
+        }
         // A thread that couldn't be read stays shut, never opened empty.
-        const msgs = await loadMessages(list[0].id);
-        if (msgs.ok && blank()) useAgentStore.getState().setActiveConversation(list[0], msgs.data);
+        const msgs = await loadMessages(latest.id);
+        if (msgs.ok && blank()) useAgentStore.getState().setActiveConversation(latest, msgs.data);
       })
       // Settled either way: a failed look leaves the chat empty, its starters shown.
-      .finally(() => setResumeCheck("done"));
+      .finally(() => setResume({ check: "done" }));
   }, []);
+
+  // The chat started on something else (a message, a thread from History):
+  // the older thread is no longer offered, not even after a New chat.
+  useEffect(() => {
+    if (!fresh && resume.pickUp) stopOffering();
+  }, [fresh]);
 
   // Said once as the chat becomes unsaved (not again as the panel reopens on it).
   const wasUnsaved = useRef(unsaved);
@@ -330,6 +370,7 @@ export function AgentConversation() {
             held={!settled}
           />
         )}
+        {fresh && settled && offered && <PickUpChip thread={offered} onDone={stopOffering} />}
         {awaiting && <ThinkingItemView />}
         {unsaved && (
           <Narration label={NOT_SAVED_LABEL} data-chat-unsaved="">
