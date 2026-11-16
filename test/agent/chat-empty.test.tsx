@@ -148,6 +148,9 @@ function stubCoarsePointer(coarse: boolean) {
 beforeEach(() => {
   logHeight = 0;
   observers = [];
+  // A fine pointer by default. unstubAllGlobals below takes test/setup's
+  // matchMedia away too, and the composer reads one (its narrow width).
+  stubCoarsePointer(false);
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(function (this: Element) {
     return this.getAttribute("role") === "log" ? logHeight : 0;
