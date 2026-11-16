@@ -183,6 +183,9 @@ describe("the empty chat", () => {
       expect(button).toHaveClass("h-auto", "md-fine:h-auto");
       expect(button).not.toHaveClass("md-fine:h-8");
     }
+    // 1 px in from the log's edge, as the confirm card and the step caption
+    // are, so High contrast's focus ring (5 px out) isn't clipped.
+    expect(screen.getByRole("list", { name: "Ways to start" })).toHaveClass("mx-px");
   });
 
   it("cuts to one line and one starter in the 160 px panel, and opens out as the log grows", () => {

@@ -51,7 +51,8 @@ export function SuggestionChips({ starters }: { starters: readonly string[] }) {
     if (!(e.detail > 0 && onTouchScreen(e.currentTarget.ownerDocument))) focusComposer();
   };
   return (
-    <ul aria-label="Ways to start" className="flex flex-wrap gap-2" data-chat-starters="">
+    // 1 px in from the log's edge, so High contrast's focus ring (5 px out) isn't clipped.
+    <ul aria-label="Ways to start" className="mx-px flex flex-wrap gap-2" data-chat-starters="">
       {starters.map((starter) => (
         <li key={starter} className="max-w-full">
           <Button
