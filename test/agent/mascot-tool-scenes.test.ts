@@ -8,6 +8,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import spec from "../../docs/mascot/context-sheets.json";
+import expansion from "../../docs/mascot/expansion-sheets.json";
 import * as catalogs from "@/lib/history/event-actions";
 import { tools } from "@/lib/constants/tools";
 import {
@@ -26,8 +27,11 @@ const UNLOGGED = new Set(["timer_finished", ...Array.from(EMITTED)]);
 const loggedActions = (t: (typeof TOOL_SCENES)[number]) =>
   Object.keys(t.actions).filter((a) => !UNLOGGED.has(a));
 
-const sheetPacks = new Set(spec.sheets.map((s) => s.pack));
+/** The tool sheets S65 on, and the expansion's: the tool lab X025–X056 is the More shelf's. */
+const sheetPacks = new Set([...spec.sheets, ...expansion.sheets].map((s) => s.pack));
 const packOf = (scene: string) => scene.split(".")[0];
+const toolLab = expansion.sheets.filter((s) => s.family === "tools");
+const expansionPacks = new Set(expansion.sheets.map((s) => s.pack));
 
 /** Every catalog value in event-actions.ts. */
 const catalogued = new Set(
@@ -117,6 +121,49 @@ describe("the tool table", () => {
     for (const s of spec.sheets.filter((x) => x.group.startsWith("tools-"))) {
       const row = TOOL_SCENES.find((t) => t.open.some((o) => packOf(o) === s.pack));
       expect(row, `${s.sheet} (${s.pack})`).toBeDefined();
+    }
+  });
+
+  it("greets on each More-shelf tool with its own tool-lab sheet, X025 to X056", () => {
+    expect(toolLab.map((s) => s.id)).toEqual(
+      Array.from({ length: 32 }, (_, i) => `X${String(i + 25).padStart(3, "0")}`)
+    );
+    for (const s of toolLab) {
+      expect(
+        TOOL_SCENES.some((t) => t.open.some((o) => packOf(o) === s.pack)),
+        s.id
+      ).toBe(true);
+      // The sheet's own tool, and its first open scene: the once-a-day greeting.
+      const row = TOOL_SCENES.find((t) => `/${t.toolId}` === s.routes[0]);
+      expect(row, `${s.id} ${s.routes[0]}`).toBeDefined();
+      expect(packOf(row!.open[0] ?? ""), s.id).toBe(s.pack);
+      // Nowhere else: another tool's page doesn't stand for this one's event.
+      const elsewhere = TOOL_SCENES.filter(
+        (t) => t !== row && toolPageScenes(`/${t.toolId}`).some((x) => packOf(x) === s.pack)
+      );
+      expect(
+        elsewhere.map((t) => t.toolId),
+        s.id
+      ).toEqual([]);
+    }
+  });
+
+  it("cuts a tool-lab variant short, its sheet's beats in order up to the beat it holds", () => {
+    const named = new Set(TOOL_SCENES.flatMap((t) => toolPageScenes(`/${t.toolId}`)));
+    for (const name of Array.from(named)) {
+      if (!expansionPacks.has(packOf(name)) || name === packOf(name)) continue;
+      const pack = packOf(name);
+      const full = SCENES[pack].steps.map((st) => st.f);
+      const steps = SCENES[name].steps;
+      expect(steps.length, name).toBeLessThan(full.length);
+      expect(
+        steps.map((st) => st.f),
+        name
+      ).toEqual(full.slice(0, steps.length));
+      expect(steps.at(-1)?.ms, name).toBe(1600);
+      expect(SCENES[name].still, name).toBe(steps.at(-1)?.f);
+      expect(SCENES[name].loop, name).toBeUndefined();
+      expect(SCENES[name].fallback, name).not.toBe("review");
     }
   });
 });
