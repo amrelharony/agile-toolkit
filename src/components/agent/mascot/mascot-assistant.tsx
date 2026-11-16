@@ -629,6 +629,8 @@ interface FigureRecovery {
   down: boolean;
   /** It failed with no try of its own left: only a tap on the plate tries it again. */
   gaveUp: boolean;
+  /** It has failed at least once in the page's life (a try may have brought it back since). */
+  failedOnce: boolean;
   /** His figure couldn't load (its sheet or its code) or crashed. Once per try. */
   fail: () => void;
   /** Try it again now: the plate was tapped. */
@@ -645,11 +647,25 @@ interface FigureRecovery {
  * keep fetching.
  */
 function useFigureRecovery(): FigureRecovery {
-  const [state, setState] = useState({ down: false, tries: 0, due: false, gaveUp: false });
+  const [state, setState] = useState({
+    down: false,
+    tries: 0,
+    due: false,
+    gaveUp: false,
+    failedOnce: false,
+  });
   const fail = useCallback(
     () =>
       setState((s) =>
-        s.down ? s : { ...s, down: true, due: false, gaveUp: s.tries >= FIGURE_RETRY_MS.length }
+        s.down
+          ? s
+          : {
+              ...s,
+              down: true,
+              due: false,
+              gaveUp: s.tries >= FIGURE_RETRY_MS.length,
+              failedOnce: true,
+            }
       ),
     []
   );
@@ -657,7 +673,7 @@ function useFigureRecovery(): FigureRecovery {
     () => setState((s) => (s.down ? { ...s, down: false, due: false } : s)),
     []
   );
-  const { down, tries, due, gaveUp } = state;
+  const { down, tries, due, gaveUp, failedOnce } = state;
   // A try of its own is to come.
   const waiting = down && !gaveUp;
   // Its wait.
@@ -686,7 +702,7 @@ function useFigureRecovery(): FigureRecovery {
       document.removeEventListener("visibilitychange", go);
     };
   }, [waiting, due]);
-  return { down, gaveUp, fail, retry };
+  return { down, gaveUp, failedOnce, fail, retry };
 }
 
 /** On phones, step aside while the visitor is typing (the keyboard is up). */
@@ -1086,18 +1102,23 @@ export function MascotAssistant({
   // and the phone band and the panel go by it. While a try is to come they
   // keep his figure's place, so nothing jumps each time it is tried.
   const figureFailed = figure.gaveUp && !showFigure;
+  // No figure to act a scene out: it has failed and isn't back yet, whether or
+  // not a try of its own is still to come. Not while it first loads (the
+  // scenes wait for him then), and not between tries either, so the Scenes
+  // button doesn't come and go each time his figure is tried again.
+  const noFigure = figure.failedOnce && !showFigure;
   const Sprite = spriteFor(loadSprite);
 
   // Amr's scenes cover the chat or the guide, which stays mounted under them so a
   // turn in flight goes on. They give way to a confirmation card the moment one
   // arrives (hidden, the card would still take Escape as a deny, and the turn would
   // wait on a card nobody sees), and with no figure there is no one to act them out.
-  const scenesOpen = showScenes && !confirmPending && !figureFailed;
+  const scenesOpen = showScenes && !confirmPending && !noFigure;
   // The panel opens on the chat or the guide again, not on the scenes it closed on,
   // and the scenes don't come back once the confirmation that pushed them aside is answered.
   useEffect(() => {
-    if (!open || confirmPending || figureFailed) setShowScenes(false);
-  }, [open, confirmPending, figureFailed]);
+    if (!open || confirmPending || noFigure) setShowScenes(false);
+  }, [open, confirmPending, noFigure]);
   // A tapped scene plays with the panel closed, so he's in view. While a turn is
   // still running or a card waits, the answer is what to watch (closing the panel
   // wouldn't stop it, but would hide it): back to the chat instead, with him beside
@@ -1724,7 +1745,7 @@ export function MascotAssistant({
                   shortcut={shortcutLabel("J")}
                   controls={
                     // No figure, no one to act a scene out; a confirmation waiting comes first.
-                    !figureFailed && (
+                    !noFigure && (
                       <PanelIconButton
                         label="Amr's scenes"
                         title={

@@ -393,6 +393,27 @@ describe("the Scenes button in Amr's panel", () => {
     expect(screen.getByTestId("mascot-visitor-guide")).toBeVisible();
   });
 
+  it("stays away while his failed figure is tried again, and comes back once he is drawn", async () => {
+    h.auth = { status: "anonymous", user: null };
+    h.figureFails = true;
+    render(<MascotAssistant />);
+    await screen.findByTestId("mascot-visitor-guide");
+    fireEvent.keyDown(window, { key: "Shift" });
+    // It failed: the plate stands in, and a try of its own is to come.
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Amr's scenes" })).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("mascot-sprite")).toBeNull());
+
+    // The try mounts his figure again; until it is drawn the button stays away.
+    h.figureFails = false;
+    await waitFor(() => expect(screen.getByTestId("mascot-sprite")).toBeInTheDocument(), {
+      timeout: 4000,
+    });
+    expect(screen.queryByRole("button", { name: "Amr's scenes" })).toBeNull();
+
+    act(() => useMascotStore.setState({ ready: true }));
+    expect(scenesButton()).toBeEnabled();
+  });
+
   it("keeps the header to one line on a narrow phone", async () => {
     h.auth = { status: "authenticated", user: { id: "u1" } };
     render(<MascotAssistant />);
