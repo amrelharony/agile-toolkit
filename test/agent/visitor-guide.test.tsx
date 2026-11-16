@@ -124,20 +124,20 @@ describe("VisitorGuide", () => {
     it("reads the count out once typing has stopped for 450 ms", () => {
       vi.useFakeTimers();
       render(<VisitorGuide />);
-      type("ok");
+      type("chart");
       act(() => vi.advanceTimersByTime(SEARCH_ANNOUNCE_MS - 100));
       // Still typing: the wait starts again.
-      type("okr");
+      type("charter");
       act(() => vi.advanceTimersByTime(SEARCH_ANNOUNCE_MS - 1));
       expect(h.announce).not.toHaveBeenCalled();
       act(() => vi.advanceTimersByTime(1));
       // Under the cap, so the list shows every match and the count is exact.
       const count = within(results()).getAllByRole("link").length;
-      expect(searchTools("okr", 50)).toHaveLength(count);
+      expect(searchTools("charter", 50)).toHaveLength(count);
       expect(count).toBeLessThan(RESULTS_CAP);
       expect(h.announce).toHaveBeenCalledTimes(1);
-      expect(h.announce).toHaveBeenCalledWith(matchCountNote(count, "okr"));
-      expect(matchCountNote(count, "okr")).toBe(`${count} tools match`);
+      expect(h.announce).toHaveBeenCalledWith(matchCountNote(count, "charter"));
+      expect(matchCountNote(count, "charter")).toBe(`${count} tools match`);
     });
 
     // "sprint" matches more tools than either cap.
@@ -161,10 +161,10 @@ describe("VisitorGuide", () => {
 
     it("reads an exact count when the matches fill the list but don't overflow it", () => {
       vi.useFakeTimers();
-      // "okr" matches exactly as many tools as the list holds with the AI on.
-      expect(searchTools("okr", 50)).toHaveLength(RESULTS_CAP_WITH_AI);
+      // "charter" matches exactly as many tools as the list holds with the AI on.
+      expect(searchTools("charter", 50)).toHaveLength(RESULTS_CAP_WITH_AI);
       render(<VisitorGuide onAskAmr={() => {}} />);
-      type("okr");
+      type("charter");
       act(() => vi.advanceTimersByTime(SEARCH_ANNOUNCE_MS));
       expect(h.announce).toHaveBeenCalledWith(`${RESULTS_CAP_WITH_AI} tools match`);
     });
