@@ -8,7 +8,7 @@ import { listReleasedWeekly } from "@/lib/comics/store";
  * the book keeps its value, and this lives apart from the root sitemap so that
  * one stays sync and needs no database.
  */
-export const revalidate = 600;
+export const revalidate = 86400;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const stories = await listReleasedWeekly();

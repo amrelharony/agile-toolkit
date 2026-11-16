@@ -415,6 +415,7 @@ describe("bypass paths", () => {
     "/api/comics/taps",
     "/api/comics/stats",
     "/api/mascot/weather",
+    "/api/cron/comics-release",
     "/guest",
     "/guest/join",
     "/auth/callback",
@@ -446,6 +447,8 @@ describe("bypass paths", () => {
     "/api/comics/stats/x",
     "/api/mascot/weather/x",
     "/api/mascot",
+    "/api/cron/comics-release/x",
+    "/api/cron",
     // Amr's AI for visitors is one exact path, never a prefix.
     "/api/agent/visitor/x",
     "/api/agent/visitors",

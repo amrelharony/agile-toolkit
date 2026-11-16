@@ -210,6 +210,6 @@ describe("the flashcards", () => {
   it("stay out of search, and refresh like the gallery", () => {
     expect(metadata.robots).toEqual({ index: false, follow: true });
     expect(metadata.alternates?.canonical).toBe("/comics/flashcards");
-    expect(revalidate).toBe(600);
+    expect(revalidate).toBe(86400);
   });
 });

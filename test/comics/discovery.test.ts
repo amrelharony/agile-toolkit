@@ -39,7 +39,7 @@ beforeEach(() => {
 
 describe("/comics/feed.xml", () => {
   it("is a static RSS document refreshed like the pages", async () => {
-    expect(feedRevalidate).toBe(600);
+    expect(feedRevalidate).toBe(86400);
     const res = await feedGET();
     expect(res.headers.get("content-type")).toBe("application/rss+xml; charset=utf-8");
     const xml = await res.text();

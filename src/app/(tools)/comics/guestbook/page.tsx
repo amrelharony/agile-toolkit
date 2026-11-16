@@ -9,8 +9,8 @@ import { comicMetadata } from "../comic-metadata";
 import { GuestbookForm } from "./guestbook-form";
 import { guestbookArt } from "@/lib/ink/drawings/pages/guestbook";
 
-/** Refreshed about every 10 minutes, and at once when a note is approved. */
-export const revalidate = 600;
+/** Refreshed once a day, and at once when a note is approved. */
+export const revalidate = 86400;
 
 // Out of search: a guestbook is only worth spamming if it's indexed.
 export const metadata: Metadata = comicMetadata({
