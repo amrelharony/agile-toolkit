@@ -995,6 +995,41 @@ describe("a story's guess, Seen this at work and Try it this week", () => {
       expect(queue()).toEqual([]);
     });
 
+    it("plays nothing for a Seen answer this browser didn't keep, and the love after still plays", async () => {
+      // The browser can't keep the answer: nothing plays.
+      const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+      try {
+        const { unmount } = render(await ComicStoryPage(params(30)));
+        const seen = screen.getByRole("region", { name: "Seen this at work?" });
+        await act(async () => {
+          fireEvent.click(within(seen).getByRole("button", { name: "Yes, I've seen this" }));
+        });
+        expect(queue()).toEqual([]);
+        unmount();
+      } finally {
+        setItem.mockRestore();
+      }
+
+      // Another tab answered after this page loaded: this answer isn't the first.
+      render(await ComicStoryPage(params(30)));
+      localStorage.setItem(
+        "agile-toolkit:comics:reading",
+        JSON.stringify({ read: {}, sent: {}, asked: {}, guessed: {}, seen: { 30: 1 } })
+      );
+      const seen = screen.getByRole("region", { name: "Seen this at work?" });
+      await act(async () => {
+        fireEvent.click(within(seen).getByRole("button", { name: "Yes, I've seen this" }));
+      });
+      expect(queue()).toEqual([]);
+      // Neither spent the visit's once: the love that follows plays it.
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Love this" }));
+      });
+      expect(queue()).toEqual([`scene:${EVENT_SCENES.feedback}`]);
+    });
+
     it("holds his feedback card at the slot for the visit's first Seen answer or love", async () => {
       const { unmount } = render(await ComicStoryPage(params(30)));
       const seen = screen.getByRole("region", { name: "Seen this at work?" });

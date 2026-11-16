@@ -134,6 +134,19 @@ describe("the flashcards", () => {
     expect(useMascotStore.getState().reactionQueue).toEqual([]);
   });
 
+  it("never play for turning back to the title, even while the visit's lesson is still to come", async () => {
+    // Turned to the lesson before he's on screen: nothing plays, and the once stays unspent.
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
+    render(await FlashcardsPage());
+    fireEvent.click(within(deck()).getByRole("button", { name: "Show the lesson" }));
+    useMascotStore.setState({ ready: true });
+    fireEvent.click(within(deck()).getByRole("button", { name: "Back to the title" }));
+    expect(useMascotStore.getState().reactionQueue).toEqual([]);
+    fireEvent.click(within(deck()).getByRole("button", { name: "Show the lesson" }));
+    expect(useMascotStore.getState().reactionQueue).toEqual([`scene:${EVENT_SCENES.flashcard}`]);
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
+  });
+
   it("move card by card, each starting on its title, with the weekly stories after the book", async () => {
     render(await FlashcardsPage());
     const previous = within(deck()).getByRole("button", { name: "Previous" });
