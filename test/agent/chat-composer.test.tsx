@@ -490,6 +490,62 @@ describe("the mic", () => {
     expect(draft()).toBe("Add to the retro: flaky CI builds");
   });
 
+  it("stops at a send, and drops what it hears after, so the message sent never comes back", () => {
+    render(<Composer mic={DictateButton} />);
+    const mic = screen.getByRole("button", { name: DICTATE_LABEL });
+    fireEvent.click(mic);
+    const rec = FakeRecognition.last!;
+    act(() => rec.hear("plan"));
+    expect(draft()).toBe("plan");
+    // Enter while the words are still firming up.
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(h.onSend).toHaveBeenCalledWith("plan", "plan");
+    expect(rec.stop).toHaveBeenCalled();
+    expect(mic).toHaveAttribute("aria-pressed", "false");
+    expect(document.querySelector("[data-composer-note]")).toBeEmptyDOMElement();
+    // The recognizer's last word comes in late: dropped.
+    act(() => rec.hear("plan the sprint", true));
+    expect(draft()).toBe("");
+  });
+
+  it("stops at a chat command sent from the box too", () => {
+    render(<Composer mic={DictateButton} />);
+    fireEvent.click(screen.getByRole("button", { name: DICTATE_LABEL }));
+    const rec = FakeRecognition.last!;
+    act(() => rec.hear("dance"));
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(h.onSend).not.toHaveBeenCalled();
+    expect(rec.stop).toHaveBeenCalled();
+    act(() => rec.hear("dance", true));
+    expect(draft()).toBe("");
+    expect(document.querySelector("[data-composer-note]")).toHaveTextContent(DANCE_NOTE);
+  });
+
+  it("lets the reader's typing win: it stops and drops what it hears after", () => {
+    render(<Composer mic={DictateButton} />);
+    fireEvent.click(screen.getByRole("button", { name: DICTATE_LABEL }));
+    const rec = FakeRecognition.last!;
+    act(() => rec.hear("flaky"));
+    type("flaky x");
+    act(() => rec.hear("flaky CI", true));
+    expect(draft()).toBe("flaky x");
+    expect(rec.stop).toHaveBeenCalled();
+    act(() => rec.hear("flaky CI builds", true));
+    expect(draft()).toBe("flaky x");
+  });
+
+  it("keeps the words still to come when its own press stops it", () => {
+    render(<Composer mic={DictateButton} />);
+    const mic = screen.getByRole("button", { name: DICTATE_LABEL });
+    fireEvent.click(mic);
+    const rec = FakeRecognition.last!;
+    act(() => rec.hear("add a"));
+    fireEvent.click(mic);
+    expect(rec.stop).toHaveBeenCalled();
+    act(() => rec.hear("add a card", true));
+    expect(draft()).toBe("add a card");
+  });
+
   it("works while Amr answers, and cuts what it hears to the box's limit", () => {
     render(<Composer busy mic={DictateButton} maxLength={10} profile="visitor" />);
     fireEvent.click(screen.getByRole("button", { name: DICTATE_LABEL }));

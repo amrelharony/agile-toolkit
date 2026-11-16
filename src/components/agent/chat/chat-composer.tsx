@@ -131,6 +131,8 @@ export interface ComposerMicProps {
   onNote(note: string | null): void;
   /** Show this under the box's row (a visitor's voice notice); null takes it away. */
   show(node: ReactNode): void;
+  /** How many messages the box has sent: a new one ends dictation, and what it hears after is dropped. */
+  sent: number;
 }
 
 export interface ChatComposerProps {
@@ -219,6 +221,8 @@ export function ChatComposer({
   useEffect(() => takeNotes((text) => setNote(noteOf(text))), [takeNotes]);
   // What the mic shows under the row (a visitor's voice notice).
   const [micShows, setMicShows] = useState<ReactNode>(null);
+  // Messages sent from the box (chat commands too): each ends the mic's dictation.
+  const [sent, setSent] = useState(0);
 
   useAutosize(boxRef, draft);
   useInitialFocus(boxRef, visible);
@@ -269,6 +273,7 @@ export function ChatComposer({
     const text = raw.trim();
     if (!text) return;
     setDraft("");
+    setSent((n) => n + 1);
     const command = handleMascotCommand(text);
     setNote(command && noteOf(command.note));
     if (!command) onSend(text, raw);
@@ -363,7 +368,7 @@ export function ChatComposer({
         />
         {Mic && (
           <span className="flex shrink-0 empty:hidden max-[359px]:order-first">
-            <Mic draft={micDraft} put={micPut} onNote={micNote} show={setMicShows} />
+            <Mic draft={micDraft} put={micPut} onNote={micNote} show={setMicShows} sent={sent} />
           </span>
         )}
         <Button

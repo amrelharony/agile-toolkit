@@ -13,6 +13,9 @@
  *            "Listening…" in words, politely, and a failure in plain words.
  *   words    added after what the box held when it started (joinDictation),
  *            never in its place, and cut to the box's limit by the composer.
+ *            Once the box changes under it (a send, the reader typing) it
+ *            stops and drops what it hears after: the reader's box wins, and
+ *            a message sent never comes back into it.
  *   busy     usable while Amr answers: the box stays editable then too.
  *   ask      when given, asked before it starts listening, with the start
  *            to call once the reader says yes: a visitor's chat asks first
@@ -46,15 +49,33 @@ export interface DictateButtonProps extends ComposerMicProps {
 }
 
 /** The mic: see the file comment. */
-export function DictateButton({ draft, put, onNote, ask }: DictateButtonProps) {
+export function DictateButton({ draft, put, onNote, sent, ask }: DictateButtonProps) {
   // The box's text when dictation started: what it hears goes after this.
   const before = useRef("");
-  const voice = useVoiceInput((heard) => put(joinDictation(before.current, heard)));
-  const { listening, error } = voice;
+  // The box as dictation last left it (after the composer's cut), or null once
+  // the box changed under it (a send, the reader typing): then it stops, and
+  // what it hears after is dropped, so a sent message never comes back.
+  const last = useRef<string | null>(null);
+  const voice = useVoiceInput((heard) => {
+    if (last.current !== draft()) {
+      last.current = null;
+      return voice.stop();
+    }
+    put(joinDictation(before.current, heard));
+    last.current = draft();
+  });
+  const { listening, error, stop } = voice;
 
   useEffect(() => {
     onNote(listening ? LISTENING_NOTE : error);
   }, [listening, error, onNote]);
+
+  // A message went out: dictation ends at once, so neither the note nor
+  // aria-pressed outlives it.
+  useEffect(() => {
+    last.current = null;
+    stop();
+  }, [sent, stop]);
 
   if (!voice.supported) return null;
   return (
@@ -67,10 +88,12 @@ export function DictateButton({ draft, put, onNote, ask }: DictateButtonProps) {
       title={listening ? "Stop dictating" : DICTATE_LABEL}
       data-chat-mic=""
       onClick={(e) => {
-        if (listening) return voice.stop();
+        // Stopped by its own press, it keeps the words still to come.
+        if (listening) return stop();
         // What the box holds as it starts, which may be after a yes.
         const start = () => {
           before.current = draft();
+          last.current = before.current;
           voice.start();
         };
         if (ask) ask(start, e.currentTarget);
