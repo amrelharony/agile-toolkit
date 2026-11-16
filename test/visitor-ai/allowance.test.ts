@@ -1,6 +1,7 @@
 /**
  * A visitor's allowance in words (src/lib/visitor-ai/allowance.ts): the visitor
- * chat's one status line, the messages left now, when the line stands out,
+ * chat's one status line, the messages left now (none left lasting only as
+ * long as the Cairo day the route counted it in), when the line stands out,
  * and what Try again says it spends. peakNote's own cases are in
  * test/agent/mascot-visitor.test.tsx, through the chat's re-export.
  */
@@ -12,6 +13,7 @@ import {
   LOW_LEFT,
   PEAK_MESSAGES,
   allowanceLine,
+  dayOver,
   lowOnMessages,
   messagesLeft,
   peakNote,
@@ -114,6 +116,60 @@ describe("messagesLeft", () => {
     // An end the route didn't give keeps the window's count.
     expect(peakOver(quota({ peak: true, peakRemaining: 0 }), after)).toBe(false);
     expect(messagesLeft(quota({ peak: true, peakRemaining: 0 }), after)).toBe(0);
+  });
+});
+
+describe("dayOver", () => {
+  // Cairo is UTC+2 in November: 23:50 on Monday 16 November is 21:50 UTC.
+  const LATE = Date.parse("2026-11-16T21:50:00Z");
+  const none = quota({ remaining: 0, receivedAt: LATE });
+
+  it("lets none left run out with its Cairo day: unknown again past midnight, so the next message asks", () => {
+    const before = new Date("2026-11-16T21:55:00Z"); // 23:55 in Cairo
+    const after = new Date("2026-11-16T22:05:00Z"); // 00:05 on the 17th
+    expect(dayOver(none, before)).toBe(false);
+    expect(messagesLeft(none, before)).toBe(0);
+    expect(dayOver(none, after)).toBe(true);
+    expect(messagesLeft(none, after)).toBeNull();
+    // The line stops saying "0 of 100 left today" for a day that is over.
+    expect(allowanceLine(none, before, true)).toBe("0 of 100 left today · Not saved");
+    expect(allowanceLine(none, after, true)).toBe(
+      `${VISITOR_AI_DAILY_MESSAGES} messages a day · Not saved`
+    );
+  });
+
+  it("goes by Cairo's own calendar through daylight saving, not a fixed offset", () => {
+    // Summer (UTC+3): 23:50 on 1 July, then 00:10 on the 2nd.
+    const summer = quota({ remaining: 0, receivedAt: Date.parse("2026-07-01T20:50:00Z") });
+    expect(dayOver(summer, new Date("2026-07-01T21:10:00Z"))).toBe(true);
+    // Daylight saving ends at midnight on 29 October: 23:30 comes round twice,
+    // an hour apart, and both are still the 29th.
+    const fallBack = quota({ remaining: 0, receivedAt: Date.parse("2026-10-29T20:30:00Z") });
+    expect(dayOver(fallBack, new Date("2026-10-29T21:30:00Z"))).toBe(false);
+    expect(messagesLeft(fallBack, new Date("2026-10-29T21:30:00Z"))).toBe(0);
+    expect(dayOver(fallBack, new Date("2026-10-29T22:30:00Z"))).toBe(true);
+  });
+
+  it("is never over with no allowance, or one with no time on it (it counts as just now)", () => {
+    expect(dayOver(null, new Date())).toBe(false);
+    expect(dayOver(quota({ remaining: 0 }), new Date("2030-01-01T00:00:00Z"))).toBe(false);
+    expect(messagesLeft(quota({ remaining: 0 }), new Date("2030-01-01T00:00:00Z"))).toBe(0);
+  });
+
+  it("leaves the busy-hours note to today's clock once the day is over", () => {
+    // Busy hours reported yesterday, over now: today's window by the clock names the route's limit.
+    const yesterday = quota({
+      remaining: 0,
+      peak: true,
+      peakRemaining: 0,
+      peakLimit: 5,
+      peakEndsAt: "2026-11-08T10:00:00Z",
+      receivedAt: Date.parse("2026-11-08T08:00:00Z"),
+    });
+    const end = formatPeakTime(new Date("2026-11-09T10:00:00Z"));
+    expect(dayOver(yesterday, IN_PEAK)).toBe(true);
+    expect(messagesLeft(yesterday, IN_PEAK)).toBeNull();
+    expect(peakNote(yesterday, IN_PEAK)).toBe(`Busy hours until ${end}: 5 messages in this window`);
   });
 });
 

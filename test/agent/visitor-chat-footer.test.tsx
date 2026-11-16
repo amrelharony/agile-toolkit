@@ -7,7 +7,7 @@
  * focus the box had. "Open the tool finder" hands the guide the question Amr
  * couldn't answer; Try again (only for a refusal a later try may get past)
  * says what it spends and gives the box back. The busy hours' limit ends on
- * the clock, as the hours do.
+ * the clock, as the hours do, and the day's with its Cairo day.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -42,6 +42,7 @@ import {
 } from "@/components/agent/mascot/visitor-chat-footer";
 import { FOLLOW_UPS_LABEL } from "@/components/agent/chat/reply-end";
 import { useAgentStore } from "@/lib/agent/store";
+import { VISITOR_AI_DAILY_MESSAGES } from "@/lib/site/disclosures";
 import { VISITOR_FALLBACK_CODES } from "@/lib/visitor-ai/contract";
 import { formatPeakTime } from "@/lib/visitor-ai/peak";
 
@@ -100,6 +101,43 @@ async function until(find: () => HTMLElement | null): Promise<HTMLElement> {
 
 const onOfflineGuide = vi.fn<(unanswered?: string) => void>();
 
+const RealDate = Date;
+
+/**
+ * "Now" moved to `to`, still ticking: new Date() and Date.now() read the real
+ * clock plus the offset, and a Date made from a value is a plain one.
+ */
+function shiftNow(to: Date) {
+  const offset = to.getTime() - RealDate.now();
+  class Shifted extends RealDate {
+    constructor(...args: ConstructorParameters<typeof Date>) {
+      super(...((args.length ? args : [RealDate.now() + offset]) as [number]));
+    }
+    static now() {
+      return RealDate.now() + offset;
+    }
+  }
+  globalThis.Date = Shifted as DateConstructor;
+}
+
+/**
+ * The chat's minute ticks (its clock, useNow), caught as they are set so a
+ * test can run them; every timer still runs on the real clock.
+ */
+function minuteTicks(): () => void {
+  const ticks: Array<() => void> = [];
+  const real = window.setInterval.bind(window);
+  vi.spyOn(window, "setInterval").mockImplementation(((
+    fn: TimerHandler,
+    ms?: number,
+    ...rest: unknown[]
+  ) => {
+    if (ms === 60_000 && typeof fn === "function") ticks.push(fn as () => void);
+    return real(fn, ms, ...rest);
+  }) as typeof window.setInterval);
+  return () => act(() => ticks.forEach((tick) => tick()));
+}
+
 /** The chat, with one question asked and answered, the box holding focus. */
 async function chatAsked(left: VisitorQuota) {
   answersWith(left);
@@ -129,6 +167,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
+  globalThis.Date = RealDate;
   useAgentStore.getState().reset();
   useAgentStore.setState({ chatProfile: "owner", visitorQuota: null });
 });
@@ -279,6 +319,73 @@ describe("the read-only footer", () => {
     expect(footer()).toHaveTextContent("You've used all of today's messages with Amr.");
     expect(screen.queryByLabelText("Message")).toBeNull();
     expect(h.announce).not.toHaveBeenCalledWith(BUSY_HOURS_OVER);
+  });
+});
+
+describe("the day's limit and its Cairo day", () => {
+  // Cairo is UTC+2 in November: 23:55 on Monday 16 November, then 00:05 on the 17th.
+  const BEFORE_MIDNIGHT = new RealDate("2026-11-16T21:55:00Z");
+  const AFTER_MIDNIGHT = new RealDate("2026-11-16T22:05:00Z");
+
+  it("gives the box back on the first tick past Cairo midnight, the new day's allowance not known yet", async () => {
+    const tick = minuteTicks();
+    shiftNow(BEFORE_MIDNIGHT);
+    await chatAsked(quota(0, { receivedAt: Date.now() }));
+    await until(footer);
+    // Still the same day: the footer stays.
+    tick();
+    expect(footer()).not.toBeNull();
+
+    shiftNow(AFTER_MIDNIGHT);
+    tick();
+    await waitFor(() => expect(footer()).toBeNull());
+    expect(screen.getByLabelText("Message")).toBeInTheDocument();
+    expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent(
+      `${VISITOR_AI_DAILY_MESSAGES} messages a day`
+    );
+    // Try again under the reply names no count from the day that is over.
+    expect(
+      within(await until(replyEnd)).getByRole("button", { name: "Try again (uses 1 message)" })
+    ).toBeInTheDocument();
+  });
+
+  it("lets a refusal for the day go with it, and its notice", async () => {
+    const tick = minuteTicks();
+    shiftNow(BEFORE_MIDNIGHT);
+    await chatAsked(quota(12, { receivedAt: Date.now() }));
+    act(() => {
+      const s = useAgentStore.getState();
+      s.setVisitorFallback("visitor_limit");
+      s.setNotice({
+        tone: "error",
+        kind: "visitor_limit",
+        text: "You've used all of today's messages with Amr.",
+      });
+    });
+    await until(footer);
+
+    shiftNow(AFTER_MIDNIGHT);
+    tick();
+    await waitFor(() => expect(footer()).toBeNull());
+    const s = useAgentStore.getState();
+    expect(s.visitorFallback).toBeNull();
+    expect(s.notice).toBeNull();
+    expect(screen.getByLabelText("Message")).toBeInTheDocument();
+  });
+
+  it("sends a question asked from the guide once the day that ran out is over", async () => {
+    answersWith(quota(24));
+    useAgentStore.setState({
+      chatProfile: "visitor",
+      messages: [user("u1", QUESTION), assistant("a1", REPLY)],
+      // None left, two days ago.
+      visitorQuota: quota(0, { receivedAt: Date.now() - 2 * 24 * 60 * 60_000 }),
+    });
+    render(<VisitorAgentPanel initialQuestion="sprint goal" onOfflineGuide={onOfflineGuide} />);
+    await waitFor(() =>
+      expect(h.sendVisitorMessage).toHaveBeenCalledWith("sprint goal", { toolId: "retro" })
+    );
+    expect(useAgentStore.getState().drafts.visitor).toBe("");
   });
 });
 

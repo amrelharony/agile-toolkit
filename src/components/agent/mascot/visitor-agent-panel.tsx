@@ -48,7 +48,10 @@
  * follow-ups and Try again's spend under the latest reply go (there is no
  * box to fill and nothing to spend). The busy hours' smaller allowance, and
  * a refusal for it, end on the clock as the hours do, and the box comes back
- * (the footer keeps that clock: only a read-only chat waits on it).
+ * (the footer keeps that clock: only a read-only chat waits on it). The
+ * day's allowance, and a refusal for the day, end with the Cairo day the
+ * meter counts by: on the chat's minute tick past it, the box comes back and
+ * the next message asks the route for the new day's.
  *
  * Its header (panel-chrome's slots): a "Back to tool finder" chevron before
  * the name plate, and Clear chat among the view's icons while there is
@@ -70,7 +73,13 @@ import { VISITOR_EMPTY, visitorStarters } from "@/lib/agent/visitor-starters";
 import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { isVipHidden } from "@/lib/tools/catalog";
 import { useVipHint } from "@/lib/vip/use-vip-hint";
-import { allowanceLine, lowOnMessages, messagesLeft, retryCost } from "@/lib/visitor-ai/allowance";
+import {
+  allowanceLine,
+  dayOver,
+  lowOnMessages,
+  messagesLeft,
+  retryCost,
+} from "@/lib/visitor-ai/allowance";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import { hasVoiceConsent, storeVoiceConsent } from "@/lib/agent/mascot/voice-consent";
 import { ChatComposer, type ComposerMicProps } from "../chat/chat-composer";
@@ -469,7 +478,19 @@ export default function VisitorAgentPanel({
   // No message can go out: a refusal for now, or none left. Never mid-turn,
   // so Stop stays in reach while Amr answers the last one.
   const fallback = useAgentStore((s) => s.visitorFallback);
-  const readOnly = !busy && (fallback !== null || left === 0);
+  // A refusal for the day (the visitor's or the site's) ends with its Cairo
+  // day, as none left does (messagesLeft): on the minute tick past midnight
+  // the box comes back, and the next message asks the route for the new day.
+  const dayLimitOver =
+    (fallback === "visitor_limit" || fallback === "site_limit") && dayOver(quota, now);
+  const readOnly = !busy && ((fallback !== null && !dayLimitOver) || left === 0);
+  useEffect(() => {
+    if (!dayLimitOver) return;
+    const s = useAgentStore.getState();
+    const refusal = s.visitorFallback;
+    s.setVisitorFallback(null);
+    if (s.notice?.kind === refusal) s.setNotice(null);
+  }, [dayLimitOver]);
   // The box showed in this chat: a footer that takes its place takes its focus.
   const [boxShown, setBoxShown] = useState(!readOnly);
   useEffect(() => {

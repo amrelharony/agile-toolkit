@@ -6,7 +6,11 @@
  *                  the busy-hours note while busy hours are on, what Amr does
  *                  before a change (not in a live room, where he has no tools)
  *                  and that the chat is not saved
- *   messagesLeft   the messages left now: the day's, or fewer in busy hours
+ *   messagesLeft   the messages left now: the day's, or fewer in busy hours;
+ *                  unknown again once the Cairo day the route answered in is
+ *                  over (dayOver), so the next message asks it
+ *   dayOver        the Cairo day the route last answered in is over, its count
+ *                  with it (the meter counts by Cairo's day)
  *   lowOnMessages  so few left (LOW_LEFT or fewer) that the line stands out;
  *                  it is never announced (the log is not live either)
  *   peakNote       the busy-hours note ("Busy hours until 12:00: 25 messages
@@ -31,6 +35,31 @@ export const LOW_LEFT = 3;
 /** Between the line's parts. */
 const DOT = " · ";
 
+let cairoFormat: Intl.DateTimeFormat | null = null;
+
+/** The calendar date in Cairo, the day the route's meter counts by (migration 0037). */
+const cairoDate = (d: Date): string =>
+  (cairoFormat ??= new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })).format(d);
+
+/**
+ * The Cairo day the route last answered in is over by `now`, so the day's
+ * count it gave (none left, say) no longer holds: a new day's allowance waits
+ * for the next message to ask for it. An allowance with no time on it counts
+ * as just now.
+ */
+export function dayOver(quota: VisitorQuota | null, now: Date): boolean {
+  return (
+    !!quota &&
+    quota.receivedAt !== undefined &&
+    cairoDate(new Date(quota.receivedAt)) !== cairoDate(now)
+  );
+}
+
 /** The busy-hours window the route last reported is over by `now` (its smaller allowance no longer applies). */
 export function peakOver(quota: VisitorQuota | null, now: Date): boolean {
   return !!quota?.peak && !!quota.peakEndsAt && new Date(quota.peakEndsAt) <= now;
@@ -38,10 +67,11 @@ export function peakOver(quota: VisitorQuota | null, now: Date): boolean {
 
 /**
  * A visitor's messages left at `now`: today's, or fewer in busy hours while
- * the window the route reported lasts. Null before the route has said.
+ * the window the route reported lasts. Null before the route has said, and
+ * again once its Cairo day is over (dayOver): not known until it says again.
  */
 export function messagesLeft(quota: VisitorQuota | null, now: Date = new Date()): number | null {
-  if (!quota) return null;
+  if (!quota || dayOver(quota, now)) return null;
   return quota.peak && quota.peakRemaining !== null && !peakOver(quota, now)
     ? Math.min(quota.remaining, quota.peakRemaining)
     : quota.remaining;
@@ -90,7 +120,8 @@ export function peakNote(quota: VisitorQuota | null, now: Date): string | null {
  */
 export function allowanceLine(quota: VisitorQuota | null, now: Date, liveRoom: boolean): string {
   return [
-    quota
+    // A count from a Cairo day that is over says nothing about today.
+    quota && !dayOver(quota, now)
       ? `${quota.remaining} of ${quota.limit} left today`
       : `${VISITOR_AI_DAILY_MESSAGES} AI uses a day`,
     peakNote(quota, now),
