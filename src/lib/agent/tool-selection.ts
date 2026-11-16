@@ -72,6 +72,8 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   "agentic-workflow": ["workspace.agent_workflow", "workspace.agent_node"],
   "ai-red-team": ["workspace.red_team_finding"],
   "async-standup": ["workspace.async_update"],
+  // DEEP checks read the stories and the backlog, and write Given/When/Then on stories.
+  "backlog-health": ["workspace.story", "workspace.backlog_item"],
   burndown: [
     "workspace.sprint",
     "workspace.sprint_series",
@@ -97,6 +99,8 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   "decision-log": ["workspace.decision"],
   "dod-builder": ["workspace.definition_of_done"],
   eisenhower: ["workspace.prioritization"],
+  // The cost ticker can count the team from the roster.
+  "facilitator-timers": ["workspace.team_member"],
   "feature-flag-tracker": ["workspace.feature_flag"],
   "flaky-tests": ["workspace.flaky_test_board"],
   "hallucination-log": ["workspace.hallucination"],
@@ -104,6 +108,8 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   "hundred-dollar-test": ["workspace.allocation_round", "workspace.prioritization"],
   "ice-score": ["workspace.prioritization"],
   impediments: ["workspace.impediment"],
+  // Interrupts, and the buffer each sprint keeps for them.
+  "interrupt-buffer": ["workspace.interrupt_item", "workspace.sprint"],
   "jtbd-mapper": ["workspace.job_story"],
   kanban: ["workspace.kanban_board"],
   "kano-model": ["workspace.prioritization"],
@@ -117,36 +123,70 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   okrs: ["workspace.okr"],
   "one-on-one": ["workspace.team_member"],
   "ooda-loop": ["workspace.ooda_cycle"],
+  "parking-lot": ["workspace.parking_lot_item"],
   // PI dependencies link to Scrum of Scrums entries.
   "pi-planning": ["workspace.sos_entry"],
+  // Names come from the team roster.
+  picker: ["workspace.team_member"],
   "planning-poker": ["workspace.poker_estimation_log"],
   "polarity-map": ["workspace.polarity"],
   premortem: ["workspace.release_readiness", "workspace.epic_roadmap"],
   prioritizer: ["workspace.backlog_item"],
   "prompt-registry": ["workspace.prompt"],
   "psych-safety": ["workspace.psych_safety_log"],
+  // Options come from backlog items, stories and retro cards; value poker
+  // saves its value on a backlog item.
+  "quick-vote": ["workspace.backlog_item", "workspace.story", "workspace.retro_board"],
   raci: ["workspace.raci_matrix"],
   "rapid-decision": ["workspace.decision"],
-  refinement: ["workspace.story", "workspace.backlog_item", "workspace.poker_estimation_log"],
+  refinement: [
+    "workspace.story",
+    "workspace.backlog_item",
+    "workspace.poker_estimation_log",
+    "tool.backlog_health",
+  ],
+  // Velocity reads the sprints; the item count reads finished stories, Flow-board cards and the roadmap's epics.
+  "release-planner": [
+    "workspace.sprint",
+    "workspace.story",
+    "workspace.kanban_board",
+    "workspace.epic_roadmap",
+  ],
   retro: ["workspace.retro_board"],
   "retro-actions": ["workspace.retro_board"],
   "rice-scoring": ["workspace.prioritization"],
   "risk-register": ["workspace.risk"],
   "rlhf-log": ["workspace.rlhf_pair"],
+  "root-cause": ["workspace.root_cause_analysis"],
   "scrum-of-scrums": ["workspace.sos_entry"],
   "six-hats": ["workspace.six_hats_thought", "workspace.six_hats_session"],
   "skills-matrix": ["workspace.team_member"],
+  "sm-notebook": ["workspace.notebook_entry"],
+  // The goal check also reads impediments and the interrupt buffer.
   sprint: [
     "workspace.sprint",
     "workspace.sprint_series",
     "workspace.story",
     "workspace.ceremony_cadence",
+    "workspace.impediment",
+    "workspace.interrupt_item",
   ],
   "sprint-compare": ["workspace.sprint_series", "workspace.sprint"],
+  "sprint-goal": ["tool.product_goal"],
   "sprint-metrics": ["workspace.sprint", "workspace.story"],
-  "sprint-planning": ["workspace.sprint", "workspace.story", "workspace.ceremony_cadence"],
+  "sprint-planning": [
+    "workspace.sprint",
+    "workspace.story",
+    "workspace.ceremony_cadence",
+    "tool.interrupt_buffer",
+    "tool.product_goal",
+  ],
+  // The feedback room is an Audience Wall room, and Amr's room verbs reach it.
+  "sprint-review": ["tool.audience_wall"],
   standup: ["workspace.standup_entry"],
   "story-mapper": ["workspace.story_map"],
+  // Groups are mixed from the team roster, by role or skill.
+  "team-mixer": ["workspace.team_member"],
   "token-cost-tracker": ["workspace.token_spend"],
   "user-interviews": ["workspace.user_interview_log"],
   "value-effort-matrix": ["workspace.prioritization"],

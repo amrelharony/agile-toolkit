@@ -68,12 +68,31 @@ describe("isVisitorAction", () => {
     expect(isVisitorAction({})).toBe(true);
   });
 
-  it("leaves only the canvas actions closed to visitors", () => {
+  /**
+   * Besides the canvas, the verbs that run a live room on the page (they
+   * reach the people in it), each named here so a new one is a decision:
+   * Audience Wall's room controls, and the round an open Quick Vote room
+   * asks next.
+   */
+  const LIVE_ROOM_VERBS = [
+    "tool.audience_wall.room_status",
+    "tool.audience_wall.open_round",
+    "tool.audience_wall.set_open",
+    "tool.audience_wall.reveal",
+    "tool.audience_wall.lower_hands",
+    "tool.audience_wall.scoring",
+    "tool.quick_vote.start_round",
+  ];
+
+  it("leaves only the canvas actions and the live-room verbs closed to visitors", () => {
     const closed = registry
       .list()
       .filter((a) => !isVisitorAction(a))
       .map((a) => a.id);
-    expect(closed.every((id) => id.startsWith("tool.canvas."))).toBe(true);
+    expect(
+      closed.filter((id) => !id.startsWith("tool.canvas.")).sort(),
+      "closed to visitors"
+    ).toEqual([...LIVE_ROOM_VERBS].sort());
   });
 });
 
@@ -138,6 +157,31 @@ describe("buildVisitorTurnTools on the real registry", () => {
     expect(offered.every((n) => /retro/.test(n))).toBe(true);
     // Off a tool page, nothing to fall back on: no tools.
     expect(names("zzqx", null)).toEqual([]);
+  });
+
+  it("on Quick Vote, offers where the options come from but never the room's next round", () => {
+    for (const text of ["zzqx", "start a vote on our backlog"]) {
+      const offered = names(text, "quick-vote");
+      expect(offered, text).toContain("tool_quick_vote_list_state");
+      expect(offered, text).toContain("workspace_backlog_item_list");
+      expect(offered, text).toContain("workspace_story_list");
+      expect(offered, text).toContain("workspace_retro_board_list");
+      expect(offered, text).not.toContain("tool_quick_vote_start_round");
+    }
+  });
+
+  it("on Sprint Review, never offers the live wall's room verbs", () => {
+    const room = ["room_status", "open_round", "set_open", "reveal", "lower_hands", "scoring"].map(
+      (verb) => `tool_audience_wall_${verb}`
+    );
+    for (const text of ["zzqx", "reveal the posts on the feedback wall"]) {
+      const offered = names(text, "sprint-review");
+      expect(offered, text).toContain("tool_sprint_review_list_state");
+      expect(
+        offered.filter((n) => room.includes(n)),
+        text
+      ).toEqual([]);
+    }
   });
 
   it("accepts the page as a path", () => {

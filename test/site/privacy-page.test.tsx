@@ -24,6 +24,7 @@ import {
   VISITOR_AI_SENT,
   VISITOR_ROOM_CONSENT_TEXT,
   VOTE_ROOM_CONSENT_TEXT,
+  WALL_ROOM_CONSENT_TEXT,
   YOUR_DATA_SAVED_HERE,
 } from "@/lib/site/disclosures";
 import { CONTACT_EMAIL, PRIVACY_PATH, PRIVACY_TITLE, SITE_OWNER } from "@/lib/site/owner";
@@ -149,6 +150,7 @@ describe("the table of parts", () => {
       STORY_COUNT_DISCLOSURE,
       VISITOR_ROOM_CONSENT_TEXT,
       VOTE_ROOM_CONSENT_TEXT,
+      WALL_ROOM_CONSENT_TEXT,
       OWN_KEY_DISCLOSURE,
       VISITOR_AI_SENT,
       VISITOR_AI_KEPT,

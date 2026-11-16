@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import { MonitorPlay, X } from "lucide-react";
 import { create } from "zustand";
 import { Button } from "@/components/ui/button";
+
+// Facilitator Timers' soundboard dock: loaded the first time someone
+// presents, and shown only when it was turned on there.
+const SoundboardDock = dynamic(() => import("./soundboard-dock").then((m) => m.SoundboardDock), {
+  ssr: false,
+});
 
 /**
  * Presentation mode, for running a ceremony on a shared screen.
@@ -109,6 +116,7 @@ export function PresentationController() {
         <span className="max-sm:sr-only">Exit presentation</span>{" "}
         <span className="sr-only">(Escape)</span>
       </Button>
+      <SoundboardDock />
     </>
   );
 }

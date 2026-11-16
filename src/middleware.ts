@@ -129,6 +129,9 @@ export async function probeSession(supabase: SessionVerifier): Promise<SessionPr
  *   /api/mcp, /api/agent/stream — bearer-token / self-gated endpoints
  *   /api/agent/visitor — Amr's AI for visitors; same-site, rate-limited and
  *                     metered by its handler, reads no session
+ *   /api/ai/tool/visitor — the tools' Ask Amr for visitors; gated the same
+ *                     way by its handler. The owner's /api/ai/tool beside it
+ *                     is NOT bypassed: the owner check here applies to it.
  *   /api/comics/hit, /api/comics/licence, /api/comics/guestbook,
  *   /api/comics/taps, /api/comics/stats — public reads and writes, gated by
  *                       their handlers
@@ -312,6 +315,8 @@ function isBypassPath(pathname: string): boolean {
     pathname === "/api/agent/stream" ||
     // Exact match: anything under it stays owner-only.
     pathname === "/api/agent/visitor" ||
+    // Exact match too: /api/ai/tool itself (the owner's) stays checked here.
+    pathname === "/api/ai/tool/visitor" ||
     // Exact matches, never a prefix: a future /api/comics/* route stays
     // owner-only until it is listed here on purpose.
     pathname === "/api/comics/hit" ||

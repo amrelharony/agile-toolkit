@@ -44,6 +44,7 @@ import { PASTE_LINE_CAP, leftOutMessage, splitPastedLines } from "@/lib/utils/pa
 import type { ItemText } from "@/components/shared/inline-item-editor";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
+import type { RoomTimer } from "@/lib/realtime/room-timer";
 import { SCALE_LABELS, type Session, type Participant } from "./types";
 import { REDACTED_VOTE } from "./merge";
 import { castVotes, isNumeric, withRound } from "./rounds";
@@ -133,9 +134,17 @@ interface Props {
     saved: number;
     onSave: () => void;
   };
+  /**
+   * Host of a visitor room: the room timer (`useRoomExtras`). When it has
+   * `autoReveal` set, the votes are revealed as it reaches zero, if anyone
+   * has voted.
+   */
+  revealAtZero?: RoomTimer | null;
 }
 
 const NO_LOG = () => {};
+/** A room timer that ran out at most this long ago still reveals (a tab just woke up). */
+const AUTO_REVEAL_GRACE_MS = 2_000;
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -276,6 +285,7 @@ export function SessionScreen({
   recordHistory = true,
   references,
   backlog,
+  revealAtZero = null,
 }: Props) {
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<Participant | null>(null);
@@ -623,6 +633,37 @@ export function SessionScreen({
 
   const myVote = localParticipant?.vote ?? null;
   const votedCount = session.participants.filter((p) => p.vote !== null).length;
+
+  // Host of a visitor room: the room timer reveals the cards at zero when
+  // it says so and someone has voted. Once per timer; a timer already long
+  // over when it arrives doesn't reveal.
+  const revealRef = useRef(revealVotes);
+  revealRef.current = revealVotes;
+  const votedRef = useRef(votedCount);
+  votedRef.current = votedCount;
+  const autoRevealAt =
+    isHost && !session.revealed && revealAtZero?.autoReveal && revealAtZero.endsAt !== null
+      ? revealAtZero.endsAt
+      : null;
+  const autoRevealedRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (autoRevealAt === null || autoRevealedRef.current === autoRevealAt) return;
+    const fire = () => {
+      autoRevealedRef.current = autoRevealAt;
+      if (votedRef.current > 0) revealRef.current();
+    };
+    const wait = autoRevealAt - Date.now();
+    if (wait < -AUTO_REVEAL_GRACE_MS) {
+      autoRevealedRef.current = autoRevealAt;
+      return;
+    }
+    if (wait <= 0) {
+      fire();
+      return;
+    }
+    const t = setTimeout(fire, wait);
+    return () => clearTimeout(t);
+  }, [autoRevealAt]);
   // Passing the screen round: who's up after the last person to have it.
   const passNext = passingNow ? nextVoter(session.participants, passing.lastId) : null;
 

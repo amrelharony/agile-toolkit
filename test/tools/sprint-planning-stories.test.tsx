@@ -391,6 +391,51 @@ describe("a story's details", () => {
     expect(within(row("Backlog", "Apple Pay")).getByText("PAY-12")).toBeInTheDocument();
   });
 
+  it("writes Given/When/Then on a story with no details, beside the free-text form", () => {
+    renderPlanning();
+    open("Apple Pay");
+    const panel = details("Apple Pay");
+    // It opens on the free-text form, with the scenarios under it.
+    expect(within(panel).getByLabelText("Acceptance criteria")).toHaveFocus();
+    fireEvent.click(within(panel).getByRole("button", { name: "Add a scenario: Apple Pay" }));
+    fireEvent.change(within(panel).getByLabelText("Given"), { target: { value: "a phone" } });
+    fireEvent.change(within(panel).getByLabelText("When"), { target: { value: "I tap to pay" } });
+    fireEvent.change(within(panel).getByLabelText("Then"), {
+      target: { value: "the payment goes through" },
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "Add scenario" }));
+    expect(story("b2")?.gwt).toEqual([
+      expect.objectContaining({ given: "a phone", then: "the payment goes through" }),
+    ]);
+    expect(story("b2")?.acceptanceCriteria).toBeUndefined();
+    // No free text, but the panel stays open for the scenario.
+    fireEvent.click(within(details("Apple Pay")).getByRole("button", { name: "Cancel" }));
+    expect(
+      within(details("Apple Pay")).getByRole("list", { name: "Scenarios for Apple Pay" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Details: Apple Pay" })).toBeInTheDocument();
+  });
+
+  it("undoing a scenario delete puts back the story's earlier refinement stamp", () => {
+    const old = "2026-05-01T09:00:00.000Z";
+    const gwt = [{ id: "g1", given: "a phone", when: "I tap to pay", then: "it goes through" }];
+    useWorkspaceStore.setState({
+      stories: STORIES.map((s) =>
+        s.id === "b2" ? { ...s, notes: "Wallet", refinedAt: old, gwt } : { ...s }
+      ),
+    });
+    renderPlanning();
+    open("Apple Pay");
+    fireEvent.click(
+      within(details("Apple Pay")).getByRole("button", { name: "Delete scenario 1" })
+    );
+    expect(story("b2")?.gwt).toBeUndefined();
+    expect(story("b2")?.refinedAt).not.toBe(old);
+    undoLast();
+    expect(story("b2")?.gwt).toEqual(gwt);
+    expect(story("b2")?.refinedAt).toBe(old);
+  });
+
   it("says what is wrong with a link and saves nothing until it is fixed", () => {
     renderPlanning();
     open("Apple Pay");
