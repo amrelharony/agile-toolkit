@@ -450,6 +450,11 @@ describe("AgentConversation: the comic strip", () => {
     // The frame is the log's direct parent: one column that scrolls in a short panel.
     expect(log.parentElement).toHaveClass("h-full", "min-h-0", "flex-col", "overflow-y-auto");
     expect(log.parentElement).toHaveAttribute("data-amr-scroll");
+    // Its padding is inside that scroller, which clips at its padding box: the
+    // composer row keeps 12 px from each edge, so focus rings (High contrast's
+    // reach 5 px out) are never cut off.
+    expect(log.parentElement).toHaveAttribute("data-chat-frame");
+    expect(log.parentElement).toHaveClass("px-3", "py-2");
     // The composer's form sits straight in the frame's shrink-0 footer.
     expect(box().closest("form")?.parentElement).toHaveClass("shrink-0");
     expect(box().closest("form")?.parentElement?.parentElement).toBe(log.parentElement);

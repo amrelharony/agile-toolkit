@@ -292,9 +292,11 @@ export function AgentConversation() {
   return (
     // The frame is the log's direct parent: min-h-0, so in a short panel (a
     // phone's keyboard up) it shrinks to the room it has and scrolls, the
-    // footer staying in reach.
+    // footer staying in reach. Its padding is inside that scroller, which
+    // clips at its padding box: the composer's and Send's focus rings (High
+    // contrast's reach 5 px out) stay clear of its edges.
     <ChatProvider profile="owner" composerRef={composerRef}>
-      <ChatStrip busy={streaming} footer={footer}>
+      <ChatStrip busy={streaming} footer={footer} className="px-3 py-2">
         {empty && (
           <div className="text-sm text-sub py-12 text-center space-y-2">
             <p>Ask me to drive any tool: planning, retros, canvas, OKRs.</p>
