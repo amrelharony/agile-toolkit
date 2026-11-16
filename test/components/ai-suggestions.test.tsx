@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useRef, useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { AiSuggestions } from "@/components/ai";
+import { doneLine } from "@/components/ai/ai-suggestions";
 
 afterEach(() => cleanup());
 
@@ -85,6 +86,29 @@ describe("AiSuggestions", () => {
     expect(onAcceptAll).toHaveBeenCalledWith(["Tuesday", "Thursday"]);
     expect(onAccept).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("status")).toHaveTextContent("All added.");
+  });
+
+  it("says it's done in the add button's own word", () => {
+    expect(doneLine("Add", 3)).toBe("All added.");
+    expect(doneLine("Add to plan", 2)).toBe("All added.");
+    expect(doneLine("Merge", 2)).toBe("All merged.");
+    expect(doneLine("Use", 2)).toBe("All used.");
+    expect(doneLine("Move", 4)).toBe("All moved.");
+    expect(doneLine("Accept", 2)).toBe("All accepted.");
+    expect(doneLine("Shortlist", 5)).toBe("All shortlisted.");
+    expect(doneLine("Deal", 1)).toBe("Dealt.");
+    expect(doneLine("Merge", 1)).toBe("Merged.");
+    render(
+      <AiSuggestions
+        items={["Late standups", "Long standups"]}
+        acceptLabel="Merge"
+        onAccept={() => {}}
+        onDismiss={() => {}}
+        source="fallback"
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Merge all 2" }));
+    expect(screen.getByRole("status")).toHaveTextContent("All merged.");
   });
 
   it("adds all one by one when there is no onAcceptAll", () => {

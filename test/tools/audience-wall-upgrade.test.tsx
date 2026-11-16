@@ -392,7 +392,8 @@ describe("a saved wall", () => {
       fireEvent.click(within(draft()).getByRole("button", { name: /^Merge/ }));
     });
     expect(walls()[0].posts).toHaveLength(2);
-    expect(draft()).toHaveTextContent("All added.");
+    // One group, merged: the done line says it in Merge's own word.
+    expect(draft()).toHaveTextContent("Merged.");
     const dismiss = within(draft()).getByRole("button", { name: "Dismiss suggestions" });
     dismiss.focus();
     await act(async () => {
