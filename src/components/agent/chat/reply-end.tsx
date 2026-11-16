@@ -76,9 +76,14 @@ export interface ReplyEndProps {
   retry?: ReplyRetry;
 }
 
-/** A row under Amr's balloon, lined up with it on his side. */
+/**
+ * A row under Amr's balloon, lined up with it on his side. The side away from
+ * him keeps the follow-up list's 1 px inset (suggestion-chips' mx-px), which
+ * keeps High contrast's 5 px focus ring inside the log's 4 px padding when a
+ * long chip wraps to the full width.
+ */
 const AMR_ROW =
-  "ml-3.5 group-data-[amr-side=right]/amr:ml-0 group-data-[amr-side=right]/amr:mr-3.5 group-data-[amr-side=right]/amr:justify-end";
+  "ml-3.5 group-data-[amr-side=right]/amr:ml-px group-data-[amr-side=right]/amr:mr-3.5 group-data-[amr-side=right]/amr:justify-end";
 
 /** The end of the latest reply: see the file comment. */
 export function ReplyEnd({ turn, retry }: ReplyEndProps) {

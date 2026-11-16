@@ -1044,6 +1044,16 @@ describe("the end of the latest reply (ReplyEnd)", () => {
     expect(classes(list)).toEqual(
       expect.arrayContaining(["ml-3.5", "group-data-[amr-compact]/amr:hidden"])
     );
+    // With Amr on the right, the side away from him keeps the list's 1 px inset,
+    // so a full-width chip's High contrast focus ring stays inside the log.
+    expect(classes(list)).toEqual(
+      expect.arrayContaining([
+        "mx-px",
+        "group-data-[amr-side=right]/amr:ml-px",
+        "group-data-[amr-side=right]/amr:mr-3.5",
+      ])
+    );
+    expect(classes(list)).not.toContain("group-data-[amr-side=right]/amr:ml-0");
 
     fireEvent.click(chips[0]);
     expect(useAgentStore.getState().drafts.owner).toBe(expected[0]);
