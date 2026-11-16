@@ -15,14 +15,11 @@
  *            the full width of the log when it holds a table or code. Until
  *            a streaming reply's opening sentence is decided, the balloon
  *            scribbles with no words, so no word ever changes face
- *   steps    one narration caption for a run of tool calls: each call's tool
- *            and verb in words (lib/agent/tool-label), where it stands and
- *            what it touched (lib/agent/tool-result-text), never the wire
- *            name, the arguments or the result string. Only the owner gets
- *            "Details" with the arguments and result in words (chat/step-
- *            details, handed in through the chat context); a visitor never
- *            sees them. The interim caption, as the old step rows read: the step
- *            caption with its state slot and ink tick takes its place.
+ *   steps    one narration caption for a run of tool calls (chat/tool-steps):
+ *            each call's tool, verb and state in words, after a fixed slot
+ *            for its running mark and ink tick, never the wire name, the
+ *            arguments or the result string. Only the owner gets "Details",
+ *            with the arguments and result in words; a visitor never sees them.
  *   note     a line the client wrote for Amr (the round limit's stand-in),
  *            in a narration caption with no "Amr said:": it is about him,
  *            not his words. Inline markdown, so an action's id is a chip.
@@ -53,18 +50,9 @@ import { memo } from "react";
 import { Narration, YouCaption } from "../comic/comic-parts";
 import { AmrBalloon, ThinkingBalloon } from "../comic/strip-parts";
 import { Markdown } from "../markdown";
-import type {
-  BalloonItem,
-  ChatItem,
-  ChatStep,
-  NoteItem,
-  StepsItem,
-  YouItem,
-} from "@/lib/agent/chat-view";
-import { toolLabel, type ToolLabel } from "@/lib/agent/tool-label";
-import { STEP_WORDS, TROUBLE_STATES, stepSummary } from "@/lib/agent/tool-result-text";
+import type { BalloonItem, ChatItem, NoteItem, StepsItem, YouItem } from "@/lib/agent/chat-view";
 import { cn } from "@/lib/utils";
-import { useChat, type ChatContextValue } from "./chat-context";
+import { ToolSteps } from "./tool-steps";
 
 /** Amr's side of the log: a balloon stands there, mirrored when he moves, with room for its tail. */
 const AMR_SIDE =
@@ -76,12 +64,6 @@ const YOU_SIDE =
 
 /** How far a balloon or caption that doesn't run full width may reach across the log. */
 const NARROW = "max-w-[85%]";
-
-/** The label for a result whose call isn't in the chat. */
-const UNPAIRED: ToolLabel = { tool: "Step", verb: "" };
-
-/** A step's separator, as the chat's other plain lines write it ("Chat · not saved"). */
-const SEP = " · ";
 
 /** The reader's words, in a you caption across from Amr. */
 export const YouItemView = memo(function YouItemView({ item }: { item: YouItem }) {
@@ -133,73 +115,11 @@ export const ThinkingItemView = memo(function ThinkingItemView() {
   );
 });
 
-/**
- * Which step a Details block belongs to, for a screen reader: "Retro Board ·
- * Add card “flaky CI”". A plain string, so the memo below still holds.
- */
-function stepName(label: ToolLabel, summary: string | null): string {
-  const name = label.verb ? `${label.tool}${SEP}${label.verb}` : label.tool;
-  return summary ? `${name} “${summary}”` : name;
-}
-
-/**
- * One step in words: "Retro Board · Add card · Done · “flaky CI”". The tool
- * leads in medium weight; trouble is said in words, the danger colour only a
- * second cue. Its arguments are left out while they still stream.
- */
-const StepLine = memo(function StepLine({
-  step,
-  Details,
-}: {
-  step: ChatStep;
-  /** The owner's chat: Details with the arguments and result in words. */
-  Details: ChatContextValue["StepDetails"];
-}) {
-  const { call, result, state } = step;
-  const label = call ? toolLabel(call.name) : UNPAIRED;
-  const summary = call && state !== "preparing" ? stepSummary(call, result) : null;
-  return (
-    <div data-tool-step={state ?? "unknown"}>
-      <p className="break-words">
-        <span className="font-medium">{label.tool}</span>
-        {label.verb && (
-          <>
-            {SEP}
-            {label.verb}
-          </>
-        )}
-        {state && (
-          <>
-            {SEP}
-            <span className={TROUBLE_STATES.has(state) ? "text-danger" : undefined}>
-              {STEP_WORDS[state]}
-            </span>
-          </>
-        )}
-        {summary && (
-          <>
-            {SEP}
-            <bdi>“{summary}”</bdi>
-          </>
-        )}
-      </p>
-      {Details && state !== "preparing" && <Details step={step} name={stepName(label, summary)} />}
-    </div>
-  );
-});
-
-/** A run of tool calls with no words between them: one narration caption, a line per call. */
+/** A run of tool calls with no words between them: one step caption (chat/tool-steps). */
 export const StepsItemView = memo(function StepsItemView({ item }: { item: StepsItem }) {
-  const { StepDetails } = useChat();
   return (
-    <div data-chat-item="steps" data-message-id={item.steps[0]?.messageId}>
-      <Narration data-tool-steps="">
-        <div className="space-y-1">
-          {item.steps.map((step) => (
-            <StepLine key={step.key} step={step} Details={StepDetails} />
-          ))}
-        </div>
-      </Narration>
+    <div data-chat-item="steps" data-message-id={item.steps[0]?.messageId} className="space-y-3">
+      <ToolSteps steps={item.steps} />
     </div>
   );
 });

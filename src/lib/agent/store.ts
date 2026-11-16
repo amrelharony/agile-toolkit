@@ -138,6 +138,13 @@ interface AgentState {
    * (VISITOR_FALLBACK_CODES): the panel goes back to the tool finder.
    */
   visitorFallback: VisitorErrorCode | null;
+  /**
+   * The chat's tool steps whose tick has inked, and the turns that had one
+   * (chat/tool-steps): a tick inks once, live, at most once a turn. A record,
+   * not state: added to in place, never saved and nothing subscribes, so a
+   * reload, a remount or a loaded thread draws every tick still.
+   */
+  inkedToolIds: Set<string>;
 }
 
 interface AgentActions {
@@ -225,6 +232,7 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   chatProfile: "owner",
   visitorQuota: null,
   visitorFallback: null,
+  inkedToolIds: new Set(),
 
   openSheet: ({ via }: OpenSheetOptions = {}) =>
     set((s) => ({

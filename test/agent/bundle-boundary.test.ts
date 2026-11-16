@@ -587,6 +587,7 @@ describe("the chat strip (chat/)", () => {
     `${CHAT_DIR}chat-frame.tsx`,
     `${CHAT_DIR}chat-log.tsx`,
     `${CHAT_DIR}chat-items.tsx`,
+    `${CHAT_DIR}tool-steps.tsx`,
     `${CHAT_DIR}chat-context.tsx`,
     `${CHAT_DIR}use-stick-to-bottom.ts`,
     `${CHAT_DIR}use-turn-announcer.ts`,
