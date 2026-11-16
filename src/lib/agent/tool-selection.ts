@@ -134,6 +134,9 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   prioritizer: ["workspace.backlog_item"],
   "prompt-registry": ["workspace.prompt"],
   "psych-safety": ["workspace.psych_safety_log"],
+  // Options come from backlog items, stories and retro cards; value poker
+  // saves its value on a backlog item.
+  "quick-vote": ["workspace.backlog_item", "workspace.story", "workspace.retro_board"],
   raci: ["workspace.raci_matrix"],
   "rapid-decision": ["workspace.decision"],
   refinement: [

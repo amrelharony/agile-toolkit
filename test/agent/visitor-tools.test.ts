@@ -159,6 +159,17 @@ describe("buildVisitorTurnTools on the real registry", () => {
     expect(names("zzqx", null)).toEqual([]);
   });
 
+  it("on Quick Vote, offers where the options come from but never the room's next round", () => {
+    for (const text of ["zzqx", "start a vote on our backlog"]) {
+      const offered = names(text, "quick-vote");
+      expect(offered, text).toContain("tool_quick_vote_list_state");
+      expect(offered, text).toContain("workspace_backlog_item_list");
+      expect(offered, text).toContain("workspace_story_list");
+      expect(offered, text).toContain("workspace_retro_board_list");
+      expect(offered, text).not.toContain("tool_quick_vote_start_round");
+    }
+  });
+
   it("accepts the page as a path", () => {
     expect(names("zzqx", "/retro")).toContain("tool_retro_add_card");
   });

@@ -107,6 +107,14 @@ describe("pageActionGroups", () => {
     ]);
     // Actions under a different name than the page.
     expect(pageActionGroups("ceremony-timer")).toContain("tool.ceremony_cadence");
+    // Quick Vote's options come from the backlog, the stories and the retro.
+    expect(pageActionGroups("quick-vote")).toEqual([
+      "tool.quick_vote",
+      "workspace.quick_vote",
+      "workspace.backlog_item",
+      "workspace.story",
+      "workspace.retro_board",
+    ]);
     // A page with no extras keeps just its two defaults.
     expect(pageActionGroups("model-card")).toEqual(["tool.model_card", "workspace.model_card"]);
   });
@@ -320,6 +328,20 @@ describe("selectTurnToolIds on the real registry", () => {
       expect(pick({ toolId: "stakeholder-map", text: "add one" })).toContain(
         "workspace.team_member.list"
       );
+    });
+
+    it("gives Quick Vote the reads of the places its options come from, after its own", () => {
+      const ids = pick({ toolId: "quick-vote", text: "vote on these" });
+      const sources = ["workspace.backlog_item", "workspace.story", "workspace.retro_board"];
+      for (const g of sources) expect(ids, g).toContain(`${g}.list`);
+      expect(ids.indexOf("tool.quick_vote.list_state")).toBeLessThan(
+        ids.indexOf("workspace.backlog_item.list")
+      );
+      // Every read comes before the first write.
+      const firstWrite = ids.findIndex((id) => registry.get(id)?.category !== "read");
+      for (const g of sources) {
+        expect(ids.indexOf(`${g}.list`), g).toBeLessThan(firstWrite);
+      }
     });
   });
 
