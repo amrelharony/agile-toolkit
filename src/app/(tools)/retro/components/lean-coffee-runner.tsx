@@ -192,6 +192,30 @@ export function LeanCoffeeRunner({
     announce("Time's up. The room is voting: keep going or move on?");
   }, [timeUp, started, thumbs, pollOpen, announce, state.phase]);
 
+  // The host's Ask and Close take away the button pressed: focus goes to
+  // Close once the vote is open, to the totals once it's closed, never to
+  // the page. Tried on the next render only (a vote that didn't open
+  // leaves focus on Ask), so a vote opened later at time's up takes none.
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const totalsRef = useRef<HTMLParagraphElement>(null);
+  const focusNextRef = useRef<"close" | "totals" | null>(null);
+  useEffect(() => {
+    const next = focusNextRef.current;
+    if (!next) return;
+    focusNextRef.current = null;
+    (next === "close" ? closeRef : totalsRef).current?.focus();
+  });
+  const askRoom = (text: string) => {
+    if (!thumbs) return;
+    focusNextRef.current = "close";
+    thumbs.open(text);
+  };
+  const closeVote = () => {
+    if (!thumbs) return;
+    focusNextRef.current = "totals";
+    thumbs.close();
+  };
+
   const start = (topic: LeanTopic) => {
     const seconds = settings.timeboxMin * 60;
     onUpdate((prev) => withTopicStarted(prev, topic.id, seconds));
@@ -397,7 +421,12 @@ export function LeanCoffeeRunner({
             {roomPoll.voters} {roomPoll.voters === 1 ? "person has" : "people have"} voted so far.
           </p>
         ) : (
-          <p role="status" className="text-sm text-text">
+          <p
+            ref={totalsRef}
+            role="status"
+            tabIndex={-1}
+            className="rounded-sm text-sm text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             <ThumbsUp className="mr-1 inline h-4 w-4" aria-hidden="true" />
             Keep going {roomPoll.keep} ·{" "}
             <ThumbsDown className="mr-1 inline h-4 w-4" aria-hidden="true" />
@@ -406,7 +435,7 @@ export function LeanCoffeeRunner({
           </p>
         )}
         {roomPoll.open ? (
-          <Button type="button" size="sm" variant="outline" onClick={thumbs.close}>
+          <Button ref={closeRef} type="button" size="sm" variant="outline" onClick={closeVote}>
             Close the vote and show everyone
           </Button>
         ) : (
@@ -466,7 +495,7 @@ export function LeanCoffeeRunner({
                     type="button"
                     size="sm"
                     variant="outline"
-                    onClick={() => thumbs.open(current.text)}
+                    onClick={() => askRoom(current.text)}
                   >
                     Ask the room again
                   </Button>
@@ -558,7 +587,7 @@ export function LeanCoffeeRunner({
                     type="button"
                     size="sm"
                     variant="ghost"
-                    onClick={() => thumbs.open(current.text)}
+                    onClick={() => askRoom(current.text)}
                   >
                     {roomPoll ? "Ask the room again" : "Ask the room now"}
                   </Button>

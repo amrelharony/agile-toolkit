@@ -629,6 +629,68 @@ describe("Lean Coffee: Discuss", () => {
     expect(screen.getByText("1 person has voted so far.")).toBeInTheDocument();
   });
 
+  it("keeps focus off the page when Ask or Close takes away the button pressed", () => {
+    const started = leanBoard({
+      cards: [
+        topic("t2", "Our standups run too long", 4, { columnKey: "discussing", discussing: true }),
+        topic("t3", "Lunch and learn ideas", 2),
+      ],
+    });
+    const open = fakeThumbs({ id: "p1", topic: "x", open: true, keep: 1, move: 0, voters: 1 });
+    const closed = fakeThumbs({ id: "p1", topic: "x", open: false, keep: 1, move: 2, voters: 3 });
+    const totals = () =>
+      screen.getByText(
+        (_, el) => el?.tagName === "P" && el.textContent === "Keep going 1 · Move on 2 (3 voted)"
+      );
+    const press = (name: string) => {
+      const button = screen.getByRole("button", { name });
+      button.focus();
+      fireEvent.click(button);
+    };
+    const view = runner(started, { thumbs: fakeThumbs() });
+    // Before time's up: Ask goes away as the vote opens, so focus goes to Close.
+    press("Ask the room now");
+    view.rerun({ timeUp: false, thumbs: open });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Close the vote and show everyone" })
+    );
+    // Close goes away as the vote closes: focus goes to the totals.
+    press("Close the vote and show everyone");
+    view.rerun({ timeUp: false, thumbs: closed });
+    expect(document.activeElement).toBe(totals());
+    press("Ask the room again");
+    view.rerun({ timeUp: false, thumbs: open });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Close the vote and show everyone" })
+    );
+    // At time's up too.
+    view.rerun({ timeUp: true, thumbs: open });
+    press("Close the vote and show everyone");
+    view.rerun({ timeUp: true, thumbs: closed });
+    expect(document.activeElement).toBe(totals());
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("moves no focus when the vote opens by itself at time's up", () => {
+    const started = leanBoard({
+      cards: [
+        topic("t2", "Our standups run too long", 4, { columnKey: "discussing", discussing: true }),
+        topic("t3", "Lunch and learn ideas", 2),
+      ],
+    });
+    const view = runner(started, { thumbs: fakeThumbs() });
+    const done = screen.getByRole("button", { name: /Done, next topic/ });
+    done.focus();
+    view.rerun({ timeUp: true, thumbs: fakeThumbs() });
+    view.rerun({
+      timeUp: true,
+      thumbs: fakeThumbs({ id: "p1", topic: "x", open: true, keep: 0, move: 0, voters: 0 }),
+    });
+    expect(document.activeElement).not.toBe(
+      screen.getByRole("button", { name: "Close the vote and show everyone" })
+    );
+  });
+
   it("Keep going leaves no new vote open while the board still says time's up, and asks at the next", () => {
     const started = leanBoard({
       cards: [
