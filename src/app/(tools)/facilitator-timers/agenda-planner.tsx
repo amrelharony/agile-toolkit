@@ -316,18 +316,22 @@ export function AgendaPlanner({
             )}
             <ol className="flex flex-col gap-1" aria-label="Agenda draft">
               {agenda.segments.map((s, i) => (
+                // On a phone the move and remove buttons go under the label,
+                // so the label and its hint keep the row's width.
                 <li
                   key={s.id}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-lg border border-border px-3 py-2 text-sm"
+                  className="grid grid-cols-1 items-start gap-2 rounded-lg border border-border px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto]"
                 >
                   <span className="min-w-0">
                     <span className="block break-words text-text">
                       {i + 1}. {s.label}{" "}
-                      <span className="font-data text-xs text-sub">{minutesText(s.minutes)}</span>
+                      <span className="whitespace-nowrap font-data text-xs text-sub">
+                        {minutesText(s.minutes)}
+                      </span>
                     </span>
                     {s.hint && <span className="block text-xs text-sub">{s.hint}</span>}
                   </span>
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1 justify-self-end">
                     <IconButton
                       label={`Move ${s.label} up`}
                       icon={<ArrowUp className="h-4 w-4" aria-hidden="true" />}
