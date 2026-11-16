@@ -29,6 +29,17 @@ export interface ParetoPoint {
 const { colors } = chartTheme;
 
 /**
+ * The bars: the vital few solid in the main colour, the rest a faint fill
+ * of a quieter colour inside a solid edge of it. The edge clears 3:1
+ * against the card, and the fill is lighter, so the two kinds differ by
+ * more than hue (blue and violet look alike to many colour-blind people).
+ */
+export const PARETO_BARS = {
+  vital: { fill: colors.cyan },
+  other: { fill: colors.purple, fillOpacity: 0.35, stroke: colors.purple, strokeWidth: 1.5 },
+} as const;
+
+/**
  * Causes as bars, most first, with the running share as a line on its own
  * 0–100% axis. The vital few wear the main colour, the rest a quieter one;
  * the summary and the table say which is which, so colour is never the only
@@ -78,8 +89,7 @@ export function ParetoChart({ data }: { data: ParetoPoint[] }) {
         />
         <Bar yAxisId="count" dataKey="count" name="How often" maxBarSize={44}>
           {data.map((p) => (
-            // Solid, not faded: the quieter bars still clear 3:1 against the card.
-            <Cell key={p.name} fill={p.vital ? colors.cyan : colors.purple} />
+            <Cell key={p.name} {...(p.vital ? PARETO_BARS.vital : PARETO_BARS.other)} />
           ))}
         </Bar>
         <Line
