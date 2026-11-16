@@ -46,6 +46,14 @@ import { TimerWidget } from "@/app/(tools)/retro/components/timer-widget";
 import { dockOvertime, useDockTimer, type DockedTimer as Docked } from "@/lib/timer/dock-timer";
 import { startSteps, stepDock } from "@/lib/timer/step-timer";
 import { publishTurn, startWalk, STANDUP_PATH } from "@/app/(tools)/standup/walk";
+import { FT_HREF, newRun, pomodoroSteps } from "@/lib/facilitator-timers/model";
+import {
+  FT_SETTINGS_INITIAL,
+  startTimerRun,
+  useFacilitatorSettings,
+  useFtSession,
+} from "@/lib/facilitator-timers/store";
+import { useRingsOwnAlarm } from "@/lib/timer/dock-timer";
 
 const ROOT = join(__dirname, "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
@@ -231,6 +239,59 @@ describe("the docked timer", () => {
     advance(2100);
     expect(alarm.timesUp).toHaveBeenCalledTimes(1);
     expect(alarm.timesUp).toHaveBeenCalledWith({ sound: false });
+  });
+
+  describe("a Facilitator Timers step", () => {
+    const startStep = (chime: boolean) => {
+      useFacilitatorSettings.setState({ ...FT_SETTINGS_INITIAL, chime });
+      useFtSession.setState({ run: null });
+      const run = newRun("pomodoro", pomodoroSteps({ workMinutes: 1, breakMinutes: 1, rounds: 1 }));
+      expect(startTimerRun(run, Date.now()).ok).toBe(true);
+      expect(useDockTimer.getState().timer).toMatchObject({ href: FT_HREF, chime });
+    };
+    afterEach(() => useFtSession.setState({ run: null }));
+
+    it("rings under the tool's own chime switch away from its page, not the shared one", () => {
+      startStep(true);
+      render(
+        <LiveAnnouncerProvider>
+          <DockedTimer />
+        </LiveAnnouncerProvider>
+      );
+      advance(60_100);
+      expect(alarm.timesUp).toHaveBeenCalledTimes(1);
+      expect(alarm.timesUp).toHaveBeenCalledWith({ sound: true });
+    });
+
+    it("stays silent with the tool's chime off, even with the shared switch on", () => {
+      useAlarmPrefs.setState({ sound: true });
+      startStep(false);
+      render(
+        <LiveAnnouncerProvider>
+          <DockedTimer />
+        </LiveAnnouncerProvider>
+      );
+      advance(60_100);
+      expect(alarm.timesUp).toHaveBeenCalledWith({ sound: false });
+    });
+
+    it("leaves the ringing to its page while that page rings its own run", () => {
+      nav.pathname = FT_HREF;
+      startStep(true);
+      function Page() {
+        useRingsOwnAlarm(FT_HREF);
+        return null;
+      }
+      render(
+        <LiveAnnouncerProvider>
+          <Page />
+          <DockedTimer />
+        </LiveAnnouncerProvider>
+      );
+      advance(60_100);
+      expect(useDockTimer.getState().timer?.endedAt).toBe(T0 + 60_000);
+      expect(alarm.timesUp).not.toHaveBeenCalled();
+    });
   });
 
   it("shows no overtime for a timer that hasn't run out, or that nobody saw end", () => {

@@ -6,7 +6,9 @@
  *   and volume (never whether it plays), whether the soundboard shows while
  *   presenting, and the agenda being drafted for the Ceremony Timer.
  * - Session (sessionStorage, per tab like the docked timer): the timer run
- *   on, so leaving the page or reloading keeps it.
+ *   on, so leaving the page or reloading keeps it. Its steps go on the dock
+ *   with the tool's own chime switch (`chime`), so a step that runs out
+ *   while the page isn't open rings under that switch, not the shared one.
  * - Cost (sessionStorage only, never synced or sent anywhere): the meeting
  *   cost ticker's people, rate, currency and clock. A rate is personal, so
  *   it stays in this browser tab.
@@ -94,12 +96,35 @@ export function otherDock(timer: DockedTimer | null = useDockTimer.getState().ti
 }
 
 /**
+ * The run's step for the dock, with the tool's own chime switch: when it
+ * runs out while this page isn't open, the docked timer rings under it.
+ * On the page itself the page rings (useRingsOwnAlarm), so nothing rings
+ * twice.
+ */
+function runDock(run: TimerRun, now: number): DockedTimer | null {
+  const dock = stepDock(run, now);
+  return dock && { ...dock, chime: facilitatorSettings().chime };
+}
+
+/**
+ * Keep the docked timer's chime with the tool's switch, so turning it on
+ * or off reaches a step already on the dock. Another page's timer is left
+ * alone.
+ */
+export function syncDockChime(chime: boolean = facilitatorSettings().chime): void {
+  const dock = useDockTimer.getState();
+  const timer = dock.timer;
+  if (timer?.href !== FT_HREF || timer.chime === chime) return;
+  dock.publish({ ...timer, chime });
+}
+
+/**
  * Start `run` from its first step on the dock, from `now`, unless another
  * page holds the dock: a ceremony's clock is never replaced. A facilitator
  * timer already on is replaced.
  */
 export function startTimerRun(run: TimerRun, now: number = Date.now()): TimerClaim {
-  const dock = stepDock(run, now);
+  const dock = runDock(run, now);
   if (!dock) return { ok: true, run };
   const claim = claimDock(dock);
   if (!claim.ok) return claim;
@@ -120,7 +145,7 @@ export function advanceTimerRun(now: number = Date.now()): TimerClaim | null {
     useFtSession.setState({ run: next });
     return { ok: true, run: next };
   }
-  const dock = stepDock(next, now);
+  const dock = runDock(next, now);
   const claim = dock ? claimDock(dock) : null;
   if (claim && !claim.ok) return claim;
   useFtSession.setState({ run: next });
