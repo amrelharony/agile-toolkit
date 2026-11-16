@@ -385,6 +385,28 @@ describe("loading and failures", () => {
     expect(useAgentStore.getState().messages).toEqual(said);
   });
 
+  it("leaves the open thread's answer and card alone when another thread can't be opened", async () => {
+    useAgentStore.getState().setActiveConversation(THREADS[0], []);
+    const abortTurn = vi.fn();
+    const resolve = vi.fn();
+    useAgentStore.setState({ streaming: true, pendingToolUse: { ...CARD, resolve } });
+    useAgentStore.getState().setAbortTurn(abortTurn);
+    const onClose = renderList();
+    await screen.findByText("Velocity question");
+
+    h.load.mockImplementationOnce(async () => failed([]));
+    fireEvent.click(openButton("Velocity question"));
+    await screen.findByText(openFailed("Velocity question"));
+    expect(abortTurn).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+    const s = useAgentStore.getState();
+    expect(s.pendingToolUse).not.toBeNull();
+    expect(s.streaming).toBe(true);
+    expect(s.activeConversationId).toBe("c1");
+    expect(screen.getByText(AMR_WAITING_FOR_OK)).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("exports nothing from a thread it can't read, and says so", async () => {
     const download = vi.spyOn(HTMLAnchorElement.prototype, "click");
     renderList();

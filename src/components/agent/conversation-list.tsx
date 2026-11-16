@@ -26,8 +26,9 @@
  * When Supabase can't be reached the list says so in a narration caption with
  * Try again and keeps what it last showed; "No saved chats yet" follows only a
  * read that worked. A thread that can't be opened stays in History with the
- * same kind of caption, never opened empty, and a thread on its way in is busy
- * (a scribble on its row), so a second tap loads nothing twice. A failure the
+ * same kind of caption, never opened empty (the open thread keeps its answer
+ * under way and its card). A thread on its way in is busy (a scribble on
+ * its row), so a second tap loads nothing twice. A failure the
  * owner asked for (opening History, a thread, Try again) is said once,
  * assertively; nothing here is a live region.
  *
@@ -331,9 +332,10 @@ export function ConversationList({ onClose, takeFocus = false }: ConversationLis
       onClose();
       return;
     }
-    // Another thread: the answer under way belongs to the one being left, so
-    // the store stops it now, not once the new thread has loaded.
-    if (!isOpen) store.abortTurn("thread");
+    // Another thread: its answer under way and a card waiting belong to the
+    // thread being left. setActiveConversation stops the one and turns down
+    // the other, and only once the new thread has loaded: a load that fails
+    // leaves the open thread as it was, turn and card and all.
     openingRef.current = meta.id;
     setOpening(meta.id);
     setNotOpened(null);

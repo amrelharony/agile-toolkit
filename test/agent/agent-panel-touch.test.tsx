@@ -686,7 +686,7 @@ describe("ConversationList and the answer under way", () => {
     useAgentStore.getState().reset();
   });
 
-  it("opening another thread stops the answer through the store before the thread loads", async () => {
+  it("opening another thread stops the answer through the store once the thread has loaded", async () => {
     useAgentStore.getState().setActiveConversation(THREADS[0], [userMsg("m1", "hi")]);
     const abortTurn = liveTurn();
     const onClose = vi.fn();
@@ -694,12 +694,14 @@ describe("ConversationList and the answer under way", () => {
     await screen.findByText("Velocity question");
 
     fireEvent.click(screen.getByTitle("Velocity question"));
+    // Not while it loads: a load that fails leaves the open thread's turn alone.
+    expect(abortTurn).not.toHaveBeenCalled();
+    await waitFor(() => expect(useAgentStore.getState().activeConversationId).toBe("c3"));
     expect(abortTurn).toHaveBeenCalledTimes(1);
     expect(abortTurn).toHaveBeenCalledWith("thread");
-    expect(abortTurn.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(abortTurn.mock.invocationCallOrder[0]).toBeGreaterThan(
       vi.mocked(loadMessages).mock.invocationCallOrder[0]
     );
-    await waitFor(() => expect(useAgentStore.getState().activeConversationId).toBe("c3"));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
