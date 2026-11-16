@@ -353,6 +353,14 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: [],
     actions: { item_parked: ["sticky"], item_sent: ["todo.take"] },
   },
+  // A card dealt is turned face up; a shuffle puts the deck back in his hand.
+  // The round's last card cheers ("card-decks", "done") in the same tick, and
+  // that wins. A star is logged both ways, so it gets no scene.
+  {
+    toolId: "card-decks",
+    open: [],
+    actions: { card_dealt: ["poker.reveal"], deck_shuffled: ["poker"] },
+  },
 
   // ── Tools with the toolkit moments (S54–S59): no greeting, but their packs
   // load when the page opens, so the first reaction plays whole ──
