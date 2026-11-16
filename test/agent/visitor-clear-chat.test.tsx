@@ -28,6 +28,8 @@ vi.mock("@/lib/agent/visitor-runtime", () => ({
   canRetryLastTurn: vi.fn(() => true),
 }));
 
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import VisitorAgentPanel from "@/components/agent/mascot/visitor-agent-panel";
 import { CHAT_CLEARED } from "@/components/agent/mascot/visitor-clear-chat";
 import { PanelChrome } from "@/components/agent/mascot/panel-chrome";

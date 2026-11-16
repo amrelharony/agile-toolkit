@@ -11,6 +11,14 @@
  * (chat/reply-end: Copy reply, Try again, follow-ups), with what the
  * container wired for it.
  *
+ * The parts that draw messages (the items, latestReply, the card and
+ * cardUnderStep) come from the strip kit (chat/strip-kit, through its holder
+ * chat/strip-kit-ref), not from imports here: the owner's chat brings the kit
+ * statically, a visitor's with the runtime, before its first message. With
+ * no kit yet there is no message to draw (a visitor's messages come only
+ * from that runtime), so the log holds its `children` alone, in the same two
+ * wrappers.
+ *
  *   role="log", named "Conversation"
  *   aria-live="off"   a log is polite by default, which would read out every
  *                     streamed word, every step and every re-render. The chat
@@ -26,7 +34,7 @@
  * scroll-follow watches (use-stick-to-bottom): a reply growing in place
  * changes no message count, only that size.
  *
- * Runtime parts (chat-items reaches the markdown renderer), so this lives in
+ * Runtime parts (the chat context and the kit's holder), so this lives in
  * chat/, which every-page code may not reach
  * (test/agent/bundle-boundary.test.ts).
  */
@@ -36,10 +44,8 @@ import type { ChatItem } from "@/lib/agent/chat-view";
 import { cn } from "@/lib/utils";
 import { COMPACT_LOG } from "../mascot/panel-context";
 import { useChat } from "./chat-context";
-import { ChatItemView, latestReply } from "./chat-items";
-import { ConfirmCard } from "./confirm-card";
 import type { ReplyEndProps, ReplyRetry } from "./reply-end";
-import { cardUnderStep } from "./tool-steps";
+import { useStripKit } from "./strip-kit-ref";
 
 /** The end of the latest reply (chat/reply-end), as the chat's container wires it. */
 export interface ReplyEndWiring {
@@ -71,8 +77,10 @@ export const ChatLog = forwardRef<HTMLDivElement, ChatLogProps>(function ChatLog
   ref
 ) {
   const { logId, profile } = useChat();
+  // The parts that draw messages; none yet means no message to draw.
+  const kit = useStripKit();
   // The latest reply, once its turn has settled: its end goes right under it.
-  const end = busy || !ReplyEnd ? null : latestReply(items);
+  const end = busy || !ReplyEnd || !kit ? null : kit.latestReply(items);
   return (
     <div
       ref={ref}
@@ -88,13 +96,16 @@ export const ChatLog = forwardRef<HTMLDivElement, ChatLogProps>(function ChatLog
       )}
     >
       <div ref={contentRef} data-chat-content="" className="space-y-3">
-        {items.map((item) => (
-          <Fragment key={item.key}>
-            <ChatItemView item={item} />
-            {ReplyEnd && item === end?.reply && <ReplyEnd turn={end} retry={retry} />}
-          </Fragment>
-        ))}
-        {!cardUnderStep(items) && <ConfirmCard allowApproveAll={profile === "owner"} />}
+        {kit &&
+          items.map((item) => (
+            <Fragment key={item.key}>
+              <kit.ChatItemView item={item} />
+              {ReplyEnd && item === end?.reply && <ReplyEnd turn={end} retry={retry} />}
+            </Fragment>
+          ))}
+        {kit && !kit.cardUnderStep(items) && (
+          <kit.ConfirmCard allowApproveAll={profile === "owner"} />
+        )}
         {children}
       </div>
     </div>

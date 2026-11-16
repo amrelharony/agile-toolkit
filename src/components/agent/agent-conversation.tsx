@@ -29,13 +29,17 @@ import { Narration } from "./comic/comic-parts";
 import { ChatComposer } from "./chat/chat-composer";
 import { ChatProvider } from "./chat/chat-context";
 import { ChatEmpty } from "./chat/chat-empty";
-import { ThinkingItemView } from "./chat/chat-items";
 import { ChatNotice } from "./chat/chat-notice";
 import { ChatStrip, useAwaitingReply } from "./chat/chat-strip";
 import { DictateButton } from "./chat/dictate-button";
 import { PickUpChip } from "./chat/pick-up-chip";
 import { ReplyEnd } from "./chat/reply-end";
 import { StepDetails } from "./chat/step-details";
+// The parts that draw messages, in the owner's chunk: evaluating it fills the
+// log's holder (chat/strip-kit-ref), so a resumed thread draws on its first
+// render. A visitor's chat gets it with its runtime instead.
+import "./chat/strip-kit";
+import { ThinkingItemView } from "./chat/thinking-item";
 import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 
 /** A thread whose last message is this recent is picked up as the chat opens. */

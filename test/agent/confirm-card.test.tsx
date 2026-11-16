@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import { ChatProvider, useChat } from "@/components/agent/chat/chat-context";
 import { ChatStrip } from "@/components/agent/chat/chat-strip";
 import { ConfirmCard } from "@/components/agent/chat/confirm-card";

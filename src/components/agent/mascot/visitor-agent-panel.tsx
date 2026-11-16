@@ -6,7 +6,15 @@
  * VisitorPanel imports this chunk (React.lazy) only after the visitor
  * agreed to the consent card, and this chunk loads the agent runtime
  * (lib/agent/visitor-runtime: the action registry and the streaming client)
- * only on the first message, with a dynamic import.
+ * only on the first message, with a dynamic import. The same import brings
+ * the strip kit (chat/strip-kit: the parts that draw messages, the markdown
+ * renderer, the steps, the confirm card and the tools' names), through
+ * ./visitor-chat-runtime, and hands it to the log's holder before the turn
+ * starts, so the chat's first paint carries none of it. Until then the chat
+ * has no message to draw: its messages come only from that runtime. What it
+ * draws before (the empty line and starters, the thinking balloon while the
+ * runtime loads, a notice such as the runtime's load error, and the status
+ * line's "Amr is thinking…") needs no kit.
  *
  * The chat lives in memory (useAgentStore) and is never saved. Leaving it, by
  * closing the panel or going back to the tool finder, stops nothing: an
@@ -86,10 +94,11 @@ import { ChatComposer, type ComposerMicProps } from "../chat/chat-composer";
 import { ChatProvider } from "../chat/chat-context";
 import { DictateButton } from "../chat/dictate-button";
 import { ChatEmpty } from "../chat/chat-empty";
-import { ThinkingItemView } from "../chat/chat-items";
 import { ChatNotice } from "../chat/chat-notice";
 import { ChatStrip, useAwaitingReply } from "../chat/chat-strip";
 import type { ReplyEndProps } from "../chat/reply-end";
+import { currentStripKit, provideStripKit } from "../chat/strip-kit-ref";
+import { ThinkingItemView } from "../chat/thinking-item";
 import type { ReadOnlyFooterProps } from "./visitor-chat-footer";
 import { Narration } from "../comic/comic-parts";
 import { PanelIconButton } from "./panel-chrome";
@@ -107,16 +116,21 @@ export const LIVE_ROOM_LINE =
 export const VISITOR_RUNTIME_LOAD_ERROR =
   "Amr's chat couldn't load. Check your connection and try again.";
 
-type Runtime = typeof import("@/lib/agent/visitor-runtime");
+type Runtime = typeof import("./visitor-chat-runtime");
 
 let runtimePromise: Promise<Runtime> | null = null;
 let loadedRuntime: Runtime | null = null;
 
-/** The agent runtime, loaded once, on the first message. */
+/**
+ * The agent runtime, loaded once, on the first message, with the strip kit
+ * (./visitor-chat-runtime): the kit is in the log's holder before the turn
+ * starts, so the question's caption draws as it reaches the store.
+ */
 function loadRuntime(): Promise<Runtime> {
   if (!runtimePromise) {
-    runtimePromise = import("@/lib/agent/visitor-runtime").then(
+    runtimePromise = import("./visitor-chat-runtime").then(
       (m) => {
+        provideStripKit(m.STRIP_KIT);
         loadedRuntime = m;
         return m;
       },
@@ -355,6 +369,12 @@ export default function VisitorAgentPanel({
   // In a visitor live room Amr gets no tools; a caption in the log says so.
   const inLiveRoom = useSyncExternalStore(subscribeLiveVisitorRoom, inLiveVisitorRoom, () => false);
   const empty = useAgentStore((s) => s.messages.length === 0);
+  // Messages come only from the runtime, which brings the strip kit, so a
+  // message with no kit to draw it is never expected. Should one ever show
+  // up, load the runtime (and the kit with it) rather than leave the log blank.
+  useEffect(() => {
+    if (!empty && !currentStripKit()) void loadRuntime().catch(() => {});
+  }, [empty]);
   const vip = useVipHint();
   // The page's tool when the visitor may see it (the menus' rule: a lock
   // panel or a tool not out yet goes unnamed): the empty chat's starters and

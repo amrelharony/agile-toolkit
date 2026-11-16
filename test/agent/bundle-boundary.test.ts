@@ -19,8 +19,10 @@ import ts from "typescript";
  * keeps it to the every-page rules; the visitor's chat (visitor-agent-panel)
  * is a further chunk, reached only by a dynamic import; and the runtime
  * behind it (lib/agent/visitor-runtime: the registry and the client) loads
- * only on the visitor's first message, by another dynamic import. No visitor
- * file reaches the owner's Supabase persistence.
+ * only on the visitor's first message, by another dynamic import, of
+ * mascot/visitor-chat-runtime, which brings the strip kit (chat/strip-kit:
+ * the parts that draw messages) with it. No visitor file reaches the owner's
+ * Supabase persistence.
  *
  * The chat revamp adds two folders. src/components/agent/comic/ holds the
  * runtime-free comic parts (balloons, captions), which every page may use;
@@ -51,6 +53,8 @@ const VISITOR_GUIDE = "src/components/agent/mascot/visitor-guide.tsx";
 const VISITOR_CONSENT = "src/components/agent/mascot/visitor-ai-consent.tsx";
 const VISITOR_CHAT = "src/components/agent/mascot/visitor-agent-panel.tsx";
 const VISITOR_RUNTIME = "src/lib/agent/visitor-runtime.ts";
+/** What the visitor's chat loads on its first message: the runtime and the strip kit. */
+const VISITOR_CHAT_RUNTIME = "src/components/agent/mascot/visitor-chat-runtime.ts";
 const OWNER_PANEL = "src/components/agent/mascot/owner-agent-panel.tsx";
 const REGISTER_ALL = "src/lib/actions/register-all.ts";
 const AGENT_CLIENT = "src/lib/agent/client.ts";
@@ -61,6 +65,8 @@ const UTILS = "src/lib/utils.ts";
 const COMIC_DIR = "src/components/agent/comic/";
 const STRIP_PARTS = `${COMIC_DIR}strip-parts.tsx`;
 const CHAT_DIR = "src/components/agent/chat/";
+const STRIP_KIT = `${CHAT_DIR}strip-kit.ts`;
+const OWNER_CHAT = "src/components/agent/agent-conversation.tsx";
 const INK_DIRS = ["src/components/ink/", "src/lib/ink/"];
 
 /**
@@ -483,7 +489,8 @@ describe("import graph walk (self-tests)", () => {
 
   it("resolves every repo import the walks meet, static and dynamic", () => {
     // A specifier that resolves nowhere would drop its whole subtree unseen.
-    for (const c of [everyPage, mascotChunk, staticShell, visitorPanel, visitorChat, comic]) {
+    const walks = [everyPage, mascotChunk, staticShell, visitorPanel, visitorChat, comic];
+    for (const c of [...walks, closure([VISITOR_CHAT_RUNTIME]), closure([OWNER_CHAT])]) {
       for (const file of Array.from(c.files.keys())) lazyTargets(file);
     }
     expect(Array.from(unresolved)).toEqual([]);
@@ -540,8 +547,11 @@ describe("import graph walk (self-tests)", () => {
         "src/components/agent/mascot/engine/scenes.ts",
       ])
     );
-    // The visitor's chat renders markdown, so its walk reaches the renderer.
-    expect(visitorChat.files.has(MARKDOWN_VIEW)).toBe(true);
+    // The owner's chat renders markdown, so its walk reaches the renderer; a
+    // visitor's gets it with the strip kit, on the first message.
+    expect(closure([OWNER_CHAT]).files.has(MARKDOWN_VIEW)).toBe(true);
+    expect(closure([VISITOR_CHAT_RUNTIME]).files.has(MARKDOWN_VIEW)).toBe(true);
+    expect(visitorChat.files.has(MARKDOWN_VIEW)).toBe(false);
     expect(visitorPanel.files.has(VISITOR_GUIDE)).toBe(true);
     expect(visitorPanel.files.has(VISITOR_CONSENT)).toBe(true);
     expect(comicFiles).toContain("src/components/agent/comic/comic-parts.tsx");
@@ -555,6 +565,7 @@ describe("every-page bundle", () => {
     const bans = [
       ...OWNER_BANS,
       exactly(VISITOR_CHAT),
+      exactly(VISITOR_CHAT_RUNTIME),
       under(CHAT_DIR),
       {
         label: "src/components/agent/markdown.*",
@@ -581,13 +592,12 @@ describe("every-page bundle", () => {
 });
 
 describe("the chat strip (chat/)", () => {
-  const OWNER_CHAT = "src/components/agent/agent-conversation.tsx";
   const STRIP = [
     `${CHAT_DIR}chat-strip.tsx`,
     `${CHAT_DIR}chat-frame.tsx`,
     `${CHAT_DIR}chat-log.tsx`,
-    `${CHAT_DIR}chat-items.tsx`,
-    `${CHAT_DIR}tool-steps.tsx`,
+    `${CHAT_DIR}thinking-item.tsx`,
+    `${CHAT_DIR}strip-kit-ref.ts`,
     `${CHAT_DIR}chat-context.tsx`,
     `${CHAT_DIR}chat-empty.tsx`,
     `${CHAT_DIR}suggestion-chips.tsx`,
@@ -606,6 +616,41 @@ describe("the chat strip (chat/)", () => {
     }
     expect(staticTargets(VISITOR_CHAT)).toContain(`${CHAT_DIR}chat-strip.tsx`);
     expect(staticTargets(OWNER_CHAT)).toContain(`${CHAT_DIR}chat-strip.tsx`);
+  });
+
+  /**
+   * The strip kit: the parts that draw messages, which the log and the status
+   * line take from the kit's holder (strip-kit-ref) instead of importing.
+   */
+  const KIT = [
+    `${CHAT_DIR}chat-items.tsx`,
+    `${CHAT_DIR}tool-steps.tsx`,
+    `${CHAT_DIR}confirm-card.tsx`,
+    STRIP_KIT,
+    MARKDOWN_VIEW,
+    "src/lib/agent/tool-label.ts",
+  ];
+
+  it("hands the parts that draw messages to the owner's chat statically, and to a visitor's only with the runtime", () => {
+    const ownerChat = closure([OWNER_CHAT]);
+    const withRuntime = closure([VISITOR_CHAT_RUNTIME]);
+    for (const file of KIT) {
+      expect(isFile(path.join(ROOT, file)), `${file} exists`).toBe(true);
+      expect(ownerChat.files.has(file), `the owner's chat reaches ${file}`).toBe(true);
+      expect(withRuntime.files.has(file), `the visitor's runtime brings ${file}`).toBe(true);
+      expect(visitorChat.files.has(file), `the visitor's first paint never carries ${file}`).toBe(
+        false
+      );
+    }
+    // The owner's chat imports the kit itself, so it fills the holder on its first render.
+    expect(staticTargets(OWNER_CHAT)).toContain(STRIP_KIT);
+    // The holder is all the strip's log and status line import: React and the kit's type.
+    expect(staticTargets(`${CHAT_DIR}strip-kit-ref.ts`)).toEqual(["react"]);
+    for (const file of [`${CHAT_DIR}chat-log.tsx`, `${CHAT_DIR}chat-status.tsx`]) {
+      expect(staticTargets(file), file).toContain(`${CHAT_DIR}strip-kit-ref.ts`);
+    }
+    // The kit draws messages only: it never reaches the registry or the client.
+    expect(violations(closure([STRIP_KIT]), [...OWNER_BANS, SUPABASE])).toEqual([]);
   });
 
   it("is reached from no every-page root: the ban covers every file in the folder", () => {
@@ -628,6 +673,11 @@ describe("the chat strip (chat/)", () => {
     );
     expect(visitorChat.files.has(STRIP_PARTS)).toBe(true);
     expect(closure([OWNER_CHAT]).files.has(STRIP_PARTS)).toBe(true);
+    // A visitor's first paint reaches them through the thinking balloon, which
+    // takes its balloon from strip-parts, never comic-parts.
+    const thinking = staticTargets(`${CHAT_DIR}thinking-item.tsx`);
+    expect(thinking).toContain(STRIP_PARTS);
+    expect(thinking).not.toContain(`${COMIC_DIR}comic-parts.tsx`);
   });
 
   it("draws one composer in both chats, and each container's form is gone", () => {
@@ -785,7 +835,35 @@ describe("visitor bundle", () => {
   });
 
   it("loads the agent runtime only with a dynamic import, from the visitor's chat", () => {
-    expect(lazyTargets(VISITOR_CHAT)).toContain(VISITOR_RUNTIME);
+    // One import brings the runtime and the strip kit, so they share a chunk.
+    expect(lazyTargets(VISITOR_CHAT)).toContain(VISITOR_CHAT_RUNTIME);
+    expect(staticTargets(VISITOR_CHAT_RUNTIME)).toEqual(
+      expect.arrayContaining([VISITOR_RUNTIME, STRIP_KIT])
+    );
+    for (const file of [VISITOR_CHAT_RUNTIME, VISITOR_RUNTIME, STRIP_KIT]) {
+      expect(visitorChat.files.has(file), `the visitor's chat chunk never carries ${file}`).toBe(
+        false
+      );
+    }
+  });
+
+  it("imports the runtime with its kit from the visitor's chat alone, and only lazily", () => {
+    const ownerChat = closure([OWNER_CHAT]);
+    expect(ownerChat.files.has(VISITOR_CHAT_RUNTIME)).toBe(false);
+    const files = new Set([
+      ...Array.from(everyPage.files.keys()),
+      ...Array.from(visitorPanel.files.keys()),
+      ...Array.from(visitorChat.files.keys()),
+      ...Array.from(ownerChat.files.keys()),
+    ]);
+    const staticFrom = Array.from(files).filter((file) =>
+      staticTargets(file).includes(VISITOR_CHAT_RUNTIME)
+    );
+    expect(staticFrom).toEqual([]);
+    const lazyFrom = Array.from(files).filter((file) =>
+      lazyTargets(file).includes(VISITOR_CHAT_RUNTIME)
+    );
+    expect(lazyFrom).toEqual([VISITOR_CHAT]);
   });
 
   it("keeps the runtime the only place the visitor chat gets the registry from", () => {

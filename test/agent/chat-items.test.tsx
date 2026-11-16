@@ -15,6 +15,8 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRef, type ReactNode } from "react";
 import { z } from "zod";
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import { ChatComposer } from "@/components/agent/chat/chat-composer";
 import {
   ChatProvider,

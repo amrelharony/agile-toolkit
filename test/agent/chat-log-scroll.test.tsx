@@ -21,6 +21,8 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { useRef, type ReactNode } from "react";
 import { ChatVisibleContext } from "@/components/agent/chat-visibility";
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import { ChatProvider } from "@/components/agent/chat/chat-context";
 import { ChatFrame } from "@/components/agent/chat/chat-frame";
 import { STICK_THRESHOLD, nearestTop } from "@/components/agent/chat/use-stick-to-bottom";
