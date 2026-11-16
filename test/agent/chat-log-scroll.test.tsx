@@ -265,6 +265,29 @@ describe("the frame", () => {
     expect(log.scrollTo).toHaveBeenLastCalledWith({ top: 800, behavior: "instant" });
     expect(latest()).toBeNull();
   });
+
+  it("is a keyboard stop of its own, ringed inside its edge, that nothing focuses by itself", async () => {
+    // A visitor's chat once the messages have run out ends on the refused
+    // question: no reply end, nothing in the strip to Tab to. The keys can
+    // still reach the log and scroll it (axe scrollable-region-focusable).
+    const { log } = await settled([...CHAT, you("u3", "Who picks the cards?")]);
+    const el = theLog();
+    expect(el).toHaveAttribute("tabindex", "0");
+    expect(el.querySelector("button, a[href], [tabindex='0']")).toBeNull();
+    expect(el).not.toHaveFocus();
+    // Inside its edge, high contrast's !important outline-offset included, so
+    // the frame's scrolling never cuts the ring off.
+    expect(el).toHaveClass("focus-visible:!outline-offset-[-3px]");
+    expect(el.className).not.toMatch(/outline-none/);
+    // Focused, the keys that go up still count as the reader leaving the end.
+    act(() => el.focus());
+    expect(el).toHaveFocus();
+    fireEvent.keyDown(el, { key: "PageUp" });
+    log.readTo(500);
+    await frames();
+    expect(log.top()).toBe(500);
+    expect(latest()).toBeInTheDocument();
+  });
 });
 
 describe("following the log", () => {

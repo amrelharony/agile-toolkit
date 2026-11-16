@@ -26,6 +26,13 @@
  *                     status line and announcer, so nothing in here is live.
  *   id                the chat context's logId, for the controls that point
  *                     at it (the Latest button's aria-controls)
+ *   tabIndex=0        a keyboard stop of its own, so the keys can scroll it
+ *                     when nothing in it takes focus (a visitor's chat once
+ *                     the messages have run out: the strip ends on the refused
+ *                     question, with no reply end to Tab to). Its ring is drawn
+ *                     inside its edge (high contrast's too), where the frame's
+ *                     scrolling can't cut it off. Nothing focuses it from code:
+ *                     the log is never a view's first focus (use-panel-focus).
  *
  * It is a scroller (data-amr-scroll, for the phone sheet's CSS) with a floor,
  * so in a short panel the chat's root scrolls instead of the log collapsing
@@ -88,9 +95,13 @@ export const ChatLog = forwardRef<HTMLDivElement, ChatLogProps>(function ChatLog
       role="log"
       aria-label="Conversation"
       aria-live="off"
+      tabIndex={0}
       data-amr-scroll=""
       className={cn(
         "min-h-[6rem] flex-1 overflow-y-auto overscroll-contain px-1 py-2",
+        // The site's own focus line (globals.css :focus-visible, high
+        // contrast's heavier one too), moved inside the edge.
+        "focus-visible:!outline-offset-[-3px]",
         COMPACT_LOG,
         className
       )}
