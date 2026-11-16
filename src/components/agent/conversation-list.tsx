@@ -233,6 +233,15 @@ export function ConversationList({ onClose, takeFocus = false }: ConversationLis
   const openingRef = useRef<string | null>(null);
   const handTo = useRef<FocusKey | null>(null);
   const headingId = useId();
+  // Still on screen: a thread that loads after History was left opens nothing.
+  // Set in the effect body too, so Strict Mode's second run keeps it true.
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
 
   // `asked`: the owner asked for this read (History opening, Try again), so a
   // failure is said; a refresh in the background stays quiet.
@@ -358,7 +367,12 @@ export function ConversationList({ onClose, takeFocus = false }: ConversationLis
     setNotOpened((n) => (n?.id === meta.id ? n : null));
     const loaded = await loadMessages(meta.id);
     openingRef.current = null;
+    // History was left meanwhile (New chat, Back to chat, Escape, the panel
+    // shut): the owner's later choice wins, so nothing is opened or said.
+    if (!live.current) return;
     setOpening(null);
+    // Deleted while it loaded (its Undo still open): it opens nothing either.
+    if (pendingDeletes.has(meta.id)) return;
     if (!loaded.ok) {
       // It stays in History, its row (and focus) where they were, with a
       // way to try again.

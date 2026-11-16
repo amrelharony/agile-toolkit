@@ -455,6 +455,78 @@ describe("loading and failures", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("opens nothing that loads after History was left: New chat wins", async () => {
+    const onClose = vi.fn();
+    /** History until it closes, as the owner's panel keeps it. */
+    function Leaving() {
+      const [shown, setShown] = useState(true);
+      return shown ? (
+        <ConversationList
+          onClose={() => {
+            onClose();
+            setShown(false);
+          }}
+        />
+      ) : null;
+    }
+    render(
+      <LiveAnnouncerProvider>
+        <Leaving />
+      </LiveAnnouncerProvider>
+    );
+    await screen.findByText("Velocity question");
+    const read = later<Read<ChatMessage[]>>();
+    h.load.mockImplementationOnce(() => read.promise);
+    fireEvent.click(openButton("Velocity question"));
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    const said = heard(assertive());
+    const saidPolitely = heard(polite());
+
+    const thread: ChatMessage[] = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "hi" }],
+        createdAt: THREADS[2].createdAt,
+      },
+    ];
+    await act(async () => read.settle(ok(thread)));
+    await act(() => new Promise((r) => setTimeout(r, 80)));
+    // The fresh chat stays: no thread swapped in, no second close, nothing said.
+    const s = useAgentStore.getState();
+    expect(s.activeConversationId).toBeNull();
+    expect(s.messages).toEqual([]);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(said.lines).toEqual([]);
+    expect(saidPolitely.lines).toEqual([]);
+    said.stop();
+    saidPolitely.stop();
+  });
+
+  it("keeps another thread's answer running when Back to chat came before the load", async () => {
+    useAgentStore.getState().setActiveConversation(THREADS[0], []);
+    const abortTurn = vi.fn();
+    useAgentStore.setState({ streaming: true });
+    useAgentStore.getState().setAbortTurn(abortTurn);
+    const read = later<Read<ChatMessage[]>>();
+    const { unmount } = render(
+      <LiveAnnouncerProvider>
+        <ConversationList onClose={vi.fn()} />
+      </LiveAnnouncerProvider>
+    );
+    await screen.findByText("Velocity question");
+    h.load.mockImplementationOnce(() => read.promise);
+    fireEvent.click(openButton("Velocity question"));
+    // Back to chat (or Escape, or the panel shut): the list goes.
+    unmount();
+    await act(async () => read.settle(ok([])));
+    expect(abortTurn).not.toHaveBeenCalled();
+    const s = useAgentStore.getState();
+    expect(s.streaming).toBe(true);
+    expect(s.activeConversationId).toBe("c1");
+  });
+
   it("exports nothing from a thread it can't read, and says so", async () => {
     const download = vi.spyOn(HTMLAnchorElement.prototype, "click");
     renderList();
