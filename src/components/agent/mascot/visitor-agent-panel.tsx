@@ -22,7 +22,9 @@
  * visitor never sees JSON), with the confirm card under the step it asks
  * about (no Approve all for a visitor). Notes and errors show as a narration
  * caption under the strip (chat/chat-notice), the narrator's line and never
- * Amr's own words, with "Try again" or "Go on" when the notice calls for one.
+ * Amr's own words, with "Try again" or "Go on" when the notice calls for one;
+ * the chat's status line (chat/chat-status) says what Amr is doing while he
+ * answers.
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone, never
@@ -43,7 +45,8 @@ import { useChatVisible } from "../chat-visibility";
 import { ChatProvider } from "../chat/chat-context";
 import { ThinkingItemView } from "../chat/chat-items";
 import { ChatNotice } from "../chat/chat-notice";
-import { ChatStrip, ThinkingStatus, useAwaitingReply } from "../chat/chat-strip";
+import { ChatStatus } from "../chat/chat-status";
+import { ChatStrip, useAwaitingReply } from "../chat/chat-strip";
 import { handleMascotCommand } from "./engine/customization/commands";
 import { COMPACT_HIDDEN, useInitialFocus } from "./panel-context";
 import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
@@ -269,8 +272,8 @@ export default function VisitorAgentPanel({
   }, [initialQuestion]);
 
   const busy = streaming || loading;
-  // The thinking balloon and status, until the reply's first words or steps
-  // arrive (or between tool rounds). The log follows itself (chat-frame).
+  // The thinking balloon, until the reply's first words or steps arrive (or
+  // between tool rounds). The log follows itself (chat-frame).
   const awaiting = useAwaitingReply(busy);
   const peak = peakNote(quota, now);
 
@@ -330,7 +333,7 @@ export default function VisitorAgentPanel({
           </Button>
         )}
       </form>
-      <ThinkingStatus awaiting={awaiting} />
+      <ChatStatus busy={busy} />
       {/* The status lines wait while the panel is compact. */}
       <p className={cn("mt-1.5 text-xs text-sub", COMPACT_HIDDEN)} data-testid="visitor-ai-quota">
         {quota

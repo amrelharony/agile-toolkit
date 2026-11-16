@@ -28,7 +28,8 @@ import { useChatVisible } from "./chat-visibility";
 import { ChatProvider } from "./chat/chat-context";
 import { ThinkingItemView } from "./chat/chat-items";
 import { ChatNotice } from "./chat/chat-notice";
-import { ChatStrip, ThinkingStatus, useAwaitingReply } from "./chat/chat-strip";
+import { ChatStatus } from "./chat/chat-status";
+import { ChatStrip, useAwaitingReply } from "./chat/chat-strip";
 import { StepDetails } from "./chat/step-details";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
@@ -61,7 +62,8 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
  * Closing the panel unmounts this and stops nothing: the turn and what the
  * owner has typed but not sent (drafts.owner) live in the agent store. Notes
  * and errors show as a narration caption under the strip (chat/chat-notice),
- * with "Try again" or "Go on" when the notice calls for one.
+ * with "Try again" or "Go on" when the notice calls for one; the chat's
+ * status line (chat/chat-status) says what Amr is doing while he answers.
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone
@@ -72,7 +74,7 @@ export function AgentConversation() {
   const streaming = useAgentStore((s) => s.streaming);
   const input = useAgentStore((s) => s.drafts.owner);
   const empty = useAgentStore((s) => s.messages.length === 0);
-  // The thinking balloon and status, until the reply's first words or steps arrive.
+  // The thinking balloon, until the reply's first words or steps arrive.
   const awaiting = useAwaitingReply(streaming);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   // A send waiting for its new conversation: a second one waits its turn.
@@ -274,7 +276,7 @@ export function AgentConversation() {
         )}
       </form>
       {voice.error && <p className="mt-1.5 text-xs text-destructive">{voice.error}</p>}
-      <ThinkingStatus awaiting={awaiting} />
+      <ChatStatus busy={streaming} />
       <p className={cn("mt-1.5 text-xs text-sub", COMPACT_HIDDEN)}>
         {/* Key hints mean nothing on a touch screen; the safety note stays. It
             is true: every delete, remove, reset, clear or archive asks

@@ -1075,7 +1075,7 @@ describe("MascotAssistant — visitor AI", () => {
       expect(screen.queryByRole("button", { name: /don't ask again/ })).toBeNull();
     });
 
-    it("shows Amr thinking until his reply's first words arrive", async () => {
+    it("shows Amr thinking until his reply begins, then says each phase of the turn", async () => {
       await openChatWithQuestion();
       act(() => {
         useAgentStore.setState({
@@ -1106,19 +1106,46 @@ describe("MascotAssistant — visitor AI", () => {
       expect(thinking).toHaveAttribute("data-tail", "amr");
       expect(thinking?.textContent).toBe("");
 
+      // A tool call: the step shows its pen, and the status names the tool.
       act(() => {
         useAgentStore.getState().appendMessage({
           id: "a1",
           role: "assistant",
-          content: [{ type: "text", text: "Start with what went well." }],
+          content: [
+            { type: "tool_use", id: "c1", name: "tool_retro_add_card", input: { text: "x" } },
+          ],
           createdAt: "2026-11-09T08:00:01Z",
         });
       });
       expect(screen.queryByText("Amr is thinking…")).toBeNull();
       expect(log.querySelector("[data-thinking]")).toBeNull();
+      expect(status).toHaveTextContent("Amr is working in Retro Board…");
+
+      // Its result is in: thinking again, then his words stream in.
+      act(() => {
+        useAgentStore.getState().appendMessage({
+          id: "t1",
+          role: "tool",
+          content: [{ type: "tool_result", tool_use_id: "c1", content: '{"added":true}' }],
+          createdAt: "2026-11-09T08:00:02Z",
+        });
+      });
+      expect(status).toHaveTextContent("Amr is thinking…");
+      act(() => {
+        useAgentStore.getState().appendMessage({
+          id: "a2",
+          role: "assistant",
+          content: [{ type: "text", text: "Start with what went well." }],
+          createdAt: "2026-11-09T08:00:03Z",
+        });
+      });
+      expect(status).toHaveTextContent("Amr is writing…");
+
       // The same status line, still there and empty, for the next turn.
+      act(() => useAgentStore.getState().setStreaming(false));
       expect(status).toBeInTheDocument();
       expect(status).toBeEmptyDOMElement();
+      expect(log.contains(status)).toBe(false);
     });
 
     /** A turn under way, as the runtime registers it: its abort is with the store. */

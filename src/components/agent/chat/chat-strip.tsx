@@ -17,9 +17,8 @@
  * chunk (test/agent/chat-stream-renders.test.tsx).
  *
  * Also here, for both containers: whether Amr is still to begin his reply
- * (the thinking balloon), and the chat's one status line, always mounted, so
- * a screen reader hears "Amr is thinking…" as it changes. It stands outside
- * the log, which is never live (chat-log).
+ * (the thinking balloon). The chat's one status line, which says it in words,
+ * is chat-status, outside the log, which is never live (chat-log).
  *
  * Runtime parts (the agent store, the markdown renderer through the log), so
  * this lives in chat/, which every-page code may not reach
@@ -30,11 +29,7 @@ import { useMemo, useState } from "react";
 import { createChatView, type ChatItem } from "@/lib/agent/chat-view";
 import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
-import { cn } from "@/lib/utils";
 import { ChatFrame, type ChatFrameProps } from "./chat-frame";
-
-/** The status line's words while Amr is still to begin his reply. */
-export const AMR_THINKING = "Amr is thinking…";
 
 /**
  * The chat's items from the store, each kept by identity while it doesn't
@@ -75,22 +70,4 @@ export type ChatStripProps = Omit<ChatFrameProps, "items">;
 export function ChatStrip(props: ChatStripProps) {
   const items = useChatItems();
   return <ChatFrame {...props} items={items} />;
-}
-
-/**
- * The chat's one status line, under the composer: "Amr is thinking…" until
- * his reply begins, and empty otherwise, but always there, so the change is
- * heard (a live region mounted with its words is often missed). Compact (a
- * phone's keyboard up), it leaves the screen but still speaks.
- */
-export function ThinkingStatus({ awaiting }: { awaiting: boolean }) {
-  return (
-    <p
-      role="status"
-      data-chat-status=""
-      className={cn("mt-1.5 text-xs text-sub empty:mt-0", "group-data-[amr-compact]/amr:sr-only")}
-    >
-      {awaiting ? AMR_THINKING : null}
-    </p>
-  );
 }

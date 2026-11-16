@@ -510,7 +510,9 @@ describe("AgentConversation: the comic strip", () => {
       });
     });
     expect(log.querySelector("[data-thinking]")).toBeNull();
-    // Still there, empty, for the next turn.
+    // The same status line says the next phase, and empties when the turn is over.
+    expect(status).toHaveTextContent("Amr is writing…");
+    act(() => useAgentStore.getState().setStreaming(false));
     expect(status).toBeInTheDocument();
     expect(status).toBeEmptyDOMElement();
   });
