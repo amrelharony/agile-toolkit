@@ -68,7 +68,7 @@ import type { ChatItem } from "@/lib/agent/chat-view";
 import { cn } from "@/lib/utils";
 import { useChatVisible } from "../chat-visibility";
 import { DOCK_FOOTER_IN_PX3 } from "../mascot/panel-context";
-import { onTouchScreen, useChat } from "./chat-context";
+import { onTouchScreen, tapOnTouchScreen, useChat } from "./chat-context";
 import { ChatLog } from "./chat-log";
 import { useStickToBottom } from "./use-stick-to-bottom";
 import { useTurnAnnouncer } from "./use-turn-announcer";
@@ -177,14 +177,13 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
     };
   }, [focusComposer]);
 
-  const latest = (e: MouseEvent) => {
+  const latest = (e: MouseEvent<HTMLButtonElement>) => {
     // Focus first: the button goes as the log reaches its end. Not after a
     // tap on a touch screen: there a tap means "show me the newest", and the
     // box taking focus would raise the keyboard (compact mode, the log at its
     // floor) over it; as with the safety net, focus stays where the tap left
     // it. A key press (detail 0) still hands focus over.
-    const tap = e.detail > 0 && onTouchScreen(rootRef.current?.ownerDocument);
-    if (!tap) focusComposer();
+    if (!tapOnTouchScreen(e)) focusComposer();
     scrollToLatest();
   };
 

@@ -38,7 +38,7 @@ import { noticeAction } from "@/lib/agent/notice-actions";
 import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
 import { Narration } from "../comic/comic-parts";
-import { focusFromCode, onTouchScreen, useChat } from "./chat-context";
+import { focusFromCode, tapOnTouchScreen, useChat } from "./chat-context";
 
 export interface ChatNoticeProps {
   /** A button may show: no turn under way, and one can start (the owner is signed in). */
@@ -65,12 +65,12 @@ export function ChatNotice({ ready, canRetry, onTryAgain, onGoOn }: ChatNoticePr
       ? ["Go on", onGoOn]
       : null;
   const press = (e: MouseEvent<HTMLButtonElement>) => {
-    const button = e.currentTarget;
-    if (e.detail > 0 && onTouchScreen(button.ownerDocument)) {
-      // A tap on a touch screen: the latest question, not the box (file comment).
+    if (tapOnTouchScreen(e)) {
+      // The latest question, not the box (file comment).
       const asked =
-        button.closest('[role="log"]')?.querySelectorAll<HTMLElement>('[data-chat-item="you"]') ??
-        [];
+        e.currentTarget
+          .closest('[role="log"]')
+          ?.querySelectorAll<HTMLElement>('[data-chat-item="you"]') ?? [];
       focusFromCode(asked[asked.length - 1]);
     } else {
       focusComposer();

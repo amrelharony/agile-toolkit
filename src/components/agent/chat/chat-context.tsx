@@ -104,6 +104,14 @@ export function focusFromCode(el: HTMLElement | null | undefined): boolean {
 export const onTouchScreen = (doc: Document | null | undefined) =>
   doc?.defaultView?.matchMedia?.("(pointer: coarse)")?.matches === true;
 
+/**
+ * A click that was a tap on a touch screen, where the message box taking
+ * focus would raise the keyboard. A key press clicks with detail 0, so it is
+ * never one: a control may still hand focus to the box after it.
+ */
+export const tapOnTouchScreen = (e: { detail: number; currentTarget: Element }) =>
+  e.detail > 0 && onTouchScreen(e.currentTarget.ownerDocument);
+
 /** No chat around the part: a visitor's, with nothing to focus. */
 export const NO_CHAT: ChatContextValue = Object.freeze({
   profile: "visitor",

@@ -29,7 +29,7 @@ import type { MouseEvent } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { useAgentStore } from "@/lib/agent/store";
-import { onTouchScreen, useChat } from "./chat-context";
+import { tapOnTouchScreen, useChat } from "./chat-context";
 
 /**
  * The box's words once `starter` is picked: the starter alone over an empty
@@ -48,7 +48,7 @@ export function SuggestionChips({ starters }: { starters: readonly string[] }) {
     const next = filledDraft(store.drafts[profile], starter, starters);
     // In the box before focus goes there, so the caret lands after the words.
     flushSync(() => store.setDraft(profile, next));
-    if (!(e.detail > 0 && onTouchScreen(e.currentTarget.ownerDocument))) focusComposer();
+    if (!tapOnTouchScreen(e)) focusComposer();
   };
   return (
     // 1 px in from the log's edge, so High contrast's focus ring (5 px out) isn't clipped.
