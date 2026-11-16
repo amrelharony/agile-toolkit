@@ -54,7 +54,7 @@ export const CaptureForm = forwardRef<
             enterKeyHint="done"
             autoComplete="off"
             onChange={(e) => update({ text: e.target.value })}
-            placeholder="e.g. Who owns the release checklist?"
+            placeholder="e.g. Who owns the checklist?"
           />
         )}
       </Field>

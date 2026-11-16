@@ -494,7 +494,7 @@ export function PostMortemClient() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") addPostMortem();
                 }}
-                placeholder="e.g. Checkout 500 spike — 2026-05-08"
+                placeholder="e.g. Checkout 500 spike"
                 className="bg-surface border-border"
               />
             </div>
