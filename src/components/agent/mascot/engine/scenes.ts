@@ -66,8 +66,9 @@ function tool(name: string, fallback: Fallback, frames: Array<[string, number]>)
  * poses in order, each 600 ms, the last held 1.6 s and the reduced-motion still (the
  * release's loop rule for all of them: play once, hold the final pose). A sheet whose
  * final beats are drawn wrong ends on its table's `last` until redrawn; a named
- * variant ends earlier where a trigger holds an earlier beat (x112.filter), or where
- * a tool's preview must stop before an outcome nothing records (x036.preview).
+ * variant ends earlier where a trigger holds an earlier beat (x112.filter), where
+ * a tool's preview must stop before an outcome nothing records (x036.preview), or
+ * where a real event did less than the sheet's last beats show (x016.sent).
  *
  * The stand-in while a pack loads is a pose with no gesture: the review pose's
  * thumbs-up would read as a pass several of these rules forbid.
@@ -1440,6 +1441,17 @@ const LIST: Array<[string, Clip]> = [
   expansion("x049", "idle", 5, "x049.preview"),
   // RLHF Log logs ties too, unseen: the blinded pair compared, before a preference is kept.
   expansion("x051", "idle", 5, "x051.compare"),
+  // Real events elsewhere (EVENT_SCENES, the cast rows of context/tool-scenes.ts) that
+  // stop before a beat claiming more than the event did.
+  // The guestbook only takes a note in to wait for approval: the note written and the pen
+  // capped, not beat 8 presenting the page as if the note showed there.
+  expansion("x016", "idle", 7, "x016.sent"),
+  // A love or a Seen answer is kept here and maybe counted: the card held halfway in the
+  // slot, before beat 7 drops it in (illustration only, by its own beat) and 8's thumbs-up.
+  expansion("x017", "idle", 6, "x017.card"),
+  // A test created hasn't run: the spacer fitted and the cart back at the start, before
+  // beat 7 shows it crossing the join.
+  expansion("x095", "idle", 6, "x095.setup"),
   // Present mode: the eight beats, then frame 8 held for as long as the presentation lasts.
   scene("x111.present", "idle", [...expansion("x111", "idle")[1].steps], {
     loop: [f("x111.8", 2000)],
@@ -1468,6 +1480,37 @@ const GALLERY_VARIANTS: Readonly<Record<string, SceneName>> = {
 
 /** The scene an expansion pack plays when the visitor asks for it: its gallery variant, or itself. */
 export const galleryScene = (pack: string): SceneName => GALLERY_VARIANTS[pack] ?? pack;
+
+/**
+ * The expansion scenes real events play outside the tool table, by event: a
+ * reader's moments, Which Colleague, the Squad Session Kit and two guides. Each
+ * plays only on its event's success branch (docs/mascot/expansion-triggers.md
+ * names the code), once he's on screen and its pack ships
+ * (lib/agent/mascot/event-scenes.ts). The cast encounters play from their tools'
+ * rows in context/tool-scenes.ts.
+ */
+export const EVENT_SCENES = {
+  /** A flashcard turned to its lesson, the first time on a visit. */
+  flashcard: "x004",
+  /** Which Colleague's answer, for each person who plays. */
+  colleague: "x005",
+  /** A story's link shared, or copied. */
+  share: "x006",
+  /** A read reaching a milestone itself: the tenth story, or the fourth week running. */
+  milestone: "x015",
+  /** A guestbook note the server took in, waiting to be read. */
+  guestbook: "x016.sent",
+  /** The first love given or Seen this at work answer on a story, on a visit. */
+  feedback: "x017.card",
+  /** The reader's own guess at the hidden panel, the same whichever they pick. */
+  guess: "x018",
+  /** A Squad Session started. */
+  squadKit: "x021",
+  /** Dragged to a corner other than the one he stood in, once he has landed. */
+  corner: "x108",
+  /** The interface sounds switched off by the visitor. */
+  mute: "x109",
+} as const;
 
 /**
  * Scenes that are held, not played once, and where they stand among his poses
