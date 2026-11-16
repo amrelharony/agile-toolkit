@@ -20,7 +20,9 @@
  *   follow-ups  up to two (lib/agent/follow-ups: no model call, so a
  *               visitor's allowance pays for none), in the reader's own
  *               words: suggestion chips that fill the message box and never
- *               send. They wait while the panel is compact
+ *               send. They wait while the panel is compact, and a read-only
+ *               chat (a visitor's with no message left) has none
+ *               (`followUps` false): there is no box for them to fill
  *
  * While a notice shows, it is the turn's end and has its own button, so this
  * draws nothing. Ghost buttons, 44 px on a touch screen; nothing moves in.
@@ -70,6 +72,8 @@ export interface ReplyEndProps {
   turn: ReplyTurn;
   /** Try again, when the chat can run one now; it shows only while canRetry says the turn ran no change. */
   retry?: ReplyRetry;
+  /** The follow-ups (default true); false in a read-only chat, which has no box for them to fill. */
+  followUps?: boolean;
 }
 
 /**
@@ -82,7 +86,7 @@ const AMR_ROW =
   "ml-3.5 group-data-[amr-side=right]/amr:ml-px group-data-[amr-side=right]/amr:mr-3.5 group-data-[amr-side=right]/amr:justify-end";
 
 /** The end of the latest reply: see the file comment. */
-export function ReplyEnd({ turn, retry }: ReplyEndProps) {
+export function ReplyEnd({ turn, retry, followUps: offerFollowUps = true }: ReplyEndProps) {
   const { focusComposer, note } = useChat();
   const announce = useAnnounce();
   const noticed = useAgentStore((s) => s.notice !== null);
@@ -92,7 +96,7 @@ export function ReplyEnd({ turn, retry }: ReplyEndProps) {
   if (noticed) return null;
 
   const { reply, steps, asked } = turn;
-  const next = followUps({ reply: reply.text, steps, asked });
+  const next = offerFollowUps ? followUps({ reply: reply.text, steps, asked }) : [];
   const copy = async () => {
     if (copying.current) return;
     copying.current = true;

@@ -104,6 +104,12 @@ async function askInChat(text: string) {
   await screen.findByRole("button", { name: "Back to tool finder" });
 }
 
+/** The chat's read-only footer, once its chunk is in (it loads with the first message). */
+async function readOnlyFooter(): Promise<HTMLElement> {
+  await waitFor(() => expect(document.querySelector("[data-visitor-read-only]")).not.toBeNull());
+  return document.querySelector<HTMLElement>("[data-visitor-read-only]")!;
+}
+
 /**
  * A note over the guide: a narration caption in a box that takes focus. The
  * text sits inside the caption, so this finds the box around it.
@@ -295,15 +301,60 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("a refusal drops the question: the guide opens empty, and Back to chat sends nothing", async () => {
+  it("a refusal keeps a chat under way readable: the read-only footer takes the box's place and its focus", async () => {
+    await askInChat("retro");
+    const box = screen.getByLabelText("Message");
+    await waitFor(() => expect(box).toHaveFocus());
+    act(() => {
+      useAgentStore.getState().setVisitorFallback("visitor_limit");
+    });
+    // Still the chat, with its question, and no tool finder.
+    expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
+    expect(screen.getByRole("log", { name: "Conversation" })).toHaveTextContent("retro");
+    expect(screen.queryByLabelText("Message")).toBeNull();
+    const footer = await readOnlyFooter();
+    expect(footer).toHaveTextContent("You've used all of today's messages with Amr.");
+    // Focus on it reads it out: nothing announces it as well.
+    expect(footer).toHaveFocus();
+    expect(h.announce).not.toHaveBeenCalled();
+  });
+
+  it("the read-only footer opens the guide on the question Amr couldn't answer, and Back to chat returns to it as it was", async () => {
     await askInChat("retro");
     act(() => {
       useAgentStore.getState().setVisitorFallback("visitor_limit");
     });
-    expect(search()).toHaveValue("");
+    const footer = await readOnlyFooter();
+    fireEvent.click(within(footer).getByRole("button", { name: "Open the tool finder" }));
+    expect(search()).toHaveValue("retro");
+    expect(screen.getByRole("list", { name: "Matching tools" })).toBeInTheDocument();
+    // The guide's note says which limit was reached, and takes focus.
+    expect(noteBox(visitorFallbackNote("visitor_limit", null))).toHaveFocus();
+
+    // Back to chat is not a fresh try: the refusal still holds, and nothing is sent.
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
-    expect(await screen.findByLabelText("Message")).toBeInTheDocument();
+    expect(await readOnlyFooter()).toBeInTheDocument();
+    expect(useAgentStore.getState().visitorFallback).toBe("visitor_limit");
+    expect(screen.queryByLabelText("Message")).toBeNull();
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
+
+    // A new question is: it asks again.
+    fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
+    fireEvent.change(search(), { target: { value: "estimate" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “estimate”" }));
+    expect(useAgentStore.getState().visitorFallback).toBeNull();
+    await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(2));
+  });
+
+  it("a refusal with no chat to read still goes back to the guide, its question dropped", async () => {
+    await askInChat("retro");
+    await clearChat();
+    act(() => {
+      useAgentStore.getState().setVisitorFallback("visitor_limit");
+    });
+    expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
+    expect(search()).toHaveValue("");
+    expect(noteBox(visitorFallbackNote("visitor_limit", null))).toHaveFocus();
   });
 
   it("a question from the guide keeps focus in a message box that stays editable while Amr answers", async () => {

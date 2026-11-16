@@ -807,17 +807,24 @@ describe("visitor bundle", () => {
     expect(violations(visitorPanel, [exactly(PERSIST), SUPABASE])).toEqual([]);
   });
 
-  it("loads Clear chat's Undo only from the visitor's chat, by a dynamic import, under the chat's bans", () => {
-    const clear = "src/components/agent/mascot/visitor-clear-chat.tsx";
-    expect(isFile(path.join(ROOT, clear)), `${clear} exists`).toBe(true);
-    // Not in the visitor chat's first paint: it loads with the first message.
-    expect(visitorChat.files.has(clear)).toBe(false);
-    expect(lazyTargets(VISITOR_CHAT)).toContain(clear);
+  it("loads Clear chat's Undo and the read-only footer only from the visitor's chat, by a dynamic import, under the chat's bans", () => {
     const ownerChat = closure(["src/components/agent/agent-conversation.tsx"]);
-    for (const c of [everyPage, mascotChunk, staticShell, visitorPanel, ownerChat]) {
-      expect(c.files.has(clear)).toBe(false);
+    for (const part of [
+      "src/components/agent/mascot/visitor-clear-chat.tsx",
+      "src/components/agent/mascot/visitor-chat-footer.tsx",
+    ]) {
+      expect(isFile(path.join(ROOT, part)), `${part} exists`).toBe(true);
+      // Not in the visitor chat's first paint: it loads with the first message.
+      expect(visitorChat.files.has(part), `${part} stays out of the chat's chunk`).toBe(false);
+      expect(lazyTargets(VISITOR_CHAT)).toContain(part);
+      for (const c of [everyPage, mascotChunk, staticShell, visitorPanel, ownerChat]) {
+        expect(c.files.has(part), `${part} stays off every other root`).toBe(false);
+      }
+      expect(violations(closure([part]), [...OWNER_BANS, SUPABASE])).toEqual([]);
     }
-    expect(violations(closure([clear]), [...OWNER_BANS, SUPABASE])).toEqual([]);
+    // The allowance's words are the visitor's: the owner's chat never carries them.
+    expect(visitorChat.files.has("src/lib/visitor-ai/allowance.ts")).toBe(true);
+    expect(ownerChat.files.has("src/lib/visitor-ai/allowance.ts")).toBe(false);
   });
 
   it("never loads the owner's persistence or Supabase from a visitor file, even lazily", () => {

@@ -851,7 +851,7 @@ describe("MascotAssistant — visitor AI", () => {
     expect(screen.getAllByText(/Busy hours until/)).toHaveLength(1);
   });
 
-  it("goes back to the tool finder when Amr can't answer any more", async () => {
+  it("goes back to the tool finder when Amr can't answer any more and there is no chat to read", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
@@ -920,6 +920,44 @@ describe("MascotAssistant — visitor AI", () => {
     await renderAmr();
     expect(await screen.findByLabelText("Message")).toBeInTheDocument();
     expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
+  });
+
+  it("keeps a chat under way readable when Amr can't answer any more, and reopens on it", async () => {
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    useAgentStore.setState({
+      chatProfile: "visitor",
+      messages: [
+        {
+          id: "v1",
+          role: "user",
+          content: [{ type: "text", text: "How do I run a retro?" }],
+          createdAt: "2026-11-09T08:00:00Z",
+        },
+      ],
+    });
+    await renderAmr();
+    await screen.findByLabelText("Message");
+    act(() => {
+      useAgentStore.getState().setVisitorFallback("visitor_limit");
+    });
+    // The chat stays, read-only: its footer says why in place of the box.
+    expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
+    expect(screen.queryByLabelText("Message")).toBeNull();
+    await waitFor(() =>
+      expect(document.querySelector("[data-visitor-read-only]")).toHaveTextContent(
+        "You've used all of today's messages with Amr."
+      )
+    );
+    expect(screen.getByRole("log", { name: "Conversation" })).toHaveTextContent(
+      "How do I run a retro?"
+    );
+
+    // Closed and opened again, it is the same chat, still read-only.
+    act(() => useAgentStore.getState().closeSheet());
+    act(() => useAgentStore.getState().openSheet());
+    await waitFor(() => expect(document.querySelector("[data-visitor-read-only]")).not.toBeNull());
+    expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
+    expect(useAgentStore.getState().visitorFallback).toBe("visitor_limit");
   });
 
   it("offers one primary Ask button under the search, 44 px on touch", async () => {

@@ -41,6 +41,14 @@
  * maker, so the first press shows the voice notice (./voice-notice, loaded
  * only then), and only "Use voice" starts it.
  *
+ * Once no message can go out (a refusal for now, visitorFallback, or the
+ * allowance at none left), the read-only footer (./visitor-chat-footer,
+ * loaded with the first message) takes the composer's place and says why,
+ * while the chat stays readable: its log and Copy reply stay, and the
+ * follow-ups and Try again's spend under the latest reply go (there is no
+ * box to fill and nothing to spend). The busy hours' smaller allowance, and
+ * a refusal for it, end on the clock as the hours do: the box comes back.
+ *
  * Its header (panel-chrome's slots): a "Back to tool finder" chevron before
  * the name plate, and Clear chat among the view's icons while there is
  * something to clear. In a visitor live room, where Amr gets no tools, a
@@ -54,6 +62,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { ChevronLeft, Eraser } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
 import { resolvePageTool, toolIdForPath } from "@/lib/agent/page-tool";
@@ -72,6 +81,7 @@ import { ThinkingItemView } from "../chat/chat-items";
 import { ChatNotice } from "../chat/chat-notice";
 import { ChatStrip, useAwaitingReply } from "../chat/chat-strip";
 import type { ReplyEndProps } from "../chat/reply-end";
+import type { ReadOnlyFooterProps } from "./visitor-chat-footer";
 import { Narration } from "../comic/comic-parts";
 import { PanelActions, PanelBack, PanelIconButton } from "./panel-chrome";
 
@@ -83,6 +93,8 @@ const CLOCK_TICK_MS = 60_000;
 /** Said in the log while the visitor is in a live room, where Amr gets no tools. */
 export const LIVE_ROOM_LINE =
   "You're in a live room, so Amr only answers questions here: he won't read or change your tools.";
+/** Said once the busy hours end while the chat waited on them: the box is back. */
+export const BUSY_HOURS_OVER = "The busy hours are over, so Amr can answer again.";
 /** Said when the runtime can't load: nothing was sent. */
 export const VISITOR_RUNTIME_LOAD_ERROR =
   "Amr's chat couldn't load. Check your connection and try again.";
@@ -185,6 +197,9 @@ const replyEndPart = lazyPart(() => import("../chat/reply-end"));
 /** Clear chat with Undo (./visitor-clear-chat), loaded with the first message: nothing to clear before one. */
 const clearPart = lazyPart(() => import("./visitor-clear-chat"));
 
+/** The read-only footer (./visitor-chat-footer), loaded with the first message: no chat runs out before one. */
+const footerPart = lazyPart(() => import("./visitor-chat-footer"));
+
 /**
  * The end of a visitor's reply, once it has loaded (nothing before); only it
  * draws again as it arrives. Stable, so the strip keeps it.
@@ -192,6 +207,18 @@ const clearPart = lazyPart(() => import("./visitor-clear-chat"));
 function VisitorReplyEnd(props: ReplyEndProps) {
   const End = replyEndPart.useLoaded()?.ReplyEnd;
   return End ? <End {...props} /> : null;
+}
+
+/** A read-only chat's reply end: Copy reply, and no follow-ups, which would fill a box that isn't there. */
+function VisitorReplyEndReadOnly(props: ReplyEndProps) {
+  return <VisitorReplyEnd {...props} followUps={false} />;
+}
+
+/** The read-only footer, once its chunk is in (asked for again here, should the first load have failed). */
+function VisitorReadOnly(props: ReadOnlyFooterProps) {
+  const Footer = footerPart.useLoaded()?.ReadOnlyFooter;
+  useEffect(() => footerPart.prefetch(), []);
+  return Footer ? <Footer {...props} /> : null;
 }
 
 /** Clear chat's "Chat cleared · Undo" in the log, once its chunk is in. */
@@ -289,8 +316,11 @@ function useNow(ms: number): Date {
 interface VisitorAgentPanelProps {
   /** Sent as soon as the chat opens ("" opens it empty). */
   initialQuestion: string;
-  /** Back to the tool finder. */
-  onOfflineGuide: () => void;
+  /**
+   * Back to the tool finder; from the read-only footer, with the question Amr
+   * couldn't answer, for the guide's search.
+   */
+  onOfflineGuide: (unanswered?: string) => void;
   /**
    * The message box takes focus as the chat opens, even on a touch screen:
    * the visitor said yes on the consent card with no question waiting, so
@@ -343,6 +373,7 @@ export default function VisitorAgentPanel({
     setStartingTurn({ question });
     replyEndPart.prefetch();
     clearPart.prefetch();
+    footerPart.prefetch();
     try {
       const runtime = await loadRuntime();
       // A turn outlives the chat: one asked as the panel closed still goes
@@ -395,7 +426,7 @@ export default function VisitorAgentPanel({
     canRetry: (messages: ChatMessage[]) => loadedRuntime?.canRetryLastTurn(messages) ?? false,
     onTryAgain: tryAgain,
   };
-  // Under the reply it says what it spends; with no message left, it isn't offered.
+  // The messages left now: Try again says it spends one, and at none the chat is read-only.
   const left = messagesLeft(quota, now);
 
   // The message box (the composer) is where the panel's focus owner puts
@@ -413,8 +444,11 @@ export default function VisitorAgentPanel({
     // nothing spent) instead of being dropped, after anything already typed
     // there. Send it once Amr is done. The very question still starting goes
     // out with that turn, so it doesn't wait in the box as well.
+    // So does one asked with no message left (the read-only footer says so):
+    // it would only be refused.
     const pending = startingTurn;
-    if (useAgentStore.getState().streaming || pending) {
+    const state = useAgentStore.getState();
+    if (state.streaming || pending || messagesLeft(state.visitorQuota) === 0) {
       const q = initialQuestion.trim().slice(0, VISITOR_LIMITS.userChars);
       const draft = useAgentStore.getState().drafts.visitor;
       if (q && q !== pending?.question && !draft.includes(q)) {
@@ -434,9 +468,58 @@ export default function VisitorAgentPanel({
   // between tool rounds). The log follows itself (chat-frame).
   const awaiting = useAwaitingReply(busy);
 
+  // No message can go out: a refusal for now, or none left. Never mid-turn,
+  // so Stop stays in reach while Amr answers the last one.
+  const fallback = useAgentStore((s) => s.visitorFallback);
+  const readOnly = !busy && (fallback !== null || left === 0);
+  // The box showed in this chat: a footer that takes its place takes its focus.
+  const [boxShown, setBoxShown] = useState(!readOnly);
+  useEffect(() => {
+    if (!readOnly) setBoxShown(true);
+  }, [readOnly]);
+
+  // The busy hours end: their smaller allowance ends with them, and so does a
+  // refusal for them. Said when the chat was waiting on them as they ended.
+  const announce = useAnnounce();
+  const peakEndsAt = quota?.peak ? quota.peakEndsAt : null;
+  useEffect(() => {
+    if (!peakEndsAt) return;
+    const wait = new Date(peakEndsAt).getTime() - Date.now();
+    const id = window.setTimeout(
+      () => {
+        const s = useAgentStore.getState();
+        const q = s.visitorQuota;
+        if (!q?.peak || q.peakEndsAt !== peakEndsAt) return;
+        const code = s.visitorFallback;
+        const refused = code === "visitor_peak_limit" || code === "site_peak_limit";
+        const waited = refused || (q.peakRemaining === 0 && q.remaining > 0);
+        s.setVisitorQuota({ ...q, peak: false, peakRemaining: null, peakEndsAt: null });
+        if (refused) {
+          s.setVisitorFallback(null);
+          if (s.notice?.kind === code) s.setNotice(null);
+        }
+        if (waited && wait > 0) announce(BUSY_HOURS_OVER);
+      },
+      Math.max(0, wait)
+    );
+    return () => window.clearTimeout(id);
+  }, [peakEndsAt, announce]);
+
   // The composer's row: the frame keeps it shrink-0 (the form its direct
-  // child) and makes room beside it for docked Amr.
-  const footer = (
+  // child) and makes room beside it for docked Amr. Read-only, the footer
+  // that says why stands there instead.
+  const footer = readOnly ? (
+    <VisitorReadOnly
+      code={fallback}
+      quota={quota}
+      now={now}
+      left={left}
+      canRetry={retry.canRetry}
+      onTryAgain={tryAgain}
+      onToolFinder={onOfflineGuide}
+      takeFocus={boxShown}
+    />
+  ) : (
     <ChatComposer
       busy={busy}
       // A turn still loading its runtime has nothing to stop yet.
@@ -485,17 +568,22 @@ export default function VisitorAgentPanel({
         busy={busy}
         footer={footer}
         className="px-3 py-2"
-        replyEnd={VisitorReplyEnd}
-        retry={left === 0 ? undefined : { ...retry, cost: retryCost(left) }}
+        replyEnd={readOnly ? VisitorReplyEndReadOnly : VisitorReplyEnd}
+        // Under the reply it says what it spends; with none to spend, it isn't offered.
+        retry={readOnly || left === 0 ? undefined : { ...retry, cost: retryCost(left) }}
       >
         <VisitorCleared />
         {/* Once, at the log's end, while the room is open: narration, not Amr's words. */}
         {inLiveRoom && <Narration data-testid="visitor-ai-live-room">{LIVE_ROOM_LINE}</Narration>}
-        {empty && !busy && (
+        {empty && !busy && !readOnly && (
           <ChatEmpty line={VISITOR_EMPTY.line} short={VISITOR_EMPTY.short} starters={starters} />
         )}
         {awaiting && <ThinkingItemView />}
-        <ChatNotice ready={!busy} {...retry} onGoOn={goOn} />
+        {/* A refusal's own words are the read-only footer's to say; read-only, a
+            notice offers nothing (no message can go out). */}
+        {!(readOnly && fallback) && (
+          <ChatNotice ready={!busy && !readOnly} {...retry} onGoOn={goOn} />
+        )}
       </ChatStrip>
     </ChatProvider>
   );
