@@ -31,6 +31,7 @@ import { ChatProvider, focusAtEnd } from "./chat/chat-context";
 import { ThinkingItemView } from "./chat/chat-items";
 import { ChatStrip, ThinkingStatus, useAwaitingReply } from "./chat/chat-strip";
 import { ConfirmCard } from "./chat/confirm-card";
+import { StepDetails } from "./chat/step-details";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
 import { COMPACT_HIDDEN, useInitialFocus } from "./mascot/panel-context";
@@ -50,8 +51,9 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
 
 /**
  * Active conversation view: the comic strip (chat/chat-strip: Amr's balloons,
- * the owner's captions, one caption per run of tool steps, with Details),
- * the composer and the confirmation card.
+ * the owner's captions, one caption per run of tool steps, with Details in
+ * words, which only this chat hands the strip), the composer and the
+ * confirmation card.
  *
  * The conversation is created in Supabase on the first message and every
  * message is persisted (via the client orchestrator's conversationId path), so
@@ -295,7 +297,7 @@ export function AgentConversation() {
     // footer staying in reach. Its padding is inside that scroller, which
     // clips at its padding box: the composer's and Send's focus rings (High
     // contrast's reach 5 px out) stay clear of its edges.
-    <ChatProvider profile="owner" composerRef={composerRef}>
+    <ChatProvider profile="owner" composerRef={composerRef} stepDetails={StepDetails}>
       <ChatStrip busy={streaming} footer={footer} className="px-3 py-2">
         {empty && (
           <div className="text-sm text-sub py-12 text-center space-y-2">

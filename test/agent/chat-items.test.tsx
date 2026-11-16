@@ -21,6 +21,7 @@ import {
   type ChatContextValue,
 } from "@/components/agent/chat/chat-context";
 import { ChatItemView } from "@/components/agent/chat/chat-items";
+import { StepDetails } from "@/components/agent/chat/step-details";
 import { useChatItems } from "@/components/agent/chat/chat-strip";
 import {
   LEAD_MAX,
@@ -88,7 +89,7 @@ const all = (root: Element) => [root, ...Array.from(root.querySelectorAll("*"))]
 /** A string of `n` characters of plain Latin words, with no sentence end. */
 const words = (n: number) => "word ".repeat(Math.ceil(n / 5)).slice(0, n);
 
-/** The strip's items in a chat, as a log draws them. */
+/** The strip's items in a chat, as a log draws them, with Details handed in as the owner's chat does. */
 function Strip({
   items,
   profile = "visitor",
@@ -97,7 +98,7 @@ function Strip({
   profile?: ChatProfile;
 }) {
   return (
-    <ChatProvider profile={profile}>
+    <ChatProvider profile={profile} stepDetails={StepDetails}>
       <div data-testid="log">
         {items.map((item) => (
           <ChatItemView key={item.key} item={item} />
@@ -390,24 +391,23 @@ describe("tool steps", () => {
     expect(log.querySelector("[data-tool-step]")).toHaveAttribute("data-tool-step", "done");
   });
 
-  it("gives the owner Details with the raw arguments and result, named for the step", () => {
-    strip([assistant("a1", call("c1")), toolMsg("t1", result("c1"))], { profile: "owner" });
+  it("gives the owner Details with the arguments and result in words, named for the step", () => {
+    const log = strip([assistant("a1", call("c1")), toolMsg("t1", result("c1"))], {
+      profile: "owner",
+    });
     const summary = screen.getByText("Details").closest("summary")!;
     expect(summary).toHaveClass("pointer-coarse:min-h-11");
     act(() => summary.parentElement!.setAttribute("open", ""));
-    const input = screen.getByRole("region", {
+    const input = screen.getByRole("group", {
       name: "Input for Retro Board · Add card “flaky CI”",
     });
-    const output = screen.getByRole("region", {
+    const output = screen.getByRole("group", {
       name: "Result for Retro Board · Add card “flaky CI”",
     });
-    expect(input.textContent).toContain('"text": "flaky CI"');
-    expect(output.textContent).toBe('{"added":true}');
-    for (const block of [input, output]) {
-      expect(block).toHaveAttribute("tabindex", "0");
-      expect(block).toHaveAttribute("dir", "ltr");
-      expect(block).toHaveClass("font-data");
-    }
+    expect(input).toHaveTextContent("Text: “flaky CI”");
+    expect(output).toHaveTextContent("Added: yes");
+    // Words, never JSON or the call's wire name.
+    expect(log.textContent).not.toMatch(/[{}]|"added"|tool_retro/);
   });
 
   it("puts a run of calls in one caption, a line each", () => {

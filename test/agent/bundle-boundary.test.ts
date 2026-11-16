@@ -625,6 +625,17 @@ describe("the chat strip (chat/)", () => {
     expect(closure([OWNER_CHAT]).files.has(STRIP_PARTS)).toBe(true);
   });
 
+  it("keeps the owner's step Details out of the visitor's chat: only the owner's chat imports it", () => {
+    const owned = [`${CHAT_DIR}step-details.tsx`, "src/lib/agent/tool-details.ts"];
+    const ownerChat = closure([OWNER_CHAT]);
+    for (const file of owned) {
+      expect(isFile(path.join(ROOT, file)), `${file} exists`).toBe(true);
+      expect(ownerChat.files.has(file), `the owner's chat reaches ${file}`).toBe(true);
+      expect(visitorChat.files.has(file), `the visitor's chat never reaches ${file}`).toBe(false);
+    }
+    expect(staticTargets(OWNER_CHAT)).toContain(`${CHAT_DIR}step-details.tsx`);
+  });
+
   it("replaced message-bubble: no file is left, and nothing imports it", () => {
     expect(isFile(path.join(ROOT, "src/components/agent/message-bubble.tsx"))).toBe(false);
     const reached = new Set([
