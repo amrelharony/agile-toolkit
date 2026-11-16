@@ -251,6 +251,7 @@ describe("chatView: messages as comic strip items", () => {
         messageId: "a1",
         text: "Here's how. Open the board first.",
         lead: "Here's how.",
+        held: false,
         wide: false,
         streaming: false,
       },
@@ -401,14 +402,32 @@ describe("chatView: messages as comic strip items", () => {
     expect(plain.wide).toBe(false);
   });
 
-  it("letters no lead while the reply's first sentence is still open, then keeps the cut", () => {
+  it("holds the reply back while its first sentence is still open, then keeps the cut", () => {
     const view = (t: string) =>
       balloons(chatView([assistant("a1", text(t))], { streamingId: "a1", busy: true }))[0];
-    expect(view("Done.")).toMatchObject({ lead: null, streaming: true });
-    expect(view("Done. The card")).toMatchObject({ lead: "Done.", streaming: true });
-    expect(view("Done. The card is in.")).toMatchObject({ lead: "Done.", streaming: true });
+    // Undecided: nothing of it is drawn yet, so it never shows in Inter first.
+    expect(view("Done")).toMatchObject({ held: true, lead: null, streaming: true });
+    expect(view("Done.")).toMatchObject({ held: true, lead: null, streaming: true });
+    expect(view("Done. The card")).toMatchObject({ held: false, lead: "Done.", streaming: true });
+    expect(view("Done. The card is in.")).toMatchObject({ held: false, lead: "Done." });
     const final = balloons(chatView([assistant("a1", text("Done."))]))[0];
-    expect(final).toMatchObject({ lead: "Done.", streaming: false });
+    expect(final).toMatchObject({ held: false, lead: "Done.", streaming: false });
+  });
+
+  it("holds an opener that ends up with no lead only until that is decided, then shows it in Inter", () => {
+    const view = (t: string, streaming = true) =>
+      balloons(chatView([assistant("a1", text(t))], streaming ? { streamingId: "a1" } : {}))[0];
+    // Past LEAD_MAX with no sentence end: decided, never lettered.
+    expect(view(words(LEAD_MAX - 1))).toMatchObject({ held: true, lead: null });
+    expect(view(words(LEAD_MAX + 1))).toMatchObject({ held: false, lead: null });
+    // A first line that breaks with no sentence end.
+    expect(view("Here they are:")).toMatchObject({ held: true, lead: null });
+    expect(view("Here they are:\n")).toMatchObject({ held: false, lead: null });
+    // A list or Arabic: decided from the first character.
+    expect(view("- Open the board")).toMatchObject({ held: false, lead: null });
+    expect(view("مرحبا")).toMatchObject({ held: false, lead: null });
+    // A turn that ends undecided settles: drawn, lettered or not.
+    expect(view("Here they are", false)).toMatchObject({ held: false, lead: null });
   });
 
   it("settles the words before a call while the call streams", () => {
@@ -460,10 +479,11 @@ describe("createChatView: keeps what didn't change", () => {
     expect(second[0]).toBe(first[0]);
     expect(second[1]).toBe(first[1]);
     expect(second[2]).not.toBe(first[2]);
-    expect(second[2]).toMatchObject({ text: "All tidy.", streaming: true, lead: null });
-    // The stream ends: the same words settle, and the lead is set.
+    // Its one sentence could still run on: held, not drawn in a face it might lose.
+    expect(second[2]).toMatchObject({ text: "All tidy.", streaming: true, held: true, lead: null });
+    // The stream ends: the same words settle, shown lettered from their first draw.
     const third = view(grown, {});
-    expect(third[2]).toMatchObject({ streaming: false, lead: "All tidy." });
+    expect(third[2]).toMatchObject({ streaming: false, held: false, lead: "All tidy." });
     expect(third[0]).toBe(first[0]);
   });
 

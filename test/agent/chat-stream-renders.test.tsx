@@ -137,9 +137,16 @@ function streamingTurn(profile: "owner" | "visitor") {
   });
 }
 
+/**
+ * His first words, past the opening sentence, so the reply is drawn from
+ * here on (an undecided opener waits in a scribbling balloon: chat-view's
+ * `held`).
+ */
+const FIRST_WORDS = "Pick one. Then";
+
 /** Stream CHUNKS more words into the reply; the reply as it ends. */
 function streamChunks(): string {
-  let reply = "Pick one";
+  let reply = FIRST_WORDS;
   for (let i = 0; i < CHUNKS; i++) {
     reply += ` thing${i}`;
     const next = reply;
@@ -188,7 +195,7 @@ describe("a streamed chunk", () => {
 
     streamingTurn("visitor");
     // His first words: he starts talking, a change the shell may show once.
-    act(() => useAgentStore.getState().patchMessage("a2", [text("Pick one")]));
+    act(() => useAgentStore.getState().patchMessage("a2", [text(FIRST_WORDS)]));
     await settle();
 
     const shell = h.shell;
@@ -217,7 +224,7 @@ describe("a streamed chunk", () => {
         <AgentConversation />
       </Profiler>
     );
-    act(() => useAgentStore.getState().patchMessage("a2", [text("Pick one")]));
+    act(() => useAgentStore.getState().patchMessage("a2", [text(FIRST_WORDS)]));
     await settle();
 
     const owner = h.owner;

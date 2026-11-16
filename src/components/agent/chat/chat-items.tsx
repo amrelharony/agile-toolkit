@@ -12,7 +12,9 @@
  *            turns to face him from the panel root's data-amr-side and
  *            data-amr-edge, so nothing re-renders when he moves): the reply
  *            as markdown, its lead lettered inside the first paragraph, and
- *            the full width of the log when it holds a table or code
+ *            the full width of the log when it holds a table or code. Until
+ *            a streaming reply's opening sentence is decided, the balloon
+ *            scribbles with no words, so no word ever changes face
  *   steps    one narration caption for a run of tool calls: each call's tool
  *            and verb in words (lib/agent/tool-label), where it stands and
  *            what it touched (lib/agent/tool-result-text), never the wire
@@ -93,8 +95,19 @@ export const YouItemView = memo(function YouItemView({ item }: { item: YouItem }
   );
 });
 
-/** Amr's words, in a balloon on his side whose tail points at him. */
+/**
+ * Amr's words, in a balloon on his side whose tail points at him. While the
+ * reply's opening sentence is undecided (item.held), the balloon scribbles
+ * with no words, so they first show in their final face, lettered or not.
+ */
 export const BalloonItemView = memo(function BalloonItemView({ item }: { item: BalloonItem }) {
+  if (item.held) {
+    return (
+      <div className="flex" data-chat-item="balloon" data-message-id={item.messageId} data-held="">
+        <ThinkingBalloon className={AMR_SIDE} />
+      </div>
+    );
+  }
   return (
     <div
       className="flex"

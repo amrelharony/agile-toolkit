@@ -254,16 +254,71 @@ describe("a reply's lettered lead", () => {
     expect(leadIn(words(400))).toBeNull();
   });
 
-  it("waits while the first sentence streams, then letters it for good", () => {
+  /** The streamed reply's one balloon row in the log. */
+  const rowIn = (log: HTMLElement) => {
+    const rows = log.querySelectorAll<HTMLElement>('[data-chat-item="balloon"]');
+    expect(rows).toHaveLength(1);
+    return rows[0];
+  };
+
+  /** While held: the balloon scribbles, and none of the opener's words show, in any face. */
+  const expectHeld = (row: HTMLElement) => {
+    expect(row).toHaveAttribute("data-held");
+    expect(row.querySelector("[data-thinking]")).toHaveAttribute("aria-hidden", "true");
+    expect(row.textContent).toBe("");
+  };
+
+  it("holds the words back while the first sentence streams, so they first show lettered, for good", () => {
     const view = createChatView();
     const growing = (t: string) => view([assistant("a1", text(t))], { streamingId: "a1" });
-    const { rerender, getByTestId } = render(<Strip items={growing("Done")} />);
-    expect(getByTestId("log").querySelector("[data-balloon-lead]")).toBeNull();
-    rerender(<Strip items={growing("Done. The")} />);
-    const lead = getByTestId("log").querySelector("[data-balloon-lead]");
+    const { rerender, getByTestId } = render(<Strip items={growing("D")} />);
+    // Undecided: never drawn in Inter, to turn lettered a chunk later.
+    for (const t of ["D", "Done", "Done.", "Done. "]) {
+      rerender(<Strip items={growing(t)} />);
+      expectHeld(rowIn(getByTestId("log")));
+    }
+    rerender(<Strip items={growing("Done. T")} />);
+    const row = rowIn(getByTestId("log"));
+    expect(row).not.toHaveAttribute("data-held");
+    const lead = row.querySelector("[data-balloon-lead]");
     expect(lead).toHaveTextContent(/^Done\.$/);
-    rerender(<Strip items={growing("Done. The card is on the board.")} />);
-    expect(getByTestId("log").querySelector("[data-balloon-lead]")).toBe(lead);
+    // Its first draw: no other face around it.
+    expect(all(row).filter((el) => el.classList.contains("font-display"))).toEqual([lead]);
+    for (const t of ["Done. The", "Done. The card is on the board."]) {
+      rerender(<Strip items={growing(t)} />);
+      expect(getByTestId("log").querySelector("[data-balloon-lead]")).toBe(lead);
+    }
+  });
+
+  it("holds an opener with no lead only until that is decided, then shows it in Inter, never lettered", () => {
+    const view = createChatView();
+    const growing = (t: string) => view([assistant("a1", text(t))], { streamingId: "a1" });
+    const long = words(LEAD_MAX + 30);
+    const { rerender, getByTestId } = render(<Strip items={growing(long.slice(0, 60))} />);
+    expectHeld(rowIn(getByTestId("log")));
+    // Past LEAD_MAX with no sentence end: no lead, for good.
+    for (const t of [long, `${long}. And more.`]) {
+      rerender(<Strip items={growing(t)} />);
+      const row = rowIn(getByTestId("log"));
+      expect(row).not.toHaveAttribute("data-held");
+      expect(row.querySelector("[data-balloon-lead], .font-display")).toBeNull();
+      expect(row).toHaveTextContent(t.trim());
+    }
+    // A first line that breaks with no sentence end: shown at the break.
+    const view2 = createChatView();
+    const list = (t: string) => view2([assistant("a2", text(t))], { streamingId: "a2" });
+    const second = render(<Strip items={list("Here they are:")} />);
+    const log2 = second.container.querySelector<HTMLElement>('[data-testid="log"]')!;
+    expectHeld(rowIn(log2));
+    second.rerender(<Strip items={list("Here they are:\n- one")} />);
+    expect(rowIn(log2)).not.toHaveAttribute("data-held");
+    expect(log2.querySelector("[data-balloon-lead], .font-display")).toBeNull();
+  });
+
+  it("draws a reply whose stream ended undecided, at once", () => {
+    const log = strip([assistant("a1", text("Done"))]);
+    expect(rowIn(log)).not.toHaveAttribute("data-held");
+    expect(rowIn(log)).toHaveTextContent("Done");
   });
 });
 
@@ -419,13 +474,14 @@ describe("memoised items", () => {
     const history = [user("u1", "How?"), assistant("a1", text(first)), user("u2", "And then?")];
     const items = (reply: string) =>
       view([...history, assistant("a2", text(reply))], { streamingId: "a2", busy: true });
-    const { rerender } = render(<Strip items={items("Add")} />);
-    for (const reply of ["Add a", "Add a card", "Add a card. Then vote."]) {
+    // Its opener decided from the first chunk, so every chunk is drawn.
+    const { rerender } = render(<Strip items={items("Sure. Add")} />);
+    for (const reply of ["Sure. Add a", "Sure. Add a card", "Sure. Add a card. Then vote."]) {
       rerender(<Strip items={items(reply)} />);
     }
     expect(renders.get(first)).toBe(1);
-    expect(renders.get("Add a card. Then vote.")).toBe(1);
-    expect(renders.get("Add a")).toBe(1);
+    expect(renders.get("Sure. Add a card. Then vote.")).toBe(1);
+    expect(renders.get("Sure. Add a")).toBe(1);
   });
 
   it("keeps a finished step caption's element while the next reply streams", () => {
@@ -433,9 +489,9 @@ describe("memoised items", () => {
     const base = [assistant("a1", call("c1")), toolMsg("t1", result("c1"))];
     const items = (reply: string) =>
       view([...base, assistant("a2", text(reply))], { streamingId: "a2", busy: true });
-    const { rerender, getByTestId } = render(<Strip items={items("Done")} />);
+    const { rerender, getByTestId } = render(<Strip items={items("Done. It")} />);
     const caption = getByTestId("log").querySelector('[data-chat-item="steps"]');
-    const before = items("Done");
+    const before = items("Done. It");
     rerender(<Strip items={items("Done. It is on the board.")} />);
     const after = items("Done. It is on the board.");
     expect(after[0]).toBe(before[0]);
@@ -604,18 +660,18 @@ describe("fed from the store (chat-strip's useChatItems)", () => {
           user("u1", "How?"),
           assistant("a1", text(first)),
           user("u2", "And then?"),
-          assistant("a2", text("Add")),
+          assistant("a2", text("Sure. Add")),
         ],
       });
     });
     render(<StoreStrip />);
-    for (const reply of ["Add a", "Add a card", "Add a card. Then vote."]) {
+    for (const reply of ["Sure. Add a", "Sure. Add a card", "Sure. Add a card. Then vote."]) {
       act(() => useAgentStore.getState().patchMessage("a2", [text(reply)]));
     }
     expect(renders.get(first)).toBe(1);
-    expect(renders.get("Add a")).toBe(1);
-    expect(renders.get("Add a card. Then vote.")).toBe(1);
-    expect(screen.getByTestId("log")).toHaveTextContent("Add a card. Then vote.");
+    expect(renders.get("Sure. Add a")).toBe(1);
+    expect(renders.get("Sure. Add a card. Then vote.")).toBe(1);
+    expect(screen.getByTestId("log")).toHaveTextContent("Sure. Add a card. Then vote.");
   });
 });
 

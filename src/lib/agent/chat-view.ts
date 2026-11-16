@@ -267,6 +267,15 @@ export interface BalloonItem {
    * list or a heading.
    */
   lead: string | null;
+  /**
+   * Its opening sentence is still undecided while it streams (findLead is
+   * `open`: at most LEAD_MAX characters, until the one after its end
+   * arrives), so none of its words are drawn yet: they would show in Inter,
+   * then turn lettered (DNA-SPEC section 5: words already streamed never
+   * change face). The balloon still scribbles; the words first appear in
+   * their final face.
+   */
+  held: boolean;
   /** The reply holds a table or a code block, so its balloon runs full width. */
   wide: boolean;
   /**
@@ -401,12 +410,14 @@ function build(
       return;
     }
     const blocks = parseBlocks(text, cache);
+    const lead = findLead(text, streaming);
     keep({
       kind: "balloon",
       key,
       messageId,
       text,
-      lead: leadOf(text, streaming),
+      lead: lead.state === "lead" ? text.slice(lead.start, lead.end) : null,
+      held: lead.state === "open",
       wide: blocks.some((b) => b.type === "table" || b.type === "code"),
       streaming,
     });
