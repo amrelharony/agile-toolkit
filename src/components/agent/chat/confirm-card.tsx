@@ -29,10 +29,14 @@
  * which reads its question and detail) only when focus is on nothing (the
  * body), on Send/Stop (data-chat-send) or inside the log: someone typing in
  * the message box, or anywhere else, keeps their place and their draft, and
- * the chat's announcer says "Amr needs your OK: {question}" instead. Focus
- * moves in this card's own effect, never a frame later: the announcer's
- * effect runs right after it (the card is drawn inside the chat's frame) and
- * stays quiet only for a card that took focus (use-turn-announcer).
+ * the chat's announcer says "Amr needs your OK: {question}" instead. The
+ * group is made focusable (tabindex -1) only as it takes focus, and only
+ * until it loses it (chat-context focusFromCode), so a tap or click on its
+ * words never takes focus from the message box, the same rule as the step
+ * caption's below. Focus moves in this card's own effect, never a frame
+ * later: the announcer's effect runs right after it (the card is drawn
+ * inside the chat's frame) and stays quiet only for a card that took focus
+ * (use-turn-announcer).
  *
  * Decided. The card goes, so its buttons hand focus on first: on a fine
  * pointer to the message box, caret at the end; on a touch screen to the
@@ -109,7 +113,7 @@ export function ConfirmCard({ allowApproveAll = false }: ConfirmCardProps) {
     const card = cardRef.current;
     if (!card || cardId === null) return;
     bringIntoView(card);
-    if (mayTakeFocus(card)) card.focus({ preventScroll: true });
+    if (mayTakeFocus(card)) focusFromCode(card);
   }, [cardId]);
 
   if (!pending) return null;
@@ -135,7 +139,6 @@ export function ConfirmCard({ allowApproveAll = false }: ConfirmCardProps) {
     <div
       ref={cardRef}
       role="group"
-      tabIndex={-1}
       aria-labelledby={questionId}
       aria-describedby={prompt.detail ? detailId : undefined}
       // 1 px in from the log's edge, so High contrast's focus ring (5 px out) isn't clipped.

@@ -281,6 +281,9 @@ describe("ConfirmCard in a chat", () => {
     // Its group reads its question and detail, and sits right under its step.
     expect(theCard()).toHaveAttribute("tabindex", "-1");
     expect(theCard().closest('[data-chat-item="steps"]')).not.toBeNull();
+    // Focusable only while it holds focus, so a tap on its words later takes none.
+    act(() => theCard().blur());
+    expect(theCard()).not.toHaveAttribute("tabindex");
   });
 
   it("takes focus from Send/Stop and from inside the log", () => {
@@ -307,8 +310,10 @@ describe("ConfirmCard in a chat", () => {
     expect(box()).toHaveValue("and rename the sprint");
     expect(box().selectionStart).toBe(4);
     expect(useAgentStore.getState().drafts.owner).toBe("and rename the sprint");
-    // The card is there all the same, for the announcer to read out.
+    // The card is there all the same, for the announcer to read out, and a
+    // tap on its words can't take the box's focus.
     expect(theCard()).toBeInTheDocument();
+    expect(theCard()).not.toHaveAttribute("tabindex");
   });
 
   it("hands focus to the message box, caret at the end, after a keyboard decision", () => {
