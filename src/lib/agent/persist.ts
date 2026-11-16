@@ -85,37 +85,49 @@ export async function listConversations(): Promise<Persisted<ConversationMeta[]>
   }
 }
 
+/**
+ * Make a conversation for the chat's first message. Null when it couldn't be
+ * saved (no Supabase, a refusal, a throw): the chat goes on unsaved, says so
+ * ("Not saved yet", agent-conversation) and tries again with its next message.
+ * Never throws, so a failed save never keeps a message from being sent.
+ */
 export async function createConversation(opts: {
   title: string;
   toolId?: string | null;
 }): Promise<ConversationMeta | null> {
   const supabase = getAuthBrowserClient();
   if (!supabase) return null;
-  const { data, error } = await supabase
-    .from("agent_conversations")
-    .insert({
-      title: opts.title.slice(0, 200),
-      tool_id: opts.toolId ?? null,
-      // user_id is filled by the RLS-protected default via auth.uid()? Not by default — Supabase
-      // requires the client to supply user_id and matches it against the RLS check. We fetch
-      // session.user.id here to satisfy the insert policy.
-      user_id: (await supabase.auth.getUser()).data.user?.id,
-    })
-    .select("id, title, tool_id, created_at, updated_at, last_message_at")
-    .single();
-  if (error || !data) {
+  try {
+    const { data, error } = await supabase
+      .from("agent_conversations")
+      .insert({
+        title: opts.title.slice(0, 200),
+        tool_id: opts.toolId ?? null,
+        // user_id is filled by the RLS-protected default via auth.uid()? Not by default — Supabase
+        // requires the client to supply user_id and matches it against the RLS check. We fetch
+        // session.user.id here to satisfy the insert policy.
+        user_id: (await supabase.auth.getUser()).data.user?.id,
+      })
+      .select("id, title, tool_id, created_at, updated_at, last_message_at")
+      .single();
+    if (error || !data) {
+      // eslint-disable-next-line no-console
+      console.warn("[agent] createConversation failed", error?.message);
+      return null;
+    }
+    return {
+      id: data.id as string,
+      title: data.title as string,
+      toolId: (data.tool_id as string | null) ?? null,
+      createdAt: data.created_at as string,
+      updatedAt: data.updated_at as string,
+      lastMessageAt: data.last_message_at as string,
+    };
+  } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn("[agent] createConversation failed", error?.message);
+    console.warn("[agent] createConversation failed", err);
     return null;
   }
-  return {
-    id: data.id as string,
-    title: data.title as string,
-    toolId: (data.tool_id as string | null) ?? null,
-    createdAt: data.created_at as string,
-    updatedAt: data.updated_at as string,
-    lastMessageAt: data.last_message_at as string,
-  };
 }
 
 export async function loadMessages(conversationId: string): Promise<Persisted<ChatMessage[]>> {

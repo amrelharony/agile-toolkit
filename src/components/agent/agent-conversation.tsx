@@ -16,6 +16,7 @@ import {
   type StreamOptions,
 } from "@/lib/agent/client";
 import {
+  appendMessages,
   createConversation,
   deleteConversation,
   listConversations,
@@ -23,6 +24,8 @@ import {
   renameConversation,
   conversationTitle,
 } from "@/lib/agent/persist";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { Narration } from "./comic/comic-parts";
 import { ChatComposer } from "./chat/chat-composer";
 import { ChatProvider } from "./chat/chat-context";
 import { ChatEmpty } from "./chat/chat-empty";
@@ -65,6 +68,33 @@ const freshConvos = new Set<string>();
 /** Keep what the owner typed but hasn't sent (drafts.owner). */
 const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", text);
 
+/** The caption's name while the chat has no saved conversation. */
+export const NOT_SAVED_LABEL = "Not saved yet.";
+/** Its words: why, what it means, and what happens next. */
+export const NOT_SAVED =
+  "Amr couldn't reach your chat history, so this chat isn't kept after a reload. Your next message tries again.";
+
+/** A message's words, joined. */
+const wordsOf = (m: ChatMessage | undefined) =>
+  (m?.content ?? [])
+    .map((c) => (c.type === "text" ? c.text : ""))
+    .join(" ")
+    .trim();
+
+/**
+ * A message that may be saved: any but an assistant's with nothing the wire
+ * would take (no words and no complete call), which the client never saves
+ * either (client.ts isWireValidAssistant), so a reload never replays one.
+ */
+const savable = (m: ChatMessage) =>
+  m.role !== "assistant" ||
+  m.content.some(
+    (c) =>
+      (c.type === "text" && c.text.length > 0) ||
+      (c.type === "tool_use" &&
+        !(c.input && "_partial" in c.input && Object.keys(c.input).length === 1))
+  );
+
 /**
  * Active conversation view: the comic strip (chat/chat-strip: Amr's balloons,
  * the owner's captions, one caption per run of tool steps, with Details (the
@@ -78,6 +108,10 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
  * the thread survives reload; the most recent thread auto-resumes on open,
  * and the strip marks where it was picked up (a scene caption). The
  * conversation list (switch / rename / delete) lives in ConversationList.
+ * When the conversation can't be made, the chat goes on unsaved and says so
+ * in a narration caption ("Not saved yet.", once by the announcer too); the
+ * next message tries again, and once a conversation is made, what was said
+ * before it is saved into it first (appendMessages), so the thread is whole.
  *
  * An empty chat shows a narration line about Amr, in the third person, and up
  * to three starters for the page the owner is on (chat/chat-empty, words in
@@ -101,6 +135,9 @@ export function AgentConversation() {
   const { user } = useAuth();
   const streaming = useAgentStore((s) => s.streaming);
   const empty = useAgentStore((s) => s.messages.length === 0);
+  // Messages with no conversation to keep them: the chat isn't saved.
+  const unsaved = useAgentStore((s) => s.activeConversationId === null && s.messages.length > 0);
+  const announce = useAnnounce();
   // The thinking balloon, until the reply's first words or steps arrive.
   const awaiting = useAwaitingReply(streaming);
   // A send waiting for its new conversation: a second one waits its turn.
@@ -140,6 +177,13 @@ export function AgentConversation() {
       // Settled either way: a failed look leaves the chat empty, its starters shown.
       .finally(() => setResumeCheck("done"));
   }, []);
+
+  // Said once as the chat becomes unsaved (not again as the panel reopens on it).
+  const wasUnsaved = useRef(unsaved);
+  useEffect(() => {
+    if (unsaved && !wasUnsaved.current) announce(`${NOT_SAVED_LABEL} ${NOT_SAVED}`);
+    wasUnsaved.current = unsaved;
+  }, [unsaved, announce]);
 
   // After a freshly-created conversation's first turn settles, upgrade its
   // first-message title to a concise model-generated one (best-effort, unmetered;
@@ -181,12 +225,16 @@ export function AgentConversation() {
     let convId = useAgentStore.getState().activeConversationId;
     if (!convId) {
       // The chat this conversation is made for, known by its last message
-      // (none while it is empty).
-      const holding = useAgentStore.getState().messages.at(-1)?.id;
+      // (none while it is empty), and what was said in it before: nothing in
+      // a fresh chat, all of it in one that couldn't be saved yet.
+      const before = useAgentStore.getState().messages;
+      const holding = before.at(-1)?.id;
       let meta: ConversationMeta | null = null;
       sendingRef.current = true;
       try {
-        meta = await createConversation({ title: conversationTitle(text), toolId });
+        // Named for the chat's first question, which may be an earlier one.
+        const first = wordsOf(before.find((m) => m.role === "user")) || text;
+        meta = await createConversation({ title: conversationTitle(first), toolId });
       } finally {
         sendingRef.current = false;
       }
@@ -208,6 +256,12 @@ export function AgentConversation() {
       if (meta) {
         convId = meta.id;
         freshConvos.add(meta.id); // upgrade to a model-generated title after turn 1
+        // Back-fill: what the chat said while it couldn't be saved, up to the
+        // message it was made for, is saved into it too. Each message keeps
+        // its own time, so a reload shows them in order, this one last.
+        const upTo = holding === undefined ? -1 : store.messages.findIndex((m) => m.id === holding);
+        const earlier = store.messages.slice(0, upTo + 1).filter(savable);
+        if (earlier.length > 0) void appendMessages(meta.id, earlier);
       }
     }
     void sendUserMessage(text, { userId: user.id, toolId, conversationId: convId ?? undefined });
@@ -277,6 +331,11 @@ export function AgentConversation() {
           />
         )}
         {awaiting && <ThinkingItemView />}
+        {unsaved && (
+          <Narration label={NOT_SAVED_LABEL} data-chat-unsaved="">
+            {NOT_SAVED}
+          </Narration>
+        )}
         <ChatNotice ready={!streaming && !!user} {...retry} onGoOn={goOnNow} />
       </ChatStrip>
     </ChatProvider>

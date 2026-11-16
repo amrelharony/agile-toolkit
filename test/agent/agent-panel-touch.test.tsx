@@ -9,13 +9,15 @@ import type { ConversationMeta } from "@/lib/agent/types";
  * Delete offers Undo before anything leaves for Supabase; the composer's
  * keyboard hints hide on coarse pointers, its box stays editable while Amr
  * answers, and it takes focus on a touch screen only where a tap means "let
- * me type" (New chat).
+ * me type" (New chat). A chat whose conversation couldn't be made says "Not
+ * saved yet", and what it said is saved once a later message makes one.
  */
 
 const h = vi.hoisted(() => ({
   conversations: [] as ConversationMeta[],
   deleteConversation: vi.fn<(id: string) => Promise<void>>(async () => {}),
   createConversation: vi.fn<(opts: unknown) => Promise<ConversationMeta | null>>(async () => null),
+  appendMessages: vi.fn<(conversationId: string, msgs: unknown[]) => Promise<void>>(async () => {}),
   sendUserMessage: vi.fn<(text: string, opts: unknown) => Promise<void>>(async () => {}),
   retryLastTurn: vi.fn<(opts: unknown) => Promise<boolean>>(async () => true),
   goOn: vi.fn<(opts: unknown) => Promise<boolean>>(async () => true),
@@ -33,6 +35,7 @@ vi.mock("@/lib/agent/persist", () => ({
   deleteConversation: h.deleteConversation,
   renameConversation: vi.fn(async () => {}),
   createConversation: h.createConversation,
+  appendMessages: h.appendMessages,
   conversationTitle: (t: string) => t,
   conversationToMarkdown: () => "",
   titleSlug: () => "thread",
@@ -51,8 +54,13 @@ vi.mock("@/lib/agent/client", () => ({
 }));
 
 import { ConversationList, DELETE_UNDO_MS, rowAction } from "@/components/agent/conversation-list";
-import { AgentConversation } from "@/components/agent/agent-conversation";
+import {
+  AgentConversation,
+  NOT_SAVED,
+  NOT_SAVED_LABEL,
+} from "@/components/agent/agent-conversation";
 import { ChatVisibleContext } from "@/components/agent/chat-visibility";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { useAgentStore } from "@/lib/agent/store";
 import { listConversations, loadMessages, renameConversation } from "@/lib/agent/persist";
 import { generateTitle } from "@/lib/agent/client";
@@ -764,6 +772,7 @@ describe("AgentConversation: notices, the draft and a new thread", () => {
     h.canRetryLastTurn.mockReturnValue(true);
     h.createConversation.mockReset();
     h.createConversation.mockResolvedValue(null);
+    h.appendMessages.mockClear();
     h.deleteConversation.mockReset();
     if (typeof Element.prototype.scrollTo !== "function") {
       Element.prototype.scrollTo = () => {};
@@ -990,5 +999,112 @@ describe("AgentConversation: notices, the draft and a new thread", () => {
     expect(h.sendUserMessage).not.toHaveBeenCalled();
     expect(useAgentStore.getState().messages).toEqual([]);
     expect(box()).toHaveValue("and then?");
+  });
+
+  describe("a chat that couldn't be saved", () => {
+    const said = (id: string, text: string, createdAt: string) => ({
+      id,
+      role: "assistant" as const,
+      content: [{ type: "text" as const, text }],
+      createdAt,
+    });
+    const unsavedCaption = () => document.querySelector<HTMLElement>("[data-chat-unsaved]");
+
+    /** The first question sent with no conversation made, and the (mocked) client's turn for it. */
+    async function sendUnsaved() {
+      render(
+        <LiveAnnouncerProvider>
+          <AgentConversation />
+        </LiveAnnouncerProvider>
+      );
+      fireEvent.change(box(), { target: { value: "Plan the sprint" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() => expect(h.sendUserMessage).toHaveBeenCalledTimes(1));
+      expect(h.sendUserMessage).toHaveBeenCalledWith(
+        "Plan the sprint",
+        expect.objectContaining({ conversationId: undefined })
+      );
+      act(() => {
+        useAgentStore.getState().appendMessage({
+          ...userMsg("u1", "Plan the sprint"),
+          createdAt: "2026-11-08T09:00:00Z",
+        });
+        useAgentStore.getState().appendMessage(said("a1", "Planned.", "2026-11-08T09:00:05Z"));
+      });
+    }
+
+    it("says so in a narration caption, once by the announcer, and nothing while it is saved", async () => {
+      await sendUnsaved();
+      const caption = unsavedCaption()!;
+      expect(caption).toHaveAttribute("data-voice", "narration");
+      expect(caption).toHaveTextContent(`${NOT_SAVED_LABEL} ${NOT_SAVED}`);
+      // Third person, no dashes.
+      expect(caption.textContent).not.toMatch(/(I|me|my)|[–—]/);
+      // In the log, which is never live; the announcer says it once.
+      expect(caption.closest('[role="log"]')).not.toBeNull();
+      expect(caption.closest('[aria-live="polite"], [aria-live="assertive"]')).toBeNull();
+      await waitFor(() =>
+        expect(screen.getByTestId("live-polite")).toHaveTextContent(NOT_SAVED_LABEL)
+      );
+    });
+
+    it("saves what came before once the next message makes a conversation, then says nothing", async () => {
+      await sendUnsaved();
+      h.createConversation.mockResolvedValue(meta("c9", "Plan the sprint"));
+      fireEvent.change(box(), { target: { value: "and the review" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() => expect(h.sendUserMessage).toHaveBeenCalledTimes(2));
+
+      // Named for the chat's first question, not this one.
+      expect(h.createConversation).toHaveBeenLastCalledWith(
+        expect.objectContaining({ title: "Plan the sprint" })
+      );
+      // The earlier messages go into the new conversation, in order, times kept.
+      expect(h.appendMessages).toHaveBeenCalledTimes(1);
+      const [id, back] = h.appendMessages.mock.calls[0];
+      expect(id).toBe("c9");
+      expect(back).toEqual([
+        expect.objectContaining({ id: "u1", createdAt: "2026-11-08T09:00:00Z" }),
+        expect.objectContaining({ id: "a1", createdAt: "2026-11-08T09:00:05Z" }),
+      ]);
+      // This message goes with its turn, into the same conversation.
+      expect(h.sendUserMessage).toHaveBeenLastCalledWith(
+        "and the review",
+        expect.objectContaining({ conversationId: "c9" })
+      );
+      expect(useAgentStore.getState().activeConversationId).toBe("c9");
+      expect(unsavedCaption()).toBeNull();
+    });
+
+    it("never saves a reply the wire wouldn't take", async () => {
+      useAgentStore.getState().appendMessage(userMsg("u1", "Plan it"));
+      useAgentStore.getState().appendMessage({
+        id: "a0",
+        role: "assistant",
+        content: [{ type: "tool_use", id: "t1", name: "tool_x", input: { _partial: '{"na' } }],
+        createdAt: "2026-11-08T09:00:01Z",
+      });
+      useAgentStore.getState().appendMessage(said("a1", "Done.", "2026-11-08T09:00:02Z"));
+      h.createConversation.mockResolvedValue(meta("c9", "Plan it"));
+      render(<AgentConversation />);
+      expect(unsavedCaption()).not.toBeNull();
+      fireEvent.change(box(), { target: { value: "next" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() => expect(h.sendUserMessage).toHaveBeenCalledTimes(1));
+      expect(h.appendMessages.mock.calls[0][1]).toEqual([
+        expect.objectContaining({ id: "u1" }),
+        expect.objectContaining({ id: "a1" }),
+      ]);
+    });
+
+    it("saves nothing twice from a fresh chat: its first message goes with its turn", async () => {
+      h.createConversation.mockResolvedValue(meta("c9", "Plan the sprint"));
+      render(<AgentConversation />);
+      fireEvent.change(box(), { target: { value: "Plan the sprint" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() => expect(h.sendUserMessage).toHaveBeenCalledTimes(1));
+      expect(h.appendMessages).not.toHaveBeenCalled();
+      expect(unsavedCaption()).toBeNull();
+    });
   });
 });
