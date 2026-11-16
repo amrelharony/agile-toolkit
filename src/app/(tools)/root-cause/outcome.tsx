@@ -13,7 +13,7 @@
  * read or adjust it. Example analyses can't be sent anywhere.
  */
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import Link from "next/link";
 import { ArrowRight, Send } from "lucide-react";
@@ -57,6 +57,8 @@ export function Outcome({
   onLinkPostMortem,
 }: OutcomeProps) {
   const ids = useId();
+  /** Around Ask Amr: where focus goes back to when the list is dismissed. */
+  const askRef = useRef<HTMLDivElement>(null);
   const announce = useAnnounce();
   const example = isExampleId(analysis.id);
   const [suggested, setSuggested] = useState<{
@@ -94,29 +96,31 @@ export function Outcome({
             Countermeasure: what the team will change, and how it will know it worked
           </label>
           {!example && root && (
-            <AiButton
-              task={countermeasureTask}
-              input={() => ({
-                problem: [analysis.title, analysis.problem]
-                  .filter((s) => s.trim())
-                  .join(". ")
-                  .slice(0, 1000),
-                rootCause: root.slice(0, 1000),
-                whys: whyLines(analysis.whys).map((w) => w.slice(0, 1000)),
-                causes: analysis.causes.slice(0, 20).map((c) => c.text.slice(0, 300)),
-              })}
-              label="Ask Amr for countermeasures"
-              fallbackLabel="Suggest without AI"
-              onResult={(data, meta) => {
-                setSuggested({ items: data.countermeasures, source: meta.source });
-                const n = data.countermeasures.length;
-                announce(
-                  n === 0
-                    ? "No countermeasure to suggest."
-                    : `${n} possible ${n === 1 ? "countermeasure" : "countermeasures"} below. Pick the one that fits.`
-                );
-              }}
-            />
+            <div ref={askRef}>
+              <AiButton
+                task={countermeasureTask}
+                input={() => ({
+                  problem: [analysis.title, analysis.problem]
+                    .filter((s) => s.trim())
+                    .join(". ")
+                    .slice(0, 1000),
+                  rootCause: root.slice(0, 1000),
+                  whys: whyLines(analysis.whys).map((w) => w.slice(0, 1000)),
+                  causes: analysis.causes.slice(0, 20).map((c) => c.text.slice(0, 300)),
+                })}
+                label="Ask Amr for countermeasures"
+                fallbackLabel="Suggest countermeasures without AI"
+                onResult={(data, meta) => {
+                  setSuggested({ items: data.countermeasures, source: meta.source });
+                  const n = data.countermeasures.length;
+                  announce(
+                    n === 0
+                      ? "No countermeasure to suggest."
+                      : `${n} possible ${n === 1 ? "countermeasure" : "countermeasures"} below. Pick the one that fits.`
+                  );
+                }}
+              />
+            </div>
           )}
         </div>
         <BlurTextarea
@@ -147,6 +151,10 @@ export function Outcome({
             requestAnimationFrame(() => document.getElementById(`${ids}-counter`)?.focus());
           }}
           onDismiss={() => setSuggested(null)}
+          returnFocus={() =>
+            askRef.current?.querySelector<HTMLElement>('[data-testid="ai-button"]') ??
+            document.getElementById(`${ids}-counter`)
+          }
         />
       )}
 

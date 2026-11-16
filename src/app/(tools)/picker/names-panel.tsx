@@ -11,7 +11,7 @@
  * Undo (both the page's).
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { Disc3, Shuffle, Trash2, Vote } from "lucide-react";
 import { AiButton, AiSuggestions } from "@/components/ai";
@@ -24,7 +24,13 @@ import type { AiSource } from "@/lib/ai/task-types";
 import { THEME_TEXT_CHARS, themeNamesTask } from "@/lib/ai/tasks/picker";
 import { PICKER_LIMITS } from "@/lib/picker/model";
 import { pollLinkHref } from "@/lib/quick-vote/link";
-import { MAX_THEME_DRAW, NAME_THEMES, drawThemeNames, themeById } from "@/lib/picker/themes";
+import {
+  MAX_THEME_DRAW,
+  NAME_THEMES,
+  drawThemeNames,
+  themeById,
+  themeForText,
+} from "@/lib/picker/themes";
 import { nameKey } from "@/lib/team/names";
 import { byId, focusSoon } from "./focus";
 import { validateCount } from "./forms";
@@ -40,6 +46,8 @@ interface Suggestions {
   items: string[];
   source: AiSource;
   title: string;
+  /** Which button asked, for focus on Dismiss. */
+  from: "draw" | "ask";
 }
 
 const SHORTLIST_HEADING_ID = "picker-shortlist-heading";
@@ -67,6 +75,8 @@ export function NamesPanel({
   const [own, setOwn] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
   const [countError, setCountError] = useState<string | undefined>();
+  const drawRef = useRef<HTMLButtonElement>(null);
+  const askRef = useRef<HTMLDivElement>(null);
   const shortlisted = new Set(shortlist.map(nameKey));
   const full = shortlist.length >= PICKER_LIMITS.maxShortlist;
 
@@ -80,7 +90,12 @@ export function NamesPanel({
     return checked.values;
   };
 
-  const show = (items: readonly string[], source: AiSource, title: string) => {
+  const show = (
+    items: readonly string[],
+    source: AiSource,
+    title: string,
+    from: Suggestions["from"]
+  ) => {
     const seen = new Set<string>();
     const fresh = items.filter((n) => {
       const key = nameKey(n);
@@ -88,7 +103,7 @@ export function NamesPanel({
       seen.add(key);
       return true;
     });
-    setSuggestions({ items: fresh, source, title });
+    setSuggestions({ items: fresh, source, title, from });
   };
 
   const ownTheme = own.replace(/\s+/g, " ").trim();
@@ -135,13 +150,19 @@ export function NamesPanel({
           )}
         </Field>
         <Button
+          ref={drawRef}
           type="button"
           variant="toolkit"
           className="gap-1.5"
           onClick={() => {
             const n = readCount();
             if (n === null) return;
-            show(drawThemeNames(theme, n), "fallback", themeById(theme)?.label ?? "Name ideas");
+            show(
+              drawThemeNames(theme, n),
+              "fallback",
+              themeById(theme)?.label ?? "Name ideas",
+              "draw"
+            );
           }}
         >
           <Shuffle aria-hidden="true" />
@@ -162,24 +183,37 @@ export function NamesPanel({
               />
             )}
           </Field>
-          <AiButton
-            task={themeNamesTask}
-            input={() => ({
-              theme: ownTheme,
-              count: countCheck.ok ? countCheck.values : 8,
-              seed: Math.floor(Math.random() * 4_294_967_295),
-            })}
-            label="Ask Amr for names"
-            fallbackLabel="Suggest names"
-            disabledReason={
-              ownTheme.length < 2
-                ? "Type a theme first."
-                : !countCheck.ok
-                  ? countCheck.errors.count
-                  : null
-            }
-            onResult={(data, meta) => show(data.names, meta.source, `Names on “${ownTheme}”`)}
-          />
+          <div ref={askRef}>
+            <AiButton
+              task={themeNamesTask}
+              input={() => ({
+                theme: ownTheme,
+                count: countCheck.ok ? countCheck.values : 8,
+                seed: Math.floor(Math.random() * 4_294_967_295),
+              })}
+              label="Ask Amr for names"
+              fallbackLabel="Suggest names"
+              disabledReason={
+                ownTheme.length < 2
+                  ? "Type a theme first."
+                  : !countCheck.ok
+                    ? countCheck.errors.count
+                    : null
+              }
+              onResult={(data, meta) =>
+                show(
+                  data.names,
+                  meta.source,
+                  // Without AI a theme with no built-in list gets a mix of
+                  // every list: say so, rather than call them names on it.
+                  meta.source === "fallback" && !themeForText(ownTheme)
+                    ? `Names from the built-in lists (no list for “${ownTheme}”)`
+                    : `Names on “${ownTheme}”`,
+                  "ask"
+                )
+              }
+            />
+          </div>
         </div>
       </div>
 
@@ -193,6 +227,11 @@ export function NamesPanel({
             onAccept={(name) => onShortlist([name])}
             onAcceptAll={(names) => onShortlist(names)}
             onDismiss={() => setSuggestions(null)}
+            returnFocus={() =>
+              suggestions.from === "draw"
+                ? drawRef.current
+                : askRef.current?.querySelector<HTMLElement>('[data-testid="ai-button"]')
+            }
           />
         ) : (
           <p role="status" className="text-sm text-sub">

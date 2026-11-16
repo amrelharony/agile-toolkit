@@ -64,7 +64,7 @@ export function NextStepCard({ toolId }: { toolId: string }) {
       </div>
       <Link
         href={step.href}
-        className="inline-flex min-h-9 shrink-0 items-center gap-1.5 self-start rounded-md border border-accent/40 bg-card px-3 text-sm font-medium text-accent transition-colors hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:self-center"
+        className="inline-flex min-h-9 shrink-0 items-center pointer-coarse:min-h-11 gap-1.5 self-start rounded-md border border-accent/40 bg-card px-3 text-sm font-medium text-accent transition-colors hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:self-center"
       >
         Go<span className="sr-only">: {step.label}</span>
         <ArrowRight className="h-4 w-4" aria-hidden="true" />

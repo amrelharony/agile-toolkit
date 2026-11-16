@@ -21,7 +21,8 @@
  *
  * Keyboard focus never falls back to the page: adding an item moves focus to
  * the next item's Add button (or the one before), and when none is left, or
- * after "Add all", to the list's heading, with "All added." announced. If
+ * after "Add all", to the list's heading, with "All added." announced (in
+ * the button's own word: "All merged." for Merge, "Dealt." for one Deal). If
  * the caller moves focus somewhere else in `onAccept` (it closed the list
  * and focused the field it filled), focus stays there. If the row focus went
  * to disappears too, the next one left gets it. If the list goes while focus
@@ -74,6 +75,20 @@ export interface AiSuggestionsProps<T> {
    */
   pickOne?: boolean;
   className?: string;
+}
+
+/** Past tenses the "-ed" rule gets wrong. */
+const IRREGULAR_PAST: Record<string, string> = { deal: "dealt" };
+
+/**
+ * The line once nothing is left, in the add button's own word: "All
+ * merged." for Merge, "All added." for Add or "Add to plan", and "Dealt."
+ * when there was only the one.
+ */
+export function doneLine(acceptLabel: string, taken: number): string {
+  const verb = acceptLabel.trim().split(/\s+/)[0]?.toLowerCase() || "add";
+  const past = IRREGULAR_PAST[verb] ?? (verb.endsWith("e") ? `${verb}d` : `${verb}ed`);
+  return taken === 1 ? `${past.charAt(0).toUpperCase()}${past.slice(1)}.` : `All ${past}.`;
 }
 
 function textOf(value: AiSuggestionText): { title: string; detail?: string } {
@@ -309,7 +324,7 @@ export function AiSuggestions<T>({
       {left.length === 0 ? (
         <p role="status" className="mt-2 flex items-center gap-1.5 text-sm text-text">
           <Check className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
-          All added.
+          {doneLine(acceptLabel, taken.size)}
         </p>
       ) : (
         <>

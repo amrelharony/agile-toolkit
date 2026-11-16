@@ -20,11 +20,15 @@
  * totals as a guide.
  *
  * The room's vote opens on its own only for a topic the runner started (in
- * Discussing and marked as the one being discussed), when its timebox ran
- * out in Discuss, and its text comes from the cards this screen shows: a
- * card hidden while people write never reaches the room's phones. While
- * the vote is open, the host's screen shows how many voted, not the split,
- * so a shared screen can't tie a thumb to whoever just tapped.
+ * Discussing and marked as the one being discussed), when its timebox runs
+ * out in Discuss, once per time it runs out (not again while the board
+ * still shows time's up after Keep going or Move on), and never over a
+ * vote the host opened early with "Ask the room now", whose thumbs stand.
+ * Its text comes from the cards this screen shows: a card hidden while
+ * people write never reaches the room's phones. While the vote is open,
+ * the host's screen shows how many voted, not the split, so a shared
+ * screen can't tie a thumb to whoever just tapped, with a button to close
+ * it, before and after time's up.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -163,19 +167,54 @@ export function LeanCoffeeRunner({
     else if (upInRef.current === null) upInRef.current = state.phase;
   }, [timeUp, state.phase]);
 
-  // At time-up a live room gets the vote on every phone, once per timebox
-  // of a topic the runner started, and only in Discuss.
-  const askedRef = useRef<string | null>(null);
+  // At time-up a live room gets the vote on every phone, once each time the
+  // timebox of a topic the runner started runs out, and only in Discuss.
+  // Armed while the time isn't up: after Keep going or Move on the board
+  // still says time's up for a render, and a vote opened then would sit on
+  // every phone with nobody asking. A vote the host opened early with "Ask
+  // the room now" stands, with the thumbs already in.
+  const armedRef = useRef(true);
   const roomPoll = thumbs?.poll ?? null;
+  const pollOpen = roomPoll?.open === true;
   useEffect(() => {
-    if (!timeUp || !started || !thumbs) return;
+    if (!timeUp) {
+      armedRef.current = true;
+      return;
+    }
+    if (!armedRef.current || !started || !thumbs) return;
     if (state.phase !== "discuss" || upInRef.current !== "discuss") return;
-    const key = `${started.id}:${extendedTimes}`;
-    if (askedRef.current === key) return;
-    askedRef.current = key;
+    armedRef.current = false;
+    if (pollOpen) {
+      announce("Time's up. The room's vote is still open: keep going or move on?");
+      return;
+    }
     thumbs.open(started.text);
     announce("Time's up. The room is voting: keep going or move on?");
-  }, [timeUp, started, thumbs, extendedTimes, announce, state.phase]);
+  }, [timeUp, started, thumbs, pollOpen, announce, state.phase]);
+
+  // The host's Ask and Close take away the button pressed: focus goes to
+  // Close once the vote is open, to the totals once it's closed, never to
+  // the page. Tried on the next render only (a vote that didn't open
+  // leaves focus on Ask), so a vote opened later at time's up takes none.
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const totalsRef = useRef<HTMLParagraphElement>(null);
+  const focusNextRef = useRef<"close" | "totals" | null>(null);
+  useEffect(() => {
+    const next = focusNextRef.current;
+    if (!next) return;
+    focusNextRef.current = null;
+    (next === "close" ? closeRef : totalsRef).current?.focus();
+  });
+  const askRoom = (text: string) => {
+    if (!thumbs) return;
+    focusNextRef.current = "close";
+    thumbs.open(text);
+  };
+  const closeVote = () => {
+    if (!thumbs) return;
+    focusNextRef.current = "totals";
+    thumbs.close();
+  };
 
   const start = (topic: LeanTopic) => {
     const seconds = settings.timeboxMin * 60;
@@ -221,16 +260,25 @@ export function LeanCoffeeRunner({
     }
   };
 
-  const merge = (group: { title: string; topicIds: string[] }) => {
-    const ids = new Set(group.topicIds);
+  /** Merge one group, or several at once ("Merge all"), with one Undo for what this merged. */
+  const merge = (list: readonly { title: string; topicIds: string[] }[]) => {
+    if (list.length === 0) return;
+    const ids = new Set(list.flatMap((g) => g.topicIds));
     const before = placesOf(state.cards, ids);
+    const one = list.length === 1 ? list[0] : null;
     undoable({
-      label: `Merged ${group.topicIds.length} topics`,
-      description: `“${short(group.title, 40)}”`,
+      label: one
+        ? `Merged ${one.topicIds.length} topics`
+        : `Merged ${list.length} groups of topics`,
+      description: one
+        ? `“${short(one.title, 40)}”`
+        : list.map((g) => `“${short(g.title, 24)}”`).join(", "),
       kind: "success",
       apply: () => {
-        onUpdate((prev) => withTopicsMerged(prev, group.topicIds));
-        log(LEAN_COFFEE_LOG.TOPICS_MERGED, { cardIds: group.topicIds, title: group.title });
+        onUpdate((prev) => list.reduce((board, g) => withTopicsMerged(board, g.topicIds), prev));
+        for (const g of list) {
+          log(LEAN_COFFEE_LOG.TOPICS_MERGED, { cardIds: g.topicIds, title: g.title });
+        }
       },
       revert: () =>
         onUpdate((prev) => {
@@ -244,7 +292,9 @@ export function LeanCoffeeRunner({
           };
         }),
     });
-    announce(`Merged into “${short(group.title)}”.`);
+    announce(
+      one ? `Merged into “${short(one.title)}”.` : `Merged ${list.length} groups of similar topics.`
+    );
   };
 
   // ── Write and Vote: grouping the topics ──
@@ -264,14 +314,27 @@ export function LeanCoffeeRunner({
         return [{ title: g.title, topicIds }];
       });
     };
-    /** Merge a group's topics that are still topics (another merge may have taken some). */
+    /** A group's topics that are still topics (another merge may have taken some). */
+    const stillTopics = (g: { title: string; topicIds: string[] }) => ({
+      ...g,
+      topicIds: g.topicIds.filter((id) => byId.has(id)),
+    });
     const acceptGroup = (g: { title: string; topicIds: string[] }) => {
-      const topicIds = g.topicIds.filter((id) => byId.has(id));
-      if (topicIds.length < 2) {
+      const left = stillTopics(g);
+      if (left.topicIds.length < 2) {
         announce("Those topics are merged already.");
         return;
       }
-      merge({ ...g, topicIds });
+      merge([left]);
+    };
+    /** "Merge all": every group left, in one change with one Undo. */
+    const acceptAll = (all: { title: string; topicIds: string[] }[]) => {
+      const left = all.map(stillTopics).filter((g) => g.topicIds.length >= 2);
+      if (left.length === 0) {
+        announce("Those topics are merged already.");
+        return;
+      }
+      merge(left);
     };
     return (
       <section
@@ -327,6 +390,7 @@ export function LeanCoffeeRunner({
                   .join(" · "),
               })}
               onAccept={acceptGroup}
+              onAcceptAll={acceptAll}
               onDismiss={() => setGroups(null)}
               returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
             />
@@ -346,6 +410,39 @@ export function LeanCoffeeRunner({
   // screen shows only how many voted.
   const tally = thumbs ? (roomPoll && !roomPoll.open ? roomPoll : null) : timeUp ? hand : null;
   const decision = tally ? thumbsDecision(tally) : "none";
+  // The room's vote as the host sees it: how many voted while it's open
+  // (with Close), the totals once closed. Shown whether it opened at
+  // time's up or early, with "Ask the room now".
+  const roomPollStatus =
+    thumbs && roomPoll ? (
+      <div className="flex flex-wrap items-center gap-2">
+        {roomPoll.open ? (
+          <p role="status" className="text-sm text-text">
+            {roomPoll.voters} {roomPoll.voters === 1 ? "person has" : "people have"} voted so far.
+          </p>
+        ) : (
+          <p
+            ref={totalsRef}
+            role="status"
+            tabIndex={-1}
+            className="rounded-sm text-sm text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ThumbsUp className="mr-1 inline h-4 w-4" aria-hidden="true" />
+            Keep going {roomPoll.keep} ·{" "}
+            <ThumbsDown className="mr-1 inline h-4 w-4" aria-hidden="true" />
+            Move on {roomPoll.move}{" "}
+            <span className="text-xs text-sub">({roomPoll.voters} voted)</span>
+          </p>
+        )}
+        {roomPoll.open ? (
+          <Button ref={closeRef} type="button" size="sm" variant="outline" onClick={closeVote}>
+            Close the vote and show everyone
+          </Button>
+        ) : (
+          <span className="text-xs text-sub">{thumbsVerdict(roomPoll)}</span>
+        )}
+      </div>
+    ) : null;
   return (
     <section
       aria-label="Lean Coffee"
@@ -392,35 +489,13 @@ export function LeanCoffeeRunner({
               </p>
               {thumbs ? (
                 roomPoll ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    {roomPoll.open ? (
-                      <p role="status" className="text-sm text-text">
-                        {roomPoll.voters} {roomPoll.voters === 1 ? "person has" : "people have"}{" "}
-                        voted so far.
-                      </p>
-                    ) : (
-                      <p role="status" className="text-sm text-text">
-                        <ThumbsUp className="mr-1 inline h-4 w-4" aria-hidden="true" />
-                        Keep going {roomPoll.keep} ·{" "}
-                        <ThumbsDown className="mr-1 inline h-4 w-4" aria-hidden="true" />
-                        Move on {roomPoll.move}{" "}
-                        <span className="text-xs text-sub">({roomPoll.voters} voted)</span>
-                      </p>
-                    )}
-                    {roomPoll.open ? (
-                      <Button type="button" size="sm" variant="outline" onClick={thumbs.close}>
-                        Close the vote and show everyone
-                      </Button>
-                    ) : (
-                      <span className="text-xs text-sub">{thumbsVerdict(roomPoll)}</span>
-                    )}
-                  </div>
+                  roomPollStatus
                 ) : (
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
-                    onClick={() => thumbs.open(current.text)}
+                    onClick={() => askRoom(current.text)}
                   >
                     Ask the room again
                   </Button>
@@ -495,27 +570,30 @@ export function LeanCoffeeRunner({
               </div>
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="gap-1.5"
-                onClick={moveOn}
-              >
-                <SkipForward className="h-4 w-4" aria-hidden="true" />
-                {next ? "Done, next topic" : "Done with this topic"}
-              </Button>
-              {thumbs && !roomPoll && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
                   size="sm"
-                  variant="ghost"
-                  onClick={() => thumbs.open(current.text)}
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={moveOn}
                 >
-                  Ask the room now
+                  <SkipForward className="h-4 w-4" aria-hidden="true" />
+                  {next ? "Done, next topic" : "Done with this topic"}
                 </Button>
-              )}
+                {thumbs && !pollOpen && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => askRoom(current.text)}
+                  >
+                    {roomPoll ? "Ask the room again" : "Ask the room now"}
+                  </Button>
+                )}
+              </div>
+              {roomPollStatus}
             </div>
           )}
         </div>

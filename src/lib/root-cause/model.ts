@@ -377,19 +377,29 @@ export function newestFirst(list: readonly RootCauseAnalysis[]): RootCauseAnalys
   return [...list].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
 }
 
-/** One sentence on the analyses: what to do next across them. */
+/**
+ * One sentence on the analyses: what to do next across them. With
+ * `example`, the list is the example, which is never sent: an agreed
+ * countermeasure says where it would go, not to send it.
+ */
 export function rootCauseVerdict(
   list: readonly RootCauseAnalysis[],
-  isLive: LinkIsLive = everyLink
+  isLive: LinkIsLive = everyLink,
+  { example = false }: { example?: boolean } = {}
 ): string {
   if (list.length === 0) return "No analysis yet.";
-  const stages = list.map((a) => analysisStage(a, isLive));
+  const stages = list.map((a) => analysisStage(a, example ? () => false : isLive));
   const started = stages.filter((s) => s === "started").length;
   const named = stages.filter((s) => s === "root-cause").length;
   const agreed = stages.filter((s) => s === "countermeasure").length;
   const sent = stages.filter((s) => s === "sent").length;
   if (named > 0) {
     return `${named} ${named === 1 ? "analysis has" : "analyses have"} a root cause but no countermeasure yet: agree what the team will change.`;
+  }
+  if (agreed > 0 && example) {
+    return agreed === 1
+      ? "The example's countermeasure would go to Retro Actions in your own analysis."
+      : "The example's countermeasures would go to Retro Actions in your own analyses.";
   }
   if (agreed > 0) {
     return `${agreed} ${agreed === 1 ? "countermeasure isn't" : "countermeasures aren't"} in Retro Actions yet: send ${agreed === 1 ? "it" : "them"} so someone owns ${agreed === 1 ? "it" : "them"}.`;

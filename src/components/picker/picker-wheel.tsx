@@ -112,12 +112,16 @@ function PickerWheelImpl({
           />
           {slices.map((s, i) => {
             const [x, y] = polar(C, C, R * 0.6, s.mid);
+            // A name on the left half of the wheel where it comes to rest
+            // turns half a turn more, so it reads upright, not upside down.
+            const at = (((s.mid + rotation) % 360) + 360) % 360;
+            const turn = at > 180 ? s.mid + 90 : s.mid - 90;
             return (
               <text
                 key={`label-${i}`}
                 x={x}
                 y={y}
-                transform={`rotate(${s.mid - 90} ${x} ${y})`}
+                transform={`rotate(${turn} ${x} ${y})`}
                 textAnchor="middle"
                 dominantBaseline="central"
                 fontSize={fontSize}

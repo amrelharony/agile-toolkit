@@ -307,7 +307,8 @@ function AnalysisView({
     <div className="space-y-5">
       <div className="space-y-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0 flex-1 space-y-1">
+          {/* Its own row on a phone, so the title isn't cut beside Delete. */}
+          <div className="min-w-0 basis-full space-y-1 sm:basis-0 sm:flex-1">
             <label htmlFor={`rca-title-${id}`} className="block text-xs font-medium text-sub">
               The problem
             </label>
@@ -329,7 +330,7 @@ function AnalysisView({
             variant="ghost"
             size="sm"
             onClick={onRemove}
-            className="mt-5 gap-1.5 text-sub hover:text-danger"
+            className="gap-1.5 text-sub hover:text-danger sm:mt-5"
           >
             <Trash2 className="h-4 w-4" aria-hidden="true" />
             Delete analysis
@@ -339,9 +340,12 @@ function AnalysisView({
           <label htmlFor={`rca-problem-${id}`} className="mb-1 block text-xs font-medium text-sub">
             What happened, as a fact
           </label>
+          {/* Grows with the fact (field-sizing where the browser has it; three
+              rows where it doesn't), so no line shows cut in half. */}
           <BlurTextarea
             id={`rca-problem-${id}`}
-            rows={2}
+            rows={3}
+            className="max-h-72 [field-sizing:content]"
             value={analysis.problem}
             maxLength={TOOL_TEXT_MAX.text}
             placeholder="Where, when and how often. No names and no blame."
@@ -492,10 +496,13 @@ export function RootCauseClient() {
 
   const selected = analyses.find((a) => a.id === selectedId) ?? analyses[0] ?? null;
   const example = hasExampleItems(analyses);
-  const verdict = rootCauseVerdict(
-    analyses.filter((a) => !isExampleId(a.id)),
-    isLive
-  );
+  // The team's own analyses; with only the example on the page, the example's
+  // (which is never sent, so it isn't told to send).
+  const real = analyses.filter((a) => !isExampleId(a.id));
+  const verdict =
+    real.length > 0
+      ? rootCauseVerdict(real, isLive)
+      : rootCauseVerdict(analyses, isLive, { example: true });
 
   useEffect(() => {
     if (!focusShown.current) return;

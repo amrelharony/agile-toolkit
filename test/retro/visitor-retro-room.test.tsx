@@ -130,6 +130,7 @@ function hostSnapshot(
     by: FakeMember;
     votesUsed: Record<string, number>;
     votes: number;
+    timer: { running: boolean; remaining: number };
   }> = {}
 ): RoomSnapshot {
   const by = extra.by ?? HOST;
@@ -141,7 +142,7 @@ function hostSnapshot(
         endsAt: Date.now() + VISITOR_LIMITS.hardTtlMs,
         members: [by, ME].map(({ id, name }) => ({ id, name })),
         votesUsed: extra.votesUsed ?? {},
-        timer: { running: false, remaining: b.timerSeconds },
+        timer: extra.timer ?? { running: false, remaining: b.timerSeconds },
         now: Date.now(),
         hideWhileWriting: extra.hide ?? false,
         votesPerPerson: extra.votes ?? 3,
@@ -418,6 +419,28 @@ describe("VisitorRetroRoom (participant)", () => {
     expect(fakeRealtime.client.channel).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Leave" }));
     expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops the live timer once the host ends the room: no countdown to a Time's up that's gone", () => {
+    render(<VisitorRetroRoom code={CODE} identity={identity} onLeave={() => {}} />);
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    act(() =>
+      ch.deliver(
+        "retro:state",
+        hostSnapshot(makeBoard({ phase: "discuss" }), 1, {
+          timer: { running: true, remaining: 30 },
+        })
+      )
+    );
+    expect(screen.getByRole("timer")).toBeInTheDocument();
+    act(() => ch.deliver("retro:end", { by: HOST.id }));
+    expect(screen.getByRole("heading", { name: "The host ended the room" })).toBeInTheDocument();
+    // The board stays as the last version seen; its timer doesn't.
+    expect(screen.queryByRole("timer")).toBeNull();
   });
 
   it("renders the host's board read-only, sends cards as intents, and saves a copy on request", () => {

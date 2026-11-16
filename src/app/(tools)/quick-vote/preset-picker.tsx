@@ -7,7 +7,7 @@
  */
 
 import type { RefObject } from "react";
-import { Trash2 } from "lucide-react";
+import { Check, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { QUICK_VOTE_PRESETS, type QuickVotePreset } from "@/lib/quick-vote/presets";
@@ -68,7 +68,9 @@ export function PresetPicker({
                 on && "ring-1 ring-accent"
               )}
             >
-              <span className="max-w-full text-sm font-semibold [overflow-wrap:anywhere]">
+              {/* A check marks the one set up: a hovered card looks like it otherwise. */}
+              <span className="flex max-w-full items-center gap-1 text-sm font-semibold [overflow-wrap:anywhere]">
+                {on && <Check className="h-4 w-4 shrink-0" aria-hidden="true" />}
                 {p.name}
               </span>
               <span className="max-w-full text-xs font-normal text-sub">{p.blurb}</span>
@@ -92,7 +94,8 @@ export function PresetPicker({
                     onClick={() => onPickCustom(p)}
                     className="h-auto min-w-0 flex-1 flex-col items-start gap-0.5 whitespace-normal py-2 text-left md-fine:h-auto"
                   >
-                    <span className="max-w-full text-sm font-semibold [overflow-wrap:anywhere]">
+                    <span className="flex max-w-full items-center gap-1 text-sm font-semibold [overflow-wrap:anywhere]">
+                      {on && <Check className="h-4 w-4 shrink-0" aria-hidden="true" />}
                       {p.name}
                     </span>
                     <span className="max-w-full text-xs font-normal text-sub [overflow-wrap:anywhere]">

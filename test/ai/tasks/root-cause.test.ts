@@ -53,6 +53,14 @@ describe("root-cause.next_why", () => {
     expect(out).toHaveLength(3);
     expect(out[0]).toContain("“The migration broke”");
     expect(fallbackNextWhys("Deploys fail", [])[1]).toContain("“Deploys fail”");
+    // The page sends the title and the fact: before the first why, only the title is quoted.
+    const first = fallbackNextWhys(
+      "Releases rolled back the same day. Three of the last five releases were rolled back.",
+      []
+    );
+    expect(first[0]).toBe(
+      "No check caught “Releases rolled back the same day” before it went further."
+    );
     expect(nextWhyTask.output.safeParse({ whys: out }).success).toBe(true);
   });
 });

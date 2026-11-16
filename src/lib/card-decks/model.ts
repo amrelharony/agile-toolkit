@@ -526,9 +526,18 @@ const words = (text: string) =>
  * "retro").
  */
 export function nearestBuiltInDeck(theme: string): Deck {
+  return builtInDeckFor(theme) ?? builtInDeck(DEFAULT_DECK_ID) ?? BUILT_IN_DECKS[0];
+}
+
+/**
+ * The built-in deck whose name and keywords share most words with `theme`,
+ * or null when none shares any (the page then says the cards come from the
+ * retro prompts, rather than pass them off as cards on the theme).
+ */
+export function builtInDeckFor(theme: string): Deck | null {
   const asked = words(theme);
   const phrase = theme.toLowerCase();
-  let best: Deck = builtInDeck(DEFAULT_DECK_ID) ?? BUILT_IN_DECKS[0];
+  let best: Deck | null = null;
   let bestScore = 0;
   for (const deck of BUILT_IN_DECKS) {
     let score = 0;

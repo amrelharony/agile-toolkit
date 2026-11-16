@@ -149,7 +149,7 @@ export function HostLiveRoom({
         timer={bigTimer}
         reactions={extras.reactions}
       >
-        <RetroBigScreenRound board={board} hidesCard={room.hidesCard} poll={room.poll} />
+        <RetroBigScreenRound board={board} poll={room.poll} />
       </RoomBigScreen>
       {others.length > 0 && (
         <RoomMemberList

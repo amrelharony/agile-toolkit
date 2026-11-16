@@ -167,7 +167,7 @@ function CauseRow({
           type="button"
           onClick={edit.start}
           aria-label={`${cause.text}. Edit`}
-          className="block w-full break-words text-left text-sm text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="block w-full break-words text-left text-sm text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent pointer-coarse:min-h-11 pointer-coarse:py-2"
         >
           {cause.text}
         </button>

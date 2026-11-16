@@ -15,7 +15,14 @@ import {
   type CardForMoodOutput,
   type GenerateCardsInput,
 } from "@/lib/ai/tasks/card-decks";
-import { CARD_DECK_LIMITS, cleanLine, type Deck, type DeckCard } from "@/lib/card-decks/model";
+import {
+  CARD_DECK_LIMITS,
+  builtInDeckFor,
+  cleanLine,
+  nearestBuiltInDeck,
+  type Deck,
+  type DeckCard,
+} from "@/lib/card-decks/model";
 import type { Validation } from "@/lib/utils/form";
 import { moodLine, type TeamMood } from "../mood";
 
@@ -253,7 +260,13 @@ export function ThemeDeck({
       {answer && (
         <AiSuggestions
           items={answer.cards}
-          title={`Cards for “${answer.name}”`}
+          title={
+            // Without AI, a theme no built-in deck is near gets the retro
+            // prompts: the list says where they come from.
+            answer.source === "fallback" && !builtInDeckFor(answer.theme)
+              ? `Cards from ${nearestBuiltInDeck(answer.theme).name} (no built-in deck on “${answer.theme}”)`
+              : `Cards for “${answer.name}”`
+          }
           source={answer.source}
           acceptLabel="Add"
           onAccept={(card) => setNote(onAccept({ ...answer, cards: [card] }))}

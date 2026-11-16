@@ -219,8 +219,9 @@ const presetLabel = (s: number) => `${s / 60} min`;
  * same countdown; this screen rings at zero.
  *
  * Focus stays in the controls as they swap: a length sends it to Pause,
- * Stop sends it to the first length, and at zero Pause becomes "1 more
- * minute" in place (the separate "1 minute more" folds into it).
+ * Stop sends it to the first length, and at zero Pause becomes "1 minute
+ * more" in place (the separate "1 minute more" folds into it: one label for
+ * the one action, running or not).
  */
 export function RoomTimerControls({
   timer,
@@ -318,7 +319,7 @@ export function RoomTimerControls({
               ) : (
                 <Pause aria-hidden="true" />
               )}
-              {up ? "1 more minute" : paused ? "Resume" : "Pause"}
+              {up ? "1 minute more" : paused ? "Resume" : "Pause"}
             </Button>
             {!up && (
               <Button

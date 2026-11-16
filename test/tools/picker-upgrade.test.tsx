@@ -127,6 +127,24 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("the view tabs", () => {
+  it("fit four equal columns, 44 px on touch, the selected one marked by more than its shade", async () => {
+    await mount();
+    const list = screen.getByRole("tablist");
+    expect(list).toHaveClass("grid", "grid-cols-4", "w-full");
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["Wheel", "Roles", "Quick", "Names"]);
+    for (const t of tabs) {
+      expect(t).toHaveClass("pointer-coarse:min-h-11");
+      // High contrast shows an accent outline and bold, where the two shades of black look alike.
+      expect(t).toHaveClass(
+        "data-[state=active]:border-accent",
+        "data-[state=active]:font-semibold"
+      );
+    }
+  });
+});
+
 describe("the wheel", () => {
   it("spins the team and says who came up: saved, logged without names, cheered", async () => {
     await mount();
@@ -565,6 +583,38 @@ describe("team and sprint names", () => {
     expect(await screen.findByText(/Suggested without AI/)).toBeInTheDocument();
     const region = screen.getByRole("region", { name: /Names on “Space missions”/ });
     expect(within(region).getAllByRole("button", { name: /^Shortlist: / }).length).toBe(8);
+  });
+
+  it("says when no built-in list fits the typed theme, rather than call the names on it", async () => {
+    await mount();
+    tab("Names");
+    fireEvent.change(screen.getByLabelText("Or your own theme"), {
+      target: { value: "jazz legends" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Suggest names" }));
+    expect(
+      await screen.findByRole("region", {
+        name: "Names from the built-in lists (no list for “jazz legends”)",
+      })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /Names on “jazz legends”/ })).toBeNull();
+  });
+
+  it("puts focus back on the button that asked when the names are dismissed", async () => {
+    await mount();
+    tab("Names");
+    for (const asked of ["Draw names", "Suggest names"]) {
+      if (asked === "Suggest names")
+        fireEvent.change(screen.getByLabelText("Or your own theme"), {
+          target: { value: "Space missions" },
+        });
+      fireEvent.click(screen.getByRole("button", { name: asked }));
+      const dismiss = await screen.findByRole("button", { name: "Dismiss suggestions" });
+      dismiss.focus();
+      fireEvent.click(dismiss);
+      expect(screen.queryByRole("button", { name: "Dismiss suggestions" })).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: asked }));
+    }
   });
 
   it("takes a name off the shortlist with Undo, and spins the shortlist", async () => {

@@ -6,8 +6,9 @@
  * and flags the stories to fix: vague, no criteria or points near the top,
  * too big, stale. Each story can be fixed here: points, acceptance criteria
  * (free text and Given/When/Then), a split, or Drop, all with Undo where
- * something is removed. "Review with Amr" suggests flags, splits and
- * scenarios that the person adds one by one.
+ * something is removed. "Review the stories" (Amr's AI, or the rules
+ * without it) suggests flags, splits and scenarios that the person adds one
+ * by one, or all at once with one Undo.
  *
  * The scan is lib/backlog/health, shared with Amr's verbs. The example is
  * held in memory and never reaches the workspace.
@@ -276,6 +277,8 @@ export function HealthBoard({
   const [announce, setAnnounce] = useState("");
   const [review, setReview] = useState<{ data: ReviewOutput; source: AiSource } | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  /** Around the review button: where focus goes back to when its list is dismissed. */
+  const reviewAskRef = useRef<HTMLDivElement>(null);
 
   // The scan ran: once a visit, for the team's own backlog.
   const logged = useRef(false);
@@ -355,10 +358,10 @@ export function HealthBoard({
     else log(BACKLOG_HEALTH_ACTIONS.STORY_UPDATED, { storyId: story.id, gwt: gwt.length });
   };
 
-  /** New backlog stories for a big one, with one Undo; the big one stays to drop. */
-  const split = (story: Story, titles: string[]) => {
+  /** The new backlog stories a split of `story` makes (not yet written). */
+  const storiesFrom = (story: Story, titles: readonly string[]): Story[] => {
     const prefix = example ? "example-" : "";
-    const made: Story[] = titles
+    return titles
       .map((t) => t.replace(/\s+/g, " ").trim().slice(0, STORY_TITLE_MAX))
       .filter(Boolean)
       .map((title) => ({
@@ -370,11 +373,19 @@ export function HealthBoard({
         ...(story.tags?.length ? { tags: [...story.tags] } : {}),
         ...(story.owner ? { owner: story.owner } : {}),
       }));
+  };
+
+  /** New backlog stories for a big one, with one Undo; the big one stays to drop. */
+  const split = (story: Story, titles: string[]) => {
+    const made = storiesFrom(story, titles);
     if (made.length === 0) return;
+    const label = `Added ${made.length} ${made.length === 1 ? "story" : "stories"} from “${short(story.title)}”`;
     undoable({
-      label: `Added ${made.length} ${made.length === 1 ? "story" : "stories"} from “${short(story.title)}”`,
+      label,
       description: "Size and order them, then drop the big one when the team agrees.",
       kind: "success",
+      // Two splits with the same words merge into one toast: its Undo takes back both.
+      id: `backlog-health:${label}`,
       apply: () => writer.upsertStories(made),
       revert: () => writer.removeStories(made.map((s) => s.id)),
     });
@@ -395,7 +406,7 @@ export function HealthBoard({
     requestAnimationFrame(() => headingRef.current?.focus());
   };
 
-  /* ── Review with Amr ─────────────────────────────────────────────── */
+  /* ── Review the stories (Amr, or the rules) ──────────────────────── */
 
   // The page's own settings go with it, so the rules (or Amr) flag what the
   // page flags; trimmed to fit what a visitor's request may weigh.
@@ -454,9 +465,12 @@ export function HealthBoard({
     // The story's refinedAt before the scenario and the stamp its write left.
     let before: string | undefined;
     let stamp: string | undefined;
+    const label = `Added a scenario to “${short(current.title)}”`;
     undoable({
-      label: `Added a scenario to “${short(current.title)}”`,
+      label,
       kind: "success",
+      // Two scenarios on one story merge into one toast: its Undo takes back both.
+      id: `backlog-health:${label}`,
       apply: () => {
         const now = fresh(current.id) ?? current;
         before = now.refinedAt;
@@ -481,6 +495,87 @@ export function HealthBoard({
       },
     });
     log(BACKLOG_HEALTH_ACTIONS.CRITERIA_ADDED, { storyId: current.id, count: 1 });
+  };
+
+  /** Every suggestion left, in one change with one Undo that takes back the lot. */
+  const acceptAllReview = (items: readonly ReviewItem[]) => {
+    const made: Story[] = [];
+    const splits = new Map<string, number>();
+    const rows = new Map<string, StoryGwt[]>();
+    let full = 0;
+    for (const item of items) {
+      const current = fresh(item.storyId);
+      if (!current) continue;
+      if (item.kind === "split") {
+        const more = storiesFrom(current, [item.title]);
+        made.push(...more);
+        if (more.length > 0) splits.set(current.id, (splits.get(current.id) ?? 0) + more.length);
+        continue;
+      }
+      const mine = rows.get(current.id) ?? [];
+      const have = current.gwt ?? [];
+      if (have.length + mine.length >= STORY_GWT_MAX) {
+        full += 1;
+        continue;
+      }
+      const id = newGwtId(new Set([...have, ...mine].map((g) => g.id)));
+      mine.push({ id, given: item.given, when: item.when, then: item.then });
+      rows.set(current.id, mine);
+    }
+    const scenarios = Array.from(rows.values()).reduce((n, r) => n + r.length, 0);
+    const fullNote =
+      full > 0
+        ? `${full} ${full === 1 ? "scenario wasn't" : "scenarios weren't"} added: ${full === 1 ? "its story holds" : "their stories hold"} as many as a story keeps.`
+        : "";
+    if (made.length === 0 && scenarios === 0) {
+      if (fullNote) setAnnounce(fullNote);
+      return;
+    }
+    // Each story's refinedAt before its scenarios and the stamp the write left.
+    const before = new Map<string, string | undefined>();
+    const stamps = new Map<string, string | undefined>();
+    const parts = [
+      ...(made.length > 0 ? [`${made.length} ${made.length === 1 ? "story" : "stories"}`] : []),
+      ...(scenarios > 0 ? [`${scenarios} ${scenarios === 1 ? "scenario" : "scenarios"}`] : []),
+    ];
+    undoable({
+      label: `Added ${parts.join(" and ")} to the backlog`,
+      kind: "success",
+      apply: () => {
+        if (made.length > 0) writer.upsertStories(made);
+        rows.forEach((added, storyId) => {
+          const now = fresh(storyId);
+          if (!now) return;
+          before.set(storyId, now.refinedAt);
+          writer.upsertStory(withStoryGwt(now, [...(now.gwt ?? []), ...added]));
+          stamps.set(storyId, fresh(storyId)?.refinedAt);
+        });
+      },
+      // Takes back only what this added: edits made since stay.
+      revert: () => {
+        if (made.length > 0) writer.removeStories(made.map((m) => m.id));
+        rows.forEach((added, storyId) => {
+          const now = fresh(storyId);
+          if (!now) return;
+          const ids = new Set(added.map((g) => g.id));
+          writer.upsertStory(
+            withRefinedPutBack(
+              withStoryGwt(
+                now,
+                (now.gwt ?? []).filter((g) => !ids.has(g.id))
+              ),
+              stamps.get(storyId),
+              before.get(storyId)
+            )
+          );
+        });
+      },
+    });
+    splits.forEach((count, storyId) => log(BACKLOG_HEALTH_ACTIONS.STORY_SPLIT, { storyId, count }));
+    rows.forEach((added, storyId) =>
+      log(BACKLOG_HEALTH_ACTIONS.CRITERIA_ADDED, { storyId, count: added.length })
+    );
+    if (fullNote) setAnnounce(fullNote);
   };
 
   /* ── Render ──────────────────────────────────────────────────────── */
@@ -552,26 +647,28 @@ export function HealthBoard({
       </ul>
 
       <SectionCard
-        title="Review with Amr"
+        title="Review the stories"
         icon={ListChecks}
         actions={
-          <AiButton
-            task={backlogHealthReviewTask}
-            label="Review the backlog with Amr"
-            fallbackLabel="Review by the rules"
-            input={reviewInput}
-            onResult={(data, meta) => {
-              setReview({ data, source: meta.source });
-              if (data.stories.length === 0)
-                setAnnounce("Nothing to suggest: every story looks fine.");
-            }}
-          />
+          <div ref={reviewAskRef}>
+            <AiButton
+              task={backlogHealthReviewTask}
+              label="Review the backlog with Amr"
+              fallbackLabel="Review by the rules"
+              input={reviewInput}
+              onResult={(data, meta) => {
+                setReview({ data, source: meta.source });
+                if (data.stories.length === 0)
+                  setAnnounce("Nothing to suggest: every story looks fine.");
+              }}
+            />
+          </div>
         }
       >
         <p className="text-sm text-sub">
-          Amr reads the top {Math.min(REVIEW_STORIES_MAX, health.total)} stories and suggests splits
-          and Given/When/Then scenarios. You add the ones you want; each goes on its story with
-          Undo.
+          Checks the top {Math.min(REVIEW_STORIES_MAX, health.total)} stories and suggests splits
+          and Given/When/Then scenarios: with Amr&apos;s AI when it&apos;s on, by the rules without
+          it. You add the ones you want; each goes on its story with Undo.
         </p>
         {review && notes.length > 0 && (
           <div className="mt-3">
@@ -606,7 +703,11 @@ export function HealthBoard({
                   }
             }
             onAccept={acceptReview}
+            onAcceptAll={acceptAllReview}
             onDismiss={() => setReview(null)}
+            returnFocus={() =>
+              reviewAskRef.current?.querySelector<HTMLElement>('[data-testid="ai-button"]')
+            }
           />
         )}
       </SectionCard>

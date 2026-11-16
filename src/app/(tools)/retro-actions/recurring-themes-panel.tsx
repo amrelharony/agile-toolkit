@@ -52,7 +52,12 @@ export function RecurringThemesPanel({
 }) {
   const count = archivedRetroCount(boards);
   const announce = useAnnounce();
-  const [ai, setAi] = useState<{ themes: RecurringTheme[]; source: AiSource } | null>(null);
+  const [ai, setAi] = useState<{
+    themes: RecurringTheme[];
+    source: AiSource;
+    /** Set when Amr was asked and couldn't answer; absent when the no-AI path was chosen. */
+    reason?: string;
+  } | null>(null);
   const [showAi, setShowAi] = useState(true);
   const textOf = useMemo(
     () => new Map(archivedCards(boards).map(({ card, board }) => [card.id, { card, board }])),
@@ -101,7 +106,11 @@ export function RecurringThemesPanel({
               onResult={(data, meta) => {
                 const ids = asked.current?.ids ?? themesInput(boards).ids;
                 const found = themesFromAi(boards, ids, data.themes);
-                setAi({ themes: found, source: meta.source });
+                setAi({
+                  themes: found,
+                  source: meta.source,
+                  ...(meta.reason ? { reason: meta.reason } : {}),
+                });
                 setShowAi(true);
                 // The list below changes in place: say what came back.
                 announce(
@@ -119,12 +128,14 @@ export function RecurringThemesPanel({
             {fromAi
               ? ai.source === "ai"
                 ? `Grouped by Amr across your last ${count} retros, kept where the cards span ${RECURRING_MIN_RETROS} or more.`
-                : `Words the cards share across your last ${count} retros (Amr wasn't available).`
+                : // Amr's outage only when he was asked: "without AI" was a choice.
+                  `Words the cards share across your last ${count} retros (${ai.reason ? "Amr wasn't available" : "without AI"}).`
               : `Words the cards share across your last ${count} retros, kept where they come up in ${RECURRING_MIN_RETROS} or more.`}
             {cameBack > 0 &&
               ` ${cameBack} came back after an action on ${cameBack === 1 ? "it" : "them"} was marked done.`}
           </p>
-          {ai && (
+          {/* Only Amr's themes have shared words to switch to: without AI both are the same. */}
+          {ai && ai.source === "ai" && (
             <Button
               type="button"
               size="sm"

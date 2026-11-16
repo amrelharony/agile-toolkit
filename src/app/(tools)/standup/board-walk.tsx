@@ -568,7 +568,8 @@ export function BoardWalk({
         </ol>
       )}
       <AwayList away={away} onBack={markBack} />
-      <TeamLink />
+      {/* The empty card links to the Team page already. */}
+      {order.length > 0 && <TeamLink />}
     </SectionCard>
   );
 }

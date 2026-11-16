@@ -85,15 +85,17 @@ function ResultRow({
 
   return (
     <li className="space-y-2 rounded-lg border border-border bg-card p-3">
+      {/* The text keeps a real width: on a phone Send to and Delete wrap
+          under it rather than squeeze it to a few words a line. */}
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-56">
           <p className="text-xs font-medium uppercase tracking-wider text-sub">
             {presetName(saved)} · {when(saved.savedAt)} · {people}, {how}
           </p>
           <h3 className="break-words text-sm font-semibold text-text">{r.title}</h3>
           <p className="mt-0.5 text-sm text-sub">{resultSummary(saved)}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <SendToMenu
             routes={RESULT_ROUTES}
             item={resultHandoff(saved)}

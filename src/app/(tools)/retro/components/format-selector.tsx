@@ -115,7 +115,7 @@ function FormatCard({
               {format.name}
             </button>
           </CardTitle>
-          <CardDescription id={descId} className="text-xs text-sub line-clamp-2">
+          <CardDescription id={descId} className="text-xs text-sub">
             {format.description}
           </CardDescription>
         </CardHeader>

@@ -319,12 +319,12 @@ export function SmNotebookClient() {
               />
             </div>
             <Tabs defaultValue="notes">
-              <TabsList className="mb-4 border border-border bg-surface-deep">
-                <TabsTrigger value="notes" className="gap-2">
+              <TabsList className="mb-4 h-auto border border-border bg-surface-deep">
+                <TabsTrigger value="notes" className="gap-2 pointer-coarse:min-h-11">
                   <NotebookPen className="h-4 w-4" aria-hidden="true" />
                   Notes
                 </TabsTrigger>
-                <TabsTrigger value="week" className="gap-2">
+                <TabsTrigger value="week" className="gap-2 pointer-coarse:min-h-11">
                   <CalendarDays className="h-4 w-4" aria-hidden="true" />
                   Week
                 </TabsTrigger>

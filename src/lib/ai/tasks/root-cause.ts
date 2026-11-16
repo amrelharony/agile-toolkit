@@ -42,15 +42,20 @@ function quoted(text: string, max = 120): string {
   return `“${t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t}”`;
 }
 
+/** The first sentence: the problem's title, when the page sends the title and the fact. */
+function firstSentence(text: string): string {
+  return text.trim().split(/(?<=[.?!])\s+/)[0] ?? text;
+}
+
 /**
  * Three candidate answers to the next "why?", built from the last answer
- * (or the problem, before the first): a check that didn't catch it, the way
- * of working that let it through, and nobody owning it. Generic on purpose:
- * they are prompts the team edits, and each points at the process rather
- * than a person.
+ * (or the problem's first sentence, its title, before the first): a check
+ * that didn't catch it, the way of working that let it through, and nobody
+ * owning it. Generic on purpose: they are prompts the team edits, and each
+ * points at the process rather than a person.
  */
 export function fallbackNextWhys(problem: string, whys: readonly string[]): string[] {
-  const last = [...whys].reverse().find((w) => w.trim()) ?? problem;
+  const last = [...whys].reverse().find((w) => w.trim()) ?? firstSentence(problem);
   const it = quoted(last);
   return [
     `No check caught ${it} before it went further.`,

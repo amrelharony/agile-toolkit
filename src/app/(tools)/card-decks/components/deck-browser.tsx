@@ -189,7 +189,9 @@ export function DeckBrowser({
               <li
                 key={card.id}
                 className={cn(
-                  "flex flex-wrap items-start justify-between gap-2 rounded-md border border-border bg-card px-3 py-2",
+                  // Centred once text and buttons share a line, so a one-line
+                  // card sits level with its buttons; a phone stacks them.
+                  "flex flex-wrap items-start justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 sm:items-center",
                   hidden && "border-dashed bg-surface"
                 )}
               >

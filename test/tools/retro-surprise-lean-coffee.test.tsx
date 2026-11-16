@@ -363,7 +363,7 @@ describe("Lean Coffee: before Discuss", () => {
     expect(card("t1").groupedWith).toBeNull();
   });
 
-  it("keeps the groups fixed: each Merge focuses the next group, then 'All added.'", () => {
+  it("keeps the groups fixed: each Merge focuses the next group, then 'All merged.'", () => {
     const { card } = runner(
       leanBoard({
         phase: "vote",
@@ -394,7 +394,7 @@ describe("Lean Coffee: before Discuss", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Merge: Releases" }));
     fireEvent.click(screen.getByRole("button", { name: "Merge: Releases" }));
     expect(card("t3").groupedWith).toBe("t4");
-    expect(screen.getByText("All added.")).toBeInTheDocument();
+    expect(screen.getByText("All merged.")).toBeInTheDocument();
     expect(document.activeElement).toBe(
       screen.getByRole("heading", { name: "Topics that look the same" })
     );
@@ -403,6 +403,37 @@ describe("Lean Coffee: before Discuss", () => {
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Group similar topics without AI" })
     );
+  });
+
+  it("Merge all merges every group in one change, with one Undo for the lot", () => {
+    const { card } = runner(
+      leanBoard({
+        phase: "vote",
+        cards: [
+          topic("t1", "Standups run too long", 1),
+          topic("t2", "Standups overrun every day", 3),
+          topic("t3", "Release checklist", 0),
+          topic("t4", "Releases slip", 2),
+        ],
+      })
+    );
+    vi.spyOn(groupTopicsTask, "fallback").mockReturnValue({
+      groups: [
+        { title: "Standups", topicIds: ["t1", "t2"] },
+        { title: "Releases", topicIds: ["t3", "t4"] },
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Group similar topics without AI" }));
+    const undos = undo.all.length;
+    fireEvent.click(screen.getByRole("button", { name: "Merge all 2" }));
+    expect(card("t1").groupedWith).toBe("t2");
+    expect(card("t3").groupedWith).toBe("t4");
+    // One Undo, not one per group that the toast layer would fold into one.
+    expect(undo.all).toHaveLength(undos + 1);
+    expect(undo.all.at(-1)!.label).toBe("Merged 2 groups of topics");
+    act(() => undo.all.at(-1)!.revert());
+    expect(card("t1").groupedWith).toBeNull();
+    expect(card("t3").groupedWith).toBeNull();
   });
 
   it("needs two topics before grouping", () => {
@@ -570,6 +601,140 @@ describe("Lean Coffee: Discuss", () => {
     expect(screen.getByRole("button", { name: /Move on to the next topic/ })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: /Keep going/ }));
     expect(closed.clear).toHaveBeenCalled();
+  });
+
+  it("shows a vote asked early with its count and Close, and time's up doesn't replace it", () => {
+    const started = leanBoard({
+      cards: [
+        topic("t2", "Our standups run too long", 4, { columnKey: "discussing", discussing: true }),
+        topic("t3", "Lunch and learn ideas", 2),
+      ],
+    });
+    const none = fakeThumbs();
+    const view = runner(started, { thumbs: none });
+    fireEvent.click(screen.getByRole("button", { name: "Ask the room now" }));
+    expect(none.open).toHaveBeenCalledWith("Our standups run too long");
+    // The room's vote is open before time's up: the host sees how many voted, and can close it.
+    const open = fakeThumbs({ id: "p1", topic: "x", open: true, keep: 1, move: 0, voters: 1 });
+    view.rerun({ timeUp: false, thumbs: open });
+    expect(screen.getByText("1 person has voted so far.")).toHaveAttribute("role", "status");
+    expect(screen.queryByRole("button", { name: "Ask the room now" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close the vote and show everyone" }));
+    expect(open.close).toHaveBeenCalled();
+    // Time runs out with that vote still open: it stands, with the thumbs already in.
+    view.rerun({ timeUp: true, thumbs: open });
+    view.rerun({ timeUp: true, thumbs: open });
+    expect(open.open).not.toHaveBeenCalled();
+    expect(open.clear).not.toHaveBeenCalled();
+    expect(screen.getByText("1 person has voted so far.")).toBeInTheDocument();
+  });
+
+  it("keeps focus off the page when Ask or Close takes away the button pressed", () => {
+    const started = leanBoard({
+      cards: [
+        topic("t2", "Our standups run too long", 4, { columnKey: "discussing", discussing: true }),
+        topic("t3", "Lunch and learn ideas", 2),
+      ],
+    });
+    const open = fakeThumbs({ id: "p1", topic: "x", open: true, keep: 1, move: 0, voters: 1 });
+    const closed = fakeThumbs({ id: "p1", topic: "x", open: false, keep: 1, move: 2, voters: 3 });
+    const totals = () =>
+      screen.getByText(
+        (_, el) => el?.tagName === "P" && el.textContent === "Keep going 1 · Move on 2 (3 voted)"
+      );
+    const press = (name: string) => {
+      const button = screen.getByRole("button", { name });
+      button.focus();
+      fireEvent.click(button);
+    };
+    const view = runner(started, { thumbs: fakeThumbs() });
+    // Before time's up: Ask goes away as the vote opens, so focus goes to Close.
+    press("Ask the room now");
+    view.rerun({ timeUp: false, thumbs: open });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Close the vote and show everyone" })
+    );
+    // Close goes away as the vote closes: focus goes to the totals.
+    press("Close the vote and show everyone");
+    view.rerun({ timeUp: false, thumbs: closed });
+    expect(document.activeElement).toBe(totals());
+    press("Ask the room again");
+    view.rerun({ timeUp: false, thumbs: open });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Close the vote and show everyone" })
+    );
+    // At time's up too.
+    view.rerun({ timeUp: true, thumbs: open });
+    press("Close the vote and show everyone");
+    view.rerun({ timeUp: true, thumbs: closed });
+    expect(document.activeElement).toBe(totals());
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("moves no focus when the vote opens by itself at time's up", () => {
+    const started = leanBoard({
+      cards: [
+        topic("t2", "Our standups run too long", 4, { columnKey: "discussing", discussing: true }),
+        topic("t3", "Lunch and learn ideas", 2),
+      ],
+    });
+    const view = runner(started, { thumbs: fakeThumbs() });
+    const done = screen.getByRole("button", { name: /Done, next topic/ });
+    done.focus();
+    view.rerun({ timeUp: true, thumbs: fakeThumbs() });
+    view.rerun({
+      timeUp: true,
+      thumbs: fakeThumbs({ id: "p1", topic: "x", open: true, keep: 0, move: 0, voters: 0 }),
+    });
+    expect(document.activeElement).not.toBe(
+      screen.getByRole("button", { name: "Close the vote and show everyone" })
+    );
+  });
+
+  it("Keep going leaves no new vote open while the board still says time's up, and asks at the next", () => {
+    const started = leanBoard({
+      cards: [
+        topic("t2", "Our standups run too long", 4, { columnKey: "discussing", discussing: true }),
+        topic("t3", "Lunch and learn ideas", 2),
+      ],
+    });
+    const thumbs = fakeThumbs();
+    const view = runner(started, { thumbs });
+    view.rerun({ timeUp: true, thumbs });
+    expect(thumbs.open).toHaveBeenCalledTimes(1);
+    const closed = fakeThumbs({ id: "p1", topic: "x", open: false, keep: 2, move: 0, voters: 2 });
+    view.rerun({ timeUp: true, thumbs: closed });
+    // The board takes a render to clear its time's up after the extension.
+    fireEvent.click(screen.getByRole("button", { name: /Keep going \(3 min\)/ }));
+    expect(closed.clear).toHaveBeenCalled();
+    expect(closed.open).not.toHaveBeenCalled();
+    const after = fakeThumbs();
+    view.rerun({ timeUp: true, thumbs: after });
+    expect(after.open).not.toHaveBeenCalled();
+    // The extension runs out: the room is asked again, once.
+    view.rerun({ timeUp: false, thumbs: after });
+    view.rerun({ timeUp: true, thumbs: after });
+    view.rerun({ timeUp: true, thumbs: after });
+    expect(after.open).toHaveBeenCalledTimes(1);
+    expect(after.open).toHaveBeenCalledWith("Our standups run too long");
+  });
+
+  it("Move on doesn't open a vote on the next topic while the board still says time's up", () => {
+    const started = leanBoard({
+      cards: [
+        topic("t2", "Our standups run too long", 4, { columnKey: "discussing", discussing: true }),
+        topic("t3", "Lunch and learn ideas", 2),
+      ],
+    });
+    const thumbs = fakeThumbs();
+    const view = runner(started, { thumbs });
+    view.rerun({ timeUp: true, thumbs });
+    expect(thumbs.open).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /Move on to the next topic/ }));
+    expect(thumbs.open).toHaveBeenCalledTimes(1);
+    const next = fakeThumbs();
+    view.rerun({ timeUp: true, thumbs: next });
+    expect(next.open).not.toHaveBeenCalled();
   });
 
   it("never opens the room's vote outside Discuss, or on a hidden card", () => {

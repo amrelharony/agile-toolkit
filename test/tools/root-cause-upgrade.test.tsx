@@ -70,7 +70,7 @@ import {
 } from "@/lib/ai/tasks/root-cause";
 import { ROOT_CAUSE_ACTIONS } from "@/lib/history/event-actions";
 import { RETRO_BOARD_ID } from "@/lib/handoffs/targets/retro-board";
-import { paretoRows } from "@/lib/root-cause/model";
+import { paretoRows, rootCauseVerdict } from "@/lib/root-cause/model";
 
 beforeAll(() => {
   vi.stubGlobal(
@@ -291,6 +291,36 @@ describe("the empty page", () => {
     expect(stored()).toHaveLength(2);
     expect(stored().every((a) => isExampleId(a.id))).toBe(true);
     expect(screen.getByRole("navigation", { name: "Analyses" })).toBeInTheDocument();
+    // The line above the list reads the example, not "No analysis yet."
+    expect(screen.queryByText("No analysis yet.")).toBeNull();
+    const verdict = rootCauseVerdict(buildExample(), undefined, { example: true });
+    expect(verdict).not.toBe("No analysis yet.");
+    expect(screen.getByText(verdict)).toBeInTheDocument();
+  });
+
+  it("doesn't tell anyone to send the example's countermeasures, which can't be sent", async () => {
+    const [rollbacks, checkout] = buildExample();
+    useWorkspaceStore.setState({
+      rootCauseAnalyses: [rollbacks, { ...checkout, countermeasure: "Alert on the error rate." }],
+    });
+    renderPage();
+    const both = "The example's countermeasures would go to Retro Actions in your own analyses.";
+    expect(screen.getByText(both)).toBeInTheDocument();
+    expect(screen.queryByText(/send (it|them)/)).toBeNull();
+    await waitFor(() => expect(exported.markdown).toContain(`> ${both}`));
+    expect(exported.markdown).not.toMatch(/send (it|them)/);
+    cleanup();
+    useWorkspaceStore.setState({ rootCauseAnalyses: [rollbacks] });
+    renderPage();
+    expect(
+      screen.getByText(
+        "The example's countermeasure would go to Retro Actions in your own analysis."
+      )
+    ).toBeInTheDocument();
+    // The team's own analyses still get told to send.
+    expect(rootCauseVerdict([{ ...rollbacks, id: "rca_mine" }])).toBe(
+      "1 countermeasure isn't in Retro Actions yet: send it so someone owns it."
+    );
   });
 });
 
@@ -461,7 +491,7 @@ describe("5 Whys", () => {
       analysis({ id: "rca_1", whys: [{ id: "w1", text: "The migration broke." }] })
     );
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Suggest without AI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Suggest next whys without AI" }));
     const [first] = fallbackNextWhys("", ["The migration broke."]);
     fireEvent.click(screen.getByRole("button", { name: `Add: ${first}` }));
     expect(stored()[0].whys.map((w) => w.text)).toEqual(["The migration broke.", first]);
@@ -475,7 +505,7 @@ describe("5 Whys", () => {
       analysis({ id: "rca_1", whys: [{ id: "w1", text: "The migration broke." }] })
     );
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Suggest without AI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Suggest next whys without AI" }));
     const candidates = fallbackNextWhys("", ["The migration broke."]);
     expect(candidates.length).toBeGreaterThan(1);
     expect(screen.getAllByRole("button", { name: /^Add: / })).toHaveLength(candidates.length);
@@ -764,7 +794,7 @@ describe("Fishbone", () => {
     expect(screen.queryByRole("group", { name: /^Monitoring:/ })).toBeNull();
   });
 
-  it("keeps the suggested moves fixed: each Move focuses the next one, then 'All added.'", () => {
+  it("keeps the suggested moves fixed: each Move focuses the next one, then 'All moved.'", () => {
     ws().upsertRootCauseAnalysis(
       analysis({
         id: "rca_1",
@@ -799,7 +829,7 @@ describe("Fishbone", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Move: Move “No alert” to Measurement" }));
     expect(stored()[0].causes.map((c) => c.category)).toEqual(["Process", "Tools", "Measurement"]);
-    expect(screen.getByText("All added.")).toBeInTheDocument();
+    expect(screen.getByText("All moved.")).toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Better categories" }));
   });
 
@@ -868,7 +898,7 @@ describe("the outcome", () => {
       analysis({ id: "rca_1", rootCause: "No owner for staging data." })
     );
     renderPage();
-    fireEvent.click(screen.getAllByRole("button", { name: "Suggest without AI" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Suggest countermeasures without AI" }));
     const [first] = fallbackCountermeasures("No owner for staging data.");
     fireEvent.click(screen.getByRole("button", { name: `Use: ${first.text}` }));
     expect(stored()[0].countermeasure).toBe(`${first.text}\nCheck: ${first.check}`);
@@ -877,12 +907,32 @@ describe("the outcome", () => {
     expect(stored()[0].countermeasure).toBeUndefined();
   });
 
+  it("names its two no-AI buttons apart, and Dismiss puts focus back on the one that asked", () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_1",
+        whys: [{ id: "w1", text: "The migration broke." }],
+        rootCause: "No owner for staging data.",
+      })
+    );
+    renderPage();
+    expect(screen.queryByRole("button", { name: "Suggest without AI" })).toBeNull();
+    for (const name of ["Suggest next whys without AI", "Suggest countermeasures without AI"]) {
+      fireEvent.click(screen.getByRole("button", { name }));
+      const dismiss = screen.getByRole("button", { name: "Dismiss suggestions" });
+      dismiss.focus();
+      fireEvent.click(dismiss);
+      expect(screen.queryByRole("button", { name: "Dismiss suggestions" })).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole("button", { name }));
+    }
+  });
+
   it("offers countermeasures as alternatives: no Use all, and focus lands on the one used", async () => {
     ws().upsertRootCauseAnalysis(
       analysis({ id: "rca_1", rootCause: "No owner for staging data." })
     );
     renderPage();
-    fireEvent.click(screen.getAllByRole("button", { name: "Suggest without AI" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Suggest countermeasures without AI" }));
     const options = fallbackCountermeasures("No owner for staging data.");
     expect(screen.getAllByRole("button", { name: /^Use: / })).toHaveLength(options.length);
     expect(screen.queryByRole("button", { name: /^Use all/ })).toBeNull();

@@ -110,6 +110,10 @@ function RoomBridge({
   return <>{children}</>;
 }
 
+/** One of the four view tabs: 44 px on touch, the selected one outlined in the accent. */
+const PICKER_TAB =
+  "min-w-0 gap-1 border border-transparent px-1.5 text-sub pointer-coarse:min-h-11 sm:gap-1.5 sm:px-3 data-[state=active]:border-accent data-[state=active]:bg-surface data-[state=active]:font-semibold data-[state=active]:text-text";
+
 export function PickerClient() {
   const { log } = useHistoryLogger("picker");
   const announce = useAnnounce();
@@ -645,32 +649,22 @@ export function PickerClient() {
         </ActionRow>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as PickerTab)}>
-          <TabsList className="h-11 border border-border bg-surface-deep">
-            <TabsTrigger
-              value="wheel"
-              className="gap-1.5 text-sub data-[state=active]:bg-surface data-[state=active]:text-text"
-            >
+          {/* Four equal columns fit a 375 px phone; the selected tab is outlined in
+              the accent and bold, which a high-contrast theme still shows. */}
+          <TabsList className="grid h-auto w-full grid-cols-4 gap-1 border border-border bg-surface-deep">
+            <TabsTrigger value="wheel" className={PICKER_TAB}>
               <Disc3 className="h-4 w-4" aria-hidden="true" />
               Wheel
             </TabsTrigger>
-            <TabsTrigger
-              value="roles"
-              className="gap-1.5 text-sub data-[state=active]:bg-surface data-[state=active]:text-text"
-            >
+            <TabsTrigger value="roles" className={PICKER_TAB}>
               <Users className="h-4 w-4" aria-hidden="true" />
               Roles
             </TabsTrigger>
-            <TabsTrigger
-              value="quick"
-              className="gap-1.5 text-sub data-[state=active]:bg-surface data-[state=active]:text-text"
-            >
+            <TabsTrigger value="quick" className={PICKER_TAB}>
               <Dices className="h-4 w-4" aria-hidden="true" />
               Quick
             </TabsTrigger>
-            <TabsTrigger
-              value="names"
-              className="gap-1.5 text-sub data-[state=active]:bg-surface data-[state=active]:text-text"
-            >
+            <TabsTrigger value="names" className={PICKER_TAB}>
               <Sparkles className="h-4 w-4" aria-hidden="true" />
               Names
             </TabsTrigger>
