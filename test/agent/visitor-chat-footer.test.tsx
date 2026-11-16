@@ -235,16 +235,25 @@ describe("the read-only footer", () => {
       const s = useAgentStore.getState();
       s.appendMessage(user("u2", "And the timer?"));
       s.setVisitorFallback("site_limit");
+      // As the client sets it: quiet, so the footer alone says it.
       s.setNotice({
         tone: "error",
         kind: "site_limit",
         text: "Amr has answered all he can for today.",
+        quiet: true,
       });
     });
     const shown = await until(footer);
     expect(shown).toHaveTextContent(
       "Amr has answered all he can for today. He can answer again tomorrow."
     );
+    // Said once: focus on the footer reads it, and nothing announces it as well.
+    expect(shown).toHaveFocus();
+    expect(h.announce).not.toHaveBeenCalledWith(
+      expect.stringContaining("answered all"),
+      expect.anything()
+    );
+    expect(h.announce).not.toHaveBeenCalledWith(expect.stringContaining("answered all"));
     // The refusal's own words are the footer's to say: no second caption in the log.
     expect(document.querySelector("[data-chat-notice]")).toBeNull();
     fireEvent.click(within(shown).getByRole("button", { name: OPEN_TOOL_FINDER }));

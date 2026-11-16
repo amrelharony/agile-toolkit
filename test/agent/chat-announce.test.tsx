@@ -431,6 +431,24 @@ describe("an error", () => {
     await quiet();
     expect(ears.changes()).toBe(0);
   });
+
+  it("marked quiet is left to what took its place: neither it nor its turn is said", async () => {
+    const ears = mount();
+    await ask("u1", "How do I run a retro?");
+    await settle({
+      tone: "error",
+      kind: "visitor_limit",
+      text: "You've used all of today's messages with Amr.",
+      quiet: true,
+    });
+    expect(ears.heard.assertive).toEqual([]);
+    expect(ears.heard.polite).toEqual([]);
+
+    // A quiet note with no turn under way says nothing either.
+    act(() => store().setNotice({ tone: "note", kind: "round_limit", text: "Hm.", quiet: true }));
+    await quiet();
+    expect(ears.heard.polite).toEqual([]);
+  });
 });
 
 // ── Chats that didn't settle here ───────────────────────────────────────

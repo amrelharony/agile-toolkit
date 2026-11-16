@@ -36,8 +36,12 @@
  * using (focus left on nothing), so no keyboard is stranded; when the chat
  * opens on it, it is the chat's first target, on a fine pointer only, as the
  * box would be (panel-context useInitialFocus). Focus on it reads it out;
- * nothing here is live. Try again and Ask again hand focus to the box that
- * comes back, or after a tap on a touch screen to the question asked again.
+ * nothing here is live. A refusal is said exactly once: the client marks its
+ * notice quiet, so the chat's announcer leaves it to this footer, and when
+ * focus is held elsewhere as the footer comes (it then stays there), the
+ * footer says its note once, assertively. A chat that opens on it says
+ * nothing. Try again and Ask again hand focus to the box that comes back, or
+ * after a tap on a touch screen to the question asked again.
  *
  * A chunk of its own, loaded with the first message (no chat runs out before
  * one), so the chat's first paint doesn't carry it.
@@ -191,12 +195,21 @@ export function ReadOnlyFooter({
   // Opened on it: the chat's first target, on a fine pointer, as the box would be.
   useInitialFocus(ref);
   // In the box's place: the focus the box had, left on nothing as it went.
+  // Focus held elsewhere stays there, and a refusal (its notice quiet: this
+  // footer speaks for it) is said once, assertively, instead.
+  const said = useRef(false);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!takeFocus || !el) return;
     const doc = el.ownerDocument;
     const held = doc.activeElement;
     if (!held || held === doc.body) el.focus({ preventScroll: true });
+    else if (code !== null && !said.current) {
+      said.current = true;
+      announce(readOnlyNote(code, quota, now), "assertive");
+    }
+    // Once, as it takes the box's place: later clock ticks and allowances say nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [takeFocus]);
 
   /** The box back (the refusal let go), with focus on it, or after a tap on the question asked again. */

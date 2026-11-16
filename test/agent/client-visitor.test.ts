@@ -357,6 +357,8 @@ describe("the visitor's allowance and refusals", () => {
       const s = useAgentStore.getState();
       expect(s.visitorFallback).toBe(code);
       expect(s.error).toBeTruthy();
+      // Said by the read-only footer (or the guide's note): the chat's announcer stays quiet.
+      expect(s.notice).toMatchObject({ tone: "error", kind: code, quiet: true });
       expect(s.streaming).toBe(false);
       expect(s.messages.map((m) => m.role)).toEqual(["user"]);
       expect(calls).toHaveLength(1);
@@ -388,6 +390,8 @@ describe("the visitor's allowance and refusals", () => {
     expect(s.visitorFallback).toBeNull();
     expect(s.error).toBeTruthy();
     expect(s.notice).toMatchObject({ tone: "error", kind: code });
+    // Nothing else says it: the chat's announcer does.
+    expect(s.notice?.quiet).toBeUndefined();
     expect(s.streaming).toBe(false);
   });
 

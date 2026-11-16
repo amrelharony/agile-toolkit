@@ -28,8 +28,10 @@ import {
 } from "@/components/agent/mascot/visitor-ai-consent";
 import { SEARCH_ANNOUNCE_MS } from "@/components/agent/mascot/visitor-guide";
 import { VisitorPanel, visitorFallbackNote } from "@/components/agent/mascot/visitor-panel";
+import { readOnlyNote } from "@/components/agent/mascot/visitor-chat-footer";
 import { PanelChrome } from "@/components/agent/mascot/panel-chrome";
 import { PanelHeader } from "@/components/agent/mascot/panel-header";
+import { AmrPanelContext, NO_AMR_PANEL } from "@/components/agent/mascot/panel-context";
 import { useAgentStore } from "@/lib/agent/store";
 
 /**
@@ -80,10 +82,10 @@ const touchScreen = () =>
  * Ask a question from the guide (consent already stored), wait for it to be
  * sent, and put it in the chat as the (mocked) runtime would.
  */
-async function askInChat(text: string) {
+async function askInChat(text: string, panel?: ReactElement) {
   window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
   h.sendVisitorMessage.mockClear();
-  renderPanel();
+  renderPanel(panel);
   fireEvent.change(search(), { target: { value: text } });
   fireEvent.click(screen.getByRole("button", { name: `Ask Amr about “${text}”` }));
   await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1));
@@ -102,6 +104,18 @@ async function askInChat(text: string) {
     });
   });
   await screen.findByRole("button", { name: "Back to tool finder" });
+}
+
+/** A "no more AI for now" refusal as the client sets it: the fallback, and its notice, quiet. */
+function refuse(code: "visitor_limit") {
+  const s = useAgentStore.getState();
+  s.setVisitorFallback(code);
+  s.setNotice({
+    tone: "error",
+    kind: code,
+    text: "You've used all of today's messages with Amr.",
+    quiet: true,
+  });
 }
 
 /** The chat's read-only footer, once its chunk is in (it loads with the first message). */
@@ -322,18 +336,47 @@ describe("VisitorPanel: focus and announcements", () => {
     await askInChat("retro");
     const box = screen.getByLabelText("Message");
     await waitFor(() => expect(box).toHaveFocus());
-    act(() => {
-      useAgentStore.getState().setVisitorFallback("visitor_limit");
-    });
+    // As the client does: the fallback, and its notice, marked quiet.
+    act(() => refuse("visitor_limit"));
     // Still the chat, with its question, and no tool finder.
     expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
     expect(screen.getByRole("log", { name: "Conversation" })).toHaveTextContent("retro");
     expect(screen.queryByLabelText("Message")).toBeNull();
     const footer = await readOnlyFooter();
     expect(footer).toHaveTextContent("You've used all of today's messages with Amr.");
-    // Focus on it reads it out: nothing announces it as well.
+    // Focus on it reads it out: nothing announces it as well, the notice included.
     expect(footer).toHaveFocus();
+    await act(() => new Promise((r) => setTimeout(r, 30)));
     expect(h.announce).not.toHaveBeenCalled();
+  });
+
+  it("a refusal while focus is held elsewhere leaves focus there, and the footer says its note once, assertively", async () => {
+    // As the shell's focus owner does: a registered target takes focus only when it is free.
+    const shell = {
+      ...NO_AMR_PANEL,
+      registerInitialFocus: (el: HTMLElement | null) => {
+        const held = document.activeElement;
+        if (!held || held === document.body) el?.focus();
+      },
+    };
+    await askInChat(
+      "retro",
+      <AmrPanelContext.Provider value={shell}>
+        <VisitorPanel />
+      </AmrPanelContext.Provider>
+    );
+    // The box takes focus itself first; the visitor moves on to Clear chat.
+    await waitFor(() => expect(screen.getByLabelText("Message")).toHaveFocus());
+    const clear = screen.getByRole("button", { name: "Clear chat" });
+    clear.focus();
+    h.announce.mockClear();
+    act(() => refuse("visitor_limit"));
+    const footer = await readOnlyFooter();
+    await act(() => new Promise((r) => setTimeout(r, 30)));
+    expect(clear).toHaveFocus();
+    expect(footer).not.toHaveFocus();
+    expect(h.announce).toHaveBeenCalledTimes(1);
+    expect(h.announce).toHaveBeenCalledWith(readOnlyNote("visitor_limit", null), "assertive");
   });
 
   it("the read-only footer opens the guide on the question Amr couldn't answer, and Back to chat returns to it as it was", async () => {

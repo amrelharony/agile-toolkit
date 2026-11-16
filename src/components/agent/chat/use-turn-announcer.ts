@@ -27,6 +27,8 @@
  *                    soon as it comes. A turn that ends in an error says
  *                    nothing more: the error speaks for it.
  *   a note, idle     a note that comes with no turn under way, politely.
+ *   a quiet notice   nothing: what took its place says it (the visitor's
+ *                    read-only footer, for a "no more AI for now" refusal).
  *
  * Only turns this chat sees settle are spoken: a thread loaded or a chat
  * reopened after its turn ended says nothing, and a chat opened during a turn
@@ -259,6 +261,10 @@ export function useTurnAnnouncer({ items, busy, rootRef }: TurnAnnouncerOptions)
   // An error at once and assertively; a note when no turn will carry it.
   useEffect(() => {
     if (!notice || notice === heard.current) return;
+    if (notice.quiet) {
+      heard.current = notice;
+      return;
+    }
     if (notice.tone === "error") {
       heard.current = notice;
       announce(notice.text, "assertive");
